@@ -1421,6 +1421,8 @@ struct ContentView: View {
     @State private var minimalLibrarySection: LibrarySection?
     @State private var minimalDetailLedger =
         MinimalNavigationDetailLedger<MinimalNavigationDetailScope>()
+    /// 账本的改动先排在这里，下一拍按到达顺序合成一次写回（见 `changeMinimalDetailLedger`）。
+    @State private var minimalDetailLedgerChanges = MinimalDetailLedgerChanges()
     /// 资料库槽位停在哪个分类。下次启动回到这一页（#69：重开 App 停在上次的页面）。
     @AppStorage("primuse.minimal.librarySection.v1") private var minimalStoredSectionRaw = ""
     /// 「音乐」「有声」两格各自上次停的分类，点回这一格时落在那里。
@@ -1602,17 +1604,19 @@ struct ContentView: View {
     private func tabPage(_ tab: AppNavigationTab) -> some View {
         switch tab {
         case .home:
-            HomeView(
-                switchToSettingsTab: { selectMinimalPage(.settings) },
+            HomeTabPage(
                 model: homeModel,
+                switchToSettingsTab: { selectMinimalPage(.settings) },
                 openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
             )
+            .equatable()
             .id("primuse.tab.home")
             .environment(\.minimalNavigationDetailScope, .home)
             .environment(\.librarySearchTab, 0)
         case .library:
-            LibraryView(
+            LibraryTabPage(
                 deepLink: $libraryDeepLink,
+                deepLinkValue: libraryDeepLink,
                 onActiveSectionChange: { section in
                     guard navigationMode == .minimal else { return }
                     if let section, let previous = minimalLibrarySection, previous != section {
@@ -1627,6 +1631,7 @@ struct ContentView: View {
                     if let section { rememberMinimalSection(section) }
                 }
             )
+            .equatable()
             .environment(\.minimalNavigationDetailScope, .library)
             .environment(\.librarySearchTab, 1)
         case .search:
@@ -1710,7 +1715,7 @@ struct ContentView: View {
                     .accessibilityHidden(true)
             }
             .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
-                minimalDetailLedger.updateMounted(scopes)
+                changeMinimalDetailLedger { $0.updateMounted(scopes) }
             }
             .sheet(isPresented: $showsMinimalQueue) {
                 QueueView(player: player)
@@ -2671,23 +2676,48 @@ struct ContentView: View {
         scope: MinimalNavigationDetailScope,
         event: MinimalNavigationDetailTransitionEvent
     ) {
-        var ledger = minimalDetailLedger
-        ledger.record(event, id: id, scope: scope)
-        // 一张详情页离开时 removed 会到两次(离开导航栈、被拆掉),没变化就不写回,
-        // 免得根视图白白重算一遍。
-        guard ledger != minimalDetailLedger else { return }
-        minimalDetailLedger = ledger
+        changeMinimalDetailLedger { $0.record(event, id: id, scope: scope) }
     }
 
     private func settleMinimalNavigationRoot(scope: MinimalNavigationDetailScope) {
-        var ledger = minimalDetailLedger
-        let wasHidden = ledger.hidesTopNavigation(for: scope)
-        ledger.recordRootSettled(scope)
-        guard ledger != minimalDetailLedger else { return }
-        if wasHidden {
-            // 正常的返回在这之前就已经把顶栏放出来了；走到这里说明有一路销账没到。
-            plog("Minimal chrome: root settled with stale detail registration, scope=\(scope)")
+        changeMinimalDetailLedger { ledger in
+            let wasHidden = ledger.hidesTopNavigation(for: scope)
+            var settled = ledger
+            settled.recordRootSettled(scope)
+            if wasHidden, settled != ledger {
+                // 正常的返回在这之前就已经把顶栏放出来了；走到这里说明有一路销账没到。
+                plog("Minimal chrome: root settled with stale detail registration, scope=\(scope)")
+            }
+            ledger = settled
         }
+    }
+
+    /// 详情账本的改动不当场写:推入页面时这些回报来自 UIKit 的 `viewWillAppear`,正在那次推入的排版里,
+    /// 当场写外壳的状态会让外壳连同各页签在同一次排版里整个重算一遍(大曲库、调试包下能卡到几秒)。
+    /// 改成排队,下一拍按到达顺序合成一次写回:顶栏晚一拍开始收,看不出来;同一次推入、返回里的
+    /// 几笔(出现、离开导航栈、被拆掉、页面登记)也并成一次重算。没变化就不写回。
+    private func changeMinimalDetailLedger(
+        _ change: @escaping (inout MinimalNavigationDetailLedger<MinimalNavigationDetailScope>) -> Void
+    ) {
+        let queue = minimalDetailLedgerChanges
+        queue.pending.append(change)
+        guard !queue.isScheduled else { return }
+        queue.isScheduled = true
+        Task { @MainActor in
+            applyPendingMinimalDetailLedgerChanges()
+        }
+    }
+
+    private func applyPendingMinimalDetailLedgerChanges() {
+        let queue = minimalDetailLedgerChanges
+        let changes = queue.pending
+        queue.pending.removeAll()
+        queue.isScheduled = false
+        var ledger = minimalDetailLedger
+        for change in changes { change(&ledger) }
+        // 一张详情页离开时 removed 会到两次(离开导航栈、被拆掉),没变化就不写回,
+        // 免得根视图白白重算一遍。
+        guard ledger != minimalDetailLedger else { return }
         minimalDetailLedger = ledger
     }
 }
@@ -3235,6 +3265,53 @@ struct PlayerOverlay: View {
         withTransaction(transaction) {
             isPresented = false
         }
+    }
+}
+
+/// 极简外壳详情账本的待写改动(`ContentView.changeMinimalDetailLedger`)。普通引用、不被观察:
+/// 往里排改动不让任何视图重算。
+@MainActor
+private final class MinimalDetailLedgerChanges {
+    var pending: [(inout MinimalNavigationDetailLedger<MinimalNavigationDetailScope>) -> Void] = []
+    var isScheduled = false
+}
+
+/// 首页这一页签本身。外壳（ContentView）每重算一次 —— 顶栏收放、推页记账、迷你条显隐、换页 ——
+/// 都给它新造一份回调闭包，SwiftUI 比不出「没变」，首页 body 就整页重跑；大曲库下一次就是几百毫秒，
+/// 落在推入页面的那次排版里就是卡顿。回调只经外壳的 @State、@AppStorage 与方法读写，换不换都是
+/// 同一件事，所以只比首页的模型：首页要显示的数据由它自己观察，照常刷新。
+private struct HomeTabPage: View, @MainActor Equatable {
+    /// ContentView 的 @State，始终是同一个对象。
+    let model: HomeView.Model
+    let switchToSettingsTab: () -> Void
+    let openLibrarySongs: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.model === rhs.model
+    }
+
+    var body: some View {
+        HomeView(
+            switchToSettingsTab: switchToSettingsTab,
+            model: model,
+            openLibrarySongs: openLibrarySongs
+        )
+    }
+}
+
+/// 资料库这一页签本身，同 `HomeTabPage`：外壳重算时不跟着整页重跑。深链要靠父视图送进来，
+/// 所以比较建页时那一刻的深链值（绑定两边读到的都是同一份当前值，比不出变化）。
+private struct LibraryTabPage: View, @MainActor Equatable {
+    let deepLink: Binding<LibraryDeepLink?>
+    let deepLinkValue: LibraryDeepLink?
+    let onActiveSectionChange: (LibrarySection?) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.deepLinkValue == rhs.deepLinkValue
+    }
+
+    var body: some View {
+        LibraryView(deepLink: deepLink, onActiveSectionChange: onActiveSectionChange)
     }
 }
 
