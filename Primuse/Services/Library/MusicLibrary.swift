@@ -9730,6 +9730,13 @@ final class MusicLibrary {
         return albumIDsByAlbumArtistID[artistID]?.contains(album.id) == true
     }
 
+    /// 和 `isAlbum(_:creditedToArtist:)` 同一份署名:记在这位艺人名下的全部专辑。
+    /// 电视艺人页要把整库专辑放到后台分,先在这里取出这一份带过去。
+    func albumIDs(creditedToArtist artistID: String) -> Set<String> {
+        _ = albumArtistCreditsRevision
+        return albumIDsByAlbumArtistID[artistID] ?? []
+    }
+
     /// 只当过专辑艺人的人名下专辑里的歌，按专辑、再按曲目顺序。要整库找一遍，
     /// 所以第一次要时才找并记住（艺人页一次重绘会问好几回）。
     private func albumOnlyArtistSongIDs(_ artistID: String) -> [String] {

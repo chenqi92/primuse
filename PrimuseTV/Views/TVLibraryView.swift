@@ -1313,6 +1313,10 @@ struct TVLibraryView: View {
 
 /// TV artist destination shared by Library and Search. It keeps the artist's
 /// queue scope explicit instead of treating an artist card as a player shortcut.
+///
+/// 右栏在歌曲上面是这位艺人的专辑,和 iPhone / Mac 艺人页同一套归属、分类与先后:「专辑」「单曲与 EP」
+/// 「现场」「参与作品」各一排横排,新的在前。按下专辑先进专辑页(叠在这一页上面),长按是整张播放、
+/// 随机播放;在专辑页里开播和在这一页开播一样去播放页。
 struct TVArtistDetailView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -1321,15 +1325,45 @@ struct TVArtistDetailView: View {
     /// 开始播放时调用,这时 `store.currentSongID` 就是开播的那一首。
     var openPlayer: () -> Void = {}
     /// 打开时焦点落到的歌(从播放页回来时是刚播的那首);nil 照系统默认落在「全部播放」。
+    /// 那一首是从这一页的专辑卡片(专辑页、长按菜单)开播的,焦点落回那张卡片(见 `restoreFocusTarget`)。
     var initialFocusSongID: String? = nil
 
+    /// 歌曲行与专辑卡片共用:歌曲行的值是歌曲 id,专辑卡片见 `albumFocusID`。
     @FocusState private var focusedSongID: String?
+    @State private var albumShelves: TVArtistAlbumShelves?
+    /// 在这一页上打开的专辑页。
+    @State private var selectedAlbum: TVAlbum?
+    /// 打开专辑页的那张卡片:专辑页按 Menu 关掉时焦点回到它,在专辑页里开播时记下它。
+    @State private var openedAlbumFocusID: String?
+
+    /// 从这一页的专辑卡片开播的那一次。播放页回来重开艺人页时,外面只带回艺人和那首歌,
+    /// 靠它认出焦点该落回哪张卡片;每次从艺人页开播都会改写或清掉它,不会留到别的场合。
+    private struct AlbumPlaybackReturn {
+        let artistID: String
+        let songID: String?
+        let focusID: String
+    }
+    @MainActor private static var albumPlaybackReturn: AlbumPlaybackReturn?
+
+    /// 右栏一千一百多点宽:一排放得下五张整卡,第六张露出一截,看得出还能往右翻。
+    private static let albumCardWidth: CGFloat = 200
 
     private var songs: [TVSong] { store.songs(forArtistID: artist.id) }
+
+    /// 从播放页回来时焦点要落到的那一项:专辑卡片开播的落回卡片,否则是那首歌。
+    private var restoreFocusTarget: String? {
+        guard let initialFocusSongID else { return nil }
+        if let entry = Self.albumPlaybackReturn, entry.artistID == artist.id,
+           entry.songID == initialFocusSongID {
+            return entry.focusID
+        }
+        return initialFocusSongID
+    }
 
     var body: some View {
         // 一次算好:歌曲数、列表、播放全部三处都要用,别让同一次刷新反复扫这个艺人。
         let artistSongIDs = songs.map(\.id)
+        let restoreTarget = restoreFocusTarget
         ZStack {
             TVAmbientBackdrop(tint: artist.tint, tint2: artist.tint2, strength: 0.55)
             TVColor.bg.opacity(0.34).ignoresSafeArea()
@@ -1340,7 +1374,7 @@ struct TVArtistDetailView: View {
                         .tvFont(.pageTitle)
                         .foregroundStyle(TVColor.text)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(PMString("ext.tv.songsCount", artistSongIDs.count))
+                    Text(countText(songCount: artistSongIDs.count))
                         .tvFont(.body)
                         .foregroundStyle(TVColor.textMuted)
                     // 左栏只有 440 宽，中文的两颗按钮加一颗心就放不下一行，放不下的折到下一行。
@@ -1360,16 +1394,24 @@ struct TVArtistDetailView: View {
                             isLiked: LibraryFavoritesStore.shared.isLiked(artistNamed: artist.name),
                             action: { LibraryFavoritesStore.shared.toggle(artistNamed: artist.name) }
                         )
-                        TVMedleyButton(songIDs: artistSongIDs) { openPlayer(); dismiss() }
+                        TVMedleyButton(songIDs: artistSongIDs) { finishPlayback() }
                     }
                     Spacer(minLength: 0)
                 }
                 .frame(width: 440, alignment: .leading)
+                // 左栏撑满整高、自成焦点区:从右栏任何一排(专辑排、歌曲深处)按左键都回到这几颗按钮。
+                .frame(maxHeight: .infinity, alignment: .top)
+                .focusSection()
 
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(alignment: .leading, spacing: 10) {
                             TVLibraryInsightBlock(subject: insightIdentity, details: insightDetails)
+                            if let albumShelves {
+                                ForEach(albumShelves.shelves) { shelf in
+                                    albumShelf(shelf)
+                                }
+                            }
                             TVEyebrow(text: PMString("ext.tv.search.songs"))
                                 .padding(.bottom, 6)
                             if artistSongIDs.isEmpty {
@@ -1382,9 +1424,10 @@ struct TVArtistDetailView: View {
                                 TVPagedSongIDList(
                                     songIDs: artistSongIDs,
                                     alignment: .leading,
-                                    action: finishPlayback,
+                                    action: { finishPlayback() },
                                     focusBinding: $focusedSongID,
-                                    revealingSongID: initialFocusSongID
+                                    // 落回专辑卡片时不必把歌曲列表铺到那一首。
+                                    revealingSongID: restoreTarget == initialFocusSongID ? initialFocusSongID : nil
                                 )
                             }
                         }
@@ -1394,8 +1437,8 @@ struct TVArtistDetailView: View {
                     }
                     .tvScrollEdgeFade()
                     .focusSection()
-                    .tvRestoresFocus(to: initialFocusSongID, in: $focusedSongID, reveal: {
-                        if let initialFocusSongID { proxy.scrollTo(initialFocusSongID, anchor: .center) }
+                    .tvRestoresFocus(to: restoreTarget, in: $focusedSongID, reveal: {
+                        if let restoreTarget { proxy.scrollTo(restoreTarget, anchor: .center) }
                     })
                 }
             }
@@ -1403,7 +1446,105 @@ struct TVArtistDetailView: View {
             .padding(.vertical, 72)
         }
         .onExitCommand { dismiss() }
+        .modifier(TVAlbumDetailPresenter(
+            album: $selectedAlbum,
+            openPlayer: { finishPlayback(returningTo: openedAlbumFocusID) },
+            onClosed: restoreOpenedAlbumFocus
+        ))
+        // 上次分好的还作数就先用上(从专辑页、播放页回来重开时),不等后台再分一遍。
+        .onAppear {
+            if albumShelves == nil { albumShelves = store.cachedArtistAlbumShelves(for: artist) }
+        }
+        // 曲库、署名、专辑分类变了就重分;分好之前沿用上一份,不先把几排拿掉。
+        .task(id: store.artistAlbumShelvesKey(for: artist)) {
+            guard let shelves = await store.artistAlbumShelves(for: artist), !Task.isCancelled else { return }
+            if shelves != albumShelves { albumShelves = shelves }
+        }
         .accessibilityIdentifier("tv.artist.detail")
+    }
+
+    /// 一排专辑。一位艺人能有几十上百张(「群星」名下的合辑),横排只建出看得见的卡片。
+    /// 每排自成焦点区:从上一排靠右的卡片往下按,这一排卡片少、正下方没有卡片时也能进来。
+    private func albumShelf(_ shelf: TVArtistAlbumShelves.Shelf) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            TVEyebrow(text: Self.shelfTitle(shelf.kind))
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 18) {
+                    ForEach(shelf.albums) { album in
+                        albumCard(album, in: shelf.kind)
+                    }
+                }
+                // 给首尾卡片的焦点放大和描边留出地方。
+                .padding(.horizontal, 14)
+                .padding(.vertical, 20)
+            }
+            .focusSection()
+        }
+    }
+
+    @ViewBuilder
+    private func albumCard(_ album: Album, in kind: TVArtistAlbumShelves.Kind) -> some View {
+        if let card = store.album(album.id) {
+            let focusID = Self.albumFocusID(kind, albumID: album.id)
+            TVAlbumCard(
+                album: card,
+                width: Self.albumCardWidth,
+                subtitleOverride: Self.albumCardSubtitle(album, card: card, in: kind),
+                action: { finishPlayback(returningTo: focusID) },
+                onOpen: {
+                    openedAlbumFocusID = focusID
+                    selectedAlbum = card
+                },
+                focusBinding: $focusedSongID,
+                focusID: focusID
+            )
+            // 从播放页回来落回这张卡片时,`scrollTo` 按它找。
+            .id(focusID)
+        }
+    }
+
+    private static func shelfTitle(_ kind: TVArtistAlbumShelves.Kind) -> String {
+        switch kind {
+        case let .release(category): return NSLocalizedString(category.titleKey, comment: "")
+        case .appearsOn: return String(localized: "artist_appears_on")
+        }
+    }
+
+    /// 同一张专辑可以同时在「专辑」和「现场」两排里,焦点 id 带上排。
+    private static func albumFocusID(_ kind: TVArtistAlbumShelves.Kind, albumID: String) -> String {
+        switch kind {
+        case let .release(category): return "artistAlbum:\(category.rawValue):\(albumID)"
+        case .appearsOn: return "artistAlbum:appearsOn:\(albumID)"
+        }
+    }
+
+    /// 发行的写年份(没写年份时写首数,同 iPhone);参与的是别人署名的,先写是谁的再写年份。
+    private static func albumCardSubtitle(
+        _ album: Album,
+        card: TVAlbum,
+        in kind: TVArtistAlbumShelves.Kind
+    ) -> String {
+        let year = album.year.flatMap { $0 > 0 ? String($0) : nil }
+        switch kind {
+        case .release:
+            return year ?? PMString("ext.tv.songsCount", album.songCount)
+        case .appearsOn:
+            let parts: [String?] = [card.artist, year]
+            return parts.compactMap { $0 }.joined(separator: " · ")
+        }
+    }
+
+    /// 「12 首 · 4 张专辑」;专辑数同 Mac 艺人页的口径(发行与参与合计)。
+    private func countText(songCount: Int) -> String {
+        let songsText = PMString("ext.tv.songsCount", songCount)
+        guard let albumCount = albumShelves?.albumCount, albumCount > 0 else { return songsText }
+        return "\(songsText) · \(albumCount) \(String(localized: "albums_count"))"
+    }
+
+    /// 专辑页按 Menu 关掉:焦点回到打开它的那张卡片。
+    private func restoreOpenedAlbumFocus() {
+        guard let openedAlbumFocusID else { return }
+        focusedSongID = openedAlbumFocusID
     }
 
     private var insightIdentity: LibraryInsightSubject {
@@ -1435,7 +1576,12 @@ struct TVArtistDetailView: View {
         finishPlayback()
     }
 
-    private func finishPlayback() {
+    /// 在这一页开始播放了(歌曲行、全部 / 随机、串烧、专辑卡片的长按菜单、叠在上面的专辑页)。
+    /// `albumFocusID`:从哪张专辑卡片开播的,播放页回来重开这一页时焦点落回它。
+    private func finishPlayback(returningTo albumFocusID: String? = nil) {
+        Self.albumPlaybackReturn = albumFocusID.map {
+            AlbumPlaybackReturn(artistID: artist.id, songID: store.currentSongID, focusID: $0)
+        }
         openPlayer()
         dismiss()
     }

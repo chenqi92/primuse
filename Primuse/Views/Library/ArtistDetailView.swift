@@ -163,22 +163,16 @@ struct ArtistDetailView: View {
             artistName: artist.name
         )
         return albumShelvesCache.shelves(for: key) {
-            let name = displayArtistName
-            let albums = library.visibleAlbums
-            let songAlbumIDs = Set(songs.compactMap(\.albumID))
-            var release: [Album] = []
-            var appearsOn: [Album] = []
-            for album in albums {
-                if isPrimaryArtistAlbum(album, displayName: name) {
-                    release.append(album)
-                } else if songAlbumIDs.contains(album.id) {
-                    appearsOn.append(album)
-                }
-            }
-            return ArtistAlbumShelves(
-                release: release.sorted(by: albumOrder),
-                appearsOn: appearsOn.sorted(by: albumOrder)
+            // 归属与先后和电视艺人页同一套(`ArtistAlbumShelfPolicy`)。
+            let artistID = artist.id
+            let partition = ArtistAlbumShelfPolicy.partition(
+                albums: library.visibleAlbums,
+                artistID: artistID,
+                displayName: displayArtistName,
+                songAlbumIDs: Set(songs.compactMap(\.albumID)),
+                isCredited: { library.isAlbum($0, creditedToArtist: artistID) }
             )
+            return ArtistAlbumShelves(release: partition.releases, appearsOn: partition.appearsOn)
         }
     }
 
@@ -1086,22 +1080,8 @@ struct ArtistDetailView: View {
         .buttonStyle(.plain)
     }
 
-    private func isPrimaryArtistAlbum(_ album: Album, displayName: String) -> Bool {
-        if library.isAlbum(album, creditedToArtist: artist.id) { return true }
-        if album.artistID == artist.id { return true }
-        guard let albumArtist = album.artistName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !albumArtist.isEmpty else { return false }
-        return albumArtist.compare(
-            displayName,
-            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
-        ) == .orderedSame
-    }
-
     private func albumOrder(_ lhs: Album, _ rhs: Album) -> Bool {
-        let lhsYear = lhs.year ?? Int.min
-        let rhsYear = rhs.year ?? Int.min
-        if lhsYear != rhsYear { return lhsYear > rhsYear }
-        return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+        ArtistAlbumShelfPolicy.precedes(lhs, rhs)
     }
 
     private func refreshListeningSnapshot() {

@@ -195,6 +195,44 @@ struct AlbumArtistBrowsingTests {
         #expect(index.albumIDsByAlbumOnlyArtistID == ["acdc": ["protected"], "various": ["compilation"]])
     }
 
+    @Test("Artist page albums split into releases and appearances, newest first")
+    func artistAlbumShelvesPartition() {
+        let albums = [
+            Album(id: "old", title: "Debut", artistID: "jay", artistName: "Jay", year: 2000, songCount: 10),
+            Album(id: "credited", title: "Duets", artistID: "pair", artistName: "Jay & Kim", year: 2010, songCount: 8),
+            Album(id: "named", title: "Live 2", artistID: "other-id", artistName: " ＪＡＹ ", year: 2010, songCount: 12),
+            Album(id: "named-10", title: "Live 10", artistID: "other-id", artistName: "jay", year: 2010, songCount: 12),
+            Album(id: "undated", title: "Demos", artistID: "jay", artistName: "Jay", songCount: 3),
+            Album(id: "hits", title: "Hits", artistID: "various", artistName: "Various Artists", year: 2015, songCount: 20),
+            Album(id: "unrelated", title: "Other", artistID: "kim", artistName: "Kim", year: 2020, songCount: 9),
+        ]
+        let partition = ArtistAlbumShelfPolicy.partition(
+            albums: albums,
+            artistID: "jay",
+            displayName: "Jay",
+            songAlbumIDs: ["old", "hits"],
+            isCredited: { $0.id == "credited" }
+        )
+        // 同一年按标题的自然顺序；没写年份的排最后。
+        #expect(partition.releases.map(\.id) == ["credited", "named", "named-10", "old", "undated"])
+        #expect(partition.appearsOn.map(\.id) == ["hits"])
+        #expect(partition.albumCount == 6)
+
+        let shelves = ArtistAlbumShelfPolicy.releaseShelves(partition.releases) { album in
+            switch album.id {
+            case "named", "named-10": return [.album, .live]
+            case "undated": return [.singleEP]
+            default: return [.album]
+            }
+        }
+        #expect(shelves.map(\.category) == [.album, .singleEP, .live])
+        #expect(shelves[0].albums.map(\.id) == ["credited", "named", "named-10", "old"])
+        #expect(shelves[1].albums.map(\.id) == ["undated"])
+        #expect(shelves[2].albums.map(\.id) == ["named", "named-10"])
+        let none = ArtistAlbumShelfPolicy.releaseShelves([]) { _ in [.album] }
+        #expect(none.isEmpty)
+    }
+
     private func album(_ id: String, title: String, artistID: String?, artistName: String?, songs: Int) -> Album {
         Album(id: id, title: title, artistID: artistID, artistName: artistName, songCount: songs)
     }

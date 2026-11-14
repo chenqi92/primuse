@@ -251,6 +251,46 @@ struct TVArtist: Identifiable, Hashable {
     let songCount: Int
 }
 
+/// 艺人页的几排专辑(见 `TVStore.artistAlbumShelves(for:)`):发行的按分类各一排(专辑、
+/// 单曲与 EP、现场),参与的一排在最后,空的排不列。条目是曲库的专辑,卡片画到时才转成 TVAlbum。
+struct TVArtistAlbumShelves: Equatable, Sendable {
+    enum Kind: Hashable, Sendable {
+        case release(AlbumReleaseCategory)
+        case appearsOn
+    }
+
+    struct Shelf: Identifiable, Equatable, Sendable {
+        let kind: Kind
+        let albums: [Album]
+        var id: Kind { kind }
+    }
+
+    let shelves: [Shelf]
+    /// 发行与参与的合计几张;同一张在几排里只算一次。
+    let albumCount: Int
+
+    init(partition: ArtistAlbumShelfPolicy.Partition, releaseShelves: [ArtistAlbumShelfPolicy.ReleaseShelf]) {
+        var shelves = releaseShelves.map { Shelf(kind: .release($0.category), albums: $0.albums) }
+        if !partition.appearsOn.isEmpty {
+            shelves.append(Shelf(kind: .appearsOn, albums: partition.appearsOn))
+        }
+        self.shelves = shelves
+        albumCount = partition.albumCount
+    }
+}
+
+/// 艺人页那几排专辑的作废键:艺人、曲库内容、专辑艺人署名、专辑分类(自动认出的与手动选的)
+/// 任何一样变了就重分。
+struct TVArtistAlbumShelvesKey: Hashable, Sendable {
+    let artistID: String
+    let artistName: String
+    let libraryContent: Int
+    let albumCredits: UInt64
+    let releaseCategories: UInt64
+    let releaseMembership: UInt64
+    let manualCategories: Int
+}
+
 /// 曲库条目到界面值的纯转换。只带转换要用的几样值(艺术家名配置、源类型、
 /// 封面取色),不碰 TVStore,所以列表可以在被读到的那一项上现转。
 protocol TVLibraryMapper {
@@ -1690,6 +1730,84 @@ final class TVStore {
         return library.songs(forArtist: id).compactMap {
             nonMusicIDs.contains($0.id) ? nil : song($0.id)
         }
+    }
+
+    // MARK: 艺人页的专辑
+
+    /// 只留最近打开的那位艺人:从专辑页、播放页回来重开艺人页时那几排马上就在,不先空一下。
+    @ObservationIgnored private var artistAlbumShelvesCache:
+        (key: TVArtistAlbumShelvesKey, shelves: TVArtistAlbumShelves)?
+
+    /// 视图拿它做 `.task(id:)`:读它同时登记对这几样修订号的观察,变了就重分。
+    func artistAlbumShelvesKey(for artist: TVArtist) -> TVArtistAlbumShelvesKey {
+        TVArtistAlbumShelvesKey(
+            artistID: artist.id,
+            artistName: artist.name,
+            libraryContent: libraryContentRevision,
+            albumCredits: library.albumArtistCreditsRevision,
+            releaseCategories: library.releaseCategoryRevision,
+            releaseMembership: library.releaseCategoryMembershipRevision,
+            manualCategories: AlbumReleaseCategoryStore.shared.revision
+        )
+    }
+
+    /// 上次分好、仍然作数的那一份;没有就是 nil。
+    func cachedArtistAlbumShelves(for artist: TVArtist) -> TVArtistAlbumShelves? {
+        guard let cache = artistAlbumShelvesCache, cache.key == artistAlbumShelvesKey(for: artist) else {
+            return nil
+        }
+        return cache.shelves
+    }
+
+    /// 艺人页的几排专辑,和 iPhone / Mac 艺人页同一套归属、分类与先后(`ArtistAlbumShelfPolicy`;
+    /// 手动选的分类优先,其次是标签与标题认出的)。整库专辑在后台分,主线程只取几份现成的索引。
+    /// 任务被取消、或分的时候曲库又变了,返回 nil(换了作废键的那次任务会重分)。
+    func artistAlbumShelves(for artist: TVArtist) async -> TVArtistAlbumShelves? {
+        let key = artistAlbumShelvesKey(for: artist)
+        if let cache = artistAlbumShelvesCache, cache.key == key { return cache.shelves }
+        // 手动分类有按歌记下的(改过标签、专辑 id 跟着变了),和手机一样先解析到专辑上。
+        let manualSnapshot = AlbumReleaseCategoryStore.shared.snapshot
+        let manual: [String: Set<AlbumReleaseCategory>]
+        if manualSnapshot.isEmpty {
+            manual = [:]
+        } else {
+            guard let resolved = await library.resolvedReleaseOverrides(manualSnapshot) else { return nil }
+            manual = resolved
+        }
+        guard !Task.isCancelled, key == artistAlbumShelvesKey(for: artist) else { return nil }
+        let albums = library.visibleAlbums
+        let credited = library.albumIDs(creditedToArtist: artist.id)
+        // 参与的专辑按这一页列的歌算:有声内容不在音乐的艺人页里。
+        let nonMusicIDs = library.nonMusicSongIDs
+        var songAlbumIDs = Set<String>()
+        for song in library.songs(forArtist: artist.id) where !nonMusicIDs.contains(song.id) {
+            if let albumID = song.albumID { songAlbumIDs.insert(albumID) }
+        }
+        let automatic = library.releaseCategorySnapshot
+        let trimmedName = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = trimmedName.isEmpty ? String(localized: "unknown_artist") : trimmedName
+        let artistID = artist.id
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let worker = Task.detached(priority: .userInitiated) {
+            let partition = ArtistAlbumShelfPolicy.partition(
+                albums: albums,
+                artistID: artistID,
+                displayName: displayName,
+                songAlbumIDs: songAlbumIDs,
+                isCredited: { credited.contains($0.id) }
+            )
+            let releaseShelves = ArtistAlbumShelfPolicy.releaseShelves(partition.releases) {
+                manual[$0.id] ?? automatic.categories(albumID: $0.id)
+            }
+            return TVArtistAlbumShelves(partition: partition, releaseShelves: releaseShelves)
+        }
+        let shelves = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: { worker.cancel() }
+        guard !Task.isCancelled, key == artistAlbumShelvesKey(for: artist) else { return nil }
+        artistAlbumShelvesCache = (key, shelves)
+        plog("TV artist albums albums=\(albums.count) shown=\(shelves.albumCount) shelves=\(shelves.shelves.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+        return shelves
     }
 
     /// 这首是不是有声内容(有声书、评书、讲座)。音乐页面据此把它排除在外。

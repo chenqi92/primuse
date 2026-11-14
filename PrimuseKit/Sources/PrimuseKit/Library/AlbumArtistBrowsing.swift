@@ -204,3 +204,100 @@ public enum AlbumArtistIndexBuilder {
         return result
     }
 }
+
+/// 艺人页的专辑：他发行的（专辑署名是他）与他参与的（专辑里有他唱的歌、署名是别人）。
+/// iPhone / iPad / Mac 与 Apple TV 的艺人页用同一套归属与先后，几端列出的是同一批专辑、同样的顺序。
+public enum ArtistAlbumShelfPolicy {
+    public struct Partition: Equatable, Sendable {
+        /// 他发行的，按 `precedes` 排好。
+        public var releases: [Album]
+        /// 他参与的（合辑、别人的专辑里收了他唱的歌），按 `precedes` 排好。
+        public var appearsOn: [Album]
+
+        public init(releases: [Album] = [], appearsOn: [Album] = []) {
+            self.releases = releases
+            self.appearsOn = appearsOn
+        }
+
+        /// 两边合计几张；同一张不会两边都有。
+        public var albumCount: Int { releases.count + appearsOn.count }
+    }
+
+    /// 发行的专辑里属于某一类（专辑 / 单曲与 EP / 现场）的那一排。
+    public struct ReleaseShelf: Equatable, Sendable {
+        public var category: AlbumReleaseCategory
+        public var albums: [Album]
+
+        public init(category: AlbumReleaseCategory, albums: [Album]) {
+            self.category = category
+            self.albums = albums
+        }
+    }
+
+    /// 算不算他发行的：专辑艺人索引记在他名下（合作署名拆开后有他）、专辑的艺人 id 就是他，
+    /// 或专辑艺人写的就是他的名字（不分大小写、变音符号与全半角）。
+    /// - Parameter displayName: 艺人页显示的名字，已去掉首尾空白。
+    public static func isRelease(
+        _ album: Album,
+        artistID: String,
+        displayName: String,
+        isCredited: Bool
+    ) -> Bool {
+        if isCredited { return true }
+        if album.artistID == artistID { return true }
+        guard let albumArtist = album.artistName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !albumArtist.isEmpty else { return false }
+        return albumArtist.compare(
+            displayName,
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
+        ) == .orderedSame
+    }
+
+    /// 把整库专辑分成他发行的与他参与的，两边都按 `precedes` 排好；两边都不沾的不要。
+    /// 要把整库专辑过一遍：电视在后台调，手机按专辑表与署名索引的修订号记住结果。
+    /// - Parameters:
+    ///   - songAlbumIDs: 他唱的歌所在的专辑。
+    ///   - isCredited: 专辑艺人索引里这张专辑记不记在他名下。
+    public static func partition(
+        albums: [Album],
+        artistID: String,
+        displayName: String,
+        songAlbumIDs: Set<String>,
+        isCredited: (Album) -> Bool
+    ) -> Partition {
+        var releases: [Album] = []
+        var appearsOn: [Album] = []
+        for album in albums {
+            if isRelease(album, artistID: artistID, displayName: displayName, isCredited: isCredited(album)) {
+                releases.append(album)
+            } else if songAlbumIDs.contains(album.id) {
+                appearsOn.append(album)
+            }
+        }
+        return Partition(
+            releases: releases.sorted(by: precedes),
+            appearsOn: appearsOn.sorted(by: precedes)
+        )
+    }
+
+    /// 新的在前；没写年份的排在最后，同一年按标题（自然顺序，「第 2 张」在「第 10 张」前面）。
+    public static func precedes(_ lhs: Album, _ rhs: Album) -> Bool {
+        let lhsYear = lhs.year ?? Int.min
+        let rhsYear = rhs.year ?? Int.min
+        if lhsYear != rhsYear { return lhsYear > rhsYear }
+        return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+    }
+
+    /// 发行的专辑按分类分排，依 `AlbumReleaseCategory.allCases` 的顺序（专辑、单曲与 EP、现场）；
+    /// 每排保持传入的先后，一张专辑可以同时在几排里（现场专辑也是专辑），空的排不要。
+    public static func releaseShelves(
+        _ releases: [Album],
+        categories: (Album) -> Set<AlbumReleaseCategory>
+    ) -> [ReleaseShelf] {
+        let resolved = releases.map(categories)
+        return AlbumReleaseCategory.allCases.compactMap { category in
+            let albums = releases.indices.compactMap { resolved[$0].contains(category) ? releases[$0] : nil }
+            return albums.isEmpty ? nil : ReleaseShelf(category: category, albums: albums)
+        }
+    }
+}
