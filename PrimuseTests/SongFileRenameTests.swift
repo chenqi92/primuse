@@ -82,6 +82,59 @@ final class SongFileRenameTests: XCTestCase {
         await source.disconnect()
     }
 
+    /// 群晖这类前面隔着反向代理的 WebDAV 不认 MOVE 上的 `If` 目标条件，每次都回 412。
+    /// 目标仍是编辑前那一份时去掉条件再覆盖一次。
+    func testWebDAVReplaceRetriesUnconditionallyWhenServerRejectsIfOnUnchangedDestination() async throws {
+        let id = UUID().uuidString
+        ConditionalMoveDAVProtocol.prepare(id, etag: "\"v1\"", moveStatuses: [412, 204])
+        let source = Self.conditionalMoveSource(id)
+        let edited = FileManager.default.temporaryDirectory.appendingPathComponent("edited-\(id).flac")
+        try Data(repeating: 7, count: 16).write(to: edited)
+        defer { try? FileManager.default.removeItem(at: edited) }
+        let expected = EmbeddedMetadataRemoteFileState(fileSize: 8, modifiedDate: nil, revision: "\"v1\"")
+
+        try await source.replaceMetadataFile(at: "/\(id)/song.flac", with: edited, expected: expected)
+
+        let moves = ConditionalMoveDAVProtocol.requests(id).filter { $0.httpMethod == "MOVE" }
+        XCTAssertEqual(moves.count, 2)
+        XCTAssertNotNil(moves.first?.value(forHTTPHeaderField: "If"))
+        XCTAssertNil(moves.last?.value(forHTTPHeaderField: "If"))
+        XCTAssertEqual(moves.last?.value(forHTTPHeaderField: "Overwrite"), "T")
+        await source.disconnect()
+    }
+
+    func testWebDAVReplaceStillConflictsWhenDestinationChangedBehindTheRejectedMove() async throws {
+        let id = UUID().uuidString
+        ConditionalMoveDAVProtocol.prepare(id, etag: "\"v2\"", moveStatuses: [412, 204])
+        let source = Self.conditionalMoveSource(id)
+        let edited = FileManager.default.temporaryDirectory.appendingPathComponent("edited-\(id).flac")
+        try Data(repeating: 7, count: 16).write(to: edited)
+        defer { try? FileManager.default.removeItem(at: edited) }
+        let expected = EmbeddedMetadataRemoteFileState(fileSize: 8, modifiedDate: nil, revision: "\"v1\"")
+
+        do {
+            try await source.replaceMetadataFile(at: "/\(id)/song.flac", with: edited, expected: expected)
+            XCTFail("A changed destination must not be overwritten")
+        } catch EmbeddedMetadataWritebackSourceError.conflict {}
+
+        let methods = ConditionalMoveDAVProtocol.requests(id).compactMap(\.httpMethod)
+        XCTAssertEqual(methods.filter { $0 == "MOVE" }.count, 1)
+        XCTAssertTrue(methods.contains("DELETE"), "The uploaded temporary file is cleaned up")
+        await source.disconnect()
+    }
+
+    private static func conditionalMoveSource(_ id: String) -> WebDAVSource {
+        WebDAVSource(
+            sourceID: id, host: "conditional-move.invalid", useSsl: true,
+            username: "", password: "",
+            sessionConfiguration: {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [ConditionalMoveDAVProtocol.self]
+                return configuration
+            }
+        )
+    }
+
     func testLocalRenameKeepsBytesCompanionsAndSongIdentityAcrossRescan() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -371,6 +424,63 @@ final class SongFileRenameTests: XCTestCase {
         XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), [connector.song.id])
         XCTAssertEqual(library.storedSong(id: connector.song.id)?.filePath, "/new.flac")
     }
+}
+
+/// 带条件的 MOVE 先按给定的状态码答，PROPFIND 报出固定的强 ETag。按路径第一段区分用例。
+private final class ConditionalMoveDAVProtocol: URLProtocol, @unchecked Sendable {
+    private struct State {
+        var etag: String
+        var moveStatuses: [Int]
+        var requests: [URLRequest] = []
+    }
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var states: [String: State] = [:]
+
+    static func prepare(_ id: String, etag: String, moveStatuses: [Int]) {
+        lock.withLock { states[id] = State(etag: etag, moveStatuses: moveStatuses) }
+    }
+
+    static func requests(_ id: String) -> [URLRequest] {
+        lock.withLock { states[id]?.requests ?? [] }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url, let id = url.path.split(separator: "/").first.map(String.init) else { return }
+        var status = 201
+        var body = Data()
+        var headers = ["Content-Length": "0"]
+        Self.lock.withLock {
+            guard var state = Self.states[id] else { return }
+            state.requests.append(request)
+            switch request.httpMethod {
+            case "PROPFIND":
+                status = 207
+                body = Data("""
+                <?xml version="1.0" encoding="utf-8"?>
+                <D:multistatus xmlns:D="DAV:"><D:response><D:href>\(url.path)</D:href><D:propstat><D:prop>
+                <D:getcontentlength>8</D:getcontentlength><D:getetag>\(state.etag)</D:getetag>
+                <D:resourcetype/></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>
+                """.utf8)
+                headers = ["Content-Type": "application/xml", "Content-Length": "\(body.count)"]
+            case "MOVE":
+                status = state.moveStatuses.isEmpty ? 204 : state.moveStatuses.removeFirst()
+            case "DELETE":
+                status = 204
+            default:
+                status = 201
+            }
+            Self.states[id] = state
+        }
+        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if !body.isEmpty { client?.urlProtocol(self, didLoad: body) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 private final class RenameDAVProtocol: URLProtocol, @unchecked Sendable {

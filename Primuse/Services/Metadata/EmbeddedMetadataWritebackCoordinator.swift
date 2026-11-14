@@ -66,6 +66,29 @@ struct EmbeddedMetadataRemoteFileState: Sendable, Equatable {
         return abs(songDate.timeIntervalSince(modifiedDate)) < 1
     }
 
+    /// 冲突日志用：只说哪一项对不上，不带 ETag 原文与路径。
+    func mismatchSummary(againstScanned song: Song) -> String {
+        let revisionState: String
+        switch (song.revision, revision) {
+        case let (scanned?, current?): revisionState = scanned == current ? "same" : "differs"
+        case (nil, nil): revisionState = "none"
+        case (_?, nil): revisionState = "missingNow"
+        case (nil, _?): revisionState = "notScanned"
+        }
+        let dateDelta = song.lastModified.flatMap { scanned in
+            modifiedDate.map { String(format: "%.1f", $0.timeIntervalSince(scanned)) }
+        } ?? "-"
+        return "revision=\(revisionState) size=\(song.fileSize == fileSize ? "same" : "\(song.fileSize)->\(fileSize)") mtimeDelta=\(dateDelta)"
+    }
+
+    func mismatchSummary(against other: Self) -> String {
+        let revisionState = revision == other.revision ? "same" : "differs"
+        let dateDelta = modifiedDate.flatMap { date in
+            other.modifiedDate.map { String(format: "%.1f", $0.timeIntervalSince(date)) }
+        } ?? "-"
+        return "revision=\(revisionState) size=\(fileSize == other.fileSize ? "same" : "\(fileSize)->\(other.fileSize)") mtimeDelta=\(dateDelta) token=\(replacementToken == other.replacementToken ? "same" : "differs")"
+    }
+
     var hasReliableConflictGuard: Bool {
         revision?.isEmpty == false || (fileSize > 0 && modifiedDate != nil)
     }
@@ -251,6 +274,7 @@ enum EmbeddedMetadataWritebackCoordinator {
             throw EmbeddedMetadataCoordinatedWritebackError.invalidRemoteState
         }
         guard initialState.matchesScannedSong(original) else {
+            plog("⚠️ Writeback conflict stage=scanned source=\(sourceName) \(initialState.mismatchSummary(againstScanned: original))")
             throw EmbeddedMetadataCoordinatedWritebackError.conflict
         }
 
@@ -318,6 +342,7 @@ enum EmbeddedMetadataWritebackCoordinator {
             try await adapter.metadataWritebackState(for: original.filePath)
         }
         guard initialState.matches(currentState) else {
+            plog("⚠️ Writeback conflict stage=beforeReplace source=\(sourceName) \(initialState.mismatchSummary(against: currentState))")
             throw EmbeddedMetadataCoordinatedWritebackError.conflict
         }
 

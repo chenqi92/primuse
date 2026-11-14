@@ -547,7 +547,26 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
                 session: try requireTransportSession(rangeSession),
                 maxBytes: 1024 * 1024
             )
-            try validateMutationResponse(moveResponse, operation: "MOVE")
+            if (moveResponse as? HTTPURLResponse)?.statusCode == 412 {
+                // 有的服务器（群晖这类前面隔着反向代理的）不按我们写的地址形式匹配 `If` 里的目标，
+                // 每次带条件的覆盖都回 412，重扫也没用。重新读一次目标：仍是下载、编辑的那一份
+                // （强 ETag 一致）才去掉条件覆盖一次；真被改过照旧当冲突。
+                let current = try await metadataWritebackState(for: path)
+                guard expected.matches(current) else {
+                    plog("⚠️ WebDAV writeback conflict stage=move status=412 destinationChanged=true path=\(path)")
+                    throw EmbeddedMetadataWritebackSourceError.conflict
+                }
+                plog("⚠️ WebDAV conditional MOVE answered 412 although the destination is unchanged; replacing without the If condition path=\(path)")
+                move.setValue(nil, forHTTPHeaderField: "If")
+                let (_, retryResponse) = try await TrustedHTTPTransport.data(
+                    for: move,
+                    session: try requireTransportSession(rangeSession),
+                    maxBytes: 1024 * 1024
+                )
+                try validateMutationResponse(retryResponse, operation: "MOVE")
+            } else {
+                try validateMutationResponse(moveResponse, operation: "MOVE")
+            }
         } catch {
             try? await deleteFile(at: temporaryPath)
             throw error
@@ -1759,6 +1778,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
             throw EmbeddedMetadataWritebackSourceError.invalidResponse
         }
         if http.statusCode == 412 || http.statusCode == 409 || http.statusCode == 423 {
+            plog("⚠️ WebDAV writeback conflict stage=\(operation) status=\(http.statusCode) server=\(http.value(forHTTPHeaderField: "Server") ?? "-")")
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
         if http.statusCode == 401 { throw SourceError.authenticationFailed }
