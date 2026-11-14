@@ -459,7 +459,7 @@
 "a11y_disable_music_video" = "Wyłącz teledysk";
 "a11y_enable_music_video" = "Włącz teledysk";
 "a11y_favorite_add" = "Dodaj do listy odtwarzania";
-"a11y_like" = "Dodaj do ulubionych utworów";
+"a11y_like" = "Dodaj do polubionych utworów";
 "a11y_more_actions" = "Więcej akcji";
 "a11y_next_track" = "Następny utwór";
 "a11y_open_lyrics" = "Pokaż tekst";
@@ -470,7 +470,7 @@
 "a11y_queue" = "Kolejka odtwarzania";
 "a11y_repeat" = "Powtarzaj";
 "a11y_shuffle" = "Losowo";
-"a11y_unlike" = "Usuń z ulubionych utworów";
+"a11y_unlike" = "Usuń z polubionych utworów";
 "a11y_value_off" = "Wyłączone";
 "a11y_value_on" = "Włączone";
 "about" = "O";
@@ -6354,7 +6354,7 @@
 "tv_catalog_prune_mode_menu_format" = "Utwory usunięte na serwerze: %@";
 "tv_catalog_prune_held_format" = "Utwory, których nie ma już na serwerze, są na razie zachowane: %1$d · pozostałe pełne skanowania przed usunięciem: %2$d";
 "tv_catalog_prune_held_immediate_format" = "Utwory, których nie ma już na serwerze, są na razie zachowane: %1$d · pozostałe pełne skanowania przed usunięciem: %2$d · przytrzymaj, aby przełączyć na „Usuń od razu”";
-"tv_apple_music_like_failed_format" = "Nie udało się dodać tego utworu do biblioteki Apple Music, więc nie trafił do ulubionych utworów: %@";
+"tv_apple_music_like_failed_format" = "Nie udało się dodać tego utworu do biblioteki Apple Music, więc nie trafił do polubionych utworów: %@";
 "icloud_sync_settings_channel_footer" = "Preferencje odtwarzacza, układu i kolorów oraz ulubione (playlisty, audiobooki, foldery i ich kolejność) synchronizują się z ustawieniami; foldery i książki ze źródeł lokalnych tego urządzenia zostają tutaj. Ulubione albumy i wykonawcy oraz oceny i komentarze synchronizują się z playlistami.";
 "icloud_sync_scan_results_footer" = "Gdy źródła muzyki są synchronizowane, iPhone, iPad i Mac współdzielą już odczytane tagi utworów: gdy jedno urządzenie odczyta źródło, pozostałe czytają tylko nowe lub zmienione pliki. Edytowane tagi i zmienione okładki też się synchronizują, a „Przywróć tagi z plików” na jednym urządzeniu przywraca je również na pozostałych.";
 "transcript_reader_menu" = "Menu";

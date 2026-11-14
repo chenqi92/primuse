@@ -1583,8 +1583,8 @@
 "tag_editor_cover_section" = "커버 아트";
 "tag_editor_pick_cover" = "사진에서 선택…";
 "tag_editor_cover_revert" = "원본 커버 유지";
-"a11y_like" = "보관함에 추가";
-"a11y_unlike" = "보관함에서 제거";
+"a11y_like" = "좋아하는 곡에 추가";
+"a11y_unlike" = "좋아하는 곡에서 제거";
 "a11y_prev_track" = "이전 곡";
 "search_section_apple_music" = "Apple Music";
 "search_apple_music_loading" = "Apple Music 검색 중…";

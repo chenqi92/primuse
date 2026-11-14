@@ -459,7 +459,7 @@
 "a11y_disable_music_video" = "Desativar videoclipe";
 "a11y_enable_music_video" = "Ativar videoclipe";
 "a11y_favorite_add" = "Adicionar à lista de reprodução";
-"a11y_like" = "Adicionar às músicas favoritas";
+"a11y_like" = "Adicionar às músicas curtidas";
 "a11y_more_actions" = "Mais ações";
 "a11y_next_track" = "Próxima faixa";
 "a11y_open_lyrics" = "Mostrar letras";
@@ -470,7 +470,7 @@
 "a11y_queue" = "Fila de reprodução";
 "a11y_repeat" = "Repetir";
 "a11y_shuffle" = "Aleatório";
-"a11y_unlike" = "Remover das músicas favoritas";
+"a11y_unlike" = "Remover das músicas curtidas";
 "a11y_value_off" = "Desligado";
 "a11y_value_on" = "Ligado";
 "about" = "Sobre";
@@ -6354,7 +6354,7 @@
 "tv_catalog_prune_mode_menu_format" = "Músicas apagadas no servidor: %@";
 "tv_catalog_prune_held_format" = "%1$d músicas que não estão mais no servidor são mantidas por enquanto · removidas se mais %2$d varreduras completas não as encontrarem";
 "tv_catalog_prune_held_immediate_format" = "%1$d músicas que não estão mais no servidor são mantidas por enquanto · removidas se mais %2$d varreduras completas não as encontrarem · mantenha pressionado para mudar para “Remover imediatamente”";
-"tv_apple_music_like_failed_format" = "Não foi possível adicionar esta música à sua biblioteca do Apple Music, então ela não foi adicionada às músicas favoritas: %@";
+"tv_apple_music_like_failed_format" = "Não foi possível adicionar esta música à sua biblioteca do Apple Music, então ela não foi adicionada às músicas curtidas: %@";
 "icloud_sync_settings_channel_footer" = "As preferências do player, do layout e das cores, além dos favoritos (playlists, audiolivros, pastas e a ordem deles), são sincronizadas com os ajustes; pastas e livros de fontes locais deste dispositivo ficam aqui. Álbuns e artistas favoritos, avaliações e comentários são sincronizados com as playlists.";
 "icloud_sync_scan_results_footer" = "Enquanto as fontes musicais estão sincronizadas, seu iPhone, iPad e Mac compartilham as tags de músicas já lidas: depois que um dispositivo lê uma fonte, os outros só leem arquivos novos ou alterados. As tags que você edita e as capas que você troca também são sincronizadas, e Restaurar tags do arquivo em um dispositivo as restaura nos outros.";
 "transcript_reader_menu" = "Menu";
