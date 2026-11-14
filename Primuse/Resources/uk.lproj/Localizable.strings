@@ -5108,6 +5108,8 @@
 "music_video_preparing" = "Підготовка відео…";
 "music_video_rewrite_failed" = "Не вдається перетворити це відео на формат, який можна відтворити.";
 "music_video_preparing_percent" = "Підготовка відео %d %%";
+"music_video_full_screen" = "Дивитися на весь екран";
+"music_video_show_lyrics" = "Показати текст пісні";
 "karaoke_ai_title" = "ШІ-відокремлення вокалу";
 "karaoke_ai_download_format" = "Завантажити (%@)";
 "karaoke_ai_download_on_enable_format" = "Після ввімкнення завантажить модель (%@)";

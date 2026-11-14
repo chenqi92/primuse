@@ -5203,6 +5203,8 @@
 "music_video_preparing" = "ビデオを準備中…";
 "music_video_rewrite_failed" = "このビデオを再生可能な形式に変換できません。";
 "music_video_preparing_percent" = "ビデオを準備中 %d%%";
+"music_video_full_screen" = "フルスクリーンで見る";
+"music_video_show_lyrics" = "歌詞を表示";
 "karaoke_ai_title" = "AIボーカル分離";
 "karaoke_ai_download_format" = "ダウンロード（%@）";
 "karaoke_ai_download_on_enable_format" = "オンにするとモデル（%@）をダウンロード";

@@ -5108,6 +5108,8 @@
 "music_video_preparing" = "Preparando el video…";
 "music_video_rewrite_failed" = "No se puede convertir este video a un formato reproducible.";
 "music_video_preparing_percent" = "Preparando el video %d %%";
+"music_video_full_screen" = "Ver en pantalla completa";
+"music_video_show_lyrics" = "Mostrar letras";
 "karaoke_ai_title" = "Separación vocal con IA";
 "karaoke_ai_download_format" = "Descargar (%@)";
 "karaoke_ai_download_on_enable_format" = "Descarga el modelo (%@) al activarlo";

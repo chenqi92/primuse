@@ -5108,6 +5108,8 @@
 "music_video_preparing" = "جارٍ تجهيز الفيديو…";
 "music_video_rewrite_failed" = "تعذّر تحويل هذا الفيديو إلى تنسيق قابل للتشغيل.";
 "music_video_preparing_percent" = "جارٍ تجهيز الفيديو %d%%";
+"music_video_full_screen" = "المشاهدة بملء الشاشة";
+"music_video_show_lyrics" = "إظهار كلمات الأغنية";
 "karaoke_ai_title" = "فصل الصوت بالذكاء الاصطناعي";
 "karaoke_ai_download_format" = "تنزيل (%@)";
 "karaoke_ai_download_on_enable_format" = "يُنزَّل النموذج (%@) عند التشغيل";

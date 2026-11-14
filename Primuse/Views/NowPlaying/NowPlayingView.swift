@@ -12349,6 +12349,12 @@ private final class MusicVideoLayerView: NSView {
     override func makeBackingLayer() -> CALayer {
         playerLayer
     }
+
+    /// 画面只管显示、不接鼠标:双击全屏、全屏里双击退出挂在上面的 SwiftUI 层上,
+    /// 点按落到这块 AppKit 视图就到不了那些手势。
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
 }
 #endif
 

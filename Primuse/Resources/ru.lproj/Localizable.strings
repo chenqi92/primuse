@@ -5108,6 +5108,8 @@
 "music_video_preparing" = "Подготовка видео…";
 "music_video_rewrite_failed" = "Не удаётся преобразовать это видео в воспроизводимый формат.";
 "music_video_preparing_percent" = "Подготовка видео %d %%";
+"music_video_full_screen" = "Смотреть в полноэкранном режиме";
+"music_video_show_lyrics" = "Показать текст песни";
 "karaoke_ai_title" = "ИИ-отделение вокала";
 "karaoke_ai_download_format" = "Загрузить (%@)";
 "karaoke_ai_download_on_enable_format" = "При включении загрузит модель (%@)";

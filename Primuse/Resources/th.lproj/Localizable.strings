@@ -5108,6 +5108,8 @@
 "music_video_preparing" = "กำลังเตรียมวิดีโอ…";
 "music_video_rewrite_failed" = "ไม่สามารถแปลงวิดีโอนี้เป็นรูปแบบที่เล่นได้";
 "music_video_preparing_percent" = "กำลังเตรียมวิดีโอ %d%%";
+"music_video_full_screen" = "ดูแบบเต็มหน้าจอ";
+"music_video_show_lyrics" = "แสดงเนื้อเพลง";
 "karaoke_ai_title" = "แยกเสียงร้องด้วย AI";
 "karaoke_ai_download_format" = "ดาวน์โหลด (%@)";
 "karaoke_ai_download_on_enable_format" = "เปิดแล้วจะดาวน์โหลดโมเดล (%@)";

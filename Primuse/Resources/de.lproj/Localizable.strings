@@ -5202,6 +5202,8 @@
 "music_video_preparing" = "Video wird vorbereitet …";
 "music_video_rewrite_failed" = "Dieses Video kann nicht in ein abspielbares Format umgewandelt werden.";
 "music_video_preparing_percent" = "Video wird vorbereitet %d %%";
+"music_video_full_screen" = "Im Vollbild ansehen";
+"music_video_show_lyrics" = "Liedtext anzeigen";
 "karaoke_ai_title" = "KI-Gesangstrennung";
 "karaoke_ai_download_format" = "Laden (%@)";
 "karaoke_ai_download_on_enable_format" = "Lädt beim Einschalten das Modell (%@)";

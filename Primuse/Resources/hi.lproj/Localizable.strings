@@ -5108,6 +5108,8 @@
 "music_video_preparing" = "वीडियो तैयार हो रहा है…";
 "music_video_rewrite_failed" = "इस वीडियो को चलाने योग्य फ़ॉर्मैट में नहीं बदला जा सकता।";
 "music_video_preparing_percent" = "वीडियो तैयार हो रहा है %d%%";
+"music_video_full_screen" = "पूर्ण स्क्रीन में देखें";
+"music_video_show_lyrics" = "गीत के बोल दिखाएँ";
 "karaoke_ai_title" = "AI वोकल सेपरेशन";
 "karaoke_ai_download_format" = "डाउनलोड (%@)";
 "karaoke_ai_download_on_enable_format" = "चालू करने पर मॉडल (%@) डाउनलोड होगा";

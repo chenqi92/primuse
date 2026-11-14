@@ -77,6 +77,11 @@ struct MacNowPlayingView: View {
     @State private var showsNativeFullscreenEffectPicker = false
     /// 全屏时是否切到「沉浸展示」(共享的 ImmersiveStageView),而非常规播放页。
     @State private var showsImmersiveStage = false
+    /// 全屏时 MV 画面铺满整屏(`MacMusicVideoStage`)。进全屏时正在放 MV 就打开;
+    /// 全屏双栏里点 MV 上的全屏键、双击画面也会打开。退出全屏时清掉。
+    @State private var showsMusicVideoStage = false
+    /// 这一层是从全屏双栏里点进来的:退出键、Esc、双击画面回到双栏,而不是直接退出系统全屏。
+    @State private var musicVideoStageReturnsToFullScreenLayout = false
     @State private var showsRadioSleepTimer = false
     @State private var showsSpokenWordSleepTimer = false
     @State private var radioDetailStationID: String?
@@ -125,13 +130,33 @@ struct MacNowPlayingView: View {
         FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
     }
 
-    /// 是否正在显示沉浸展示屏(仅全屏、有歌、非直播时)。
+    /// 是否正在显示沉浸展示屏(仅全屏、有歌、非直播时)。全屏 MV 排在它前面。
     private var isImmersiveStageActive: Bool {
         isWindowFullScreen
             && fullscreenPlayerEffect != .native
             && showsImmersiveStage
             && player.currentSong != nil
             && !player.isLiveRadio
+            && !isMusicVideoStageActive
+    }
+
+    /// 是否正在全屏放 MV 画面(`MacMusicVideoStage`)。
+    private var isMusicVideoStageActive: Bool {
+        isWindowFullScreen && showsMusicVideoStage && isMusicVideoExpected
+    }
+
+    /// 这首歌在放画面,或者正要放画面。连放几首 MV 时,上一首的画面收掉、下一首还在备的
+    /// 那一小段也算,全屏 MV 不在两首之间闪回常规全屏;换成只听声音、下一首没有 MV、
+    /// 画面放不起来退回声音时就不算了。
+    private var isMusicVideoExpected: Bool {
+        if player.isMusicVideoPlaybackActive, player.musicVideoPlayer != nil { return true }
+        if player.pendingMusicVideoPlayID != nil { return true }
+        guard player.isLoading,
+              !player.isLiveRadio,
+              !player.isAppleMusicMode,
+              !player.isCastingMode,
+              let song = player.currentSong else { return false }
+        return player.usesVideoPipeline(for: song)
     }
 
     /// 与 iOS 共用同一个键 `lyricsFontScale` (0.7..1.8),通过 CloudKVS 双向同步。
@@ -258,7 +283,20 @@ struct MacNowPlayingView: View {
     /// 播放页本体。尺寸由 `body` 钉死,这里不再自己伸展。
     private func playerSurface(width: CGFloat) -> some View {
         ZStack {
-            if isImmersiveStageActive {
+            if isMusicVideoStageActive {
+                // 和沉浸层一样不自己忽略安全区,黑底与画面只铺满宿主给的这块。
+                MacMusicVideoStage(
+                    onExitFullScreen: { leaveMusicVideoStage() },
+                    onShowLyrics: {
+                        // 回到全屏双栏:左栏照样放着画面,右栏是歌词;不进沉浸展示,免得画面看不见。
+                        showsImmersiveStage = false
+                        showsMusicVideoStage = false
+                        musicVideoStageReturnsToFullScreenLayout = false
+                    },
+                    onToggleQueue: onToggleQueue
+                )
+                .transition(.opacity)
+            } else if isImmersiveStageActive {
                 MacImmersivePlayerView(
                     lyrics: romanizedLyrics,
                     showsSimulatedWordTiming: usesSimulatedWordTiming,
@@ -336,6 +374,7 @@ struct MacNowPlayingView: View {
             }
         }
         .animation(.easeInOut(duration: 0.28), value: isImmersiveStageActive)
+        .animation(.easeInOut(duration: 0.28), value: isMusicVideoStageActive)
         .onChange(of: isImmersiveStageActive) { _, active in
             #if DEBUG
             // 沉浸层进出时记一次窗口几何:顶部被裁 + 底栏下沉是同一个病,
@@ -363,7 +402,11 @@ struct MacNowPlayingView: View {
                 isWindowFullScreen = isFullScreen
                 if isFullScreen {
                     showsImmersiveStage = fullscreenPlayerEffect != .native
+                    showsMusicVideoStage = isMusicVideoExpected
+                } else {
+                    showsMusicVideoStage = false
                 }
+                musicVideoStageReturnsToFullScreenLayout = false
             }
         }
         .sheet(item: $commentPresentation) { presentation in
@@ -384,7 +427,7 @@ struct MacNowPlayingView: View {
             settledLyricsIdentity = identity
         }
         .background {
-            if !isImmersiveStageActive {
+            if !isImmersiveStageActive && !isMusicVideoStageActive {
                 MacNowPlayingTimeObserver { updateIndex(time: $0) }
             }
         }
@@ -420,6 +463,9 @@ struct MacNowPlayingView: View {
             guard (note.object as? NSWindow) === hostWindow else { return }
             isWindowFullScreen = true
             showsImmersiveStage = fullscreenPlayerEffect != .native
+            // 正在放 MV 时进全屏(MV 上的全屏键、双击画面、⌃⌘F、底栏全屏键)就是要看画面。
+            showsMusicVideoStage = isMusicVideoExpected
+            musicVideoStageReturnsToFullScreenLayout = false
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { note in
             guard (note.object as? NSWindow) === hostWindow else { return }
@@ -431,6 +477,9 @@ struct MacNowPlayingView: View {
             showsNativeFullscreenEffectPicker = false
             isWindowFullScreen = false
             showsImmersiveStage = false
+            // 退出动画期间画面还铺着,窗口回到原位以后才换回窗口版播放页。
+            showsMusicVideoStage = false
+            musicVideoStageReturnsToFullScreenLayout = false
         }
         .onChange(of: fullscreenPlayerEffectRawValue) { _, rawValue in
             guard isWindowFullScreen else { return }
@@ -442,7 +491,7 @@ struct MacNowPlayingView: View {
     /// 右上角那排浮动控件。
     @ViewBuilder
     private var topRightControls: some View {
-        if !isImmersiveStageActive {
+        if !isImmersiveStageActive && !isMusicVideoStageActive {
             VStack(alignment: .trailing, spacing: 10) {
                 if player.isLiveRadio {
                     radioFloatingControls
@@ -479,7 +528,7 @@ struct MacNowPlayingView: View {
     /// 全屏时左上角的退出与效果入口。
     @ViewBuilder
     private var topLeftControls: some View {
-        if isWindowFullScreen, !isImmersiveStageActive {
+        if isWindowFullScreen, !isImmersiveStageActive, !isMusicVideoStageActive {
             HStack(spacing: 10) {
                 exitFullScreenPill
                 // 全屏效果是给音乐的可视化, 有声内容不给入口。
@@ -495,7 +544,8 @@ struct MacNowPlayingView: View {
     /// 效果面板开着时铺在下面的遮罩，点它就收起。
     @ViewBuilder
     private var fullscreenEffectScrim: some View {
-        if isWindowFullScreen, !isImmersiveStageActive, showsNativeFullscreenEffectPicker {
+        if isWindowFullScreen, !isImmersiveStageActive, !isMusicVideoStageActive,
+           showsNativeFullscreenEffectPicker {
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture { closeFullscreenEffectPicker() }
@@ -506,7 +556,8 @@ struct MacNowPlayingView: View {
     /// 面板贴着左上角那个按钮展开，而不是从窗口边上推一条抽屉过来。
     @ViewBuilder
     private var fullscreenEffectPanel: some View {
-        if isWindowFullScreen, !isImmersiveStageActive, showsNativeFullscreenEffectPicker {
+        if isWindowFullScreen, !isImmersiveStageActive, !isMusicVideoStageActive,
+           showsNativeFullscreenEffectPicker {
             MacImmersiveEffectPicker(
                 selected: fullscreenPlayerEffect,
                 effects: FullscreenPlayerEffect.allCases,
@@ -902,19 +953,25 @@ struct MacNowPlayingView: View {
                             .aspectRatio(16.0 / 9.0, contentMode: .fit)
                             .frame(width: coverSize, height: mediaHeight)
                             .background(Color.black)
-
-                        if !isWindowFullScreen {
-                            Button {
-                                showsImmersiveStage = fullscreenPlayerEffect != .native
-                                fullScreenWindow()?.toggleFullScreen(nil)
-                            } label: {
-                                circleIcon("arrow.up.left.and.arrow.down.right")
+                            // 双击画面全屏观看。画面图层自己不接鼠标(`MusicVideoLayerView.hitTest`),点按落在这一层。
+                            .overlay {
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                    .onTapGesture(count: 2) { enterMusicVideoFullScreen() }
+                                    .accessibilityHidden(true)
                             }
-                            .buttonStyle(.plain)
-                            .pmGlassControl(Circle())
-                            .padding(12)
-                            .help(Text("full_screen_player"))
+
+                        // 窗口版和全屏双栏都给:全屏双栏里点它,画面从左栏铺满整屏。
+                        Button {
+                            enterMusicVideoFullScreen()
+                        } label: {
+                            circleIcon("arrow.up.left.and.arrow.down.right")
                         }
+                        .buttonStyle(.plain)
+                        .pmGlassControl(Circle())
+                        .padding(12)
+                        .help(Text("music_video_full_screen"))
+                        .accessibilityLabel(Text("music_video_full_screen"))
                     }
                     .frame(width: coverSize, height: mediaHeight)
                     .clipShape(RoundedRectangle(cornerRadius: coverRadius, style: .continuous))
@@ -2100,6 +2157,41 @@ struct MacNowPlayingView: View {
         #endif
     }
 
+    /// MV 上的全屏键、双击画面:画面铺满整屏。已经在全屏双栏里就直接换成 MV 这一层;
+    /// 窗口版就让主窗口进系统全屏,进去以后(`didEnterFullScreen`)看到正在放 MV 再换上这一层。
+    /// 退出走系统全屏的退出,窗口大小、位置、侧栏和播放页都由原来那套恢复。
+    private func enterMusicVideoFullScreen() {
+        showsNativeFullscreenEffectPicker = false
+        plog("MV fullscreen request windowFull=\(isWindowFullScreen) host=\(hostWindow == nil ? "nil" : "ok")")
+        if isWindowFullScreen {
+            musicVideoStageReturnsToFullScreenLayout = true
+            showsMusicVideoStage = true
+            return
+        }
+        guard let window = hostWindow else {
+            PrimuseAppDelegate.shared?.toggleFullScreenPlayer()
+            return
+        }
+        // 以前这里直接 `toggleFullScreen`,没补 `.fullScreenPrimary`:SwiftUI 的 WindowGroup 不带它时
+        // 这一下静默无效,按了没反应。正在进全屏的过渡里也别再切一次,那会直接退回去。
+        if !window.collectionBehavior.contains(.fullScreenPrimary) {
+            window.collectionBehavior.insert(.fullScreenPrimary)
+        }
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        window.toggleFullScreen(nil)
+    }
+
+    /// 全屏 MV 的退出键、Esc、双击画面:从全屏双栏点进来的回到双栏;从窗口进来的退出系统全屏、
+    /// 回到窗口版播放页。⌃⌘F 不经过这里,照旧整个退出全屏。
+    private func leaveMusicVideoStage() {
+        if musicVideoStageReturnsToFullScreenLayout, isWindowFullScreen {
+            musicVideoStageReturnsToFullScreenLayout = false
+            showsMusicVideoStage = false
+        } else {
+            exitFullScreen()
+        }
+    }
+
     private func fullScreenWindow() -> NSWindow? {
         // 宿主窗口正常情况下已经解析好了;万一还没有(或视图刚被重建),退出全屏这件事
         // 不能就这么点不动 —— 按钮只在全屏里出现,直接找那个处于全屏的窗口兜底。
@@ -2332,6 +2424,388 @@ private struct MacNowPlayingProgressRow: View {
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .foregroundStyle(.primary.opacity(0.6))
         .frame(width: width)
+    }
+}
+
+/// 全屏 MV:画面按原比例铺满整屏,比例对不上的地方留黑边(播放图层 `.resizeAspect` 自己留)。
+/// 控件在鼠标静置 3 秒后淡出、指针一起藏起来,动一下鼠标就回来;暂停时、指着控件时一直留着。
+/// 双击画面、左上角的键、Esc 回到进来之前的样子(窗口版播放页,或全屏双栏),⌃⌘F 整个退出全屏;
+/// 右上角的歌词键回到全屏双栏(左栏照样放着画面)。
+/// 画面接的是正在放的那个 AVPlayer,进出全屏只是多挂/换一块图层,声音不断、不重新缓冲。
+private struct MacMusicVideoStage: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(ThemeService.self) private var theme
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
+    private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+
+    let onExitFullScreen: () -> Void
+    let onShowLyrics: () -> Void
+    let onToggleQueue: () -> Void
+
+    @State private var showsControls = true
+    @State private var isPointerOnControls = false
+    /// 鼠标每动一下都要重排一次淡出计时,放在引用里,不让整层跟着重算。
+    @State private var hideTimer = MacMusicVideoStageHideTimer()
+    /// 退出只发一次:Esc 同时落在退出键和 `onExitCommand` 上,系统全屏的退出过渡里再切一次会又进全屏。
+    @State private var isExiting = false
+    @FocusState private var acceptsKeyInput: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Color.black
+
+                if player.isMusicVideoPlaybackActive, let videoPlayer = player.musicVideoPlayer {
+                    MusicVideoSurface(player: videoPlayer)
+                } else {
+                    // 连放几首 MV 时下一首还在备;首次放的非原生格式要先改写,标签上写着进度。
+                    VStack(spacing: 14) {
+                        ProgressView()
+                            .controlSize(.large)
+                            .tint(.white)
+                        MusicVideoPreparationBadge(songID: player.currentSong?.id)
+                    }
+                }
+
+                // 双击画面退出全屏。控件盖在这一层上面,点控件不会落到这里。
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { requestExit() }
+                    .accessibilityHidden(true)
+
+                controls(width: proxy.size.width)
+                    .opacity(showsControls ? 1 : 0)
+                    // 淡出以后不挡双击;Esc 照样落在退出键上。
+                    .allowsHitTesting(showsControls)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .environment(\.colorScheme, .dark)
+        .onContinuousHover { phase in
+            if case .active = phase { revealControls() }
+        }
+        .focusable()
+        .focusEffectDisabled()
+        .focused($acceptsKeyInput)
+        .onKeyPress(phases: [.down, .repeat]) { press in
+            handleKeyPress(press)
+        }
+        .onExitCommand { requestExit() }
+        .onAppear {
+            acceptsKeyInput = true
+            scheduleHide()
+        }
+        .onDisappear {
+            hideTimer.cancel()
+            NSCursor.setHiddenUntilMouseMoves(false)
+        }
+        .onChange(of: player.isPlaying) { _, playing in
+            if playing {
+                scheduleHide()
+            } else {
+                revealControls()
+            }
+        }
+    }
+
+    private func controls(width: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            topBar
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+                .padding(.bottom, 40)
+                .background {
+                    LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
+                        .allowsHitTesting(false)
+                }
+                .onHover { trackPointerOnControls($0) }
+
+            Spacer(minLength: 0)
+
+            bottomBar(width: width)
+                .padding(.horizontal, 32)
+                .padding(.top, 56)
+                .padding(.bottom, 28)
+                .background {
+                    LinearGradient(colors: [.clear, .black.opacity(0.62)], startPoint: .top, endPoint: .bottom)
+                        .allowsHitTesting(false)
+                }
+                .onHover { trackPointerOnControls($0) }
+        }
+    }
+
+    private var topBar: some View {
+        HStack(spacing: 12) {
+            Button(action: requestExit) {
+                HStack(spacing: 7) {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("exit_full_screen")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundStyle(.white.opacity(0.92))
+                .padding(.horizontal, 14)
+                .frame(height: 32)
+                .overlay { Capsule().strokeBorder(.white.opacity(0.28), lineWidth: 0.75) }
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .pmPointingHand()
+            .keyboardShortcut(.cancelAction)
+            .help(Text("exit_full_screen"))
+
+            if let song = player.currentSong {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(song.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    if let artist = song.artistName, !artist.isEmpty {
+                        Text(artist)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                }
+                .lineLimit(1)
+                .padding(.leading, 6)
+            }
+
+            Spacer(minLength: 12)
+
+            videoModeButton
+            // 有声内容的视频回到全屏双栏时右栏是目录、书签与文字稿,不是歌词。
+            if isSpokenWord {
+                stageButton("list.bullet.rectangle", help: "spoken_word_contents_title", action: onShowLyrics)
+            } else {
+                stageButton("text.bubble", help: "music_video_show_lyrics", action: onShowLyrics)
+            }
+            stageButton("list.bullet", help: "queue", action: onToggleQueue)
+        }
+    }
+
+    /// 换成只听声音:这一层随之收起,回到全屏播放页,声音从现在的位置接着放。和播放页右上角那颗是同一个开关。
+    @ViewBuilder
+    private var videoModeButton: some View {
+        if player.canPlayMusicVideo, player.currentSong?.isStandaloneMusicVideo != true,
+           !PodcastPlaybackSong.isVideoEpisode(player.currentSong) {
+            stageButton(player.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle", help: "MV") {
+                player.toggleMusicVideoMode()
+            }
+            .disabled(player.isLoading)
+        } else if player.offersSpokenWordVideoToggle {
+            stageButton("play.rectangle.fill", help: "spoken_word_video_hide") {
+                player.setShowsSpokenWordVideo(false)
+            }
+            .disabled(player.isLoading)
+        }
+    }
+
+    private func bottomBar(width: CGFloat) -> some View {
+        let barWidth = min(max(width - 64, 0), 960)
+        return VStack(spacing: 14) {
+            MacNowPlayingProgressRow(width: barWidth, accent: theme.accentColor)
+            ZStack {
+                transport
+                if showsPlayerVolumeBar {
+                    HStack {
+                        Spacer(minLength: 0)
+                        volumeControl
+                    }
+                }
+            }
+            .frame(width: barWidth)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var isSpokenWord: Bool {
+        player.currentItemIsSpokenWord && !player.isLiveRadio
+    }
+
+    private var transport: some View {
+        HStack(spacing: 18) {
+            if isSpokenWord {
+                transportButton(player.spokenWordSkipBackwardSymbol, help: "a11y_skip_backward") {
+                    player.skipSpokenWordBackward()
+                }
+            } else {
+                transportButton("backward.fill", help: "a11y_previous_track") {
+                    Task { await player.previous() }
+                }
+            }
+
+            Button {
+                revealControls()
+                guard !player.isLoading else { return }
+                player.togglePlayPause()
+            } label: {
+                ZStack {
+                    Image(systemName: player.isPlaying || player.isLoading ? "pause.fill" : "play.fill")
+                        .font(.system(size: 22, weight: .medium))
+                        .contentTransition(.symbolEffect(.replace))
+                        .opacity(player.showsLoadingIndicator ? 0 : 1)
+                    if player.showsLoadingIndicator {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    }
+                }
+                .foregroundStyle(.white)
+                .frame(width: 58, height: 58)
+                .overlay { Circle().strokeBorder(.white.opacity(0.64), lineWidth: 1.4) }
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .pmPointingHand()
+            .disabled(player.showsLoadingIndicator)
+            .help(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
+
+            if isSpokenWord {
+                transportButton(player.spokenWordSkipForwardSymbol, help: "a11y_skip_forward") {
+                    player.skipSpokenWordForward()
+                }
+            } else {
+                transportButton("forward.fill", help: "a11y_next_track") {
+                    Task { await player.next() }
+                }
+            }
+        }
+    }
+
+    private var volumeControl: some View {
+        HStack(spacing: 8) {
+            PMVolumeSymbol()
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.82))
+                .frame(width: 18)
+            PMPlaybackVolumeSlider(tint: theme.accentColor)
+                .frame(width: 118)
+        }
+    }
+
+    private func transportButton(
+        _ symbol: String,
+        help: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            revealControls()
+            action()
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(width: 46, height: 46)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .pmPointingHand()
+        .help(Text(help))
+        .accessibilityLabel(Text(help))
+    }
+
+    private func stageButton(
+        _ symbol: String,
+        help: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            revealControls()
+            action()
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: 36, height: 36)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .pmGlassControl(Circle())
+        .pmPointingHand()
+        .help(Text(help))
+        .accessibilityLabel(Text(help))
+    }
+
+    // MARK: - 键鼠与控件淡出
+
+    /// ←/→ 退进 10 秒,⌥←/⌥→ 上一首/下一首(和沉浸展示一样);空格由全局快捷键管。
+    private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        if press.key == .leftArrow {
+            revealControls()
+            if press.modifiers.contains(.option) {
+                Task { await player.previous() }
+            } else {
+                seek(by: -10)
+            }
+            return .handled
+        }
+        if press.key == .rightArrow {
+            revealControls()
+            if press.modifiers.contains(.option) {
+                Task { await player.next() }
+            } else {
+                seek(by: 10)
+            }
+            return .handled
+        }
+        return .ignored
+    }
+
+    private func seek(by delta: TimeInterval) {
+        guard player.duration > 0 else { return }
+        player.seek(to: min(player.duration, max(0, player.currentTime + delta)))
+    }
+
+    private func requestExit() {
+        guard !isExiting else { return }
+        isExiting = true
+        hideTimer.cancel()
+        NSCursor.setHiddenUntilMouseMoves(false)
+        onExitFullScreen()
+        // 正常退出时这一层随窗口离开全屏就没了;万一这次没退成,过一会儿让键重新管用。
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            isExiting = false
+        }
+    }
+
+    private func trackPointerOnControls(_ hovering: Bool) {
+        if isPointerOnControls != hovering { isPointerOnControls = hovering }
+        if hovering {
+            hideTimer.cancel()
+        } else {
+            scheduleHide()
+        }
+    }
+
+    private func revealControls() {
+        if !showsControls {
+            withAnimation(.easeOut(duration: 0.18)) { showsControls = true }
+        }
+        scheduleHide()
+    }
+
+    /// 放着、指针不在控件上时,静置 3 秒把控件和指针一起藏起来;暂停、开着旁白时不藏。
+    private func scheduleHide() {
+        hideTimer.cancel()
+        guard player.isPlaying, !isPointerOnControls, !voiceOverEnabled, !isExiting else { return }
+        hideTimer.task = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, player.isPlaying, !isPointerOnControls else { return }
+            withAnimation(.easeInOut(duration: 0.35)) { showsControls = false }
+            NSCursor.setHiddenUntilMouseMoves(true)
+        }
+    }
+}
+
+/// `MacMusicVideoStage` 的控件淡出计时。
+@MainActor
+private final class MacMusicVideoStageHideTimer {
+    var task: Task<Void, Never>?
+
+    func cancel() {
+        task?.cancel()
+        task = nil
     }
 }
 
