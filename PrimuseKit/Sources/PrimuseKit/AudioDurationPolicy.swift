@@ -874,15 +874,210 @@ public enum MPEGFrameHeaderParser {
 }
 
 
+/// 顶层 box 链的纯步进: 只看每个 box 头里的长度和类型, 不碰负载 —— 几个 GB 的
+/// mdat 只是一次跳转。首段里看得见的头直接用; 看不见的由调用方按 `step` 去读那一小段
+/// (最多 16 字节, 64 位长度也在里面), 再交给 `consume(header:)`。
+///
+/// 起点跳过文件开头垫着的 ID3v2 标签(签名检测同样跳过它, 这种文件照样认成 ISO 容器);
+/// 没有 ftyp 的老 QuickTime 文件照走。第一个 box 必须是顶层会出现的类型, 之后每个
+/// 类型都得是四字符码, 长度不能小于头、不能超出文件 —— 不是 ISO 容器的字节第一步就停,
+/// 不会拿乱码当长度满文件跳着读。
+public struct ISOBaseMediaTopLevelBoxWalk: Sendable {
+    public enum Step: Equatable, Sendable {
+        /// 下一个 box 头不在手里: 读 `offset` 起的 `count` 字节交给 `consume(header:)`。
+        case needsHeader(offset: Int64, count: Int)
+        /// moov 的完整范围(含 box 头)。
+        case foundMoov(offset: Int64, size: Int64)
+        case stopped(StopReason)
+    }
+
+    public enum StopReason: Equatable, Sendable {
+        /// 不知道文件多大: 跳过 mdat 之后无从判断有没有越界。
+        case unknownFileSize
+        /// 第一个 box 就不是顶层类型, 不按 ISO 容器走。
+        case notISOBaseMedia
+        /// 长度小于头, 或类型不是四字符码。
+        case malformedHeader
+        /// 声明的长度超出文件。
+        case exceedsFile
+        /// 长度为 0 的 box 一直延伸到文件末尾, 后面不会再有 moov。
+        case extendsToEndOfFile
+        /// 走到文件末尾也没见到 moov。
+        case endOfFile
+        /// box 太多, 或要调用方读的头太多。
+        case tooManyBoxes
+        /// moov 比调用方给的上限还大。
+        case moovTooLarge(size: Int64)
+        /// 读回来的头不够长。
+        case truncatedHeader
+    }
+
+    public static let headerProbeByteCount = 16
+    public static let defaultMaximumBoxCount = 128
+    public static let defaultMaximumFetchedHeaderCount = 32
+
+    public private(set) var step: Step
+    /// moov 前面那个 ftyp 的范围; 没有 ftyp 的老 QuickTime 文件为 nil。
+    public private(set) var ftyp: Range<Int64>?
+    /// 已经交给调用方去读的头的个数。
+    public private(set) var fetchedHeaderCount = 0
+    /// 第一个 box 的位置: 文件开头垫着 ID3v2 标签时在标签之后。
+    public let startOffset: Int64
+
+    private let head: Data
+    private let fileSize: Int64
+    private let maximumMoovByteCount: Int64
+    private let maximumBoxCount: Int
+    private let maximumFetchedHeaderCount: Int
+    private var cursor: Int64
+    private var boxCount = 0
+
+    /// 文件开头会出现的顶层 box。
+    private static let leadingBoxTypes: Set<String> = [
+        "ftyp", "moov", "mdat", "free", "skip", "wide", "uuid",
+        "pnot", "pdin", "junk", "styp", "sidx",
+    ]
+
+    public init(
+        head: Data,
+        fileSize: Int64,
+        maximumMoovByteCount: Int64,
+        maximumBoxCount: Int = ISOBaseMediaTopLevelBoxWalk.defaultMaximumBoxCount,
+        maximumFetchedHeaderCount: Int = ISOBaseMediaTopLevelBoxWalk.defaultMaximumFetchedHeaderCount
+    ) {
+        let normalized = head.startIndex == 0 ? head : Data(head)
+        let leading = Int64(EmbeddedTagMetadataParser.id3TagByteCount(in: normalized) ?? 0)
+        self.head = normalized
+        self.fileSize = fileSize
+        self.maximumMoovByteCount = maximumMoovByteCount
+        self.maximumBoxCount = maximumBoxCount
+        self.maximumFetchedHeaderCount = maximumFetchedHeaderCount
+        self.startOffset = leading
+        self.cursor = leading
+        self.step = .stopped(.unknownFileSize)
+        guard fileSize > 0 else { return }
+        step = advance(fetched: nil)
+    }
+
+    /// `header` 是从上一步 `needsHeader` 的 offset 起读回来的字节。别的时候调用不起作用。
+    public mutating func consume(header: Data) {
+        guard case .needsHeader = step else { return }
+        step = advance(fetched: header.startIndex == 0 ? header : Data(header))
+    }
+
+    private mutating func advance(fetched: Data?) -> Step {
+        var fetched = fetched
+        while true {
+            let remaining = fileSize - cursor
+            guard remaining >= 8 else { return .stopped(.endOfFile) }
+            guard boxCount < maximumBoxCount else { return .stopped(.tooManyBoxes) }
+            let wanted = Int(min(Int64(Self.headerProbeByteCount), remaining))
+            var header = bytesInHead(at: cursor, count: wanted)
+            if header.count < 8 || (Self.uint32(header, at: 0) == 1 && header.count < 16) {
+                guard let supplied = fetched else {
+                    guard fetchedHeaderCount < maximumFetchedHeaderCount else {
+                        return .stopped(.tooManyBoxes)
+                    }
+                    fetchedHeaderCount += 1
+                    return .needsHeader(offset: cursor, count: wanted)
+                }
+                fetched = nil
+                header = supplied
+            }
+            guard header.count >= 8 else { return .stopped(.truncatedHeader) }
+
+            guard let type = Self.boxType(header) else {
+                return .stopped(boxCount == 0 ? .notISOBaseMedia : .malformedHeader)
+            }
+            if boxCount == 0, !Self.leadingBoxTypes.contains(type) {
+                return .stopped(.notISOBaseMedia)
+            }
+            let size32 = Self.uint32(header, at: 0)
+            let size: Int64
+            switch size32 {
+            case 0:
+                size = remaining
+            case 1:
+                guard remaining >= 16 else { return .stopped(.malformedHeader) }
+                guard header.count >= 16 else { return .stopped(.truncatedHeader) }
+                let large = Self.uint64(header, at: 8)
+                guard large >= 16 else { return .stopped(.malformedHeader) }
+                guard large <= UInt64(remaining) else { return .stopped(.exceedsFile) }
+                size = Int64(large)
+            case 2..<8:
+                return .stopped(.malformedHeader)
+            default:
+                guard Int64(size32) <= remaining else { return .stopped(.exceedsFile) }
+                size = Int64(size32)
+            }
+            boxCount += 1
+
+            if type == "moov" {
+                guard size <= maximumMoovByteCount else {
+                    return .stopped(.moovTooLarge(size: size))
+                }
+                return .foundMoov(offset: cursor, size: size)
+            }
+            if type == "ftyp", ftyp == nil {
+                ftyp = cursor..<(cursor + size)
+            }
+            if size32 == 0 { return .stopped(.extendsToEndOfFile) }
+            // size 不超过 remaining, 相加不会越过文件长度。
+            cursor += size
+        }
+    }
+
+    private func bytesInHead(at offset: Int64, count: Int) -> Data {
+        guard offset < Int64(head.count) else { return Data() }
+        let start = Int(offset)
+        return head.subdata(in: start..<min(head.count, start + count))
+    }
+
+    private static func boxType(_ header: Data) -> String? {
+        let start = header.startIndex + 4
+        let bytes = header[start..<(start + 4)]
+        guard bytes.allSatisfy({ (0x20...0x7E).contains($0) || $0 == 0xA9 }) else { return nil }
+        return String(bytes.map { Character(Unicode.Scalar($0)) })
+    }
+
+    private static func uint32(_ data: Data, at offset: Int) -> UInt32 {
+        let start = data.startIndex + offset
+        return data[start..<(start + 4)].reduce(0) { ($0 << 8) | UInt32($1) }
+    }
+
+    private static func uint64(_ data: Data, at offset: Int) -> UInt64 {
+        let start = data.startIndex + offset
+        return data[start..<(start + 8)].reduce(0) { ($0 << 8) | UInt64($1) }
+    }
+}
+
 /// Locates metadata by top-level atom boundaries, without reading media payloads.
 public enum ISOBaseMediaRangeReader {
     public static let maximumMetadataByteCount = 64 * 1024 * 1024
     public static let chunkByteCount = 1024 * 1024
     private static let maximumAtomCount = 128
+    private static let maximumFTYPByteCount: Int64 = 64 * 1024
 
     public enum ReadError: Error, Sendable {
         case incompleteRange
     }
+
+    /// 拼好的 `ftyp` + `moov`, 以及 moov 在原文件里的位置。
+    public struct Located: Sendable {
+        public let metadataFile: Data
+        public let moov: Range<Int64>
+        /// 原文件在 moov 前面有 ftyp; 没有时 `metadataFile` 里是补上的 QuickTime ftyp。
+        public let hasOriginalFTYP: Bool
+    }
+
+    /// 没有 ftyp 的老 QuickTime 文件: 补一个 QuickTime 品牌的 ftyp, 解析器按 QuickTime 的规矩读 moov。
+    private static let quickTimeFTYP: Data = {
+        var data = Data([0x00, 0x00, 0x00, 0x14])
+        data.append(contentsOf: Array("ftypqt  ".utf8))
+        data.append(contentsOf: [0x20, 0x05, 0x03, 0x00])
+        data.append(contentsOf: Array("qt  ".utf8))
+        return data
+    }()
 
     /// Returns a complete `ftyp` + `moov` file, or nil for unsupported layouts.
     /// The supplied prefix is reused, including a partially available fast-start
@@ -892,6 +1087,16 @@ public enum ISOBaseMediaRangeReader {
         fileSize: Int64,
         fetch: (Int64, Int64) async throws -> Data
     ) async throws -> Data? {
+        try await readLocated(head: head, fileSize: fileSize, fetch: fetch)?.metadataFile
+    }
+
+    /// 同 `read`, 另外给出 moov 的位置。顶层 box 链由 `ISOBaseMediaTopLevelBoxWalk` 走:
+    /// 首段之外的 box 头每个只读一小段, moov 按 1 MB 一块读回。
+    public static func readLocated(
+        head: Data,
+        fileSize: Int64,
+        fetch: (Int64, Int64) async throws -> Data
+    ) async throws -> Located? {
         guard fileSize >= 8, head.count >= 8 else { return nil }
 
         func bytes(at offset: Int64, count: Int) async throws -> Data {
@@ -911,44 +1116,38 @@ public enum ISOBaseMediaRangeReader {
             return result
         }
 
-        func unsigned(_ data: Data, _ range: Range<Int>) -> UInt64 {
-            data[range].reduce(0) { ($0 << 8) | UInt64($1) }
-        }
-
-        var offset: Int64 = 0
-        var ftyp: Data?
-        for _ in 0..<maximumAtomCount {
+        var walk = ISOBaseMediaTopLevelBoxWalk(
+            head: head,
+            fileSize: fileSize,
+            maximumMoovByteCount: Int64(maximumMetadataByteCount),
+            maximumBoxCount: maximumAtomCount
+        )
+        while case .needsHeader(let offset, let count) = walk.step {
             try Task.checkCancellation()
-            guard fileSize - offset >= 8 else { return nil }
-            let header = try await bytes(at: offset, count: 8)
-            let type = String(decoding: header[4..<8], as: UTF8.self)
-            let size32 = unsigned(header, 0..<4)
-            let headerSize: Int64 = size32 == 1 ? 16 : 8
-            let size: UInt64
-            if size32 == 1 {
-                guard fileSize - offset >= 16 else { return nil }
-                size = unsigned(try await bytes(at: offset + 8, count: 8), 0..<8)
-            } else {
-                size = size32 == 0 ? UInt64(fileSize - offset) : size32
-            }
-            guard size >= UInt64(headerSize), size <= UInt64(fileSize - offset) else {
-                return nil
-            }
-
-            switch type {
-            case "ftyp":
-                guard ftyp == nil, size <= 64 * 1024 else { return nil }
-                ftyp = try await bytes(at: offset, count: Int(size))
-            case "moov":
-                guard let ftyp, size <= maximumMetadataByteCount else { return nil }
-                let moov = try await bytes(at: offset, count: Int(size))
-                return ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(head: ftyp, tail: moov)
-            default:
-                break
-            }
-            // The remaining-file check above also proves this addition cannot overflow.
-            offset += Int64(size)
+            let header = try await fetch(offset, Int64(count))
+            // 要的长度从不越过文件末尾, 读短了跟 moov 正文读短一样当作这次读取失败。
+            guard header.count == count else { throw ReadError.incompleteRange }
+            walk.consume(header: header)
         }
-        return nil
+        guard case .foundMoov(let moovOffset, let moovSize) = walk.step else { return nil }
+
+        let ftyp: Data
+        if let range = walk.ftyp {
+            let length = range.upperBound - range.lowerBound
+            guard length <= maximumFTYPByteCount else { return nil }
+            ftyp = try await bytes(at: range.lowerBound, count: Int(length))
+        } else {
+            ftyp = quickTimeFTYP
+        }
+        let moov = try await bytes(at: moovOffset, count: Int(moovSize))
+        guard let metadataFile = ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(
+            head: ftyp,
+            tail: moov
+        ) else { return nil }
+        return Located(
+            metadataFile: metadataFile,
+            moov: moovOffset..<(moovOffset + moovSize),
+            hasOriginalFTYP: walk.ftyp != nil
+        )
     }
 }

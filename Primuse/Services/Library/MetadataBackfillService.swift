@@ -1592,6 +1592,37 @@ final class MetadataBackfillService {
             UserDefaults.standard.set(true, forKey: isoMoovHeadFixKey)
         }
 
+        // 整本书的 m4b/m4a 常把 moov 放在几 GB 的 mdat 之后, 或者 moov 比 4 MB 的尾部窗口还大:
+        // 首尾两段都够不着, 读完记成「读不全」(没有时长)后就再不重读。后来改成顺着顶层 box 链
+        // 找 moov, 但已经记成读不全的行没有重开; 这次又认了文件头垫着 ID3v2、没有 ftyp 的老
+        // QuickTime 文件。还没有时长的这类行各再读一次; 仍读不出的照旧记回原来的状态, 不会每轮重下。
+        let isoMoovBeyondWindowsFixKey = "primuse.backfillState.v2026_11_isoMoovBeyondWindows"
+        if !UserDefaults.standard.bool(forKey: isoMoovBeyondWindowsFixKey) {
+            let sourceIDs = backfillableSourceIDs()
+            let stuckIDs = incompleteSongIDs.union(failedSongIDs)
+            let retryIDs = Set(library.songs.lazy.filter { song in
+                stuckIDs.contains(song.id)
+                    && song.duration <= 0
+                    && sourceIDs.contains(song.sourceID)
+                    && song.userMetadataEditedAt == nil
+                    && RemoteMetadataInspectionPolicy.tailStrategy(
+                        fileExtension: song.fileFormat.rawValue,
+                        isExplicitReread: false
+                    ) == .isoBaseMedia
+            }.map(\.id))
+            if !retryIDs.isEmpty {
+                failedSongIDs.subtract(retryIDs)
+                incompleteSongIDs.subtract(retryIDs)
+                sessionGivenUpIDs.subtract(retryIDs)
+                for id in retryIDs { transientFailureCounts[id] = nil }
+                saveFailed()
+                saveRetryCounts()
+                markQueueDirty()
+                plog("📥 Backfill: retrying \(retryIDs.count) ISO rows without duration for moov beyond the head/tail windows")
+            }
+            UserDefaults.standard.set(true, forKey: isoMoovBeyondWindowsFixKey)
+        }
+
         // Track artist used to have no independent completion marker. A FLAC
         // row could therefore be considered complete as soon as STREAMINFO
         // supplied duration, even when its Vorbis comments were beyond the
@@ -5419,23 +5450,35 @@ final class MetadataBackfillService {
             signature: AudioFileSignaturePolicy.inspect(headData)
         )
         var completeISOBaseMediaMetadata = false
+        // moov 不在首段、离文件末尾又超过最大的尾部窗口(几 GB 的 mdat 之后、比尾部窗口还大的
+        // 整本书 moov): 首尾两段都够不着, 以前只能记成「读不全」。记下位置, 读出时长时留一行日志。
+        var moovBeyondBoundedWindows: Range<Int64>?
         if RemoteMetadataInspectionPolicy.tailStrategy(
             fileExtension: initialParserExtension,
             isExplicitReread: isExplicitReread
         ) == .isoBaseMedia,
-           let metadataFile = try await ISOBaseMediaRangeReader.read(
+           let located = try await ISOBaseMediaRangeReader.readLocated(
             head: headData,
             fileSize: song.fileSize,
             fetch: { try await fetchRange(offset: $0, length: $1) }
            ) {
-            metadataInputData = metadataFile
+            metadataInputData = located.metadataFile
             completeISOBaseMediaMetadata = true
+            if located.moov.lowerBound >= Int64(headData.count),
+               song.fileSize - located.moov.lowerBound > Int64(RemoteMetadataReadPolicy.maximumHeadByteCount) {
+                moovBeyondBoundedWindows = located.moov
+            }
         }
         var metadata = await extractMetadata(
             from: metadataInputData,
             song: song,
             readSession: readSession
         )
+        if let moov = moovBeyondBoundedWindows, !Self.metadataLooksMissing(metadata) {
+            let seconds = String(format: "%.1f", metadata.duration)
+            let moovBytes = moov.upperBound - moov.lowerBound
+            plog("📥 Backfill: '\(song.title)' recovered duration \(seconds)s from moov beyond head/tail windows offset=\(moov.lowerBound) bytes=\(moovBytes) ranges=\(tally.count)")
+        }
         let declaredExtension = song.fileFormat.rawValue.lowercased()
         var parserExtension = RemoteMetadataInspectionPolicy.parserFileExtension(
             declaredFileExtension: declaredExtension,
