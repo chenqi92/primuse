@@ -7487,3 +7487,7 @@
 "writeback_preflight_unsupported_format" = "Pour %lld de ces morceaux, la source ou le format de fichier ne permet pas d’écrire les tags dans le fichier ; leurs modifications sont enregistrées uniquement dans Primuse.";
 "writeback_preflight_refused_format" = "%@ : l’écriture des fichiers a été refusée la dernière fois (lecture seule ou écriture non autorisée) ; ces modifications risquent donc d’être enregistrées uniquement dans Primuse, elles aussi.";
 "artist_browse_hide_singles_only" = "Masquer les artistes n’ayant que des singles et EP";
+"library_insight_export_nfo_format" = "Exporter %@";
+"library_insight_export_unavailable_title" = "Impossible d’exporter cette présentation";
+"library_insight_export_unavailable_message" = "Les présentations issues d’Apple Music s’affichent uniquement dans Primuse et ne sont pas exportées dans des fichiers. Les présentations rédigées par l’IA, récupérées depuis Last.fm ou Wikipédia, ou écrites par vous peuvent être exportées.";
+"library_insight_export_wikipedia_attribution_format" = "Source : contributeurs de Wikipédia, %@. Sous licence CC BY-SA 4.0 : https://creativecommons.org/licenses/by-sa/4.0/";

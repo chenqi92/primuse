@@ -7580,3 +7580,7 @@
 "writeback_preflight_unsupported_format" = "其中 %lld 首所在的音乐源或文件格式不支持把标签写进文件，修改只会保存在 Primuse。";
 "writeback_preflight_refused_format" = "%@ 上次拒绝写入文件（只读或没有写入权限），这次的修改可能也只会保存在 Primuse。";
 "artist_browse_hide_singles_only" = "不列只有单曲或 EP 的人";
+"library_insight_export_nfo_format" = "导出 %@";
+"library_insight_export_unavailable_title" = "这段简介不能导出";
+"library_insight_export_unavailable_message" = "来自 Apple Music 的简介只在 Primuse 里显示，不导出成文件。AI 生成、从 Last.fm 或维基百科读取以及自己写的简介可以导出。";
+"library_insight_export_wikipedia_attribution_format" = "出处：维基百科贡献者，%@。依 CC BY-SA 4.0 授权：https://creativecommons.org/licenses/by-sa/4.0/";

@@ -43,6 +43,23 @@ extension View {
 extension UTType {
     static let primuseExportLRC = UTType(filenameExtension: "lrc", conformingTo: .plainText) ?? .plainText
     static let primuseExportSubRip = UTType(filenameExtension: "srt", conformingTo: .plainText) ?? .plainText
+    static let primuseExportNFO = UTType(filenameExtension: "nfo", conformingTo: .xml) ?? .xml
+}
+
+/// 简介导出成的 album.nfo / artist.nfo,写在临时目录里交给分享面板或存储面板。
+enum LibraryInsightNFOExport {
+    static func write(_ document: String, kind: LibraryInsightKind) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-nfo-export", isDirectory: true)
+        // 上一次导出的早已交出去了,不留在临时目录里。
+        try? FileManager.default.removeItem(at: root)
+        let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(LibraryInsightNFO.fileName(for: kind))
+        try Data(document.utf8).write(to: destination, options: .atomic)
+        plog("📝 Library insight export: \(destination.lastPathComponent) \(document.count) chars")
+        return destination
+    }
 }
 
 extension LyricsExportFormat {

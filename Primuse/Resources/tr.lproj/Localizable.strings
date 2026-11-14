@@ -7393,3 +7393,7 @@
 "writeback_preflight_unsupported_format" = "Bu şarkılardan %lld tanesinin bulunduğu kaynak veya dosya biçimi etiketlerin dosyaya yazılmasını desteklemiyor; bunların değişiklikleri yalnızca Primuse'ta kaydedilir.";
 "writeback_preflight_refused_format" = "%@ geçen sefer dosyalara yazmayı reddetti (salt okunur veya yazma izni yok), bu yüzden bu değişiklikler de yalnızca Primuse'ta kaydedilebilir.";
 "artist_browse_hide_singles_only" = "Yalnızca single ve EP’si olan sanatçıları gizle";
+"library_insight_export_nfo_format" = "%@ dosyasını dışa aktar";
+"library_insight_export_unavailable_title" = "Bu Tanıtım Dışa Aktarılamaz";
+"library_insight_export_unavailable_message" = "Apple Music’ten gelen tanıtımlar yalnızca Primuse’ta gösterilir, dosyalara aktarılmaz. Yapay zekânın yazdığı, Last.fm’den veya Vikipedi’den alınan ya da sizin yazdığınız tanıtımlar dışa aktarılabilir.";
+"library_insight_export_wikipedia_attribution_format" = "Kaynak: Vikipedi katkıcıları, %@. CC BY-SA 4.0 ile lisanslanmıştır: https://creativecommons.org/licenses/by-sa/4.0/";

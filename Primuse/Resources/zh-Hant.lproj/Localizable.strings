@@ -7464,3 +7464,7 @@
 "writeback_preflight_unsupported_format" = "其中 %lld 首所在的音樂來源或檔案格式不支援把標籤寫進檔案，修改只會儲存在 Primuse。";
 "writeback_preflight_refused_format" = "%@ 上次拒絕寫入檔案（唯讀或沒有寫入權限），這次的修改可能也只會儲存在 Primuse。";
 "artist_browse_hide_singles_only" = "不列出只有單曲或 EP 的演出者";
+"library_insight_export_nfo_format" = "匯出 %@";
+"library_insight_export_unavailable_title" = "這段簡介無法匯出";
+"library_insight_export_unavailable_message" = "來自 Apple Music 的簡介只在 Primuse 裡顯示，不會匯出成檔案。AI 產生、從 Last.fm 或維基百科讀取以及自己寫的簡介可以匯出。";
+"library_insight_export_wikipedia_attribution_format" = "出處：維基百科貢獻者，%@。依 CC BY-SA 4.0 授權：https://creativecommons.org/licenses/by-sa/4.0/";

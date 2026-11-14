@@ -7393,3 +7393,7 @@
 "writeback_preflight_unsupported_format" = "มี %lld เพลงในนี้ที่แหล่งที่มาหรือรูปแบบไฟล์ไม่รองรับการเขียนแท็กลงไฟล์ การเปลี่ยนแปลงของเพลงเหล่านี้จะบันทึกไว้เฉพาะใน Primuse";
 "writeback_preflight_refused_format" = "%@ ปฏิเสธการเขียนไฟล์เมื่อครั้งก่อน (อ่านอย่างเดียวหรือไม่มีสิทธิ์เขียน) การเปลี่ยนแปลงครั้งนี้จึงอาจบันทึกไว้เฉพาะใน Primuse เช่นกัน";
 "artist_browse_hide_singles_only" = "ซ่อนศิลปินที่มีแต่ซิงเกิลหรือ EP";
+"library_insight_export_nfo_format" = "ส่งออก %@";
+"library_insight_export_unavailable_title" = "ส่งออกคำอธิบายนี้ไม่ได้";
+"library_insight_export_unavailable_message" = "คำอธิบายจาก Apple Music จะแสดงเฉพาะใน Primuse และไม่ส่งออกเป็นไฟล์ คำอธิบายที่ AI เขียน ดึงจาก Last.fm หรือวิกิพีเดีย หรือที่คุณเขียนเองส่งออกได้";
+"library_insight_export_wikipedia_attribution_format" = "ที่มา: ผู้ร่วมเขียนวิกิพีเดีย %@ เผยแพร่ภายใต้สัญญาอนุญาต CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";

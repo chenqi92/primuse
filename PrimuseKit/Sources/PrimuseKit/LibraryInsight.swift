@@ -165,6 +165,20 @@ public struct LibraryInsightRecord: Codable, Hashable, Sendable, Identifiable {
         if host == "wikipedia.org" || host.hasSuffix(".wikipedia.org") { return false }
         return host != "music.apple.com" && host != "itunes.apple.com"
     }
+
+    /// Apple Music 的目录内容:只在 Primuse 里显示,不导出成文件。
+    public var isFromAppleMusic: Bool {
+        if importedFrom?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "apple music" { return true }
+        guard let host = importedURL?.host?.lowercased() else { return false }
+        return host == "music.apple.com" || host == "itunes.apple.com"
+    }
+
+    /// 维基百科条目的地址:正文按 CC BY-SA 可以带着出处和许可拿去用,导出时附在后面。
+    public var wikipediaSourceURL: URL? {
+        guard let url = importedURL, let host = url.host?.lowercased(),
+              host == "wikipedia.org" || host.hasSuffix(".wikipedia.org") else { return nil }
+        return url
+    }
 }
 
 /// 简介的编辑与合并规则。

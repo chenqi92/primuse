@@ -115,6 +115,11 @@ struct LibraryInsightSynopsis: View {
     @State private var confirmsLastFm = false
     @State private var confirmsWikipedia = false
     @State private var confirmsAppleMusic = false
+    /// 导出好的 album.nfo / artist.nfo(iPhone、iPad 弹分享面板)。
+    @State private var exportedNFO: ExportedFileItem?
+    /// 来自 Apple Music、维基百科的简介不导出成文件,点了说明原因。
+    @State private var explainsExportUnavailable = false
+    @State private var exportFailure: String?
     @State private var isExpanded = false
     @State private var collapsedTextHeight: CGFloat = 0
     @State private var expandedTextHeight: CGFloat = 0
@@ -230,6 +235,28 @@ struct LibraryInsightSynopsis: View {
                     } message: {
                         Text("library_insight_apple_music_replace_message")
                     }
+                    .alert(
+                        Text("library_insight_export_unavailable_title"),
+                        isPresented: $explainsExportUnavailable
+                    ) {
+                        Button("ok", role: .cancel) {}
+                    } message: {
+                        Text("library_insight_export_unavailable_message")
+                    }
+                    .alert(
+                        String(localized: "songs_export_failed"),
+                        isPresented: Binding(
+                            get: { exportFailure != nil },
+                            set: { if !$0 { exportFailure = nil } }
+                        )
+                    ) {
+                        Button("ok", role: .cancel) {}
+                    } message: {
+                        Text(verbatim: exportFailure ?? "")
+                    }
+                    #if os(iOS)
+                    .exportedFileShareSheet($exportedNFO)
+                    #endif
                     .libraryDetailPresentationReset()
             }
             #if DEBUG
@@ -481,12 +508,56 @@ struct LibraryInsightSynopsis: View {
             }
             .disabled(store.isGenerating(subject) || store.retryDate(for: subject) != nil)
         }
+        Button {
+            exportNFO(record)
+        } label: {
+            Label(
+                String(format: String(localized: "library_insight_export_nfo_format"),
+                       LibraryInsightNFO.fileName(for: record.kind)),
+                systemImage: "square.and.arrow.up"
+            )
+        }
+        .disabled(store.isGenerating(subject))
         Divider()
         Button(role: .destructive) {
             isExpanded = false
             actions.remove()
         } label: {
             Label("library_insight_remove", systemImage: "trash")
+        }
+    }
+
+    /// 把这段简介导出成 album.nfo / artist.nfo,和写回音乐源时写的是同一种文件。
+    /// Apple Music 的不导出;维基百科的(CC BY-SA)在正文后面附上出处与许可。
+    private func exportNFO(_ record: LibraryInsightRecord) {
+        guard !record.isFromAppleMusic else {
+            explainsExportUnavailable = true
+            return
+        }
+        var summary = record.summary
+        if let source = record.wikipediaSourceURL {
+            summary += "\n\n" + String(
+                format: String(localized: "library_insight_export_wikipedia_attribution_format"),
+                source.absoluteString
+            )
+        }
+        guard let document = LibraryInsightNFO.updatedDocument(
+            existing: nil,
+            kind: record.kind,
+            title: record.albumTitle,
+            artist: record.artistName,
+            summary: summary,
+            tags: record.tags
+        ) else { return }
+        do {
+            let url = try LibraryInsightNFOExport.write(document, kind: record.kind)
+            #if os(macOS)
+            _ = try ExportedFileDelivery.save(url, contentTypes: [.primuseExportNFO])
+            #else
+            exportedNFO = ExportedFileItem(url: url)
+            #endif
+        } catch {
+            exportFailure = error.localizedDescription
         }
     }
 

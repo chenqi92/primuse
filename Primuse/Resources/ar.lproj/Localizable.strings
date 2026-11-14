@@ -7393,3 +7393,7 @@
 "writeback_preflight_unsupported_format" = "في %lld من هذه الأغاني، لا يدعم المصدر أو تنسيق الملف كتابة الوسوم في الملف، لذا تُحفظ تغييراتها في Primuse فقط.";
 "writeback_preflight_refused_format" = "رفض %@ الكتابة في الملفات في المرة السابقة (للقراءة فقط أو لا يوجد إذن بالكتابة)، لذا قد تُحفظ هذه التغييرات أيضًا في Primuse فقط.";
 "artist_browse_hide_singles_only" = "إخفاء الفنانين الذين لديهم أغانٍ منفردة وEP فقط";
+"library_insight_export_nfo_format" = "تصدير %@";
+"library_insight_export_unavailable_title" = "يتعذّر تصدير هذه النبذة";
+"library_insight_export_unavailable_message" = "النبذات الواردة من Apple Music تُعرض في Primuse فقط ولا تُصدَّر إلى ملفات. يمكن تصدير النبذات التي كتبها الذكاء الاصطناعي أو جُلبت من Last.fm أو ويكيبيديا أو كتبتها بنفسك.";
+"library_insight_export_wikipedia_attribution_format" = "المصدر: مساهمو ويكيبيديا، %@. مرخّص بموجب CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";

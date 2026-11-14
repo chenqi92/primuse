@@ -7393,3 +7393,7 @@
 "writeback_preflight_unsupported_format" = "इनमें से %lld गानों का स्रोत या फ़ाइल प्रारूप फ़ाइल में टैग लिखने का समर्थन नहीं करता, इसलिए उनके बदलाव केवल Primuse में सहेजे जाएँगे।";
 "writeback_preflight_refused_format" = "%@ ने पिछली बार फ़ाइलों में लिखने से मना कर दिया था (केवल-पढ़ने योग्य या लिखने की अनुमति नहीं), इसलिए हो सकता है कि ये बदलाव भी केवल Primuse में सहेजे जाएँ।";
 "artist_browse_hide_singles_only" = "केवल सिंगल या EP वाले कलाकार छिपाएँ";
+"library_insight_export_nfo_format" = "%@ निर्यात करें";
+"library_insight_export_unavailable_title" = "यह परिचय निर्यात नहीं किया जा सकता";
+"library_insight_export_unavailable_message" = "Apple Music से आए परिचय केवल Primuse में दिखाए जाते हैं और फ़ाइलों में निर्यात नहीं किए जाते। AI द्वारा लिखे गए, Last.fm या विकिपीडिया से प्राप्त या आपके द्वारा खुद लिखे गए परिचय निर्यात किए जा सकते हैं।";
+"library_insight_export_wikipedia_attribution_format" = "स्रोत: विकिपीडिया योगदानकर्ता, %@। CC BY-SA 4.0 के तहत लाइसेंस प्राप्त: https://creativecommons.org/licenses/by-sa/4.0/";

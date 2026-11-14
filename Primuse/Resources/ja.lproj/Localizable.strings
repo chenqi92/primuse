@@ -7488,3 +7488,7 @@
 "writeback_preflight_unsupported_format" = "このうち %lld 曲は、ソースまたはファイル形式がタグのファイルへの書き込みに対応していないため、変更は Primuse にのみ保存されます。";
 "writeback_preflight_refused_format" = "%@ は前回ファイルへの書き込みを拒否したため（読み取り専用または書き込み権限なし）、今回の変更も Primuse にのみ保存される可能性があります。";
 "artist_browse_hide_singles_only" = "シングルとEPのみのアーティストを非表示";
+"library_insight_export_nfo_format" = "%@ を書き出す";
+"library_insight_export_unavailable_title" = "この紹介は書き出せません";
+"library_insight_export_unavailable_message" = "Apple Music の紹介は Primuse 内でのみ表示され、ファイルには書き出されません。AI が作成した紹介、Last.fm やウィキペディアから取得した紹介、自分で書いた紹介は書き出せます。";
+"library_insight_export_wikipedia_attribution_format" = "出典：ウィキペディアの執筆者、%@。CC BY-SA 4.0 ライセンスで提供：https://creativecommons.org/licenses/by-sa/4.0/";

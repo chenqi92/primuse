@@ -7393,3 +7393,7 @@
 "writeback_preflight_unsupported_format" = "W przypadku %lld z tych utworów źródło lub format pliku nie obsługuje zapisu tagów do pliku; ich zmiany zostaną zapisane tylko w Primuse.";
 "writeback_preflight_refused_format" = "%@: ostatnio odmówiono zapisu plików (tylko do odczytu lub brak uprawnień do zapisu), więc te zmiany też mogą zostać zapisane tylko w Primuse.";
 "artist_browse_hide_singles_only" = "Ukryj wykonawców tylko z singlami i EP";
+"library_insight_export_nfo_format" = "Eksportuj %@";
+"library_insight_export_unavailable_title" = "Nie można wyeksportować tego wprowadzenia";
+"library_insight_export_unavailable_message" = "Wprowadzenia z Apple Music są wyświetlane tylko w Primuse i nie są eksportowane do plików. Wprowadzenia napisane przez AI, pobrane z Last.fm lub Wikipedii albo napisane samodzielnie można wyeksportować.";
+"library_insight_export_wikipedia_attribution_format" = "Źródło: autorzy Wikipedii, %@. Udostępniono na licencji CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";

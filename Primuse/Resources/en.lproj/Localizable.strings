@@ -7248,3 +7248,7 @@
 "writeback_preflight_unsupported_format" = "%lld of these songs are on a source or in a format that can’t store tags in the file; their changes are saved only in Primuse.";
 "writeback_preflight_refused_format" = "%@ refused to write files last time (read-only or no write permission), so these changes may also be saved only in Primuse.";
 "artist_browse_hide_singles_only" = "Hide Artists with Only Singles or EPs";
+"library_insight_export_nfo_format" = "Export %@";
+"library_insight_export_unavailable_title" = "This Introduction Can’t Be Exported";
+"library_insight_export_unavailable_message" = "Introductions from Apple Music are shown only in Primuse and aren’t exported to files. Introductions written by AI, fetched from Last.fm or Wikipedia, or written by you can be exported.";
+"library_insight_export_wikipedia_attribution_format" = "Source: Wikipedia contributors, %@. Licensed under CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
