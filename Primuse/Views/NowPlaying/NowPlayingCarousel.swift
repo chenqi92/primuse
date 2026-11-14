@@ -161,15 +161,28 @@ extension NowPlayingCarouselCard {
 
 // MARK: - 状态
 
-/// 转轮停在哪一面、拖到哪儿。播放页本体只读 `settledPage`(换页时才变),
-/// 拖动中每一帧变的 `dragTranslation` 只有转轮自己读,整页播放器不跟着重算。
+/// 转轮停在哪一面、整条挪开了多少。播放页本体只读 `settledPage`(换页时才变)。
+///
+/// 拖动、松手转到位都不走 SwiftUI 的动画:手指拖动时直接写 `offset`,松手后自己开一个 80–120Hz 的
+/// CADisplayLink 按弹簧逐帧写(SwiftUI 的属性动画在 iPhone 上只有 60Hz,见 `PlayerOverlayMotion`)。
+/// 逐帧变的 `offset` 只有页的位移、转盘和底下那层玻璃读,转轮本身、各面的内容和整页播放器都不跟着重算。
 @MainActor
 @Observable
 final class NowPlayingCarouselState {
     private(set) var settledPage: NowPlayingCarouselPage = .player
-    /// 手指横向拖了多少(已按书写方向换算成「往右为正」)。
-    var dragTranslation: CGFloat = 0
-    var isDragging = false
+    /// 整条相对停着那一页挪开了多少页(拖动、转到位途中),停稳时为 0;正数是往后一页那边去
+    /// (书写方向从左往右时是手指往左拖)。
+    private(set) var offset: Double = 0
+    private(set) var isDragging = false
+    /// 转到位的那一段在走(含拖回原处、首次回弹)。
+    private(set) var isSettling = false
+    /// 转到位途中刚离开的那一页;转到位清掉。途中它还露在外面,得挂着。
+    private(set) var departingPage: NowPlayingCarouselPage?
+    /// 上一次真正停稳的那一页:各面「停稳才干活」(卡拉 OK 真身、频谱、效果缩略图、相似歌曲)以它为准。
+    /// 拖动、转到位途中不变,转到位那一刻才换:手指一按、一松都不让面里的内容重建。
+    private(set) var restingPage: NowPlayingCarouselPage = .player
+    /// 预先挂上的相邻几面(停稳一会儿后挂上,往那边翻时不用现建)。
+    private(set) var warmPanels: Set<NowPlayingCarouselPanel> = []
     /// 从舞台进卡拉 OK 全屏时,面里那一份先卸下(会话停掉),全屏那一份才挂上;全屏收起后再挂回来。
     var isKaraokeHandedOff = false
     /// 临时指定的全屏效果(从调音、接下来进全屏时)。只给这一次全屏用,不写回用户选定的效果。
@@ -186,10 +199,21 @@ final class NowPlayingCarouselState {
     @ObservationIgnored var gestureAxis: NowPlayingCarouselPolicy.Axis?
     @ObservationIgnored var gestureAllowed = false
     @ObservationIgnored var isControlEditing = false
+    /// 这一次拖动起手时整条已经挪开的量(上一次还没转到位就又按住了)。
+    @ObservationIgnored private var gestureBaseOffset: Double = 0
+    /// 转轮这一刻的页序(容器给):换页时按它算从哪儿转过来、哪几页相邻。
+    @ObservationIgnored var pages: [NowPlayingCarouselPage] = [.player]
+    /// 减弱动态效果:松手不接手指的速度,两页交叉淡入淡出(容器给)。
+    @ObservationIgnored var reducesMotion = false
     let gestureRegions = NowPlayingCarouselGestureRegions()
     /// 相似歌曲按种子歌缓存的结果:来回翻面不再整库重算、也不再问一遍 Last.fm。
     @ObservationIgnored var similarResults: [String: [MusicDiscoveryResult]] = [:]
     @ObservationIgnored var lastFmSimilar: [String: [Song]] = [:]
+
+    @ObservationIgnored private var run: NowPlayingCarouselOffsetRun?
+    @ObservationIgnored private var link: CADisplayLink?
+    /// 最近一帧的显示时刻;中途换目标时按这一刻的速度接着走。
+    @ObservationIgnored private var lastFrameTime: CFTimeInterval?
 
     var isAwayFromPlayer: Bool { settledPage != .player }
 
@@ -198,43 +222,97 @@ final class NowPlayingCarouselState {
         settledPage != .player ? settledPage : (suspendedPage ?? .player)
     }
 
-    static let settleAnimation = Animation.spring(response: 0.52, dampingFraction: 0.86)
-    /// 松手后的那一段:不回弹,接着手指的速度转到位(`releaseVelocity`)。
+    /// 松手后的那一段:不回弹,接着手指的速度转到位(`releaseVelocity`)。点转盘、点返回也用它。
     static let releaseSpring = Spring(duration: 0.42, bounce: 0)
+    /// 减弱动态效果时的交叉淡入淡出。
+    static let reducedMotionSpring = Spring(duration: 0.3, bounce: 0)
+    static let hintSpring = Spring(response: 0.42, dampingRatio: 0.7)
+    /// 停稳多久以后预先挂上相邻的面:让开刚停稳那一下「停稳才干活」的那些事。
+    static let warmUpDelay: Duration = .milliseconds(800)
+    /// 相邻两面一面一面挂,中间隔一会儿,每次只多建一面。
+    static let warmUpStagger: Duration = .milliseconds(200)
 
-    /// 松手时转到这一面:弹簧从手指的速度起步,手感连着,不会松手那一下先顿住再转。
-    func release(onto page: NowPlayingCarouselPage, initialVelocity: Double) {
-        withAnimation(.interpolatingSpring(Self.releaseSpring, initialVelocity: initialVelocity)) {
-            settledPage = page
-            dragTranslation = 0
-            isDragging = false
+    // MARK: 拖动
+
+    /// 认定是横拖的那一下。上一次还没转到位就又按住:停在原地,从这里接着拖;跳过好几页的那一段被按住时
+    /// 直接落到目标页(中间几页没挂,不能从半路接着拖)。
+    func beginDrag() {
+        let isJump = departingIndex.map { abs($0 - (settledIndex ?? $0)) > 1 } ?? false
+        stopRun()
+        withoutAnimation {
+            if isJump { offset = 0 }
+            departingPage = nil
+            isSettling = false
+            isDragging = true
+            // 两边都挂上:往哪边拖都有真的那一面。拖回原处也留着,不白建一次。
+            let neighbors = neighborPanels(of: settledPage)
+            if !neighbors.isSubset(of: warmPanels) { warmPanels.formUnion(neighbors) }
         }
+        gestureBaseOffset = offset
     }
 
-    func settle(on page: NowPlayingCarouselPage, animated: Bool = true) {
-        let apply = {
-            self.settledPage = page
-            self.dragTranslation = 0
-            self.isDragging = false
+    /// 拖动中。`translation` 是手指的横向位移(已换成「往右为正」),两端外有阻尼。
+    func drag(translation: Double, pageWidth: Double) {
+        guard isDragging, pageWidth > 0, let index = settledIndex else { return }
+        let position = NowPlayingCarouselPolicy.position(
+            current: index,
+            translation: translation - gestureBaseOffset * pageWidth,
+            pageWidth: pageWidth,
+            pageCount: pages.count
+        )
+        offset = position - Double(index)
+    }
+
+    /// 松手:按拖过的距离与惯性挑停在哪一页(一次最多一页),弹簧从手指的速度起步,手感连着,
+    /// 不会松手那一下先顿住再转。
+    func endDrag(translation: Double, predictedEndTranslation: Double, velocity: Double, pageWidth: Double) {
+        guard let index = settledIndex, pageWidth > 0 else {
+            settle(on: settledPage)
+            return
         }
+        let base = gestureBaseOffset * pageWidth
+        let target = NowPlayingCarouselPolicy.settledIndex(
+            current: index,
+            translation: translation - base,
+            predictedEndTranslation: predictedEndTranslation - base,
+            pageWidth: pageWidth,
+            pageCount: pages.count
+        )
+        let position = Double(index) + offset
+        let relative = reducesMotion ? 0 : NowPlayingCarouselPolicy.releaseVelocity(
+            position: position,
+            target: target,
+            velocity: velocity,
+            pageWidth: pageWidth
+        )
+        // 弹簧的速度按偏移每秒走多少页算:相对速度乘上还剩的距离。
+        move(
+            to: pages[target],
+            initialVelocity: relative * (Double(target) - position),
+            spring: reducesMotion ? Self.reducedMotionSpring : Self.releaseSpring
+        )
+    }
+
+    // MARK: 换页
+
+    func settle(on page: NowPlayingCarouselPage, animated: Bool = true) {
         if animated {
-            withAnimation(Self.settleAnimation, apply)
+            move(to: page, initialVelocity: nil, spring: reducesMotion ? Self.reducedMotionSpring : Self.releaseSpring)
         } else {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction, apply)
+            snap(to: page)
         }
     }
 
     func returnToPlayer(animated: Bool = true) {
-        guard settledPage != .player || isDragging || dragTranslation != 0 else { return }
+        guard settledPage != .player || isDragging || offset != 0 || departingPage != nil else { return }
         settle(on: .player, animated: animated)
     }
 
-    /// 转轮暂时不能转:记下停着的那一面,先回到播放器。
+    /// 转轮暂时不能转:记下停着的那一面,先回到播放器。预先挂上的面也卸下(能转了停稳一会儿再挂)。
     func suspend() {
         if settledPage != .player { suspendedPage = settledPage }
         returnToPlayer(animated: false)
+        if !warmPanels.isEmpty { warmPanels = [] }
     }
 
     /// 又能转了:回到暂停前那一面(那一面这时还在转轮里的话)。
@@ -245,14 +323,17 @@ final class NowPlayingCarouselState {
         settle(on: page, animated: false)
     }
 
-    /// 收进休眠:转回播放器,忘掉暂停时停着的那一面和临时的全屏去向。
+    /// 收进休眠:转回播放器,忘掉暂停时停着的那一面和临时的全屏去向,预先挂上的面也卸下。
     func reset() {
         suspendedPage = nil
         restoresFaceAfterImmersiveLyrics = false
         landscapeDestination = nil
         isKaraokeHandedOff = false
         fullscreenEffectOverride = nil
+        isControlEditing = false
+        resetGesture()
         returnToPlayer(animated: false)
+        if !warmPanels.isEmpty { warmPanels = [] }
     }
 
     func resetGesture() {
@@ -260,22 +341,231 @@ final class NowPlayingCarouselState {
         gestureAxis = nil
         gestureAllowed = false
     }
+
+    /// 页序变了(设置里改了排布、这首歌某一面没卡片了):预先挂的面只留还相邻的。
+    func pagesDidChange(_ newPages: [NowPlayingCarouselPage]) {
+        pages = newPages
+        let neighbors = neighborPanels(of: settledPage)
+        if !warmPanels.isSubset(of: neighbors) { warmPanels = warmPanels.intersection(neighbors) }
+    }
+
+    /// 预先挂上停着那一页旁边的一面。
+    func warm(_ panel: NowPlayingCarouselPanel) {
+        guard !warmPanels.contains(panel), neighborPanels(of: settledPage).contains(panel) else { return }
+        warmPanels.insert(panel)
+    }
+
+    /// 首次回弹:不换页,整条往一边挪一点(`target` 以页为单位)再回来。
+    func nudge(to target: Double) {
+        guard !isDragging else { return }
+        animateOffset(to: target, initialVelocity: nil, spring: Self.hintSpring)
+    }
+
+    // MARK: 内部
+
+    private var settledIndex: Int? { pages.firstIndex(of: settledPage) }
+
+    private var departingIndex: Int? { departingPage.flatMap { pages.firstIndex(of: $0) } }
+
+    private func neighborPanels(of page: NowPlayingCarouselPage) -> Set<NowPlayingCarouselPanel> {
+        guard let index = pages.firstIndex(of: page) else { return [] }
+        return Set(NowPlayingCarouselPagingPolicy.neighborIndices(of: index, pageCount: pages.count).compactMap { pages[$0].panel })
+    }
+
+    private func withoutAnimation(_ body: () -> Void) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, body)
+    }
+
+    /// 转到 `page`:是别的页就换页(偏移按换页前的位置接上),然后整条转到位。
+    private func move(to page: NowPlayingCarouselPage, initialVelocity: Double?, spring: Spring) {
+        guard let from = settledIndex, let to = pages.firstIndex(of: page) else {
+            snap(to: page)
+            return
+        }
+        let isJump = abs(to - from) > 1
+        // 接着正在走的那一段的速度;跳页时整条只走一页宽,速度的意思不一样了,从静止起步。
+        let velocity = initialVelocity ?? (isJump ? 0 : currentVelocity)
+        withoutAnimation {
+            if to != from {
+                offset = NowPlayingCarouselPagingPolicy.offset(changingFrom: from, to: to, currentOffset: offset)
+                departingPage = settledPage
+                settledPage = page
+            }
+            isDragging = false
+        }
+        animateOffset(to: 0, initialVelocity: velocity, spring: spring)
+    }
+
+    /// 不动画,直接停到 `page`。
+    private func snap(to page: NowPlayingCarouselPage) {
+        stopRun()
+        withoutAnimation {
+            settledPage = page
+            offset = 0
+            isDragging = false
+            isSettling = false
+            departingPage = nil
+            restingPage = page
+            let neighbors = neighborPanels(of: page)
+            if !warmPanels.isSubset(of: neighbors) { warmPanels = warmPanels.intersection(neighbors) }
+        }
+    }
+
+    private var currentVelocity: Double {
+        guard let run = self.run, let time = lastFrameTime else { return 0 }
+        return run.velocity(at: time)
+    }
+
+    private func animateOffset(to target: Double, initialVelocity: Double?, spring: Spring) {
+        let velocity = initialVelocity ?? currentVelocity
+        if abs(offset - target) < NowPlayingCarouselOffsetRun.valueEpsilon,
+           abs(velocity) < NowPlayingCarouselOffsetRun.velocityEpsilon {
+            stopRun()
+            offset = target
+            if target == 0 { finishSettling() }
+            return
+        }
+        run = NowPlayingCarouselOffsetRun(from: offset, to: target, initialVelocity: velocity, spring: spring)
+        if !isSettling { isSettling = true }
+        startLink()
+    }
+
+    /// 转到位:刚离开的那一页紧挨着停着的这一页就留着(往回翻不用重挂),不相邻的预挂面卸下;
+    /// 「停稳才干活」的那些事这时才换到新的一页。
+    private func finishSettling() {
+        var warm = warmPanels
+        if let panel = departingPage?.panel { warm.insert(panel) }
+        warm.formIntersection(neighborPanels(of: settledPage))
+        if warm != warmPanels { warmPanels = warm }
+        if departingPage != nil { departingPage = nil }
+        if isSettling { isSettling = false }
+        if restingPage != settledPage { restingPage = settledPage }
+    }
+
+    fileprivate func advance(_ link: CADisplayLink) {
+        let time = link.targetTimestamp
+        lastFrameTime = time
+        guard var run = self.run else {
+            stopLink()
+            return
+        }
+        // 第一帧从上一次上屏的时刻起算,换页那一下慢了也不会跳过开头。
+        if run.startTime == nil { run.startTime = link.timestamp }
+        let sample = run.sample(at: time)
+        if sample.isSettled {
+            self.run = nil
+            offset = run.target
+            stopLink()
+            if run.target == 0 { finishSettling() }
+        } else {
+            self.run = run
+            offset = sample.value
+        }
+    }
+
+    private func stopRun() {
+        run = nil
+        stopLink()
+    }
+
+    private func startLink() {
+        guard link == nil else { return }
+        let link = CADisplayLink(
+            target: NowPlayingCarouselDisplayLinkTarget(state: self),
+            selector: #selector(NowPlayingCarouselDisplayLinkTarget.tick(_:))
+        )
+        // Info.plist 已开 CADisableMinimumFrameDurationOnPhone;低电量、发热时系统自己往下压。
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    private func stopLink() {
+        link?.invalidate()
+        link = nil
+        lastFrameTime = nil
+    }
+}
+
+/// 一段弹簧:偏移从 `from` 走到 `from + delta`,`startTime` 在第一帧上填。离终点与速度都小于阈值就算到位;
+/// `Spring.settlingDuration` 把速度也压到同一阈值,要多等一截,只当兜底的上限。
+private struct NowPlayingCarouselOffsetRun {
+    /// 0.0005 页(整屏宽约 0.2 点)、每秒 0.012 页(约 5 点)以内算到位。
+    static let valueEpsilon = 0.0005
+    static let velocityEpsilon = 0.012
+
+    let spring: Spring
+    let from: Double
+    let delta: Double
+    let initialVelocity: Double
+    let maximumDuration: TimeInterval
+    var startTime: CFTimeInterval?
+
+    init(from: Double, to target: Double, initialVelocity: Double, spring: Spring) {
+        self.spring = spring
+        self.from = from
+        delta = target - from
+        self.initialVelocity = initialVelocity.isFinite ? initialVelocity : 0
+        let duration = spring.settlingDuration(
+            target: delta,
+            initialVelocity: self.initialVelocity,
+            epsilon: Self.valueEpsilon
+        )
+        maximumDuration = duration.isFinite ? min(max(duration, 0.05), 2) : 1
+    }
+
+    var target: Double { from + delta }
+
+    func sample(at time: CFTimeInterval) -> (value: Double, isSettled: Bool) {
+        let elapsed = elapsed(at: time)
+        let travelled = spring.value(target: delta, initialVelocity: initialVelocity, time: elapsed)
+        let velocity = spring.velocity(target: delta, initialVelocity: initialVelocity, time: elapsed)
+        let isSettled = elapsed >= maximumDuration
+            || (abs(delta - travelled) < Self.valueEpsilon && abs(velocity) < Self.velocityEpsilon)
+        return (from + travelled, isSettled)
+    }
+
+    func velocity(at time: CFTimeInterval) -> Double {
+        spring.velocity(target: delta, initialVelocity: initialVelocity, time: elapsed(at: time))
+    }
+
+    private func elapsed(at time: CFTimeInterval) -> TimeInterval {
+        startTime.map { max(0, time - $0) } ?? 0
+    }
+}
+
+/// CADisplayLink 强引用 target;经这层弱引用转发,转轮没了链接自己停。
+@MainActor
+private final class NowPlayingCarouselDisplayLinkTarget: NSObject {
+    weak var state: NowPlayingCarouselState?
+
+    init(state: NowPlayingCarouselState) {
+        self.state = state
+    }
+
+    @objc func tick(_ link: CADisplayLink) {
+        guard let state else {
+            link.invalidate()
+            return
+        }
+        state.advance(link)
+    }
 }
 
 /// 某一面现在的状态。卡拉 OK 这种一挂上就开始干活的只在 `.settled` 时才挂真身。
 enum NowPlayingCarouselPanelPhase: Hashable {
-    /// 正被拖着或转动途中露出来。
+    /// 预先挂着、正被拖进来或转到位途中。
     case preview
-    /// 停稳在这一面。
+    /// 停稳在这一面(之后拖动、转走的途中也还算,转到别的页停稳才换)。
     case settled
 }
 
-/// 一面要画成什么样:阶段、要不要入场、此刻露不露在外面、放哪几张卡。
+/// 一面要画成什么样:阶段、此刻露不露在外面、放哪几张卡。只在停稳、换卡时才变,拖动中不变。
 struct NowPlayingCarouselFaceContext: Hashable {
     var phase: NowPlayingCarouselPanelPhase
-    /// 转轮已经认定停在这一面(松手那一刻起):卡片的错峰入场从这时开始,不等转动停稳。
-    var isCommitted: Bool
-    /// 播放页此刻露在外面(没收起、没被弹出页盖住):频谱这类持续干活的东西只在这时动。
+    /// 播放页此刻露在外面(没收起、没被弹出页盖住)而且停在这一面:频谱这类持续干活的东西只在这时动。
     var isSurfaceExposed: Bool
     var cards: [NowPlayingCarouselCard]
 
@@ -284,11 +574,12 @@ struct NowPlayingCarouselFaceContext: Hashable {
 
 // MARK: - 容器
 
-/// 播放页的转轮:播放器居中,两侧按设置排几面,左右滑动像转一个立方体一样转过去。
+/// 播放页的转轮:播放器居中,两侧按设置排几面,左右滑动整页翻过去(页与页并排,上一页整页移走,
+/// 不留边角;减弱动态效果时两页交叉淡入淡出)。
 ///
-/// 播放器那一面始终挂着(身份不变,歌词 / 封面的转场照旧);两侧的面只在露出来的时候才挂上。
-/// `isActive` 为 false 时(横屏、歌词、有声内容等)只画播放器,不认横滑,结构不变;停着的那一面先记下,
-/// 能转了再转回去。
+/// 播放器那一面始终挂着(身份不变,歌词 / 封面的转场照旧);两侧的面停着的那一页挂着,相邻的停稳一会儿后
+/// 预先挂上(一面一面挂),翻页时只剩平移。`isActive` 为 false 时(横屏、歌词、有声内容等)只画播放器,
+/// 不认横滑,结构不变;停着的那一面先记下,能转了再转回去。
 struct NowPlayingCarouselContainer<Center: View>: View {
     let isActive: Bool
     let configuration: NowPlayingCarouselConfiguration
@@ -364,37 +655,81 @@ struct NowPlayingCarouselContainer<Center: View>: View {
         let pages = visible.pages
         let playerIndex = visible.playerPageIndex
         let settledIndex = pages.firstIndex(of: state.settledPage) ?? playerIndex
-        let position = isActive
-            ? NowPlayingCarouselPolicy.position(
-                current: settledIndex,
-                translation: Double(state.dragTranslation),
-                pageWidth: Double(size.width),
-                pageCount: pages.count
-            )
-            : Double(playerIndex)
+        let departingIndex = state.departingPage.flatMap { pages.firstIndex(of: $0) }
+        let mounted = isActive ? mountedPanels(pages: pages, settledIndex: settledIndex, departingIndex: departingIndex) : []
+        let playerSlot = isActive
+            ? NowPlayingCarouselPagingPolicy.slot(pageIndex: playerIndex, settledIndex: settledIndex, departingIndex: departingIndex)
+            : 0
+        let width = size.width
 
-        NowPlayingCarouselStage(
-            position: position,
-            pages: pages,
-            playerIndex: playerIndex,
-            settledIndex: settledIndex,
-            isActive: isActive,
-            isDragging: state.isDragging,
-            direction: Double(direction),
-            safeInsets: safeInsets,
-            appearance: appearance,
-            isSurfaceExposed: isSurfaceExposed,
-            cards: { cardSettings.visibleCards(on: $0, in: cardContext) },
-            panel: panel,
-            onSelect: { index in
-                guard pages.indices.contains(index) else { return }
-                state.settle(on: pages[index])
-            },
-            center: center,
-            width: size.width
-        )
+        ZStack {
+            // 两侧页底下那层玻璃:不跟着页走,播放器移走多少就显出多少,两侧的面之间翻页时一直铺满,不出接缝。
+            if isActive, pages.count > 1 {
+                NowPlayingCarouselFaceBackdrop(state: state, playerSlot: playerSlot, appearance: appearance)
+            }
+
+            center
+                .modifier(NowPlayingCarouselPageMotion(
+                    state: state,
+                    slot: playerSlot,
+                    width: width,
+                    direction: Double(direction),
+                    reducesMotion: reduceMotion,
+                    isActive: isActive
+                ))
+                .allowsHitTesting(!isActive || settledIndex == playerIndex)
+                .accessibilityHidden(isActive && settledIndex != playerIndex)
+
+            ForEach(mounted, id: \.self) { kind in
+                let index = pages.firstIndex(of: .panel(kind)) ?? settledIndex
+                let isResting = state.restingPage == .panel(kind)
+                let context = NowPlayingCarouselFaceContext(
+                    phase: isResting ? .settled : .preview,
+                    isSurfaceExposed: isSurfaceExposed && isResting,
+                    cards: cardSettings.visibleCards(on: kind, in: cardContext)
+                )
+                NowPlayingCarouselPanelSlot(
+                    key: .init(panel: kind, context: context, isLight: appearance.isLight),
+                    make: { panel(kind, context) }
+                )
+                .equatable()
+                .modifier(NowPlayingCarouselPageMotion(
+                    state: state,
+                    slot: NowPlayingCarouselPagingPolicy.slot(
+                        pageIndex: index,
+                        settledIndex: settledIndex,
+                        departingIndex: departingIndex
+                    ),
+                    width: width,
+                    direction: Double(direction),
+                    reducesMotion: reduceMotion,
+                    isActive: true
+                ))
+                .allowsHitTesting(index == settledIndex)
+                .accessibilityHidden(index != settledIndex)
+            }
+        }
+        .overlay(alignment: .top) {
+            if isActive, pages.count > 1 {
+                NowPlayingCarouselDialHost(
+                    state: state,
+                    pages: pages,
+                    playerIndex: playerIndex,
+                    settledIndex: settledIndex,
+                    departingIndex: departingIndex,
+                    darkPageIndices: darkPageIndices(pages),
+                    appearance: appearance,
+                    width: width,
+                    safeInsets: safeInsets,
+                    onSelect: { index in
+                        guard pages.indices.contains(index) else { return }
+                        state.settle(on: pages[index])
+                    }
+                )
+            }
+        }
         .contentShape(Rectangle())
-        .simultaneousGesture(carouselDrag(pages: pages, settledIndex: settledIndex, playerIndex: playerIndex), including: isActive ? .all : .subviews)
+        .simultaneousGesture(carouselDrag(settledIndex: settledIndex, playerIndex: playerIndex), including: isActive ? .all : .subviews)
         .environment(\.nowPlayingCarouselControlEditing, controlEditingHandler)
         .environment(\.nowPlayingCarouselGestureRegions, state.gestureRegions)
         .sensoryFeedback(.selection, trigger: state.settledPage)
@@ -402,9 +737,7 @@ struct NowPlayingCarouselContainer<Center: View>: View {
             // 手势被系统打断时没有 onEnded:弹回停着的那一页。
             guard !active else { return }
             state.resetGesture()
-            if state.isDragging || state.dragTranslation != 0 {
-                state.settle(on: state.settledPage)
-            }
+            if state.isDragging { state.settle(on: state.settledPage) }
         }
         .onChange(of: isActive) { _, active in
             if active {
@@ -413,8 +746,12 @@ struct NowPlayingCarouselContainer<Center: View>: View {
                 state.suspend()
             }
         }
-        .onChange(of: pages) { _, newPages in
+        .onChange(of: pages, initial: true) { _, newPages in
+            state.pagesDidChange(newPages)
             if !newPages.contains(state.settledPage) { state.returnToPlayer(animated: false) }
+        }
+        .onChange(of: reduceMotion, initial: true) { _, reduces in
+            state.reducesMotion = reduces
         }
         .onChange(of: isKaraokeCoverPresented) { _, presented in
             if !presented { state.isKaraokeHandedOff = false }
@@ -422,10 +759,19 @@ struct NowPlayingCarouselContainer<Center: View>: View {
         .onAppear {
             // 全屏效果收起后普通播放页重新装上:临时指定的效果用完了,停着的那一面照旧在。
             state.fullscreenEffectOverride = nil
+            // 进全屏时面里的双指张开、滑杆还按着就被整页卸下,没机会说「松开了」;重新装上时一律当作没在调。
+            state.isControlEditing = false
             if isActive { state.resume(in: pages) }
         }
+        .task(id: WarmUpKey(
+            settledPage: state.settledPage,
+            pages: pages,
+            isReady: isActive && isSurfaceExposed && !state.isDragging && !state.isSettling
+        )) {
+            await warmUpNeighbors(pages: pages, settledIndex: settledIndex)
+        }
         .task(id: hintTrigger) {
-            await playHintIfNeeded(visible)
+            await playHintIfNeeded(visible, pages: pages, settledIndex: settledIndex)
         }
         #if DEBUG
         .task {
@@ -438,7 +784,31 @@ struct NowPlayingCarouselContainer<Center: View>: View {
         #endif
     }
 
-    private func carouselDrag(pages: [NowPlayingCarouselPage], settledIndex: Int, playerIndex: Int) -> some Gesture {
+    /// 此刻要挂着的两侧面(规则见 `NowPlayingCarouselPagingPolicy.mountedIndices`)。
+    private func mountedPanels(
+        pages: [NowPlayingCarouselPage],
+        settledIndex: Int,
+        departingIndex: Int?
+    ) -> [NowPlayingCarouselPanel] {
+        let warm = Set(state.warmPanels.compactMap { pages.firstIndex(of: .panel($0)) })
+        return NowPlayingCarouselPagingPolicy.mountedIndices(
+            settledIndex: settledIndex,
+            departingIndex: departingIndex,
+            warmIndices: warm,
+            isDragging: state.isDragging,
+            pageCount: pages.count
+        )
+        .compactMap { pages[$0].panel }
+    }
+
+    /// 整页是深色卡拉 OK 舞台的那几页:转盘停在上面时换成浅色的字。
+    private func darkPageIndices(_ pages: [NowPlayingCarouselPage]) -> Set<Int> {
+        guard let index = pages.firstIndex(of: .panel(.stage)),
+              cardSettings.visibleCards(on: .stage, in: cardContext).contains(.karaoke) else { return [] }
+        return [index]
+    }
+
+    private func carouselDrag(settledIndex: Int, playerIndex: Int) -> some Gesture {
         DragGesture(minimumDistance: 10, coordinateSpace: .global)
             .updating($isGestureActive) { _, active, _ in active = true }
             .onChanged { value in
@@ -456,36 +826,48 @@ struct NowPlayingCarouselContainer<Center: View>: View {
                     )
                 }
                 guard state.gestureAxis == .horizontal else { return }
-                if !state.isDragging { state.isDragging = true }
-                state.dragTranslation = value.translation.width * direction
+                if !state.isDragging { state.beginDrag() }
+                state.drag(translation: Double(value.translation.width * direction), pageWidth: Double(size.width))
             }
             .onEnded { value in
                 defer { state.resetGesture() }
                 guard state.gestureAxis == .horizontal, state.isDragging else { return }
-                let translation = Double(value.translation.width * direction)
-                let target = NowPlayingCarouselPolicy.settledIndex(
-                    current: settledIndex,
-                    translation: translation,
+                state.endDrag(
+                    translation: Double(value.translation.width * direction),
                     predictedEndTranslation: Double(value.predictedEndTranslation.width * direction),
-                    pageWidth: Double(size.width),
-                    pageCount: pages.count
-                )
-                let releasedAt = NowPlayingCarouselPolicy.position(
-                    current: settledIndex,
-                    translation: Double(state.dragTranslation),
-                    pageWidth: Double(size.width),
-                    pageCount: pages.count
-                )
-                state.release(
-                    onto: pages[target],
-                    initialVelocity: reduceMotion ? 0 : NowPlayingCarouselPolicy.releaseVelocity(
-                        position: releasedAt,
-                        target: target,
-                        velocity: Double(value.velocity.width * direction),
-                        pageWidth: Double(size.width)
-                    )
+                    velocity: Double(value.velocity.width * direction),
+                    pageWidth: Double(size.width)
                 )
             }
+    }
+
+    // MARK: 预先挂上相邻的面
+
+    private struct WarmUpKey: Equatable {
+        let settledPage: NowPlayingCarouselPage
+        let pages: [NowPlayingCarouselPage]
+        let isReady: Bool
+    }
+
+    /// 停稳一会儿后把相邻的面挂上,一面一面来;往那边翻时只剩平移,不在手指刚动的那一帧现建一整面。
+    /// 拖动、转到位途中、播放页没露在外面(收着、被弹出页盖着)时不挂。
+    private func warmUpNeighbors(pages: [NowPlayingCarouselPage], settledIndex: Int) async {
+        guard isActive, isSurfaceExposed, !state.isDragging, !state.isSettling else { return }
+        do {
+            try await Task.sleep(for: NowPlayingCarouselState.warmUpDelay)
+        } catch {
+            return
+        }
+        for index in NowPlayingCarouselPagingPolicy.neighborIndices(of: settledIndex, pageCount: pages.count) {
+            guard !Task.isCancelled else { return }
+            guard let panel = pages[index].panel, !state.warmPanels.contains(panel) else { continue }
+            state.warm(panel)
+            do {
+                try await Task.sleep(for: NowPlayingCarouselState.warmUpStagger)
+            } catch {
+                return
+            }
+        }
     }
 
     // MARK: 首次回弹
@@ -496,134 +878,161 @@ struct NowPlayingCarouselContainer<Center: View>: View {
     }
 
     /// 轻轻往右边、再往左边各露一点,让人知道两边有东西。只做一次;减弱动态效果时不动,只记下做过了。
-    private func playHintIfNeeded(_ visible: NowPlayingCarouselConfiguration) async {
+    /// 做完才记下:记下那一刻 `hintTrigger` 变了,这个任务随之取消,不能先记再做。
+    private func playHintIfNeeded(
+        _ visible: NowPlayingCarouselConfiguration,
+        pages: [NowPlayingCarouselPage],
+        settledIndex: Int
+    ) async {
         guard hintTrigger else { return }
-        try? await Task.sleep(for: .seconds(1.2))
-        guard !Task.isCancelled, hintTrigger, !state.isDragging else { return }
-        hintShown = true
-        guard !reduceMotion else { return }
+        do {
+            try await Task.sleep(for: .seconds(1.2))
+        } catch {
+            return
+        }
+        guard hintTrigger, !state.isDragging else { return }
+        guard !reduceMotion else {
+            hintShown = true
+            return
+        }
+        // 露出来的是真的那一面:还没预先挂上的先挂上。
+        for index in NowPlayingCarouselPagingPolicy.neighborIndices(of: settledIndex, pageCount: pages.count) {
+            if let panel = pages[index].panel { state.warm(panel) }
+        }
+        do {
+            try await Task.sleep(for: .milliseconds(250))
+        } catch {
+            return
+        }
         let steps = NowPlayingCarouselHintPolicy.bounceSteps(
             hasLeading: !visible.leading.isEmpty,
             hasTrailing: !visible.trailing.isEmpty
         )
+        var isComplete = true
         for step in steps {
-            guard !state.isDragging, state.settledPage == .player else { return }
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.7)) {
-                state.dragTranslation = CGFloat(step) * size.width
+            guard !Task.isCancelled, !state.isDragging, state.settledPage == .player else {
+                isComplete = false
+                break
             }
-            try? await Task.sleep(for: .milliseconds(step == 0 ? 0 : 420))
+            // 回弹的几步按手指位移的方向写,偏移和它反号。
+            state.nudge(to: -step)
+            guard step != 0 else { continue }
+            do {
+                try await Task.sleep(for: .milliseconds(420))
+            } catch {
+                isComplete = false
+                break
+            }
+        }
+        if isComplete {
+            hintShown = true
+        } else if !state.isDragging, state.offset != 0 {
+            // 中途被打断(弹出页盖上之类)也别停在半路。
+            state.nudge(to: 0)
         }
     }
 }
 
-// MARK: - 舞台(逐帧)
+// MARK: - 逐帧的几层
 
-/// 转轮的画面。`position` 是可动画的:换页时 SwiftUI 逐帧插值、逐帧重算哪几页露出来,
-/// 一次跳好几页(点顶上的转盘)时中间的页也会依次转过,像真的转了一圈。
-private struct NowPlayingCarouselStage<Center: View>: View, Animatable {
-    var position: Double
+/// 一页的平移:只有这个修饰符读逐帧变的偏移,页里的内容不跟着重算。每帧只改一个平移(减弱动态效果时只改透明度),
+/// 不做三维变换、不叠压暗层,整页不必另开离屏绘制;整页移出去以后不画。
+private struct NowPlayingCarouselPageMotion: ViewModifier {
+    let state: NowPlayingCarouselState
+    /// 这一页排在停着那一页的第几格(`NowPlayingCarouselPagingPolicy.slot`)。
+    let slot: Int
+    let width: CGFloat
+    /// 书写方向从右往左时整条镜像。
+    let direction: Double
+    let reducesMotion: Bool
+    /// 转轮不转时(只画播放器)不读偏移,也就不随它重画。
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        let progress = isActive ? NowPlayingCarouselPagingPolicy.progress(slot: slot, offset: state.offset) : 0
+        let isOnScreen = NowPlayingCarouselPagingPolicy.isOnScreen(progress: progress)
+        // 减弱动态效果时露着的页留在原处交叉淡入淡出;看不见的页照样挪到屏幕外,
+        // 它们记下的横向内容区(滑杆、横向滚动条)才不会挡住停着那一页上的横滑。
+        let shift = reducesMotion && isOnScreen ? 0 : CGFloat(progress * direction) * width
+        // 两种都套同样几层,换减弱动态效果的设置时页的身份不变。
+        content
+            .offset(x: shift)
+            .opacity(
+                reducesMotion
+                    ? NowPlayingCarouselPagingPolicy.crossfadeOpacity(progress: progress)
+                    : (isOnScreen ? 1 : 0)
+            )
+    }
+}
+
+/// 两侧页底下那层半透明的玻璃:播放页背景(封面取色)不动,两侧的面压在这层上,看得出是另一页。
+/// 不跟着页走,播放器移走多少就显出多少,只改颜色的深浅,不整层调透明度。
+private struct NowPlayingCarouselFaceBackdrop: View {
+    let state: NowPlayingCarouselState
+    let playerSlot: Int
+    let appearance: NowPlayingAppearance
+
+    var body: some View {
+        let amount = NowPlayingCarouselPagingPolicy.backdropAmount(
+            playerProgress: NowPlayingCarouselPagingPolicy.progress(slot: playerSlot, offset: state.offset)
+        )
+        NowPlayingCarouselFaceBackground(appearance: appearance, amount: amount)
+            .opacity(amount > 0.001 ? 1 : 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// 顶上的转盘:跟着偏移逐帧走。停在播放器上时整条居中、绕着把手;转到两侧的面时滑到左边,右边让给这一面的
+/// 两颗键,和它们排成一行。停到深色的卡拉 OK 舞台上时换浅色的字,照样在,随时点得到别的面。
+private struct NowPlayingCarouselDialHost: View {
+    let state: NowPlayingCarouselState
     let pages: [NowPlayingCarouselPage]
     let playerIndex: Int
     let settledIndex: Int
-    let isActive: Bool
-    let isDragging: Bool
-    let direction: Double
-    let safeInsets: EdgeInsets
+    let departingIndex: Int?
+    let darkPageIndices: Set<Int>
     let appearance: NowPlayingAppearance
-    let isSurfaceExposed: Bool
-    let cards: (NowPlayingCarouselPanel) -> [NowPlayingCarouselCard]
-    let panel: (NowPlayingCarouselPanel, NowPlayingCarouselFaceContext) -> AnyView
-    let onSelect: (Int) -> Void
-    let center: Center
     /// 转轮的宽度,转盘居中时用。
     let width: CGFloat
-    @State private var dialWidth: CGFloat = 0
+    let safeInsets: EdgeInsets
+    let onSelect: (Int) -> Void
 
-    nonisolated var animatableData: Double {
-        get { position }
-        set { position = newValue }
-    }
-
-    private var isAtRest: Bool {
-        !isDragging && abs(position - Double(settledIndex)) < 0.0005
-    }
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let visible = isActive
-            ? NowPlayingCarouselPolicy.visiblePageIndices(position: position, pageCount: pages.count)
-            : playerIndex...playerIndex
-        let centerProgress = isActive ? (Double(playerIndex) - position) * direction : 0
-
-        ZStack {
-            center
-                .overlay { NowPlayingCarouselFaceShade(progress: centerProgress) }
-                .modifier(NowPlayingCarouselFaceEffect(progress: centerProgress))
-                .opacity(abs(centerProgress) >= 0.999 ? 0 : 1)
-                .allowsHitTesting(!isActive || settledIndex == playerIndex)
-                .accessibilityHidden(isActive && settledIndex != playerIndex)
-
-            if isActive {
-                ForEach(Array(visible), id: \.self) { index in
-                    if let kind = pages[index].panel {
-                        let progress = (Double(index) - position) * direction
-                        let context = NowPlayingCarouselFaceContext(
-                            phase: index == settledIndex && isAtRest ? .settled : .preview,
-                            isCommitted: index == settledIndex,
-                            isSurfaceExposed: isSurfaceExposed,
-                            cards: cards(kind)
-                        )
-                        NowPlayingCarouselPanelSlot(
-                            key: .init(panel: kind, context: context, isLight: appearance.isLight),
-                            make: { panel(kind, context) }
-                        )
-                        .equatable()
-                        .overlay { NowPlayingCarouselFaceShade(progress: progress) }
-                        .modifier(NowPlayingCarouselFaceEffect(progress: progress))
-                        .opacity(abs(progress) >= 0.999 ? 0 : 1)
-                        .allowsHitTesting(index == settledIndex)
-                        .accessibilityHidden(index != settledIndex)
-                    }
-                }
-            }
+        let position = NowPlayingCarouselPagingPolicy.dialPosition(
+            settledIndex: settledIndex,
+            offset: state.offset,
+            departingIndex: departingIndex
+        )
+        let chrome = NowPlayingCarouselPolicy.dialChrome(position: position, playerIndex: playerIndex)
+        let nearest = min(max(Int(position.rounded()), 0), max(pages.count - 1, 0))
+        let isOverDarkPage = darkPageIndices.contains(nearest)
+        let edge = NowPlayingCarouselDial.edgeInset + safeInsets.leading
+        let spread = CGFloat(chrome)
+        NowPlayingCarouselDial(
+            pages: pages,
+            position: position,
+            chrome: chrome,
+            appearance: isOverDarkPage ? NowPlayingAppearance(colorScheme: .dark, contrast: .standard) : appearance,
+            onSelect: onSelect
+        )
+        .environment(\.colorScheme, isOverDarkPage ? .dark : colorScheme)
+        // 按转盘自己的宽度在居中与靠左之间插值:对齐线当场量,不经过一次状态回写再排一遍。
+        .alignmentGuide(.leading) { dimensions in
+            let centered = max((width - dimensions.width) / 2, 0)
+            return -(centered + (edge - centered) * spread)
         }
-        .overlay(alignment: .top) {
-            if isActive, pages.count > 1 {
-                let chrome = NowPlayingCarouselPolicy.dialChrome(position: position, playerIndex: playerIndex)
-                // 停在播放器上时整条居中、绕着把手;转到两侧的面时滑到左边,右边让给这一面的两颗键,
-                // 和它们排成一行。
-                let centered = max((width - dialWidth) / 2, 0)
-                let edge = NowPlayingCarouselDial.edgeInset + safeInsets.leading
-                NowPlayingCarouselDial(
-                    pages: pages,
-                    position: position,
-                    chrome: chrome,
-                    appearance: appearance,
-                    onSelect: onSelect
-                )
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { dialWidth = $0 }
-                .padding(.leading, centered + (edge - centered) * chrome)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, safeInsets.top + NowPlayingCarouselDial.topInset)
-                // 停在播放器上时整条收矮、往上挪,图标与把手中心对齐,整条的下沿在封面上沿之上
-                // (把手占安全区下 6 到 11 点,封面从 21 点起)。
-                .offset(y: -NowPlayingCarouselDial.restingLift * (1 - chrome))
-                .opacity(dialOpacity)
-                // 停到卡拉 OK 舞台上让出、从那里拖出来再出现:淡入淡出,不是一下没了、一下冒出来。
-                .animation(.easeOut(duration: 0.2), value: dialOpacity)
-                .allowsHitTesting(dialOpacity > 0.5)
-            }
-        }
-    }
-
-    /// 转动中总在;停在播放器上时淡淡地露在把手两边;停在整页自带顶栏的卡拉 OK 舞台上时让给它。
-    private var dialOpacity: Double {
-        if !isAtRest { return 1 }
-        guard let kind = pages[settledIndex].panel else { return 1 }
-        return kind == .stage && cards(kind).contains(.karaoke) ? 0 : 1
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, safeInsets.top + NowPlayingCarouselDial.topInset)
+        // 停在播放器上时整条收矮、往上挪,图标与把手中心对齐,整条的下沿在封面上沿之上
+        // (把手占安全区下 6 到 11 点,封面从 21 点起)。
+        .offset(y: -NowPlayingCarouselDial.restingLift * (1 - spread))
     }
 }
 
-/// 两侧的面按 (面, 状态, 深浅) 比较:拖动中逐帧重算舞台时,面里的内容不跟着每帧重算。
+/// 两侧的面按 (面, 状态, 深浅) 比较:转轮因为拖动、换页重算时,面里的内容不跟着重算。
 private struct NowPlayingCarouselPanelSlot: View, Equatable {
     struct Key: Equatable {
         let panel: NowPlayingCarouselPanel
@@ -637,53 +1046,6 @@ private struct NowPlayingCarouselPanelSlot: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.key == rhs.key }
 
     var body: some View { make() }
-}
-
-/// 立方体的一面:`progress` 为 0 时正对着人,±1 时转到侧面。右边那面以左边沿为轴、
-/// 左边那面以右边沿为轴,透视中心在这一面的中心。动画由舞台逐帧驱动,这里自己不插值。
-private struct NowPlayingCarouselFaceEffect: GeometryEffect {
-    var progress: Double
-
-    var animatableData: EmptyAnimatableData {
-        get { EmptyAnimatableData() }
-        set {}
-    }
-
-    func effectValue(size: CGSize) -> ProjectionTransform {
-        let p = CGFloat(min(max(progress, -1), 1))
-        guard p != 0, size.width > 0, size.height > 0 else { return ProjectionTransform() }
-        let width = size.width
-        let height = size.height
-        let hingeX: CGFloat = p > 0 ? 0 : width
-
-        var transform = CATransform3DMakeTranslation(-hingeX, -height / 2, 0)
-        transform = CATransform3DConcat(transform, CATransform3DMakeRotation(p * .pi / 2, 0, 1, 0))
-        transform = CATransform3DConcat(transform, CATransform3DMakeTranslation(hingeX + p * width, height / 2, 0))
-        // 透视以这一面的中心为灭点,不然整面会往左上角歪。
-        var perspective = CATransform3DIdentity
-        perspective.m34 = -1 / (max(width, height) * 1.5)
-        transform = CATransform3DConcat(transform, CATransform3DMakeTranslation(-width / 2, -height / 2, 0))
-        transform = CATransform3DConcat(transform, perspective)
-        transform = CATransform3DConcat(transform, CATransform3DMakeTranslation(width / 2, height / 2, 0))
-        return ProjectionTransform(transform)
-    }
-}
-
-/// 转到侧面的那一面压暗一些,立体感靠它。
-private struct NowPlayingCarouselFaceShade: View {
-    let progress: Double
-
-    var body: some View {
-        let amount = min(abs(progress), 1)
-        LinearGradient(
-            colors: [Color.black.opacity(amount * 0.42), Color.black.opacity(amount * 0.22)],
-            startPoint: progress > 0 ? .trailing : .leading,
-            endPoint: progress > 0 ? .leading : .trailing
-        )
-        .opacity(amount > 0.001 ? 1 : 0)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
 }
 
 // MARK: - 顶上的转盘
@@ -815,7 +1177,8 @@ struct NowPlayingCarouselDial: View {
 // MARK: - 两侧普通面的外壳
 
 /// 两侧普通面共用的外壳:顶上一行左边是转盘(当前这一面在转盘上写着名字),右边是进全屏与「回到播放器」,
-/// 中间是内容,底下一条正在播放。双指张开也进全屏(去向由调用方按面定)。
+/// 中间是内容,底下一条正在播放。双指张开也进全屏(去向由调用方按面定)。底下那层玻璃由转轮统一铺
+/// (`NowPlayingCarouselFaceBackdrop`),不跟着页走。
 struct NowPlayingCarouselPanelPage<Content: View>: View {
     let panel: NowPlayingCarouselPanel
     let side: NowPlayingCarouselConfiguration.Side
@@ -828,10 +1191,14 @@ struct NowPlayingCarouselPanelPage<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-                .padding(.top, safeInsets.top + NowPlayingCarouselDial.topInset)
-                .padding(.horizontal, NowPlayingCarouselDial.edgeInset)
-                .padding(.bottom, 12)
+            NowPlayingCarouselFaceHeader(
+                side: side,
+                safeInsets: safeInsets,
+                appearance: appearance,
+                onExpand: onExpand,
+                onReturnToPlayer: onReturnToPlayer
+            )
+            .padding(.bottom, 12)
 
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -846,12 +1213,20 @@ struct NowPlayingCarouselPanelPage<Content: View>: View {
         .padding(.leading, safeInsets.leading)
         .padding(.trailing, safeInsets.trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background { NowPlayingCarouselFaceBackground(appearance: appearance) }
         .nowPlayingCarouselPinchToExpand(onExpand)
     }
+}
 
-    /// 和转盘同一行:名字已经写在转盘上,这里只放右边两颗键;左边让给转盘。
-    private var header: some View {
+/// 两侧每一面最上面那一行:和转盘同一行,名字已经写在转盘上,这里只放右边两颗键(进全屏、回到播放器),
+/// 左边让给转盘。卡拉 OK 舞台那一面也是这一行,随时看得到去别的面、回播放器的路。
+struct NowPlayingCarouselFaceHeader: View {
+    let side: NowPlayingCarouselConfiguration.Side
+    let safeInsets: EdgeInsets
+    let appearance: NowPlayingAppearance
+    let onExpand: () -> Void
+    let onReturnToPlayer: () -> Void
+
+    var body: some View {
         HStack(spacing: 8) {
             Spacer(minLength: 8)
 
@@ -870,6 +1245,8 @@ struct NowPlayingCarouselPanelPage<Content: View>: View {
             )
         }
         .frame(height: NowPlayingCarouselDial.rowHeight)
+        .padding(.top, safeInsets.top + NowPlayingCarouselDial.topInset)
+        .padding(.horizontal, NowPlayingCarouselDial.edgeInset)
     }
 }
 
@@ -894,15 +1271,17 @@ struct NowPlayingCarouselHeaderButton: View {
     }
 }
 
-/// 底下的播放页背景(封面取色)是静止的;每一面盖一层半透明的玻璃,转起来能看出面的轮廓。
+/// 底下的播放页背景(封面取色)是静止的;两侧的面压在一层半透明的玻璃上,看得出是另一页。
+/// `amount` 是这层显出多少(0 看不见,1 铺满),乘在颜色上,不整层调透明度(那样要另开离屏绘制)。
 struct NowPlayingCarouselFaceBackground: View {
     let appearance: NowPlayingAppearance
+    var amount: Double = 1
 
     var body: some View {
         ZStack {
-            (appearance.isLight ? Color.white.opacity(0.34) : Color.black.opacity(0.26))
+            (appearance.isLight ? Color.white.opacity(0.34 * amount) : Color.black.opacity(0.26 * amount))
             LinearGradient(
-                colors: [appearance.primary.opacity(0.06), .clear],
+                colors: [appearance.primary.opacity(0.06 * amount), .clear],
                 startPoint: .top,
                 endPoint: .center
             )
@@ -919,6 +1298,8 @@ private struct NowPlayingCarouselPinchToExpand: ViewModifier {
     @Environment(\.nowPlayingCarouselControlEditing) private var reportsControlEditing
     @GestureState private var isPinching = false
     @State private var hasFired = false
+    /// 告诉过转轮「正按着」、还没说松开。
+    @State private var isReportingEditing = false
 
     func body(content: Content) -> some View {
         content
@@ -935,8 +1316,15 @@ private struct NowPlayingCarouselPinchToExpand: ViewModifier {
             )
             // 两根手指按着的时候转轮不翻页;松开(或被系统打断)后再认横滑。
             .onChange(of: isPinching) { _, pinching in
+                isReportingEditing = pinching
                 reportsControlEditing(pinching)
                 if !pinching { hasFired = false }
+            }
+            // 张开进了全屏、这一面跟着卸下时手指还没松:替它说一声松开了,不然转轮一直不认横滑。
+            .onDisappear {
+                guard isReportingEditing else { return }
+                isReportingEditing = false
+                reportsControlEditing(false)
             }
     }
 }
@@ -1019,32 +1407,8 @@ extension NowPlayingCarouselCardContainer where Accessory == EmptyView {
     }
 }
 
-/// 落到一面时卡片一张接一张升上来;转动途中先压低一点、淡一点。减弱动态效果时不动。
-private struct NowPlayingCarouselCardEntrance: ViewModifier {
-    let index: Int
-    let isCommitted: Bool
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        let lowered = !isCommitted && !reduceMotion
-        content
-            .offset(y: lowered ? 18 : 0)
-            .opacity(lowered ? 0.6 : 1)
-            .animation(
-                PMMotion.list.resolved(reduceMotion: reduceMotion)?.delay(Double(min(index, 6)) * 0.05),
-                value: isCommitted
-            )
-    }
-}
-
-extension View {
-    func nowPlayingCarouselCardEntrance(index: Int, isCommitted: Bool) -> some View {
-        modifier(NowPlayingCarouselCardEntrance(index: index, isCommitted: isCommitted))
-    }
-}
-
-/// 一面里竖着排的几张卡片。
+/// 一面里竖着排的几张卡片。翻页时卡片就在原位跟着整页平移,不再另做一遍升起、淡入
+/// (那几层透明度与位移动画和翻页同时跑,每张卡都要另开离屏绘制)。
 struct NowPlayingCarouselCardStack<Content: View>: View {
     @ViewBuilder let content: Content
 

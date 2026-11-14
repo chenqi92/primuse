@@ -3276,17 +3276,23 @@ struct NowPlayingView: View {
                     translationX: Double(value.translation.width),
                     layoutIsRightToLeft: isRTL
                 )
+                // 转轮停在两侧的页上时,那几页大多是能上下滚的列表,下拉收起只认顶上那一截(和歌词页一样)。
+                // 停在哪一页在这里才读,不进页面的 body。
+                let isAwayFromPlayer = isCarouselAwayFromPlayer
+                let startMaximumY = isAwayFromPlayer
+                    ? min(verticalStartMaximumY, CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY))
+                    : verticalStartMaximumY
                 let axis = activity.axis
                     ?? NowPlayingDismissGesturePolicy.recognizedAxis(
                         startY: Double(value.startLocation.y),
                         startDistanceFromLeadingEdge: startDistance,
                         translationTowardCenter: towardCenter,
                         translationY: Double(value.translation.height),
-                        verticalStartMaximumY: Double(verticalStartMaximumY)
+                        verticalStartMaximumY: Double(startMaximumY)
                     )
                 guard let axis else { return }
                 // 转轮停在两侧的页上时,从左边沿横滑是转回播放器,不是侧滑收起。
-                if axis == .horizontal, isCarouselAwayFromPlayer { return }
+                if axis == .horizontal, isAwayFromPlayer { return }
                 activity.axis = axis
 
                 switch axis {
@@ -3338,7 +3344,9 @@ struct NowPlayingView: View {
                         translationX: Double(value.translation.width),
                         translationY: Double(value.translation.height),
                         predictedEndTranslationY: Double(value.predictedEndTranslation.height),
-                        maximumStartY: Double(verticalStartMaximumY)
+                        maximumStartY: Double(isCarouselAwayFromPlayer
+                            ? min(verticalStartMaximumY, CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY))
+                            : verticalStartMaximumY)
                     )
                     if let onTopMinimizeDragEnded {
                         onTopMinimizeDragEnded(shouldDismiss)
@@ -3786,8 +3794,9 @@ struct NowPlayingView: View {
             #endif
             // 系统竖栏的设备(iPhone Duo)上播放页整屏居中,只让开遮挡区;其它设备这里恒为空。
             let occlusions = playerOcclusions(in: geo)
-            // 转轮停在两侧的页上时,那几页大多是能上下滚的列表,下拉收起只认顶上那一截(和歌词页一样)。
-            let verticalDismissStartMaximumY = showLyrics || isCarouselAwayFromPlayer
+            // 歌词页下拉收起只认顶上那一截。转轮停在两侧的页上时同样(在手势里看,见 `playerMinimizeDragGesture`):
+            // 这里读了停在哪一页,每翻一页整页播放器都要重算一遍,正压在翻页动画的第一帧上。
+            let verticalDismissStartMaximumY = showLyrics
                 ? CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY)
                 : max(
                     CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY),

@@ -24,13 +24,11 @@ struct NowPlayingCarouselUpNextFace: View {
                 )
                 .padding(.horizontal, 14)
                 .padding(.top, 4)
-                .nowPlayingCarouselCardEntrance(index: 0, isCommitted: context.isCommitted)
             }
             if showsQueue {
                 QueueView(player: player, isEmbedded: true)
                     .scrollContentBackground(.hidden)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .nowPlayingCarouselCardEntrance(index: showsModes ? 1 : 0, isCommitted: context.isCommitted)
             } else {
                 Spacer(minLength: 0)
             }

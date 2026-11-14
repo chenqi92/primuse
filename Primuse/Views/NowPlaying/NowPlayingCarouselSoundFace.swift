@@ -23,9 +23,8 @@ struct NowPlayingCarouselSoundFace: View {
             .padding(.bottom, 6)
 
             NowPlayingCarouselCardStack {
-                ForEach(Array(context.cards.enumerated()), id: \.element) { index, card in
+                ForEach(context.cards) { card in
                     cardView(card)
-                        .nowPlayingCarouselCardEntrance(index: index, isCommitted: context.isCommitted)
                 }
             }
         }

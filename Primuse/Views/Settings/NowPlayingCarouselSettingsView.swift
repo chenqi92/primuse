@@ -193,7 +193,7 @@ private struct NowPlayingCarouselPanelIcon: View {
     }
 }
 
-/// 顶上的示意:播放器居中,两侧的面像立方体的侧面一样斜着排开,离播放器越远越小、越淡。
+/// 顶上的示意:播放器居中,两侧的面一页一页排开(和播放页上整页翻过去一样是平的),离播放器越远越小、越淡。
 private struct NowPlayingCarouselPreview: View {
     let configuration: NowPlayingCarouselConfiguration
     let isEnabled: Bool
@@ -273,7 +273,6 @@ private struct NowPlayingCarouselPreview: View {
             }
             .frame(width: 62, height: 108)
             .scaleEffect(scale)
-            .rotation3DEffect(.degrees(side * -38), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
             .opacity(1 - Double(distance - 1) * 0.16)
             .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
     }

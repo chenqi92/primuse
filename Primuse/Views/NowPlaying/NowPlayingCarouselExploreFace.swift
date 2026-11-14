@@ -25,9 +25,8 @@ struct NowPlayingCarouselExploreFace: View {
             .frame(maxHeight: .infinity)
         } else {
             NowPlayingCarouselCardStack {
-                ForEach(Array(context.cards.enumerated()), id: \.element) { index, card in
+                ForEach(context.cards) { card in
                     cardView(card)
-                        .nowPlayingCarouselCardEntrance(index: index, isCommitted: context.isCommitted)
                 }
             }
         }

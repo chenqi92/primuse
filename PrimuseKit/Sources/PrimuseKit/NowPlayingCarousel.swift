@@ -398,6 +398,82 @@ public enum NowPlayingCarouselPolicy {
     }
 }
 
+/// 转轮翻页的排布:页与页并排,手指拖多少整条就挪多少,停稳时只露一页,不留上一页的边角。
+///
+/// 位置分两半记:停着的那一页(换页那一刻就换)和整条相对它挪开的「偏移」(以页宽为单位,正数是往后一页那边去)。
+/// 逐帧只有偏移在变;某一页画在 `槽位 - 偏移` 处,0 正对着人,±1 刚好整页移出去。
+public enum NowPlayingCarouselPagingPolicy {
+    /// 换页那一刻的偏移:从 `from` 换到 `to`,画面不跳。一次跳过好几页(点转盘、从远处的一面点返回)时
+    /// 只走一页宽:刚离开的那一页画在目标页旁边,中间几页不出来、也不用挂上。
+    public static func offset(changingFrom from: Int, to: Int, currentOffset: Double) -> Double {
+        let distance = to - from
+        guard abs(distance) > 1 else { return currentOffset - Double(distance) }
+        return currentOffset + (distance > 0 ? -1 : 1)
+    }
+
+    /// 某一页相对停着的那一页排在第几格:紧挨着的是 ±1。跳页途中刚离开的那一页按紧挨着算。
+    public static func slot(pageIndex: Int, settledIndex: Int, departingIndex: Int?) -> Int {
+        let distance = pageIndex - settledIndex
+        if pageIndex == departingIndex, abs(distance) > 1 { return distance > 0 ? 1 : -1 }
+        return distance
+    }
+
+    /// 一页此刻在哪儿(以页宽为单位)。
+    public static func progress(slot: Int, offset: Double) -> Double {
+        Double(slot) - offset
+    }
+
+    /// 整页移出去以后就不画了。
+    public static func isOnScreen(progress: Double) -> Bool {
+        abs(progress) < 0.999
+    }
+
+    /// 减弱动态效果时页不平移,两页交叉淡入淡出。
+    public static func crossfadeOpacity(progress: Double) -> Double {
+        max(0, 1 - abs(progress))
+    }
+
+    /// 顶上转盘此刻的位置(页序里的小数下标)。跳页途中按实际隔了几页走完全程,图标一格格滑过去。
+    public static func dialPosition(settledIndex: Int, offset: Double, departingIndex: Int?) -> Double {
+        let span = departingIndex.map { max(abs($0 - settledIndex), 1) } ?? 1
+        return Double(settledIndex) + offset * Double(span)
+    }
+
+    /// 两侧页底下那层玻璃显出多少:播放器正对着人时为 0,整页移出去时为 1。这层不跟着页走,
+    /// 从播放器翻到两侧时慢慢显出来,两侧的面之间翻页时一直铺满,翻页不出接缝。
+    public static func backdropAmount(playerProgress: Double) -> Double {
+        min(abs(playerProgress), 1)
+    }
+
+    /// 停在 `settledIndex` 时预先挂上的相邻页,先右后左。
+    public static func neighborIndices(of settledIndex: Int, pageCount: Int) -> [Int] {
+        [settledIndex + 1, settledIndex - 1].filter { $0 >= 0 && $0 < pageCount }
+    }
+
+    /// 此刻要挂着的页(下标,按页序)。停着的那一页一直挂着;转到位途中刚离开的那一页也挂着;拖动时相邻两页都挂上;
+    /// 预先挂好的页(`warmIndices`)照旧挂着 —— 停稳时它们本来就只剩相邻的,刚换了停着那一页、还在转的途中,
+    /// 原来预挂的那几页正往屏幕外走,等转到位再卸,不在动画头一帧拆一整面。跳页途中只挂两头。
+    public static func mountedIndices(
+        settledIndex: Int,
+        departingIndex: Int?,
+        warmIndices: Set<Int>,
+        isDragging: Bool,
+        pageCount: Int
+    ) -> [Int] {
+        guard pageCount > 0, settledIndex >= 0, settledIndex < pageCount else { return [] }
+        var result: Set<Int> = [settledIndex]
+        if let departingIndex, departingIndex >= 0, departingIndex < pageCount {
+            result.insert(departingIndex)
+            if abs(departingIndex - settledIndex) > 1 { return result.sorted() }
+        }
+        if isDragging {
+            result.formUnion(neighborIndices(of: settledIndex, pageCount: pageCount))
+        }
+        result.formUnion(warmIndices.filter { $0 >= 0 && $0 < pageCount })
+        return result.sorted()
+    }
+}
+
 // MARK: - 全屏
 
 /// 从某一面进全屏时去哪儿。

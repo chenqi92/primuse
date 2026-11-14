@@ -4,6 +4,10 @@ import SwiftUI
 
 /// 转轮的「舞台」一面:换个方式听。能唱卡拉 OK 时整面是卡拉 OK 舞台(停稳才挂真身,一挂上就开始分离人声、
 /// 开麦克风),底下一排全屏效果的缩略卡;唱不了的歌(Apple Music 曲目)只留全屏效果,不出空壳。
+///
+/// 卡拉 OK 舞台顶上和别的面一样是转轮那一行(转盘、进全屏、回到播放器):舞台挂着、交给全屏、还是占位,
+/// 都看得到去别的面和回播放器的路,不会只剩一页全屏的舞台。拖走、转走途中舞台留着(面的阶段转到别的页
+/// 停稳才变),停到别的页后这一面整个卸掉真身(会话随之停下),下次再停稳在这里才挂。
 struct NowPlayingCarouselStageFace: View {
     let context: NowPlayingCarouselFaceContext
     let appearance: NowPlayingAppearance
@@ -16,9 +20,11 @@ struct NowPlayingCarouselStageFace: View {
 
     /// 整面有多高:矮屏上底下那一排全屏效果收成小胶囊(`NowPlayingCarouselStageLayout`)。
     @State private var faceHeight: CGFloat = 0
-    /// 卡拉 OK 舞台挂上以后,转走的途中留着它,不换回占位:一按住往外拖整面就换一张图,看着很跳。
-    /// 这一面转出视野时整个卸掉(会话随之停下),下次转回来再从停稳时挂。
-    @State private var keepsKaraokeStage = false
+
+    /// 舞台上的字、键一律是深色舞台上的浅色。
+    private static var stageAppearance: NowPlayingAppearance {
+        NowPlayingAppearance(colorScheme: .dark, contrast: .standard)
+    }
 
     var body: some View {
         if context.cards.contains(.karaoke) {
@@ -42,7 +48,6 @@ struct NowPlayingCarouselStageFace: View {
                                 onPresent: onPresentEffect
                             )
                         }
-                        .nowPlayingCarouselCardEntrance(index: 0, isCommitted: context.isCommitted)
                     }
                 }
             }
@@ -52,13 +57,25 @@ struct NowPlayingCarouselStageFace: View {
     // MARK: 卡拉 OK
 
     private var karaokeStage: some View {
-        let showsStage = (context.isSettled || keepsKaraokeStage) && !state.isKaraokeHandedOff
+        let showsStage = context.isSettled && !state.isKaraokeHandedOff
         return VStack(spacing: 0) {
+            // 左边留给转轮的转盘(转盘画在转轮那一层,停在这一面时换浅色的字),右边进全屏、回到播放器。
+            NowPlayingCarouselFaceHeader(
+                side: side,
+                safeInsets: safeInsets,
+                appearance: Self.stageAppearance,
+                onExpand: onExpand,
+                onReturnToPlayer: onReturnToPlayer
+            )
+            .padding(.leading, safeInsets.leading)
+            .padding(.trailing, safeInsets.trailing)
+
             ZStack {
                 if showsStage {
-                    KaraokeStageView(onClose: onReturnToPlayer, onExpand: onExpand)
+                    // 收起、进全屏两颗键已经在上面那一行,舞台自己那一行只留歌名、分数与更多。
+                    KaraokeStageView(onClose: onReturnToPlayer, isEmbeddedInCarousel: true)
                         .safeAreaPadding(EdgeInsets(
-                            top: safeInsets.top,
+                            top: 0,
                             leading: safeInsets.leading,
                             // 底下有一排全屏效果时由那一排让开底部安全区。
                             bottom: context.cards.contains(.fullscreenEffects) ? 0 : safeInsets.bottom,
@@ -82,14 +99,13 @@ struct NowPlayingCarouselStageFace: View {
                         layout: NowPlayingCarouselStageLayout.effectStrip(forFaceHeight: Double(faceHeight)) == .chips
                             ? .chips : .strip,
                         showsPreviews: context.isSettled,
-                        appearance: NowPlayingAppearance(colorScheme: .dark, contrast: .standard),
+                        appearance: Self.stageAppearance,
                         onPresent: onPresentEffect
                     )
                 }
                 .padding(.top, 10)
                 .padding(.bottom, max(safeInsets.bottom, 12))
                 .background(Color.black.opacity(0.28).ignoresSafeArea(edges: .bottom))
-                .nowPlayingCarouselCardEntrance(index: 0, isCommitted: context.isCommitted)
             }
         }
         .background {
@@ -102,18 +118,11 @@ struct NowPlayingCarouselStageFace: View {
         }
         .environment(\.colorScheme, .dark)
         .animation(.easeInOut(duration: 0.3), value: showsStage)
-        .onChange(of: context.isSettled, initial: true) { _, settled in
-            if settled { keepsKaraokeStage = true }
-        }
-        .onChange(of: state.isKaraokeHandedOff) { _, handedOff in
-            // 交给全屏那一份时这里卸下;全屏收起后等这一面再停稳才挂回来。
-            if handedOff { keepsKaraokeStage = false }
-        }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { faceHeight = $0 }
         .nowPlayingCarouselPinchToExpand(onExpand)
     }
 
-    /// 转动途中、拖动中、交给全屏的那一会儿画一张同色调的占位。
+    /// 预先挂着、拖进来、转到位途中、交给全屏的那一会儿画一张同色调的占位(顶上那一行照样在)。
     private var karaokePlaceholder: some View {
         VStack(spacing: 14) {
             ZStack {
@@ -132,7 +141,6 @@ struct NowPlayingCarouselStageFace: View {
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.65))
         }
-        .padding(.top, safeInsets.top)
         .accessibilityElement(children: .combine)
     }
 }

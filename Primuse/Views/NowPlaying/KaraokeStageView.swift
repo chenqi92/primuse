@@ -13,20 +13,29 @@ struct KaraokeStageView: View {
     var onClose: (() -> Void)? = nil
     /// 嵌在转轮里时顶栏多一颗「进全屏」;为 nil 时不出现。
     var onExpand: (() -> Void)? = nil
+    /// 嵌在播放页转轮「舞台」那一面里:最上面是转轮那一行(转盘、进全屏、回到播放器),舞台自己那一行
+    /// 不再放收起与进全屏(同一面上两套去处,收起键的向下箭头还像是把整个播放页收掉)。
+    var isEmbeddedInCarousel = false
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
     @State private var session: KaraokeSession?
 
-    init(onClose: (() -> Void)? = nil, onExpand: (() -> Void)? = nil) {
+    init(onClose: (() -> Void)? = nil, onExpand: (() -> Void)? = nil, isEmbeddedInCarousel: Bool = false) {
         self.onClose = onClose
         self.onExpand = onExpand
+        self.isEmbeddedInCarousel = isEmbeddedInCarousel
     }
 
     var body: some View {
         let stage = Group {
             if let session {
-                KaraokeStageContent(session: session, onClose: { (onClose ?? { dismiss() })() }, onExpand: onExpand)
+                KaraokeStageContent(
+                    session: session,
+                    onClose: { (onClose ?? { dismiss() })() },
+                    onExpand: isEmbeddedInCarousel ? nil : onExpand,
+                    showsCloseButton: !isEmbeddedInCarousel
+                )
             } else {
                 KaraokeStageBackdrop(isPlaying: false)
             }
@@ -44,7 +53,7 @@ struct KaraokeStageView: View {
         .frame(minWidth: 760, idealWidth: 900, minHeight: 620, idealHeight: 720)
         #endif
 
-        if onClose != nil {
+        if onClose != nil || isEmbeddedInCarousel {
             // 嵌在播放页里:只把这一页画成深色。`preferredColorScheme` 会一路改到整个呈现
             // (播放页背后的 App 也跟着变),嵌入时不能用。
             stage.environment(\.colorScheme, .dark)
@@ -60,6 +69,7 @@ private struct KaraokeStageContent: View {
     @Bindable var session: KaraokeSession
     let onClose: () -> Void
     var onExpand: (() -> Void)? = nil
+    var showsCloseButton = true
 
     @Environment(\.pmHeightClass) private var heightClass
     /// 「…」里点的「导出伴奏 / 人声」(#362)。
@@ -74,7 +84,12 @@ private struct KaraokeStageContent: View {
             : AnyLayout(VStackLayout(spacing: 0))
 
         VStack(spacing: 0) {
-            KaraokeStageHeader(session: session, onClose: onClose, onExpand: onExpand) { part, format in
+            KaraokeStageHeader(
+                session: session,
+                onClose: onClose,
+                onExpand: onExpand,
+                showsCloseButton: showsCloseButton
+            ) { part, format in
                 guard let song = player.currentSong else { return }
                 stemExportRequest = KaraokeStemExportRequest(song: song, part: part, format: format)
             }
@@ -161,18 +176,22 @@ private struct KaraokeStageHeader: View {
     let session: KaraokeSession
     let onClose: () -> Void
     let onExpand: (() -> Void)?
+    /// 嵌在转轮里时为 false:收起由转轮那一行的「回到播放器」管。
+    let showsCloseButton: Bool
     let onExportStem: (KaraokeStemExportPolicy.Part, KaraokeStemExportPolicy.Format) -> Void
 
     private var player: AudioPlayerService { session.player }
 
     var body: some View {
         HStack(spacing: 12) {
-            Button(action: onClose) {
-                ImmersiveGlassActionLabel(symbol: closeSymbol, diameter: 40)
+            if showsCloseButton {
+                Button(action: onClose) {
+                    ImmersiveGlassActionLabel(symbol: closeSymbol, diameter: 40)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("close"))
+                .keyboardShortcut(.cancelAction)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("close"))
-            .keyboardShortcut(.cancelAction)
 
             CachedArtworkView(
                 coverRef: player.currentSong?.coverArtFileName,
