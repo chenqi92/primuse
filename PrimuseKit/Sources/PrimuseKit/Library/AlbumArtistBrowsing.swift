@@ -20,8 +20,9 @@ public enum ArtistBrowseMode: String, CaseIterable, Sendable {
 
 /// 「专辑艺术家」列表与只当过专辑艺人的那些人名下的专辑。
 public struct AlbumArtistIndex: Sendable {
-    /// 每位专辑艺人一项，和曲目艺人列表同样按名字排好。专辑数是他名下的专辑，
-    /// 歌曲数是这些专辑的曲目合计。
+    /// 每位专辑艺人一项，和曲目艺人列表同样按名字排好。专辑数是他名下的专辑；
+    /// 歌曲数与艺人页一致：也唱歌的人是他唱的歌数，只当专辑艺人的人（如「群星」）
+    /// 是名下专辑的曲目合计。
     public var artists: [Artist]
     /// 全部专辑署名者 → 他名下的专辑；合作署名共享同一张专辑，不创建专辑副本。
     public var albumIDsByArtistID: [String: Set<String>]
@@ -111,7 +112,8 @@ public enum AlbumArtistIndexBuilder {
             guard let albumCount = albumCountByID[artist.id] else { continue }
             var entry = artist
             entry.albumCount = albumCount
-            entry.songCount = songCountByID[artist.id] ?? 0
+            // 歌曲数保持曲目艺人的口径: 艺人页列的是这个人唱的歌。按专辑累加会把合辑、
+            // 合作专辑里别人唱的歌也算进来, 列表上的数字就比点进去的多。
             shared.append(entry)
         }
 

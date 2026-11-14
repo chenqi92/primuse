@@ -57,7 +57,8 @@ struct AlbumArtistBrowsingTests {
         )
 
         #expect(index.artists.map(\.name) == ["The Beatles"])
-        #expect(index.artists.first?.songCount == 17)
+        // The artist page lists the 12 songs they perform, not the album's 17.
+        #expect(index.artists.first?.songCount == 12)
         #expect(index.albumIDsByAlbumOnlyArtistID.isEmpty)
     }
 

@@ -1079,10 +1079,13 @@ final class ArtistNameLibraryTests: XCTestCase {
             ["solo", "legacy-native-value"]
         )
         XCTAssertEqual(Set(library.visibleArtists.map(\.name)), ["Guest", "Legacy"])
+        // The list's count follows the songs the artist page lists.
+        XCTAssertEqual(library.visibleArtists.first { $0.id == guestID }?.songCount, 2)
 
         library.updateDisabledSourceIDs([])
         XCTAssertEqual(library.songs(forArtist: guestID).map(\.id), expectedGuestSongIDs)
         XCTAssertEqual(Set(library.visibleArtists.map(\.name)), ["Host", "Guest", "Legacy"])
+        XCTAssertEqual(library.visibleArtists.first { $0.id == guestID }?.songCount, 3)
         _ = await library.persistNowAndWait()
 
         let restored = MusicLibrary(

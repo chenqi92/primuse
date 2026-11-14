@@ -5733,7 +5733,16 @@ final class MusicLibrary {
                 visible.totalDuration = total.duration
                 return visible
             }
-            candidateVisibleArtists = artists.filter { lookups.musicArtistIDs.contains($0.id) }
+            // Artists come from the whole library; with a source switched off
+            // their counts must follow the songs the artist page lists.
+            candidateVisibleArtists = artists.compactMap { artist in
+                guard lookups.musicArtistIDs.contains(artist.id) else { return nil }
+                guard let songIDs = lookups.songIDsByArtistID[artist.id],
+                      songIDs.count != artist.songCount else { return artist }
+                var visible = artist
+                visible.songCount = songIDs.count
+                return visible
+            }
         }
         // Older derived-index caches may contain two display-name variants
         // that resolve to the same stable artist ID. Keep launch resilient
