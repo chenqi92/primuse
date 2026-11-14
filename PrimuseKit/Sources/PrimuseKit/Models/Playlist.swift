@@ -18,6 +18,10 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
     /// 排过序的前面,组内仍按最近更新在前 —— 新建或新同步进来的歌单因此出现
     /// 在最上面,而用户排好的顺序不会被一次更新打乱。见 `PlaylistManualOrderPolicy`。
     public var sortOrder: Int
+    /// 置顶的歌(#412),最近置顶的在最前。存的是本机的歌曲 id,不改成员先后;
+    /// 任何排序下这些歌都排在最上面,见 `PlaylistPinnedSongsPolicy`。
+    /// 旧快照和旧版本推来的记录没有这一项,按没有置顶处理。
+    public var pinnedSongIDs: [String]
 
     public var allowsManualSongMembership: Bool {
         folderBinding == nil && !MirrorPlaylistIdentity.isMirrorPlaylist(id)
@@ -61,11 +65,13 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
         isPurged: Bool = false,
         folderBinding: PlaylistFolderBinding? = nil,
         sortOrder: Int = 0,
-        descriptionText: String = ""
+        descriptionText: String = "",
+        pinnedSongIDs: [String] = []
     ) {
         self.id = id
         self.name = name
         self.descriptionText = descriptionText
+        self.pinnedSongIDs = pinnedSongIDs
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.coverArtPath = coverArtPath
@@ -104,6 +110,7 @@ public struct Playlist: Codable, Identifiable, Hashable, Sendable {
         self.restoredDeleteOperationID = try c.decodeIfPresent(String.self, forKey: .restoredDeleteOperationID)
         self.isPurged = try c.decodeIfPresent(Bool.self, forKey: .isPurged) ?? false
         self.sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
+        self.pinnedSongIDs = try c.decodeIfPresent([String].self, forKey: .pinnedSongIDs) ?? []
     }
 }
 
@@ -460,6 +467,10 @@ public enum PlaylistDatabaseMigration {
             }
             if !names.contains("descriptionText") {
                 table.add(column: "descriptionText", .text).notNull().defaults(to: "")
+            }
+            // 置顶的歌按 JSON 数组存, 和 `folderBinding` 一样走 Codable。
+            if !names.contains("pinnedSongIDs") {
+                table.add(column: "pinnedSongIDs", .text).notNull().defaults(to: "[]")
             }
         }
     }

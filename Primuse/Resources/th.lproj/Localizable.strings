@@ -3000,6 +3000,9 @@
 "playlist_moved_to_top_one" = "ย้ายไปบนสุดแล้ว";
 "playlist_moved_to_top_format" = "ย้าย %d เพลงไปบนสุดแล้ว";
 "playlist_moved_to_top_order_reset" = "รายการกลับมาเรียงตามลำดับเพลย์ลิสต์แล้ว";
+"playlist_unpin" = "เลิกปักหมุด";
+"playlist_unpinned_one" = "เลิกปักหมุดแล้ว";
+"playlist_song_pinned" = "ปักหมุดแล้ว";
 "remove_from_queue" = "ลบออกจากคิว";
 "renderer_friendly_name_format" = "%1$@ · %2$@";
 "reorder" = "สั่งซื้อใหม่";

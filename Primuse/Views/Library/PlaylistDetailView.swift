@@ -158,23 +158,33 @@ struct PlaylistDetailView: View {
             playCountsVersion: usesPlayCounts ? PlayHistoryStore.shared.playCountsVersion : 0
         )
         return sortedSongsCache.songs(for: key) {
+            let sorted: [Song]
             if let newestFirst = addedOrderNewestFirst {
-                return newestFirst ? Array(storedSongs.reversed()) : storedSongs
+                sorted = newestFirst ? Array(storedSongs.reversed()) : storedSongs
+            } else {
+                let values: SongListSortValues = usesPlayCounts
+                    ? SongListSortValues(playCountsBySongID: playCountsBySongID)
+                    : .empty
+                sorted = SongListSnapshot.sortedSongs(storedSongs, order: order, sortValues: values)
             }
-            let values: SongListSortValues = usesPlayCounts
-                ? SongListSortValues(playCountsBySongID: playCountsBySongID)
-                : .empty
-            return SongListSnapshot.sortedSongs(storedSongs, order: order, sortValues: values)
+            // 置顶的歌在任何排序下都排在最上面(#412), 彼此按置顶先后; 其余照所选排序。
+            // 歌单顺序下 `storedSongs` 已经是这样排的。
+            return PlaylistPinnedSongsPolicy.pinnedFirst(
+                sorted, pinned: library.pinnedSongIDs(forPlaylist: playlist.id), id: \.id
+            )
         }
     }
 
     /// 整张歌单的行: 歌单顺序下置灰的占位留在原位; 选了别的排序时它们没有可比的
-    /// 值, 统一排到最后。按加入先后排时占位也有自己的先后, 跟着整张一起倒。
+    /// 值, 统一排到最后。按加入先后排时占位也有自己的先后, 跟着整张一起倒, 置顶的仍在最上面。
     private var orderedEntries: [MusicLibrary.PlaylistEntry] {
         guard displaySortOrder != nil else { return library.entries(forPlaylist: playlist.id) }
         if let newestFirst = addedOrderNewestFirst {
             let entries = library.entries(forPlaylist: playlist.id)
-            return newestFirst ? Array(entries.reversed()) : entries
+            guard newestFirst else { return entries }
+            return PlaylistPinnedSongsPolicy.pinnedFirst(
+                Array(entries.reversed()), pinned: library.pinnedSongIDs(forPlaylist: playlist.id), id: \.id
+            )
         }
         let pending = library.entries(forPlaylist: playlist.id).filter {
             if case .pending = $0 { return true }
@@ -468,7 +478,7 @@ struct PlaylistDetailView: View {
             context: .playlist(id: playlist.id, allowsRemoval: allowsPlaylistRemoval),
             orderedIDs: { selectableSongIDs },
             resolve: { library.song(id: $0) },
-            onMoveToTop: allowsPlaylistRemoval ? { moveSongsToTop($0) } : nil
+            onMoveToTop: allowsPlaylistRemoval ? { pinSongs($0) } : nil
         )
         .onChange(of: findText) { _, _ in
             guard selection.isActive, !selection.isEmpty else { return }
@@ -957,8 +967,8 @@ struct PlaylistDetailView: View {
     }
 
     private func playlistRows(_ entries: [MusicLibrary.PlaylistEntry]) -> some View {
-        // 歌单顺序下，已经在最前面的歌曲不再显示「置顶」。
-        let topSongID = allowsPlaylistRemoval ? storedSongs.first?.id : nil
+        // 置顶的歌给「取消置顶」, 其余给「置顶」; 镜像与文件夹歌单都没有。
+        let pinned = pinnedSongIDSet
         return LazyVStack(spacing: 0) {
             ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                 switch entry {
@@ -967,7 +977,7 @@ struct PlaylistDetailView: View {
                         song,
                         number: index + 1,
                         count: entries.count,
-                        canMoveToTop: topSongID != nil && (song.id != topSongID || displaySortOrder != nil)
+                        isPinned: pinned.map { $0.contains(song.id) }
                     )
                         .songLocationRow(song.id)
                 case .pending(let pending):
@@ -1204,7 +1214,8 @@ struct PlaylistDetailView: View {
     }
 
     @ViewBuilder
-    private func songRow(_ song: Song, number: Int, count: Int, canMoveToTop: Bool) -> some View {
+    /// `isPinned` 为 nil: 这个歌单不能置顶。
+    private func songRow(_ song: Song, number: Int, count: Int, isPinned: Bool?) -> some View {
         // 「移出歌单」「置顶」挂在行自己的长按菜单里 —— 在行外面再套一层
         // contextMenu 的话，SwiftUI 只认最里面那一份，外层永远弹不出来。
         // 所有外部镜像歌单都只读：本地无法把删除回写到源端，
@@ -1219,7 +1230,9 @@ struct PlaylistDetailView: View {
             onRemoveFromPlaylist: allowsPlaylistRemoval
                 ? { library.remove(songID: song.id, fromPlaylist: playlist.id) }
                 : nil,
-            onMoveToTop: canMoveToTop ? { moveSongsToTop([song.id]) } : nil,
+            onMoveToTop: isPinned == false ? { pinSongs([song.id]) } : nil,
+            onUnpin: isPinned == true ? { unpinSongs([song.id]) } : nil,
+            isPinned: isPinned == true,
             context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
         )
         .songSelectable(
@@ -1880,8 +1893,8 @@ struct PlaylistDetailView: View {
     /// 主线程就卡死。这里按页面的滚动位置只建可见的一段行, 上下用占位撑出整张表的高度。
     private func macSongTable(_ table: MacTableRows, viewportWidth: CGFloat, viewportHeight: CGFloat) -> some View {
         let playCounts = playCountsBySongID
-        // 已经排在歌单最前面的那首不给「置顶」。
-        let topSongID = allowsPlaylistRemoval ? storedSongs.first?.id : nil
+        // 置顶的歌给「取消置顶」, 其余给「置顶」; 镜像与文件夹歌单都没有。
+        let pinned = pinnedSongIDSet
         let indexColumnWidth = MacOrdinalColumn.width(
             for: table.rows.count, minimum: 32, fontSize: 11, locale: locale,
             showsNumbers: showsRowNumbers || selection.isActive
@@ -1920,7 +1933,7 @@ struct PlaylistDetailView: View {
                                     index: row.songIndex,
                                     indexColumnWidth: indexColumnWidth,
                                     playCount: playCounts[song.id, default: 0],
-                                    canMoveToTop: topSongID != nil && (song.id != topSongID || displaySortOrder != nil)
+                                    isPinned: pinned.map { $0.contains(song.id) }
                                 )
                                     .songLocationRow(song.id)
                                     .songSelectable(
@@ -1973,7 +1986,7 @@ struct PlaylistDetailView: View {
         index: Int,
         indexColumnWidth: CGFloat,
         playCount: Int,
-        canMoveToTop: Bool
+        isPinned: Bool?
     ) -> some View {
         let isCurrent = player.currentSong?.id == song.id
         let columns = tableLayout.activeColumns
@@ -1983,6 +1996,7 @@ struct PlaylistDetailView: View {
         return HStack(spacing: 12) {
             MacPlaylistSelectionIndexCell(
                 index: index,
+                isPinned: isPinned == true,
                 isCurrent: isCurrent,
                 isSelectionActive: selection.isActive,
                 membership: selection.membership(for: song.id)
@@ -2022,13 +2036,20 @@ struct PlaylistDetailView: View {
                 Label("batch_select", systemImage: "checkmark.circle")
             }
 
-            if canMoveToTop {
+            if isPinned == true {
                 Button {
-                    moveSongsToTop([song.id])
+                    unpinSongs([song.id])
+                } label: {
+                    Label("playlist_unpin", systemImage: "pin.slash")
+                }
+            } else if isPinned == false {
+                Button {
+                    pinSongs([song.id])
                 } label: {
                     Label("radio_manage_pin_top", systemImage: "arrow.up.to.line")
                 }
             }
+
 
             if allowsPlaylistRemoval {
                 Button(role: .destructive) {
@@ -2045,6 +2066,8 @@ struct PlaylistDetailView: View {
         private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
         @Environment(\.locale) private var locale
         let index: Int
+        /// 置顶的歌在序号这一格放一枚图钉, 按别的排序看时也知道它为什么在最上面。
+        var isPinned = false
         let isCurrent: Bool
         let isSelectionActive: Bool
         let membership: SongSelectionMembership
@@ -2055,6 +2078,12 @@ struct PlaylistDetailView: View {
             ZStack {
                 if isSelectionActive {
                     SongSelectionCheckmark(isSelected: membership.isSelected)
+                        .pmFadeTransition(motion: .list)
+                } else if isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(isCurrent ? PMColor.brand : PMColor.textMuted)
+                        .accessibilityLabel(Text("playlist_song_pinned"))
                         .pmFadeTransition(motion: .list)
                 } else if showsRowNumbers {
                     Text(verbatim: (index + 1).formatted(.number.locale(locale)))
@@ -2080,18 +2109,27 @@ struct PlaylistDetailView: View {
     }
     #endif
 
-    /// 置顶同时恢复歌单顺序，让刚移动的歌曲立即出现在顶部。
-    private func moveSongsToTop(_ songIDs: [String]) {
-        let resetsDisplayOrder = displaySortOrder != nil
-        let moved = library.moveSongsToTop(songIDs, inPlaylist: playlist.id)
-        guard moved || resetsDisplayOrder else { return }
-        if resetsDisplayOrder {
-            displaySortRawValue = ""
-        }
+    /// 能置顶的歌单(用户歌单与「我喜欢」)里眼下置顶的歌; 镜像与文件夹歌单为 nil。
+    private var pinnedSongIDSet: Set<String>? {
+        allowsPlaylistRemoval ? Set(library.pinnedSongIDs(forPlaylist: playlist.id)) : nil
+    }
+
+    /// 置顶(#412): 不管眼下按什么排, 置顶的歌都排在最上面, 不再把列表换回歌单顺序。
+    private func pinSongs(_ songIDs: [String]) {
+        guard library.pinSongs(songIDs, inPlaylist: playlist.id) else { return }
         let message = songIDs.count == 1
             ? String(localized: "playlist_moved_to_top_one")
             : String(format: String(localized: "playlist_moved_to_top_format"), songIDs.count)
         showScrapeFeedback(message, systemImage: "checkmark", color: .accentColor, isCompact: true)
+    }
+
+    /// 取消置顶: 歌回到它在眼下这种排序里该在的位置。
+    private func unpinSongs(_ songIDs: [String]) {
+        guard library.unpinSongs(songIDs, inPlaylist: playlist.id) else { return }
+        showScrapeFeedback(
+            String(localized: "playlist_unpinned_one"),
+            systemImage: "checkmark", color: .accentColor, isCompact: true
+        )
     }
 
     private func canDeletePlaylist(_ playlistID: String) -> Bool {

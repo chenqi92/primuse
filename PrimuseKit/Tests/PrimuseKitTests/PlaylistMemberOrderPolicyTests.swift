@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrimuseKit
 
@@ -117,5 +118,112 @@ struct PlaylistMemberOrderPolicyTests {
             authoritative: ["s1", "s2", "s1"]
         ) { source.contains($0) }
         #expect(result == members)
+    }
+}
+
+@Suite("Playlist pinned songs policy")
+struct PlaylistPinnedSongsPolicyTests {
+    @Test("Pinned songs stay on top of any sort order, in pin order, and the rest keep the sort")
+    func pinnedSongsLeadEverySort() {
+        let byTitle = ["a", "b", "c", "d", "e"]
+        let byDuration = ["e", "c", "a", "d", "b"]
+        let pinned = ["d", "b"]
+        let titleResult = PlaylistPinnedSongsPolicy.pinnedFirst(byTitle, pinned: pinned) { $0 }
+        let durationResult = PlaylistPinnedSongsPolicy.pinnedFirst(byDuration, pinned: pinned) { $0 }
+        #expect(titleResult == ["d", "b", "a", "c", "e"])
+        #expect(durationResult == ["d", "b", "e", "c", "a"])
+    }
+
+    @Test("Newest-first date order puts pins on top and keeps the rest newest first")
+    func pinnedSongsLeadReversedAddedOrder() {
+        let members = ["old", "pinned", "mid", "new"]
+        let newestFirst = Array(members.reversed())
+        let result = PlaylistPinnedSongsPolicy.pinnedFirst(newestFirst, pinned: ["pinned"]) { $0 }
+        #expect(result == ["pinned", "new", "mid", "old"])
+    }
+
+    @Test("Unpinning returns the song to its sorted place because members never moved")
+    func unpinningRestoresSortedPlace() {
+        let members = ["a", "b", "c", "d"]
+        let pinned = PlaylistPinnedSongsPolicy.pinning(["c"], pinned: [], memberIDs: members)
+        let pinnedOrder = PlaylistPinnedSongsPolicy.pinnedFirst(members, pinned: pinned) { $0 }
+        let unpinned = PlaylistPinnedSongsPolicy.unpinning(["c"], pinned: pinned)
+        let restored = PlaylistPinnedSongsPolicy.pinnedFirst(members, pinned: unpinned) { $0 }
+        #expect(pinned == ["c"])
+        #expect(pinnedOrder == ["c", "a", "b", "d"])
+        #expect(unpinned.isEmpty)
+        #expect(restored == members)
+    }
+
+    @Test("The latest pin goes above earlier ones; several picks keep their playlist order")
+    func pinOrder() {
+        let members = ["a", "b", "c", "d", "e"]
+        let first = PlaylistPinnedSongsPolicy.pinning(["c"], pinned: [], memberIDs: members)
+        let second = PlaylistPinnedSongsPolicy.pinning(["e", "b"], pinned: first, memberIDs: members)
+        let repinned = PlaylistPinnedSongsPolicy.pinning(["c"], pinned: second, memberIDs: members)
+        #expect(first == ["c"])
+        #expect(second == ["b", "e", "c"])
+        #expect(repinned == ["c", "b", "e"])
+    }
+
+    @Test("Pinning ignores strangers and drops pins of songs that left the playlist")
+    func pinningIgnoresStrangers() {
+        let members = ["a", "b", "c"]
+        let stranger = PlaylistPinnedSongsPolicy.pinning(["x"], pinned: ["b"], memberIDs: members)
+        let pruned = PlaylistPinnedSongsPolicy.pinning(["a"], pinned: ["gone", "b", "b"], memberIDs: members)
+        let alreadyFirst = PlaylistPinnedSongsPolicy.pinning(["b"], pinned: ["b", "c"], memberIDs: members)
+        #expect(stranger == ["b"])
+        #expect(pruned == ["a", "b"])
+        #expect(alreadyFirst == ["b", "c"])
+    }
+
+    @Test("Effective pins skip songs that are no longer members")
+    func effectivePins() {
+        let result = PlaylistPinnedSongsPolicy.effective(["gone", "b", "a", "b"], memberIDs: ["a", "b", "c"])
+        #expect(result == ["b", "a"])
+    }
+
+    @Test("Without pinned songs in the list the order is returned untouched")
+    func noPinsKeepsOrder() {
+        let ordered = ["a", "b", "c"]
+        let noPins = PlaylistPinnedSongsPolicy.pinnedFirst(ordered, pinned: []) { $0 }
+        let strangerPins = PlaylistPinnedSongsPolicy.pinnedFirst(ordered, pinned: ["x"]) { $0 }
+        #expect(noPins == ordered)
+        #expect(strangerPins == ordered)
+    }
+
+    @Test("Reordering moves pins among themselves while members only reorder unpinned songs")
+    func reorderingKeepsPinsApart() {
+        let pinned = ["c", "a"]
+        let listed = ["a", "c", "d", "b"]
+        let newPins = PlaylistPinnedSongsPolicy.reordered(pinned, listedOrder: listed)
+        let unpinnedListed = PlaylistPinnedSongsPolicy.unpinnedListedOrder(listed, pinned: pinned)
+        let members = PlaylistMemberOrderPolicy.reordered(["a", "b", "c", "d"], listedOrder: unpinnedListed)
+        #expect(newPins == ["a", "c"])
+        #expect(unpinnedListed == ["d", "b"])
+        #expect(members == ["a", "d", "c", "b"])
+    }
+
+    @Test("Another device's pins translate through the shared identities")
+    func translatesRemotePins() {
+        let result = PlaylistPinnedSongsPolicy.translated(
+            ["remote-c", "remote-unknown", "remote-a", "remote-a2"],
+            localIDs: ["remote-c": "local-c", "remote-a": "local-a", "remote-a2": "local-a"]
+        )
+        #expect(result == ["local-c", "local-a"])
+    }
+
+    @Test("Pinned songs survive a playlist record round trip and old records decode without pins")
+    func codableRoundTrip() throws {
+        let playlist = Playlist(id: "p", name: "P", pinnedSongIDs: ["b", "a"])
+        let data = try JSONEncoder().encode(playlist)
+        let decoded = try JSONDecoder().decode(Playlist.self, from: data)
+        #expect(decoded.pinnedSongIDs == ["b", "a"])
+
+        var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "pinnedSongIDs")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let legacy = try JSONDecoder().decode(Playlist.self, from: legacyData)
+        #expect(legacy.pinnedSongIDs.isEmpty)
     }
 }

@@ -642,6 +642,9 @@
 "playlist_moved_to_top_one" = "已置顶";
 "playlist_moved_to_top_format" = "已置顶 %d 首";
 "playlist_moved_to_top_order_reset" = "列表已换回歌单顺序";
+"playlist_unpin" = "取消置顶";
+"playlist_unpinned_one" = "已取消置顶";
+"playlist_song_pinned" = "已置顶";
 
 // MARK: - 刮削
 "metadata_scraping" = "元数据与刮削";

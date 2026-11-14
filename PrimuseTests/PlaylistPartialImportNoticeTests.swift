@@ -190,12 +190,40 @@ final class PlaylistImportOrderTests: XCTestCase {
         let original = [identity("a"), identity("b"), identity("c")]
         library.applyRemotePlaylist(initial, songIDs: original.map(\.songID), identities: original)
         let uploadingIDs = library.rawSongIDs(forPlaylist: initial.id)
-        XCTAssertTrue(library.moveSongsToTop(["local-c"], inPlaylist: initial.id))
+        XCTAssertTrue(library.pinSongs(["local-c"], inPlaylist: initial.id))
         library.mergeRemotePlaylist(initial,
             baseSongIDs: uploadingIDs,
             additionalIdentities: original + [identity("d")])
         XCTAssertEqual(library.songs(forPlaylist: initial.id).map(\.id), ["local-c", "local-a", "local-b", "local-d"])
         guard case .success = await library.persistNowAndWait() else { return XCTFail("Persistence failed") }
+    }
+
+    /// 置顶随歌单记录同步(#412): 对方记的是它那边的歌曲 id, 这里借身份表翻成本机 id;
+    /// 成员先后不动, 更新的远端版本连置顶一起以它为准。
+    func testRemotePinsTranslateToThisDevicesSongs() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        library.sourceIdentityResolver = { _ in "account" }
+        library.addSongs([song("a"), song("b"), song("c")])
+        await library.waitForPendingIndex()
+        let identities = [identity("a"), identity("b"), identity("c")]
+        var remote = Playlist(id: "remote-pins", name: "Pinned", syncRevision: 3, pinnedSongIDs: ["remote-c"])
+        library.applyRemotePlaylist(remote, songIDs: identities.map(\.songID), identities: identities)
+        XCTAssertEqual(library.pinnedSongIDs(forPlaylist: remote.id), ["local-c"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: remote.id), ["local-a", "local-b", "local-c"])
+        XCTAssertEqual(library.songs(forPlaylist: remote.id).map(\.id), ["local-c", "local-a", "local-b"])
+
+        remote.syncRevision += 1
+        remote.pinnedSongIDs = ["remote-b"]
+        library.mergeRemotePlaylist(remote,
+            baseSongIDs: library.rawSongIDs(forPlaylist: remote.id), additionalIdentities: identities)
+        XCTAssertEqual(library.songs(forPlaylist: remote.id).map(\.id), ["local-b", "local-a", "local-c"])
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("Persistence failed") }
+
+        let reopened = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        await reopened.waitForPendingIndex()
+        XCTAssertEqual(reopened.songs(forPlaylist: remote.id).map(\.id), ["local-b", "local-a", "local-c"])
     }
 
     func testSyncConflictCombinesRemotePinWithLocalRemovalAsNewRevision() async throws {

@@ -3948,7 +3948,11 @@ final class MusicLibrary {
     private var artistDisplayNameCache: [ArtistDisplayNameCacheKey: ArtistDisplayNameCacheEntry] = [:]
     /// Backing storage that includes soft-deleted entries. UI-facing
     /// `playlists` filters this down.
-    private(set) var allPlaylists: [Playlist] = []
+    private(set) var allPlaylists: [Playlist] = [] {
+        // 成员表每问一次都要看置顶(#412), 按歌单 id 另存一份, 不必每次扫一遍全部歌单。
+        didSet { pinnedSongIDsByPlaylist = Self.pinnedSongIndex(allPlaylists) }
+    }
+    @ObservationIgnored private var pinnedSongIDsByPlaylist: [String: [String]] = [:]
     private var artworkOverridesByOwner: [String: LibraryArtworkOverride] = [:]
     private var libraryReviewsBySubject: [String: LibraryReview] = [:]
     /// 专辑 / 艺人简介(含删除留下的墓碑),按记录 id 存。
@@ -9949,7 +9953,27 @@ final class MusicLibrary {
     /// 当歌单用(列表、首数、播放、封面)的成员 id。「我喜欢」不算本地播客单集:
     /// 点心照旧记在这里(同步、服务端星标不变),界面上和订阅播客喜欢的单集一起列在
     /// 「喜欢的单集」(`likedLocalPodcastSongs()`),也不跟着「播放我喜欢」播。
+    /// 置顶的歌排在最前面(#412):列表、播放、电视与车机都按这个顺序。成员表本身不动,
+    /// 取消置顶的歌回到原位;要成员原顺序的地方(同步、重排)读 `rawSongIDs`。
     private func playlistMemberIDs(_ playlistID: String) -> [String] {
+        let ids = playlistUnpinnedMemberIDs(playlistID)
+        let pinned = pinnedSongIDs(forPlaylist: playlistID)
+        guard !pinned.isEmpty else { return ids }
+        if let cached = pinnedFirstMemberIDs[playlistID],
+           cached.membership == playlistMembershipRevision,
+           cached.podcast == localPodcastContentRevision,
+           cached.pinned == pinned {
+            return cached.ids
+        }
+        let ordered = PlaylistPinnedSongsPolicy.pinnedFirst(ids, pinned: pinned) { $0 }
+        if pinnedFirstMemberIDs.count >= Self.materializedPlaylistLimit {
+            pinnedFirstMemberIDs.removeAll(keepingCapacity: true)
+        }
+        pinnedFirstMemberIDs[playlistID] = (playlistMembershipRevision, localPodcastContentRevision, pinned, ordered)
+        return ordered
+    }
+
+    private func playlistUnpinnedMemberIDs(_ playlistID: String) -> [String] {
         let ids = playlistSongIDs[playlistID] ?? []
         guard playlistID == Self.likedSongsPlaylistID else { return ids }
         _ = localPodcastContentRevision
@@ -9957,6 +9981,26 @@ final class MusicLibrary {
         let podcastShowIDs = localPodcastBookIDs
         return LikedSongsPodcastSplitPolicy.music(ids) { podcastShowIDs[$0] != nil }
     }
+
+    /// 一个歌单里置顶的歌, 最近置顶的在前(#412)。镜像与文件夹歌单的顺序跟着来源走, 没有置顶。
+    /// 已经不在歌单里的旧置顶也可能还在这一列里, 按成员排序时自然排不进来。
+    /// 不登记观察: 置顶一变成员表也会被重新赋值(`writeUserPlaylistOrder`、远端套用), 读成员表的视图跟着刷新。
+    func pinnedSongIDs(forPlaylist playlistID: String) -> [String] {
+        pinnedSongIDsByPlaylist[playlistID] ?? []
+    }
+
+    private static func pinnedSongIndex(_ playlists: [Playlist]) -> [String: [String]] {
+        var index: [String: [String]] = [:]
+        for playlist in playlists
+        where !playlist.pinnedSongIDs.isEmpty && !playlist.isDeleted && playlist.allowsManualSongMembership {
+            index[playlist.id] = playlist.pinnedSongIDs
+        }
+        return index
+    }
+
+    /// 歌单页一次重绘要问十几遍成员表; 成员与置顶都没变就用上次排好的。
+    @ObservationIgnored private var pinnedFirstMemberIDs:
+        [String: (membership: UInt64, podcast: UInt64, pinned: [String], ids: [String])] = [:]
 
     /// 喜欢的本地播客单集(自己的文件标成播客),最近喜欢的在前。
     func likedLocalPodcastSongs() -> [Song] {
@@ -10453,46 +10497,83 @@ final class MusicLibrary {
         replacePlaylistSongsUnchecked(playlistID: playlistID, songIDs: songIDs)
     }
 
-    /// 置顶:把歌单里的这几首移到最前面,彼此保持原来的先后。其余成员(置灰占位、停用源里
-    /// 看不见的歌、「我喜欢」里分出去显示的本地节目)都留着、先后不变。镜像与文件夹歌单的
-    /// 顺序跟着来源走,不改。返回顺序有没有变。
+    /// 置顶(#412):这几首记成歌单的置顶,按它们在歌单里的先后排在原有置顶的前面。成员先后
+    /// 不动 —— 任何排序下置顶的都在最上面,取消置顶就回到原位,「添加日期」也还是原来的先后。
+    /// 镜像与文件夹歌单的顺序跟着来源走,不能置顶。返回置顶有没有变。
     @discardableResult
-    func moveSongsToTop(_ songIDs: [String], inPlaylist playlistID: String) -> Bool {
+    func pinSongs(_ songIDs: [String], inPlaylist playlistID: String) -> Bool {
         // S2: 歌单行要等发布之后才在库里。
         if deferringUntilReady({ [weak self] in
-            _ = self?.moveSongsToTop(songIDs, inPlaylist: playlistID)
+            _ = self?.pinSongs(songIDs, inPlaylist: playlistID)
         }) { return false }
+        guard let index = editableUserPlaylistIndex(playlistID) else { return false }
         return writeUserPlaylistOrder(
-            PlaylistMemberOrderPolicy.movingToTop(playlistSongIDs[playlistID] ?? [], selected: songIDs),
+            playlistSongIDs[playlistID] ?? [],
+            pinned: PlaylistPinnedSongsPolicy.pinning(
+                songIDs,
+                pinned: allPlaylists[index].pinnedSongIDs,
+                memberIDs: playlistSongIDs[playlistID] ?? []
+            ),
+            playlistID: playlistID
+        )
+    }
+
+    /// 取消置顶:歌回到它在所选排序里的位置(成员先后从没动过)。返回置顶有没有变。
+    @discardableResult
+    func unpinSongs(_ songIDs: [String], inPlaylist playlistID: String) -> Bool {
+        // S2: 同上。
+        if deferringUntilReady({ [weak self] in
+            _ = self?.unpinSongs(songIDs, inPlaylist: playlistID)
+        }) { return false }
+        guard let index = editableUserPlaylistIndex(playlistID) else { return false }
+        return writeUserPlaylistOrder(
+            playlistSongIDs[playlistID] ?? [],
+            pinned: PlaylistPinnedSongsPolicy.unpinning(songIDs, pinned: allPlaylists[index].pinnedSongIDs),
             playlistID: playlistID
         )
     }
 
     /// 重排面板「完成」。面板只列看得见的歌:排好的顺序填回它们原来占的位置,
     /// 置灰占位、停用源里的歌和「我喜欢」里的本地节目原位留着,不会因为一次重排就没了。
+    /// 置顶的歌始终在最上面: 面板里只能换它们彼此的先后, 成员表只按没置顶的重排,
+    /// 置顶的留在原位, 以后取消置顶还回得去。
     func reorderPlaylistSongs(playlistID: String, listedOrder songIDs: [String]) {
         // S2: 同上。
         if deferringUntilReady({ [weak self] in
             self?.reorderPlaylistSongs(playlistID: playlistID, listedOrder: songIDs)
         }) { return }
+        let pinned = editableUserPlaylistIndex(playlistID).map { allPlaylists[$0].pinnedSongIDs } ?? []
         writeUserPlaylistOrder(
-            PlaylistMemberOrderPolicy.reordered(playlistSongIDs[playlistID] ?? [], listedOrder: songIDs),
+            PlaylistMemberOrderPolicy.reordered(
+                playlistSongIDs[playlistID] ?? [],
+                listedOrder: PlaylistPinnedSongsPolicy.unpinnedListedOrder(songIDs, pinned: pinned)
+            ),
+            pinned: PlaylistPinnedSongsPolicy.reordered(pinned, listedOrder: songIDs),
             playlistID: playlistID
         )
     }
 
-    /// 只换先后、不增减成员的写入。不经 `replacePlaylistSongsUnchecked`:那里按曲库滤一遍,
-    /// 置灰占位会被当成悬空 id 滤掉。
-    @discardableResult
-    private func writeUserPlaylistOrder(_ orderedIDs: [String], playlistID: String) -> Bool {
+    private func editableUserPlaylistIndex(_ playlistID: String) -> Int? {
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
               let index = allPlaylists.firstIndex(where: { $0.id == playlistID }),
               !allPlaylists[index].isDeleted,
-              allPlaylists[index].allowsManualSongMembership,
-              (playlistSongIDs[playlistID] ?? []) != orderedIDs
-        else { return false }
+              allPlaylists[index].allowsManualSongMembership else { return nil }
+        return index
+    }
+
+    /// 只换先后、不增减成员的写入(成员先后与置顶)。不经 `replacePlaylistSongsUnchecked`:
+    /// 那里按曲库滤一遍,置灰占位会被当成悬空 id 滤掉。
+    @discardableResult
+    private func writeUserPlaylistOrder(_ orderedIDs: [String], pinned: [String]? = nil, playlistID: String) -> Bool {
+        guard let index = editableUserPlaylistIndex(playlistID) else { return false }
+        let ordersChanged = (playlistSongIDs[playlistID] ?? []) != orderedIDs
+        let pinsChanged = pinned.map { $0 != allPlaylists[index].pinnedSongIDs } ?? false
+        guard ordersChanged || pinsChanged else { return false }
+        var playlist = allPlaylists[index]
+        if let pinned, pinsChanged { playlist.pinnedSongIDs = pinned }
+        allPlaylists[index] = stampedPlaylist(playlist)
+        // 只换了置顶时成员表也重新赋一次: 按成员表算的列表、首数缓存跟着作废, 读成员表的视图跟着刷新。
         playlistSongIDs[playlistID] = orderedIDs
-        allPlaylists[index] = stampedPlaylist(allPlaylists[index])
         sortPlaylists()
         persistPlaylistDurabilityLedger()
         persistSnapshot()
@@ -11512,6 +11593,8 @@ final class MusicLibrary {
         guard entries.count != originalCount else { return }
         playlistSongIDs[playlistID] = entries
 
+        // 移出去的歌不再算置顶: 以后再加回来是一首新加的歌, 不该自己跳回最上面。
+        allPlaylists[existingIndex].pinnedSongIDs.removeAll { removalSet.contains($0) }
         allPlaylists[existingIndex] = stampedPlaylist(allPlaylists[existingIndex])
         sortPlaylists()
         persistPlaylistDurabilityLedger()
@@ -12503,9 +12586,9 @@ final class MusicLibrary {
                     remote: playlist
                 )
             }
-            allPlaylists[index] = playlist
+            allPlaylists[index] = withLocalPinnedSongIDs(playlist, identities: identities)
         } else {
-            allPlaylists.append(playlist)
+            allPlaylists.append(withLocalPinnedSongIDs(playlist, identities: identities))
         }
 
         if let identities, !identities.isEmpty {
@@ -12543,6 +12626,34 @@ final class MusicLibrary {
         persistSnapshot(after: Self.lowPriorityPortableSnapshotDelay)
     }
 
+    /// 别的设备记的置顶是它那边的歌曲 id(#412), 借同一份成员身份表翻成本机的成员 id。
+    /// 身份对不上、还在等本机扫到的歌, 成员表里先留着对方的 id 占位, 置顶也跟着那个占位。
+    /// 没有身份表(旧版本推来的记录)就原样用。
+    private func withLocalPinnedSongIDs(_ playlist: Playlist, identities: [SongIdentity]?) -> Playlist {
+        guard !playlist.pinnedSongIDs.isEmpty, let identities, !identities.isEmpty else { return playlist }
+        let remotePinned = Set(playlist.pinnedSongIDs)
+        var seen = Set<String>()
+        let pinnedIdentities = identities.filter {
+            remotePinned.contains($0.songID) && seen.insert($0.songID).inserted
+        }
+        var localIDs: [String: String] = [:]
+        if !pinnedIdentities.isEmpty {
+            let resolutionIndex = makeIdentityResolutionIndex(for: pinnedIdentities)
+            for identity in pinnedIdentities {
+                if let songID = resolveIdentity(identity, using: resolutionIndex) {
+                    localIDs[identity.songID] = songID
+                } else if let entry = PlaylistPendingEntry(syncIdentity: identity) {
+                    localIDs[identity.songID] = entry.id
+                } else {
+                    localIDs[identity.songID] = identity.songID
+                }
+            }
+        }
+        var translated = playlist
+        translated.pinnedSongIDs = PlaylistPinnedSongsPolicy.translated(playlist.pinnedSongIDs, localIDs: localIDs)
+        return translated
+    }
+
     /// Merge a server-side playlist update into the existing local playlist.
     /// Used by CloudKit's conflict path so server-only adds aren't lost.
     /// Server identities flow through the same resolver as `applyRemotePlaylist`;
@@ -12575,10 +12686,13 @@ final class MusicLibrary {
                 localWon = true
                 reconciled = allPlaylists[index]
             } else {
-                allPlaylists[index] = playlist
+                // 远端版本更新: 置顶也以它为准(本机同时做的置顶在本机版本胜出时才保留)。
+                reconciled = withLocalPinnedSongIDs(playlist, identities: additionalIdentities)
+                allPlaylists[index] = reconciled
             }
         } else {
-            allPlaylists.append(playlist)
+            reconciled = withLocalPinnedSongIDs(playlist, identities: additionalIdentities)
+            allPlaylists.append(reconciled)
         }
 
         let (resolved, unresolved) = resolveIdentitiesPartitioned(additionalIdentities, preservingUnresolvedOrder: true)

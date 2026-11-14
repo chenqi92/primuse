@@ -3000,6 +3000,9 @@
 "playlist_moved_to_top_one" = "Movida para o topo";
 "playlist_moved_to_top_format" = "%d músicas movidas para o topo";
 "playlist_moved_to_top_order_reset" = "A lista voltou à ordem da playlist";
+"playlist_unpin" = "Desafixar";
+"playlist_unpinned_one" = "Desafixada";
+"playlist_song_pinned" = "Fixada";
 "remove_from_queue" = "Remover da fila";
 "renderer_friendly_name_format" = "%1$@ · %2$@";
 "reorder" = "Reordenar";

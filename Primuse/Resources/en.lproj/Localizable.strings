@@ -642,6 +642,9 @@
 "playlist_moved_to_top_one" = "Moved to the top";
 "playlist_moved_to_top_format" = "Moved %d songs to the top";
 "playlist_moved_to_top_order_reset" = "The list is back in playlist order";
+"playlist_unpin" = "Unpin";
+"playlist_unpinned_one" = "Unpinned";
+"playlist_song_pinned" = "Pinned";
 
 // MARK: - Scraping
 "metadata_scraping" = "Metadata & Scraping";

@@ -2,6 +2,8 @@ import SwiftUI
 import PrimuseKit
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 struct SongRowActionRequest: Identifiable {
@@ -60,8 +62,12 @@ struct SongRowView: View {
     /// 歌单页专属：非 nil 时单曲菜单多一项「移出歌单」。行自己不知道它属于
     /// 哪个歌单，也不该知道镜像 / 智能歌单能不能改成员，所以由歌单页决定传不传。
     var onRemoveFromPlaylist: (() -> Void)? = nil
-    /// 歌单页专属：需要移动歌曲或恢复歌单顺序时，单曲菜单显示「置顶」。
+    /// 歌单页专属：没置顶的歌，单曲菜单显示「置顶」。
     var onMoveToTop: (() -> Void)? = nil
+    /// 歌单页专属：置顶的歌，单曲菜单显示「取消置顶」。
+    var onUnpin: (() -> Void)? = nil
+    /// 歌单页专属：置顶的歌在歌名后面带一枚图钉，按别的排序看时也知道它为什么在最上面。
+    var isPinned = false
 
     /// Resolved by the parent so rows do not individually observe every
     /// backfill state mutation.
@@ -444,6 +450,12 @@ struct SongRowView: View {
                         .font(style.titleFont)
                         .lineLimit(1)
                     SongContentRatingBadge(song: song)
+                    if isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel(Text("playlist_song_pinned"))
+                    }
                 }
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
                     .opacity(isReadingDetails ? 0.75 : unreachableDimming)
@@ -813,7 +825,7 @@ struct SongRowView: View {
             }
         }
 
-        if selection != nil || onMoveToTop != nil {
+        if selection != nil || onMoveToTop != nil || onUnpin != nil {
             Section {
                 if let selection {
                     Button {
@@ -825,6 +837,11 @@ struct SongRowView: View {
                 if let onMoveToTop {
                     Button(action: onMoveToTop) {
                         Label(String(localized: "radio_manage_pin_top"), systemImage: "arrow.up.to.line")
+                    }
+                }
+                if let onUnpin {
+                    Button(action: onUnpin) {
+                        Label(String(localized: "playlist_unpin"), systemImage: "pin.slash")
                     }
                 }
             }
@@ -2304,6 +2321,8 @@ extension SongRowView {
         selection: SongSelectionModel? = nil,
         onRemoveFromPlaylist: (() -> Void)? = nil,
         onMoveToTop: (() -> Void)? = nil,
+        onUnpin: (() -> Void)? = nil,
+        isPinned: Bool = false,
         queueSwipeActionsEnabled: Bool = true,
         listAppearance: SongListAppearance = .list,
         context: RowContext
@@ -2319,6 +2338,8 @@ extension SongRowView {
         self.selection = selection
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.onMoveToTop = onMoveToTop
+        self.onUnpin = onUnpin
+        self.isPinned = isPinned
         self.queueSwipeActionsEnabled = queueSwipeActionsEnabled
         self.listAppearance = listAppearance
         self.sourceName = context.sourceName

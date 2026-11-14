@@ -2907,6 +2907,9 @@
 "playlist_moved_to_top_one" = "En üste taşındı";
 "playlist_moved_to_top_format" = "%d şarkı en üste taşındı";
 "playlist_moved_to_top_order_reset" = "Liste yeniden çalma listesi sırasında";
+"playlist_unpin" = "Sabitlemeyi kaldır";
+"playlist_unpinned_one" = "Sabitleme kaldırıldı";
+"playlist_song_pinned" = "Sabitlendi";
 "local_import_progress_failed_format" = "Başarısız %d";
 "reverb_large_room" = "Büyük Oda";
 "playlist_import_mac_intro_title" = "Başlamak için bir çalma listesi dosyası seçin";

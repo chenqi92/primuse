@@ -175,11 +175,16 @@ struct PlaylistSynchronizationTests {
             #expect(legacy?.hasDedicatedCoverArt == false)
             #expect(legacy?.folderBinding == nil)
             #expect(legacy?.sortOrder == PlaylistManualOrderPolicy.unordered)
+            #expect(legacy?.pinnedSongIDs == [])
 
             let positioned = Playlist(id: "positioned", name: "Positioned", sortOrder: 2, descriptionText: "简介")
             try positioned.save(db)
             #expect(try Playlist.fetchOne(db, key: "positioned")?.sortOrder == 2)
             #expect(try Playlist.fetchOne(db, key: "positioned")?.descriptionText == "简介")
+
+            let pinned = Playlist(id: "pinned", name: "Pinned", pinnedSongIDs: ["song-2", "song-1"])
+            try pinned.save(db)
+            #expect(try Playlist.fetchOne(db, key: "pinned")?.pinnedSongIDs == ["song-2", "song-1"])
 
             let binding = PlaylistFolderBinding(nodeID: LibraryFolderNodeID(
                 sourceID: "source", kind: .folder, normalizedRelativePath: "/music/live"

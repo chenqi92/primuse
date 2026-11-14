@@ -2907,6 +2907,9 @@
 "playlist_moved_to_top_one" = "Перемещено наверх";
 "playlist_moved_to_top_format" = "Перемещено наверх: %d";
 "playlist_moved_to_top_order_reset" = "Список снова в порядке плейлиста";
+"playlist_unpin" = "Открепить";
+"playlist_unpinned_one" = "Откреплено";
+"playlist_song_pinned" = "Закреплено";
 "local_import_progress_failed_format" = "Ошибка %d";
 "reverb_large_room" = "Большая комната";
 "playlist_import_mac_intro_title" = "Выберите файл списка воспроизведения, чтобы начать.";

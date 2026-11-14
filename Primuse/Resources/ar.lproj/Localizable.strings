@@ -3000,6 +3000,9 @@
 "playlist_moved_to_top_one" = "نُقلت إلى الأعلى";
 "playlist_moved_to_top_format" = "نُقل إلى الأعلى: %d";
 "playlist_moved_to_top_order_reset" = "عادت القائمة إلى ترتيب قائمة التشغيل";
+"playlist_unpin" = "إلغاء التثبيت";
+"playlist_unpinned_one" = "أُلغي التثبيت";
+"playlist_song_pinned" = "مثبّتة";
 "remove_from_queue" = "إزالة من قائمة الانتظار";
 "renderer_friendly_name_format" = "%1$@ · %2$@";
 "reorder" = "إعادة الترتيب";

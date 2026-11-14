@@ -400,11 +400,12 @@ final class MusicLibraryLikedLocalPodcastTests: XCTestCase {
     }
 }
 
-/// 置顶(#332): 选中的歌移到歌单最前面, 彼此保持原来的先后; 看不见的成员(置灰占位、停用源里的歌、
-/// 「我喜欢」里的本地节目)留着。重排面板和服务器收藏同步也不再挤掉它们、不再打乱置顶。
+/// 置顶(#332、#412): 置顶记在歌单上、不挪成员, 任何排序下置顶的都在最前面, 取消置顶回到原位;
+/// 看不见的成员(置灰占位、停用源里的歌、「我喜欢」里的本地节目)留着。重排面板和服务器收藏同步
+/// 也不再挤掉它们、不再打乱置顶。
 @MainActor
 final class MusicLibraryPlaylistMoveToTopTests: XCTestCase {
-    func testSameSongCanBeMovedToTopIndependentlyInLikedAndOtherPlaylists() async throws {
+    func testSameSongCanBePinnedIndependentlyInLikedAndOtherPlaylists() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("PrimuseIndependentPlaylistOrder-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -418,19 +419,21 @@ final class MusicLibraryPlaylistMoveToTopTests: XCTestCase {
         let first = library.createPlaylist(name: "First", members: [.song("two"), .song("one"), .song("three")])
         let second = library.createPlaylist(name: "Second", members: [.song("one"), .song("three"), .song("two")])
 
-        XCTAssertTrue(library.moveSongsToTop(["three"], inPlaylist: liked))
-        XCTAssertEqual(library.rawSongIDs(forPlaylist: first.id), ["two", "one", "three"])
-        XCTAssertEqual(library.rawSongIDs(forPlaylist: second.id), ["one", "three", "two"])
+        XCTAssertTrue(library.pinSongs(["three"], inPlaylist: liked))
+        XCTAssertEqual(library.songIDs(forPlaylist: liked), ["three", "one", "two"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: liked), ["one", "two", "three"], "Pinning never moves members")
+        XCTAssertEqual(library.songIDs(forPlaylist: first.id), ["two", "one", "three"])
+        XCTAssertEqual(library.songIDs(forPlaylist: second.id), ["one", "three", "two"])
 
-        XCTAssertTrue(library.moveSongsToTop(["three"], inPlaylist: first.id))
-        XCTAssertTrue(library.moveSongsToTop(["three"], inPlaylist: second.id))
-        XCTAssertEqual(library.rawSongIDs(forPlaylist: liked), ["three", "one", "two"])
-        XCTAssertEqual(library.rawSongIDs(forPlaylist: first.id), ["three", "two", "one"])
-        XCTAssertEqual(library.rawSongIDs(forPlaylist: second.id), ["three", "one", "two"])
+        XCTAssertTrue(library.pinSongs(["three"], inPlaylist: first.id))
+        XCTAssertTrue(library.pinSongs(["three"], inPlaylist: second.id))
+        XCTAssertEqual(library.songIDs(forPlaylist: first.id), ["three", "two", "one"])
+        XCTAssertEqual(library.songIDs(forPlaylist: second.id), ["three", "one", "two"])
 
-        XCTAssertTrue(library.moveSongsToTop(["two"], inPlaylist: first.id))
-        XCTAssertEqual(library.rawSongIDs(forPlaylist: liked), ["three", "one", "two"])
-        XCTAssertEqual(library.rawSongIDs(forPlaylist: second.id), ["three", "one", "two"])
+        XCTAssertTrue(library.pinSongs(["two"], inPlaylist: first.id))
+        XCTAssertEqual(library.songIDs(forPlaylist: first.id), ["two", "three", "one"], "The latest pin goes first")
+        XCTAssertEqual(library.songIDs(forPlaylist: liked), ["three", "one", "two"])
+        XCTAssertEqual(library.songIDs(forPlaylist: second.id), ["three", "one", "two"])
         XCTAssertTrue(library.isLiked(songID: "three"))
 
         guard case .success = await library.persistNowAndWait() else {
@@ -438,12 +441,23 @@ final class MusicLibraryPlaylistMoveToTopTests: XCTestCase {
         }
         let restored = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
         await restored.waitForPendingIndex()
-        XCTAssertEqual(restored.rawSongIDs(forPlaylist: liked), ["three", "one", "two"])
-        XCTAssertEqual(restored.rawSongIDs(forPlaylist: first.id), ["two", "three", "one"])
-        XCTAssertEqual(restored.rawSongIDs(forPlaylist: second.id), ["three", "one", "two"])
+        XCTAssertEqual(restored.songIDs(forPlaylist: liked), ["three", "one", "two"])
+        XCTAssertEqual(restored.songIDs(forPlaylist: first.id), ["two", "three", "one"])
+        XCTAssertEqual(restored.songIDs(forPlaylist: second.id), ["three", "one", "two"])
+        XCTAssertEqual(restored.pinnedSongIDs(forPlaylist: first.id), ["two", "three"])
+
+        // 取消置顶: 回到成员表里原来的位置。
+        XCTAssertTrue(restored.unpinSongs(["three"], inPlaylist: first.id))
+        XCTAssertEqual(restored.songIDs(forPlaylist: first.id), ["two", "one", "three"])
+        XCTAssertTrue(restored.unpinSongs(["two"], inPlaylist: first.id))
+        XCTAssertEqual(restored.songIDs(forPlaylist: first.id), ["two", "one", "three"])
+        XCTAssertFalse(restored.unpinSongs(["two"], inPlaylist: first.id), "Nothing pinned writes nothing")
+        guard case .success = await restored.persistNowAndWait() else {
+            return XCTFail("The restored library should persist")
+        }
     }
 
-    func testMovingSongsToTopKeepsHiddenMembers() async throws {
+    func testPinningKeepsHiddenMembers() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("PrimuseMoveToTopTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -463,15 +477,15 @@ final class MusicLibraryPlaylistMoveToTopTests: XCTestCase {
         library.ensurePlaylist(id: liked, name: "Liked")
         library.add(songIDs: ["music-1", "episode-1", "music-2", "music-3"], toPlaylist: liked)
 
-        XCTAssertTrue(library.moveSongsToTop(["music-3"], inPlaylist: liked))
+        XCTAssertTrue(library.pinSongs(["music-3"], inPlaylist: liked))
         XCTAssertEqual(library.songs(forPlaylist: liked).map(\.id), ["music-3", "music-1", "music-2"])
-        XCTAssertEqual(library.rawSongIDs(forPlaylist: liked), ["music-3", "music-1", "episode-1", "music-2"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: liked), ["music-1", "episode-1", "music-2", "music-3"])
         XCTAssertEqual(library.likedLocalPodcastSongs().map(\.id), ["episode-1"])
 
         // 一次挑几首: 按它们在歌单里的先后排到最前, 不按点选的先后。
-        XCTAssertTrue(library.moveSongsToTop(["music-2", "music-1"], inPlaylist: liked))
+        XCTAssertTrue(library.pinSongs(["music-2", "music-1"], inPlaylist: liked))
         XCTAssertEqual(library.songs(forPlaylist: liked).map(\.id), ["music-1", "music-2", "music-3"])
-        XCTAssertFalse(library.moveSongsToTop(["music-1"], inPlaylist: liked), "Already on top writes nothing")
+        XCTAssertFalse(library.pinSongs(["music-1"], inPlaylist: liked), "Already on top writes nothing")
 
         let pending = PlaylistPendingEntry(title: "Unmatched", artists: ["Artist"], origin: "import")
         let playlist = library.createPlaylist(
@@ -481,15 +495,48 @@ final class MusicLibraryPlaylistMoveToTopTests: XCTestCase {
         library.updateDisabledSourceIDs(["source-2"])
         XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["music-1", "music-2"])
 
-        XCTAssertTrue(library.moveSongsToTop(["music-2"], inPlaylist: playlist.id))
-        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlist.id), ["music-2", "music-1", pending.id, "parked"])
+        XCTAssertTrue(library.pinSongs(["music-2"], inPlaylist: playlist.id))
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["music-2", "music-1"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlist.id), ["music-1", pending.id, "parked", "music-2"])
         XCTAssertEqual(library.pendingEntryCount(forPlaylist: playlist.id), 1)
 
-        // 重排面板只列看得见的两首, 置灰占位与停用源里的歌原位留着。
-        library.reorderPlaylistSongs(playlistID: playlist.id, listedOrder: ["music-1", "music-2"])
-        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlist.id), ["music-1", "music-2", pending.id, "parked"])
+        // 取消置顶后重排: 面板只列看得见的两首, 置灰占位与停用源里的歌原位留着。
+        XCTAssertTrue(library.unpinSongs(["music-2"], inPlaylist: playlist.id))
+        library.reorderPlaylistSongs(playlistID: playlist.id, listedOrder: ["music-2", "music-1"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlist.id), ["music-2", pending.id, "parked", "music-1"])
         library.updateDisabledSourceIDs([])
-        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["music-1", "music-2", "parked"])
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.id), ["music-2", "parked", "music-1"])
+
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The isolated library should persist")
+        }
+    }
+
+    func testReorderKeepsPinnedSongsOnTopAndRemovalClearsThePin() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimusePinnedReorderTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        library.addSongs(["a", "b", "c", "d"].map { makeSong($0) }, affectedSourceIDs: ["source-1"])
+        await library.waitForPendingIndex()
+        let playlist = library.createPlaylist(name: "Pins", members: ["a", "b", "c", "d"].map { .song($0) })
+
+        XCTAssertTrue(library.pinSongs(["c"], inPlaylist: playlist.id))
+        XCTAssertTrue(library.pinSongs(["a"], inPlaylist: playlist.id))
+        XCTAssertEqual(library.songIDs(forPlaylist: playlist.id), ["a", "c", "b", "d"])
+
+        // 面板里把置顶的两首对调、把 d 拖到最上面: 置顶的仍在最上面, d 排在没置顶的最前面,
+        // 置顶的歌在成员表里不挪, 取消置顶时回得去。
+        library.reorderPlaylistSongs(playlistID: playlist.id, listedOrder: ["d", "c", "a", "b"])
+        XCTAssertEqual(library.pinnedSongIDs(forPlaylist: playlist.id), ["c", "a"])
+        XCTAssertEqual(library.songIDs(forPlaylist: playlist.id), ["c", "a", "d", "b"])
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlist.id), ["a", "d", "c", "b"])
+
+        // 移出歌单就不再算置顶, 再加回来是一首新加的歌。
+        library.remove(songID: "c", fromPlaylist: playlist.id)
+        XCTAssertEqual(library.pinnedSongIDs(forPlaylist: playlist.id), ["a"])
+        library.add(songIDs: ["c"], toPlaylist: playlist.id)
+        XCTAssertEqual(library.songIDs(forPlaylist: playlist.id), ["a", "d", "b", "c"])
 
         guard case .success = await library.persistNowAndWait() else {
             return XCTFail("The isolated library should persist")
@@ -516,7 +563,7 @@ final class MusicLibraryPlaylistMoveToTopTests: XCTestCase {
         library.setLiked(songID: "local-1", isLiked: true, propagatesServerMutation: false)
         XCTAssertEqual(library.songIDs(forPlaylist: liked), ["server-1", "server-2", "local-1"])
 
-        library.moveSongsToTop(["server-2"], inPlaylist: liked)
+        library.pinSongs(["server-2"], inPlaylist: liked)
         library.replaceLikedSongs(fromSourceID: "server", with: ["server-1", "server-3", "server-2"])
         XCTAssertEqual(
             library.songIDs(forPlaylist: liked), ["server-2", "server-1", "local-1", "server-3"],

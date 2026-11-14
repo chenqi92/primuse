@@ -873,6 +873,9 @@
 "playlist_moved_to_top_one" = "Nach oben verschoben";
 "playlist_moved_to_top_format" = "%d Titel nach oben verschoben";
 "playlist_moved_to_top_order_reset" = "Die Liste zeigt wieder die Playlist-Reihenfolge";
+"playlist_unpin" = "Fixierung aufheben";
+"playlist_unpinned_one" = "Fixierung aufgehoben";
+"playlist_song_pinned" = "Fixiert";
 "metadata_scraping" = "Metadaten & Abrufen";
 "scraper_sources" = "Abrufquellen";
 "scraper_sources_footer" = "Zum Umsortieren ziehen. Die Quellen werden von oben nach unten durchprobiert, bis ein Treffer gefunden wird. Sind die Liedtexte nicht wortgenau, werden bis zu zwei weitere Quellen nach einer genaueren Fassung gefragt.";

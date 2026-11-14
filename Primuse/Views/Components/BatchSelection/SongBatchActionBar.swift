@@ -35,8 +35,8 @@ extension View {
     /// - Parameters:
     ///   - orderedIDs: 列表当前顺序，用于全选和还原选中项的顺序。
     ///   - resolve: ID → Song。性能敏感的页面传自己的免观察查找。
-    ///   - onMoveToTop: 非 nil 时多出「置顶」，把选中的歌交给页面移到歌单最前面
-    ///     （页面还要顾及列表的显示顺序）。
+    ///   - onMoveToTop: 非 nil 时多出「置顶」，把选中的歌交给页面置顶
+    ///     （置顶的歌在任何排序下都排在最上面）。
     func songBatchActions(
         selection: SongSelectionModel,
         context: SongBatchActionContext = .library,
