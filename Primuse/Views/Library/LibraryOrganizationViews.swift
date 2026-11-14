@@ -94,12 +94,12 @@ struct AlbumReleaseCategoryMenu: View {
                         let songs = library.songs(forAlbum: album.id)
                         var updated = store.categories(album: album, songs: songs)
                         if selected { updated.insert(category) } else { updated.remove(category) }
-                        if !updated.isEmpty {
-                            store.set(updated, albumID: album.id, songIDs: songs.map(\.id))
-                        }
+                        // 点的是唯一勾着的那一项:分类不能清空,改为把它记成手动选的。自动认出的「专辑」
+                        // 也就能确认下来(只收了一首的正式专辑,「不列只有单曲或 EP 的人」就按手动的算)。
+                        if updated.isEmpty { updated = [category] }
+                        store.set(updated, albumID: album.id, songIDs: songs.map(\.id))
                     }
                 ))
-                .disabled(categories == [category])
             }
             Divider()
             Button("release_category_automatic") {
