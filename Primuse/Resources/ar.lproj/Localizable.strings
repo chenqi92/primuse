@@ -7392,3 +7392,4 @@
 "pending_writeback_empty" = "كُتبت كل التغييرات في الملفات.";
 "writeback_preflight_unsupported_format" = "في %lld من هذه الأغاني، لا يدعم المصدر أو تنسيق الملف كتابة الوسوم في الملف، لذا تُحفظ تغييراتها في Primuse فقط.";
 "writeback_preflight_refused_format" = "رفض %@ الكتابة في الملفات في المرة السابقة (للقراءة فقط أو لا يوجد إذن بالكتابة)، لذا قد تُحفظ هذه التغييرات أيضًا في Primuse فقط.";
+"artist_browse_hide_singles_only" = "إخفاء الفنانين الذين لديهم أغانٍ منفردة وEP فقط";

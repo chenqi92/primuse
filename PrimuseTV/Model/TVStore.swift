@@ -1182,8 +1182,13 @@ final class TVStore {
     @ObservationIgnored private var albumBrowseLayoutCache: (
         order: LibraryAlbumBrowseOrder, revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<Album>
     )?
+    /// `hidesSingleOnly`: 专辑艺术家里不列只有单曲、EP 的人(`AlbumArtistReleaseFilter`)。
     @ObservationIgnored private var artistBrowseLayoutCache:
-        (mode: ArtistBrowseMode, revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<Artist>)?
+        (mode: ArtistBrowseMode, hidesSingleOnly: Bool, revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<Artist>)?
+
+    private var hidesSingleOnlyAlbumArtists: Bool {
+        UserDefaults.standard.bool(forKey: AlbumArtistReleaseFilter.storageKey)
+    }
     @ObservationIgnored private var songBrowseLayoutCache:
         (revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<String>)?
     /// 后台排好一份浏览布局就加一,让读布局的视图重算。
@@ -1524,7 +1529,8 @@ final class TVStore {
     /// 按名字(拼音)排好、带首字母分段的艺人墙;规则同 `albumBrowseLayout`。
     func artistBrowseLayout(_ mode: ArtistBrowseMode) -> TVBrowseLayout<TVArtistMapper>? {
         _ = browseLayoutRevision
-        guard let cached = artistBrowseLayoutCache, cached.mode == mode else { return nil }
+        guard let cached = artistBrowseLayoutCache, cached.mode == mode,
+              cached.hidesSingleOnly == hidesSingleOnlyAlbumArtists else { return nil }
         return TVBrowseLayout(
             items: TVArtistList(source: cached.layout.items, mapper: TVArtistMapper()),
             sections: cached.layout.sections
@@ -1533,7 +1539,10 @@ final class TVStore {
 
     func prepareArtistBrowseLayout(_ mode: ArtistBrowseMode) async {
         let revision = libraryContentRevision
-        let cached = artistBrowseLayoutCache?.mode == mode ? artistBrowseLayoutCache : nil
+        let hidesSingleOnly = hidesSingleOnlyAlbumArtists
+        let cached = artistBrowseLayoutCache.flatMap {
+            $0.mode == mode && $0.hidesSingleOnly == hidesSingleOnly ? $0 : nil
+        }
         if let cached, cached.revision == revision { return }
         let artists = library.browsableArtists(mode)
         let unknownArtistName = String(localized: "unknown_artist")
@@ -1550,12 +1559,12 @@ final class TVStore {
         }.value
         guard !Task.isCancelled, revision == libraryContentRevision else { return }
         guard let layout = result.layout else {
-            if artistBrowseLayoutCache?.mode == mode {
+            if artistBrowseLayoutCache?.mode == mode, artistBrowseLayoutCache?.hidesSingleOnly == hidesSingleOnly {
                 artistBrowseLayoutCache?.revision = revision
             }
             return
         }
-        artistBrowseLayoutCache = (mode, revision, result.fingerprint, layout)
+        artistBrowseLayoutCache = (mode, hidesSingleOnly, revision, result.fingerprint, layout)
         browseLayoutRevision &+= 1
         plog("TV artist layout mode=\(mode.rawValue) artists=\(artists.count) sections=\(layout.sections.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
     }

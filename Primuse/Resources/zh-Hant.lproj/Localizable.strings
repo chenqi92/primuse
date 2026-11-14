@@ -7463,3 +7463,4 @@
 "pending_writeback_empty" = "所有修改都已寫進檔案。";
 "writeback_preflight_unsupported_format" = "其中 %lld 首所在的音樂來源或檔案格式不支援把標籤寫進檔案，修改只會儲存在 Primuse。";
 "writeback_preflight_refused_format" = "%@ 上次拒絕寫入檔案（唯讀或沒有寫入權限），這次的修改可能也只會儲存在 Primuse。";
+"artist_browse_hide_singles_only" = "不列出只有單曲或 EP 的演出者";

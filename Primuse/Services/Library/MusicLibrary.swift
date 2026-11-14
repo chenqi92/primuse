@@ -5448,12 +5448,67 @@ final class MusicLibrary {
     var albumCount: Int { visibleAlbums.count }
     var artistCount: Int { visibleArtists.count }
 
-    /// 资料库艺术家页按设置列出的人。
+    /// 资料库艺术家页按设置列出的人。专辑艺术家可以再去掉名下只有单曲、EP 的人
+    /// (`AlbumArtistReleaseFilter`, 本机偏好)。
     func browsableArtists(_ mode: ArtistBrowseMode) -> [Artist] {
         switch mode {
         case .allArtists: return visibleArtists
-        case .albumArtists: return visibleAlbumArtists
+        case .albumArtists:
+            guard UserDefaults.standard.bool(forKey: AlbumArtistReleaseFilter.storageKey) else {
+                return visibleAlbumArtists
+            }
+            return albumArtistsWithFullReleases()
         }
+    }
+
+    private struct FullReleaseAlbumArtistsKey: Equatable {
+        let credits: UInt64
+        let categories: UInt64
+        let overrides: Int
+    }
+    @ObservationIgnored private var fullReleaseAlbumArtistsCache: (key: FullReleaseAlbumArtistsKey, artists: [Artist])?
+
+    private func albumArtistsWithFullReleases() -> [Artist] {
+        let artists = visibleAlbumArtists
+        let overrides = AlbumReleaseCategoryStore.shared
+        let key = FullReleaseAlbumArtistsKey(
+            credits: albumArtistCreditsRevision,
+            categories: releaseCategoryRevision,
+            overrides: overrides.revision
+        )
+        if let cached = fullReleaseAlbumArtistsCache, cached.key == key { return cached.artists }
+        // Manual choices may be filed under a song when editing tags changed
+        // the album's id; resolve them the way the album grid does.
+        let manual: [String: Set<AlbumReleaseCategory>]
+        let snapshot = overrides.snapshot
+        if snapshot.isEmpty {
+            manual = [:]
+        } else {
+            let songs = visibleSongsLookupReference.value
+            let positions = visibleSongIndexByID
+            manual = snapshot.resolved(albumIDForSong: { id in
+                guard let position = positions[id], songs.indices.contains(position) else { return nil }
+                return songs[position].albumID
+            }) ?? [:]
+        }
+        let kept = AlbumArtistReleaseFilter.artists(
+            artists,
+            albumIDsByArtistID: albumIDsByAlbumArtistID
+        ) { albumID in
+            guard let album = visibleAlbumByID[albumID] else { return false }
+            if let chosen = manual[albumID] {
+                return AlbumArtistReleaseFilter.countsAsFullRelease(
+                    categories: chosen, isManualChoice: true, songCount: album.songCount
+                )
+            }
+            return AlbumArtistReleaseFilter.countsAsFullRelease(
+                categories: releaseMetadataIndex.categories(albumID: albumID),
+                isManualChoice: false,
+                songCount: album.songCount
+            )
+        }
+        fullReleaseAlbumArtistsCache = (key, kept)
+        return kept
     }
     var genreCount: Int { visibleGenres.count }
 

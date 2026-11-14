@@ -7487,3 +7487,4 @@
 "pending_writeback_empty" = "すべての変更がファイルに書き込まれました。";
 "writeback_preflight_unsupported_format" = "このうち %lld 曲は、ソースまたはファイル形式がタグのファイルへの書き込みに対応していないため、変更は Primuse にのみ保存されます。";
 "writeback_preflight_refused_format" = "%@ は前回ファイルへの書き込みを拒否したため（読み取り専用または書き込み権限なし）、今回の変更も Primuse にのみ保存される可能性があります。";
+"artist_browse_hide_singles_only" = "シングルとEPのみのアーティストを非表示";

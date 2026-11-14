@@ -20,6 +20,13 @@ struct MacSidebar: View {
     /// 「艺术家」行的数字跟着艺术家页的列法。
     @AppStorage(ArtistBrowseMode.storageKey)
     private var artistBrowseModeRaw = ArtistBrowseMode.allArtists.rawValue
+    @AppStorage(AlbumArtistReleaseFilter.storageKey)
+    private var hidesSingleOnlyAlbumArtists = false
+
+    private var browsableArtistCount: Int {
+        _ = hidesSingleOnlyAlbumArtists
+        return library.browsableArtists(.resolved(artistBrowseModeRaw)).count
+    }
     @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
     private var librarySectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
@@ -190,7 +197,7 @@ struct MacSidebar: View {
                 route: .section(.artists),
                 icon: section.icon,
                 title: section.title,
-                trailing: countLabel(library.browsableArtists(.resolved(artistBrowseModeRaw)).count)
+                trailing: countLabel(browsableArtistCount)
             )
         case .genres:
             item(

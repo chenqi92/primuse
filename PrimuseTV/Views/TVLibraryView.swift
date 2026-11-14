@@ -174,6 +174,8 @@ struct TVLibraryView: View {
     private var filterConfigurationRawValue = ""
     @AppStorage(ArtistBrowseMode.storageKey)
     private var artistBrowseModeRaw = ArtistBrowseMode.allArtists.rawValue
+    @AppStorage(AlbumArtistReleaseFilter.storageKey)
+    private var hidesSingleOnlyAlbumArtists = false
     /// 专辑墙(含年份墙)与艺人墙每行几张,见 `TVBrowseGridMetrics.music(columns:)`。
     @AppStorage(TVBrowseGridMetrics.musicColumnsStorageKey)
     private var wallColumnsSetting = TVBrowseGridMetrics.music.columns
@@ -271,6 +273,7 @@ struct TVLibraryView: View {
             filter: filter,
             albumOrder: wallOrder,
             artistMode: artistBrowseMode,
+            hidesSingleOnlyAlbumArtists: hidesSingleOnlyAlbumArtists,
             revision: store.libraryBrowseRevision,
             favoritesRevision: wallOrder == .liked ? LibraryFavoritesStore.shared.revision : 0
         )) {
@@ -286,6 +289,10 @@ struct TVLibraryView: View {
         .onChange(of: filterConfigurationRawValue) { _, _ in leaveHiddenFilter() }
         .onChange(of: artistBrowseModeRaw) { _, _ in
             // 换了列法,上次停的那位可能已经不在墙上;网格从头开始,焦点留在列法菜单上。
+            browseMemory.artistID = nil
+            resetLetterIndex()
+        }
+        .onChange(of: hidesSingleOnlyAlbumArtists) { _, _ in
             browseMemory.artistID = nil
             resetLetterIndex()
         }
@@ -503,6 +510,7 @@ struct TVLibraryView: View {
         let filter: Filter
         let albumOrder: LibraryAlbumBrowseOrder
         let artistMode: ArtistBrowseMode
+        let hidesSingleOnlyAlbumArtists: Bool
         let revision: Int
         /// 按「喜欢」排时，点了 / 取消喜欢也要重排。
         let favoritesRevision: Int
@@ -744,6 +752,13 @@ struct TVLibraryView: View {
                         set: { _ in artistBrowseModeRaw = mode.rawValue }
                     )) {
                         Label(mode.title, systemImage: mode.systemImage)
+                    }
+                }
+            }
+            if artistBrowseMode == .albumArtists {
+                Section {
+                    Toggle(isOn: $hidesSingleOnlyAlbumArtists) {
+                        Label(String(localized: "artist_browse_hide_singles_only"), systemImage: "square.stack")
                     }
                 }
             }

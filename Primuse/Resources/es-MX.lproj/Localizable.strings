@@ -7392,3 +7392,4 @@
 "pending_writeback_empty" = "Todos los cambios se escribieron en los archivos.";
 "writeback_preflight_unsupported_format" = "En %lld de estas canciones, el origen o el formato de archivo no permite escribir etiquetas en el archivo; sus cambios se guardan solo en Primuse.";
 "writeback_preflight_refused_format" = "%@: la escritura de archivos se rechazó la última vez (solo lectura o sin permiso de escritura), así que estos cambios también podrían guardarse solo en Primuse.";
+"artist_browse_hide_singles_only" = "Ocultar artistas con solo sencillos o EP";

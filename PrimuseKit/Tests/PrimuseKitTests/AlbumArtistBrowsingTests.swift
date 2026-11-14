@@ -4,6 +4,32 @@ import Testing
 
 @Suite("Album artist browsing")
 struct AlbumArtistBrowsingTests {
+    @Test("Singles, EPs and untagged one-song albums do not make an album artist")
+    func singleOnlyAlbumArtistsDropOut() {
+        let full = AlbumArtistReleaseFilter.countsAsFullRelease
+        #expect(full([.album], false, 10))
+        #expect(!full([.singleEP], false, 4))
+        // Nothing in the tags or title said what it is, and it holds one song.
+        #expect(!full([.album], false, 1))
+        #expect(full([.live], false, 1))
+        #expect(full([.singleEP, .live], false, 2))
+        // A manual choice wins in both directions.
+        #expect(full([.album], true, 1))
+        #expect(!full([.singleEP], true, 12))
+
+        let artists = [
+            artist("a", "Full", albums: 2, songs: 12),
+            artist("b", "Guest", albums: 1, songs: 1),
+            artist("c", "None", albums: 0, songs: 0),
+        ]
+        let kept = AlbumArtistReleaseFilter.artists(
+            artists,
+            albumIDsByArtistID: ["a": ["lp", "duet"], "b": ["duet"]],
+            isFullRelease: { $0 == "lp" }
+        )
+        #expect(kept.map(\.id) == ["a"])
+    }
+
     @Test("Unknown or missing preference falls back to all artists")
     func modeResolution() {
         #expect(ArtistBrowseMode.resolved(nil) == .allArtists)

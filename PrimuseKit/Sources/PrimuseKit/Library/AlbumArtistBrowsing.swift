@@ -18,6 +18,43 @@ public enum ArtistBrowseMode: String, CaseIterable, Sendable {
     }
 }
 
+/// 「专辑艺术家」里不列名下只有单曲、EP 的人。本机偏好，默认关。
+///
+/// 合作单曲常把对方也署成专辑艺人；收整张专辑的人不想让这些人混进专辑艺术家。
+/// 一张专辑算不算正式专辑：手动分类说了算；没有手动分类时，标签或标题认出是单曲/EP
+/// 的不算，什么都没认出来又只有一首歌的也按单曲算（单曲常常就是一首歌一张专辑）。
+/// 现场专辑算。只收了一首的正式专辑会被当成单曲，在「专辑分类」里改成专辑即可。
+public enum AlbumArtistReleaseFilter {
+    public static let storageKey = "library.albumArtistsHidesSinglesOnly"
+
+    public static func countsAsFullRelease(
+        categories: Set<AlbumReleaseCategory>,
+        isManualChoice: Bool,
+        songCount: Int
+    ) -> Bool {
+        guard !categories.isEmpty, !categories.isSubset(of: [.singleEP]) else { return false }
+        if isManualChoice || categories.contains(.live) { return true }
+        return songCount > 1
+    }
+
+    /// 只留下名下至少有一张正式专辑的人，顺序不变。
+    public static func artists(
+        _ artists: [Artist],
+        albumIDsByArtistID: [String: Set<String>],
+        isFullRelease: (String) -> Bool
+    ) -> [Artist] {
+        var verdicts: [String: Bool] = [:]
+        return artists.filter { artist in
+            (albumIDsByArtistID[artist.id] ?? []).contains { albumID in
+                if let known = verdicts[albumID] { return known }
+                let verdict = isFullRelease(albumID)
+                verdicts[albumID] = verdict
+                return verdict
+            }
+        }
+    }
+}
+
 /// 「专辑艺术家」列表与只当过专辑艺人的那些人名下的专辑。
 public struct AlbumArtistIndex: Sendable {
     /// 每位专辑艺人一项，和曲目艺人列表同样按名字排好。专辑数是他名下的专辑；

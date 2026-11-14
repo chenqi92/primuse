@@ -72,6 +72,10 @@ struct ArtistListView: View {
     @AppStorage(ArtistBrowseMode.storageKey)
     private var browseModeRaw = ArtistBrowseMode.allArtists.rawValue
 
+    /// 专辑艺术家里不列只有单曲、EP 的人(本机偏好); 读一下, 改了列表跟着变。
+    @AppStorage(AlbumArtistReleaseFilter.storageKey)
+    private var hidesSingleOnlyAlbumArtists = false
+
     /// 搜索结果之类给定的一批艺人。
     init(artists: [Artist], intelligentRecommendationIDs: Set<String> = []) {
         suppliedArtists = artists
@@ -93,7 +97,8 @@ struct ArtistListView: View {
     private var browseMode: ArtistBrowseMode { .resolved(browseModeRaw) }
 
     private var artists: [Artist] {
-        suppliedArtists ?? library.browsableArtists(browseMode)
+        _ = hidesSingleOnlyAlbumArtists
+        return suppliedArtists ?? library.browsableArtists(browseMode)
     }
 
     /// 一个艺人都没有才给整页的空状态。资料库切到「专辑艺术家」后列表可能是空的
@@ -528,6 +533,9 @@ struct ArtistListView: View {
                 }
             }
             .pickerStyle(.inline)
+            if browseMode == .albumArtists {
+                Toggle("artist_browse_hide_singles_only", isOn: $hidesSingleOnlyAlbumArtists)
+            }
         } label: {
             macMenuLabel {
                 Text(String(localized: browseMode.titleKey))
@@ -629,6 +637,8 @@ private struct ArtistDisplayMenu: View {
 
     @AppStorage(ArtistLayoutMode.storageKey)
     private var layoutModeRaw = ArtistLayoutMode.grid.rawValue
+    @AppStorage(AlbumArtistReleaseFilter.storageKey)
+    private var hidesSingleOnlyAlbumArtists = false
 
     private var mode: ArtistBrowseMode { .resolved(modeRaw) }
 
@@ -647,6 +657,13 @@ private struct ArtistDisplayMenu: View {
                     }
                 }
                 .pickerStyle(.inline)
+                if mode == .albumArtists {
+                    Section {
+                        Toggle(isOn: $hidesSingleOnlyAlbumArtists) {
+                            Label("artist_browse_hide_singles_only", systemImage: "square.stack")
+                        }
+                    }
+                }
             }
 
             Picker("artist_layout", selection: $layoutModeRaw) {

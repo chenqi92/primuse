@@ -7392,3 +7392,4 @@
 "pending_writeback_empty" = "Tüm değişiklikler dosyalara yazıldı.";
 "writeback_preflight_unsupported_format" = "Bu şarkılardan %lld tanesinin bulunduğu kaynak veya dosya biçimi etiketlerin dosyaya yazılmasını desteklemiyor; bunların değişiklikleri yalnızca Primuse'ta kaydedilir.";
 "writeback_preflight_refused_format" = "%@ geçen sefer dosyalara yazmayı reddetti (salt okunur veya yazma izni yok), bu yüzden bu değişiklikler de yalnızca Primuse'ta kaydedilebilir.";
+"artist_browse_hide_singles_only" = "Yalnızca single ve EP’si olan sanatçıları gizle";

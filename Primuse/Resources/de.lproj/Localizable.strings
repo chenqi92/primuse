@@ -7486,3 +7486,4 @@
 "pending_writeback_empty" = "Alle Änderungen wurden in die Dateien geschrieben.";
 "writeback_preflight_unsupported_format" = "Bei %lld dieser Songs unterstützt die Quelle oder das Dateiformat nicht, Tags in die Datei zu schreiben; ihre Änderungen werden nur in Primuse gespeichert.";
 "writeback_preflight_refused_format" = "%@: Das Schreiben von Dateien wurde beim letzten Mal verweigert (schreibgeschützt oder keine Schreibberechtigung), daher werden diese Änderungen möglicherweise ebenfalls nur in Primuse gespeichert.";
+"artist_browse_hide_singles_only" = "Künstler nur mit Singles & EPs ausblenden";
