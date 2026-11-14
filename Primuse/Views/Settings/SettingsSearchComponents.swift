@@ -55,6 +55,107 @@ struct SettingsSearchNavigationDismissal: ViewModifier {
     }
 }
 
+#if os(iOS)
+/// 设置根页列表上方常驻的搜索框，由页面自己画，挂在页面的顶部安全区栏里。
+///
+/// 不用系统的 `.searchable(placement: .navigationBarDrawer(displayMode: .always))`：抽屉搜索框长在
+/// 导航栏上，每次切到设置这个页签，导航栏都先按没有抽屉的高度排出来（顶上一小条），再把搜索框连同列表
+/// 往下放出来，和首页、资料库这些直接出现的页签不一致。放进页面自己的安全区栏（资料库根页的分类行
+/// 同一做法）后，它和列表在同一帧里排好，切页签时随页面一起出现。
+///
+/// 会话状态仍在 `SettingsSearchState`：点进输入框就开始一次搜索（列表顶上出「最近使用」），
+/// 收起键盘不结束，点「取消」、打开结果推进详情页时才结束。
+struct SettingsSearchBar: View {
+    @Bindable var search: SettingsSearchState
+    @FocusState private var isFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 10) {
+            field
+            if search.isPresented {
+                Button(action: cancel) {
+                    Text("cancel")
+                        .foregroundStyle(Color.accentColor)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(minHeight: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .accessibilityIdentifier("settings.search.cancel")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+        // 只让这一条里的「取消」滑进滑出，列表换内容不跟着动。
+        .animation(PMMotion.control.resolved(reduceMotion: reduceMotion), value: search.isPresented)
+        .onChange(of: isFocused) { _, focused in
+            if focused, !search.isPresented { search.isPresented = true }
+        }
+        .onChange(of: search.query) { _, query in
+            if !query.isEmpty, !search.isPresented { search.isPresented = true }
+        }
+        .onChange(of: search.isPresented) { _, presented in
+            // 打开结果、点「取消」都会结束会话：键盘一起收起，返回时不再弹出来。
+            if !presented { isFocused = false }
+        }
+    }
+
+    private var field: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isFocused ? Color.accentColor : Color.secondary)
+                .accessibilityHidden(true)
+
+            TextField(SettingsStrings.text("Search settings"), text: $search.query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($isFocused)
+                .onSubmit { isFocused = false }
+                .accessibilityIdentifier("settings.search.field")
+
+            if !search.query.isEmpty {
+                Button {
+                    search.query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 28, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("clear"))
+            }
+        }
+        .padding(.leading, 13)
+        .padding(.trailing, search.query.isEmpty ? 13 : 4)
+        .frame(maxWidth: .infinity, minHeight: 40)
+        .background(.thinMaterial, in: Capsule())
+        .background(Color.secondary.opacity(0.08), in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(
+                    isFocused ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.08),
+                    lineWidth: isFocused ? 1.5 : 1
+                )
+        }
+        .contentShape(Capsule())
+        .simultaneousGesture(TapGesture().onEnded { isFocused = true })
+    }
+
+    private func cancel() {
+        isFocused = false
+        search.endSession()
+    }
+}
+#endif
+
 @MainActor
 @Observable
 final class SettingsNavigation {
