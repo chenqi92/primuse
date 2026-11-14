@@ -72,7 +72,8 @@ struct MenuBarPlayerView: View {
                 PrimuseAppDelegate.shared?.toggleMiniPlayer()
             }
 
-            menuRow(icon: "arrow.up.left.and.arrow.down.right", title: "full_screen_player",
+            // 和底栏的全屏播放键同一个图标:进去就是系统全屏加所选的全屏效果。
+            menuRow(icon: "viewfinder.rectangular", title: "full_screen_player",
                     shortcut: shortcut(.toggleFullScreenPlayer)) {
                 PrimuseAppDelegate.shared?.toggleFullScreenPlayer()
             }

@@ -179,8 +179,14 @@ struct MacContentView: View {
     @State private var activeTool: MacTool?
     @State private var showsRecommendationsPanel = false
     @State private var showsListeningStats = false
-    /// 底栏那个「全屏效果」入口开出来的抽屉。全屏播放页自己带一份,这里只服务窗口态。
+    /// 底栏「全屏播放」键开出来的效果面板,点哪一张就带着它进全屏播放。全屏播放页自己带一份。
     @State private var showsFullscreenEffectPicker = false
+    /// 进全屏播放之前停在哪儿(播放页开没开、窗口本来是不是全屏、右侧面板)。退出时照着回去;
+    /// 不是从「全屏播放」进的全屏(绿灯、系统菜单)没有这一份。只在事件里读写,body 不读。
+    @State private var fullScreenPlayerReturnPoint: MacFullScreenPlayerPolicy.ReturnPoint?
+    /// 刚请求窗口进系统全屏的时刻。窗口开始变全屏(willEnterFullScreen)时才把播放页装上,
+    /// 过渡前不先露一下窗口版播放页。
+    @State private var fullScreenPlayerEntryRequestedAt: Date?
 
     @Environment(\.openWindow) private var openWindow
     @Environment(AudioPlayerService.self) private var player
@@ -245,6 +251,10 @@ struct MacContentView: View {
         }
         // 开着的窗口自己接,别为一次点按另开一个窗口。
         .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
+        // ⌃⌘F 与菜单栏的「全屏播放」:挂在最外层,资料库还在装载时也接得住。
+        .onReceive(NotificationCenter.default.publisher(for: .primuseToggleFullScreenPlayer)) { note in
+            toggleFullScreenPlayer(in: note.object as? NSWindow)
+        }
     }
 
     private var mainContent: some View {
@@ -327,7 +337,12 @@ struct MacContentView: View {
                                        queuePresented.toggle()
                                        if queuePresented { showsRecommendationsPanel = false }
                                    }
-                               })
+                               },
+                               hostIsFullScreen: isWindowFullScreen,
+                               onExitFullScreen: { exitFullScreenPlayer(in: nil) })
+                            // 播放页铺满全屏窗口(全屏效果、原生全屏双栏、全屏 MV)才算沉浸画面,播放时屏幕常亮
+                            // 只在这时起作用;点绿灯进的资料库全屏没有播放页,不算。
+                            .screenIdleImmersiveSurface(isWindowFullScreen)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                             .onAppear { homeModel.diagnostics.setCovered(true) }
                             .onDisappear { homeModel.diagnostics.setCovered(false) }
@@ -351,13 +366,13 @@ struct MacContentView: View {
                                 secondary: theme.secondaryDarkAccent
                             ),
                             onSelect: { candidate in
-                                closeFullscreenEffectPicker()
-                                fullscreenPlayerEffectRawValue = candidate.rawValue
-                                FullscreenPlayerEffectSync.shared.select(candidate)
+                                // 选中哪一种就带着它直接进全屏播放,不用再按一次全屏。
+                                enterFullScreenPlayer(in: nil, with: candidate)
                             },
                             onClose: { closeFullscreenEffectPicker() }
                         )
-                        .padding(.trailing, 92)
+                        // 右边让出「更多」键和间距,面板右沿对齐全屏播放键。
+                        .padding(.trailing, 58)
                         .padding(.bottom, 12)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                         .transition(
@@ -440,7 +455,7 @@ struct MacContentView: View {
                                 PrimuseAppDelegate.shared?.toggleMiniPlayer()
                             },
                             onFullScreen: {
-                                PrimuseAppDelegate.shared?.toggleFullScreenPlayer()
+                                enterFullScreenPlayer(in: nil)
                             },
                             onPickFullscreenEffect: {
                                 pmWithAnimation(.panel) {
@@ -601,23 +616,13 @@ struct MacContentView: View {
                 hostWindow = window
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
-            guard let window = note.object as? NSWindow, window === hostWindow else { return }
-            isWindowFullScreen = true
-            // 底栏连同它的效果入口在全屏里就消失了,抽屉不能留在屏幕上。
-            showsFullscreenEffectPicker = false
-            savedSidebarCollapsed = sidebarCollapsed
-            pmWithAnimation(.panel) {
-                sidebarCollapsed = true
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
-            guard let window = note.object as? NSWindow, window === hostWindow else { return }
-            isWindowFullScreen = false
-            pmWithAnimation(.panel) {
-                sidebarCollapsed = savedSidebarCollapsed
-            }
-        }
+        .modifier(MacWindowFullScreenObserver(
+            isHostWindow: { $0 === hostWindow },
+            onWillEnter: { windowWillEnterFullScreen() },
+            onDidEnter: { windowDidEnterFullScreen() },
+            onWillExit: { windowWillExitFullScreen() },
+            onDidExit: { windowDidExitFullScreen() }
+        ))
     }
 
     /// 工具弹框内容 —— 每个工具的 macBody 已经是自带 header/footer 的
@@ -648,6 +653,188 @@ struct MacContentView: View {
         pmWithAnimation(.panel) {
             showsFullscreenEffectPicker = false
         }
+    }
+
+    // MARK: - 全屏播放
+
+    /// ⌃⌘F 与菜单栏:正在全屏播放就退出,否则进入。
+    private func toggleFullScreenPlayer(in window: NSWindow?) {
+        guard let window, hostWindow == nil || window === hostWindow else { return }
+        guard library.isReady else {
+            // 资料库还在装载,没有播放页可装:只切系统全屏。
+            window.toggleFullScreen(nil)
+            return
+        }
+        switch MacFullScreenPlayerPolicy.toggleAction(
+            isWindowFullScreen: isWindowFullScreen,
+            isPlayerExpanded: nowPlayingPresented
+        ) {
+        case .enter: enterFullScreenPlayer(in: window)
+        case .exit: exitFullScreenPlayer(in: window)
+        }
+    }
+
+    /// 进全屏播放:系统全屏加所选的全屏效果,一步到位。底栏全屏播放键、效果面板里点选、⌃⌘F、
+    /// 菜单栏都走这里;带着 `effect` 进来时先换成它。窗口版不先展开播放页,等窗口开始变全屏
+    /// (`windowWillEnterFullScreen`)才装上,过渡里看到的就是全屏播放页本身。
+    private func enterFullScreenPlayer(in window: NSWindow?, with effect: FullscreenPlayerEffect? = nil) {
+        if let effect {
+            fullscreenPlayerEffectRawValue = effect.rawValue
+            FullscreenPlayerEffectSync.shared.select(effect)
+        }
+        let current = MacFullScreenPlayerPolicy.ReturnPoint(
+            windowWasFullScreen: isWindowFullScreen,
+            playerWasExpanded: nowPlayingPresented,
+            queueWasPresented: queuePresented,
+            recommendationsWerePresented: showsRecommendationsPanel
+        )
+        if isWindowFullScreen {
+            // 窗口本来就在全屏里(点绿灯进的资料库全屏):原地换上全屏播放页。
+            fullScreenPlayerReturnPoint = MacFullScreenPlayerPolicy.returnPoint(
+                existing: fullScreenPlayerReturnPoint,
+                current: current,
+                isWindowFullScreen: true
+            )
+            withoutAnimation { presentPlayerForFullScreen() }
+            return
+        }
+        guard let window = window ?? hostWindow,
+              // 正在进全屏的过渡里别再切一次,那会直接退回去。
+              !window.styleMask.contains(.fullScreen) else { return }
+        fullScreenPlayerReturnPoint = current
+        fullScreenPlayerEntryRequestedAt = Date()
+        // 面板这一轮先收起,下一轮再交给 AppKit 做全屏过渡:过渡开始时窗口里就没有面板了。
+        withoutAnimation { showsFullscreenEffectPicker = false }
+        // SwiftUI 的 WindowGroup 默认不带 .fullScreenPrimary,少了它 toggleFullScreen 静默无效。
+        if !window.collectionBehavior.contains(.fullScreenPrimary) {
+            window.collectionBehavior.insert(.fullScreenPrimary)
+        }
+        DispatchQueue.main.async { [weak window] in
+            guard let window, !window.styleMask.contains(.fullScreen) else { return }
+            window.toggleFullScreen(nil)
+        }
+    }
+
+    /// 退出全屏播放:播放页左上角「退出全屏」、Esc、全屏 MV 的退出键、⌃⌘F、菜单栏都走这里;
+    /// 窗口绿灯和系统菜单直接退出系统全屏,在 `windowWillExitFullScreen` 里收拾。
+    private func exitFullScreenPlayer(in window: NSWindow?) {
+        switch MacFullScreenPlayerPolicy.exitRoute(returnPoint: fullScreenPlayerReturnPoint) {
+        case .stayInSystemFullScreen:
+            // 进来之前就是资料库全屏:留在全屏,收起播放页回到资料库。
+            guard let point = fullScreenPlayerReturnPoint else { return }
+            fullScreenPlayerReturnPoint = nil
+            withoutAnimation { restore(from: point) }
+        case .leaveSystemFullScreen:
+            // 宿主窗口正常情况下已经解析好了;万一还没有,找那个处于全屏的窗口兜底,
+            // 退出这件事不能就这么点不动。
+            guard let window = window ?? hostWindow ?? NSApp.windows.first(where: { $0.styleMask.contains(.fullScreen) }),
+                  isWindowFullScreen || window.styleMask.contains(.fullScreen) else { return }
+            // 进入时补过 `.fullScreenPrimary`,退出这一侧同样要补,否则窗口重新配置之后
+            // 按钮和 Esc 走到这里都像是「没反应」。
+            if !window.collectionBehavior.contains(.fullScreenPrimary) {
+                window.collectionBehavior.insert(.fullScreenPrimary)
+            }
+            window.toggleFullScreen(nil)
+        }
+    }
+
+    /// 全屏播放页铺满窗口:右侧的队列、推荐和底栏的效果面板都收起。
+    private func presentPlayerForFullScreen() {
+        nowPlayingPresented = true
+        queuePresented = false
+        showsRecommendationsPanel = false
+        showsFullscreenEffectPicker = false
+    }
+
+    /// 回到进全屏播放之前那一页:从资料库进来的收起播放页,右侧面板照原样。
+    private func restore(from point: MacFullScreenPlayerPolicy.ReturnPoint) {
+        let restoration = MacFullScreenPlayerPolicy.restoration(for: point)
+        if restoration.collapsesPlayer { nowPlayingPresented = false }
+        queuePresented = restoration.showsQueue
+        showsRecommendationsPanel = restoration.showsRecommendations
+    }
+
+    /// 换全屏播放的版式不带动画:它和窗口的全屏过渡是同一件事,再叠一层滑动只会两段动画抢在一起。
+    private func withoutAnimation(_ changes: () -> Void) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction, changes)
+    }
+
+    /// 主窗口的全屏版式:标题栏、底栏让给播放页,侧栏收起(退出时还原)。
+    private func adoptFullScreenLayout(animated: Bool) {
+        guard !isWindowFullScreen else { return }
+        isWindowFullScreen = true
+        // 底栏连同它的效果入口在全屏里就消失了,面板不能留在屏幕上。
+        showsFullscreenEffectPicker = false
+        savedSidebarCollapsed = sidebarCollapsed
+        if animated {
+            pmWithAnimation(.panel) { sidebarCollapsed = true }
+        } else {
+            sidebarCollapsed = true
+        }
+    }
+
+    private func adoptWindowedLayout(animated: Bool) {
+        guard isWindowFullScreen else { return }
+        isWindowFullScreen = false
+        if animated {
+            pmWithAnimation(.panel) { sidebarCollapsed = savedSidebarCollapsed }
+        } else {
+            sidebarCollapsed = savedSidebarCollapsed
+        }
+    }
+
+    /// 窗口开始变全屏。是全屏播放请求的,这一刻把全屏播放页连同全屏版式一起装上(不带动画),
+    /// 过渡里从资料库直接变成全屏播放页;绿灯、系统菜单进的全屏照旧等进完再换版式。
+    private func windowWillEnterFullScreen() {
+        let isPlayerEntry = MacFullScreenPlayerPolicy.isEntryRequestPending(
+            requestedAt: fullScreenPlayerEntryRequestedAt,
+            now: Date()
+        )
+        fullScreenPlayerEntryRequestedAt = nil
+        guard isPlayerEntry else {
+            // 不是从全屏播放进的:没有要回去的地方,上次没进成留下的那份也作废。
+            fullScreenPlayerReturnPoint = nil
+            return
+        }
+        withoutAnimation {
+            adoptFullScreenLayout(animated: false)
+            presentPlayerForFullScreen()
+        }
+    }
+
+    private func windowDidEnterFullScreen() {
+        // willEnterFullScreen 没收到时的兜底:请求还在就现在装上播放页。
+        if MacFullScreenPlayerPolicy.isEntryRequestPending(
+            requestedAt: fullScreenPlayerEntryRequestedAt,
+            now: Date()
+        ) {
+            fullScreenPlayerEntryRequestedAt = nil
+            withoutAnimation {
+                adoptFullScreenLayout(animated: false)
+                presentPlayerForFullScreen()
+            }
+        }
+        adoptFullScreenLayout(animated: true)
+    }
+
+    /// 窗口开始退出全屏。全屏播放进来的,这一刻就换成退出后的样子(不带动画):从资料库进来的
+    /// 收起播放页,不先退回窗口版播放页再让人自己关;侧栏和右侧面板也不等窗口回到原位再滑出来。
+    private func windowWillExitFullScreen() {
+        fullScreenPlayerEntryRequestedAt = nil
+        guard let point = fullScreenPlayerReturnPoint else { return }
+        fullScreenPlayerReturnPoint = nil
+        withoutAnimation {
+            restore(from: point)
+            adoptWindowedLayout(animated: false)
+        }
+    }
+
+    private func windowDidExitFullScreen() {
+        fullScreenPlayerEntryRequestedAt = nil
+        fullScreenPlayerReturnPoint = nil
+        adoptWindowedLayout(animated: true)
     }
 
     private func startCurrentSongLyricsScrape() {
@@ -987,6 +1174,39 @@ private struct MacStateSlot<Value, Content: View>: View {
 
     var body: some View {
         content(value)
+    }
+}
+
+/// 主窗口进出系统全屏的四个时刻。只认宿主窗口发来的,多开窗口或设置等其他窗口的全屏不算。
+/// 挂成一个修饰器:`mainContent` 那条修饰链再多几个 onReceive 就超出类型检查的时间上限。
+/// 宿主窗口用闭包在收到时才读:`PMWindowResolver` 每轮更新都写一次 `hostWindow`,
+/// body 要是读它,就会写一次重算一次、一直转下去。
+private struct MacWindowFullScreenObserver: ViewModifier {
+    let isHostWindow: (NSWindow) -> Bool
+    let onWillEnter: () -> Void
+    let onDidEnter: () -> Void
+    let onWillExit: () -> Void
+    let onDidExit: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { note in
+                if comesFromHost(note) { onWillEnter() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
+                if comesFromHost(note) { onDidEnter() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { note in
+                if comesFromHost(note) { onWillExit() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
+                if comesFromHost(note) { onDidExit() }
+            }
+    }
+
+    private func comesFromHost(_ note: Notification) -> Bool {
+        guard let sender = note.object as? NSWindow else { return false }
+        return isHostWindow(sender)
     }
 }
 

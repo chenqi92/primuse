@@ -42,22 +42,6 @@ struct ImmersiveControlsStateTests {
 
 @Suite("Immersive effect entry policy")
 struct ImmersiveEffectEntryPolicyTests {
-    @Test("Mac quick access appears only for playable songs")
-    func macQuickAccessVisibility() {
-        #expect(ImmersiveEffectEntryPolicy.showsMacQuickAccess(
-            hasCurrentSong: true,
-            isLiveRadio: false
-        ))
-        #expect(!ImmersiveEffectEntryPolicy.showsMacQuickAccess(
-            hasCurrentSong: false,
-            isLiveRadio: false
-        ))
-        #expect(!ImmersiveEffectEntryPolicy.showsMacQuickAccess(
-            hasCurrentSong: true,
-            isLiveRadio: true
-        ))
-    }
-
     @Test("Explicit TV entry keeps the saved immersive effect instead of re-asking")
     func tvLaunchKeepsSavedImmersiveEffect() {
         #expect(!ImmersiveEffectEntryPolicy.tvLaunchPresentsEffectPicker(

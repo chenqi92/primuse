@@ -432,9 +432,11 @@ extension MacKeyboardShortcut {
 }
 
 extension Notification.Name {
-    /// 进入全屏播放器时由 PrimuseAppDelegate 发出,MacContentView 收到后
-    /// 自动展开 NowPlaying 视图,让全屏内容直接是播放器而不是歌单。
+    /// 展开主窗口里的播放页(调试脚本的 PRIMUSE_DEBUG_SHOW_PLAYER 用)。
     static let primuseRequestExpandNowPlaying = Notification.Name("primuse.expandNowPlaying")
+    /// ⌃⌘F 与菜单栏的「全屏播放」。object 是主窗口,由窗口里的 MacContentView 决定进还是出:
+    /// 它记得进来之前停在哪一页。
+    static let primuseToggleFullScreenPlayer = Notification.Name("primuse.toggleFullScreenPlayer")
 }
 
 enum PrimuseNowPlayingExpansion {
@@ -685,6 +687,8 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
                     try? await Task.sleep(for: .milliseconds(50))
                     guard let self else { return }
                     if self.mainAppWindow() != nil {
+                        // 窗口刚建好,等里面的界面接上(拿到宿主窗口)再投,不然请求没人接。
+                        try? await Task.sleep(for: .milliseconds(150))
                         self.toggleFullScreenPlayer()
                         return
                     }
@@ -702,21 +706,9 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         let isFullScreen = window.styleMask.contains(.fullScreen)
         plog("🖥 FullScreen toggle window=\(window.title) isFull=\(isFullScreen) cb=\(window.collectionBehavior.rawValue)")
 
-        if isFullScreen {
-            window.toggleFullScreen(nil)
-            return
-        }
-        // 先用无动画事务把 Now Playing 安装到窗口中，下一轮主事件循环再交给
-        // AppKit 做原生全屏过渡。避免页面展开动画与窗口缩放同时抢主线程。
-        NotificationCenter.default.post(
-            name: .primuseRequestExpandNowPlaying,
-            object: nil,
-            userInfo: [PrimuseNowPlayingExpansion.animatedKey: false]
-        )
-        DispatchQueue.main.async { [weak window] in
-            guard let window, !window.styleMask.contains(.fullScreen) else { return }
-            window.toggleFullScreen(nil)
-        }
+        // 进出都交给窗口里的 MacContentView:它记得进来之前停在哪一页,退出时原样回去;
+        // 进的时候也是它在窗口开始变全屏那一刻才装上播放页,不先露一下窗口版播放页。
+        NotificationCenter.default.post(name: .primuseToggleFullScreenPlayer, object: window)
     }
 
     @MainActor

@@ -370,14 +370,7 @@ struct MacBottomBar: View {
 
             PMRoundBtn(icon: "rectangle.inset.filled.on.rectangle", iconSize: 12, style: .plain,
                        help: "mini_player", action: onMiniPlayer)
-            if ImmersiveEffectEntryPolicy.showsMacQuickAccess(
-                hasCurrentSong: player.currentSong != nil,
-                isLiveRadio: player.isLiveRadio
-            ) {
-                fullscreenEffectButton
-            }
-            PMRoundBtn(icon: "arrow.up.left.and.arrow.down.right", iconSize: 12, style: .plain,
-                       help: "full_screen_player", action: onFullScreen)
+            fullScreenPlayerButton
 
             if !player.isLiveRadio {
                 PlayerMoreMenu {
@@ -403,13 +396,25 @@ struct MacBottomBar: View {
         }
     }
 
-    /// 效果切换交给右侧滑入的抽屉 —— 系统菜单只有一列文字，选之前看不到效果的样子，
-    /// 而抽屉里每一项都是真实舞台缩略图，与 iPhone、Apple TV 上看到的是同一套。
-    private var fullscreenEffectButton: some View {
-        PMRoundBtn(icon: "sparkles.tv", iconSize: 12, style: .plain,
-                   isActive: isFullscreenEffectPickerShown,
-                   help: "fullscreen_effect_settings_title",
-                   action: onPickFullscreenEffect)
+    /// 全屏播放只有这一个入口:进去就是系统全屏加选定的全屏效果,没有单独的「全屏」键。
+    /// 音乐先在按钮上方展开效果面板(每一项都是真实舞台缩略图,与 iPhone、Apple TV 上看到的是同一套),
+    /// 点哪一张就带着它进全屏,「原生」也是其中一张;电台、有声内容、MV 和没在放的时候没有效果可选,
+    /// 点了直接进全屏。
+    private var fullScreenPlayerButton: some View {
+        let entry = MacFullScreenPlayerPolicy.entryControlAction(
+            hasCurrentSong: player.currentSong != nil,
+            isLiveRadio: player.isLiveRadio,
+            isSpokenWord: isSpokenWord,
+            isPlayingMusicVideo: player.isMusicVideoPlaybackActive
+        )
+        return PMRoundBtn(icon: "viewfinder.rectangular", iconSize: 12, style: .plain,
+                          isActive: isFullscreenEffectPickerShown,
+                          help: "full_screen_player") {
+            switch entry {
+            case .presentEffectPicker: onPickFullscreenEffect()
+            case .enterDirectly: onFullScreen()
+            }
+        }
     }
 
     private var volumeControl: some View {

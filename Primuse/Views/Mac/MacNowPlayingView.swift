@@ -24,6 +24,12 @@ struct MacNowPlayingView: View {
     var onScrapeCurrentSong: () -> Void
     var onTranscribeAudio: () -> Void
     var onToggleQueue: () -> Void
+    /// 宿主(`MacContentView`)认定的主窗口全屏状态。从资料库进全屏播放时,播放页是在窗口开始
+    /// 变全屏那一刻才装上的,收不到之前发出的全屏通知,靠它第一帧就排成全屏版式;宿主为全屏播放
+    /// 在进出过渡一开始就翻转时也跟着换,不先露一下另一种版式。
+    var hostIsFullScreen = false
+    /// 退出全屏交给宿主:它记得进来之前停在哪一页。没给时自己退出系统全屏。
+    var onExitFullScreen: (() -> Void)?
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourceManager.self) private var sourceManager
@@ -74,6 +80,8 @@ struct MacNowPlayingView: View {
     /// 当前主窗口是否处于 macOS 全屏。全屏时使用设计稿 SYS-05 的
     /// NP-FullScreen 双栏布局: 隐藏侧栏后放大封面、歌词和浮动控制。
     @State private var isWindowFullScreen = false
+    /// 上一次从窗口 styleMask 读到的全屏状态,窗口解析回调只在它变了时才同步 `isWindowFullScreen`。
+    @State private var observedWindowFullScreen: Bool?
     @State private var showsNativeFullscreenEffectPicker = false
     /// 全屏时是否切到「沉浸展示」(共享的 ImmersiveStageView),而非常规播放页。
     @State private var showsImmersiveStage = false
@@ -130,13 +138,16 @@ struct MacNowPlayingView: View {
         FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
     }
 
-    /// 是否正在显示沉浸展示屏(仅全屏、有歌、非直播时)。全屏 MV 排在它前面。
+    /// 是否正在显示沉浸展示屏(仅全屏、放音乐时;电台、有声内容不给全屏效果)。全屏 MV 排在它前面。
     private var isImmersiveStageActive: Bool {
         isWindowFullScreen
             && fullscreenPlayerEffect != .native
             && showsImmersiveStage
-            && player.currentSong != nil
-            && !player.isLiveRadio
+            && MacFullScreenPlayerPolicy.offersEffects(
+                hasCurrentSong: player.currentSong != nil,
+                isLiveRadio: player.isLiveRadio,
+                isSpokenWord: isSpokenWord
+            )
             && !isMusicVideoStageActive
     }
 
@@ -278,6 +289,12 @@ struct MacNowPlayingView: View {
             overlay: $lyricRomanizationOverlay
         )
         .nowPlayingLibraryActionAlert(libraryActions)
+        .onAppear {
+            if hostIsFullScreen { followHostFullScreen(true) }
+        }
+        .onChange(of: hostIsFullScreen) { _, isFullScreen in
+            followHostFullScreen(isFullScreen)
+        }
     }
 
     /// 播放页本体。尺寸由 `body` 钉死,这里不再自己伸展。
@@ -398,6 +415,12 @@ struct MacNowPlayingView: View {
                 // 否则全屏下会错渲染成窗口版布局。
                 guard let window else { return }
                 let isFullScreen = window.styleMask.contains(.fullScreen)
+                // 只在窗口自己的全屏状态变了(或第一次拿到窗口)时才同步:全屏播放在进出过渡一开始
+                // 就换了版式(`hostIsFullScreen`),这时 styleMask 可能还没跟上,不能被它扳回去。
+                guard isFullScreen != observedWindowFullScreen else { return }
+                observedWindowFullScreen = isFullScreen
+                // 宿主说已在全屏(播放页是窗口开始变全屏时装上的)而窗口还没标上:等它跟上,别扳回窗口版。
+                if hostIsFullScreen && !isFullScreen { return }
                 guard isFullScreen != isWindowFullScreen else { return }
                 isWindowFullScreen = isFullScreen
                 if isFullScreen {
@@ -531,8 +554,12 @@ struct MacNowPlayingView: View {
         if isWindowFullScreen, !isImmersiveStageActive, !isMusicVideoStageActive {
             HStack(spacing: 10) {
                 exitFullScreenPill
-                // 全屏效果是给音乐的可视化, 有声内容不给入口。
-                if !(player.currentItemIsSpokenWord && !player.isLiveRadio) {
+                // 全屏效果是给音乐的可视化, 有声内容、电台不给入口(电台选了也不会换成效果)。
+                if MacFullScreenPlayerPolicy.offersEffects(
+                    hasCurrentSong: player.currentSong != nil,
+                    isLiveRadio: player.isLiveRadio,
+                    isSpokenWord: isSpokenWord
+                ) {
                     nativeFullscreenEffectButton
                 }
             }
@@ -2141,7 +2168,36 @@ struct MacNowPlayingView: View {
         }
     }
 
+    /// 跟上宿主为全屏播放提前翻转的全屏状态(见 `hostIsFullScreen`)。不带动画:换版式和窗口的
+    /// 全屏过渡是同一件事,沉浸层再淡入淡出一遍就成了两段。
+    private func followHostFullScreen(_ isFullScreen: Bool) {
+        guard isFullScreen != isWindowFullScreen else { return }
+        // 全屏 MV 退出时照旧等窗口回到原位再换(`didExitFullScreen`):过渡里画面还铺着。
+        if !isFullScreen, isMusicVideoStageActive { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isWindowFullScreen = isFullScreen
+            showsNativeFullscreenEffectPicker = false
+            if isFullScreen {
+                showsImmersiveStage = fullscreenPlayerEffect != .native
+                // 正在放 MV 时进全屏播放,铺的就是画面。
+                showsMusicVideoStage = isMusicVideoExpected
+            } else {
+                showsImmersiveStage = false
+                showsMusicVideoStage = false
+            }
+            musicVideoStageReturnsToFullScreenLayout = false
+        }
+    }
+
     private func exitFullScreen() {
+        // 宿主记得进来之前停在哪一页(从资料库进来的,退出时顺手收起播放页),交给它。
+        if let onExitFullScreen {
+            showsNativeFullscreenEffectPicker = false
+            onExitFullScreen()
+            return
+        }
         guard let window = fullScreenWindow() else { return }
         guard isWindowFullScreen || window.styleMask.contains(.fullScreen) else { return }
         showsNativeFullscreenEffectPicker = false
