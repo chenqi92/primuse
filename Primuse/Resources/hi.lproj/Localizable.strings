@@ -7398,3 +7398,8 @@
 "library_insight_export_unavailable_message" = "Apple Music से आए परिचय केवल Primuse में दिखाए जाते हैं और फ़ाइलों में निर्यात नहीं किए जाते। AI द्वारा लिखे गए, Last.fm या विकिपीडिया से प्राप्त या आपके द्वारा खुद लिखे गए परिचय निर्यात किए जा सकते हैं।";
 "library_insight_export_wikipedia_attribution_format" = "स्रोत: विकिपीडिया योगदानकर्ता, %@। CC BY-SA 4.0 के तहत लाइसेंस प्राप्त: https://creativecommons.org/licenses/by-sa/4.0/";
 "player_controls_effect_picker_karaoke_footer" = "यहाँ सिर्फ़ वे बटन रखे जा सकते हैं जो इस स्क्रीन से बाहर नहीं ले जाते, कराओके को छोड़कर, जो खुलने से पहले फ़ुल-स्क्रीन से बाहर निकलता है। किसी दूसरी जगह पहले से मौजूद बटन चुनने पर दोनों जगहें आपस में बदल जाती हैं।";
+"motion_artwork_sources" = "एनिमेटेड कवर स्रोत";
+"motion_artwork_sources_footer" = "इन सेवाओं से सूची के क्रम में एनिमेटेड कवर खोजा जाता है; किसी के पास कुछ न हो या त्रुटि हो, तो अगली सेवा से पूछा जाता है। ये पते आप खुद सेट करते हैं।";
+"motion_artwork_source_add" = "एनिमेटेड कवर स्रोत जोड़ें";
+"motion_artwork_endpoint_blocked" = "इस पते को एनिमेटेड कवर स्रोत के रूप में इस्तेमाल नहीं किया जा सकता";
+"motion_artwork_endpoint_duplicate" = "यह पता पहले ही जोड़ा जा चुका है";

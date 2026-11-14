@@ -108,7 +108,10 @@ struct CachedArtworkView: View {
     private var animatedArtworkEnabled: Bool { AnimatedArtworkPreferences.shared.animatedArtworkEnabled }
     private var animatedArtworkUnmeteredOnly: Bool { AnimatedArtworkPreferences.shared.animatedArtworkUnmeteredOnly }
     private var motionArtworkServiceEnabled: Bool { AnimatedArtworkPreferences.shared.motionArtworkServiceEnabled }
-    private var motionArtworkServiceEndpoint: String { AnimatedArtworkPreferences.shared.motionArtworkServiceEndpoint }
+    /// 要问的动态封面源，按优先级；开关关着时为空。
+    private var motionArtworkEndpoints: [MotionArtworkEndpoint] {
+        AnimatedArtworkPreferences.shared.activeMotionArtworkEndpoints
+    }
     // Keep the bitmap in a reference holder: closures retained by a lazy
     // container otherwise capture old View / State values containing it.
     @State private var decodedArtworkState = DecodedArtworkState()
@@ -443,7 +446,7 @@ struct CachedArtworkView: View {
             // visible covers retry immediately through the newly selected route
             // instead of honoring the normal five-minute failure suppression.
             Self.failedLoadCache.removeObject(forKey: loadIdentity as NSString)
-            let diskKeys = [sourceAnimationDiskKey, motionArtworkDiskKey].filter { !$0.isEmpty }
+            let diskKeys = ([sourceAnimationDiskKey] + motionArtworkDiskKeys).filter { !$0.isEmpty }
             performAnimationCacheMaintenance(
                 keys: diskKeys,
                 removesOnlyNegativeEntries: true
@@ -508,7 +511,7 @@ struct CachedArtworkView: View {
                 AnimatedArtworkDataView(
                     data: animatedArtworkData,
                     descriptor: animatedArtworkDescriptor,
-                    cacheKey: animatedArtworkContentKey ?? motionArtworkDiskKey,
+                    cacheKey: animatedArtworkContentKey ?? animatedArtworkIdentity ?? animationCacheKey,
                     presentationRole: presentationRole,
                     isVisible: isAnimationVisible,
                     requiresPlayback: animationRequiresPlayback,
@@ -809,7 +812,7 @@ struct CachedArtworkView: View {
               loadsHighResolution,
               isAnimationVisible,
               motionArtworkServiceEnabled,
-              !normalizedMotionArtworkServiceEndpoint.isEmpty else { return nil }
+              !motionArtworkEndpoints.isEmpty else { return nil }
         let song = songID.flatMap { library.song(id: $0) }
         let musicKitSong: MusicKit.Song? = {
             guard sourceID == AppleMusicLibraryService.systemSourceID,
@@ -853,21 +856,22 @@ struct CachedArtworkView: View {
         )
     }
 
-    private var normalizedMotionArtworkServiceEndpoint: String {
-        let source = MotionArtworkServiceSource.resolved(
-            AnimatedArtworkPreferences.shared.motionArtworkServiceSource,
-            customEndpoint: motionArtworkServiceEndpoint
-        )
-        guard source == .custom else { return "" }
-        return motionArtworkServiceEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// 每个要问的动态封面源各一个缓存键，与 `motionArtworkEndpoints` 一一对应、同样按优先级。
+    private var motionArtworkDiskKeys: [String] {
+        let endpoints = motionArtworkEndpoints
+        guard !endpoints.isEmpty, let input = motionArtworkLookupInput else { return [] }
+        return endpoints.map { Self.motionArtworkDiskKey(endpoint: $0, input: input) }
     }
 
-    private var motionArtworkDiskKey: String {
-        guard !normalizedMotionArtworkServiceEndpoint.isEmpty,
-              let input = motionArtworkLookupInput else { return "" }
-        return [
+    /// 某个动态封面源、某张专辑的缓存键。沿用只有一个服务地址时的写法：迁移过来的那一条地址没变，
+    /// 之前缓存的动态封面与「没有」的记录照样认得。
+    private static func motionArtworkDiskKey(
+        endpoint: MotionArtworkEndpoint,
+        input: MotionArtworkLookupInput
+    ) -> String {
+        [
             "configured-service-v1",
-            normalizedMotionArtworkServiceEndpoint,
+            endpoint.trimmedURL,
             input.appleCatalogAlbumID ?? "",
             input.appleLibraryAlbumID ?? "",
             input.upc ?? "",
@@ -890,9 +894,9 @@ struct CachedArtworkView: View {
             String(animatedArtworkEnabled),
             String(animatedArtworkUnmeteredOnly),
             String(motionArtworkServiceEnabled),
-            normalizedMotionArtworkServiceEndpoint,
+            motionArtworkEndpoints.map(\.trimmedURL).joined(separator: "\u{1E}"),
             sourceAnimationDiskKey,
-            motionArtworkDiskKey,
+            motionArtworkDiskKeys.joined(separator: "\u{1E}"),
             // 歌曲、专辑的视频动态封面设了或移除了要重新挑。
             motionCoverLookupEnabled ? String(MotionCoverStore.shared.revision) : "-",
             String(loadsHighResolution),
@@ -1172,27 +1176,53 @@ struct CachedArtworkView: View {
         return !Task.isCancelled && animationLoadIdentity == identity
     }
 
+    /// 按优先级问动态封面源：第一个给出动态封面的就用。某个源缓存里记着「没有」、这次没找到、
+    /// 出错，或者这次不能联网去问（只用 Wi-Fi 时在蜂窝网络下），就接着问下一个；每个源各有自己的
+    /// 缓存键与「没有」的记录。
     @MainActor
     private func loadConfiguredMotionArtwork(
         for identity: String,
         fetchPolicy: ArtworkAnimationFetchPolicy
     ) async {
+        let endpoints = motionArtworkEndpoints
         guard motionArtworkServiceEnabled,
               hasResolvedArtwork,
-              let input = motionArtworkLookupInput,
-              !motionArtworkDiskKey.isEmpty,
-              let endpoint = URL(string: normalizedMotionArtworkServiceEndpoint),
-              MotionArtworkEndpointClient.isValidEndpoint(endpoint) else {
+              !endpoints.isEmpty,
+              let input = motionArtworkLookupInput else {
             return
         }
-        let diskKey = motionArtworkDiskKey
+        _ = await MotionArtworkEndpointList.firstFound(in: endpoints) { endpoint in
+            await attemptMotionArtwork(
+                from: endpoint,
+                input: input,
+                for: identity,
+                fetchPolicy: fetchPolicy
+            )
+        }
+    }
+
+    /// 问一个动态封面源（先看缓存）。返回值决定还要不要问下一个源。
+    @MainActor
+    private func attemptMotionArtwork(
+        from source: MotionArtworkEndpoint,
+        input: MotionArtworkLookupInput,
+        for identity: String,
+        fetchPolicy: ArtworkAnimationFetchPolicy
+    ) async -> MotionArtworkEndpointAttempt {
+        guard !Task.isCancelled, animationLoadIdentity == identity else { return .abandoned }
+        // 请求前再过一遍校验（受限主机、不合法的地址），同步或备份带来的坏数据也拦得住。
+        guard let endpoint = source.endpointURL,
+              MotionArtworkEndpointClient.isValidEndpoint(endpoint) else {
+            return .missing
+        }
+        let diskKey = Self.motionArtworkDiskKey(endpoint: source, input: input)
 
         let cacheLookupNow = Date()
         if let cached = try? await Self.animationDiskCache.detailedLookup(
             forKey: diskKey,
             now: cacheLookupNow
         ) {
-            guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+            guard !Task.isCancelled, animationLoadIdentity == identity else { return .abandoned }
             switch cached {
             case .asset(let record):
                 let data = record.data
@@ -1218,7 +1248,7 @@ struct CachedArtworkView: View {
                         try? await Self.animationDiskCache.removeValue(forKey: diskKey)
                         break
                     }
-                    guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+                    guard !Task.isCancelled, animationLoadIdentity == identity else { return .abandoned }
                     animatedArtworkData = data
                     animatedArtworkDescriptor = inspection.descriptor
                     animatedArtworkIdentity = diskKey
@@ -1226,15 +1256,17 @@ struct CachedArtworkView: View {
                     animatedArtworkExpiresAt = expiration
                     animatedArtworkGeneration = generation
                     noteServiceMaterialForLockScreen(animation: data)
-                    return
+                    return .found
                 }
                 try? await Self.animationDiskCache.removeValue(forKey: diskKey)
             case .negative:
-                return
+                // 这个源记着没有（或刚出过错还没到重试的时候）：问下一个。
+                return .missing
             }
         }
 
-        guard fetchPolicy.shouldFetchRemoteAnimation else { return }
+        // 这次不联网：这个源跳过，后面的源也许还有缓存。
+        guard fetchPolicy.shouldFetchRemoteAnimation else { return .missing }
         let now = Date()
         let allowExpensiveNetwork = !animatedArtworkUnmeteredOnly
 
@@ -1245,18 +1277,21 @@ struct CachedArtworkView: View {
                 requestKey: diskKey,
                 allowExpensiveNetwork: allowExpensiveNetwork
             )
-            guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+            guard !Task.isCancelled, animationLoadIdentity == identity else { return .abandoned }
             switch resolution {
             case .video(let data):
                 let expiration = Date().addingTimeInterval(Self.configuredMotionArtworkMaximumPositiveTTL)
                 let generation = try await Self.animationDiskCache.storeAsset(data, forKey: diskKey, expiresAt: expiration)
-                guard let url = try await Self.animationDiskCache.assetFileURL(forKey: diskKey, generation: generation),
-                      !Task.isCancelled, animationLoadIdentity == identity else { return }
+                guard let url = try await Self.animationDiskCache.assetFileURL(forKey: diskKey, generation: generation) else {
+                    return .missing
+                }
+                guard !Task.isCancelled, animationLoadIdentity == identity else { return .abandoned }
                 motionArtworkVideoURL = url
                 animatedArtworkIdentity = diskKey
                 animatedArtworkExpiresAt = expiration
                 animatedArtworkGeneration = generation
                 noteServiceMaterialForLockScreen(videoAt: url)
+                return .found
             case .downloaded(let payload):
                 let expiration = Self.configuredMotionArtworkExpiration(
                     providerExpiration: payload.asset.expiresAt,
@@ -1269,7 +1304,7 @@ struct CachedArtworkView: View {
                             Self.transientAnimationFailureTTL
                         )
                     )
-                    return
+                    return .missing
                 }
                 let generation = try? await Self.animationDiskCache.storeAsset(
                     payload.data,
@@ -1279,8 +1314,8 @@ struct CachedArtworkView: View {
                 guard let contentKey = await Self.animationContentKey(
                     for: payload.data,
                     cacheKey: diskKey
-                ) else { return }
-                guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+                ) else { return .missing }
+                guard !Task.isCancelled, animationLoadIdentity == identity else { return .abandoned }
                 animatedArtworkData = payload.data
                 animatedArtworkDescriptor = payload.descriptor
                 animatedArtworkIdentity = diskKey
@@ -1288,11 +1323,13 @@ struct CachedArtworkView: View {
                 animatedArtworkExpiresAt = expiration
                 animatedArtworkGeneration = generation
                 noteServiceMaterialForLockScreen(animation: payload.data)
+                return .found
             case .notFound, .ambiguous(_), .unsupported:
                 try? await storeMotionArtworkNegative(
                     forKey: diskKey,
                     expiresAt: now.addingTimeInterval(Self.staticAnimationNegativeTTL)
                 )
+                return .missing
             case .temporarilyUnavailable(let retryAfter):
                 try? await storeMotionArtworkNegative(
                     forKey: diskKey,
@@ -1301,19 +1338,22 @@ struct CachedArtworkView: View {
                         now: now
                     )
                 )
+                return .missing
             }
         } catch is CancellationError {
-            return
+            return .abandoned
         } catch let error as MotionArtworkEndpointClientError where error == .notAnimatedImage {
             try? await storeMotionArtworkNegative(
                 forKey: diskKey,
                 expiresAt: now.addingTimeInterval(Self.staticAnimationNegativeTTL)
             )
+            return .missing
         } catch {
             try? await storeMotionArtworkNegative(
                 forKey: diskKey,
                 expiresAt: now.addingTimeInterval(Self.transientAnimationFailureTTL)
             )
+            return .missing
         }
     }
 

@@ -52,8 +52,10 @@ private final class MotionArtworkNoRedirectDelegate: NSObject, URLSessionTaskDel
     }
 }
 
-/// Talks to the selected public provider or the user's configured service.
-/// Public artwork downloads are restricted to the provider's Apple CDN hosts.
+/// Talks to one user-configured animated-artwork service per request. Callers
+/// walk the enabled services in priority order (`MotionArtworkEndpointList`)
+/// and fall through to the next one when a service has nothing or fails.
+/// Asset downloads stay on the host of the service that returned them.
 actor MotionArtworkEndpointClient {
     static let shared = MotionArtworkEndpointClient()
 
@@ -469,18 +471,9 @@ actor MotionArtworkEndpointClient {
         return configuration
     }
 
+    /// 与设置里添加动态封面源时是同一条规则（含受限主机），见 `MotionArtworkServiceSource.isValidEndpoint`。
     nonisolated static func isValidEndpoint(_ url: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased(),
-              scheme == "https" || scheme == "http",
-              url.host?.isEmpty == false,
-              url.user == nil,
-              url.password == nil,
-              url.fragment == nil,
-              NetworkEndpointIdentity(url: url) != nil,
-              MotionArtworkServiceSource.permitsEndpoint(url) else {
-            return false
-        }
-        return true
+        MotionArtworkServiceSource.isValidEndpoint(url)
     }
 
     /// Assets stay on the endpoint explicitly authorized by the user, with the

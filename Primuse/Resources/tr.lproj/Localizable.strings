@@ -7398,3 +7398,8 @@
 "library_insight_export_unavailable_message" = "Apple Music’ten gelen tanıtımlar yalnızca Primuse’ta gösterilir, dosyalara aktarılmaz. Yapay zekânın yazdığı, Last.fm’den veya Vikipedi’den alınan ya da sizin yazdığınız tanıtımlar dışa aktarılabilir.";
 "library_insight_export_wikipedia_attribution_format" = "Kaynak: Vikipedi katkıcıları, %@. CC BY-SA 4.0 ile lisanslanmıştır: https://creativecommons.org/licenses/by-sa/4.0/";
 "player_controls_effect_picker_karaoke_footer" = "Buraya yalnızca bu ekrandan çıkarmayan düğmeler konabilir; Karaoke ise istisnadır ve açılmadan önce tam ekrandan çıkar. Başka yerde olan bir düğmeyi seçerseniz iki yer yer değiştirir.";
+"motion_artwork_sources" = "Hareketli kapak kaynakları";
+"motion_artwork_sources_footer" = "Bu hizmetlere liste sırasıyla sorulur; birinde sonuç yoksa veya hata olursa sıradakine geçilir. Bu adresleri kendiniz yapılandırırsınız.";
+"motion_artwork_source_add" = "Hareketli kapak kaynağı ekle";
+"motion_artwork_endpoint_blocked" = "Bu adres hareketli kapak kaynağı olarak kullanılamaz";
+"motion_artwork_endpoint_duplicate" = "Bu adres zaten eklendi";

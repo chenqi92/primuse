@@ -21,13 +21,17 @@ final class AnimatedArtworkPreferences {
     private(set) var animatedArtworkEnabled: Bool
     private(set) var animatedArtworkUnmeteredOnly: Bool
     private(set) var motionArtworkServiceEnabled: Bool
-    private(set) var motionArtworkServiceEndpoint: String
+    /// 动态封面源（刮削源页里单独一节），列表顺序就是优先级。
+    private(set) var motionArtworkEndpoints: MotionArtworkEndpointList
     private(set) var motionArtworkServiceSource: String
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var observer: NSObjectProtocol?
+    /// 上次解码的那份原始数据：偏好每写一次都会回调，数据没变就不必再解 JSON。
+    @ObservationIgnored private var motionArtworkEndpointsData: Data?
 
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        Self.migrateLegacyMotionArtworkEndpoint(in: defaults)
         animatedArtworkEnabled = Self.bool(
             PlayerAppearancePreferences.animatedArtworkEnabledKey,
             default: PlayerAppearancePreferences.animatedArtworkEnabledByDefault,
@@ -43,9 +47,9 @@ final class AnimatedArtworkPreferences {
             default: PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault,
             in: defaults
         )
-        motionArtworkServiceEndpoint = defaults.string(
-            forKey: PlayerAppearancePreferences.motionArtworkServiceEndpointKey
-        ) ?? PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
+        let endpointsData = defaults.data(forKey: PlayerAppearancePreferences.motionArtworkEndpointsKey)
+        motionArtworkEndpointsData = endpointsData
+        motionArtworkEndpoints = MotionArtworkEndpointList(data: endpointsData)
         motionArtworkServiceSource = defaults.string(forKey: PlayerAppearancePreferences.motionArtworkServiceSourceKey) ?? ""
         observer = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -80,11 +84,46 @@ final class AnimatedArtworkPreferences {
             in: defaults
         )
         if motionArtworkServiceEnabled != serviceEnabled { motionArtworkServiceEnabled = serviceEnabled }
-        let endpoint = defaults.string(forKey: PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
-            ?? PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
-        if motionArtworkServiceEndpoint != endpoint { motionArtworkServiceEndpoint = endpoint }
+        let endpointsData = defaults.data(forKey: PlayerAppearancePreferences.motionArtworkEndpointsKey)
+        if endpointsData != motionArtworkEndpointsData {
+            motionArtworkEndpointsData = endpointsData
+            let endpoints = MotionArtworkEndpointList(data: endpointsData)
+            if motionArtworkEndpoints != endpoints { motionArtworkEndpoints = endpoints }
+        }
         let source = defaults.string(forKey: PlayerAppearancePreferences.motionArtworkServiceSourceKey) ?? ""
         if motionArtworkServiceSource != source { motionArtworkServiceSource = source }
+    }
+
+    /// 设置里「在线动态封面」开关显示的状态：总开关开着，且旧版本记下的来源（已下线的内置源）没把它停用。
+    var isMotionArtworkServiceOn: Bool {
+        motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
+            motionArtworkServiceSource,
+            hasConfiguredEndpoints: !motionArtworkEndpoints.isEmpty
+        ) == .custom
+    }
+
+    /// 封面视图实际要问的动态封面源，按优先级；开关关着时为空。
+    var activeMotionArtworkEndpoints: [MotionArtworkEndpoint] {
+        isMotionArtworkServiceOn ? motionArtworkEndpoints.usableEndpoints : []
+    }
+
+    /// 设置页改动态封面源：写进偏好（`InterfaceLayoutSync` 看到后推 iCloud），内存里这份随即跟上。
+    func setMotionArtworkEndpoints(_ endpoints: MotionArtworkEndpointList) {
+        guard endpoints != motionArtworkEndpoints, let data = endpoints.encodedData() else { return }
+        motionArtworkEndpointsData = data
+        motionArtworkEndpoints = endpoints
+        defaults.set(data, forKey: PlayerAppearancePreferences.motionArtworkEndpointsKey)
+    }
+
+    /// 旧版只有一个服务地址：新列表从没存过时，把它搬成第一条动态封面源，之后不再读旧键。
+    /// 只写本机、不算一次编辑 —— App 启动时赶在 `InterfaceLayoutSync` 登记之前调用，云端已有
+    /// 别的设备改过的列表时以云端为准，不会被这台设备迁移出来的那一条盖掉。
+    static func migrateLegacyMotionArtworkEndpoint(in defaults: UserDefaults = .standard) {
+        guard let migrated = MotionArtworkEndpointList.migratingLegacyEndpoint(
+            storedData: defaults.data(forKey: PlayerAppearancePreferences.motionArtworkEndpointsKey),
+            legacyEndpoint: defaults.string(forKey: PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
+        ), let data = migrated.encodedData() else { return }
+        defaults.set(data, forKey: PlayerAppearancePreferences.motionArtworkEndpointsKey)
     }
 
     private static func bool(_ key: String, default value: Bool, in defaults: UserDefaults) -> Bool {
@@ -184,8 +223,11 @@ enum PlayerAppearancePreferences {
     static let motionArtworkServiceEnabledKey = "primuse.player.motionArtworkServiceEnabled"
     static let motionArtworkServiceEnabledByDefault = false
     static let motionArtworkServiceSourceKey = "motionArtworkServiceSource"
+    /// 旧版的单个服务地址。现在只在升级时读一次，搬进 `motionArtworkEndpointsKey`，不再同步；
+    /// 离线备份的白名单里还留着它，只为旧备份文件能通过校验。
     static let motionArtworkServiceEndpointKey = "primuse.player.motionArtworkServiceEndpoint"
-    static let motionArtworkServiceEndpointByDefault = ""
+    /// 动态封面源列表（`MotionArtworkEndpointList` 的 JSON），列表顺序就是优先级。
+    static let motionArtworkEndpointsKey = "primuse.player.motionArtworkEndpoints.v1"
     static let showsVolumeBarKey = "primuse.player.showsVolumeBar"
     static let showsVolumeBarByDefault = true
     /// 播放页歌名下面那一行带不带专辑名(#338、#101):专辑名长的时候那一行总被截断、滚动。关掉后只写艺人,

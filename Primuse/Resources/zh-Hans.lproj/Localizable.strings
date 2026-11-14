@@ -7585,3 +7585,8 @@
 "library_insight_export_unavailable_message" = "来自 Apple Music 的简介只在 Primuse 里显示，不导出成文件。AI 生成、从 Last.fm 或维基百科读取以及自己写的简介可以导出。";
 "library_insight_export_wikipedia_attribution_format" = "出处：维基百科贡献者，%@。依 CC BY-SA 4.0 授权：https://creativecommons.org/licenses/by-sa/4.0/";
 "player_controls_effect_picker_karaoke_footer" = "这一页只放不会换走整页的按钮，卡拉OK例外：点了会先退出全屏再打开。选已经在别处的按钮，两格会对调。";
+"motion_artwork_sources" = "动态封面源";
+"motion_artwork_sources_footer" = "按列表顺序向这些服务查找动态封面，前一个没有或出错就问下一个。地址由你自行配置。";
+"motion_artwork_source_add" = "添加动态封面源";
+"motion_artwork_endpoint_blocked" = "这个地址不能用作动态封面源";
+"motion_artwork_endpoint_duplicate" = "这个地址已经添加过了";

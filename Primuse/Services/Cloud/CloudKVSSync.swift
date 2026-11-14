@@ -798,7 +798,8 @@ final class InterfaceLayoutSync {
         PlayerAppearancePreferences.animatedArtworkEnabledKey,
         PlayerAppearancePreferences.motionArtworkServiceEnabledKey,
         PlayerAppearancePreferences.motionArtworkServiceSourceKey,
-        PlayerAppearancePreferences.motionArtworkServiceEndpointKey,
+        // 动态封面源列表(取代旧版的单个服务地址, 旧键只在升级时读一次, 不再同步)。
+        PlayerAppearancePreferences.motionArtworkEndpointsKey,
         // 歌词外观(字号 `lyricsFontScale` 早已单独同步): 当前行颜色、对齐、字体、模糊、
         // 轻点跳转、定位标尺、间奏三个点(连同没轮到时显不显示)。
         PlayerAppearancePreferences.lyricsColorModeKey,

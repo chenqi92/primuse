@@ -7492,3 +7492,8 @@
 "library_insight_export_unavailable_message" = "Einführungen aus Apple Music werden nur in Primuse angezeigt und nicht in Dateien exportiert. Einführungen, die von KI geschrieben, aus Last.fm oder Wikipedia abgerufen oder selbst verfasst wurden, können exportiert werden.";
 "library_insight_export_wikipedia_attribution_format" = "Quelle: Wikipedia-Autoren, %@. Lizenziert unter CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
 "player_controls_effect_picker_karaoke_footer" = "Hier passen nur Tasten, die diese Ansicht nicht verlassen. Ausnahme ist Karaoke: Es beendet zuerst das Vollbild und öffnet sich dann. Wählst du eine Taste, die schon woanders liegt, tauschen die beiden Plätze.";
+"motion_artwork_sources" = "Quellen für bewegte Cover";
+"motion_artwork_sources_footer" = "Diese Dienste werden in der Reihenfolge der Liste nach bewegten Covern gefragt. Liefert einer nichts oder schlägt fehl, ist der nächste dran. Die Adressen legst du selbst fest.";
+"motion_artwork_source_add" = "Quelle für bewegte Cover hinzufügen";
+"motion_artwork_endpoint_blocked" = "Diese Adresse kann nicht als Quelle für bewegte Cover verwendet werden";
+"motion_artwork_endpoint_duplicate" = "Diese Adresse wurde bereits hinzugefügt";

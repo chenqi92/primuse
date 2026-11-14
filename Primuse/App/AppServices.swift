@@ -2086,6 +2086,9 @@ final class AppServices {
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
         // 手动的专辑分类在几台设备之间同步。
         ReleaseCategoryCloudSync.shared.start()
+        // 旧版单个动态封面服务地址搬进动态封面源列表:赶在同步登记之前,只算本机的值,
+        // 云端已有别的设备改过的列表时照样以云端为准。
+        AnimatedArtworkPreferences.migrateLegacyMotionArtworkEndpoint()
         InterfaceLayoutSync.shared.start()
         startAppearanceColorSync()
         WidgetColorStyleMirror.start()

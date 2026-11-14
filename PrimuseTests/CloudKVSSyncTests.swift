@@ -149,7 +149,7 @@ final class CloudKVSSyncTests: XCTestCase {
             PlayerAppearancePreferences.fullBleedMiddleSofteningKey,
             PlayerAppearancePreferences.animatedArtworkEnabledKey,
             PlayerAppearancePreferences.motionArtworkServiceEnabledKey,
-            PlayerAppearancePreferences.motionArtworkServiceEndpointKey,
+            PlayerAppearancePreferences.motionArtworkEndpointsKey,
             PlayerAppearancePreferences.controlTintKey,
             PlayerAppearancePreferences.lyricsColorModeKey,
             PlayerAppearancePreferences.lyricsAlignmentKey,
@@ -173,6 +173,8 @@ final class CloudKVSSyncTests: XCTestCase {
             // 字号与所选全屏效果各有自己的登记, 不在这张表里重复。
             CloudKVSKey.lyricsFontScale,
             FullscreenPlayerEffect.storageKey,
+            // 旧版的单个动态封面服务地址只在升级时搬进动态封面源列表, 不再同步。
+            PlayerAppearancePreferences.motionArtworkServiceEndpointKey,
         ] {
             XCTAssertFalse(keys.contains(local), local)
         }

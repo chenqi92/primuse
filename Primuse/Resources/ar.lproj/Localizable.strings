@@ -7398,3 +7398,8 @@
 "library_insight_export_unavailable_message" = "النبذات الواردة من Apple Music تُعرض في Primuse فقط ولا تُصدَّر إلى ملفات. يمكن تصدير النبذات التي كتبها الذكاء الاصطناعي أو جُلبت من Last.fm أو ويكيبيديا أو كتبتها بنفسك.";
 "library_insight_export_wikipedia_attribution_format" = "المصدر: مساهمو ويكيبيديا، %@. مرخّص بموجب CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
 "player_controls_effect_picker_karaoke_footer" = "لا يمكن وضع هنا سوى الأزرار التي لا تغادر هذه الشاشة، باستثناء كاريوكي الذي يخرج من ملء الشاشة أولًا ثم يفتح. اختيار زر موجود في مكان آخر يبدّل المكانين.";
+"motion_artwork_sources" = "مصادر الأغلفة المتحركة";
+"motion_artwork_sources_footer" = "يتم البحث عن الأغلفة المتحركة في هذه الخدمات بترتيب القائمة؛ إذا لم تجد إحداها شيئًا أو حدث خطأ، تُجرَّب الخدمة التالية. أنت من يضبط هذه العناوين.";
+"motion_artwork_source_add" = "أضف مصدرًا للأغلفة المتحركة";
+"motion_artwork_endpoint_blocked" = "لا يمكن استخدام هذا العنوان مصدرًا للأغلفة المتحركة";
+"motion_artwork_endpoint_duplicate" = "تمت إضافة هذا العنوان من قبل";

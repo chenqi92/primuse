@@ -7398,3 +7398,8 @@
 "library_insight_export_unavailable_message" = "Apresentações do Apple Music só aparecem no Primuse e não são exportadas para arquivos. Apresentações escritas por IA, obtidas do Last.fm ou da Wikipédia, ou escritas por você podem ser exportadas.";
 "library_insight_export_wikipedia_attribution_format" = "Fonte: colaboradores da Wikipédia, %@. Licenciado sob CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
 "player_controls_effect_picker_karaoke_footer" = "Aqui só cabem botões que não saem desta tela, exceto Karaokê, que primeiro sai da tela cheia e depois abre. Escolher um botão que já está em outro lugar troca os dois lugares.";
+"motion_artwork_sources" = "Fontes de capas em movimento";
+"motion_artwork_sources_footer" = "Esses serviços são consultados na ordem da lista; se um não tiver nada ou falhar, o próximo é tentado. Você mesmo configura esses endereços.";
+"motion_artwork_source_add" = "Adicionar fonte de capas em movimento";
+"motion_artwork_endpoint_blocked" = "Este endereço não pode ser usado como fonte de capas em movimento";
+"motion_artwork_endpoint_duplicate" = "Este endereço já foi adicionado";

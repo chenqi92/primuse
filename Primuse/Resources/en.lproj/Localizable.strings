@@ -7253,3 +7253,8 @@
 "library_insight_export_unavailable_message" = "Introductions from Apple Music are shown only in Primuse and aren’t exported to files. Introductions written by AI, fetched from Last.fm or Wikipedia, or written by you can be exported.";
 "library_insight_export_wikipedia_attribution_format" = "Source: Wikipedia contributors, %@. Licensed under CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
 "player_controls_effect_picker_karaoke_footer" = "Only buttons that don’t switch away from this screen can go here, except Karaoke, which leaves full screen before it opens. Choosing a button that’s already elsewhere swaps the two spots.";
+"motion_artwork_sources" = "Animated Artwork Sources";
+"motion_artwork_sources_footer" = "These services are asked in list order; if one has nothing or fails, the next one is tried. You configure these addresses yourself.";
+"motion_artwork_source_add" = "Add Animated Artwork Source";
+"motion_artwork_endpoint_blocked" = "This address can’t be used as an animated artwork source.";
+"motion_artwork_endpoint_duplicate" = "This address has already been added.";

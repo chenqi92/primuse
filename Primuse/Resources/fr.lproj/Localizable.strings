@@ -7492,3 +7492,8 @@
 "library_insight_export_unavailable_message" = "Les présentations issues d’Apple Music s’affichent uniquement dans Primuse et ne sont pas exportées dans des fichiers. Les présentations rédigées par l’IA, récupérées depuis Last.fm ou Wikipédia, ou écrites par vous peuvent être exportées.";
 "library_insight_export_wikipedia_attribution_format" = "Source : contributeurs de Wikipédia, %@. Sous licence CC BY-SA 4.0 : https://creativecommons.org/licenses/by-sa/4.0/";
 "player_controls_effect_picker_karaoke_footer" = "Seuls les boutons qui ne quittent pas cet écran peuvent aller ici, sauf Karaoké, qui quitte d’abord le plein écran avant de s’ouvrir. Choisir un bouton déjà placé ailleurs échange les deux emplacements.";
+"motion_artwork_sources" = "Sources de pochettes animées";
+"motion_artwork_sources_footer" = "Ces services sont interrogés dans l’ordre de la liste. Si l’un n’a rien ou échoue, le suivant est essayé. Vous configurez ces adresses vous-même.";
+"motion_artwork_source_add" = "Ajouter une source de pochettes animées";
+"motion_artwork_endpoint_blocked" = "Cette adresse ne peut pas servir de source de pochettes animées";
+"motion_artwork_endpoint_duplicate" = "Cette adresse a déjà été ajoutée";

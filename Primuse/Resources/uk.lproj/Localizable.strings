@@ -7398,3 +7398,8 @@
 "library_insight_export_unavailable_message" = "Описи з Apple Music показуються лише в Primuse і не експортуються у файли. Описи, написані ШІ, отримані з Last.fm або Вікіпедії чи написані вами, можна експортувати.";
 "library_insight_export_wikipedia_attribution_format" = "Джерело: дописувачі Вікіпедії, %@. Поширюється за ліцензією CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
 "player_controls_effect_picker_karaoke_footer" = "Сюди підходять лише кнопки, що не виводять з цього екрана. Виняток — караоке: перед відкриттям воно спершу виходить з повноекранного режиму. Якщо вибрати кнопку, яка вже стоїть деінде, два місця поміняються.";
+"motion_artwork_sources" = "Джерела анімованих обкладинок";
+"motion_artwork_sources_footer" = "Ці сервіси опитуються в порядку списку; якщо в одного нічого немає або сталася помилка, запит іде до наступного. Адреси ви налаштовуєте самі.";
+"motion_artwork_source_add" = "Додати джерело анімованих обкладинок";
+"motion_artwork_endpoint_blocked" = "Цю адресу не можна використати як джерело анімованих обкладинок";
+"motion_artwork_endpoint_duplicate" = "Цю адресу вже додано";

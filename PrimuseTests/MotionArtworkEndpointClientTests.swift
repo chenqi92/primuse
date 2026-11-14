@@ -127,6 +127,32 @@ final class MotionArtworkEndpointClientTests: XCTestCase {
         }
     }
 
+    /// 旧版的单个服务地址搬成第一条动态封面源，只搬一次：列表删空以后不会被旧地址补回来。
+    @MainActor
+    func testLegacyEndpointMigratesOnceIntoTheSourceList() throws {
+        let suite = "MotionArtworkEndpointMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let listKey = PlayerAppearancePreferences.motionArtworkEndpointsKey
+        defaults.set(" https://motion.example.test/v1/lookup ", forKey: PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
+
+        AnimatedArtworkPreferences.migrateLegacyMotionArtworkEndpoint(in: defaults)
+        let migrated = MotionArtworkEndpointList(data: defaults.data(forKey: listKey))
+        XCTAssertEqual(migrated.endpoints.map(\.id), [MotionArtworkEndpointList.legacyEndpointID])
+        XCTAssertEqual(migrated.endpoints.map(\.url), ["https://motion.example.test/v1/lookup"])
+        XCTAssertEqual(migrated.usableEndpoints.count, 1)
+
+        defaults.set(MotionArtworkEndpointList().encodedData(), forKey: listKey)
+        AnimatedArtworkPreferences.migrateLegacyMotionArtworkEndpoint(in: defaults)
+        XCTAssertTrue(MotionArtworkEndpointList(data: defaults.data(forKey: listKey)).isEmpty)
+
+        // 受限的主机不会被搬进来。
+        defaults.removeObject(forKey: listKey)
+        defaults.set("https://artwork.m8tec.top/api/v1/artwork/search", forKey: PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
+        AnimatedArtworkPreferences.migrateLegacyMotionArtworkEndpoint(in: defaults)
+        XCTAssertNil(defaults.data(forKey: listKey))
+    }
+
     func testValidatesUserConfiguredEndpointAndUsesEphemeralDefaults() async {
         XCTAssertTrue(MotionArtworkEndpointClient.isValidEndpoint(
             URL(string: "https://motion.example.test/v1/lookup?tenant=user")!

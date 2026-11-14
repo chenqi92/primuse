@@ -69,6 +69,7 @@ enum OfflineSettingsCatalog {
         PlayerBackdropSettings.storageKey, LyricsRomanizationSettingsStore.storageKey,
         "primuse.lyrics.translation.settings.v1", "primuse.scrobble.settings.v1",
         EQPresetLibrary.storageKey, CarPlayLayoutConfiguration.storageKey, "primuse.carplay.savedLayouts.v1",
+        PlayerAppearancePreferences.motionArtworkEndpointsKey,
     ]
 
     private static let playerKeys: Set<String> = [
@@ -110,7 +111,9 @@ enum OfflineSettingsCatalog {
         "primuse.player.lyricsFont",
         "primuse.player.lyricsMotion",
         "primuse.player.miniPlayerLyrics",
+        "primuse.player.motionArtworkEndpoints.v1",
         "primuse.player.motionArtworkServiceEnabled",
+        // 旧版的单个动态封面服务地址, 现在只在升级时读一次; 留在这里是为了旧备份文件还能通过校验。
         "primuse.player.motionArtworkServiceEndpoint",
         "primuse.player.pinsMiniPlayer",
         "primuse.player.playButtonStyle",

@@ -684,13 +684,12 @@ private struct PlayerAppearanceSettingsView: View {
     private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceSourceKey)
     private var motionArtworkServiceSource = ""
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
-    private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
     private var motionArtworkServiceBinding: Binding<Bool> {
         Binding(
             get: {
                 motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
-                    motionArtworkServiceSource, customEndpoint: motionArtworkServiceEndpoint
+                    motionArtworkServiceSource,
+                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.motionArtworkEndpoints.isEmpty
                 ) == .custom
             },
             set: {
@@ -807,12 +806,16 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                 }
                 .settingsAnchor("appearance.motionArtworkService")
-                TextField("motion_artwork_service_endpoint", text: $motionArtworkServiceEndpoint)
-                    .settingsAnchor("appearance.motionArtworkEndpoint")
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                    .disabled(!motionArtworkServiceBinding.wrappedValue)
+                // 服务地址改在刮削源页的「动态封面源」里管：可以有几个，和别的刮削源一样排序、单独开关。
+                NavigationLink(value: SettingsDestination.page(.scraping, "scraping.motionArtworkSources")) {
+                    LabeledContent {
+                        Text(verbatim: MotionArtworkSourceStyle.summary(
+                            AnimatedArtworkPreferences.shared.motionArtworkEndpoints
+                        ))
+                    } label: {
+                        Text("motion_artwork_sources")
+                    }
+                }
             }
 
             Section {
@@ -1566,6 +1569,217 @@ private struct CheckForUpdateRow: View {
     }
 }
 
+// MARK: - 动态封面源
+
+/// 动态封面源在设置里的样子与文案，iPhone / iPad 与 Mac 共用。
+enum MotionArtworkSourceStyle {
+    static let iconName = "sparkles.rectangle.stack"
+    static let tint = Color(red: 0.56, green: 0.36, blue: 0.96)
+
+    /// 配了几个地址；播放页设置里那一行的右侧、Mac 播放页设置里那一行的小字。
+    static func summary(_ list: MotionArtworkEndpointList) -> String {
+        guard !list.isEmpty else { return String(localized: "lyrics_server_none") }
+        return String(format: String(localized: "lyrics_server_count_format"), list.endpoints.count)
+    }
+
+    static func message(for rejection: MotionArtworkEndpointRejection) -> String {
+        switch rejection {
+        case .invalid: String(localized: "invalid_url")
+        case .blocked: String(localized: "motion_artwork_endpoint_blocked")
+        case .duplicate: String(localized: "motion_artwork_endpoint_duplicate")
+        }
+    }
+
+    /// 改一下列表再存回去（会经 iCloud 同步）。
+    @MainActor
+    static func update(_ change: (inout MotionArtworkEndpointList) -> Void) {
+        let preferences = AnimatedArtworkPreferences.shared
+        var list = preferences.motionArtworkEndpoints
+        change(&list)
+        preferences.setMotionArtworkEndpoints(list)
+    }
+}
+
+/// 刮削源页里的「动态封面源」一节：在线动态封面服务和别的刮削源一样排序、单独开关，
+/// 按列表顺序问，前一个没有或出错就问下一个。总开关也放一份在这里，不必回播放页设置去开。
+private struct MotionArtworkSourcesSection: View {
+    @Binding var isReordering: Bool
+    let onAdd: () -> Void
+
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
+    private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceSourceKey)
+    private var motionArtworkServiceSource = ""
+
+    private var serviceBinding: Binding<Bool> {
+        Binding(
+            get: {
+                motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
+                    motionArtworkServiceSource,
+                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.motionArtworkEndpoints.isEmpty
+                ) == .custom
+            },
+            set: {
+                motionArtworkServiceEnabled = $0
+                if $0 { motionArtworkServiceSource = MotionArtworkServiceSource.custom.rawValue }
+            }
+        )
+    }
+
+    var body: some View {
+        let endpoints = AnimatedArtworkPreferences.shared.motionArtworkEndpoints.endpoints
+        Section {
+            Toggle(isOn: serviceBinding) {
+                SettingsInfoLabel("motion_artwork_service_enabled") {
+                    Text("motion_artwork_service_description")
+                }
+            }
+
+            if endpoints.isEmpty {
+                Text("lyrics_server_none")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(endpoints) { endpoint in
+                    row(endpoint)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                MotionArtworkSourceStyle.update { $0.remove(id: endpoint.id) }
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                        }
+                }
+                .onMove { offsets, destination in
+                    MotionArtworkSourceStyle.update { $0.move(fromOffsets: offsets, toOffset: destination) }
+                }
+            }
+
+            Button(action: onAdd) {
+                Label("motion_artwork_source_add", systemImage: "plus.circle")
+            }
+        } header: {
+            HStack {
+                Text("motion_artwork_sources")
+                Spacer()
+                if endpoints.count > 1 {
+                    Button(isReordering ? String(localized: "done") : String(localized: "reorder")) {
+                        pmWithAnimation(.list) { isReordering.toggle() }
+                    }
+                    .font(.caption)
+                    .textCase(nil)
+                }
+            }
+        } footer: {
+            Text("motion_artwork_sources_footer")
+        }
+        .settingsAnchor("scraping.motionArtworkSources")
+    }
+
+    private func row(_ endpoint: MotionArtworkEndpoint) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: MotionArtworkSourceStyle.iconName)
+                .font(.title3)
+                .foregroundStyle(endpoint.isEnabled ? MotionArtworkSourceStyle.tint : .secondary)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(verbatim: endpoint.name)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                    // 与逐字歌词同一种标签：看得出这一行管的是动态封面。
+                    Text("motion_cover_title")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule().fill(MotionArtworkSourceStyle.tint.opacity(0.15))
+                        )
+                        .foregroundStyle(MotionArtworkSourceStyle.tint)
+                        .fixedSize()
+                }
+                Text(verbatim: endpoint.trimmedURL)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 8)
+
+            Toggle("", isOn: Binding(
+                get: { endpoint.isEnabled },
+                set: { isOn in
+                    MotionArtworkSourceStyle.update { $0.setEnabled(isOn, id: endpoint.id) }
+                }
+            ))
+            .labelsHidden()
+        }
+    }
+}
+
+/// 添加动态封面源：名称可以不填（用地址的主机名），地址要过与取封面时同一条校验，
+/// 受限的主机、重复的地址都加不进去。
+private struct MotionArtworkSourceEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var url = ""
+    @State private var rejection: MotionArtworkEndpointRejection?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("source_name", text: $name)
+                        .autocorrectionDisabled()
+                    TextField("motion_artwork_service_endpoint", text: $url)
+                        #if os(iOS)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                        .autocorrectionDisabled()
+                        .font(.body.monospaced())
+                } footer: {
+                    if let rejection {
+                        Text(verbatim: MotionArtworkSourceStyle.message(for: rejection))
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("motion_artwork_service_description")
+                    }
+                }
+            }
+            .navigationTitle("motion_artwork_source_add")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("add") { save() }
+                        .disabled(url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .onChange(of: url) { _, _ in rejection = nil }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func save() {
+        let preferences = AnimatedArtworkPreferences.shared
+        var list = preferences.motionArtworkEndpoints
+        switch list.add(name: name, url: url) {
+        case .success:
+            preferences.setMotionArtworkEndpoints(list)
+            dismiss()
+        case .failure(let reason):
+            rejection = reason
+        }
+    }
+}
+
 struct MetadataScrapingView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
@@ -1601,6 +1815,7 @@ struct MetadataScrapingView: View {
     @State private var showLyricsServers = false
     @State private var lyricsServerStore = LyricsAPIServerStore.shared
     @State private var libraryTidySongs: BatchSongSelection?
+    @State private var showsMotionArtworkSourceEditor = false
 
 
     var body: some View {
@@ -1742,6 +1957,10 @@ struct MetadataScrapingView: View {
             }
             .settingsAnchor("scraping.import")
 
+            MotionArtworkSourcesSection(isReordering: $isReordering) {
+                showsMotionArtworkSourceEditor = true
+            }
+
             Section {
                 Toggle("only_fill_missing", isOn: $settings.onlyFillMissingFields)
                 .settingsAnchor("scraping.onlyMissing")
@@ -1881,6 +2100,10 @@ struct MetadataScrapingView: View {
         }
         .navigationDestination(isPresented: $showLyricsServers) {
             LyricsAPIServersView()
+        }
+        // 挂在页面上而不是那一节上：Form 的节是懒加载的。
+        .sheet(isPresented: $showsMotionArtworkSourceEditor) {
+            MotionArtworkSourceEditorSheet()
         }
         #if DEBUG
         .task {

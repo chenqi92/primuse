@@ -7493,3 +7493,8 @@
 "library_insight_export_unavailable_message" = "Apple Music の紹介は Primuse 内でのみ表示され、ファイルには書き出されません。AI が作成した紹介、Last.fm やウィキペディアから取得した紹介、自分で書いた紹介は書き出せます。";
 "library_insight_export_wikipedia_attribution_format" = "出典：ウィキペディアの執筆者、%@。CC BY-SA 4.0 ライセンスで提供：https://creativecommons.org/licenses/by-sa/4.0/";
 "player_controls_effect_picker_karaoke_footer" = "この画面から移動しないボタンだけを置けます。ただしカラオケは例外で、フルスクリーンを終了してから開きます。ほかの場所にあるボタンを選ぶと、2 つの枠が入れ替わります。";
+"motion_artwork_sources" = "モーションアートワークのソース";
+"motion_artwork_sources_footer" = "リストの順にこれらのサービスへモーションアートワークを問い合わせ、見つからないかエラーになった場合は次のサービスを試します。アドレスはご自身で設定します。";
+"motion_artwork_source_add" = "モーションアートワークのソースを追加";
+"motion_artwork_endpoint_blocked" = "このアドレスはモーションアートワークのソースとして使用できません";
+"motion_artwork_endpoint_duplicate" = "このアドレスはすでに追加されています";

@@ -7398,3 +7398,8 @@
 "library_insight_export_unavailable_message" = "Wprowadzenia z Apple Music są wyświetlane tylko w Primuse i nie są eksportowane do plików. Wprowadzenia napisane przez AI, pobrane z Last.fm lub Wikipedii albo napisane samodzielnie można wyeksportować.";
 "library_insight_export_wikipedia_attribution_format" = "Źródło: autorzy Wikipedii, %@. Udostępniono na licencji CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
 "player_controls_effect_picker_karaoke_footer" = "Pasują tu tylko przyciski, które nie opuszczają tego ekranu. Wyjątkiem jest Karaoke, które przed otwarciem najpierw wychodzi z trybu pełnoekranowego. Wybranie przycisku, który jest już gdzie indziej, zamienia oba miejsca.";
+"motion_artwork_sources" = "Źródła ruchomych okładek";
+"motion_artwork_sources_footer" = "Te usługi są odpytywane w kolejności z listy; jeśli jedna nic nie ma lub zwróci błąd, próbowana jest następna. Adresy konfigurujesz samodzielnie.";
+"motion_artwork_source_add" = "Dodaj źródło ruchomych okładek";
+"motion_artwork_endpoint_blocked" = "Tego adresu nie można użyć jako źródła ruchomych okładek";
+"motion_artwork_endpoint_duplicate" = "Ten adres został już dodany";
