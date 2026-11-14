@@ -609,7 +609,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     func changes(
         since cursors: [String: String],
         roots: [String],
-        index: [String: SourceSyncIndexedItem]
+        index: SourceSyncIndex
     ) async throws -> IncrementalSourceChanges {
         guard var pageToken = cursors["account"], !pageToken.isEmpty else {
             return IncrementalSourceChanges(cursors: cursors, requiresDeepScan: true)

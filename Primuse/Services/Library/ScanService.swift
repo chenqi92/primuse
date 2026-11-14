@@ -14,33 +14,22 @@ typealias ServerMirrorApplyFence = @MainActor () -> Bool
 /// 扫描检查点和已提交的目录索引。App 启动先恢复检查点，目录索引后台准备后发布。
 struct ScanServiceStartupState: Sendable {
     let checkpoints: [String: ScanCheckpoint]
-    let syncStates: [String: SourceSyncState]
-    /// 与旧 `loadSyncStates()` 的返回值同义: 磁盘上确实存在可解码的快照。
-    let syncStateSnapshotIsPersisted: Bool
+    /// 各源已提交的同步状态,每个源各存各的文件(`SourceSyncStateDirectory`);
+    /// 旧版本那一整份 `source-sync-states.json` 在第一次读的时候迁过来。
+    let syncStates: SourceSyncStateDirectory.LoadResult
+
+    init(checkpoints: [String: ScanCheckpoint], syncStates: SourceSyncStateDirectory.LoadResult) {
+        self.checkpoints = checkpoints
+        self.syncStates = syncStates
+    }
 
     static func load(checkpointURL: URL, syncStateURL: URL) -> ScanServiceStartupState {
         let checkpoints = ScanCheckpointFileStore.load(from: checkpointURL)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let data = try? Data(contentsOf: syncStateURL),
-              var decoded = try? decoder.decode([String: SourceSyncState].self, from: data) else {
-            return ScanServiceStartupState(
-                checkpoints: checkpoints,
-                syncStates: [:],
-                syncStateSnapshotIsPersisted: false
-            )
-        }
-        // 服务器源的索引每首歌一行, 每行各带一份所在专辑目录的路径; 解码出来是各自的
-        // 拷贝(45 万首约 37MB)。在交给文件存储共用之前就地并成一份。
-        // 先取出键再改: 边遍历 `decoded.keys` 边改会让整本索引多复制一份。
-        for sourceID in Array(decoded.keys) {
-            decoded[sourceID]?.index.shareRepeatedFolderPaths()
-        }
-        return ScanServiceStartupState(
-            checkpoints: checkpoints,
-            syncStates: decoded,
-            syncStateSnapshotIsPersisted: true
+        let syncStates = SourceSyncStateDirectory.load(
+            directory: SourceSyncStateDirectory.directory(forLegacySnapshot: syncStateURL),
+            legacyURL: syncStateURL
         )
+        return ScanServiceStartupState(checkpoints: checkpoints, syncStates: syncStates)
     }
 }
 
@@ -744,7 +733,7 @@ final class ScanService {
             preparation = pending
             startupState = ScanServiceStartupState(
                 checkpoints: ScanCheckpointFileStore.load(from: resolvedCheckpointURL),
-                syncStates: [:], syncStateSnapshotIsPersisted: false
+                syncStates: SourceSyncStateDirectory.LoadResult()
             )
         } else {
             preparation = nil
@@ -806,7 +795,7 @@ final class ScanService {
         plog(
             "🗂️ Scan startup state ready in \(elapsedMilliseconds)ms "
                 + "deferred=\(defersSyncStateLoading) checkpoints=\(startupState.checkpoints.count) "
-                + "syncStates=\(startupState.syncStates.count)"
+                + "syncStates=\(startupState.syncStates.states.count)"
         )
         observeSourceConfigurationChanges()
     }
@@ -830,15 +819,31 @@ final class ScanService {
         guard let state else { return }
         installStartupSyncStates(state)
         advanceFolderHierarchyRevision()
-        plog("🗂️ Scan startup state published sources=\(state.syncStates.count)")
+        plog("🗂️ Scan startup state published sources=\(state.syncStates.states.count)")
     }
 
     private func installStartupSyncStates(_ state: ScanServiceStartupState) {
-        applySyncStates(state.syncStates)
-        syncStateStore = SourceSyncStateFileStore(
-            url: syncStateURL, initialStates: syncStates,
-            initialSnapshotIsPersisted: state.syncStateSnapshotIsPersisted
-        )
+        let loaded = state.syncStates
+        for problem in loaded.problems {
+            plog("⚠️ Source sync state: \(problem)")
+        }
+        if let migrated = loaded.migratedSourceCount {
+            plog("🗂️ Source sync state migrated to per-source files sources=\(migrated)")
+        }
+        applySyncStates(loaded.states)
+        if let legacyURL = loaded.legacySnapshotURL {
+            // 迁移没能完成:这次启动照旧写整份旧文件,下次启动再迁。
+            syncStateStore = SourceSyncStateFileStore(
+                url: legacyURL, initialStates: syncStates,
+                initialSnapshotIsPersisted: loaded.legacySnapshotIsPersisted
+            )
+        } else {
+            syncStateStore = SourceSyncStateFileStore(
+                directory: SourceSyncStateDirectory.directory(forLegacySnapshot: syncStateURL),
+                initialStates: syncStates,
+                persistedRecords: loaded.records
+            )
+        }
         isStartupStateReady = true
     }
 
@@ -988,10 +993,11 @@ final class ScanService {
         }
     }
 
+    /// 已提交的索引本身(紧凑存放,不展开)。成批读请顺序遍历 `values`。
     func libraryFolderSyncIndex(
         for sourceID: String
-    ) -> [String: SourceSyncIndexedItem] {
-        syncStates[sourceID]?.index ?? [:]
+    ) -> SourceSyncIndex {
+        syncStates[sourceID]?.index ?? SourceSyncIndex()
     }
 
     /// Parent folders for the given sources' files, read from the same sync
@@ -2772,7 +2778,7 @@ final class ScanService {
                 syncState: SourceSyncState(
                     sourceID: source.id,
                     scopeFingerprint: scopeFingerprint,
-                    index: lastDirectoryState?.index ?? [:],
+                    index: SourceSyncIndex(lastDirectoryState?.index ?? [:]),
                     scanEpoch: nextScanEpoch,
                     lastFullScanAt: Date(),
                     lastSuccessfulSyncAt: Date()
@@ -3423,11 +3429,12 @@ final class ScanService {
             existingSongs: existingForScan,
             startingCount: existingForScan.count,
             resumeState: resumableDirectoryState,
+            // 目录走查要整体比对、改写这一份,扫描期间展开成字典用;常驻的仍是紧凑的那份。
             identityIndex: SourceSyncIdentityReusePolicy.reusableIndex(
                 from: workingState,
                 sourceID: source.id,
                 scopeFingerprint: scopeFingerprint
-            ),
+            ).dictionary,
             identityMissingStableKeys: workingState?.missingStableKeys ?? [:],
             scanEpoch: nextScanEpoch
         )
@@ -3702,7 +3709,7 @@ final class ScanService {
                 scopeFingerprint: scopeFingerprint,
                 identityScopeFingerprint: identityScopeFingerprint,
                 cursors: baselineCursors,
-                index: scanIndex,
+                index: SourceSyncIndex(scanIndex),
                 pendingDirectories: [],
                 scanEpoch: nextScanEpoch,
                 // 还有歌在等确认时下一轮要完整走查：增量对账看不到「还是没有」。
@@ -3846,7 +3853,7 @@ final class ScanService {
                 scopeFingerprint: scopeFingerprint,
                 identityScopeFingerprint: identityScopeFingerprint,
                 cursors: previousState?.cursors ?? [:],
-                index: index,
+                index: SourceSyncIndex(index),
                 // 留下「还有目录没走完」的痕迹:层级不完整,
                 // `SourceSyncFolderTopologyPolicy` 据此在下次回到前台时自动
                 // 补一次完整遍历。
@@ -4104,10 +4111,10 @@ final class ScanService {
     private func preparePagedCatalogCommit(
         sourceID: String, library: MusicLibrary,
         stagingStore: PagedSongCatalogStagingStore, enrichment: ServerCatalogEnrichment?
-    ) async throws -> (PagedSongCatalogStageDelta, [String: SourceSyncIndexedItem], Set<String>) {
+    ) async throws -> (PagedSongCatalogStageDelta, SourceSyncIndex, Set<String>) {
         let songs = library.songs
-        // 上次提交的索引: 目录没变的重扫直接沿用它, 不再在它还活着时另建一整本(45 万首约 300MB)。
-        let publishedIndex = syncStates[sourceID]?.index ?? [:]
+        // 上次提交的索引: 目录没变的重扫直接沿用它; 变了也直接读成紧凑索引, 不经过整本字典。
+        let publishedIndex = syncStates[sourceID]?.index ?? SourceSyncIndex()
         let worker = Task.detached(priority: .utility) {
             try Task.checkCancellation()
             let existing = IndexedSongSnapshot(songs, sourceID: sourceID)
@@ -5072,7 +5079,8 @@ final class ScanService {
         let startedAt = Date()
         let nextScanEpoch = state.scanEpoch + 1
         var songs = existingSongs
-        var index = state.index
+        // 逐层改写这一份;扫描期间展开成字典,提交时再存回紧凑形式。
+        var index = state.index.dictionary
         var listed: Set<String> = []
         var frontier = roots
         var changedCount = 0
@@ -5105,7 +5113,7 @@ final class ScanService {
         if !folderPeerSeedAdoptions.isEmpty { peerSeedAdoptionHandler?(folderPeerSeedAdoptions) }
 
         var candidateState = state
-        candidateState.index = index
+        candidateState.index = SourceSyncIndex(index)
         candidateState.scanEpoch = nextScanEpoch
         candidateState.lastSuccessfulSyncAt = Date()
         var progressTimestamp = Date.distantPast
@@ -5196,7 +5204,7 @@ final class ScanService {
         if changes.changedParentPaths.isEmpty && changes.deletedStableKeys.isEmpty {
             var candidateState = state
             candidateState.cursors = changes.cursors
-            candidateState.index = changes.reconciledIndex ?? state.index
+            candidateState.index = changes.reconciledIndex.map { SourceSyncIndex($0) } ?? state.index
             candidateState.pendingDirectories = []
             candidateState.scanEpoch = nextScanEpoch
             candidateState.requiresDeepScan = false
@@ -5265,7 +5273,7 @@ final class ScanService {
                     changes.changedParentPaths,
                     deletedStableKeys: changes.deletedStableKeys,
                     existingSongs: existingSongs,
-                    existingIndex: changes.reconciledIndex ?? state.index,
+                    existingIndex: changes.reconciledIndex ?? state.index.dictionary,
                     scanEpoch: nextScanEpoch,
                     requiresCompleteListings: true
                 ) { [weak self] completedCount, totalCount, currentDirectory in
@@ -5298,7 +5306,7 @@ final class ScanService {
                 changes.changedParentPaths,
                 deletedStableKeys: changes.deletedStableKeys,
                 existingSongs: existingSongs,
-                existingIndex: changes.reconciledIndex ?? state.index,
+                existingIndex: changes.reconciledIndex ?? state.index.dictionary,
                 scanEpoch: nextScanEpoch,
                 requiresCompleteListings: false
             )
@@ -5307,7 +5315,7 @@ final class ScanService {
         if !quickSyncPeerSeedAdoptions.isEmpty { peerSeedAdoptionHandler?(quickSyncPeerSeedAdoptions) }
         var candidateState = state
         candidateState.cursors = changes.cursors
-        candidateState.index = result.index
+        candidateState.index = SourceSyncIndex(result.index)
         candidateState.pendingDirectories = []
         candidateState.scanEpoch = nextScanEpoch
         candidateState.requiresDeepScan = false
@@ -5807,7 +5815,7 @@ final class ScanService {
                     // 永远如此)引用必然为空, 每首歌的上级目录表用不上: 存一份空的,
                     // 45 万首时省下约 40MB 常驻。
                     return built.candidatesByDirectory.isEmpty
-                        ? SourceArtistArtworkCatalog(sourceID: source.id, index: [:])
+                        ? SourceArtistArtworkCatalog(sourceID: source.id, index: SourceSyncIndex())
                         : built
                 }.value
                 guard fence() else { throw CancellationError() }

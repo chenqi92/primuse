@@ -23,7 +23,9 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
     /// account switch even when a provider happens to reuse the same item ID.
     public var identityScopeFingerprint: String?
     public var cursors: [String: String]
-    public var index: [String: SourceSyncIndexedItem]
+    /// 已提交的条目索引,紧凑存放(见 `SourceSyncIndex`);语义与
+    /// `[String: SourceSyncIndexedItem]` 相同,JSON 形状也相同。
+    public var index: SourceSyncIndex
     public var pendingDirectories: [String]
     public var scanEpoch: Int64
     public var requiresDeepScan: Bool
@@ -65,7 +67,7 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         scopeFingerprint: String,
         identityScopeFingerprint: String? = nil,
         cursors: [String: String] = [:],
-        index: [String: SourceSyncIndexedItem] = [:],
+        index: SourceSyncIndex = SourceSyncIndex(),
         pendingDirectories: [String] = [],
         scanEpoch: Int64 = 0,
         requiresDeepScan: Bool = false,
@@ -154,9 +156,9 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
         )
         cursors = try container.decodeIfPresent([String: String].self, forKey: .cursors) ?? [:]
         index = try container.decodeIfPresent(
-            [String: SourceSyncIndexedItem].self,
+            SourceSyncIndex.self,
             forKey: .index
-        ) ?? [:]
+        ) ?? SourceSyncIndex()
         pendingDirectories = try container.decodeIfPresent(
             [String].self,
             forKey: .pendingDirectories
@@ -1444,7 +1446,7 @@ public enum BaiduSnapshotProgressPolicy {
     /// Mature indexes contain both; legacy indexes still provide a useful file
     /// baseline, with selected roots accounting for the first listings.
     public static func estimatedTotalCount(
-        previousIndex: [String: SourceSyncIndexedItem],
+        previousIndex: some SourceSyncIndexContents,
         roots: [String]
     ) -> Int {
         previousIndex.count + BaiduSnapshotRootPolicy.normalizedRoots(roots).count
@@ -1644,12 +1646,12 @@ public enum SourceSyncIdentityReusePolicy {
         from state: SourceSyncState?,
         sourceID: String,
         scopeFingerprint: String
-    ) -> [String: SourceSyncIndexedItem] {
+    ) -> SourceSyncIndex {
         guard let state, state.matchesScope(
             sourceID: sourceID,
             scopeFingerprint: scopeFingerprint
         ) else {
-            return [:]
+            return SourceSyncIndex()
         }
         return state.index
     }
@@ -1815,9 +1817,9 @@ public enum SourceSyncSubtreePolicy {
 
     /// Legacy Baidu rows retain full file paths even when their directory index
     /// is absent. Reconstruct only ancestry, without claiming a fresh listing.
-    public static func restoringPathAncestors(
-        in index: [String: SourceSyncIndexedItem], selectedRoots: [String]
-    ) -> [String: SourceSyncIndexedItem] {
+    public static func restoringPathAncestors<Index: SourceSyncIndexContents>(
+        in index: Index, selectedRoots: [String]
+    ) -> Index {
         var result = index
         var known = Set(index.values.filter(\.isDirectory).map(\.path))
         let roots = Set(selectedRoots.map(comparisonKey))
@@ -1846,7 +1848,7 @@ public enum SourceSyncSubtreePolicy {
     public static func directory(
         containingSongID songID: String,
         levelsAbove: Int,
-        in index: [String: SourceSyncIndexedItem]
+        in index: some SourceSyncIndexContents
     ) -> String? {
         guard levelsAbove >= 0,
               let entry = index.values.first(where: { !$0.isDirectory && $0.songIDs.contains(songID) }),
@@ -1871,7 +1873,7 @@ public enum SourceSyncSubtreePolicy {
     /// 已知的上级。结尾的 "/" 不算差别，答的是索引里的写法；都不认得答 nil。
     public static func directory(
         firstKnownOf candidates: [String],
-        in index: [String: SourceSyncIndexedItem]
+        in index: some SourceSyncIndexContents
     ) -> String? {
         var known: [String: String] = [:]
         func remember(_ path: String?) {
@@ -1900,7 +1902,7 @@ public enum SourceSyncSubtreePolicy {
     /// `root` 与索引里已知的、在它下面的全部目录（按父目录链判定，不比较路径前缀）。
     public static func knownDirectories(
         under root: String,
-        in index: [String: SourceSyncIndexedItem]
+        in index: some SourceSyncIndexContents
     ) -> Set<String> {
         var childDirectories: [String: [String]] = [:]
         for entry in index.values where entry.isDirectory {

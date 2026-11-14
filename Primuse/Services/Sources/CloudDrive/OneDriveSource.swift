@@ -366,7 +366,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
     func changes(
         since cursors: [String: String],
         roots: [String],
-        index: [String: SourceSyncIndexedItem]
+        index: SourceSyncIndex
     ) async throws -> IncrementalSourceChanges {
         var committed = cursors
         var changedParents: Set<String> = []

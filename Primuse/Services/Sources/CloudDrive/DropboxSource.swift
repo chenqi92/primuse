@@ -419,7 +419,7 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
     func changes(
         since cursors: [String: String],
         roots: [String],
-        index: [String: SourceSyncIndexedItem]
+        index: SourceSyncIndex
     ) async throws -> IncrementalSourceChanges {
         var nextCursors = cursors
         var changedParents: Set<String> = []

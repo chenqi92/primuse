@@ -34,7 +34,7 @@ public enum FolderPlaylistMembershipPolicy {
         bindings: [String: PlaylistFolderBinding],
         source: MusicSource,
         songs: [Song],
-        syncIndex: [String: SourceSyncIndexedItem]?
+        syncIndex: SourceSyncIndex?
     ) -> [String: [String]] {
         let matching = bindings.filter { $0.value.matches(source: source) }
         guard !matching.isEmpty, !source.isDeleted else { return [:] }

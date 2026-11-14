@@ -277,29 +277,24 @@ struct PagedSongCatalogStagingStoreTests {
                 catalogRevision: "r1", offset: 0, nextOffset: nil, itemIDs: [song.id], songs: [song],
                 metadataInspectedSongIDs: [], hierarchyItems: hierarchy, addedSongCount: 1)
         }
-        func storage(_ value: String?) -> UnsafeRawPointer? {
-            var copy = value
-            return copy?.withUTF8 { UnsafeRawPointer($0.baseAddress) }
-        }
-
         try stage("first", items())
         let published = try store.loadHierarchyIndex(sourceID: "source")
         #expect(published.count == 5)
 
-        // Same hierarchy staged again: the published index comes back, strings and all.
+        // Same hierarchy staged again: the published index itself comes back, no second copy.
         try stage("second", items())
         let reloaded = try store.loadHierarchyIndex(sourceID: "source", reusing: published)
         #expect(reloaded == published)
+        #expect(reloaded.isIdentical(to: published))
         let key = "hierarchy-song:song-1-0123456789abcdef"
-        #expect(storage(reloaded[key]?.displayName) == storage(published[key]?.displayName))
-        #expect(storage(reloaded[key]?.path) == storage(published[key]?.path))
 
-        // One song renamed: that row is the new value, the rest keep the published ones.
+        // One song renamed: that row is the new value, the rest are unchanged.
         try stage("third", items(renaming: 2))
         let changed = try store.loadHierarchyIndex(sourceID: "source", reusing: published)
         #expect(changed["hierarchy-song:song-2-0123456789abcdef"]?.displayName == "Renamed 2")
         #expect(changed.count == 5)
-        #expect(storage(changed[key]?.displayName) == storage(published[key]?.displayName))
+        #expect(!changed.isIdentical(to: published))
+        #expect(changed[key] == published[key])
         #expect(changed == (try store.loadHierarchyIndex(sourceID: "source")))
 
         // A published index with an entry the stage no longer has is not reused.

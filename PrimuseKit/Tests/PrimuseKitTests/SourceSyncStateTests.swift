@@ -1320,7 +1320,7 @@ struct BaiduSnapshotReconciliationTests {
             scopeFingerprint: "account-a",
             identityScopeFingerprint: "identity-account-a",
             cursors: rawCursors,
-            index: rawIndex
+            index: SourceSyncIndex(rawIndex)
         )
 
         #expect(SourceSyncIdentityReusePolicy.reusableIndex(

@@ -568,35 +568,78 @@ public struct SourceSyncStateWriteReceipt: Sendable, Equatable {
     }
 }
 
-/// Serializes per-source cursor/index mutations into one atomic snapshot.
-/// Each caller contributes only its source row, so concurrent scan completions
-/// cannot replace another source's freshly committed state with an older map.
-/// While a write is in flight, later mutations are folded into one follow-up
-/// snapshot; every caller still waits until its revision (or a newer one) is
-/// durable before receiving a receipt.
+/// Serializes per-source cursor/index mutations. Each caller contributes
+/// only its source row, so concurrent scan completions cannot replace another
+/// source's freshly committed state with an older one. While a write is in
+/// flight, later mutations are folded into one follow-up flush; every caller
+/// still waits until its revision (or a newer one) is durable before receiving
+/// a receipt.
+///
+/// 落盘有两种去处:平常是每个源各自的文件(`SourceSyncStateDirectory`),一次
+/// 提交只重写变了的那几个源;旧的整份 JSON 只在迁移没能完成的那次启动里继续写
+/// (旧文件那时仍是权威,见 `SourceSyncStateDirectory.load`)。
 public actor SourceSyncStateFileStore {
     public typealias AtomicWriter = @Sendable (Data, URL) throws -> Void
 
-    private let url: URL
+    private enum Destination {
+        case legacySnapshot(URL)
+        case directory(URL)
+    }
+
+    private struct SourceWrite: Sendable {
+        let sourceID: String
+        let state: SourceSyncState?
+        let previous: SourceSyncStateDirectory.Record?
+        let previousIndex: SourceSyncIndex?
+    }
+
+    private let destination: Destination
     private let atomicWriter: AtomicWriter?
     private var states: [String: SourceSyncState]
     private var mutationEpochs: [String: UInt64] = [:]
     private var sourceRevisions: [String: UInt64] = [:]
     private var persistenceRevision: UInt64 = 0
     private var persistedRevision: UInt64 = 0
+    /// 旧格式:磁盘上已有一份解得开的整份快照。
     private var hasPersistedSnapshot: Bool
+    /// 每源文件:磁盘上每个源现在的样子,以及那份索引文件里存的是哪份索引。
+    private var records: [String: SourceSyncStateDirectory.Record] = [:]
+    private var persistedIndexes: [String: SourceSyncIndex] = [:]
+    /// 每源文件:还没落盘的源(状态变了,或者要删掉)。
+    private var dirtySourceIDs: Set<String> = []
     private var persistenceTask: Task<Void, Error>?
 
+    /// 旧格式:所有源写进 `url` 这一整份 JSON。
     public init(
         url: URL,
         initialStates: [String: SourceSyncState] = [:],
         initialSnapshotIsPersisted: Bool = false,
         atomicWriter: AtomicWriter? = nil
     ) {
-        self.url = url
+        self.destination = .legacySnapshot(url)
         self.states = initialStates
         self.hasPersistedSnapshot = initialSnapshotIsPersisted
         self.atomicWriter = atomicWriter
+    }
+
+    /// 每个源各自的文件。`persistedRecords` 是启动时从目录里读到的那些源;
+    /// 在 `initialStates` 里却没有记录的源,第一次 upsert 时即使内容没变也会写一次。
+    public init(
+        directory: URL,
+        initialStates: [String: SourceSyncState] = [:],
+        persistedRecords: [String: SourceSyncStateDirectory.Record] = [:],
+        atomicWriter: AtomicWriter? = nil
+    ) {
+        self.destination = .directory(directory)
+        self.states = initialStates
+        self.hasPersistedSnapshot = true
+        self.records = persistedRecords
+        self.atomicWriter = atomicWriter
+        for (sourceID, record) in persistedRecords where record.index != nil {
+            if let index = initialStates[sourceID]?.index {
+                persistedIndexes[sourceID] = index
+            }
+        }
     }
 
     /// An epoch is advanced synchronously by the source-change observer. A
@@ -613,9 +656,9 @@ public actor SourceSyncStateFileStore {
         let contentChanged = states[sourceID] != state
         if contentChanged {
             states[sourceID] = state
-            persistenceRevision &+= 1
-        } else if !hasPersistedSnapshot, persistenceRevision == persistedRevision {
-            persistenceRevision &+= 1
+            markDirty(sourceID)
+        } else if needsRepairWrite(sourceID) {
+            markDirty(sourceID)
         }
         let revision = sourceRevisions[sourceID, default: 0] &+ 1
         mutationEpochs[sourceID] = expectedMutationEpoch
@@ -654,11 +697,17 @@ public actor SourceSyncStateFileStore {
         guard mutationEpoch > currentEpoch else { return nil }
 
         if discardingState, states.removeValue(forKey: sourceID) != nil {
-            persistenceRevision &+= 1
-        } else if discardingState,
-                  !hasPersistedSnapshot,
-                  persistenceRevision == persistedRevision {
-            persistenceRevision &+= 1
+            markDirty(sourceID)
+        } else if discardingState {
+            switch destination {
+            case .legacySnapshot:
+                if !hasPersistedSnapshot, persistenceRevision == persistedRevision {
+                    persistenceRevision &+= 1
+                }
+            case .directory:
+                // 内存里没有、磁盘上却有(读的时候出过问题):一起删掉。
+                if records[sourceID] != nil { markDirty(sourceID) }
+            }
         }
         let revision = sourceRevisions[sourceID, default: 0] &+ 1
         mutationEpochs[sourceID] = mutationEpoch
@@ -673,6 +722,21 @@ public actor SourceSyncStateFileStore {
 
     public func snapshot() -> [String: SourceSyncState] {
         states
+    }
+
+    private func markDirty(_ sourceID: String) {
+        persistenceRevision &+= 1
+        dirtySourceIDs.insert(sourceID)
+    }
+
+    /// 内容没变也要写一次的情况:磁盘上还没有它(启动时没读到可信的那一份)。
+    private func needsRepairWrite(_ sourceID: String) -> Bool {
+        switch destination {
+        case .legacySnapshot:
+            return !hasPersistedSnapshot && persistenceRevision == persistedRevision
+        case .directory:
+            return records[sourceID] == nil && !dirtySourceIDs.contains(sourceID)
+        }
     }
 
     private func persistLatestStateIfNeeded() async throws {
@@ -693,22 +757,86 @@ public actor SourceSyncStateFileStore {
 
         while persistedRevision < persistenceRevision {
             let revision = persistenceRevision
-            let snapshot = states
-            let url = url
-            let atomicWriter = atomicWriter
-            let writeTask = Task.detached(priority: .utility) {
-                if let atomicWriter {
-                    var data = Data()
-                    try Self.streamSnapshot(snapshot) { data.append($0) }
-                    try atomicWriter(data, url)
-                } else {
-                    try Self.writeSnapshot(snapshot, to: url)
+            switch destination {
+            case .legacySnapshot(let url):
+                let snapshot = states
+                let atomicWriter = atomicWriter
+                let writeTask = Task.detached(priority: .utility) {
+                    if let atomicWriter {
+                        var data = Data()
+                        try Self.streamSnapshot(snapshot) { data.append($0) }
+                        try atomicWriter(data, url)
+                    } else {
+                        try Self.writeSnapshot(snapshot, to: url)
+                    }
+                }
+                try await writeTask.value
+                hasPersistedSnapshot = true
+            case .directory(let directory):
+                try await flushDirtySources(to: directory)
+            }
+            persistedRevision = revision
+            await Task.yield()
+        }
+    }
+
+    /// 只写变了的源。中途失败时已经写完的源照常记下,失败的与还没轮到的留到下一次。
+    private func flushDirtySources(to directory: URL) async throws {
+        let pending = dirtySourceIDs
+        dirtySourceIDs.removeAll()
+        let work = pending.sorted().map { sourceID in
+            SourceWrite(
+                sourceID: sourceID,
+                state: states[sourceID],
+                previous: records[sourceID],
+                previousIndex: persistedIndexes[sourceID]
+            )
+        }
+        let atomicWriter = atomicWriter
+        let writeTask = Task.detached(priority: .utility) {
+            () -> (completed: [(String, SourceSyncStateDirectory.Record?)], failure: (any Error)?) in
+            var completed: [(String, SourceSyncStateDirectory.Record?)] = []
+            for item in work {
+                do {
+                    if let state = item.state {
+                        let record = try SourceSyncStateDirectory.writeSource(
+                            state,
+                            previous: item.previous,
+                            previousIndex: item.previousIndex,
+                            in: directory,
+                            writer: atomicWriter
+                        )
+                        completed.append((item.sourceID, record))
+                    } else {
+                        try SourceSyncStateDirectory.removeSource(item.sourceID, in: directory)
+                        completed.append((item.sourceID, nil))
+                    }
+                } catch {
+                    return (completed, error)
                 }
             }
-            try await writeTask.value
-            persistedRevision = revision
-            hasPersistedSnapshot = true
-            await Task.yield()
+            return (completed, nil)
+        }
+        let outcome = await writeTask.value
+        var finished = Set<String>()
+        let statesByID = Dictionary(work.map { ($0.sourceID, $0.state) }, uniquingKeysWith: { first, _ in first })
+        for (sourceID, record) in outcome.completed {
+            finished.insert(sourceID)
+            if let record {
+                records[sourceID] = record
+                if record.index != nil, let index = statesByID[sourceID]??.index {
+                    persistedIndexes[sourceID] = index
+                } else {
+                    persistedIndexes[sourceID] = nil
+                }
+            } else {
+                records[sourceID] = nil
+                persistedIndexes[sourceID] = nil
+            }
+        }
+        if let failure = outcome.failure {
+            dirtySourceIDs.formUnion(pending.subtracting(finished))
+            throw failure
         }
     }
 
@@ -767,7 +895,7 @@ public actor SourceSyncStateFileStore {
             try emit(encoder.encode(sourceID))
             try emit(Data(":".utf8))
             var metadata = state
-            metadata.index = [:]
+            metadata.index = SourceSyncIndex()
             // Let Codable own the metadata schema, including future fields.
             guard var object = try JSONSerialization.jsonObject(
                 with: encoder.encode(metadata)

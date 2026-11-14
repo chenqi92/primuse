@@ -598,12 +598,12 @@ struct SourceSyncStateFileStoreTests {
         #expect(chunkSizes.allSatisfy { $0 < 132 * 1024 })
     }
 
-    @Test("A streaming encode failure preserves the committed file and removes its temporary file")
-    func failedStreamingWritePreservesSnapshot() async throws {
+    @Test("An encode failure preserves the committed source file and leaves no temporary file")
+    func failedEncodePreservesCommittedSource() async throws {
         let urls = try makeTemporaryURLs()
         defer { try? FileManager.default.removeItem(at: urls.directory) }
-        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
-        let store = SourceSyncStateFileStore(url: syncURL)
+        let directory = urls.directory.appendingPathComponent("source-sync-states")
+        let store = SourceSyncStateFileStore(directory: directory)
         let original = makeSourceSyncState(sourceID: "source", marker: "original")
         _ = try await store.upsert(original, expectedMutationEpoch: 0)
         var invalid = original
@@ -611,24 +611,40 @@ struct SourceSyncStateFileStoreTests {
         await #expect(throws: (any Error).self) {
             try await store.upsert(invalid, expectedMutationEpoch: 0)
         }
-        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": original])
-        #expect(try FileManager.default.contentsOfDirectory(atPath: urls.directory.path) == ["source-sync-states.json"])
+        #expect(loadSourceSyncStates(from: directory) == ["source": original])
+        let stem = SourceSyncStateDirectory.fileStem(for: "source")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["\(stem).state.json"])
         let recovered = makeSourceSyncState(sourceID: "source", marker: "recovered")
         _ = try await store.upsert(recovered, expectedMutationEpoch: 0)
-        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": recovered])
+        #expect(loadSourceSyncStates(from: directory) == ["source": recovered])
+    }
+
+    @Test("The legacy whole-file mode still writes the old snapshot after a failed migration")
+    func legacyModeKeepsWritingTheOldSnapshot() async throws {
+        let urls = try makeTemporaryURLs()
+        defer { try? FileManager.default.removeItem(at: urls.directory) }
+        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
+        let store = SourceSyncStateFileStore(url: syncURL)
+        let first = makeSourceSyncState(sourceID: "source-a", marker: "a")
+        let second = makeSourceSyncState(sourceID: "source-b", marker: "b")
+        _ = try await store.upsert(first, expectedMutationEpoch: 0)
+        _ = try await store.upsert(second, expectedMutationEpoch: 0)
+        #expect(try decodeSourceSyncStates(from: syncURL) == ["source-a": first, "source-b": second])
+        _ = try await store.invalidate(sourceID: "source-a", mutationEpoch: 1)
+        #expect(try decodeSourceSyncStates(from: syncURL) == ["source-b": second])
     }
 
     @Test("Loaded snapshots skip duplicates while unverified state is repaired")
     func loadedSnapshotSkipsDuplicateWrite() async throws {
         let urls = try makeTemporaryURLs()
         defer { try? FileManager.default.removeItem(at: urls.directory) }
-        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
+        let directory = urls.directory.appendingPathComponent("source-sync-states")
         let state = makeSourceSyncState(sourceID: "source", marker: "loaded")
         let durableRecorder = SourceSyncStateWriteRecorder()
         let durableStore = SourceSyncStateFileStore(
-            url: syncURL,
+            directory: directory,
             initialStates: ["source": state],
-            initialSnapshotIsPersisted: true,
+            persistedRecords: ["source": SourceSyncStateDirectory.Record(sourceID: "source", index: nil)],
             atomicWriter: durableRecorder.write
         )
 
@@ -637,14 +653,14 @@ struct SourceSyncStateFileStoreTests {
 
         let repairRecorder = SourceSyncStateWriteRecorder()
         let repairStore = SourceSyncStateFileStore(
-            url: syncURL,
+            directory: directory,
             initialStates: ["source": state],
             atomicWriter: repairRecorder.write
         )
         _ = try await repairStore.upsert(state, expectedMutationEpoch: 0)
 
         #expect(repairRecorder.writeCount == 1)
-        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": state])
+        #expect(loadSourceSyncStates(from: directory) == ["source": state])
     }
 
     @Test("Identical state and absent invalidation do not rewrite the snapshot")
@@ -652,9 +668,9 @@ struct SourceSyncStateFileStoreTests {
         let urls = try makeTemporaryURLs()
         defer { try? FileManager.default.removeItem(at: urls.directory) }
         let recorder = SourceSyncStateWriteRecorder()
-        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
+        let directory = urls.directory.appendingPathComponent("source-sync-states")
         let store = SourceSyncStateFileStore(
-            url: syncURL,
+            directory: directory,
             atomicWriter: recorder.write
         )
         let state = makeSourceSyncState(sourceID: "source", marker: "stable")
@@ -664,7 +680,7 @@ struct SourceSyncStateFileStoreTests {
         _ = try await store.invalidate(sourceID: "missing", mutationEpoch: 1)
 
         #expect(recorder.writeCount == 1)
-        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": state])
+        #expect(loadSourceSyncStates(from: directory) == ["source": state])
     }
 
     @Test("Burst updates retain only the latest follow-up snapshot")
@@ -673,9 +689,9 @@ struct SourceSyncStateFileStoreTests {
         defer { try? FileManager.default.removeItem(at: urls.directory) }
         let recorder = SourceSyncStateWriteRecorder(blocksFirstWrite: true)
         defer { recorder.releaseFirstWrite() }
-        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
+        let directory = urls.directory.appendingPathComponent("source-sync-states")
         let store = SourceSyncStateFileStore(
-            url: syncURL,
+            directory: directory,
             atomicWriter: recorder.write
         )
         let initial = makeSourceSyncState(sourceID: "source", marker: "initial")
@@ -704,7 +720,7 @@ struct SourceSyncStateFileStoreTests {
         #expect(try await intermediateTask.value != nil)
         #expect(try await latestTask.value != nil)
         #expect(recorder.writeCount == 2)
-        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": latest])
+        #expect(loadSourceSyncStates(from: directory) == ["source": latest])
     }
 
     @Test("A failed atomic write remains pending and is retried")
@@ -712,9 +728,9 @@ struct SourceSyncStateFileStoreTests {
         let urls = try makeTemporaryURLs()
         defer { try? FileManager.default.removeItem(at: urls.directory) }
         let recorder = SourceSyncStateWriteRecorder(failuresBeforeSuccess: 1)
-        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
+        let directory = urls.directory.appendingPathComponent("source-sync-states")
         let store = SourceSyncStateFileStore(
-            url: syncURL,
+            directory: directory,
             atomicWriter: recorder.write
         )
         let state = makeSourceSyncState(sourceID: "source", marker: "retry")
@@ -723,19 +739,19 @@ struct SourceSyncStateFileStoreTests {
             try await store.upsert(state, expectedMutationEpoch: 0)
         }
         #expect(recorder.writeCount == 1)
-        #expect(!FileManager.default.fileExists(atPath: syncURL.path))
+        #expect(loadSourceSyncStates(from: directory).isEmpty)
 
         #expect(try await store.upsert(state, expectedMutationEpoch: 0) != nil)
         #expect(recorder.writeCount == 2)
-        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": state])
+        #expect(loadSourceSyncStates(from: directory) == ["source": state])
     }
 
-    @Test("Concurrent source commits merge instead of replacing the snapshot")
+    @Test("Concurrent source commits merge instead of replacing each other")
     func concurrentSourceCommitsMerge() async throws {
         let urls = try makeTemporaryURLs()
         defer { try? FileManager.default.removeItem(at: urls.directory) }
-        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
-        let store = SourceSyncStateFileStore(url: syncURL)
+        let directory = urls.directory.appendingPathComponent("source-sync-states")
+        let store = SourceSyncStateFileStore(directory: directory)
 
         async let first = store.upsert(
             makeSourceSyncState(sourceID: "source-a", marker: "a"),
@@ -751,14 +767,60 @@ struct SourceSyncStateFileStoreTests {
         #expect(receipts.1 != nil)
         let snapshot = await store.snapshot()
         #expect(Set(snapshot.keys) == ["source-a", "source-b"])
+        #expect(loadSourceSyncStates(from: directory) == snapshot)
+    }
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let persisted = try decoder.decode(
-            [String: SourceSyncState].self,
-            from: Data(contentsOf: syncURL)
-        )
-        #expect(persisted == snapshot)
+    @Test("A commit rewrites only its own source and reuses an unchanged index file")
+    func commitRewritesOnlyTheChangedSource() async throws {
+        let urls = try makeTemporaryURLs()
+        defer { try? FileManager.default.removeItem(at: urls.directory) }
+        let directory = urls.directory.appendingPathComponent("source-sync-states")
+        let recorder = SourceSyncStateWriteRecorder()
+        let store = SourceSyncStateFileStore(directory: directory, atomicWriter: recorder.write)
+        var big = makeSourceSyncState(sourceID: "big", marker: "big")
+        for offset in 0..<200 {
+            let key = "hierarchy-song:song-\(offset)"
+            big.index[key] = SourceSyncIndexedItem(
+                stableKey: key, path: "/songs/\(offset).flac", displayName: "Song \(offset)",
+                parentPath: "server-folder:album", isDirectory: false, songIDs: ["song-\(offset)"],
+                size: 1_000, modifiedDate: nil, revision: nil
+            )
+        }
+        let small = makeSourceSyncState(sourceID: "small", marker: "small")
+        _ = try await store.upsert(big, expectedMutationEpoch: 0)
+        _ = try await store.upsert(small, expectedMutationEpoch: 0)
+        // big: index file + state file; small: state file.
+        #expect(recorder.writeCount == 3)
+        let bigStem = SourceSyncStateDirectory.fileStem(for: "big")
+        let indexFiles = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasPrefix(bigStem) && $0.hasSuffix(".index") }
+        #expect(indexFiles.count == 1)
+
+        // Only metadata changed for big: its index file stays, only its JSON is rewritten.
+        var rescoped = big
+        rescoped.scopeFingerprint = "scope-rescoped"
+        _ = try await store.upsert(rescoped, expectedMutationEpoch: 0)
+        #expect(recorder.writeCount == 4)
+        let afterRescope = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasPrefix(bigStem) && $0.hasSuffix(".index") }
+        #expect(afterRescope == indexFiles)
+
+        // An index change writes a new index file and removes the old one; small is untouched.
+        var grown = rescoped
+        grown.index["hierarchy-song:extra"] = big.index["hierarchy-song:song-0"]
+        _ = try await store.upsert(grown, expectedMutationEpoch: 0)
+        #expect(recorder.writeCount == 6)
+        let afterGrowth = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasPrefix(bigStem) && $0.hasSuffix(".index") }
+        #expect(afterGrowth.count == 1)
+        #expect(afterGrowth != indexFiles)
+        #expect(loadSourceSyncStates(from: directory) == ["big": grown, "small": small])
+
+        _ = try await store.invalidate(sourceID: "big", mutationEpoch: 1)
+        #expect(loadSourceSyncStates(from: directory) == ["small": small])
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasPrefix(bigStem) }
+        #expect(leftovers.isEmpty)
     }
 
     @Test("A credential epoch rejects stale writes without erasing fresh state")
@@ -766,7 +828,7 @@ struct SourceSyncStateFileStoreTests {
         let urls = try makeTemporaryURLs()
         defer { try? FileManager.default.removeItem(at: urls.directory) }
         let store = SourceSyncStateFileStore(
-            url: urls.directory.appendingPathComponent("source-sync-states.json")
+            directory: urls.directory.appendingPathComponent("source-sync-states")
         )
         let stale = makeSourceSyncState(sourceID: "source", marker: "old")
         let fresh = makeSourceSyncState(sourceID: "source", marker: "new")
@@ -786,7 +848,7 @@ struct SourceSyncStateFileStoreTests {
         let urls = try makeTemporaryURLs()
         defer { try? FileManager.default.removeItem(at: urls.directory) }
         let store = SourceSyncStateFileStore(
-            url: urls.directory.appendingPathComponent("source-sync-states.json")
+            directory: urls.directory.appendingPathComponent("source-sync-states")
         )
         let committed = makeSourceSyncState(sourceID: "source", marker: "committed")
         let stale = makeSourceSyncState(sourceID: "source", marker: "cancelled")
@@ -971,6 +1033,10 @@ private func makeSourceSyncState(sourceID: String, marker: String) -> SourceSync
         index: [:],
         scanEpoch: 1
     )
+}
+
+private func loadSourceSyncStates(from directory: URL) -> [String: SourceSyncState] {
+    SourceSyncStateDirectory.loadDirectory(directory, removesOrphans: false).states
 }
 
 private func decodeSourceSyncStates(from url: URL) throws -> [String: SourceSyncState] {

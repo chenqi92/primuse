@@ -31,7 +31,7 @@ extension BaiduPanSource: IncrementalMusicSourceConnector {
     func changes(
         since cursors: [String: String],
         roots: [String],
-        index: [String: SourceSyncIndexedItem]
+        index: SourceSyncIndex
     ) async throws -> IncrementalSourceChanges {
         guard cursors[Self.snapshotCursorKey] == Self.snapshotCursorVersion else {
             return IncrementalSourceChanges(cursors: cursors, requiresDeepScan: true)

@@ -10,16 +10,20 @@ import XCTest
 final class SourceChangeScanInvalidationTests: XCTestCase {
     func testDeferredStartupPublishesPersistedFoldersWithoutAnEmptyWrite() async throws {
         let fixture = try deferredStartupFixture()
-        let before = try Data(contentsOf: fixture.url)
         XCTAssertFalse(fixture.scan.isStartupStateReady)
         XCTAssertTrue(fixture.scan.libraryFolderSyncIndex(for: "source").isEmpty)
-        XCTAssertEqual(try Data(contentsOf: fixture.url), before)
 
         await fixture.scan.whenStartupStateReady()
         XCTAssertTrue(fixture.scan.isStartupStateReady)
         XCTAssertEqual(fixture.scan.libraryFolderSyncIndex(for: "source")["/Music/song.flac"]?.songIDs, ["song"])
         XCTAssertGreaterThan(fixture.scan.folderHierarchyRevision, 0)
-        XCTAssertEqual(try Data(contentsOf: fixture.url), before)
+        // 旧的整份文件迁成了每个源各自的文件,两个源都在、内容不变,没有被空状态盖掉。
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.url.path))
+        let directory = SourceSyncStateDirectory.directory(forLegacySnapshot: fixture.url)
+        let persisted = SourceSyncStateDirectory.loadDirectory(directory, removesOrphans: false).states
+        XCTAssertEqual(Set(persisted.keys), ["source", "untouched"])
+        XCTAssertEqual(persisted["source"]?.index["/Music/song.flac"]?.songIDs, ["song"])
+        XCTAssertEqual(persisted["untouched"]?.scopeFingerprint, "saved")
     }
 
     func testSourceEditBeforeStartupPublicationCannotResurrectOldFolders() async throws {
@@ -30,9 +34,11 @@ final class SourceChangeScanInvalidationTests: XCTestCase {
         await fixture.scan.whenStartupStateReady()
         XCTAssertTrue(fixture.scan.libraryFolderSyncIndex(for: "source").isEmpty)
         XCTAssertFalse(fixture.scan.libraryFolderSyncIndex(for: "untouched").isEmpty)
+        // 旧的整份文件启动时已迁成每个源各自的文件,作废只删掉那一个源的。
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.url.path))
+        let directory = SourceSyncStateDirectory.directory(forLegacySnapshot: fixture.url)
         try await waitUntil {
-            guard let data = try? Data(contentsOf: fixture.url),
-                  let states = try? JSONDecoder().decode([String: SourceSyncState].self, from: data) else { return false }
+            let states = SourceSyncStateDirectory.loadDirectory(directory, removesOrphans: false).states
             return states["source"] == nil && states["untouched"] != nil
         }
     }

@@ -770,13 +770,14 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
     /// The staged hierarchy of `sourceID`. `previous` is the index the last
     /// commit published: a rescan of an unchanged catalogue stages exactly that
     /// index again, so it is compared row by row first and returned as is —
-    /// building a second whole index (~300 MB at 450K songs) while the
-    /// published one is still alive was the peak of every rescan. Rows that did
-    /// change are decoded, and unchanged ones reuse the published values.
+    /// building a second whole index while the published one is still alive
+    /// was the peak of every rescan. A catalogue that did change is read
+    /// straight into a new compact index (`SourceSyncIndex`), never through a
+    /// full dictionary.
     public func loadHierarchyIndex(
         sourceID: String,
-        reusing previous: [String: SourceSyncIndexedItem] = [:]
-    ) throws -> [String: SourceSyncIndexedItem] {
+        reusing previous: SourceSyncIndex = SourceSyncIndex()
+    ) throws -> SourceSyncIndex {
         let decoder = JSONDecoder()
         let sql = """
             SELECT stableKey, payload FROM pagedCatalogHierarchy
@@ -807,8 +808,14 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                 // Equal row count and no duplicate keys: the staged index is the published one.
                 if unchanged, matchedRows == previous.count { return previous }
             }
+            let stagedRowCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM pagedCatalogHierarchy WHERE sourceID = ?",
+                arguments: [sourceID]
+            ) ?? 0
             let rows = try Row.fetchCursor(db, sql: sql, arguments: [sourceID])
-            var result: [String: SourceSyncIndexedItem] = [:]
+            // 同一个目录的路径在紧凑索引里只存一份(原来要另外 `shareRepeatedFolderPaths`)。
+            var builder = SourceSyncIndex.Builder(minimumCapacity: stagedRowCount)
             while let row = try rows.next() {
                 try Task.checkCancellation()
                 try autoreleasepool {
@@ -818,16 +825,11 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                         SourceSyncIndexedItem.self,
                         from: payload, decoder: decoder
                     )
-                    if let published = previous[stableKey], published == item {
-                        result[stableKey] = published
-                    } else {
-                        result[stableKey] = item
-                    }
+                    // Later rows win, as they did in the dictionary this replaced.
+                    builder.insert(item, forKey: stableKey)
                 }
             }
-            // One item per song, each with its own copy of its album folder's path.
-            result.shareRepeatedFolderPaths()
-            return result
+            return builder.build()
         }
     }
 

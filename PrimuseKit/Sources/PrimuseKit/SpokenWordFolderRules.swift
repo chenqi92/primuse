@@ -182,7 +182,7 @@ public struct SpokenWordFolderTopology: Equatable, Sendable {
         self.rootNames = rootNames
     }
 
-    public init(syncIndex: [String: SourceSyncIndexedItem], rootNames: [String: String] = [:]) {
+    public init(syncIndex: some SourceSyncIndexContents, rootNames: [String: String] = [:]) {
         self.init(
             fileParents: AlbumArtistFolderIndex.parents(fromSyncIndex: syncIndex),
             directoryParents: Self.directoryParents(fromSyncIndex: syncIndex),
@@ -219,7 +219,7 @@ public struct SpokenWordFolderTopology: Equatable, Sendable {
     }
 
     /// 条目 → 显示名。同一条目被两行列出时取较小的那个名字,启动之间结论不变。
-    public static func names(fromSyncIndex index: [String: SourceSyncIndexedItem]) -> [String: String] {
+    public static func names(fromSyncIndex index: some SourceSyncIndexContents) -> [String: String] {
         var result: [String: String] = [:]
         for item in index.values {
             guard let name = item.displayName, !name.isEmpty else { continue }
@@ -231,7 +231,7 @@ public struct SpokenWordFolderTopology: Equatable, Sendable {
 
     /// 目录 → 上级目录。同一目录被两行列出时取较小的那个,启动之间结论不变。
     public static func directoryParents(
-        fromSyncIndex index: [String: SourceSyncIndexedItem]
+        fromSyncIndex index: some SourceSyncIndexContents
     ) -> [String: String] {
         var result: [String: String] = [:]
         for item in index.values where item.isDirectory {

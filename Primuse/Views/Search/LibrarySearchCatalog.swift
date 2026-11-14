@@ -211,7 +211,7 @@ struct SearchFolderSnapshotKey: Equatable {
 
 struct SearchFolderProviderInput: Sendable {
     let descriptor: LibraryFolderSourceDescriptor
-    let items: [String: SourceSyncIndexedItem]
+    let items: SourceSyncIndex
     let rootNames: [String: String]
     let usesIndexedRoots: Bool
 

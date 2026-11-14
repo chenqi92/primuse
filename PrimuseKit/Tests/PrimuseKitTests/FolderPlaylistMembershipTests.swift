@@ -66,7 +66,7 @@ struct FolderPlaylistMembershipTests {
         let memberships = FolderPlaylistMembershipPolicy.memberships(
             bindings: ["playlist": binding], source: source,
             songs: [song("a", "a"), song("b", "b")],
-            syncIndex: Dictionary(uniqueKeysWithValues: items.map { ($0.stableKey, $0) })
+            syncIndex: SourceSyncIndex(Dictionary(uniqueKeysWithValues: items.map { ($0.stableKey, $0) }))
         )
         #expect(memberships["playlist"] == ["b"])
         var otherAccount = source

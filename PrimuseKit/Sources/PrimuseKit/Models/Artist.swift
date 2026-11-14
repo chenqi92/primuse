@@ -118,7 +118,7 @@ public struct SourceArtistArtworkCatalog: Codable, Equatable, Sendable {
 
     public init(
         sourceID: String,
-        index: [String: SourceSyncIndexedItem]
+        index: some SourceSyncIndexContents
     ) {
         self.sourceID = sourceID
 

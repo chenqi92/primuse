@@ -623,7 +623,7 @@ public struct AlbumArtistFolderIndex: Sendable, Equatable {
     /// file rather than the song so CUE tracks cut from one file, and songs
     /// whose IDs were migrated, still find their folder.
     public static func parents(
-        fromSyncIndex index: [String: SourceSyncIndexedItem]
+        fromSyncIndex index: some SourceSyncIndexContents
     ) -> [String: String] {
         var result: [String: String] = [:]
         for item in index.values where !item.isDirectory {

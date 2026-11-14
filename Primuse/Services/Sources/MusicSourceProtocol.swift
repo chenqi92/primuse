@@ -2257,7 +2257,7 @@ protocol IncrementalMusicSourceConnector: MusicSourceConnector {
     func changes(
         since cursors: [String: String],
         roots: [String],
-        index: [String: SourceSyncIndexedItem]
+        index: SourceSyncIndex
     ) async throws -> IncrementalSourceChanges
 }
 

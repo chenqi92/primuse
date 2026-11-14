@@ -124,7 +124,7 @@ final class CarPlayFolderLibrary {
     }
 
     private struct ProviderInput: Sendable {
-        let items: [String: SourceSyncIndexedItem]
+        let items: SourceSyncIndex
         let rootNames: [String: String]
         let indexedRoots: Bool
     }

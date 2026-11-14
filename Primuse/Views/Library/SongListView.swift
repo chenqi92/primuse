@@ -1232,7 +1232,7 @@ struct SongListView: View {
     }
 
     private struct ProviderFolderHierarchyInput: Sendable {
-        let syncIndex: [String: SourceSyncIndexedItem]
+        let syncIndex: SourceSyncIndex
         let rootDisplayNames: [String: String]
         let usesIndexedRoots: Bool
     }
