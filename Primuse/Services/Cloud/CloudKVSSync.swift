@@ -674,6 +674,9 @@ enum CloudKVSKey {
     /// 收藏区（歌单、有声书、目录收没收藏，收藏区与首页目录的顺序）。`FavoriteCollectionStore` 合并后
     /// 推送（`FavoriteCollectionSyncPolicy`），不按整份新旧覆盖：第一次同步取并集，取消靠墓碑传开。
     static let favoriteCollection = "primuse_favorite_collection_sync_v1"
+    /// 手动的专辑分类(专辑 / 单曲·EP / 现场)。`AlbumReleaseCategoryStore` 按专辑、按歌逐项比时间合并
+    /// 后推送,清掉的分类带着时间传开,不按整份新旧覆盖。
+    static let releaseCategories = "primuse_release_categories_sync_v1"
     // Certificate trust and public cleartext-HTTP permissions are intentionally
     // NOT synced: both are per-device security decisions. SSLTrustStore keeps
     // them in local UserDefaults only.
@@ -902,3 +905,60 @@ final class InterfaceLayoutSync {
 }
 #endif
 
+#if os(iOS) || os(macOS)
+// MARK: - Album categories
+
+/// 手动给专辑分的类(专辑 / 单曲·EP / 现场)在 iPhone、iPad、Mac 之间同步,不用在每台设备上
+/// 再分一遍。本机的分类由 `AlbumReleaseCategoryStore` 存着;这个键在本机 UserDefaults 里只是
+/// 最近一次见到或推出的云端那份。云端那份变了就合进来(逐项取较晚的),本机有云端没有的再推上去。
+/// 跟着「设置」这一路 iCloud 同步开关走。
+@MainActor
+final class ReleaseCategoryCloudSync {
+    static let shared = ReleaseCategoryCloudSync()
+
+    private let store = AlbumReleaseCategoryStore.shared
+    private let cloud = CloudKVSSync.shared
+    private let defaults = UserDefaults.standard
+    private var pushTask: Task<Void, Never>?
+    private var isStarted = false
+    /// 第一次读到云端之前不推,免得把一份旧的镜像当成云端那份。
+    private var isAwaitingCloudRead = true
+
+    func start() {
+        guard !isStarted else { return }
+        isStarted = true
+        store.onLocalChange = { [weak self] in self?.schedulePush() }
+        cloud.registerMerging(key: CloudKVSKey.releaseCategories) { [weak self] in
+            self?.settle()
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.cloud.synchronizePendingChanges()
+            self.isAwaitingCloudRead = false
+            self.settle()
+        }
+    }
+
+    private func schedulePush() {
+        pushTask?.cancel()
+        pushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.settle()
+        }
+    }
+
+    private func settle() {
+        guard CloudSyncChannel.isEnabled(.settings, defaults: defaults) else { return }
+        let remote = AlbumReleaseCategoryStore.SyncDocument.decode(defaults.data(forKey: CloudKVSKey.releaseCategories))
+        let result = store.merge(remote ?? AlbumReleaseCategoryStore.SyncDocument())
+        if result.changed {
+            plog("☁️ Album categories merged from iCloud entries=\(remote?.items.count ?? 0)")
+        }
+        guard !isAwaitingCloudRead, result.needsPush,
+              let data = store.syncDocument.encoded() else { return }
+        defaults.set(data, forKey: CloudKVSKey.releaseCategories)
+        cloud.markChanged(key: CloudKVSKey.releaseCategories)
+    }
+}
+#endif

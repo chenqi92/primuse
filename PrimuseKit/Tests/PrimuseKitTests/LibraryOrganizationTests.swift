@@ -185,6 +185,54 @@ struct AlbumReleaseMetadataIndexTests {
         print("Release index: 1,000,000 tracks / 100,000 albums build=\(buildTime), single update=\(updateStart.duration(to: clock.now))")
     }
 
+    @Test @MainActor func manualChoicesTravelBetweenDevicesAndClearingSticks() throws {
+        let suites = ["ReleaseSyncA-\(UUID().uuidString)", "ReleaseSyncB-\(UUID().uuidString)"]
+        let defaultsA = try #require(UserDefaults(suiteName: suites[0]))
+        let defaultsB = try #require(UserDefaults(suiteName: suites[1]))
+        defer { suites.forEach { UserDefaults().removePersistentDomain(forName: $0) } }
+        let a = AlbumReleaseCategoryStore(defaults: defaultsA)
+        let b = AlbumReleaseCategoryStore(defaults: defaultsB)
+        func at(_ seconds: Double) -> Date { Date(timeIntervalSince1970: seconds) }
+
+        a.set([.singleEP], albumID: "x", songIDs: ["1"], at: at(100))
+        var result = b.merge(a.syncDocument, now: at(200))
+        #expect(result == .init(changed: true, needsPush: false))
+        #expect(b.override(albumID: "x") == [.singleEP])
+        #expect(b.override(albumID: "renamed", songIDs: ["1"]) == [.singleEP])
+
+        // Cleared on the other device later: the clearing wins here too.
+        b.set(nil, albumID: "x", songIDs: ["1"], at: at(300))
+        result = a.merge(b.syncDocument, now: at(400))
+        #expect(result.changed)
+        #expect(a.override(albumID: "x", songIDs: ["1"]) == nil)
+
+        // An older choice from a device that missed the clearing does not bring it back,
+        // and this device's newer state should go up.
+        let stale = AlbumReleaseCategoryStore.SyncDocument(items: ["album:x": .init(categories: [.live], updatedAt: 150)])
+        result = a.merge(stale, now: at(500))
+        #expect(result == .init(changed: false, needsPush: true))
+        #expect(a.override(albumID: "x") == nil)
+
+        // Choices made on both devices for different albums both survive.
+        a.set([.live], albumID: "y", songIDs: [], at: at(600))
+        b.set([.album], albumID: "z", songIDs: [], at: at(610))
+        #expect(a.merge(b.syncDocument, now: at(700)).needsPush)
+        b.merge(a.syncDocument, now: at(700))
+        #expect(a.override(albumID: "z") == [.album])
+        #expect(b.override(albumID: "y") == [.live])
+        #expect(a.syncDocument == b.syncDocument)
+
+        // Kept across launches, and the cloud copy round-trips.
+        #expect(AlbumReleaseCategoryStore(defaults: defaultsA).syncDocument == a.syncDocument)
+        let data = try #require(a.syncDocument.encoded())
+        #expect(AlbumReleaseCategoryStore.SyncDocument.decode(data) == a.syncDocument)
+        // Over the budget, song keys are left out first.
+        let trimmed = try #require(a.syncDocument.encoded(byteBudget: data.count - 1))
+        let decoded = try #require(AlbumReleaseCategoryStore.SyncDocument.decode(trimmed))
+        #expect(!decoded.items.isEmpty)
+        #expect(decoded.items.keys.allSatisfy { $0.hasPrefix("album:") })
+    }
+
     @Test @MainActor func manualSnapshotResolvesOnlyOverridesAndKeepsLatestChoiceAfterMerge() throws {
         let suite = "ReleaseOverrideIndex-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

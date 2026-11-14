@@ -2084,6 +2084,8 @@ final class AppServices {
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationIntents) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationHiddenPresets) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
+        // 手动的专辑分类在几台设备之间同步。
+        ReleaseCategoryCloudSync.shared.start()
         InterfaceLayoutSync.shared.start()
         startAppearanceColorSync()
         WidgetColorStyleMirror.start()
