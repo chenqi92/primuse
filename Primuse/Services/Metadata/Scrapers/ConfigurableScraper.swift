@@ -360,6 +360,7 @@ actor ConfigurableScraper: MusicScraper {
         return ScraperLyricsResult(source: type, lrcContent: text)
     }
 
+    #if !os(tvOS)
     func motionArtwork(
         input: MotionArtworkLookupInput,
         title: String?,
@@ -449,6 +450,7 @@ actor ConfigurableScraper: MusicScraper {
         }
         throw ScraperError.parseError("Too many artwork playlists")
     }
+    #endif
 
     private nonisolated static func normalizedArtworkText(_ value: String) -> String {
         value.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
