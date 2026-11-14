@@ -1074,6 +1074,48 @@ private final class PMWindowDragRegionView: NSView {
     }
 }
 
+/// 鼠标停在标题栏里的输入框上时暂时不让拖窗口。标题栏区域按下鼠标时 AppKit 问被点中的视图能不能拖窗口,
+/// 不画底色的 NSTextField(SwiftUI 的 TextField)默认说能,在框里拖选文字就成了拖窗口。拖窗口还是选字在按下
+/// 那一刻就定了:按下时窗口不可移动,选字照常;指针离开输入框立刻还原,标题栏别处照旧能拖。
+struct PMWindowMoveSuppression: NSViewRepresentable {
+    var isActive: Bool
+
+    func makeNSView(context: Context) -> PMWindowMoveSuppressionView {
+        PMWindowMoveSuppressionView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: PMWindowMoveSuppressionView, context: Context) {
+        nsView.setSuppressed(isActive)
+    }
+
+    static func dismantleNSView(_ nsView: PMWindowMoveSuppressionView, coordinator: ()) {
+        nsView.setSuppressed(false)
+    }
+}
+
+final class PMWindowMoveSuppressionView: NSView {
+    private var suppressed = false
+
+    override var mouseDownCanMoveWindow: Bool { false }
+    /// 只管窗口能不能拖,不接任何点击。
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func setSuppressed(_ value: Bool) {
+        guard value != suppressed else { return }
+        suppressed = value
+        window?.isMovable = !value
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        // 离开这扇窗口(页面换掉、窗口关闭)前先还原。
+        if suppressed, newWindow !== window {
+            window?.isMovable = true
+            suppressed = false
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+}
+
 /// Deterministic fill/restore handling for hidden-titlebar windows.
 ///
 /// AppKit's `performZoom(_:)` depends on the hidden standard zoom button and

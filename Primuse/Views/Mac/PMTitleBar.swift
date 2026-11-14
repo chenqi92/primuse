@@ -21,6 +21,8 @@ struct PMTitleBar: View {
     @AppStorage(AppleMusicFeatureSettings.catalogSearchEnabledKey)
     private var appleMusicCatalogSearchEnabled = true
     @FocusState private var searchFocused: Bool
+    /// 指针停在搜索框上(`PMWindowMoveSuppression`)。
+    @State private var hoversSearchBox = false
     @State private var keyboardShortcuts = MacKeyboardShortcutStore.shared
     @State private var favoritesShown = false
 
@@ -187,6 +189,9 @@ struct PMTitleBar: View {
                     lineWidth: 0.5
                 )
         }
+        // 搜索框在标题栏的高度里:指针在框上时不让拖窗口,拖选文字才不会把整个窗口拖走。
+        .onHover { hoversSearchBox = $0 }
+        .background(PMWindowMoveSuppression(isActive: hoversSearchBox))
         .onReceive(NotificationCenter.default.publisher(for: .primuseFocusSearch)) { _ in
             searchFocused = true
             if isOnSearch {
