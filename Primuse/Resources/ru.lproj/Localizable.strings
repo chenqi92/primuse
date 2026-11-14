@@ -7326,6 +7326,8 @@
 "settings_backup_invalid" = "Это не резервная копия настроек Primuse, либо файл повреждён.";
 
 "pan115_token_login" = "Использовать Refresh Token";
+"pan115_refresh_token_invalid" = "Этот Refresh Token недействителен или уже использован. Получите новый Refresh Token и подключитесь снова.";
+"pan115_token_consumed_hint" = "При подключении этот Refresh Token расходуется: 115 выдаёт новый, а прежний перестаёт работать в других местах, например в OpenList.";
 "pan115_qr_login" = "Войти по QR-коду";
 "pan115_qr_instruction" = "Отсканируйте в приложении 115";
 "pan115_qr_scanned" = "Код отсканирован. Подтвердите в приложении 115.";

@@ -7326,6 +7326,8 @@
 "settings_backup_invalid" = "यह मान्य Primuse सेटिंग्स बैकअप नहीं है या फ़ाइल क्षतिग्रस्त है।";
 
 "pan115_token_login" = "Refresh Token का उपयोग करें";
+"pan115_refresh_token_invalid" = "यह Refresh Token अमान्य है या पहले ही इस्तेमाल हो चुका है। नया Refresh Token लें और फिर से कनेक्ट करें।";
+"pan115_token_consumed_hint" = "कनेक्ट करने पर यह Refresh Token इस्तेमाल हो जाता है: 115 नया जारी करता है, इसलिए मूल Refresh Token OpenList जैसी दूसरी जगहों पर काम करना बंद कर देता है।";
 "pan115_qr_login" = "स्कैन करके साइन इन करें";
 "pan115_qr_instruction" = "115 ऐप से स्कैन करें";
 "pan115_qr_scanned" = "स्कैन हो गया। 115 ऐप में पुष्टि करें।";

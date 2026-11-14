@@ -322,6 +322,15 @@ struct CloudDriveConnectionView: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 430)
 
+                if usesToken {
+                    // 115 的 Refresh Token 只能用一次:连接时换发新的一对,别处(OpenList 等)那个随即作废。
+                    Text("pan115_token_consumed_hint")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 430)
+                }
+
                 Button {
                     startPan115Authorization(usingRefreshToken: usesToken)
                 } label: {

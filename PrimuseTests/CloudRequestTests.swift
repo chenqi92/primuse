@@ -106,6 +106,213 @@ final class CloudRequestTests: XCTestCase {
         XCTAssertEqual(fixture.requests.count, 1)
     }
 
+    func testPan115SuccessBodyWithEmptyErrorKeepsTheRotatedTokens() async throws {
+        // 真机上粘贴 OpenList 给的 refresh token 报「刷新令牌失败：HTTP 200」:成功体里的 `"error":""` 被当成了失败,
+        // 服务端其实已经换发了新的一对。
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(
+            #"{"state":true,"code":0,"message":"","error":"","errno":0,"data":{"access_token":"fresh","refresh_token":"rotated","expires_in":7200}}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let result = try await U115Source(sourceID: fixture.id, session: session).exchangeRefreshToken("pasted")
+        XCTAssertEqual(result.accessToken, "fresh")
+        XCTAssertEqual(result.refreshToken, "rotated")
+    }
+
+    func testPan115ConsumedRefreshTokenAsksForANewOne() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(
+            #"{"state":false,"code":40140120,"message":"refresh_token 校验失败","error":"refresh_token 校验失败","errno":40140120,"data":[]}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        do {
+            _ = try await U115Source(sourceID: fixture.id, session: session).exchangeRefreshToken("consumed")
+            XCTFail("Consumed refresh token accepted")
+        } catch CloudDriveError.tokenRefreshFailed(let reason) {
+            XCTAssertEqual(reason, U115Source.invalidRefreshTokenReason)
+        }
+    }
+
+    func testPan115RefreshRateLimitStaysRetryable() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(
+            #"{"state":false,"code":40140117,"message":"access_token 刷新太频繁","data":[]}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        do {
+            _ = try await U115Source(sourceID: fixture.id, session: session).exchangeRefreshToken("valid")
+            XCTFail("Rate-limited refresh accepted")
+        } catch let failure as HTTPResponseFailure {
+            XCTAssertTrue(failure.isRateLimited)
+        }
+    }
+
+    func testTokenRefreshJSONOnlyTreatsNonEmptyErrorsAsFailure() throws {
+        let ok = HTTPURLResponse(url: URL(string: "https://fixture.invalid")!, statusCode: 200,
+                                 httpVersion: nil, headerFields: nil)!
+        let json = try CloudDriveHelper.tokenRefreshJSON(
+            data: Data(#"{"error":" ","access_token":"fresh"}"#.utf8), response: ok)
+        XCTAssertEqual(json["access_token"] as? String, "fresh")
+        XCTAssertThrowsError(try CloudDriveHelper.tokenRefreshJSON(
+            data: Data(#"{"error":"invalid_grant"}"#.utf8), response: ok))
+    }
+
+    func testPan115BodyTokenErrorRefreshesAndFailedListingNeverReadsAsEmpty() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200)], responder: { request, _ in
+            if request.url?.host == "passportapi.115.com" {
+                return .init(status: 200, body: Data(
+                    #"{"state":true,"error":"","data":{"access_token":"fresh","refresh_token":"rotated","expires_in":7200}}"#.utf8))
+            }
+            guard request.value(forHTTPHeaderField: "Authorization") == "Bearer fresh" else {
+                return .init(status: 200, body: Data(#"{"state":false,"code":40140125,"message":"access_token 无效","data":[]}"#.utf8))
+            }
+            if request.url?.query?.contains("cid=broken") == true {
+                return .init(status: 200, body: Data(#"{"state":false,"code":20130827,"message":"系统繁忙","data":[]}"#.utf8))
+            }
+            return .init(status: 200, body: Data(
+                #"{"state":true,"count":1,"data":[{"fn":"a.flac","fc":"1","fs":"10","pc":"pc1","fid":"77","upt":"1700000000"}]}"#.utf8))
+        })
+        let session = fixture.session()
+        let manager = CloudTokenManager(sourceID: fixture.id)
+        defer {
+            session.invalidateAndCancel(); fixture.remove()
+            _ = CloudTokenManager.deleteStoredCredentials(for: fixture.id)
+        }
+        let saved = await manager.saveTokens(.init(accessToken: "old", refreshToken: "original",
+                                                   expiresAt: Date().addingTimeInterval(3600)))
+        XCTAssertTrue(saved)
+        let connector = U115Source(sourceID: fixture.id, session: session,
+                                   requests: CloudRequestScheduler(timing: CloudAdvancingClock().timing))
+        let items = try await connector.listFiles(at: "0")
+        XCTAssertEqual(items.map(\.path), ["pc1"])
+        XCTAssertEqual(items.first?.modifiedDate, Date(timeIntervalSince1970: 1_700_000_000))
+        let tokens = await manager.getTokens()
+        XCTAssertEqual(tokens?.refreshToken, "rotated")
+        let listings = fixture.requests.filter { $0.url?.host == "proapi.115.com" }
+        XCTAssertTrue(listings.allSatisfy { $0.value(forHTTPHeaderField: "User-Agent") == Pan115APIProtocol.userAgent })
+        XCTAssertEqual(fixture.requests.filter { $0.url?.host == "passportapi.115.com" }.count, 1)
+        do {
+            _ = try await connector.listFiles(at: "broken")
+            XCTFail("A failed listing was returned as an empty folder")
+        } catch CloudDriveError.apiError(let code, _) {
+            XCTAssertEqual(code, 20_130_827)
+        }
+    }
+
+    func testPan115ConfirmsMissingChildrenWithASecondListing() async throws {
+        let listing = CloudTestCounter()
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200)], responder: { _, _ in
+            listing.increment()
+            // 第一遍少了 pc2,第二遍又列出来了:不能当作删除。
+            let body = listing.value == 1
+                ? #"{"state":true,"count":1,"data":[{"fn":"a.flac","fc":"1","fs":"10","pc":"pc1","fid":"77"}]}"#
+                : #"{"state":true,"count":2,"data":[{"fn":"a.flac","fc":"1","fs":"10","pc":"pc1","fid":"77"},{"fn":"b.flac","fc":"1","fs":"10","pc":"pc2","fid":"78"}]}"#
+            return .init(status: 200, body: Data(body.utf8))
+        })
+        let session = fixture.session()
+        let manager = CloudTokenManager(sourceID: fixture.id)
+        defer {
+            session.invalidateAndCancel(); fixture.remove()
+            _ = CloudTokenManager.deleteStoredCredentials(for: fixture.id)
+        }
+        let saved = await manager.saveTokens(.init(accessToken: "token", refreshToken: "refresh",
+                                                   expiresAt: Date().addingTimeInterval(3600)))
+        XCTAssertTrue(saved)
+        let connector = U115Source(sourceID: fixture.id, session: session,
+                                   requests: CloudRequestScheduler(timing: CloudAdvancingClock().timing))
+        let items = try await connector.listFiles(at: "100", confirmingPreviouslyObservedPaths: ["pc1", "pc2"])
+        XCTAssertEqual(Set(items.map(\.path)), ["pc1", "pc2"])
+        XCTAssertEqual(listing.value, 2)
+        // ID 寻址的子项靠同步索引里的父目录找回来。
+        let index = try ConnectorScanner.ObservedChildPathIndex(
+            paths: ["pc1", "/Music/a.mp3"],
+            parentLinks: [(parent: "100", child: "pc1"), (parent: "/Music", child: "/Music/a.mp3")]
+        )
+        XCTAssertEqual(index.childPaths(in: "100"), ["pc1"])
+        XCTAssertEqual(index.childPaths(in: "/Music"), ["/Music/a.mp3"])
+    }
+
+    func testPan115ConcurrentReadsShareOneLinkLookupWithTheSameUserAgent() async throws {
+        let server = try LocalCloudServer(response: .init(
+            status: 206, headers: ["Content-Range": "bytes 0-3/4"], body: Data("abcd".utf8)))
+        let cdn = try await server.start()
+        defer { server.stop() }
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200)], responder: { _, _ in
+            .init(status: 200, body: Data(
+                #"{"state":true,"code":0,"message":"","data":{"77":{"file_name":"a.flac","url":{"url":"\#(cdn.absoluteString)"}}}}"#.utf8))
+        })
+        let session = fixture.session()
+        let manager = CloudTokenManager(sourceID: fixture.id)
+        defer {
+            session.invalidateAndCancel(); fixture.remove()
+            _ = CloudTokenManager.deleteStoredCredentials(for: fixture.id)
+        }
+        let saved = await manager.saveTokens(.init(accessToken: "token", refreshToken: "refresh",
+                                                   expiresAt: Date().addingTimeInterval(3600)))
+        XCTAssertTrue(saved)
+        let connector = U115Source(sourceID: fixture.id, session: session,
+                                   requests: CloudRequestScheduler(timing: CloudAdvancingClock().timing))
+        async let first = connector.fetchRange(path: "pc1", offset: 0, length: 4)
+        async let second = connector.fetchRange(path: "pc1", offset: 0, length: 4)
+        let (a, b) = try await (first, second)
+        XCTAssertEqual(a, Data("abcd".utf8))
+        XCTAssertEqual(b, Data("abcd".utf8))
+        let lookups = fixture.requests
+        XCTAssertEqual(lookups.count, 1)
+        XCTAssertEqual(lookups.first?.value(forHTTPHeaderField: "User-Agent"), Pan115APIProtocol.userAgent)
+        XCTAssertTrue(server.requestHeaders.contains(Pan115APIProtocol.userAgent))
+    }
+
+    func testRefreshAdoptsTokensRotatedOnAnotherDevice() async throws {
+        let sourceID = UUID().uuidString
+        let manager = CloudTokenManager(sourceID: sourceID)
+        defer { _ = CloudTokenManager.deleteStoredCredentials(for: sourceID) }
+        let saved = await manager.saveTokens(.init(accessToken: "old", refreshToken: "r1", expiresAt: .distantPast))
+        XCTAssertTrue(saved)
+        let calls = CloudTestCounter()
+        let tokens = try await manager.refreshDeduped(.ifExpired) { _ in
+            calls.increment()
+            // 另一台设备先用掉了 r1,新的一对经 iCloud 钥匙串同步到了这台设备。
+            _ = await CloudTokenManager(sourceID: sourceID).saveTokens(
+                .init(accessToken: "other-device", refreshToken: "r2", expiresAt: Date().addingTimeInterval(3600)))
+            throw CloudDriveError.tokenRefreshFailed("consumed")
+        }
+        XCTAssertEqual(tokens.accessToken, "other-device")
+        XCTAssertEqual(tokens.refreshToken, "r2")
+        XCTAssertEqual(calls.value, 1)
+    }
+
+    func testRefreshStillFailsWhenNoOtherDeviceRotatedTheToken() async throws {
+        let sourceID = UUID().uuidString
+        let manager = CloudTokenManager(sourceID: sourceID)
+        defer { _ = CloudTokenManager.deleteStoredCredentials(for: sourceID) }
+        let saved = await manager.saveTokens(.init(accessToken: "old", refreshToken: "r1", expiresAt: .distantPast))
+        XCTAssertTrue(saved)
+        do {
+            _ = try await manager.refreshDeduped(.ifExpired) { _ in throw CloudDriveError.tokenRefreshFailed("revoked") }
+            XCTFail("Revoked refresh token accepted")
+        } catch CloudDriveError.tokenRefreshFailed(let reason) {
+            XCTAssertEqual(reason, "revoked")
+        }
+    }
+
+    func testManagersForOneSourceShareTheRefreshTask() async throws {
+        let sourceID = UUID().uuidString
+        defer { _ = CloudTokenManager.deleteStoredCredentials(for: sourceID) }
+        let saved = await CloudTokenManager(sourceID: sourceID).saveTokens(
+            .init(accessToken: "old", refreshToken: "r1", expiresAt: .distantPast))
+        XCTAssertTrue(saved)
+        let calls = CloudTestCounter()
+        let refresh: @Sendable (CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens = { tokens in
+            calls.increment()
+            try await Task.sleep(for: .milliseconds(300))
+            return .init(accessToken: "fresh", refreshToken: "r2", expiresAt: Date().addingTimeInterval(3600))
+        }
+        async let scan = CloudTokenManager(sourceID: sourceID).refreshDeduped(.ifExpired, refresh: refresh)
+        async let playback = CloudTokenManager(sourceID: sourceID).refreshDeduped(.ifExpired, refresh: refresh)
+        let (a, b) = try await (scan, playback)
+        XCTAssertEqual(a.refreshToken, "r2")
+        XCTAssertEqual(b.refreshToken, "r2")
+        XCTAssertEqual(calls.value, 1)
+    }
+
     func testOAuthPermanentRefreshRejectionKeepsCredentialMeaning() async throws {
         for status in [200, 400] {
             let fixture = CloudHTTPFixture(responses: [.init(status: status,
@@ -1051,6 +1258,23 @@ private final class LocalCloudServer: @unchecked Sendable {
                 self.sendBody(connection, index: index + 1, delay: delay)
             })
         }
+    }
+}
+
+/// 限频间隔、退避这类短等待即时完成,时钟跟着往前走,测试不真的睡;请求的总超时(几十秒起)照常真睡,
+/// 请求结束时被取消,不会抢在请求前面判超时。
+private final class CloudAdvancingClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instant: TimeInterval = 0
+    var timing: RequestExecutor.Timing {
+        .init(now: { self.lock.withLock { self.instant } },
+              sleep: { interval in
+                  guard interval <= 10 else {
+                      try await Task.sleep(for: .seconds(interval))
+                      return
+                  }
+                  self.lock.withLock { self.instant += max(0, interval) }
+              })
     }
 }
 

@@ -179,6 +179,7 @@ final class CloudRequestScheduler: @unchecked Sendable {
             var owner = accounts[sourceID] ?? "source:\(sourceID)"
             var endpoint = "requests"
             var interval: TimeInterval = 0
+            var concurrency = 6
             if url.host == "openapi.guangyapan.com" {
                 owner = "guangya-ip"
                 let isList = url.path.hasSuffix(GuangYaAPIProtocol.fileListPath)
@@ -186,11 +187,15 @@ final class CloudRequestScheduler: @unchecked Sendable {
                 interval = isList ? GuangYaAPIProtocol.fileListMinimumInterval : GuangYaAPIProtocol.defaultMinimumInterval
             } else if url.host == "pan.baidu.com" {
                 interval = 0.1
+            } else if Pan115APIProtocol.isAPIHost(url.host) {
+                // 115 接口按账号限频:列目录、换直链、用户信息排队走,间隔不小于 0.5 秒、最多两路。
+                interval = Pan115APIProtocol.minimumRequestInterval
+                concurrency = Pan115APIProtocol.maximumConcurrentRequests
             }
             let key = "\(owner)|\(host)|\(endpoint)"
             if let executor = executors[key] { return executor }
             let executor = RequestExecutor(policy: .init(
-                minimumInterval: interval, maximumConcurrentRequests: 6,
+                minimumInterval: interval, maximumConcurrentRequests: concurrency,
                 maximumAttempts: 5, maximumRetryWait: 8,
                 timeout: 3600, rateLimitStatusCodes: [429], defaultCooldown: 2
             ), timing: timing, jitter: jitter)
@@ -302,12 +307,15 @@ struct CloudDriveHelper: Sendable {
             throw CloudDriveError.invalidResponse
         }
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-        let providerError = json["error"] as? String
+        // 只有非空的 error 才算失败:115 等服务商的成功响应里也带 `"error":""`。
+        let providerError = (json["error"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let failed = providerError.map { !$0.isEmpty } ?? false
 
-        if !(200...299).contains(http.statusCode) || providerError != nil {
+        if !(200...299).contains(http.statusCode) || failed {
             throw tokenRefreshFailure(
                 statusCode: http.statusCode,
-                providerErrorCode: providerError
+                providerErrorCode: failed ? providerError : nil
             )
         }
         return json

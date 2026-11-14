@@ -818,6 +818,15 @@ final class TVStore {
                     refresh: refresh
                 )
             }
+            // 115 的 refresh_token 单次有效:播放解析器和建库的 U115Source 走同一个刷新任务、
+            // 同一份钥匙串,不会各拿一次把对方手里的那个作废。
+            await StreamResolverRegistry.shared.setCloudTokenRefreshProvider({ sourceID, rejected, synced in
+                try await U115Source.sharedTokenRefresh(
+                    sourceID: sourceID,
+                    rejectedAccessToken: rejected,
+                    synced: synced
+                )
+            }, for: .pan115)
         }
     }
 

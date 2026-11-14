@@ -748,7 +748,9 @@ public enum RangeStreamingPrefetchPolicy {
         switch sourceType {
         case .oneDrive:
             return 0
-        case .ftp, .webdav, .infiniCloud, .synology, .synologyAudioStation:
+        // 115:同一条直链几路并发 Range 会被 CDN 限速或拒绝(真实账号上还没核实能放开),
+        // 播放只多预读一块,和前台那一路加起来不超过两条。
+        case .ftp, .webdav, .infiniCloud, .synology, .synologyAudioStation, .pan115:
             return min(1, max(0, defaultValue))
         default:
             return max(0, defaultValue)

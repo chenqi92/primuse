@@ -11,13 +11,17 @@ struct CloudResolverRequests: Sendable {
 
     let registry: RequestQuotaRegistry
 
-    private static func service(id: String, interval: TimeInterval) -> RequestQuota.Service {
-        .init(id: id, policy: .init(minimumInterval: interval, maximumConcurrentRequests: 6,
+    private static func service(id: String, interval: TimeInterval, concurrency: Int = 6) -> RequestQuota.Service {
+        .init(id: id, policy: .init(minimumInterval: interval, maximumConcurrentRequests: concurrency,
             maximumAttempts: 5, maximumRetryWait: 8, timeout: 3600,
             rateLimitStatusCodes: [429], defaultCooldown: 2))
     }
     private static let cloud = service(id: "cloud.resolver", interval: 0)
     private static let baidu = service(id: "cloud.resolver.baidu", interval: 0.1)
+    /// 115 接口按账号限频(见 `Pan115APIProtocol.minimumRequestInterval`),和手机端连接器同一个节奏。
+    private static let pan115 = service(id: "cloud.resolver.pan115",
+                                        interval: Pan115APIProtocol.minimumRequestInterval,
+                                        concurrency: Pan115APIProtocol.maximumConcurrentRequests)
     private static let guangyaList = service(id: "cloud.resolver.guangya.list", interval: GuangYaAPIProtocol.fileListMinimumInterval)
     private static let guangyaBusiness = service(id: "cloud.resolver.guangya.business", interval: GuangYaAPIProtocol.defaultMinimumInterval)
 
@@ -32,7 +36,13 @@ struct CloudResolverRequests: Sendable {
             service = url.path.hasSuffix(GuangYaAPIProtocol.fileListPath) ? Self.guangyaList : Self.guangyaBusiness
             owner = .anonymous // GuangYa limits an IP, independently of accounts.
         } else {
-            service = url.host == "pan.baidu.com" ? Self.baidu : Self.cloud
+            if url.host == "pan.baidu.com" {
+                service = Self.baidu
+            } else if Pan115APIProtocol.isAPIHost(url.host) {
+                service = Self.pan115
+            } else {
+                service = Self.cloud
+            }
             let identity = account.source.cloudAccountID.map { "account:" + $0 } ?? "source:" + account.source.id
             owner = .init(stableID: account.source.type.rawValue + "|" + identity)
         }

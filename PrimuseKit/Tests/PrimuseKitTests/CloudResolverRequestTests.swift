@@ -231,6 +231,100 @@ struct CloudResolverRequestTests {
         #expect(records.first?.1.expiresAt != nil)
     }
 
+    @Test func pan115RefreshPersistsRotatedRefreshToken() async throws {
+        let fixture = CloudResolverFixture { request in
+            if request.url?.host == "passportapi.115.com" {
+                // 115 的成功体里也带空的 error / errno,不能因此丢掉轮换后的 refresh_token。
+                return (200, [:], Data(#"{"state":1,"code":0,"message":"","error":"","errno":0,"data":{"access_token":"fresh","refresh_token":"rotated","expires_in":7200}}"#.utf8))
+            }
+            guard request.value(forHTTPHeaderField: "Authorization") == "Bearer fresh" else { return (401, [:], Data()) }
+            return (200, [:], Data(#"{"state":1,"data":{"99":{"url":{"url":"https://cdn.invalid/track.flac"}}}}"#.utf8))
+        }
+        let source = MusicSource(id: UUID().uuidString, name: "115", type: .pan115)
+        let credential = SourceCredential(token: nil, refreshToken: "original")
+        let resolver = CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry)
+        let saved = CloudRefreshRecorder()
+        await resolver.setCredentialRefreshHandler { id, refresh in await saved.append(id, refresh) }
+        let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "pickcode", sourceID: source.id)
+        let stream = try await resolver.resolve(for: song, source: source, credential: credential)
+        #expect(stream.url.host == "cdn.invalid")
+        let records = await saved.values
+        #expect(records.count == 1)
+        #expect(records.first?.0 == source.id)
+        #expect(records.first?.1.credential.token == "fresh")
+        #expect(records.first?.1.credential.refreshToken == "rotated")
+        #expect(records.first?.1.expiresAt != nil)
+        #expect(fixture.requests.filter { $0.url?.host == "passportapi.115.com" }.count == 1)
+    }
+
+    @Test func pan115LinkLookupUsesThePlaybackUserAgentAndRefreshesOnBodyAuthCode() async throws {
+        let fixture = CloudResolverFixture { request in
+            if request.url?.host == "passportapi.115.com" {
+                return (200, [:], Data(#"{"state":true,"data":{"access_token":"fresh","refresh_token":"rotated","expires_in":7200}}"#.utf8))
+            }
+            // 115 的 token 失效是 HTTP 200 + 业务码,不是 401。
+            guard request.value(forHTTPHeaderField: "Authorization") == "Bearer fresh" else {
+                return (200, [:], Data(#"{"state":false,"code":40140125,"message":"access_token 无效","data":[]}"#.utf8))
+            }
+            return (200, [:], Data(#"{"state":true,"data":{"99":{"url":{"url":"https://cdn.invalid/track.flac"}}}}"#.utf8))
+        }
+        let source = MusicSource(id: UUID().uuidString, name: "115", type: .pan115)
+        let resolver = CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry)
+        let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "pickcode", sourceID: source.id)
+        let stream = try await resolver.resolve(for: song, source: source,
+                                                credential: SourceCredential(token: "old", refreshToken: "original"))
+        #expect(stream.headers["User-Agent"] == Pan115APIProtocol.userAgent)
+        let lookups = fixture.requests.filter { $0.url?.host == "proapi.115.com" }
+        #expect(lookups.count == 2)
+        #expect(lookups.allSatisfy { $0.value(forHTTPHeaderField: "User-Agent") == Pan115APIProtocol.userAgent })
+        #expect(fixture.requests.filter { $0.url?.host == "passportapi.115.com" }.count == 1)
+    }
+
+    @Test func pan115BusinessFailureIsNotReportedAsAMissingLink() async throws {
+        let fixture = CloudResolverFixture { _ in
+            (200, [:], Data(#"{"state":false,"code":20130827,"message":"系统繁忙","data":[]}"#.utf8))
+        }
+        let source = MusicSource(id: UUID().uuidString, name: "115", type: .pan115)
+        let resolver = CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry)
+        let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "pickcode", sourceID: source.id)
+        do {
+            _ = try await resolver.resolve(for: song, source: source, credential: SourceCredential(token: "token"))
+            Issue.record("Expected the business failure")
+        } catch let error as StreamResolveError {
+            #expect(error == .badServerResponse(20_130_827))
+        }
+        #expect(fixture.requests.count == 1)
+    }
+
+    @Test func pan115PlaybackSharesTheProvidedRefreshPath() async throws {
+        let fixture = CloudResolverFixture { request in
+            if request.url?.host == "passportapi.115.com" { return (500, [:], Data()) }
+            guard request.value(forHTTPHeaderField: "Authorization") == "Bearer shared" else { return (401, [:], Data()) }
+            return (200, [:], Data(#"{"state":true,"data":{"99":{"url":{"url":"https://cdn.invalid/track.flac"}}}}"#.utf8))
+        }
+        let source = MusicSource(id: UUID().uuidString, name: "115", type: .pan115)
+        let resolver = CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry)
+        let saved = CloudRefreshRecorder()
+        await resolver.setCredentialRefreshHandler { id, refresh in await saved.append(id, refresh) }
+        await resolver.setTokenRefreshProvider({ _, rejected, synced in
+            #expect(rejected == nil)
+            #expect(synced.refreshToken == "stale")
+            return CloudCredentialRefresh(
+                credential: SourceCredential(token: "shared", refreshToken: "shared-rotated"),
+                expiresAt: Date().addingTimeInterval(3600), tokenType: nil
+            )
+        }, for: .pan115)
+        let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "pickcode", sourceID: source.id)
+        let stream = try await resolver.resolve(for: song, source: source,
+                                                credential: SourceCredential(token: "stale-access", refreshToken: "stale"))
+        #expect(stream.url.host == "cdn.invalid")
+        let passportRequests = fixture.requests.filter { $0.url?.host == "passportapi.115.com" }
+        #expect(passportRequests.isEmpty)
+        let records = await saved.values
+        #expect(records.count == 1)
+        #expect(records.first?.1.credential.refreshToken == "shared-rotated")
+    }
+
     @Test func oneDrivePaginationKeepsOpaqueQueryAndRejectsForeignNextLink() async throws {
         let opaque = "https://graph.microsoft.com/v1.0/me/drive/root/children?$skiptoken=A%2BB%2F%3D"
         for nextLink in [opaque, "https://graph.microsoft.com.evil.invalid/steal"] {

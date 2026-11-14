@@ -584,7 +584,12 @@ actor ConnectorScanner {
                         uniquingKeysWith: { _, resumed in resumed }
                     )
                     let observedChildren = connector is any DestructiveDirectoryListingConfirmingConnector
-                        ? try ObservedChildPathIndex(paths: identityBaseline.values.map(\.path) + existingSongs.map(\.filePath))
+                        ? try ObservedChildPathIndex(
+                            paths: identityBaseline.values.map(\.path) + existingSongs.map(\.filePath),
+                            parentLinks: identityBaseline.values.compactMap { entry in
+                                entry.parentPath.map { (parent: $0, child: entry.path) }
+                            }
+                        )
                         : nil
                     var hadDirectoryFailure = false
                     var successfulDirectoryCount = 0
@@ -2168,8 +2173,11 @@ actor ConnectorScanner {
 
     struct ObservedChildPathIndex: Sendable {
         private var children: [String: Set<String>] = [:]
+        /// 按 ID 寻址的网盘(115 的目录 id / pick_code)路径里没有「/」,按路径拆不出父子:
+        /// 用同步索引里记下的父目录补上,确认列表才知道这个目录以前有过哪些子项。
+        private var opaqueChildren: [String: Set<String>] = [:]
 
-        init(paths: [String]) throws {
+        init(paths: [String], parentLinks: [(parent: String, child: String)] = []) throws {
             for (offset, path) in paths.enumerated() {
                 if offset.isMultiple(of: 512) { try Task.checkCancellation() }
                 let path = path.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2180,13 +2188,21 @@ actor ConnectorScanner {
                     parent += "/" + component.lowercased()
                 }
             }
+            for (offset, link) in parentLinks.enumerated() {
+                if offset.isMultiple(of: 512) { try Task.checkCancellation() }
+                // 路径式的子项上面已经按路径收过了,这里只补不带「/」的 ID。
+                guard !link.child.isEmpty, !link.parent.isEmpty, !link.child.hasPrefix("/") else { continue }
+                opaqueChildren[link.parent, default: []].insert(link.child)
+            }
         }
 
         func childPaths(in directory: String) -> Set<String> {
             var base = directory
             while base.hasSuffix("/") { base.removeLast() }
             let prefix = base + "/"
-            return Set((children[base.lowercased()] ?? []).map { prefix + $0 })
+            let pathChildren = Set((children[base.lowercased()] ?? []).map { prefix + $0 })
+            guard let opaque = opaqueChildren[directory] else { return pathChildren }
+            return pathChildren.union(opaque)
         }
     }
 

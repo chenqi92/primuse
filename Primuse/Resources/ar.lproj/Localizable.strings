@@ -7326,6 +7326,8 @@
 "settings_backup_invalid" = "هذا الملف ليس نسخة إعدادات Primuse صالحة أو أنه تالف.";
 
 "pan115_token_login" = "استخدام Refresh Token";
+"pan115_refresh_token_invalid" = "Refresh Token هذا غير صالح أو سبق استخدامه. احصل على Refresh Token جديد ثم أعد الاتصال.";
+"pan115_token_consumed_hint" = "يؤدي الاتصال إلى استهلاك Refresh Token هذا: يصدر 115 رمزًا جديدًا، ويتوقف الرمز الأصلي عن العمل في أي مكان آخر مثل OpenList.";
 "pan115_qr_login" = "تسجيل الدخول بالمسح";
 "pan115_qr_instruction" = "امسح باستخدام تطبيق 115";
 "pan115_qr_scanned" = "تم المسح. أكّد في تطبيق 115.";

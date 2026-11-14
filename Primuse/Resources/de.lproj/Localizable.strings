@@ -7420,6 +7420,8 @@
 "settings_backup_invalid" = "Dies ist keine gültige Primuse-Einstellungssicherung oder die Datei ist beschädigt.";
 
 "pan115_token_login" = "Refresh Token verwenden";
+"pan115_refresh_token_invalid" = "Dieses Refresh Token ist ungültig oder wurde bereits verwendet. Hol dir ein neues Refresh Token und verbinde dich erneut.";
+"pan115_token_consumed_hint" = "Beim Verbinden wird dieses Refresh Token verbraucht: 115 stellt ein neues aus, und das ursprüngliche funktioniert anderswo nicht mehr, etwa in OpenList.";
 "pan115_qr_login" = "Per QR-Code anmelden";
 "pan115_qr_instruction" = "Mit der 115-App scannen";
 "pan115_qr_scanned" = "Gescannt. Bitte in der 115-App bestätigen.";

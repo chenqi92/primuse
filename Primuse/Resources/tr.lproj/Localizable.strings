@@ -7326,6 +7326,8 @@
 "settings_backup_invalid" = "Bu dosya geçerli bir Primuse ayar yedeği değil veya hasarlı.";
 
 "pan115_token_login" = "Refresh Token kullan";
+"pan115_refresh_token_invalid" = "Bu Refresh Token geçersiz veya zaten kullanılmış. Yeni bir Refresh Token alıp tekrar bağlanın.";
+"pan115_token_consumed_hint" = "Bağlanırken bu Refresh Token tüketilir: 115 yenisini verir ve eskisi OpenList gibi başka yerlerde artık çalışmaz.";
 "pan115_qr_login" = "Tarayarak giriş yap";
 "pan115_qr_instruction" = "115 uygulamasıyla tara";
 "pan115_qr_scanned" = "Tarandı. 115 uygulamasında onaylayın.";

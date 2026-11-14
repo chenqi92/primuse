@@ -119,6 +119,14 @@ public actor StreamResolverRegistry {
         await cloudDriveResolver.setCredentialRefreshHandler(handler)
     }
 
+    /// 见 `CloudTokenRefreshProvider`:电视端让这类云盘的播放与扫描共用同一条 token 刷新路径。
+    public func setCloudTokenRefreshProvider(
+        _ provider: CloudTokenRefreshProvider?,
+        for type: MusicSourceType
+    ) async {
+        await cloudDriveResolver.setTokenRefreshProvider(provider, for: type)
+    }
+
     public func listCloudDirectory(
         source: MusicSource,
         credential: SourceCredential?,

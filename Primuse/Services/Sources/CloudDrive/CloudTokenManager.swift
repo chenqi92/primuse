@@ -12,6 +12,7 @@ actor CloudTokenManager {
 
     init(sourceID: String) {
         self.sourceID = sourceID
+        self.refreshCoordinator = CloudTokenRefreshCoordinators.shared.coordinator(for: sourceID)
     }
 
     struct Tokens: Codable, Sendable {
@@ -131,7 +132,9 @@ actor CloudTokenManager {
         case force                   // 无条件刷新
     }
 
-    private let refreshCoordinator = PersistedTaskDeduplicator<Tokens>()
+    /// 按 sourceID 全进程共用:扫描、播放、电视端解析器各自造的 CloudTokenManager 遇到同一个源时
+    /// 只跑一个刷新任务,不会拿同一个单次有效的 refresh_token 各换一次。
+    private let refreshCoordinator: PersistedTaskDeduplicator<Tokens>
 
     /// 并发去重的 token 刷新 —— proactive(getToken 本地过期) 与 reactive(服务端 401)
     /// 两条路径共享同一个 in-flight 任务, 只发一次刷新。refresh_token 轮换型 provider
@@ -177,7 +180,22 @@ actor CloudTokenManager {
         // failure that the creator reports to its own caller.
         let refreshInput = current
         return try await refreshCoordinator.run(
-            operation: { try await refresh(refreshInput) },
+            operation: { [weak self] in
+                do {
+                    return try await refresh(refreshInput)
+                } catch CloudDriveError.tokenRefreshFailed(let reason) {
+                    // 轮换型 refresh_token 被别的设备先用掉时,服务端会说它无效;那台设备拿到的新一对
+                    // 经 iCloud 钥匙串同步过来就在钥匙串里。宣布失效之前重读一次:换过了就改用新的。
+                    guard let self,
+                          let rotated = await self.tokensRotatedElsewhere(since: refreshInput) else {
+                        throw CloudDriveError.tokenRefreshFailed(reason)
+                    }
+                    if !rotated.isExpired, rotated.accessToken != refreshInput.accessToken {
+                        return rotated
+                    }
+                    return try await refresh(rotated)
+                }
+            },
             persist: { [weak self] refreshed in
                 guard let self, await self.saveTokens(refreshed) else {
                     // saveTokens keeps the rotated token in memory so later
@@ -186,6 +204,17 @@ actor CloudTokenManager {
                 }
             }
         )
+    }
+
+    /// 绕过内存里待写的那份,直接读钥匙串:refresh_token 和这次拿去刷新的不一样,说明别的设备
+    /// (或这台设备的另一条路径)已经刷新过,返回那一对;一样或读不到时返回 nil。
+    private func tokensRotatedElsewhere(since input: Tokens) -> Tokens? {
+        guard case .found(let data) = keychainRead(key: tokenKey),
+              let stored = try? JSONDecoder().decode(Tokens.self, from: data),
+              let storedRefresh = stored.refreshToken, !storedRefresh.isEmpty,
+              storedRefresh != input.refreshToken else { return nil }
+        plog("Cloud refresh token was rotated elsewhere; adopting stored tokens sourceID=\(sourceID.prefix(8))…")
+        return stored
     }
 
     // MARK: - App Credentials (user-provided client_id/secret)
@@ -613,5 +642,21 @@ actor CloudTokenManager {
         #else
         true
         #endif
+    }
+}
+
+/// `CloudTokenManager` 的刷新去重任务按 sourceID 共用一份(见 `refreshCoordinator`)。
+private final class CloudTokenRefreshCoordinators: @unchecked Sendable {
+    static let shared = CloudTokenRefreshCoordinators()
+    private let lock = NSLock()
+    private var coordinators: [String: PersistedTaskDeduplicator<CloudTokenManager.Tokens>] = [:]
+
+    func coordinator(for sourceID: String) -> PersistedTaskDeduplicator<CloudTokenManager.Tokens> {
+        lock.withLock {
+            if let existing = coordinators[sourceID] { return existing }
+            let created = PersistedTaskDeduplicator<CloudTokenManager.Tokens>()
+            coordinators[sourceID] = created
+            return created
+        }
     }
 }

@@ -7181,6 +7181,8 @@
 "settings_backup_invalid" = "This is not a valid Primuse settings backup, or the file is damaged.";
 
 "pan115_token_login" = "Use Refresh Token";
+"pan115_refresh_token_invalid" = "This refresh token is invalid or has already been used. Get a new refresh token and connect again.";
+"pan115_token_consumed_hint" = "Connecting uses up this refresh token: 115 issues a new one, so the original stops working anywhere else you use it, such as OpenList.";
 "pan115_qr_login" = "Scan to sign in";
 "pan115_qr_instruction" = "Scan with the 115 app";
 "pan115_qr_scanned" = "Scanned. Confirm in the 115 app.";
