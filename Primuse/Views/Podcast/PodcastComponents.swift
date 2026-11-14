@@ -1345,16 +1345,10 @@ struct PodcastInlineBackButton: View {
 
     var body: some View {
         #if os(macOS)
-        Button {
+        // 和专辑、有声书详情页的返回键同一个样子(32 高的玻璃键), 不是一行淡色文字。
+        MacNavigationBackButton(accessibilityIdentifier: "podcast.back") {
             dismiss()
-        } label: {
-            Label("back", systemImage: "chevron.left")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("podcast.back")
         #endif
     }
 }

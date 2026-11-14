@@ -257,11 +257,23 @@ struct PodcastAddMenu: View {
 
 struct PodcastShareMenu: View {
     let navigation: PodcastNavigationModel
+    #if os(macOS)
+    /// 见 `ListeningShareMenu.macHeaderLabel`。
+    var macHeaderLabel = false
+    #endif
     var body: some View {
-        ListeningShareMenu(scope: .podcasts, selection: .init(
+        #if os(macOS)
+        ListeningShareMenu(scope: .podcasts, selection: selection, macHeaderLabel: macHeaderLabel)
+        #else
+        ListeningShareMenu(scope: .podcasts, selection: selection)
+        #endif
+    }
+
+    private var selection: ListeningShareSelection {
+        .init(
             title: ListeningShareText.string("podcasts"),
             podcasts: navigation.organizer.isSelecting ? navigation.organizer.selectedShows : PodcastStore.shared.shows
-        ))
+        )
     }
 }
 

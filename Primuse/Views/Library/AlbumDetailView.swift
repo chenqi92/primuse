@@ -1086,12 +1086,16 @@ struct AlbumDetailView: View {
             locateCurrentButton
             if !downloads.isEmpty {
                 let isDownloading = isOfflineBatchRunning
-                PMRoundBtn(icon: isDownloading ? "stop.circle" : "arrow.down.circle", size: 26, iconSize: 12,
-                           style: .glass, help: isDownloading ? "offline_download_stop" : "offline_download") {
+                MacControlIconButton(
+                    systemImage: isDownloading ? "stop.circle" : "arrow.down.circle",
+                    help: isDownloading ? "offline_download_stop" : "offline_download"
+                ) {
                     toggleOfflineBatch()
                 }
             }
         }
+        // 表格正上方的工具条, 和歌单、智能歌单页同一档(`MacControlTier.toolbar`)。
+        .macControlTier(.toolbar)
         .padding(.top, -2)
     }
 

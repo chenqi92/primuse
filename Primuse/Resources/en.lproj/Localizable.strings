@@ -1795,6 +1795,7 @@
 "home_pipeline_metadata" = "Metadata";
 "home_pipeline_listen" = "Listen";
 "home_empty_mac_hint" = "Add a NAS or cloud drive from Sources on the left, or authorize Apple Music to start.";
+"home_empty_mac_hint_titlebar" = "Click Add Source at the top of the window to connect a NAS or cloud drive, or authorize Apple Music to start.";
 "player_empty_title" = "Pick a song to play";
 "player_empty_message" = "Choose one from the library or search on the left.";
 "mac_launch_aborted_title" = "Primuse didn't finish launching last time";

@@ -1783,6 +1783,7 @@
 "home_pipeline_metadata" = "メタデータ";
 "home_pipeline_listen" = "再生";
 "home_empty_mac_hint" = "左側のソースから NAS やクラウドドライブを追加するか、Apple Music を認証して始めましょう。";
+"home_empty_mac_hint_titlebar" = "ウインドウ上部の「ソースを追加」から NAS やクラウドドライブを接続するか、Apple Music を認証して始めましょう。";
 "player_empty_title" = "再生する曲を選択";
 "player_empty_message" = "左側のライブラリまたは検索から選んでください。";
 "mac_launch_aborted_title" = "前回の起動が完了しませんでした";

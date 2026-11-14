@@ -1782,6 +1782,7 @@
 "home_pipeline_metadata" = "메타데이터";
 "home_pipeline_listen" = "감상";
 "home_empty_mac_hint" = "왼쪽 소스에서 NAS 또는 클라우드 드라이브를 추가하거나, Apple Music을 인증하여 시작하세요.";
+"home_empty_mac_hint_titlebar" = "창 상단의 ‘소스 추가’를 눌러 NAS 또는 클라우드 드라이브를 연결하거나, Apple Music을 인증하여 시작하세요.";
 "player_empty_title" = "재생할 곡을 선택하세요";
 "player_empty_message" = "왼쪽 라이브러리나 검색에서 하나를 선택하세요.";
 "mac_launch_aborted_title" = "지난번 실행이 완료되지 않았습니다";

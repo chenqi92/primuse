@@ -316,17 +316,19 @@ struct MacNavigationBackButton: View {
     let action: () -> Void
 
     var body: some View {
+        // 和页头其他按钮同一档高度、圆角(`MacControlTier.header`)。
         Button(action: action) {
             Label("back_to_options", systemImage: "chevron.backward")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(foregroundColor)
                 .padding(.horizontal, 12)
-                .frame(height: 30)
-                .background(backgroundColor, in: .rect(cornerRadius: 7))
+                .frame(height: MacControlTier.header.height)
+                .background(backgroundColor, in: .rect(cornerRadius: MacControlTier.header.cornerRadius))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    RoundedRectangle(cornerRadius: MacControlTier.header.cornerRadius, style: .continuous)
                         .strokeBorder(borderColor, lineWidth: 0.5)
                 }
+                .fixedSize()
         }
         .buttonStyle(.pmPressable)
         .help(Text("back_to_options"))
@@ -344,6 +346,249 @@ struct MacNavigationBackButton: View {
 
     private var borderColor: Color {
         style == .onAccent ? .white.opacity(0.22) : PMColor.cardBorder
+    }
+}
+
+// MARK: - 页头与工具条的控件
+
+/// Mac 资料库页右上角那一排控件的尺寸档。同一行只用一档:
+/// - `.header`: 32pt 大标题那一行、详情页头部 —— 32 高、圆角 8;
+/// - `.toolbar`: 表格正上方的工具条、窄的左栏(艺人、风格)—— 26 高、圆角 6。
+/// 查找框、按钮、菜单、分段开关都从这里取高度、圆角与字号, 不再各写各的。
+enum MacControlTier: Sendable {
+    case header
+    case toolbar
+
+    var height: CGFloat { self == .header ? PMSize.bigBtn : PMSize.medBtn }
+    var cornerRadius: CGFloat { self == .header ? PMRadius.m : PMRadius.s }
+    var horizontalPadding: CGFloat { self == .header ? 12 : 10 }
+    var iconFont: Font { .system(size: self == .header ? 12.5 : 11.5, weight: .semibold) }
+
+    func textFont(weight: Font.Weight = .medium) -> Font {
+        .system(size: self == .header ? 12.5 : 11.5, weight: weight)
+    }
+}
+
+extension EnvironmentValues {
+    /// 这一行控件用哪一档(`MacControlTier`)。默认页头档; 工具条在外面套 `.macControlTier(.toolbar)`。
+    @Entry var macControlTier: MacControlTier = .header
+}
+
+/// 页头按钮的三种外观: 玻璃底(大多数)、品牌色实底(这一页的主操作, 一页最多一颗)、
+/// 开着的开关(只看喜欢、已下载、选择中 —— 品牌色淡底, 和主操作分得开)。
+enum MacControlStyle: Sendable {
+    case glass
+    case prominent
+    case selected
+}
+
+private struct MacControlChrome: ViewModifier {
+    let style: MacControlStyle
+    let iconOnly: Bool
+    let tint: Color?
+    @Environment(\.macControlTier) private var tier
+    @Environment(\.pmAppearance) private var mode
+    @State private var hover = false
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: tier.cornerRadius, style: .continuous)
+        content
+            .font(iconOnly ? tier.iconFont : tier.textFont(weight: style == .prominent ? .semibold : .medium))
+            .lineLimit(1)
+            .fixedSize()
+            .foregroundStyle(foreground)
+            .padding(.horizontal, iconOnly ? 0 : tier.horizontalPadding)
+            .frame(width: iconOnly ? tier.height : nil, height: tier.height)
+            .background(fill, in: shape)
+            .overlay { shape.strokeBorder(stroke, lineWidth: 0.5) }
+            .contentShape(shape)
+            .onHover { hover = $0 }
+            .pmAnimation(.hover, value: hover)
+    }
+
+    private var accent: Color { tint ?? PMColor.brand }
+
+    private var foreground: Color {
+        switch style {
+        case .glass: PMColor.text
+        case .prominent: .white
+        case .selected: accent
+        }
+    }
+
+    private var fill: Color {
+        switch style {
+        case .glass:
+            mode == .glass
+                ? (hover ? PMColor.glassBtnHover : PMColor.glassBtn)
+                : (hover ? PMColor.matBtnHover : PMColor.matBtn)
+        case .prominent:
+            accent.opacity(hover ? 0.88 : 1)
+        case .selected:
+            accent.opacity(hover ? 0.22 : 0.15)
+        }
+    }
+
+    private var stroke: Color {
+        switch style {
+        case .glass: PMColor.cardBorder
+        case .prominent: .clear
+        case .selected: accent.opacity(0.45)
+        }
+    }
+}
+
+/// 分段开关里的一格。选中的一格是浮起的浅底(浅色是白、深色是提亮一档), 和系统分段控件一个意思。
+private struct MacSegmentChrome: ViewModifier {
+    let selected: Bool
+    let iconOnly: Bool
+    @Environment(\.macControlTier) private var tier
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let inner = tier.height - 4
+        content
+            .font(iconOnly ? tier.iconFont : tier.textFont(weight: selected ? .semibold : .medium))
+            .lineLimit(1)
+            .fixedSize()
+            .foregroundStyle(selected ? PMColor.text : PMColor.textMuted)
+            .padding(.horizontal, iconOnly ? 0 : tier.horizontalPadding - 2)
+            .frame(width: iconOnly ? tier.height - 2 : nil, height: inner)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: tier.cornerRadius - 2, style: .continuous)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.16) : Color.white)
+                        .shadow(color: .black.opacity(colorScheme == .dark ? 0.25 : 0.10), radius: 1.5, y: 0.5)
+                }
+            }
+            .contentShape(Rectangle())
+            .pmAnimation(.hover, value: selected)
+    }
+}
+
+/// 分段开关的外框: 和按钮同高、同圆角、同一层玻璃底。
+private struct MacSegmentedContainerChrome: ViewModifier {
+    @Environment(\.macControlTier) private var tier
+    @Environment(\.pmAppearance) private var mode
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: tier.cornerRadius, style: .continuous)
+        content
+            .padding(2)
+            .frame(height: tier.height)
+            .background(mode == .glass ? PMColor.glassBtn : PMColor.matBtn, in: shape)
+            .overlay { shape.strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+            .fixedSize()
+    }
+}
+
+extension View {
+    /// 这一行控件的尺寸档, 见 `MacControlTier`。
+    func macControlTier(_ tier: MacControlTier) -> some View {
+        environment(\.macControlTier, tier)
+    }
+
+    /// 页头 / 工具条按钮的外观, 画在按钮或菜单的 label 上(按钮本身用 `.plain`)。
+    /// `iconOnly` 是见方的图标键; 否则按文字宽度两边留白。`tint` 换掉品牌色(有声书、播客页自己的颜色)。
+    func macControlChrome(_ style: MacControlStyle = .glass, iconOnly: Bool = false, tint: Color? = nil) -> some View {
+        modifier(MacControlChrome(style: style, iconOnly: iconOnly, tint: tint))
+    }
+
+    /// 菜单触发键: 不要系统的边框和下拉箭头, 外观由 label 上的 `macControlChrome` 画。
+    /// 带文字的菜单键自己在文字后面画一个 chevron.down; 只有图标的(「…」、分享)不画。
+    func macControlMenuStyle() -> some View {
+        menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+    }
+
+    /// 分段开关的外框, 里面每一格用 `macSegment(selected:iconOnly:)`。
+    func macSegmentedContainer() -> some View {
+        modifier(MacSegmentedContainerChrome())
+    }
+
+    func macSegment(selected: Bool, iconOnly: Bool = false) -> some View {
+        modifier(MacSegmentChrome(selected: selected, iconOnly: iconOnly))
+    }
+}
+
+/// 页头里只有图标的一颗键: 悬停说明和无障碍名称用同一句。
+struct MacControlIconButton: View {
+    let systemImage: String
+    let help: Text
+    var style: MacControlStyle = .glass
+    let action: () -> Void
+
+    init(
+        systemImage: String,
+        help: LocalizedStringKey,
+        style: MacControlStyle = .glass,
+        action: @escaping () -> Void
+    ) {
+        self.systemImage = systemImage
+        self.help = Text(help)
+        self.style = style
+        self.action = action
+    }
+
+    init(
+        systemImage: String,
+        help: Text,
+        style: MacControlStyle = .glass,
+        action: @escaping () -> Void
+    ) {
+        self.systemImage = systemImage
+        self.help = help
+        self.style = style
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .contentTransition(.symbolEffect(.replace))
+                .macControlChrome(style, iconOnly: true)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
+/// 带文字的菜单键的 label: 图标(可选)、文字、chevron.down。
+struct MacControlMenuLabel: View {
+    let title: Text
+    var systemImage: String?
+    var style: MacControlStyle = .glass
+    var tint: Color?
+
+    init(_ titleKey: LocalizedStringKey, systemImage: String? = nil, style: MacControlStyle = .glass, tint: Color? = nil) {
+        title = Text(titleKey)
+        self.systemImage = systemImage
+        self.style = style
+        self.tint = tint
+    }
+
+    init(verbatim: String, systemImage: String? = nil, style: MacControlStyle = .glass, tint: Color? = nil) {
+        title = Text(verbatim: verbatim)
+        self.systemImage = systemImage
+        self.style = style
+        self.tint = tint
+    }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .imageScale(.small)
+            }
+            title
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8.5, weight: .bold))
+                .opacity(0.7)
+        }
+        .macControlChrome(style, tint: tint)
     }
 }
 

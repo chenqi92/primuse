@@ -71,9 +71,13 @@ struct PMTitleBar: View {
         }
     }
 
-    /// 输出设备在底栏, 加音乐源在侧栏音乐源分区, 这里只放不进侧栏的几处。
+    /// 输出设备在底栏, 音乐源管理在侧栏「音乐源」标题右端, 这里只放不进侧栏的几处;
+    /// 一个源都没有时(侧栏那时不列音乐源)最前面多一颗「添加音乐源」。
     private var trailingControls: some View {
         HStack(spacing: 8) {
+            MacTitleBarAddSourceButton(highlight: routeSwitch.rowHighlight(for: .sources)) {
+                onSelectRoute(.sources)
+            }
             PMRoundBtn(
                 icon: favoritesShown ? "heart.fill" : "heart",
                 iconSize: 13, style: .glass, isActive: favoritesShown,
@@ -296,6 +300,57 @@ struct PMTitleBar: View {
         let frameInWindow = field.convert(field.bounds, to: nil)
         let titleBarFloor = contentView.convert(contentView.bounds, to: nil).maxY - PMSize.titlebar - 12
         return frameInWindow.midY >= titleBarFloor
+    }
+}
+
+/// 一个音乐源都没有时标题栏右上角的「添加音乐源」, 点进音乐源页。和旁边的玻璃圆钮同高、同底,
+/// 只是带字的胶囊, 加号用品牌色; 有了源就收起, 管理入口回到侧栏「音乐源」标题右端。
+/// 自己读音乐源列表: 标题栏的 body 不跟着源的增删重算。
+private struct MacTitleBarAddSourceButton: View {
+    let highlight: MacRouteRowHighlight
+    let action: () -> Void
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(\.pmAppearance) private var mode
+    @State private var hover = false
+
+    var body: some View {
+        let isEmpty = sourcesStore.sources.isEmpty
+        Group {
+            if isEmpty {
+                Button(action: action) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(PMColor.brand)
+                        Text("add_source")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(highlight.isSelected ? PMColor.brand : PMColor.text)
+                            .lineLimit(1)
+                    }
+                    .fixedSize()
+                    .padding(.horizontal, 11)
+                    .frame(height: PMSize.medBtn)
+                    .background(background, in: Capsule())
+                    .overlay { Capsule().strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .onHover { hover = $0 }
+                .help(Text("no_sources_desc"))
+                .accessibilityLabel(Text("add_source"))
+                .accessibilityAddTraits(highlight.isSelected ? .isSelected : [])
+                .accessibilityIdentifier("titlebar.addSource")
+                .transition(.opacity)
+            }
+        }
+        .pmAnimation(.hover, value: hover)
+        .pmAnimation(.control, value: isEmpty)
+    }
+
+    private var background: Color {
+        mode == .glass
+            ? (hover ? PMColor.glassBtnHover : PMColor.glassBtn)
+            : (hover ? PMColor.matBtnHover : PMColor.matBtn)
     }
 }
 

@@ -1054,6 +1054,7 @@
 "library_manage_header" = "Керувати";
 "queue" = "Черга";
 "home_empty_mac_hint" = "Додайте NAS або хмарний диск із джерел ліворуч або авторизуйте Apple Music для запуску.";
+"home_empty_mac_hint_titlebar" = "Натисніть «Додати джерело» у верхній частині вікна, щоб підключити NAS або хмарний диск, або авторизуйте Apple Music, щоб почати.";
 "scrobble_lastfm_err_title" = "Last.fm";
 "ai_recommendation_scene_driving" = "Водіння";
 "Crossfade Duration" = "Тривалість переходу";

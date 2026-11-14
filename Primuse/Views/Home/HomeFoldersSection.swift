@@ -1102,8 +1102,10 @@ struct HomeFolderBrowser: View {
                 if let context = macSearchContext {
                     macSearchControls(context: context)
                 } else {
+                    // 定位、搜索、收藏、排序、更多同一种 32 高的玻璃键(`MacControlTier.header`);
+                    // 原来是没有底的图标、系统的无边框菜单和系统的强调色按钮混在一排。
                     locateCurrentButton
-                    Button {
+                    MacControlIconButton(systemImage: "magnifyingglass", help: "search_title") {
                         guard let index = model.index else { return }
                         let context = LibrarySearchScope.folder(
                             node: node,
@@ -1112,18 +1114,15 @@ struct HomeFolderBrowser: View {
                         )
                         macSearchScope = context
                         macSearchContext = context
-                    } label: {
-                        Image(systemName: "magnifyingglass").frame(width: 30, height: 30)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("search_title")
                     pinButton(node.id)
                     Menu {
                         HomeFolderSongOrderMenuItems(order: songOrderBinding)
-                    } label: { Image(systemName: "arrow.up.arrow.down").frame(width: 30, height: 30) }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .macControlChrome(iconOnly: true)
+                    }
+                    .macControlMenuStyle()
                     .help(HomeDiscoveryText.string("folder_song_order"))
                     .accessibilityLabel(HomeDiscoveryText.string("folder_song_order"))
                     if FolderPlaylistMenuButton.supports(node) {
@@ -1136,54 +1135,64 @@ struct HomeFolderBrowser: View {
                                 library: library,
                                 source: sourcesStore.source(id: node.sourceID)
                             )
-                        } label: { Image(systemName: "ellipsis").frame(width: 30, height: 30) }
-                        .menuStyle(.borderlessButton)
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .macControlChrome(iconOnly: true)
+                        }
+                        .macControlMenuStyle()
+                        .help(Text("a11y_more_actions"))
                         .accessibilityLabel("a11y_more_actions")
                     }
                 }
             } playback: {
-                Button("shuffle", systemImage: "shuffle") {
+                MacControlIconButton(systemImage: "shuffle", help: "shuffle") {
                     playFolder(node.id, shuffle: true)
                 }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
-                .frame(width: 30, height: 30)
                 .disabled(node.descendantSongCount == 0)
-                Button("play_all", systemImage: "play.fill") {
+                Button {
                     playFolder(node.id, shuffle: false)
+                } label: {
+                    Label("play_all", systemImage: "play.fill")
+                        .macControlChrome(.prominent)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
+                .buttonStyle(.plain)
                 .disabled(node.descendantSongCount == 0)
             }
         } else {
+            // 和资料库其他页同一种页头: 32pt 标题(字距 -0.5)、顶 28, 右侧同一档 32 高的键。
             HStack(spacing: 12) {
                 if showsInlineBack || !macFolderPath.isEmpty { macBackButton }
                 Text(HomeDiscoveryText.string("folders"))
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
+                    .tracking(-0.5)
                     .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                    .layoutPriority(1)
                 Spacer()
                 locateCurrentButton
                 if model.index != nil, !children.isEmpty || !pins.isEmpty {
                     Menu {
                         HomeFolderSongOrderMenuItems(order: songOrderBinding)
                     } label: {
-                        HStack(spacing: 6) {
-                            Text(HomeDiscoveryText.string("folder_song_order"))
-                                .foregroundStyle(PMColor.textMuted)
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .imageScale(.small)
                             HomeFolderSongOrderSummary(order: songOrder)
-                                .foregroundStyle(PMColor.text)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8.5, weight: .bold))
+                                .opacity(0.7)
                         }
-                        .font(.system(size: 12))
+                        .macControlChrome()
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                    .macControlMenuStyle()
                     .help(HomeDiscoveryText.string("folder_song_order_footer"))
+                    .accessibilityLabel(HomeDiscoveryText.string("folder_song_order"))
                     .accessibilityIdentifier("folders.songOrder")
                 }
             }
             .padding(.horizontal, PMSpace.xxxl)
-            .padding(.vertical, 24)
+            .padding(.top, 28)
+            .padding(.bottom, 20)
         }
     }
 
@@ -1204,12 +1213,10 @@ struct HomeFolderBrowser: View {
             }
         } label: {
             Image(systemName: "chevron.left")
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
+                .macControlChrome(iconOnly: true)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(PMColor.textMuted)
+        .help(Text("back"))
         .accessibilityLabel("back")
         .accessibilityIdentifier("folderInlineBack")
     }
@@ -1245,10 +1252,19 @@ struct HomeFolderBrowser: View {
                 text: $macSearchText
             )
             .textFieldStyle(.plain)
-            .font(.system(size: 13))
+            .font(MacControlTier.header.textFont(weight: .regular))
             .padding(.horizontal, 10)
-            .frame(minWidth: 120, idealWidth: 220, maxWidth: 260, minHeight: 32)
-            .background(PMColor.bgElev, in: RoundedRectangle(cornerRadius: 8))
+            .frame(minWidth: 120, idealWidth: 220, maxWidth: 260)
+            .frame(height: MacControlTier.header.height)
+            // 和 `MacLibraryFindField` 同一种输入框: 实底、细描边。
+            .background(PMColor.bgElev, in: RoundedRectangle(cornerRadius: MacControlTier.header.cornerRadius))
+            .overlay {
+                RoundedRectangle(cornerRadius: MacControlTier.header.cornerRadius, style: .continuous)
+                    .strokeBorder(
+                        macSearchFocused ? PMColor.brand.opacity(0.55) : PMColor.dividerStrong,
+                        lineWidth: macSearchFocused ? 1 : 0.5
+                    )
+            }
             .focused($macSearchFocused)
             .onExitCommand { closeMacSearch() }
             .task { macSearchFocused = true }
@@ -1256,11 +1272,9 @@ struct HomeFolderBrowser: View {
             SearchScopeSwitchButton(scope: $macSearchScope, context: context)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.plain)
-            Button { closeMacSearch() } label: {
-                Image(systemName: "xmark").frame(width: 30, height: 30)
+            MacControlIconButton(systemImage: "xmark", help: "close") {
+                closeMacSearch()
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("close")
         }
     }
 
@@ -1357,19 +1371,26 @@ struct HomeFolderBrowser: View {
             }
             .accessibilityLabel(title)
         } else {
+            #if os(macOS)
+            // Mac 上跟目录页头那一排的玻璃键一样; 收藏着是开关的淡品牌色底(Mac 的 accentColor 是系统蓝)。
+            MacControlIconButton(
+                systemImage: pinned ? "heart.fill" : "heart",
+                help: Text(verbatim: title),
+                style: pinned ? .selected : .glass
+            ) {
+                togglePin(id)
+            }
+            #else
             Button {
                 togglePin(id)
             } label: {
                 Image(systemName: pinned ? "heart.fill" : "heart")
-                    #if os(macOS)
-                    .frame(width: 30, height: 30)
-                    #else
                     .frame(width: 44, height: 44)
-                    #endif
                     .foregroundStyle(pinned ? Color.accentColor : Color.secondary)
             }
             .buttonStyle(.borderless)
             .accessibilityLabel(title)
+            #endif
         }
     }
 

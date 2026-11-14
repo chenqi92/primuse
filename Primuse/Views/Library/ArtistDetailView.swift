@@ -899,6 +899,7 @@ struct ArtistDetailView: View {
                 macSectionTitle(String(localized: "artist_popular"))
                 Spacer()
                 locateCurrentButton
+                    .macControlTier(.toolbar)
             }
 
             VStack(spacing: 1) {

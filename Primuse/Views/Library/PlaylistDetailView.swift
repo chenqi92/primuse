@@ -1617,10 +1617,13 @@ struct PlaylistDetailView: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                Button("playlist_reorder") { beginSongReordering() }
-                    .buttonStyle(.borderless)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .disabled(displayEntries.count < 2)
+                Button { beginSongReordering() } label: {
+                    Text("playlist_reorder")
+                        .macControlChrome()
+                }
+                .buttonStyle(.plain)
+                .macControlTier(.toolbar)
+                .disabled(displayEntries.count < 2)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -1643,26 +1646,16 @@ struct PlaylistDetailView: View {
             Menu {
                 sortMenuOptions
             } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.up.arrow.down")
-                    Text(verbatim: sortMenuTitle)
-                }
-                .font(.system(size: 11.5, weight: .medium))
+                MacControlMenuLabel(verbatim: sortMenuTitle, systemImage: "arrow.up.arrow.down")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            .macControlMenuStyle()
             .disabled(songs.count < 2)
+            .help(Text("sort_by"))
             .accessibilityLabel(Text("sort_by"))
             .accessibilityIdentifier("playlistDetail.sort")
-            Button {
+            MacControlIconButton(systemImage: "slider.horizontal.3", help: "songs_column_settings_ellipsis") {
                 showColumnOptions.toggle()
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 12))
-                    .foregroundStyle(PMColor.textMuted)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("songs_column_settings_ellipsis"))
             .accessibilityIdentifier("playlistDetail.columns")
             .popover(isPresented: $showColumnOptions, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 14) {
@@ -1674,6 +1667,8 @@ struct PlaylistDetailView: View {
                 .background(PMColor.bg)
             }
         }
+        // 表格正上方的工具条: 查找、排序、列设置同一档 26 高(`MacControlTier.toolbar`)。
+        .macControlTier(.toolbar)
         .padding(.top, -2)
     }
 

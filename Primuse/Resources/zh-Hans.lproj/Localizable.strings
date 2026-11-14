@@ -1811,6 +1811,7 @@
 "home_pipeline_metadata" = "元数据";
 "home_pipeline_listen" = "聆听";
 "home_empty_mac_hint" = "从左侧「音乐源」添加 NAS 或云盘，或在「Apple Music」里授权后开始使用。";
+"home_empty_mac_hint_titlebar" = "点窗口顶部的「添加音乐源」连接 NAS 或云盘，或在「Apple Music」里授权后开始使用。";
 "player_empty_title" = "选一首歌开始播放";
 "player_empty_message" = "在左侧资料库或搜索里选一首歌。";
 "mac_launch_aborted_title" = "上次启动没能完成";

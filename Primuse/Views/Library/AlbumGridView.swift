@@ -274,7 +274,7 @@ struct AlbumGridView: View {
             let metrics = MacAlbumGridMetrics(viewportWidth: proxy.size.width)
             VStack(spacing: 18) {
                 albumsHeader(displayedCount: albums.count)
-                    .padding(.top, 24)
+                    .padding(.top, 28)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 18) {
                         LibraryInsightBatchStatusCard(
@@ -342,68 +342,45 @@ struct AlbumGridView: View {
         }
     }
 
+    /// 和电台、播客页同一种页头: 标题一行, 右侧控件同一档 32 高(`MacControlTier.header`),
+    /// 计数与排序方式写在标题下面一行 —— 原来挤在控件中间, 窄窗口里第一个被挤掉的就是它。
     private func albumsHeader(displayedCount: Int) -> some View {
-        HStack(alignment: .bottom) {
-            Text("tab_albums")
-                .font(.system(size: 32, weight: .bold))
-                .foregroundStyle(PMColor.text)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: PMSpace.m) {
+                Text("tab_albums")
+                    .font(.system(size: 32, weight: .bold))
+                    .tracking(-0.5)
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                    .layoutPriority(1)
 
-            Spacer()
+                Spacer(minLength: PMSpace.m)
 
-            HStack(spacing: 10) {
-                Text(verbatim: String(
-                    format: String(localized: "album_grid_count_sort_format"),
-                    displayedCount,
-                    library.visibleAlbums.count,
-                    albumOrder.label
-                ))
-                    .font(.system(size: 12))
-                    .foregroundStyle(PMColor.textFaint)
-                albumFilterField
-                if showsLikedFilter {
-                    LibraryLikedFilterButton(isOn: $showsLikedOnly)
+                HStack(spacing: 8) {
+                    MacLibraryFindField(text: $albumFilter, prompt: "filter_albums_placeholder", width: 180)
+                    if showsLikedFilter {
+                        LibraryLikedFilterButton(isOn: $showsLikedOnly)
+                    }
+                    if offersIntroFill {
+                        LibraryInsightBatchMacButton { requestsIntroFill = true }
+                    }
+                    albumViewSwitcher
+                    albumReleaseCategoryMenu
+                    albumSortMenu
                 }
-                if offersIntroFill {
-                    LibraryInsightBatchMacButton { requestsIntroFill = true }
-                }
-                albumViewSwitcher
-                AlbumReleaseCategoryPicker(selection: $releaseCategory)
-                    .controlSize(.small)
-                albumSortMenu
             }
+
+            Text(verbatim: String(
+                format: String(localized: "album_grid_count_sort_format"),
+                displayedCount,
+                library.visibleAlbums.count,
+                albumOrder.label
+            ))
+            .font(.system(size: 13))
+            .foregroundStyle(PMColor.textMuted)
+            .lineLimit(1)
         }
         .padding(.horizontal, PMSpace.xxxl)
-    }
-
-    private var albumFilterField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
-                .foregroundStyle(PMColor.textFaint)
-            TextField("", text: $albumFilter, prompt: Text("filter_albums_placeholder"))
-                .textFieldStyle(.plain)
-                .accessibilityLabel(Text("filter_albums_placeholder"))
-                .font(.system(size: 12))
-                .foregroundStyle(PMColor.text)
-                .frame(width: 150)
-            if !albumFilter.isEmpty {
-                Button { albumFilter = "" } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(PMColor.textFaint)
-                }
-                .buttonStyle(.plain)
-                .help(Text("clear"))
-                .accessibilityLabel(Text("clear"))
-            }
-        }
-        .padding(.horizontal, 9)
-        .frame(height: 26)
-        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
     }
 
     private var albumViewSwitcher: some View {
@@ -413,23 +390,38 @@ struct AlbumGridView: View {
                     albumViewMode = mode
                 } label: {
                     Image(systemName: mode.icon)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(albumViewMode == mode ? PMColor.text : PMColor.textMuted)
-                        .frame(width: 26, height: 22)
-                        .background(albumViewMode == mode ? PMColor.bgElev : .clear, in: .rect(cornerRadius: 5))
-                        .pmAnimation(.hover, value: albumViewMode == mode)
+                        .macSegment(selected: albumViewMode == mode, iconOnly: true)
                 }
                 .buttonStyle(.plain)
                 .help(Text(mode.label))
                 .accessibilityLabel(Text(mode.label))
+                .accessibilityAddTraits(albumViewMode == mode ? .isSelected : [])
             }
         }
-        .padding(2)
-        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        .macSegmentedContainer()
+    }
+
+    /// 「全部 / 专辑 / 单曲与 EP / 现场」: 原来是系统的弹出菜单(小号), 和旁边自绘的键高矮、样子都不一样。
+    private var albumReleaseCategoryMenu: some View {
+        Menu {
+            Picker("release_category", selection: $releaseCategory) {
+                Text("release_category_all").tag("")
+                ForEach(AlbumReleaseCategory.allCases) { category in
+                    Text(LocalizedStringKey(category.titleKey)).tag(category.rawValue)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            MacControlMenuLabel(
+                AlbumReleaseCategory(rawValue: releaseCategory).map { LocalizedStringKey($0.titleKey) }
+                    ?? "release_category_all"
+            )
         }
+        .macControlMenuStyle()
+        .help(Text("release_category"))
+        .accessibilityLabel(Text("release_category"))
+        .accessibilityIdentifier("albums.releaseCategory")
     }
 
     private var albumSortMenu: some View {
@@ -447,26 +439,13 @@ struct AlbumGridView: View {
                 .accessibilityIdentifier("albumGrid.hideSingleSongAlbums")
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: hidesSingleSongAlbums ? "line.3.horizontal.decrease.circle.fill" : "arrow.up.arrow.down")
-                    .font(.system(size: 10, weight: .semibold))
-                Text(verbatim: albumOrder.label)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-            }
-            .font(.system(size: 11.5, weight: .medium))
-            .foregroundStyle(PMColor.text)
-            .padding(.horizontal, 10)
-            .frame(height: 26)
-            .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-            .overlay {
-                RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-            }
+            MacControlMenuLabel(
+                verbatim: albumOrder.label,
+                systemImage: hidesSingleSongAlbums ? "line.3.horizontal.decrease.circle.fill" : "arrow.up.arrow.down"
+            )
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .macControlMenuStyle()
+        .help(Text("sort_by"))
     }
 
     private func macAlbumTile(_ album: Album, artworkSize: CGFloat) -> some View {

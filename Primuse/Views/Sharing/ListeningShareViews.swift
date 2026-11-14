@@ -582,6 +582,11 @@ struct ListeningShareMenu: View {
     enum Scope: String { case settings, stations, podcasts, audiobooks }
     let scope: Scope
     var selection: ListeningShareSelection?
+    #if os(macOS)
+    /// Mac 资料库页页头里: 画成和同一排按钮一样的玻璃图标键(`macControlChrome`),
+    /// 调用处再配 `.macControlMenuStyle()`; 不给时是系统的菜单按钮(设置页)。
+    var macHeaderLabel = false
+    #endif
     @State private var outgoing: ListeningShareSelection?
     @State private var importFile = false
     @State private var importsCode = false
@@ -624,7 +629,16 @@ struct ListeningShareMenu: View {
             Divider()
             Button(ListeningShareText.string("managedLinks"), systemImage: "link") { managesLinks = true }
         } label: {
+            #if os(macOS)
+            if macHeaderLabel {
+                Image(systemName: "square.and.arrow.up")
+                    .macControlChrome(iconOnly: true)
+            } else {
+                Label(ListeningShareText.string("hub"), systemImage: "square.and.arrow.up")
+            }
+            #else
             Label(ListeningShareText.string("hub"), systemImage: "square.and.arrow.up")
+            #endif
         }
         .accessibilityIdentifier("sharing.menu." + scope.rawValue)
         .sheet(item: $outgoing) { ListeningShareExportView(selection: $0) }

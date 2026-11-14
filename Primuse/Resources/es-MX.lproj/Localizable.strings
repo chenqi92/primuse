@@ -1495,6 +1495,7 @@
 "home_dashboard_title" = "Primuse";
 "home_empty_desc" = "Agregue una fuente de música en Configuración para comenzar a crear su biblioteca";
 "home_empty_mac_hint" = "Agregue un NAS o una unidad en la nube desde Fuentes a la izquierda, o autorice a Apple Music a iniciarse.";
+"home_empty_mac_hint_titlebar" = "Haga clic en «Agregar origen» en la parte superior de la ventana para conectar un NAS o una unidad en la nube, o autorice Apple Music para comenzar.";
 "home_enabled_sources" = "Habilitado";
 "home_for_you_title" = "Para ti";
 "home_for_you_ai_badge" = "IA";

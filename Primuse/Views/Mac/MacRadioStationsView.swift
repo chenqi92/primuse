@@ -209,11 +209,15 @@ struct MacRadioStationsView: View {
                     .font(.system(size: 32, weight: .bold))
                     .tracking(-0.5)
                     .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                    .layoutPriority(1)
 
-                Spacer()
+                Spacer(minLength: 0)
 
+                // 查找、版式、按名称排序、分享、添加同一档 32 高(`MacControlTier.header`);
+                // 分享原来是系统的菜单按钮, 比旁边几颗矮一截。
                 if !stations.isEmpty {
-                    searchField
+                    MacLibraryFindField(text: $searchText, prompt: "radio_search_placeholder", width: 230)
                     layoutToggle
                 }
 
@@ -222,23 +226,19 @@ struct MacRadioStationsView: View {
                         pmWithAnimation(.list) { store.sortStationsByName() }
                     } label: {
                         Text("radio_priority_sort_by_name")
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(PMColor.text)
-                            .padding(.horizontal, 14)
-                            .frame(height: 32)
-                            .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.m))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                            }
+                            .macControlChrome()
                     }
                     .buttonStyle(.plain)
                 }
 
-                ListeningShareMenu(scope: .stations, selection: .init(title: ListeningShareText.string("stations"), stations: visibleStations))
-                    .labelStyle(.iconOnly)
-                    .menuIndicator(.hidden)
+                ListeningShareMenu(
+                    scope: .stations,
+                    selection: .init(title: ListeningShareText.string("stations"), stations: visibleStations),
+                    macHeaderLabel: true
+                )
+                    .macControlMenuStyle()
                     .help(ListeningShareText.string("hub"))
+                    .accessibilityLabel(Text(ListeningShareText.string("hub")))
                 Menu {
                     Button("radio_add", systemImage: "plus") {
                         showAddStation = true
@@ -255,17 +255,9 @@ struct MacRadioStationsView: View {
                         beginPrompt(.createFolder(assigning: []))
                     }
                 } label: {
-                    Label("radio_add", systemImage: "plus")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .frame(height: 32)
-                        .background(PMColor.brand, in: .rect(cornerRadius: PMRadius.m))
+                    MacControlMenuLabel("radio_add", systemImage: "plus", style: .prominent)
                 }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
-                .fixedSize()
+                .macControlMenuStyle()
             }
 
             HStack(spacing: PMSpace.m) {
@@ -296,58 +288,15 @@ struct MacRadioStationsView: View {
                     layoutModeRaw = mode.rawValue
                 } label: {
                     Image(systemName: mode.icon)
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(layoutMode == mode ? PMColor.text : PMColor.textMuted)
-                        .frame(width: 30, height: 26)
-                        .background(
-                            layoutMode == mode ? PMColor.glassBtn : .clear,
-                            in: .rect(cornerRadius: PMRadius.xs)
-                        )
-                        .contentShape(Rectangle())
-                        .pmAnimation(.hover, value: layoutMode == mode)
+                        .macSegment(selected: layoutMode == mode, iconOnly: true)
                 }
                 .buttonStyle(.plain)
                 .help(String(localized: mode.titleKey))
+                .accessibilityLabel(Text(String(localized: mode.titleKey)))
+                .accessibilityAddTraits(layoutMode == mode ? .isSelected : [])
             }
         }
-        .padding(2)
-        .frame(height: 32)
-        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.m))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
-        }
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
-                .foregroundStyle(PMColor.textFaint)
-
-            TextField("radio_search_placeholder", text: $searchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-                .foregroundStyle(PMColor.text)
-
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(PMColor.textFaint)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(width: 230, height: 32)
-        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.m))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
-        }
+        .macSegmentedContainer()
     }
 
     private var summaryText: String {

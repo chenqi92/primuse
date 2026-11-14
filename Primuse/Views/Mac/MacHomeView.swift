@@ -1962,9 +1962,11 @@ struct MacHomeView: View {
                 .font(.system(size: 13))
                 .foregroundStyle(PMColor.textMuted)
                 .multilineTextAlignment(.center)
-            Text("home_empty_mac_hint")
+            // 一个源都没有时侧栏不列「音乐源」, 加源的入口是标题栏右上角那颗键, 说明跟着指过去。
+            Text(sourcesStore.sources.isEmpty ? "home_empty_mac_hint_titlebar" : "home_empty_mac_hint")
                 .font(.system(size: 11))
                 .foregroundStyle(PMColor.textFaint)
+                .multilineTextAlignment(.center)
             Spacer()
         }
         .frame(maxWidth: .infinity)

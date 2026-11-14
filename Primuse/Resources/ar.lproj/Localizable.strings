@@ -1495,6 +1495,7 @@
 "home_dashboard_title" = "Primuse";
 "home_empty_desc" = "أضف مصدر موسيقى في الإعدادات لبدء إنشاء مكتبتك";
 "home_empty_mac_hint" = "أضف NAS أو محرك سحابي من المصادر على اليسار، أو قم بتفويض Apple Music للبدء.";
+"home_empty_mac_hint_titlebar" = "انقر على «أضف المصدر» في أعلى النافذة لتوصيل NAS أو محرك سحابي، أو قم بتفويض Apple Music للبدء.";
 "home_enabled_sources" = "ممكّن";
 "home_for_you_title" = "لك";
 "home_for_you_ai_badge" = "ذكاء";

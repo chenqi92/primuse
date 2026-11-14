@@ -1495,6 +1495,7 @@
 "home_dashboard_title" = "Primuse";
 "home_empty_desc" = "เพิ่มแหล่งเพลงในการตั้งค่าเพื่อเริ่มสร้างคลังเพลงของคุณ";
 "home_empty_mac_hint" = "เพิ่ม NAS หรือไดรฟ์คลาวด์จาก Sources ทางด้านซ้าย หรือให้สิทธิ์ Apple Music เพื่อเริ่มต้น";
+"home_empty_mac_hint_titlebar" = "คลิก “เพิ่มแหล่งที่มา” ที่ด้านบนของหน้าต่างเพื่อเชื่อมต่อ NAS หรือไดรฟ์คลาวด์ หรืออนุญาต Apple Music เพื่อเริ่มต้น";
 "home_enabled_sources" = "เปิดใช้งานแล้ว";
 "home_for_you_title" = "เพื่อคุณ";
 "home_for_you_ai_badge" = "อัจฉริยะ";

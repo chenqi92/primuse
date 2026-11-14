@@ -958,6 +958,9 @@ struct PlaylistListView: View {
         [GridItem(.adaptive(minimum: 380), spacing: 12, alignment: .top)]
     }
 
+    /// 页头右侧: 查找、排序、选择、同步歌单, 最右是「新建歌单」。新建的几种(普通、AI、规则、分组、导入)
+    /// 收在这一颗品牌色键里, 和 iPhone 的「+」菜单、电台页的「添加电台」同一个排法;
+    /// 以前五颗大小不一的键(其中「新建分组」还是系统按钮)摆成一排, 窄窗口里放不下。
     private var macPlaylistsHeader: some View {
         HStack(alignment: .bottom, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
@@ -968,128 +971,81 @@ struct PlaylistListView: View {
                     .foregroundStyle(PMColor.textMuted)
                 Text("tab_playlists")
                     .font(.system(size: 32, weight: .bold))
+                    .tracking(-0.5)
                     .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
             }
-            Spacer()
-            if !playlists.isEmpty || !smartPlaylists.isEmpty {
-                MacLibraryFindField(text: $findText, prompt: "filter_playlists_placeholder")
+            .layoutPriority(1)
+            Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                if !playlists.isEmpty || !smartPlaylists.isEmpty {
+                    MacLibraryFindField(text: $findText, prompt: "filter_playlists_placeholder", width: 180)
+                }
+
+                if canReorderPlaylists {
+                    macSortMenu
+                }
+
+                if !playlists.isEmpty || !smartPlaylists.isEmpty {
+                    MacControlIconButton(
+                        systemImage: isManagingPlaylists ? "xmark" : "checkmark.circle",
+                        help: isManagingPlaylists ? LocalizedStringKey("done") : "batch_select",
+                        style: isManagingPlaylists ? .selected : .glass
+                    ) {
+                        isManagingPlaylists.toggle()
+                        if !isManagingPlaylists { playlistSelection = [] }
+                    }
+                    // 事务只罩住这枚按钮 —— 进出管理态会重排整块歌单网格,
+                    // 在调用点包 withAnimation 会把它们一起拖进来。
+                    .pmAnimation(.control, value: isManagingPlaylists)
+                }
+
+                if canCopyToServer {
+                    MacControlIconButton(systemImage: "server.rack", help: "server_playlist_copy_action") {
+                        showCopyToServer = true
+                    }
+                }
+
+                macNewMenu
             }
+        }
+    }
+
+    private var macNewMenu: some View {
+        Menu {
             Button {
                 showNewPlaylist = true
             } label: {
-                Label("new_playlist", systemImage: "plus")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .frame(height: 32)
-                    .background(PMColor.brand, in: .rect(cornerRadius: 8))
+                Label("new_playlist", systemImage: "music.note.list")
             }
-            .buttonStyle(.plain)
-
             Button {
                 showAIEditor = true
             } label: {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                    .frame(width: 32, height: 32)
-                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                    }
+                Label("new_ai_smart_playlist", systemImage: "sparkles")
             }
-            .buttonStyle(.plain)
-            .help(Text("new_ai_smart_playlist"))
-
             Button {
                 showSmartEditor = true
             } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                    .frame(width: 32, height: 32)
-                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                    }
+                Label("new_rule_smart_playlist", systemImage: "slider.horizontal.3")
             }
-            .buttonStyle(.plain)
-            .help(Text("new_rule_smart_playlist"))
-
-            if operationAvailability.supportsImport {
-                Button {
-                    showPlaylistImport = true
-                } label: {
-                    Image(systemName: "tray.and.arrow.down")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                        .frame(width: 32, height: 32)
-                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                        }
-                }
-                .buttonStyle(.plain)
-                .help(Text("playlist_import_title"))
-            }
-
-            if canCopyToServer {
-                Button {
-                    showCopyToServer = true
-                } label: {
-                    Image(systemName: "server.rack")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                        .frame(width: 32, height: 32)
-                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                        }
-                }
-                .buttonStyle(.plain)
-                .help(Text("server_playlist_copy_action"))
-            }
-
             Button {
                 editGroup()
             } label: {
-                Image(systemName: "folder.badge.plus")
+                Label("playlist_group_new", systemImage: "folder.badge.plus")
             }
-            .help(Text("playlist_group_new"))
-
-            if canReorderPlaylists {
-                macSortMenu
-            }
-
-            if !playlists.isEmpty || !smartPlaylists.isEmpty {
+            if operationAvailability.supportsImport {
+                Divider()
                 Button {
-                    isManagingPlaylists.toggle()
-                    if !isManagingPlaylists { playlistSelection = [] }
+                    showPlaylistImport = true
                 } label: {
-                    Image(systemName: isManagingPlaylists ? "xmark" : "checkmark.circle")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(isManagingPlaylists ? .white : PMColor.text)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 32, height: 32)
-                        .background(isManagingPlaylists ? PMColor.brand : PMColor.glassBtn,
-                                    in: .rect(cornerRadius: 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(isManagingPlaylists ? .clear : PMColor.cardBorder,
-                                              lineWidth: 0.5)
-                        }
-                        // 事务只罩住这枚按钮 —— 进出管理态会重排整块歌单网格,
-                        // 在调用点包 withAnimation 会把它们一起拖进来。
-                        .pmAnimation(.control, value: isManagingPlaylists)
+                    Label("playlist_import_title", systemImage: "tray.and.arrow.down")
                 }
-                .buttonStyle(.plain)
-                .help(Text(isManagingPlaylists ? LocalizedStringKey("done") : "batch_select"))
             }
+        } label: {
+            MacControlMenuLabel("new_playlist", systemImage: "plus", style: .prominent)
         }
+        .macControlMenuStyle()
+        .accessibilityIdentifier("playlists.new")
     }
 
     /// 排序方式和「调整歌单顺序」收在一颗键里, 键上写着当前怎么排。
@@ -1104,27 +1060,9 @@ struct PlaylistListView: View {
                 }
             }
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 11, weight: .semibold))
-                Text(verbatim: listOrder.label)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(PMColor.textMuted)
-            }
-            .font(.system(size: 12.5, weight: .medium))
-            .foregroundStyle(PMColor.text)
-            .padding(.horizontal, 11)
-            .frame(height: 32)
-            .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-            }
+            MacControlMenuLabel(verbatim: listOrder.label, systemImage: "arrow.up.arrow.down")
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .macControlMenuStyle()
         .help(Text("sort_by"))
     }
 

@@ -282,12 +282,18 @@ struct AIRecommendationLibraryView: View {
             }
             Spacer(minLength: 12)
             Button(action: playAll) {
+                #if os(macOS)
+                // Mac 上和资料库其他页的页头主操作同一种键(32 高、圆角 8)。
+                Label("play_all", systemImage: "play.fill")
+                    .macControlChrome(.prominent, tint: platformAccentColor)
+                #else
                 Label("play_all", systemImage: "play.fill")
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 14)
                     .frame(height: 36)
                     .foregroundStyle(Color.white)
                     .background(platformAccentColor, in: Capsule())
+                #endif
             }
             .buttonStyle(.plain)
             .disabled(displayedResults.map(\.song).filteredPlayable().isEmpty)

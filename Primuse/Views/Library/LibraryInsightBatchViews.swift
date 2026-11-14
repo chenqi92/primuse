@@ -565,7 +565,7 @@ struct LibraryInsightBatchStatusCard: View {
 }
 
 #if os(macOS)
-/// Mac 专辑页、艺人页头部的「补全缺少的简介」;正在补时换成停止。和旁边的排序、视图切换同一种玻璃小按钮。
+/// Mac 专辑页、艺人页头部的「补全缺少的简介」;正在补时换成停止。和旁边的排序、视图切换同一种玻璃键、同一档高度。
 struct LibraryInsightBatchMacButton: View {
     let start: () -> Void
 
@@ -578,15 +578,7 @@ struct LibraryInsightBatchMacButton: View {
             if isRunning { batch.stop() } else { start() }
         } label: {
             Image(systemName: isRunning ? "stop.circle" : "sparkles")
-                .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(PMColor.text)
-                .frame(width: 28, height: 24)
-                .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-                .overlay {
-                    RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                }
-                .contentShape(Rectangle())
+                .macControlChrome(iconOnly: true)
         }
         .buttonStyle(.plain)
         .help(Text(title))

@@ -342,6 +342,11 @@ struct SpokenWordBookmarkTicks: View {
 struct SpokenWordIntroOutroMenu: View {
     let bookID: String
     let song: Song
+    #if os(macOS)
+    /// Mac 书详情页头部里: 画成页头那一族的玻璃菜单键(`MacControlMenuLabel`), 调用处配 `.macControlMenuStyle()`;
+    /// 不给时是系统的菜单按钮(播放页里)。
+    var macControlLabel = false
+    #endif
 
     private var preferences: SpokenWordIntroOutroPreferences { .shared }
     private var server: SpokenWordIntroOutro? {
@@ -369,7 +374,15 @@ struct SpokenWordIntroOutroMenu: View {
                 }
             }
         } label: {
+            #if os(macOS)
+            if macControlLabel {
+                MacControlMenuLabel("spoken_word_skip_title", systemImage: "forward.end")
+            } else {
+                Label("spoken_word_skip_title", systemImage: "forward.end")
+            }
+            #else
             Label("spoken_word_skip_title", systemImage: "forward.end")
+            #endif
         }
         .accessibilityIdentifier("spokenWord.introOutro." + bookID)
     }

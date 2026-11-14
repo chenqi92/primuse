@@ -467,12 +467,14 @@ struct ArtistListView: View {
                     }
                 }
                 HStack(spacing: 8) {
-                    artistFilterField
+                    MacLibraryFindField(text: $searchText, prompt: "filter_artists_placeholder", width: nil)
                     if showsLikedFilter {
                         LibraryLikedFilterButton(isOn: $showsLikedOnly)
                     }
                 }
             }
+            // 280 宽的左栏: 合并、列法、查找、只看喜欢同一档 26 高(`MacControlTier.toolbar`)。
+            .macControlTier(.toolbar)
             .padding(.horizontal, 16)
             .padding(.top, 20)
             .padding(.bottom, 12)
@@ -514,12 +516,10 @@ struct ArtistListView: View {
         } label: {
             macMenuLabel {
                 Image(systemName: "person.2")
+                    .imageScale(.small)
             }
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .macControlMenuStyle()
         .help(Text("artist_merge_title"))
         .accessibilityLabel(Text("artist_merge_title"))
         .accessibilityIdentifier("artistMerge.menu")
@@ -539,12 +539,9 @@ struct ArtistListView: View {
         } label: {
             macMenuLabel {
                 Text(String(localized: browseMode.titleKey))
-                    .lineLimit(1)
             }
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
+        .macControlMenuStyle()
         .help(Text("artist_browse_mode"))
         .accessibilityLabel(Text("artist_browse_mode"))
         .accessibilityValue(Text(String(localized: browseMode.titleKey)))
@@ -552,40 +549,13 @@ struct ArtistListView: View {
     }
 
     private func macMenuLabel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             content()
             Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 8.5, weight: .bold))
+                .opacity(0.7)
         }
-        .font(.system(size: 11.5, weight: .medium))
-        .foregroundStyle(PMColor.text)
-        .padding(.horizontal, 10)
-        .frame(height: 24)
-        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
-        .contentShape(Rectangle())
-    }
-
-    private var artistFilterField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
-                .foregroundStyle(PMColor.textFaint)
-            TextField("", text: $searchText, prompt: Text("filter_artists_placeholder"))
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundStyle(PMColor.text)
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 28)
-        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
+        .macControlChrome()
     }
 
     private func artistRow(_ artist: Artist) -> some View {

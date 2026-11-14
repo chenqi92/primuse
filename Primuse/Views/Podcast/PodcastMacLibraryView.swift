@@ -82,9 +82,11 @@ struct MacPodcastLibraryView: View {
                     pagePicker
                 }
                 searchField
-                PodcastShareMenu(navigation: navigation)
-                    .labelStyle(.iconOnly)
-                    .menuIndicator(.hidden)
+                // 分享原来是系统的菜单按钮, 比旁边的玻璃键矮一截; 现在同一档 32 高(`MacControlTier.header`)。
+                PodcastShareMenu(navigation: navigation, macHeaderLabel: true)
+                    .macControlMenuStyle()
+                    .help(ListeningShareText.string("hub"))
+                    .accessibilityLabel(Text(ListeningShareText.string("hub")))
                 moreMenu
             }
 
@@ -115,15 +117,8 @@ struct MacPodcastLibraryView: View {
             pageButton(.library, title: "podcast_my_shows")
             pageButton(.discover, title: "podcast_discover")
         }
-        .padding(2)
-        .frame(height: 32)
-        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.m))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
-        }
+        .macSegmentedContainer()
         .opacity(isSearching ? 0.55 : 1)
-        .fixedSize()
     }
 
     private func pageButton(_ target: Page, title: LocalizedStringKey) -> some View {
@@ -135,13 +130,7 @@ struct MacPodcastLibraryView: View {
             }
         } label: {
             Text(title)
-                .font(.system(size: 12.5, weight: selected ? .semibold : .medium))
-                .foregroundStyle(selected ? PMColor.text : PMColor.textMuted)
-                .padding(.horizontal, 12)
-                .frame(height: 26)
-                .background(selected ? PMColor.glassBtn : .clear, in: .rect(cornerRadius: PMRadius.xs))
-                .contentShape(Rectangle())
-                .pmAnimation(.hover, value: selected)
+                .macSegment(selected: selected)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -175,7 +164,9 @@ struct MacPodcastLibraryView: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(width: 260, height: 32)
+        // 和 `MacLibraryFindField` 同一档(32 高、圆角 8); 窄窗口里先缩它, 不把窗口撑宽。
+        .frame(height: MacControlTier.header.height)
+        .frame(minWidth: 140, idealWidth: 260, maxWidth: 260)
         .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.m))
         .overlay {
             RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
@@ -191,20 +182,11 @@ struct MacPodcastLibraryView: View {
             PodcastActionsMenuItems(navigation: navigation)
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(PMColor.text)
-                .frame(width: 32, height: 32)
-                .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.m))
-                .overlay {
-                    RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                }
+                .macControlChrome(iconOnly: true)
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .macControlMenuStyle()
         .help(Text("more"))
+        .accessibilityLabel(Text("more"))
         .accessibilityIdentifier("podcast.mac.more")
     }
 

@@ -2404,32 +2404,14 @@ struct GenreLibraryView: View {
                                 .foregroundStyle(PMColor.text)
                             Spacer(minLength: 0)
                             GenreSplitMenu(hint: genreSplitHint)
-                                .menuStyle(.borderlessButton)
-                                .menuIndicator(.hidden)
-                                .fixedSize()
-                                .foregroundStyle(PMColor.textFaint)
+                                .macControlMenuStyle()
+                                .help(Text("genre_split_title"))
                         }
 
-                        HStack(spacing: 6) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 11))
-                                .foregroundStyle(PMColor.textFaint)
-                            TextField(
-                                "",
-                                text: $searchText,
-                                prompt: Text("genre_search_placeholder")
-                            )
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12))
-                        }
-                        .padding(.horizontal, 10)
-                        .frame(height: 28)
-                        .background(PMColor.glassBtn, in: RoundedRectangle(cornerRadius: PMRadius.s))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: PMRadius.s)
-                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                        }
+                        MacLibraryFindField(text: $searchText, prompt: "genre_search_placeholder", width: nil)
                     }
+                    // 和艺人页的左栏同一档 26 高(`MacControlTier.toolbar`)。
+                    .macControlTier(.toolbar)
                     .padding(.horizontal, 16)
                     .padding(.top, 20)
                     .padding(.bottom, 12)
@@ -2519,7 +2501,12 @@ private struct GenreSplitMenu: View {
             }
             .accessibilityIdentifier("genres.splitSettings")
         } label: {
+            #if os(macOS)
+            Image(systemName: "ellipsis")
+                .macControlChrome(iconOnly: true)
+            #else
             PMToolbarItemLabel("genre_split_title", systemImage: "ellipsis.circle", titled: titled)
+            #endif
         }
         .accessibilityLabel(Text("genre_split_title"))
         .accessibilityIdentifier("genres.menu")

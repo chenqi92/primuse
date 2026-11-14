@@ -1749,7 +1749,9 @@ struct SearchView: View {
             } else {
                 macFilterChips
             }
+            // 有标题时是页头那一档(32), 跟在一排筛选胶囊后面时是工具条那一档(26), 和胶囊同高。
             macResultLayoutButton
+                .macControlTier(searchText.isEmpty ? .header : .toolbar)
         }
         .padding(.horizontal, PMSpace.xxxl)
         .padding(.top, searchText.isEmpty ? PMSpace.xl : PMSpace.l)
@@ -3458,30 +3460,13 @@ struct SearchView: View {
     }
 
     private var macResultLayoutButton: some View {
-        Button {
+        MacControlIconButton(
+            systemImage: "slider.horizontal.3",
+            help: "search_layout_title",
+            style: showsResultLayoutEditor ? .selected : .glass
+        ) {
             showsResultLayoutEditor.toggle()
-        } label: {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(showsResultLayoutEditor ? .white : PMColor.textMuted)
-                .frame(width: 32, height: 26)
-                .background(
-                    showsResultLayoutEditor
-                        ? AnyShapeStyle(PMColor.brand)
-                        : AnyShapeStyle(PMColor.glassBtn),
-                    in: Capsule()
-                )
-                .overlay {
-                    Capsule().strokeBorder(
-                        showsResultLayoutEditor ? .clear : PMColor.cardBorder,
-                        lineWidth: 0.5
-                    )
-                }
-                .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
-        .help(Text("search_layout_title"))
-        .accessibilityLabel(Text("search_layout_title"))
         .accessibilityIdentifier("search.layout.button")
         .popover(isPresented: $showsResultLayoutEditor, arrowEdge: .bottom) {
             resultLayoutEditor
@@ -3493,7 +3478,7 @@ struct SearchView: View {
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(active ? .white : PMColor.textMuted)
             .padding(.horizontal, 12)
-            .padding(.vertical, 5)
+            .frame(height: MacControlTier.toolbar.height)
             .background(
                 active ? AnyShapeStyle(PMColor.brand) : AnyShapeStyle(PMColor.glassBtn),
                 in: Capsule()

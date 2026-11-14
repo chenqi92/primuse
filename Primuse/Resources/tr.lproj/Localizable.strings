@@ -1054,6 +1054,7 @@
 "library_manage_header" = "Yönet";
 "queue" = "Sıra";
 "home_empty_mac_hint" = "Soldaki Kaynaklardan bir NAS veya bulut sürücüsü ekleyin veya Apple Music'nin başlatılmasına izin verin.";
+"home_empty_mac_hint_titlebar" = "NAS veya bulut sürücüsü bağlamak için pencerenin üstündeki “Kaynak Ekle” düğmesine tıklayın ya da başlamak için Apple Music’e izin verin.";
 "scrobble_lastfm_err_title" = "Last.fm Hatası";
 "ai_recommendation_scene_driving" = "Sürüş";
 "Crossfade Duration" = "Çapraz Geçiş Süresi";

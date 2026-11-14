@@ -533,31 +533,20 @@ struct SpokenWordLibraryView: View {
 
             Spacer(minLength: PMSpace.m)
 
-            ListeningShareMenu(scope: .audiobooks)
-                .labelStyle(.iconOnly)
-                .menuIndicator(.hidden)
-
+            // 查找、「首页显示哪些书」、分享同一档 32 高的玻璃键(`MacControlTier.header`);
+            // 分享原来是系统的菜单按钮, 比旁边两颗矮一截。
             if !library.spokenWordSongs.isEmpty {
                 MacLibraryFindField(text: $findText, prompt: "filter_spoken_word_placeholder")
-                Button {
+                MacControlIconButton(systemImage: "house", help: "home_spotlight_manage_books") {
                     showsHomeSpotlight = true
-                } label: {
-                    Image(systemName: "house")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                        .frame(width: 32, height: 32)
-                        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.m))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                        }
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .help(Text("home_spotlight_manage_books"))
-                .accessibilityLabel(Text("home_spotlight_manage_books"))
                 .accessibilityIdentifier("spokenWord.homeSpotlight")
             }
+
+            ListeningShareMenu(scope: .audiobooks, macHeaderLabel: true)
+                .macControlMenuStyle()
+                .help(ListeningShareText.string("hub"))
+                .accessibilityLabel(Text(ListeningShareText.string("hub")))
         }
         .padding(.horizontal, PMSpace.xxxl)
         .padding(.top, 28)
@@ -908,20 +897,14 @@ struct SpokenWordShelfContent: View {
     }
 
     #if os(macOS)
-    /// 和电台页的版式开关同一个样子; 44pt 见方的触控尺寸在 Mac 上把这一行撑得太高。
+    /// 和电台页的版式开关同一个样子(`macSegmentedContainer`); 44pt 见方的触控尺寸在 Mac 上把这一行撑得太高。
     private var macLayoutToggle: some View {
         HStack(spacing: 2) {
             macLayoutButton(.bookshelf, icon: SpokenWordShelfLayout.bookshelf.symbol, title: "spoken_word_shelf_section")
             macLayoutButton(.covers, icon: SpokenWordShelfLayout.covers.symbol, title: "spoken_word_shelf_covers_only")
             macLayoutButton(.list, icon: SpokenWordShelfLayout.list.symbol, title: "songs_view_list")
         }
-        .padding(2)
-        .frame(height: 32)
-        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.m))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
-        }
+        .macSegmentedContainer()
     }
 
     private func macLayoutButton(_ mode: SpokenWordShelfLayout, icon: String, title: LocalizedStringKey) -> some View {
@@ -929,14 +912,8 @@ struct SpokenWordShelfContent: View {
             layout = mode
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 11.5 * mode.symbolScale, weight: .medium))
-                .foregroundStyle(layout == mode ? PMColor.text : PMColor.textMuted)
-                .frame(width: 30, height: 26)
-                .background(
-                    layout == mode ? PMColor.glassBtn : .clear,
-                    in: .rect(cornerRadius: PMRadius.xs)
-                )
-                .contentShape(Rectangle())
+                .font(.system(size: 11.5 * mode.symbolScale, weight: .semibold))
+                .macSegment(selected: layout == mode, iconOnly: true)
         }
         .buttonStyle(.plain)
         .help(Text(title))
@@ -1677,15 +1654,20 @@ struct SpokenWordBookDetailView: View {
                     .pmHoverLift()
 
                     SpokenWordBookSpeedMenu(bookID: book.id)
-                    bookShareButton(book, songs: songs)
-                        .labelStyle(.iconOnly)
+                    // 和左边的「继续」、语速同一档 32 高的玻璃键, 不是系统的描边按钮。
+                    MacControlIconButton(systemImage: "square.and.arrow.up", help: Text(ListeningShareText.string("share"))) {
+                        shareSelection = .init(title: book.title, bookSongs: songs)
+                    }
+                    .disabled(songs.isEmpty)
+                    .accessibilityIdentifier("spokenWord.book.share")
                 }
                 .padding(.top, 6)
                 if collection == .books {
                     if let song = songs.first {
-                        SpokenWordIntroOutroMenu(bookID: book.id, song: song)
-                            .font(.system(size: 12.5))
-                            .fixedSize()
+                        // 设置类的一行, 比上面的「继续」那一排矮一档(`MacControlTier.toolbar`), 同一种玻璃键。
+                        SpokenWordIntroOutroMenu(bookID: book.id, song: song, macControlLabel: true)
+                            .macControlMenuStyle()
+                            .macControlTier(.toolbar)
                     }
                     SpokenWordBookOfflineRow(book: book, songs: songs)
                         .frame(maxWidth: 380, alignment: .leading)

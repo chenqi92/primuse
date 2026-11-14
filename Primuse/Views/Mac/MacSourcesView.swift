@@ -180,19 +180,19 @@ struct MacSourcesView: View {
                         .font(.system(size: 32, weight: .bold))
                         .tracking(-0.5)
                         .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
                 }
-                Spacer()
+                .layoutPriority(1)
+                Spacer(minLength: 0)
+                // 页面主操作: 和歌单、电台页的「新建 / 添加」同一种品牌色键(`MacControlStyle.prominent`)。
                 Button {
                     showAddSource = true
                 } label: {
                     Label("add_source", systemImage: "plus")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .frame(height: 32)
-                        .background(theme.uiAccentColor, in: .rect(cornerRadius: 8))
+                        .macControlChrome(.prominent)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("sources.add")
             }
 
             ScanStateScope {

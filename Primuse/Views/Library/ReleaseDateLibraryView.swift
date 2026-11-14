@@ -60,15 +60,19 @@ struct ReleaseDateLibraryView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     #if os(macOS)
-                    HStack(alignment: .center) {
+                    // 和专辑、电台页同一种页头: 32pt 标题(字距 -0.5)、顶 28, 查找框同一档高度。
+                    HStack(alignment: .center, spacing: PMSpace.m) {
                         Text("library_release_date_title")
                             .font(.system(size: 32, weight: .bold))
+                            .tracking(-0.5)
                             .foregroundStyle(PMColor.text)
-                        Spacer()
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                        Spacer(minLength: PMSpace.m)
                         MacLibraryFindField(text: $findText, prompt: "filter_albums_placeholder")
                     }
                     .padding(.horizontal, horizontalInset)
-                    .padding(.top, 24)
+                    .padding(.top, 28)
                     .padding(.bottom, 12)
                     #endif
                     if findQuery != nil, layout.decades.isEmpty {

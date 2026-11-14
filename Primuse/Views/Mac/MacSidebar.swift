@@ -72,7 +72,12 @@ struct MacSidebar: View {
                     playlistsSection
                         .pmFadeTransition()
                 }
-                sourcesSection
+                // 一个源都没有时不出这一组: 侧栏只列能去的地方, 加源的入口在标题栏右上角
+                // (`MacTitleBarAddSourceButton`), 首页、资料库的空状态也指向它。
+                if hasSources {
+                    sourcesSection
+                        .pmFadeTransition()
+                }
 
                 Spacer(minLength: 16)
             }
@@ -82,6 +87,7 @@ struct MacSidebar: View {
             // 动画挂在这层; 其余分区各自用自己的 id 列表(见下)。
             .pmAnimation(.list, value: showsPlaylistsSection)
             .pmAnimation(.list, value: sidebarLibrarySections)
+            .pmAnimation(.list, value: hasSources)
         }
         .frame(maxHeight: .infinity)
         .background(MacSidebarBackdrop().ignoresSafeArea())
@@ -325,24 +331,35 @@ struct MacSidebar: View {
                 Label("new_ai_smart_playlist", systemImage: "sparkles")
             }
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(PMColor.textFaint)
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
+            MacSidebarSectionAccessoryIcon(systemImage: "plus")
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .help(Text("playlists_title"))
+        .accessibilityLabel(Text("new_playlist"))
         .padding(.trailing, 4)
     }
 
     // MARK: - Sources section
 
+    private var hasSources: Bool {
+        !sourcesStore.sources.isEmpty
+    }
+
+    /// 音乐源分区: 标题行右侧一颗「音乐源管理」小键(和歌单分区标题的「+」同一种), 下面列前 6 个源。
+    /// 添加、编辑、超出 6 个的音乐源都在那一页; 以前末尾单独一行「音乐源管理」, 看着像第 7 个源。
     private var sourcesSection: some View {
         VStack(alignment: .leading, spacing: 1) {
-            sectionHeader("sources_title")
+            HStack(spacing: 4) {
+                sectionHeader("sources_title")
+                Spacer()
+                MacSidebarManageSourcesButton(highlight: routeSwitch.rowHighlight(for: .sources)) {
+                    select(.sources)
+                }
+                .padding(.trailing, 4)
+            }
 
             ForEach(sourcesStore.sources.prefix(6), id: \.id) { source in
                 let dotColor = sourceDotColor(for: source)
@@ -369,21 +386,6 @@ struct MacSidebar: View {
                 }
             }
 
-            if sourcesStore.sources.isEmpty {
-                Text("sidebar_sources_empty")
-                    .font(.system(size: 11))
-                    .foregroundStyle(PMColor.textFaint)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .pmFadeTransition()
-            }
-
-            // 添加、编辑、超出 6 个的音乐源都在这一页。
-            item(
-                route: .sources,
-                icon: sourcesStore.sources.isEmpty ? "plus.circle" : "slider.horizontal.3",
-                title: sourcesStore.sources.isEmpty ? "add_source" : "manage_sources"
-            )
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 8)
@@ -762,6 +764,42 @@ extension Notification.Name {
     static let primuseSidebarRequestNewPlaylist = Notification.Name("primuse.sidebar.newPlaylist")
     static let primuseSidebarRequestNewSmartPlaylist = Notification.Name("primuse.sidebar.newSmartPlaylist")
     static let primuseSidebarRequestNewAIPlaylist = Notification.Name("primuse.sidebar.newAIPlaylist")
+}
+
+/// 侧栏分区标题行右端的小图标键(歌单的「+」、音乐源的「管理」): 平时淡, 悬停时浮出一层底;
+/// `isActive` 时(正停在它打开的那一页)是品牌色, 代替以前那一整行的选中态。
+private struct MacSidebarSectionAccessoryIcon: View {
+    let systemImage: String
+    var isActive = false
+    @State private var hover = false
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(isActive ? PMColor.brand : (hover ? PMColor.text : PMColor.textFaint))
+            .frame(width: 20, height: 20)
+            .background((hover || isActive) ? PMColor.rowHover : .clear, in: .rect(cornerRadius: 5))
+            .contentShape(Rectangle())
+            .onHover { hover = $0 }
+            .pmAnimation(.hover, value: hover)
+    }
+}
+
+/// 「音乐源」标题右端的管理键。选没选中在这里自己读(`MacRouteRowHighlight`), 换页时侧栏其余部分不跟着重算。
+private struct MacSidebarManageSourcesButton: View {
+    let highlight: MacRouteRowHighlight
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            MacSidebarSectionAccessoryIcon(systemImage: "slider.horizontal.3", isActive: highlight.isSelected)
+        }
+        .buttonStyle(.plain)
+        .help(Text("manage_sources"))
+        .accessibilityLabel(Text("manage_sources"))
+        .accessibilityAddTraits(highlight.isSelected ? .isSelected : [])
+        .accessibilityIdentifier("sidebar.manageSources")
+    }
 }
 
 /// 侧栏里能点进某一页的一行。选没选中在这一行自己的 body 里读(`MacRouteRowHighlight`): 换页时

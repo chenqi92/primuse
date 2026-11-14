@@ -1513,21 +1513,13 @@ struct LibraryLikedFilterButton: View {
             isOn.toggle()
         } label: {
             #if os(macOS)
+            // 高度跟所在那一行走(`MacControlTier`), 开着时是开关的淡品牌色底。
             HStack(spacing: 5) {
                 Image(systemName: isOn ? "heart.fill" : "heart")
-                    .font(.system(size: 11, weight: .semibold))
+                    .imageScale(.small)
                 Text("library_favorite_filter_short")
-                    .font(.system(size: 11.5, weight: .medium))
             }
-            .foregroundStyle(isOn ? PMColor.brand : PMColor.text)
-            .padding(.horizontal, 9)
-            .frame(height: 26)
-            .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-            .overlay {
-                RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                    .strokeBorder(isOn ? PMColor.brand.opacity(0.5) : PMColor.cardBorder, lineWidth: 0.5)
-            }
-            .contentShape(.rect(cornerRadius: PMRadius.s))
+            .macControlChrome(isOn ? .selected : .glass)
             #else
             Label("library_favorite_filter", systemImage: isOn ? "heart.fill" : "heart")
                 .labelStyle(.iconOnly)

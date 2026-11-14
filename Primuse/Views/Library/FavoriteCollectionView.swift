@@ -436,16 +436,7 @@ struct FavoriteCollectionView: View {
                 showsEditor = true
             } label: {
                 Text("edit")
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(PMColor.text)
-                    .padding(.horizontal, 14)
-                    .frame(height: 32)
-                    .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.m))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
-                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                    }
-                    .fixedSize()
+                    .macControlChrome()
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("favorites.edit")

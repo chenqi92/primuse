@@ -304,8 +304,17 @@ struct LocateCurrentSongButton: View {
                         if isVisible(songID) { locate(songID, false) }
                         else { filteredTarget = songID }
                     } label: {
+                        #if os(macOS)
+                        // Mac 上它摆在页头 / 工具条那一排里: 跟旁边的键同一种玻璃键, 不是系统的描边按钮。
+                        Image(systemName: "scope")
+                            .macControlChrome(iconOnly: true)
+                        #else
                         PMToolbarItemLabel("locate_current_song", systemImage: "scope", titled: titled)
+                        #endif
                     }
+                    #if os(macOS)
+                    .buttonStyle(.plain)
+                    #endif
                     .accessibilityLabel(Text("locate_current_song"))
                     .accessibilityIdentifier("songList.locateCurrent")
                     .help(Text("locate_current_song"))
@@ -2478,22 +2487,12 @@ struct SongListView: View {
     private var macToolbarRow: some View {
         HStack(spacing: 8) {
             locateCurrentButton
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundStyle(PMColor.textFaint)
-                TextField("", text: $searchText, prompt: Text("filter_songs_placeholder"))
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(PMColor.text)
-            }
-            .padding(.horizontal, 10)
-            .frame(width: 220, height: 26)
-            .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-            .overlay {
-                RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-            }
+            MacLibraryFindField(
+                text: $searchText,
+                prompt: "filter_songs_placeholder",
+                width: 220,
+                accessibilityIdentifier: "songList.filter"
+            )
 
             Spacer()
 
@@ -2503,40 +2502,30 @@ struct SongListView: View {
                 selectedSourceID = nil
                 songFilter = songFilter == .downloaded ? .all : .downloaded
             } label: {
-                Label("filter_downloaded", systemImage: SongFilter.downloaded.icon)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(songFilter == .downloaded ? .white : PMColor.text)
-                    .padding(.horizontal, 10)
-                    .frame(height: 26)
-                    .background(
-                        songFilter == .downloaded ? PMColor.brand : PMColor.glassBtn,
-                        in: .rect(cornerRadius: PMRadius.s)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                            .strokeBorder(
-                                songFilter == .downloaded ? .clear : PMColor.cardBorder,
-                                lineWidth: 0.5
-                            )
-                    }
+                HStack(spacing: 5) {
+                    Image(systemName: SongFilter.downloaded.icon)
+                        .imageScale(.small)
+                    Text("filter_downloaded")
+                }
+                .macControlChrome(songFilter == .downloaded ? .selected : .glass)
             }
             .buttonStyle(.plain)
             .disabled(selection.isActive)
+            .accessibilityAddTraits(songFilter == .downloaded ? .isSelected : [])
             .accessibilityIdentifier("songFilter.downloaded")
 
             browseModeSegment
 
-            Text("sort_by")
-                .font(.system(size: 11.5))
-                .foregroundStyle(PMColor.textFaint)
-
+            // 排序键上就写着当前怎么排(和歌单、专辑页一样), 前面不再单摆一个「排序方式」。
             Menu {
                 SongSortMenuOptions(
                     sortOrder: $sortOrder,
                     followsListSort: showsFolderBrowser ? $folderFollowsListSort : nil
                 )
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .imageScale(.small)
                     if showsFolderBrowser, !folderFollowsListSort {
                         Text("sort_track_order")
                     } else {
@@ -2545,23 +2534,15 @@ struct SongListView: View {
                             .font(.system(size: 9, weight: .bold))
                     }
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 8.5, weight: .bold))
+                        .opacity(0.7)
                 }
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(PMColor.text)
-                .padding(.horizontal, 10)
-                .frame(height: 26)
-                .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-                .overlay {
-                    RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                }
+                .macControlChrome()
             }
-            .menuStyle(.borderlessButton)
-            // 自己画了 chevron.down, 隐藏系统 Menu 默认的小箭头, 否则两个箭头叠一起。
-            .menuIndicator(.hidden)
+            .macControlMenuStyle()
             .disabled(selection.isActive)
-            .fixedSize()
+            .help(Text("sort_by"))
+            .accessibilityLabel(Text("sort_by"))
 
             if !showsFolderBrowser {
                 viewModeSegment
@@ -2569,8 +2550,7 @@ struct SongListView: View {
                 // 行高 / 显示列只作用于列表视图; 显示方式已由左侧分段控件切换,
                 // 弹框不再重复它, 其他视图下也就没有可调项, 直接不显示按钮。
                 if macViewMode == .list {
-                    PMRoundBtn(icon: "slider.horizontal.3", size: 26, iconSize: 12, style: .glass,
-                               help: "songs_view_options") {
+                    MacControlIconButton(systemImage: "slider.horizontal.3", help: "songs_view_options") {
                         showViewOptions.toggle()
                     }
                     .popover(isPresented: $showViewOptions, arrowEdge: .bottom) {
@@ -2579,13 +2559,16 @@ struct SongListView: View {
                 }
             }
         }
+        // 大封面头部下面、表格正上方的工具条: 一律 26 高(`MacControlTier.toolbar`),
+        // 原来定位键是系统按钮、视图选项是圆键, 和旁边的方角键混在一起。
+        .macControlTier(.toolbar)
         .padding(.top, -4)
     }
 
     private var browseModeSegment: some View {
         // 目录被「已下载」或查找挡住时眼前是平铺：亮「平铺」，「目录」画灰但可点，点了说明原因。
         let displayedMode: LibrarySongBrowseMode = showsFolderBrowser ? .folder : .flat
-        return HStack(spacing: 1) {
+        return HStack(spacing: 2) {
             ForEach(LibrarySongBrowseMode.allCases, id: \.self) { mode in
                 let blocker = mode == .folder ? folderBrowseBlocker : nil
                 Button {
@@ -2596,30 +2579,22 @@ struct SongListView: View {
                         browseMode = mode
                     }
                 } label: {
-                    Label(
-                        mode == .folder ? "library_browse_folder" : "library_browse_flat",
-                        systemImage: mode == .folder ? "folder" : "list.bullet"
-                    )
-                    .labelStyle(.titleAndIcon)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(displayedMode == mode ? PMColor.brand : PMColor.textMuted)
+                    HStack(spacing: 4) {
+                        Image(systemName: mode == .folder ? "folder" : "list.bullet")
+                            .imageScale(.small)
+                        Text(mode == .folder ? "library_browse_folder" : "library_browse_flat")
+                    }
                     .opacity(blocker == nil ? 1 : 0.45)
-                    .padding(.horizontal, 8)
-                    .frame(minHeight: 22)
-                    .background(
-                        displayedMode == mode ? PMColor.bgElev : .clear,
-                        in: .rect(cornerRadius: 5)
-                    )
-                    .contentShape(Rectangle())
+                    .macSegment(selected: displayedMode == mode)
                 }
                 .buttonStyle(.plain)
                 .disabled(selection.isActive)
+                .accessibilityAddTraits(displayedMode == mode ? .isSelected : [])
                 .accessibilityHint(blocker.map { Text($0.titleKey) } ?? Text(verbatim: ""))
                 .accessibilityIdentifier("libraryBrowseMode.\(mode.rawValue)")
             }
         }
-        .padding(2)
-        .background(PMColor.glassBtn, in: .rect(cornerRadius: 7))
+        .macSegmentedContainer()
         .accessibilityElement(children: .contain)
         .folderBrowseBlockerAlert(
             isPresented: $explainsFolderBlocker,
@@ -2629,24 +2604,21 @@ struct SongListView: View {
     }
 
     private var viewModeSegment: some View {
-        HStack(spacing: 1) {
+        HStack(spacing: 2) {
             ForEach(MacSongsViewMode.allCases, id: \.self) { mode in
                 Button {
                     macViewMode = mode
                 } label: {
                     Image(systemName: mode.icon)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(macViewMode == mode ? PMColor.brand : PMColor.textMuted)
-                        .frame(width: 26, height: 22)
-                        .background(macViewMode == mode ? PMColor.bgElev : .clear, in: .rect(cornerRadius: 5))
-                        .shadow(color: macViewMode == mode ? .black.opacity(0.12) : .clear, radius: 2, y: 1)
+                        .macSegment(selected: macViewMode == mode, iconOnly: true)
                 }
                 .buttonStyle(.plain)
                 .help(Text(verbatim: mode.title))
+                .accessibilityLabel(Text(verbatim: mode.title))
+                .accessibilityAddTraits(macViewMode == mode ? .isSelected : [])
             }
         }
-        .padding(2)
-        .background(PMColor.glassBtn, in: .rect(cornerRadius: 7))
+        .macSegmentedContainer()
     }
 
     private var librarySubtitle: String {
@@ -5668,11 +5640,15 @@ private struct LibraryFolderNodeView: View {
 
             Spacer()
 
+            // 目录里的一层: 和上面工具条同一档 26 高的自绘键(`MacControlTier.toolbar`),
+            // 原来是系统的描边按钮和无边框菜单。
             Button {
                 playAllSongsInFolder()
             } label: {
                 Label("play_all", systemImage: "play.fill")
+                    .macControlChrome(.prominent)
             }
+            .buttonStyle(.plain)
             .disabled(node.descendantSongCount == 0)
 
             Menu {
@@ -5683,25 +5659,30 @@ private struct LibraryFolderNodeView: View {
                     }
                 }
             } label: {
-                Label("sort_by", systemImage: "arrow.up.arrow.down")
+                MacControlMenuLabel(
+                    verbatim: macSortBinding.wrappedValue?.label ?? String(localized: "sort_track_order"),
+                    systemImage: "arrow.up.arrow.down"
+                )
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            .macControlMenuStyle()
             .disabled(selection.isActive)
+            .help(Text("sort_by"))
+            .accessibilityLabel(Text("sort_by"))
 
             if let maintenanceActions {
                 Menu {
                     LibraryFolderMaintenanceMenuItems(actions: maintenanceActions)
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: "ellipsis")
+                        .macControlChrome(iconOnly: true)
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
+                .macControlMenuStyle()
                 .disabled(selection.isActive)
+                .help(Text("a11y_more_actions"))
                 .accessibilityLabel(Text("a11y_more_actions"))
             }
         }
+        .macControlTier(.toolbar)
         .padding(12)
     }
 

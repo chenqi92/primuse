@@ -186,21 +186,31 @@ private struct LibraryPageFindField: View {
 #endif
 
 #if os(macOS)
-/// Mac 资料库各页「在本页里找」的输入框: 和歌曲页工具条上的过滤框同一个样子。
+/// Mac 资料库各页「在本页里找」的输入框。高度、圆角跟同一行的按钮走(`MacControlTier`:
+/// 页头 32、工具条 26); 底色和标题栏的搜索框一样是实底, 一眼看得出是输入框而不是按钮。
+/// `width` 给 nil 时撑满所在的那一栏(艺人、风格的左栏); 给了是最宽到这么宽, 窗口窄时能缩到 120,
+/// 页头一排放不下时先让它让, 不把窗口撑宽(见 primuse-mac-min-width-traps)。
 struct MacLibraryFindField: View {
     @Binding var text: String
     let prompt: LocalizedStringKey
-    var width: CGFloat = 200
+    var width: CGFloat? = 200
+    var accessibilityIdentifier = "library.pageFind"
+    @Environment(\.macControlTier) private var tier
+    @FocusState private var isFocused: Bool
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: tier.cornerRadius, style: .continuous)
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11))
                 .foregroundStyle(PMColor.textFaint)
+                .accessibilityHidden(true)
             TextField("", text: $text, prompt: Text(prompt))
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(tier.textFont(weight: .regular))
                 .foregroundStyle(PMColor.text)
+                .focused($isFocused)
+                .accessibilityLabel(Text(prompt))
                 .onExitCommand { text = "" }
             if !text.isEmpty {
                 Button {
@@ -211,17 +221,25 @@ struct MacLibraryFindField: View {
                         .foregroundStyle(PMColor.textFaint)
                 }
                 .buttonStyle(.plain)
+                .help(Text("clear"))
                 .accessibilityLabel(Text("clear"))
             }
         }
         .padding(.horizontal, 10)
-        .frame(width: width, height: 26)
-        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+        .frame(height: tier.height)
+        .frame(
+            minWidth: width.map { min($0, 120) } ?? 0,
+            idealWidth: width,
+            maxWidth: width ?? .infinity
+        )
+        .background(PMColor.bgElev, in: shape)
         .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            shape.strokeBorder(
+                isFocused ? PMColor.brand.opacity(0.55) : PMColor.dividerStrong,
+                lineWidth: isFocused ? 1 : 0.5
+            )
         }
-        .accessibilityIdentifier("library.pageFind")
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 #endif

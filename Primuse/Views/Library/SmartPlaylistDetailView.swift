@@ -682,13 +682,10 @@ struct SmartPlaylistDetailView: View {
                 Text(LocalizedStringKey(
                     smart.aiConfiguration?.isListeningScene == true ? "listening_scene_edit" : (isAI ? "ai_playlist_add_songs" : "smart_edit_rules")
                 ))
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(PMColor.text)
-                    .padding(.horizontal, 10)
-                    .frame(height: 24)
-                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+                    .macControlChrome()
             }
             .buttonStyle(.plain)
+            .macControlTier(.toolbar)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -710,6 +707,8 @@ struct SmartPlaylistDetailView: View {
                 MacLibraryFindField(text: $findText, prompt: "playlist_find_prompt")
             }
         }
+        // 和歌单页同一条工具条: 26 高(`MacControlTier.toolbar`)。
+        .macControlTier(.toolbar)
         .padding(.top, -2)
     }
 

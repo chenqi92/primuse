@@ -1495,6 +1495,7 @@
 "home_dashboard_title" = "Primuse";
 "home_empty_desc" = "अपनी लाइब्रेरी का निर्माण शुरू करने के लिए सेटिंग्स में एक संगीत स्रोत जोड़ें";
 "home_empty_mac_hint" = "बाईं ओर स्रोतों से एक NAS या क्लाउड ड्राइव जोड़ें, या शुरू करने के लिए Apple Music को अधिकृत करें।";
+"home_empty_mac_hint_titlebar" = "NAS या क्लाउड ड्राइव जोड़ने के लिए विंडो के ऊपर “स्रोत जोड़ें” पर क्लिक करें, या शुरू करने के लिए Apple Music को अधिकृत करें।";
 "home_enabled_sources" = "सक्षम";
 "home_for_you_title" = "आपके लिए";
 "home_for_you_ai_badge" = "स्मार्ट";
