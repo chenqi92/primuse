@@ -10931,10 +10931,12 @@ struct NowPlayingView: View {
         case .queue:
             return NowPlayingControlFace(symbol: "list.bullet", label: String(localized: "a11y_queue"))
         case .shuffle:
+            // 像循环键一样每种状态一个图标(`ShuffleKeyState`):顺序、随机、只有一首。
+            let state = ShuffleKeyState(shuffleEnabled: player.shuffleEnabled, queueCount: player.queueCount)
             return NowPlayingControlFace(
-                symbol: "shuffle",
+                symbol: state.symbolName,
                 label: String(localized: "a11y_shuffle"),
-                isActive: player.shuffleEnabled,
+                isActive: state.isActive,
                 isToggle: true
             )
         case .repeatMode:

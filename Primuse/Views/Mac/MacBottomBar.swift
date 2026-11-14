@@ -182,7 +182,8 @@ struct MacBottomBar: View {
                     }
                     .pmFadeTransition()
                 } else if !player.isLiveRadio {
-                    transportBtn("shuffle", size: 13, active: player.shuffleEnabled,
+                    let shuffleKey = ShuffleKeyState(shuffleEnabled: player.shuffleEnabled, queueCount: player.queueCount)
+                    transportBtn(shuffleKey.symbolName, size: 13, active: shuffleKey.isActive,
                                  isToggle: true, help: "shuffle") {
                         player.shuffleEnabled.toggle()
                     }

@@ -1157,7 +1157,8 @@ struct TVNowPlayingView: View {
                            focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.like.rawValue,
                            onInteraction: rowInteraction(.like)) { store.toggleAppleMusicLike(target) }
             }
-            TVRoundBtn(icon: "shuffle", size: 56, active: store.shuffleEnabled,
+            let shuffleKey = ShuffleKeyState(shuffleEnabled: store.shuffleEnabled, queueCount: store.queueSongIDs.count)
+            TVRoundBtn(icon: shuffleKey.symbolName, size: 56, active: shuffleKey.isActive,
                        immersiveDark: immersiveDark,
                        focusBinding: $focusedRowControl, focusID: TVPlayerRowControl.shuffle.rawValue,
                        onInteraction: rowInteraction(.shuffle)) { store.toggleShuffle() }

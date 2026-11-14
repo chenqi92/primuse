@@ -42,3 +42,23 @@ struct PlaybackOrderModeTests {
         #expect(visited == [.repeatAll, .repeatOne, .shuffle, .sequential, .repeatAll, .repeatOne, .shuffle, .sequential])
     }
 }
+
+@Suite("Shuffle key")
+struct ShuffleKeyStateTests {
+    @Test("顺序、随机、只有一首各有图标，只有随机提亮")
+    func eachStateHasItsOwnSymbol() {
+        let sequential = ShuffleKeyState(shuffleEnabled: false, queueCount: 12)
+        let shuffled = ShuffleKeyState(shuffleEnabled: true, queueCount: 12)
+        let single = ShuffleKeyState(shuffleEnabled: false, queueCount: 1)
+        #expect(sequential == .sequential && shuffled == .shuffled && single == .singleItem)
+        #expect(Set([sequential.symbolName, shuffled.symbolName, single.symbolName]).count == 3)
+        #expect(single.symbolName != PlaybackOrderMode.repeatOne.symbolName)
+        #expect(shuffled.isActive && !sequential.isActive && !single.isActive)
+    }
+
+    @Test("随机开着时队列剩一首也仍显示随机；空队列按顺序显示")
+    func shuffleWinsAndEmptyQueueIsSequential() {
+        #expect(ShuffleKeyState(shuffleEnabled: true, queueCount: 1) == .shuffled)
+        #expect(ShuffleKeyState(shuffleEnabled: false, queueCount: 0) == .sequential)
+    }
+}

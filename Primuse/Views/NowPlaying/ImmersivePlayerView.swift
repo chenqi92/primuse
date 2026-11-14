@@ -1017,7 +1017,9 @@ struct ImmersivePlayerView: View {
         VStack(spacing: metrics.s(8)) {
             seekBar
             HStack(spacing: metrics.s(18)) {
-                modeButton("shuffle", active: player.shuffleEnabled) {
+                // 色场上亮暗分不开,换图标说状态(`ShuffleKeyState`)。
+                let shuffleKey = ShuffleKeyState(shuffleEnabled: player.shuffleEnabled, queueCount: player.queueCount)
+                modeButton(shuffleKey.symbolName, active: shuffleKey.isActive) {
                     PMHaptics.playbackModeToggled()
                     player.shuffleEnabled.toggle()
                 }

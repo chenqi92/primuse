@@ -58,6 +58,36 @@ public enum PlaybackOrderMode: String, CaseIterable, Sendable {
     }
 }
 
+/// 随机键（顺序 / 随机）这一刻的样子。像循环键一样每种状态一个图标，不只靠亮不亮区分：
+/// 沉浸模式这类封面色场上，亮色和暗色常常分不开。队列只有一首时随机打不开，换成「只有一首」，
+/// 和单曲循环的图标分开。
+public enum ShuffleKeyState: Sendable, Equatable {
+    case sequential
+    case shuffled
+    case singleItem
+
+    public init(shuffleEnabled: Bool, queueCount: Int) {
+        if shuffleEnabled {
+            self = .shuffled
+        } else if queueCount == 1 {
+            self = .singleItem
+        } else {
+            self = .sequential
+        }
+    }
+
+    public var symbolName: String {
+        switch self {
+        case .sequential: PlaybackOrderMode.sequential.symbolName
+        case .shuffled: PlaybackOrderMode.shuffle.symbolName
+        case .singleItem: "1.circle"
+        }
+    }
+
+    /// 只有随机开着时提亮；顺序是默认，只有一首时只是说明。
+    public var isActive: Bool { self == .shuffled }
+}
+
 /// 循环关着时每首播完都停。锁屏、CarPlay、Siri、Apple Music、小组件和手表只认 `RepeatMode`
 /// 那三种,这两种在它们那里都是「循环关」;从那些地方打开列表循环或单曲循环就换掉它。
 public enum EachTrackStop: String, Codable, Sendable {

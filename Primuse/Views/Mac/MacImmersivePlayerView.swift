@@ -663,7 +663,7 @@ struct MacImmersivePlayerView: View {
                 VStack(spacing: metrics.s(15)) {
                     seekBar
                     HStack(spacing: metrics.s(14)) {
-                        modeButton("shuffle", active: player.shuffleEnabled, label: "shuffle") {
+                        modeButton(shuffleKey.symbolName, active: shuffleKey.isActive, label: "shuffle") {
                             player.shuffleEnabled.toggle()
                         }
                         transportStrip
@@ -802,9 +802,14 @@ struct MacImmersivePlayerView: View {
         player.repeatMode == .one ? "repeat.1" : "repeat"
     }
 
+    /// 随机键的样子:顺序、随机、只有一首各一个图标,不只靠亮不亮(`ShuffleKeyState`)。
+    private var shuffleKey: ShuffleKeyState {
+        ShuffleKeyState(shuffleEnabled: player.shuffleEnabled, queueCount: player.queueCount)
+    }
+
     /// 随机键:点一下开关随机,右键选抽歌偏好(#332),和底栏那一颗一样。
     private func shuffleModeButton(diameter: CGFloat) -> some View {
-        modeButton("shuffle", active: player.shuffleEnabled, label: "shuffle", diameter: diameter) {
+        modeButton(shuffleKey.symbolName, active: shuffleKey.isActive, label: "shuffle", diameter: diameter) {
             player.shuffleEnabled.toggle()
         }
         .pmPlaybackModeSymbolEffect(shuffleEnabled: player.shuffleEnabled, repeatMode: 0)
