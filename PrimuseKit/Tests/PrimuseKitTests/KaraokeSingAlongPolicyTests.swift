@@ -215,6 +215,43 @@ struct KaraokeSingAlongPolicyTests {
         #expect(!prefetches(.yieldingToKaraoke))
     }
 
+    @Test("The stage offers Accompaniment Only only where sing-along works on this song now")
+    func stageHandoffOffer() {
+        #expect(Policy.offersStageHandoff(availability: .available, model: .ready, isPlayingInstrumental: false))
+        // 已经在放伴奏版本:收起舞台就是。
+        #expect(!Policy.offersStageHandoff(availability: .available, model: .ready, isPlayingInstrumental: true))
+        // 模型还没下载:不在这里替用户下。
+        #expect(!Policy.offersStageHandoff(availability: .available, model: .notDownloaded, isPlayingInstrumental: false))
+        #expect(!Policy.offersStageHandoff(availability: .available, model: .downloading(0.5), isPlayingInstrumental: false))
+        for blocked: KaraokeSingAlongAvailability in [
+            .notApplicable, .appleMusic, .casting, .highFidelityOutput, .spatialAudio, .unsupportedPlayback,
+            .unsupportedSystem,
+        ] {
+            #expect(!Policy.offersStageHandoff(availability: blocked, model: .ready, isPlayingInstrumental: false))
+        }
+    }
+
+    @Test("The stage's stem goes to sing-along only when it belongs to the playing song and sing-along is on")
+    func stemHandover() {
+        #expect(Policy.handsStemOver(
+            isSingAlongEnabled: true, stageHasStem: true, stemSongMatchesPlaying: true, isPlayingInstrumental: false
+        ))
+        // 伴唱没能打开:舞台照常撤下人声轨,不留一份没人管的在消除单元上。
+        #expect(!Policy.handsStemOver(
+            isSingAlongEnabled: false, stageHasStem: true, stemSongMatchesPlaying: true, isPlayingInstrumental: false
+        ))
+        // 还在分离、没开 AI:没有人声轨可交,伴唱自己去装。
+        #expect(!Policy.handsStemOver(
+            isSingAlongEnabled: true, stageHasStem: false, stemSongMatchesPlaying: true, isPlayingInstrumental: false
+        ))
+        #expect(!Policy.handsStemOver(
+            isSingAlongEnabled: true, stageHasStem: true, stemSongMatchesPlaying: false, isPlayingInstrumental: false
+        ))
+        #expect(!Policy.handsStemOver(
+            isSingAlongEnabled: true, stageHasStem: true, stemSongMatchesPlaying: true, isPlayingInstrumental: true
+        ))
+    }
+
     @Test("Alignment is fast until locked and the gain is known, then only rechecked")
     func alignmentCadence() {
         #expect(Policy.alignmentInterval(isLocked: false, needsGainEstimate: false) == .milliseconds(250))

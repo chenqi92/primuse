@@ -7609,3 +7609,5 @@
 "sing_along_activity_preparing" = "伴唱准备中";
 "sing_along_spatial_audio_short" = "空间音频开着时不可用";
 "sing_along_unavailable_spatial_audio" = "空间音频会重新渲染整首歌，人声减不干净。关掉播放设置里的空间音频后伴唱才会生效，现在播放原唱。";
+"karaoke_sing_along_handoff" = "只听伴奏";
+"karaoke_sing_along_handoff_detail" = "收起卡拉OK，用伴唱接着放伴奏";

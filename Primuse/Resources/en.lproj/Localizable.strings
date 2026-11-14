@@ -7277,3 +7277,5 @@
 "sing_along_activity_preparing" = "Preparing Sing Along";
 "sing_along_spatial_audio_short" = "Unavailable with Spatial Audio";
 "sing_along_unavailable_spatial_audio" = "Spatial Audio re-renders the whole song, so the vocal can’t be removed cleanly. Turn off Spatial Audio in playback settings for Sing Along to take effect; the original is playing for now.";
+"karaoke_sing_along_handoff" = "Accompaniment Only";
+"karaoke_sing_along_handoff_detail" = "Leaves karaoke and keeps playing the accompaniment with Sing Along";

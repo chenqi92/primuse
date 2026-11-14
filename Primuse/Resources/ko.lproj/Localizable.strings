@@ -7516,3 +7516,5 @@
 "sing_along_activity_preparing" = "따라 부르기 준비 중";
 "sing_along_spatial_audio_short" = "공간 음향을 켜면 사용할 수 없음";
 "sing_along_unavailable_spatial_audio" = "공간 음향은 곡 전체를 다시 렌더링해서 보컬을 깔끔하게 지울 수 없습니다. 재생 설정에서 공간 음향을 끄면 따라 부르기가 적용됩니다. 지금은 원곡을 재생합니다.";
+"karaoke_sing_along_handoff" = "반주만 듣기";
+"karaoke_sing_along_handoff_detail" = "노래방을 닫고 따라 부르기로 반주를 계속 재생합니다";

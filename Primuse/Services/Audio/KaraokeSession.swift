@@ -275,6 +275,8 @@ final class KaraokeSession {
     @ObservationIgnored private var lockPolicyEpoch = -1
     /// 开着 ReplayGain 时人声轨要按播放的音量缩放再减(`KaraokeRenderControl.stemScale`)。
     @ObservationIgnored private var stemGain = KaraokeStemGainEstimator()
+    /// 「只听伴奏」把人声轨连同对齐结果交给了伴唱:收尾时别把它从消除单元上撤下。
+    @ObservationIgnored private var stemHandedToSingAlong = false
     @ObservationIgnored private var isAligning = false
     @ObservationIgnored private var tickCount = 0
     @ObservationIgnored private var pausedRecordingTicks = 0
@@ -328,6 +330,7 @@ final class KaraokeSession {
     func start() {
         guard !isActive else { return }
         isActive = true
+        stemHandedToSingAlong = false
         // 伴唱开着时先把它挂的人声轨撤下,舞台这一拍再装自己的(两边共用一个消除单元)。
         KaraokeSingAlong.shared.karaokeWillStart()
         engine.karaokeControl.stemFadeDuration = 0
@@ -366,11 +369,44 @@ final class KaraokeSession {
         control.isActive = false
         control.bridgesStem = false
         control.capturesVocal = false
-        control.stemScale = 1
+        if !stemHandedToSingAlong { control.stemScale = 1 }
         engine.applyKaraokePitch(cents: 0)
         player.setKaraokeSessionActive(false)
-        // 舞台关了,开着的伴唱接回来。
+        // 舞台关了,开着的伴唱接回来(「只听伴奏」交过来的人声轨在这一拍里接上)。
         KaraokeSingAlong.shared.karaokeDidStop()
+    }
+
+    /// 「只听伴奏」:打开伴唱(原唱音量用它自己记住的那一档),把已经装好、对齐好的人声轨原样
+    /// 交给它,再像关舞台一样收掉麦克风、打分、录音、练习与升降调。人声轨一直挂在消除单元上、
+    /// 锁定也不作废,所以交接时不会先漏一下原唱。舞台还没有人声轨(还在分离、没开 AI)时
+    /// 伴唱自己去装。之后由调用方按各自的方式离开舞台。
+    func handOffToSingAlong() {
+        guard isActive else { return }
+        let singAlong = KaraokeSingAlong.shared
+        singAlong.setEnabled(true)
+        if KaraokeSingAlongPolicy.handsStemOver(
+            isSingAlongEnabled: singAlong.isEnabled,
+            stageHasStem: isStemActive && stemTrack != nil,
+            stemSongMatchesPlaying: stemSongID != nil && stemSongID == player.currentSong?.id,
+            isPlayingInstrumental: isPlayingInstrumental
+        ), let track = stemTrack, let songID = stemSongID {
+            singAlong.receiveStem(.init(
+                track: track,
+                songID: songID,
+                lockPolicy: lockPolicy,
+                lockPolicyEpoch: lockPolicyEpoch,
+                gain: stemGain
+            ))
+            stemHandedToSingAlong = true
+            stemLoadTask?.cancel()
+            stemLoadTask = nil
+            stemTrack = nil
+            stemSongID = nil
+            isStemActive = false
+            isStemLocked = false
+            plog("🎤 Karaoke: handing the stem over to sing-along \(songID.prefix(8))")
+        }
+        stop()
     }
 
     /// Switches playback to the effects graph, which karaoke needs.
@@ -615,7 +651,10 @@ final class KaraokeSession {
         stemSongID = nil
         // Withdraw it from the render thread first, then keep the samples
         // alive a moment: a render cycle may already hold their address.
-        engine.karaokeControl.installStem(nil)
+        // 交给伴唱的那一份已经不归舞台:留在消除单元上,由伴唱接着减。
+        if !stemHandedToSingAlong {
+            engine.karaokeControl.installStem(nil)
+        }
         if let track = stemTrack {
             retiredStems.append(track)
             Task { @MainActor [weak self] in
@@ -628,7 +667,9 @@ final class KaraokeSession {
         isStemLocked = false
         lockPolicy.reset()
         stemGain.reset()
-        engine.karaokeControl.stemScale = 1
+        if !stemHandedToSingAlong {
+            engine.karaokeControl.stemScale = 1
+        }
     }
 
     /// Correlates the newest playback with the stem off the main actor and
@@ -1233,6 +1274,17 @@ final class KaraokeSingAlong {
     @ObservationIgnored private var prefetchTask: Task<Void, Never>?
     @ObservationIgnored private var activityID: UUID?
     @ObservationIgnored private var publishedActivity: PlayerActivityStatus?
+    /// 卡拉OK舞台「只听伴奏」交过来、舞台关上那一拍接上的人声轨。
+    @ObservationIgnored private var pendingHandoff: StemHandoff?
+
+    /// 卡拉OK舞台「只听伴奏」交过来的人声轨:还挂在消除单元上,锁定(对齐结果)也还有效。
+    struct StemHandoff {
+        let track: KaraokeStemTrack
+        let songID: String
+        let lockPolicy: KaraokeStemLockPolicy
+        let lockPolicyEpoch: Int
+        let gain: KaraokeStemGainEstimator
+    }
 
     /// 只在用到时才碰分离服务(它一建出来就去问托管资源包)。
     private var separation: KaraokeSeparationService { .shared }
@@ -1340,6 +1392,10 @@ final class KaraokeSingAlong {
         guard karaokeHolds == 1 else { return }
         prefetchTask?.cancel()
         prefetchTask = nil
+        if let handoff = pendingHandoff {
+            pendingHandoff = nil
+            drop(handoff)
+        }
         removeStem()
         clearActivity()
         if isEnabled { setPhase(.yieldingToKaraoke) }
@@ -1348,8 +1404,20 @@ final class KaraokeSingAlong {
     /// 舞台关了:开着伴唱就马上接回来,不等下一拍。
     func karaokeDidStop() {
         karaokeHolds = max(0, karaokeHolds - 1)
-        guard karaokeHolds == 0, isEnabled else { return }
+        guard karaokeHolds == 0 else { return }
+        guard isEnabled else {
+            if let handoff = pendingHandoff {
+                pendingHandoff = nil
+                drop(handoff)
+            }
+            return
+        }
         tick()
+    }
+
+    /// 「只听伴奏」:舞台收尾前把人声轨交过来,舞台关上那一拍(`karaokeDidStop` 里的 `tick`)接上。
+    func receiveStem(_ handoff: StemHandoff) {
+        pendingHandoff = handoff
     }
 
     // MARK: 每一拍
@@ -1369,6 +1437,10 @@ final class KaraokeSingAlong {
         loopTask = nil
         prefetchTask?.cancel()
         prefetchTask = nil
+        if let handoff = pendingHandoff {
+            pendingHandoff = nil
+            drop(handoff)
+        }
         releaseRenderControl(fadingOut: true)
         // 关掉以后,为伴唱发起、还没分完的分离不再占 GPU。
         cancelRequestedSeparations(keeping: [])
@@ -1399,12 +1471,21 @@ final class KaraokeSingAlong {
             songDidChange(player: player)
         }
         let availability = Self.availability(of: player)
-        if let song, KaraokeSingAlongPolicy.wantsStem(
+        let wantsStem = KaraokeSingAlongPolicy.wantsStem(
             isEnabled: true,
             isKaraokeActive: false,
             availability: availability,
             model: model
-        ) {
+        )
+        if let handoff = pendingHandoff {
+            pendingHandoff = nil
+            if wantsStem, handoff.songID == song?.id {
+                adopt(handoff)
+            } else {
+                drop(handoff)
+            }
+        }
+        if let song, wantsStem {
             updateStem(for: song, player: player)
         } else {
             releaseRenderControl(fadingOut: true)
@@ -1435,7 +1516,8 @@ final class KaraokeSingAlong {
         if menuPhase != coarse { menuPhase = coarse }
     }
 
-    private static func availability(of player: AudioPlayerService) -> KaraokeSingAlongAvailability {
+    /// 伴唱此刻能不能作用在正在放的东西上;卡拉OK舞台用它决定给不给「只听伴奏」。
+    static func availability(of player: AudioPlayerService) -> KaraokeSingAlongAvailability {
         let song = player.currentSong
         let engine = player.audioEngine
         let isHighFidelity = player.outputMode(for: song) == .highFidelity
@@ -1578,6 +1660,42 @@ final class KaraokeSingAlong {
         }
     }
 
+    /// 接上舞台交过来的人声轨:不重装、不推进对齐的轮次,舞台的锁定接着用,原唱不会先漏出来;
+    /// 减去的量从舞台的人声音量在 0.3 秒里过渡到伴唱这一档。
+    private func adopt(_ handoff: StemHandoff) {
+        removeStem()
+        stemTrack = handoff.track
+        stemSongID = handoff.songID
+        lockPolicy = handoff.lockPolicy
+        lockPolicyEpoch = handoff.lockPolicyEpoch
+        stemGain = handoff.gain
+        lastAlignment = nil
+        ownsRenderControl = true
+        applyRenderSettings()
+        let locked = player?.audioEngine.karaokeControl.isStemLocked ?? false
+        plog("🎤 SingAlong: took over the karaoke stage's stem \(handoff.songID.prefix(8)) locked=\(locked)")
+    }
+
+    /// 交过来却用不上(换了歌、伴唱没开着、又开了一场卡拉OK):从消除单元上撤下,样本留一会儿。
+    private func drop(_ handoff: StemHandoff) {
+        if let control = player?.audioEngine.karaokeControl {
+            control.installStem(nil)
+            control.bridgesStem = false
+            control.stemScale = 1
+            control.stemFadeDuration = 0
+            control.reduction = 1
+        }
+        retire(handoff.track)
+    }
+
+    private func retire(_ track: KaraokeStemTrack) {
+        retiredStems.append(track)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            self?.retiredStems.removeAll { $0 === track }
+        }
+    }
+
     private func install(_ track: KaraokeStemTrack, control: KaraokeRenderControl) {
         stemTrack = track
         lockPolicy.reset()
@@ -1650,11 +1768,7 @@ final class KaraokeSingAlong {
         }
         ownsRenderControl = false
         if let track = stemTrack {
-            retiredStems.append(track)
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(2))
-                self?.retiredStems.removeAll { $0 === track }
-            }
+            retire(track)
         }
         stemTrack = nil
         stemSongID = nil

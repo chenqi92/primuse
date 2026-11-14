@@ -7516,3 +7516,5 @@
 "sing_along_activity_preparing" = "Préparation de Chanter avec";
 "sing_along_spatial_audio_short" = "Indisponible avec l’audio spatialisé";
 "sing_along_unavailable_spatial_audio" = "L’audio spatialisé recalcule tout le morceau : la voix ne peut pas être retirée proprement. Désactivez l’audio spatialisé dans les réglages de lecture pour que Chanter avec fonctionne ; l’original est joué en attendant.";
+"karaoke_sing_along_handoff" = "Écouter l’accompagnement seul";
+"karaoke_sing_along_handoff_detail" = "Quitte le karaoké et continue l’accompagnement avec Chanter avec";

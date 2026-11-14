@@ -7422,3 +7422,5 @@
 "sing_along_activity_preparing" = "Preparando Cantar junto";
 "sing_along_spatial_audio_short" = "Indisponível com Áudio Espacial";
 "sing_along_unavailable_spatial_audio" = "O Áudio Espacial reprocessa a música inteira, então a voz não sai de forma limpa. Desative o Áudio Espacial nos ajustes de reprodução para o Cantar junto funcionar; por enquanto a original está tocando.";
+"karaoke_sing_along_handoff" = "Só o acompanhamento";
+"karaoke_sing_along_handoff_detail" = "Sai do karaokê e continua o acompanhamento com Cantar junto";

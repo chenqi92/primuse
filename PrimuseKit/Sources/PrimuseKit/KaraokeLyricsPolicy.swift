@@ -721,4 +721,29 @@ public enum KaraokeSingAlongPolicy {
     public static func alignmentInterval(isLocked: Bool, needsGainEstimate: Bool) -> Duration {
         isLocked && !needsGainEstimate ? .seconds(2) : .milliseconds(250)
     }
+
+    // MARK: 卡拉OK舞台的「只听伴奏」
+
+    /// 舞台里给不给「只听伴奏」:伴唱此刻能作用在这首上(播放方式支持、模型在这台设备上;
+    /// 模型还没下载时不在这里替用户下 80 MB,舞台的 AI 开关会先说明),而且放的不是伴奏版本
+    /// (本来就是伴奏,收起舞台就是)。
+    public static func offersStageHandoff(
+        availability: KaraokeSingAlongAvailability,
+        model: KaraokeSingAlongModelStatus,
+        isPlayingInstrumental: Bool
+    ) -> Bool {
+        availability == .available && model == .ready && !isPlayingInstrumental
+    }
+
+    /// 点了「只听伴奏」时,舞台已经装好的人声轨能不能原样交给伴唱(连同对齐结果,不撤下、不重新对齐,
+    /// 中间不漏原唱)。是这首的人声轨、舞台没在放伴奏版本、伴唱确实打开了才交;否则舞台照常撤下,
+    /// 伴唱自己去装(有缓存时约 0.3 秒,开口后再对齐)。
+    public static func handsStemOver(
+        isSingAlongEnabled: Bool,
+        stageHasStem: Bool,
+        stemSongMatchesPlaying: Bool,
+        isPlayingInstrumental: Bool
+    ) -> Bool {
+        isSingAlongEnabled && stageHasStem && stemSongMatchesPlaying && !isPlayingInstrumental
+    }
 }

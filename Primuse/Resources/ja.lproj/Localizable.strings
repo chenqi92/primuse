@@ -7517,3 +7517,5 @@
 "sing_along_activity_preparing" = "シングアロングを準備中";
 "sing_along_spatial_audio_short" = "空間オーディオがオンのときは使えません";
 "sing_along_unavailable_spatial_audio" = "空間オーディオは曲全体を再レンダリングするため、ボーカルをきれいに取り除けません。再生設定で空間オーディオをオフにするとシングアロングが有効になります。今は原曲を再生しています。";
+"karaoke_sing_along_handoff" = "伴奏だけを聴く";
+"karaoke_sing_along_handoff_detail" = "カラオケを閉じて、シングアロングで伴奏を流し続けます";

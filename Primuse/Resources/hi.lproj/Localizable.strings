@@ -7422,3 +7422,5 @@
 "sing_along_activity_preparing" = "साथ गाएँ तैयार हो रहा है";
 "sing_along_spatial_audio_short" = "स्थानिक ऑडियो चालू होने पर उपलब्ध नहीं";
 "sing_along_unavailable_spatial_audio" = "स्थानिक ऑडियो पूरे गाने को दोबारा रेंडर करता है, इसलिए वोकल साफ़ नहीं हट पाता। साथ गाएँ के काम करने के लिए प्लेबैक सेटिंग्स में स्थानिक ऑडियो बंद करें; अभी मूल गाना बज रहा है।";
+"karaoke_sing_along_handoff" = "सिर्फ़ संगीत सुनें";
+"karaoke_sing_along_handoff_detail" = "कराओके बंद करके साथ गाएँ से संगीत चलाता रहता है";

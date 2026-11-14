@@ -231,7 +231,15 @@ private struct KaraokeStageHeader: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text("player_carousel_expand"))
             }
-            KaraokeStageMenu(session: session, onExportStem: onExportStem)
+            // 「只听伴奏」交给伴唱以后,按这一份舞台自己的方式离开:全屏、Mac 弹窗收起,转轮里转回播放器。
+            KaraokeStageMenu(
+                session: session,
+                onHandOffToSingAlong: {
+                    session.handOffToSingAlong()
+                    onClose()
+                },
+                onExportStem: onExportStem
+            )
         }
         .padding(.top, 12)
         .padding(.bottom, 4)
@@ -1197,11 +1205,36 @@ private struct KaraokeAISeparationRow: View {
 /// Stage options, and housekeeping for the AI model and its cache.
 private struct KaraokeStageMenu: View {
     @Bindable var session: KaraokeSession
+    /// 「只听伴奏」(#377):打开伴唱、人声轨原样交过去,再离开舞台。
+    let onHandOffToSingAlong: () -> Void
     let onExportStem: (KaraokeStemExportPolicy.Part, KaraokeStemExportPolicy.Format) -> Void
     @State private var cacheSize: Int64 = 0
 
+    /// 伴唱此刻能作用在这首上(播放方式支持、模型在设备上)、放的不是伴奏版本时才给。
+    private var offersSingAlongHandoff: Bool {
+        KaraokeSingAlongPolicy.offersStageHandoff(
+            availability: KaraokeSingAlong.availability(of: session.player),
+            model: KaraokeSingAlong.shared.modelStatus,
+            isPlayingInstrumental: session.isPlayingInstrumental
+        )
+    }
+
     var body: some View {
         Menu {
+            // 放在最上面:想不唱了、接着听伴奏时一点就到,不占舞台上的位置。
+            if offersSingAlongHandoff {
+                Button(action: onHandOffToSingAlong) {
+                    Label {
+                        Text("karaoke_sing_along_handoff")
+                        Text("karaoke_sing_along_handoff_detail")
+                    } icon: {
+                        Image(systemName: KaraokeSingAlongText.symbol)
+                    }
+                }
+                .accessibilityLabel(Text("karaoke_sing_along_handoff"))
+                .accessibilityHint(Text("karaoke_sing_along_handoff_detail"))
+                Divider()
+            }
             Toggle(isOn: $session.vocalAssistEnabled) {
                 Text("karaoke_vocal_assist")
                 Text("karaoke_vocal_assist_detail")

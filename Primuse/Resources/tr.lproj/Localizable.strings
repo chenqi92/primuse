@@ -7422,3 +7422,5 @@
 "sing_along_activity_preparing" = "Birlikte söyle hazırlanıyor";
 "sing_along_spatial_audio_short" = "Uzamsal Ses açıkken kullanılamaz";
 "sing_along_unavailable_spatial_audio" = "Uzamsal Ses tüm şarkıyı yeniden işlediği için vokal temiz biçimde kaldırılamaz. Birlikte söyle özelliğinin çalışması için oynatma ayarlarından Uzamsal Ses'i kapatın; şimdilik orijinal çalıyor.";
+"karaoke_sing_along_handoff" = "Yalnızca altyapıyı dinle";
+"karaoke_sing_along_handoff_detail" = "Karaokeyi kapatır ve Birlikte söyle ile altyapıyı çalmaya devam eder";
