@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
 import PrimuseKit
 
@@ -112,36 +113,8 @@ struct MacBottomBar: View {
 
             Spacer(minLength: 4)
 
-            // 有声书的每个文件也能加进「我喜欢」;播客单集记在播客自己的喜欢里。
-            // 搜索里点播的 Apple Music 歌先加进资料库、同步进曲库,再标喜欢。
-            if let song = player.currentSong, !player.isLiveRadio {
-                let isEpisode = PodcastPlaybackSong.isEpisode(song)
-                let liked = isEpisode
-                    ? PodcastStore.shared.isLiked(episodeID: song.id)
-                    : NowPlayingLibraryActions.isLiked(song, library: library)
-                Button {
-                    if isEpisode {
-                        player.toggleLikeForCurrentPodcastEpisode()
-                    } else {
-                        Task { await libraryActions.perform(.like(!liked), song: song, library: library) }
-                    }
-                } label: {
-                    Image(systemName: liked ? "heart.fill" : "heart")
-                        .font(.system(size: 13))
-                        .foregroundStyle(liked ? PMColor.brand : PMColor.textMuted)
-                        .pmLikeBurst(isLiked: liked, identity: song.id, tint: PMColor.brand)
-                        .opacity(libraryActions.isBusy ? 0 : 1)
-                        .overlay {
-                            if libraryActions.isBusy { ProgressView().controlSize(.mini) }
-                        }
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
+            MacNowPlayingLikeButton(actions: libraryActions)
                 .buttonStyle(.plain)
-                .disabled(libraryActions.isBusy)
-                .help(Text(liked ? "a11y_unlike" : "a11y_like"))
-                .pmAnimation(.hover, value: liked)
-            }
         }
     }
 
@@ -621,6 +594,83 @@ private struct Scrubber: View {
                         dragging = false
                     }
             )
+        }
+    }
+}
+
+// MARK: - Like
+
+/// 正在播的这一首的「喜欢」:底栏、歌词岛、菜单栏弹窗共用这一颗,判定和写法只在这里。
+/// 有声书的每个文件也能加进「我喜欢」;播客单集记在播客自己的喜欢里;搜索里点播的
+/// Apple Music 歌先加进资料库、同步进曲库,再标喜欢。电台没有这颗。
+///
+/// 按钮样式由外面的 `.buttonStyle` 定;没做成时的说明由持有 `actions` 的一方挂
+/// (主窗口用 `nowPlayingLibraryActionAlert`,岛和菜单栏用 `macStandaloneLibraryActionAlert`)。
+struct MacNowPlayingLikeButton: View {
+    let actions: NowPlayingLibraryActions
+    var symbolSize: CGFloat = 13
+    var symbolWeight: Font.Weight = .regular
+    var side: CGFloat = 28
+    var likedTint: Color = PMColor.brand
+    var idleTint: Color = PMColor.textMuted
+    var spinnerTint: Color?
+
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+
+    var body: some View {
+        if let song = player.currentSong, !player.isLiveRadio {
+            let isEpisode = PodcastPlaybackSong.isEpisode(song)
+            let liked = isEpisode
+                ? PodcastStore.shared.isLiked(episodeID: song.id)
+                : NowPlayingLibraryActions.isLiked(song, library: library)
+            Button {
+                if isEpisode {
+                    player.toggleLikeForCurrentPodcastEpisode()
+                } else {
+                    Task { await actions.perform(.like(!liked), song: song, library: library) }
+                }
+            } label: {
+                Image(systemName: liked ? "heart.fill" : "heart")
+                    .font(.system(size: symbolSize, weight: symbolWeight))
+                    .foregroundStyle(liked ? likedTint : idleTint)
+                    .pmLikeBurst(isLiked: liked, identity: song.id, tint: likedTint)
+                    .opacity(actions.isBusy ? 0 : 1)
+                    .overlay {
+                        if actions.isBusy {
+                            ProgressView().controlSize(.mini).tint(spinnerTint)
+                        }
+                    }
+                    .frame(width: side, height: side)
+                    .contentShape(Rectangle())
+            }
+            .disabled(actions.isBusy)
+            .help(Text(liked ? "a11y_unlike" : "a11y_like"))
+            .accessibilityLabel(Text(liked ? "a11y_unlike" : "a11y_like"))
+            .pmAnimation(.hover, value: liked)
+        }
+    }
+}
+
+extension View {
+    /// 歌词岛、菜单栏弹窗里「喜欢」没做成时的说明。岛的面板当不了 key 窗口,菜单栏弹窗
+    /// 一点别处就收起,SwiftUI 的 alert 挂在它们上面要么出不来、要么跟着弹窗一起没了,
+    /// 这里改弹一个独立的系统提示框。
+    func macStandaloneLibraryActionAlert(_ actions: NowPlayingLibraryActions) -> some View {
+        onChange(of: actions.failureMessage) { _, message in
+            guard let message else { return }
+            let title = actions.failureTitle
+            actions.failureMessage = nil
+            // 等这一轮视图更新走完再进模态循环。
+            Task { @MainActor in
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = title
+                alert.informativeText = message
+                alert.addButton(withTitle: String(localized: "done"))
+                NSApp.activate()
+                alert.runModal()
+            }
         }
     }
 }

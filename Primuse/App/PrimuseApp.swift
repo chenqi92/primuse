@@ -657,6 +657,23 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         miniPlayer?.toggle()
     }
 
+    /// 「打开主窗口」:菜单栏弹窗那一行、快捷键、歌词岛上的按钮都走这里。主窗口还在就拉到
+    /// 前面(最小化了先还原),被红灯关掉了就让 SwiftUI 重建一份;菜单栏弹窗开着时顺手收起。
+    @MainActor
+    func openMainWindow() {
+        if let menuBar {
+            menuBar.activateMainWindowFromShortcut()
+            return
+        }
+        NSApp.activate()
+        if let window = mainAppWindow() {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+        MainWindowOpener.openMainWindow()
+    }
+
     @MainActor
     func toggleFullScreenPlayer() {
         menuBar?.closePopover()
@@ -780,7 +797,7 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         case .toggleFullScreenPlayer:
             toggleFullScreenPlayer()
         case .openMainWindow:
-            menuBar?.activateMainWindowFromShortcut()
+            openMainWindow()
         }
     }
 

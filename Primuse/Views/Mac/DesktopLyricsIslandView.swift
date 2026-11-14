@@ -29,6 +29,7 @@ struct DesktopLyricsIslandView: View {
 
     @State private var lyricsLoadRevision: UInt = 0
     @State private var pendingLyricsOverride: PendingLyricsOverride?
+    @State private var libraryActions = NowPlayingLibraryActions()
 
     /// 与浮动桌面歌词共用颜色设置：用户挑了颜色就用它，否则在墨黑底上用白字。
     @AppStorage("desktopLyricsColor") private var colorHex: String = "#FFFFFF"
@@ -61,6 +62,7 @@ struct DesktopLyricsIslandView: View {
                 }
                 lyricsLoadRevision &+= 1
             }
+            .macStandaloneLibraryActionAlert(libraryActions)
     }
 
     // MARK: - Silhouette
@@ -149,6 +151,11 @@ struct DesktopLyricsIslandView: View {
 
     private var lyricTint: Color {
         usesArtworkColor ? .white : (Color.fromHexString(colorHex) ?? .white)
+    }
+
+    /// 开着的开关(置顶、桌面歌词)和点亮的红心:封面色提亮到墨黑底上看得清。
+    private var selectedTint: Color {
+        theme.accentColor.mix(with: .white, by: 0.45)
     }
 
     private func activityTint(_ tint: DesktopLyricsIslandActivity.Tint) -> Color {
@@ -484,6 +491,20 @@ struct DesktopLyricsIslandView: View {
 
     private var transport: some View {
         HStack(spacing: 6) {
+            // 红心挨着传输键:全屏干活时切到好歌,在岛上点一下就收进「我喜欢」。
+            // 判定与写法和底栏同一颗(`MacNowPlayingLikeButton`),电台不出现。
+            MacNowPlayingLikeButton(
+                actions: libraryActions,
+                symbolSize: 13,
+                symbolWeight: .semibold,
+                likedTint: selectedTint,
+                idleTint: .white,
+                spinnerTint: .white
+            )
+            .buttonStyle(IslandControlButtonStyle())
+            .pmPointingHand()
+            .accessibilityIdentifier("lyricsIsland.like")
+
             if player.currentItemIsSpokenWord, !player.isLiveRadio {
                 islandButton(player.spokenWordSkipBackwardSymbol, size: 14, help: "a11y_skip_backward") {
                     player.skipSpokenWordBackward()
@@ -628,6 +649,11 @@ struct DesktopLyricsIslandView: View {
             } else {
                 Spacer(minLength: 0)
             }
+            // 和菜单栏弹窗里的「打开主窗口」同一条路:主窗口在就拉到前面,关掉了就重建。
+            islandButton("macwindow", size: 12, help: "open_main_window") {
+                PrimuseAppDelegate.shared?.openMainWindow()
+            }
+            .accessibilityIdentifier("lyricsIsland.openMainWindow")
             islandButton(
                 state.alwaysOnTop ? "pin.fill" : "pin",
                 size: 11,
@@ -672,7 +698,7 @@ struct DesktopLyricsIslandView: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(selected ? theme.accentColor.mix(with: .white, by: 0.45) : .white)
+                .foregroundStyle(selected ? selectedTint : .white)
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }

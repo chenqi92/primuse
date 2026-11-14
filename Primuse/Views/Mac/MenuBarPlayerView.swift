@@ -20,6 +20,7 @@ struct MenuBarPlayerView: View {
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @State private var equalizerPanelShown = false
+    @State private var libraryActions = NowPlayingLibraryActions()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -110,6 +111,7 @@ struct MenuBarPlayerView: View {
                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
         }
         .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
+        .macStandaloneLibraryActionAlert(libraryActions)
     }
 
     // MARK: - Cover row
@@ -145,6 +147,18 @@ struct MenuBarPlayerView: View {
             }
             .contentTransition(.opacity)
             Spacer(minLength: 0)
+
+            // 红心放在歌名这一块的尾巴上,竖直方向对着封面中线(这一行是顶对齐)。
+            // 判定与写法和底栏同一颗(`MacNowPlayingLikeButton`),电台不出现。
+            MacNowPlayingLikeButton(
+                actions: libraryActions,
+                symbolSize: 15,
+                symbolWeight: .medium,
+                side: 30
+            )
+            .buttonStyle(.plain)
+            .pmPointingHand()
+            .alignmentGuide(.top) { $0.height / 2 - 32 }
         }
     }
 
