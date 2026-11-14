@@ -286,6 +286,7 @@ enum FileMetadataReader {
             data: readPrefix(from: url, byteCount: mpegHeaderReadLimit),
             fileExtension: fileExtension
         )
+        applyADTSFileDuration(to: &metadata, url: url, fileExtension: fileExtension)
         if boundedContainerTagExtensions.contains(fileExtension)
             || id3ContainerTagExtensions.contains(fileExtension)
             || genericEOFTagExtensions.contains(fileExtension) {
@@ -589,6 +590,7 @@ enum FileMetadataReader {
         }
         applyWAVEFallback(to: &metadata, data: data, fileExtension: fileExtension)
         applyMPEGFrameFallback(to: &metadata, data: data, fileExtension: fileExtension)
+        applyADTSFrameFallback(to: &metadata, data: data, fileExtension: fileExtension)
         applyContainerTagFallback(to: &metadata, headData: data, tailData: id3TailData,
                                   fileExtension: fileExtension)
         applyStreamHeaderFallback(to: &metadata, data: data, fileExtension: fileExtension)
@@ -1427,6 +1429,41 @@ enum FileMetadataReader {
         }
         if (metadata.bitRate ?? 0) <= 0 {
             metadata.bitRate = info.bitRateKbps
+        }
+    }
+
+    /// 裸 ADTS AAC 没有总帧数, 系统解析和 SFB 都按码率估时长(12.03 秒的文件报成 12.42 秒)。
+    /// 本地完整文件逐帧数, 只读帧头, 一次一块。ADIF、认不出帧的交回原来的值。
+    private static func applyADTSFileDuration(
+        to metadata: inout Metadata,
+        url: URL,
+        fileExtension: String
+    ) {
+        guard fileExtension.lowercased() == "aac",
+              let info = ADTSStreamParser.parseFile(at: url) else { return }
+        applyADTS(info, to: &metadata)
+    }
+
+    /// 有界读取手里的那一段: 先按其中的完整帧给时长。整个文件都在手里时就是准确值;
+    /// 只有开头一段时和系统解析一样偏短, 远端读取随后按文件大小折算
+    /// (`ADTSStreamParser.duration(head:tail:fileSize:)`)。
+    private static func applyADTSFrameFallback(
+        to metadata: inout Metadata,
+        data: Data,
+        fileExtension: String
+    ) {
+        guard fileExtension.lowercased() == "aac",
+              let info = ADTSStreamParser.parse(data) else { return }
+        applyADTS(info, to: &metadata)
+    }
+
+    private static func applyADTS(_ info: ADTSStreamInfo, to metadata: inout Metadata) {
+        guard info.duration.isFinite, info.duration > 0 else { return }
+        metadata.duration = info.duration
+        // 采样率照 ADTS 头报 AAC 核心的那一档; 系统解析已经给了就不动。
+        if (metadata.sampleRate ?? 0) <= 0 { metadata.sampleRate = info.sampleRate }
+        if (metadata.bitRate ?? 0) <= 0, let kbps = info.averageBitRateKbps?.finiteInt(), kbps > 0 {
+            metadata.bitRate = kbps
         }
     }
 

@@ -5967,6 +5967,22 @@ final class MetadataBackfillService {
             }
         }
 
+        // 裸 ADTS AAC 没有总帧数, 首段读出的时长只算到手里那几帧。本地源整个文件按块逐帧数;
+        // 远端按首段完整帧的平均帧长和文件大小折算, 播放时解码器拿到完整文件再校正。
+        if metadata.detectedFileSignature == .adtsAAC, !metadata.hasCompleteFileAccess,
+           let adts = try await ADTSStreamParser.duration(
+                head: metadataInputData,
+                fileSize: song.fileSize,
+                countsEveryFrame: request.directFile,
+                read: fetchRange
+           ) {
+            metadata.duration = adts.duration
+            metadata.hasTechnicalProperties = true
+            if (metadata.sampleRate ?? 0) <= 0 { metadata.sampleRate = adts.sampleRate }
+            plog(String(format: "📥 Backfill: '%@' ADTS duration %.2fs (%@)", song.title, adts.duration,
+                        adts.isExact ? "every frame" : "estimated from file size"))
+        }
+
         // Raw DTS and verified DTS-in-WAV streams do not publish their total
         // frame count in a bounded head/tail slice. Their complete remote byte
         // count and core bitrate still provide a stable provisional duration;

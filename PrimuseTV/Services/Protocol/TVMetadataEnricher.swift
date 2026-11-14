@@ -603,6 +603,10 @@ enum TVMetadataEnricher {
                 leadingMetadataByteCount:
                     FileMetadataReader.id3TagByteCount(in: head) ?? 0
             )
+        } else if ext == "aac",
+                  let adts = ADTSStreamParser.duration(head: head, fileSize: song.fileSize) {
+            // 裸 ADTS AAC 没有总帧数: 按首段完整帧的平均帧长和文件大小折算(与手机端回填一致)。
+            duration = adts.duration
         }
         let output = applying(metadata, to: song, duration: duration)
         try Task.checkCancellation()

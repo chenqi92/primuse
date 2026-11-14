@@ -1,6 +1,6 @@
 import Foundation
 
-// 读标签时不开 AVFoundation 也能拿到时长与音频参数的两种常见格式。
+// 读标签时不开 AVFoundation 也能拿到时长与音频参数的两种常见格式, 以及裸 ADTS AAC 的逐帧时长。
 //
 // AVFoundation 每首歌要建一个 AVURLAsset、经由资源加载器一段段要字节, 而给它喂字节
 // 的队列是全进程共用的一条串行队列 —— 读取位开得再多, MP3/M4A 也挤在这一条上。
@@ -731,5 +731,387 @@ public enum ISOBaseMediaNativeMetadataParser {
         var value: UInt64 = 0
         for index in base..<(base + 8) { value = (value << 8) | UInt64(data[index]) }
         return value
+    }
+}
+
+// MARK: - ADTS AAC
+
+/// 裸 ADTS AAC 码流逐帧走出来的结果。
+///
+/// ADTS 没有总帧数也没有索引, 时长只能一帧帧数: 每帧带
+/// `number_of_raw_data_blocks_in_frame + 1` 个原始数据块, 每块 1024 个样本。
+/// AVFoundation、SFBAudioEngine 和 FFmpeg 的 ADTS 解复用都按码率估, 偏差能到一成;
+/// 读标签时只拿到开头一段, 系统解析还会按手里的字节把时长截短。
+public struct ADTSStreamInfo: Equatable, Sendable {
+    /// 第一帧在这段字节里的位置(已跳过 ID3v2 与帧前的杂字节)。
+    public let firstFrameOffset: Int
+    /// 最后一个完整帧之后的位置。
+    public let endOffset: Int
+    /// ADTS 头里的采样率。隐式 SBR 的 HE-AAC 在这里是 AAC 核心的那一档(与系统解析、
+    /// M4A 那边报的一致): 每块 1024 个核心样本对应 2048 个输出样本, 按秒算的时长不变。
+    public let sampleRate: Int
+    public let channelConfiguration: Int
+    /// MPEG-4 Audio Object Type, 即 ADTS 的 profile + 1: 1 Main、2 LC、3 SSR、4 LTP。
+    public let audioObjectType: Int
+    /// 走过的完整帧数。最后一帧没收全的不算。
+    public let frameCount: Int
+    /// 这些帧里的原始数据块总数, 每块 1024 个样本。
+    public let rawDataBlockCount: Int
+    /// 这些完整帧的总字节数(含帧头)。
+    public let frameByteCount: Int
+    /// 帧链中途断开、重新找到同步字时跳过的字节数。
+    public let skippedByteCount: Int
+
+    public var duration: TimeInterval {
+        Double(rawDataBlockCount) * Double(ADTSStreamParser.samplesPerRawDataBlock) / Double(sampleRate)
+    }
+
+    public var averageBitRateKbps: Double? {
+        let seconds = duration
+        guard seconds > 0 else { return nil }
+        let kbps = Double(frameByteCount) * 8 / seconds / 1_000
+        return kbps.isFinite && kbps > 0 ? kbps : nil
+    }
+}
+
+/// 一首裸 ADTS AAC 的时长, 以及它是逐帧数出来的还是按平均帧长折算的。
+public struct ADTSDurationEstimate: Equatable, Sendable {
+    public let duration: TimeInterval
+    /// 整个文件都看过、每一帧都数过。false 是只看了首(尾)段、按文件大小折算的估计值,
+    /// 播放时解码器拿到完整文件后再校正。
+    public let isExact: Bool
+    public let sampleRate: Int
+    public let averageBitRateKbps: Double?
+}
+
+/// 一段段喂字节、逐帧往后走的状态。整段在手(内存里的数据)时一次喂完;
+/// 本地文件和远端读取按块喂, 只看帧头, 不必把整首读进内存。
+public struct ADTSFrameWalker: Sendable {
+    /// 下一次要从哪个绝对位置起喂字节。
+    public private(set) var offset: Int
+    public private(set) var isFinished = false
+    private let total: Int
+    private var first: ADTSStreamParser.FrameHeader?
+    private var firstFrameOffset = 0
+    private var needsResync = false
+    private var frameCount = 0
+    private var rawDataBlockCount = 0
+    private var frameByteCount = 0
+    private var skippedByteCount = 0
+    private var endOffset = 0
+
+    /// - Parameters:
+    ///   - start: 音频从哪里开始(ID3v2 之后)。
+    ///   - total: 整段字节(整个文件, 或者手里这一段)的长度; 走到这里就算到头。
+    public init(start: Int, total: Int) {
+        offset = max(0, start)
+        self.total = max(0, total)
+        endOffset = offset
+        if offset >= self.total { isFinished = true }
+    }
+
+    /// 喂一段从绝对位置 `base` 开始的字节。返回后没走完的, 下次从 `offset` 起再喂;
+    /// 一段至少要比 `ADTSStreamParser.minimumChunkByteCount` 长, 帧链断开后的找帧才放得下。
+    public mutating func consume(_ data: Data, at base: Int) {
+        guard !isFinished else { return }
+        guard base <= offset, base + data.count > offset else {
+            // 喂的不是要的那一段: 当作走不下去, 不猜。
+            isFinished = true
+            return
+        }
+        data.withUnsafeBytes { raw in
+            walk(raw.bindMemory(to: UInt8.self), base: base)
+        }
+    }
+
+    public var result: ADTSStreamInfo? {
+        guard frameCount > 0, let first else { return nil }
+        return ADTSStreamInfo(
+            firstFrameOffset: firstFrameOffset,
+            endOffset: endOffset,
+            sampleRate: first.sampleRate,
+            channelConfiguration: first.channelConfiguration,
+            audioObjectType: first.audioObjectType,
+            frameCount: frameCount,
+            rawDataBlockCount: rawDataBlockCount,
+            frameByteCount: frameByteCount,
+            skippedByteCount: skippedByteCount
+        )
+    }
+
+    private enum Search {
+        case found(Int, ADTSStreamParser.FrameHeader)
+        case notFound
+        case needsMoreBytes
+    }
+
+    private mutating func walk(_ bytes: UnsafeBufferPointer<UInt8>, base: Int) {
+        // 这一段里能读到的最后位置(不含)。到了整段末尾就不必再要。
+        let limit = min(base + bytes.count, total)
+        let reachesEnd = base + bytes.count >= total
+        while !isFinished {
+            if first == nil || needsResync {
+                switch search(bytes, base: base, limit: limit, reachesEnd: reachesEnd) {
+                case .found(let position, let header):
+                    if first == nil {
+                        first = header
+                        firstFrameOffset = position
+                        endOffset = position
+                    } else {
+                        skippedByteCount += position - offset
+                    }
+                    offset = position
+                    needsResync = false
+                case .notFound:
+                    isFinished = true
+                    return
+                case .needsMoreBytes:
+                    return
+                }
+            }
+            guard let first else { return }
+            guard offset + ADTSStreamParser.headerByteCount <= limit else {
+                if reachesEnd { isFinished = true }
+                return
+            }
+            if let header = ADTSStreamParser.header(at: offset - base, in: bytes),
+               header.continues(first) {
+                // 最后一帧没收全(下载截断、只拿到开头一段): 不算。
+                guard header.frameLength <= total - offset else {
+                    isFinished = true
+                    return
+                }
+                frameCount += 1
+                rawDataBlockCount += header.rawDataBlocks
+                frameByteCount += header.frameLength
+                offset += header.frameLength
+                endOffset = offset
+                continue
+            }
+            // 帧链断了: 往后找下一个被后一帧印证的帧头。尾部的 ID3v1/APE 标签在这里停下。
+            needsResync = true
+        }
+    }
+
+    /// 首帧从 `offset` 起找, 断链后从 `offset + 1` 起找; 都只找 `resyncSearchWindow` 那么远。
+    /// 候选帧头要被紧接着的下一帧印证, 或者正好收在整段末尾, 防止把载荷里碰巧的 0xFFF 当成帧。
+    private func search(
+        _ bytes: UnsafeBufferPointer<UInt8>,
+        base: Int,
+        limit: Int,
+        reachesEnd: Bool
+    ) -> Search {
+        let headerBytes = ADTSStreamParser.headerByteCount
+        let from = first == nil ? offset : offset + 1
+        let last = min(total - headerBytes, offset + ADTSStreamParser.resyncSearchWindow)
+        guard from <= last else { return .notFound }
+        var position = from
+        while position <= last {
+            defer { position += 1 }
+            guard position + headerBytes <= limit else {
+                return reachesEnd ? .notFound : .needsMoreBytes
+            }
+            guard bytes[position - base] == 0xFF,
+                  let candidate = ADTSStreamParser.header(at: position - base, in: bytes),
+                  first.map({ candidate.continues($0) }) ?? true else { continue }
+            let next = position + candidate.frameLength
+            if next == total { return .found(position, candidate) }
+            guard next <= total - headerBytes else { continue }
+            guard next + headerBytes <= limit else {
+                return reachesEnd ? .notFound : .needsMoreBytes
+            }
+            guard let following = ADTSStreamParser.header(at: next - base, in: bytes),
+                  following.continues(candidate) else { continue }
+            return .found(position, candidate)
+        }
+        return .notFound
+    }
+}
+
+public enum ADTSStreamParser {
+    public static let samplesPerRawDataBlock = 1_024
+    /// 帧链断开后(或者找第一帧时)最多往后找这么远。
+    public static let resyncSearchWindow = 64 * 1_024
+    /// 分块喂字节时每块至少这么长: 找帧的窗口、最长的一帧(8191 字节)和下一帧的帧头都放得下。
+    public static let minimumChunkByteCount = 128 * 1_024
+    static let headerByteCount = 7
+    static let sampleRates = [
+        96_000, 88_200, 64_000, 48_000, 44_100, 32_000, 24_000, 22_050, 16_000, 12_000, 11_025, 8_000, 7_350,
+    ]
+
+    struct FrameHeader: Equatable, Sendable {
+        let audioObjectType: Int
+        let sampleRateIndex: Int
+        let channelConfiguration: Int
+        let frameLength: Int
+        let rawDataBlocks: Int
+
+        var sampleRate: Int { ADTSStreamParser.sampleRates[sampleRateIndex] }
+
+        /// 同一条码流: 采样率与 profile 不变。声道配置允许中途变(电台录音常见)。
+        func continues(_ other: FrameHeader) -> Bool {
+            sampleRateIndex == other.sampleRateIndex && audioObjectType == other.audioObjectType
+        }
+    }
+
+    static func header(at index: Int, in bytes: UnsafeBufferPointer<UInt8>) -> FrameHeader? {
+        guard index >= 0, index + headerByteCount <= bytes.count else { return nil }
+        // 12 位同步字 0xFFF, layer 恒为 0; MPEG 版本位与 CRC 位两种都收。
+        guard bytes[index] == 0xFF, (bytes[index + 1] & 0xF6) == 0xF0 else { return nil }
+        let b1 = bytes[index + 1], b2 = bytes[index + 2], b3 = bytes[index + 3]
+        let b4 = bytes[index + 4], b5 = bytes[index + 5], b6 = bytes[index + 6]
+        let sampleRateIndex = Int((b2 >> 2) & 0x0F)
+        guard sampleRateIndex < sampleRates.count else { return nil }
+        let headerLength = (b1 & 0x01) == 1 ? 7 : 9
+        let frameLength = (Int(b3 & 0x03) << 11) | (Int(b4) << 3) | Int(b5 >> 5)
+        guard frameLength > headerLength else { return nil }
+        return FrameHeader(
+            audioObjectType: Int(b2 >> 6) + 1,
+            sampleRateIndex: sampleRateIndex,
+            channelConfiguration: (Int(b2 & 0x01) << 2) | Int(b3 >> 6),
+            frameLength: frameLength,
+            rawDataBlocks: Int(b6 & 0x03) + 1
+        )
+    }
+
+    /// 手里这一段字节(整个文件, 或者只是开头一段)。`audioStart` 为 nil 时跳过开头
+    /// 完整的 ID3v2 标签; 标签比手里的字节还长时返回 nil。
+    public static func parse(_ data: Data, audioStart: Int? = nil) -> ADTSStreamInfo? {
+        let normalized = data.startIndex == 0 ? data : Data(data)
+        guard let start = audioStart ?? leadingTagByteCount(in: normalized),
+              start >= 0, start < normalized.count else { return nil }
+        var walker = ADTSFrameWalker(start: start, total: normalized.count)
+        walker.consume(normalized, at: 0)
+        return walker.result
+    }
+
+    /// 整个文件按块读进来逐帧数, 每次只留一块在内存里。`read` 返回从给定位置起最多
+    /// 给定长度的字节; 读到空数据当作读不下去。
+    public static func parse(
+        byteCount: Int,
+        chunkByteCount: Int = 1 << 20,
+        read: (Int, Int) async throws -> Data
+    ) async throws -> ADTSStreamInfo? {
+        guard byteCount > 0 else { return nil }
+        let prefix = try await read(0, min(byteCount, 10))
+        guard let start = leadingTagByteCount(in: prefix, byteCount: byteCount) else { return nil }
+        var walker = ADTSFrameWalker(start: start, total: byteCount)
+        let chunk = max(chunkByteCount, minimumChunkByteCount)
+        while !walker.isFinished {
+            try Task.checkCancellation()
+            let position = walker.offset
+            let data = try await read(position, min(chunk, byteCount - position))
+            guard !data.isEmpty else { return nil }
+            walker.consume(data, at: position)
+            // 一块喂进去一步也没走: 读回来的比要的短, 不再空转。
+            if !walker.isFinished, walker.offset == position { return nil }
+        }
+        return walker.result
+    }
+
+    /// 本地完整文件。
+    public static func parseFile(at url: URL, chunkByteCount: Int = 1 << 20) -> ADTSStreamInfo? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let end = try? handle.seekToEnd(), end > 0, end <= UInt64(Int.max) else { return nil }
+        let byteCount = Int(end)
+        func read(_ offset: Int, _ length: Int) -> Data? {
+            guard (try? handle.seek(toOffset: UInt64(offset))) != nil else { return nil }
+            return try? handle.read(upToCount: length)
+        }
+        guard let prefix = read(0, min(byteCount, 10)),
+              let start = leadingTagByteCount(in: prefix, byteCount: byteCount) else { return nil }
+        var walker = ADTSFrameWalker(start: start, total: byteCount)
+        let chunk = max(chunkByteCount, minimumChunkByteCount)
+        while !walker.isFinished {
+            if Task.isCancelled { return nil }
+            let position = walker.offset
+            guard let data = read(position, min(chunk, byteCount - position)), !data.isEmpty else { return nil }
+            walker.consume(data, at: position)
+            if !walker.isFinished, walker.offset == position { return nil }
+        }
+        return walker.result
+    }
+
+    /// 只有首段(和尾段)在手时的时长。首段已经是整个文件就逐帧数; 否则按两段里所有
+    /// 完整帧的平均帧长折算总帧数: 帧数 = (文件大小 - 音频前的标签 - 尾部标签) / 平均帧长。
+    public static func duration(head: Data, tail: Data? = nil, fileSize: Int64) -> ADTSDurationEstimate? {
+        // 不知道文件多大时没法折算, 也说不准手里这段是不是整个文件。
+        guard fileSize > 0, let headInfo = parse(head) else { return nil }
+        guard fileSize > Int64(head.count) else {
+            return ADTSDurationEstimate(
+                duration: headInfo.duration,
+                isExact: true,
+                sampleRate: headInfo.sampleRate,
+                averageBitRateKbps: headInfo.averageBitRateKbps
+            )
+        }
+        var frames = headInfo.frameCount
+        var blocks = headInfo.rawDataBlockCount
+        var bytes = headInfo.frameByteCount
+        var trailingByteCount: Int64 = 0
+        if let tail, !tail.isEmpty {
+            let normalizedTail = tail.startIndex == 0 ? tail : Data(tail)
+            if let tailInfo = parse(normalizedTail, audioStart: 0),
+               tailInfo.sampleRate == headInfo.sampleRate,
+               tailInfo.audioObjectType == headInfo.audioObjectType {
+                frames += tailInfo.frameCount
+                blocks += tailInfo.rawDataBlockCount
+                bytes += tailInfo.frameByteCount
+                // 最后一帧之后的是尾部标签(或者半帧), 不算音频。
+                trailingByteCount = Int64(normalizedTail.count - tailInfo.endOffset)
+            }
+        }
+        guard frames >= 2, bytes > 0, blocks > 0 else { return nil }
+        let audioByteCount = fileSize - Int64(headInfo.firstFrameOffset) - trailingByteCount
+        guard audioByteCount > 0 else { return nil }
+        let meanFrameByteCount = Double(bytes) / Double(frames)
+        let blocksPerFrame = Double(blocks) / Double(frames)
+        let estimatedFrames = Double(audioByteCount) / meanFrameByteCount
+        let sampleRate = Double(headInfo.sampleRate)
+        let duration = estimatedFrames * blocksPerFrame * Double(samplesPerRawDataBlock) / sampleRate
+        let walkedSeconds = Double(blocks) * Double(samplesPerRawDataBlock) / sampleRate
+        let kbps = Double(bytes) * 8 / walkedSeconds / 1_000
+        guard duration.isFinite, duration > 0 else { return nil }
+        return ADTSDurationEstimate(
+            duration: duration,
+            isExact: false,
+            sampleRate: headInfo.sampleRate,
+            averageBitRateKbps: kbps.isFinite && kbps > 0 ? kbps : nil
+        )
+    }
+
+    /// 首段没覆盖整个文件, 但调用方能按块读完整个文件(本地源)时, 逐帧数出准确时长;
+    /// 否则同 `duration(head:tail:fileSize:)` 按平均帧长折算。
+    public static func duration(
+        head: Data,
+        tail: Data? = nil,
+        fileSize: Int64,
+        countsEveryFrame: Bool,
+        read: (Int64, Int64) async throws -> Data
+    ) async throws -> ADTSDurationEstimate? {
+        guard countsEveryFrame, fileSize > Int64(head.count), fileSize <= Int64(Int.max),
+              parse(head) != nil else {
+            return duration(head: head, tail: tail, fileSize: fileSize)
+        }
+        guard let info = try await parse(byteCount: Int(fileSize), read: { offset, length in
+            try await read(Int64(offset), Int64(length))
+        }) else {
+            return duration(head: head, tail: tail, fileSize: fileSize)
+        }
+        return ADTSDurationEstimate(
+            duration: info.duration,
+            isExact: true,
+            sampleRate: info.sampleRate,
+            averageBitRateKbps: info.averageBitRateKbps
+        )
+    }
+
+    /// 开头的 ID3v2 有多长; 没有标签是 0。标签声明的长度超出整个文件时返回 nil。
+    private static func leadingTagByteCount(in data: Data, byteCount: Int? = nil) -> Int? {
+        let normalized = data.startIndex == 0 ? data : Data(data)
+        guard let tag = EmbeddedTagMetadataParser.id3TagByteCount(in: normalized) else { return 0 }
+        guard tag < (byteCount ?? normalized.count) else { return nil }
+        return tag
     }
 }

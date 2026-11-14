@@ -1143,6 +1143,11 @@ actor SynologyScanner {
                     leadingMetadataByteCount: FileMetadataReader.id3TagByteCount(in: data) ?? 0
                 )
             }
+            // 裸 ADTS AAC 没有总帧数: 按首段完整帧的平均帧长和文件大小折算。
+            if format == .aac,
+               let adts = ADTSStreamParser.duration(head: data, fileSize: item.size) {
+                duration = adts.duration
+            }
 
             // A bounded prefix cannot expose a raw DTS stream's total frame
             // count. Use its verified core extension plus complete byte count;

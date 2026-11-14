@@ -647,6 +647,20 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
         FFmpegDecoderBridge.dataContainsDTSSync(data)
     }
 
+    private static func mayBeRawADTS(_ url: URL) -> Bool {
+        url.isFileURL && ["aac", "adts"].contains(url.pathExtension.lowercased())
+    }
+
+    /// 裸 ADTS AAC 的解复用器按码率估时长(实测 12.03 秒的文件报 12.94 秒), 播放层又拿解码器
+    /// 报的时长改写曲库, 会把读标签时逐帧数出的准确值冲掉。完整的本地文件逐帧数一遍;
+    /// 认不出帧(ADIF、改了扩展名的别的格式)时返回 nil, 照用 FFmpeg 的。
+    static func adtsFrameCountDuration(for url: URL) -> TimeInterval? {
+        guard mayBeRawADTS(url),
+              let info = ADTSStreamParser.parseFile(at: url),
+              info.duration.isFinite, info.duration > 0 else { return nil }
+        return info.duration
+    }
+
     /// Tags and cover for containers only FFmpeg opens. Runs on the bounded
     /// probe lane like `fileInfo(for:)`.
     func containerMetadata(for url: URL) async throws -> FFmpegContainerMetadata {
@@ -657,7 +671,7 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
     func fileInfo(for url: URL) async throws -> AudioFileInfo {
         let info = try await FFmpegBridgeWorker(laneKind: .probe).probe(url)
         return AudioFileInfo(
-            duration: info.duration,
+            duration: Self.adtsFrameCountDuration(for: url) ?? info.duration,
             sampleRate: info.sampleRate,
             channelCount: info.channelCount,
             bitDepth: info.bitDepth > 0 ? info.bitDepth : nil,
@@ -704,7 +718,15 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
             let task = Task.detached(priority: .userInitiated) {
                 do {
                     let duration = try await worker.open(url)
-                    if duration > 0 { onResolveSourceLength?(duration) }
+                    if let onResolveSourceLength, Self.mayBeRawADTS(url) {
+                        // 逐帧数要把整个文件读一遍, 不挡第一块 PCM。
+                        Task.detached(priority: .utility) {
+                            let resolved = Self.adtsFrameCountDuration(for: url) ?? duration
+                            if resolved > 0 { onResolveSourceLength(resolved) }
+                        }
+                    } else if duration > 0 {
+                        onResolveSourceLength?(duration)
+                    }
                     if let startTime, startTime > 0 {
                         try await worker.seek(to: startTime)
                     }
