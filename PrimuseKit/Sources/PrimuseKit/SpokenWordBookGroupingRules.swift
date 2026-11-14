@@ -605,6 +605,15 @@ enum SpokenWordBookGroupingRules {
         return discFolder.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) != nil
             || rangeStart(of: name) != nil
     }
+
+    /// Whether `folder(of:)` takes the last of a file's folders (`components`,
+    /// the file left out) for a part of the book above it: a "CD 2" folder
+    /// anywhere, a "1-500" folder below another folder.
+    static func dropsSplitFolder(_ components: [String]) -> Bool {
+        guard let last = components.last, mayHoldNumber(last) else { return false }
+        if discFolder.firstMatch(in: last, range: NSRange(last.startIndex..., in: last)) != nil { return true }
+        return components.count >= 2 && rangeStart(of: last) != nil
+    }
 }
 
 /// Union–find over string keys, small and local to the grouping.
@@ -637,7 +646,8 @@ private struct UnionFind {
 /// The folders of one item-id cloud drive (Google Drive, 123, Aliyun, 115,
 /// Guangya…), from its scan index. Such a drive's item paths are file ids and
 /// name no folder; the rules need the folder and the file name, which only
-/// the scan saw.
+/// the scan saw. A UPnP server's are its resource URLs, keyed to the
+/// containers its scan listed them in, each item named by its title.
 public struct SpokenWordBookItemFolders: Equatable, Sendable {
     /// File id → the folder holding it.
     public var fileParents: [String: String]
@@ -668,9 +678,72 @@ public struct SpokenWordBookItemFolders: Equatable, Sendable {
     /// nil when the scan never placed it. `directoryPaths` memoises folders.
     func path(ofFile fileID: String, directoryPaths: inout [String: String]) -> String? {
         guard let parent = fileParents[fileID] else { return nil }
-        let folder = bookFolderPath(parent, cache: &directoryPaths)
-        let name = Self.component(names[fileID]) ?? fileID
+        let folder = placedFolderPath(parent, cache: &directoryPaths)
+        // A UPnP file's id is a resource URL: without a name it is still one component.
+        let name = Self.component(names[fileID]) ?? Self.component(fileID) ?? fileID
         return folder.isEmpty ? name : folder + "/" + name
+    }
+
+    /// Memo keys of `placedFolderPath`, next to `directoryPath`'s and
+    /// `bookFolderPath`'s; no provider id starts with U+001E. The key alone
+    /// marks the pass over the source's folders done.
+    private static let sharedPathKey = "\u{1E}"
+
+    /// The folder's path as the books read it: `bookFolderPath`, led by the id
+    /// of the folder its book goes by when another folder of the source reads
+    /// the same (`markSharedBookFolders`).
+    private func placedFolderPath(_ id: String, cache: inout [String: String]) -> String {
+        if cache[Self.sharedPathKey] == nil { markSharedBookFolders(cache: &cache) }
+        return cache[Self.sharedPathKey + id] ?? bookFolderPath(id, cache: &cache)
+    }
+
+    /// A scan root adds nothing to the paths below it, so two picked folders
+    /// that each hold a "第一部" both read "第一部", and their files would be
+    /// one book; so would two picked folders of one name holding files, or
+    /// two folders of one name side by side. Wherever two folders a book can
+    /// go by read the same, each folder holding files for either is led by
+    /// the id of the folder its book goes by: the two are told apart, and a
+    /// book's "CD 2" or "1-500" folders still read as one. Folders whose path
+    /// no other folder reads keep it, and with it their books' ids.
+    ///
+    /// Done once per source over every folder holding a file, music included,
+    /// so a book's id never depends on which items are grouped together.
+    private func markSharedBookFolders(cache: inout [String: String]) {
+        cache[Self.sharedPathKey] = ""
+        var placements: [(folder: String, path: String, key: String, book: String)] = []
+        var bookByKey: [String: String] = [:]
+        var sharedKeys: Set<String> = []
+        var seen: Set<String> = []
+        for folder in fileParents.values {
+            guard seen.insert(folder).inserted else { continue }
+            let path = bookFolderPath(folder, cache: &cache)
+            guard let placement = bookFolder(of: folder, path: path) else { continue }
+            placements.append((folder, path, placement.key, placement.book))
+            if let other = bookByKey[placement.key] {
+                if other != placement.book { sharedKeys.insert(placement.key) }
+            } else {
+                bookByKey[placement.key] = placement.book
+            }
+        }
+        guard !sharedKeys.isEmpty else { return }
+        for placement in placements where sharedKeys.contains(placement.key) {
+            let lead = Self.component(placement.book) ?? placement.book
+            cache[Self.sharedPathKey + placement.folder] = lead + "/" + placement.path
+        }
+    }
+
+    /// What the rules key a folder's files by (`SpokenWordBookGroupingRules`):
+    /// its path, without a last "CD 2" or "1-500" folder, and the folder that
+    /// path ends at. Nil when the path leaves no folder to key them by.
+    private func bookFolder(of folder: String, path: String) -> (key: String, book: String)? {
+        var components = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        var book = folder
+        if SpokenWordBookGroupingRules.dropsSplitFolder(components) {
+            components.removeLast()
+            book = directoryParents[folder] ?? folder
+        }
+        guard !components.isEmpty else { return nil }
+        return (components.joined(separator: "/"), book)
     }
 
     /// The folder's path, led by its scan root's name when the folders below
@@ -742,6 +815,291 @@ public struct SpokenWordBookItemFolders: Equatable, Sendable {
     }
 }
 
+/// The folders reported for book grouping (`SpokenWordBookSourcePaths`), as a
+/// small local file. The scan index they come from loads in the background
+/// after launch, while the library is already grouping its books; read back
+/// at launch, they let the first grouping place drive and UPnP books by their
+/// folders instead of showing every untagged file as a book until the index
+/// is in. Equal to what the index then reports, so that changes nothing.
+///
+/// One record per line, fields split by tabs; a tab, line break or backslash
+/// in a value is written with a backslash. After the header, per source:
+///
+///     S <source id>
+///     D <folder id> <parent's folder index, or empty> [<name>]
+///     R <folder index> <scan root name>
+///     F <bytes shared with the file id before> <rest of the id> <folder index> [<name>]
+///     N <id> <name>
+///
+/// Each folder is written once and referred to by index, and file ids are
+/// written in byte order, each as what it shares with the one before plus
+/// the rest: a folder holds many files, and one source's ids share long
+/// prefixes (a UPnP server's resource URLs above all). A name field present
+/// but empty is an empty name; an absent one, none.
+public enum SpokenWordBookItemFoldersArchive {
+    private static let header = Array("primuse-book-folders 1".utf8)
+
+    private static let tab: UInt8 = 0x09
+    private static let newline: UInt8 = 0x0A
+    private static let carriageReturn: UInt8 = 0x0D
+    private static let backslash: UInt8 = 0x5C
+
+    public static func encode(_ sources: [String: SpokenWordBookItemFolders]) -> Data {
+        var out: [UInt8] = header
+        out.reserveCapacity(1024 + sources.values.reduce(0) { $0 + $1.fileParents.count * 64 })
+        out.append(newline)
+        for sourceID in sources.keys.sorted() {
+            guard let folders = sources[sourceID] else { continue }
+            out.append(UInt8(ascii: "S"))
+            field(sourceID, to: &out)
+            out.append(newline)
+
+            var folderSet = Set(folders.directoryParents.keys)
+            folderSet.formUnion(folders.directoryParents.values)
+            folderSet.formUnion(folders.fileParents.values)
+            folderSet.formUnion(folders.rootNames.keys)
+            let folderIDs = folderSet.sorted()
+            var indexOf: [String: Int] = [:]
+            indexOf.reserveCapacity(folderIDs.count)
+            for (index, id) in folderIDs.enumerated() { indexOf[id] = index }
+
+            for id in folderIDs {
+                out.append(UInt8(ascii: "D"))
+                field(id, to: &out)
+                out.append(tab)
+                if let parent = folders.directoryParents[id], let index = indexOf[parent] {
+                    out.append(contentsOf: String(index).utf8)
+                }
+                // A name belongs to the file's line when the id is a file's too.
+                if folders.fileParents[id] == nil, let name = folders.names[id] {
+                    field(name, to: &out)
+                }
+                out.append(newline)
+            }
+            for (id, name) in folders.rootNames.sorted(by: { $0.key < $1.key }) {
+                guard let index = indexOf[id] else { continue }
+                out.append(UInt8(ascii: "R"))
+                out.append(tab)
+                out.append(contentsOf: String(index).utf8)
+                field(name, to: &out)
+                out.append(newline)
+            }
+
+            let fileIDs = folders.fileParents.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }
+            var previous: [UInt8] = []
+            for id in fileIDs {
+                guard let parent = folders.fileParents[id], let index = indexOf[parent] else { continue }
+                let bytes = Array(id.utf8)
+                var shared = 0
+                while shared < bytes.count, shared < previous.count, bytes[shared] == previous[shared] {
+                    shared += 1
+                }
+                out.append(UInt8(ascii: "F"))
+                out.append(tab)
+                out.append(contentsOf: String(shared).utf8)
+                out.append(tab)
+                appendEscaped(bytes[shared...], to: &out)
+                out.append(tab)
+                out.append(contentsOf: String(index).utf8)
+                if let name = folders.names[id] { field(name, to: &out) }
+                out.append(newline)
+                previous = bytes
+            }
+
+            // Names of anything else the index named: a file it gave no folder, a lone folder.
+            let unplaced = folders.names.filter { folders.fileParents[$0.key] == nil && indexOf[$0.key] == nil }
+            for (id, name) in unplaced.sorted(by: { $0.key < $1.key }) {
+                out.append(UInt8(ascii: "N"))
+                field(id, to: &out)
+                field(name, to: &out)
+                out.append(newline)
+            }
+        }
+        return Data(out)
+    }
+
+    /// Nil for anything but a whole file this version wrote.
+    public static func decode(_ data: Data) -> [String: SpokenWordBookItemFolders]? {
+        let bytes = [UInt8](data)
+        var result: [String: SpokenWordBookItemFolders] = [:]
+        var reader: SourceReader?
+        var fields: [Range<Int>] = []
+        var start = 0
+        var sawHeader = false
+        while start < bytes.count {
+            let end = bytes[start...].firstIndex(of: newline) ?? bytes.count
+            let line = start..<end
+            start = end + 1
+            guard sawHeader else {
+                guard bytes[line].elementsEqual(header) else { return nil }
+                sawHeader = true
+                continue
+            }
+            guard !line.isEmpty else { continue }
+            fields.removeAll(keepingCapacity: true)
+            var fieldStart = line.lowerBound + 1
+            guard fieldStart < line.upperBound, bytes[fieldStart] == tab else { return nil }
+            fieldStart += 1
+            for index in fieldStart..<line.upperBound where bytes[index] == tab {
+                fields.append(fieldStart..<index)
+                fieldStart = index + 1
+            }
+            fields.append(fieldStart..<line.upperBound)
+
+            switch bytes[line.lowerBound] {
+            case UInt8(ascii: "S"):
+                guard fields.count == 1 else { return nil }
+                if let finished = reader {
+                    guard let folders = finished.folders() else { return nil }
+                    result[finished.sourceID] = folders
+                }
+                reader = SourceReader(sourceID: string(bytes, fields[0]))
+            case UInt8(ascii: "D"):
+                guard fields.count == 2 || fields.count == 3, reader != nil else { return nil }
+                let parent: Int?
+                if fields[1].isEmpty {
+                    parent = nil
+                } else {
+                    guard let index = integer(bytes, fields[1]) else { return nil }
+                    parent = index
+                }
+                let id = string(bytes, fields[0])
+                reader?.folderIDs.append(id)
+                reader?.folderParents.append(parent)
+                if fields.count == 3 { reader?.names[id] = string(bytes, fields[2]) }
+            case UInt8(ascii: "R"):
+                guard fields.count == 2, reader != nil, let index = integer(bytes, fields[0]) else { return nil }
+                reader?.roots.append((index, string(bytes, fields[1])))
+            case UInt8(ascii: "F"):
+                guard fields.count == 3 || fields.count == 4, var current = reader,
+                      let shared = integer(bytes, fields[0]), shared <= current.previousFileID.count,
+                      let folder = integer(bytes, fields[2]) else { return nil }
+                reader = nil
+                var id = Array(current.previousFileID[..<shared])
+                appendUnescaped(bytes[fields[1]], to: &id)
+                let fileID = String(decoding: id, as: UTF8.self)
+                current.files.append((fileID, folder))
+                if fields.count == 4 { current.names[fileID] = string(bytes, fields[3]) }
+                current.previousFileID = id
+                reader = current
+            case UInt8(ascii: "N"):
+                guard fields.count == 2, reader != nil else { return nil }
+                reader?.names[string(bytes, fields[0])] = string(bytes, fields[1])
+            default:
+                return nil
+            }
+        }
+        guard sawHeader else { return nil }
+        if let finished = reader {
+            guard let folders = finished.folders() else { return nil }
+            result[finished.sourceID] = folders
+        }
+        return result
+    }
+
+    /// One source's lines as they are read; indices are checked at its end.
+    private struct SourceReader {
+        let sourceID: String
+        var folderIDs: [String] = []
+        var folderParents: [Int?] = []
+        var roots: [(folder: Int, name: String)] = []
+        var files: [(id: String, folder: Int)] = []
+        var names: [String: String] = [:]
+        var previousFileID: [UInt8] = []
+
+        init(sourceID: String) {
+            self.sourceID = sourceID
+        }
+
+        func folders() -> SpokenWordBookItemFolders? {
+            var directoryParents: [String: String] = [:]
+            directoryParents.reserveCapacity(folderIDs.count)
+            for (index, parent) in folderParents.enumerated() {
+                guard let parent else { continue }
+                guard folderIDs.indices.contains(parent) else { return nil }
+                directoryParents[folderIDs[index]] = folderIDs[parent]
+            }
+            var fileParents: [String: String] = [:]
+            fileParents.reserveCapacity(files.count)
+            for file in files {
+                guard folderIDs.indices.contains(file.folder) else { return nil }
+                fileParents[file.id] = folderIDs[file.folder]
+            }
+            var rootNames: [String: String] = [:]
+            for root in roots {
+                guard folderIDs.indices.contains(root.folder) else { return nil }
+                rootNames[folderIDs[root.folder]] = root.name
+            }
+            return SpokenWordBookItemFolders(
+                fileParents: fileParents,
+                directoryParents: directoryParents,
+                names: names,
+                rootNames: rootNames
+            )
+        }
+    }
+
+    /// A tab, then the value escaped.
+    private static func field(_ value: String, to out: inout [UInt8]) {
+        out.append(tab)
+        appendEscaped(value.utf8, to: &out)
+    }
+
+    /// Tab, line breaks and backslash never occur inside a multi-byte UTF-8
+    /// sequence, so escaping bytes is escaping characters.
+    private static func appendEscaped<Bytes: Sequence>(_ value: Bytes, to out: inout [UInt8])
+    where Bytes.Element == UInt8 {
+        for byte in value {
+            switch byte {
+            case tab: out.append(backslash); out.append(UInt8(ascii: "t"))
+            case newline: out.append(backslash); out.append(UInt8(ascii: "n"))
+            case carriageReturn: out.append(backslash); out.append(UInt8(ascii: "r"))
+            case backslash: out.append(backslash); out.append(backslash)
+            default: out.append(byte)
+            }
+        }
+    }
+
+    private static func appendUnescaped(_ value: ArraySlice<UInt8>, to out: inout [UInt8]) {
+        var escaping = false
+        for byte in value {
+            if escaping {
+                switch byte {
+                case UInt8(ascii: "t"): out.append(tab)
+                case UInt8(ascii: "n"): out.append(newline)
+                case UInt8(ascii: "r"): out.append(carriageReturn)
+                default: out.append(byte)
+                }
+                escaping = false
+            } else if byte == backslash {
+                escaping = true
+            } else {
+                out.append(byte)
+            }
+        }
+    }
+
+    private static func string(_ bytes: [UInt8], _ range: Range<Int>) -> String {
+        let slice = bytes[range]
+        guard slice.contains(backslash) else { return String(decoding: slice, as: UTF8.self) }
+        var unescaped: [UInt8] = []
+        unescaped.reserveCapacity(slice.count)
+        appendUnescaped(slice, to: &unescaped)
+        return String(decoding: unescaped, as: UTF8.self)
+    }
+
+    private static func integer(_ bytes: [UInt8], _ range: Range<Int>) -> Int? {
+        guard !range.isEmpty, range.count <= 12 else { return nil }
+        var value = 0
+        for index in range {
+            let digit = Int(bytes[index]) - 48
+            guard (0...9).contains(digit) else { return nil }
+            value = value * 10 + digit
+        }
+        return value
+    }
+}
+
 /// Sources whose item paths name no folder. A server catalogue (Subsonic,
 /// Jellyfin and the like) makes its paths up from item ids, so every item of
 /// the source sits under one made-up folder; taken as a folder, it would join
@@ -751,7 +1109,12 @@ public struct SpokenWordBookItemFolders: Equatable, Sendable {
 ///
 /// Item-id cloud drives name no folder either, but their scan saw the
 /// folders: the app reports those (`SpokenWordStore.updateFolderTopologies`)
-/// and `groupingPath` spells each item's path out of them.
+/// and `groupingPath` spells each item's path out of them. So does a UPnP /
+/// DLNA server: its paths are resource URLs ("http://…/MediaItems/123.mp3",
+/// the same made-up folder for every item), and its scan records the
+/// containers each item was listed in. Such a source is reported among the
+/// catalogue sources and among the folders both; while its folders are
+/// known it is judged by them, and until then by its tags alone.
 public enum SpokenWordBookSourcePaths {
     private final class Storage: @unchecked Sendable {
         let lock = NSLock()
@@ -769,10 +1132,36 @@ public enum SpokenWordBookSourcePaths {
         storage.lock.lock()
         defer { storage.lock.unlock() }
         guard let folders = storage.itemFolders[sourceID] else { return filePath }
-        return folders.path(
-            ofFile: filePath,
+        return groupingPath(
+            filePath: filePath,
+            folders: folders,
+            pathNamesFolders: !storage.ids.contains(sourceID),
             directoryPaths: &storage.directoryPaths[sourceID, default: [:]]
-        ) ?? filePath
+        )
+    }
+
+    /// `groupingPath` for a source whose scan recorded its folders. A file
+    /// the scan never placed keeps its own path; when that path names no
+    /// folder (`pathNamesFolders` false: a UPnP resource URL, whose "folders"
+    /// are the server's address), it is read as one name, a file of no folder.
+    static func groupingPath(
+        filePath: String,
+        folders: SpokenWordBookItemFolders,
+        pathNamesFolders: Bool,
+        directoryPaths: inout [String: String]
+    ) -> String {
+        if let path = folders.path(ofFile: filePath, directoryPaths: &directoryPaths) { return path }
+        return pathNamesFolders ? filePath : filePath.replacingOccurrences(of: "/", with: "\u{2215}")
+    }
+
+    /// The catalogue sources as the rules read them: those judged by their
+    /// scanned folders (`itemFolders`) are judged by those instead.
+    static func catalogSourceIDs(
+        reported ids: Set<String>,
+        itemFolders: [String: SpokenWordBookItemFolders]
+    ) -> Set<String> {
+        guard !itemFolders.isEmpty else { return ids }
+        return ids.filter { itemFolders[$0] == nil }
     }
 
     /// Changes whenever the reported item-id drive folders do, so a library
@@ -784,22 +1173,28 @@ public enum SpokenWordBookSourcePaths {
     }
 
     /// Replaces the item-id drive folders. True when that changed them.
+    /// Equal folders are taken all the same, without a regrouping: the copy
+    /// restored at launch (`SpokenWordBookItemFoldersArchive`) then gives way
+    /// to the one the scan index shares with the rest of the app, and only
+    /// one stays in memory.
     @discardableResult
     public static func update(itemFolders: [String: SpokenWordBookItemFolders]) -> Bool {
         storage.lock.lock()
         defer { storage.lock.unlock() }
-        guard storage.itemFolders != itemFolders else { return false }
+        let changed = storage.itemFolders != itemFolders
         storage.itemFolders = itemFolders
+        guard changed else { return false }
         storage.directoryPaths = [:]
         storage.itemFoldersRevision &+= 1
         return true
     }
 
-    /// The ids of sources whose paths name no folder.
+    /// The ids of sources whose paths name no folder, leaving out those
+    /// judged by their scanned folders (UPnP while its folders are known).
     public static var catalogSourceIDs: Set<String> {
         storage.lock.lock()
         defer { storage.lock.unlock() }
-        return storage.ids
+        return catalogSourceIDs(reported: storage.ids, itemFolders: storage.itemFolders)
     }
 
     /// Replaces the reported sources. True when that changed them, so the

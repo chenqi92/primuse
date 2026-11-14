@@ -207,6 +207,10 @@ final class SpokenWordStore {
     private let storeURL: URL
     private var saveTask: Task<Void, Never>?
     private let syncsThroughICloud: Bool
+    /// 分书用的网盘 / UPnP 目录要不要存到本机、启动时读回(`loadBookItemFolders`)。
+    /// 只有手机、Mac 上的 `shared`:电视自己存着同一份目录(`TVStore` 的 folder-*.json),
+    /// 测试实例不碰全局的分书目录。
+    private let persistsBookItemFolders: Bool
     @ObservationIgnored private var cloudPushTask: Task<Void, Never>?
     @ObservationIgnored private var pendingCloudUrgency: CloudUrgency?
     @ObservationIgnored private var isRegisteredWithCloud = false
@@ -215,6 +219,11 @@ final class SpokenWordStore {
     /// syncs.
     init(storeURL: URL? = nil) {
         syncsThroughICloud = storeURL == nil
+        #if os(tvOS)
+        persistsBookItemFolders = false
+        #else
+        persistsBookItemFolders = storeURL == nil
+        #endif
         if let storeURL {
             self.storeURL = storeURL
         } else {
@@ -230,6 +239,7 @@ final class SpokenWordStore {
         }
         load()
         loadTaggedFolderFiles()
+        loadBookItemFolders()
         if syncsThroughICloud {
             CloudKVSSync.shared.register(key: Self.cloudStorageKey) { [weak self] in
                 guard let self else { return }
@@ -362,9 +372,17 @@ final class SpokenWordStore {
     @ObservationIgnored private var reportedCatalogPathSourceIDs: Set<String>?
     /// 这些网盘的目录上下级,由宿主从扫描索引交来(手机 ScanService、电视 TVStore)。
     @ObservationIgnored private var folderTopologies: [String: SpokenWordFolderTopology] = [:]
-    /// 报给分书规则的网盘目录(`SpokenWordBookSourcePaths`)。暂时没交来目录的源沿用上次的,
-    /// 不让书在启动中、同步状态刚作废时先塌回不分目录。
+    /// 分书靠扫描记下的目录认书的源(网盘与 UPnP,`groupsBooksByScannedFolders`);nil 表示还没报过。
+    @ObservationIgnored private var bookFolderSourceIDs: Set<String>?
+    /// 报给分书规则的目录(`SpokenWordBookSourcePaths`)。暂时没交来目录的源沿用上次的,
+    /// 不让书在启动中、同步状态刚作废时先塌回不分目录;手机、Mac 上还存进本机文件,
+    /// 启动时扫描索引装好之前就交给分书(`loadBookItemFolders`)。
     @ObservationIgnored private var reportedBookItemFolders: [String: SpokenWordBookItemFolders] = [:]
+    /// 本机文件里那份对应的 `SpokenWordBookSourcePaths.itemFoldersRevision`,没变就不重写。
+    /// 记修订号而不是留一份目录:索引装好后交来的那份一样时,启动时读回的那份就整个释放。
+    @ObservationIgnored private var savedBookItemFoldersRevision: Int?
+    @ObservationIgnored private var bookItemFolderSaveTask: Task<Void, Never>?
+    @ObservationIgnored private var bookItemFolderWriteTask: Task<Void, Never>?
     /// 标签目录里的文件。落在本机文件里(不同步):启动时扫描索引往往还没装载,曲库先按
     /// 上次的结论分,等目录交来算出一样的结果就不必整库重分一次。
     @ObservationIgnored private var taggedFolderFileCache: [String: TaggedFolderFiles] = [:]
@@ -430,19 +448,85 @@ final class SpokenWordStore {
             freshTaggedFolderSources.remove(sourceID)
             if taggedFolderFileCache[sourceID] != nil || hasFolderTags(sourceID: sourceID) { affectsTags = true }
         }
-        // 分书按真实目录和文件名认书、排章节;歌曲路径只是文件 ID。
+        // 分书按真实目录和文件名认书、排章节;歌曲路径只是文件 ID(UPnP 是资源地址)。
         var bookFolders = reportedBookItemFolders
         for (sourceID, topology) in topologies where !topology.isEmpty {
             bookFolders[sourceID] = topology.bookItemFolders
         }
-        if !opaqueFolderSourceIDs.isEmpty {
-            bookFolders = bookFolders.filter { opaqueFolderSourceIDs.contains($0.key) }
+        if let bookSources = bookFolderSourceIDs, !bookSources.isEmpty {
+            bookFolders = bookFolders.filter { bookSources.contains($0.key) }
         }
-        reportedBookItemFolders = bookFolders
-        let regroupsBooks = SpokenWordBookSourcePaths.update(itemFolders: bookFolders)
+        let regroupsBooks = reportBookItemFolders(bookFolders)
         guard affectsTags || regroupsBooks else { return }
         if affectsTags { cachedFolderRules = nil }
         scheduleFolderTagReclassification()
+    }
+
+    /// 交给分书规则;变了就安排写进本机文件。true 表示书要重新分。
+    @discardableResult
+    private func reportBookItemFolders(_ folders: [String: SpokenWordBookItemFolders]) -> Bool {
+        reportedBookItemFolders = folders
+        guard SpokenWordBookSourcePaths.update(itemFolders: folders) else { return false }
+        scheduleBookItemFolderSave()
+        return true
+    }
+
+    // MARK: - Book folders across launches
+
+    /// 放在缓存目录:丢了只是启动后到扫描索引装好前那一阵按没有目录分书,和没有这份文件时一样。
+    private var bookItemFoldersURL: URL {
+        FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent("Primuse", isDirectory: true)
+            .appendingPathComponent("spoken_word_book_folders.txt")
+    }
+
+    /// 启动时读回上次报给分书的目录,在曲库第一次分书之前交给 `SpokenWordBookSourcePaths`。
+    /// 扫描索引在后台装载,装好之前曲库已经在分书:没有这份目录时,网盘、UPnP 上没标签的书
+    /// 先一个文件一本,等索引装好再合回去。索引装好后交来的目录和这份一样,不再重分。
+    private func loadBookItemFolders() {
+        guard persistsBookItemFolders else { return }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        guard let data = try? Data(contentsOf: bookItemFoldersURL),
+              let folders = SpokenWordBookItemFoldersArchive.decode(data),
+              !folders.isEmpty else { return }
+        reportedBookItemFolders = folders
+        SpokenWordBookSourcePaths.update(itemFolders: folders)
+        savedBookItemFoldersRevision = SpokenWordBookSourcePaths.itemFoldersRevision
+        let files = folders.values.reduce(0) { $0 + $1.fileParents.count }
+        let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
+        plog("Book folders restored: sources=\(folders.count) files=\(files) bytes=\(data.count) ms=\(elapsed)")
+    }
+
+    /// 目录只在扫描提交、同步状态作废、源增删时变;攒几秒写一次,写的是那时的最新一份。
+    private func scheduleBookItemFolderSave() {
+        guard persistsBookItemFolders, bookItemFolderSaveTask == nil else { return }
+        bookItemFolderSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, let self else { return }
+            self.bookItemFolderSaveTask = nil
+            self.saveBookItemFolders()
+        }
+    }
+
+    /// 编码和写盘在后台;前后两次写按顺序来,旧的不会盖住新的。
+    private func saveBookItemFolders() {
+        let revision = SpokenWordBookSourcePaths.itemFoldersRevision
+        guard revision != savedBookItemFoldersRevision else { return }
+        savedBookItemFoldersRevision = revision
+        let folders = reportedBookItemFolders
+        let url = bookItemFoldersURL
+        let previous = bookItemFolderWriteTask
+        bookItemFolderWriteTask = Task.detached(priority: .utility) {
+            await previous?.value
+            if folders.isEmpty {
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
+            try? FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try? SpokenWordBookItemFoldersArchive.encode(folders).write(to: url, options: .atomic)
+        }
     }
 
     private func hasFolderTags(sourceID: String) -> Bool {
@@ -666,9 +750,17 @@ final class SpokenWordStore {
         )
         let opaqueChanged = opaque != opaqueFolderSourceIDs
         opaqueFolderSourceIDs = opaque
-        if opaqueChanged, reportedBookItemFolders.keys.contains(where: { !opaque.contains($0) }) {
-            reportedBookItemFolders = reportedBookItemFolders.filter { opaque.contains($0.key) }
-            SpokenWordBookSourcePaths.update(itemFolders: reportedBookItemFolders)
+        // 删掉的源(含启动时从本机文件读回、其间已删的)不再留着目录。
+        let bookSources = Set(
+            sources.lazy
+                .filter { !$0.isDeleted && $0.type.groupsBooksByScannedFolders }
+                .map(\.id)
+        )
+        if bookSources != bookFolderSourceIDs {
+            bookFolderSourceIDs = bookSources
+            if reportedBookItemFolders.keys.contains(where: { !bookSources.contains($0) }) {
+                reportBookItemFolders(reportedBookItemFolders.filter { bookSources.contains($0.key) })
+            }
         }
         // 曲库型服务器按条目 id 合成路径, 分书时不能拿它当文件夹。曲库第一次分书之前就要报上去;
         // 之后源有增减, 书要按新的认法重新分。
@@ -1136,6 +1228,11 @@ final class SpokenWordStore {
         saveTask = nil
         saveNow()
         if pendingCloudUrgency != nil { pushToCloudNow() }
+        if let pending = bookItemFolderSaveTask {
+            pending.cancel()
+            bookItemFolderSaveTask = nil
+            saveBookItemFolders()
+        }
     }
 
     private func saveNow() {

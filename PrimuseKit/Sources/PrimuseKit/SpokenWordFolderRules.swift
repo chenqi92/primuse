@@ -157,7 +157,8 @@ public struct SpokenWordFolderTagState: Equatable, Sendable {
 
 /// 按文件 ID 寻址的网盘(Google Drive、阿里、115、123…)里目录的上下级:歌曲路径就是
 /// 文件 ID,里面没有目录,只能靠扫描时记下的父目录一层层往上找 —— 与文件夹视图、
-/// 专辑艺术家推断用的是同一份扫描索引。
+/// 专辑艺术家推断用的是同一份扫描索引。UPnP 分书也用这一份:路径是资源地址,
+/// 目录是扫描时走过的容器(只用于分书,不参与目录标签)。
 public struct SpokenWordFolderTopology: Equatable, Sendable {
     /// 文件 ID → 所在目录。
     public let fileParents: [String: String]

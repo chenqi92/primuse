@@ -1663,9 +1663,15 @@ final class AppServices {
             )
             let folders = scanService.albumArtistFolderIndex(for: sourceIDs)
             library.updateAlbumArtistFolders(folders)
+            // 分书另外还要 UPnP 的:它的路径是资源地址,扫描时走过的容器记在同一份索引里。
+            let bookSourceIDs = Set(
+                store.allSources.lazy
+                    .filter { $0.type.groupsBooksByScannedFolders }
+                    .map(\.id)
+            )
             SpokenWordStore.shared.updateFolderTopologies(
                 scanService.spokenWordFolderTopologies(
-                    for: sourceIDs,
+                    for: bookSourceIDs,
                     fileParents: folders,
                     rootNames: AppServices.spokenWordScanRootNames(store.allSources)
                 )

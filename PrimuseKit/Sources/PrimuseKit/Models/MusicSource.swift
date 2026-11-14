@@ -292,9 +292,17 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
 
     /// 条目路径是不是真实的目录。曲库型服务器的路径是按条目 id 合成的（`/songs/<id>`、
     /// `/items/<id>`），整个源都在同一层下；Audiobookshelf 与 Ting Reader 的路径以每本书为一层，
-    /// 一本书一个「目录」，仍然算。
+    /// 一本书一个「目录」，仍然算。UPnP / DLNA 的路径是服务端给的资源地址
+    /// （`http://…/MediaItems/123.mp3`），整个服务器同一个「目录」，不算。
     public var itemPathsNameFolders: Bool {
-        !isServerLibrary || self == .audiobookshelf || self == .tingReader
+        (!isServerLibrary || self == .audiobookshelf || self == .tingReader) && self != .upnp
+    }
+
+    /// 分书靠扫描索引里记下的目录认书的源:按文件 ID 寻址的网盘(路径是文件 ID)和
+    /// UPnP / DLNA(路径是资源地址,目录是扫描时走过的容器)。两者的路径里都没有目录,
+    /// 目录的上下级与名字只在扫描索引里(`SpokenWordFolderTopology`)。
+    public var groupsBooksByScannedFolders: Bool {
+        usesOpaqueDirectoryIdentifiers || self == .upnp
     }
 
     /// 源类型本身就决定了内容是哪种听法时在这里声明（有声书服务器里没有音乐）。
