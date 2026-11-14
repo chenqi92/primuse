@@ -205,7 +205,9 @@ struct RecapFlowLayout: Layout {
             var x = bounds.minX
             for index in row.indices {
                 let size = subviews[index].sizeThatFits(.unspecified)
-                subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                // 同一排里矮的那几个上下居中(没有底色的文字和带底色的小标签排在一起时对齐)。
+                let rowOffset = (row.height - size.height) / 2
+                subviews[index].place(at: CGPoint(x: x, y: y + rowOffset), proposal: ProposedViewSize(size))
                 x += size.width + spacing
             }
             y += row.height + spacing

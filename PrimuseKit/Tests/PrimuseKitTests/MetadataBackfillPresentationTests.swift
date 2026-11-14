@@ -455,3 +455,17 @@ struct MetadataTagRereadBatchTests {
         #expect(result.processed == 0)
     }
 }
+
+@Suite("Tag check listing for spoken word")
+struct MetadataBackfillSpokenWordListingTests {
+    @Test("有声内容只是不完整的不列出，别的状态照常列出")
+    func spokenWordIncompleteIsNotAProblem() {
+        #expect(!MetadataBackfillItemStatePolicy.isListed(.playableIncomplete, isSpokenWord: true))
+        #expect(MetadataBackfillItemStatePolicy.isListed(.playableIncomplete, isSpokenWord: false))
+        for state in [MetadataBackfillItemState.unreadableTags, .fileUnavailable, .sourceUnavailable,
+                      .pendingInspection, .retryPending, .stalled] {
+            #expect(MetadataBackfillItemStatePolicy.isListed(state, isSpokenWord: true), "\(state)")
+        }
+    }
+}
+

@@ -1060,41 +1060,20 @@ struct SourceMetadataStatusView: View {
             .fixedSize(horizontal: true, vertical: false)
     }
 
-    /// 格式、尝试次数与缺失字段统一成同一排小标签; 缺失字段在"可播放但不完整"
-    /// 状态下是已确认的结论, 因此用红色标出。
+    /// 格式、缺失字段与尝试次数排成同一排小标签, 放不下再接着折行, 不再一个一行。
+    /// 缺失字段在"可播放但不完整"状态下是已确认的结论, 因此用红色标出。
     private func metadataLine(_ item: MetadataBackfillStatusDisplayItem) -> some View {
         let reasons = workReasonValues(displayWorkReasons(for: item))
-        let highlightsUnavailableFields = item.state == .playableIncomplete
-        return VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                formatBadge(item.fileFormat)
-                attemptText(item.attemptCount)
-                Spacer(minLength: 0)
-            }
-
-            if !reasons.isEmpty {
-                reasonChips(reasons, highlighted: highlightsUnavailableFields)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func reasonChips(_ reasons: [String], highlighted: Bool) -> some View {
+        let highlighted = item.state == .playableIncomplete
         let tint: Color = highlighted ? .red : .secondary
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 5) {
-                ForEach(reasons, id: \.self) { reason in
-                    reasonChip(reason, tint: tint, highlighted: highlighted)
-                }
-                Spacer(minLength: 0)
+        return RecapFlowLayout(spacing: 5) {
+            formatBadge(item.fileFormat)
+            ForEach(reasons, id: \.self) { reason in
+                reasonChip(reason, tint: tint, highlighted: highlighted)
             }
-
-            VStack(alignment: .leading, spacing: 5) {
-                ForEach(reasons, id: \.self) { reason in
-                    reasonChip(reason, tint: tint, highlighted: highlighted)
-                }
-            }
+            attemptText(item.attemptCount)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func reasonChip(_ reason: String, tint: Color, highlighted: Bool) -> some View {

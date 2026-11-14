@@ -2944,6 +2944,8 @@ final class MetadataBackfillService {
         let deferredRetrySongIDs: Set<String>
         let diagnosticRecords: [String: MetadataBackfillDiagnosticRecord]
         let isWaitingForWiFi: Bool
+        /// 有声内容只是缺时长、缺内嵌信息时不进标签检查(`MetadataBackfillItemStatePolicy.isListed`)。
+        let spokenWordSongIDs: Set<String>
     }
 
     private struct RemainingCountsState: Equatable {
@@ -2968,6 +2970,7 @@ final class MetadataBackfillService {
         let deferredRetrySongIDs: Set<String>
         let diagnosticRecords: [String: MetadataBackfillDiagnosticRecord]
         let isWaitingForWiFi: Bool
+        let spokenWordSongIDs: Set<String>
 
         init(input: RemainingCountsInput, songGeneration: UInt64) {
             self.songGeneration = songGeneration
@@ -2991,6 +2994,7 @@ final class MetadataBackfillService {
             self.deferredRetrySongIDs = input.deferredRetrySongIDs
             self.diagnosticRecords = input.diagnosticRecords
             self.isWaitingForWiFi = input.isWaitingForWiFi
+            self.spokenWordSongIDs = input.spokenWordSongIDs
         }
     }
 
@@ -3035,7 +3039,8 @@ final class MetadataBackfillService {
             artistCheckedIDs: artistCheckedIDs,
             deferredRetrySongIDs: deferredRetrySongIDs,
             diagnosticRecords: diagnosticRecords,
-            isWaitingForWiFi: isWaitingForWiFi
+            isWaitingForWiFi: isWaitingForWiFi,
+            spokenWordSongIDs: library.spokenWordSongIDs
         )
     }
 
@@ -3253,6 +3258,8 @@ final class MetadataBackfillService {
                 isSourceUnavailable: sourceUnavailable,
                 isStalled: input.sessionStallParkedIDs.contains(song.id),
                 isWaitingForWiFi: input.isWaitingForWiFi
+            ), MetadataBackfillItemStatePolicy.isListed(
+                itemState, isSpokenWord: input.spokenWordSongIDs.contains(song.id)
             ) {
                 summaries[song.sourceID, default: MetadataBackfillSourceSummary()]
                     .record(itemState)

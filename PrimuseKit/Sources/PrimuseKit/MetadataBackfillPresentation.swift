@@ -401,6 +401,13 @@ public struct MetadataBackfillSourceSummary: Equatable, Sendable {
 }
 
 public enum MetadataBackfillItemStatePolicy {
+    /// 这一条进不进标签检查的列表和计数。有声内容常常没有内嵌标签，大的 M4B 头尾两段也读不到时长；
+    /// 只是「可播放但不完整」的不算问题：书名、章节按文件夹和文件名整理，时长开播时自己补上，
+    /// 用户在这里也做不了什么。读不出、文件有问题的照样列出。
+    public static func isListed(_ state: MetadataBackfillItemState, isSpokenWord: Bool) -> Bool {
+        !(isSpokenWord && state == .playableIncomplete)
+    }
+
     public static func resolve(
         needsInspection: Bool,
         hasUnreadableTags: Bool,
