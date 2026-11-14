@@ -184,6 +184,7 @@ extension AudioPlayerService {
         LockScreenMotionArtworkPublisher.shared.decorate(&info, song: song, player: self)
 
         nowPlayingCenter.nowPlayingInfo = info
+        logNowPlayingPublishIfNeeded(info, songID: song.id, songTitle: song.title)
         // 记住这份完整快照与它携带的封面对象: 下一次歌词行推进直接在它上面
         // 改两个字符串和进度, 不再重建字典, 也不再换封面。
         let publishedArtwork = info[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork
@@ -643,5 +644,34 @@ extension AudioPlayerService {
         #else
         return max(0, Int(image.size.width * image.size.height * 4))
         #endif
+    }
+}
+
+extension AudioPlayerService {
+    /// 诊断:整份「正在播放」快照换了歌或隔了一分钟才记一行(锁屏歌词的逐行增量不记)。
+    /// 锁屏、控制中心、灵动岛不见了的时候,对得上当时发出去的是什么。
+    func logNowPlayingPublishIfNeeded(_ info: [String: Any], songID: String, songTitle: String) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard songID != lastLoggedNowPlayingSongID || now - lastNowPlayingLogUptime >= 60 else { return }
+        lastLoggedNowPlayingSongID = songID
+        lastNowPlayingLogUptime = now
+        let rate = info[MPNowPlayingInfoPropertyPlaybackRate] as? Double ?? -1
+        let elapsed = info[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double ?? -1
+        let duration = info[MPMediaItemPropertyPlaybackDuration] as? Double ?? -1
+        let hasArtwork = info[MPMediaItemPropertyArtwork] != nil
+        let hasMotionArtwork = info.keys.contains { $0.contains("AnimatedArtwork") }
+        let titleIsLyrics = (info[MPMediaItemPropertyTitle] as? String).map { $0 != songTitle } ?? false
+        #if os(iOS)
+        let appState: String
+        switch UIApplication.shared.applicationState {
+        case .active: appState = "active"
+        case .inactive: appState = "inactive"
+        case .background: appState = "background"
+        @unknown default: appState = "unknown"
+        }
+        #else
+        let appState = "n/a"
+        #endif
+        plog("🔈 Now Playing published songID=\(songID) rate=\(rate) elapsed=\(Int(elapsed)) duration=\(Int(duration)) artwork=\(hasArtwork) motion=\(hasMotionArtwork) lyricTitle=\(titleIsLyrics) app=\(appState)")
     }
 }

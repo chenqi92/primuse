@@ -2540,6 +2540,10 @@ final class AudioPlayerService {
     private func setupAudioSessionCallbacks() {
         let manager = AudioSessionManager.shared
 
+        manager.onExclusivePlaybackRestored = { [weak self] in
+            self?.updateNowPlayingInfo()
+        }
+
         manager.onInterruptionBegan = { [weak self] interruptionTime in
             guard let self else { return }
             self.transportDisturbanceGeneration &+= 1
@@ -9256,6 +9260,9 @@ final class AudioPlayerService {
     /// 行推进时直接在这份字典上改标题/副标题与进度, 其余键(尤其是封面)原样
     /// 复用, 避免每行都重建字典并让系统重新序列化封面位图。
     @ObservationIgnored var cachedNowPlayingInfo: [String: Any]?
+    /// 诊断日志:上一次记下整份「正在播放」快照的歌和时刻(换歌或隔一分钟才再记)。
+    @ObservationIgnored var lastLoggedNowPlayingSongID: String?
+    @ObservationIgnored var lastNowPlayingLogUptime: TimeInterval = 0
     @ObservationIgnored var cachedNowPlayingInfoKey: NowPlayingInfoSnapshotKey?
     /// 快照里当前携带的封面对象。它换成另一个实例时封面版本号才前进。
     @ObservationIgnored var cachedNowPlayingArtwork: MPMediaItemArtwork?

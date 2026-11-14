@@ -11,6 +11,9 @@ final class AudioSessionManager {
 
     /// Called when an interruption begins — UI should show "paused" state
     var onInterruptionBegan: ((Date) -> Void)?
+    /// 后台临时混音之后又切回了独占:系统重新把 Primuse 当成正在播放的 App,播放器要整份重发
+    /// 一次「正在播放」,锁屏、控制中心和灵动岛才跟着回来。
+    var onExclusivePlaybackRestored: (() -> Void)?
     /// Called whenever an interruption ends, carrying the system resume grant.
     /// Delivering denied endings is required so stale resume intent can be
     /// cleared instead of being revived by a later lifecycle callback.
@@ -73,6 +76,7 @@ final class AudioSessionManager {
             if isBackgroundMixingFallbackActive {
                 endBackgroundMixingFallback()
                 plog("🔊 Audio session back to exclusive playback reason=activation")
+                onExclusivePlaybackRestored?()
             }
         } catch {
             if activateBackgroundMixingFallback(session, after: error) { return }
@@ -125,6 +129,7 @@ final class AudioSessionManager {
             try session.setActive(true)
             endBackgroundMixingFallback()
             plog("🔊 Audio session back to exclusive playback reason=\(reason)")
+            onExclusivePlaybackRestored?()
         } catch {
             plog("Exclusive audio session still refused reason=\(reason): \(error)")
             // 类别可能已经改成独占而激活没成, 改回可混音让正在放的歌接着放。
@@ -187,6 +192,22 @@ final class AudioSessionManager {
             name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
+
+        // 诊断:进后台那一刻会话是什么样(锁屏、灵动岛不见了时对得上)。
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleApplicationDidEnterBackground(_:)),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+
+    /// 诊断用的一行会话快照:类别、选项、是不是可混音(可混音时系统不把 Primuse 当正在播放的 App)、
+    /// 是否在后台临时混音、别的 App 是否在出声。
+    func logSessionSnapshot(reason: String) {
+        let session = AVAudioSession.sharedInstance()
+        let options = session.categoryOptions
+        plog("🔊 Audio session snapshot reason=\(reason) category=\(session.category.rawValue) mode=\(session.mode.rawValue) options=\(options.rawValue) mixable=\(options.contains(.mixWithOthers)) fallback=\(isBackgroundMixingFallbackActive) otherAudio=\(session.isOtherAudioPlaying) silenceHint=\(session.secondaryAudioShouldBeSilencedHint)")
     }
 
     /// 混音偏好或 CarPlay 状态变了。会话已经配过类别时当场换掉: 激活着就立刻按新类别
@@ -410,6 +431,12 @@ final class AudioSessionManager {
     @objc private nonisolated func handleApplicationDidBecomeActive(_ notification: Notification) {
         Task { @MainActor [weak self] in
             self?.restoreExclusivePlaybackIfNeeded(reason: "foreground")
+        }
+    }
+
+    @objc private nonisolated func handleApplicationDidEnterBackground(_ notification: Notification) {
+        Task { @MainActor [weak self] in
+            self?.logSessionSnapshot(reason: "background")
         }
     }
 
