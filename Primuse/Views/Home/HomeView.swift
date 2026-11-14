@@ -1595,6 +1595,7 @@ struct HomeView: View {
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.openLibraryDestination) private var openLibraryDestination
+    @Environment(\.minimalPageSwitchMotion) private var pageSwitchMotion
     #endif
 
     /// iOS 的迷你条由标签页外层统一让位（`legacyMiniPlayerClearance`），这里只留基线间距；macOS 沿用原值。
@@ -3125,9 +3126,19 @@ struct HomeView: View {
             SpokenWordShelfSectionTabs(selection: $spokenShelfSection)
         default:
             StandardLibrarySectionTabs(selection: nil) { section in
-                openLibraryDestination?(.section(section))
+                openLibrarySection(section)
             }
         }
+    }
+
+    /// 首页顶上那排分类点过去：资料库排在首页后面，旧页截屏淡出，分类页从后沿那一侧轻推进来
+    /// （见 `MinimalPageSwitchMotion`），资料库的导航栈原地换页，不再先露总览再推入。
+    private func openLibrarySection(_ section: LibrarySection) {
+        let side = reduceMotion ? nil : MinimalPageSwitchPolicy.entrySide(
+            fromIndex: 0, toIndex: 1, isRightToLeft: layoutDirection == .rightToLeft
+        ).map { CGFloat($0) }
+        pageSwitchMotion?.begin(from: .home, to: .librarySection(section), entrySide: side)
+        openLibraryDestination?(.section(section))
     }
     #endif
 

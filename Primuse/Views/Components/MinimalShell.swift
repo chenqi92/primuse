@@ -82,7 +82,8 @@ extension EnvironmentValues {
         set { self[MinimalSelectSectionKey.self] = newValue }
     }
 
-    /// 极简外壳的换页过渡，顶栏、页头、根页出现时从这里认领（见 `MinimalPageSwitchMotion`）。经典导航里为空。
+    /// 换页过渡，顶栏、页头、根页出现时从这里认领（见 `MinimalPageSwitchMotion`）。极简外壳和普通模式
+    /// 顶上那排资料库分类共用；没挂在窗口里的容器（预览）为空。
     var minimalPageSwitchMotion: MinimalPageSwitchMotion? {
         get { self[MinimalPageSwitchMotionKey.self] }
         set { self[MinimalPageSwitchMotionKey.self] = newValue }
@@ -95,7 +96,8 @@ private struct MinimalPageSwitchMotionKey: EnvironmentKey {
 
 // MARK: - 换页过渡
 
-/// 极简导航点选换页的过渡：点顶上的去处、音乐的分类、「有声」里的切换。
+/// 点选换页的过渡：极简导航点顶上的去处、音乐的分类、「有声」里的切换；普通模式点顶上那排资料库
+/// 分类（首页上的、分类页上的）和在分类页上横滑换分类。
 ///
 /// 顶栏和页面都是每一页各挂一份：换分类时新页连同它头上那份顶栏是刚建出来的，首页与资料库之间
 /// 是刚露出来的，都没有「上一帧」可以接着做动画。所以这里记下刚发生的这一次换页，新页、新顶栏
@@ -163,6 +165,12 @@ final class MinimalPageSwitchMotion {
     func origin(arrivingAt arrivesAt: (MinimalNavigationPage) -> Bool) -> MinimalNavigationPage? {
         guard let latest, latest.isFresh, arrivesAt(latest.to) else { return nil }
         return latest.from
+    }
+
+    /// 刚点了换到 `page` 这一页、外壳已经盖上旧页：导航栈原地换页，不再自己推入。
+    func isSwitching(to page: MinimalNavigationPage) -> Bool {
+        guard let latest else { return false }
+        return latest.isTap && latest.isFresh && latest.to == page
     }
 
     /// 新页出现时认领进场的轻推，一次换页只给一回。

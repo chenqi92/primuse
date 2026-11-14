@@ -645,6 +645,7 @@ struct LibraryView: View {
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.minimalSelectSection) private var minimalSelectSection
+    @Environment(\.minimalPageSwitchMotion) private var pageSwitchMotion
     @Environment(\.layoutDirection) private var layoutDirection
     @AppStorage(HomeFilterBarConfiguration.showsLibrarySectionsKey) private var showsStandardSectionTabs = false
     @State private var sectionHasBatchSelection = false
@@ -907,6 +908,7 @@ struct LibraryView: View {
     private func sectionDestination(_ section: LibrarySection) -> some View {
         sectionPage(section)
             #if os(iOS)
+            .pageSwitchEntryNudge(page: appNavigationMode == .standard ? .librarySection(section) : nil)
             .minimalSafeAreaBar(edge: .top) {
                 standardSectionTabs(selection: section)
             }
@@ -982,18 +984,39 @@ struct LibraryView: View {
     private func standardSectionTabs(selection: LibrarySection?) -> some View {
         StandardLibrarySectionTabs(selection: selection) { section in
             guard section != selection else { return }
-            selectMusicSection(section)
+            selectMusicSection(section, from: selection)
         }
     }
 
-    private func selectMusicSection(_ section: LibrarySection) {
+    /// `current` 是点的时候停在哪个分类页上；在总览页上点（为空）照旧推入分类页。
+    private func selectMusicSection(_ section: LibrarySection, from current: LibrarySection? = nil) {
         if appNavigationMode == .minimal {
             minimalSelectSection?(section)
         } else if rootSection == nil {
-            applyDeepLink(.section(section))
+            if let current, current != section, navigationPath.count == 1 {
+                switchStandardSection(from: current, to: section)
+            } else {
+                applyDeepLink(.section(section))
+            }
         } else {
             openLibraryDestination?(.section(section))
         }
+    }
+
+    /// 普通模式在分类页之间换（点顶上那排分类、横滑）：同级换页，同极简模式。旧页截屏淡出，新页从它在
+    /// 这一排里的那一侧轻推进来，下划线滑过去；导航栈原地换掉这一页，不再整页推入、也不多出一层返回。
+    private func switchStandardSection(from current: LibrarySection, to next: LibrarySection) {
+        let sections = StandardLibrarySectionTabsPolicy.sections(
+            enabled: showsStandardSectionTabs, mode: appNavigationMode,
+            selection: current, visibleSections: visibleLibrarySections
+        )
+        let side = reduceMotion ? nil : MinimalPageSwitchPolicy.entrySide(
+            fromIndex: sections.firstIndex(of: current),
+            toIndex: sections.firstIndex(of: next),
+            isRightToLeft: layoutDirection == .rightToLeft
+        ).map { CGFloat($0) }
+        pageSwitchMotion?.begin(from: .librarySection(current), to: .librarySection(next), entrySide: side)
+        pageToSection(next)
     }
 
     private func standardSectionSwipe(selection: LibrarySection) -> HorizontalPageSwipeGesture {
@@ -1010,7 +1033,7 @@ struct LibraryView: View {
             let advances = layoutDirection == .rightToLeft ? translation > 0 : translation < 0
             let target = index + (advances ? 1 : -1)
             guard sections.indices.contains(target) else { return }
-            selectMusicSection(sections[target])
+            selectMusicSection(sections[target], from: selection)
         }
     }
     #endif
@@ -2116,10 +2139,13 @@ struct LibraryView: View {
             path.append(LibrarySection.songs)
         }
         #if os(iOS)
-        if case .section = link, appNavigationMode == .minimal, rootSection == nil,
-           navigationPath.count <= 1 {
+        if case .section(let section) = link, rootSection == nil,
+           (appNavigationMode == .minimal
+               ? navigationPath.count <= 1
+               : pageSwitchMotion?.isSwitching(to: .librarySection(section)) == true) {
             // 极简导航里分类页之间是同级换页（点顶上的去处、分类）：栈里只有一页分类时原地换掉，
             // 不要导航栈自己的推入动画，过渡交给外壳（`MinimalPageSwitchMotion`），同横滑翻页的 `pageToSection`。
+            // 普通模式从首页顶上那排分类点过来时外壳也已经盖住旧页，同样原地换。
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
             withTransaction(transaction) {

@@ -487,6 +487,12 @@ extension View {
         modifier(MinimalNavigationRootModifier(showsTopChrome: showsTopChrome, page: page))
     }
 
+    /// 普通模式点顶上的资料库分类换到这一页时，页面从那个分类在这一排里的一侧轻推进来。
+    /// 挂在分类行里面，换页时分类行不动。极简模式由 `minimalNavigationRoot(page:)` 推，这里传空。
+    func pageSwitchEntryNudge(page: MinimalNavigationPage?) -> some View {
+        modifier(MinimalPageEntryNudge(page: page))
+    }
+
     func minimalNavigationDetail(isDetail: Bool = true) -> some View {
         modifier(MinimalNavigationDetailModifier(isDetail: isDetail))
     }
@@ -1722,12 +1728,6 @@ struct ContentView: View {
             .environment(\.minimalSelectSection) { section in
                 animateMinimalSelection(to: .librarySection(section))
             }
-            .environment(\.minimalPageSwitchMotion, minimalPageSwitchMotion)
-            .background {
-                MinimalPageSwitchAnchor(motion: minimalPageSwitchMotion)
-                    .frame(width: 0, height: 0)
-                    .accessibilityHidden(true)
-            }
             .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
                 changeMinimalDetailLedger { $0.updateMounted(scopes) }
             }
@@ -2149,6 +2149,13 @@ struct ContentView: View {
                 case .minimal:
                     minimalRoot
                 }
+            }
+            // 点选换页的过渡：极简外壳和普通模式顶上那排资料库分类共用（见 `MinimalPageSwitchMotion`）。
+            .environment(\.minimalPageSwitchMotion, minimalPageSwitchMotion)
+            .background {
+                MinimalPageSwitchAnchor(motion: minimalPageSwitchMotion)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
             }
             .modifier(PlayerCoveredContentLayout(isPlayerPresented: $showNowPlaying))
             // 这两个开关只由页面里的批量选择与 CarPlay 编辑器上报。挂在整个 ZStack
