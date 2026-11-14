@@ -285,12 +285,9 @@ struct TVRoot: View {
                 ScreenIdleHoldController.shared.noteUserInteraction()
                 if hidesTabBar { leavePlayer() } else { returnFocusToTabs() }
             })
-            // 播放时屏幕常亮选了一直常亮:静止页面停够了就转到播放页,不让同一幅画面一直亮着。
-            .modifier(TVScreenIdleRestModifier(
-                isOnPlayerSurface: hidesTabBar,
-                canOpenPlayer: store.hasNowPlaying && rootModalPresentationCount == 0 && !hasChildModalPresentation,
-                openPlayer: { openPlayerFromPage(from: tab) }
-            ))
+            // 播放时屏幕常亮只在沉浸画面上起作用:电视的播放页正在播放时占满全屏,全屏效果页也盖在它上面
+            // (选「原生」时全屏效果就是这一页)。别的页面交给系统屏保,不再自动转到播放页。
+            .screenIdleImmersiveSurface(hidesTabBar)
             .modifier(TVRemoteTransportModifier(
                 shortcutsEnabled: store.hasNowPlaying && rootModalPresentationCount == 0
                     && !hasChildModalPresentation && tab != .search

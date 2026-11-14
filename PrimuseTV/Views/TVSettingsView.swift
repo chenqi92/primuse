@@ -110,9 +110,6 @@ struct TVSettingsView: View {
     @AppStorage(TVStore.shufflePreferenceKey) private var shufflePreferenceRawValue = ShufflePreference.defaultValue.rawValue
     @AppStorage(TVAudioEngine.matchSongSampleRateKey) private var matchSongSampleRate = false
     @AppStorage(TVHomeSceneRow.nightSleepTimerKey) private var nightSceneSleepTimer = true
-    /// 播放时屏幕常亮：只存在这台电视上，不随 iCloud 同步。
-    @AppStorage(ScreenIdleHoldMode.storageKey)
-    private var screenIdleModeRawValue = ScreenIdleHoldMode.defaultValue.rawValue
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
@@ -348,28 +345,10 @@ struct TVSettingsView: View {
                                    store.medleyLengthTitle,
                                    action: { showsMedleySettings = true })
                             settingDivider
+                            // 播放时屏幕常亮只在全屏播放画面上起作用,收在这一项打开的沉浸风格里。
                             navRow("sparkles.tv", PMString("ext.tv.settings.immersive"),
                                    immersiveEffect.localizedTitle,
                                    action: { showsEffectPicker = true })
-                            settingDivider
-                            // 播放时屏幕常亮:按一下换到下一档,圈问号里说明各档怎么拦屏保。
-                            HStack(spacing: 12) {
-                                navRow(
-                                    "sun.max",
-                                    String(localized: "screen_idle_title"),
-                                    String(localized: String.LocalizationValue(screenIdleMode.titleKey)),
-                                    trailing: "arrow.triangle.2.circlepath"
-                                ) {
-                                    screenIdleModeRawValue = Self.next(
-                                        after: screenIdleMode,
-                                        in: ScreenIdleHoldMode.allCases
-                                    ).rawValue
-                                    ScreenIdleHoldController.shared.settingsDidChange()
-                                }
-                                .accessibilityIdentifier("tv.playback.screenIdleMode")
-                                TVSettingsHelpButton(title: "screen_idle_title", message: "screen_idle_info_tv")
-                                    .padding(.trailing, 22)
-                            }
                             settingDivider
                             navRow("photo", PMString("default_artwork_title"),
                                    PMString(MissingArtworkStyle(storedValue: missingArtworkStyle).localizationKey)) {
@@ -828,10 +807,6 @@ struct TVSettingsView: View {
         ShufflePreference(rawValue: shufflePreferenceRawValue) ?? .defaultValue
     }
 
-    private var screenIdleMode: ScreenIdleHoldMode {
-        ScreenIdleHoldMode(storedValue: screenIdleModeRawValue)
-    }
-
     private static func next<Value: Equatable>(after value: Value, in values: [Value]) -> Value {
         guard let index = values.firstIndex(of: value), !values.isEmpty else { return values.first ?? value }
         return values[(index + 1) % values.count]
@@ -1210,8 +1185,8 @@ private struct TVWordLyricsHelpButton: View {
     }
 }
 
-/// 设置行旁的圈问号:电视上没有气泡,按一下弹出整段说明。
-private struct TVSettingsHelpButton: View {
+/// 设置行旁的圈问号:电视上没有气泡,按一下弹出整段说明。沉浸风格选择器里屏幕常亮那一项也用它。
+struct TVSettingsHelpButton: View {
     let title: LocalizedStringKey
     let message: String
     @State private var isPresented: Bool

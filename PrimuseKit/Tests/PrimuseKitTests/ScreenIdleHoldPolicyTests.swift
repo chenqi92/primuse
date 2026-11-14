@@ -8,25 +8,23 @@ struct ScreenIdleHoldPolicyTests {
     private func context(
         _ mode: ScreenIdleHoldMode,
         isAppActive: Bool = true,
+        isImmersivePlayerShown: Bool = true,
         isPlaying: Bool = true,
         playbackStoppedAt: Date? = nil,
         requiresCharging: Bool = false,
         isCharging: Bool = false,
         lastInteractionAt: Date? = nil,
-        isOnPlayerSurface: Bool = false,
-        limitsStaticPages: Bool = false,
         minuteLength: TimeInterval = 60
     ) -> ScreenIdleHoldContext {
         ScreenIdleHoldContext(
             mode: mode,
             isAppActive: isAppActive,
+            isImmersivePlayerShown: isImmersivePlayerShown,
             isPlaying: isPlaying,
             playbackStoppedAt: playbackStoppedAt,
             requiresCharging: requiresCharging,
             isCharging: isCharging,
             lastInteractionAt: lastInteractionAt ?? start,
-            isOnPlayerSurface: isOnPlayerSurface,
-            limitsStaticPages: limitsStaticPages,
             minuteLength: minuteLength
         )
     }
@@ -148,40 +146,37 @@ struct ScreenIdleHoldPolicyTests {
         ).holds)
     }
 
-    // MARK: - 电视静止页面
+    // MARK: - 只在沉浸画面上
 
-    @Test func tvAlwaysOnAsksForThePlayerAfterAStaticStretchAndLetsGoIfItCannot() {
-        let staticPage = context(.always, limitsStaticPages: true)
-        let rest = start.addingTimeInterval(ScreenIdleHoldPolicy.staticPageRestMinutes * 60)
-        #expect(ScreenIdleHoldPolicy.playerSurfaceRequestTime(for: staticPage) == rest)
-        let atRest = ScreenIdleHoldPolicy.decide(staticPage, now: rest)
-        #expect(atRest.holds)
-        #expect(atRest.reevaluateAt == rest.addingTimeInterval(ScreenIdleHoldPolicy.staticPageReleaseGrace))
-        #expect(!ScreenIdleHoldPolicy.decide(
-            staticPage,
-            now: rest.addingTimeInterval(ScreenIdleHoldPolicy.staticPageReleaseGrace)
-        ).holds)
-
-        // 已经在播放页上：一直常亮没有上限，也不再请求转页。
-        let onPlayer = context(.always, isOnPlayerSurface: true, limitsStaticPages: true)
-        #expect(ScreenIdleHoldPolicy.playerSurfaceRequestTime(for: onPlayer) == nil)
-        #expect(ScreenIdleHoldPolicy.decide(onPlayer, now: start.addingTimeInterval(8 * 3600)).holds)
+    @Test func everyModeFollowsTheSystemAwayFromTheImmersivePlayer() {
+        for mode in ScreenIdleHoldMode.allCases {
+            let away = ScreenIdleHoldPolicy.decide(context(mode, isImmersivePlayerShown: false), now: start)
+            #expect(away == .released)
+        }
+        // 充电、刚有过操作也一样：别的界面一律交给系统。
+        let charging = context(.always, isImmersivePlayerShown: false, requiresCharging: true, isCharging: true)
+        #expect(ScreenIdleHoldPolicy.decide(charging, now: start) == .released)
     }
 
-    @Test func onlyTVAlwaysOnRequestsThePlayer() {
-        #expect(ScreenIdleHoldPolicy.playerSurfaceRequestTime(for: context(.always)) == nil)
-        #expect(ScreenIdleHoldPolicy.playerSurfaceRequestTime(for: context(.extend30, limitsStaticPages: true)) == nil)
-        #expect(ScreenIdleHoldPolicy.playerSurfaceRequestTime(
-            for: context(.always, isPlaying: false, limitsStaticPages: true)
-        ) == nil)
-        #expect(ScreenIdleHoldPolicy.playerSurfaceRequestTime(
-            for: context(.always, isAppActive: false, limitsStaticPages: true)
-        ) == nil)
-        // 延时档在电视静止页面照用户选的时长，不另加上限。
-        #expect(ScreenIdleHoldPolicy.decide(
-            context(.extend30, limitsStaticPages: true),
-            now: start.addingTimeInterval(29 * 60)
-        ).holds)
+    @Test func theImmersivePlayerKeepsEachModesTiming() {
+        let always = ScreenIdleHoldPolicy.decide(context(.always), now: start.addingTimeInterval(8 * 3600))
+        #expect(always == ScreenIdleHoldDecision(holds: true, reevaluateAt: nil))
+
+        let tenMinutes = ScreenIdleHoldPolicy.decide(context(.extend10), now: start.addingTimeInterval(60))
+        #expect(tenMinutes == ScreenIdleHoldDecision(holds: true, reevaluateAt: start.addingTimeInterval(10 * 60)))
+
+        // 沉浸画面上照样要正在播放、App 在前台。
+        #expect(!ScreenIdleHoldPolicy.decide(context(.always, isAppActive: false), now: start).holds)
+        #expect(!ScreenIdleHoldPolicy.decide(context(.always, isPlaying: false), now: start).holds)
+    }
+
+    @Test func leavingTheImmersivePlayerDuringThePauseGraceLetsGoAtOnce() {
+        let pausedAt = start.addingTimeInterval(60)
+        let inside = context(.always, isPlaying: false, playbackStoppedAt: pausedAt)
+        #expect(ScreenIdleHoldPolicy.decide(inside, now: pausedAt.addingTimeInterval(2)).holds)
+        var outside = inside
+        outside.isImmersivePlayerShown = false
+        #expect(ScreenIdleHoldPolicy.decide(outside, now: pausedAt.addingTimeInterval(2)) == .released)
     }
 
     // MARK: - 电视全屏播放页

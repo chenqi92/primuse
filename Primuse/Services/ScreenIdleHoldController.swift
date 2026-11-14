@@ -1,11 +1,11 @@
 import Foundation
 import Observation
 import PrimuseKit
+import SwiftUI
 #if os(iOS)
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
 #elseif os(tvOS)
-import SwiftUI
 import UIKit
 #elseif os(macOS)
 import AppKit
@@ -66,15 +66,13 @@ enum ScreenWakeLeases {
 }
 
 /// 播放时屏幕常亮（`ScreenIdleHoldMode`）：三端同一份判定（`ScreenIdleHoldPolicy`），这里只管收集输入、
-/// 拿放租约和到点重算。只在正在播放且 App 在前台时拿；延时档无操作满时长后放手；暂停后回到系统规则。
-/// 设置只存在这台设备上（不登记 iCloud 键值同步）。
+/// 拿放租约和到点重算。只在沉浸（全屏）播放画面显示着、正在播放且 App 在前台时拿；延时档无操作满时长后放手；
+/// 暂停、离开沉浸画面后回到系统规则。沉浸画面由各处视图报上来（`screenIdleImmersiveSurface(_:)`；
+/// Mac 是全屏播放页）。设置只存在这台设备上（不登记 iCloud 键值同步）。
 @MainActor
 @Observable
 final class ScreenIdleHoldController {
     static let shared = ScreenIdleHoldController()
-
-    /// 电视一直常亮：在静止页面停够了，根视图看到它变了就转到播放页（`TVScreenIdleRestModifier`）。
-    private(set) var playerSurfaceRequest = 0
 
     @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var readsIsPlaying: @MainActor @Sendable () -> Bool = { false }
@@ -85,9 +83,9 @@ final class ScreenIdleHoldController {
     @ObservationIgnored private var isPlaying = false
     @ObservationIgnored private var playbackStoppedAt: Date?
     @ObservationIgnored private var lastInteractionAt = Date()
-    @ObservationIgnored private var isOnPlayerSurface = false
+    /// 正显示着的沉浸画面，各处一个登记名；有一处就算在沉浸画面上。
+    @ObservationIgnored private var immersiveSurfaceOwners: Set<String> = []
     @ObservationIgnored private var fullscreenPageOwners: Set<String> = []
-    @ObservationIgnored private var lastSurfaceRequestFor: Date?
     @ObservationIgnored private var resumesOnInteraction = false
     @ObservationIgnored private var holdsForPlayback = false
     @ObservationIgnored private var holdsForFullscreenPage = false
@@ -137,10 +135,14 @@ final class ScreenIdleHoldController {
         if resumesOnInteraction { evaluate() }
     }
 
-    /// 电视：是否停在播放页上（画面是动的）。
-    func setPlayerSurfaceVisible(_ visible: Bool) {
-        guard visible != isOnPlayerSurface else { return }
-        isOnPlayerSurface = visible
+    /// 一处沉浸画面出现、收起（`ScreenIdleImmersiveSurfaceModifier`）。从没有到有算一次操作：
+    /// 转横屏自动进全屏、电视播放页这类不经触摸的进入也从这一刻起计时。
+    func updateImmersiveSurface(owner: String, isShown: Bool) {
+        let updated = ScreenWakeLeasePolicy.updatedOwners(immersiveSurfaceOwners, owner: owner, holds: isShown)
+        guard updated != immersiveSurfaceOwners else { return }
+        let wasShown = !immersiveSurfaceOwners.isEmpty
+        immersiveSurfaceOwners = updated
+        if !wasShown, !updated.isEmpty { lastInteractionAt = Date() }
         evaluate()
     }
 
@@ -161,23 +163,21 @@ final class ScreenIdleHoldController {
         #if os(macOS)
         lastInteraction = max(lastInteraction, Self.systemLastInputAt(now: now))
         #endif
-        #if os(tvOS)
-        let limitsStaticPages = true
-        #else
-        let limitsStaticPages = false
-        #endif
         return ScreenIdleHoldContext(
             mode: mode,
             isAppActive: isAppActive,
+            isImmersivePlayerShown: isImmersivePlayerShown,
             isPlaying: isPlaying,
             playbackStoppedAt: playbackStoppedAt,
             requiresCharging: requiresCharging,
             isCharging: isCharging,
             lastInteractionAt: lastInteraction,
-            isOnPlayerSurface: isOnPlayerSurface,
-            limitsStaticPages: limitsStaticPages,
             minuteLength: minuteLength
         )
+    }
+
+    private var isImmersivePlayerShown: Bool {
+        !immersiveSurfaceOwners.isEmpty || Self.debugAssumesImmersive
     }
 
     private func evaluate() {
@@ -198,18 +198,6 @@ final class ScreenIdleHoldController {
         )
         var deadlines = [playback.reevaluateAt, fullscreenPage.reevaluateAt].compactMap { $0 }
 
-        if let requestAt = ScreenIdleHoldPolicy.playerSurfaceRequestTime(for: context) {
-            if now.timeIntervalSinceReferenceDate >= requestAt.timeIntervalSinceReferenceDate {
-                if lastSurfaceRequestFor != context.lastInteractionAt {
-                    lastSurfaceRequestFor = context.lastInteractionAt
-                    playerSurfaceRequest &+= 1
-                    plog("screen idle: static page for \(Int(now.timeIntervalSince(context.lastInteractionAt)))s, asking for the player")
-                }
-            } else {
-                deadlines.append(requestAt)
-            }
-        }
-
         // 是不是只因为没人操作才没拿：有人一碰就要马上重新拿。
         var fresh = context
         fresh.lastInteractionAt = now
@@ -224,7 +212,7 @@ final class ScreenIdleHoldController {
         if playback.holds != holdsForPlayback || fullscreenPage.holds != holdsForFullscreenPage {
             let idleSeconds = Int(now.timeIntervalSince(context.lastInteractionAt))
             let nextSeconds = deadlines.min().map { Int($0.timeIntervalSince(now)) } ?? -1
-            plog("screen idle mode=\(mode.rawValue) active=\(isAppActive) playing=\(isPlaying) idle=\(idleSeconds)s playbackHold=\(playback.holds) fullscreenHold=\(fullscreenPage.holds) next=\(nextSeconds)s")
+            plog("screen idle mode=\(mode.rawValue) active=\(isAppActive) immersive=\(context.isImmersivePlayerShown) playing=\(isPlaying) idle=\(idleSeconds)s playbackHold=\(playback.holds) fullscreenHold=\(fullscreenPage.holds) next=\(nextSeconds)s")
         }
         holdsForPlayback = playback.holds
         holdsForFullscreenPage = fullscreenPage.holds
@@ -388,7 +376,7 @@ final class ScreenIdleHoldController {
 
     /// `batteryState` 只在开着电量监测时才是真值：只在「仅在充电时」这条规则用得上的时候开。
     private func refreshBatteryMonitoring() {
-        let wantsMonitoring = mode.holdsWhilePlaying && requiresCharging && isAppActive
+        let wantsMonitoring = mode.holdsWhilePlaying && requiresCharging && isAppActive && isImmersivePlayerShown
         let device = UIDevice.current
         if device.isBatteryMonitoringEnabled != wantsMonitoring {
             device.isBatteryMonitoringEnabled = wantsMonitoring
@@ -444,6 +432,15 @@ final class ScreenIdleHoldController {
         false
         #endif
     }
+
+    /// `PRIMUSE_DEBUG_SCREEN_IDLE_ASSUME_IMMERSIVE=1`：当作一直在沉浸画面上，不用进全屏就能看租约。
+    private static var debugAssumesImmersive: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SCREEN_IDLE_ASSUME_IMMERSIVE"] == "1"
+        #else
+        false
+        #endif
+    }
 }
 
 #if os(iOS)
@@ -462,23 +459,29 @@ private final class ScreenIdleTouchObserver: UIGestureRecognizer {
 }
 #endif
 
-#if os(tvOS)
-/// 电视根视图：报告是否停在播放页；一直常亮时在静止页面停够了就转到播放页（动态画面，
-/// 全屏页还有省电与防烧屏漂移），盖着别的全屏页转不过去时由判定自己放手交给系统屏保。
-struct TVScreenIdleRestModifier: ViewModifier {
-    let isOnPlayerSurface: Bool
-    let canOpenPlayer: Bool
-    let openPlayer: () -> Void
+/// 把一块沉浸（全屏）播放画面报给 `ScreenIdleHoldController`：显示着就登记，收起、卸载就撤掉。
+/// 每处一个登记名，几处同时开着（外接屏和手机上各一页）也互不覆盖。
+struct ScreenIdleImmersiveSurfaceModifier: ViewModifier {
+    let isShown: Bool
+    @State private var ownerID = UUID().uuidString
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: isOnPlayerSurface, initial: true) { _, visible in
-                ScreenIdleHoldController.shared.setPlayerSurfaceVisible(visible)
+            .onAppear {
+                ScreenIdleHoldController.shared.updateImmersiveSurface(owner: ownerID, isShown: isShown)
             }
-            .onChange(of: ScreenIdleHoldController.shared.playerSurfaceRequest) { _, _ in
-                guard canOpenPlayer else { return }
-                openPlayer()
+            .onChange(of: isShown) { _, shown in
+                ScreenIdleHoldController.shared.updateImmersiveSurface(owner: ownerID, isShown: shown)
+            }
+            .onDisappear {
+                ScreenIdleHoldController.shared.updateImmersiveSurface(owner: ownerID, isShown: false)
             }
     }
 }
-#endif
+
+extension View {
+    /// 这块画面是沉浸（全屏）播放画面：播放时屏幕常亮只在它显示着时起作用。
+    func screenIdleImmersiveSurface(_ isShown: Bool = true) -> some View {
+        modifier(ScreenIdleImmersiveSurfaceModifier(isShown: isShown))
+    }
+}

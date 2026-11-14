@@ -622,6 +622,9 @@ struct TVFullscreenEffectPicker: View {
     private var rotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
     @AppStorage(ImmersiveKineticScenePreference.storageKey)
     private var kineticSceneRawValue = ImmersiveKineticScenePreference.automaticValue
+    /// 播放时屏幕常亮只在全屏播放画面上起作用，所以收在这里。只存在这台电视上，不随 iCloud 同步。
+    @AppStorage(ScreenIdleHoldMode.storageKey)
+    private var screenIdleModeRawValue = ScreenIdleHoldMode.defaultValue.rawValue
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 按到 60 帧时先弹说明，确认了才换。
     @State private var pendingHighRefresh: ImmersiveFrameRateMode?
@@ -633,6 +636,7 @@ struct TVFullscreenEffectPicker: View {
     @FocusState private var rotationFocused: Bool
     @FocusState private var rotationScopeFocused: Bool
     @FocusState private var kineticSceneFocused: Bool
+    @FocusState private var screenIdleFocused: Bool
     /// 只有焦点停稳的那张卡片播放预览动画。遥控器一路按过去时不逐张启停整套舞台。
     @State private var animatedEffect: FullscreenPlayerEffect?
 
@@ -675,10 +679,15 @@ struct TVFullscreenEffectPicker: View {
 
                 VStack(alignment: .leading, spacing: 22) {
                     HStack(alignment: .top, spacing: 18) {
-                        VStack(alignment: .leading, spacing: 5) {
+                        // 屏幕常亮放在标题底下：右边那排已经排满，这里本来空着，正好在第一列卡片上方。
+                        VStack(alignment: .leading, spacing: 16) {
                             Text(PMString("ext.tv.settings.immersive"))
                                 .tvFont(size: 38, weight: .bold, relativeTo: .title2)
                                 .foregroundStyle(.white)
+                            HStack(spacing: 8) {
+                                screenIdleButton
+                                TVSettingsHelpButton(title: "screen_idle_title", message: "screen_idle_info_tv")
+                            }
                         }
                         Spacer()
                         frameRateButton
@@ -917,6 +926,27 @@ struct TVFullscreenEffectPicker: View {
         ) {
             kineticSceneRawValue = options[(index + 1) % options.count].value
         }
+    }
+
+    private var screenIdleMode: ScreenIdleHoldMode {
+        ScreenIdleHoldMode(storedValue: screenIdleModeRawValue)
+    }
+
+    /// 播放时屏幕常亮：按一下换下一档，跟随系统、延长 5/10/15/30 分钟、1 小时、一直常亮循环；圈问号里说明各档怎么拦屏保。
+    private var screenIdleButton: some View {
+        headerCycleButton(
+            title: String(localized: "screen_idle_short_title"),
+            symbol: "sun.max",
+            value: String(localized: String.LocalizationValue(screenIdleMode.titleKey)),
+            isHighlighted: screenIdleMode.holdsWhilePlaying,
+            focused: $screenIdleFocused
+        ) {
+            let modes = ScreenIdleHoldMode.allCases
+            let index = modes.firstIndex(of: screenIdleMode) ?? 0
+            screenIdleModeRawValue = modes[(index + 1) % modes.count].rawValue
+            ScreenIdleHoldController.shared.settingsDidChange()
+        }
+        .accessibilityIdentifier("tv.immersive.screenIdleMode")
     }
 
     private func headerCycleButton(

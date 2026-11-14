@@ -3881,6 +3881,8 @@ struct NowPlayingView: View {
                         if !isImmersive, !isFullscreenPlayerPresented { enteredFullscreenForLandscape = false }
                         if !isImmersive { restoreCarouselAfterImmersiveLyrics() }
                     }
+                    // 全屏效果选「原生」时进的是这里的全屏歌词，也是沉浸画面：播放时屏幕常亮在这时起作用。
+                    .screenIdleImmersiveSurface(isLyricsImmersive && !isPlayerDormant)
 
                 // 右上角的横竖屏切换键与「跟随手机方向转屏」：播放页醒着时按住手动选的方向，收起时交还
                 // (见 `PlayerOrientationControl`)。

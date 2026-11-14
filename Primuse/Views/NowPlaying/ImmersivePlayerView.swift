@@ -449,6 +449,8 @@ struct ImmersivePlayerView: View {
         }
         .accessibilityAction(.escape, onDismiss)
         .accessibilityAddTraits(.isModal)
+        // 播放时屏幕常亮只在全屏效果页（含外接屏上的这一页）显示着时起作用。
+        .screenIdleImmersiveSurface()
     }
 
     // MARK: - 画面

@@ -2872,9 +2872,6 @@ private struct MacSTInfoText: View {
 
 private struct MacSTPlaybackView: View {
     @AppStorage(PlaybackSessionRestoreLifecycle.launchAutoplayKey) private var autoplayOnLaunch = false
-    /// 播放时屏幕常亮：只存在这台 Mac 上，不随 iCloud 同步。
-    @AppStorage(ScreenIdleHoldMode.storageKey)
-    private var screenIdleModeRawValue = ScreenIdleHoldMode.defaultValue.rawValue
     // 接真 Store, 拖滑块/切 toggle 会立即写回 PlaybackSettingsStore 并 persist。
     @Environment(PlaybackSettingsStore.self) private var store
     @Environment(SourceManager.self) private var sourceManager
@@ -2922,27 +2919,7 @@ private struct MacSTPlaybackView: View {
                 }
                 .settingsAnchor("playback.autoplayOnLaunch")
                 .accessibilityIdentifier("playback.autoplayOnLaunch")
-                MacSTRow(
-                    String(localized: "screen_idle_title"),
-                    help: String(localized: "screen_idle_info_mac")
-                ) {
-                    MacSTPicker(
-                        selection: Binding(
-                            get: { ScreenIdleHoldMode(storedValue: screenIdleModeRawValue) },
-                            set: { screenIdleModeRawValue = $0.rawValue }
-                        ),
-                        options: ScreenIdleHoldMode.allCases.map {
-                            ($0, String(localized: String.LocalizationValue($0.titleKey)))
-                        },
-                        width: 180
-                    )
-                }
-                .settingsAnchor("player.keepScreenAwake")
-                .accessibilityIdentifier("screenIdleModePicker")
             }
-        }
-        .onChange(of: screenIdleModeRawValue) { _, _ in
-            ScreenIdleHoldController.shared.settingsDidChange()
         }
 
         MacSTSection(Lz("Audio Output")) {
@@ -7804,6 +7781,9 @@ private struct MacSTThemeView: View {
     private var immersiveRotationScopeRawValue = ImmersiveEffectRotationScope.defaultValue.rawValue
     @AppStorage(ImmersiveKineticScenePreference.storageKey)
     private var kineticSceneRawValue = ImmersiveKineticScenePreference.automaticValue
+    /// 播放时屏幕常亮：只在全屏画面上起作用，所以和全屏效果放在一起。只存在这台 Mac 上，不随 iCloud 同步。
+    @AppStorage(ScreenIdleHoldMode.storageKey)
+    private var screenIdleModeRawValue = ScreenIdleHoldMode.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
@@ -8097,6 +8077,26 @@ private struct MacSTThemeView: View {
                     }
                     .pmAppearFade(.contentAppear)
                 }
+                MacSTRow(
+                    String(localized: "screen_idle_title"),
+                    help: String(localized: "screen_idle_info_mac")
+                ) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { ScreenIdleHoldMode(storedValue: screenIdleModeRawValue) },
+                            set: { mode in
+                                screenIdleModeRawValue = mode.rawValue
+                                ScreenIdleHoldController.shared.settingsDidChange()
+                            }
+                        ),
+                        options: ScreenIdleHoldMode.allCases.map {
+                            ($0, String(localized: String.LocalizationValue($0.titleKey)))
+                        },
+                        width: 160
+                    )
+                }
+                .settingsAnchor("player.keepScreenAwake")
+                .accessibilityIdentifier("screenIdleModePicker")
                 MacSTRow(
                     String(localized: "kinetic_scene_title"),
                     hint: String(localized: "kinetic_scene_subtitle")

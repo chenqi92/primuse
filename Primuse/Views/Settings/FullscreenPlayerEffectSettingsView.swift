@@ -26,6 +26,11 @@ struct FullscreenPlayerEffectSettingsView: View {
     private var kineticSceneRawValue = ImmersiveKineticScenePreference.automaticValue
     @AppStorage(PlayerAppearancePreferences.entersFullscreenInLandscapeKey)
     private var entersFullscreenInLandscape = PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault
+    /// 播放时屏幕常亮：只在全屏画面上起作用，所以放在这一页。只存在这台设备上，不随 iCloud 同步。
+    @AppStorage(ScreenIdleHoldMode.storageKey)
+    private var screenIdleModeRawValue = ScreenIdleHoldMode.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
+    private var screenWakeRequiresCharging = PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault
 
     private var selectedEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: selectedRawValue) ?? .defaultValue
@@ -52,6 +57,7 @@ struct FullscreenPlayerEffectSettingsView: View {
                 motionIntensityCard
                 deviceConstraintNote
                 rotationCard
+                screenIdleCard
                 kineticSceneCard
                 landscapeFullscreenCard
 
@@ -318,6 +324,68 @@ struct FullscreenPlayerEffectSettingsView: View {
             }
         }
         .settingsAnchor("appearance.immersiveEffectRotation")
+        .padding(16)
+        .background(
+            Color(uiColor: .secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+    }
+
+    private var screenIdleSelection: Binding<ScreenIdleHoldMode> {
+        Binding(
+            get: { ScreenIdleHoldMode(storedValue: screenIdleModeRawValue) },
+            set: { mode in
+                screenIdleModeRawValue = mode.rawValue
+                ScreenIdleHoldController.shared.settingsDidChange()
+            }
+        )
+    }
+
+    private var screenWakeChargingSelection: Binding<Bool> {
+        Binding(
+            get: { screenWakeRequiresCharging },
+            set: { value in
+                screenWakeRequiresCharging = value
+                ScreenIdleHoldController.shared.settingsDidChange()
+            }
+        )
+    }
+
+    /// 播放时屏幕常亮：跟随系统、延长几分钟或一直常亮，只在全屏画面上起作用。
+    /// 和自动换效果同一种卡片；拿着常亮时下面再给一行「仅在充电时」。
+    private var screenIdleCard: some View {
+        let holds = ScreenIdleHoldMode(storedValue: screenIdleModeRawValue).holdsWhilePlaying
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    cardTitle("screen_idle_title", info: "screen_idle_info_ios")
+                }
+                Spacer(minLength: 8)
+                Picker(selection: screenIdleSelection) {
+                    ForEach(ScreenIdleHoldMode.allCases) { mode in
+                        Text(LocalizedStringKey(mode.titleKey)).tag(mode)
+                    }
+                } label: {
+                    Text("screen_idle_title")
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .tint(previewPalette.primary)
+                .accessibilityIdentifier("screenIdleModePicker")
+            }
+            if holds {
+                Divider()
+                Toggle(isOn: screenWakeChargingSelection) {
+                    Text("player_keep_screen_awake_charging_only_title")
+                        .font(.system(size: 15))
+                }
+                .tint(previewPalette.primary)
+                .accessibilityIdentifier("playerKeepScreenAwakeChargingOnlyToggle")
+                .accessibilityHint(Text("player_keep_screen_awake_charging_only_subtitle"))
+                .pmAppearFade(.contentAppear)
+            }
+        }
+        .settingsAnchor("player.keepScreenAwake")
         .padding(16)
         .background(
             Color(uiColor: .secondarySystemGroupedBackground),

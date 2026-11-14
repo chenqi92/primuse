@@ -210,6 +210,23 @@ final class SettingsDiscoveryTests: XCTestCase {
         XCTAssertTrue(SettingsCatalog.search("动效强度").contains { $0.id == "appearance.immersiveMotionIntensity" })
     }
 
+    /// 播放时屏幕常亮只在全屏画面上起作用，从播放设置挪到了全屏效果那一页；id 不变，快捷指令照旧能开关。
+    func testKeepScreenAwakeIsFoundWithTheFullscreenSettings() {
+        let id = "player.keepScreenAwake"
+        #if os(iOS)
+        XCTAssertEqual(SettingsCatalog.byID[id]?.page, .fullscreen)
+        XCTAssertEqual(SettingsCatalog.byID["player.keepScreenAwakeChargingOnly"]?.page, .fullscreen)
+        XCTAssertEqual(SettingsCatalog.byID["player.keepScreenAwakeChargingOnly"]?.anchorID, id)
+        #elseif os(macOS)
+        XCTAssertEqual(SettingsCatalog.byID[id]?.page, .appearance)
+        XCTAssertNil(SettingsCatalog.byID["player.keepScreenAwakeChargingOnly"])
+        #endif
+        for query in ["常亮", "屏保", "沉浸", "keep screen on", "screensaver"] {
+            XCTAssertTrue(SettingsCatalog.search(query).contains { $0.id == id }, query)
+        }
+        XCTAssertTrue(SettingsActionService.toggleIDs.contains(id))
+    }
+
     func testSearchIncludesFunctionalAliasesAndHidesUnavailableIntelligence() {
         XCTAssertEqual(SettingsCatalog.search("锁屏没歌词").first?.id, "lyrics.lockScreen")
         let dataSavingResults = Set(SettingsCatalog.search("省流量").map(\.id))

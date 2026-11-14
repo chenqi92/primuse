@@ -702,13 +702,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.showsReplayGainBadgeKey)
     private var showsReplayGainBadge = PlayerAppearancePreferences.showsReplayGainBadgeByDefault
-    /// 播放时屏幕常亮：只存在这台设备上，不随 iCloud 同步。
-    @AppStorage(ScreenIdleHoldMode.storageKey)
-    private var screenIdleModeRawValue = ScreenIdleHoldMode.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.tapArtworkOpensLyricsKey)
     private var tapArtworkOpensLyrics = PlayerAppearancePreferences.tapArtworkOpensLyricsByDefault
-    @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
-    private var screenWakeRequiresCharging = PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault
     @AppStorage(ExternalDisplayContentMode.storageKey)
     private var externalDisplayModeRawValue = ExternalDisplayContentMode.defaultValue.rawValue
     @AppStorage(ExternalDisplayContentMode.effectStorageKey)
@@ -841,35 +836,6 @@ private struct PlayerAppearanceSettingsView: View {
                 }
                 .settingsAnchor("player.tapArtworkOpensLyrics")
             }
-            // 播放时屏幕常亮：跟随系统、延长几分钟或一直常亮；原来的「保持屏幕常亮」开着的迁移成一直常亮。
-            Section {
-                Picker(selection: screenIdleModeBinding) {
-                    ForEach(ScreenIdleHoldMode.allCases) { mode in
-                        Text(LocalizedStringKey(mode.titleKey)).tag(mode)
-                    }
-                } label: {
-                    SettingsInfoLabel("screen_idle_title") {
-                        Text("screen_idle_info_ios")
-                    }
-                }
-                .settingsAnchor("player.keepScreenAwake")
-                .accessibilityIdentifier("screenIdleModePicker")
-                if screenIdleModeBinding.wrappedValue.holdsWhilePlaying {
-                    Toggle(
-                        "player_keep_screen_awake_charging_only_title",
-                        isOn: $screenWakeRequiresCharging
-                    )
-                    .settingsAnchor("player.keepScreenAwakeChargingOnly")
-                    .accessibilityIdentifier("playerKeepScreenAwakeChargingOnlyToggle")
-                    .accessibilityHint(Text("player_keep_screen_awake_charging_only_subtitle"))
-                }
-            }
-            .onChange(of: screenIdleModeRawValue) { _, _ in
-                ScreenIdleHoldController.shared.settingsDidChange()
-            }
-            .onChange(of: screenWakeRequiresCharging) { _, _ in
-                ScreenIdleHoldController.shared.settingsDidChange()
-            }
             // 线缆或隔空播放接上电视、显示器时外接屏上显示什么;原来固定是封面与歌词那一页。
             Section {
                 Picker(selection: externalDisplayModeBinding) {
@@ -908,13 +874,6 @@ private struct PlayerAppearanceSettingsView: View {
             NowPlayingControlsEditorView()
         }
         #endif
-    }
-
-    private var screenIdleModeBinding: Binding<ScreenIdleHoldMode> {
-        Binding(
-            get: { ScreenIdleHoldMode(storedValue: screenIdleModeRawValue) },
-            set: { screenIdleModeRawValue = $0.rawValue }
-        )
     }
 
     private var audioInfoModeBinding: Binding<NowPlayingAudioInfoMode> {

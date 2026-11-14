@@ -30,6 +30,11 @@ struct ImmersiveEffectDrawer: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    /// 播放时屏幕常亮只在全屏画面上起作用，就地在这里改：只存在这台设备上，不随 iCloud 同步。
+    @AppStorage(ScreenIdleHoldMode.storageKey)
+    private var screenIdleModeRawValue = ScreenIdleHoldMode.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
+    private var screenWakeRequiresCharging = PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault
     /// 停在转轮正中的那一格（三遍连着数，见 `ImmersiveEffectWheelLoop`）。
     @State private var centeredSlot: Int?
     @State private var settleTask: Task<Void, Never>?
@@ -218,6 +223,7 @@ struct ImmersiveEffectDrawer: View {
                 .foregroundStyle(ImmersiveStagePalette.ink)
                 .lineLimit(1)
             Spacer(minLength: 8)
+            screenIdleMenu
             closeButton
         }
         .frame(height: Self.headerHeight)
@@ -258,10 +264,56 @@ struct ImmersiveEffectDrawer: View {
             .pmAnimation(.control, value: centeredEffect.id)
 
             Spacer(minLength: 8)
+            screenIdleMenu
             closeButton
         }
         .padding(.horizontal, Self.compactCaptionInset)
         .frame(height: Self.compactCaptionHeight)
+    }
+
+    private var screenIdleMode: ScreenIdleHoldMode {
+        ScreenIdleHoldMode(storedValue: screenIdleModeRawValue)
+    }
+
+    /// 播放时屏幕常亮的菜单。和收起键同一种玻璃圆钮、并排放在抽屉顶上，不另占一行，也不在全屏控件里
+    /// 多挂一颗常驻的键：这是偶尔改一次的设置，和换效果放在同一处最好找。拿着常亮时圆钮亮起。
+    private var screenIdleMenu: some View {
+        Menu {
+            Picker("screen_idle_short_title", selection: Binding(
+                get: { screenIdleMode },
+                set: { mode in
+                    screenIdleModeRawValue = mode.rawValue
+                    ScreenIdleHoldController.shared.settingsDidChange()
+                }
+            )) {
+                ForEach(ScreenIdleHoldMode.allCases) { mode in
+                    Text(LocalizedStringKey(mode.titleKey)).tag(mode)
+                }
+            }
+            .pickerStyle(.inline)
+            if screenIdleMode.holdsWhilePlaying {
+                Section {
+                    Toggle("player_keep_screen_awake_charging_only_title", isOn: Binding(
+                        get: { screenWakeRequiresCharging },
+                        set: { value in
+                            screenWakeRequiresCharging = value
+                            ScreenIdleHoldController.shared.settingsDidChange()
+                        }
+                    ))
+                }
+            }
+        } label: {
+            // 亮起时和转轮里当前那张卡同一个颜色。
+            ImmersiveGlassActionLabel(
+                symbol: screenIdleMode.holdsWhilePlaying ? "sun.max.fill" : "sun.max",
+                tint: screenIdleMode.holdsWhilePlaying ? palette.primary : ImmersiveStagePalette.ink,
+                diameter: Self.closeButtonDiameter,
+                isSelected: screenIdleMode.holdsWhilePlaying
+            )
+        }
+        .accessibilityLabel(Text("screen_idle_short_title"))
+        .accessibilityValue(Text(LocalizedStringKey(screenIdleMode.titleKey)))
+        .accessibilityIdentifier("immersive.screenIdleMenu")
     }
 
     private var closeButton: some View {

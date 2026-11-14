@@ -20,15 +20,18 @@ struct MacImmersiveEffectPicker: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    /// 播放时屏幕常亮只在全屏画面上起作用，就地在面板底部改：只存在这台 Mac 上，不随 iCloud 同步。
+    @AppStorage(ScreenIdleHoldMode.storageKey)
+    private var screenIdleModeRawValue = ScreenIdleHoldMode.defaultValue.rawValue
     @State private var hoveredID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Rectangle()
-                .fill(ImmersiveStagePalette.ink.opacity(0.10))
-                .frame(height: 1)
+            separator
             content
+            separator
+            screenIdleRow
         }
         .frame(width: Self.panelWidth)
         .frame(maxHeight: Self.panelMaxHeight)
@@ -70,6 +73,85 @@ struct MacImmersiveEffectPicker: View {
         }
         .padding(.horizontal, Self.contentInset)
         .padding(.vertical, 12)
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(ImmersiveStagePalette.ink.opacity(0.10))
+            .frame(height: 1)
+    }
+
+    // MARK: - 屏幕常亮
+
+    private var screenIdleMode: ScreenIdleHoldMode {
+        ScreenIdleHoldMode(storedValue: screenIdleModeRawValue)
+    }
+
+    /// 面板底部一行：左边说是什么，右边一个弹出菜单写着眼下的档位。字号、颜色照头部那两行，
+    /// 菜单的底和收起键同一种淡白圆角；拿着常亮时档位用主题色，和当前效果的名字一样。
+    private var screenIdleRow: some View {
+        HStack(spacing: 10) {
+            Label {
+                Text("screen_idle_short_title")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ImmersiveStagePalette.ink)
+                    .lineLimit(1)
+            } icon: {
+                Image(systemName: screenIdleMode.holdsWhilePlaying ? "sun.max.fill" : "sun.max")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(
+                        screenIdleMode.holdsWhilePlaying
+                            ? palette.primary.opacity(0.92)
+                            : ImmersiveStagePalette.text.opacity(0.62)
+                    )
+            }
+            Spacer(minLength: 8)
+            Menu {
+                Picker("screen_idle_short_title", selection: Binding(
+                    get: { screenIdleMode },
+                    set: { mode in
+                        screenIdleModeRawValue = mode.rawValue
+                        ScreenIdleHoldController.shared.settingsDidChange()
+                    }
+                )) {
+                    ForEach(ScreenIdleHoldMode.allCases) { mode in
+                        Text(LocalizedStringKey(mode.titleKey)).tag(mode)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                HStack(spacing: 5) {
+                    Text(LocalizedStringKey(screenIdleMode.titleKey))
+                        .font(.system(size: 11))
+                        .foregroundStyle(
+                            screenIdleMode.holdsWhilePlaying
+                                ? palette.primary.opacity(0.92)
+                                : ImmersiveStagePalette.text.opacity(0.72)
+                        )
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(ImmersiveStagePalette.text.opacity(0.52))
+                }
+                .padding(.horizontal, 9)
+                .frame(height: 22)
+                .background(Color.white.opacity(0.08), in: Capsule())
+                .contentShape(Capsule())
+            }
+            // `.borderlessButton` 会丢掉自定义 label；`.button` + 透明按钮样式才照上面画。
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .pmPointingHand()
+            .help(Text("screen_idle_info_mac"))
+            .accessibilityLabel(Text("screen_idle_short_title"))
+            .accessibilityValue(Text(LocalizedStringKey(screenIdleMode.titleKey)))
+            .accessibilityIdentifier("immersive.screenIdleMenu")
+        }
+        .padding(.horizontal, Self.contentInset)
+        .padding(.vertical, 10)
     }
 
     // MARK: - 内容
