@@ -4283,7 +4283,7 @@ struct SearchView: View {
                     Label(String(localized: "a11y_like"), systemImage: "heart")
                 }
                 Button {
-                    saveAppleMusicSong(song)
+                    addAppleMusicSongToLibrary(song)
                 } label: {
                     Label(String(localized: "apple_music_add_to_library"), systemImage: "plus.circle")
                 }
@@ -4358,6 +4358,23 @@ struct SearchView: View {
                 } else {
                     appleMusicToasts.dismiss(key: Self.appleMusicToastKey)
                 }
+            } catch {
+                savingAppleMusicSongID = nil
+                showAppleMusicFeedback(.failure(error.localizedDescription))
+            }
+        }
+    }
+
+    /// 只是加进资料库：Apple Music 收下就算完成，不等同步进曲库（Mac 上要几十秒），同步在后台补。
+    private func addAppleMusicSongToLibrary(_ song: MusicKit.Song) {
+        guard savingAppleMusicSongID == nil else { return }
+        savingAppleMusicSongID = song.id
+        showAppleMusicFeedback(.progress(String(localized: "apple_music_saving")))
+        Task {
+            do {
+                try await AppServices.shared.appleMusicLibrary.addCatalogSongToLibraryWithoutWaiting(song)
+                savingAppleMusicSongID = nil
+                showAppleMusicFeedback(.success(String(localized: "apple_music_saved")))
             } catch {
                 savingAppleMusicSongID = nil
                 showAppleMusicFeedback(.failure(error.localizedDescription))

@@ -168,6 +168,8 @@ final class AppleMusicLibraryService {
     @ObservationIgnored private let defaults: UserDefaults
     private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var catalogSaveTasks: [String: Task<PrimuseKit.Song, Error>] = [:]
+    /// 点了喜欢、还在等同步进曲库的 Apple Music 目录歌（MusicKit 条目 ID）。红心先亮着，行到了再写进「我喜欢」。
+    private(set) var pendingLikedItemIDs: Set<String> = []
     private var syncGeneration = UUID()
     /// 进度看门狗用的时间戳 ── 每收到一页 user library / 处理完一个歌单就续期。
     /// 看门狗只在「连续 stallTimeout 秒没有任何进度」时才判超时, 而不是给整个 sync
@@ -957,22 +959,99 @@ final class AppleMusicLibraryService {
         return saved
     }
 
-    private func saveCatalogSongToLibrary(_ song: MusicKit.Song) async throws -> PrimuseKit.Song {
+    /// 只是「加入资料库」：Apple Music 收下就返回，不等它同步进曲库。Mac 上云资料库同步到本机常要
+    /// 几十秒，原来整段转圈；曲库里那一行交给后台补上，这期间点「喜欢」「加到歌单」接着等同一次同步，
+    /// 不会再加一遍。
+    func addCatalogSongToLibraryWithoutWaiting(_ song: MusicKit.Song) async throws {
+        try Task.checkCancellation()
+        let id = song.id.rawValue
+        if librarySong(forCatalog: song) != nil || catalogSaveTasks[id] != nil { return }
+        try checkCatalogSaveAvailable()
+        try await addCatalogSong(song)
+        try Task.checkCancellation()
+        let task = Task { try await self.resolveSyncedCatalogSong(song, add: {}) }
+        catalogSaveTasks[id] = task
+        Task { [weak self] in
+            do {
+                _ = try await task.value
+            } catch {
+                plog("⚠️Apple Music catalog song added but not synced yet: \(error.localizedDescription)")
+            }
+            if self?.catalogSaveTasks[id] == task { self?.catalogSaveTasks[id] = nil }
+        }
+    }
+
+    func hasPendingLike(for song: PrimuseKit.Song) -> Bool {
+        song.sourceID == Self.systemSourceID && pendingLikedItemIDs.contains(song.filePath)
+    }
+
+    /// 喜欢一首还不在资料库的 Apple Music 目录歌：Apple Music 收下就返回、红心先亮，不等同步
+    /// （Mac 上要几十秒，原来红心一直转圈）；同步进曲库那一刻再写进「我喜欢」。
+    func likeCatalogSongOnceSynced(_ song: PrimuseKit.Song) async throws {
+        try Task.checkCancellation()
+        guard let catalog = try await loadCatalogMusicKitSong(forItemID: song.filePath) else {
+            try Task.checkCancellation()
+            throw CatalogSaveError.unavailable
+        }
+        let itemID = song.filePath
+        pendingLikedItemIDs.insert(itemID)
+        do {
+            try await addCatalogSongToLibraryWithoutWaiting(catalog)
+        } catch {
+            pendingLikedItemIDs.remove(itemID)
+            throw error
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.pendingLikedItemIDs.remove(itemID) }
+            do {
+                // 接着等后台那一次同步，不会再加一遍。
+                let saved = try await self.addCatalogSongToLibrary(catalog)
+                // 等待期间又点掉了。
+                guard self.pendingLikedItemIDs.contains(itemID) else { return }
+                self.library.setLiked(songID: saved.id, isLiked: true, propagatesServerMutation: true)
+            } catch {
+                plog("⚠️Apple Music liked song not synced yet; like not recorded: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 等同步时又点了一下红心：只是不再记这次喜欢，歌已经加进资料库了。
+    @discardableResult
+    func cancelPendingLike(for song: PrimuseKit.Song) -> Bool {
+        guard hasPendingLike(for: song) else { return false }
+        pendingLikedItemIDs.remove(song.filePath)
+        return true
+    }
+
+    private func checkCatalogSaveAvailable() throws {
         guard appleMusic.authState == .authorized else { throw CatalogSaveError.notAuthorized }
         guard AppleMusicSourcePolicy.isSyncable(
             isInstalled: library.appleMusicSourceInstalled,
             isSourceEnabled: !library.disabledSourceIDs.contains(Self.systemSourceID),
             isSyncPreferenceEnabled: AppleMusicFeatureSettings.syncUserLibraryEnabled
         ) else { throw CatalogSaveError.librarySyncUnavailable }
+    }
 
+    private func addCatalogSong(_ song: MusicKit.Song) async throws {
+        #if os(iOS)
+        try await MusicKit.MusicLibrary.shared.add(song)
+        #else
+        try await AppleMusicCatalogLibraryWriter().addSong(id: song.id.rawValue)
+        #endif
+    }
+
+    private func saveCatalogSongToLibrary(_ song: MusicKit.Song) async throws -> PrimuseKit.Song {
+        try checkCatalogSaveAvailable()
+        return try await resolveSyncedCatalogSong(song, add: { try await self.addCatalogSong(song) })
+    }
+
+    private func resolveSyncedCatalogSong(
+        _ song: MusicKit.Song,
+        add: () async throws -> Void
+    ) async throws -> PrimuseKit.Song {
         let saved = try await Self.resolveSavedCatalogSong(
-            add: {
-                #if os(iOS)
-                try await MusicKit.MusicLibrary.shared.add(song)
-                #else
-                try await AppleMusicCatalogLibraryWriter().addSong(id: song.id.rawValue)
-                #endif
-            },
+            add: add,
             synchronize: {
                 try await self.syncAndWait()
                 if self.librarySong(forCatalog: song) == nil, case .failed(let message) = self.state {

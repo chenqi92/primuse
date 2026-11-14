@@ -19,11 +19,19 @@ final class NowPlayingLibraryActions {
 
     @ObservationIgnored
     private let resolveSong: @MainActor (Song) async throws -> Song
+    @ObservationIgnored
+    private let likeCatalogSong: @MainActor (Song) async throws -> Void
 
-    init(resolveSong: @escaping @MainActor (Song) async throws -> Song = {
-        try await AppServices.shared.appleMusicLibrary.resolveLibraryActionSong($0)
-    }) {
+    init(
+        resolveSong: @escaping @MainActor (Song) async throws -> Song = {
+            try await AppServices.shared.appleMusicLibrary.resolveLibraryActionSong($0)
+        },
+        likeCatalogSong: @escaping @MainActor (Song) async throws -> Void = {
+            try await AppServices.shared.appleMusicLibrary.likeCatalogSongOnceSynced($0)
+        }
+    ) {
         self.resolveSong = resolveSong
+        self.likeCatalogSong = likeCatalogSong
     }
 
     /// The intent and target belong to the tap, even if playback advances while the song is saved.
@@ -41,6 +49,17 @@ final class NowPlayingLibraryActions {
         defer { pendingSong = nil }
         do {
             try Task.checkCancellation()
+            if case .like(let desired) = action,
+               song.sourceID == AppleMusicLibraryService.systemSourceID,
+               Self.libraryRowID(for: song, library: library) == nil {
+                // 还不在曲库的目录歌：喜欢不等同步，Apple Music 收下就算数；还在等同步时再点一下就是取消。
+                if desired {
+                    try await likeCatalogSong(song)
+                } else {
+                    AppServices.shared.appleMusicLibrary.cancelPendingLike(for: song)
+                }
+                return true
+            }
             let resolved = try await resolveSong(song)
             try Task.checkCancellation()
             guard let saved = library.song(id: resolved.id) else {
@@ -66,8 +85,9 @@ final class NowPlayingLibraryActions {
     /// Like state of the song on screen. An Apple Music catalog song is liked through its
     /// library row once it has one, so ask about that row rather than the projected id.
     static func isLiked(_ song: Song, library: MusicLibrary) -> Bool {
-        let canonical = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: song)
-        return library.isLiked(songID: canonical.id)
+        let appleMusic = AppServices.shared.appleMusicLibrary
+        let canonical = appleMusic.canonicalLibrarySong(for: song)
+        return library.isLiked(songID: canonical.id) || appleMusic.hasPendingLike(for: song)
     }
 
     /// The library row a like can be written to right away: the song itself, or the synced
