@@ -17,6 +17,7 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
     var search: EndpointConfig?
     var detail: EndpointConfig?
     var cover: EndpointConfig?
+    var dynamicCover: EndpointConfig?
     var lyrics: EndpointConfig?
     var lyricsFallback: LyricsFallbackConfig?
     var responseValidation: ScraperResponseValidation?
@@ -56,6 +57,7 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
         search: EndpointConfig? = nil,
         detail: EndpointConfig? = nil,
         cover: EndpointConfig? = nil,
+        dynamicCover: EndpointConfig? = nil,
         lyrics: EndpointConfig? = nil,
         lyricsFallback: LyricsFallbackConfig? = nil,
         responseValidation: ScraperResponseValidation? = nil,
@@ -77,6 +79,7 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
         self.search = search
         self.detail = detail
         self.cover = cover
+        self.dynamicCover = dynamicCover
         self.lyrics = lyrics
         self.lyricsFallback = lyricsFallback
         self.responseValidation = responseValidation
@@ -86,10 +89,43 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
         self.deletedAt = deletedAt
     }
 
+
+    /// 默认配置与导入配置共用协议，移出此列表后仍可通过 JSON 导入。
+    static let builtInConfigs: [ScraperConfig] = {
+        let json = #"""
+        [{
+            "id": "m8tec",
+            "name": "m8tec",
+            "version": 1,
+            "capabilities": [
+                "dynamicCover"
+            ],
+            "dynamicCover": {
+                "url": "https://artwork.m8tec.top/api/v1/artwork/search",
+                "method": "GET",
+                "params": {
+                    "artist": "{{artist}}",
+                    "album": "{{album}}"
+                },
+                "assetHosts": [
+                    "*.itunes.apple.com",
+                    "*.mzstatic.com"
+                ],
+                "script": "if (!response.url) return []; return [{coverUrl: response.url, kind: \"video\", mimeType: \"application/vnd.apple.mpegurl\", artist: response.artist, album: response.album}];",
+                "playlistScript": "var lines = responseText.split(/\\r?\\n/).map(function (line) { return line.trim(); }).filter(Boolean);\nif (lines[0] !== \"#EXTM3U\") throw new Error(\"Invalid playlist\");\nfunction attrs(line) {\n    var values = {};\n    var expression = /([A-Z0-9-]+)=(\"[^\"]*\"|[^,]*)/g;\n    var match;\n    while ((match = expression.exec(line))) values[match[1]] = match[2].replace(/^\"|\"$/g, \"\");\n    return values;\n}\nvar variants = [];\nfor (var i = 0; i < lines.length; i++) {\n    if (lines[i].indexOf(\"#EXT-X-STREAM-INF:\") !== 0) continue;\n    var item = attrs(lines[i]);\n    var size = (item.RESOLUTION || \"\").split(\"x\").map(Number);\n    var side = Math.max(size[0], size[1]);\n    var bandwidth = Number(item.BANDWIDTH);\n    var codec = item.CODECS || \"\";\n    if (size.length !== 2 || !(size[0] > 0 && size[1] > 0) || side > 1080 ||\n        Math.abs(size[0] / size[1] - 1) >= 0.1 || !(bandwidth > 0 && bandwidth <= 8000000) ||\n        (item[\"VIDEO-RANGE\"] && item[\"VIDEO-RANGE\"] !== \"SDR\") ||\n        !/^(avc1|hvc1)/.test(codec) || !lines[i + 1] || lines[i + 1][0] === \"#\") continue;\n    variants.push({url: lines[i + 1], side: side, bandwidth: bandwidth, avc: codec.indexOf(\"avc1\") === 0});\n}\nif (lines.some(function (line) { return line.indexOf(\"#EXT-X-STREAM-INF:\") === 0; })) {\n    var bounded = variants.filter(function (item) { return item.side <= 960; });\n    var choices = bounded.length ? bounded : variants;\n    choices.sort(function (a, b) { return Number(b.avc) - Number(a.avc) || b.side - a.side || a.bandwidth - b.bandwidth; });\n    if (!choices.length) throw new Error(\"No supported rendition\");\n    return {url: choices[0].url, complete: false};\n}\nif (lines.indexOf(\"#EXT-X-ENDLIST\") < 0) throw new Error(\"Unbounded playlist\");\nvar durations = [];\nvar media = [];\nvar maps = [];\nlines.forEach(function (line) {\n    if (line.indexOf(\"#EXT-X-KEY:\") === 0 && attrs(line).METHOD !== \"NONE\") throw new Error(\"Encrypted playlist\");\n    if (line.indexOf(\"#EXTINF:\") === 0) durations.push(Number(line.slice(8).split(\",\")[0]));\n    if (line.indexOf(\"#EXT-X-MAP:\") === 0) maps.push(attrs(line).URI);\n    if (line[0] !== \"#\") media.push(line);\n});\nif (!durations.length || durations.length > 120 || media.length !== durations.length ||\n    durations.some(function (duration) { return !Number.isFinite(duration) || duration <= 0; }) ||\n    durations.reduce(function (sum, duration) { return sum + duration; }, 0) > 60 ||\n    media.some(function (url) { return url !== media[0]; }) ||\n    maps.some(function (url) { return url !== media[0]; }) ||\n    !/\\.mp4(?:\\?|$)/i.test(media[0])) throw new Error(\"Unsupported media layout\");\nreturn {url: media[0], complete: true};\n"
+            },
+            "icon": "photo.badge.arrow.down",
+            "color": "#8866DD",
+            "rateLimit": 1000
+        }]
+        """#
+        return try! JSONDecoder().decode([ScraperConfig].self, from: Data(json.utf8))
+    }()
+
     private enum CodingKeys: String, CodingKey {
         case id, name, version, icon, color, rateLimit, headers, capabilities
         case sslTrustDomains, cookie
-        case search, detail, cover, lyrics, lyricsFallback, responseValidation
+        case search, detail, cover, dynamicCover, lyrics, lyricsFallback, responseValidation
         case secrets
         case modifiedAt, isDeleted, deletedAt
     }
@@ -109,6 +145,7 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
         self.search = try c.decodeIfPresent(EndpointConfig.self, forKey: .search)
         self.detail = try c.decodeIfPresent(EndpointConfig.self, forKey: .detail)
         self.cover = try c.decodeIfPresent(EndpointConfig.self, forKey: .cover)
+        self.dynamicCover = try c.decodeIfPresent(EndpointConfig.self, forKey: .dynamicCover)
         self.lyrics = try c.decodeIfPresent(EndpointConfig.self, forKey: .lyrics)
         self.lyricsFallback = try c.decodeIfPresent(LyricsFallbackConfig.self, forKey: .lyricsFallback)
         self.responseValidation = try c.decodeIfPresent(ScraperResponseValidation.self, forKey: .responseValidation)
@@ -135,6 +172,7 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
         try c.encodeIfPresent(search, forKey: .search)
         try c.encodeIfPresent(detail, forKey: .detail)
         try c.encodeIfPresent(cover, forKey: .cover)
+        try c.encodeIfPresent(dynamicCover, forKey: .dynamicCover)
         try c.encodeIfPresent(lyrics, forKey: .lyrics)
         try c.encodeIfPresent(lyricsFallback, forKey: .lyricsFallback)
         try c.encodeIfPresent(responseValidation, forKey: .responseValidation)
@@ -152,6 +190,15 @@ struct EndpointConfig: Codable, Sendable {
     var headers: [String: String]?   // endpoint-specific headers (merged with global)
     var bodyTemplate: String?        // POST body template (for complex JSON bodies)
     let script: String    // JavaScript parsing script
+    var optional: Bool?
+    var requiredIdSegments: [Int]?
+    var sign: [String: String]?
+    var crypto: [String: String]?
+    var requestScript: String?
+    var responseScript: String?
+    var playlistScript: String?
+    var assetHosts: [String]?
+
 }
 
 /// An optional second GET when encrypted lyric parameters are unavailable.

@@ -4,6 +4,7 @@ import PrimuseKit
 /// Non-persistent review payload shown before a custom scraper is imported.
 struct ScraperImportSummary: Sendable {
     let configs: [ScraperConfig]
+    let sourceURL: URL?
     let sourceHost: String?
     /// 从文件导入时的文件名。
     let sourceFileName: String?
@@ -43,16 +44,38 @@ final class ScraperConfigStore: @unchecked Sendable {
     private let configDir: URL
     private var cache: [String: ScraperConfig] = [:]
     private let lock = NSLock()
+    private struct Subscription: Codable, Equatable {
+        let url: URL
+        let generation: UUID
+        var version: Int
+        var nextCheck: Date
+    }
+    private var subscriptions: [String: Subscription] = [:]
+    private var updatingURLs: Set<URL> = []
+    private let manifestLoader: (@Sendable (URL) async throws -> String)?
+    private var subscriptionsURL: URL { configDir.appendingPathComponent("auto-update.subscriptions") }
 
-    private init() {
+    private convenience init() {
         #if os(tvOS)
         let appSupport = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         #else
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         #endif
-        configDir = appSupport.appendingPathComponent("Primuse/ScraperConfigs")
+        self.init(configDirectory: appSupport.appendingPathComponent("Primuse/ScraperConfigs"))
+    }
+
+    init(configDirectory: URL, manifestLoader: (@Sendable (URL) async throws -> String)? = nil) {
+        configDir = configDirectory
+        self.manifestLoader = manifestLoader
         try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         loadAll()
+        if let data = try? Data(contentsOf: subscriptionsURL),
+           let saved = try? JSONDecoder().decode([String: Subscription].self, from: data) {
+            subscriptions = saved.filter { id, _ in
+                guard let config = cache[id] else { return false }
+                return config.isDeleted != true
+            }
+        }
     }
 
     // MARK: - Public API
@@ -88,7 +111,7 @@ final class ScraperConfigStore: @unchecked Sendable {
     func config(for id: String) -> ScraperConfig? {
         lock.lock()
         defer { lock.unlock() }
-        return cache[id]
+        return ScraperConfig.builtInConfigs.first { $0.id == id } ?? cache[id]
     }
 
     /// Import one or more configs from a JSON string.
@@ -163,6 +186,114 @@ final class ScraperConfigStore: @unchecked Sendable {
         try persistAll(configs)
     }
 
+    @discardableResult
+    func confirmImport(_ preview: ScraperImportSummary, automaticallyUpdates: Bool = false) throws -> [ScraperConfig] {
+        let url = automaticallyUpdates ? preview.sourceURL : nil
+        if let url { _ = try classifyImportInput(url.absoluteString) }
+        return try persistAll(preview.configs, subscriptionURL: url)
+    }
+
+    func automaticallyUpdates(id: String) -> Bool {
+        lock.withLock { subscriptions[id] != nil }
+    }
+
+    /// Each URL is fetched once per batch; only sources explicitly imported with consent can change.
+    func refreshSubscriptionsIfDue(now: Date = Date()) async -> [ScraperConfig] {
+        let batches = beginSubscriptionRefresh(now: now)
+        var updated: [ScraperConfig] = []
+        for (url, snapshots) in batches {
+            do {
+                try Task.checkCancellation()
+                let preview = try await previewImportFromURL(url)
+                try Task.checkCancellation()
+                updated += try applySubscriptionRefresh(preview.configs, url: url, snapshots: snapshots, now: now)
+            } catch {
+                // Keep the installed configuration and retry later. URLs may contain private query parameters.
+                plog("Scraper subscription refresh failed; keeping installed configs")
+            }
+            _ = lock.withLock { updatingURLs.remove(url) }
+        }
+        if !updated.isEmpty {
+            NotificationCenter.default.post(name: .primuseScraperConfigDidChange, object: nil,
+                                            userInfo: ["ids": updated.map(\.id)])
+        }
+        return updated
+    }
+
+    private struct SubscriptionSnapshot {
+        let subscription: Subscription
+        let modifiedAt: Date?
+        let version: Int
+    }
+
+    private func beginSubscriptionRefresh(now: Date) -> [URL: [String: SubscriptionSnapshot]] {
+        lock.withLock {
+            var batches: [URL: [String: SubscriptionSnapshot]] = [:]
+            var next = subscriptions
+            for (id, subscription) in subscriptions {
+                guard subscription.nextCheck <= now, !updatingURLs.contains(subscription.url),
+                      let config = cache[id], config.isDeleted != true,
+                      !ScraperConfig.builtInConfigs.contains(where: { $0.id == id }) else { continue }
+                batches[subscription.url, default: [:]][id] = SubscriptionSnapshot(
+                    subscription: subscription, modifiedAt: config.modifiedAt, version: config.version)
+                next[id]?.nextCheck = now.addingTimeInterval(3600)
+            }
+            guard !batches.isEmpty else { return [:] }
+            do { try saveSubscriptionsUnlocked(next) } catch { return [:] }
+            updatingURLs.formUnion(batches.keys)
+            return batches
+        }
+    }
+
+    private func applySubscriptionRefresh(
+        _ configs: [ScraperConfig], url: URL, snapshots: [String: SubscriptionSnapshot], now: Date
+    ) throws -> [ScraperConfig] {
+        guard Set(configs.map(\.id)).count == configs.count else {
+            throw ScraperConfigError.validationFailed("Duplicate source IDs")
+        }
+        return try lock.withLock {
+            var next = subscriptions
+            var updated: [ScraperConfig] = []
+            for (id, snapshot) in snapshots {
+                guard next[id]?.generation == snapshot.subscription.generation,
+                      next[id]?.url == url, let current = cache[id], current.isDeleted != true,
+                      current.version == snapshot.version, current.modifiedAt == snapshot.modifiedAt else { continue }
+                next[id]?.nextCheck = now.addingTimeInterval(86400)
+                guard var incoming = configs.first(where: { $0.id == id }),
+                      incoming.isDeleted != true, incoming.version > current.version else { continue }
+                incoming.secrets = current.secrets
+                incoming.cookie = current.cookie
+                for (key, value) in current.headers ?? [:]
+                    where ["cookie", "authorization"].contains(key.lowercased()) {
+                    var headers = incoming.headers ?? [:]
+                    headers = headers.filter { $0.key.lowercased() != key.lowercased() }
+                    headers[key] = value
+                    incoming.headers = headers
+                }
+                incoming.isDeleted = false
+                incoming.deletedAt = nil
+                incoming.modifiedAt = now
+                do { try writeToDiskUnlocked(incoming) }
+                catch {
+                    next[id]?.nextCheck = now.addingTimeInterval(3600)
+                    continue
+                }
+                cache[id] = incoming
+                next[id]?.version = incoming.version
+                updated.append(incoming)
+            }
+            do { try saveSubscriptionsUnlocked(next) }
+            catch { plog("Scraper subscription schedule could not be saved") }
+            return updated
+        }
+    }
+
+    private func saveSubscriptionsUnlocked(_ value: [String: Subscription]) throws {
+        guard value != subscriptions else { return }
+        try JSONEncoder().encode(value).write(to: subscriptionsURL, options: [.atomic, .completeFileProtectionUnlessOpen])
+        subscriptions = value
+    }
+
     private func parseConfigs(from jsonString: String) throws -> [ScraperConfig] {
         let trimmed = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -207,7 +338,10 @@ final class ScraperConfigStore: @unchecked Sendable {
 
     /// Download, parse and validate a remote config without writing it to disk.
     func previewImportFromURL(_ url: URL) async throws -> ScraperImportSummary {
-        let jsonString = try await downloadConfigJSON(from: url)
+        _ = try classifyImportInput(url.absoluteString)
+        let jsonString: String
+        if let manifestLoader { jsonString = try await manifestLoader(url) }
+        else { jsonString = try await downloadConfigJSON(from: url) }
         return try makeImportSummary(configs: parseConfigs(from: jsonString), sourceURL: url, fileName: nil)
     }
 
@@ -264,10 +398,11 @@ final class ScraperConfigStore: @unchecked Sendable {
 
         let endpoints = configs.flatMap { Self.endpoints(in: $0) }
         let fallbacks = configs.compactMap { LegacyScraperCompatibility.lyricsFallback(for: $0) }
-        let endpointDomains = fallbacks.flatMap { Self.hosts(in: $0.url) } + endpoints.flatMap { endpoint in
+        let endpointDomains = fallbacks.flatMap { Self.hosts(in: $0.url) } + endpoints.compactMap(\.assetHosts).flatMap { $0 } + endpoints.flatMap { endpoint in
             Self.hosts(in: endpoint.url)
                 + Self.hosts(in: endpoint.bodyTemplate ?? "")
-                + Self.hosts(in: endpoint.script)
+                + [endpoint.script, endpoint.requestScript, endpoint.responseScript, endpoint.playlistScript]
+                    .compactMap { $0 }.flatMap { Self.hosts(in: $0) }
         }
         let sslTrustDomains = configs
             .flatMap { $0.sslTrustDomains ?? [] }
@@ -289,7 +424,8 @@ final class ScraperConfigStore: @unchecked Sendable {
                 }
         }
         let includesSecrets = configs.contains { $0.secrets?.isEmpty == false }
-        let scriptCharacterCount = endpoints.reduce(0) { $0 + $1.script.count }
+        let scripts = endpoints.flatMap { [$0.script, $0.requestScript, $0.responseScript, $0.playlistScript].compactMap { $0 } }
+        let scriptCharacterCount = scripts.reduce(0) { $0 + $1.count }
 
         var warnings: [String] = []
         if Set(endpointDomains).isEmpty {
@@ -306,15 +442,16 @@ final class ScraperConfigStore: @unchecked Sendable {
         if !sslTrustDomains.isEmpty {
             warnings.append(String(localized: "scraper_warn_tls_trust_domains"))
         }
-        if endpoints.contains(where: { $0.method.uppercased() != "GET" }) {
+        if endpoints.contains(where: { !["GET", "LOCAL"].contains($0.method.uppercased()) }) {
             warnings.append(String(localized: "scraper_warn_non_get_requests"))
         }
-        if endpoints.contains(where: { $0.script.count > 200_000 }) {
+        if scripts.contains(where: { $0.count > 200_000 }) {
             warnings.append(String(localized: "scraper_warn_script_too_large"))
         }
 
         return ScraperImportSummary(
             configs: configs,
+            sourceURL: sourceURL,
             sourceHost: sourceURL?.host?.lowercased(),
             sourceFileName: fileName,
             domains: Array(Set(endpointDomains)).sorted(),
@@ -331,7 +468,7 @@ final class ScraperConfigStore: @unchecked Sendable {
     }
 
     private static func endpoints(in config: ScraperConfig) -> [EndpointConfig] {
-        [config.search, config.detail, config.cover, config.lyrics].compactMap { $0 }
+        [config.search, config.detail, config.cover, config.lyrics, config.dynamicCover].compactMap { $0 }
     }
 
     private static func hosts(in text: String) -> [String] {
@@ -365,6 +502,7 @@ final class ScraperConfigStore: @unchecked Sendable {
         config.deletedAt = Date()
         config.modifiedAt = Date()
         do {
+            try saveSubscriptionsUnlocked(subscriptions.filter { $0.key != id })
             try writeToDiskUnlocked(config)
             cache[id] = config
         } catch {
@@ -419,6 +557,7 @@ final class ScraperConfigStore: @unchecked Sendable {
         lock.lock()
         for id in ids.sorted() {
             do {
+                try saveSubscriptionsUnlocked(subscriptions.filter { $0.key != id })
                 let fileURL = try configFileURL(for: id)
                 let secretsURL = try secretsFileURL(for: id)
                 if FileManager.default.fileExists(atPath: fileURL.path) {
@@ -603,7 +742,7 @@ final class ScraperConfigStore: @unchecked Sendable {
     func exists(id: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return cache[id] != nil
+        return cache[id] != nil || ScraperConfig.builtInConfigs.contains { $0.id == id }
     }
 
     // MARK: - Private
@@ -677,13 +816,13 @@ final class ScraperConfigStore: @unchecked Sendable {
             throw ScraperConfigError.validationFailed("Config has no capabilities")
         }
         // At least one endpoint must be defined
-        guard config.search != nil || config.detail != nil || config.cover != nil || config.lyrics != nil else {
+        guard config.search != nil || config.detail != nil || config.cover != nil || config.lyrics != nil || config.dynamicCover != nil else {
             throw ScraperConfigError.validationFailed("Config has no endpoints defined")
         }
     }
 
     /// Validate everything before writing anything — avoid half-imported state.
-    private func persistAll(_ configs: [ScraperConfig]) throws -> [ScraperConfig] {
+    private func persistAll(_ configs: [ScraperConfig], subscriptionURL: URL? = nil) throws -> [ScraperConfig] {
         guard !configs.isEmpty else {
             throw ScraperConfigError.invalidJSON("No config object found")
         }
@@ -711,15 +850,31 @@ final class ScraperConfigStore: @unchecked Sendable {
         // or a CloudKit apply can persist an older snapshot after a newer one.
         lock.lock()
         do {
+            var next = subscriptions
+            for item in prepared {
+                if let subscriptionURL, item.config.isDeleted != true,
+                   !ScraperConfig.builtInConfigs.contains(where: { $0.id == item.config.id }) {
+                    next[item.config.id] = Subscription(url: subscriptionURL, generation: UUID(),
+                        version: item.config.version, nextCheck: now.addingTimeInterval(86400))
+                } else {
+                    next.removeValue(forKey: item.config.id)
+                }
+            }
+            let importedIDs = Set(configs.map(\.id))
+            try saveSubscriptionsUnlocked(subscriptions.filter { !importedIDs.contains($0.key) })
             for item in prepared {
                 try item.data.write(to: configFileURL(for: item.config.id), options: .atomic)
                 if let secretsData = item.secretsData {
                     try secretsData.write(to: secretsFileURL(for: item.config.id), options: .atomic)
                 }
             }
-            for item in prepared {
-                cache[item.config.id] = item.config
+            for index in prepared.indices {
+                if prepared[index].config.secrets == nil {
+                    injectSecrets(into: &prepared[index].config, context: "import")
+                }
+                cache[prepared[index].config.id] = prepared[index].config
             }
+            try saveSubscriptionsUnlocked(next)
         } catch {
             lock.unlock()
             throw error

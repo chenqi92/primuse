@@ -7424,3 +7424,5 @@
 "sing_along_unavailable_spatial_audio" = "El Audio Espacial vuelve a procesar toda la canción, así que la voz no se puede quitar limpiamente. Desactiva el Audio Espacial en los ajustes de reproducción para que Cantar junto funcione; mientras tanto suena la original.";
 "karaoke_sing_along_handoff" = "Solo el acompañamiento";
 "karaoke_sing_along_handoff_detail" = "Sale del karaoke y sigue con el acompañamiento en Cantar junto";
+
+"scraper_import_auto_update" = "Actualizar automáticamente";

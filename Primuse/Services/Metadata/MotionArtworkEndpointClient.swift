@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import PrimuseKit
 
@@ -77,6 +78,9 @@ actor MotionArtworkEndpointClient {
         let endpoint: URL
         let input: MotionArtworkLookupInput
         let allowExpensiveNetwork: Bool
+        let title: String?
+        let trackArtist: String?
+        let durationMs: Int?
     }
 
     private struct InFlightResolve {
@@ -90,6 +94,7 @@ actor MotionArtworkEndpointClient {
     private enum RequestPurpose: Sendable {
         case lookup(configuredEndpoint: URL)
         case asset(configuredEndpoint: URL)
+        case scriptAsset(configuredEndpoint: URL, allowedHosts: [String])
     }
 
     private let session: URLSession
@@ -145,7 +150,11 @@ actor MotionArtworkEndpointClient {
         endpoint: URL,
         input: MotionArtworkLookupInput,
         requestKey: String,
-        allowExpensiveNetwork: Bool
+        allowExpensiveNetwork: Bool,
+        scraper: ConfigurableScraper? = nil,
+        title: String? = nil,
+        trackArtist: String? = nil,
+        durationMs: Int? = nil
     ) async throws -> MotionArtworkEndpointResolveResult {
         guard Self.isValidEndpoint(endpoint) else {
             throw MotionArtworkEndpointClientError.invalidEndpoint
@@ -156,7 +165,8 @@ actor MotionArtworkEndpointClient {
             requestKey: requestKey,
             endpoint: endpoint,
             input: input,
-            allowExpensiveNetwork: allowExpensiveNetwork
+            allowExpensiveNetwork: allowExpensiveNetwork,
+            title: title, trackArtist: trackArtist, durationMs: durationMs
         )
         let waiterID = UUID()
         let result = try await withTaskCancellationHandler {
@@ -170,7 +180,8 @@ actor MotionArtworkEndpointClient {
                     identity: identity,
                     endpoint: endpoint,
                     input: input,
-                    allowExpensiveNetwork: allowExpensiveNetwork
+                    allowExpensiveNetwork: allowExpensiveNetwork,
+                    scraper: scraper
                 )
             }
         } onCancel: {
@@ -224,7 +235,8 @@ actor MotionArtworkEndpointClient {
         identity: ResolveRequestIdentity,
         endpoint: URL,
         input: MotionArtworkLookupInput,
-        allowExpensiveNetwork: Bool
+        allowExpensiveNetwork: Bool,
+        scraper: ConfigurableScraper?
     ) {
         // Cancellation can race the handler registration and continuation
         // enqueue. Re-check in the caller task before publishing the waiter so
@@ -249,11 +261,16 @@ actor MotionArtworkEndpointClient {
             guard let self else { return }
             let result: Result<MotionArtworkEndpointResolveResult, any Error>
             do {
-                result = .success(try await self.resolveUncoalesced(
-                    endpoint: endpoint,
-                    input: input,
-                    allowExpensiveNetwork: allowExpensiveNetwork
-                ))
+                if let scraper {
+                    result = .success(try await scraper.motionArtwork(
+                        input: input, title: identity.title, trackArtist: identity.trackArtist,
+                        durationMs: identity.durationMs, client: self
+                    ))
+                } else {
+                    result = .success(try await self.resolveUncoalesced(
+                        endpoint: endpoint, input: input, allowExpensiveNetwork: allowExpensiveNetwork
+                    ))
+                }
             } catch {
                 result = .failure(error)
             }
@@ -457,6 +474,101 @@ actor MotionArtworkEndpointClient {
         }
     }
 
+    nonisolated static func isAuthorizedScriptAssetURL(
+        _ url: URL, configuredEndpoint endpoint: URL, allowedHosts: [String]
+    ) -> Bool {
+        guard MotionArtworkServiceResolver.isSafeRemoteURL(url) else { return false }
+        if HTTPRedirectSecurityPolicy.allows(from: endpoint, to: url) { return true }
+        guard url.scheme?.lowercased() == "https", url.port == nil || url.port == 443,
+              let host = url.host?.lowercased(),
+              !PrivateOverlayHostPolicy.isPrivateOrOverlayHost(host) else { return false }
+        return allowedHosts.contains { allowed in
+            if allowed.hasPrefix("*.") {
+                let suffix = String(allowed.dropFirst(2)).lowercased()
+                return suffix.contains(".") && host.hasSuffix("." + suffix)
+            }
+            return host == allowed.lowercased()
+        }
+    }
+
+    func downloadScriptPlaylist(
+        _ url: URL, endpoint: URL, allowedHosts: [String], allowExpensiveNetwork: Bool
+    ) async throws -> Data {
+        let (bytes, response) = try await fetchScriptAsset(
+            url, endpoint: endpoint, allowedHosts: allowedHosts,
+            limit: serviceResponseLimit, allowExpensiveNetwork: allowExpensiveNetwork
+        )
+        guard (200...299).contains(response.statusCode) else {
+            throw MotionArtworkEndpointClientError.unexpectedHTTPStatus(response.statusCode)
+        }
+        return bytes
+    }
+
+    func downloadScriptAsset(
+        _ asset: MotionArtworkAsset, endpoint: URL, allowedHosts: [String], allowExpensiveNetwork: Bool
+    ) async throws -> MotionArtworkEndpointResolveResult {
+        let (data, response) = try await fetchScriptAsset(
+            asset.assetURL, endpoint: endpoint, allowedHosts: allowedHosts,
+            limit: animatedImageLimit, allowExpensiveNetwork: allowExpensiveNetwork
+        )
+        switch response.statusCode {
+        case 200...299:
+            if asset.kind == .video {
+                try await Self.validateVideo(data)
+                return .video(data)
+            }
+            guard let descriptor = try await Self.inspectAnimatedImage(data), descriptor.isAnimated else {
+                throw MotionArtworkEndpointClientError.notAnimatedImage
+            }
+            return .downloaded(MotionArtworkEndpointDownload(asset: asset, data: data, descriptor: descriptor))
+        case 404:
+            return .notFound
+        case 429, 500...599:
+            return .temporarilyUnavailable(retryAfter: Self.retryAfterDate(from: response, now: now()))
+        default:
+            throw MotionArtworkEndpointClientError.unexpectedHTTPStatus(response.statusCode)
+        }
+    }
+
+    private func fetchScriptAsset(
+        _ url: URL, endpoint: URL, allowedHosts: [String], limit: Int, allowExpensiveNetwork: Bool
+    ) async throws -> (Data, HTTPURLResponse) {
+        guard Self.isAuthorizedScriptAssetURL(url, configuredEndpoint: endpoint, allowedHosts: allowedHosts) else {
+            throw MotionArtworkEndpointClientError.invalidAssetURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = Self.downloadTimeout
+        Self.applyNetworkPolicy(allowExpensiveNetwork: allowExpensiveNetwork, to: &request)
+        let purpose = RequestPurpose.scriptAsset(configuredEndpoint: endpoint, allowedHosts: allowedHosts)
+        let (data, response) = try await perform(request, maximumBytes: limit, purpose: purpose)
+        return (data, try Self.validatedHTTPResponse(response, purpose: purpose))
+    }
+
+    nonisolated static func isVideoData(_ data: Data) -> Bool {
+        data.count >= 12 && data.dropFirst(4).prefix(4).elementsEqual("ftyp".utf8)
+    }
+
+    private nonisolated static func validateVideo(_ data: Data) async throws {
+        guard isVideoData(data) else { throw MotionArtworkEndpointClientError.notAnimatedImage }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
+        try data.write(to: file, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let asset = AVURLAsset(url: file, options: [
+            AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue,
+            AVURLAssetAllowsCellularAccessKey: false,
+        ])
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+            throw MotionArtworkEndpointClientError.notAnimatedImage
+        }
+        let (range, size) = try await track.load(.timeRange, .naturalSize)
+        guard range.duration.seconds.isFinite, range.duration.seconds > 0, range.duration.seconds <= 60,
+              size.width > 0, size.height > 0, max(size.width, size.height) <= 1080 else {
+            throw MotionArtworkEndpointClientError.notAnimatedImage
+        }
+        try Task.checkCancellation()
+    }
+
     nonisolated static func ephemeralConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = lookupTimeout
@@ -613,6 +725,13 @@ actor MotionArtworkEndpointClient {
                 response: response,
                 configuredEndpoint: endpoint
             )
+        case .scriptAsset(let endpoint, let hosts):
+            guard let location = response.value(forHTTPHeaderField: "Location"),
+                  let next = URL(string: location, relativeTo: original.url)?.absoluteURL,
+                  isAuthorizedScriptAssetURL(next, configuredEndpoint: endpoint, allowedHosts: hosts) else { return nil }
+            var request = removingSensitiveHeaders(from: original)
+            request.url = next
+            return request
         case .asset(let endpoint):
             return redirectedAssetRequest(
                 from: original,
@@ -644,6 +763,10 @@ actor MotionArtworkEndpointClient {
         case .lookup(let endpoint):
             guard isValidEndpoint(finalURL),
                   HTTPRedirectSecurityPolicy.allows(from: endpoint, to: finalURL) else {
+                throw MotionArtworkEndpointClientError.invalidHTTPResponse
+            }
+        case .scriptAsset(let endpoint, let hosts):
+            guard isAuthorizedScriptAssetURL(finalURL, configuredEndpoint: endpoint, allowedHosts: hosts) else {
                 throw MotionArtworkEndpointClientError.invalidHTTPResponse
             }
         case .asset(let endpoint):

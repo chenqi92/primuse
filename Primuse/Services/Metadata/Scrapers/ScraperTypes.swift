@@ -164,6 +164,11 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         }
     }
 
+    var supportsDynamicCover: Bool {
+        guard case .custom(let id) = self else { return false }
+        return ScraperConfigStore.shared.config(for: id)?.dynamicCover != nil
+    }
+
     var supportsCookie: Bool {
         switch self {
         case .musicBrainz, .lrclib, .amll, .itunes, .lyricsServer: false
@@ -174,12 +179,11 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
     var isBuiltIn: Bool {
         switch self {
         case .musicBrainz, .lrclib, .amll, .itunes, .lyricsServer: true
-        case .custom: false
+        case .custom(let id): ScraperConfig.builtInConfigs.contains { $0.id == id }
         }
     }
 
-    /// 不用用户动手就开着的内置源（AMLL）。刮削入口不把它算成「用户开过刮削源」，
-    /// 见 `ScraperSourceGatePolicy`。
+    /// 默认开启的来源；常规刮削入口另按能力及 `ScraperSourceGatePolicy` 筛选。
     var isEnabledByDefault: Bool {
         isBuiltIn && ScraperSourceConfig.defaultEnabled(for: self)
     }
@@ -199,7 +203,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
     /// Built-in scrapers in default order. AMLL 排在 LRCLIB 前面：歌词按顺序问，先拿到
     /// 逐字的就不再往后问；不是逐字时最多再问后面两个源（`OnlineLyricsTimingPick`）。
     static var builtInOrder: [MusicScraperType] {
-        [.itunes, .musicBrainz, .amll, .lrclib, .lyricsServer]
+        [.itunes, .musicBrainz, .amll, .lrclib, .lyricsServer] + ScraperConfig.builtInConfigs.map { .custom($0.id) }
     }
 }
 

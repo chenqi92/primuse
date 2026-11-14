@@ -23,14 +23,20 @@ final class AnimatedArtworkPreferences {
     private(set) var motionArtworkServiceEnabled: Bool
     /// 动态封面源（刮削源页里单独一节），列表顺序就是优先级。
     private(set) var motionArtworkEndpoints: MotionArtworkEndpointList
+    private(set) var builtInMotionArtworkEndpoints: [MotionArtworkEndpoint]
     private(set) var motionArtworkServiceSource: String
+    private(set) var importedMotionArtworkRevision = 0
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var observer: NSObjectProtocol?
+    @ObservationIgnored private var scraperObserver: NSObjectProtocol?
     /// 上次解码的那份原始数据：偏好每写一次都会回调，数据没变就不必再解 JSON。
     @ObservationIgnored private var motionArtworkEndpointsData: Data?
+    @ObservationIgnored private var scraperSettingsData: Data?
 
-    private init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        scraperSettingsData = defaults.data(forKey: ScraperSettings.defaultsKey)
+        builtInMotionArtworkEndpoints = ScraperSettings.load(defaults: defaults).builtInMotionArtworkEndpoints
         Self.migrateLegacyMotionArtworkEndpoint(in: defaults)
         animatedArtworkEnabled = Self.bool(
             PlayerAppearancePreferences.animatedArtworkEnabledKey,
@@ -51,6 +57,26 @@ final class AnimatedArtworkPreferences {
         motionArtworkEndpointsData = endpointsData
         motionArtworkEndpoints = MotionArtworkEndpointList(data: endpointsData)
         motionArtworkServiceSource = defaults.string(forKey: PlayerAppearancePreferences.motionArtworkServiceSourceKey) ?? ""
+        scraperObserver = NotificationCenter.default.addObserver(
+            forName: .primuseScraperConfigDidChange, object: nil, queue: .main
+        ) { [weak self] notification in
+            let changedIDs = Set(notification.userInfo?["ids"] as? [String] ?? [])
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.importedMotionArtworkRevision &+= 1
+                var list = self.motionArtworkEndpoints
+                for endpoint in list.endpoints {
+                    guard let id = endpoint.scraperID, changedIDs.contains(id) else { continue }
+                    if let config = ScraperConfigStore.shared.config(for: id), config.isDeleted != true,
+                       let dynamic = config.dynamicCover {
+                        list.updateScraper(id: id, name: config.name, url: dynamic.url)
+                    } else {
+                        list.removeScraper(id: id)
+                    }
+                }
+                self.setMotionArtworkEndpoints(list)
+            }
+        }
         observer = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -66,6 +92,12 @@ final class AnimatedArtworkPreferences {
     }
 
     private func refresh() {
+        let scraperData = defaults.data(forKey: ScraperSettings.defaultsKey)
+        if scraperSettingsData != scraperData {
+            scraperSettingsData = scraperData
+            let builtIns = ScraperSettings.load(defaults: defaults).builtInMotionArtworkEndpoints
+            if builtInMotionArtworkEndpoints != builtIns { builtInMotionArtworkEndpoints = builtIns }
+        }
         let enabled = Self.bool(
             PlayerAppearancePreferences.animatedArtworkEnabledKey,
             default: PlayerAppearancePreferences.animatedArtworkEnabledByDefault,
@@ -94,17 +126,25 @@ final class AnimatedArtworkPreferences {
         if motionArtworkServiceSource != source { motionArtworkServiceSource = source }
     }
 
-    /// 设置里「在线动态封面」开关显示的状态：总开关开着，且旧版本记下的来源（已下线的内置源）没把它停用。
+    var allMotionArtworkEndpoints: MotionArtworkEndpointList {
+        let builtInIDs = Set(builtInMotionArtworkEndpoints.compactMap(\.scraperID))
+        let custom = motionArtworkEndpoints.endpoints.filter { endpoint in
+            endpoint.scraperID.map { !builtInIDs.contains($0) } ?? true
+        }
+        return MotionArtworkEndpointList(endpoints: builtInMotionArtworkEndpoints + custom)
+    }
+
+    /// 总开关与用户选择的来源共同决定在线查询是否开启。
     var isMotionArtworkServiceOn: Bool {
         motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
             motionArtworkServiceSource,
-            hasConfiguredEndpoints: !motionArtworkEndpoints.isEmpty
+            hasConfiguredEndpoints: !allMotionArtworkEndpoints.isEmpty
         ) == .custom
     }
 
     /// 封面视图实际要问的动态封面源，按优先级；开关关着时为空。
     var activeMotionArtworkEndpoints: [MotionArtworkEndpoint] {
-        isMotionArtworkServiceOn ? motionArtworkEndpoints.usableEndpoints : []
+        isMotionArtworkServiceOn ? allMotionArtworkEndpoints.usableEndpoints : []
     }
 
     /// 设置页改动态封面源：写进偏好（`InterfaceLayoutSync` 看到后推 iCloud），内存里这份随即跟上。
@@ -221,7 +261,7 @@ enum PlayerAppearancePreferences {
     static let lockScreenAnimatedArtworkKey = "primuse.player.lockScreenAnimatedArtwork"
     static let lockScreenAnimatedArtworkByDefault = true
     static let motionArtworkServiceEnabledKey = "primuse.player.motionArtworkServiceEnabled"
-    static let motionArtworkServiceEnabledByDefault = false
+    static let motionArtworkServiceEnabledByDefault = true
     static let motionArtworkServiceSourceKey = "motionArtworkServiceSource"
     /// 旧版的单个服务地址。现在只在升级时读一次，搬进 `motionArtworkEndpointsKey`，不再同步；
     /// 离线备份的白名单里还留着它，只为旧备份文件能通过校验。

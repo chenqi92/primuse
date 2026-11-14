@@ -8919,6 +8919,7 @@ final class TVStore {
     }
 
     func applicationDidBecomeActive() {
+        scraperSettings.refreshSubscriptionsAfterLaunch()
         resumePendingSourceUpload()
         ScrobbleService.shared.retryPendingNow()
         recoverReceivedMusicIfNeeded()

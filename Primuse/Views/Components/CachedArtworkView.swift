@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import ImageIO
 import MusicKit
@@ -110,8 +111,21 @@ struct CachedArtworkView: View {
     private var motionArtworkServiceEnabled: Bool { AnimatedArtworkPreferences.shared.motionArtworkServiceEnabled }
     /// 要问的动态封面源，按优先级；开关关着时为空。
     private var motionArtworkEndpoints: [MotionArtworkEndpoint] {
-        AnimatedArtworkPreferences.shared.activeMotionArtworkEndpoints
+        _ = AnimatedArtworkPreferences.shared.importedMotionArtworkRevision
+        return AnimatedArtworkPreferences.shared.activeMotionArtworkEndpoints
     }
+    private func motionArtworkCookie(for configID: String) -> String? {
+        let settings = AppServices.shared.scraperSettingsStore
+        _ = settings.cookieSourceIDs
+        guard let source = settings.sources.first(where: { $0.type == .custom(configID) }) else { return nil }
+        return settings.cookie(for: source.id)
+    }
+
+    private var motionArtworkSong: PrimuseKit.Song? {
+        if let songID { return library.song(id: songID) }
+        return albumID.flatMap { library.songs(forAlbum: $0).first }
+    }
+
     // Keep the bitmap in a reference holder: closures retained by a lazy
     // container otherwise capture old View / State values containing it.
     @State private var decodedArtworkState = DecodedArtworkState()
@@ -860,16 +874,16 @@ struct CachedArtworkView: View {
     private var motionArtworkDiskKeys: [String] {
         let endpoints = motionArtworkEndpoints
         guard !endpoints.isEmpty, let input = motionArtworkLookupInput else { return [] }
-        return endpoints.map { Self.motionArtworkDiskKey(endpoint: $0, input: input) }
+        return endpoints.map { motionArtworkDiskKey(endpoint: $0, input: input) }
     }
 
     /// 某个动态封面源、某张专辑的缓存键。沿用只有一个服务地址时的写法：迁移过来的那一条地址没变，
     /// 之前缓存的动态封面与「没有」的记录照样认得。
-    private static func motionArtworkDiskKey(
+    private func motionArtworkDiskKey(
         endpoint: MotionArtworkEndpoint,
         input: MotionArtworkLookupInput
     ) -> String {
-        [
+        var components = [
             "configured-service-v1",
             endpoint.trimmedURL,
             input.appleCatalogAlbumID ?? "",
@@ -882,7 +896,21 @@ struct CachedArtworkView: View {
             input.releaseYear.map { String($0) } ?? "",
             input.trackCount.map { String($0) } ?? "",
             input.storefront ?? "",
-        ].joined(separator: "\u{1F}")
+        ]
+        if let id = endpoint.scraperID {
+            let config = ScraperConfigStore.shared.config(for: id)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .sortedKeys
+            var data = (try? config.map { try encoder.encode($0) }) ?? Data()
+            data.append((try? encoder.encode(config?.secrets)) ?? Data())
+            data.append(Data((motionArtworkCookie(for: id) ?? "").utf8))
+            components += [
+                id, SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+                motionArtworkSong?.title ?? "", motionArtworkSong?.artistName ?? "",
+                motionArtworkSong?.duration.description ?? "",
+            ]
+        }
+        return components.joined(separator: "\u{1F}")
     }
 
     private var animationLoadIdentity: String {
@@ -1215,7 +1243,11 @@ struct CachedArtworkView: View {
               MotionArtworkEndpointClient.isValidEndpoint(endpoint) else {
             return .missing
         }
-        let diskKey = Self.motionArtworkDiskKey(endpoint: source, input: input)
+        let sourceConfig = source.scraperID.flatMap { ScraperConfigStore.shared.config(for: $0) }
+        if source.scraperID != nil, sourceConfig?.isDeleted == true || sourceConfig?.dynamicCover == nil {
+            return .missing
+        }
+        let diskKey = motionArtworkDiskKey(endpoint: source, input: input)
 
         let cacheLookupNow = Date()
         if let cached = try? await Self.animationDiskCache.detailedLookup(
@@ -1226,6 +1258,17 @@ struct CachedArtworkView: View {
             switch cached {
             case .asset(let record):
                 let data = record.data
+
+                if MotionArtworkEndpointClient.isVideoData(data),
+                   let url = try? await Self.animationDiskCache.assetFileURL(forKey: diskKey, generation: record.generation) {
+                    guard !Task.isCancelled, animationLoadIdentity == identity else { return .abandoned }
+                    motionArtworkVideoURL = url
+                    animatedArtworkIdentity = diskKey
+                    animatedArtworkExpiresAt = record.expiresAt
+                    animatedArtworkGeneration = record.generation
+                    noteServiceMaterialForLockScreen(videoAt: url)
+                    return .found
+                }
 
                 if let inspection = await Self.animatedInspection(
                     for: data,
@@ -1271,11 +1314,21 @@ struct CachedArtworkView: View {
         let allowExpensiveNetwork = !animatedArtworkUnmeteredOnly
 
         do {
+            let scraper = sourceConfig.map {
+                ConfigurableScraper(config: $0, cookie: motionArtworkCookie(for: $0.id), allowExpensiveNetwork: allowExpensiveNetwork)
+            }
             let resolution = try await MotionArtworkEndpointClient.shared.resolve(
                 endpoint: endpoint,
                 input: input,
                 requestKey: diskKey,
-                allowExpensiveNetwork: allowExpensiveNetwork
+                allowExpensiveNetwork: allowExpensiveNetwork,
+                scraper: scraper,
+                title: motionArtworkSong?.title,
+                trackArtist: motionArtworkSong?.artistName ?? input.albumArtist,
+                durationMs: motionArtworkSong.flatMap { song in
+                    guard song.duration.isFinite else { return nil }
+                    return Int(min(max(song.duration, 0), 86_400) * 1_000)
+                }
             )
             guard !Task.isCancelled, animationLoadIdentity == identity else { return .abandoned }
             switch resolution {

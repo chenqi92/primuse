@@ -10,6 +10,94 @@ import XCTest
 final class MotionArtworkEndpointClientTests: XCTestCase {
     private let fixedNow = Date(timeIntervalSince1970: 2_000_000_000)
 
+    func testScriptAssetDomainsCannotAuthorizeCredentialsOrLocalCrossHostRequests() throws {
+        let endpoint = try XCTUnwrap(URL(string: "https://motion.example.test/lookup"))
+        let hosts = ["*.cdn.example.test", "192.168.0.1"]
+        XCTAssertTrue(MotionArtworkEndpointClient.isAuthorizedScriptAssetURL(
+            URL(string: "https://a.cdn.example.test/cover.mp4")!, configuredEndpoint: endpoint, allowedHosts: hosts))
+        for value in [
+            "https://cdn.example.test.evil.test/cover.mp4", "https://user:secret@a.cdn.example.test/cover.mp4",
+            "http://a.cdn.example.test/cover.mp4", "https://192.168.0.1/cover.mp4", "file:///tmp/cover.mp4",
+        ] {
+            XCTAssertFalse(MotionArtworkEndpointClient.isAuthorizedScriptAssetURL(
+                URL(string: value)!, configuredEndpoint: endpoint, allowedHosts: hosts))
+        }
+    }
+
+    @MainActor
+    func testScriptedLookupDownloadsAndDecodesVideoThroughTheSharedClient() async throws {
+        let file = try await makeArtworkVideo()
+        defer { try? FileManager.default.removeItem(at: file) }
+        let host = UUID().uuidString + ".example.test"
+        let endpoint = try XCTUnwrap(URL(string: "https://\(host)/lookup"))
+        let media = try XCTUnwrap(URL(string: "https://\(host)/cover.mp4"))
+        MotionArtworkEndpointURLProtocol.configure(url: endpoint, body: Data("{\"url\":\"\(media.absoluteString)\"}".utf8))
+        MotionArtworkEndpointURLProtocol.configure(url: media, body: try Data(contentsOf: file))
+        let configuration = MotionArtworkEndpointClient.ephemeralConfiguration()
+        configuration.protocolClasses = [MotionArtworkEndpointURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        var config = ScraperConfig(id: host, name: "Fixture", version: 1, rateLimit: 0, capabilities: ["dynamicCover"])
+        config.dynamicCover = .init(url: endpoint.absoluteString, method: "GET",
+            script: "return [{coverUrl: response.url, kind: 'video'}];")
+        let scraper = ConfigurableScraper(config: config, session: session, requestPool: .init())
+        let client = makeClient()
+        let result = try await client.resolve(endpoint: endpoint, input: lookupInput(), requestKey: host,
+            allowExpensiveNetwork: false, scraper: scraper)
+        guard case .video(let bytes) = result else { return XCTFail("Expected video") }
+        XCTAssertEqual(bytes, try Data(contentsOf: file))
+        XCTAssertEqual(MotionArtworkEndpointURLProtocol.requests(url: endpoint).count, 1)
+        XCTAssertEqual(MotionArtworkEndpointURLProtocol.requests(url: media).count, 1)
+    }
+
+    @MainActor
+    func testBuiltInMotionScriptResolvesPlaylistsAndDecodesVideo() async throws {
+        let file = try await makeArtworkVideo()
+        defer { try? FileManager.default.removeItem(at: file) }
+        var config = try XCTUnwrap(ScraperConfigStore.shared.config(for: "m8tec"))
+        config.rateLimit = 0
+        let endpoint = try XCTUnwrap(URL(string: try XCTUnwrap(config.dynamicCover?.url)))
+        var query = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
+        query.queryItems = [URLQueryItem(name: "album", value: "Example Album"),
+                           URLQueryItem(name: "artist", value: "Example Artist")]
+        let lookup = try XCTUnwrap(query.url)
+        let master = URL(string: "https://fixture.mzstatic.com/artwork/master.m3u8")!
+        let rendition = URL(string: "https://fixture.mzstatic.com/artwork/square.m3u8")!
+        let media = URL(string: "https://fixture.mzstatic.com/artwork/cover.mp4")!
+        let response = try JSONSerialization.data(withJSONObject: [
+            "url": master.absoluteString, "artist": "Example Artist", "album": "Example Album"
+        ])
+        MotionArtworkEndpointURLProtocol.configure(url: lookup, body: response)
+        query.queryItems?.reverse()
+        MotionArtworkEndpointURLProtocol.configure(url: try XCTUnwrap(query.url), body: response)
+        MotionArtworkEndpointURLProtocol.configure(url: master, body: Data("""
+        #EXTM3U
+        #EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=2160x2160,CODECS="avc1.640028"
+        too-large.m3u8
+        #EXT-X-STREAM-INF:BANDWIDTH=500000,RESOLUTION=960x960,CODECS="avc1.640028"
+        square.m3u8
+        """.utf8))
+        MotionArtworkEndpointURLProtocol.configure(url: rendition, body: Data("""
+        #EXTM3U
+        #EXT-X-MAP:URI="cover.mp4"
+        #EXTINF:2.0,
+        cover.mp4
+        #EXT-X-ENDLIST
+        """.utf8))
+        let bytes = try Data(contentsOf: file)
+        MotionArtworkEndpointURLProtocol.configure(url: media, body: bytes)
+        let configuration = MotionArtworkEndpointClient.ephemeralConfiguration()
+        configuration.protocolClasses = [MotionArtworkEndpointURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let scraper = ConfigurableScraper(config: config, session: session, requestPool: .init())
+        let result = try await makeClient().resolve(endpoint: endpoint, input: lookupInput(),
+            requestKey: UUID().uuidString, allowExpensiveNetwork: false, scraper: scraper)
+        guard case .video(let received) = result else { return XCTFail("Expected decoded video") }
+        XCTAssertEqual(received, bytes)
+        XCTAssertEqual(MotionArtworkEndpointURLProtocol.requests(url: rendition).count, 1)
+    }
+
     @MainActor
     func testVideoArtworkNormalizesTimestampsAcrossRepeatedLoops() async throws {
         let url = try await makeArtworkVideo()
@@ -116,9 +204,9 @@ final class MotionArtworkEndpointClientTests: XCTestCase {
         return url
     }
 
-    func testRetiredApplePageServiceIsRejectedBeforeAnyRequest() async throws {
+    func testBlockedPageIsRejectedBeforeAnyRequest() async throws {
         let client = makeClient()
-        for value in ["https://artwork.m8tec.top/api/v1/artwork/search", "https://music.apple.com/cn/album/123"] {
+        for value in ["https://music.apple.com/cn/album/123"] {
             let url = try XCTUnwrap(URL(string: value))
             await assertClientError(.invalidEndpoint) {
                 try await client.resolve(endpoint: url, input: self.lookupInput(), requestKey: value, allowExpensiveNetwork: false)
@@ -146,11 +234,11 @@ final class MotionArtworkEndpointClientTests: XCTestCase {
         AnimatedArtworkPreferences.migrateLegacyMotionArtworkEndpoint(in: defaults)
         XCTAssertTrue(MotionArtworkEndpointList(data: defaults.data(forKey: listKey)).isEmpty)
 
-        // 受限的主机不会被搬进来。
+        // 用户配置的服务地址可正常迁移。
         defaults.removeObject(forKey: listKey)
         defaults.set("https://artwork.m8tec.top/api/v1/artwork/search", forKey: PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
         AnimatedArtworkPreferences.migrateLegacyMotionArtworkEndpoint(in: defaults)
-        XCTAssertNil(defaults.data(forKey: listKey))
+        XCTAssertEqual(MotionArtworkEndpointList(data: defaults.data(forKey: listKey)).usableEndpoints.count, 1)
     }
 
     func testValidatesUserConfiguredEndpointAndUsesEphemeralDefaults() async {

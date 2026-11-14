@@ -11,15 +11,14 @@ public enum MotionArtworkServiceSource: String, CaseIterable, Sendable {
         )
     }
 
-    /// 旧版本记下的「来源」值：已下线的内置源（m8tec）一律算停用；从没选过时，配了服务就算自定义服务。
+    /// 未识别的旧设置，仅在用户已经配置服务时启用。
     public static func resolved(_ value: String, hasConfiguredEndpoints: Bool) -> Self {
-        if value == "m8tec" { return .disabled }
-        return Self(rawValue: value) ?? (hasConfiguredEndpoints ? .custom : .disabled)
+        Self(rawValue: value) ?? (hasConfiguredEndpoints ? .custom : .disabled)
     }
 
     public static func permitsEndpoint(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return false }
-        return !["apple.com", "mzstatic.com", "m8tec.top"].contains { host == $0 || host.hasSuffix("." + $0) }
+        return !["apple.com", "mzstatic.com"].contains { host == $0 || host.hasSuffix("." + $0) }
     }
 
     /// 能不能当在线动态封面服务的地址：http / https、有主机、不带账号密码和片段，且不是受限的主机。
@@ -48,21 +47,24 @@ public struct MotionArtworkEndpoint: Codable, Equatable, Hashable, Identifiable,
     public var name: String
     public var url: String
     public var isEnabled: Bool
+    public var scraperID: String?
 
-    public init(id: String = UUID().uuidString, name: String, url: String, isEnabled: Bool = true) {
+    public init(id: String = UUID().uuidString, name: String, url: String, isEnabled: Bool = true, scraperID: String? = nil) {
         self.id = id
         self.name = name
         self.url = url
+        self.scraperID = scraperID
         self.isEnabled = isEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, url, isEnabled
+        case id, name, url, isEnabled, scraperID
     }
 
     /// 名字和开关缺了不算坏数据：名字回退到主机，开关默认开。
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        scraperID = try container.decodeIfPresent(String.self, forKey: .scraperID)
         let decodedURL = try container.decode(String.self, forKey: .url)
         let decodedName = try container.decodeIfPresent(String.self, forKey: .name)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -91,7 +93,7 @@ public struct MotionArtworkEndpoint: Codable, Equatable, Hashable, Identifiable,
 public enum MotionArtworkEndpointRejection: Error, Equatable, Sendable {
     /// 不是 http / https 地址，或带了账号密码、片段。
     case invalid
-    /// 受限的主机（Apple 的页面与图片 CDN、已下线的服务），不能拿来查动态封面。
+    /// 受限的页面或资源主机，不能用作动态封面查询接口。
     case blocked
     /// 同一个地址已经在列表里。
     case duplicate
@@ -213,6 +215,23 @@ public struct MotionArtworkEndpointList: Codable, Equatable, Sendable {
         )
         endpoints.append(endpoint)
         return .success(endpoint)
+    }
+
+    /// Keep a configured source's position and enabled state when its manifest is updated.
+    public mutating func updateScraper(id: String, name: String, url: String) {
+        if let index = endpoints.firstIndex(where: { $0.scraperID == id }) {
+            endpoints[index].name = name
+            endpoints[index].url = url
+        } else if let index = endpoints.firstIndex(where: { $0.scraperID == nil && Self.comparisonKey($0.url) == Self.comparisonKey(url) }) {
+            endpoints[index].scraperID = id
+            endpoints[index].name = name
+        } else {
+            endpoints.append(MotionArtworkEndpoint(id: "scraper:" + id, name: name, url: url, scraperID: id))
+        }
+    }
+
+    public mutating func removeScraper(id: String) {
+        endpoints.removeAll { $0.scraperID == id }
     }
 
     public func contains(url raw: String) -> Bool {

@@ -7518,3 +7518,5 @@
 "sing_along_unavailable_spatial_audio" = "3D-Audio rendert den ganzen Titel neu, daher lässt sich der Gesang nicht sauber entfernen. Schalte 3D-Audio in den Wiedergabeeinstellungen aus, damit Mitsingen wirkt; bis dahin läuft das Original.";
 "karaoke_sing_along_handoff" = "Nur Begleitung hören";
 "karaoke_sing_along_handoff_detail" = "Beendet Karaoke und spielt die Begleitung mit Mitsingen weiter";
+
+"scraper_import_auto_update" = "Automatisch aktualisieren";

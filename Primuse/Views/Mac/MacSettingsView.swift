@@ -4309,6 +4309,9 @@ private struct MacSTScrapingView: View {
     @State private var showImportSheet = false
     @State private var importText = ""
     @State private var importError: String?
+    @State private var importPreview: ScraperImportSummary?
+    @State private var importAutomaticallyUpdates = false
+    @State private var importIsLoading = false
     @State private var showsImportFilePicker = false
     @AppStorage(MusicScraperService.sidecarCoverWriteEnabledKey) private var sidecarCoverWriteEnabled = true
     @AppStorage(MusicScraperService.sidecarLyricsWriteEnabledKey) private var sidecarLyricsWriteEnabled = true
@@ -4618,12 +4621,17 @@ private struct MacSTScrapingView: View {
     private func beginImport() {
         importText = ""
         importError = nil
+        importPreview = nil
+        importAutomaticallyUpdates = false
         showImportSheet = true
     }
 
     private var importScraperSheet: some View {
         MacScraperImportSheet(
             text: $importText,
+            summary: $importPreview,
+            automaticallyUpdates: $importAutomaticallyUpdates,
+            isLoading: importIsLoading,
             error: importError,
             onCancel: { showImportSheet = false },
             onImport: { performImport() },
@@ -4634,6 +4642,11 @@ private struct MacSTScrapingView: View {
             allowedContentTypes: [.json, .plainText],
             onCompletion: loadImportFile
         )
+        .onChange(of: importText) { _, _ in
+            importPreview = nil
+            importAutomaticallyUpdates = false
+            importError = nil
+        }
     }
 
     /// 「从文件导入」：读选中的 .json / 纯文本文件，内容放进输入框，右侧照常显示解析结果。
@@ -4654,9 +4667,20 @@ private struct MacSTScrapingView: View {
     }
 
     private func performImport() {
+        guard !importIsLoading else { return }
         importError = nil
         let text = importText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+
+        if let preview = importPreview {
+            do {
+                let configs = try ScraperConfigStore.shared.confirmImport(preview, automaticallyUpdates: importAutomaticallyUpdates)
+                for config in configs { scraperSettings.addCustomSource(config) }
+                showImportSheet = false
+            } catch { importError = error.localizedDescription }
+            return
+        }
+        importAutomaticallyUpdates = false
 
         let input: ScraperImportInput
         do {
@@ -4668,12 +4692,15 @@ private struct MacSTScrapingView: View {
 
         switch input {
         case .remoteURL(let url):
+            importIsLoading = true
             Task {
+                defer { importIsLoading = false }
                 do {
-                    let configs = try await ScraperConfigStore.shared.importFromURL(url)
-                    for config in configs { scraperSettings.addCustomSource(config) }
-                    showImportSheet = false
+                    let preview = try await ScraperConfigStore.shared.previewImportFromURL(url)
+                    guard showImportSheet, importText.trimmingCharacters(in: .whitespacesAndNewlines) == text else { return }
+                    importPreview = preview
                 } catch {
+                    guard showImportSheet, importText.trimmingCharacters(in: .whitespacesAndNewlines) == text else { return }
                     importError = error.localizedDescription
                 }
             }
@@ -4708,7 +4735,7 @@ private struct MacMotionArtworkSourcesSection: View {
             get: {
                 motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
                     motionArtworkServiceSource,
-                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.motionArtworkEndpoints.isEmpty
+                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints.isEmpty
                 ) == .custom
             },
             set: {
@@ -5250,6 +5277,9 @@ private struct MacLyricsServerField: View {
 
 private struct MacScraperImportSheet: View {
     @Binding var text: String
+    @Binding var summary: ScraperImportSummary?
+    @Binding var automaticallyUpdates: Bool
+    let isLoading: Bool
     let error: String?
     let onCancel: () -> Void
     let onImport: () -> Void
@@ -5276,19 +5306,31 @@ private struct MacScraperImportSheet: View {
         VStack(spacing: 0) {
             header
 
-            HStack(spacing: 0) {
-                leftPane
-                    .frame(maxWidth: .infinity)
-                Rectangle().fill(PMColor.divider).frame(width: 0.5)
-                if isRemoteURL {
-                    remoteURLSummaryPane.frame(width: 280)
-                } else if hasJSONPreview {
-                    rightPane.frame(width: 280)
-                } else {
-                    inputHintPane.frame(width: 280)
+            if let summary {
+                Form {
+                    if summary.sourceURL != nil {
+                        Toggle("scraper_import_auto_update", isOn: $automaticallyUpdates)
+                    }
+                    ScraperImportSummaryView(summary: summary)
+                    if let error { Text(verbatim: error).foregroundStyle(PMColor.bad) }
                 }
+                .formStyle(.grouped)
+                .frame(maxHeight: .infinity)
+            } else {
+                HStack(spacing: 0) {
+                    leftPane
+                        .frame(maxWidth: .infinity)
+                    Rectangle().fill(PMColor.divider).frame(width: 0.5)
+                    if isRemoteURL {
+                        remoteURLSummaryPane.frame(width: 280)
+                    } else if hasJSONPreview {
+                        rightPane.frame(width: 280)
+                    } else {
+                        inputHintPane.frame(width: 280)
+                    }
+                }
+                .frame(maxHeight: .infinity)
             }
-            .frame(maxHeight: .infinity)
 
             footer
         }
@@ -5527,15 +5569,22 @@ private struct MacScraperImportSheet: View {
 
     private var footer: some View {
         HStack {
-            MacSTButton(
-                title: String(localized: "scraper_import_file_button"),
-                systemImage: "folder",
-                action: onChooseFile
-            )
+            if summary != nil {
+                MacSTButton(title: String(localized: "edit"), systemImage: "pencil") {
+                    summary = nil
+                    automaticallyUpdates = false
+                }
+            } else {
+                MacSTButton(title: String(localized: "scraper_import_file_button"),
+                            systemImage: "folder", action: onChooseFile)
+            }
             Spacer()
+            if isLoading { ProgressView().controlSize(.small) }
             MacSTButton(title: Lz("Cancel"), action: onCancel)
-            MacSTButton(title: Lz("Add and Enable"), prominent: true, action: onImport)
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            MacSTButton(title: summary != nil ? String(localized: "scraper_confirm_import")
+                        : isRemoteURL ? String(localized: "scraper_review_action") : Lz("Add and Enable"),
+                        prominent: true, action: onImport)
+                .disabled(isLoading || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(.horizontal, 18)
         .frame(height: 64)
@@ -5578,7 +5627,7 @@ private struct MacScraperImportPreview {
     }
 
     private static func from(_ config: ScraperConfig) -> MacScraperImportPreview {
-        let scripts = [config.search?.script, config.detail?.script, config.cover?.script, config.lyrics?.script]
+        let scripts = [config.search?.script, config.detail?.script, config.cover?.script, config.lyrics?.script, config.dynamicCover?.script]
             .compactMap { $0 }
         return MacScraperImportPreview(
             name: config.name,
@@ -5608,6 +5657,7 @@ private struct MacScraperImportPreview {
         let mapping: [(String, String)] = [
             ("metadata", Lz("Metadata")),
             ("cover", Lz("Cover")),
+            ("dynamicCover", String(localized: "motion_cover_title")),
             ("lyrics", Lz("Lyrics"))
         ]
         let labels = mapping.compactMap { key, label in capabilities.contains(key) ? label : nil }
@@ -5818,6 +5868,7 @@ private struct MacScraperSourceRow: View {
         var result: [String] = []
         if source.type.supportsMetadata { result.append(Lz("Metadata")) }
         if source.type.supportsCover { result.append(Lz("Cover")) }
+        if source.type.supportsDynamicCover { result.append(String(localized: "motion_cover_title")) }
         if source.type.supportsLyrics { result.append(source.type.supportsWordLevelLyrics ? Lz("Word-by-Word Lyrics") : Lz("Lyrics")) }
         return result.isEmpty ? [Lz("Extension")] : result
     }
@@ -7787,7 +7838,7 @@ private struct MacSTThemeView: View {
             get: {
                 motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
                     motionArtworkServiceSource,
-                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.motionArtworkEndpoints.isEmpty
+                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints.isEmpty
                 ) == .custom
             },
             set: {
@@ -8109,7 +8160,7 @@ private struct MacSTThemeView: View {
                 // 服务地址改在刮削页的「动态封面源」里管：可以有几个，和别的刮削源一样排序、单独开关。
                 MacSTRow(
                     String(localized: "motion_artwork_sources"),
-                    hint: MotionArtworkSourceStyle.summary(AnimatedArtworkPreferences.shared.motionArtworkEndpoints)
+                    hint: MotionArtworkSourceStyle.summary(AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints)
                 ) {
                     MacSTButton(title: Lz("Configure"), systemImage: "slider.horizontal.3") {
                         SettingsNavigation.shared.open("scraping.motionArtworkSources")

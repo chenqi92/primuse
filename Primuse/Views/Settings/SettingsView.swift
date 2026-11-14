@@ -693,7 +693,7 @@ private struct PlayerAppearanceSettingsView: View {
             get: {
                 motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
                     motionArtworkServiceSource,
-                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.motionArtworkEndpoints.isEmpty
+                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints.isEmpty
                 ) == .custom
             },
             set: {
@@ -814,7 +814,7 @@ private struct PlayerAppearanceSettingsView: View {
                 NavigationLink(value: SettingsDestination.page(.scraping, "scraping.motionArtworkSources")) {
                     LabeledContent {
                         Text(verbatim: MotionArtworkSourceStyle.summary(
-                            AnimatedArtworkPreferences.shared.motionArtworkEndpoints
+                            AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints
                         ))
                     } label: {
                         Text("motion_artwork_sources")
@@ -1620,7 +1620,7 @@ private struct MotionArtworkSourcesSection: View {
             get: {
                 motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
                     motionArtworkServiceSource,
-                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.motionArtworkEndpoints.isEmpty
+                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints.isEmpty
                 ) == .custom
             },
             set: {
@@ -1639,7 +1639,7 @@ private struct MotionArtworkSourcesSection: View {
                 }
             }
 
-            if endpoints.isEmpty {
+            if endpoints.isEmpty && AnimatedArtworkPreferences.shared.builtInMotionArtworkEndpoints.isEmpty {
                 Text("lyrics_server_none")
                     .foregroundStyle(.secondary)
             } else {
@@ -1803,6 +1803,7 @@ struct MetadataScrapingView: View {
     }
     @State private var importError: String?
     @State private var importPreview: ScraperImportSummary?
+    @State private var importAutomaticallyUpdates = false
     @State private var showsImportFilePicker = false
     /// 刚从文件读进输入框的内容：它已经直接生成了预览，填进输入框不算用户改了文字。
     @State private var importFileText: String?
@@ -1859,6 +1860,16 @@ struct MetadataScrapingView: View {
                                 )
                                 .foregroundStyle(source.type.themeColor)
                                 .accessibilityLabel(Text("lyrics_word_level_hint"))
+                        }
+
+                        if source.type.supportsDynamicCover {
+                            Text("motion_cover_title")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(source.type.themeColor.opacity(0.15)))
+                                .foregroundStyle(source.type.themeColor)
+                                .fixedSize()
                         }
 
                         Spacer()
@@ -1950,6 +1961,7 @@ struct MetadataScrapingView: View {
                     importFileText = nil
                     importError = nil
                     importPreview = nil
+                    importAutomaticallyUpdates = false
                     showImportSheet = true
                 } label: {
                     Label("import_scraper_source", systemImage: "plus.circle")
@@ -2337,6 +2349,9 @@ struct MetadataScrapingView: View {
                         Label("scraper_review_banner", systemImage: "eye.circle")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if importPreview.sourceURL != nil {
+                            Toggle("scraper_import_auto_update", isOn: $importAutomaticallyUpdates)
+                        }
                     }
                     .pmAppearFade(.pageSwitch)
                     ScraperImportSummaryView(summary: importPreview)
@@ -2375,6 +2390,7 @@ struct MetadataScrapingView: View {
             guard newValue != importFileText else { return }
             importFileText = nil
             importPreview = nil
+            importAutomaticallyUpdates = false
             importError = nil
         }
     }
@@ -2455,7 +2471,7 @@ struct MetadataScrapingView: View {
 
         if let preview = importPreview {
             do {
-                let configs = try ScraperConfigStore.shared.importConfigs(preview.configs)
+                let configs = try ScraperConfigStore.shared.confirmImport(preview, automaticallyUpdates: importAutomaticallyUpdates)
                 plog("📥 Import confirmed: count=\(configs.count) ids=\(configs.map(\.id))")
                 for config in configs { scraperSettings.addCustomSource(config) }
                 importPreview = nil

@@ -3,12 +3,12 @@ import Testing
 @testable import PrimuseKit
 
 struct MotionArtworkServiceContractTests {
-    @Test func retiredApplePageProviderStaysDisabled() {
+    @Test func legacySourcesUseConfiguredEndpoints() {
         #expect(MotionArtworkServiceSource.resolved("", customEndpoint: "") == .disabled)
         #expect(MotionArtworkServiceSource.resolved("", customEndpoint: "https://my.example/lookup") == .custom)
-        #expect(MotionArtworkServiceSource.resolved("m8tec", customEndpoint: "https://my.example/lookup") == .disabled)
+        #expect(MotionArtworkServiceSource.resolved("m8tec", customEndpoint: "https://my.example/lookup") == .custom)
         #expect(MotionArtworkServiceSource.resolved("custom", customEndpoint: "") == .custom)
-        for value in ["https://artwork.m8tec.top/api/v1/artwork/search", "https://music.apple.com/cn/album/123", "https://is1.mzstatic.com/image/cover.png"] {
+        for value in ["https://music.apple.com/cn/album/123", "https://is1.mzstatic.com/image/cover.png"] {
             #expect(!MotionArtworkServiceSource.permitsEndpoint(URL(string: value)!))
         }
         #expect(MotionArtworkServiceSource.permitsEndpoint(URL(string: "https://my.example/lookup")!))

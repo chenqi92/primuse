@@ -25,10 +25,7 @@ struct ScraperSourceConfig: Codable, Sendable, Identifiable, Hashable {
 
     var isConfigured: Bool { true }
 
-    /// Default sources: built-in only. Scraping is opt-in — users enable a
-    /// built-in source or import a custom one before any network metadata
-    /// lookup happens. The one exception is AMLL: a lyrics-only source that is
-    /// on by default so word-synced lyrics work out of the box.
+    /// 元数据刮削需用户启用来源；逐字歌词与动态封面默认开启。
     static func defaultSources() -> [ScraperSourceConfig] {
         MusicScraperType.builtInOrder.enumerated().map { index, type in
             ScraperSourceConfig(

@@ -7424,3 +7424,5 @@
 "sing_along_unavailable_spatial_audio" = "Dźwięk przestrzenny przetwarza cały utwór od nowa, więc wokalu nie da się czysto usunąć. Wyłącz dźwięk przestrzenny w ustawieniach odtwarzania, aby śpiewanie razem zadziałało; na razie gra oryginał.";
 "karaoke_sing_along_handoff" = "Słuchaj samego podkładu";
 "karaoke_sing_along_handoff_detail" = "Zamyka karaoke i dalej odtwarza podkład w trybie śpiewania razem";
+
+"scraper_import_auto_update" = "Aktualizuj automatycznie";

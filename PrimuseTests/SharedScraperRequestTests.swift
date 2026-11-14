@@ -6,6 +6,318 @@ import XCTest
 @testable import Primuse
 
 final class SharedScraperRequestTests: XCTestCase {
+
+    func testSubscriptionRequiresExplicitURLConsentAndPersists() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = ScraperSubscriptionFixture(manifest: Self.subscriptionManifest(["fixture": 1]))
+        let store = ScraperConfigStore(configDirectory: root, manifestLoader: { await fixture.load($0) })
+        let url = try XCTUnwrap(URL(string: "https://fixture.test/bundle.json?key=local-reference"))
+        let preview = try await store.previewImportFromURL(url)
+        XCTAssertEqual(preview.sourceURL, url)
+        XCTAssertTrue(store.allConfigs.isEmpty)
+        XCTAssertFalse(store.automaticallyUpdates(id: "fixture"))
+        try store.confirmImport(preview)
+        let future = Date().addingTimeInterval(172800)
+        let first = await store.refreshSubscriptionsIfDue(now: future)
+        XCTAssertTrue(first.isEmpty)
+        let requestsWithoutConsent = await fixture.requests
+        XCTAssertEqual(requestsWithoutConsent, 1)
+
+        try store.confirmImport(preview, automaticallyUpdates: true)
+        let restored = ScraperConfigStore(configDirectory: root, manifestLoader: { await fixture.load($0) })
+        XCTAssertTrue(restored.automaticallyUpdates(id: "fixture"))
+        let exported = String(decoding: try JSONEncoder().encode(restored.allConfigs), as: UTF8.self)
+        XCTAssertFalse(exported.contains("local-reference"))
+        await fixture.setManifest(Self.subscriptionManifest(["fixture": 2]))
+        let updated = await restored.refreshSubscriptionsIfDue(now: future)
+        XCTAssertEqual(updated.map(\.version), [2])
+        let offPreview = try await restored.previewImportFromURL(url)
+        try restored.confirmImport(offPreview, automaticallyUpdates: false)
+        XCTAssertFalse(ScraperConfigStore(configDirectory: root).automaticallyUpdates(id: "fixture"))
+
+        let localPreview = try restored.previewImportFromJSON(Self.subscriptionManifest(["local": 1]))
+        try restored.confirmImport(localPreview, automaticallyUpdates: true)
+        XCTAssertFalse(restored.automaticallyUpdates(id: "local"))
+    }
+
+    func testSubscriptionBundleOnlyUpgradesImportedSourcesAndKeepsCredentials() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = Self.subscriptionManifest(["first": 1, "second": 5, "missing": 2], credential: "local-only")
+        let fixture = ScraperSubscriptionFixture(manifest: original)
+        let store = ScraperConfigStore(configDirectory: root, manifestLoader: { await fixture.load($0) })
+        let preview = try await store.previewImportFromURL(URL(string: "https://fixture.test/bundle.json")!)
+        try store.confirmImport(preview, automaticallyUpdates: true)
+        await fixture.setManifest(Self.subscriptionManifest(["first": 2, "second": 4, "new": 1], credential: "remote"))
+        let future = Date().addingTimeInterval(172800)
+        let updated = await store.refreshSubscriptionsIfDue(now: future)
+        XCTAssertEqual(updated.map(\.id), ["first"])
+        XCTAssertEqual(store.config(for: "second")?.version, 5)
+        XCTAssertEqual(store.config(for: "missing")?.version, 2)
+        XCTAssertNil(store.config(for: "new"))
+        let first = try XCTUnwrap(store.config(for: "first"))
+        XCTAssertEqual(first.secrets?["sample"], "local-only")
+        XCTAssertEqual(first.cookie, "local-only")
+        XCTAssertEqual(first.headers?["Authorization"], "local-only")
+        XCTAssertEqual(first.search?.script, "return [2];")
+        XCTAssertNotNil(first.cover)
+        XCTAssertNotNil(first.lyrics)
+        XCTAssertNotNil(first.dynamicCover)
+        let requests = await fixture.requests
+        XCTAssertEqual(requests, 2, "One request for the bundle, not one per source")
+        let repeated = await store.refreshSubscriptionsIfDue(now: future.addingTimeInterval(60))
+        XCTAssertTrue(repeated.isEmpty)
+        let sameDayRequests = await fixture.requests
+        XCTAssertEqual(sameDayRequests, 2)
+        await fixture.setManifest(Self.subscriptionManifest(["first": 2], credential: "changed"))
+        let equalVersion = await store.refreshSubscriptionsIfDue(now: future.addingTimeInterval(86401))
+        XCTAssertTrue(equalVersion.isEmpty)
+        XCTAssertEqual(ScraperConfigStore(configDirectory: root).config(for: "first")?.secrets?["sample"], "local-only")
+    }
+
+    func testSubscriptionFailureKeepsInstalledConfigAndRetriesLater() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = ScraperSubscriptionFixture(manifest: Self.subscriptionManifest(["fixture": 1]))
+        let store = ScraperConfigStore(configDirectory: root, manifestLoader: { await fixture.load($0) })
+        try store.confirmImport(try await store.previewImportFromURL(URL(string: "https://fixture.test/bundle.json")!),
+                                automaticallyUpdates: true)
+        await fixture.setManifest("invalid manifest")
+        let future = Date().addingTimeInterval(172800)
+        let failed = await store.refreshSubscriptionsIfDue(now: future)
+        XCTAssertTrue(failed.isEmpty)
+        XCTAssertEqual(store.config(for: "fixture")?.version, 1)
+        await fixture.setManifest(Self.subscriptionManifest(["fixture": 2]))
+        let tooEarly = await store.refreshSubscriptionsIfDue(now: future.addingTimeInterval(1800))
+        XCTAssertTrue(tooEarly.isEmpty)
+        let requests = await fixture.requests
+        XCTAssertEqual(requests, 2)
+        let retried = await store.refreshSubscriptionsIfDue(now: future.addingTimeInterval(3601))
+        XCTAssertEqual(retried.map(\.version), [2])
+    }
+
+    func testSubscriptionInFlightRefreshDoesNotOverwriteReimportOrDeletion() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let started = expectation(description: "Refresh started")
+        let gate = AsyncStream<Void>.makeStream()
+        let original = Self.subscriptionManifest(["edited": 1, "deleted": 1])
+        let fixture = ScraperSubscriptionFixture(manifest: original)
+        let seed = ScraperConfigStore(configDirectory: root, manifestLoader: { await fixture.load($0) })
+        let preview = try await seed.previewImportFromURL(URL(string: "https://fixture.test/bundle.json")!)
+        try seed.confirmImport(preview, automaticallyUpdates: true)
+        let store = ScraperConfigStore(configDirectory: root) { _ in
+            started.fulfill()
+            for await _ in gate.stream { break }
+            return Self.subscriptionManifest(["edited": 5, "deleted": 5])
+        }
+        let future = Date().addingTimeInterval(172800)
+        let refresh = Task { await store.refreshSubscriptionsIfDue(now: future) }
+        await fulfillment(of: [started], timeout: 3)
+        let concurrent = await store.refreshSubscriptionsIfDue(now: future)
+        XCTAssertTrue(concurrent.isEmpty)
+        let edit = try store.previewImportFromJSON(Self.subscriptionManifest(["edited": 2]))
+        try store.confirmImport(edit)
+        store.delete(id: "deleted")
+        gate.continuation.yield(())
+        gate.continuation.finish()
+        let result = await refresh.value
+        XCTAssertTrue(result.isEmpty)
+        XCTAssertEqual(store.config(for: "edited")?.version, 2)
+        XCTAssertEqual(store.config(for: "deleted")?.isDeleted, true)
+        XCTAssertFalse(store.automaticallyUpdates(id: "edited"))
+        XCTAssertFalse(store.automaticallyUpdates(id: "deleted"))
+        store.restore(id: "deleted")
+        XCTAssertFalse(store.automaticallyUpdates(id: "deleted"))
+    }
+
+    func testSubscriptionDuplicateIDsRejectUpdateAndManualEditRetainsSecrets() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = ScraperSubscriptionFixture(manifest: Self.subscriptionManifest(["fixture": 1], credential: "local-only"))
+        let store = ScraperConfigStore(configDirectory: root, manifestLoader: { await fixture.load($0) })
+        try store.confirmImport(try await store.previewImportFromURL(URL(string: "https://fixture.test/bundle.json")!),
+                                automaticallyUpdates: true)
+        let duplicate = Self.subscriptionManifest(["fixture": 2])
+        await fixture.setManifest("[\(duplicate),\(duplicate)]")
+        let failed = await store.refreshSubscriptionsIfDue(now: Date().addingTimeInterval(172800))
+        XCTAssertTrue(failed.isEmpty)
+        XCTAssertEqual(store.config(for: "fixture")?.version, 1)
+        try store.importFromJSON(Self.subscriptionManifest(["fixture": 3]))
+        XCTAssertEqual(store.config(for: "fixture")?.secrets?["sample"], "local-only")
+        XCTAssertFalse(store.automaticallyUpdates(id: "fixture"))
+    }
+
+    private static func subscriptionManifest(_ versions: [String: Int], credential: String? = nil) -> String {
+        let objects = versions.sorted { $0.key < $1.key }.map { id, version in
+            var config: [String: Any] = [
+                "id": id, "name": id, "version": version,
+                "capabilities": ["metadata", "cover", "lyrics", "dynamicCover"],
+                "search": ["url": "https://fixture.test/search", "method": "GET", "script": "return [\(version)];"],
+                "cover": ["url": "", "method": "LOCAL", "script": "return [];"],
+                "lyrics": ["url": "https://fixture.test/lyrics", "method": "GET", "script": "return null;"],
+                "dynamicCover": ["url": "https://fixture.test/motion", "method": "GET", "script": "return [];"],
+            ]
+            if let credential {
+                config["secrets"] = ["sample": credential]
+                config["cookie"] = credential
+                config["headers"] = ["Authorization": credential]
+            }
+            return config
+        }
+        let value: Any
+        if objects.count == 1 { value = objects[0] }
+        else { value = ["sources": objects] }
+        return String(decoding: try! JSONSerialization.data(withJSONObject: value), as: UTF8.self)
+    }
+
+    func testBuiltInMotionSourceExportsAsAnOrdinaryScriptConfig() throws {
+        let source = try XCTUnwrap(ScraperSourceConfig.defaultSources().first { $0.type == .custom("m8tec") })
+        XCTAssertTrue(source.type.isBuiltIn)
+        XCTAssertTrue(source.isEnabled)
+        XCTAssertTrue(source.type.supportsDynamicCover)
+        XCTAssertFalse(source.type.supportsMetadata)
+        XCTAssertEqual(ScraperSettings(sources: [
+            .init(id: "motion", type: source.type, isEnabled: true, priority: 0)
+        ]).gateSourceCount(for: .all), 0)
+        let config = try XCTUnwrap(ScraperConfigStore.shared.config(for: "m8tec"))
+        let data = try JSONEncoder().encode(config)
+        let imported = try ScraperConfigStore.shared.previewImportFromJSON(String(decoding: data, as: UTF8.self))
+        XCTAssertEqual(imported.configs.first?.id, "m8tec")
+        XCTAssertEqual(imported.configs.first?.dynamicCover?.playlistScript, config.dynamicCover?.playlistScript)
+        XCTAssertEqual(imported.endpointCount, 1)
+    }
+
+    func testExistingSettingsGainMotionSourceWithoutResettingChoices() throws {
+        let suite = "motion-defaults-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var saved = ScraperSettings()
+        saved.sources.removeAll { $0.type == .custom("m8tec") }
+        let index = try XCTUnwrap(saved.sources.firstIndex { $0.type == .musicBrainz })
+        saved.sources[index].isEnabled = true
+        saved.save(defaults: defaults)
+        var loaded = ScraperSettings.load(defaults: defaults)
+        XCTAssertEqual(loaded.sources.first { $0.type == .musicBrainz }?.isEnabled, true)
+        XCTAssertEqual(loaded.sources.first { $0.type == .custom("m8tec") }?.isEnabled, true)
+        let motionIndex = try XCTUnwrap(loaded.sources.firstIndex { $0.type == .custom("m8tec") })
+        loaded.sources[motionIndex].isEnabled = false
+        loaded.save(defaults: defaults)
+        XCTAssertEqual(ScraperSettings.load(defaults: defaults).sources.filter { $0.type == .custom("m8tec") }.count, 1)
+        XCTAssertEqual(ScraperSettings.load(defaults: defaults).builtInMotionArtworkEndpoints.first?.isEnabled, false)
+
+        defaults.removeObject(forKey: ScraperSettings.defaultsKey)
+        defaults.set(try JSONEncoder().encode(saved), forKey: "primuse_scraper_settings_v2")
+        XCTAssertEqual(ScraperSettings.load(defaults: defaults).builtInMotionArtworkEndpoints.first?.isEnabled, true)
+    }
+
+    @MainActor
+    func testBuiltInMotionSourceToggleControlsPlaybackAndReset() throws {
+        let suite = "motion-toggle-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ScraperSettingsStore(defaults: defaults)
+        let preferences = AnimatedArtworkPreferences(defaults: defaults)
+        let source = try XCTUnwrap(store.sources.first { $0.type == .custom("m8tec") })
+        XCTAssertEqual(preferences.activeMotionArtworkEndpoints.map(\.scraperID), ["m8tec"])
+        store.toggleSource(id: source.id)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        XCTAssertTrue(preferences.activeMotionArtworkEndpoints.isEmpty)
+        store.toggleSource(id: source.id)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        XCTAssertEqual(preferences.activeMotionArtworkEndpoints.map(\.scraperID), ["m8tec"])
+        store.toggleSource(id: source.id)
+        store.resetToDefaults()
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        XCTAssertEqual(preferences.activeMotionArtworkEndpoints.map(\.scraperID), ["m8tec"])
+    }
+
+    @MainActor
+    func testMotionDefaultsPreserveAnExplicitlyDisabledService() throws {
+        let suite = "motion-service-off-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
+        let preferences = AnimatedArtworkPreferences(defaults: defaults)
+        XCTAssertEqual(preferences.builtInMotionArtworkEndpoints.first?.isEnabled, true)
+        XCTAssertFalse(preferences.isMotionArtworkServiceOn)
+        XCTAssertTrue(preferences.activeMotionArtworkEndpoints.isEmpty)
+    }
+
+    func testDynamicManifestPreservesExistingEndpointsAndScripts() throws {
+        let raw = #"""
+        {"id":"fixture-motion","name":"Fixture","version":2,"capabilities":["metadata","cover","lyrics","dynamicCover"],
+         "search":{"url":"https://fixture.test/search","method":"GET","script":"return [];"},
+         "detail":{"url":"https://fixture.test/detail","method":"GET","script":"return {};"},
+         "cover":{"url":"","method":"LOCAL","script":"return [];"},
+         "lyrics":{"url":"https://fixture.test/lyrics","method":"GET","script":"return null;"},
+         "dynamicCover":{"url":"https://fixture.test/motion","method":"POST","script":"return [];",
+            "requestScript":"return response;","responseScript":"return response;","playlistScript":"return null;",
+            "assetHosts":["*.cdn.fixture.test"],"optional":true,"requiredIdSegments":[0,2],
+            "sign":{"type":"md5-wrap","saltSecret":"test"},"crypto":{"algorithm":"aes-128-ecb"}},
+         "secrets":{"test":"local-only"}}
+        """#
+        let decoded = try JSONDecoder().decode(ScraperConfig.self, from: Data(raw.utf8))
+        let encoded = try JSONEncoder().encode(decoded)
+        var expected = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+        expected.removeValue(forKey: "secrets")
+        let actual = try JSONSerialization.jsonObject(with: encoded)
+        XCTAssertEqual(expected as NSDictionary, actual as? NSDictionary)
+        let summary = try ScraperConfigStore.shared.previewImportFromJSON(String(decoding: encoded, as: UTF8.self))
+        XCTAssertEqual(summary.endpointCount, 5)
+        XCTAssertTrue(summary.domains.contains("*.cdn.fixture.test"))
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("local-only"))
+    }
+
+    func testLocalCoverScriptKeepsCompositeIDWithoutMakingARequest() async throws {
+        let fixture = ScraperHTTPFixture { _ in XCTFail("Local endpoint sent a request"); return .init() }
+        defer { fixture.close() }
+        var config = fixture.config()
+        config.cover = .init(url: "", method: "LOCAL", script: "return [{coverUrl: response._externalId.split('|')[1]}];")
+        let scraper = ConfigurableScraper(config: config, session: fixture.session, requestPool: .init())
+        let result = try await scraper.getCoverArt(externalId: "41|https://fixture.test/cover.jpg")
+        XCTAssertEqual(result.first?.coverUrl, "https://fixture.test/cover.jpg")
+        XCTAssertTrue(fixture.requests.isEmpty)
+    }
+
+    func testScriptedRequestAndResponseUseSecretsWithoutDroppingHeaders() async throws {
+        let fixture = ScraperHTTPFixture { _ in .init(body: Data(#"{"items":[]}"#.utf8)) }
+        defer { fixture.close() }
+        var config = fixture.config()
+        config.secrets = ["sample": "fixture-only"]
+        config.search?.requestScript = """
+        return {url: response.url, method: "POST", headers: {"X-Test": secrets.sample},
+                body: JSON.stringify({query: variables.query, digest: nativeResolver.md5("abc")})};
+        """
+        config.search?.responseScript = "return response.items;"
+        let scraper = ConfigurableScraper(config: config, session: fixture.session, requestPool: .init(), allowExpensiveNetwork: false)
+        _ = try await scraper.search(query: "Paper Lanterns", artist: nil, album: nil, limit: 3)
+        let request = try XCTUnwrap(fixture.requests.first)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Test"), "fixture-only")
+        XCTAssertFalse(request.allowsExpensiveNetworkAccess)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(request.httpBody)) as? [String: String])
+        XCTAssertEqual(body["query"], "Paper Lanterns")
+        XCTAssertEqual(body["digest"], "900150983cd24fb0d6963f7d28e17f72")
+    }
+
+    func testCryptoHelpersRoundTripInTheScraperRuntime() async throws {
+        let fixture = ScraperHTTPFixture { _ in .init(body: Data("{}".utf8)) }
+        defer { fixture.close() }
+        var config = fixture.config()
+        config.cover = .init(url: fixture.url("cover"), method: "GET", script: """
+        var text = "Paper lanterns cross the bay";
+        var encrypted = nativeResolver.aesECB(text, "0123456789abcdef", "utf8", "hex", false);
+        var decoded = nativeResolver.aesECB(encrypted, "0123456789abcdef", "hex", "utf8", true);
+        if (text !== decoded) throw new Error("Round trip failed");
+        return [{coverUrl: "https://fixture.test/cover.jpg"}];
+        """)
+        let scraper = ConfigurableScraper(config: config, session: fixture.session, requestPool: .init())
+        let covers = try await scraper.getCoverArt(externalId: "fixture")
+        XCTAssertEqual(covers.count, 1)
+    }
+
     func testLyricsSourceCandidatesKeepPriorityContinueAfterFailureAndStopAtThree() async {
         let a = StubDirectLyricsScraper(.success("[00:01.00]Paper lanterns"))
         let b = StubDirectLyricsScraper(.failure(ScraperError.networkError("fixture unavailable")))
@@ -1033,7 +1345,7 @@ final class SharedScraperRequestTests: XCTestCase {
 
         let loaded = ScraperSettings.load(defaults: defaults)
         let builtIns = loaded.sources.filter(\.type.isBuiltIn).map(\.type)
-        XCTAssertEqual(builtIns, [.itunes, .amll, .lrclib, .musicBrainz, .lyricsServer])
+        XCTAssertEqual(builtIns, [.itunes, .amll, .lrclib, .musicBrainz, .lyricsServer, .custom("m8tec")])
         XCTAssertEqual(loaded.sources.first { $0.type == .amll }?.isEnabled, true)
         XCTAssertEqual(loaded.sources.map(\.priority), Array(loaded.sources.indices))
     }
@@ -1158,8 +1470,21 @@ private final class ScraperFixtureProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
             return
         }
-        state.record(request)
-        let reply = state.reply(request)
+        var captured = request
+        if captured.httpBody == nil, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var body = Data()
+            var buffer = [UInt8](repeating: 0, count: 4_096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                guard count > 0 else { break }
+                body.append(contentsOf: buffer.prefix(count))
+            }
+            captured.httpBody = body
+        }
+        state.record(captured)
+        let reply = state.reply(captured)
         if let error = reply.error {
             client?.urlProtocol(self, didFailWithError: error)
             return
@@ -1583,5 +1908,16 @@ private actor RecoveryLyricsProbe: MusicScraper, DirectLyricsLookup {
         requests += 1
         if failures > 0 { failures -= 1; throw URLError(.timedOut) }
         return returnsLyrics ? .init(source: .lrclib, lrcContent: "[00:01.00]Paper lights along the shore\n[00:03.00]Footsteps find an open door") : nil
+    }
+}
+
+private actor ScraperSubscriptionFixture {
+    private var manifest: String
+    private(set) var requests = 0
+    init(manifest: String) { self.manifest = manifest }
+    func setManifest(_ manifest: String) { self.manifest = manifest }
+    func load(_ url: URL) -> String {
+        requests += 1
+        return manifest
     }
 }

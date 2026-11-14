@@ -202,6 +202,7 @@ struct TVScraperSettingsView: View {
         if source.type.supportsMetadata { capabilities.append(String(localized: "metadata")) }
         if source.type.supportsCover { capabilities.append(String(localized: "cover")) }
         if source.type.supportsLyrics { capabilities.append(String(localized: "lyrics_word")) }
+        if source.type.supportsDynamicCover { capabilities.append(String(localized: "motion_cover_title")) }
         return capabilities.joined(separator: " · ")
     }
 
@@ -251,6 +252,7 @@ struct TVScraperImportView: View {
 
     @State private var text = ""
     @State private var preview: ScraperImportSummary?
+    @State private var automaticallyUpdates = false
     @State private var errorMessage: String?
     @State private var isLoading = false
     @FocusState private var fieldFocused: Bool
@@ -301,6 +303,7 @@ struct TVScraperImportView: View {
         }
         .onChange(of: text) { _, _ in
             preview = nil
+            automaticallyUpdates = false
             errorMessage = nil
         }
         .onChange(of: preview != nil) { _, showsPreview in
@@ -399,6 +402,11 @@ struct TVScraperImportView: View {
             .frame(maxHeight: 460)
             // 只读的一段说明,要让焦点能停上去,遥控器才滚得动。
             .tvReadOnlyScrollFocus()
+            if summary.sourceURL != nil {
+                TVAIToggleRow(icon: "arrow.triangle.2.circlepath",
+                              title: String(localized: "scraper_import_auto_update"),
+                              isOn: $automaticallyUpdates)
+            }
         }
     }
 
@@ -444,6 +452,7 @@ struct TVScraperImportView: View {
         let input = trimmedText
         guard !input.isEmpty, !isLoading else { return }
         errorMessage = nil
+        automaticallyUpdates = false
         let classified: ScraperImportInput
         do {
             classified = try ScraperConfigStore.shared.classifyImportInput(input)
@@ -480,7 +489,7 @@ struct TVScraperImportView: View {
     private func confirmImport() {
         guard let preview else { return }
         do {
-            let configs = try ScraperConfigStore.shared.importConfigs(preview.configs)
+            let configs = try ScraperConfigStore.shared.confirmImport(preview, automaticallyUpdates: automaticallyUpdates)
             plog("📥 TV scraper import confirmed: count=\(configs.count) ids=\(configs.map(\.id))")
             for config in configs { store.scraperSettings.addCustomSource(config) }
             dismiss()

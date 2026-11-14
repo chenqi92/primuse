@@ -7495,3 +7495,5 @@
 "sing_along_unavailable_spatial_audio" = "空間音訊會重新渲染整首歌，人聲減不乾淨。關掉播放設定裡的空間音訊後伴唱才會生效，現在播放原唱。";
 "karaoke_sing_along_handoff" = "只聽伴奏";
 "karaoke_sing_along_handoff_detail" = "收起卡拉OK，用伴唱繼續播放伴奏";
+
+"scraper_import_auto_update" = "自動更新";

@@ -88,9 +88,8 @@ struct ScraperSettings: Codable, Sendable {
                         id: UUID().uuidString,
                         type: builtIn,
                         // v2 时代的内置源都默认开启；歌词服务器、AMLL 是后来加的，按新默认值处理。
-                        isEnabled: builtIn == .lyricsServer || builtIn == .amll
-                            ? ScraperSourceConfig.defaultEnabled(for: builtIn)
-                            : true,
+                        isEnabled: [.musicBrainz, .lrclib, .itunes].contains(builtIn)
+                            ? true : ScraperSourceConfig.defaultEnabled(for: builtIn),
                         priority: migrated.sources.count
                     ))
                 }
@@ -155,10 +154,22 @@ struct ScraperSettings: Codable, Sendable {
         sources.filter(\.isEnabled).sorted { $0.priority < $1.priority }
     }
 
+    var builtInMotionArtworkEndpoints: [MotionArtworkEndpoint] {
+        sources.sorted { $0.priority < $1.priority }.compactMap { source in
+            guard source.type.isBuiltIn, case .custom(let id) = source.type,
+                  let config = ScraperConfigStore.shared.config(for: id),
+                  let endpoint = config.dynamicCover else { return nil }
+            return MotionArtworkEndpoint(id: "builtin-" + id, name: config.name,
+                url: endpoint.url, isEnabled: source.isEnabled, scraperID: id)
+        }
+    }
+
     /// 刮削入口放行时数的源：默认开着的 AMLL 只在只找歌词的请求里算。
     func gateSourceCount(for parts: ScrapeParts) -> Int {
         ScraperSourceGatePolicy.usableSourceCount(
-            enabledSourcesOnByDefault: enabledSources.map(\.type.isEnabledByDefault),
+            enabledSourcesOnByDefault: enabledSources.filter {
+                $0.type.supportsMetadata || $0.type.supportsCover || $0.type.supportsLyrics
+            }.map(\.type.isEnabledByDefault),
             for: parts
         )
     }
@@ -278,6 +289,7 @@ final class ScraperSettingsStore {
 
     private let defaults: UserDefaults
     private var suppressPersist = false
+    @ObservationIgnored private var subscriptionRefreshTask: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -305,6 +317,22 @@ final class ScraperSettingsStore {
         cookieSourceIDs = Self.sourceIDsWithCookie(in: sources)
     }
 
+    func refreshSubscriptionsAfterLaunch() {
+        guard subscriptionRefreshTask == nil else { return }
+        subscriptionRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard let self, !Task.isCancelled else { return }
+            let updated = await ScraperConfigStore.shared.refreshSubscriptionsIfDue()
+            for config in updated {
+                guard self.sources.contains(where: { $0.type == .custom(config.id) }),
+                      let current = ScraperConfigStore.shared.config(for: config.id), current.isDeleted != true else { continue }
+                self.updateMotionArtworkSource(current)
+            }
+            if !updated.isEmpty { self.reloadFromDefaults() }
+            self.subscriptionRefreshTask = nil
+        }
+    }
+
     private static func sourceIDsWithCookie(in sources: [ScraperSourceConfig]) -> Set<String> {
         Set(sources.filter { ScraperSourceCookieStore.cookie(for: $0) != nil }.map(\.id))
     }
@@ -326,7 +354,9 @@ final class ScraperSettingsStore {
     /// 同 `ScraperSettings.gateSourceCount(for:)`，UI 读这一份以便开关变化时刷新。
     func gateSourceCount(for parts: ScrapeParts) -> Int {
         ScraperSourceGatePolicy.usableSourceCount(
-            enabledSourcesOnByDefault: enabledSources.map(\.type.isEnabledByDefault),
+            enabledSourcesOnByDefault: enabledSources.filter {
+                $0.type.supportsMetadata || $0.type.supportsCover || $0.type.supportsLyrics
+            }.map(\.type.isEnabledByDefault),
             for: parts
         )
     }
@@ -334,6 +364,11 @@ final class ScraperSettingsStore {
     func toggleSource(id: String) {
         guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
         sources[index].isEnabled.toggle()
+        if sources[index].isEnabled, sources[index].type.isBuiltIn, sources[index].type.supportsDynamicCover {
+            defaults.set(true, forKey: PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
+            defaults.set(MotionArtworkServiceSource.custom.rawValue,
+                forKey: PlayerAppearancePreferences.motionArtworkServiceSourceKey)
+        }
     }
 
     func reorderSources(fromOffsets: IndexSet, toOffset: Int) {
@@ -360,14 +395,24 @@ final class ScraperSettingsStore {
 
     /// Add a custom scraper source from an imported config
     func addCustomSource(_ config: ScraperConfig) {
-        // Remove existing source for same config if present
-        sources.removeAll { source in
-            if case .custom(let id) = source.type, id == config.id { return true }
-            return false
-        }
+        updateMotionArtworkSource(config)
+        if sources.contains(where: { $0.type == .custom(config.id) }) { return }
         var newSource = ScraperSourceConfig.fromCustomConfig(config)
         newSource.priority = sources.count
         sources.append(newSource)
+    }
+
+    private func updateMotionArtworkSource(_ config: ScraperConfig) {
+        guard !MusicScraperType.custom(config.id).isBuiltIn else { return }
+        let preferences = AnimatedArtworkPreferences.shared
+        var list = preferences.motionArtworkEndpoints
+        if config.isDeleted != true, let endpoint = config.dynamicCover,
+           MotionArtworkEndpointList.endpointURL(endpoint.url) != nil {
+            list.updateScraper(id: config.id, name: config.name, url: endpoint.url)
+        } else {
+            list.removeScraper(id: config.id)
+        }
+        preferences.setMotionArtworkEndpoints(list)
     }
 
     /// Idempotent: ensure a custom-source row exists for the given config (used by
@@ -377,7 +422,12 @@ final class ScraperSettingsStore {
             if case .custom(let id) = source.type, id == config.id { return true }
             return false
         }
-        guard !alreadyPresent else { return }
+        if alreadyPresent {
+            if AnimatedArtworkPreferences.shared.motionArtworkEndpoints.endpoints.contains(where: { $0.scraperID == config.id }) {
+                updateMotionArtworkSource(config)
+            }
+            return
+        }
         addCustomSource(config)
     }
 
@@ -385,6 +435,9 @@ final class ScraperSettingsStore {
     func removeCustomSource(id: String) {
         if let index = sources.firstIndex(where: { $0.id == id }) {
             if case .custom(let configId) = sources[index].type {
+                var list = AnimatedArtworkPreferences.shared.motionArtworkEndpoints
+                list.removeScraper(id: configId)
+                AnimatedArtworkPreferences.shared.setMotionArtworkEndpoints(list)
                 ScraperConfigStore.shared.delete(id: configId)
             }
             ScraperSourceCookieStore.remove(for: sources[index])

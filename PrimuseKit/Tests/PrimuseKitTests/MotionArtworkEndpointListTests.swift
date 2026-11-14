@@ -44,7 +44,6 @@ struct MotionArtworkEndpointListTests {
             "   ",
             "not a url",
             "ftp://artwork.example.test/lookup",
-            "https://artwork.m8tec.top/api/v1/artwork/search",
             "https://music.apple.com/cn/album/123",
         ] as [String?] {
             #expect(MotionArtworkEndpointList.migratingLegacyEndpoint(storedData: nil, legacyEndpoint: legacy) == nil)
@@ -56,7 +55,21 @@ struct MotionArtworkEndpointListTests {
         #expect(MotionArtworkServiceSource.resolved("", hasConfiguredEndpoints: false) == .disabled)
         #expect(MotionArtworkServiceSource.resolved("custom", hasConfiguredEndpoints: false) == .custom)
         #expect(MotionArtworkServiceSource.resolved("disabled", hasConfiguredEndpoints: true) == .disabled)
-        #expect(MotionArtworkServiceSource.resolved("m8tec", hasConfiguredEndpoints: true) == .disabled)
+        #expect(MotionArtworkServiceSource.resolved("m8tec", hasConfiguredEndpoints: true) == .custom)
+    }
+
+    @Test func importedSourceUpdatesPreserveOrderAndEnabledState() {
+        var list = MotionArtworkEndpointList()
+        list.updateScraper(id: "one", name: "First", url: "https://art.example.test/lookup")
+        list.setEnabled(false, id: "scraper:one")
+        list.updateScraper(id: "two", name: "Second", url: "https://art.example.test/second")
+        list.updateScraper(id: "one", name: "Renamed", url: "https://art.example.test/new")
+        #expect(list.endpoints.map(\.scraperID) == ["one", "two"])
+        #expect(list.endpoints[0].name == "Renamed")
+        #expect(!list.endpoints[0].isEnabled)
+        #expect(MotionArtworkEndpointList(data: list.encodedData()) == list)
+        list.removeScraper(id: "one")
+        #expect(list.endpoints.map(\.scraperID) == ["two"])
     }
 
     // MARK: 添加与校验
@@ -78,7 +91,6 @@ struct MotionArtworkEndpointListTests {
             "https://apple.com/lookup",
             "https://music.apple.com/cn/album/123",
             "https://is1-ssl.mzstatic.com/image/cover.gif",
-            "https://artwork.m8tec.top/api/v1/artwork/search",
         ] {
             let result = list.add(name: "", url: blocked)
             #expect(result == .failure(.blocked), "\(blocked)")
