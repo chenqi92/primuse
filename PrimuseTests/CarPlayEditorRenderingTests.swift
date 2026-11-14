@@ -287,8 +287,12 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         model.flush()
         XCTAssertEqual(CarPlaySettingsStore(defaults: defaults).configuration.nowPlayingButtons(isSpokenWord: false), [.audioQuality, .like, .album])
 
-        for lines in [["FLAC", "24/96"], ["2304", "kbps"], ["16bit", "44.1kHz"], ["DSF", "DSD256"], ["ALAC"], ["—"]] {
-            let image = CarPlaySceneDelegate.audioQualityButtonImage(lines, scale: 2)
+        let qualityBadges: [([String], UIImage)] = [["FLAC", "24/96"], ["2304", "kbps"], ["16bit", "44.1kHz"], ["DSF", "DSD256"], ["ALAC"], ["—"]]
+            .map { ($0, CarPlaySceneDelegate.audioQualityButtonImage($0, scale: 2)) }
+        // 速度键自己写字(#423),最宽的「0.75×」「1.25×」也不能被裁。
+        let rateBadges: [([String], UIImage)] = SpokenWordPlaybackRatePolicy.presets
+            .map { ([SpokenWordPlaybackRatePolicy.label(for: $0)], CarPlaySceneDelegate.playbackRateButtonImage($0, scale: 2)) }
+        for (lines, image) in qualityBadges + rateBadges {
             XCTAssertEqual(image.size, CPNowPlayingButtonMaximumImageSize)
             XCTAssertEqual(image.renderingMode, .alwaysTemplate)
             let bitmap = try XCTUnwrap(image.cgImage)
@@ -311,7 +315,10 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         }
         let delegate = CarPlaySceneDelegate()
         XCTAssertTrue(delegate.makeNowPlayingButton(.audioQuality) is CPNowPlayingImageButton)
-        XCTAssertTrue(delegate.makeNowPlayingButton(.playbackRate) is CPNowPlayingPlaybackRateButton)
+        // 系统的 CPNowPlayingPlaybackRateButton 暂停时写「0x」(#423),三颗调速键都是自己画的。
+        for action in [CarPlayNowPlayingAction.playbackRate, .slowerPlaybackRate, .fasterPlaybackRate] {
+            XCTAssertTrue(delegate.makeNowPlayingButton(action) is CPNowPlayingImageButton)
+        }
         try await render(List {
             CarPlayNowPlayingButtonsEditor(model: model, isSpokenWord: .constant(false))
         }.environment(\.editMode, .constant(.active)), size: CGSize(width: 390, height: 520), name: "CarPlay-buttons-editor")

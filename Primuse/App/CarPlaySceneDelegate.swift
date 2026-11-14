@@ -2323,22 +2323,24 @@ extension CarPlaySceneDelegate {
         template.isAlbumArtistButtonEnabled = !player.isLiveRadio && !layout.minimalNowPlaying
         let actions = layout.visibleNowPlayingButtons(
             isSpokenWord: player.currentItemIsSpokenWord, isLiveRadio: player.isLiveRadio,
-            supportsPlaybackRate: player.playbackSettings.outputMode == .effects && !player.isSystemAudioPlaybackActive
+            supportsPlaybackRate: offersPlaybackRateControls
         )
         template.updateNowPlayingButtons(actions.map { makeNowPlayingButton($0) })
         openAudioInfoTemplate?.updateSections(audioInfoSections())
         openNowPlayingMoreTemplate?.updateSections(nowPlayingMoreSections())
     }
 
+    /// 有声内容总走效果链(`AudioPlayerService.outputMode(for:)`),速度随时可调,和手机播放页的
+    /// `canChangeCurrentPlaybackRate` 一致。以前不分内容只看音乐的输出模式,音乐选了无损直通时
+    /// 车上听书就没有速度键。
+    private var offersPlaybackRateControls: Bool {
+        let player = AppServices.shared.playerService
+        return player.currentItemIsSpokenWord
+            || (player.playbackSettings.outputMode == .effects && !player.isSystemAudioPlaybackActive)
+    }
+
     func makeNowPlayingButton(_ action: CarPlayNowPlayingAction) -> CPNowPlayingButton {
         let player = AppServices.shared.playerService
-        if action == .playbackRate {
-            let button = CPNowPlayingPlaybackRateButton { [weak self] _ in
-                Task { @MainActor in self?.cycleSpokenWordRate() }
-            }
-            button.isEnabled = player.currentSong != nil
-            return button
-        }
         var symbol = action.symbol
         switch action {
         case .shuffle: symbol = player.shuffleEnabled ? "shuffle.circle.fill" : "shuffle"
@@ -2364,6 +2366,11 @@ extension CarPlaySceneDelegate {
             let quality = CarPlayAudioQualityText(song: song, transcodePlan: player.activeTranscodePlan)
             image = (action == .audioQuality ? quality.badgeSymbol : nil).map(Self.symbolImage)
                 ?? Self.audioQualityButtonImage(quality.lines(for: action), scale: artworkScale)
+        } else if action == .playbackRate {
+            // 不用系统的 CPNowPlayingPlaybackRateButton(#423):它照「正在播放」里发布的
+            // PlaybackRate 写字,暂停、缓冲时那是 0,车上一直是「0x」,点了改的是书的速度、
+            // 发布出去的仍是 0,按钮不动,看着像没反应。这里直接写这本书现在的速度。
+            image = Self.playbackRateButtonImage(player.currentSpokenWordRate, scale: artworkScale)
         } else {
             image = Self.symbolImage(symbol)
         }
@@ -2374,6 +2381,18 @@ extension CarPlaySceneDelegate {
         button.accessibilityLabel = action.isAudioInfo ? player.currentSong.map {
             CarPlayAudioQualityText(song: $0, transcodePlan: player.activeTranscodePlan).details
         } : NSLocalizedString(action.titleKey, comment: "")
+        switch action {
+        case .playbackRate:
+            button.accessibilityLabel = NSLocalizedString(action.titleKey, comment: "") + " "
+                + SpokenWordPlaybackRatePolicy.label(for: player.currentSpokenWordRate)
+        case .slowerPlaybackRate, .fasterPlaybackRate:
+            // 到了最慢、最快那一档就变灰,和手机上那一行的减、加一样。
+            button.isEnabled = button.isEnabled && SpokenWordPlaybackRatePolicy.adjacentPreset(
+                to: player.currentSpokenWordRate, faster: action == .fasterPlaybackRate
+            ) != nil
+        default:
+            break
+        }
         if action == .album {
             let library = AppServices.shared.musicLibrary
             button.isEnabled = player.currentSong.map { song in
@@ -2384,20 +2403,29 @@ extension CarPlaySceneDelegate {
         return button
     }
 
-    static func audioQualityButtonImage(_ lines: [String], scale: CGFloat) -> UIImage {
+    /// 速度键上的字:当前速度一行,比音质角标大一号,放不下时照样按宽度缩小。
+    /// 「0.75×」这种宽的缩满一行后字边会压到图片边上,左右多留几点。
+    static func playbackRateButtonImage(_ rate: Float, scale: CGFloat) -> UIImage {
+        audioQualityButtonImage([SpokenWordPlaybackRatePolicy.label(for: rate)], scale: scale,
+                                maximumLineHeight: 22, horizontalInset: 4)
+    }
+
+    static func audioQualityButtonImage(_ lines: [String], scale: CGFloat, maximumLineHeight: CGFloat = 15,
+                                        horizontalInset: CGFloat = 1) -> UIImage {
         let size = CPNowPlayingButtonMaximumImageSize
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         let lines = Array(lines.prefix(2))
         return UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            let lineHeight = min(15, (size.height - 2) / CGFloat(max(1, lines.count)))
+            let lineHeight = min(maximumLineHeight, (size.height - 2) / CGFloat(max(1, lines.count)))
             let top = (size.height - lineHeight * CGFloat(lines.count)) / 2
             for (index, line) in lines.enumerated() {
                 let text = line as NSString
                 var font = UIFont.systemFont(ofSize: lineHeight * 0.85, weight: .semibold, width: .condensed)
                 let width = text.size(withAttributes: [.font: font]).width
-                if width > size.width - 2 {
-                    font = font.withSize(font.pointSize * (size.width - 2) / width)
+                let available = size.width - horizontalInset * 2
+                if width > available {
+                    font = font.withSize(font.pointSize * available / width)
                 }
                 let measured = text.size(withAttributes: [.font: font])
                 // Rect drawing may wrap the final glyph after pixel rounding.
@@ -2420,6 +2448,8 @@ extension CarPlaySceneDelegate {
         case .queue: pushQueueTemplate()
         case .album: nowPlayingTemplateAlbumArtistButtonTapped(.shared)
         case .playbackRate: cycleSpokenWordRate()
+        case .slowerPlaybackRate: stepSpokenWordRate(faster: false)
+        case .fasterPlaybackRate: stepSpokenWordRate(faster: true)
         case .skipBackward: player.skipSpokenWordBackward()
         case .skipForward: player.skipSpokenWordForward()
         }
@@ -2471,9 +2501,12 @@ extension CarPlaySceneDelegate {
         guard player.currentSong != nil else { return [] }
         let actions = CarPlayNowPlayingAction.available(isSpokenWord: player.currentItemIsSpokenWord)
             .filter { !$0.isAudioInfo || $0 == .audioQuality }
-            .filter { $0 != .playbackRate || (player.playbackSettings.outputMode == .effects && !player.isSystemAudioPlaybackActive) }
+            .filter { !$0.isPlaybackRateControl || offersPlaybackRateControls }
         let items = actions.map { action in
-            let item = CPListItem(text: NSLocalizedString(action.titleKey, comment: ""), detailText: nil,
+            let detail = action == .playbackRate
+                ? SpokenWordPlaybackRatePolicy.label(for: player.currentSpokenWordRate)
+                : nil
+            let item = CPListItem(text: NSLocalizedString(action.titleKey, comment: ""), detailText: detail,
                                   image: Self.symbolImage(action.symbol))
             item.isEnabled = makeNowPlayingButton(action).isEnabled
             item.handler = { [weak self] _, completion in
@@ -2498,13 +2531,24 @@ extension CarPlaySceneDelegate {
         AppServices.shared.playerService.shuffleEnabled.toggle()
     }
 
-    /// The car's rate button steps through the same speeds as the book page.
+    /// 速度键:和手机播放页的速度键改同一个值(这本书自己的速度),在同一组档位里往快走一档,
+    /// 最快之后回到最慢。
     private func cycleSpokenWordRate() {
         let player = AppServices.shared.playerService
-        let presets = SpokenWordPlaybackRatePolicy.presets
-        let current = player.requestedPlaybackRate(for: player.currentSong)
-        let next = presets.first { $0 > current + 0.01 } ?? presets.first ?? 1
-        player.setSpokenWordRateForCurrentBook(next)
+        player.setSpokenWordRateForCurrentBook(
+            SpokenWordPlaybackRatePolicy.cycledPreset(after: player.currentSpokenWordRate)
+        )
+        refreshNowPlayingButtons()
+    }
+
+    /// 速度两边的减、加:一次一档,到头不动(按钮已变灰)。
+    private func stepSpokenWordRate(faster: Bool) {
+        let player = AppServices.shared.playerService
+        guard let target = SpokenWordPlaybackRatePolicy.adjacentPreset(
+            to: player.currentSpokenWordRate, faster: faster
+        ) else { return }
+        player.setSpokenWordRateForCurrentBook(target)
+        refreshNowPlayingButtons()
     }
 
     /// 喜欢当前曲目。改完库以后要立刻重绘按钮 —— `playlistSongIDs` 是
@@ -2771,6 +2815,11 @@ extension CarPlaySceneDelegate {
             _ = player.currentItemIsSpokenWord
             _ = player.playbackSettings.outputMode
             _ = player.isSystemAudioPlaybackActive
+            // 速度键上写着这本书现在的速度:手机上改了这本书的速度或全局听书速度,车上跟着变。
+            if player.currentItemIsSpokenWord {
+                _ = player.playbackSettings.spokenWordPlaybackRate
+                _ = SpokenWordStore.shared.bookRates
+            }
             _ = player.spokenWordSkipForwardSeconds
             _ = player.spokenWordSkipBackwardSeconds
             _ = player.currentIndex

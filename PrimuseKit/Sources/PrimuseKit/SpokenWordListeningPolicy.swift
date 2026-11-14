@@ -99,6 +99,12 @@ public enum SpokenWordPlaybackRatePolicy {
             : presets.last { $0 < current - tolerance }
     }
 
+    /// 车机上那颗速度键(#423):每按一次快一档,最快之后回到最慢一档。
+    /// 不在档位上的值照 `adjacentPreset` 落到比它快的那一档。
+    public static func cycledPreset(after rate: Float) -> Float {
+        adjacentPreset(to: rate, faster: true) ?? presets.first ?? 1
+    }
+
     public static func label(for rate: Float) -> String {
         let rounded = (rate * 100).rounded() / 100
         if rounded == rounded.rounded() {

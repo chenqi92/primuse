@@ -132,9 +132,16 @@ public enum CarPlayTopRightAction: String, Codable, CaseIterable, Identifiable, 
 public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable, Sendable {
     case shuffle, repeatMode, like, audioQuality, queue, album, playbackRate, skipBackward, skipForward
     case audioFormat, audioBitRate, audioResolution
+    /// 有声内容的减一档、加一档(#423),和中间那颗速度键排成 Apple Books 那样的「− 1.25× +」。
+    case slowerPlaybackRate, fasterPlaybackRate
 
     public var isAudioInfo: Bool {
         [.audioQuality, .audioFormat, .audioBitRate, .audioResolution].contains(self)
+    }
+
+    /// 调速度的三颗键:当前内容不能变速时一起不出现。
+    public var isPlaybackRateControl: Bool {
+        [.playbackRate, .slowerPlaybackRate, .fasterPlaybackRate].contains(self)
     }
 
     public var id: String { rawValue }
@@ -150,6 +157,8 @@ public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable
         case .queue: "carplay_up_next"
         case .album: "carplay_albums_title"
         case .playbackRate: "playback_rate"
+        case .slowerPlaybackRate: "transcript_reader_speed_slower"
+        case .fasterPlaybackRate: "transcript_reader_speed_faster"
         case .skipBackward: "spoken_word_skip_backward"
         case .skipForward: "spoken_word_skip_forward"
         }
@@ -163,14 +172,19 @@ public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable
         case .queue: "list.bullet"
         case .album: "square.stack"
         case .playbackRate: "speedometer"
+        case .slowerPlaybackRate: "minus.circle"
+        case .fasterPlaybackRate: "plus.circle"
         case .skipBackward: "gobackward"
         case .skipForward: "goforward"
         }
     }
 
+    /// 前五个就是默认按钮。有声内容默认「快退 − 速度 + 快进」(#423):听书时系统那两个切换键
+    /// 默认是上一章、下一章,车上最常用的快退快进和调速度都放在这一排;喜欢、音质留在可选列表里。
     public static func available(isSpokenWord: Bool) -> [Self] {
         isSpokenWord
-            ? [.skipBackward, .playbackRate, .skipForward, .like, .audioQuality, .queue, .audioFormat, .audioBitRate, .audioResolution]
+            ? [.skipBackward, .slowerPlaybackRate, .playbackRate, .fasterPlaybackRate, .skipForward,
+               .like, .audioQuality, .queue, .audioFormat, .audioBitRate, .audioResolution]
             : [.shuffle, .repeatMode, .like, .audioQuality, .audioBitRate, .queue, .album, .audioFormat, .audioResolution]
     }
 
@@ -235,7 +249,7 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
     public func visibleNowPlayingButtons(isSpokenWord: Bool, isLiveRadio: Bool, supportsPlaybackRate: Bool) -> [CarPlayNowPlayingAction] {
         guard !minimalNowPlaying, !isLiveRadio else { return [] }
         return nowPlayingButtons(isSpokenWord: isSpokenWord).filter {
-            ($0 != .playbackRate || supportsPlaybackRate) && ($0 != .queue || topRightAction != .queue)
+            (!$0.isPlaybackRateControl || supportsPlaybackRate) && ($0 != .queue || topRightAction != .queue)
         }
     }
 

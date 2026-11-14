@@ -78,7 +78,9 @@ extension AudioPlayerService {
         #endif
         let actualPlaybackIsActive = isPlaybackActuallyActive
         lastPublishedPlaybackWasActive = actualPlaybackIsActive
-        let preferredRate = !isSystemAudioPlaybackActive
+        // 原生播客流由 AVPlayer 自己变速(`applyPlaybackRate`),照实发布;其余系统播放器
+        // 只放 1×,要变速会先退回 PCM 引擎。
+        let preferredRate = !isSystemAudioPlaybackActive || systemAudioUsesNativePodcastStream
             ? Double(requestedPlaybackRate)
             : 1
         let projection = NowPlayingPlaybackProjectionPolicy.projection(

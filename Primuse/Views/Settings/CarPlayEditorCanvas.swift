@@ -558,6 +558,11 @@ struct CarPlayEditorCanvas: View {
                                 Image(uiImage: (action == .audioQuality ? quality.badgeSymbol : nil).map(CarPlaySceneDelegate.symbolImage)
                                       ?? CarPlaySceneDelegate.audioQualityButtonImage(quality.lines(for: action), scale: 2))
                                     .renderingMode(.template)
+                            } else if action == .playbackRate {
+                                // 车上这颗键写的是当前速度,不是图标。
+                                Image(uiImage: CarPlaySceneDelegate.playbackRateButtonImage(
+                                    AppServices.shared.playerService.currentSpokenWordRate, scale: 2))
+                                    .renderingMode(.template)
                             } else {
                                 Image(systemName: action.symbol).font(.system(size: 18))
                             }

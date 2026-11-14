@@ -157,6 +157,23 @@ struct SpokenWordPlaybackRatePolicyTests {
         // 浮点误差不算换档。
         #expect(SpokenWordPlaybackRatePolicy.adjacentPreset(to: 1.2500001, faster: true) == 1.5)
     }
+
+    @Test("The car's rate button walks every preset and wraps from the fastest to the slowest")
+    func cycledPresets() {
+        #expect(SpokenWordPlaybackRatePolicy.cycledPreset(after: 1) == 1.25)
+        #expect(SpokenWordPlaybackRatePolicy.cycledPreset(after: 2) == 0.75)
+        #expect(SpokenWordPlaybackRatePolicy.cycledPreset(after: 1.1) == 1.25)
+        #expect(SpokenWordPlaybackRatePolicy.cycledPreset(after: 0.5) == 0.75)
+        #expect(SpokenWordPlaybackRatePolicy.cycledPreset(after: .nan) == 1.25)
+        var rate: Float = 0.75
+        var visited: [Float] = []
+        for _ in SpokenWordPlaybackRatePolicy.presets {
+            visited.append(rate)
+            rate = SpokenWordPlaybackRatePolicy.cycledPreset(after: rate)
+        }
+        #expect(visited == SpokenWordPlaybackRatePolicy.presets)
+        #expect(rate == 0.75)
+    }
 }
 
 @Suite("Spoken word skip intervals")

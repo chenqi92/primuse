@@ -16,7 +16,7 @@ struct CarPlayLayoutConfigurationTests {
     @Test func olderLayoutsGainFiveButtonsWithoutChangingTheirPresentation() throws {
         let config = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: Data(#"{"browseStyle":"covers","minimalNowPlaying":true}"#.utf8))
         #expect(config.nowPlayingButtons(isSpokenWord: false) == [.shuffle, .repeatMode, .like, .audioQuality, .audioBitRate])
-        #expect(config.nowPlayingButtons(isSpokenWord: true) == [.skipBackward, .playbackRate, .skipForward, .like, .audioQuality])
+        #expect(config.nowPlayingButtons(isSpokenWord: true) == [.skipBackward, .slowerPlaybackRate, .playbackRate, .fasterPlaybackRate, .skipForward])
         #expect(config.browseStyle == .covers)
         #expect(config.visibleNowPlayingButtons(isSpokenWord: false, isLiveRadio: false, supportsPlaybackRate: true).isEmpty)
     }
@@ -36,6 +36,29 @@ struct CarPlayLayoutConfigurationTests {
         #expect(config.visibleNowPlayingButtons(isSpokenWord: true, isLiveRadio: false, supportsPlaybackRate: false) == [.audioQuality, .like])
         #expect(config.visibleNowPlayingButtons(isSpokenWord: true, isLiveRadio: false, supportsPlaybackRate: true) == [.playbackRate, .audioQuality, .like])
         #expect(config.visibleNowPlayingButtons(isSpokenWord: false, isLiveRadio: true, supportsPlaybackRate: true).isEmpty)
+    }
+
+    /// #423:听书默认「快退 − 速度 + 快进」,三颗调速键跟着能不能变速一起出现、一起收起;
+    /// 音乐的默认按钮不变,也不提供调速键。
+    @Test func spokenWordDefaultsPairTheRateWithStepButtons() throws {
+        let config = CarPlayLayoutConfiguration()
+        #expect(config.visibleNowPlayingButtons(isSpokenWord: true, isLiveRadio: false, supportsPlaybackRate: true)
+            == [.skipBackward, .slowerPlaybackRate, .playbackRate, .fasterPlaybackRate, .skipForward])
+        #expect(config.visibleNowPlayingButtons(isSpokenWord: true, isLiveRadio: false, supportsPlaybackRate: false)
+            == [.skipBackward, .skipForward])
+        #expect(config.nowPlayingButtons(isSpokenWord: false) == [.shuffle, .repeatMode, .like, .audioQuality, .audioBitRate])
+        #expect(!CarPlayNowPlayingAction.available(isSpokenWord: false).contains { $0.isPlaybackRateControl })
+        #expect(CarPlayNowPlayingAction.available(isSpokenWord: true).filter(\.isPlaybackRateControl)
+            == [.slowerPlaybackRate, .playbackRate, .fasterPlaybackRate])
+        // 自己排过按钮的人照旧,新键要自己加;存下来的新键能读回来,音乐那份里出现也会被滤掉。
+        var custom = config
+        custom.customSpokenWordButtons = [.playbackRate, .like]
+        #expect(custom.nowPlayingButtons(isSpokenWord: true) == [.playbackRate, .like])
+        custom.customSpokenWordButtons = [.fasterPlaybackRate, .slowerPlaybackRate]
+        custom.customNowPlayingButtons = [.slowerPlaybackRate, .like]
+        let restored = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: JSONEncoder().encode(custom))
+        #expect(restored.nowPlayingButtons(isSpokenWord: true) == [.fasterPlaybackRate, .slowerPlaybackRate])
+        #expect(restored.nowPlayingButtons(isSpokenWord: false) == [.like])
     }
 
     @Test func playbackDisplayChoicesRoundTripAndOldLayoutsPreservePhoneLyricsPreference() throws {

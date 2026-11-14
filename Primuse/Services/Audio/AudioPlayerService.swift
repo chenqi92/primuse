@@ -884,7 +884,7 @@ final class AudioPlayerService {
 
     @ObservationIgnored private var systemAudioPlayer: AVPlayer?
     @ObservationIgnored private var systemAudioStreamingLoader: SystemAudioStreamingLoader?
-    @ObservationIgnored private var systemAudioUsesNativePodcastStream = false
+    @ObservationIgnored private(set) var systemAudioUsesNativePodcastStream = false
     @ObservationIgnored var systemAudioStartupWatchdog: Task<Void, Never>?
     @ObservationIgnored var systemAudioPlaybackDidStart = false
     @ObservationIgnored var pendingSystemAudioSeek: (
@@ -2470,6 +2470,10 @@ final class AudioPlayerService {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.applyPlaybackRate()
+                // 系统侧的进度按发布的速度往前推,换了速度要立刻重发,锁屏和车机的进度条才不会
+                // 越走越偏(按书记的速度在 `setSpokenWordRate` 里已经重发)。没在放就不碰,
+                // 免得把空快照当成「清掉正在播放」。
+                if self.currentSong != nil { self.updateNowPlayingInfo() }
                 self.observePlaybackRate()
             }
         }
