@@ -479,8 +479,12 @@ extension View {
 
     /// 极简模式的根页：头上是顶栏，底下是停靠条，系统导航栏藏起来。
     /// `showsTopChrome` 为 false 的根页（设置）保留系统导航栏，只在底下挂停靠条。
-    func minimalNavigationRoot(showsTopChrome: Bool = true) -> some View {
-        modifier(MinimalNavigationRootModifier(showsTopChrome: showsTopChrome))
+    /// `page` 是这一页在顶栏上对应的去处：点顶栏换到这一页时，页面从那一侧轻推进来。
+    func minimalNavigationRoot(
+        showsTopChrome: Bool = true,
+        page: MinimalNavigationPage? = nil
+    ) -> some View {
+        modifier(MinimalNavigationRootModifier(showsTopChrome: showsTopChrome, page: page))
     }
 
     func minimalNavigationDetail(isDetail: Bool = true) -> some View {
@@ -602,6 +606,7 @@ private struct BottomSafeAreaReserve: UIViewControllerRepresentable {
 
 private struct MinimalNavigationRootModifier: ViewModifier {
     let showsTopChrome: Bool
+    let page: MinimalNavigationPage?
     @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.minimalNavigationBars) private var bars
     @Environment(\.minimalNavigationDetailScope) private var detailScope
@@ -619,6 +624,8 @@ private struct MinimalNavigationRootModifier: ViewModifier {
                 .environment(\.songRowStyle, .minimal)
                 // Empty states have an intrinsic height; bars need the full page bounds.
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 挂在顶栏、停靠条里面：换页时只有页面本身轻推，两条栏不动。
+                .modifier(MinimalPageEntryNudge(page: page))
                 .background {
                     if let detailScope, let rootSettledHandler {
                         // 根页回到栈顶就说明这个页签上已经没有详情页，顶栏以此为准回来。
@@ -653,6 +660,38 @@ private struct MinimalNavigationRootModifier: ViewModifier {
                         }
                     }
                 }
+        }
+    }
+}
+
+/// 点顶栏换到这一页时，页面从它在顶栏上的那一侧轻推进来一小段（见 `MinimalPageSwitchMotion`）。
+/// 只是绘制位移，不动布局、不碰透明度；返回、切回来这些不是刚点出来的出现不推。
+private struct MinimalPageEntryNudge: ViewModifier {
+    let page: MinimalNavigationPage?
+    @Environment(\.minimalPageSwitchMotion) private var switchMotion
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var offset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: offset)
+            .onAppear(perform: enterIfSwitchedHere)
+    }
+
+    private func enterIfSwitchedHere() {
+        // 同 `pmPageEnter` 的上浮：位移走 `list` 档，减少动态效果时不动。
+        guard let page, let entry = switchMotion?.takeEntry(for: page),
+              let animation = PMMotion.list.resolved(reduceMotion: reduceMotion) else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            offset = entry.side * entry.distance
+        }
+        // 先在起点画一帧，下一拍再推到位（两次改动并进同一帧就成了原地不动）。
+        Task { @MainActor in
+            withAnimation(animation) {
+                offset = 0
+            }
         }
     }
 }
@@ -1390,6 +1429,8 @@ struct ContentView: View {
     @AppStorage(MinimalNavigationPolicy.showsHomeKey) private var minimalShowsHome = true
     /// 进搜索、设置之前停的那一页；「取消」与设置的返回键回到这里。
     @State private var minimalReturnPage: MinimalNavigationPage?
+    /// 点顶栏换页的过渡（旧页截屏淡出、新页轻推、选中指示滑过去）。普通引用，记下换页不会让谁重算。
+    @State private var minimalPageSwitchMotion = MinimalPageSwitchMotion()
     @State private var showsMinimalQueue = false
     @State private var scraperSettingsRoute = ScraperSettingsRouteState()
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
@@ -1574,6 +1615,14 @@ struct ContentView: View {
                 deepLink: $libraryDeepLink,
                 onActiveSectionChange: { section in
                     guard navigationMode == .minimal else { return }
+                    if let section, let previous = minimalLibrarySection, previous != section {
+                        // 页面自己换了分类（横滑翻页）：新页头上那份顶栏是刚建的，下划线从上一个分类滑过来。
+                        // 点顶栏换的在 `selectMinimalPage` 里已经先改好了，走不到这里。
+                        minimalPageSwitchMotion.noteIndicatorChange(
+                            from: .librarySection(previous),
+                            to: .librarySection(section)
+                        )
+                    }
                     minimalLibrarySection = section
                     if let section { rememberMinimalSection(section) }
                 }
@@ -1652,7 +1701,13 @@ struct ContentView: View {
             )
             .environment(\.minimalSpokenSections, minimalSpokenSections)
             .environment(\.minimalSelectSection) { section in
-                selectMinimalPage(.librarySection(section))
+                animateMinimalSelection(to: .librarySection(section))
+            }
+            .environment(\.minimalPageSwitchMotion, minimalPageSwitchMotion)
+            .background {
+                MinimalPageSwitchAnchor(motion: minimalPageSwitchMotion)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
             }
             .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
                 minimalDetailLedger.updateMounted(scopes)
@@ -1718,7 +1773,7 @@ struct ContentView: View {
                         }(),
                         onSelectTab: selectMinimalTopTab,
                         onSelectSection: { section in
-                            animateMinimalSelection { selectMinimalPage(.librarySection(section)) }
+                            animateMinimalSelection(to: .librarySection(section))
                         },
                         onSearch: { selectMinimalPage(.search) },
                         onSettings: { selectMinimalPage(.settings) }
@@ -2361,15 +2416,48 @@ struct ContentView: View {
             ) else { return }
             page = .librarySection(section)
         }
-        animateMinimalSelection { selectMinimalPage(page) }
+        animateMinimalSelection(to: page)
     }
 
-    private func animateMinimalSelection(_ change: () -> Void) {
-        if reduceMotion {
-            change()
-        } else {
-            withAnimation(.easeOut(duration: 0.18), change)
+    /// 点顶栏的去处、音乐的分类、「有声」里的切换来换页。旧页的截屏盖在上面淡出，新页从它在顶栏上的
+    /// 那一侧轻推进来，选中块、下划线从上一格滑过去（见 `MinimalPageSwitchMotion`）。
+    ///
+    /// 换页本身不进动画事务：整页的列表、网格不跟着做布局动画，资料库的导航栈也不推入
+    /// （见 `LibraryView.applyDeepLink`），新页第一帧就是完整的样子。减少动态效果时只留淡出。
+    private func animateMinimalSelection(to page: MinimalNavigationPage) {
+        let current = currentMinimalPage
+        if navigationMode == .minimal, page != current {
+            minimalPageSwitchMotion.begin(
+                from: current,
+                to: page,
+                entrySide: reduceMotion ? nil : minimalEntrySide(from: current, to: page)
+            )
         }
+        selectMinimalPage(page)
+    }
+
+    /// 新页从哪一侧推进来：比两页在顶栏上的先后，不同格比格，同一格比格里的分类。
+    private func minimalEntrySide(from: MinimalNavigationPage, to: MinimalNavigationPage) -> CGFloat? {
+        guard let fromTab = from.topTab, let toTab = to.topTab else { return nil }
+        let fromIndex: Int?
+        let toIndex: Int?
+        if fromTab != toTab {
+            let tabs = minimalTopTabs
+            fromIndex = tabs.firstIndex(of: fromTab)
+            toIndex = tabs.firstIndex(of: toTab)
+        } else if case .librarySection(let fromSection) = from,
+                  case .librarySection(let toSection) = to {
+            let sections = toTab == .spoken ? minimalSpokenSections : minimalMusicSections
+            fromIndex = sections.firstIndex(of: fromSection)
+            toIndex = sections.firstIndex(of: toSection)
+        } else {
+            return nil
+        }
+        return MinimalPageSwitchPolicy.entrySide(
+            fromIndex: fromIndex,
+            toIndex: toIndex,
+            isRightToLeft: layoutDirection == .rightToLeft
+        ).map { CGFloat($0) }
     }
 
     /// 搜索页的「取消」：清掉搜索词，回到进来之前那一页。
@@ -3894,7 +3982,7 @@ extension ContentView {
                 selectMinimalTopTab(tab)
             } else if step.hasPrefix("section:"),
                       let section = LibrarySection(rawValue: String(step.dropFirst("section:".count))) {
-                animateMinimalSelection { selectMinimalPage(.librarySection(section)) }
+                animateMinimalSelection(to: .librarySection(section))
             } else if step == "search" {
                 selectMinimalPage(.search)
             } else if step == "cancel" {

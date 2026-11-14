@@ -42,3 +42,31 @@ struct LibrarySectionPagingPolicyTests {
         #expect(LibrarySectionPagingPolicy.startsInEdgeExclusion(startX: 200, containerWidth: 0, isRightToLeft: false))
     }
 }
+
+@Suite("Minimal page switch")
+struct MinimalPageSwitchPolicyTests {
+    @Test("点排在后面的去处从后沿那一侧进来，跟着语言方向")
+    func entrySideFollowsOrderAndLayoutDirection() {
+        #expect(MinimalPageSwitchPolicy.entrySide(fromIndex: 0, toIndex: 2, isRightToLeft: false) == 1)
+        #expect(MinimalPageSwitchPolicy.entrySide(fromIndex: 2, toIndex: 1, isRightToLeft: false) == -1)
+        #expect(MinimalPageSwitchPolicy.entrySide(fromIndex: 0, toIndex: 2, isRightToLeft: true) == -1)
+        #expect(MinimalPageSwitchPolicy.entrySide(fromIndex: 2, toIndex: 1, isRightToLeft: true) == 1)
+    }
+
+    @Test("没换格、排不上号时不推")
+    func noEntryWithoutDirection() {
+        #expect(MinimalPageSwitchPolicy.entrySide(fromIndex: 1, toIndex: 1, isRightToLeft: false) == nil)
+        #expect(MinimalPageSwitchPolicy.entrySide(fromIndex: nil, toIndex: 1, isRightToLeft: false) == nil)
+        #expect(MinimalPageSwitchPolicy.entrySide(fromIndex: 0, toIndex: nil, isRightToLeft: true) == nil)
+    }
+
+    @Test("只认刚发生的换页")
+    func freshnessWindow() {
+        #expect(MinimalPageSwitchPolicy.isFresh(elapsed: 0))
+        #expect(MinimalPageSwitchPolicy.isFresh(elapsed: 0.3))
+        #expect(!MinimalPageSwitchPolicy.isFresh(elapsed: MinimalPageSwitchPolicy.freshness))
+        #expect(!MinimalPageSwitchPolicy.isFresh(elapsed: -0.1))
+        #expect(!MinimalPageSwitchPolicy.isFresh(elapsed: .nan))
+        #expect(!MinimalPageSwitchPolicy.isFresh(elapsed: .infinity))
+    }
+}

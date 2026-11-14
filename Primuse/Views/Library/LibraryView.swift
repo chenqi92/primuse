@@ -914,7 +914,7 @@ struct LibraryView: View {
             .navigationTitle(section.title)
             .toolbarTitleDisplayMode(.inline)
             #if os(iOS)
-            .minimalNavigationRoot()
+            .minimalNavigationRoot(page: .librarySection(section))
             .navigationBarBackButtonHidden(appNavigationMode == .minimal)
             #endif
             .onAppear {
@@ -2115,6 +2115,20 @@ struct LibraryView: View {
             persistedPageID = "section:\(LibrarySection.songs.rawValue)"
             path.append(LibrarySection.songs)
         }
+        #if os(iOS)
+        if case .section = link, appNavigationMode == .minimal, rootSection == nil,
+           navigationPath.count <= 1 {
+            // 极简导航里分类页之间是同级换页（点顶上的去处、分类）：栈里只有一页分类时原地换掉，
+            // 不要导航栈自己的推入动画，过渡交给外壳（`MinimalPageSwitchMotion`），同横滑翻页的 `pageToSection`。
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                navigationPath = path
+            }
+            deepLink = nil
+            return
+        }
+        #endif
         navigationPath = path
         deepLink = nil
     }

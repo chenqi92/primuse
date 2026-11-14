@@ -2004,7 +2004,7 @@ struct HomeView: View {
             // iPhone Duo 竖栏时标题带很薄，滚上去的卡片不能和「首页」叠字。
             .pmVerticalBarTitleEdge()
             #if os(iOS)
-            .minimalNavigationRoot()
+            .minimalNavigationRoot(page: .home)
             .background {
                 HomeTabDoubleTapObserver(enabled: canPresentSubtabs && subtabDoubleTap && isHomeVisible) {
                     let expanded = !subtabsAreVisible

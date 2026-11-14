@@ -56,3 +56,30 @@ public enum LibrarySectionPagingPolicy {
         translationX < 0 ? 1 : -1
     }
 }
+
+/// 极简导航点顶栏换页（点去处、音乐的分类、「有声」里的切换，不是横滑）时的过渡参数。
+///
+/// 旧页由外壳截一张屏淡出，新页第一帧就是完整的样子，只轻推一小段给个方向：
+/// 新去处在这一排里排在后面，就从后沿那一侧进来。
+public enum MinimalPageSwitchPolicy {
+    /// 新页轻推进来的距离（点）。横滑翻页是整页宽，点选只要看得出方向；再远，页边露出底色的那一条
+    /// 在旧页淡完之后还看得见。
+    public static let entryDistance = 16.0
+    /// 换页之后这么久（秒）之内出现的新页、新顶栏才接这一次的过渡；再晚出现的（返回、恢复）直接到位。
+    /// 要盖得住新页头一次建出来的时间（大曲库的歌曲页在调试构建里要两三百毫秒）。
+    public static let freshness = 0.6
+
+    /// 新页从哪一侧进来：+1 右侧，-1 左侧（屏幕方向，同 `LibrarySectionPagingPolicy.entrySide`）。
+    /// 排在后面的去处 LTR 从右边进、RTL 从左边进；不在这一排里或者没换格时不推。
+    public static func entrySide(fromIndex: Int?, toIndex: Int?, isRightToLeft: Bool) -> Double? {
+        guard let fromIndex, let toIndex, fromIndex != toIndex else { return nil }
+        let isLater = toIndex > fromIndex
+        let side: Double = isLater != isRightToLeft ? 1 : -1
+        return side
+    }
+
+    /// 换页记录还新鲜。时钟倒退、算不出数时都当不新鲜。
+    public static func isFresh(elapsed: Double) -> Bool {
+        elapsed.isFinite && elapsed >= 0 && elapsed < freshness
+    }
+}

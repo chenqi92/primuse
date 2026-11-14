@@ -1,6 +1,7 @@
 #if os(iOS)
 import PrimuseKit
 import SwiftUI
+import UIKit
 
 // MARK: - 顶栏的去处
 
@@ -80,6 +81,148 @@ extension EnvironmentValues {
         get { self[MinimalSelectSectionKey.self] }
         set { self[MinimalSelectSectionKey.self] = newValue }
     }
+
+    /// 极简外壳的换页过渡，顶栏、页头、根页出现时从这里认领（见 `MinimalPageSwitchMotion`）。经典导航里为空。
+    var minimalPageSwitchMotion: MinimalPageSwitchMotion? {
+        get { self[MinimalPageSwitchMotionKey.self] }
+        set { self[MinimalPageSwitchMotionKey.self] = newValue }
+    }
+}
+
+private struct MinimalPageSwitchMotionKey: EnvironmentKey {
+    static let defaultValue: MinimalPageSwitchMotion? = nil
+}
+
+// MARK: - 换页过渡
+
+/// 极简导航点选换页的过渡：点顶上的去处、音乐的分类、「有声」里的切换。
+///
+/// 顶栏和页面都是每一页各挂一份：换分类时新页连同它头上那份顶栏是刚建出来的，首页与资料库之间
+/// 是刚露出来的，都没有「上一帧」可以接着做动画。所以这里记下刚发生的这一次换页，新页、新顶栏
+/// 出现时来认领：
+/// - 旧页：换页前在窗口最上面盖一张截屏（系统合成器里的快照，App 里不重画），下一拍淡出。新页在底下
+///   第一帧就是完整的样子，不用给整页挂透明度，也没有新旧两棵页面树同时活着；
+/// - 新页：从它在顶栏上的那一侧轻推进来一小段（绘制位移，不动布局，见 `MinimalPageSwitchPolicy`）；
+/// - 顶栏、页头：选中块、分类下划线先停在上一格，再滑到这一格。
+///
+/// 普通引用，不是 @Observable：记录、认领都不会让任何视图重算。换页本身不进动画事务。
+@MainActor
+final class MinimalPageSwitchMotion {
+    struct Entry: Equatable {
+        /// +1 从右侧进来，-1 从左侧（屏幕方向）。
+        let side: CGFloat
+        let distance: CGFloat
+    }
+
+    private struct Switch {
+        let from: MinimalNavigationPage
+        let to: MinimalNavigationPage
+        /// 点选换的；横滑翻页只借顶栏指示，页面的过渡由横滑自己做。
+        let isTap: Bool
+        var entry: Entry?
+        let time: TimeInterval
+
+        var isFresh: Bool {
+            MinimalPageSwitchPolicy.isFresh(elapsed: ProcessInfo.processInfo.systemUptime - time)
+        }
+    }
+
+    private var latest: Switch?
+    private weak var cover: UIView?
+    /// 外壳里的一个空视图（`MinimalPageSwitchAnchor`）：从它找到所在的窗口，iPad 多窗口时不会找错。
+    weak var anchorView: UIView?
+
+    /// 点选换页：记下这一次，在窗口上盖住旧页。`entrySide` 为空时新页不推（减少动态效果、说不清方向）。
+    func begin(from: MinimalNavigationPage, to: MinimalNavigationPage, entrySide: CGFloat?) {
+        latest = Switch(
+            from: from,
+            to: to,
+            isTap: true,
+            entry: entrySide.map {
+                Entry(side: $0, distance: CGFloat(MinimalPageSwitchPolicy.entryDistance))
+            },
+            time: ProcessInfo.processInfo.systemUptime
+        )
+        coverOutgoingPage()
+    }
+
+    /// 页面自己换了分类（横滑翻页）：只让新顶栏上的下划线从上一个分类滑过来。
+    /// 刚点过的那一次还新鲜时不覆盖它：资料库换页途中旧分类页可能先露一下面，它报上来的不算数。
+    func noteIndicatorChange(from: MinimalNavigationPage, to: MinimalNavigationPage) {
+        if let latest, latest.isTap, latest.isFresh { return }
+        latest = Switch(
+            from: from,
+            to: to,
+            isTap: false,
+            entry: nil,
+            time: ProcessInfo.processInfo.systemUptime
+        )
+    }
+
+    /// 刚换到的那一页满足 `arrivesAt` 时，换页前停在哪一页。过了新鲜期就不算（返回、切回来直接到位）。
+    func origin(arrivingAt arrivesAt: (MinimalNavigationPage) -> Bool) -> MinimalNavigationPage? {
+        guard let latest, latest.isFresh, arrivesAt(latest.to) else { return nil }
+        return latest.from
+    }
+
+    /// 新页出现时认领进场的轻推，一次换页只给一回。
+    func takeEntry(for page: MinimalNavigationPage) -> Entry? {
+        guard var latest, latest.to == page, latest.isFresh, let entry = latest.entry else { return nil }
+        latest.entry = nil
+        self.latest = latest
+        return entry
+    }
+
+    private func coverOutgoingPage() {
+        guard let window = anchorView?.window else { return }
+        // 连点时上一张还在淡：先撤掉。新截的这张取的是合成器里此刻的画面（上一张还在上面），前后接得上。
+        cover?.removeFromSuperview()
+        guard let snapshot = window.snapshotView(afterScreenUpdates: false) else { return }
+        snapshot.frame = window.bounds
+        snapshot.isUserInteractionEnabled = false
+        snapshot.accessibilityElementsHidden = true
+        window.addSubview(snapshot)
+        cover = snapshot
+        // 下一拍再淡：这一拍里换页、建新页，淡出跟新页的第一帧一起提交，透出来的就是完整的新页。
+        // 用 UIKit 的动画而不是 SwiftUI 的：它在合成器里跑，新页建得慢、主线程忙时也照样走完。
+        // 时长、曲线同 `PMMotion.pageSwitch`（easeOut）。
+        Task { @MainActor in
+            UIView.animate(
+                withDuration: PMMotion.pageSwitch.settleDuration,
+                delay: 0,
+                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                snapshot.alpha = 0
+            } completion: { _ in
+                snapshot.removeFromSuperview()
+            }
+        }
+    }
+}
+
+/// 外壳里一个不占地方、不接触摸的空视图，换页过渡靠它找到窗口。
+struct MinimalPageSwitchAnchor: UIViewRepresentable {
+    let motion: MinimalPageSwitchMotion
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        motion.anchorView = view
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        motion.anchorView = uiView
+    }
+}
+
+/// 不带动画地改状态：选中指示出现时先停到起点用，挡住外面事务里带进来的动画。
+@MainActor
+private func minimalSetWithoutAnimation(_ body: () -> Void) {
+    var transaction = Transaction(animation: nil)
+    transaction.disablesAnimations = true
+    withTransaction(transaction, body)
 }
 
 /// 栏下面滚动内容的收边方式。
@@ -213,10 +356,17 @@ struct MinimalTopTabBar: View {
                     }
                 } else {
                     // 字大或者语言长时一排放不下四段，就让分段自己横着滑，不挤掉右边两颗键。
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        MinimalTopTabPicker(tabs: tabs, selection: selectedTab, onSelect: onSelectTab)
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            MinimalTopTabPicker(tabs: tabs, selection: selectedTab, onSelect: onSelectTab)
+                        }
+                        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                        // 放不下时选中的那一段要在看得见的地方；放得下时什么也不动。
+                        .onChange(of: selectedTab, initial: true) { _, tab in
+                            guard let tab else { return }
+                            proxy.scrollTo(tab)
+                        }
                     }
-                    .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
                 }
 
                 MinimalChromeIconButton(systemImage: "magnifyingglass", titleKey: "search_title", action: onSearch)
@@ -251,7 +401,14 @@ private struct MinimalTopTabPicker: View {
     let onSelect: (MinimalTopTab) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.minimalPageSwitchMotion) private var switchMotion
     @Namespace private var indicator
+    /// 白块暂时停在这一格，为空就是跟着 `selection`。顶栏每一页各挂一份，换页时新页上这一份是
+    /// 刚建出来（刚露出来）的：先停在换页前那一格，下一拍再滑过来。
+    @State private var heldTab: MinimalTopTab?
+
+    private var shownTab: MinimalTopTab? { heldTab ?? selection }
 
     var body: some View {
         HStack(spacing: 2) {
@@ -261,22 +418,43 @@ private struct MinimalTopTabPicker: View {
         }
         .padding(3)
         .background(Capsule().fill(Color(uiColor: .secondarySystemFill)))
+        .onAppear {
+            slide(from: switchMotion?.origin(arrivingAt: { $0.topTab == selection })?.topTab)
+        }
+        .onChange(of: selection) { previous, _ in
+            slide(from: previous)
+        }
+    }
+
+    /// 白块从 `origin` 那一格滑到选中的一格。减少动态效果时不滑，直接落在选中的一格。
+    private func slide(from origin: MinimalTopTab?) {
+        guard let origin, let selection, origin != selection, tabs.contains(origin),
+              let animation = PMMotion.selection.resolved(reduceMotion: reduceMotion) else {
+            if heldTab != nil { minimalSetWithoutAnimation { heldTab = nil } }
+            return
+        }
+        minimalSetWithoutAnimation { heldTab = origin }
+        // 先在起点画一帧，下一拍再滑（两次改动并进同一帧就成了原地跳过去）。
+        Task { @MainActor in
+            guard heldTab == origin else { return }
+            withAnimation(animation) { heldTab = nil }
+        }
     }
 
     private func segment(_ tab: MinimalTopTab) -> some View {
-        let isSelected = tab == selection
+        let isShown = tab == shownTab
         return Button {
             onSelect(tab)
         } label: {
             Text(tab.titleKey)
-                .font(.callout.weight(isSelected ? .semibold : .medium))
-                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                .font(.callout.weight(isShown ? .semibold : .medium))
+                .foregroundStyle(isShown ? Color.primary : Color.secondary)
                 .lineLimit(1)
                 .fixedSize()
                 .padding(.horizontal, 14)
                 .frame(minHeight: 34)
                 .background {
-                    if isSelected {
+                    if isShown {
                         Capsule()
                             .fill(selectedFill)
                             .shadow(color: .black.opacity(colorScheme == .dark ? 0 : 0.1), radius: 3, y: 1)
@@ -286,9 +464,11 @@ private struct MinimalTopTabPicker: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityAddTraits(tab == selection ? .isSelected : [])
         .accessibilityShowsLargeContentViewer()
         .accessibilityIdentifier("minimal.tab.\(tab.rawValue)")
+        // 顶栏放不下横着滑的时候，按这个值把选中的一段滚进来。
+        .id(tab)
     }
 
     private var selectedFill: Color {
@@ -347,7 +527,13 @@ private struct MinimalSectionTabs: View {
     var accessibilityPrefix = "minimal.section"
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.minimalPageSwitchMotion) private var switchMotion
     @Namespace private var underline
+    /// 下划线暂时停在这个分类，为空就是跟着 `selection`。换分类时新页上这份顶栏是刚建的：
+    /// 先停在上一个分类（这一排也滚到那里），下一拍再滑过来。
+    @State private var heldSection: LibrarySection?
+
+    private var shownSection: LibrarySection? { heldSection ?? selection }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -361,33 +547,63 @@ private struct MinimalSectionTabs: View {
                 .padding(.horizontal, 20)
             }
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            .onChange(of: selection, initial: true) { _, section in
-                guard let section else { return }
-                if reduceMotion {
-                    proxy.scrollTo(section, anchor: .center)
+            .onAppear {
+                let origin = switchMotion?.origin(arrivingAt: { page in
+                    guard let selection else { return false }
+                    return page == .librarySection(selection)
+                })
+                if case .librarySection(let section)? = origin {
+                    slide(from: section, proxy: proxy)
                 } else {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(section, anchor: .center)
-                    }
+                    slide(from: nil, proxy: proxy)
                 }
+            }
+            .onChange(of: selection) { previous, _ in
+                slide(from: previous, proxy: proxy)
             }
         }
         .frame(height: 42)
     }
 
+    /// 下划线从 `origin` 滑到选中的分类，这一排跟着把它滚到中间。没有起点或者减少动态效果时
+    /// 直接落在选中的分类上，不从行首滚过去。
+    private func slide(from origin: LibrarySection?, proxy: ScrollViewProxy) {
+        guard let selection else { return }
+        guard let origin, origin != selection, sections.contains(origin),
+              let animation = PMMotion.selection.resolved(reduceMotion: reduceMotion) else {
+            minimalSetWithoutAnimation {
+                if heldSection != nil { heldSection = nil }
+                proxy.scrollTo(selection, anchor: .center)
+            }
+            return
+        }
+        minimalSetWithoutAnimation {
+            heldSection = origin
+            proxy.scrollTo(origin, anchor: .center)
+        }
+        // 先在起点画一帧，下一拍再滑（两次改动并进同一帧就成了原地跳过去）。
+        Task { @MainActor in
+            guard heldSection == origin else { return }
+            withAnimation(animation) {
+                heldSection = nil
+                proxy.scrollTo(selection, anchor: .center)
+            }
+        }
+    }
+
     private func item(_ section: LibrarySection) -> some View {
-        let isSelected = section == selection
+        let isShown = section == shownSection
         return Button {
             onSelect(section)
         } label: {
             Text(section.title)
-                .font(.body.weight(isSelected ? .bold : .medium))
-                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                .font(.body.weight(isShown ? .bold : .medium))
+                .foregroundStyle(isShown ? Color.primary : Color.secondary)
                 .lineLimit(1)
                 .fixedSize()
                 .frame(maxHeight: .infinity)
                 .overlay(alignment: .bottom) {
-                    if isSelected {
+                    if isShown {
                         Capsule()
                             .fill(Color.accentColor)
                             .frame(width: 20, height: 3)
@@ -398,7 +614,7 @@ private struct MinimalSectionTabs: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityAddTraits(section == selection ? .isSelected : [])
         .accessibilityIdentifier("\(accessibilityPrefix).\(section.rawValue)")
     }
 }
@@ -759,24 +975,30 @@ struct MinimalSpokenSwitcher: View {
     @Environment(\.minimalSpokenSections) private var sections
     @Environment(\.minimalSelectSection) private var select
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.minimalPageSwitchMotion) private var switchMotion
     @Namespace private var indicator
+    /// 白块暂时停在这一页，为空就是停在 `current`。切过来时这是新页上刚建的一份：
+    /// 先停在切换前那一页，下一拍再滑过来（见 `MinimalPageSwitchMotion`）。
+    @State private var heldSection: LibrarySection?
 
     var body: some View {
         if sections.count > 1, let select {
             HStack(spacing: 2) {
                 ForEach(sections) { section in
                     let isSelected = section == current
+                    let isShown = section == (heldSection ?? current)
                     Button {
                         guard !isSelected else { return }
                         select(section)
                     } label: {
                         Text(section.title)
-                            .font(.subheadline.weight(isSelected ? .semibold : .medium))
-                            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                            .font(.subheadline.weight(isShown ? .semibold : .medium))
+                            .foregroundStyle(isShown ? Color.primary : Color.secondary)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
                             .background {
-                                if isSelected {
+                                if isShown {
                                     RoundedRectangle(cornerRadius: 9, style: .continuous)
                                         .fill(colorScheme == .dark
                                             ? Color(uiColor: .systemGray3)
@@ -800,6 +1022,19 @@ struct MinimalSpokenSwitcher: View {
                 Color(uiColor: .secondarySystemFill),
                 in: RoundedRectangle(cornerRadius: 12, style: .continuous)
             )
+            .onAppear(perform: slideInFromPreviousPage)
+        }
+    }
+
+    private func slideInFromPreviousPage() {
+        let previousPage = switchMotion?.origin(arrivingAt: { $0 == .librarySection(current) })
+        guard case .librarySection(let origin)? = previousPage,
+              origin != current, sections.contains(origin),
+              let animation = PMMotion.selection.resolved(reduceMotion: reduceMotion) else { return }
+        minimalSetWithoutAnimation { heldSection = origin }
+        Task { @MainActor in
+            guard heldSection == origin else { return }
+            withAnimation(animation) { heldSection = nil }
         }
     }
 }
