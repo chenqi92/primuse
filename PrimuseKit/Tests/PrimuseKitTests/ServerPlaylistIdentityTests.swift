@@ -99,6 +99,46 @@ struct ServerPlaylistIdentityTests {
             serverPlaylistID: "deleted-on-server"
         )))
     }
+
+    @Test("The item index only holds IDs a playlist references, first hit winning")
+    func itemIndexKeepsOnlyWantedIDs() {
+        let candidates: [(filePath: String, songID: String)] = [
+            (filePath: "/songs/tr-1.flac", songID: "song-1"),
+            (filePath: "/songs/tr-2.flac", songID: "song-2"),
+            (filePath: "/songs/tr-1.m4a", songID: "song-1-duplicate"),
+            (filePath: "/songs/tr-3.mp3", songID: "song-3"),
+        ]
+
+        let index = ServerPlaylistIdentity.itemIndex(wanting: ["tr-1", "tr-3", "missing"], candidates: candidates)
+
+        #expect(index == ["tr-1": "song-1", "tr-3": "song-3"])
+    }
+
+    @Test("No wanted IDs means no walk over the source at all")
+    func itemIndexSkipsTheWalkWithoutPlaylists() {
+        var visited = 0
+        let candidates = (0..<1_000).lazy.map { offset -> (filePath: String, songID: String) in
+            visited += 1
+            return (filePath: "/songs/tr-\(offset).flac", songID: "song-\(offset)")
+        }
+
+        #expect(ServerPlaylistIdentity.itemIndex(wanting: [], candidates: candidates).isEmpty)
+        #expect(visited == 0)
+    }
+
+    @Test("The walk stops once every wanted ID has its first match")
+    func itemIndexStopsWhenComplete() {
+        var visited = 0
+        let candidates = (0..<1_000).lazy.map { offset -> (filePath: String, songID: String) in
+            visited += 1
+            return (filePath: "/songs/tr-\(offset).flac", songID: "song-\(offset)")
+        }
+
+        let index = ServerPlaylistIdentity.itemIndex(wanting: ["tr-2", "tr-4"], candidates: candidates)
+
+        #expect(index == ["tr-2": "song-2", "tr-4": "song-4"])
+        #expect(visited == 5)
+    }
 }
 
 @Suite("Server favorite writeback policy")

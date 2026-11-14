@@ -156,3 +156,54 @@ public enum ScanContinuedProcessingPolicy {
         return "\(sourceName) · \(counts)"
     }
 }
+
+/// 退到后台时要不要把能随时重建的派生数据放掉(整库查找表、搜索投影、已解码的封面、
+/// 播放页背景位图……)。
+///
+/// 挂起的进程按占用大小排队被系统回收: 几十万首的曲库挂起时还占着一点几 GB, 总是最先被
+/// 清掉的那一个, 用户回来看到的就是冷启动。这些数据回到前台按需重建; 只有后台还在继续干活、
+/// 马上又要用到它们的时候不放 —— 放歌、扫描、导入、设备间传输、离线下载、卡拉OK分离,
+/// 还有车机上正开着 App(手机这边在后台, 车机列表照样在读曲库)。
+public enum BackgroundMemoryTrimPolicy {
+    public struct Activity: Sendable, Equatable {
+        public var isPlaybackActive: Bool
+        public var isScanning: Bool
+        public var isImporting: Bool
+        public var isTransferring: Bool
+        public var isDownloadingForOffline: Bool
+        public var isSeparatingKaraoke: Bool
+        public var isCarPlayActive: Bool
+
+        public init(
+            isPlaybackActive: Bool = false,
+            isScanning: Bool = false,
+            isImporting: Bool = false,
+            isTransferring: Bool = false,
+            isDownloadingForOffline: Bool = false,
+            isSeparatingKaraoke: Bool = false,
+            isCarPlayActive: Bool = false
+        ) {
+            self.isPlaybackActive = isPlaybackActive
+            self.isScanning = isScanning
+            self.isImporting = isImporting
+            self.isTransferring = isTransferring
+            self.isDownloadingForOffline = isDownloadingForOffline
+            self.isSeparatingKaraoke = isSeparatingKaraoke
+            self.isCarPlayActive = isCarPlayActive
+        }
+
+        /// 后台还有活儿要接着干。
+        public var keepsWorkingInBackground: Bool {
+            isPlaybackActive || isScanning || isImporting || isTransferring
+                || isDownloadingForOffline || isSeparatingKaraoke || isCarPlayActive
+        }
+    }
+
+    /// 进后台之后等多久再放: 场景切换(系统截快照、最后一帧)先做完。放的那一刻再按当时的
+    /// 相位和活动重新判断一次, 这段时间里回到前台或者开始放歌都不放。
+    public static let settleDelay: TimeInterval = 1
+
+    public static func shouldTrim(phase: ScenePhaseKind, activity: Activity) -> Bool {
+        phase == .background && !activity.keepsWorkingInBackground
+    }
+}

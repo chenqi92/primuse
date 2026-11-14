@@ -48,6 +48,15 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
     private var radioCatalogObserver: NSObjectProtocol?
     /// 电台目录变更的通知一次播放就会连发好几条,合并成停下来约 400ms 后刷新一次词表。
     private var radioVocabularyRefreshTask: Task<Void, Never>?
+    /// 内存告警。电视上以前没人发 `.primuseMemoryPressure`,曲库的派生数据告警时也一直留着。
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
+    private var lastMemoryPressureHandledAt: Date?
+    /// 退到后台放内存的那一轮(见 `BackgroundMemoryTrimPolicy`)。每排一次、取消一次都前进,
+    /// 旧的那一轮收尾时不会把新一轮的断言放掉。
+    private var memoryTrimTask: Task<Void, Never>?
+    private var memoryTrimAssertion: UIBackgroundTaskIdentifier = .invalid
+    private var memoryTrimGeneration = 0
+    private var cacheRewarmTask: Task<Void, Never>?
 
     func application(
         _ application: UIApplication,
@@ -62,6 +71,7 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
         // 播放时屏幕常亮(各设备各自存):播放状态一变就重算要不要挡住屏保。
         let store = self.store
         ScreenIdleHoldController.shared.start { store.isPlaying }
+        startMemoryPressureMonitoring()
         radioCatalogObserver = NotificationCenter.default.addObserver(
             forName: .primuseTVSiriRadioCatalogDidChange,
             object: nil,
@@ -104,11 +114,109 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
         playMediaHandler.refreshRadioVocabulary()
         store.applicationDidBecomeActive()
         PodcastStore.shared.refreshAllIfDue()
+        cancelBackgroundMemoryTrim()
+        // 后台放掉过的整库数据,等头几帧画完在主线程外补回来(没放过时什么都不做)。
+        cacheRewarmTask?.cancel()
+        cacheRewarmTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, UIApplication.shared.applicationState == .active else { return }
+            self.store.library.rewarmReleasedCaches()
+            self.cacheRewarmTask = nil
+        }
     }
 
     func sceneDidEnterBackground() {
         Task { await store.persistForLifecycle() }
         PodcastStore.shared.flush()
+        scheduleBackgroundMemoryTrim()
+    }
+
+    // MARK: 内存
+
+    private func startMemoryPressureMonitoring() {
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                self?.handleMemoryPressure()
+            }
+        }
+        memoryPressureSource = source
+        source.activate()
+    }
+
+    private func handleMemoryPressure() {
+        // 告警会连着来好几次,第一次就已经放干净了。
+        let now = Date()
+        if let last = lastMemoryPressureHandledAt, now.timeIntervalSince(last) < 5 { return }
+        lastMemoryPressureHandledAt = now
+        plog("TV memory pressure: dropping rebuildable caches")
+        store.library.releaseRebuildableCaches()
+        store.releaseSearchCache()
+        PlayerBackdropMemoryCache.shared.removeAll()
+        NotificationCenter.default.post(name: .primuseMemoryPressure, object: nil)
+        Task {
+            await LibrarySearchIndex.shared.releaseReadCaches()
+            await MusicLibrary.returnFreedMemoryToSystem()
+        }
+    }
+
+    /// 不放歌、后台也没有要接着用曲库的活儿时,场景切换做完就把能重建的派生数据放掉:
+    /// 挂起时占得少,不总是被系统先回收。用一条很短的后台断言撑到页还给系统,到期回调当场放掉它。
+    private func scheduleBackgroundMemoryTrim() {
+        cancelBackgroundMemoryTrim()
+        cacheRewarmTask?.cancel()
+        cacheRewarmTask = nil
+        guard BackgroundMemoryTrimPolicy.shouldTrim(
+            phase: .background,
+            activity: store.backgroundMemoryTrimActivity
+        ) else { return }
+        memoryTrimGeneration &+= 1
+        let generation = memoryTrimGeneration
+        // 应用委托活到进程结束, 这里强引用它: 到期回调无论如何都要放掉断言。
+        let assertion = UIApplication.shared.beginBackgroundTask(withName: "primuse.memory-trim") { [self] in
+            MainActor.assumeIsolated {
+                self.cancelBackgroundMemoryTrim()
+            }
+        }
+        guard memoryTrimGeneration == generation else {
+            // 后台时间已经用完,到期回调在 begin 返回之前就来过了:这条断言当场放掉,这一轮不做。
+            if assertion != .invalid { UIApplication.shared.endBackgroundTask(assertion) }
+            return
+        }
+        memoryTrimAssertion = assertion
+        memoryTrimTask = Task { @MainActor in
+            defer {
+                if self.memoryTrimGeneration == generation { self.endMemoryTrimAssertion() }
+            }
+            try? await Task.sleep(for: .seconds(BackgroundMemoryTrimPolicy.settleDelay))
+            guard !Task.isCancelled, self.memoryTrimGeneration == generation,
+                  BackgroundMemoryTrimPolicy.shouldTrim(
+                      phase: UIApplication.shared.applicationState == .background ? .background : .inactive,
+                      activity: self.store.backgroundMemoryTrimActivity
+                  ) else { return }
+            self.store.library.releaseRebuildableCachesForBackground()
+            self.store.releaseSearchCache()
+            PlayerBackdropMemoryCache.shared.removeAll()
+            await MusicLibrary.returnFreedMemoryToSystem()
+            // 搜索 actor 可能正忙着同步索引;先把主线程这边放掉的还了,它那份放完再还一次。
+            await LibrarySearchIndex.shared.releaseReadCaches()
+            await MusicLibrary.returnFreedMemoryToSystem()
+            plog("TV memory trim: released rebuildable caches before suspension")
+        }
+    }
+
+    private func cancelBackgroundMemoryTrim() {
+        memoryTrimGeneration &+= 1
+        memoryTrimTask?.cancel()
+        memoryTrimTask = nil
+        endMemoryTrimAssertion()
+    }
+
+    private func endMemoryTrimAssertion() {
+        guard memoryTrimAssertion != .invalid else { return }
+        let identifier = memoryTrimAssertion
+        memoryTrimAssertion = .invalid
+        UIApplication.shared.endBackgroundTask(identifier)
     }
 
     /// CloudKit 的私有库变更推送。转发是必须的:引擎不会自己截获这条通知,

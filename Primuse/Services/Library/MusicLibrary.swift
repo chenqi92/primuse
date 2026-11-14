@@ -909,8 +909,6 @@ actor LibrarySearchIndex {
     private let metadataBatchDidWriteForTesting: (@Sendable (Int) async -> Void)?
     private let lyricsBatchDidWriteForTesting: (@Sendable (Int) async -> Void)?
     private var lastMetadataRevisionKey: String?
-    private var projectionAlbums: [Album] = []
-    private var projectionAlbumByID: [String: Album] = [:]
     private var projectionSongIDs: [String] = []
     private var projectionIndexByID: [String: Int] = [:]
     private struct SearchDisplayPath {
@@ -918,11 +916,14 @@ actor LibrarySearchIndex {
         let sourceID: String
         let value: String?
     }
+    /// 只记最近算过的一小批显示路径。短查询先用原始路径预筛
+    /// (`SongPathPresentationPolicy.displayPathMayContain`), 真要算显示路径的只是少数歌;
+    /// 以前整库每首都算一遍再全部留着, 几十万首的库上是九十多 MB。
     private var searchDisplayPaths: [String: SearchDisplayPath] = [:]
+    private static let searchDisplayPathLimit = 4_096
 
+    /// 搜索页关掉、退到后台、内存告警时调用。下一次搜索按需重建投影, 在这个 actor 上做, 不占主线程。
     func releaseReadCaches() {
-        projectionAlbums = []
-        projectionAlbumByID = [:]
         projectionSongIDs = []
         projectionIndexByID = [:]
         searchDisplayPaths = [:]
@@ -1488,6 +1489,11 @@ actor LibrarySearchIndex {
                 var ids: [String] = []
                 for (offset, song) in songs.enumerated() {
                     if offset.isMultiple(of: 512) { try Task.checkCancellation() }
+                    // 原始路径里都没有的, 显示路径里也不会有: 不必为整库每首都算一遍显示路径。
+                    guard SongPathPresentationPolicy.displayPathMayContain(
+                        filePath: song.filePath,
+                        query: trimmed
+                    ) else { continue }
                     if displayPath(for: song)?.localizedCaseInsensitiveContains(trimmed) == true {
                         ids.append(song.id)
                         if ids.count >= songLimit * 2 { break }
@@ -1599,17 +1605,25 @@ actor LibrarySearchIndex {
                 return lhs.song.title.localizedCaseInsensitiveCompare(rhs.song.title) == .orderedAscending
             }.prefix(songLimit))
 
-            if !sharesStorage(projectionAlbums, albums) {
-                projectionAlbums = albums
-                projectionAlbumByID = Dictionary(albums.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            }
-            var albumResults: [Album] = []
-            var albumIDs = Set<String>()
+            // 只为命中的歌找它们的专辑: 每次搜索把专辑表走一遍(几万张也就几毫秒), 不再给整库
+            // 专辑常驻一张字典(几十万首的库上二十来 MB)。同一个 id 仍是第一张算数。
+            var candidateAlbumIDs: [String] = []
+            var wantedAlbumIDs = Set<String>()
             for id in metadataIDs {
                 guard let albumID = indexedSong(withID: id)?.albumID,
-                      !albumIDs.contains(albumID),
-                      let album = projectionAlbumByID[albumID] else { continue }
-                albumIDs.insert(albumID)
+                      wantedAlbumIDs.insert(albumID).inserted else { continue }
+                candidateAlbumIDs.append(albumID)
+            }
+            var albumByID: [String: Album] = [:]
+            if !wantedAlbumIDs.isEmpty {
+                for album in albums where wantedAlbumIDs.contains(album.id) && albumByID[album.id] == nil {
+                    albumByID[album.id] = album
+                    if albumByID.count == wantedAlbumIDs.count { break }
+                }
+            }
+            var albumResults: [Album] = []
+            for albumID in candidateAlbumIDs {
+                guard let album = albumByID[albumID] else { continue }
                 albumResults.append(album)
                 if albumResults.count == albumLimit { break }
             }
@@ -2353,7 +2367,10 @@ actor LibrarySearchIndex {
             return cached.value
         }
         let path = SongPathPresentationPolicy.displayPath(filePath: song.filePath, sourceID: song.sourceID)
-        searchDisplayPaths[song.id] = SearchDisplayPath(filePath: song.filePath, sourceID: song.sourceID, value: path)
+        // 记满了就不再往里放: 预筛之后还要算的多半是同一批歌, 不值得为它整库常驻。
+        if searchDisplayPaths.count < Self.searchDisplayPathLimit {
+            searchDisplayPaths[song.id] = SearchDisplayPath(filePath: song.filePath, sourceID: song.sourceID, value: path)
+        }
         return path
     }
 
@@ -3331,6 +3348,20 @@ enum MusicDiscoveryEngine {
 
     static func releaseFeatureIndex() {
         featureIndexCache.withLock { $0 = nil }
+    }
+
+    static var hasFeatureIndex: Bool {
+        featureIndexCache.withLock { $0 != nil }
+    }
+
+    /// 退到后台放掉之前建着的那份, 回到前台在主线程外先建好: 相似歌曲、歌曲电台在主线程上取它,
+    /// 冷的话要整库走一遍。
+    static func prewarmFeatureIndex(
+        for songs: [Song],
+        revision: UInt64,
+        isCancelled: () -> Bool
+    ) {
+        _ = featureIndex(for: songs, revision: revision, isCancelled: isCancelled)
     }
 
     /// The feature index for `songs`, reused while the library's music list
@@ -8817,6 +8848,9 @@ final class MusicLibrary {
     }
 
     func releaseRebuildableCaches() {
+        // 正在补建的那一轮作废: 放掉之后又在后台把它们装回来, 等于白放。
+        rebuildableCacheRewarmTask?.cancel()
+        rebuildableCacheRewarmTask = nil
         materializedSourceSongs.removeAll()
         materializedAlbumSongs.removeAll()
         visibleSongPositionsByAlbumID = nil
@@ -8831,8 +8865,84 @@ final class MusicLibrary {
         disabledSourcePlaylistCache = nil
         incomingSongInterner = SongStringInterner()
         MusicDiscoveryEngine.releaseFeatureIndex()
+        // 同样由整库算出、随时能重建的两份: 喜欢的专辑 / 艺人键表, 「此刻的专辑」候选索引。
+        LibraryFavoritesStore.releaseKeyCache()
+        AlbumRecommendationService.shared.releaseCandidateIndex()
         Task { await LibrarySearchIndex.shared.releaseReadCaches() }
     }
+
+    /// 退到后台时用: 和内存告警放掉同样的数据, 另外记下其中哪几份放之前是建好的。
+    /// 这几份第一次用到时要在主线程上整库重建(相似歌曲 / 歌曲电台的特征索引、打开专辑用的
+    /// 位置表、「喜欢」筛选用的键表), 回到前台由 `rewarmReleasedCaches()` 先在主线程外补回来。
+    func releaseRebuildableCachesForBackground() {
+        var released = releasedWarmCaches ?? ReleasedWarmCaches()
+        released.featureIndex = released.featureIndex || MusicDiscoveryEngine.hasFeatureIndex
+        released.albumPositions = released.albumPositions || visibleSongPositionsByAlbumID != nil
+        released.favoriteKeys = released.favoriteKeys || LibraryFavoritesStore.hasPreparedKeys
+        releasedWarmCaches = released
+        releaseRebuildableCaches()
+    }
+
+    /// 回到前台后调用。只补放之前就建着的那几份, 都在主线程外算, 算好时可见集已经换过的就不装。
+    func rewarmReleasedCaches() {
+        guard let released = releasedWarmCaches else { return }
+        releasedWarmCaches = nil
+        rebuildableCacheRewarmTask?.cancel()
+        rebuildableCacheRewarmTask = Task(priority: .utility) { @MainActor [weak self] in
+            guard let self else { return }
+            if released.albumPositions, self.visibleSongPositionsByAlbumID == nil {
+                let reference = self.visibleSongsLookupReference
+                let worker = Task.detached(priority: .utility) {
+                    Self.albumSongPositions(in: reference.value)
+                }
+                let positions = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+                guard !Task.isCancelled else { return }
+                if self.visibleSongPositionsByAlbumID == nil, self.visibleSongsLookupReference === reference {
+                    self.visibleSongPositionsByAlbumID = positions
+                }
+            }
+            let favorites = LibraryFavoritesStore.shared
+            // 一个喜欢都没有时筛选直接返回, 用不到键表。
+            if released.favoriteKeys, favorites.hasLikedAlbums || favorites.hasLikedArtists {
+                let albums = self.visibleAlbums
+                let artists = self.visibleArtists
+                let albumArtists = self.visibleAlbumArtists
+                let worker = Task.detached(priority: .utility) {
+                    LibraryFavoritesStore.prepareKeys(albums: albums, artists: artists) { Task.isCancelled }
+                    LibraryFavoritesStore.prepareKeys(albums: [], artists: albumArtists) { Task.isCancelled }
+                }
+                await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+                guard !Task.isCancelled else { return }
+            }
+            if released.featureIndex {
+                let songs = self.musicSongs
+                let revision = self.musicSongsRevision
+                let worker = Task.detached(priority: .utility) {
+                    MusicDiscoveryEngine.prewarmFeatureIndex(for: songs, revision: revision) { Task.isCancelled }
+                }
+                await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            }
+            if !Task.isCancelled { self.rebuildableCacheRewarmTask = nil }
+        }
+    }
+
+    private struct ReleasedWarmCaches {
+        var featureIndex = false
+        var albumPositions = false
+        var favoriteKeys = false
+    }
+
+    /// 放掉的内存先回到 malloc 的空闲表, 不还给系统的话挂起时的占用照旧。在主线程外做。
+    nonisolated static func returnFreedMemoryToSystem() async {
+        await Task.detached(priority: .utility) {
+            #if canImport(Darwin)
+            _ = malloc_zone_pressure_relief(nil, 0)
+            #endif
+        }.value
+    }
+
+    @ObservationIgnored private var releasedWarmCaches: ReleasedWarmCaches?
+    @ObservationIgnored private var rebuildableCacheRewarmTask: Task<Void, Never>?
 
     nonisolated static func visibleSongs(_ songs: [Song], excluding sources: Set<String>) -> [Song] {
         guard !sources.isEmpty,
@@ -8848,8 +8958,15 @@ final class MusicLibrary {
     /// 数组下标会把整首歌拷出来再丢掉。
     private func albumSongPositions() -> [String: [Int]] {
         if let cached = visibleSongPositionsByAlbumID { return cached }
+        let positions = Self.albumSongPositions(in: visibleSongsLookupReference.value)
+        visibleSongPositionsByAlbumID = positions
+        return positions
+    }
+
+    /// 不碰实例状态, 回到前台补建时在主线程外调用(见 `rewarmReleasedCaches()`)。
+    private nonisolated static func albumSongPositions(in songs: [Song]) -> [String: [Int]] {
         var positions: [String: [Int]] = [:]
-        visibleSongsLookupReference.value.withUnsafeBufferPointer { buffer in
+        songs.withUnsafeBufferPointer { buffer in
             guard let base = buffer.baseAddress else { return }
             var index = 0
             while index < buffer.count {
@@ -8859,7 +8976,6 @@ final class MusicLibrary {
                 index += 1
             }
         }
-        visibleSongPositionsByAlbumID = positions
         return positions
     }
 
@@ -14237,6 +14353,9 @@ final class MusicLibrary {
                 return
             }
             if !Task.isCancelled {
+                // 搜索投影按旧的歌曲顺序建, 这次重建一落地多半就作废; 先放掉, 别让它和重建中的
+                // 新旧两份可见集一起压在峰值上。下一次搜索在搜索 actor 上按需重建, 不占主线程。
+                await LibrarySearchIndex.shared.releaseReadCaches()
                 let startedAt = ProcessInfo.processInfo.systemUptime
                 let signature = MusicLibrary.derivedIndexSignature(
                     for: request.songs,

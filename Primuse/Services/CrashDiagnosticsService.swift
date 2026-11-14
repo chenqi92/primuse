@@ -114,9 +114,12 @@ final class CrashDiagnosticsService: NSObject {
         let now = Date()
         if let last = lastMemoryPressureHandledAt, now.timeIntervalSince(last) < 5 { return }
         lastMemoryPressureHandledAt = now
-        plog("🧠 memory pressure \(level); dropping decoded artwork cache")
-        crashLog.notice("Memory pressure \(level, privacy: .public); dropping decoded artwork cache")
+        plog("🧠 memory pressure \(level); dropping decoded artwork and backdrop caches")
+        crashLog.notice("Memory pressure \(level, privacy: .public); dropping decoded artwork and backdrop caches")
         CachedArtworkView.purgeDecodedImageCache()
+        // 播放页背景位图(最多 96 MB)以前告警时也不放; 盘上有原图, 再打开播放页时重新解。
+        PlayerBackdropMemoryCache.shared.removeAll()
+        // 曲库派生数据、喜欢的键表、推荐索引、搜索投影、系统封面缓存都挂在这条通知上。
         NotificationCenter.default.post(name: .primuseMemoryPressure, object: nil)
     }
 

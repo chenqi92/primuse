@@ -1312,6 +1312,16 @@ final class TVStore {
 
     /// 播放状态镜像自引擎(@Observable 组合,视图读取即订阅引擎变化)。
     var isPlaying: Bool { engine.isPlaying }
+    /// 退到后台时还在干、马上又要用到曲库的活儿:放歌、扫描、套用手机发来的快照、卡拉OK分离。
+    /// 有这些就不放能重建的缓存(`BackgroundMemoryTrimPolicy`)。
+    var backgroundMemoryTrimActivity: BackgroundMemoryTrimPolicy.Activity {
+        BackgroundMemoryTrimPolicy.Activity(
+            isPlaybackActive: isPlaying || isLoading,
+            isScanning: activeScanSourceID != nil,
+            isImporting: isApplyingSnapshot || hasPendingSnapshotImport || hasPendingSnapshotRecovery,
+            isSeparatingKaraoke: KaraokeSeparationService.shared.hasWorkInFlight
+        )
+    }
     var isLoading: Bool { engine.status == .loading }
     var currentTime: Double { engine.currentTime }
     /// 逐字歌词等按帧推进的绘制要用的播放时钟:在两次时间回调之间按墙上时钟补值。
@@ -1698,6 +1708,12 @@ final class TVStore {
     }
 
     @ObservationIgnored private var searchCache = LibrarySearchCache()
+
+    /// 搜索时攒下的歌词全文与分行(搜过几轮歌词就是大半个曲库的)。退到后台、内存告警时放掉,
+    /// 下一次搜索在后台按需重新读。
+    func releaseSearchCache() {
+        searchCache = LibrarySearchCache()
+    }
 
     struct TVSearchResults {
         let artists: [TVArtist]
@@ -5782,13 +5798,16 @@ final class TVStore {
     ) async {
         do {
             let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
+            // 逐张落地用的整源对照读完就放掉, 不和收尾那次对照叠在一起。
+            defer { applier.finish() }
             guard let snapshot = try await scanner.fetchServerPlaylists(
                 source: source, credential: credential,
                 progress: { @MainActor [weak self] playlist in
                     guard let self, applyFence() else { return }
-                    applier.apply(playlist)
+                    applier.enqueue(playlist)
                 }
             ) else { return }
+            applier.finish()
             guard applyFence() else { return }
             _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library,
                                            descriptionReadRevision: applier.descriptionReadRevision)
@@ -5839,12 +5858,14 @@ final class TVStore {
         do {
             // 读全一个显示一个，整轮读完再按快照核对删除，与 iPhone/Mac 一致。
             let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
+            defer { applier.finish() }
             let snapshot = try await scanner.fetchFnMusicPlaylists(
                 source: source, credential: credential
             ) { @MainActor [weak self] playlist in
                 guard let self, applyFence() else { return }
-                applier.apply(Self.serverPlaylist(playlist, sourceID: source.id))
+                applier.enqueue(Self.serverPlaylist(playlist, sourceID: source.id))
             }
+            applier.finish()
             guard applyFence() else {
                 plog("\(context) stage=apply result=skipped reason=stale-scan")
                 return

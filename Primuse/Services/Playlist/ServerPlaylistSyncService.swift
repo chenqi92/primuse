@@ -28,15 +28,16 @@ enum ServerPlaylistSyncService {
         plog("\(context) stage=fetch result=started enabled=\(source.isEnabled)")
 
         let snapshot: ServerPlaylistSnapshot?
+        // 整源对照等第一张带曲目的歌单读回来才建: 源上没有歌单就不必为几十万首建一份。
         let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
-        await applier.prepareIndex()
+        defer { applier.finish() }
         guard !Task.isCancelled, applyFence() else { return result }
         do {
             // 进度回调只在这次读取期间被调用, 读完就不再持有闸门。
             snapshot = try await withoutActuallyEscaping(applyFence) { fence in
                 try await sourceManager.fetchServerPlaylists(for: source) { @MainActor playlist in
                     guard fence() else { return }
-                    applier.apply(playlist)
+                    applier.enqueue(playlist)
                 }
             }
         } catch is CancellationError {
@@ -46,6 +47,8 @@ enum ServerPlaylistSyncService {
             plog("\(context) stage=fetch result=failed \(LogRedactionPolicy.errorSummary(error))")
             return result
         }
+        // 逐张落地到此为止: 整源对照先放掉, 收尾只为歌单引用到的曲目再对一遍。
+        applier.finish()
         // nil = 该源类型没有歌单能力, 不要动本地任何东西。
         guard let snapshot else {
             plog("\(context) stage=apply result=skipped reason=unsupported")

@@ -60,6 +60,10 @@ final class AlbumRecommendationService {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var index: AlbumCandidateIndex?
     @ObservationIgnored private var indexBuiltAt: Date?
+    /// 退到后台 / 内存告警时放掉的那份索引是按哪一版曲库建的、是不是空的。回来以后照原来的
+    /// 规则判断它算不算过期: 放掉过不是重排推荐的理由, 这一刻真要重排时才在主线程外重建。
+    @ObservationIgnored private var releasedIndexIdentity: (libraryGeneration: UInt64, isEmpty: Bool)?
+    @ObservationIgnored private var indexReleaseCount = 0
     /// Track-ordered song IDs of every pick, resolved with the picks.
     @ObservationIgnored private var trackOrder: [String: [String]] = [:]
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -115,11 +119,14 @@ final class AlbumRecommendationService {
         if followsClock { scheduleMomentChange(at: moment.validUntil) }
 
         let generation = library.musicSongsRevision
-        let indexIsStale = index.map { index in
-            guard index.libraryGeneration != generation else { return false }
+        let indexIdentity: (libraryGeneration: UInt64, isEmpty: Bool)? = index.map {
+            (libraryGeneration: $0.libraryGeneration, isEmpty: $0.candidates.isEmpty)
+        } ?? releasedIndexIdentity
+        let indexIsStale = indexIdentity.map { identity in
+            guard identity.libraryGeneration != generation else { return false }
             // The library moved on: rebuild, but not more often than the
             // other whole-library derivations while a scan keeps it moving.
-            return index.candidates.isEmpty
+            return identity.isEmpty
                 || now.timeIntervalSince(indexBuiltAt ?? .distantPast)
                     >= ListeningIntentEngine.refreshInterval(songCount: library.musicSongs.count)
         } ?? true
@@ -146,6 +153,7 @@ final class AlbumRecommendationService {
         let pickCount = AlbumPickBatchPolicy.poolSize(visibleCount: visibleCount)
         let reusableIndex = indexIsStale ? nil : index
         let startedAt = ProcessInfo.processInfo.systemUptime
+        let releaseCountAtStart = indexReleaseCount
 
         refreshTask = Task { @MainActor [weak self] in
             let worker = Task.detached(priority: .utility) { () -> (AlbumCandidateIndex, AlbumRecommendationSet, [AlbumRecommendation], [String: [String]])? in
@@ -193,9 +201,11 @@ final class AlbumRecommendationService {
             self.refreshTask = nil
             if let result {
                 let (index, set, forYou, order) = result
-                if reusableIndex == nil {
+                // 算的这一会儿索引被放掉过(退到后台了): 推荐照常换上, 索引不再留着。
+                if reusableIndex == nil, self.indexReleaseCount == releaseCountAtStart {
                     self.index = index
                     self.indexBuiltAt = now
+                    self.releasedIndexIdentity = nil
                 }
                 self.forYouAlbums = forYou
                 self.apply(set, trackOrder: order)
@@ -213,6 +223,15 @@ final class AlbumRecommendationService {
                 self.refresh(library: library)
             }
         }
+    }
+
+    /// 退到后台 / 内存告警时调用(`MusicLibrary.releaseRebuildableCaches()`)。整库一遍算出来的
+    /// 候选索引能随时重建; 已经选好的推荐和曲目顺序很小, 照留, 首页卡片不变。
+    func releaseCandidateIndex() {
+        indexReleaseCount &+= 1
+        guard let index else { return }
+        releasedIndexIdentity = (libraryGeneration: index.libraryGeneration, isEmpty: index.candidates.isEmpty)
+        self.index = nil
     }
 
     private func apply(_ set: AlbumRecommendationSet, trackOrder: [String: [String]]) {

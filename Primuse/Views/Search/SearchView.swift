@@ -382,6 +382,24 @@ final class SearchWorkCoordinator {
         cancelLocalSearch()
         cancelIntelligence()
     }
+
+    /// 离开搜索页一阵子才放掉整库的搜索投影(几十万首时三十来 MB); 点进结果再退回来不算离开。
+    /// 下一次搜索在搜索 actor 上按需重建, 不占主线程。
+    private var readCacheReleaseTask: Task<Void, Never>?
+
+    func scheduleReadCacheRelease() {
+        readCacheReleaseTask?.cancel()
+        readCacheReleaseTask = Task {
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled else { return }
+            await LibrarySearchIndex.shared.releaseReadCaches()
+        }
+    }
+
+    func cancelReadCacheRelease() {
+        readCacheReleaseTask?.cancel()
+        readCacheReleaseTask = nil
+    }
 }
 
 #if os(iOS)
@@ -1306,6 +1324,7 @@ struct SearchView: View {
             selection.prune(to: Set(selectableSongIDs))
         }
         .onAppear {
+            workCoordinator.cancelReadCacheRelease()
             loadRecentSearches()
             if searchText.isEmpty {
                 // 搜索词可能是在别的页面清掉的, 这时本页收不到变化;
@@ -1427,7 +1446,10 @@ struct SearchView: View {
             workCoordinator.folderKey = nil
             performSearch(query: searchText)
         }
-        .onDisappear { workCoordinator.cancelSearch() }
+        .onDisappear {
+            workCoordinator.cancelSearch()
+            workCoordinator.scheduleReadCacheRelease()
+        }
     }
 
     @ViewBuilder

@@ -2056,11 +2056,16 @@ final class MetadataBackfillService {
             // Runs on the main thread; release the assertion before the
             // expiration grace period ends instead of after a main-actor hop.
             MainActor.assumeIsolated {
-                guard let self, self.backgroundAssertionGeneration == assertionGeneration,
-                      !self.hasContinuedProcessingTime, self.systemProcessingSessions.isEmpty,
-                      UIApplication.shared.applicationState != .active else { return }
-                self.backgroundExecutionExpired = true
-                self.stop()
+                guard let self, self.backgroundAssertionGeneration == assertionGeneration else { return }
+                if !self.hasContinuedProcessingTime, self.systemProcessingSessions.isEmpty,
+                   UIApplication.shared.applicationState != .active {
+                    self.backgroundExecutionExpired = true
+                    self.stop()
+                }
+                // 到期回调返回前这条断言必须放掉。系统另给了处理时间、已经回到前台时不停读取,
+                // 但断言同样到期了: 以前这几种情况直接返回, 断言一直挂着, 系统就按后台断言超时
+                // 结束进程(MetricKit 里的 backgroundTaskAssertionTimeout)。
+                self.endBackgroundTaskIfHeld()
             }
         }
         plog("📥 Backfill: beginBackgroundTask id=\(backgroundTaskID.rawValue)")

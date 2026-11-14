@@ -125,6 +125,44 @@ struct SongPathPresentationPolicyTests {
         ) == nil)
     }
 
+    /// 短查询逐首看路径时的预筛: 显示路径里有的, 预筛绝不能先排除掉。
+    @Test("Path prefilter never rejects a song whose display path matches")
+    func pathPrefilterIsConservative() {
+        let paths = [
+            "https://user:password@example.com/音乐/Song%20Name.flac?X-Amz-Signature=secret#token",
+            "/private/var/mobile/Containers/Data/Application/UUID/Documents/周杰伦/晴天.flac",
+            "/Users/private-name/Music/Café/Track.flac",
+            "C:\\Music\\陈奕迅\\十年.mp3",
+            "/songs/tr-100.flac",
+            "/Music/Line\nBreak/歌.m4a",
+            "nfs::\(base64URL("/volume/Music"))::\(base64URL("/现场/Track.flac"))",
+            "   /Music/前后空白.flac  ",
+        ]
+        let queries = ["音", "音乐", "周", "晴天", "Ca", "café", "C", "陈", "年", "tr", "10", "Do",
+                       "Doc", "~/", "/", "u/", "e B", "歌", "现场", "空白", "Mu", "%", "zz"]
+        for path in paths {
+            let display = SongPathPresentationPolicy.displayPath(filePath: path, sourceID: "src")
+            for query in queries where display?.localizedCaseInsensitiveContains(query) == true {
+                #expect(
+                    SongPathPresentationPolicy.displayPathMayContain(filePath: path, query: query),
+                    "\(query) is in \(display ?? "") but the prefilter rejected \(path)"
+                )
+            }
+        }
+    }
+
+    @Test("Path prefilter skips ASCII paths for Han queries and plain misses")
+    func pathPrefilterRejectsCheaply() {
+        #expect(!SongPathPresentationPolicy.displayPathMayContain(filePath: "/songs/tr-100.flac", query: "晴天"))
+        #expect(!SongPathPresentationPolicy.displayPathMayContain(filePath: "/Music/Album/Track.flac", query: "zq"))
+        #expect(SongPathPresentationPolicy.displayPathMayContain(filePath: "/Music/晴天.flac", query: "晴天"))
+        // 百分号编码和 NFS 令牌要解出来才知道, 不预筛。
+        #expect(SongPathPresentationPolicy.displayPathMayContain(filePath: "/Music/%E6%99%B4.flac", query: "晴"))
+        #expect(SongPathPresentationPolicy.displayPathMayContain(filePath: "nfs::abc::def", query: "晴"))
+        // 查询里带分隔字符时显示路径可能是拼出来的, 同样不预筛。
+        #expect(SongPathPresentationPolicy.displayPathMayContain(filePath: "/Music/Track.flac", query: "c/T"))
+    }
+
     private func base64URL(_ value: String) -> String {
         Data(value.utf8)
             .base64EncodedString()

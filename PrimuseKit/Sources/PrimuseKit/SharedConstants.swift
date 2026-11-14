@@ -1777,6 +1777,29 @@ public enum ServerPlaylistIdentity {
         let stripped = (last as NSString).deletingPathExtension
         return stripped.isEmpty ? nil : stripped
     }
+
+    /// 服务端曲目 ID → 本地 `Song.id`, 只收 `wanted` 里的 ID(歌单真正引用到的那些)。
+    ///
+    /// 给整个源建一份对照, 几十万首的服务器源上就是上百 MB 的临时字典, 而歌单通常只引用
+    /// 其中几千首, 没有歌单时一首都用不上。同一个 ID 出现多次(扫描留下的重复行)时第一个
+    /// 命中的算数, 与整源对照的结果一致; 要的都找到了就不再往下看。
+    /// - Parameter candidates: 这个源的歌, 按曲库顺序给出 `(filePath, songID)`。
+    public static func itemIndex<Candidates: Sequence>(
+        wanting wanted: Set<String>,
+        candidates: Candidates
+    ) -> [String: String] where Candidates.Element == (filePath: String, songID: String) {
+        guard !wanted.isEmpty else { return [:] }
+        var index: [String: String] = [:]
+        index.reserveCapacity(wanted.count)
+        for candidate in candidates {
+            guard let itemID = serverItemID(fromFilePath: candidate.filePath),
+                  wanted.contains(itemID),
+                  index[itemID] == nil else { continue }
+            index[itemID] = candidate.songID
+            if index.count == wanted.count { break }
+        }
+        return index
+    }
 }
 
 /// Which mirrored server playlists accept songs added from Primuse.
@@ -2151,6 +2174,43 @@ public enum SongPathPresentationPolicy {
         }
 
         return normalizedDisplayPath(path)
+    }
+
+    /// 不算显示路径就能排除的歌。一两个字的搜索要逐首看路径, 显示路径却要解码、折叠、
+    /// 去掉 URL 认证段, 几十万首每首算一遍要好几秒, 留着结果又是上百 MB。
+    ///
+    /// 返回 `false` 时 `displayPath(filePath:sourceID:sourceType:)` 一定不含 `query`
+    /// (同样按 `localizedCaseInsensitiveContains` 比); 返回 `true` 只表示要算出来再看。
+    /// 显示路径只从原始路径里删字符, 或者换出 `/`、空格、`~/`、`Documents/`, 再就是解百分号
+    /// 编码和 NFS 的 base64 —— 碰到后两种原始路径, 或者查询里带这些分隔字符, 一律不预筛。
+    public static func displayPathMayContain(filePath rawPath: String, query: String) -> Bool {
+        guard !query.isEmpty else { return true }
+        if rawPath.utf8.contains(UInt8(ascii: "%"))
+            || rawPath.drop(while: \.isWhitespace).hasPrefix("nfs::") {
+            return true
+        }
+        if query.unicodeScalars.contains(where: { scalar in
+            scalar == "/" || scalar == "\\" || scalar == "~" || scalar == "%"
+                || CharacterSet.whitespacesAndNewlines.contains(scalar)
+        }) {
+            return true
+        }
+        // 汉字没有大小写, 不会和 ASCII 字符算作相等: 纯 ASCII 的路径(服务器源的
+        // `/songs/<id>.flac`)里不可能找到, 连逐字比较都省掉。
+        if query.unicodeScalars.contains(where: isHanScalar),
+           !rawPath.utf8.contains(where: { $0 >= 0x80 }) {
+            return false
+        }
+        return rawPath.localizedCaseInsensitiveContains(query)
+    }
+
+    private static func isHanScalar(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0x20000...0x2FA1F:
+            return true
+        default:
+            return false
+        }
     }
 
     private static func normalizedDisplayPath(

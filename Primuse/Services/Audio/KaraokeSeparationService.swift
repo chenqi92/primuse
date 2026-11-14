@@ -310,6 +310,10 @@ final class KaraokeSeparationService {
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
     @ObservationIgnored private var onsetCache: [String: [KaraokeOnset]] = [:]
 
+    /// A separation or the model download is still running (or parked
+    /// until the app returns to the foreground).
+    var hasWorkInFlight: Bool { !jobs.isEmpty || downloadTask != nil }
+
     /// Bounds the work and temporary disk space for one separation.
     nonisolated static let maximumDuration: TimeInterval = 15 * 60
     nonisolated static let modelSampleRate = KaraokeDemucsLayout.standard.sampleRate

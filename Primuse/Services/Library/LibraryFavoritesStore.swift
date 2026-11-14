@@ -25,14 +25,31 @@ final class LibraryFavoritesStore {
     /// 两个 id 本来就由同样的名字算出来，同一个 id 的键不会变。
     private nonisolated static let keyCache = LibraryFavoriteKeyCache()
 
-    nonisolated static func prepareKeys(albums: [Album], artists: [Artist]) {
+    /// 整库预先算好(在主线程外), 主线程上的整库筛选只剩查表。
+    nonisolated static func prepareKeys(
+        albums: [Album],
+        artists: [Artist],
+        isCancelled: () -> Bool = { false }
+    ) {
         let unknown = String(localized: "unknown_artist")
-        for album in albums {
+        for (offset, album) in albums.enumerated() {
+            if offset.isMultiple(of: 512), isCancelled() { return }
             _ = keyCache.key(kind: .album, id: album.id, title: album.title, artist: album.artistName ?? "", unknown: unknown)
         }
-        for artist in artists {
+        for (offset, artist) in artists.enumerated() {
+            if offset.isMultiple(of: 512), isCancelled() { return }
             _ = keyCache.key(kind: .artist, id: artist.id, title: "", artist: artist.name, unknown: unknown)
         }
+    }
+
+    /// 退到后台 / 内存告警时放掉(几十万首的库上三十来 MB)。之后查到哪个算哪个, 结果不变;
+    /// 回到前台由 `MusicLibrary.rewarmReleasedCaches()` 在主线程外补回整库的。
+    nonisolated static func releaseKeyCache() {
+        keyCache.removeAll()
+    }
+
+    nonisolated static var hasPreparedKeys: Bool {
+        !keyCache.isEmpty
     }
 
     init(fileURL: URL? = LibraryFavoritesStore.defaultFileURL()) {
@@ -275,24 +292,47 @@ private final class LibraryFavoriteKeyCache: @unchecked Sendable {
     private struct Entry {
         let title: String
         let artist: String
-        let unknown: String
         let key: String
     }
     private let lock = NSLock()
-    private var entries: [String: Entry] = [:]
+    /// 专辑、艺人各一张, 直接拿 id 当键, 不再为每一条另拼一个「类型:id」字符串。
+    private var albums: [String: Entry] = [:]
+    private var artists: [String: Entry] = [:]
+    /// 本机语言的「未知艺术家」整张表共用, 不再每条存一份; 换了就整张作废重算。
+    private var unknown: String?
+
+    var isEmpty: Bool {
+        lock.withLock { albums.isEmpty && artists.isEmpty }
+    }
+
+    func removeAll() {
+        lock.withLock {
+            albums = [:]
+            artists = [:]
+        }
+    }
 
     func key(kind: LibraryFavoriteKind, id: String, title: String, artist: String, unknown: String) -> String {
-        let cacheID = "\(kind.rawValue):\(id)"
-        lock.lock()
-        if let entry = entries[cacheID], entry.title == title, entry.artist == artist, entry.unknown == unknown {
-            lock.unlock()
+        let cached: String? = lock.withLock {
+            guard self.unknown == unknown,
+                  let entry = kind == .album ? albums[id] : artists[id],
+                  entry.title == title, entry.artist == artist else { return nil }
             return entry.key
         }
-        lock.unlock()
+        if let cached { return cached }
         let key = LibraryFavoriteKey.id(kind: kind, albumTitle: title, artistName: artist, unknownArtistName: unknown)
-        lock.lock()
-        entries[cacheID] = Entry(title: title, artist: artist, unknown: unknown, key: key)
-        lock.unlock()
+        lock.withLock {
+            if self.unknown != unknown {
+                albums = [:]
+                artists = [:]
+                self.unknown = unknown
+            }
+            let entry = Entry(title: title, artist: artist, key: key)
+            switch kind {
+            case .album: albums[id] = entry
+            case .artist: artists[id] = entry
+            }
+        }
         return key
     }
 }

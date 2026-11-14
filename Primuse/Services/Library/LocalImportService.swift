@@ -249,6 +249,44 @@ enum LocalImportService {
         }
     }
 
+    #if os(iOS)
+    /// 正在拷贝的导入会话数。退到后台要不要放掉缓存时看它(`BackgroundMemoryTrimPolicy`)。
+    @MainActor private static var activeCopyCount = 0
+    @MainActor static var isCopying: Bool { activeCopyCount > 0 }
+
+    /// 导入拷贝用的那条后台断言。到期回调必须当场放掉它: 以前回调只发取消, 断言要等拷贝自己
+    /// 收尾时才在主线程上放, 而取消要等手头这个文件拷完(大文件、慢的文件提供方要很久),
+    /// 超过宽限期系统就按后台断言超时直接结束进程。到期回调和正常收尾谁先到谁放, 只放一次。
+    @MainActor
+    private final class ImportBackgroundAssertion {
+        private var identifier: UIBackgroundTaskIdentifier = .invalid
+        private var didExpire = false
+
+        func begin(onExpiration: @escaping @Sendable () -> Void) {
+            let identifier = UIApplication.shared.beginBackgroundTask(withName: "LocalMusicImport") { [self] in
+                onExpiration()
+                MainActor.assumeIsolated {
+                    self.didExpire = true
+                    self.end()
+                }
+            }
+            // 时间已经用完时系统可能在 begin 返回之前就调到期回调, 那时还没有 id 可放。
+            if didExpire {
+                if identifier != .invalid { UIApplication.shared.endBackgroundTask(identifier) }
+            } else {
+                self.identifier = identifier
+            }
+        }
+
+        func end() {
+            guard identifier != .invalid else { return }
+            let current = identifier
+            identifier = .invalid
+            UIApplication.shared.endBackgroundTask(current)
+        }
+    }
+    #endif
+
     private actor ExecutionGate {
         static let shared = ExecutionGate()
         private var running = false
@@ -317,10 +355,11 @@ enum LocalImportService {
         let cancellationRelay = WorkerCancellationRelay()
         let worker = Task.detached(priority: .utility) {
             #if os(iOS)
-            let backgroundTask = await MainActor.run {
-                UIApplication.shared.beginBackgroundTask(withName: "LocalMusicImport") {
-                    cancellationRelay.cancel()
-                }
+            let backgroundAssertion = await MainActor.run { () -> ImportBackgroundAssertion in
+                activeCopyCount += 1
+                let assertion = ImportBackgroundAssertion()
+                assertion.begin { cancellationRelay.cancel() }
+                return assertion
             }
             #endif
             await ExecutionGate.shared.acquire()
@@ -333,9 +372,8 @@ enum LocalImportService {
             await ExecutionGate.shared.release()
             #if os(iOS)
             await MainActor.run {
-                if backgroundTask != .invalid {
-                    UIApplication.shared.endBackgroundTask(backgroundTask)
-                }
+                activeCopyCount -= 1
+                backgroundAssertion.end()
             }
             #endif
             continuation.yield(.finished(result))

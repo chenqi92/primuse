@@ -611,6 +611,17 @@ extension AudioPlayerService {
         updatePlaybackState()
     }
 
+    /// 退到后台、内存告警时调用: 系统封面缓存里只留当前这首(锁屏、车机还在显示它),
+    /// 预取的下一首和之前几首的位图放掉, 再用到时照原来的路径加载。
+    func trimNowPlayingArtworkCacheToCurrentItem() {
+        let key = Self.systemArtworkCacheKey(for: currentSong) as NSString
+        let current = currentSong == nil ? nil : nowPlayingArtworkCache.object(forKey: key)
+        nowPlayingArtworkCache.removeAllObjects()
+        guard let current else { return }
+        let size = current.bounds.size
+        nowPlayingArtworkCache.setObject(current, forKey: key, cost: max(0, Int(size.width * size.height * 4)))
+    }
+
     func updateNowPlayingArtwork(_ image: PlatformImage) {
         guard let songID = currentSong?.id else { return }
         lastArtworkSongID = songID

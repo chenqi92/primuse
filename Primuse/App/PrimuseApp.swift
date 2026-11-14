@@ -20,6 +20,7 @@ struct PairTarget: Identifiable {
 
 #if os(iOS)
 import BackgroundTasks
+import CarPlay
 import Intents
 import UIKit
 
@@ -1294,6 +1295,130 @@ final class BackgroundLibraryMaintenanceCoordinator {
 }
 #endif
 
+/// 能随时重建的派生数据什么时候放。
+///
+/// 内存告警(各平台): 曲库在自己的观察者里放它那一份, 这里补上播放器的系统封面缓存, 再把空出来
+/// 的页还给系统。iOS 退到后台、不在放歌、后台也没别的活儿时(`BackgroundMemoryTrimPolicy`):
+/// 等场景切换做完, 把曲库派生数据、已解码的封面、播放页背景位图一起放掉 —— 挂起时的占用从一点几
+/// GB 降下来, 系统回收挂起进程时就不总先挑中它。回到前台时, 放之前建着的那几份整库数据先在主线程外
+/// 补回来(`MusicLibrary.rewarmReleasedCaches()`), 其余的用到时按需重建。
+/// macOS 不放: 隐藏的 Mac App 不会被挂起回收, 常在后台放歌, 回来还要重建反而吃亏。
+@MainActor
+final class RebuildableMemoryReliefCoordinator {
+    static let shared = RebuildableMemoryReliefCoordinator()
+
+    private var memoryPressureObserver: NSObjectProtocol?
+    private weak var library: MusicLibrary?
+    private weak var player: AudioPlayerService?
+    #if os(iOS)
+    private var trimTask: Task<Void, Never>?
+    private var trimAssertion: UIBackgroundTaskIdentifier = .invalid
+    /// 每排一次、取消一次都前进: 旧的那一轮收尾时不会把新一轮的断言放掉。
+    private var trimGeneration = 0
+    private var rewarmTask: Task<Void, Never>?
+    #endif
+
+    func install(library: MusicLibrary, player: AudioPlayerService) {
+        self.library = library
+        self.player = player
+        guard memoryPressureObserver == nil else { return }
+        memoryPressureObserver = NotificationCenter.default.addObserver(
+            forName: .primuseMemoryPressure,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                RebuildableMemoryReliefCoordinator.shared.relieveMemoryPressure()
+            }
+        }
+    }
+
+    private func relieveMemoryPressure() {
+        // 曲库自己的观察者也会放一遍(放空了再放很便宜); 这里先放, 保证还页之前已经放完。
+        library?.releaseRebuildableCaches()
+        player?.trimNowPlayingArtworkCacheToCurrentItem()
+        Task {
+            // 搜索投影在搜索 actor 上, 等它放完再还页。
+            await LibrarySearchIndex.shared.releaseReadCaches()
+            await MusicLibrary.returnFreedMemoryToSystem()
+        }
+    }
+
+    #if os(iOS)
+    /// `.background` 时调用。`activity` 在排期时和真正动手前各看一次。
+    func sceneDidEnterBackground(activity: @escaping @MainActor @Sendable () -> BackgroundMemoryTrimPolicy.Activity) {
+        cancelPendingTrim()
+        rewarmTask?.cancel()
+        rewarmTask = nil
+        guard BackgroundMemoryTrimPolicy.shouldTrim(phase: .background, activity: activity()) else { return }
+        trimGeneration &+= 1
+        let generation = trimGeneration
+        // 一条很短的后台断言: 等场景切换做完再放, 页还给系统之后才让进程挂起。
+        // 到期回调当场放掉它, 不等这一轮做完。
+        let assertion = UIApplication.shared.beginBackgroundTask(withName: "primuse.memory-trim") {
+            MainActor.assumeIsolated {
+                RebuildableMemoryReliefCoordinator.shared.cancelPendingTrim()
+            }
+        }
+        guard trimGeneration == generation else {
+            // 后台时间已经用完, 到期回调在 begin 返回之前就来过了: 这条断言当场放掉, 这一轮不做。
+            if assertion != .invalid { UIApplication.shared.endBackgroundTask(assertion) }
+            return
+        }
+        trimAssertion = assertion
+        trimTask = Task { @MainActor in
+            defer {
+                if self.trimGeneration == generation { self.endTrimAssertion() }
+            }
+            try? await Task.sleep(for: .seconds(BackgroundMemoryTrimPolicy.settleDelay))
+            guard !Task.isCancelled, self.trimGeneration == generation,
+                  BackgroundMemoryTrimPolicy.shouldTrim(
+                      phase: LiveApplicationState.isBackground ? .background : .inactive,
+                      activity: activity()
+                  ),
+                  let library = self.library else { return }
+            library.releaseRebuildableCachesForBackground()
+            CachedArtworkView.purgeDecodedImageCache()
+            PlayerBackdropMemoryCache.shared.removeAll()
+            self.player?.trimNowPlayingArtworkCacheToCurrentItem()
+            await MusicLibrary.returnFreedMemoryToSystem()
+            // 搜索 actor 可能正忙着同步索引; 先把主线程这边放掉的还了, 它那份放完再还一次。
+            await LibrarySearchIndex.shared.releaseReadCaches()
+            await MusicLibrary.returnFreedMemoryToSystem()
+            plog("Memory trim: released rebuildable caches before suspension")
+        }
+    }
+
+    /// `.inactive` / `.active` / 断言到期: 还没动手的这一轮不做了。
+    func cancelPendingTrim() {
+        trimGeneration &+= 1
+        trimTask?.cancel()
+        trimTask = nil
+        endTrimAssertion()
+    }
+
+    /// `.active` 时调用: 等回到前台的头几帧画完, 在主线程外补回后台放掉之前建着的那几份
+    /// (没放过的话 `rewarmReleasedCaches()` 什么都不做)。
+    func sceneDidBecomeActive() {
+        cancelPendingTrim()
+        rewarmTask?.cancel()
+        rewarmTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, LiveApplicationState.isActive else { return }
+            self.library?.rewarmReleasedCaches()
+            self.rewarmTask = nil
+        }
+    }
+
+    private func endTrimAssertion() {
+        guard trimAssertion != .invalid else { return }
+        let identifier = trimAssertion
+        trimAssertion = .invalid
+        UIApplication.shared.endBackgroundTask(identifier)
+    }
+    #endif
+}
+
 /// Keep network-path Observation out of the scene's root modifier chain.
 /// A path update used to invalidate `ContentView` itself, which made SwiftUI
 /// revisit every instantiated song row in a large library before running the
@@ -1868,6 +1993,11 @@ struct PrimuseApp: App {
                     // `Self.sync` 还是 nil 的话这次推送就白丢了, 所以这一行
                     // 必须排在所有等待之前。
                     PrimuseAppDelegate.sync = cloudSync
+                    // 内存告警时补放播放器的系统封面缓存并把空页还给系统; iOS 退到后台时的放法也由它管。
+                    RebuildableMemoryReliefCoordinator.shared.install(
+                        library: musicLibrary,
+                        player: playerService
+                    )
                     // Let SwiftUI commit and accept input before restoring a
                     // potentially 10K+ queue or starting network maintenance.
                     try? await Task.sleep(for: .milliseconds(350))
@@ -2101,6 +2231,8 @@ struct PrimuseApp: App {
                         // background scraping itself remains enabled.
                         LifecycleSnapshotUploadCoordinator.shared.cancelScheduledUpload()
                         BackgroundLibraryMaintenanceCoordinator.shared.cancel()
+                        // 从后台回来也先到 inactive: 还没动手的后台放内存不做了。
+                        RebuildableMemoryReliefCoordinator.shared.cancelPendingTrim()
                         AppServices.shared.spotlightIndex.suspendSynchronization()
                         AppServices.shared.lyricsTextBackfill.stop()
                         musicLibrary.suspendPendingIdentityResolution()
@@ -2189,6 +2321,29 @@ struct PrimuseApp: App {
                         // foreground cancels it and the phase is re-read live.
                         if !playerService.isPlaybackActive {
                             AppServices.shared.spotlightIndex.prepareForBackgroundSynchronization()
+                        }
+                        // 不放歌、后台也没有要接着用曲库的活儿时, 场景切换做完就把能重建的
+                        // 派生数据放掉, 挂起时占得少, 不总是被系统先回收。上面刚把扫描停在
+                        // 检查点上, 所以「要续扫」也算在扫描里。
+                        let trimPlayer = playerService
+                        let trimScans = scanService
+                        let trimSources = sourceManager
+                        let trimCacheSync = audioCacheSync
+                        RebuildableMemoryReliefCoordinator.shared.sceneDidEnterBackground {
+                            BackgroundMemoryTrimPolicy.Activity(
+                                isPlaybackActive: trimPlayer.isPlaybackActive,
+                                isScanning: trimScans.hasActiveScans || trimScans.hasResumableScanWork,
+                                isImporting: LocalImportService.isCopying || LocalImportService.hasPendingScan,
+                                isTransferring: trimCacheSync.operation != .idle
+                                    || trimCacheSync.incomingTransferCount > 0,
+                                isDownloadingForOffline: !trimSources.activeOfflineBatchOwnerIDs.isEmpty,
+                                isSeparatingKaraoke: KaraokeSeparationService.shared.hasWorkInFlight,
+                                isCarPlayActive: UIApplication.shared.connectedScenes.contains { scene in
+                                    scene.session.role == .carTemplateApplication
+                                        && (scene.activationState == .foregroundActive
+                                            || scene.activationState == .foregroundInactive)
+                                }
+                            )
                         }
                         BackgroundLibraryMaintenanceCoordinator.shared.scheduleSceneSettle {
                             musicLibrary.endSceneTransitionQuiescence()
@@ -2299,6 +2454,8 @@ struct PrimuseApp: App {
                         musicLibrary.endSceneTransitionQuiescence()
                         LifecycleSnapshotUploadCoordinator.shared.cancelScheduledUpload()
                         BackgroundLibraryMaintenanceCoordinator.shared.cancel()
+                        // 后台放掉过的整库数据, 等头几帧画完在主线程外补回来。
+                        RebuildableMemoryReliefCoordinator.shared.sceneDidBecomeActive()
                         AppServices.shared.spotlightIndex.suspendSynchronization()
                         AppServices.shared.lyricsTextBackfill.stop()
                         // The scene never really left: re-admit readers into the

@@ -40,6 +40,7 @@ enum ServerPlaylistMirror {
             let logContext: String
         }
         fileprivate let entries: [Entry]
+        /// 歌单引用到、在本地按服务端 ID 对上的曲目数(以前是整源建了对照的曲目数)。
         fileprivate let indexedTrackCount: Int
     }
 
@@ -84,7 +85,12 @@ enum ServerPlaylistMirror {
         songs: [Song],
         matchingSongs: [Song]
     ) -> PreparedSnapshot {
-        let index = serverItemIndex(sourceID: sourceID, songs: songs)
+        // 只为歌单引用到的曲目建对照; 一张歌单都没有时连整源都不用走。
+        let index = serverItemIndex(
+            sourceID: sourceID,
+            songs: songs,
+            wanting: referencedItemIDs(in: snapshot.playlists)
+        )
         let unresolvedSubjects = snapshot.playlists.flatMap { playlist in
             playlist.tracks.compactMap { track -> ExternalTrackMatchPolicy.Subject? in
                 guard let id = track.externalID,
@@ -214,7 +220,7 @@ enum ServerPlaylistMirror {
                     playlistID: localID,
                     coverArtPath: serverPlaylist.coverArtReference
                 )
-                plog("\(playlistContext) stage=match result=metadata-only reason=no-local-match local_indexed_tracks=\(prepared.indexedTrackCount) retained_existing=\(previousIDs.contains(localID))")
+                plog("\(playlistContext) stage=match result=metadata-only reason=no-local-match local_matched_ids=\(prepared.indexedTrackCount) retained_existing=\(previousIDs.contains(localID))")
                 continue
             }
 
@@ -248,7 +254,7 @@ enum ServerPlaylistMirror {
         plog("""
             \(context) stage=apply result=\(snapshot.isIndexComplete ? "complete" : "partial") index_complete=\(snapshot.isIndexComplete) listed=\(listedCount) detailed=\(snapshot.playlists.count) \
             detail_failed=\(snapshot.failedPlaylistIDs.count) applied=\(result.syncedPlaylistCount) \
-            unresolved=\(result.unresolvedPlaylistCount) local_indexed_tracks=\(prepared.indexedTrackCount) \
+            unresolved=\(result.unresolvedPlaylistCount) local_matched_ids=\(prepared.indexedTrackCount) \
             local=\(remainingIDs.count) visible=\(visibleIDs.count) hidden_manual=\(manuallyHiddenIDs.count) \
             hidden_source=\(automaticallyHiddenIDs.count) suppressions=\(suppressedIDs.count) \
             source_disabled=\(library.disabledSourceIDs.contains(source.id)) pruned=\(previousIDs.subtracting(remainingMirrors.map(\.id)).count)
@@ -265,7 +271,14 @@ enum ServerPlaylistMirror {
         private let library: MusicLibrary
         let descriptionReadRevision: UInt64
         /// 同步期间曲库不会因为这一步变化, 建一次给整轮用; 漏掉的新歌由收尾的 `apply` 补上。
-        private lazy var index = ServerPlaylistMirror.serverItemIndex(sourceID: source.id, library: library)
+        /// 同步走 `enqueue`: 第一张带曲目的歌单读回来才在主线程外建(源上没有歌单就一直不建);
+        /// 整轮读完由 `finish()` 放掉, 不和收尾那次对照叠在一起。
+        private var index: [String: String]?
+        private var indexTask: Task<Void, Never>?
+        /// 对照还没建好时读回来的歌单, 按到达顺序排着。下一张读回来时(调用方刚过了闸)一并落地;
+        /// 读完都没轮到的交给收尾的 `apply`, 它本来就会把整轮全部落一遍。
+        private var waiting: [ServerPlaylist] = []
+        private var isFinished = false
 
         init(source: MusicSource, library: MusicLibrary) {
             self.source = source
@@ -273,15 +286,99 @@ enum ServerPlaylistMirror {
             self.descriptionReadRevision = ServerPlaylistMirror.descriptionRevision
         }
 
+        /// 先在主线程外建好整源对照, 之后的 `apply` 都只是查表。
         func prepareIndex() async {
+            guard index == nil else { return }
             let songs = library.songs
             let sourceID = source.id
-            index = await Task.detached(priority: .utility) {
+            let built = await Task.detached(priority: .utility) {
                 ServerPlaylistMirror.serverItemIndex(sourceID: sourceID, songs: songs)
             }.value
+            guard !isFinished else { return }
+            index = built
         }
 
+        /// 当场落地这一张。整源对照还没建好时只为它引用到的曲目对一遍(结果相同), 不再为
+        /// 一张歌单把整个源的对照建出来留着。
         func apply(_ serverPlaylist: ServerPlaylist) {
+            if let index {
+                flushWaiting(index: index)
+                applyEntry(serverPlaylist, index: index)
+                return
+            }
+            flushWaitingWithoutIndex()
+            applyEntry(serverPlaylist, index: wantedIndex(for: [serverPlaylist]))
+        }
+
+        /// 同步途中逐张读回来时用, 调用方已经过了闸(扫描仍是当前这一轮、源没被停用)。
+        /// 对照没建好之前先排着, 不在主线程上整源走一遍。
+        func enqueue(_ serverPlaylist: ServerPlaylist) {
+            guard !isFinished else { return }
+            if let index {
+                flushWaiting(index: index)
+                applyEntry(serverPlaylist, index: index)
+                return
+            }
+            // 没有曲目的歌单用不到对照; 前面有排着的就跟着排, 落地顺序不变。
+            if serverPlaylist.trackIDs.isEmpty, waiting.isEmpty {
+                applyEntry(serverPlaylist, index: [:])
+                return
+            }
+            waiting.append(serverPlaylist)
+            startIndexIfNeeded()
+        }
+
+        /// 整轮读完、收尾对照之前调用: 放掉整源对照和没轮到的歌单。
+        func finish() {
+            isFinished = true
+            indexTask?.cancel()
+            indexTask = nil
+            index = nil
+            waiting = []
+        }
+
+        private func wantedIndex(for playlists: [ServerPlaylist]) -> [String: String] {
+            ServerPlaylistMirror.serverItemIndex(
+                sourceID: source.id,
+                songs: library.songs,
+                wanting: ServerPlaylistMirror.referencedItemIDs(in: playlists)
+            )
+        }
+
+        private func flushWaitingWithoutIndex() {
+            guard !waiting.isEmpty else { return }
+            let pending = waiting
+            waiting = []
+            let index = wantedIndex(for: pending)
+            for serverPlaylist in pending {
+                applyEntry(serverPlaylist, index: index)
+            }
+        }
+
+        private func startIndexIfNeeded() {
+            guard indexTask == nil, !isFinished else { return }
+            let songs = library.songs
+            let sourceID = source.id
+            indexTask = Task { @MainActor [weak self] in
+                let worker = Task.detached(priority: .utility) {
+                    ServerPlaylistMirror.serverItemIndex(sourceID: sourceID, songs: songs)
+                }
+                let built = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+                guard let self, !self.isFinished, !Task.isCancelled else { return }
+                self.index = built
+            }
+        }
+
+        private func flushWaiting(index: [String: String]) {
+            guard !waiting.isEmpty else { return }
+            let pending = waiting
+            waiting = []
+            for serverPlaylist in pending {
+                applyEntry(serverPlaylist, index: index)
+            }
+        }
+
+        private func applyEntry(_ serverPlaylist: ServerPlaylist, index: [String: String]) {
             let entry = ServerPlaylistMirror.preparedEntry(
                 serverPlaylist, sourceID: source.id, sourceType: source.type, index: index
             )
@@ -333,6 +430,7 @@ enum ServerPlaylistMirror {
                 sourceID: source.id, serverPlaylistID: serverPlaylist.id
             )] = descriptionRevision
         }
+        // 新建的落地器没有整源对照, 只为这一张引用到的曲目对一遍。
         ProgressiveApplier(source: source, library: library).apply(serverPlaylist)
     }
 
@@ -366,14 +464,41 @@ enum ServerPlaylistMirror {
         return String(localized: "library_folder_apple_music_unnamed_playlist")
     }
 
-    /// 服务端原生 item ID → 本地 `Song.id`。
+    /// 这批歌单引用到的服务端曲目 ID: 顺序表里的, 加上带元数据的曲目上的。
+    nonisolated fileprivate static func referencedItemIDs(in playlists: [ServerPlaylist]) -> Set<String> {
+        var ids = Set<String>()
+        for playlist in playlists {
+            for trackID in playlist.trackIDs where !trackID.isEmpty {
+                ids.insert(trackID)
+            }
+            for track in playlist.tracks {
+                if let id = track.externalID, !id.isEmpty { ids.insert(id) }
+            }
+        }
+        return ids
+    }
+
+    /// 服务端原生 item ID → 本地 `Song.id`, 只收 `wanted` 里的 ID。结果与整源对照里
+    /// 这些 ID 的那部分相同, 字典只有歌单引用到的那么大。
     ///
     /// 只取该源的歌: 不同源可能有同样的服务端 ID(两个 Navidrome 各自的自增
     /// ID), 混在一起会把歌单指到别的服务器上的歌。
-    fileprivate static func serverItemIndex(sourceID: String, library: MusicLibrary) -> [String: String] {
-        serverItemIndex(sourceID: sourceID, songs: library.songs)
+    nonisolated private static func serverItemIndex(
+        sourceID: String,
+        songs: [Song],
+        wanting wanted: Set<String>
+    ) -> [String: String] {
+        guard !wanted.isEmpty else { return [:] }
+        return ServerPlaylistIdentity.itemIndex(
+            wanting: wanted,
+            candidates: songs.lazy
+                .filter { $0.sourceID == sourceID }
+                .map { (filePath: $0.filePath, songID: $0.id) }
+        )
     }
 
+    /// 整源对照, 只给同步途中逐张落地的 `ProgressiveApplier` 用: 那时还不知道后面的歌单
+    /// 会引用哪些曲目, 为每一批都整源走一遍更费电。
     nonisolated private static func serverItemIndex(sourceID: String, songs: [Song]) -> [String: String] {
         var index: [String: String] = [:]
         for offset in songs.indices {
