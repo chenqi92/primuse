@@ -562,3 +562,53 @@ public struct SubsonicLyricsClient: @unchecked Sendable {
         return trimmed.isEmpty ? nil : trimmed
     }
 }
+
+/// 整首原文件该走哪个接口。`download` 被服务器拒绝时改走 `stream?format=raw`:
+/// 播放本来就用它取原文件, 字节与 `download` 一致。
+public enum SubsonicOriginalFileRoutePolicy {
+    /// 「不许下载」: Navidrome 关掉下载时回 Subsonic 错误 50(not authorized,
+    /// "downloads are disabled"), Airsonic 一族用户没有下载权限也是 50; 前面挂了代理或者
+    /// 别的实现会直接回 HTTP 403。认证失败(40/41)、文件不存在(70)、服务器出错这些换个接口
+    /// 也一样失败, 不改道。
+    public static func downloadIsRejected(httpStatus: Int?, subsonicErrorCode: Int?) -> Bool {
+        if httpStatus == 403 { return true }
+        return subsonicErrorCode == 50
+    }
+
+    /// `format=raw` 按协议原样给文件。服务端仍然给了另一种编码(没照约定, 或者被播放器设置
+    /// 强制转码)时字节与原文件对不上, 读标签和当原文件缓存都不能用。只在声明的扩展名与
+    /// 文件头两边都认得出、又不是同一类时判定为转码; 认不出的不拦。
+    public static func rawStreamLooksTranscoded(
+        declaredExtension: String,
+        signature: AudioFileSignatureKind
+    ) -> Bool {
+        guard let actual = signature.parserFileExtension.flatMap(family(of:)),
+              let declared = family(of: declaredExtension) else { return false }
+        return actual != declared
+    }
+
+    private static func family(of fileExtension: String) -> String? {
+        let ext = fileExtension
+            .trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+            .lowercased()
+        return families[ext]
+    }
+
+    /// 同一种封装的扩展名归成一类(.opus 是 Ogg、.m4b 是 MP4、.dtswav 是 WAV …)。
+    private static let families: [String: String] = [
+        "mp3": "mpeg", "mp2": "mpeg", "mp1": "mpeg", "mpa": "mpeg", "m2a": "mpeg",
+        "m4a": "mp4", "m4b": "mp4", "m4r": "mp4", "mp4": "mp4", "m4v": "mp4", "mov": "mp4", "alac": "mp4",
+        "aac": "adts", "adts": "adts",
+        "flac": "flac",
+        "ogg": "ogg", "oga": "ogg", "opus": "ogg", "spx": "ogg", "speex": "ogg",
+        "wav": "wav", "wave": "wav", "bwf": "wav", "dtswav": "wav",
+        "aiff": "aiff", "aif": "aiff", "aifc": "aiff",
+        "wma": "asf", "asf": "asf",
+        "mka": "matroska", "mkv": "matroska", "webm": "matroska", "weba": "matroska",
+        "ape": "ape", "wv": "wavpack", "mpc": "musepack", "mpp": "musepack",
+        "tta": "tta", "tak": "tak", "dsf": "dsf", "dff": "dff", "caf": "caf",
+        "w64": "w64", "rf64": "rf64", "bw64": "rf64",
+        "dts": "dts", "ac3": "ac3", "eac3": "eac3", "ec3": "eac3",
+        "amr": "amr", "au": "au", "snd": "au", "shn": "shn", "qoa": "qoa",
+    ]
+}

@@ -40,6 +40,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private let mediaSession: URLSession
     private var mediaTransportGeneration: UInt64 = 0
     private var resolvedMediaCacheURLs: [String: URL] = [:]
+    /// 这台服务器拒绝过 `download`(管理员关了下载)。连接器存活期间整首原文件直接走
+    /// `stream?format=raw`, 不再每首先撞一次拒绝。
+    private var downloadEndpointRejected = false
     private let cacheDirectory: URL
     private let mirrorsStarredSongsAsPlaylist: Bool
 
@@ -1304,12 +1307,19 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
         // A server-owned STRM must use stream: download may return the small
         // descriptor itself. Its catalogue size is not the media byte count.
-        var query = [URLQueryItem(name: "id", value: songID)]
-        if isDescriptor { query.append(URLQueryItem(name: "format", value: "raw")) }
-        guard let remoteURL = buildRESTURL(method: isDescriptor ? "stream" : "download", query: query) else {
-            throw SourceError.fileNotFound(path)
+        let downloaded: (URL, HTTPURLResponse, Data)
+        if isDescriptor {
+            guard let remoteURL = buildRESTURL(method: "stream", query: [
+                URLQueryItem(name: "id", value: songID),
+                URLQueryItem(name: "format", value: "raw")
+            ]) else {
+                throw SourceError.fileNotFound(path)
+            }
+            downloaded = try await downloadAudio(from: remoteURL, generation: generation)
+        } else {
+            downloaded = try await downloadOriginalFile(songID: songID, path: path, generation: generation)
         }
-        let (temporaryURL, http, prefix) = try await downloadAudio(from: remoteURL, generation: generation)
+        let (temporaryURL, http, prefix) = downloaded
         do {
             try checkMediaTransportGeneration(generation)
             if isDescriptor {
@@ -1358,8 +1368,76 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
     }
 
+    /// 整首原文件。先走 `download`; 服务器拒绝下载(管理员关了下载: Navidrome 回 Subsonic
+    /// 错误 50, 代理或别的实现回 HTTP 403)时改走 `stream?format=raw` —— 不转码, 字节与原文件
+    /// 一致, 播放本来就用它。之后这个连接器直接走 stream。读标签的整首兜底和别处要整首
+    /// 原文件(`localURL`)的都经过这里, 以前在关了下载的服务器上一律失败。
+    private func downloadOriginalFile(
+        songID: String,
+        path: String,
+        generation: UInt64
+    ) async throws -> (URL, HTTPURLResponse, Data) {
+        if !downloadEndpointRejected {
+            guard let downloadURL = buildRESTURL(
+                method: "download",
+                query: [URLQueryItem(name: "id", value: songID)]
+            ) else {
+                throw SourceError.fileNotFound(path)
+            }
+            do {
+                return try await downloadAudio(
+                    from: downloadURL,
+                    generation: generation,
+                    recognizesDownloadRejection: true
+                )
+            } catch let rejection as SubsonicDownloadRejection {
+                downloadEndpointRejected = true
+                plog("⚠️ Subsonic '\(sourceID.prefix(8))' rejected download (\(rejection.reason)); using the raw stream for complete files")
+                do {
+                    return try await downloadRawOriginalStream(songID: songID, path: path, generation: generation)
+                } catch is SubsonicTranscodedRawStream {
+                    throw rejection.underlying
+                }
+            }
+        }
+        do {
+            return try await downloadRawOriginalStream(songID: songID, path: path, generation: generation)
+        } catch let transcoded as SubsonicTranscodedRawStream {
+            throw SourceError.connectionFailed(transcoded.reason)
+        }
+    }
+
+    /// `stream?format=raw` 的整首。服务端没照 raw 原样给(文件头认出来是另一种编码)时
+    /// 宁可失败: 转码过的字节拿去读标签或者当原文件缓存都不对。
+    private func downloadRawOriginalStream(
+        songID: String,
+        path: String,
+        generation: UInt64
+    ) async throws -> (URL, HTTPURLResponse, Data) {
+        guard let streamURL = buildRESTURL(method: "stream", query: [
+            URLQueryItem(name: "id", value: songID),
+            URLQueryItem(name: "format", value: "raw")
+        ]) else {
+            throw SourceError.fileNotFound(path)
+        }
+        let downloaded = try await downloadAudio(from: streamURL, generation: generation)
+        let signature = AudioFileSignaturePolicy.inspect(downloaded.2)
+        if SubsonicOriginalFileRoutePolicy.rawStreamLooksTranscoded(
+            declaredExtension: (path as NSString).pathExtension,
+            signature: signature
+        ) {
+            try? FileManager.default.removeItem(at: downloaded.0)
+            throw SubsonicTranscodedRawStream(
+                reason: "Subsonic raw stream arrived as \(signature.rawValue), not the original file"
+            )
+        }
+        return downloaded
+    }
+
     private func downloadAudio(
-        from remoteURL: URL, generation: UInt64
+        from remoteURL: URL,
+        generation: UInt64,
+        recognizesDownloadRejection: Bool = false
     ) async throws -> (URL, HTTPURLResponse, Data) {
         var request = URLRequest(url: remoteURL)
         request.timeoutInterval = 120
@@ -1375,14 +1453,39 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             guard let http = response as? HTTPURLResponse else {
                 throw SourceError.connectionFailed("Invalid Subsonic download response")
             }
-            guard http.statusCode == 200 else { throw mediaHTTPError(http) }
+            guard http.statusCode == 200 else {
+                if recognizesDownloadRejection,
+                   SubsonicOriginalFileRoutePolicy.downloadIsRejected(
+                    httpStatus: http.statusCode,
+                    subsonicErrorCode: nil
+                   ) {
+                    throw SubsonicDownloadRejection(
+                        reason: "HTTP \(http.statusCode)",
+                        underlying: mediaHTTPError(http)
+                    )
+                }
+                throw mediaHTTPError(http)
+            }
             let handle = try FileHandle(forReadingFrom: temporaryURL)
             let prefix: Data
             do {
                 defer { try? handle.close() }
                 prefix = try handle.read(upToCount: 64 * 1024) ?? Data()
             }
-            if let error = Self.mediaResponseError(in: prefix) { throw error }
+            if let failure = Self.mediaResponseFailure(in: prefix) {
+                let error = Self.error(from: failure.error)
+                if recognizesDownloadRejection,
+                   SubsonicOriginalFileRoutePolicy.downloadIsRejected(
+                    httpStatus: nil,
+                    subsonicErrorCode: failure.error?.code
+                   ) {
+                    throw SubsonicDownloadRejection(
+                        reason: failure.error?.message ?? "Subsonic error \(failure.error?.code ?? 0)",
+                        underlying: error
+                    )
+                }
+                throw error
+            }
             guard !prefix.isEmpty, !httpMediaResponseLooksLikeErrorBody(http, data: prefix) else {
                 throw SourceError.connectionFailed("Subsonic returned a non-audio response")
             }
@@ -2771,10 +2874,15 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     }
 
     private static func mediaResponseError(in data: Data) -> SourceError? {
+        mediaResponseFailure(in: data).map { error(from: $0.error) }
+    }
+
+    /// 媒体接口回的 Subsonic 失败包(JSON 或 XML, status="failed"), 连同错误码。
+    private static func mediaResponseFailure(in data: Data) -> SubsonicMediaFailure? {
         let prefix = Data(data.prefix(64 * 1024))
         if let envelope = try? JSONDecoder().decode(Envelope<EmptyContainer>.self, from: prefix),
            envelope.subsonicResponse.status == "failed" {
-            return error(from: envelope.subsonicResponse.error)
+            return SubsonicMediaFailure(error: envelope.subsonicResponse.error)
         }
         guard let text = String(data: prefix, encoding: .utf8),
               text.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{feff}")))
@@ -2787,7 +2895,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         parser.externalEntityResolvingPolicy = .never
         parser.delegate = delegate
         guard parser.parse(), delegate.status == "failed" else { return nil }
-        return error(from: delegate.error)
+        return SubsonicMediaFailure(error: delegate.error)
     }
 
     private static func error(from error: SubsonicError?) -> SourceError {
@@ -2924,6 +3032,22 @@ private struct Envelope<C: Decodable>: Decodable {
 private struct SubsonicError: Decodable {
     let code: Int
     let message: String?
+}
+
+/// 媒体接口(download / stream)回的失败包; 失败包里可能没有 error。
+private struct SubsonicMediaFailure {
+    let error: SubsonicError?
+}
+
+/// `download` 被服务器以「无权」拒绝(关了下载)。只在取整首原文件时出现, 由那里改走 stream。
+private struct SubsonicDownloadRejection: Error {
+    let reason: String
+    let underlying: Error
+}
+
+/// `stream?format=raw` 给的不是原文件的编码。
+private struct SubsonicTranscodedRawStream: Error {
+    let reason: String
 }
 
 private final class SubsonicMediaErrorXMLParser: NSObject, XMLParserDelegate {
