@@ -284,6 +284,129 @@ struct AudiobookshelfServiceTests {
     }
 }
 
+@Suite("Audiobookshelf expanded items")
+struct AudiobookshelfExpansionTests {
+    private static func minifiedRow(_ id: String) -> [String: Any] {
+        ["id": id, "libraryId": "lib_books", "mediaType": "book",
+         "media": ["metadata": ["title": id], "numAudioFiles": 2, "duration": 180.0]]
+    }
+
+    private static func expandedRow(_ id: String) -> [String: Any] {
+        ["id": id, "libraryId": "lib_books", "mediaType": "book",
+         "media": ["metadata": ["title": id], "duration": 180.0,
+                   "audioFiles": [["ino": "\(id)-1", "index": 1, "duration": 180.0,
+                                   "metadata": ["filename": "01.mp3", "ext": ".mp3", "size": 1000]]]]]
+    }
+
+    private static func response(_ url: URL, status: Int = 200, json: Any) throws -> (Data, URLResponse) {
+        (try JSONSerialization.data(withJSONObject: json),
+         HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!)
+    }
+
+    private static func client(
+        rows: [String],
+        batch: @escaping @Sendable ([String]) throws -> (status: Int, json: Any),
+        item: @escaping @Sendable (String) throws -> [String: Any],
+        recorder: AudiobookshelfExpansionRequests
+    ) -> AudiobookshelfServiceClient {
+        let transport = AudiobookshelfRequestTransport(data: { request in
+            let url = try #require(request.url)
+            await recorder.append("\(request.httpMethod ?? "GET") \(url.path)")
+            if url.path.hasSuffix("/items/batch/get") {
+                let body = try #require(request.httpBody)
+                let payload = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+                let ids = try #require(payload["libraryItemIds"] as? [String])
+                let answer = try batch(ids)
+                return try Self.response(url, status: answer.status, json: answer.json)
+            }
+            if url.path.contains("/api/items/") {
+                return try Self.response(url, json: try item(url.lastPathComponent))
+            }
+            return try Self.response(url, json: ["results": rows.map(Self.minifiedRow), "total": rows.count, "page": 0])
+        }, download: { _ in throw URLError(.unsupportedURL) })
+        return AudiobookshelfServiceClient(sourceID: UUID().uuidString, host: "books.invalid",
+            port: nil, useSSL: true, basePath: nil, username: "", secret: "fixture", authType: .apiKey, transport: transport)
+    }
+
+    @Test("Minified list rows are expanded with one batch request")
+    func batchExpansion() async throws {
+        let recorder = AudiobookshelfExpansionRequests()
+        let client = Self.client(
+            rows: ["a", "b", "c"],
+            batch: { ids in (200, ["libraryItems": ids.map(Self.expandedRow)]) },
+            item: { _ in throw URLError(.badServerResponse) },
+            recorder: recorder
+        )
+        let page = try await client.libraryItemsPage(libraryID: "lib_books", page: 0)
+        #expect(page.items.map(\.id) == ["a", "b", "c"])
+        #expect(page.unexpandedItemCount == 0)
+        let songCount = page.items.flatMap { $0.makeSongs(sourceID: "src") }.count
+        #expect(songCount == 3)
+        let requests = await recorder.requests
+        #expect(requests == ["GET /api/libraries/lib_books/items", "POST /api/items/batch/get"])
+    }
+
+    @Test("Without the batch endpoint items load one by one, and one that times out is skipped")
+    func perItemFallbackSkipsStalledItem() async throws {
+        let recorder = AudiobookshelfExpansionRequests()
+        let client = Self.client(
+            rows: ["a", "slow", "c"],
+            batch: { _ in (404, ["error": "Not Found"]) },
+            item: { id in
+                if id == "slow" { throw URLError(.timedOut) }
+                return Self.expandedRow(id)
+            },
+            recorder: recorder
+        )
+        let first = try await client.libraryItemsPage(libraryID: "lib_books", page: 0)
+        #expect(first.items.map(\.id) == ["a", "c"])
+        #expect(first.unexpandedItemCount == 1)
+        #expect(first.rawCount == 3)
+        let slowAttempts = await recorder.requests.filter { $0 == "GET /api/items/slow" }.count
+        #expect(slowAttempts == 2)
+
+        // 批量接口不在,之后不再去试。
+        _ = try await client.libraryItemsPage(libraryID: "lib_books", page: 0)
+        let batchRequests = await recorder.requests.filter { $0.hasPrefix("POST") }.count
+        #expect(batchRequests == 1)
+    }
+
+    @Test("A page whose items all fail to expand is an error, not an empty page")
+    func wholePageFailureThrows() async throws {
+        let recorder = AudiobookshelfExpansionRequests()
+        let client = Self.client(
+            rows: ["a", "b"],
+            batch: { _ in throw URLError(.timedOut) },
+            item: { _ in throw URLError(.timedOut) },
+            recorder: recorder
+        )
+        await #expect(throws: URLError.self) {
+            _ = try await client.libraryItemsPage(libraryID: "lib_books", page: 0)
+        }
+    }
+
+    @Test("A batch that misses an item fills it in from the single-item endpoint")
+    func batchGapFallsBackPerItem() async throws {
+        let recorder = AudiobookshelfExpansionRequests()
+        let client = Self.client(
+            rows: ["a", "b"],
+            batch: { _ in (200, ["libraryItems": [Self.expandedRow("a")]]) },
+            item: { id in Self.expandedRow(id) },
+            recorder: recorder
+        )
+        let page = try await client.libraryItemsPage(libraryID: "lib_books", page: 0)
+        #expect(page.items.map(\.id) == ["a", "b"])
+        #expect(page.unexpandedItemCount == 0)
+        let singles = await recorder.requests.filter { $0.hasPrefix("GET /api/items/") }
+        #expect(singles == ["GET /api/items/b"])
+    }
+}
+
+private actor AudiobookshelfExpansionRequests {
+    private(set) var requests: [String] = []
+    func append(_ request: String) { requests.append(request) }
+}
+
 private actor AudiobookshelfPageRequests {
     var pages: [Int] = []
     var limits: [Int] = []

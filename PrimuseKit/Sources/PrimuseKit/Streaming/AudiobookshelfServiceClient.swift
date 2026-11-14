@@ -554,12 +554,22 @@ public struct AudiobookshelfCatalogPage: Sendable {
     public let total: Int
     public let page: Int
     public let rawCount: Int
+    /// 这一页里展开形态没取回来、被跳过的条目数。大于 0 时这一轮走查不完整,调用方不能
+    /// 拿它判定哪些书已从服务端消失。
+    public let unexpandedItemCount: Int
 
-    public init(items: [AudiobookshelfCatalogItem], total: Int, page: Int, rawCount: Int) {
+    public init(
+        items: [AudiobookshelfCatalogItem],
+        total: Int,
+        page: Int,
+        rawCount: Int,
+        unexpandedItemCount: Int = 0
+    ) {
         self.items = items
         self.total = total
         self.page = page
         self.rawCount = rawCount
+        self.unexpandedItemCount = unexpandedItemCount
     }
 }
 
@@ -618,6 +628,12 @@ public actor AudiobookshelfServiceClient {
 
     /// API 允许 limit=0 一次返回整库；客户端分成 500 条，约束展开条目的内存占用。
     public static let pageSize = 500
+    /// 列表只给精简形态时(2.x 起列表接口一律精简),展开形态按批取:一次请求 50 条。
+    static let expandedBatchSize = 50
+    /// 批量接口不可用时逐条取,同时取几条。
+    static let expandedFetchConcurrency = 4
+    /// 服务端没有批量取条目的接口(或拒绝了它):这个客户端之后直接逐条取。
+    private var batchExpandUnavailable = false
 
     private let sourceID: String
     public let baseURL: URL?
@@ -729,21 +745,147 @@ public actor AudiobookshelfServiceClient {
               let results = dictionary["results"] as? [[String: Any]] else {
             throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.responseNotJSON"))
         }
+        let listed = results.compactMap(AudiobookshelfCatalogItem.init(json:))
+        let pendingIDs = listed.filter(\.needsExpandedFetch).map(\.id)
+        var expanded: [String: AudiobookshelfCatalogItem] = [:]
+        if !pendingIDs.isEmpty {
+            let outcome = try await expandedItems(ids: pendingIDs)
+            // 一整页要展开的一条都没取回来:服务端这会儿不可用,照旧报错,不当成空页。
+            if outcome.items.isEmpty, let error = outcome.lastError { throw error }
+            expanded = outcome.items
+        }
         var items: [AudiobookshelfCatalogItem] = []
-        items.reserveCapacity(results.count)
-        for json in results {
-            guard var item = AudiobookshelfCatalogItem(json: json) else { continue }
-            if item.needsExpandedFetch, let expanded = try await self.item(id: item.id) {
-                item = expanded
+        items.reserveCapacity(listed.count)
+        var unexpanded = 0
+        for item in listed {
+            guard item.needsExpandedFetch else {
+                items.append(item)
+                continue
             }
-            items.append(item)
+            if let full = expanded[item.id] {
+                items.append(full)
+            } else {
+                unexpanded += 1
+            }
         }
         return AudiobookshelfCatalogPage(
             items: items,
             total: absInt(dictionary["total"]) ?? items.count,
             page: absInt(dictionary["page"]) ?? page,
-            rawCount: results.count
+            rawCount: results.count,
+            unexpandedItemCount: unexpanded
         )
+    }
+
+    private struct ExpansionOutcome {
+        var items: [String: AudiobookshelfCatalogItem] = [:]
+        var lastError: Error?
+    }
+
+    /// 精简行换成展开形态。先用批量接口一次取一批;服务端没有这个接口、拒绝了它,或某一批
+    /// 没取回来,剩下的逐条取(同时几条,各重试一次)。单条取不回来只跳过它,不让一本书拖垮
+    /// 整轮扫描;鉴权失败和取消照原样抛出。
+    private func expandedItems(ids: [String]) async throws -> ExpansionOutcome {
+        var outcome = ExpansionOutcome()
+        var remaining = ids
+        if !batchExpandUnavailable {
+            var missed: [String] = []
+            var start = 0
+            while start < ids.count {
+                let end = min(start + Self.expandedBatchSize, ids.count)
+                let chunk = Array(ids[start..<end])
+                do {
+                    for item in try await batchItems(ids: chunk) where !item.needsExpandedFetch {
+                        outcome.items[item.id] = item
+                    }
+                    missed += chunk.filter { outcome.items[$0] == nil }
+                } catch {
+                    if Self.isFatalExpansionError(error) { throw error }
+                    outcome.lastError = error
+                    if Self.meansBatchExpandUnavailable(error) {
+                        batchExpandUnavailable = true
+                        missed += ids[start...]
+                        break
+                    }
+                    missed += chunk
+                }
+                start = end
+            }
+            remaining = missed
+        }
+        guard !remaining.isEmpty else { return outcome }
+
+        try await withThrowingTaskGroup(of: (String, Result<AudiobookshelfCatalogItem?, Error>).self) { group in
+            var iterator = remaining.makeIterator()
+            for _ in 0..<Self.expandedFetchConcurrency {
+                guard let id = iterator.next() else { break }
+                group.addTask { (id, await self.expandedItemResult(id: id)) }
+            }
+            while let finished = try await group.next() {
+                let (id, result) = finished
+                switch result {
+                case .success(let item):
+                    if let item, !item.needsExpandedFetch { outcome.items[id] = item }
+                case .failure(let error):
+                    if Self.isFatalExpansionError(error) { throw error }
+                    outcome.lastError = error
+                }
+                if let next = iterator.next() {
+                    group.addTask { (next, await self.expandedItemResult(id: next)) }
+                }
+            }
+        }
+        return outcome
+    }
+
+    /// `POST /api/items/batch/get`:一次取一批条目的展开形态,服务端照单条接口检查访问权限。
+    private func batchItems(ids: [String]) async throws -> [AudiobookshelfCatalogItem] {
+        let payload = try await authorizedJSON(
+            path: "/api/items/batch/get",
+            method: "POST",
+            body: ["libraryItemIds": ids]
+        )
+        guard let dictionary = payload as? [String: Any],
+              let list = dictionary["libraryItems"] as? [[String: Any]] else {
+            throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.responseNotJSON"))
+        }
+        return list.compactMap(AudiobookshelfCatalogItem.init(json:))
+    }
+
+    /// 逐条取一个展开形态。网络出错时再试一次;条目已不存在(404)、鉴权失败、取消不重试。
+    private func expandedItemResult(id: String) async -> Result<AudiobookshelfCatalogItem?, Error> {
+        var lastError: Error = CancellationError()
+        for _ in 0..<2 {
+            do {
+                return .success(try await item(id: id))
+            } catch {
+                lastError = error
+                if Self.isFatalExpansionError(error) { break }
+                if let serviceError = error as? AudiobookshelfServiceError,
+                   case .badServerResponse(404) = serviceError { break }
+            }
+        }
+        return .failure(lastError)
+    }
+
+    private static func isFatalExpansionError(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return (error as? AudiobookshelfServiceError) == .authenticationFailed
+    }
+
+    /// 旧服务端没有批量接口(404/405)、不认请求体(400)、拒绝了它(403),或回的不是预期的
+    /// JSON:换逐条取,之后也不再试批量接口。超时、断网只影响这一批。
+    private static func meansBatchExpandUnavailable(_ error: Error) -> Bool {
+        guard let serviceError = error as? AudiobookshelfServiceError else { return false }
+        switch serviceError {
+        case .badServerResponse(let status):
+            return [400, 403, 404, 405, 501].contains(status)
+        case .invalidResponse:
+            return true
+        case .missingCredential, .invalidURL, .authenticationFailed:
+            return false
+        }
     }
 
     public func item(id: String) async throws -> AudiobookshelfCatalogItem? {

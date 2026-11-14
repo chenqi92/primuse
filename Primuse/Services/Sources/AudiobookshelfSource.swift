@@ -179,10 +179,16 @@ actor AudiobookshelfSource: RefreshingMetadataSongConnector, ServerLibraryListin
         var received = 0
         // The server keeps scanning while the walk pages; see `CatalogWalkDriftTracker`.
         var walk = CatalogWalkDriftTracker()
+        var skippedItems = 0
         defer {
             if walk.driftObserved {
                 catalogDriftInLastWalk = true
                 plog("↻ audiobookshelf library \(library.id): catalogue moved during the walk")
+            }
+            // 有书的详情没取回来:这一轮只加、只更新,不删(和目录漂移同一条路)。
+            if skippedItems > 0 {
+                catalogDriftInLastWalk = true
+                plog("⚠️ audiobookshelf library \(library.id): skipped \(skippedItems) item(s) whose details didn't load; nothing removed this round")
             }
             plog("📚 audiobookshelf library \(library.id): walked \(walk.admittedCount) item(s), server reported \(walk.reportedTotal.map(String.init) ?? "no total")")
         }
@@ -190,6 +196,7 @@ actor AudiobookshelfSource: RefreshingMetadataSongConnector, ServerLibraryListin
             try Task.checkCancellation()
             let result = try await client.libraryItemsPage(libraryID: library.id, page: page, limit: pageSize)
             walk.observeTotal(result.total)
+            skippedItems += result.unexpandedItemCount
             guard result.rawCount <= pageSize else {
                 throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.invalidPageCount"))
             }

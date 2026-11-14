@@ -2856,6 +2856,8 @@ final class TVSourceScanner {
                 let result = try await client.libraryItemsPage(libraryID: library.id, page: page, limit: pageSize)
                 try Task.checkCancellation()
                 walk.observeTotal(result.total)
+                // 有书的详情没取回来:这一轮不完整,只加不删。
+                if result.unexpandedItemCount > 0 { catalogDriftObserved = true }
                 guard result.rawCount <= pageSize else {
                     throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.invalidPageCount"))
                 }
