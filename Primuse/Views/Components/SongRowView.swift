@@ -573,8 +573,8 @@ struct SongRowView: View {
             switch listAppearance {
             case .list:
                 standardRowContent
-            case .tiles:
-                SongTileContent(
+            case .timeline:
+                SongTimelineRowContent(
                     song: song,
                     title: library.displayTitle(for: song),
                     artist: library.artistDisplayName(for: song),
@@ -584,36 +584,29 @@ struct SongRowView: View {
                     isUnavailable: unreachable,
                     isReadingDetails: isReadingDetails
                 )
-            case .focus:
-                SongFocusRowContent(
+            case .artwork:
+                SongArtworkRowContent(
                     song: song,
                     title: library.displayTitle(for: song),
-                    subtitle: SongFocusRowMetrics.subtitle(
-                        artist: library.artistDisplayName(for: song),
-                        album: showAlbum ? song.albumTitle : nil
-                    ),
+                    artist: library.artistDisplayName(for: song),
+                    ordinal: trackNumber ?? 1,
                     isPlaying: isPlaying,
                     isLoading: isPlaying && player.showsLoadingIndicator,
                     isUnavailable: unreachable,
                     isReadingDetails: isReadingDetails
-                ) {
-                    SongRowOfflineStatusBadge(song: song, reservesSpace: false)
-                    #if !os(macOS)
-                    if showsActions {
-                        songActionMenu(offline: offlineSnapshot)
-                    }
-                    #endif
-                }
+                )
             }
         }
         // 只挂在这一行自己身上：封面黑罩、波形与标题变色是同一次换歌带来的，
         // 外层 ForEach / LazyVStack 上绝不能挂。
         .pmAnimation(.control, value: isPlaying)
+        // 时间线与封面左右交替，横滑露出的按钮会落在中轴另一侧的空白里，大封面还伸进邻居的槽位：
+        // 这两种外观不横滑，入队留在长按菜单里，辅助功能的两个入队动作照旧。
         .songRowSwipeActions(
             songID: song.id,
             isEnabled: allowsQueueActions,
             clipsContent: listAppearance == .list,
-            allowsSwipe: listAppearance != .tiles,
+            allowsSwipe: listAppearance == .list,
             onInsertNext: { insertNextInQueue() },
             onAppendToQueue: { player.appendToQueue([song]) }
         )
@@ -624,8 +617,8 @@ struct SongRowView: View {
             trailingExclusion: unreachableTapTrailingInset,
             onTap: { rowTapFeedback() }
         )
-        .contentShape(Rectangle())
-        .modifier(SongListRowPreviewShape(appearance: listAppearance))
+        // 时间线与封面的命中形状和长按预览由行内容自己给（卡片、封面与节点）。
+        .songListRowHitRegion(listAppearance)
         .task(id: song.id) {
             guard supportsOfflineAudioCache else { return }
             await sourceManager.ensureOfflineAudioSnapshot(for: song)
@@ -807,8 +800,8 @@ struct SongRowView: View {
             }
         }
 
-        // 方块外观没有横滑，横滑里的「加入队列」放进菜单。
-        if listAppearance == .tiles, canQueueSong {
+        // 时间线与封面外观没有横滑，横滑里的「加入队列」放进菜单。
+        if listAppearance != .list, canQueueSong {
             Button {
                 player.appendToQueue([song])
             } label: {
@@ -1622,7 +1615,7 @@ private extension View {
                 onAppendToQueue: onAppendToQueue
             ))
         } else {
-            // 网格里横滑会和相邻的块、和网格本身的滚动抢手势；入队留给长按菜单，
+            // 左右交替的版式里横滑露出的按钮没处放，大封面还伸进邻居的槽位；入队留给长按菜单，
             // 辅助功能的两个入队动作照旧提供。
             accessibilityAction(named: Text("insert_next")) {
                 if isEnabled { onInsertNext() }

@@ -1,236 +1,317 @@
 import Foundation
 
-/// 「方块」外观的网格：一首歌一块，列数只看承载网格的容器宽度。
+/// 「时间线」「封面」两种歌曲列表外观的版式。
 ///
-/// 竖屏手机（含最窄的 320 点）固定两列；横屏与 iPad 按最小块宽自适应，
-/// 宽屏封顶，免得一块缩成邮票。辅助功能字号下一列，歌名才放得下。
-public enum SongTileGridPolicy {
-    /// 块与块之间的距离（行列相同）。
-    public static let spacing: CGFloat = 12
-    /// 网格左右的留白（不含字母索引让出的那一段）。
-    public static let horizontalInset: CGFloat = 16
-    /// 横屏与 iPad 上一块至少这么宽才再加一列。
-    public static let minimumTileWidth: CGFloat = 160
-    /// 宽屏的列数上限。
-    public static let maximumColumns = 8
-
-    /// - Parameter availableWidth: 扣掉左右留白之后，块真正能排开的宽度。
-    public static func columnCount(availableWidth: CGFloat, accessibilitySize: Bool) -> Int {
-        guard !accessibilitySize else { return 1 }
-        guard availableWidth.isFinite, availableWidth > 0 else { return 2 }
-        let fitting = Int(((availableWidth + spacing) / (minimumTileWidth + spacing)).rounded(.down))
-        return min(max(fitting, 2), maximumColumns)
+/// 中轴竖在内容区正中，歌曲按序号左右交替排在两侧，第 1 首在前侧。一首歌占一个固定高度的槽位，
+/// 高度只由宽度与字号决定，懒加载栈、字母索引与定位都按槽位走。封面外观的大封面比槽位高，
+/// 伸进上下邻居同一侧空着的半边：只改绘制与命中范围，不改槽位。
+///
+/// 坐标都是这一行自己的物理坐标（左上为原点），从右往左书写时整体左右镜像。
+/// 辅助功能字号或很窄的容器排成单列：中轴靠前侧，卡片都在中轴后侧。
+public struct SongTimelineGeometry: Equatable, Sendable {
+    public enum Style: Equatable, Sendable {
+        /// 中轴两侧交替的玻璃卡片：外侧方形小封面，内侧歌名与艺人。
+        case timeline
+        /// 左右交替、带透视的大封面，内侧边缘压一块玻璃胶囊写歌名与艺人。
+        case artwork
     }
 
-    /// 一块的边长。列数由 `columnCount` 给出，这里只做均分。
-    public static func tileSide(availableWidth: CGFloat, columns: Int) -> CGFloat {
-        let columns = max(columns, 1)
-        guard availableWidth.isFinite, availableWidth > 0 else { return 0 }
-        let side = (availableWidth - spacing * CGFloat(columns - 1)) / CGFloat(columns)
-        return max(side.rounded(.down), 0)
-    }
-
-    /// 第几首（从 0 数）落在第几列，网格按行依次填。
-    public static func column(forIndex index: Int, columns: Int) -> Int {
-        let columns = max(columns, 1)
-        let remainder = index % columns
-        return remainder < 0 ? remainder + columns : remainder
-    }
-}
-
-/// 「方块」外观里一块随滚动位置的变化。
-///
-/// 从底部进入可视区时由小放大、前倾回正、由半透明变实；靠近顶部离开时轻微缩小、
-/// 压暗、后仰。同一排的各列按列号错开一点相位，整排滚过时读起来像一道波。
-/// 封面在块里做轻微视差。全部只看位置不看速度，所以静止画面就是滚动途中那一帧。
-///
-/// 坐标都在「可视区」里量：可视区顶部是 0，`viewportHeight` 是滚动区自己的高度
-/// （SwiftUI 的滚动区布局框已经让开了导航栏和底栏）。开启「减少动态效果」时一律静止。
-public struct SongTileScrollMotion: Equatable, Sendable {
-    /// 进入时最小缩放。
-    public static let enteringScale: CGFloat = 0.84
-    /// 离开时最小缩放。
-    public static let leavingScale: CGFloat = 0.92
-    /// 进入时最大前倾（度，正值 = 上沿朝向观看者）。再大最下面那排就成了梯形，像画面变形而不是在转。
-    public static let enteringTilt: Double = 10
-    /// 离开时最大后仰（度）。
-    public static let leavingTilt: Double = 8
-    /// 进入时最低透明度。
-    public static let enteringOpacity: Double = 0.6
-    /// 离开时最多压暗多少（亮度减量）。
-    public static let leavingDim: Double = 0.24
-    /// 3D 旋转的透视强度，视图层传给 `rotation3DEffect` 的 `perspective`。
+    /// 容器还没量出宽度时先按这个排（常见手机竖屏）。
+    public static let fallbackWidth: CGFloat = 390
+    /// 内容区窄于这个宽度就排单列。
+    public static let minimumTwoColumnWidth: CGFloat = 300
+    /// 单列时中轴离前侧的距离。
+    public static let singleColumnAxisInset: CGFloat = 18
+    /// 卡片（胶囊）内侧边到中轴的距离，节点与短连线在这一段里。
+    public static let axisGap: CGFloat = 10
+    /// 节点两侧各算多宽的命中范围，让中轴上的节点（多选时是勾选圈）也点得到。
+    public static let nodeHitHalfWidth: CGFloat = 14
+    /// 时间线外观：槽位高度占卡片高度的比例。小于 1 时左右两侧的卡片上下略有交错，
+    /// 同一侧上下两张卡之间空出大半张卡。
+    public static let timelinePitchFraction: CGFloat = 0.92
+    /// 封面外观：大封面边长占内容宽度的比例。
+    public static let artworkWidthFraction: CGFloat = 0.29
+    /// 封面外观：大封面边长的上下限（双列）。
+    public static let artworkSideRange: ClosedRange<CGFloat> = 96...200
+    /// 封面外观：槽位高度至少是封面边长的这个比例。同一侧上下两张封面隔两个槽位，
+    /// 加上透视与转角后仍互不相碰。
+    public static let artworkPitchFraction: CGFloat = 0.64
+    /// 封面外观：大封面越出内容区外缘的比例（手机上就是伸出屏幕边）。
+    public static let artworkBleedFraction: CGFloat = 0.14
+    /// 封面外观：胶囊压住封面内侧多宽，按封面边长算。
+    public static let capsuleOverlapFraction: CGFloat = 0.36
+    /// 封面外观：胶囊最窄多宽。
+    public static let minimumCapsuleWidth: CGFloat = 96
+    /// 封面外观：封面绕竖轴的基础转角（度），内侧边远离观看者。
+    public static let artworkTurn: Double = 18
+    /// 封面外观：同一侧相邻两张封面在平面内一正一负的转角（度）。
+    public static let artworkRoll: Double = 2.5
+    /// 透视强度，视图层传给 `rotation3DEffect` 的 `perspective`。
     public static let perspective: CGFloat = 0.5
-    /// 封面视差的幅度，按块高的比例。
-    public static let parallaxFraction: CGFloat = 0.05
-    /// 封面比块大多少，好让视差移动时四边不露底。
-    public static let artworkOverscan: CGFloat = 1.12
-    /// 一整排里最后一列比第一列晚多少（按块高的比例）。
-    public static let rowPhaseSpread: CGFloat = 0.3
 
-    public let scale: CGFloat
-    /// 绕 X 轴的角度（度），正值上沿朝向观看者。
-    public let tilt: Double
-    public let opacity: Double
-    /// 亮度减量，0 不变。
-    public let dim: Double
-    /// 封面在块里的竖向位移（点）。
-    public let parallax: CGFloat
-
-    public static let identity = SongTileScrollMotion(scale: 1, tilt: 0, opacity: 1, dim: 0, parallax: 0)
-
-    private init(scale: CGFloat, tilt: Double, opacity: Double, dim: Double, parallax: CGFloat) {
-        self.scale = scale
-        self.tilt = tilt
-        self.opacity = opacity
-        self.dim = dim
-        self.parallax = parallax
+    /// 内容区最宽多少；更宽的容器（iPad、横屏）左右留白、内容居中。
+    public static func maximumWidth(for style: Style) -> CGFloat {
+        switch style {
+        case .timeline: 760
+        case .artwork: 640
+        }
     }
+
+    public let style: Style
+    public let containerWidth: CGFloat
+    public let isSingleColumn: Bool
+    /// 在中轴的前侧（从左往右书写时是左边）。单列时恒为 false。
+    public let isLeadingSide: Bool
+    /// 卡片与封面物理上在中轴左边：决定封面往哪边转、播放标记放在哪一段。
+    public let isOnLeft: Bool
+    /// 槽位高度。所有序号相同，只看宽度与字号。
+    public let rowHeight: CGFloat
+    public let axisX: CGFloat
+    /// 时间线外观的卡片；封面外观的玻璃胶囊。
+    public let card: CGRect
+    public let cardCornerRadius: CGFloat
+    /// 时间线外观：卡片外侧的方形小封面。封面外观：未旋转时大封面的框，会伸出槽位与内容区。
+    public let artwork: CGRect
+    public let artworkCornerRadius: CGFloat
+    /// 歌名与艺人所在的框，已经让开内边距与封面。
+    public let labels: CGRect
+    public let node: CGPoint
+    /// 封面绕竖轴的转角（度），正值 = 物理右边远离观看者。时间线外观为 0。
+    public let artworkTurn: Double
+    /// 封面在平面内的转角（度）。时间线外观为 0。
+    public let artworkRoll: Double
+    /// 大封面上既没被胶囊盖住、也没伸出容器的那一段的中点，按封面宽度的比例从物理左边量。
+    /// 正在播放的标记放在这里，不会被胶囊挡住一半。
+    public let artworkGlyphCenterX: CGFloat
 
     /// - Parameters:
-    ///   - tileMinY: 块上沿到可视区顶部的距离（在可视区下方为正）。
-    ///   - tileHeight: 块高。
-    ///   - viewportHeight: 可视区高度。
-    ///   - column: 这块在第几列（从 0 数，从行首数起）。
-    ///   - columnCount: 一排几列。
+    ///   - containerWidth: 这一行拿到的宽度（外层已经扣掉左右留白与字母索引的让位）。
+    ///   - ordinal: 在列表里排第几（从 1 数）。奇数在前侧。
+    ///   - cardHeight: 卡片（胶囊）高度，视图按动态字号放大后传进来。
     public init(
-        tileMinY: CGFloat,
-        tileHeight: CGFloat,
-        viewportHeight: CGFloat,
-        column: Int,
-        columnCount: Int,
-        reduceMotion: Bool
+        style: Style,
+        containerWidth: CGFloat,
+        ordinal: Int,
+        cardHeight: CGFloat,
+        accessibilitySize: Bool,
+        rightToLeft: Bool
     ) {
-        guard !reduceMotion, tileMinY.isFinite, tileHeight.isFinite, viewportHeight.isFinite,
-              tileHeight > 0, viewportHeight > 0 else {
-            self = .identity
-            return
+        let container = containerWidth.isFinite && containerWidth > 0 ? containerWidth : Self.fallbackWidth
+        let width = min(container, Self.maximumWidth(for: style))
+        let origin = (container - width) / 2
+        let height = cardHeight.isFinite ? max(cardHeight, 32) : 64
+        let single = accessibilitySize || width < Self.minimumTwoColumnWidth
+        let leading = !single && !ordinal.isMultiple(of: 2)
+        let axis = single ? origin + Self.singleColumnAxisInset : origin + width / 2
+        let gap = Self.axisGap
+
+        // 先按从左往右书写排（x 从前缘量），最后统一镜像。
+        let cardRect: CGRect
+        let artRect: CGRect
+        let labelRect: CGRect
+        let rowHeight: CGFloat
+        let cardRadius: CGFloat
+        let artRadius: CGFloat
+        var glyphX: CGFloat = 0.5
+        var turn = 0.0
+        var roll = 0.0
+
+        switch style {
+        case .timeline:
+            let cardWidth = max(single ? origin + width - (axis + gap) : width / 2 - gap, 0)
+            rowHeight = single ? (height + 12).rounded() : (height * Self.timelinePitchFraction).rounded()
+            let cardX = leading ? axis - gap - cardWidth : axis + gap
+            cardRect = CGRect(x: cardX, y: (rowHeight - height) / 2, width: cardWidth, height: height)
+            let pad = min(max(height * 0.1, 5), 8)
+            let side = max(min(height - pad * 2, cardWidth * 0.42), 0)
+            // 封面在外侧：前侧卡片靠前缘，后侧卡片（含单列）靠后缘。
+            let artX = leading ? cardRect.minX + pad : cardRect.maxX - pad - side
+            artRect = CGRect(x: artX, y: cardRect.midY - side / 2, width: side, height: side)
+            let textStart = leading ? artRect.maxX + 10 : cardRect.minX + 14
+            let textEnd = leading ? cardRect.maxX - 12 : artRect.minX - 10
+            labelRect = CGRect(x: textStart, y: cardRect.minY + pad,
+                               width: max(textEnd - textStart, 0), height: max(height - pad * 2, 0))
+            cardRadius = min(height * 0.3, 22)
+            artRadius = side * 0.2
+
+        case .artwork:
+            let lower = single ? max(Self.artworkSideRange.lowerBound, height + 12) : Self.artworkSideRange.lowerBound
+            let upper = single ? max(170, lower) : Self.artworkSideRange.upperBound
+            let side = min(max(width * (single ? 0.36 : Self.artworkWidthFraction), lower), upper)
+            let bleed = side * Self.artworkBleedFraction
+            let overlap = side * Self.capsuleOverlapFraction
+            let artX = leading ? origin - bleed : origin + width + bleed - side
+            let capsuleX: CGFloat
+            let capsuleWidth: CGFloat
+            if leading {
+                let innerEdge = axis - gap
+                capsuleWidth = max(innerEdge - (artX + side - overlap), Self.minimumCapsuleWidth)
+                capsuleX = innerEdge - capsuleWidth
+            } else {
+                let innerEdge = axis + gap
+                capsuleWidth = max(artX + overlap - innerEdge, Self.minimumCapsuleWidth)
+                capsuleX = innerEdge
+            }
+            rowHeight = single
+                ? max(height + 14, side + 10).rounded()
+                : max(height + 10, side * Self.artworkPitchFraction).rounded()
+            artRect = CGRect(x: artX, y: (rowHeight - side) / 2, width: side, height: side)
+            cardRect = CGRect(x: capsuleX, y: (rowHeight - height) / 2, width: capsuleWidth, height: height)
+            labelRect = cardRect.insetBy(dx: 14, dy: min(6, height / 8))
+            cardRadius = height * 0.42
+            artRadius = side * 0.1
+            turn = Self.artworkTurn
+            // 同一侧的上下两张一正一负；单列时每一行都在同一侧。
+            let sameSideIndex = single ? ordinal - 1 : (ordinal - 1) / 2
+            roll = sameSideIndex.isMultiple(of: 2) ? Self.artworkRoll : -Self.artworkRoll
+            let visibleStart = leading ? max(artX, 0) : cardRect.maxX
+            let visibleEnd = leading ? cardRect.minX : min(artX + side, container)
+            glyphX = min(max(((visibleStart + visibleEnd) / 2 - artX) / side, 0.2), 0.8)
         }
-        let columns = max(columnCount, 1)
-        let column = min(max(column, 0), columns - 1)
-        let lag = columns > 1
-            ? tileHeight * Self.rowPhaseSpread * CGFloat(column) / CGFloat(columns - 1)
-            : 0
-        // 后几列当作比实际低一点：进入晚一点，离开也晚一点。
-        let top = tileMinY + lag
 
-        // 进入：块从底边升起的高度，升起一个块高多一点时完全复原。
-        let enterBand = min(tileHeight * 1.15, viewportHeight * 0.55)
-        let enter = SongListMotionCurve.smooth((viewportHeight - top) / enterBand)
-        // 离开：上沿滑进顶栏下面才开始（停在最上面的第一排保持原样），滑进大半块时到底。
-        let exitBand = min(tileHeight * 0.85, viewportHeight * 0.45)
-        let exit = SongListMotionCurve.smooth(-top / exitBand)
+        let onLeft = leading != rightToLeft
+        func physical(_ rect: CGRect) -> CGRect {
+            rightToLeft ? CGRect(x: container - rect.maxX, y: rect.minY, width: rect.width, height: rect.height) : rect
+        }
 
-        scale = (1 - (1 - Self.enteringScale) * (1 - enter)) * (1 - (1 - Self.leavingScale) * exit)
-        tilt = Self.enteringTilt * Double(1 - enter) - Self.leavingTilt * Double(exit)
-        opacity = Self.enteringOpacity + (1 - Self.enteringOpacity) * Double(enter)
-        dim = Self.leavingDim * Double(exit)
-        parallax = Self.parallax(
-            tileMidY: tileMinY + tileHeight / 2,
-            tileHeight: tileHeight,
-            viewportHeight: viewportHeight
-        )
+        self.style = style
+        self.containerWidth = container
+        isSingleColumn = single
+        isLeadingSide = leading
+        isOnLeft = onLeft
+        self.rowHeight = rowHeight
+        axisX = rightToLeft ? container - axis : axis
+        card = physical(cardRect)
+        cardCornerRadius = cardRadius
+        artwork = physical(artRect)
+        artworkCornerRadius = artRadius
+        labels = physical(labelRect)
+        node = CGPoint(x: rightToLeft ? container - axis : axis, y: rowHeight / 2)
+        // 大封面在中轴左边时内侧是右边，绕竖轴正转右边远离；在右边时反过来。镜像后平面转角也反号。
+        artworkTurn = onLeft ? turn : -turn
+        artworkRoll = onLeft ? roll : -roll
+        artworkGlyphCenterX = rightToLeft ? 1 - glyphX : glyphX
     }
 
-    /// 封面视差：块在可视区下半部时封面偏上，滚到上半部时偏下，比块本身走得慢。
-    /// 幅度不超过 `artworkOverscan` 留出的余量。
-    public static func parallax(tileMidY: CGFloat, tileHeight: CGFloat, viewportHeight: CGFloat) -> CGFloat {
-        guard tileMidY.isFinite, tileHeight.isFinite, viewportHeight.isFinite,
-              tileHeight > 0, viewportHeight > 0 else { return 0 }
-        let reach = viewportHeight / 2 + tileHeight / 2
-        let position = SongListMotionCurve.clamp((tileMidY - viewportHeight / 2) / reach, -1, 1)
-        return -position * tileHeight * parallaxFraction
+    /// 节点那一段的命中范围：中轴两侧各 `nodeHitHalfWidth`，高度同卡片。
+    public var nodeHitRect: CGRect {
+        CGRect(x: axisX - Self.nodeHitHalfWidth, y: card.minY,
+               width: Self.nodeHitHalfWidth * 2, height: card.height)
     }
 
-    /// 带透视的 3D 旋转后，块最宽的那条边相对原尺寸的比例（近似）。
-    /// 用来确认缩放与倾斜叠在一起也不会画出自己的格子。
-    public var projectedExtent: CGFloat {
-        let lift = CGFloat(sin(abs(tilt) * .pi / 180)) / 2 * Self.perspective
-        guard lift < 1 else { return .infinity }
-        return scale / (1 - lift)
+    /// 封面的命中范围。大封面转过以后内侧边缩进去，按未旋转的框略收一圈。
+    public var artworkHitRect: CGRect {
+        switch style {
+        case .timeline: artwork
+        case .artwork: artwork.insetBy(dx: artwork.width * 0.06, dy: artwork.height * 0.04)
+        }
+    }
+
+    /// 内容伸出槽位多少（上下各一份）。外层栈在首尾各留这么多，第一行的封面不顶到上面的内容。
+    /// 按封面外观最大的透视与转角估。
+    public var verticalOverflow: CGFloat {
+        switch style {
+        case .timeline:
+            return max(0, (card.height - rowHeight) / 2)
+        case .artwork:
+            let extent = artwork.height * Self.maximumProjectedHeightFactor
+            return max(0, (max(extent, card.height) - rowHeight) / 2)
+        }
+    }
+
+    /// 大封面转到最大角度、带上平面转角之后，外接框的高度相对边长的倍数（估计，偏大）。
+    /// 透视的消失距离按 SwiftUI 的做法取边长 ÷ `perspective`。
+    public static var maximumProjectedHeightFactor: CGFloat {
+        let turn = (artworkTurn + SongTimelineScrollMotion.maximumExtraTurn) * .pi / 180
+        let nearEdge = 1 / (1 - CGFloat(sin(turn)) / 2 * perspective)
+        let roll = CGFloat(sin(artworkRoll * .pi / 180))
+        return nearEdge + roll
     }
 }
 
-/// 「聚焦」外观里一张卡随滚动位置的变化。
+/// 两种外观随滚动位置的变化。只看位置不看速度，静止画面就是滚动途中那一帧；
+/// 坐标都在可视区里量（可视区顶部是 0）。开启「减少动态效果」时一律不变：封面保持基础转角。
 ///
-/// 滚到可视区中部的那一两行是完整大小，封面带柔和阴影；离中心越远越小、越淡，
-/// 封面绕 Y 轴转开一点。靠近上下边缘的几行往中心收拢：每行按自己缩小后的尺寸
-/// 重新排紧，相邻两张卡之间至少留 `minimumGap`，所以收拢不会叠到邻居身上。
-///
-/// 上下对称：同样离中心远的两行，缩放、透明度、转角相同，位移大小相同方向相反。
-public struct SongFocusScrollMotion: Equatable, Sendable {
-    /// 最远处的缩放。
-    public static let minimumScale: CGFloat = 0.9
-    /// 最远处的透明度。
-    public static let minimumOpacity: Double = 0.62
-    /// 最远处封面绕 Y 轴的转角（度）。再大边缘几行的封面就歪成平行四边形。
-    public static let maximumCoverTurn: Double = 16
-    /// 收拢后相邻两张卡至少还隔着的距离（点）。
-    public static let minimumGap: CGFloat = 3
-    /// 中心多大一段保持原样，按行距算。
-    static let coreRows: CGFloat = 0.6
+/// - 封面：离可视区中部越远，封面在基础转角上多转一点、略缩小，并且比槽位走得慢一点（视差），
+///   像一面略带弧度的墙。
+/// - 时间线：从底边进入的卡片由淡到实、略放大；滑进顶栏下面时变淡。停在最上面的第一行保持原样。
+public struct SongTimelineScrollMotion: Equatable, Sendable {
+    /// 封面在基础转角上最多再转多少度。
+    public static let maximumExtraTurn: Double = 9
+    /// 封面最小缩放。
+    public static let minimumArtworkScale: CGFloat = 0.94
+    /// 封面视差幅度，按槽位高度。
+    public static let artworkParallaxFraction: CGFloat = 0.1
+    /// 卡片进入、离开时的最低透明度。
+    public static let minimumCardOpacity: Double = 0.35
+    /// 卡片进入时的最小缩放。
+    public static let minimumCardScale: CGFloat = 0.96
 
-    public let scale: CGFloat
-    public let opacity: Double
-    /// 封面绕 Y 轴的转角（度），始终 ≥ 0，方向由视图按书写方向决定。
-    public let coverTurn: Double
-    /// 朝中心收拢的竖向位移（点）。上半部为正（往下），下半部为负（往上）。
-    public let offset: CGFloat
-    /// 居中程度，1 在正中，用来淡入封面阴影。
-    public let emphasis: Double
+    /// 封面多转的角度（度，≥ 0），方向跟基础转角相同。
+    public let extraTurn: Double
+    public let artworkScale: CGFloat
+    /// 封面相对槽位的竖向位移（点）。
+    public let artworkShift: CGFloat
+    public let cardScale: CGFloat
+    public let cardOpacity: Double
 
-    public static let identity = SongFocusScrollMotion(scale: 1, opacity: 1, coverTurn: 0, offset: 0, emphasis: 1)
+    public static let identity = SongTimelineScrollMotion(
+        extraTurn: 0, artworkScale: 1, artworkShift: 0, cardScale: 1, cardOpacity: 1
+    )
 
-    private init(scale: CGFloat, opacity: Double, coverTurn: Double, offset: CGFloat, emphasis: Double) {
-        self.scale = scale
-        self.opacity = opacity
-        self.coverTurn = coverTurn
-        self.offset = offset
-        self.emphasis = emphasis
+    private init(extraTurn: Double, artworkScale: CGFloat, artworkShift: CGFloat,
+                 cardScale: CGFloat, cardOpacity: Double) {
+        self.extraTurn = extraTurn
+        self.artworkScale = artworkScale
+        self.artworkShift = artworkShift
+        self.cardScale = cardScale
+        self.cardOpacity = cardOpacity
     }
 
     /// - Parameters:
-    ///   - rowMidY: 卡片中心到可视区顶部的距离。
-    ///   - rowPitch: 相邻两行中心的距离（行高加上下留白）。
-    ///   - cardHeight: 卡片本身的高度。
+    ///   - rowMinY: 槽位上沿到可视区顶部的距离（在可视区下方为正）。
+    ///   - rowHeight: 槽位高度。
     ///   - viewportHeight: 可视区高度。
     public init(
-        rowMidY: CGFloat,
-        rowPitch: CGFloat,
-        cardHeight: CGFloat,
+        style: SongTimelineGeometry.Style,
+        rowMinY: CGFloat,
+        rowHeight: CGFloat,
         viewportHeight: CGFloat,
         reduceMotion: Bool
     ) {
-        guard !reduceMotion, rowMidY.isFinite, rowPitch.isFinite, cardHeight.isFinite,
-              viewportHeight.isFinite, rowPitch > 0, cardHeight > 0, viewportHeight > 0 else {
+        guard !reduceMotion, rowMinY.isFinite, rowHeight.isFinite, viewportHeight.isFinite,
+              rowHeight > 0, viewportHeight > 0 else {
             self = .identity
             return
         }
-        let card = min(cardHeight, rowPitch)
-        let half = viewportHeight / 2
-        let fromCenter = rowMidY - half
-        let core = min(0.8, rowPitch * Self.coreRows / half)
-        let width = half * (1 - core)
-        let progress = (abs(fromCenter) / half - core) / (1 - core)
-        let distance = SongListMotionCurve.smooth(progress)
-
-        scale = 1 - (1 - Self.minimumScale) * distance
-        opacity = 1 - (1 - Self.minimumOpacity) * Double(distance)
-        coverTurn = Self.maximumCoverTurn * Double(distance)
-        emphasis = 1 - Double(SongListMotionCurve.smooth(abs(fromCenter) / (half * core + rowPitch * 0.6)))
-
-        // 每一小段都按「缩小后的卡高 + 收窄的间隙」重新排：位移就是这些节省下来的
-        // 距离从中心累加到这一行。累加用平滑曲线的定积分，闭式可算。
-        let gap = rowPitch - card
-        let saved = (1 - Self.minimumScale) * card + gap - min(gap, Self.minimumGap)
-        // 行距相对过渡段太大时（横屏、超大字号）曲线在一行之内走完，按行累加会估过头，
-        // 这时收拢按比例减弱，直到不再收拢。
-        let rate = saved / rowPitch * SongListMotionCurve.clamp(width / (rowPitch * 2.5), 0, 1)
-        let clamped = SongListMotionCurve.clamp(progress, 0, 1)
-        let cube = clamped * clamped * clamped
-        let integral = width * (cube - cube * clamped / 2) + max(0, abs(fromCenter) - half)
-        let shift = rate * integral
-        offset = fromCenter > 0 ? -shift : shift
+        switch style {
+        case .artwork:
+            let half = viewportHeight / 2
+            let fromCenter = rowMinY + rowHeight / 2 - half
+            // 中部一个槽位高的一段保持原样，往外到可视区边缘走完。
+            let core = min(rowHeight * 0.5, half * 0.5)
+            let distance = SongListMotionCurve.smooth((abs(fromCenter) - core) / max(half - core, 1))
+            extraTurn = Self.maximumExtraTurn * Double(distance)
+            artworkScale = 1 - (1 - Self.minimumArtworkScale) * distance
+            let reach = half + rowHeight
+            artworkShift = -SongListMotionCurve.clamp(fromCenter / reach, -1, 1)
+                * rowHeight * Self.artworkParallaxFraction
+            cardScale = 1
+            cardOpacity = 1
+        case .timeline:
+            // 进入：上沿离底边升起一段（一张多卡片高，最多可视区的三成）时完全复原。
+            let enterBand = min(rowHeight * 1.6, viewportHeight * 0.3)
+            let enter = SongListMotionCurve.smooth((viewportHeight - rowMinY) / enterBand)
+            // 离开：上沿滑进顶部以后才开始，滑进一个槽位高时最淡。
+            let exit = SongListMotionCurve.smooth(-rowMinY / rowHeight)
+            let visible = Double(enter) * (1 - Double(exit))
+            extraTurn = 0
+            artworkScale = 1
+            artworkShift = 0
+            // 写成「1 减去缺的那一截」：完全可见时恰好是 1，不带浮点尾数。
+            cardOpacity = 1 - (1 - Self.minimumCardOpacity) * (1 - visible)
+            cardScale = 1 - (1 - Self.minimumCardScale) * (1 - enter)
+        }
     }
 }
 

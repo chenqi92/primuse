@@ -6959,8 +6959,8 @@
 
 "song_list_layout" = "List appearance";
 "song_list_layout_list" = "List";
-"song_list_layout_tiles" = "Tiles";
-"song_list_layout_focus" = "Focus";
+"song_list_layout_timeline" = "Timeline";
+"song_list_layout_artwork" = "Artwork";
 
 "lyrics_weight" = "Lyrics weight";
 "lyrics_weight_default" = "Default";

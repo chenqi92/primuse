@@ -7104,8 +7104,8 @@
 
 "song_list_layout" = "सूची की शैली";
 "song_list_layout_list" = "सूची";
-"song_list_layout_tiles" = "टाइल";
-"song_list_layout_focus" = "फ़ोकस";
+"song_list_layout_timeline" = "टाइमलाइन";
+"song_list_layout_artwork" = "कवर";
 
 "lyrics_weight" = "गीत के बोलों के फ़ॉन्ट की मोटाई";
 "lyrics_weight_default" = "डिफ़ॉल्ट";

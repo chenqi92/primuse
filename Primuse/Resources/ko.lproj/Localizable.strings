@@ -7198,8 +7198,8 @@
 
 "song_list_layout" = "목록 스타일";
 "song_list_layout_list" = "목록";
-"song_list_layout_tiles" = "타일";
-"song_list_layout_focus" = "포커스";
+"song_list_layout_timeline" = "타임라인";
+"song_list_layout_artwork" = "아트워크";
 
 "lyrics_weight" = "가사 글꼴 굵기";
 "lyrics_weight_default" = "기본값";

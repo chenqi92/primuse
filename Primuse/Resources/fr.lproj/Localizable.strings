@@ -7198,8 +7198,8 @@
 
 "song_list_layout" = "Présentation de la liste";
 "song_list_layout_list" = "Liste";
-"song_list_layout_tiles" = "Mosaïque";
-"song_list_layout_focus" = "Focus";
+"song_list_layout_timeline" = "Chronologie";
+"song_list_layout_artwork" = "Pochettes";
 
 "lyrics_weight" = "Graisse des paroles";
 "lyrics_weight_default" = "Par défaut";

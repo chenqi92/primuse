@@ -7104,8 +7104,8 @@
 
 "song_list_layout" = "Вид списка";
 "song_list_layout_list" = "Список";
-"song_list_layout_tiles" = "Плитки";
-"song_list_layout_focus" = "Фокус";
+"song_list_layout_timeline" = "Лента";
+"song_list_layout_artwork" = "Обложки";
 
 "lyrics_weight" = "Толщина шрифта текста песни";
 "lyrics_weight_default" = "По умолчанию";

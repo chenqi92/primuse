@@ -7104,8 +7104,8 @@
 
 "song_list_layout" = "Estilo da lista";
 "song_list_layout_list" = "Lista";
-"song_list_layout_tiles" = "Blocos";
-"song_list_layout_focus" = "Foco";
+"song_list_layout_timeline" = "Linha do tempo";
+"song_list_layout_artwork" = "Capas";
 
 "lyrics_weight" = "Peso da fonte das letras";
 "lyrics_weight_default" = "Padrão";

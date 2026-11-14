@@ -7291,8 +7291,8 @@
 
 "song_list_layout" = "列表样式";
 "song_list_layout_list" = "列表";
-"song_list_layout_tiles" = "方块";
-"song_list_layout_focus" = "聚焦";
+"song_list_layout_timeline" = "时间线";
+"song_list_layout_artwork" = "封面";
 
 "lyrics_weight" = "歌词字重";
 "lyrics_weight_default" = "默认";

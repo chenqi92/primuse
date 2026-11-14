@@ -397,17 +397,17 @@ final class SongLocationUITests: XCTestCase {
         attach(app, "song-location-large-library")
     }
 
-    func testTileGridLocatesDistantSongAndOpensLongPressActions() {
-        assertDecorativeAppearance("tiles")
+    func testArtworkCoversLocateDistantSongAndOpenLongPressActions() {
+        assertDecorativeAppearance("artwork")
     }
 
-    func testFocusCardsLocateDistantSongAndOpenLongPressActions() {
-        assertDecorativeAppearance("focus")
+    func testTimelineCardsLocateDistantSongAndOpenLongPressActions() {
+        assertDecorativeAppearance("timeline")
     }
 
     func testLocationEmphasisRepeatsWithoutMovingVisibleSongsInEveryStyle() {
-        for (appearance, colorScheme) in [("list", "dark"), ("tiles", "dark"), ("tiles", "light"),
-                                          ("focus", "dark"), ("focus", "light")] {
+        for (appearance, colorScheme) in [("list", "dark"), ("artwork", "dark"), ("artwork", "light"),
+                                          ("timeline", "dark"), ("timeline", "light")] {
             let app = launch("songs", appearance: appearance, colorScheme: colorScheme)
             defer { app.terminate() }
             let locate = app.buttons["songList.locateCurrent"].firstMatch
@@ -427,8 +427,9 @@ final class SongLocationUITests: XCTestCase {
         }
     }
 
-    func testTilesAndFocusScrollInLightAndDarkAppearance() {
-        for (appearance, colorScheme) in [("tiles", "light"), ("tiles", "dark"), ("focus", "light"), ("focus", "dark")] {
+    func testTimelineAndArtworkScrollInLightAndDarkAppearance() {
+        for (appearance, colorScheme) in [("artwork", "light"), ("artwork", "dark"),
+                                          ("timeline", "light"), ("timeline", "dark")] {
             let app = launch("songs", appearance: appearance, colorScheme: colorScheme)
             defer { app.terminate() }
             let locate = app.buttons["songList.locateCurrent"].firstMatch
@@ -472,31 +473,29 @@ final class SongLocationUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["song.actions.location-3990"].waitForExistence(timeout: 5))
 
-        chooseAppearance("方块", in: app)
-        locate.tap()
-        XCTAssertTrue(row.waitForExistence(timeout: 15))
-        let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: row)
-        wait(for: [visible], timeout: 15)
-        XCTAssertFalse(app.buttons["song.actions.location-3990"].exists, "Tiles keep single-song actions in the long-press menu")
-        let neighbour = app.buttons["songRow.location-3991"].firstMatch
-        XCTAssertTrue(neighbour.waitForExistence(timeout: 5))
-        XCTAssertEqual(neighbour.frame.midY, row.frame.midY, accuracy: 1, "Two tiles share a row on a portrait phone")
-        XCTAssertLessThan(row.frame.width, app.frame.width * 0.6)
-        XCTAssertEqual(row.frame.width, row.frame.height, accuracy: 1)
-        attach(app, "appearance-picker-tiles")
-        row.press(forDuration: 1)
-        XCTAssertTrue(app.buttons["加入播放队列"].firstMatch.waitForExistence(timeout: 5),
-                      "Without swipe actions the menu offers adding to the queue")
-        app.buttons["选择"].firstMatch.tap()
-        XCTAssertEqual(row.value as? String, "已选择")
-        app.buttons["取消"].firstMatch.tap()
-
-        chooseAppearance("聚焦", in: app)
-        locate.tap()
-        XCTAssertTrue(row.waitForExistence(timeout: 15))
-        XCTAssertTrue(app.buttons["song.actions.location-3990"].waitForExistence(timeout: 5))
-        XCTAssertGreaterThan(row.frame.width, app.frame.width * 0.75)
-        attach(app, "appearance-picker-focus")
+        for title in ["封面", "时间线"] {
+            chooseAppearance(title, in: app)
+            locate.tap()
+            XCTAssertTrue(row.waitForExistence(timeout: 15))
+            let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: row)
+            wait(for: [visible], timeout: 15)
+            XCTAssertFalse(app.buttons["song.actions.location-3990"].exists,
+                           "\(title) keeps single-song actions in the long-press menu")
+            // 一首一个槽位，下一首在中轴另一侧、紧接着的下一个槽位。
+            let neighbour = app.buttons["songRow.location-3991"].firstMatch
+            XCTAssertTrue(neighbour.waitForExistence(timeout: 5))
+            XCTAssertGreaterThan(neighbour.frame.minY, row.frame.midY, "\(title) stacks one song per slot")
+            XCTAssertGreaterThan(row.frame.width, app.frame.width * 0.75)
+            XCTAssertFalse(app.descendants(matching: .any)["songList.alphabetIndex"].exists,
+                           "\(title) keeps the centred axis free of the alphabet index")
+            attach(app, "appearance-picker-\(title)")
+            row.press(forDuration: 1)
+            XCTAssertTrue(app.buttons["加入播放队列"].firstMatch.waitForExistence(timeout: 5),
+                          "Without swipe actions the menu offers adding to the queue")
+            app.buttons["选择"].firstMatch.tap()
+            XCTAssertEqual(row.value as? String, "已选择")
+            app.buttons["取消"].firstMatch.tap()
+        }
     }
 
     private func chooseAppearance(_ title: String, in app: XCUIApplication) {
@@ -521,7 +520,8 @@ final class SongLocationUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: row)
         wait(for: [visible], timeout: 15)
-        XCTAssertEqual(app.buttons["song.actions.location-3990"].exists, appearance == "focus")
+        XCTAssertFalse(app.buttons["song.actions.location-3990"].exists,
+                       "Timeline cards and artwork capsules keep single-song actions in the long-press menu")
         XCTAssertLessThan(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "songRow.")).count, 100,
                           "A 4,000-song list must not materialize every row")
         attach(app, "song-list-\(appearance)")

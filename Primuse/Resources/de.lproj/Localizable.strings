@@ -7198,8 +7198,8 @@
 
 "song_list_layout" = "Listendarstellung";
 "song_list_layout_list" = "Liste";
-"song_list_layout_tiles" = "Kacheln";
-"song_list_layout_focus" = "Fokus";
+"song_list_layout_timeline" = "Zeitleiste";
+"song_list_layout_artwork" = "Cover";
 
 "lyrics_weight" = "Schriftstärke der Liedtexte";
 "lyrics_weight_default" = "Standard";

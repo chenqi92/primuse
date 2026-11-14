@@ -7104,8 +7104,8 @@
 
 "song_list_layout" = "Liste görünümü";
 "song_list_layout_list" = "Liste";
-"song_list_layout_tiles" = "Kutucuklar";
-"song_list_layout_focus" = "Odak";
+"song_list_layout_timeline" = "Zaman çizelgesi";
+"song_list_layout_artwork" = "Kapaklar";
 
 "lyrics_weight" = "Şarkı sözü yazı kalınlığı";
 "lyrics_weight_default" = "Varsayılan";

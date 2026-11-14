@@ -3921,101 +3921,91 @@ final class SongListAppearanceLayoutTests: XCTestCase {
         XCTAssertEqual(host.sizeThatFits(in: constraint).width, visible.width, accuracy: 0.5)
     }
 
-    func testLegacyDecorativeAppearancesFallBackToTheList() {
-        XCTAssertEqual(SongListAppearance.allCases, [.list, .tiles, .focus])
-        for legacy in ["timeline", "artwork", "obsolete", ""] {
-            XCTAssertEqual(SongListAppearance.resolved(legacy), .list)
+    func testAppearancesResolveStoredValuesAndMapTheShortLivedStyles() {
+        XCTAssertEqual(SongListAppearance.allCases, [.list, .timeline, .artwork])
+        XCTAssertEqual(SongListAppearance.resolved("list"), .list)
+        XCTAssertEqual(SongListAppearance.resolved("timeline"), .timeline)
+        XCTAssertEqual(SongListAppearance.resolved("artwork"), .artwork)
+        // 中间几天的方块、聚焦换成最接近的封面、时间线，不退回列表。
+        XCTAssertEqual(SongListAppearance.resolved("tiles"), .artwork)
+        XCTAssertEqual(SongListAppearance.resolved("focus"), .timeline)
+        for unknown in ["obsolete", "", "Timeline"] {
+            XCTAssertEqual(SongListAppearance.resolved(unknown), .list)
         }
-        XCTAssertEqual(SongListAppearance.resolved("tiles"), .tiles)
-        XCTAssertEqual(SongListAppearance.resolved("focus"), .focus)
+        XCTAssertNil(SongListAppearance.list.timelineStyle)
+        XCTAssertEqual(SongListAppearance.timeline.timelineStyle, .timeline)
+        XCTAssertEqual(SongListAppearance.artwork.timelineStyle, .artwork)
         XCTAssertEqual(SongListAppearance.storageKey, "songListAppearance")
         XCTAssertTrue(OfflineSettingsCatalog.standardKeys.contains(SongListAppearance.storageKey))
     }
 
-    func testTileLayoutFollowsTheContainerWidth() {
-        let inset = SongTileGridPolicy.horizontalInset
-        // 竖屏手机：有没有字母索引都是两列。
-        for width in [320.0, 375, 393, 440] {
-            for trailing in [inset, 42] {
-                let layout = SongTileLayout(containerWidth: width, leadingInset: inset, trailingInset: trailing,
-                                            accessibilitySize: false)
-                XCTAssertEqual(layout.columns, 2)
-                XCTAssertEqual(layout.gridItems.count, 2)
-                XCTAssertLessThanOrEqual(layout.side * 2 + SongTileGridPolicy.spacing, width - inset - trailing)
-            }
-        }
-        XCTAssertEqual(SongTileLayout(containerWidth: 734, leadingInset: inset, trailingInset: inset,
-                                      accessibilitySize: false).columns, 4)
-        XCTAssertEqual(SongTileLayout(containerWidth: 1180, leadingInset: inset, trailingInset: inset,
-                                      accessibilitySize: false).columns, 6)
-        XCTAssertEqual(SongTileLayout(containerWidth: 1180, leadingInset: inset, trailingInset: inset,
-                                      accessibilitySize: true).columns, 1)
-        XCTAssertEqual(SongTileLayout(containerWidth: 0, leadingInset: inset, trailingInset: inset,
-                                      accessibilitySize: false).columns, 2)
-    }
-
-    func testTileAndFocusRowsKeepStableSizeAcrossLoadingSelectionAndLocation() async throws {
+    func testTimelineAndArtworkRowsKeepTheirSlotAcrossStatesSidesAndDirections() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
         let manager = SourceManager(sourcesProvider: { [] }, songsProvider: { [] })
         defer { try? FileManager.default.removeItem(at: directory) }
         await library.whenReady()
-        let song = Song(id: "tile-layout", title: "A Time of Quiet Between the Storms", albumTitle: "Interstellar",
+        let song = Song(id: "timeline-layout", title: "A Time of Quiet Between the Storms", albumTitle: "Interstellar",
                         artistName: "Hans Zimmer", duration: 180, fileFormat: .flac, filePath: "",
-                        sourceID: "tile-layout")
-        func host(_ view: some View, typeSize: DynamicTypeSize, emphasis: Double = 0) -> UIHostingController<AnyView> {
+                        sourceID: "timeline-layout")
+        func host(_ view: some View, width: CGFloat, typeSize: DynamicTypeSize,
+                  direction: LayoutDirection = .leftToRight, emphasis: Double = 0) -> UIHostingController<AnyView> {
             UIHostingController(rootView: AnyView(view
                 .environment(library).environment(manager)
+                .environment(\.songTimelineWidth, width)
                 .environment(\.dynamicTypeSize, typeSize)
+                .environment(\.layoutDirection, direction)
                 .environment(\.songLocationEmphasis, emphasis)))
         }
-        for typeSize in [DynamicTypeSize.large, .accessibility3] {
-            for width in [168.0, 288, 720] {
-                let constraint = CGSize(width: width, height: 2000)
-                let plainTile = host(SongTileContent(song: song, title: song.title, artist: song.artistName,
-                                                     ordinal: 3991), typeSize: typeSize)
-                let initial = plainTile.sizeThatFits(in: constraint)
-                plainTile.view.frame = CGRect(origin: .zero, size: initial)
-                plainTile.view.layoutIfNeeded()
-                try await Task.sleep(for: .milliseconds(50))
-                XCTAssertEqual(initial.height, initial.width, accuracy: 0.5, "Tiles are square")
-                XCTAssertEqual(plainTile.sizeThatFits(in: constraint).height, initial.height, accuracy: 0.5)
-                XCTAssertLessThanOrEqual(initial.width, width)
-                let busyTile = host(SongTileContent(song: song, title: song.title, artist: song.artistName,
-                                                    ordinal: 3991, isPlaying: true, isLoading: true,
-                                                    isUnavailable: true, isSelected: true),
-                                    typeSize: typeSize, emphasis: 1)
-                XCTAssertEqual(busyTile.sizeThatFits(in: constraint).height, initial.height, accuracy: 0.5)
-            }
-            for width in [320.0, 720] {
-                let constraint = CGSize(width: width, height: 2000)
-                let plainCard = host(SongFocusRowContent(song: song, title: song.title,
-                                                         subtitle: "Hans Zimmer · Interstellar") {
-                    Image(systemName: "ellipsis").frame(width: 32, height: 32)
-                }, typeSize: typeSize)
-                let card = plainCard.sizeThatFits(in: constraint)
-                XCTAssertGreaterThanOrEqual(card.height, SongFocusRowMetrics.baseHeight - 0.5)
-                XCTAssertLessThanOrEqual(card.width, width + 0.5)
-                for state in [(true, true, false), (false, false, true), (true, false, true)] {
-                    let other = host(SongFocusRowContent(song: song, title: song.title, subtitle: nil,
-                                                         isPlaying: state.0, isLoading: state.1,
-                                                         isUnavailable: state.2, isReadingDetails: true) {
-                        EmptyView()
-                    }, typeSize: typeSize, emphasis: 1)
-                    XCTAssertEqual(other.sizeThatFits(in: constraint).height, card.height, accuracy: 0.5)
-                }
-                let selecting = host(SongFocusRowContent(song: song, title: song.title, subtitle: nil,
-                                                         isPlaying: true, isSelected: true), typeSize: typeSize)
-                XCTAssertEqual(selecting.sizeThatFits(in: constraint).height, card.height, accuracy: 0.5)
+        func row(_ style: SongTimelineGeometry.Style, ordinal: Int, busy: Bool = false,
+                 isSelected: Bool? = nil) -> AnyView {
+            switch style {
+            case .timeline:
+                AnyView(SongTimelineRowContent(
+                    song: song, title: song.title, artist: song.artistName, ordinal: ordinal,
+                    isPlaying: busy, isLoading: busy, isUnavailable: busy, isReadingDetails: busy,
+                    isSelected: isSelected))
+            case .artwork:
+                AnyView(SongArtworkRowContent(
+                    song: song, title: song.title, artist: song.artistName, ordinal: ordinal,
+                    isPlaying: busy, isLoading: busy, isUnavailable: busy, isReadingDetails: busy,
+                    isSelected: isSelected))
             }
         }
-    }
-
-    func testFocusSubtitleJoinsOnlyWhatIsThere() {
-        XCTAssertEqual(SongFocusRowMetrics.subtitle(artist: "Artist", album: "Album"), "Artist · Album")
-        XCTAssertEqual(SongFocusRowMetrics.subtitle(artist: "Artist", album: "  "), "Artist")
-        XCTAssertEqual(SongFocusRowMetrics.subtitle(artist: nil, album: "Album"), "Album")
-        XCTAssertNil(SongFocusRowMetrics.subtitle(artist: "", album: nil))
+        for style in [SongTimelineGeometry.Style.timeline, .artwork] {
+            for typeSize in [DynamicTypeSize.large, .accessibility3] {
+                for width in [320.0, 361, 393, 1024] as [CGFloat] {
+                    let constraint = CGSize(width: width, height: 2000)
+                    let plain = host(row(style, ordinal: 3991), width: width, typeSize: typeSize)
+                        .sizeThatFits(in: constraint)
+                    XCTAssertEqual(plain.width, width, accuracy: 0.5, "\(style) fills the stack width")
+                    XCTAssertGreaterThan(plain.height, 40)
+                    if typeSize == .large {
+                        let base = style == .timeline
+                            ? SongTimelineRowMetrics.timelineCardHeight
+                            : SongTimelineRowMetrics.artworkCapsuleHeight
+                        let geometry = SongTimelineGeometry(style: style, containerWidth: width, ordinal: 3991,
+                                                            cardHeight: base, accessibilitySize: false,
+                                                            rightToLeft: false)
+                        XCTAssertEqual(plain.height, geometry.rowHeight, accuracy: 0.5,
+                                       "The slot height is the geometry's, whatever overflows it")
+                    }
+                    let variants: [(String, UIHostingController<AnyView>)] = [
+                        ("other side", host(row(style, ordinal: 3992), width: width, typeSize: typeSize)),
+                        ("busy", host(row(style, ordinal: 3991, busy: true), width: width, typeSize: typeSize,
+                                      emphasis: 1)),
+                        ("selecting", host(row(style, ordinal: 3991, isSelected: true), width: width,
+                                           typeSize: typeSize)),
+                        ("right to left", host(row(style, ordinal: 3991), width: width, typeSize: typeSize,
+                                               direction: .rightToLeft)),
+                    ]
+                    for (name, variant) in variants {
+                        XCTAssertEqual(variant.sizeThatFits(in: constraint).height, plain.height, accuracy: 0.5,
+                                       "\(style) \(name) at \(width) keeps the slot height")
+                    }
+                }
+            }
+        }
     }
 }
 #endif

@@ -7199,8 +7199,8 @@
 
 "song_list_layout" = "リストの表示";
 "song_list_layout_list" = "リスト";
-"song_list_layout_tiles" = "タイル";
-"song_list_layout_focus" = "フォーカス";
+"song_list_layout_timeline" = "タイムライン";
+"song_list_layout_artwork" = "アートワーク";
 
 "lyrics_weight" = "歌詞の文字の太さ";
 "lyrics_weight_default" = "デフォルト";

@@ -7104,8 +7104,8 @@
 
 "song_list_layout" = "รูปแบบรายการ";
 "song_list_layout_list" = "รายการ";
-"song_list_layout_tiles" = "ไทล์";
-"song_list_layout_focus" = "โฟกัส";
+"song_list_layout_timeline" = "ไทม์ไลน์";
+"song_list_layout_artwork" = "ภาพปก";
 
 "lyrics_weight" = "ความหนาของแบบอักษรเนื้อเพลง";
 "lyrics_weight_default" = "ค่าเริ่มต้น";
