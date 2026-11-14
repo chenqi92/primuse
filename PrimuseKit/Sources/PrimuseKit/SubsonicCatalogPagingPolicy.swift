@@ -767,32 +767,66 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
         }
     }
 
+    /// The staged hierarchy of `sourceID`. `previous` is the index the last
+    /// commit published: a rescan of an unchanged catalogue stages exactly that
+    /// index again, so it is compared row by row first and returned as is —
+    /// building a second whole index (~300 MB at 450K songs) while the
+    /// published one is still alive was the peak of every rescan. Rows that did
+    /// change are decoded, and unchanged ones reuse the published values.
     public func loadHierarchyIndex(
-        sourceID: String
+        sourceID: String,
+        reusing previous: [String: SourceSyncIndexedItem] = [:]
     ) throws -> [String: SourceSyncIndexedItem] {
         let decoder = JSONDecoder()
+        let sql = """
+            SELECT stableKey, payload FROM pagedCatalogHierarchy
+            WHERE sourceID = ?
+            ORDER BY rowid
+            """
         return try database.read { db in
-            let rows = try Row.fetchCursor(
-                db,
-                sql: """
-                    SELECT stableKey, payload FROM pagedCatalogHierarchy
-                    WHERE sourceID = ?
-                    ORDER BY rowid
-                    """,
-                arguments: [sourceID]
-            )
+            if !previous.isEmpty {
+                let rows = try Row.fetchCursor(db, sql: sql, arguments: [sourceID])
+                var matchedRows = 0
+                var unchanged = true
+                while let row = try rows.next() {
+                    try Task.checkCancellation()
+                    let same = try autoreleasepool { () -> Bool in
+                        let stableKey: String = row["stableKey"]
+                        guard let published = previous[stableKey] else { return false }
+                        let payload: Data = row["payload"]
+                        return try Self.decodedPayload(
+                            SourceSyncIndexedItem.self, from: payload, decoder: decoder
+                        ) == published
+                    }
+                    guard same else {
+                        unchanged = false
+                        break
+                    }
+                    matchedRows += 1
+                }
+                // Equal row count and no duplicate keys: the staged index is the published one.
+                if unchanged, matchedRows == previous.count { return previous }
+            }
+            let rows = try Row.fetchCursor(db, sql: sql, arguments: [sourceID])
             var result: [String: SourceSyncIndexedItem] = [:]
             while let row = try rows.next() {
                 try Task.checkCancellation()
                 try autoreleasepool {
                     let stableKey: String = row["stableKey"]
                     let payload: Data = row["payload"]
-                    result[stableKey] = try Self.decodedPayload(
+                    let item = try Self.decodedPayload(
                         SourceSyncIndexedItem.self,
                         from: payload, decoder: decoder
                     )
+                    if let published = previous[stableKey], published == item {
+                        result[stableKey] = published
+                    } else {
+                        result[stableKey] = item
+                    }
                 }
             }
+            // One item per song, each with its own copy of its album folder's path.
+            result.shareRepeatedFolderPaths()
             return result
         }
     }

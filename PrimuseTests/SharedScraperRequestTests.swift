@@ -1921,3 +1921,47 @@ private actor ScraperSubscriptionFixture {
         return manifest
     }
 }
+
+/// 整库刮削的两份按歌数增长的状态：同名同大小副本的元数据种子只给真有副本的身份留,
+/// 旁车写入排队有上限(每个排队的写入都抱着一张刮到的封面)。
+@MainActor
+final class BatchScrapeMemoryBoundsTests: XCTestCase {
+    private func song(_ id: String, file: String, size: Int64, artist: String? = nil, duration: TimeInterval = 0) -> Song {
+        Song(id: id, title: id, artistName: artist, duration: duration, fileFormat: .flac,
+             filePath: "/music/\(file)", sourceID: "nas", fileSize: size)
+    }
+
+    func testOnlySharedIdentitiesGetASeedAndTheBestCopyWins() {
+        let songs = [
+            song("a1", file: "Track.flac", size: 1_000),
+            song("a2", file: "track.flac", size: 1_000, artist: "Artist", duration: 200),
+            song("b", file: "Other.flac", size: 1_000),
+            song("c", file: "Track.flac", size: 2_000),
+            song("unsized", file: "Track.flac", size: 0),
+        ]
+        let seeds = MusicScraperService.remoteMetadataSeedIDsForTesting(songs)
+        // The two copies of Track.flac (same size) share the better-described one.
+        XCTAssertEqual(seeds["a1"], "a2")
+        XCTAssertEqual(seeds["a2"], "a2")
+        // A song alone under its identity has no seed: it seeds itself, as before.
+        XCTAssertNil(seeds["b"])
+        XCTAssertNil(seeds["c"])
+        XCTAssertNil(seeds["unsized"])
+        XCTAssertEqual(seeds.count, 2)
+    }
+
+    func testLargeBatchesKeepNoSeedsForUniqueFiles() {
+        let songs = (0..<5_000).map { song("s\($0)", file: "\($0).flac", size: Int64(1_000 + $0)) }
+        XCTAssertTrue(MusicScraperService.remoteMetadataSeedIDsForTesting(songs).isEmpty)
+    }
+
+    func testSidecarBacklogIsBounded() {
+        XCTAssertFalse(MusicScraperService.sidecarBacklogIsFull(queuedWrites: 0))
+        XCTAssertFalse(MusicScraperService.sidecarBacklogIsFull(
+            queuedWrites: MusicScraperService.maximumQueuedSidecarWrites - 1))
+        XCTAssertTrue(MusicScraperService.sidecarBacklogIsFull(
+            queuedWrites: MusicScraperService.maximumQueuedSidecarWrites))
+        // Room for at least one publication batch beyond the batch being written.
+        XCTAssertGreaterThanOrEqual(MusicScraperService.maximumQueuedSidecarWrites, 40)
+    }
+}

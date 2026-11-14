@@ -4663,6 +4663,10 @@ final class MusicLibrary {
     /// 不跟 `visibleCacheGeneration` 走: 可见数组先换、索引后换, 中间那几行若有界面
     /// 同步重算, 按数组的代数记下的会是旧索引数出来的数。
     @ObservationIgnored private var visibleSongIndexGeneration: UInt64 = 0
+    /// 当前 `visibleSongIndexByID` 是为哪一份可见数组建的。下一次整库重建时可见数组还是
+    /// 这一份、顺序也没变, 就沿用这本表(40 万首约 24MB), 不再新建一本同样的压在峰值上。
+    /// 任何换可见数组的写法都会换掉 `visibleSongsReference`, 于是自动不再沿用。
+    @ObservationIgnored private weak var indexedVisibleSongsReference: LibraryArrayReference<Song>?
     /// The same array object as `visibleSongs`, read without registering an
     /// Observation dependency. Lookups by ID go through `visibleSongIndexByID`
     /// into it; a second dictionary holding every song again cost a full copy
@@ -5693,6 +5697,7 @@ final class MusicLibrary {
         releaseCategoryMembershipRevision &+= 1
         songIndexByID = prepared.allSongIndexByID
         visibleSongIndexByID = prepared.songIndexByID
+        indexedVisibleSongsReference = visibleSongsReference
         visibleAlbumByID = prepared.albumByID
         visibleArtistByID = prepared.artistByID
         visibleAlbumArtistByID = prepared.albumArtistByID
@@ -5753,13 +5758,18 @@ final class MusicLibrary {
         artistNameConfiguration: ArtistNameConfiguration,
         disabledSourceIDs: Set<String>,
         spokenWordClassification: SpokenWordClassificationInputs = .empty,
-        previousVisibleSongs: [Song]
+        previousVisibleSongs: [Song],
+        /// `previousVisibleSongs` 的 ID → 下标表(仅当它正是为那一份数组建的)。
+        /// 可见歌曲的顺序一首没变时直接沿用, 不再新建一本同样的整库字典压在峰值上。
+        reusableIndexByID: [String: Int]? = nil
     ) -> PreparedVisibleCache {
         let nextVisibleSongs = Self.visibleSongs(songs, excluding: disabledSourceIDs)
+        let orderedIDsUnchanged = haveSameOrderedIDs(previousVisibleSongs, nextVisibleSongs)
         let lookups = makeVisibleLookups(
             songs: nextVisibleSongs,
             artistNameConfiguration: artistNameConfiguration,
-            spokenWordClassification: spokenWordClassification
+            spokenWordClassification: spokenWordClassification,
+            reusingIndexByID: orderedIDsUnchanged ? reusableIndexByID : nil
         )
         // An audiobook or a 200-episode 评书 series would otherwise flood the
         // album and artist grids it has nothing to do with. `visibleSongs`
@@ -5911,7 +5921,7 @@ final class MusicLibrary {
                 songs: nextVisibleSongs
             ),
             preferredArtworkSongIDByArtistID: lookups.preferredArtworkSongIDByArtistID,
-            orderedIDsChanged: !haveSameOrderedIDs(previousVisibleSongs, nextVisibleSongs)
+            orderedIDsChanged: !orderedIDsUnchanged
         )
     }
 
@@ -5923,7 +5933,8 @@ final class MusicLibrary {
     private nonisolated static func makeVisibleLookups(
         songs: [Song],
         artistNameConfiguration: ArtistNameConfiguration,
-        spokenWordClassification: SpokenWordClassificationInputs
+        spokenWordClassification: SpokenWordClassificationInputs,
+        reusingIndexByID reusedIndexByID: [String: Int]? = nil
     ) -> (
         indexByID: [String: Int],
         songIDsByArtistID: [String: [String]],
@@ -5950,7 +5961,11 @@ final class MusicLibrary {
         var musicArtistFields: Set<ArtistResolutionFields> = []
         // Growing a dictionary rehashes into a table twice the size while the
         // old one is still alive; sized up front, the peak stays one table.
-        indexByID.reserveCapacity(songs.count)
+        if let reusedIndexByID {
+            indexByID = reusedIndexByID
+        } else {
+            indexByID.reserveCapacity(songs.count)
+        }
         // Classifying inside this existing pass keeps the whole-library cost
         // to one extension check plus one genre check per song; a separate
         // filter over the library would walk every row a second time.
@@ -5967,7 +5982,7 @@ final class MusicLibrary {
         var releaseMetadataIndex = AlbumReleaseMetadataIndex()
         for (index, song) in songs.enumerated() {
             autoreleasepool {
-                indexByID[song.id] = index
+                if reusedIndexByID == nil { indexByID[song.id] = index }
                 releaseMetadataIndex.include(song)
                 let isCollectionOnly = collectionOnlyCandidates.contains(song.id)
                 let kind: ListeningContentKind
@@ -8845,6 +8860,13 @@ final class MusicLibrary {
     var materializedSongRowCount: Int {
         materializedSourceSongs.values.reduce(0) { $0 + $1.count }
             + materializedAlbumSongs.values.reduce(0) { $0 + $1.count }
+    }
+
+    /// 一轮扫描提交完, 入库时共用重复字段的那张表就没用了。分页 / 增量扫描的中间批次走
+    /// 延后维护, 碰不到 `addSongs` 末尾 `.immediate` 那次清空; 服务器源每首各自的封面
+    /// 引用也都记在表里, 45 万首时这张表约 32MB, 原来会一直留到内存告警。
+    func finishScanIngest() {
+        incomingSongInterner = SongStringInterner()
     }
 
     func releaseRebuildableCaches() {
@@ -14185,6 +14207,8 @@ final class MusicLibrary {
         /// 发起重建时已发布的几份派生集合。后台算完拿它们比内容,
         /// 见 `UnchangedVisibleCollections`。
         let previousCollections: UnchangedVisibleCollections
+        /// `previousVisibleSongs` 的下标表, 只在它确实是为这份数组建的时候带上。
+        var reusableVisibleIndexByID: [String: Int]? = nil
     }
 
     private struct DerivedIndexComputation: Sendable {
@@ -14336,7 +14360,9 @@ final class MusicLibrary {
                 albumArtists: visibleAlbumArtistsReference,
                 genres: visibleGenresReference,
                 spokenWordSongs: spokenWordSongsReference
-            )
+            ),
+            reusableVisibleIndexByID: visibleSongsReference === indexedVisibleSongsReference
+                ? visibleSongIndexByID : nil
         )
 
         switch rebuildIndexWorkState.submit(generation: request.generation) {
@@ -14363,6 +14389,9 @@ final class MusicLibrary {
                 // 搜索投影按旧的歌曲顺序建, 这次重建一落地多半就作废; 先放掉, 别让它和重建中的
                 // 新旧两份可见集一起压在峰值上。下一次搜索在搜索 actor 上按需重建, 不占主线程。
                 await LibrarySearchIndex.shared.releaseReadCaches()
+                // 推荐引擎的整库特征索引按 `musicSongsRevision` 记, 这次重建一落地就换代作废;
+                // 同理先放掉(40 万首约 80MB), 用到时再按新的曲库建。
+                MusicDiscoveryEngine.releaseFeatureIndex()
                 let startedAt = ProcessInfo.processInfo.systemUptime
                 let signature = MusicLibrary.derivedIndexSignature(
                     for: request.songs,
@@ -14394,7 +14423,8 @@ final class MusicLibrary {
                             artistNameConfiguration: request.artistNameConfiguration,
                             disabledSourceIDs: request.disabledSourceIDs,
                             spokenWordClassification: request.spokenWordClassification,
-                            previousVisibleSongs: request.previousVisibleSongs
+                            previousVisibleSongs: request.previousVisibleSongs,
+                            reusableIndexByID: request.reusableVisibleIndexByID
                         )
                     }
                     if !Task.isCancelled {

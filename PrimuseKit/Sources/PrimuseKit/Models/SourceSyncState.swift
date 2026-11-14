@@ -256,6 +256,40 @@ public struct SourceSyncIndexedItem: Codable, Sendable, Equatable {
     }
 }
 
+public extension Dictionary where Key == String, Value == SourceSyncIndexedItem {
+    /// Every item inside a folder repeats that folder's path as its
+    /// `parentPath`, and a decoded index gives each repetition its own string:
+    /// for a server catalogue that is one copy per song (~80 bytes each, about
+    /// 37 MB at 450K songs). Points the repetitions — and the folder's own
+    /// `path` — at one shared string, and each item's `stableKey` at the
+    /// dictionary key it is stored under (decoding gives those two separate
+    /// copies as well, another ~37 MB). Values compare equal before and after.
+    mutating func shareRepeatedFolderPaths() {
+        var paths: [String: String] = [:]
+        func shared(_ value: String) -> String {
+            // Up to 15 UTF-8 bytes live inside the String itself.
+            guard value.utf8.count > 15 else { return value }
+            if let existing = paths[value] { return existing }
+            paths[value] = value
+            return value
+        }
+        var position = values.startIndex
+        while position != values.endIndex {
+            let key = keys[position]
+            if values[position].stableKey == key {
+                values[position].stableKey = key
+            }
+            if values[position].isDirectory {
+                values[position].path = shared(values[position].path)
+            }
+            if let parent = values[position].parentPath {
+                values[position].parentPath = shared(parent)
+            }
+            values.formIndex(after: &position)
+        }
+    }
+}
+
 public struct SourceSyncRootIdentity: Codable, Sendable, Equatable, Hashable {
     public var configuredPath: String
     public var currentPath: String

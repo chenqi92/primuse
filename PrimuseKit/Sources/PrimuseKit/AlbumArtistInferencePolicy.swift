@@ -177,7 +177,10 @@ public enum AlbumArtistInferencePolicy {
         // Their scope spans a whole album title, so a majority vote would be
         // free to rename a same-titled album by another artist; only an
         // undisputed explicit tag may speak for them.
-        let unfoldered = tracks.filter {
+        // Lazily: a source without real folders (a server catalogue) puts every
+        // track here, and a filtered copy of the whole library's tracks was the
+        // largest allocation of a library rebuild.
+        let unfoldered = tracks.lazy.filter {
             !directoryAuthoritativeSourceIDs.contains($0.sourceID) || $0.directory == nil
         }
         // Folding a duet into the solo credit beside it needs no majority, so
@@ -332,11 +335,11 @@ public enum AlbumArtistInferencePolicy {
     /// rewrites grouping and must stay conservative — the folder too. Input
     /// order is preserved so the chosen spelling and every tie-break stay
     /// independent of Dictionary iteration order.
-    private static func scopes(
-        for tracks: [Track],
+    private static func scopes<Tracks: Sequence>(
+        for tracks: Tracks,
         restrictedTo sourceIDs: Set<String>?,
         byDirectory: Bool = true
-    ) -> [[Track]] {
+    ) -> [[Track]] where Tracks.Element == Track {
         var scopeIndexByKey: [ScopeKey: Int] = [:]
         var scopedTracks: [[Track]] = []
 
@@ -579,6 +582,14 @@ public enum AlbumArtistInferencePolicy {
 
     fileprivate static func trimmed(_ value: String?) -> String? {
         guard let value else { return nil }
+        // Almost no tag has blanks around it. Hand that one back as it is:
+        // `trimmingCharacters` returns a fresh copy every time, and a library-wide
+        // pass keeps two of them alive per track.
+        if let first = value.unicodeScalars.first, let last = value.unicodeScalars.last,
+           !CharacterSet.whitespacesAndNewlines.contains(first),
+           !CharacterSet.whitespacesAndNewlines.contains(last) {
+            return value
+        }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }

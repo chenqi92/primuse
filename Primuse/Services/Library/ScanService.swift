@@ -23,12 +23,18 @@ struct ScanServiceStartupState: Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let data = try? Data(contentsOf: syncStateURL),
-              let decoded = try? decoder.decode([String: SourceSyncState].self, from: data) else {
+              var decoded = try? decoder.decode([String: SourceSyncState].self, from: data) else {
             return ScanServiceStartupState(
                 checkpoints: checkpoints,
                 syncStates: [:],
                 syncStateSnapshotIsPersisted: false
             )
+        }
+        // 服务器源的索引每首歌一行, 每行各带一份所在专辑目录的路径; 解码出来是各自的
+        // 拷贝(45 万首约 37MB)。在交给文件存储共用之前就地并成一份。
+        // 先取出键再改: 边遍历 `decoded.keys` 边改会让整本索引多复制一份。
+        for sourceID in Array(decoded.keys) {
+            decoded[sourceID]?.index.shareRepeatedFolderPaths()
         }
         return ScanServiceStartupState(
             checkpoints: checkpoints,
@@ -4100,13 +4106,15 @@ final class ScanService {
         stagingStore: PagedSongCatalogStagingStore, enrichment: ServerCatalogEnrichment?
     ) async throws -> (PagedSongCatalogStageDelta, [String: SourceSyncIndexedItem], Set<String>) {
         let songs = library.songs
+        // 上次提交的索引: 目录没变的重扫直接沿用它, 不再在它还活着时另建一整本(45 万首约 300MB)。
+        let publishedIndex = syncStates[sourceID]?.index ?? [:]
         let worker = Task.detached(priority: .utility) {
             try Task.checkCancellation()
             let existing = IndexedSongSnapshot(songs, sourceID: sourceID)
             let delta = try stagingStore.delta(
                 sourceID: sourceID, existingByID: existing, enrichment: enrichment
             )
-            let index = try stagingStore.loadHierarchyIndex(sourceID: sourceID)
+            let index = try stagingStore.loadHierarchyIndex(sourceID: sourceID, reusing: publishedIndex)
             return (delta, index, existing.keys)
         }
         return try await withTaskCancellationHandler {
@@ -5550,6 +5558,7 @@ final class ScanService {
         guard case .success = await library.persistIncrementalNowAndWait() else {
             throw SourceError.connectionFailed("Unable to persist the music library")
         }
+        library.finishScanIngest()
         try checkScanCommitFence(
             sourceID: sourceID,
             generation: generation,
@@ -5793,7 +5802,13 @@ final class ScanService {
             guard fence() else { throw CancellationError() }
             if let syncState {
                 let catalog = await Task.detached(priority: .utility) {
-                    SourceArtistArtworkCatalog(sourceID: source.id, index: syncState.index)
+                    let built = SourceArtistArtworkCatalog(sourceID: source.id, index: syncState.index)
+                    // 这是整源替换。整份索引里一张歌手图候选都没有时(服务器源的层级里只有歌名,
+                    // 永远如此)引用必然为空, 每首歌的上级目录表用不上: 存一份空的,
+                    // 45 万首时省下约 40MB 常驻。
+                    return built.candidatesByDirectory.isEmpty
+                        ? SourceArtistArtworkCatalog(sourceID: source.id, index: [:])
+                        : built
                 }.value
                 guard fence() else { throw CancellationError() }
                 await library.updateAutomaticArtistArtworkCatalogOffMain(catalog, applyFence: fence)

@@ -249,6 +249,66 @@ struct PagedSongCatalogStagingStoreTests {
         }
     }
 
+    @Test("A rescan that stages the published hierarchy again reuses it instead of building a second copy")
+    func unchangedHierarchyReusesThePublishedIndex() throws {
+        let url = temporaryStoreURL()
+        defer { removeStoreFiles(at: url) }
+        let store = try PagedSongCatalogStagingStore(path: url.path)
+        let folderPath = "server-folder:0123456789abcdef0123456789abcdef"
+        func items(renaming songIndex: Int? = nil) -> [SourceSyncIndexedItem] {
+            var result = [SourceSyncIndexedItem(stableKey: "hierarchy-folder:\(folderPath)", path: folderPath,
+                displayName: "专辑", parentPath: nil, isDirectory: true, size: 0, modifiedDate: nil, revision: nil)]
+            for index in 0..<4 {
+                result.append(SourceSyncIndexedItem(stableKey: "hierarchy-song:song-\(index)-0123456789abcdef",
+                    path: "/songs/song-\(index)-0123456789abcdef.flac",
+                    displayName: index == songIndex ? "Renamed \(index)" : "Song title number \(index)",
+                    parentPath: folderPath, isDirectory: false, songIDs: ["song-\(index)"],
+                    size: 1_000, modifiedDate: nil, revision: nil))
+            }
+            return result
+        }
+        var stagedSession: String?
+        func stage(_ session: String, _ hierarchy: [SourceSyncIndexedItem]) throws {
+            try store.reset(sourceID: "source", stageSessionID: session, ownerGeneration: 1,
+                replacingStageSessionID: stagedSession, scopeFingerprint: "account", catalogRevision: "r1")
+            stagedSession = session
+            let song = makeSong(index: 0)
+            try store.stagePage(sourceID: "source", stageSessionID: session, scopeFingerprint: "account",
+                catalogRevision: "r1", offset: 0, nextOffset: nil, itemIDs: [song.id], songs: [song],
+                metadataInspectedSongIDs: [], hierarchyItems: hierarchy, addedSongCount: 1)
+        }
+        func storage(_ value: String?) -> UnsafeRawPointer? {
+            var copy = value
+            return copy?.withUTF8 { UnsafeRawPointer($0.baseAddress) }
+        }
+
+        try stage("first", items())
+        let published = try store.loadHierarchyIndex(sourceID: "source")
+        #expect(published.count == 5)
+
+        // Same hierarchy staged again: the published index comes back, strings and all.
+        try stage("second", items())
+        let reloaded = try store.loadHierarchyIndex(sourceID: "source", reusing: published)
+        #expect(reloaded == published)
+        let key = "hierarchy-song:song-1-0123456789abcdef"
+        #expect(storage(reloaded[key]?.displayName) == storage(published[key]?.displayName))
+        #expect(storage(reloaded[key]?.path) == storage(published[key]?.path))
+
+        // One song renamed: that row is the new value, the rest keep the published ones.
+        try stage("third", items(renaming: 2))
+        let changed = try store.loadHierarchyIndex(sourceID: "source", reusing: published)
+        #expect(changed["hierarchy-song:song-2-0123456789abcdef"]?.displayName == "Renamed 2")
+        #expect(changed.count == 5)
+        #expect(storage(changed[key]?.displayName) == storage(published[key]?.displayName))
+        #expect(changed == (try store.loadHierarchyIndex(sourceID: "source")))
+
+        // A published index with an entry the stage no longer has is not reused.
+        var stale = published
+        stale["hierarchy-song:gone-0123456789abcdef"] = published[key]
+        try stage("fourth", items())
+        #expect(try store.loadHierarchyIndex(sourceID: "source", reusing: stale) == published)
+    }
+
     @Test("Shared folders write once per page and unchanged later pages do not update them")
     func sharedHierarchySkipsDuplicateWritesButKeepsLatestValue() throws {
         let url = temporaryStoreURL()

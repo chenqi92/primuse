@@ -187,6 +187,16 @@ final class MusicScraperService {
     /// the time gate below publishes slow network work at least every 5 seconds.
     private static let songPublicationBatchSize = 40
     private static let songPublicationInterval: TimeInterval = 5
+    /// Sidecar writes run one at a time per source, and each queued write
+    /// holds its scraped cover until it has written it. On a slow share
+    /// (embedding covers rewrites whole audio files) lookups outrun the writes
+    /// and covers used to pile up without bound; the batch waits instead.
+    /// Two publication batches (`songPublicationBatchSize`).
+    nonisolated static let maximumQueuedSidecarWrites = 80
+
+    nonisolated static func sidecarBacklogIsFull(queuedWrites: Int) -> Bool {
+        queuedWrites >= maximumQueuedSidecarWrites
+    }
     private let scrapeCheckpointURL: URL
     private var scrapeCheckpoint: ScrapeCheckpoint?
     #if os(iOS)
@@ -1307,6 +1317,8 @@ final class MusicScraperService {
             // Phase 1: Scrape song metadata + write sidecar files
             for song in pendingSongs {
                 guard !Task.isCancelled else { return }
+                await waitForSidecarBacklog()
+                guard !Task.isCancelled else { return }
                 var completedCurrentSong = false
                 defer {
                     // A lifecycle cancellation means this song may only be
@@ -1662,8 +1674,12 @@ final class MusicScraperService {
     }
 
     private func advanceScrapeCheckpoint(afterCompleting songID: String) {
-        guard var checkpoint = scrapeCheckpoint,
-              let completedIndex = checkpoint.songIDs.firstIndex(of: songID) else { return }
+        // Songs complete in checkpoint order: look from the resume point first
+        // instead of scanning the whole (possibly whole-library) list per song.
+        guard var checkpoint = scrapeCheckpoint else { return }
+        let resumePoint = min(checkpoint.nextSongIndex, checkpoint.songIDs.count)
+        guard let completedIndex = checkpoint.songIDs[resumePoint...].firstIndex(of: songID)
+                ?? checkpoint.songIDs[..<resumePoint].firstIndex(of: songID) else { return }
 
         checkpoint.nextSongIndex = min(completedIndex + 1, checkpoint.songIDs.count)
         checkpoint.updatedCount = updatedCount
@@ -1734,6 +1750,17 @@ final class MusicScraperService {
             self?.sidecarWriteTasks[id] = nil
         }
         return task
+    }
+
+    /// Waits for queued sidecar writes until the backlog is under its bound.
+    /// Each awaited entry is dropped here: its own removal is a later main-actor
+    /// job that would otherwise leave this loop awaiting the same finished task.
+    private func waitForSidecarBacklog() async {
+        while Self.sidecarBacklogIsFull(queuedWrites: sidecarWriteTasks.count), !Task.isCancelled,
+              let oldest = sidecarWriteTasks.first {
+            await oldest.value.value
+            sidecarWriteTasks[oldest.key] = nil
+        }
     }
 
     private func cancelSidecarWriteTasks() {
@@ -1965,19 +1992,50 @@ final class MusicScraperService {
         return score
     }
 
+    /// Seeds only for identities shared by two or more songs of the batch. A
+    /// song alone under its identity would seed itself, which is exactly what
+    /// a missing seed means (`remoteIdentitySeed ?? song`), so leaving it out
+    /// changes nothing — while keeping it held a `[identity: Song]` entry and a
+    /// folded file name for every song of a whole-library run (~180 MB at 450K
+    /// songs) until the run ended. Candidates are found by hash first, so the
+    /// pre-pass holds 16 bytes per song instead of a full identity.
     private nonisolated static func preferredRemoteMetadataSeeds(
         in songs: [Song]
     ) -> [BatchRemoteIdentity: Song] {
-        var seeds: [BatchRemoteIdentity: Song] = [:]
+        var hashCounts: [Int: UInt8] = [:]
+        hashCounts.reserveCapacity(songs.count)
         for song in songs {
             guard let identity = batchRemoteIdentity(for: song) else { continue }
+            let hash = identity.hashValue
+            if hashCounts[hash, default: 0] < 2 { hashCounts[hash, default: 0] += 1 }
+        }
+        var seeds: [BatchRemoteIdentity: Song] = [:]
+        var members: [BatchRemoteIdentity: Int] = [:]
+        for song in songs {
+            guard let identity = batchRemoteIdentity(for: song),
+                  hashCounts[identity.hashValue, default: 0] >= 2 else { continue }
+            members[identity, default: 0] += 1
             if let existing = seeds[identity],
                metadataSeedScore(existing) >= metadataSeedScore(song) {
                 continue
             }
             seeds[identity] = song
         }
+        // A hash collision between two different identities is not a copy.
+        for (identity, count) in members where count < 2 { seeds[identity] = nil }
         return seeds
+    }
+
+    /// Song ID → ID of the song whose metadata seeds it (tests).
+    nonisolated static func remoteMetadataSeedIDsForTesting(_ songs: [Song]) -> [String: String] {
+        let seeds = preferredRemoteMetadataSeeds(in: songs)
+        var result: [String: String] = [:]
+        for song in songs {
+            if let identity = batchRemoteIdentity(for: song), let seed = seeds[identity] {
+                result[song.id] = seed.id
+            }
+        }
+        return result
     }
 
     func processedSongWithAssets(
