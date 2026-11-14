@@ -995,6 +995,9 @@ private struct LyricsArtworkAnchor {
     var trailingFade: CGFloat = 0
     /// 铺满封面从屏幕顶端画起，把手和状态栏压在封面上，这一层要替它们垫一道淡淡的底色。
     var coversTopChrome = false
+    /// 铺满的封面位：长方形封面也盖满整块、居中裁两头，不看槽位长得方不方。手机横屏、封面下歌词选「自动」、
+    /// 矮一些的屏上铺满的槽位接近方形，只按形状判断时长方形封面会整张缩进避开顶栏和渐隐的那一小块里。
+    var fillsSlot = false
 }
 
 private struct LyricsArtworkAnchorKey: PreferenceKey {
@@ -1014,8 +1017,8 @@ private struct LyricsArtworkAnchorKey: PreferenceKey {
 /// 外框和图片是同一层，不会出现外框先缩、图片后追上的情况。布局尺寸固定为绘制尺寸，
 /// 移动途中只变换不重新排版。
 ///
-/// 非方形槽位(铺满)里方封面和长方形封面都按长边盖满、居中裁；方槽位里长方形封面通过
-/// artworkContentViewport 完整放入未遮挡区域，飞行途中按槽位形状在两者间连续过渡。
+/// 铺满的槽位(`contentFill` 为 1，不论长得方不方)和其它非方形槽位里，方封面和长方形封面都按长边盖满、居中裁；
+/// 方槽位里长方形封面通过 artworkContentViewport 完整放入未遮挡区域，飞行途中两者间连续过渡。
 /// 下沿与尾侧渐隐也在同一层里随位置一起插值，飞向歌词小封面途中渐隐慢慢收掉。
 struct LyricsArtworkFlight: ViewModifier, Animatable {
     var rect: CGRect
@@ -1026,16 +1029,21 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
     let renderSize: CGFloat
     var usesShadowSprite = false
     var topContentInset: CGFloat = 0
+    /// 长方形封面盖满槽位的程度：铺满的封面位是 1，卡片与歌词小封面是 0，飞行途中跟着插值。
+    var contentFill: CGFloat = 0
 
     nonisolated var animatableData: AnimatablePair<
-        AnimatablePair<CGRect.AnimatableData, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>>,
+        AnimatablePair<
+            CGRect.AnimatableData,
+            AnimatablePair<CGFloat, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>>
+        >,
         AnimatablePair<Double, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>>
     > {
         get {
             AnimatablePair(
                 AnimatablePair(
                     rect.animatableData,
-                    AnimatablePair(cornerRadius, AnimatablePair(bottomFade, trailingFade))
+                    AnimatablePair(cornerRadius, AnimatablePair(bottomFade, AnimatablePair(trailingFade, contentFill)))
                 ),
                 AnimatablePair(shadow.opacity, AnimatablePair(shadow.radius, AnimatablePair(shadow.y, topContentInset)))
             )
@@ -1044,7 +1052,8 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
             rect.animatableData = newValue.first.first
             cornerRadius = newValue.first.second.first
             bottomFade = newValue.first.second.second.first
-            trailingFade = newValue.first.second.second.second
+            trailingFade = newValue.first.second.second.second.first
+            contentFill = newValue.first.second.second.second.second
             shadow.opacity = newValue.second.first
             shadow.radius = newValue.second.second.first
             shadow.y = newValue.second.second.second.first
@@ -1072,7 +1081,7 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
             .environment(\.artworkContentViewport, artworkViewport)
             .environment(\.artworkContentFill, ArtworkContentFill(
                 visibleRect: visibleRect,
-                amount: ArtworkContentLayout.slotFillAmount(slotSize: visible)
+                amount: ArtworkContentLayout.contentFillAmount(slotSize: visible, fullBleed: contentFill)
             ))
             .frame(width: renderSize, height: renderSize)
             .clipShape(LyricsArtworkClipShape(size: visible, cornerRadius: max(0, cornerRadius) / scale))
@@ -5521,7 +5530,8 @@ struct NowPlayingView: View {
                     cornerRadius: 0,
                     shadow: .init(),
                     showsVideoPreparation: true,
-                    trailingFade: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedTrailingFadeFraction)
+                    trailingFade: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedTrailingFadeFraction),
+                    fillsSlot: true
                 )]
             }
             .onTapGesture { openTextFromArtwork() }
@@ -8382,7 +8392,8 @@ struct NowPlayingView: View {
                     shadow: .init(),
                     showsVideoPreparation: true,
                     bottomFade: Self.fullBleedArtworkBottomFade,
-                    coversTopChrome: true
+                    coversTopChrome: true,
+                    fillsSlot: true
                 )]
             }
     }
@@ -8576,7 +8587,8 @@ struct NowPlayingView: View {
                         trailingFade: fullBleedMiddleSoftening ? anchor.trailingFade : 0,
                         renderSize: renderSize,
                         usesShadowSprite: currentItemIsPodcast,
-                        topContentInset: anchor.coversTopChrome ? FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea) : 0
+                        topContentInset: anchor.coversTopChrome ? FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea) : 0,
+                        contentFill: anchor.fillsSlot ? 1 : 0
                     ))
                 }
                 .animation(standardLyricsAnimation, value: placement)

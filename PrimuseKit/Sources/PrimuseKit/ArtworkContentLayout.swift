@@ -50,6 +50,15 @@ public enum ArtworkContentLayout {
         return min(1, max(0, (elongation - squareSlotTolerance) / slotFillRamp))
     }
 
+    /// 播放页封面层里长方形封面盖满槽位的程度。`fullBleed` 是铺满的程度(铺满的封面位 1,卡片与歌词小封面 0,
+    /// 飞行途中插值):铺满的槽位不论长得方不方都盖满。手机横屏、封面下歌词选「自动」、矮一些的屏上铺满的槽位
+    /// 接近方形,只按 `slotFillAmount` 判断时长方形封面整张缩进避开顶栏和渐隐的那一小块里,正中间只剩一张小图。
+    /// 和槽位形状两者取大,其它非方形槽位照旧盖满。
+    public static func contentFillAmount(slotSize: CGSize, fullBleed: CGFloat) -> CGFloat {
+        let explicit = fullBleed.isFinite ? min(1, max(0, fullBleed)) : 0
+        return max(explicit, slotFillAmount(slotSize: slotSize))
+    }
+
     public static func interpolate(from start: CGRect, to end: CGRect, fraction: CGFloat) -> CGRect {
         let t = min(1, max(0, fraction.isFinite ? fraction : 0))
         return CGRect(

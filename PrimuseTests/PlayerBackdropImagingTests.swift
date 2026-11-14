@@ -727,7 +727,8 @@ final class PlayerBackdropImagingTests: XCTestCase {
         }
     }
 
-    func testRectangularArtworkKeepsEveryEdgeInCardsAndFullBleed() throws {
+    /// 方形卡片框里长方形封面整张放进去，四条边都在。铺满的封面位改成盖满(见下一条)。
+    func testRectangularArtworkKeepsEveryEdgeInCards() throws {
         for sourceSize in [CGSize(width: 120, height: 240), CGSize(width: 240, height: 120)] {
             let format = UIGraphicsImageRendererFormat()
             format.scale = 1
@@ -743,14 +744,10 @@ final class PlayerBackdropImagingTests: XCTestCase {
                 UIColor.yellow.setFill()
                 context.fill(CGRect(x: sourceSize.width - 12, y: 12, width: 12, height: sourceSize.height - 24))
             }
-            for rect in [CGRect(x: 0, y: 0, width: 320, height: 320),
-                         CGRect(x: 0, y: 0, width: 320, height: 400),
-                         CGRect(x: 0, y: 0, width: 480, height: 300)] {
-                let isCard = rect.width == rect.height
-                let isPortrait = rect.height > rect.width
-                let top: CGFloat = isPortrait ? 120 : 0
-                let bottom: CGFloat = isPortrait ? 0.15 : 0
-                let trailing: CGFloat = !isCard && !isPortrait ? 0.15 : 0
+            for rect in [CGRect(x: 0, y: 0, width: 320, height: 320)] {
+                let top: CGFloat = 0
+                let bottom: CGFloat = 0
+                let trailing: CGFloat = 0
                 let artwork = UncroppedArtwork(image: source) {
                     Image(uiImage: source).resizable().scaledToFill()
                 }
@@ -781,6 +778,62 @@ final class PlayerBackdropImagingTests: XCTestCase {
                         XCTAssertEqual(Double(pixels[offset + channel]), Double(expected[channel]), accuracy: 10,
                                        "\(sourceSize) in \(rect.size), edge at \(point)")
                     }
+                }
+            }
+        }
+    }
+
+    /// 铺满的封面位里长方形封面和方封面一样盖满整个槽位，包括接近方形的铺满槽位(手机横屏、封面下歌词选
+    /// 「自动」时的方形槽位)：槽位四角是封面本身(细条纹清楚)，不是垫在底下的模糊底(一片匀色)。
+    /// 封面像素多少不影响：源图只有 120×240，照样按槽位放大。
+    func testRectangularArtworkFillsEveryFullBleedSlot() throws {
+        for sourceSize in [CGSize(width: 120, height: 240), CGSize(width: 240, height: 120)] {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let source = UIGraphicsImageRenderer(size: sourceSize, format: format).image { context in
+                UIColor.black.setFill()
+                context.fill(CGRect(origin: .zero, size: sourceSize))
+                UIColor.white.setFill()
+                for x in stride(from: 0, to: Int(sourceSize.width), by: 4) {
+                    context.fill(CGRect(x: CGFloat(x), y: 0, width: 2, height: sourceSize.height))
+                }
+            }
+            // (槽位, 上沿让开的高度, 下沿渐隐, 尾侧渐隐)
+            let slots: [(CGRect, CGFloat, CGFloat, CGFloat)] = [
+                (CGRect(x: 0, y: 0, width: 320, height: 400), 120, 0.15, 0),
+                (CGRect(x: 0, y: 0, width: 320, height: 320), 120, 0.4, 0),
+                (CGRect(x: 0, y: 0, width: 480, height: 300), 0, 0, 0.15),
+                (CGRect(x: 0, y: 0, width: 394, height: 402), 0, 0, 0.36),
+            ]
+            for (rect, top, bottom, trailing) in slots {
+                let artwork = UncroppedArtwork(image: source) {
+                    Image(uiImage: source).resizable().scaledToFill()
+                }
+                .modifier(LyricsArtworkFlight(rect: rect, cornerRadius: 0, shadow: .init(),
+                    bottomFade: bottom, trailingFade: trailing, renderSize: 512,
+                    topContentInset: top, contentFill: 1))
+                .frame(width: rect.width, height: rect.height)
+                let renderer = ImageRenderer(content: artwork)
+                renderer.scale = 1
+                let image = try XCTUnwrap(renderer.uiImage?.cgImage)
+                let attachment = XCTAttachment(image: UIImage(cgImage: image))
+                attachment.name = "full-bleed-cover-\(Int(sourceSize.width))x\(Int(sourceSize.height))-\(Int(rect.width))x\(Int(rect.height))"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                let pixels = try rgbaPixels(of: image)
+                // 四角各取 24×24 一块，避开下沿与尾侧渐隐那一截。
+                let right = Int(rect.width * (1 - trailing)) - 30
+                let lower = Int(rect.height * (1 - bottom)) - 30
+                for corner in [(6, 6), (right, 6), (6, lower), (right, lower)] {
+                    var values: [Int] = []
+                    for y in corner.1..<(corner.1 + 24) {
+                        for x in corner.0..<(corner.0 + 24) {
+                            values.append(Int(pixels[(y * image.width + x) * 4]))
+                        }
+                    }
+                    let contrast = (values.max() ?? 0) - (values.min() ?? 0)
+                    XCTAssertGreaterThan(contrast, 150,
+                                         "\(sourceSize) in \(rect.size): corner \(corner) shows the blurred backdrop, not the cover")
                 }
             }
         }

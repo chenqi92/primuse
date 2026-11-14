@@ -37,6 +37,36 @@ struct ArtworkSlotFillTests {
         #expect(ArtworkContentLayout.slotFillAmount(slotSize: .zero) == 0)
     }
 
+    @Test("铺满的封面位接近方形时也盖满,卡片方框照旧整张放进去")
+    func fullBleedSlotFillsRegardlessOfShape() {
+        // 手机横屏铺满 394×402、封面下歌词选「自动」时正方形的铺满槽位:只看形状是 0。
+        let nearlySquare = CGSize(width: 394, height: 402)
+        let square = CGSize(width: 393, height: 393)
+        #expect(ArtworkContentLayout.slotFillAmount(slotSize: nearlySquare) == 0)
+        #expect(ArtworkContentLayout.contentFillAmount(slotSize: nearlySquare, fullBleed: 1) == 1)
+        #expect(ArtworkContentLayout.contentFillAmount(slotSize: square, fullBleed: 1) == 1)
+        // 卡片和歌词小封面不是铺满:方框里整张放进去。
+        #expect(ArtworkContentLayout.contentFillAmount(slotSize: square, fullBleed: 0) == 0)
+        // 不是铺满的长槽位照旧按形状盖满。
+        #expect(ArtworkContentLayout.contentFillAmount(slotSize: CGSize(width: 393, height: 600), fullBleed: 0) == 1)
+    }
+
+    @Test("飞向歌词小方框途中盖满程度跟着铺满程度连续收回")
+    func fullBleedAmountInterpolatesDuringFlight() {
+        let square = CGSize(width: 120, height: 120)
+        #expect(abs(ArtworkContentLayout.contentFillAmount(slotSize: square, fullBleed: 0.4) - 0.4) < 0.0001)
+        // 形状给的更大时取形状的:中途不会先收回再盖满。
+        let elongated = CGSize(width: 100, height: 109)
+        let byShape = ArtworkContentLayout.slotFillAmount(slotSize: elongated)
+        #expect(byShape > 0.25)
+        #expect(ArtworkContentLayout.contentFillAmount(slotSize: elongated, fullBleed: 0.25) == byShape)
+        // 超出范围、非数值都按边界处理。
+        #expect(ArtworkContentLayout.contentFillAmount(slotSize: square, fullBleed: 1.7) == 1)
+        #expect(ArtworkContentLayout.contentFillAmount(slotSize: square, fullBleed: -0.3) == 0)
+        #expect(ArtworkContentLayout.contentFillAmount(slotSize: square, fullBleed: .nan) == 0)
+        #expect(ArtworkContentLayout.contentFillAmount(slotSize: .zero, fullBleed: 1) == 1)
+    }
+
     @Test("盖满时等比放大、居中裁两头")
     func filledRectCoversBounds() {
         let slot = CGRect(x: 0, y: 0, width: 400, height: 600)
