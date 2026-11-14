@@ -236,6 +236,11 @@ final class MetadataBackfillService {
     /// source availability change, or content-change notification clears them.
     @ObservationIgnored private var sourceIssueSongIDs: Set<String> = []
 
+    /// 这次启动里发现不认 Range 的源(回 200 整个文件、或者连接器直说服务器忽略了 Range)。
+    /// 之后它的歌只读首段, 尾部和离开头 16 MB 以外的读取不再发请求。不落盘: 服务器或代理的
+    /// 配置会变, 下次启动再撞一次也只是一个不读响应体的请求; 已经记成「读不全」的行本来就不再自动重读。
+    @ObservationIgnored private var rangeIgnoringSourceIDs: Set<String> = []
+
     /// Songs that parsed fine (have a usable duration) but yielded no
     /// extractable embedded artwork. Kept SEPARATE from `failedSongIDs`:
     /// a missing cover must not mark a song permanently failed (that dropped
@@ -4765,6 +4770,34 @@ final class MetadataBackfillService {
         400, 404, 405, 410, 414, 415, 416, 451,
     ]
 
+    /// 服务器不认 Range 的几种说法: 元数据读取对回 200 的尾部/远处读取直接拒绝
+    /// (`suffixRangeUnsupported`)、网盘直链回 200 时的 apiError(200)、NAS/S3/媒体服务器
+    /// 连接器的「ignored the byte Range request」、回来的字节比要的多(SourceManager 的预取
+    /// 也按这两条认)。206 而 Content-Range 对不上(`invalidRangeResponse`)不算: 连接器已经
+    /// 在读到请求长度加 64 KB 之内拒了它, 而一次坏响应不足以让整个源都不读尾部, 照旧按
+    /// 瞬时错误有限次重试。
+    nonisolated static func indicatesRangeUnsupported(_ error: Error) -> Bool {
+        switch error {
+        case MetadataRangeReadError.suffixRangeUnsupported:
+            return true
+        case CloudDriveError.apiError(let code, _):
+            return code == 200
+        case SourceError.connectionFailed(let message):
+            return message.contains("ignored") && message.contains("Range")
+        default:
+            break
+        }
+        if error is SpeculativeRangeReadError { return true }
+        return (error as? URLError)?.code == .dataLengthExceedsMaximum
+    }
+
+    /// 记下这个源这次启动里不认 Range。STRM 不记: 每个文件可能指向不同的主机。
+    private func noteRangeIgnoringSource(_ song: Song) {
+        guard !song.isStreamDescriptor,
+              rangeIgnoringSourceIDs.insert(song.sourceID).inserted else { return }
+        plog("📥 Backfill: source \(song.sourceID) ignores Range; reading only the head of its files until relaunch")
+    }
+
     /// 回填读取失败是否属于「瞬时、可重试」错误(连接/鉴权/超时/限流/网络/取消),
     /// 而非「永久」错误(文件已不存在、4xx 客户端错误)。瞬时错误不标 failed,
     /// 下一轮自动重试,避免重装/启动初期源未就绪时把歌永久钉成「无法读取」。
@@ -5149,6 +5182,7 @@ final class MetadataBackfillService {
                     return await Self.readTags(request, reader: reader)
                 }
                 concurrentReads = max(concurrentReads, activeTagReadCount)
+                if attempt.rangeUnsupported { noteRangeIgnoringSource(song) }
                 // 和资料库发布重叠的读取不是有效样本: rusage 是整个进程的 CPU, 会把
                 // 那一批发布的代价记到这一首头上, 而发布的代价按批摊销, 歇得更久
                 // 并不会让它变便宜 —— 只会让吞吐白掉一截。
@@ -5184,6 +5218,23 @@ final class MetadataBackfillService {
                 : isStillEligible(song)
             if !remainsReadable {
                 return BackfillOutcome(song: nil, markFailed: false)
+            }
+            // 服务器不认 Range(回 200 整个文件), 连首段都没读成: 重试只会一遍遍撞同一个 200。
+            // 记成「读不全」不再自动重读, 时长照旧等播放时拿; 用户点的单曲重读有整首下载兜底。
+            if !isExplicitReread, Self.indicatesRangeUnsupported(error) {
+                noteRangeIgnoringSource(song)
+                plog("📥 Backfill: '\(song.title)' source ignores Range; marking details incomplete without retry (\(error.localizedDescription))")
+                return BackfillOutcome(
+                    song: nil,
+                    markFailed: false,
+                    detailsIncomplete: true,
+                    failureReason: String(
+                        localized: "reread_song_tags_failure_requires_complete_technical_read"
+                    ),
+                    titleInspected: true,
+                    artistInspected: true,
+                    artworkGivenUp: true
+                )
             }
             // 只有「确定性永久」的错误(文件已不存在 / 4xx)才标记 failed —— 那种
             // 重试也没用,标记后不再浪费配额。连接/鉴权/超时/限流/网络这类是瞬时的
@@ -5237,11 +5288,16 @@ final class MetadataBackfillService {
         /// CUE 分轨按整轨文件共用读过的段; 别的歌为 nil, 各读各的。
         let sharedRangeFile: SharedFileRangeMemo.FileKey?
         let sharedRanges: SharedFileRangeMemo
+        /// 这一轮里这个源已经被发现不认 Range: 首段以外(尾部、离开头 16 MB 以外)的读取
+        /// 不再发请求。手动重读不用这个 —— 它有整首下载兜底。
+        let sourceIgnoresRange: Bool
     }
 
     private struct TagReadAttempt: Sendable {
         let outcome: Result<BackfillOutcome, any Error>
         let rangeElapsed: TimeInterval
+        /// 读的过程中有一段被服务器当成不认 Range 拒了。
+        let rangeUnsupported: Bool
     }
 
     /// 一首歌里各段读取的耗时, 只在读它的那个任务里累加。
@@ -5250,6 +5306,8 @@ final class MetadataBackfillService {
         var count = 0
         /// 直接用了同一整轨文件别的分轨刚读过的段, 没走网络。
         var shared = 0
+        /// 有一段读取被判成服务器不认 Range; 之后首段以外的读取都不再发。
+        var rangeUnsupported = false
     }
 
     private func tagReadRequest(
@@ -5302,7 +5360,11 @@ final class MetadataBackfillService {
                     modifiedAt: song.lastModified
                 )
                 : nil,
-            sharedRanges: cueTrackRanges
+            sharedRanges: cueTrackRanges,
+            // STRM 的每个文件可能指向不同的主机, 不按源一刀切。
+            sourceIgnoresRange: !isExplicitReread
+                && !song.isStreamDescriptor
+                && rangeIgnoringSourceIDs.contains(sourceID)
         )
     }
 
@@ -5313,9 +5375,17 @@ final class MetadataBackfillService {
         let tally = RangeReadTally()
         do {
             let outcome = try await readTagsCore(request, reader: reader, tally: tally)
-            return TagReadAttempt(outcome: .success(outcome), rangeElapsed: tally.elapsed)
+            return TagReadAttempt(
+                outcome: .success(outcome),
+                rangeElapsed: tally.elapsed,
+                rangeUnsupported: tally.rangeUnsupported
+            )
         } catch {
-            return TagReadAttempt(outcome: .failure(error), rangeElapsed: tally.elapsed)
+            return TagReadAttempt(
+                outcome: .failure(error),
+                rangeElapsed: tally.elapsed,
+                rangeUnsupported: tally.rangeUnsupported
+            )
         }
     }
 
@@ -5341,12 +5411,27 @@ final class MetadataBackfillService {
                 tally.shared += 1
                 return shared
             }
+            // 服务器不认 Range 时, 只有首段(离开头 16 MB 以内, 可以从 200 的整文件响应开头切)
+            // 还读得到。已经知道这一点就不再发尾部和更远的请求, 直接按「尾部读不了」处理。
+            if (request.sourceIgnoresRange || tally.rangeUnsupported),
+               !WholeResourceMetadataRangePolicy.consumesWholeResponsePrefix(
+                requestedOffset: offset,
+                requestedLength: length
+               ) {
+                throw MetadataRangeReadError.suffixRangeUnsupported
+            }
             let rangeStarted = Date()
             defer {
                 tally.elapsed += Date().timeIntervalSince(rangeStarted)
                 tally.count += 1
             }
-            let data = try await reader.fetch(offset: offset, length: length, intent: rangeReadIntent)
+            let data: Data
+            do {
+                data = try await reader.fetch(offset: offset, length: length, intent: rangeReadIntent)
+            } catch {
+                if Self.indicatesRangeUnsupported(error) { tally.rangeUnsupported = true }
+                throw error
+            }
             // 真的读到字节就是网关恢复了, 立刻把退让撤掉。
             if let recovered = gatewayRecovered {
                 gatewayRecovered = nil
@@ -5453,15 +5538,24 @@ final class MetadataBackfillService {
         // moov 不在首段、离文件末尾又超过最大的尾部窗口(几 GB 的 mdat 之后、比尾部窗口还大的
         // 整本书 moov): 首尾两段都够不着, 以前只能记成「读不全」。记下位置, 读出时长时留一行日志。
         var moovBeyondBoundedWindows: Range<Int64>?
+        var isoLocated: ISOBaseMediaRangeReader.Located?
         if RemoteMetadataInspectionPolicy.tailStrategy(
             fileExtension: initialParserExtension,
             isExplicitReread: isExplicitReread
-        ) == .isoBaseMedia,
-           let located = try await ISOBaseMediaRangeReader.readLocated(
-            head: headData,
-            fileSize: song.fileSize,
-            fetch: { try await fetchRange(offset: $0, length: $1) }
-           ) {
+        ) == .isoBaseMedia {
+            do {
+                isoLocated = try await ISOBaseMediaRangeReader.readLocated(
+                    head: headData,
+                    fileSize: song.fileSize,
+                    fetch: { try await fetchRange(offset: $0, length: $1) }
+                )
+            } catch let error where Self.indicatesRangeUnsupported(error) {
+                // 服务器不认 Range: 首段之外的 moov 够不着了。照首段能读的读完,
+                // 不让整首歌按网络错误一遍遍重试。
+                isoLocated = nil
+            }
+        }
+        if let located = isoLocated {
             metadataInputData = located.metadataFile
             completeISOBaseMediaMetadata = true
             if located.moov.lowerBound >= Int64(headData.count),
@@ -5474,6 +5568,17 @@ final class MetadataBackfillService {
             song: song,
             readSession: readSession
         )
+        if let located = isoLocated,
+           let fragmentDuration = located.fragmentDuration,
+           let source = located.fragmentDurationSource {
+            // 补出的时长已经写进 moov; 解析器还是没给出时长就直接用它。
+            if Self.metadataLooksMissing(metadata) {
+                metadata.duration = fragmentDuration
+                metadata.hasTechnicalProperties = true
+            }
+            let seconds = String(format: "%.1f", fragmentDuration)
+            plog("📥 Backfill: '\(song.title)' fragmented MP4 duration \(seconds)s from \(source.rawValue) ranges=\(tally.count)")
+        }
         if let moov = moovBeyondBoundedWindows, !Self.metadataLooksMissing(metadata) {
             let seconds = String(format: "%.1f", metadata.duration)
             let moovBytes = moov.upperBound - moov.lowerBound
@@ -5657,8 +5762,8 @@ final class MetadataBackfillService {
                                 && (!needsSecondaryArtworkRange || foundArtwork) {
                                 break
                             }
-                        } catch MetadataRangeReadError.suffixRangeUnsupported {
-                            throw MetadataRangeReadError.suffixRangeUnsupported
+                        } catch let error where Self.indicatesRangeUnsupported(error) {
+                            throw error
                         } catch {
                             if needsSecondaryArtistRange || needsSecondaryArtworkRange { throw error }
                         }
@@ -5678,8 +5783,8 @@ final class MetadataBackfillService {
                         )
                         if needsSecondaryArtistRange { artistInspectionCompleted = true }
                         boundedTailInspected = true
-                    } catch MetadataRangeReadError.suffixRangeUnsupported {
-                        throw MetadataRangeReadError.suffixRangeUnsupported
+                    } catch let error where Self.indicatesRangeUnsupported(error) {
+                        throw error
                     } catch {
                         if needsSecondaryArtistRange { throw error }
                     }
@@ -5752,9 +5857,10 @@ final class MetadataBackfillService {
                     if needsArtistInspection { artistInspectionCompleted = true }
                     boundedTailInspected = true
                 }
-            } catch MetadataRangeReadError.suffixRangeUnsupported {
+            } catch let error where Self.indicatesRangeUnsupported(error) {
+                // 网盘直链回 200 抛的是各自的错误, 一样算「尾部读不了」。
                 if isExplicitReread {
-                    throw MetadataRangeReadError.suffixRangeUnsupported
+                    throw error
                 }
                 suffixMetadataUnavailable = true
                 if needsArtistInspection {
@@ -6029,12 +6135,25 @@ final class MetadataBackfillService {
         fetch: (Int64, Int64) async throws -> Data
     ) async throws -> BackfillOutcome {
         var probe = ContainerCodecProbe(container: song.fileFormat, fileSize: song.fileSize)
+        var rangeUnsupported = false
         while case .read(let offset, let length) = probe.step {
             guard length > 0 else {
                 probe.consume(Data())
                 continue
             }
-            probe.consume(try await fetch(offset, length))
+            do {
+                probe.consume(try await fetch(offset, length))
+            } catch let error where indicatesRangeUnsupported(error) {
+                rangeUnsupported = true
+                break
+            }
+        }
+        if rangeUnsupported {
+            // 服务器不认 Range, 这一段读不到: 跟认不出一样记成读过, 不再每轮重读。
+            var updated = stored ?? song
+            updated.audioCodec = ContainerAudioCodecPolicy.inspectedCodec(nil, container: updated.fileFormat)
+            plog("📥 Backfill: '\(song.title)' container codec unread; source ignores Range")
+            return BackfillOutcome(song: updated, markFailed: false)
         }
         guard case .finished(let codec) = probe.step else {
             return BackfillOutcome(song: nil, markFailed: false)

@@ -919,6 +919,8 @@ public struct ISOBaseMediaTopLevelBoxWalk: Sendable {
     public private(set) var step: Step
     /// moov 前面那个 ftyp 的范围; 没有 ftyp 的老 QuickTime 文件为 nil。
     public private(set) var ftyp: Range<Int64>?
+    /// moov 前面第一个 sidx 的范围: 分片 MP4 拿它算时长。
+    public private(set) var segmentIndex: Range<Int64>?
     /// 已经交给调用方去读的头的个数。
     public private(set) var fetchedHeaderCount = 0
     /// 第一个 box 的位置: 文件开头垫着 ID3v2 标签时在标签之后。
@@ -984,46 +986,71 @@ public struct ISOBaseMediaTopLevelBoxWalk: Sendable {
                 fetched = nil
                 header = supplied
             }
-            guard header.count >= 8 else { return .stopped(.truncatedHeader) }
-
-            guard let type = Self.boxType(header) else {
-                return .stopped(boxCount == 0 ? .notISOBaseMedia : .malformedHeader)
-            }
-            if boxCount == 0, !Self.leadingBoxTypes.contains(type) {
-                return .stopped(.notISOBaseMedia)
-            }
-            let size32 = Self.uint32(header, at: 0)
-            let size: Int64
-            switch size32 {
-            case 0:
-                size = remaining
-            case 1:
-                guard remaining >= 16 else { return .stopped(.malformedHeader) }
-                guard header.count >= 16 else { return .stopped(.truncatedHeader) }
-                let large = Self.uint64(header, at: 8)
-                guard large >= 16 else { return .stopped(.malformedHeader) }
-                guard large <= UInt64(remaining) else { return .stopped(.exceedsFile) }
-                size = Int64(large)
-            case 2..<8:
-                return .stopped(.malformedHeader)
-            default:
-                guard Int64(size32) <= remaining else { return .stopped(.exceedsFile) }
-                size = Int64(size32)
+            let box: BoxHeader
+            switch Self.parseHeader(header, remaining: remaining, isFirstBox: boxCount == 0) {
+            case .stop(let reason):
+                return .stopped(reason)
+            case .box(let parsed):
+                box = parsed
             }
             boxCount += 1
 
-            if type == "moov" {
-                guard size <= maximumMoovByteCount else {
-                    return .stopped(.moovTooLarge(size: size))
+            if box.type == "moov" {
+                guard box.size <= maximumMoovByteCount else {
+                    return .stopped(.moovTooLarge(size: box.size))
                 }
-                return .foundMoov(offset: cursor, size: size)
+                return .foundMoov(offset: cursor, size: box.size)
             }
-            if type == "ftyp", ftyp == nil {
-                ftyp = cursor..<(cursor + size)
+            if box.type == "ftyp", ftyp == nil {
+                ftyp = cursor..<(cursor + box.size)
             }
-            if size32 == 0 { return .stopped(.extendsToEndOfFile) }
+            if box.type == "sidx", segmentIndex == nil {
+                segmentIndex = cursor..<(cursor + box.size)
+            }
+            if box.extendsToEnd { return .stopped(.extendsToEndOfFile) }
             // size 不超过 remaining, 相加不会越过文件长度。
-            cursor += size
+            cursor += box.size
+        }
+    }
+
+    /// 一个顶层 box 头。长度为 0 的 box 一直延伸到文件末尾(`extendsToEnd`)。
+    struct BoxHeader: Equatable, Sendable {
+        let type: String
+        let size: Int64
+        let headerSize: Int
+        let extendsToEnd: Bool
+    }
+
+    enum HeaderParse: Equatable, Sendable {
+        case box(BoxHeader)
+        case stop(StopReason)
+    }
+
+    /// `header` 从 box 开头起; `remaining` 是 box 开头到文件末尾的字节数。
+    static func parseHeader(_ header: Data, remaining: Int64, isFirstBox: Bool) -> HeaderParse {
+        guard header.count >= 8 else { return .stop(.truncatedHeader) }
+        guard let type = boxType(header) else {
+            return .stop(isFirstBox ? .notISOBaseMedia : .malformedHeader)
+        }
+        if isFirstBox, !leadingBoxTypes.contains(type) {
+            return .stop(.notISOBaseMedia)
+        }
+        let size32 = uint32(header, at: 0)
+        switch size32 {
+        case 0:
+            return .box(BoxHeader(type: type, size: remaining, headerSize: 8, extendsToEnd: true))
+        case 1:
+            guard remaining >= 16 else { return .stop(.malformedHeader) }
+            guard header.count >= 16 else { return .stop(.truncatedHeader) }
+            let large = uint64(header, at: 8)
+            guard large >= 16 else { return .stop(.malformedHeader) }
+            guard large <= UInt64(remaining) else { return .stop(.exceedsFile) }
+            return .box(BoxHeader(type: type, size: Int64(large), headerSize: 16, extendsToEnd: false))
+        case 2..<8:
+            return .stop(.malformedHeader)
+        default:
+            guard Int64(size32) <= remaining else { return .stop(.exceedsFile) }
+            return .box(BoxHeader(type: type, size: Int64(size32), headerSize: 8, extendsToEnd: false))
         }
     }
 
@@ -1051,6 +1078,511 @@ public struct ISOBaseMediaTopLevelBoxWalk: Sendable {
     }
 }
 
+/// 分片 MP4(moov 里有 mvex、mvhd 时长写 0)的时长。总时长不在 moov 里, 只能从
+/// mehd、sidx、文件末尾的 mfra/tfra、或者逐个 moof 里的样本时长算出来。这里全是纯函数,
+/// 输入是已经读回来的完整 box; 读哪几段由 `ISOBaseMediaRangeReader` 按预算决定。
+public enum ISOBaseMediaFragmentDuration {
+    public struct MovieInfo: Equatable, Sendable {
+        public let movieTimescale: UInt32
+        public let movieDuration: UInt64
+        public let isFragmented: Bool
+        /// mehd 的 fragment_duration, 以 movieTimescale 计。
+        public let fragmentDuration: UInt64?
+        /// 算时长用的轨道: 有声音轨用声音轨, 没有就用第一条。
+        public let trackID: UInt32?
+        public let trackTimescale: UInt32?
+        /// 各轨道 trex 里的默认样本时长。
+        public let defaultSampleDurations: [UInt32: UInt32]
+
+        public var needsFragmentDuration: Bool { isFragmented && movieDuration == 0 }
+
+        public var movieExtendsSeconds: TimeInterval? {
+            guard let fragmentDuration else { return nil }
+            return ISOBaseMediaFragmentDuration.seconds(fragmentDuration, timescale: movieTimescale)
+        }
+
+        public func trackSeconds(_ ticks: UInt64) -> TimeInterval? {
+            guard let trackTimescale else { return nil }
+            return ISOBaseMediaFragmentDuration.seconds(ticks, timescale: trackTimescale)
+        }
+    }
+
+    public struct SegmentIndex: Equatable, Sendable {
+        public let referenceID: UInt32
+        public let timescale: UInt32
+        /// 所有引用的 subsegment_duration 之和。指向下一级 sidx 的引用也写着它覆盖的时长,
+        /// 所以层级式、链式的 sidx 只看第一个就够。
+        public let totalDuration: UInt64
+
+        public var seconds: TimeInterval? {
+            ISOBaseMediaFragmentDuration.seconds(totalDuration, timescale: timescale)
+        }
+    }
+
+    public struct RandomAccessEntry: Equatable, Sendable {
+        public let trackID: UInt32
+        /// 以轨道 timescale 计的展示时间。
+        public let time: UInt64
+        public let moofOffset: UInt64
+        /// 从 1 数起: moof 里第几个 traf、traf 里第几个 trun、trun 里第几个样本。
+        public let trafNumber: UInt32
+        public let trunNumber: UInt32
+        public let sampleNumber: UInt32
+    }
+
+    public struct TrackRun: Equatable, Sendable {
+        public let sampleCount: Int
+        /// 每个样本自己的时长; nil 时都是 `defaultDuration`。
+        public let durations: [UInt32]?
+        public let defaultDuration: UInt32
+
+        public var total: UInt64 {
+            if let durations {
+                return durations.reduce(UInt64(0)) { $0 + UInt64($1) }
+            }
+            return UInt64(sampleCount) * UInt64(defaultDuration)
+        }
+
+        /// 从第 `index` 个样本(从 0 数)到这段末尾的时长。
+        func duration(fromSample index: Int) -> UInt64? {
+            guard index >= 0, index < sampleCount else { return nil }
+            if let durations {
+                return durations[index...].reduce(UInt64(0)) { $0 + UInt64($1) }
+            }
+            return UInt64(sampleCount - index) * UInt64(defaultDuration)
+        }
+    }
+
+    public struct TrackFragment: Equatable, Sendable {
+        public let trackID: UInt32
+        /// tfdt 的 baseMediaDecodeTime。
+        public let baseDecodeTime: UInt64?
+        public let runs: [TrackRun]
+
+        public var total: UInt64 { runs.reduce(UInt64(0)) { $0 + $1.total } }
+    }
+
+    public struct FragmentTiming: Equatable, Sendable {
+        /// moof 里全部 traf, 按出现顺序(tfra 的 traf_number 就按这个数)。
+        public let fragments: [TrackFragment]
+
+        public func duration(trackID: UInt32?) -> UInt64? {
+            var total: UInt64 = 0
+            var matched = false
+            for fragment in fragments where trackID == nil || fragment.trackID == trackID {
+                total += fragment.total
+                matched = true
+            }
+            return matched ? total : nil
+        }
+
+        /// tfra 条目指向的样本所在 traf 的结束时间: 条目时间加上从那个样本到 traf 末尾的时长;
+        /// 编号对不上时退到 tfdt + 整个 traf 的时长。
+        public func endTime(after entry: RandomAccessEntry) -> UInt64? {
+            let trafIndex = Int(entry.trafNumber) - 1
+            let runIndex = Int(entry.trunNumber) - 1
+            if fragments.indices.contains(trafIndex) {
+                let runs = fragments[trafIndex].runs
+                if runs.indices.contains(runIndex),
+                   let first = runs[runIndex].duration(fromSample: Int(entry.sampleNumber) - 1) {
+                    var rest: UInt64 = 0
+                    for run in runs[(runIndex + 1)...] { rest += run.total }
+                    return ISOBaseMediaFragmentDuration.add(entry.time, first, rest)
+                }
+            }
+            for fragment in fragments where fragment.trackID == entry.trackID {
+                guard let base = fragment.baseDecodeTime else { continue }
+                return ISOBaseMediaFragmentDuration.add(base, fragment.total, 0)
+            }
+            return nil
+        }
+    }
+
+    // MARK: moov
+
+    public static func movieInfo(moov: Data) -> MovieInfo? {
+        let data = normalized(moov)
+        guard let movie = children(data, in: 0..<data.count).first, movie.type == "moov" else {
+            return nil
+        }
+        let boxes = children(data, in: movie.payload)
+        guard let mvhd = boxes.first(where: { $0.type == "mvhd" }),
+              let movieTiming = timescaleAndDuration(data, fullBox: mvhd.payload) else { return nil }
+
+        var fragmentDuration: UInt64?
+        var defaults: [UInt32: UInt32] = [:]
+        let mvex = boxes.first(where: { $0.type == "mvex" })
+        if let mvex {
+            for box in children(data, in: mvex.payload) {
+                let start = box.payload.lowerBound
+                let limit = box.payload.upperBound
+                if box.type == "mehd", let version = byte(data, start, limit) {
+                    fragmentDuration = version == 1
+                        ? uint64(data, start + 4, limit)
+                        : uint32(data, start + 4, limit).map(UInt64.init)
+                } else if box.type == "trex",
+                          let trackID = uint32(data, start + 4, limit),
+                          let duration = uint32(data, start + 12, limit) {
+                    defaults[trackID] = duration
+                }
+            }
+        }
+
+        var sound: (id: UInt32, timescale: UInt32)?
+        var first: (id: UInt32, timescale: UInt32)?
+        for trak in boxes where trak.type == "trak" {
+            let trakBoxes = children(data, in: trak.payload)
+            guard let tkhd = trakBoxes.first(where: { $0.type == "tkhd" }),
+                  let version = byte(data, tkhd.payload.lowerBound, tkhd.payload.upperBound),
+                  let trackID = uint32(
+                    data,
+                    tkhd.payload.lowerBound + (version == 1 ? 20 : 12),
+                    tkhd.payload.upperBound
+                  ),
+                  let mdia = trakBoxes.first(where: { $0.type == "mdia" }) else { continue }
+            let mediaBoxes = children(data, in: mdia.payload)
+            guard let mdhd = mediaBoxes.first(where: { $0.type == "mdhd" }),
+                  let timing = timescaleAndDuration(data, fullBox: mdhd.payload) else { continue }
+            let handler = mediaBoxes.first(where: { $0.type == "hdlr" }).flatMap {
+                fourCC(data, $0.payload.lowerBound + 8, $0.payload.upperBound)
+            }
+            if first == nil { first = (trackID, timing.timescale) }
+            if handler == "soun" {
+                sound = (trackID, timing.timescale)
+                break
+            }
+        }
+        let track = sound ?? first
+        return MovieInfo(
+            movieTimescale: movieTiming.timescale,
+            movieDuration: movieTiming.duration,
+            isFragmented: mvex != nil,
+            fragmentDuration: fragmentDuration,
+            trackID: track?.id,
+            trackTimescale: track?.timescale,
+            defaultSampleDurations: defaults
+        )
+    }
+
+    /// 补出时长后的 moov: mvhd 写上时长, mvex 改成 free(长度不变)。拿到的就是一个
+    /// 普通的、只有元数据的 moov, 原生解析和 AVFoundation 都按它读时长。
+    /// 版本 0 的 mvhd 按原 timescale 放不下时改用 1000。
+    public static func patchedMovie(moov: Data, durationSeconds seconds: TimeInterval) -> Data? {
+        guard seconds.isFinite, seconds > 0 else { return nil }
+        var data = normalized(moov)
+        guard let movie = children(data, in: 0..<data.count).first, movie.type == "moov" else {
+            return nil
+        }
+        let boxes = children(data, in: movie.payload)
+        guard let mvhd = boxes.first(where: { $0.type == "mvhd" }) else { return nil }
+        let start = mvhd.payload.lowerBound
+        let limit = mvhd.payload.upperBound
+        guard let version = byte(data, start, limit) else { return nil }
+        if version == 1 {
+            guard let timescale = uint32(data, start + 20, limit), timescale > 0,
+                  start + 32 <= limit else { return nil }
+            let ticks = (seconds * Double(timescale)).rounded()
+            guard ticks >= 1, ticks < Double(UInt64(UInt32.max) << 16) else { return nil }
+            write(UInt64(ticks), byteCount: 8, into: &data, at: start + 24)
+        } else {
+            guard let original = uint32(data, start + 12, limit), start + 20 <= limit else { return nil }
+            var timescale = original
+            var ticks = (seconds * Double(timescale)).rounded()
+            if timescale == 0 || ticks >= Double(UInt32.max) {
+                timescale = 1000
+                ticks = (seconds * 1000).rounded()
+            }
+            guard ticks >= 1, ticks < Double(UInt32.max) else { return nil }
+            write(UInt64(timescale), byteCount: 4, into: &data, at: start + 12)
+            write(UInt64(ticks), byteCount: 4, into: &data, at: start + 16)
+        }
+        if let mvex = boxes.first(where: { $0.type == "mvex" }) {
+            data.replaceSubrange((mvex.start + 4)..<(mvex.start + 8), with: Data("free".utf8))
+        }
+        return data
+    }
+
+    // MARK: sidx / mfra / moof
+
+    public static func segmentIndex(_ box: Data) -> SegmentIndex? {
+        let data = normalized(box)
+        guard let sidx = children(data, in: 0..<data.count).first, sidx.type == "sidx" else {
+            return nil
+        }
+        let start = sidx.payload.lowerBound
+        let limit = sidx.payload.upperBound
+        guard let version = byte(data, start, limit),
+              let referenceID = uint32(data, start + 4, limit),
+              let timescale = uint32(data, start + 8, limit), timescale > 0 else { return nil }
+        // earliest_presentation_time 与 first_offset: 版本 0 各 4 字节, 版本 1 各 8 字节;
+        // 之后是 reserved(2) + reference_count(2), 再是每条 12 字节的引用。
+        let reserved = start + 12 + (version == 1 ? 16 : 8)
+        guard let countWord = uint32(data, reserved, limit) else { return nil }
+        let referenceCount = Int(countWord & 0xFFFF)
+        let references = reserved + 4
+        guard referenceCount > 0, references + referenceCount * 12 <= limit else { return nil }
+        var total: UInt64 = 0
+        for index in 0..<referenceCount {
+            // referenced_type + referenced_size(4) 之后是 subsegment_duration(4)。
+            guard let duration = uint32(data, references + index * 12 + 4, limit) else { return nil }
+            total += UInt64(duration)
+        }
+        guard total > 0 else { return nil }
+        return SegmentIndex(referenceID: referenceID, timescale: timescale, totalDuration: total)
+    }
+
+    /// 文件最后 16 字节的 mfro 写着整个 mfra 的长度。
+    public static func randomAccessBoxSize(mfro: Data) -> Int64? {
+        let data = normalized(mfro)
+        guard data.count == 16,
+              uint32(data, 0, 16) == 16,
+              fourCC(data, 4, 16) == "mfro",
+              let size = uint32(data, 12, 16), size >= 24 else { return nil }
+        return Int64(size)
+    }
+
+    /// mfra 里这条轨道(没有就第一条)的 tfra 中时间最大的那一条。
+    public static func lastRandomAccessEntry(mfra: Data, trackID: UInt32?) -> RandomAccessEntry? {
+        let data = normalized(mfra)
+        guard let box = children(data, in: 0..<data.count).first, box.type == "mfra" else {
+            return nil
+        }
+        var fallback: RandomAccessEntry?
+        for tfra in children(data, in: box.payload) where tfra.type == "tfra" {
+            guard let entry = lastEntry(data, tfra: tfra.payload) else { continue }
+            if trackID == nil || entry.trackID == trackID { return entry }
+            if fallback == nil { fallback = entry }
+        }
+        return fallback
+    }
+
+    /// moof 里每个 traf 的样本时长。样本时长依次取 trun 里各自写的、tfhd 的默认值、
+    /// trex 的默认值; 都没有就算不出来。
+    public static func fragmentTiming(
+        moof: Data,
+        defaultSampleDurations: [UInt32: UInt32]
+    ) -> FragmentTiming? {
+        let data = normalized(moof)
+        guard let box = children(data, in: 0..<data.count).first, box.type == "moof" else {
+            return nil
+        }
+        var fragments: [TrackFragment] = []
+        for traf in children(data, in: box.payload) where traf.type == "traf" {
+            let boxes = children(data, in: traf.payload)
+            guard let tfhd = boxes.first(where: { $0.type == "tfhd" }),
+                  let flagWord = uint32(data, tfhd.payload.lowerBound, tfhd.payload.upperBound),
+                  let trackID = uint32(data, tfhd.payload.lowerBound + 4, tfhd.payload.upperBound) else {
+                return nil
+            }
+            let flags = flagWord & 0x00FF_FFFF
+            var cursor = tfhd.payload.lowerBound + 8
+            if flags & 0x01 != 0 { cursor += 8 }
+            if flags & 0x02 != 0 { cursor += 4 }
+            var defaultDuration = defaultSampleDurations[trackID]
+            if flags & 0x08 != 0 {
+                guard let declared = uint32(data, cursor, tfhd.payload.upperBound) else { return nil }
+                defaultDuration = declared
+            }
+            var baseDecodeTime: UInt64?
+            if let tfdt = boxes.first(where: { $0.type == "tfdt" }),
+               let version = byte(data, tfdt.payload.lowerBound, tfdt.payload.upperBound) {
+                baseDecodeTime = version == 1
+                    ? uint64(data, tfdt.payload.lowerBound + 4, tfdt.payload.upperBound)
+                    : uint32(data, tfdt.payload.lowerBound + 4, tfdt.payload.upperBound).map(UInt64.init)
+            }
+            var runs: [TrackRun] = []
+            for trun in boxes where trun.type == "trun" {
+                guard let run = trackRun(data, trun: trun.payload, defaultDuration: defaultDuration) else {
+                    return nil
+                }
+                runs.append(run)
+            }
+            fragments.append(TrackFragment(trackID: trackID, baseDecodeTime: baseDecodeTime, runs: runs))
+        }
+        return fragments.isEmpty ? nil : FragmentTiming(fragments: fragments)
+    }
+
+    // MARK: Helpers
+
+    struct Child {
+        let type: String
+        let start: Int
+        let payload: Range<Int>
+    }
+
+    private static let maximumChildCount = 100_000
+    private static let maximumSampleCount = 10_000_000
+
+    static func seconds(_ ticks: UInt64, timescale: UInt32) -> TimeInterval? {
+        guard ticks > 0, timescale > 0 else { return nil }
+        let value = Double(ticks) / Double(timescale)
+        return value.isFinite && value > 0 ? value : nil
+    }
+
+    static func add(_ a: UInt64, _ b: UInt64, _ c: UInt64) -> UInt64? {
+        let (ab, first) = a.addingReportingOverflow(b)
+        let (sum, second) = ab.addingReportingOverflow(c)
+        return first || second ? nil : sum
+    }
+
+    private static func normalized(_ data: Data) -> Data {
+        data.startIndex == 0 ? data : Data(data)
+    }
+
+    /// `range` 里一层 box。长度不合法就停在那里, 已经认出的照样返回。
+    static func children(_ data: Data, in range: Range<Int>) -> [Child] {
+        var result: [Child] = []
+        var cursor = range.lowerBound
+        let end = min(range.upperBound, data.count)
+        while end - cursor >= 8, result.count < maximumChildCount {
+            guard let size32 = uint32(data, cursor, end),
+                  let type = fourCC(data, cursor + 4, end) else { break }
+            let size: Int
+            var headerSize = 8
+            switch size32 {
+            case 0:
+                size = end - cursor
+            case 1:
+                guard let large = uint64(data, cursor + 8, end),
+                      large >= 16, large <= UInt64(end - cursor) else { return result }
+                size = Int(large)
+                headerSize = 16
+            default:
+                guard size32 >= 8, Int(size32) <= end - cursor else { return result }
+                size = Int(size32)
+            }
+            result.append(Child(type: type, start: cursor, payload: (cursor + headerSize)..<(cursor + size)))
+            cursor += size
+        }
+        return result
+    }
+
+    private static func timescaleAndDuration(
+        _ data: Data,
+        fullBox payload: Range<Int>
+    ) -> (timescale: UInt32, duration: UInt64)? {
+        let start = payload.lowerBound
+        let limit = payload.upperBound
+        guard let version = byte(data, start, limit) else { return nil }
+        if version == 1 {
+            guard let timescale = uint32(data, start + 20, limit),
+                  let duration = uint64(data, start + 24, limit) else { return nil }
+            return (timescale, duration)
+        }
+        guard let timescale = uint32(data, start + 12, limit),
+              let duration = uint32(data, start + 16, limit) else { return nil }
+        return (timescale, UInt64(duration))
+    }
+
+    private static func lastEntry(_ data: Data, tfra payload: Range<Int>) -> RandomAccessEntry? {
+        let start = payload.lowerBound
+        let limit = payload.upperBound
+        guard let version = byte(data, start, limit),
+              let trackID = uint32(data, start + 4, limit),
+              let lengths = uint32(data, start + 8, limit),
+              let count32 = uint32(data, start + 12, limit), count32 > 0 else { return nil }
+        let trafLength = Int((lengths >> 4) & 0x3) + 1
+        let trunLength = Int((lengths >> 2) & 0x3) + 1
+        let sampleLength = Int(lengths & 0x3) + 1
+        let timeLength = version == 1 ? 8 : 4
+        let entryLength = timeLength * 2 + trafLength + trunLength + sampleLength
+        let count = Int(count32)
+        guard count <= (limit - start - 16) / entryLength else { return nil }
+        var last: RandomAccessEntry?
+        for index in 0..<count {
+            var cursor = start + 16 + index * entryLength
+            guard let time = number(data, cursor, timeLength, limit),
+                  let moofOffset = number(data, cursor + timeLength, timeLength, limit) else { return nil }
+            cursor += timeLength * 2
+            guard let traf = number(data, cursor, trafLength, limit),
+                  let trun = number(data, cursor + trafLength, trunLength, limit),
+                  let sample = number(data, cursor + trafLength + trunLength, sampleLength, limit) else {
+                return nil
+            }
+            if let previous = last, previous.time > time { continue }
+            last = RandomAccessEntry(
+                trackID: trackID,
+                time: time,
+                moofOffset: moofOffset,
+                trafNumber: UInt32(truncatingIfNeeded: traf),
+                trunNumber: UInt32(truncatingIfNeeded: trun),
+                sampleNumber: UInt32(truncatingIfNeeded: sample)
+            )
+        }
+        return last
+    }
+
+    private static func trackRun(
+        _ data: Data,
+        trun payload: Range<Int>,
+        defaultDuration: UInt32?
+    ) -> TrackRun? {
+        let start = payload.lowerBound
+        let limit = payload.upperBound
+        guard let flagWord = uint32(data, start, limit),
+              let count32 = uint32(data, start + 4, limit),
+              count32 <= UInt32(maximumSampleCount) else { return nil }
+        let flags = flagWord & 0x00FF_FFFF
+        let count = Int(count32)
+        var cursor = start + 8
+        if flags & 0x001 != 0 { cursor += 4 }
+        if flags & 0x004 != 0 { cursor += 4 }
+        var fieldCount = 0
+        for bit: UInt32 in [0x100, 0x200, 0x400, 0x800] where flags & bit != 0 {
+            fieldCount += 1
+        }
+        let stride = fieldCount * 4
+        guard cursor <= limit, count * stride <= limit - cursor else { return nil }
+        if flags & 0x100 != 0 {
+            var durations: [UInt32] = []
+            durations.reserveCapacity(count)
+            for index in 0..<count {
+                guard let duration = uint32(data, cursor + index * stride, limit) else { return nil }
+                durations.append(duration)
+            }
+            return TrackRun(sampleCount: count, durations: durations, defaultDuration: 0)
+        }
+        guard count == 0 || defaultDuration != nil else { return nil }
+        return TrackRun(sampleCount: count, durations: nil, defaultDuration: defaultDuration ?? 0)
+    }
+
+    private static func byte(_ data: Data, _ offset: Int, _ limit: Int) -> UInt8? {
+        guard offset >= 0, offset < limit, offset < data.count else { return nil }
+        return data[offset]
+    }
+
+    static func uint32(_ data: Data, _ offset: Int, _ limit: Int) -> UInt32? {
+        number(data, offset, 4, limit).map { UInt32(truncatingIfNeeded: $0) }
+    }
+
+    static func uint64(_ data: Data, _ offset: Int, _ limit: Int) -> UInt64? {
+        number(data, offset, 8, limit)
+    }
+
+    /// 大端序, `length` 是 1...8 字节。
+    private static func number(_ data: Data, _ offset: Int, _ length: Int, _ limit: Int) -> UInt64? {
+        guard offset >= 0, length > 0, length <= 8,
+              offset + length <= limit, offset + length <= data.count else { return nil }
+        var value: UInt64 = 0
+        for index in offset..<(offset + length) {
+            value = (value << 8) | UInt64(data[index])
+        }
+        return value
+    }
+
+    private static func fourCC(_ data: Data, _ offset: Int, _ limit: Int) -> String? {
+        guard offset >= 0, offset + 4 <= limit, offset + 4 <= data.count else { return nil }
+        return String(data[offset..<(offset + 4)].map { Character(Unicode.Scalar($0)) })
+    }
+
+    private static func write(_ value: UInt64, byteCount: Int, into data: inout Data, at offset: Int) {
+        for index in 0..<byteCount {
+            let shift = UInt64((byteCount - 1 - index) * 8)
+            data[offset + index] = UInt8(truncatingIfNeeded: value >> shift)
+        }
+    }
+}
+
 /// Locates metadata by top-level atom boundaries, without reading media payloads.
 public enum ISOBaseMediaRangeReader {
     public static let maximumMetadataByteCount = 64 * 1024 * 1024
@@ -1068,7 +1600,38 @@ public enum ISOBaseMediaRangeReader {
         public let moov: Range<Int64>
         /// 原文件在 moov 前面有 ftyp; 没有时 `metadataFile` 里是补上的 QuickTime ftyp。
         public let hasOriginalFTYP: Bool
+        /// 分片 MP4 补出来的时长(秒)。补出来时 `metadataFile` 里的 moov 已经写上这个时长。
+        public let fragmentDuration: TimeInterval?
+        public let fragmentDurationSource: FragmentDurationSource?
     }
+
+    /// 分片 MP4 的时长从哪儿来, 便宜的在前。
+    public enum FragmentDurationSource: String, Sendable, Equatable {
+        /// moov/mvex/mehd, 不用多读。
+        case movieExtends
+        /// sidx 里各段时长之和。
+        case segmentIndex
+        /// 文件末尾 mfra 的最后一个随机访问点, 加上它所在分片剩下的时长。
+        case randomAccess
+        /// 同上, 但那个分片没读到: 只用随机访问点的时间, 偏短, 差不到一个分片。
+        case randomAccessFloor
+        /// 逐个 moof 加样本时长。
+        case fragmentWalk
+    }
+
+    /// 补分片时长时最多发几个请求、最多下多少字节(首段里有的不算)。
+    public static let maximumFragmentRecoveryRequestCount = 64
+    public static let maximumFragmentRecoveryByteCount: Int64 = 4 * 1024 * 1024
+    /// sidx 和单个 moof 的上限。
+    static let maximumFragmentIndexBoxByteCount: Int64 = 1024 * 1024
+    /// mfra 的上限: 每条 tfra 不到 30 字节, 2 MB 足够几万个分片。
+    static let maximumRandomAccessBoxByteCount: Int64 = 2 * 1024 * 1024
+    /// 在首段、已读窗口之外读 box 头时顺带多读这么多: 音频的 moof 只有几百字节,
+    /// moof 本身和它后面 mdat 的头多半一起回来, 一个分片一个请求。
+    static let fragmentHeaderReadAheadByteCount: Int64 = 8 * 1024
+    /// moov 之后找 sidx 最多看几个 box; 逐个 moof 最多走几个 box。
+    static let maximumBoxesAfterMovie = 8
+    static let maximumFragmentWalkBoxCount = 512
 
     /// 没有 ftyp 的老 QuickTime 文件: 补一个 QuickTime 品牌的 ftyp, 解析器按 QuickTime 的规矩读 moov。
     private static let quickTimeFTYP: Data = {
@@ -1139,7 +1702,38 @@ public enum ISOBaseMediaRangeReader {
         } else {
             ftyp = quickTimeFTYP
         }
-        let moov = try await bytes(at: moovOffset, count: Int(moovSize))
+        var moov = try await bytes(at: moovOffset, count: Int(moovSize))
+
+        // 分片 MP4: mvhd 是 0, 时长要从 moov 之外找。补不出来不影响已经读到的 moov ——
+        // 读失败(包括服务器不认 Range)只是没有时长, 取消照常往上抛。
+        var fragmentDuration: TimeInterval?
+        var fragmentDurationSource: FragmentDurationSource?
+        if let movie = ISOBaseMediaFragmentDuration.movieInfo(moov: moov), movie.needsFragmentDuration {
+            do {
+                if let recovered = try await recoverFragmentDuration(
+                    movie: movie,
+                    moovEnd: moovOffset + moovSize,
+                    segmentIndexBeforeMovie: walk.segmentIndex,
+                    head: head,
+                    fileSize: fileSize,
+                    fetch: fetch
+                ) {
+                    fragmentDuration = recovered.seconds
+                    fragmentDurationSource = recovered.source
+                    if let patched = ISOBaseMediaFragmentDuration.patchedMovie(
+                        moov: moov,
+                        durationSeconds: recovered.seconds
+                    ) {
+                        moov = patched
+                    }
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // 这段补读失败: 没有时长, moov 照用。调用方的读取函数自己记下服务器不认 Range。
+            }
+        }
+
         guard let metadataFile = ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(
             head: ftyp,
             tail: moov
@@ -1147,7 +1741,167 @@ public enum ISOBaseMediaRangeReader {
         return Located(
             metadataFile: metadataFile,
             moov: moovOffset..<(moovOffset + moovSize),
-            hasOriginalFTYP: walk.ftyp != nil
+            hasOriginalFTYP: walk.ftyp != nil,
+            fragmentDuration: fragmentDuration,
+            fragmentDurationSource: fragmentDurationSource
         )
+    }
+
+    /// 按 mehd → sidx → mfra/tfra → 逐个 moof 的顺序找分片 MP4 的时长, 前一种有结果就停。
+    /// 首段里有的字节不花预算; 之外的读取受 `maximumFragmentRecoveryRequestCount` 和
+    /// `maximumFragmentRecoveryByteCount` 约束, 用完就放弃(返回 nil)。
+    static func recoverFragmentDuration(
+        movie: ISOBaseMediaFragmentDuration.MovieInfo,
+        moovEnd: Int64,
+        segmentIndexBeforeMovie: Range<Int64>?,
+        head: Data,
+        fileSize: Int64,
+        fetch: (Int64, Int64) async throws -> Data
+    ) async throws -> (seconds: TimeInterval, source: FragmentDurationSource)? {
+        if let seconds = movie.movieExtendsSeconds {
+            return (seconds, .movieExtends)
+        }
+
+        var requestCount = 0
+        var fetchedByteCount: Int64 = 0
+        var windowOffset: Int64 = 0
+        var window = Data()
+
+        /// 首段或上一次读回的窗口里有就直接给。
+        func cached(at offset: Int64, count: Int64) -> Data? {
+            guard offset >= 0, count > 0 else { return nil }
+            if offset + count <= Int64(head.count) {
+                let start = head.startIndex + Int(offset)
+                return head.subdata(in: start..<(start + Int(count)))
+            }
+            if offset >= windowOffset, offset + count <= windowOffset + Int64(window.count) {
+                let start = window.startIndex + Int(offset - windowOffset)
+                return window.subdata(in: start..<(start + Int(count)))
+            }
+            return nil
+        }
+
+        /// 预算用完返回 nil。
+        func read(at offset: Int64, count: Int64) async throws -> Data? {
+            guard offset >= 0, count > 0, count <= fileSize - offset else { return nil }
+            if let data = cached(at: offset, count: count) { return data }
+            guard requestCount < maximumFragmentRecoveryRequestCount,
+                  count <= maximumFragmentRecoveryByteCount - fetchedByteCount else { return nil }
+            try Task.checkCancellation()
+            requestCount += 1
+            fetchedByteCount += count
+            let data = try await fetch(offset, count)
+            guard data.count == Int(count) else { throw ReadError.incompleteRange }
+            windowOffset = offset
+            window = data
+            return data
+        }
+
+        func boxHeader(at offset: Int64) async throws -> ISOBaseMediaTopLevelBoxWalk.BoxHeader? {
+            let remaining = fileSize - offset
+            guard remaining >= 8 else { return nil }
+            let probe = min(Int64(ISOBaseMediaTopLevelBoxWalk.headerProbeByteCount), remaining)
+            let header: Data
+            if let data = cached(at: offset, count: probe) {
+                header = data
+            } else {
+                let ahead = min(max(probe, fragmentHeaderReadAheadByteCount), remaining)
+                guard let data = try await read(at: offset, count: ahead) else { return nil }
+                header = data.prefix(Int(probe))
+            }
+            guard case .box(let box) = ISOBaseMediaTopLevelBoxWalk.parseHeader(
+                header,
+                remaining: remaining,
+                isFirstBox: false
+            ) else { return nil }
+            return box
+        }
+
+        func segmentIndexSeconds(at offset: Int64, size: Int64) async throws -> TimeInterval? {
+            guard size <= maximumFragmentIndexBoxByteCount,
+                  let box = try await read(at: offset, count: size) else { return nil }
+            return ISOBaseMediaFragmentDuration.segmentIndex(box)?.seconds
+        }
+
+        func fragmentTiming(at offset: Int64) async throws -> ISOBaseMediaFragmentDuration.FragmentTiming? {
+            guard let header = try await boxHeader(at: offset),
+                  header.type == "moof",
+                  header.size <= maximumFragmentIndexBoxByteCount,
+                  let moof = try await read(at: offset, count: header.size) else { return nil }
+            return ISOBaseMediaFragmentDuration.fragmentTiming(
+                moof: moof,
+                defaultSampleDurations: movie.defaultSampleDurations
+            )
+        }
+
+        // sidx: moov 前面走过的, 或者紧跟在 moov 后面的几个 box 里。
+        if let range = segmentIndexBeforeMovie,
+           let seconds = try await segmentIndexSeconds(
+            at: range.lowerBound,
+            size: range.upperBound - range.lowerBound
+           ) {
+            return (seconds, .segmentIndex)
+        }
+        var cursor = moovEnd
+        var mediaStart: Int64?
+        for _ in 0..<maximumBoxesAfterMovie {
+            guard let box = try await boxHeader(at: cursor) else { break }
+            if box.type == "sidx",
+               let seconds = try await segmentIndexSeconds(at: cursor, size: box.size) {
+                return (seconds, .segmentIndex)
+            }
+            if box.type == "moof" || box.type == "mdat" {
+                mediaStart = cursor
+                break
+            }
+            if box.type == "mfra" || box.extendsToEnd { break }
+            cursor += box.size
+        }
+
+        // mfra: 文件最后 16 字节的 mfro 写着 mfra 多长, tfra 里最后一条是最后一个随机访问点。
+        if fileSize >= 24,
+           let mfro = try await read(at: fileSize - 16, count: 16),
+           let mfraSize = ISOBaseMediaFragmentDuration.randomAccessBoxSize(mfro: mfro),
+           mfraSize <= maximumRandomAccessBoxByteCount, mfraSize <= fileSize,
+           let mfra = try await read(at: fileSize - mfraSize, count: mfraSize),
+           let entry = ISOBaseMediaFragmentDuration.lastRandomAccessEntry(mfra: mfra, trackID: movie.trackID) {
+            if let moofOffset = Int64(exactly: entry.moofOffset),
+               moofOffset < fileSize,
+               let timing = try await fragmentTiming(at: moofOffset),
+               let end = timing.endTime(after: entry),
+               let seconds = movie.trackSeconds(end) {
+                return (seconds, .randomAccess)
+            }
+            if let seconds = movie.trackSeconds(entry.time) {
+                return (seconds, .randomAccessFloor)
+            }
+        }
+
+        // 最后一招: 从第一个分片起逐个 moof 加样本时长, mdat 只看头。走到文件末尾才算数,
+        // 预算或 box 数用完就放弃 —— 只加了一部分的时长差得太多, 不如没有。
+        guard var walkCursor = mediaStart else { return nil }
+        var total: UInt64 = 0
+        var sawFragment = false
+        for _ in 0..<maximumFragmentWalkBoxCount {
+            if fileSize - walkCursor < 8 {
+                guard sawFragment, let seconds = movie.trackSeconds(total) else { return nil }
+                return (seconds, .fragmentWalk)
+            }
+            guard let box = try await boxHeader(at: walkCursor) else { return nil }
+            if box.type == "moof" {
+                guard let timing = try await fragmentTiming(at: walkCursor),
+                      let duration = timing.duration(trackID: movie.trackID) else { return nil }
+                let (sum, overflow) = total.addingReportingOverflow(duration)
+                guard !overflow else { return nil }
+                total = sum
+                sawFragment = true
+            }
+            if box.type == "mfra" || box.extendsToEnd {
+                guard sawFragment, let seconds = movie.trackSeconds(total) else { return nil }
+                return (seconds, .fragmentWalk)
+            }
+            walkCursor += box.size
+        }
+        return nil
     }
 }

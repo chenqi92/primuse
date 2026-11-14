@@ -115,6 +115,42 @@ struct WholeResourceMetadataRangePolicyTests {
         ) == 3072)
     }
 
+    @Test("Reads far from the start are rejected without consuming a whole response")
+    func rejectsFarReadsWithoutConsuming() {
+        let cap = WholeResourceMetadataRangePolicy.maximumConsumedPrefixByteCount
+        #expect(WholeResourceMetadataRangePolicy.consumesWholeResponsePrefix(
+            requestedOffset: cap - 16,
+            requestedLength: 16
+        ))
+        #expect(!WholeResourceMetadataRangePolicy.consumesWholeResponsePrefix(
+            requestedOffset: 5_000_000_000,
+            requestedLength: 16
+        ))
+        #expect(!WholeResourceMetadataRangePolicy.consumesWholeResponsePrefix(
+            requestedOffset: Int64.max - 4,
+            requestedLength: 16
+        ))
+        #expect(WholeResourceMetadataRangePolicy.wholeResponsePrefixLimit(
+            requestedOffset: 5_000_000_000,
+            requestedLength: 16
+        ) == 0)
+        #expect(WholeResourceMetadataRangePolicy.responseDisposition(
+            requestedOffset: 5_000_000_000,
+            requestedLength: 16,
+            intent: .bulkBounded
+        ) == .rejectSuffixWithoutConsuming)
+        #expect(WholeResourceMetadataRangePolicy.responseDisposition(
+            requestedOffset: 5_000_000_000,
+            requestedLength: 16,
+            intent: .explicitSingleFileCompleteFallback
+        ) == .useCompleteFileFallback)
+        #expect(WholeResourceMetadataRangePolicy.responseDisposition(
+            requestedOffset: 4 * 1024 * 1024,
+            requestedLength: 1024,
+            intent: .bulkBounded
+        ) == .consumeBoundedPrefix)
+    }
+
     @Test("Head and suffix metadata windows are sliced from a complete response")
     func slicesMetadataWindows() {
         #expect(WholeResourceMetadataRangePolicy.sliceRange(

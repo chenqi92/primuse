@@ -14914,8 +14914,10 @@ final class SourceManager {
             }
             return data
         case 200:
+            // 离开头太远的读取和尾部读取一样: 前缀限额是 0, 响应体没读, 直接拒绝。
             switch WholeResourceMetadataRangePolicy.responseDisposition(
                 requestedOffset: offset,
+                requestedLength: length,
                 intent: intent
             ) {
             case .consumeBoundedPrefix:

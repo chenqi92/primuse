@@ -767,6 +767,27 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
                 intent: intent
             )
         }
+        // 离开头超过 16 MB 的读取(几 GB 的 mdat 之后的 moov 等): 服务器不认 Range 回 200 时,
+        // 得先流过整段前缀才拿得到这几个字节。端点已知不认 Range 就不再发请求。
+        let consumesPrefix = WholeResourceMetadataRangePolicy.consumesWholeResponsePrefix(
+            requestedOffset: offset,
+            requestedLength: length
+        )
+        if !consumesPrefix {
+            if intent == .explicitSingleFileCompleteFallback,
+               let cachedURL = cachedCompleteMetadataFallbackURL(for: path) {
+                return try boundedMetadataSlice(cachedURL, offset: offset, length: length)
+            }
+            if metadataSuffixRangeIsKnownUnsupported(for: request.url) {
+                return try await farMetadataRangeWithoutRangeSupport(
+                    request: request,
+                    mediaPath: path,
+                    offset: offset,
+                    length: length,
+                    intent: intent
+                )
+            }
+        }
         if let url = request.url, TrustedHTTPTransport.requiresPlainSocket(for: url) {
             let requestedBodyBytes = Int(clamping: max(length, 0))
             let maximumRangedBodyBytes = requestedBodyBytes > Int.max - 64 * 1024
@@ -807,6 +828,20 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
                 }
                 return try boundedMetadataSlice(temporaryURL, offset: 0, length: length)
             case 200:
+                guard consumesPrefix else {
+                    // 前缀限额是 0, 响应体没读。
+                    rememberUnsupportedMetadataSuffixRange(
+                        requestedURL: request.url,
+                        responseURL: response.url
+                    )
+                    return try await farMetadataRangeWithoutRangeSupport(
+                        request: request,
+                        mediaPath: path,
+                        offset: offset,
+                        length: length,
+                        intent: intent
+                    )
+                }
                 try rejectNonMediaResponseIfNeeded(http, data: responsePrefix, path: path)
                 let slice = try boundedMetadataSlice(temporaryURL, offset: offset, length: length)
                 if !didLogWholeResourceMetadataFallback {
@@ -848,6 +883,21 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
             }
             return data
         case 200:
+            guard consumesPrefix else {
+                // 一个字节都不读, 断开这次传输。
+                bytes.task.cancel()
+                rememberUnsupportedMetadataSuffixRange(
+                    requestedURL: request.url,
+                    responseURL: response.url
+                )
+                return try await farMetadataRangeWithoutRangeSupport(
+                    request: request,
+                    mediaPath: path,
+                    offset: offset,
+                    length: length,
+                    intent: intent
+                )
+            }
             let data = try await boundedMetadataSlice(
                 bytes,
                 offset: offset,
@@ -961,6 +1011,27 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
                 ),
                 startedAt: requestStartedAt
             )
+        }
+    }
+
+    /// 离开头太远、而端点不认 Range: 批量读取直接拒绝(跟尾部读取一样); 用户点的单曲重读
+    /// 整首下载一次, 和尾部读取共用那份缓存。
+    private func farMetadataRangeWithoutRangeSupport(
+        request: URLRequest,
+        mediaPath path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
+        switch intent {
+        case .bulkBounded:
+            throw MetadataRangeReadError.suffixRangeUnsupported
+        case .explicitSingleFileCompleteFallback:
+            let completeURL = try await completeMetadataFallbackURL(
+                request: request,
+                mediaPath: path
+            )
+            return try boundedMetadataSlice(completeURL, offset: offset, length: length)
         }
     }
 
