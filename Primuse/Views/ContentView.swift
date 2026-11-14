@@ -1572,13 +1572,16 @@ struct ContentView: View {
     }
 
     private var searchTabRole: TabRole? {
-        // 用户选了「搜索与其他标签连在一起」:当成普通标签,不再单独成键。
-        if joinsSearchTab { return nil }
         #if compiler(>=6.4)
         // iOS 27 no longer separates a search tab unless it activates search.
-        // Keep the independent button without changing search activation.
-        if #available(iOS 27.0, *) { return .prominent }
+        // 不连在一起:`.prominent` 保持右边单独一颗圆键，不改搜索的激活方式。
+        // 连在一起:仍用 `.search`(不交给系统激活，见 `searchTabActivation`)，平时和其他标签
+        // 连在一条里;标签栏随滚动收到迷你播放胶囊两边时，系统只给 `.search` 留位置，搜索键还在
+        // 右边(与 Apple Music 一样)。当成普通标签的话，收起后就只剩当前标签，搜索键没了。
+        if #available(iOS 27.0, *) { return joinsSearchTab ? .search : .prominent }
         #endif
+        // iOS 26:`.search` 总是单独成键，连在一起只能当普通标签(收起后看不到搜索键，系统限制)。
+        if joinsSearchTab { return nil }
         return .search
     }
 
@@ -1597,7 +1600,18 @@ struct ContentView: View {
 
     @available(iOS 26.0, *)
     private var searchTabActivation: TabSearchActivation {
-        searchTabHostsSearchField ? .searchTabSelection : .automatic
+        searchTabSystemActivates ? .searchTabSelection : .automatic
+    }
+
+    /// 选中搜索标签时交给系统弹出搜索框。iOS 27 上连在一起的搜索标签不能交：交了系统就又把它
+    /// 单独拎成一颗圆键。这时代码也照旧不弹(`searchTabHostsSearchField` 仍为真，避开借走输入框后
+    /// 再由代码弹键盘的闪退)，点一下输入框就能输入。
+    private var searchTabSystemActivates: Bool {
+        guard searchTabHostsSearchField else { return false }
+        #if compiler(>=6.4)
+        if #available(iOS 27.0, *), joinsSearchTab { return false }
+        #endif
+        return true
     }
 
     @ViewBuilder
