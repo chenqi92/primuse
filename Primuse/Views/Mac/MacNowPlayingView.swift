@@ -983,7 +983,7 @@ struct MacNowPlayingView: View {
                 audioInfoButton
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(player.currentSong?.title ?? "")
-                        .font(.system(size: isWindowFullScreen ? 56 : 36, weight: .bold))
+                        .font(titleType.title)
                         .tracking(-0.6)
                         .foregroundStyle(playerPrimaryColor)
                         .lineLimit(2)
@@ -998,20 +998,22 @@ struct MacNowPlayingView: View {
                         song: song,
                         alignment: horizontalAlignment,
                         foreground: playerSecondaryColor,
-                        highlight: playerPrimaryColor
+                        highlight: playerPrimaryColor,
+                        artistFont: titleType.artist,
+                        albumFont: titleType.album
                     )
-                    .font(.system(size: isWindowFullScreen ? 36 : 24))
                     .padding(.top, 6)
                 }
                 MacNowPlayingSpokenWordRow(foreground: playerSecondaryColor)
                 .font(.system(size: isWindowFullScreen ? 15 : 13))
                 .padding(.top, 8)
                 if let sourceLabel, !sourceLabel.isEmpty {
+                    // 和顶上「正在播放 · 规格」同一个样式:同属说明这一级。
                     Text(sourceLabel)
-                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .font(titleType.meta)
                         .foregroundStyle(playerFaintColor)
                         .lineLimit(1)
-                        .padding(.top, 6)
+                        .padding(.top, 8)
                         .pmFadeTransition()
                 }
             }
@@ -1713,13 +1715,17 @@ struct MacNowPlayingView: View {
 
     // MARK: - Fullscreen cover transport
 
+    /// 封面下标题块的字号与字重(四级,见 `MacNowPlayingTitleType`)。
+    private var titleType: MacNowPlayingTitleType {
+        MacNowPlayingTitleType(isFullScreen: isWindowFullScreen)
+    }
+
     private var audioInfoButton: some View {
         Button { showsAudioDetails = true } label: {
             HStack(spacing: 8) {
+                // 不再全大写加字距:中文被拉开显得松散,「kHz」「kbps」也会被改成大写。
                 Text(nowPlayingInfoLine)
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(1.2)
-                    .textCase(.uppercase)
+                    .font(titleType.meta)
                 if showsReplayGainBadge, player.replayGainPlaybackInfo.showsBadge {
                     ReplayGainBadge(info: player.replayGainPlaybackInfo, song: player.currentSong, tint: playerFaintColor)
                 }
@@ -2329,11 +2335,32 @@ private struct MacNowPlayingProgressRow: View {
     }
 }
 
+/// 播放页封面下那一块的字:都用系统无衬线,分四级 —— 歌名 > 艺人 > 专辑 > 说明。
+/// 字号一级级往下走,歌名粗、艺人中等、专辑常规;说明字最小,用中等字重免得在色场上发虚。
+/// 颜色只用播放页的主、次、淡三档。说明是顶上的「正在播放 · 规格」和底下的来源,两行同一个
+/// 样式;只让数字等宽,规格、码率变了不跳,不再用整行等宽字体。全屏时整体放大。
+private struct MacNowPlayingTitleType {
+    let title: Font
+    let artist: Font
+    let album: Font
+    let meta: Font
+
+    init(isFullScreen: Bool) {
+        title = .system(size: isFullScreen ? 56 : 36, weight: .bold)
+        artist = .system(size: isFullScreen ? 32 : 22, weight: .medium)
+        album = .system(size: isFullScreen ? 24 : 17, weight: .regular)
+        meta = .system(size: isFullScreen ? 13 : 12, weight: .medium).monospacedDigit()
+    }
+}
+
 private struct MacNowPlayingMetadata: View {
     let song: Song
     let alignment: HorizontalAlignment
     let foreground: Color
     let highlight: Color
+    /// 艺人比专辑高一级(`MacNowPlayingTitleType`)。
+    let artistFont: Font
+    let albumFont: Font
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @State private var podcastSheet: PodcastPlayerSheetTarget?
@@ -2381,30 +2408,38 @@ private struct MacNowPlayingMetadata: View {
                         }
                     }
                 }
+                .font(artistFont)
             }
             if showsAlbumLine, let title = trimmed(song.albumTitle) {
-                if let podcastShowID {
-                    metadataLink(title, help: "podcast_go_to_show") {
-                        podcastSheet = .show(podcastShowID)
-                    }
-                } else if let bookID {
-                    metadataLink(title, help: "spoken_word_go_to_book") {
-                        NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
-                    }
-                } else if PodcastPlaybackSong.isEpisode(song) {
-                    Text(verbatim: title).foregroundStyle(foreground)
-                } else if let album = matchingAlbum {
-                    metadataLink(title, help: "go_to_album") {
-                        NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)
-                    }
-                } else {
-                    Text(verbatim: title).foregroundStyle(foreground)
-                }
+                albumLine(title)
+                    .font(albumFont)
             }
         }
         .lineLimit(1)
         .sheet(item: $podcastSheet) { target in
             NowPlayingPodcastSheet(target: target)
+        }
+    }
+
+    /// 专辑那一栏:有声书、播客是书名、节目名,点开的是书或节目页。
+    @ViewBuilder
+    private func albumLine(_ title: String) -> some View {
+        if let podcastShowID {
+            metadataLink(title, help: "podcast_go_to_show") {
+                podcastSheet = .show(podcastShowID)
+            }
+        } else if let bookID {
+            metadataLink(title, help: "spoken_word_go_to_book") {
+                NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
+            }
+        } else if PodcastPlaybackSong.isEpisode(song) {
+            Text(verbatim: title).foregroundStyle(foreground)
+        } else if let album = matchingAlbum {
+            metadataLink(title, help: "go_to_album") {
+                NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)
+            }
+        } else {
+            Text(verbatim: title).foregroundStyle(foreground)
         }
     }
 
