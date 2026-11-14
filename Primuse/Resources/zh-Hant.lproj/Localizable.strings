@@ -7477,3 +7477,19 @@
 "motion_artwork_source_add" = "新增動態封面來源";
 "motion_artwork_endpoint_blocked" = "這個位址不能用作動態封面來源";
 "motion_artwork_endpoint_duplicate" = "這個位址已經新增過了";
+
+/* 伴唱(#377) */
+"sing_along_title" = "伴唱";
+"sing_along_hint" = "把正在播放的歌換成伴奏，原唱壓低到你選的音量；不開麥克風、不評分，歌詞照常顯示。";
+"sing_along_level_title" = "原唱音量";
+"sing_along_level_instrumental" = "純伴奏";
+"sing_along_level_faint" = "隱約原唱";
+"sing_along_level_soft" = "輕聲原唱";
+"sing_along_preparing_note" = "AI 分離完成前先播放原唱，完成後自動換成伴奏。";
+"sing_along_unsupported_song" = "這首歌無法 AI 分離（太長或格式不支援），正在播放原唱。";
+"sing_along_unavailable_playback" = "目前的播放方式（如串燒、MV、多聲道音訊）不經過本機音效處理，正在播放原唱。";
+"sing_along_unavailable_system" = "伴唱要用 AI 人聲分離，這台裝置目前無法使用：需要 26.4 或更新的系統，並從 App Store 或 TestFlight 安裝。";
+"sing_along_device_unsupported_short" = "這台裝置不支援";
+"sing_along_activity_preparing" = "伴唱準備中";
+"sing_along_spatial_audio_short" = "空間音訊開啟時無法使用";
+"sing_along_unavailable_spatial_audio" = "空間音訊會重新渲染整首歌，人聲減不乾淨。關掉播放設定裡的空間音訊後伴唱才會生效，現在播放原唱。";

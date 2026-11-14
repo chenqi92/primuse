@@ -7501,3 +7501,19 @@
 "motion_artwork_source_add" = "モーションアートワークのソースを追加";
 "motion_artwork_endpoint_blocked" = "このアドレスはモーションアートワークのソースとして使用できません";
 "motion_artwork_endpoint_duplicate" = "このアドレスはすでに追加されています";
+
+/* 伴唱(#377) */
+"sing_along_title" = "シングアロング";
+"sing_along_hint" = "再生中の曲を伴奏に切り替え、原曲のボーカルを選んだ音量まで下げます。マイクや採点は使わず、歌詞はいつもどおり表示されます。";
+"sing_along_level_title" = "原曲ボーカル";
+"sing_along_level_instrumental" = "伴奏のみ";
+"sing_along_level_faint" = "かすかにボーカル";
+"sing_along_level_soft" = "控えめなボーカル";
+"sing_along_preparing_note" = "AI分離が終わるまでは原曲を再生し、終わると自動で伴奏に切り替わります。";
+"sing_along_unsupported_song" = "この曲はAI分離できないため（長すぎるか未対応の形式）、原曲を再生しています。";
+"sing_along_unavailable_playback" = "現在の再生方法（メドレー、ミュージックビデオ、マルチチャンネル音声など）は本機のエフェクト処理を通らないため、原曲を再生しています。";
+"sing_along_unavailable_system" = "シングアロングはAIボーカル分離を使いますが、このデバイスでは現在利用できません。26.4以降のシステムと、App StoreまたはTestFlightからのインストールが必要です。";
+"sing_along_device_unsupported_short" = "このデバイスでは使えません";
+"sing_along_activity_preparing" = "シングアロングを準備中";
+"sing_along_spatial_audio_short" = "空間オーディオがオンのときは使えません";
+"sing_along_unavailable_spatial_audio" = "空間オーディオは曲全体を再レンダリングするため、ボーカルをきれいに取り除けません。再生設定で空間オーディオをオフにするとシングアロングが有効になります。今は原曲を再生しています。";

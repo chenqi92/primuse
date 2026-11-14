@@ -7500,3 +7500,19 @@
 "motion_artwork_source_add" = "Quelle für bewegte Cover hinzufügen";
 "motion_artwork_endpoint_blocked" = "Diese Adresse kann nicht als Quelle für bewegte Cover verwendet werden";
 "motion_artwork_endpoint_duplicate" = "Diese Adresse wurde bereits hinzugefügt";
+
+/* 伴唱(#377) */
+"sing_along_title" = "Mitsingen";
+"sing_along_hint" = "Spielt die Begleitung des aktuellen Titels und senkt den Originalgesang auf die gewählte Lautstärke. Ohne Mikrofon und Bewertung; der Liedtext wird wie gewohnt angezeigt.";
+"sing_along_level_title" = "Originalgesang";
+"sing_along_level_instrumental" = "Nur Begleitung";
+"sing_along_level_faint" = "Gesang kaum hörbar";
+"sing_along_level_soft" = "Gesang leise";
+"sing_along_preparing_note" = "Bis die KI-Trennung fertig ist, läuft das Original; danach wird automatisch auf die Begleitung umgeschaltet.";
+"sing_along_unsupported_song" = "Dieser Titel lässt sich nicht per KI trennen (zu lang oder Format nicht unterstützt), daher läuft das Original.";
+"sing_along_unavailable_playback" = "Die aktuelle Wiedergabe (etwa ein Medley, ein Musikvideo oder Mehrkanalton) umgeht die Effektverarbeitung auf dem Gerät, daher läuft das Original.";
+"sing_along_unavailable_system" = "Mitsingen nutzt die KI-Gesangstrennung, die auf diesem Gerät gerade nicht verfügbar ist: Sie braucht Systemversion 26.4 oder neuer und eine Installation aus dem App Store oder über TestFlight.";
+"sing_along_device_unsupported_short" = "Auf diesem Gerät nicht verfügbar";
+"sing_along_activity_preparing" = "Mitsingen wird vorbereitet";
+"sing_along_spatial_audio_short" = "Mit 3D-Audio nicht verfügbar";
+"sing_along_unavailable_spatial_audio" = "3D-Audio rendert den ganzen Titel neu, daher lässt sich der Gesang nicht sauber entfernen. Schalte 3D-Audio in den Wiedergabeeinstellungen aus, damit Mitsingen wirkt; bis dahin läuft das Original.";

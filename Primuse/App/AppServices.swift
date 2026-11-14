@@ -1320,6 +1320,8 @@ final class AppServices {
             player?.playbackSourceAvailabilityDidChange()
         }
         manager.startMonitoringPlaybackSourceAvailability()
+        // 伴唱(#377)跟着播放走,不跟着哪个界面:上次开着,启动后就接着开。
+        KaraokeSingAlong.shared.attach(player)
         let favoriteSync = ServerFavoriteSyncService(
             sourceManager: manager,
             sourcesStore: store,

@@ -116,6 +116,68 @@ public enum KaraokeStemAligner {
         }
         return best
     }
+
+    /// 对齐的那一段里,播放信号含了多少倍的人声轨(最小二乘)。人声轨是从原文件分离的,
+    /// 播放时 ReplayGain 在消除单元之前就把整首调了音量,原样减去会减多(或减少)、
+    /// 留下一份反相的人声;按这个比例缩放后再减才对得上。伴奏和人声不相关,
+    /// 在投影里只是噪声。这一段几乎没唱(人声轨太轻)时没有意义,返回 nil。
+    ///
+    /// - Parameters:
+    ///   - live: 对齐用的那一段播放信号(单声道)。
+    ///   - excerpt: `match` 用的人声轨片段,从 `excerptStart` 起。
+    ///   - stemIndex: `match` 找到的位置。
+    public static func gain(live: [Float], excerpt: [Float], excerptStart: Int, stemIndex: Int) -> Double? {
+        let offset = stemIndex - excerptStart
+        guard !live.isEmpty, offset >= 0, offset + live.count <= excerpt.count else { return nil }
+        var cross = 0.0
+        var energy = 0.0
+        for index in 0..<live.count {
+            let stem = Double(excerpt[offset + index])
+            cross += Double(live[index]) * stem
+            energy += stem * stem
+        }
+        // 均方低于约 -50 dBFS 的人声轨算没唱。
+        guard energy / Double(live.count) > 1e-5 else { return nil }
+        let gain = cross / energy
+        return gain.isFinite && gain > 0 ? gain : nil
+    }
+}
+
+/// 把逐次对齐算出的比例(`KaraokeStemAligner.gain`)收成一个稳定的值:取最近几次的中位数,
+/// 单次被伴奏带偏的估计动不了它;攒够几次才算数,之前按 1 减。
+public struct KaraokeStemGainEstimator: Equatable, Sendable {
+    /// 参与中位数的最近几次。
+    public static let window = 7
+    /// 攒够这么多次才采用。
+    public static let minimumCount = 3
+    /// 单次估计的合理范围:ReplayGain 正常在 ±20 dB 内,超出的是算坏了。
+    public static let range: ClosedRange<Double> = 0.1...4
+
+    private var recent: [Double] = []
+
+    public init() {}
+
+    public var isSettled: Bool { recent.count >= Self.minimumCount }
+
+    public mutating func record(_ gain: Double) {
+        guard gain.isFinite, Self.range.contains(gain) else { return }
+        recent.append(gain)
+        if recent.count > Self.window { recent.removeFirst(recent.count - Self.window) }
+    }
+
+    /// 减人声轨时乘的比例;还没攒够时为 1(不缩放)。
+    public var scale: Double {
+        guard isSettled else { return 1 }
+        let sorted = recent.sorted()
+        let middle = sorted.count / 2
+        return sorted.count.isMultiple(of: 2)
+            ? (sorted[middle - 1] + sorted[middle]) / 2
+            : sorted[middle]
+    }
+
+    public mutating func reset() {
+        recent.removeAll()
+    }
 }
 
 /// Pre-separated vocal stem on disk: a small header and 16-bit interleaved

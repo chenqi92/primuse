@@ -208,6 +208,8 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case exportText
     /// 音乐的「歌词时间」:打开刻度尺,这一首的歌词整体提前、推后(按首记住)。
     case lyricsTiming
+    /// 「伴唱」(#377):把正在放的歌换成伴奏,原唱压低。
+    case singAlong
 
     public var id: String { rawValue }
 

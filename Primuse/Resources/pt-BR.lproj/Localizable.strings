@@ -7406,3 +7406,19 @@
 "motion_artwork_source_add" = "Adicionar fonte de capas em movimento";
 "motion_artwork_endpoint_blocked" = "Este endereço não pode ser usado como fonte de capas em movimento";
 "motion_artwork_endpoint_duplicate" = "Este endereço já foi adicionado";
+
+/* 伴唱(#377) */
+"sing_along_title" = "Cantar junto";
+"sing_along_hint" = "Toca o acompanhamento da música atual com a voz original abaixada ao nível que você escolher. Sem microfone nem pontuação; a letra aparece normalmente.";
+"sing_along_level_title" = "Voz original";
+"sing_along_level_instrumental" = "Só instrumental";
+"sing_along_level_faint" = "Voz bem baixa";
+"sing_along_level_soft" = "Voz suave";
+"sing_along_preparing_note" = "A original toca até a separação por IA terminar; depois muda sozinha para o acompanhamento.";
+"sing_along_unsupported_song" = "Esta música não pode ser separada por IA (longa demais ou formato sem suporte), então a original está tocando.";
+"sing_along_unavailable_playback" = "A reprodução atual (como um medley, um videoclipe ou áudio multicanal) não passa pelo processamento de efeitos do dispositivo, então a original está tocando.";
+"sing_along_unavailable_system" = "Cantar junto usa a separação vocal com IA, que não está disponível neste dispositivo agora: requer o sistema 26.4 ou posterior e instalação pela App Store ou TestFlight.";
+"sing_along_device_unsupported_short" = "Indisponível neste dispositivo";
+"sing_along_activity_preparing" = "Preparando Cantar junto";
+"sing_along_spatial_audio_short" = "Indisponível com Áudio Espacial";
+"sing_along_unavailable_spatial_audio" = "O Áudio Espacial reprocessa a música inteira, então a voz não sai de forma limpa. Desative o Áudio Espacial nos ajustes de reprodução para o Cantar junto funcionar; por enquanto a original está tocando.";

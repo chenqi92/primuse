@@ -7500,3 +7500,19 @@
 "motion_artwork_source_add" = "움직이는 커버 소스 추가";
 "motion_artwork_endpoint_blocked" = "이 주소는 움직이는 커버 소스로 사용할 수 없습니다";
 "motion_artwork_endpoint_duplicate" = "이 주소는 이미 추가되었습니다";
+
+/* 伴唱(#377) */
+"sing_along_title" = "따라 부르기";
+"sing_along_hint" = "재생 중인 곡을 반주로 바꾸고 원곡 보컬을 선택한 크기로 낮춥니다. 마이크와 채점 없이 가사는 평소처럼 표시됩니다.";
+"sing_along_level_title" = "원곡 보컬";
+"sing_along_level_instrumental" = "반주만";
+"sing_along_level_faint" = "은은한 보컬";
+"sing_along_level_soft" = "작은 보컬";
+"sing_along_preparing_note" = "AI 분리가 끝날 때까지 원곡을 재생하고, 끝나면 자동으로 반주로 바뀝니다.";
+"sing_along_unsupported_song" = "이 곡은 AI 분리를 할 수 없어(너무 길거나 지원하지 않는 형식) 원곡을 재생하고 있습니다.";
+"sing_along_unavailable_playback" = "지금의 재생 방식(메들리, 뮤직비디오, 멀티채널 오디오 등)은 기기의 효과 처리를 거치지 않아 원곡을 재생하고 있습니다.";
+"sing_along_unavailable_system" = "따라 부르기는 AI 보컬 분리를 사용하지만 지금 이 기기에서는 쓸 수 없습니다. 26.4 이상의 시스템과 App Store 또는 TestFlight 설치가 필요합니다.";
+"sing_along_device_unsupported_short" = "이 기기에서는 사용할 수 없음";
+"sing_along_activity_preparing" = "따라 부르기 준비 중";
+"sing_along_spatial_audio_short" = "공간 음향을 켜면 사용할 수 없음";
+"sing_along_unavailable_spatial_audio" = "공간 음향은 곡 전체를 다시 렌더링해서 보컬을 깔끔하게 지울 수 없습니다. 재생 설정에서 공간 음향을 끄면 따라 부르기가 적용됩니다. 지금은 원곡을 재생합니다.";

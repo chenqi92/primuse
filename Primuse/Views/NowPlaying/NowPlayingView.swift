@@ -14918,10 +14918,17 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
 
-            if snapshot.canStartKaraoke {
+            // 伴唱(#377)Apple Music 时也给:点开写明为什么只能放原唱。子菜单自己读伴唱的状态。
+            let showsSingAlong = snapshot.hasSong && !snapshot.isSpokenWord && snapshot.shows(.singAlong)
+            if snapshot.canStartKaraoke || showsSingAlong {
                 Section {
-                    Button(action: onStartKaraoke) {
-                        Label(String(localized: "karaoke_title"), systemImage: "music.mic.circle")
+                    if snapshot.canStartKaraoke {
+                        Button(action: onStartKaraoke) {
+                            Label(String(localized: "karaoke_title"), systemImage: "music.mic.circle")
+                        }
+                    }
+                    if showsSingAlong {
+                        KaraokeSingAlongMenu()
                     }
                 }
             }

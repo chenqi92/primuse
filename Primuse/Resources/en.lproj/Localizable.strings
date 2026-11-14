@@ -7261,3 +7261,19 @@
 "motion_artwork_source_add" = "Add Animated Artwork Source";
 "motion_artwork_endpoint_blocked" = "This address can’t be used as an animated artwork source.";
 "motion_artwork_endpoint_duplicate" = "This address has already been added.";
+
+/* 伴唱(#377) */
+"sing_along_title" = "Sing Along";
+"sing_along_hint" = "Plays the accompaniment of the current song with the original vocal turned down to the level you choose. No microphone or scoring; lyrics show as usual.";
+"sing_along_level_title" = "Original Vocal";
+"sing_along_level_instrumental" = "Instrumental Only";
+"sing_along_level_faint" = "Faint Vocal";
+"sing_along_level_soft" = "Soft Vocal";
+"sing_along_preparing_note" = "The original plays until AI separation finishes, then switches to the accompaniment automatically.";
+"sing_along_unsupported_song" = "This song can’t be separated by AI (too long or an unsupported format), so the original is playing.";
+"sing_along_unavailable_playback" = "The current playback (such as a medley, a music video or multichannel audio) skips on-device effects processing, so the original is playing.";
+"sing_along_unavailable_system" = "Sing Along uses AI vocal separation, which isn’t available on this device right now: it needs system version 26.4 or later and an App Store or TestFlight install.";
+"sing_along_device_unsupported_short" = "Not available on this device";
+"sing_along_activity_preparing" = "Preparing Sing Along";
+"sing_along_spatial_audio_short" = "Unavailable with Spatial Audio";
+"sing_along_unavailable_spatial_audio" = "Spatial Audio re-renders the whole song, so the vocal can’t be removed cleanly. Turn off Spatial Audio in playback settings for Sing Along to take effect; the original is playing for now.";

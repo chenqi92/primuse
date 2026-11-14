@@ -559,6 +559,8 @@ final class KaraokeSeparationService {
         let url = Self.stemURL(for: song)
         let task = Task.detached(priority: .userInitiated) { () -> KaraokeStemTrack? in
             do {
+                // 记下最近用过:缓存超上限时从最久没用的删起(`trimCache`)。
+                try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
                 let reader = try KaraokeStemPCMReader(url: url)
                 guard graphSampleRate.isFinite, graphSampleRate > 0 else { return nil }
                 let capacity = Int(ceil(Double(reader.frames) * graphSampleRate / reader.sampleRate)) + 4096
@@ -694,6 +696,42 @@ final class KaraokeSeparationService {
         return files.reduce(0) { total, url in
             total + Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         }
+    }
+
+    /// 伴唱一直开着时每首歌都留一份人声轨,缓存会越攒越多:超过上限就从最久没用过的删起
+    /// (装进播放图时会更新修改时间),`keeping` 里的(正在放、接下来要放的)不删。
+    func trimCache(maximumBytes: Int64, keeping: [Song]) async {
+        let directory = Self.cacheDirectory
+        let kept = Set(keeping.map { Self.stemURL(for: $0).lastPathComponent })
+        let removed = await Task.detached(priority: .utility) { () -> Int in
+            let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: Array(keys)
+            ) else { return 0 }
+            var entries = files.compactMap { url -> (url: URL, size: Int64, used: Date)? in
+                guard url.pathExtension == "kvst", let values = try? url.resourceValues(forKeys: keys) else { return nil }
+                return (url: url, size: Int64(values.fileSize ?? 0), used: values.contentModificationDate ?? .distantPast)
+            }
+            var total = entries.reduce(Int64(0)) { $0 + $1.size }
+            guard total > maximumBytes else { return 0 }
+            entries.sort { $0.used < $1.used }
+            var removed = 0
+            for entry in entries {
+                guard total > maximumBytes else { break }
+                guard !kept.contains(entry.url.lastPathComponent) else { continue }
+                if (try? FileManager.default.removeItem(at: entry.url)) != nil {
+                    total -= entry.size
+                    removed += 1
+                }
+            }
+            return removed
+        }.value
+        guard removed > 0 else { return }
+        // 删掉的歌回到「没分离」:没有记录的歌 `state(for:)` 按文件在不在判断。
+        songStates = songStates.filter { $0.value != .ready }
+        onsetCache.removeAll()
+        plog("🎤 Karaoke: trimmed \(removed) cached stems to stay under \(maximumBytes / 1_000_000) MB")
     }
 
     func clearCache() {

@@ -2,6 +2,9 @@ import AVFoundation
 import Foundation
 import Observation
 import PrimuseKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Reads the vocal-estimate and microphone rings off the main actor and
 /// turns their newest windows into MIDI notes.
@@ -270,6 +273,8 @@ final class KaraokeSession {
     @ObservationIgnored private var autoRetriedSeparationSongIDs: Set<String> = []
     @ObservationIgnored private var lockPolicy = KaraokeStemLockPolicy()
     @ObservationIgnored private var lockPolicyEpoch = -1
+    /// 开着 ReplayGain 时人声轨要按播放的音量缩放再减(`KaraokeRenderControl.stemScale`)。
+    @ObservationIgnored private var stemGain = KaraokeStemGainEstimator()
     @ObservationIgnored private var isAligning = false
     @ObservationIgnored private var tickCount = 0
     @ObservationIgnored private var pausedRecordingTicks = 0
@@ -323,6 +328,9 @@ final class KaraokeSession {
     func start() {
         guard !isActive else { return }
         isActive = true
+        // 伴唱开着时先把它挂的人声轨撤下,舞台这一拍再装自己的(两边共用一个消除单元)。
+        KaraokeSingAlong.shared.karaokeWillStart()
+        engine.karaokeControl.stemFadeDuration = 0
         player.setKaraokeSessionActive(true)
         #if DEBUG
         startDebugPractice()
@@ -358,8 +366,11 @@ final class KaraokeSession {
         control.isActive = false
         control.bridgesStem = false
         control.capturesVocal = false
+        control.stemScale = 1
         engine.applyKaraokePitch(cents: 0)
         player.setKaraokeSessionActive(false)
+        // 舞台关了,开着的伴唱接回来。
+        KaraokeSingAlong.shared.karaokeDidStop()
     }
 
     /// Switches playback to the effects graph, which karaoke needs.
@@ -419,6 +430,7 @@ final class KaraokeSession {
         if !vocalAssistApplies { vocalAssist.standDown() }
         let assist = vocalAssist.advance(to: time)
         control.reduction = Float((1 - vocalLevel) * assist) * factor
+        control.stemScale = Float(stemGain.scale(appliesTo: player))
         let assisting = vocalAssist.level > 0.5
         if assisting != isVocalAssisting { isVocalAssisting = assisting }
         if vocalAssist.isSuppressed != isVocalAssistSuppressed { isVocalAssistSuppressed = vocalAssist.isSuppressed }
@@ -615,6 +627,8 @@ final class KaraokeSession {
         isStemActive = false
         isStemLocked = false
         lockPolicy.reset()
+        stemGain.reset()
+        engine.karaokeControl.stemScale = 1
     }
 
     /// Correlates the newest playback with the stem off the main actor and
@@ -636,29 +650,27 @@ final class KaraokeSession {
         let radius = Int(0.3 * rate)
         isAligning = true
         Task { @MainActor [weak self] in
-            let match = await Task.detached(priority: .utility) { () -> KaraokeStemAligner.Match? in
-                guard let range = KaraokeStemAligner.searchRange(
-                    stemLength: track.frames,
-                    windowLength: window,
-                    predictedIndex: predicted,
-                    radius: radius
-                ) else { return nil }
-                return KaraokeStemAligner.match(
-                    live: live.samples,
-                    excerpt: track.monoExcerpt(range),
-                    excerptStart: range.lowerBound
-                )
-            }.value
+            let result = await KaraokeStemAlignmentResult.compute(
+                track: track,
+                live: live.samples,
+                windowLength: window,
+                predictedIndex: predicted,
+                radius: radius
+            )
             guard let self else { return }
             self.isAligning = false
             guard self.stemTrack === track,
                   control.currentEpoch == epoch,
-                  let match,
-                  match.confidence >= KaraokeStemAligner.lockConfidence else { return }
+                  let result,
+                  result.match.confidence >= KaraokeStemAligner.lockConfidence else { return }
+            let match = result.match
             let delta = match.stemIndex - (live.endIndex - window)
             if let adopted = self.lockPolicy.record(delta: delta) {
                 control.publishLock(delta: adopted, epoch: epoch)
                 plog("🎤 Karaoke: stem locked delta=\(adopted) confidence=\(String(format: "%.2f", match.confidence))")
+            }
+            if let gain = result.gain, delta == self.lockPolicy.lockedDelta {
+                self.stemGain.record(gain)
             }
             self.isStemLocked = control.isStemLocked
         }
@@ -1114,5 +1126,684 @@ final class KaraokeSession {
         if completedPerformance?.recordingURL == url {
             completedPerformance?.recordingURL = nil
         }
+    }
+}
+
+// MARK: - 对齐(卡拉OK舞台与伴唱共用)
+
+/// 一次对齐的结果:人声轨在哪儿,以及播放信号里含了多少倍的它(`KaraokeStemAligner.gain`)。
+struct KaraokeStemAlignmentResult: Sendable {
+    let match: KaraokeStemAligner.Match
+    let gain: Double?
+
+    /// 在主线程外算:互相关要做几次长 FFT。
+    static func compute(
+        track: KaraokeStemTrack,
+        live: [Float],
+        windowLength: Int,
+        predictedIndex: Int,
+        radius: Int
+    ) async -> KaraokeStemAlignmentResult? {
+        await Task.detached(priority: .utility) { () -> KaraokeStemAlignmentResult? in
+            guard let range = KaraokeStemAligner.searchRange(
+                stemLength: track.frames,
+                windowLength: windowLength,
+                predictedIndex: predictedIndex,
+                radius: radius
+            ) else { return nil }
+            let excerpt = track.monoExcerpt(range)
+            guard let match = KaraokeStemAligner.match(
+                live: live,
+                excerpt: excerpt,
+                excerptStart: range.lowerBound
+            ) else { return nil }
+            let gain = KaraokeStemAligner.gain(
+                live: live,
+                excerpt: excerpt,
+                excerptStart: range.lowerBound,
+                stemIndex: match.stemIndex
+            )
+            return KaraokeStemAlignmentResult(match: match, gain: gain)
+        }.value
+    }
+}
+
+extension KaraokeStemGainEstimator {
+    /// 只在开着 ReplayGain 时缩放:不开时消除单元之前的音量本来就是 1,估计里只剩伴奏带来的噪声。
+    @MainActor
+    func scale(appliesTo player: AudioPlayerService) -> Double {
+        player.playbackSettings.replayGainEnabled ? scale : 1
+    }
+}
+
+// MARK: - 伴唱(#377)
+
+/// 伴唱:平时听歌时把正在放的歌换成 AI 分离出的伴奏,原唱压到选定的音量。不开麦克风、不打分、
+/// 歌词照常,跟着播放页走;开关和原唱音量记在本机(模型和分离缓存也都在本机)。
+///
+/// 和卡拉OK共用分离模型、分离缓存与播放图里的人声消除单元(`AudioEngine.karaokeControl`)。
+/// 舞台打开时伴唱先撤下自己挂的人声轨、不再碰那个单元(`karaokeWillStart`),舞台关上后接着来
+/// (`karaokeDidStop`)。伴唱只在挂着人声轨时写那个单元,没挂时单元保持默认值。
+///
+/// 一首歌分离好之前照放原唱;分离好、对齐上以后原唱在约 0.3 秒里淡出。分离要用 GPU,App 在后台时
+/// 停着、回前台接着来,所以前台时提前分离接下来两首,锁屏听也能接上。规则在 Kit 的 `KaraokeSingAlongPolicy`。
+@MainActor
+@Observable
+final class KaraokeSingAlong {
+    static let shared = KaraokeSingAlong()
+
+    static let enabledKey = "singAlongEnabled"
+    static let levelKey = "singAlongVocalLevel"
+    /// 原唱淡入淡出的时长(秒)。卡拉OK舞台是一个渲染块里变完,跟手;伴唱是听歌,慢一点不突兀。
+    private static let fadeDuration: Float = 0.3
+    /// 提前分离接下来的歌,隔多久看一次。
+    private static let prefetchCheckInterval: Duration = .seconds(5)
+
+    private(set) var isEnabled: Bool
+    private(set) var level: KaraokeSingAlongLevel
+    private(set) var phase: KaraokeSingAlongPhase = .off
+    /// `phase` 去掉进度:系统菜单读它,分离进度一点点涨时菜单不重建。
+    private(set) var menuPhase: KaraokeSingAlongPhase = .off
+
+    @ObservationIgnored private weak var player: AudioPlayerService?
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var loopTask: Task<Void, Never>?
+    /// 开着的卡拉OK舞台数;大于 0 时伴唱不碰消除单元。
+    @ObservationIgnored private var karaokeHolds = 0
+    /// 人声轨挂在消除单元上,伴唱此刻占着它。
+    @ObservationIgnored private var ownsRenderControl = false
+    @ObservationIgnored private var stemSongID: String?
+    @ObservationIgnored private var stemTrack: KaraokeStemTrack?
+    @ObservationIgnored private var retiredStems: [KaraokeStemTrack] = []
+    @ObservationIgnored private var stemLoadTask: Task<Void, Never>?
+    /// 关掉、换到放不了伴唱的歌时,原唱先淡回来,再把人声轨撤下。
+    @ObservationIgnored private var fadeOutTask: Task<Void, Never>?
+    @ObservationIgnored private var lockPolicy = KaraokeStemLockPolicy()
+    @ObservationIgnored private var lockPolicyEpoch = -1
+    @ObservationIgnored private var stemGain = KaraokeStemGainEstimator()
+    @ObservationIgnored private var isAligning = false
+    @ObservationIgnored private var lastAlignment: ContinuousClock.Instant?
+    /// 伴唱自己发起的分离;跳过去不再要的就取消。卡拉OK舞台、为电视分离的不在这里,不会被取消。
+    @ObservationIgnored private var requestedSongIDs: Set<String> = []
+    @ObservationIgnored private var retriedSongIDs: Set<String> = []
+    /// 人声轨文件读不出来的次数:第一次删掉重分,第二次就当这首分离失败。
+    @ObservationIgnored private var loadFailures: [String: Int] = [:]
+    @ObservationIgnored private var currentSongID: String?
+    @ObservationIgnored private var lastPrefetchCheck: ContinuousClock.Instant?
+    @ObservationIgnored private var prefetchTask: Task<Void, Never>?
+    @ObservationIgnored private var activityID: UUID?
+    @ObservationIgnored private var publishedActivity: PlayerActivityStatus?
+
+    /// 只在用到时才碰分离服务(它一建出来就去问托管资源包)。
+    private var separation: KaraokeSeparationService { .shared }
+
+    private init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        isEnabled = defaults.bool(forKey: Self.enabledKey)
+        level = KaraokeSingAlongLevel(stored: defaults.string(forKey: Self.levelKey))
+    }
+
+    // MARK: 开关
+
+    /// App 启动时接上播放器;上次开着就接着开。模型不在了(被删掉、被系统清掉)不自己去下,
+    /// 开关回到关。
+    func attach(_ player: AudioPlayerService) {
+        self.player = player
+        guard isEnabled else { return }
+        // 问模型在不在要碰托管资源包,不放在启动的那一拍里。
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, self.isEnabled, self.loopTask == nil else { return }
+            guard KaraokeSingAlongPolicy.staysEnabledAtLaunch(model: self.modelStatus) else {
+                plog("🎤 SingAlong: the AI model is not on this device, turning off")
+                self.store(enabled: false)
+                return
+            }
+            self.startLoop()
+        }
+    }
+
+    var modelStatus: KaraokeSingAlongModelStatus {
+        switch separation.modelState {
+        case .unsupportedSystem: .unsupportedSystem
+        case .notDownloaded: .notDownloaded
+        case .downloading(let fraction): .downloading(fraction)
+        case .ready: .ready
+        case .failed: .failed
+        }
+    }
+
+    /// 打开即同意下载模型(菜单里打开之前就写明了大小)。这台设备拿不到模型时打不开。
+    func setEnabled(_ enabled: Bool) {
+        guard enabled != isEnabled else { return }
+        if enabled {
+            let model = modelStatus
+            guard KaraokeSingAlongPolicy.canEnable(model: model) else { return }
+            store(enabled: true)
+            if KaraokeSingAlongPolicy.downloadsModelOnEnable(model) {
+                separation.downloadModel()
+            }
+            startLoop()
+        } else {
+            store(enabled: false)
+            stopLoop()
+        }
+        plog("🎤 SingAlong: \(enabled ? "on" : "off") level=\(level.rawValue)")
+    }
+
+    func setLevel(_ newLevel: KaraokeSingAlongLevel) {
+        guard newLevel != level else { return }
+        level = newLevel
+        defaults.set(newLevel.rawValue, forKey: Self.levelKey)
+        applyRenderSettings()
+    }
+
+    private func store(enabled: Bool) {
+        isEnabled = enabled
+        defaults.set(enabled, forKey: Self.enabledKey)
+    }
+
+    /// 菜单里的「重试」:模型没下下来就重下,这首没分离成就重分。
+    func retry() {
+        guard isEnabled, let player else { return }
+        if separation.modelState == .failed {
+            separation.downloadModel()
+        } else if let song = player.currentSong {
+            if (loadFailures[song.id] ?? 0) >= 2 {
+                loadFailures[song.id] = nil
+                separation.discardStem(for: song)
+            }
+            if separation.state(for: song) == .failed {
+                requestSeparation(of: song)
+            }
+        }
+        tick()
+    }
+
+    /// 为什么没成:模型下载或这首分离失败的原因。
+    var failureReason: String? {
+        switch menuPhase {
+        case .modelFailed:
+            return separation.modelFailureReason
+        case .songFailed:
+            return player?.currentSong.flatMap { separation.songFailureReasons[$0.id] }
+        default:
+            return nil
+        }
+    }
+
+    // MARK: 卡拉OK舞台
+
+    /// 卡拉OK舞台要接手消除单元:同一拍里先把伴唱的人声轨撤下,舞台再装自己的。
+    func karaokeWillStart() {
+        karaokeHolds += 1
+        guard karaokeHolds == 1 else { return }
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        removeStem()
+        clearActivity()
+        if isEnabled { setPhase(.yieldingToKaraoke) }
+    }
+
+    /// 舞台关了:开着伴唱就马上接回来,不等下一拍。
+    func karaokeDidStop() {
+        karaokeHolds = max(0, karaokeHolds - 1)
+        guard karaokeHolds == 0, isEnabled else { return }
+        tick()
+    }
+
+    // MARK: 每一拍
+
+    private func startLoop() {
+        guard loopTask == nil else { return }
+        loopTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let interval = self?.tick() else { return }
+                try? await Task.sleep(for: interval)
+            }
+        }
+    }
+
+    private func stopLoop() {
+        loopTask?.cancel()
+        loopTask = nil
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        releaseRenderControl(fadingOut: true)
+        // 关掉以后,为伴唱发起、还没分完的分离不再占 GPU。
+        cancelRequestedSeparations(keeping: [])
+        currentSongID = nil
+        lastPrefetchCheck = nil
+        clearActivity()
+        setPhase(.off)
+    }
+
+    /// 返回到下一拍的间隔:放着歌时 0.25 秒(换歌后尽快换上人声轨、没锁定时尽快对齐),
+    /// 暂停时 1 秒。
+    @discardableResult
+    private func tick() -> Duration {
+        guard isEnabled, let player else { return .seconds(1) }
+        guard karaokeHolds == 0 else {
+            setPhase(.yieldingToKaraoke)
+            return .seconds(1)
+        }
+        let model = modelStatus
+        if KaraokeSingAlongPolicy.turnsOff(model: model) {
+            plog("🎤 SingAlong: the AI model was removed, turning off")
+            setEnabled(false)
+            return .seconds(1)
+        }
+        let song = player.currentSong
+        if song?.id != currentSongID {
+            currentSongID = song?.id
+            songDidChange(player: player)
+        }
+        let availability = Self.availability(of: player)
+        if let song, KaraokeSingAlongPolicy.wantsStem(
+            isEnabled: true,
+            isKaraokeActive: false,
+            availability: availability,
+            model: model
+        ) {
+            updateStem(for: song, player: player)
+        } else {
+            releaseRenderControl(fadingOut: true)
+        }
+        applyRenderSettings()
+        alignIfDue(player: player)
+
+        let isStemLoaded = ownsRenderControl && fadeOutTask == nil && stemSongID != nil && stemSongID == song?.id
+        let control = player.audioEngine.karaokeControl
+        setPhase(KaraokeSingAlongPolicy.phase(
+            isEnabled: true,
+            isKaraokeActive: false,
+            availability: availability,
+            model: model,
+            song: isStemLoaded ? nil : song.map(songStatus(of:)),
+            hold: song.flatMap(hold(of:)),
+            isStemLoaded: isStemLoaded,
+            isStemLocked: isStemLoaded && control.isStemLocked
+        ))
+        updateActivity(songID: song?.id)
+        prefetchIfDue(player: player)
+        return player.isPlaying ? .milliseconds(250) : .seconds(1)
+    }
+
+    private func setPhase(_ newPhase: KaraokeSingAlongPhase) {
+        if phase != newPhase { phase = newPhase }
+        let coarse = newPhase.withoutProgress
+        if menuPhase != coarse { menuPhase = coarse }
+    }
+
+    private static func availability(of player: AudioPlayerService) -> KaraokeSingAlongAvailability {
+        let song = player.currentSong
+        let engine = player.audioEngine
+        let isHighFidelity = player.outputMode(for: song) == .highFidelity
+        // 效果图搭好了却没有消除单元(单元没装上):和系统播放器一样放不了伴唱。
+        let lacksVocalUnit = !isHighFidelity && engine.outputFormat != nil && !engine.supportsKaraokeVocalReduction
+        return KaraokeSingAlongAvailability.resolve(
+            hasSong: song != nil,
+            isSpokenWordOrRadio: player.currentItemIsSpokenWord || player.isLiveRadio || player.currentItemIsAmbient,
+            isAppleMusic: player.isAppleMusicMode,
+            isCasting: player.isCastingMode,
+            isHighFidelityOutput: isHighFidelity,
+            isSpatialAudio: engine.spatialAudioEnabled,
+            isSystemPlayback: player.isSystemMediaPlaybackActive || lacksVocalUnit,
+            isMedley: player.isMedleyActive
+        )
+    }
+
+    private func songStatus(of song: Song) -> KaraokeSingAlongSongStatus {
+        if (loadFailures[song.id] ?? 0) >= 2 { return .failed }
+        switch separation.state(for: song) {
+        case .idle: return .idle
+        case .preparing: return .preparing
+        case .separating(let fraction): return .separating(fraction)
+        case .ready: return .ready
+        case .unsupported: return .unsupported
+        case .failed: return .failed
+        }
+    }
+
+    private func hold(of song: Song) -> KaraokeSingAlongHold? {
+        switch separation.holdReasons[song.id] {
+        case .cooling?: .cooling
+        case .background?: .background
+        case nil: nil
+        }
+    }
+
+    // MARK: 换歌
+
+    private func songDidChange(player: AudioPlayerService) {
+        let upcoming = player.nextSongsInQueue(count: KaraokeSingAlongPolicy.prefetchDepth)
+        let current = player.currentSong.map { [$0] } ?? []
+        // 跳过去的歌不再分离,省下 GPU 和流量。
+        cancelRequestedSeparations(keeping: Set((current + upcoming).map(\.id)))
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        lastPrefetchCheck = nil
+        let keeping = current + upcoming
+        Task { @MainActor in
+            await KaraokeSeparationService.shared.trimCache(
+                maximumBytes: KaraokeSingAlongPolicy.stemCacheLimitBytes,
+                keeping: keeping
+            )
+        }
+    }
+
+    private func cancelRequestedSeparations(keeping kept: Set<String>) {
+        guard !requestedSongIDs.isEmpty else { return }
+        for id in requestedSongIDs.subtracting(kept) {
+            separation.cancel(id)
+        }
+        requestedSongIDs.formIntersection(kept)
+    }
+
+    /// 只记自己真正发起的:已经有人在分(卡拉OK舞台、为电视分离)的歌不算。
+    private func requestSeparation(of song: Song) {
+        guard let sourceManager = player?.sourceManager else { return }
+        switch separation.state(for: song) {
+        case .idle, .failed: break
+        case .preparing, .separating, .ready, .unsupported: return
+        }
+        separation.prepare(song, sourceManager: sourceManager)
+        if separation.state(for: song) == .preparing {
+            requestedSongIDs.insert(song.id)
+            plog("🎤 SingAlong: separating \(song.id.prefix(8))")
+        }
+    }
+
+    // MARK: 人声轨
+
+    private func updateStem(for song: Song, player: AudioPlayerService) {
+        let engine = player.audioEngine
+        let graphRate = engine.outputFormat?.sampleRate ?? 0
+        if stemSongID == song.id {
+            if let track = stemTrack {
+                // 采样率变了(换了输出设备、重建了播放图)才按新采样率重装;其余照用。
+                guard graphRate > 0, abs(track.sampleRate - graphRate) >= 0.5 else {
+                    cancelFadeOut()
+                    return
+                }
+            } else if stemLoadTask != nil {
+                return
+            }
+        }
+        if stemSongID != nil || stemTrack != nil {
+            removeStem()
+        }
+        let status = songStatus(of: song)
+        if status == .ready {
+            guard graphRate > 0 else { return }
+            loadStem(for: song, graphRate: graphRate)
+            return
+        }
+        switch KaraokeSingAlongPolicy.separationRequest(
+            for: status,
+            alreadyRetried: retriedSongIDs.contains(song.id)
+        ) {
+        case .start:
+            requestSeparation(of: song)
+        case .retry:
+            retriedSongIDs.insert(song.id)
+            plog("🎤 SingAlong: retrying failed separation once \(song.id.prefix(8))")
+            requestSeparation(of: song)
+        case .skip:
+            break
+        }
+    }
+
+    private func loadStem(for song: Song, graphRate: Double) {
+        stemSongID = song.id
+        stemLoadTask = Task { @MainActor [weak self] in
+            let track = await KaraokeSeparationService.shared.loadStem(for: song, graphSampleRate: graphRate)
+            guard !Task.isCancelled, let self, self.stemSongID == song.id else { return }
+            self.stemLoadTask = nil
+            guard let track else {
+                // 文件读不出来:删掉重分一次;再读不出来就当这首分离失败,菜单里能重试。
+                self.stemSongID = nil
+                let failures = (self.loadFailures[song.id] ?? 0) + 1
+                self.loadFailures[song.id] = failures
+                plog("⚠️ SingAlong: stem for \(song.id.prefix(8)) could not be read (\(failures))")
+                KaraokeSeparationService.shared.discardStem(for: song)
+                return
+            }
+            guard self.isEnabled, self.karaokeHolds == 0, let player = self.player else {
+                self.stemSongID = nil
+                return
+            }
+            self.install(track, control: player.audioEngine.karaokeControl)
+            plog("🎤 SingAlong: stem loaded \(song.id.prefix(8)) frames=\(track.frames) rate=\(Int(track.sampleRate))")
+        }
+    }
+
+    private func install(_ track: KaraokeStemTrack, control: KaraokeRenderControl) {
+        stemTrack = track
+        lockPolicy.reset()
+        stemGain.reset()
+        lastAlignment = nil
+        control.isActive = false
+        control.capturesVocal = false
+        control.installStem(track)
+        ownsRenderControl = true
+        applyRenderSettings()
+    }
+
+    /// 伴唱占着消除单元时每拍写一次:原唱留多少、ReplayGain 的比例、淡入淡出的快慢。
+    private func applyRenderSettings() {
+        guard ownsRenderControl, fadeOutTask == nil, let player else { return }
+        let control = player.audioEngine.karaokeControl
+        control.isActive = false
+        control.capturesVocal = false
+        // 对齐前不用普通消除顶着:伴唱是听歌,前奏、间奏被挖空比开口那半秒漏一点原唱更难听。
+        control.bridgesStem = false
+        control.stemFadeDuration = Self.fadeDuration
+        control.reduction = Float(level.reduction)
+        control.stemScale = Float(stemGain.scale(appliesTo: player))
+    }
+
+    /// 不再挂人声轨:听歌时先让原唱淡回来再撤;换给卡拉OK舞台时立刻撤。
+    private func releaseRenderControl(fadingOut: Bool) {
+        stemLoadTask?.cancel()
+        stemLoadTask = nil
+        guard ownsRenderControl, let player else {
+            stemSongID = nil
+            return
+        }
+        guard fadingOut else {
+            removeStem()
+            return
+        }
+        guard fadeOutTask == nil else { return }
+        let control = player.audioEngine.karaokeControl
+        control.stemFadeDuration = Self.fadeDuration
+        control.reduction = 0
+        fadeOutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int(Self.fadeDuration * 1000) + 150))
+            guard !Task.isCancelled, let self else { return }
+            self.fadeOutTask = nil
+            self.removeStem()
+        }
+    }
+
+    /// 淡出途中又要这首的人声轨(开关来回点、可用性闪了一下):接着用,下一次写设置时减回去。
+    private func cancelFadeOut() {
+        guard let task = fadeOutTask else { return }
+        task.cancel()
+        fadeOutTask = nil
+    }
+
+    private func removeStem() {
+        fadeOutTask?.cancel()
+        fadeOutTask = nil
+        stemLoadTask?.cancel()
+        stemLoadTask = nil
+        if ownsRenderControl, let player {
+            let control = player.audioEngine.karaokeControl
+            // 先从渲染线程撤下,样本再留一会儿:可能有一个渲染周期已经拿着它的地址。
+            control.installStem(nil)
+            control.bridgesStem = false
+            control.stemScale = 1
+            control.stemFadeDuration = 0
+            control.reduction = 1
+        }
+        ownsRenderControl = false
+        if let track = stemTrack {
+            retiredStems.append(track)
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                self?.retiredStems.removeAll { $0 === track }
+            }
+        }
+        stemTrack = nil
+        stemSongID = nil
+        lockPolicy.reset()
+        stemGain.reset()
+        lastAlignment = nil
+    }
+
+    // MARK: 对齐
+
+    /// 和卡拉OK舞台同一套互相关对齐;没锁定时每 0.25 秒一次,锁定后每 2 秒复核一次。
+    private func alignIfDue(player: AudioPlayerService) {
+        guard ownsRenderControl, fadeOutTask == nil, !isAligning,
+              let track = stemTrack, player.isPlaying else { return }
+        let control = player.audioEngine.karaokeControl
+        let epoch = control.currentEpoch
+        if epoch != lockPolicyEpoch {
+            lockPolicy.reset()
+            lockPolicyEpoch = epoch
+        }
+        let interval = KaraokeSingAlongPolicy.alignmentInterval(
+            isLocked: control.isStemLocked,
+            needsGainEstimate: player.playbackSettings.replayGainEnabled && !stemGain.isSettled
+        )
+        let now = ContinuousClock.now
+        if let last = lastAlignment, now - last < interval { return }
+        let window = 8_192
+        guard let live = control.inputRing.latestWindow(window) else { return }
+        lastAlignment = now
+        let rate = track.sampleRate
+        // 窗口末尾就是刚渲染的那一刻,大致是歌里的这一秒。
+        let predicted = Int(player.interpolatedTime() * rate) - window
+        let radius = Int(0.3 * rate)
+        isAligning = true
+        Task { @MainActor [weak self] in
+            let result = await KaraokeStemAlignmentResult.compute(
+                track: track,
+                live: live.samples,
+                windowLength: window,
+                predictedIndex: predicted,
+                radius: radius
+            )
+            guard let self else { return }
+            self.isAligning = false
+            guard self.stemTrack === track,
+                  control.currentEpoch == epoch,
+                  let result,
+                  result.match.confidence >= KaraokeStemAligner.lockConfidence else { return }
+            let delta = result.match.stemIndex - (live.endIndex - window)
+            if let adopted = self.lockPolicy.record(delta: delta) {
+                control.publishLock(delta: adopted, epoch: epoch)
+                plog("🎤 SingAlong: stem locked delta=\(adopted) confidence=\(String(format: "%.2f", result.match.confidence))")
+            }
+            if let gain = result.gain, delta == self.lockPolicy.lockedDelta {
+                self.stemGain.record(gain)
+                self.applyRenderSettings()
+            }
+        }
+    }
+
+    // MARK: 提前分离
+
+    /// 前台、设备不热、没开低电量模式时,把接下来的歌先分离好;一次只备一首,
+    /// 只备文件已经在本机的(本地源,或已经缓存下来的),不为提前分离整首下载。
+    private func prefetchIfDue(player: AudioPlayerService) {
+        guard prefetchTask == nil, let sourceManager = player.sourceManager else { return }
+        let now = ContinuousClock.now
+        if let last = lastPrefetchCheck, now - last < Self.prefetchCheckInterval { return }
+        lastPrefetchCheck = now
+        let thermal = ProcessInfo.processInfo.thermalState
+        guard KaraokeSingAlongPolicy.prefetchesUpcoming(
+            current: phase,
+            isForeground: Self.isForeground,
+            isLowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            isHot: thermal == .serious || thermal == .critical
+        ), !hasSeparationInFlight else { return }
+        let depth = KaraokeSingAlongPolicy.prefetchDepth
+        guard let next = player.nextSongsInQueue(count: depth).first(where: { song in
+            song.sourceID != AppleMusicLibraryService.systemSourceID
+                && !SpokenWordStore.shared.isSpokenWord(song)
+                && song.duration <= KaraokeSeparationService.maximumDuration
+                && !KaraokeCompanionPolicy.isInstrumental(KaraokeSession.companionCandidate(song))
+                && songStatus(of: song) == .idle
+        }) else { return }
+        prefetchTask = Task { @MainActor [weak self] in
+            var isOnDevice = await sourceManager.directLocalFileURL(for: next) != nil
+            if !isOnDevice {
+                isOnDevice = await sourceManager.cachedURLForBackgroundRead(for: next) != nil
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.prefetchTask = nil
+            guard isOnDevice, self.isEnabled, self.karaokeHolds == 0,
+                  self.player?.nextSongsInQueue(count: depth).contains(where: { $0.id == next.id }) == true,
+                  self.songStatus(of: next) == .idle else { return }
+            plog("🎤 SingAlong: separating upcoming \(next.id.prefix(8)) ahead")
+            self.requestSeparation(of: next)
+        }
+    }
+
+    private var hasSeparationInFlight: Bool {
+        requestedSongIDs.contains { id in
+            switch separation.songStates[id] {
+            case .preparing?, .separating?: true
+            default: false
+            }
+        }
+    }
+
+    private static var isForeground: Bool {
+        #if canImport(UIKit)
+        UIApplication.shared.applicationState == .active
+        #else
+        true
+        #endif
+    }
+
+    // MARK: 播放页底部的进度
+
+    /// 分离、下载模型时在播放页底部那行写「伴唱准备中」和进度:用户开着伴唱却还听到原唱,
+    /// 得看得出是在准备、不是没起作用。起作用以后就不再占地方。
+    private func updateActivity(songID: String?) {
+        let progress: Double?
+        switch phase {
+        // 分离完了、正在装人声轨:一转眼的事(没在放时要等播放图搭好),不挂。
+        case .preparing(let fraction, _) where fraction != 1:
+            progress = fraction
+        case .downloadingModel(let fraction):
+            progress = fraction
+        default:
+            clearActivity()
+            return
+        }
+        let id = activityID ?? UUID()
+        activityID = id
+        let status = PlayerActivityStatus(
+            id: id,
+            songID: songID,
+            title: String(localized: "sing_along_activity_preparing"),
+            progress: progress
+        )
+        guard status != publishedActivity else { return }
+        publishedActivity = status
+        PlayerActivityStore.shared.publish(status)
+    }
+
+    private func clearActivity() {
+        guard let id = activityID else { return }
+        PlayerActivityStore.shared.remove(id)
+        activityID = nil
+        publishedActivity = nil
     }
 }

@@ -68,6 +68,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var equalizerPickerShown = false
     @State private var playbackRatePickerShown = false
     @State private var pitchPickerShown = false
+    /// 「伴唱」(#377)的第二层。
+    @State private var singAlongPanelShown = false
     @State private var shufflePreferencePickerShown = false
     /// 播客单集的详情(「转到这本书」对单集是空页, 换成这一页)。
     @State private var podcastSheet: PodcastPlayerSheetTarget?
@@ -603,6 +605,10 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     showKaraoke = true
                 }
             }
+            // 伴唱 Apple Music 时也给:画灰、写原因,点开说明为什么只能放原唱。
+            if !isSpokenWord, player.currentSong != nil, !player.isLiveRadio, !player.currentItemIsAmbient {
+                singAlongRow
+            }
             if player.isMedleyActive {
                 menuRow(title: "medley_continue_full", symbol: "music.note") {
                     Task { await player.continueCurrentMedleySongInFull() }
@@ -947,6 +953,22 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
         .popover(isPresented: $playbackRatePickerShown, arrowEdge: .leading) {
             MacPlaybackRatePanel(player: player) { playbackRatePickerShown = false }
+        }
+    }
+
+    /// 伴唱:行尾是原唱留多少或在准备什么;放不了时画灰、第二行写原因,仍能点开看说明。
+    private var singAlongRow: some View {
+        let singAlong = KaraokeSingAlong.shared
+        return popoverRow(
+            symbol: KaraokeSingAlongText.symbol,
+            title: "sing_along_title",
+            unavailableReason: KaraokeSingAlongText.unavailableReason(singAlong.phase),
+            value: KaraokeSingAlongText.summary(singAlong.phase, level: singAlong.level, showsProgress: true)
+        ) {
+            singAlongPanelShown.toggle()
+        }
+        .popover(isPresented: $singAlongPanelShown, arrowEdge: .leading) {
+            MacSingAlongPanel(player: player)
         }
     }
 
@@ -1616,6 +1638,70 @@ struct MacPlaybackRatePanel: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// 「更多」里伴唱的第二层(#377):开关、原唱留多少,以及此刻为什么还是原唱。选一档原唱音量也就打开了伴唱。
+struct MacSingAlongPanel: View {
+    let player: AudioPlayerService
+
+    private var singAlong: KaraokeSingAlong { .shared }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: Binding(
+                get: { singAlong.isEnabled },
+                set: { singAlong.setEnabled($0) }
+            )) {
+                Text("sing_along_title")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(PMColor.text)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("sing_along_level_title")
+                    .font(.caption)
+                    .foregroundStyle(PMColor.textMuted)
+                Picker(selection: Binding(
+                    get: { singAlong.level },
+                    set: { level in
+                        singAlong.setLevel(level)
+                        singAlong.setEnabled(true)
+                    }
+                )) {
+                    ForEach(KaraokeSingAlongLevel.allCases, id: \.self) { level in
+                        Text(verbatim: KaraokeSingAlongText.levelTitle(level)).tag(level)
+                    }
+                } label: {
+                    Text("sing_along_level_title")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            ForEach(KaraokeSingAlongText.notes(singAlong), id: \.self) { note in
+                Text(verbatim: note)
+                    .font(.caption)
+                    .foregroundStyle(PMColor.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if KaraokeSingAlongText.offersEffectsOutput(singAlong.phase) || KaraokeSingAlongText.canRetry(singAlong.phase) {
+                HStack(spacing: 8) {
+                    if KaraokeSingAlongText.offersEffectsOutput(singAlong.phase) {
+                        Button("karaoke_use_effects_output") {
+                            player.playbackSettings.outputMode = .effects
+                        }
+                    }
+                    if KaraokeSingAlongText.canRetry(singAlong.phase) {
+                        Button("karaoke_ai_retry") { singAlong.retry() }
+                    }
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(14)
+        .frame(width: 280, alignment: .leading)
+        .focusEffectDisabled()
     }
 }
 

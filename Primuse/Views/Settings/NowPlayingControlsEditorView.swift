@@ -1954,7 +1954,7 @@ private struct NowPlayingMenuItemsEditor: View {
 
     private static let groups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
         ("player_menu_group_quick", [.like, .fullScreen, .immersiveFaceToggle, .share, .addToPlaylist, .delete]),
-        ("player_menu_group_modes", [.shuffle, .shufflePreference, .repeatMode, .karaoke, .medley, .continueMedley]),
+        ("player_menu_group_modes", [.shuffle, .shufflePreference, .repeatMode, .karaoke, .singAlong, .medley, .continueMedley]),
         ("player_menu_group_song", [
             .scrape, .reloadLyrics, .similarSongs, .dislike, .playbackRange, .clipExport, .shuffleLink,
             .editTags, .editLyrics, .exportText,
@@ -2128,6 +2128,7 @@ extension NowPlayingMenuItem {
         case .shuffleLink: "link"
         case .exportText: "doc.text"
         case .lyricsTiming: "ruler"
+        case .singAlong: KaraokeSingAlongText.symbol
         }
     }
 
@@ -2191,6 +2192,7 @@ extension NowPlayingMenuItem {
         case .shuffleLink: "shuffle_link_menu"
         case .exportText: "lyrics_export_menu_item"
         case .lyricsTiming: "lyrics_timing_title"
+        case .singAlong: "sing_along_title"
         }
     }
 }

@@ -7500,3 +7500,19 @@
 "motion_artwork_source_add" = "Ajouter une source de pochettes animées";
 "motion_artwork_endpoint_blocked" = "Cette adresse ne peut pas servir de source de pochettes animées";
 "motion_artwork_endpoint_duplicate" = "Cette adresse a déjà été ajoutée";
+
+/* 伴唱(#377) */
+"sing_along_title" = "Chanter avec";
+"sing_along_hint" = "Joue l’accompagnement du morceau en cours en baissant la voix originale au niveau choisi. Sans micro ni score ; les paroles s’affichent comme d’habitude.";
+"sing_along_level_title" = "Voix originale";
+"sing_along_level_instrumental" = "Instrumental seul";
+"sing_along_level_faint" = "Voix à peine audible";
+"sing_along_level_soft" = "Voix douce";
+"sing_along_preparing_note" = "L’original est joué jusqu’à la fin de la séparation IA, puis l’accompagnement prend le relais automatiquement.";
+"sing_along_unsupported_song" = "Ce morceau ne peut pas être séparé par l’IA (trop long ou format non pris en charge) : l’original est joué.";
+"sing_along_unavailable_playback" = "La lecture en cours (medley, clip ou audio multicanal, par exemple) contourne le traitement des effets de l’appareil : l’original est joué.";
+"sing_along_unavailable_system" = "Chanter avec utilise la séparation vocale IA, indisponible sur cet appareil pour l’instant : elle nécessite la version 26.4 du système ou ultérieure et une installation depuis l’App Store ou TestFlight.";
+"sing_along_device_unsupported_short" = "Indisponible sur cet appareil";
+"sing_along_activity_preparing" = "Préparation de Chanter avec";
+"sing_along_spatial_audio_short" = "Indisponible avec l’audio spatialisé";
+"sing_along_unavailable_spatial_audio" = "L’audio spatialisé recalcule tout le morceau : la voix ne peut pas être retirée proprement. Désactivez l’audio spatialisé dans les réglages de lecture pour que Chanter avec fonctionne ; l’original est joué en attendant.";

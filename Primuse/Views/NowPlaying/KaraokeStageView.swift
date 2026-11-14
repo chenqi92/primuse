@@ -1741,3 +1741,200 @@ private struct KaraokeResultView: View {
         }
     }
 }
+
+// MARK: - 伴唱(#377)
+
+/// 伴唱在 iPhone 播放页「更多」、Mac「更多」里共用的图标、文字与说明。iPhone 的系统菜单读
+/// `menuPhase`(不带进度,进度涨时菜单不重建),Mac 的第二层是自己画的,读带进度的 `phase`。
+enum KaraokeSingAlongText {
+    static let symbol = "waveform.badge.minus"
+
+    static func levelTitle(_ level: KaraokeSingAlongLevel) -> String {
+        switch level {
+        case .instrumental: String(localized: "sing_along_level_instrumental")
+        case .faint: String(localized: "sing_along_level_faint")
+        case .soft: String(localized: "sing_along_level_soft")
+        }
+    }
+
+    /// 菜单那一行的第二行:起作用时是原唱留多少,没起作用时是在准备什么、为什么不行。
+    static func summary(
+        _ phase: KaraokeSingAlongPhase,
+        level: KaraokeSingAlongLevel,
+        showsProgress: Bool
+    ) -> String {
+        switch phase {
+        case .off:
+            return String(localized: "karaoke_ai_off")
+        case .yieldingToKaraoke:
+            return String(localized: "karaoke_title")
+        case .idle, .aligning, .active:
+            return levelTitle(level)
+        case .unavailable(let reason):
+            return shortReason(reason) ?? levelTitle(level)
+        case .downloadingModel(let fraction):
+            let title = String(localized: "karaoke_ai_downloading")
+            return showsProgress ? progressText(title, fraction) : title
+        case .modelFailed:
+            return String(localized: "karaoke_ai_model_failed")
+        case .preparing(let progress, let hold):
+            if hold == .cooling { return String(localized: "karaoke_ai_cooling") }
+            guard let progress, progress < 1 else { return String(localized: "karaoke_ai_preparing") }
+            let title = String(localized: "karaoke_ai_separating")
+            return showsProgress ? progressText(title, progress) : title
+        case .songUnsupported:
+            return String(localized: "karaoke_ai_unsupported_short")
+        case .songFailed:
+            return String(localized: "karaoke_ai_failed")
+        }
+    }
+
+    /// 打开了却放着原唱时的短原因(Mac 那一行画灰时写在第二行)。
+    static func unavailableReason(_ phase: KaraokeSingAlongPhase) -> String? {
+        guard case .unavailable(let reason) = phase else { return nil }
+        return shortReason(reason)
+    }
+
+    private static func shortReason(_ reason: KaraokeSingAlongAvailability) -> String? {
+        switch reason {
+        case .appleMusic, .unsupportedPlayback: String(localized: "karaoke_ai_unsupported_short")
+        case .casting: String(localized: "playback_pitch_casting_unavailable")
+        case .highFidelityOutput: String(localized: "eq_menu_high_fidelity_unavailable")
+        case .spatialAudio: String(localized: "sing_along_spatial_audio_short")
+        case .unsupportedSystem: String(localized: "sing_along_device_unsupported_short")
+        case .available, .notApplicable: nil
+        }
+    }
+
+    /// 子菜单 / 第二层里的说明:关着时说它是什么、打开要下多大的模型;放着原唱时说为什么。
+    @MainActor
+    static func notes(_ singAlong: KaraokeSingAlong) -> [String] {
+        switch singAlong.menuPhase {
+        case .off:
+            var notes = [String(localized: "sing_along_hint")]
+            switch singAlong.modelStatus {
+            case .notDownloaded, .failed:
+                // 打开就会开始下载,先把体积说清楚。
+                notes.append(String(
+                    format: String(localized: "karaoke_ai_download_on_enable_format"),
+                    ByteCountFormatter.string(fromByteCount: KaraokeVocalModel.approximateDownloadBytes, countStyle: .file)
+                ))
+            case .unsupportedSystem:
+                notes.append(String(localized: "sing_along_unavailable_system"))
+            case .downloading, .ready:
+                break
+            }
+            return notes
+        case .unavailable(let reason):
+            return message(reason).map { [$0] } ?? []
+        case .downloadingModel, .preparing:
+            return [String(localized: "sing_along_preparing_note")]
+        case .modelFailed:
+            return [singAlong.failureReason ?? String(localized: "karaoke_ai_model_failed")]
+        case .songUnsupported:
+            return [String(localized: "sing_along_unsupported_song")]
+        case .songFailed:
+            return [singAlong.failureReason.map {
+                String(format: String(localized: "karaoke_ai_failed_format"), $0)
+            } ?? String(localized: "karaoke_ai_failed")]
+        case .yieldingToKaraoke, .idle, .aligning, .active:
+            return []
+        }
+    }
+
+    private static func message(_ reason: KaraokeSingAlongAvailability) -> String? {
+        switch reason {
+        case .appleMusic: String(localized: "karaoke_unavailable_apple_music")
+        case .casting: String(localized: "karaoke_unavailable_casting")
+        case .highFidelityOutput: String(localized: "karaoke_unavailable_high_fidelity")
+        case .spatialAudio: String(localized: "sing_along_unavailable_spatial_audio")
+        case .unsupportedPlayback: String(localized: "sing_along_unavailable_playback")
+        case .unsupportedSystem: String(localized: "sing_along_unavailable_system")
+        case .available, .notApplicable: nil
+        }
+    }
+
+    /// 高保真直通时给一键切到音效输出。
+    static func offersEffectsOutput(_ phase: KaraokeSingAlongPhase) -> Bool {
+        phase == .unavailable(.highFidelityOutput)
+    }
+
+    static func canRetry(_ phase: KaraokeSingAlongPhase) -> Bool {
+        phase == .modelFailed || phase == .songFailed
+    }
+
+    private static func progressText(_ title: String, _ fraction: Double) -> String {
+        "\(title) \(min(1, max(0, fraction)).formatted(.percent.precision(.fractionLength(0))))"
+    }
+}
+
+/// 播放页「更多」里的「伴唱」(#377):一层子菜单,开关、原唱留多少,以及此刻为什么还是原唱。
+/// 选一档原唱音量也就打开了伴唱。子菜单里点了不收起,能连着改。
+struct KaraokeSingAlongMenu: View {
+    @Environment(AudioPlayerService.self) private var player
+
+    private var singAlong: KaraokeSingAlong { .shared }
+
+    var body: some View {
+        // 电台、环境声没有「这首歌」可换。
+        if !player.isLiveRadio, !player.currentItemIsAmbient {
+            let phase = singAlong.menuPhase
+            Menu {
+                Toggle(isOn: Binding(
+                    get: { singAlong.isEnabled },
+                    set: { singAlong.setEnabled($0) }
+                )) {
+                    Label(String(localized: "sing_along_title"), systemImage: KaraokeSingAlongText.symbol)
+                }
+                Picker(selection: Binding(
+                    get: { singAlong.level },
+                    set: { level in
+                        singAlong.setLevel(level)
+                        singAlong.setEnabled(true)
+                    }
+                )) {
+                    ForEach(KaraokeSingAlongLevel.allCases, id: \.self) { level in
+                        Text(verbatim: KaraokeSingAlongText.levelTitle(level)).tag(level)
+                    }
+                } label: {
+                    Text("sing_along_level_title")
+                }
+                .pickerStyle(.inline)
+                let notes = KaraokeSingAlongText.notes(singAlong)
+                let offersEffectsOutput = KaraokeSingAlongText.offersEffectsOutput(phase)
+                let canRetry = KaraokeSingAlongText.canRetry(phase)
+                if !notes.isEmpty || offersEffectsOutput || canRetry {
+                    Section {
+                        ForEach(notes, id: \.self) { note in
+                            Text(verbatim: note)
+                        }
+                        if offersEffectsOutput {
+                            Button {
+                                player.playbackSettings.outputMode = .effects
+                            } label: {
+                                Label(String(localized: "karaoke_use_effects_output"), systemImage: "slider.horizontal.3")
+                            }
+                        }
+                        if canRetry {
+                            Button {
+                                singAlong.retry()
+                            } label: {
+                                Label(String(localized: "karaoke_ai_retry"), systemImage: "arrow.clockwise")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label {
+                    Text("sing_along_title")
+                    Text(verbatim: KaraokeSingAlongText.summary(phase, level: singAlong.level, showsProgress: false))
+                } icon: {
+                    Image(systemName: KaraokeSingAlongText.symbol)
+                }
+            }
+            #if os(iOS)
+            .menuActionDismissBehavior(.disabled)
+            #endif
+        }
+    }
+}

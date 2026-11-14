@@ -125,6 +125,8 @@ final class KaraokeStemTrack: @unchecked Sendable {
 final class KaraokeRenderControl: Sendable {
     private let activeFlag = Atomic<Bool>(false)
     private let reductionBits = Atomic<UInt32>(Float(1).bitPattern)
+    private let stemScaleBits = Atomic<UInt32>(Float(1).bitPattern)
+    private let stemFadeBits = Atomic<UInt32>(Float(0).bitPattern)
     private let capturesVocalFlag = Atomic<Bool>(false)
     private let bridgesStemFlag = Atomic<Bool>(false)
     private let effectivelyMonoFlag = Atomic<Bool>(false)
@@ -156,6 +158,27 @@ final class KaraokeRenderControl: Sendable {
     var reduction: Float {
         get { Float(bitPattern: reductionBits.load(ordering: .relaxed)) }
         set { reductionBits.store(min(1, max(0, newValue)).bitPattern, ordering: .relaxed) }
+    }
+
+    /// 人声轨相对播放信号的比例:ReplayGain 在消除单元之前就调了整首的音量,人声轨是从原文件
+    /// 分离的,要跟着缩放再减,否则减多(或减少)会留下一份反相的人声。1 = 原样。
+    /// 只作用在减人声轨上;普通消除直接处理播放信号,用不着它。
+    var stemScale: Float {
+        get { Float(bitPattern: stemScaleBits.load(ordering: .relaxed)) }
+        set {
+            let clamped = newValue.isFinite ? min(4, max(0, newValue)) : 1
+            stemScaleBits.store(clamped.bitPattern, ordering: .relaxed)
+        }
+    }
+
+    /// 减人声轨的量变到新值用多久(秒)。0 是一个渲染块里变完:卡拉OK舞台要的是跟手
+    /// (原唱带唱、对唱门控每 50 毫秒改一次)。伴唱是听歌,原唱慢慢淡出淡入。
+    var stemFadeDuration: Float {
+        get { Float(bitPattern: stemFadeBits.load(ordering: .relaxed)) }
+        set {
+            let clamped = newValue.isFinite ? min(5, max(0, newValue)) : 0
+            stemFadeBits.store(clamped.bitPattern, ordering: .relaxed)
+        }
     }
 
     var capturesVocal: Bool {
@@ -287,6 +310,7 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
     private final class RenderResources: @unchecked Sendable {
         let reducer: KaraokeVocalReducer?
         let control: KaraokeRenderControl
+        let sampleRate: Double
         let scratch: UnsafeMutablePointer<Float>
         let vocal: UnsafeMutablePointer<Float>
         let mono: UnsafeMutablePointer<Float>
@@ -294,9 +318,16 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
         /// Last applied stem gain, ramped per block.
         var stemGain: Float = 0
 
-        init(reducer: KaraokeVocalReducer?, control: KaraokeRenderControl, capacity: Int, channels: Int) {
+        init(
+            reducer: KaraokeVocalReducer?,
+            control: KaraokeRenderControl,
+            sampleRate: Double,
+            capacity: Int,
+            channels: Int
+        ) {
             self.reducer = reducer
             self.control = control
+            self.sampleRate = sampleRate
             self.capacity = capacity
             scratch = .allocate(capacity: capacity * max(1, channels))
             scratch.initialize(repeating: 0, count: capacity * max(1, channels))
@@ -363,6 +394,7 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
         slot.resources = RenderResources(
             reducer: reducer,
             control: control,
+            sampleRate: format.sampleRate,
             capacity: Int(maximumFramesToRender),
             channels: Int(format.channelCount)
         )
@@ -421,8 +453,15 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
                     resources.mono[i] = (left[i] + right[i]) * 0.5
                 }
                 control.inputRing.write(resources.mono, count: frames)
-                let target: Float = stem.delta == nil ? 0 : control.reduction
+                let requested: Float = stem.delta == nil ? 0 : control.reduction * control.stemScale
                 let from = resources.stemGain
+                var target = requested
+                let fade = control.stemFadeDuration
+                if fade > 0, resources.sampleRate > 0 {
+                    // 每块最多走这么多,整段 0→1 用 `fade` 秒。
+                    let maxStep = Float(Double(frames) / (Double(fade) * resources.sampleRate))
+                    target = from + min(max(requested - from, -maxStep), maxStep)
+                }
                 resources.stemGain = target
                 let captures = control.capturesVocal
                 if let delta = stem.delta, from > 0 || target > 0 || captures {
