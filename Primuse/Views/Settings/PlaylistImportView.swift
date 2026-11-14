@@ -416,8 +416,6 @@ struct PlaylistImportView: View {
         VStack(spacing: 0) {
             macHeader
 
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
             Group {
                 if let preview {
                     macPreview(preview)
@@ -439,47 +437,21 @@ struct PlaylistImportView: View {
         .background(PMColor.bg)
     }
 
+    /// 和其他 Mac 弹框同一种标题行(`MacSheetHeader`)。
     private var macHeader: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(PMColor.brand.opacity(0.16))
-                Image(systemName: "tray.and.arrow.down.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-            }
-            .frame(width: 44, height: 44)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("playlist_import_title")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                Text(verbatim: macHeaderSubtitle)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(PMColor.textMuted)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
+        MacSheetHeader(
+            Text("playlist_import_title"),
+            subtitle: Text(verbatim: macHeaderSubtitle),
+            systemImage: "tray.and.arrow.down.fill"
+        ) {
             if preview != nil {
                 Text("playlist_import_ready_badge")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(PMColor.textFaint)
             }
-
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(PMColor.textMuted)
-                    .frame(width: 26, height: 26)
-                    .background(PMColor.glassBtn, in: .circle)
-            }
-            .buttonStyle(.plain)
-            .help(Text("close"))
+            // Esc 留给底栏的「取消 / 返回」。
+            MacSheetCloseButton(handlesEscape: false) { dismiss() }
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 18)
     }
 
     private var macHeaderSubtitle: String {
@@ -2874,8 +2846,6 @@ struct LyricsFormatConverterView: View {
         VStack(spacing: 0) {
             header
 
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
             VStack(spacing: PMSpace.m14) {
                 conversionOverview
 
@@ -2945,46 +2915,20 @@ struct LyricsFormatConverterView: View {
 
     // MARK: Header
 
+    /// 和「工具」里其他几块面板(设备传输、缓存同步、重复歌曲)同一种标题行。
     private var header: some View {
-        HStack(spacing: PMSpace.m14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous)
-                    .fill(PMColor.brand.opacity(0.16))
-                Image(systemName: "arrow.left.arrow.right")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-            }
-            .frame(width: 44, height: 44)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("lyrics_converter_title")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                Text("lyrics_converter_subtitle")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(PMColor.textMuted)
-            }
-
-            Spacer()
-
+        MacSheetHeader(
+            Text("lyrics_converter_title"),
+            subtitle: Text("lyrics_converter_subtitle"),
+            systemImage: "arrow.left.arrow.right",
+            onClose: { dismiss() }
+        ) {
             HStack(spacing: PMSpace.s) {
                 converterHeaderPill("LRC")
                 converterHeaderPill("TTML")
                 converterHeaderPill("TXT")
             }
-
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(PMColor.textMuted)
-                    .frame(width: 26, height: 26)
-                    .background(PMColor.glassBtn, in: .circle)
-            }
-            .buttonStyle(.plain)
-            .help(Text("close"))
         }
-        .padding(.horizontal, PMSpace.l24)
-        .padding(.vertical, PMSpace.l)
     }
 
     private func converterHeaderPill(_ label: String) -> some View {

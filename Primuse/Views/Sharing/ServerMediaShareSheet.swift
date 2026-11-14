@@ -6,24 +6,18 @@ import PrimuseKit
 import SwiftUI
 
 #if os(macOS)
+/// 三张分享面板的标题行: 和其他 Mac 弹框同一个样子(`MacSheetHeader`), 右上角圆形关闭键;
+/// 原来右上角是系统的小号蓝色「完成」按钮。正在建分享 / 上传时关闭键不可点。
 private struct MediaShareMacHeader: View {
     let title: LocalizedStringKey
     var isDismissDisabled = false
     let dismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text(title)
-                .font(.system(size: 13.5, weight: .semibold))
-            Spacer()
-            Button("done", action: dismiss)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .keyboardShortcut(.cancelAction)
+        MacSheetHeader(Text(title), systemImage: "square.and.arrow.up") {
+            MacSheetCloseButton(action: dismiss)
                 .disabled(isDismissDisabled)
         }
-        .padding(.horizontal, 18)
-        .frame(height: 56)
     }
 }
 #endif
@@ -124,10 +118,12 @@ struct SongShareSheet: View {
             MediaShareMacHeader(title: "share_sheet_title") {
                 dismiss()
             }
-            Divider()
             shareForm
                 .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
         }
+        .background(PMColor.bg)
+        .tint(PMColor.brand)
         .frame(
             minWidth: 560,
             idealWidth: 620,
@@ -468,10 +464,12 @@ struct ServerMediaShareSheet: View {
             ) {
                 dismiss()
             }
-            Divider()
             shareForm
                 .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
         }
+        .background(PMColor.bg)
+        .tint(PMColor.brand)
         .frame(
             minWidth: 560,
             idealWidth: 620,
@@ -1692,10 +1690,12 @@ struct MediaRelayShareSheet: View {
             ) {
                 dismiss()
             }
-            Divider()
             shareForm
                 .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
         }
+        .background(PMColor.bg)
+        .tint(PMColor.brand)
         .frame(
             minWidth: 600,
             idealWidth: 640,

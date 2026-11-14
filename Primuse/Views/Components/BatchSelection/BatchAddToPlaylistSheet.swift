@@ -257,27 +257,13 @@ struct BatchAddToPlaylistSheet: View {
     #if os(macOS)
     private var macBody: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: "text.badge.plus")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-                    .frame(width: 34, height: 34)
-                    .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("add_to_playlist")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                    Text(verbatim: songCountText)
-                        .font(PMFont.caption)
-                        .foregroundStyle(PMColor.textMuted)
-                }
-                Spacer()
-                PMRoundBtn(icon: "xmark", size: 26, iconSize: 11, style: .glass,
-                           help: "cancel") { dismiss() }
-            }
-            .padding(18)
-
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            // 和其他 Mac 弹框同一种标题行(`MacSheetHeader`)。
+            MacSheetHeader(
+                Text("add_to_playlist"),
+                subtitle: Text(verbatim: songCountText),
+                systemImage: "text.badge.plus",
+                onClose: { dismiss() }
+            )
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 10) {

@@ -637,7 +637,12 @@ struct MacContentView: View {
         case .cacheSync:
             AudioCacheSyncView()
         case .deviceTransfer:
+            #if DEBUG
+            // 编译机截图用: 直接打开在「接收」一侧。
+            WiFiTransferView(initialMode: ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_TRANSFER_MODE"] ?? "send")
+            #else
             WiFiTransferView()
+            #endif
         }
     }
 

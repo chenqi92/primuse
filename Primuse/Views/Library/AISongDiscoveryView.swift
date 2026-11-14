@@ -51,6 +51,16 @@ struct AISongDiscoveryView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         #if os(macOS)
+        // 标题、说明和关闭键放在弹框标题行(和其他 Mac 弹框一样), 不再是内容里的大标题加一颗系统「完成」。
+        .safeAreaInset(edge: .top, spacing: 0) {
+            MacSheetHeader(
+                Text("ai_song_discovery_title"),
+                subtitle: Text("ai_song_discovery_subtitle"),
+                systemImage: "sparkles",
+                onClose: { dismiss() }
+            )
+            .background(PMColor.bg)
+        }
         .frame(minWidth: 560, minHeight: 520)
         .background(PMColor.bg)
         #else
@@ -83,27 +93,21 @@ struct AISongDiscoveryView: View {
 
     // MARK: - Sections
 
+    @ViewBuilder
     private var header: some View {
+        #if !os(macOS)
         VStack(alignment: .leading, spacing: 6) {
             Label("ai_song_discovery_eyebrow", systemImage: "sparkles")
                 .font(.caption.weight(.bold))
                 .textCase(.uppercase)
                 .tracking(0.8)
                 .foregroundStyle(accentColor)
-            #if os(macOS)
-            HStack(alignment: .firstTextBaseline) {
-                Text("ai_song_discovery_title")
-                    .font(.title2.bold())
-                Spacer()
-                Button("done") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-            }
-            #endif
             Text("ai_song_discovery_subtitle")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        #endif
     }
 
     @ViewBuilder

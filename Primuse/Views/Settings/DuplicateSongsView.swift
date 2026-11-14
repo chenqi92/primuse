@@ -322,30 +322,13 @@ struct DuplicateSongsView: View {
         .clipped()
     }
 
+    /// 和「工具」里其他几块面板(设备传输、缓存同步、歌词格式转换)同一种标题行。
     private var duplicateMacHeader: some View {
-        HStack(spacing: 12) {
-            Text(verbatim: String(localized: "Duplicate Song Cleanup"))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(PMColor.text)
-
-            Spacer(minLength: 0)
-
-            // 跟「导入歌单 / Scrobble」一致: 右上角 X 关闭, 不再用左侧红绿灯。
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(PMColor.textMuted)
-                    .frame(width: 26, height: 26)
-                    .background(PMColor.glassBtn, in: .circle)
-            }
-            .buttonStyle(.plain)
-            .help(Text("close"))
-        }
-        .frame(height: 44)
-        .padding(.horizontal, 16)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-        }
+        MacSheetHeader(
+            Text(verbatim: String(localized: "Duplicate Song Cleanup")),
+            systemImage: "arrow.triangle.2.circlepath",
+            onClose: { dismiss() }
+        )
     }
 
     private var duplicateGroupsScroll: some View {

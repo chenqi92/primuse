@@ -35,6 +35,13 @@ struct SpokenTranscriptGenerationSheet: View {
                 engineSection
                 actionSection
             }
+            #if os(macOS)
+            .macFormSheet(title: Text("transcript_generation_title"), systemImage: "text.quote") {
+                Button("done") { dismiss() }
+                    .buttonStyle(.macSheet)
+                    .keyboardShortcut(.cancelAction)
+            }
+            #else
             .navigationTitle(Text("transcript_generation_title"))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -44,6 +51,7 @@ struct SpokenTranscriptGenerationSheet: View {
                     Button("done") { dismiss() }
                 }
             }
+            #endif
             .alert(
                 Text("transcript_generation_upload_confirm_title"),
                 isPresented: $showsUploadConfirmation

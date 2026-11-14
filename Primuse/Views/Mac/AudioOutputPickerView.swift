@@ -73,7 +73,7 @@ struct AudioOutputPickerView: View {
                         symbol: device.symbolName,
                         subtitle: device.subtitle,
                         isSelected: engine.selectedOutputDeviceID == device.id,
-                        accent: device.isAirPlay ? .accentColor : nil
+                        accent: device.isAirPlay ? PMColor.brand : nil
                     ) {
                         applyDevice(device.id)
                     }

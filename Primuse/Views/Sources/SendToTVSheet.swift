@@ -45,9 +45,10 @@ struct SendToTVSheet: View {
         #if os(macOS)
         VStack(spacing: 0) {
             macHeader
-            Divider()
             panel
         }
+        .background(PMColor.bg)
+        .tint(PMColor.brand)
         .frame(minWidth: 460, idealWidth: 520, minHeight: 500, idealHeight: 580)
         #else
         NavigationStack {
@@ -291,18 +292,12 @@ struct SendToTVSheet: View {
     }
 
     #if os(macOS)
+    /// 和其他 Mac 弹框同一种标题行, 右上角圆形关闭键(原来是系统的小号蓝色「完成」)。
     private var macHeader: some View {
-        HStack(spacing: 12) {
-            Text("send_to_tv_title")
-                .font(.system(size: 13.5, weight: .semibold))
-            Spacer()
-            Button("done") { dismiss() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+        MacSheetHeader(Text("send_to_tv_title"), systemImage: "appletv") {
+            MacSheetCloseButton { dismiss() }
                 .accessibilityIdentifier("sendToTVDone")
         }
-        .padding(.horizontal, 18)
-        .frame(height: 56)
     }
     #endif
 

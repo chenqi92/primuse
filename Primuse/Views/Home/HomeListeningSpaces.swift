@@ -733,7 +733,14 @@ struct HomeSpotlightManagementView: View {
                 }
             }
         }
-        .navigationTitle(LocalizedStringKey(isRadio ? "home_spotlight_manage_radio" : "home_spotlight_manage_books"))
+        #if os(macOS)
+        // Mac 上是自己画的弹框(标题行、搜索与排序、列表、底栏),不套导航栈:
+        // 弹框里导航标题不显示,工具栏的搜索框和「完成」会被系统摆得七零八落。
+        .frame(width: 480, height: 600)
+        .background(PMColor.bg)
+        .tint(spaceTint)
+        #else
+        .navigationTitle(LocalizedStringKey(titleKey))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -746,6 +753,11 @@ struct HomeSpotlightManagementView: View {
                     .tint(spaceTint)
             }
         }
+        #endif
+    }
+
+    private var titleKey: String {
+        isRadio ? "home_spotlight_manage_radio" : "home_spotlight_manage_books"
     }
 
     private var spaceTint: Color? { section.spotlightSpace?.tint }
@@ -786,69 +798,71 @@ struct HomeSpotlightManagementView: View {
                     || ($0.subtitle?.localizedStandardContains(query) ?? false)
             }
 
-        List {
-            Section {
-                Picker("home_spotlight_order", selection: Binding(
-                    get: { current.order },
-                    set: { order in update { $0.order = order } }
-                )) {
-                    ForEach(HomeSpotlightSelection.Order.allCases) { order in
-                        Label(LocalizedStringKey(order.titleKey), systemImage: order.icon).tag(order)
-                    }
-                }
-            } footer: {
-                Text(LocalizedStringKey(
-                    current.isAutomatic
-                        ? (isRadio ? "home_spotlight_automatic_radio_footer" : "home_spotlight_automatic_books_footer")
-                        : "home_spotlight_pinned_footer"
-                ))
-            }
-
-            if !pinned.isEmpty, query.isEmpty {
+        Group {
+            #if os(macOS)
+            macContent(current: current, pinned: pinned, query: query, filtered: filtered, isPrepared: isPrepared)
+            #else
+            List {
                 Section {
-                    ForEach(pinned) { candidate in
-                        row(candidate, isPinned: true, showsToggle: false)
-                    }
-                    .onMove { source, destination in
-                        // 只在全部条目都查得到时才按下标搬 —— 否则可见下标与存档对不上。
-                        guard pinned.count == current.pinnedIDs.count else { return }
-                        update { $0.movePinned(fromOffsets: source, toOffset: destination) }
-                    }
-                    .onDelete { offsets in
-                        let ids = offsets.map { pinned[$0].id }
-                        update { selection in
-                            for id in ids where selection.isPinned(id) { selection.togglePin(id) }
+                    Picker("home_spotlight_order", selection: Binding(
+                        get: { current.order },
+                        set: { order in update { $0.order = order } }
+                    )) {
+                        ForEach(HomeSpotlightSelection.Order.allCases) { order in
+                            Label(LocalizedStringKey(order.titleKey), systemImage: order.icon).tag(order)
                         }
                     }
-                    .moveDisabled(current.order != .custom)
-                } header: {
-                    HStack {
-                        Text("home_spotlight_pinned_section")
-                        Spacer()
-                        Button("home_spotlight_clear") {
-                            update { $0.pinnedIDs = [] }
-                        }
-                        .font(.caption)
-                        .textCase(nil)
-                    }
+                } footer: {
+                    Text(LocalizedStringKey(footerKey(current)))
                 }
-            }
 
-            Section {
-                if !isPrepared {
-                    ProgressView().frame(maxWidth: .infinity)
+                if !pinned.isEmpty, query.isEmpty {
+                    Section {
+                        ForEach(pinned) { candidate in
+                            row(candidate, isPinned: true, showsToggle: false)
+                        }
+                        .onMove { source, destination in
+                            // 只在全部条目都查得到时才按下标搬 —— 否则可见下标与存档对不上。
+                            guard pinned.count == current.pinnedIDs.count else { return }
+                            update { $0.movePinned(fromOffsets: source, toOffset: destination) }
+                        }
+                        .onDelete { offsets in
+                            let ids = offsets.map { pinned[$0].id }
+                            update { selection in
+                                for id in ids where selection.isPinned(id) { selection.togglePin(id) }
+                            }
+                        }
+                        .moveDisabled(current.order != .custom)
+                    } header: {
+                        HStack {
+                            Text("home_spotlight_pinned_section")
+                            Spacer()
+                            Button("home_spotlight_clear") {
+                                update { $0.pinnedIDs = [] }
+                            }
+                            .font(.caption)
+                            .textCase(nil)
+                        }
+                    }
                 }
-                ForEach(filtered) { candidate in
-                    row(candidate, isPinned: current.isPinned(candidate.id), showsToggle: true)
+
+                Section {
+                    if !isPrepared {
+                        ProgressView().frame(maxWidth: .infinity)
+                    }
+                    ForEach(filtered) { candidate in
+                        row(candidate, isPinned: current.isPinned(candidate.id), showsToggle: true)
+                    }
+                } header: {
+                    Text(LocalizedStringKey(isRadio ? "home_spotlight_all_radio" : "home_spotlight_all_books"))
                 }
-            } header: {
-                Text(LocalizedStringKey(isRadio ? "home_spotlight_all_radio" : "home_spotlight_all_books"))
             }
+            .searchable(text: $searchText)
+            #if os(iOS)
+            .environment(\.editMode, .constant(pinned.isEmpty || !query.isEmpty ? .inactive : .active))
+            #endif
+            #endif
         }
-        .searchable(text: $searchText)
-        #if os(iOS)
-        .environment(\.editMode, .constant(pinned.isEmpty || !query.isEmpty ? .inactive : .active))
-        #endif
         .onChange(of: isPrepared, initial: true) { _, isPrepared in
             // 已删掉的台 / 书从挑选里清掉,免得「已选 3 个」首页却只出来 1 个。
             guard isPrepared, !candidates.isEmpty else { return }
@@ -893,4 +907,211 @@ struct HomeSpotlightManagementView: View {
         }
         .contentShape(Rectangle())
     }
+
+    private func footerKey(_ current: HomeSpotlightSelection) -> String {
+        current.isAutomatic
+            ? (isRadio ? "home_spotlight_automatic_radio_footer" : "home_spotlight_automatic_books_footer")
+            : "home_spotlight_pinned_footer"
+    }
+
+    #if os(macOS)
+    /// Mac 弹框: 标题行 → 搜索与排序 → 说明 → 「已在首页」(可拖动) 与全部条目 → 底栏「清空」「完成」。
+    /// 列表仍用 `List`, 拖动排序靠它; 行、分组标题和底色都换成 Mac 弹框那一套。
+    private func macContent(
+        current: HomeSpotlightSelection,
+        pinned: [Candidate],
+        query: String,
+        filtered: [Candidate],
+        isPrepared: Bool
+    ) -> some View {
+        VStack(spacing: 0) {
+            MacSheetHeader(
+                Text(LocalizedStringKey(titleKey)),
+                systemImage: isRadio ? "dot.radiowaves.left.and.right" : "house",
+                tint: spaceTint,
+                onClose: { dismiss() }
+            )
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    MacSheetSearchField(text: $searchText, prompt: Text("search_title"), tint: spaceTint)
+                    macOrderMenu(current)
+                }
+                Text(LocalizedStringKey(footerKey(current)))
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, MacSheetMetrics.horizontalPadding)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            List {
+                if !pinned.isEmpty, query.isEmpty {
+                    Section {
+                        ForEach(pinned) { candidate in
+                            macRow(candidate, isPinned: true, inPinnedSection: true, draggable: current.order == .custom)
+                        }
+                        .onMove { source, destination in
+                            // 只在全部条目都查得到时才按下标搬 —— 否则可见下标与存档对不上。
+                            guard pinned.count == current.pinnedIDs.count else { return }
+                            update { $0.movePinned(fromOffsets: source, toOffset: destination) }
+                        }
+                        .moveDisabled(current.order != .custom)
+                    } header: {
+                        macSectionHeader("home_spotlight_pinned_section", count: pinned.count)
+                    }
+                }
+
+                Section {
+                    if !isPrepared {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(maxWidth: .infinity)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                    ForEach(filtered) { candidate in
+                        macRow(candidate, isPinned: current.isPinned(candidate.id), inPinnedSection: false, draggable: false)
+                    }
+                } header: {
+                    macSectionHeader(isRadio ? "home_spotlight_all_radio" : "home_spotlight_all_books", count: nil)
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 40)
+
+            MacSheetFooter {
+                if !pinned.isEmpty {
+                    Button("home_spotlight_clear") {
+                        update { $0.pinnedIDs = [] }
+                    }
+                    .buttonStyle(.macSheetDestructive)
+                }
+            } trailing: {
+                Button("done") { dismiss() }
+                    .buttonStyle(.macSheetPrimary(tint: spaceTint))
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+
+    private func macSectionHeader(_ key: String, count: Int?) -> some View {
+        HStack(spacing: 6) {
+            MacSheetSectionLabel(LocalizedStringKey(key))
+            if let count {
+                Text(verbatim: "\(count)")
+                    .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            Spacer(minLength: 0)
+        }
+        // 和行里的封面左边对齐: 系统给分组标题的左边距比行少 24 点(实拍量出来的)。
+        .padding(.leading, 24)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
+    }
+
+    /// 排序方式: 一颗和搜索框同高的小按钮, 点开是带勾的选项。
+    private func macOrderMenu(_ current: HomeSpotlightSelection) -> some View {
+        Menu {
+            Picker("home_spotlight_order", selection: Binding(
+                get: { current.order },
+                set: { order in update { $0.order = order } }
+            )) {
+                ForEach(HomeSpotlightSelection.Order.allCases) { order in
+                    Label(LocalizedStringKey(order.titleKey), systemImage: order.icon).tag(order)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: current.order.icon)
+                    .font(.system(size: 10.5, weight: .semibold))
+                Text(LocalizedStringKey(current.order.titleKey))
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            .foregroundStyle(PMColor.text)
+            .padding(.horizontal, 10)
+            .frame(height: MacSheetMetrics.controlHeight)
+            .background(PMColor.glassBtn, in: .rect(cornerRadius: MacSheetMetrics.controlRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: MacSheetMetrics.controlRadius, style: .continuous)
+                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            }
+            .contentShape(.rect)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(Text("home_spotlight_order"))
+    }
+
+    /// 整行点下去就是放到首页 / 从首页拿掉; 「已在首页」那一段右边是移除键, 自定义顺序时左边有拖动把手。
+    private func macRow(_ candidate: Candidate, isPinned: Bool, inPinnedSection: Bool, draggable: Bool) -> some View {
+        Button {
+            update { $0.togglePin(candidate.id) }
+        } label: {
+            HStack(spacing: 10) {
+                if draggable {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(PMColor.textFaint)
+                        .frame(width: 14)
+                }
+                Group {
+                    switch candidate.artwork {
+                    case .station(let station):
+                        RadioStationArtworkView(station: station, size: 30, cornerRadius: 6)
+                    case .book(let song):
+                        SpokenWordBookCover(song: song, width: 24, cornerRadius: 3)
+                    }
+                }
+                .frame(width: 32, height: 32)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: candidate.title)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                    if let subtitle = candidate.subtitle, !subtitle.isEmpty {
+                        Text(verbatim: subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                Image(systemName: inPinnedSection
+                      ? "minus.circle"
+                      : (isPinned ? "checkmark.circle.fill" : "plus.circle"))
+                    .font(.system(size: 15))
+                    .foregroundStyle(isPinned && !inPinnedSection
+                                     ? AnyShapeStyle(.tint)
+                                     : AnyShapeStyle(PMColor.textFaint))
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 1, leading: 12, bottom: 1, trailing: 12))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .accessibilityLabel(Text(verbatim: candidate.title))
+        .accessibilityHint(Text(LocalizedStringKey(isPinned ? "home_spotlight_remove" : "home_spotlight_add")))
+        .accessibilityAddTraits(isPinned ? .isSelected : [])
+        .help(Text(LocalizedStringKey(isPinned ? "home_spotlight_remove" : "home_spotlight_add")))
+    }
+    #endif
 }

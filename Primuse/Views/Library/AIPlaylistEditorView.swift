@@ -431,9 +431,21 @@ struct AIPlaylistEditorView: View {
                 }
             }
             .floatingInputPanelClearance()
-            .navigationTitle(LocalizedStringKey(isListeningScene
-                ? (isEditing ? "listening_scene_edit" : "listening_scene_new")
-                : (isEditing ? "ai_playlist_add_songs" : "ai_playlist_new")))
+            #if os(macOS)
+            .macFormSheet(title: Text(LocalizedStringKey(titleKey)), systemImage: "sparkles") {
+                Button("cancel") { dismiss() }
+                    .buttonStyle(.macSheet)
+                    .keyboardShortcut(.cancelAction)
+                Button(action: save) {
+                    Text(commitTitle)
+                }
+                .buttonStyle(.macSheetPrimary)
+                .disabled(!canSave)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("aiPlaylistCommitButton")
+            }
+            #else
+            .navigationTitle(LocalizedStringKey(titleKey))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -449,6 +461,7 @@ struct AIPlaylistEditorView: View {
                     .accessibilityIdentifier("aiPlaylistCommitButton")
                 }
             }
+            #endif
             .onAppear(perform: loadInitialState)
             .onDisappear {
                 generationTask?.cancel()
@@ -457,6 +470,12 @@ struct AIPlaylistEditorView: View {
             .frame(minWidth: 620, minHeight: 600)
             #endif
         }
+    }
+
+    private var titleKey: String {
+        isListeningScene
+            ? (isEditing ? "listening_scene_edit" : "listening_scene_new")
+            : (isEditing ? "ai_playlist_add_songs" : "ai_playlist_new")
     }
 
     private var promptFooterKey: LocalizedStringKey {

@@ -105,7 +105,8 @@ struct WiFiTransferView: View {
             }
         }
         #else
-        .frame(minWidth: 820, idealWidth: 1040, minHeight: 540, idealHeight: 740)
+        // 两栏(左边选歌, 右边选设备)放得下就够, 不再默认摊成一千多点宽的大窗。
+        .frame(minWidth: 760, idealWidth: 820, minHeight: 540, idealHeight: 600)
         .presentationSizing(.fitted)
         #endif
         .interactiveDismissDisabled()
@@ -140,7 +141,9 @@ struct WiFiTransferView: View {
     private var transferWorkspace: some View {
         Group {
             VStack(spacing: 0) {
+                #if os(iOS)
                 modeSelector
+                #endif
                 transferContent
             }
 
@@ -163,30 +166,25 @@ struct WiFiTransferView: View {
     }
 
     #if os(macOS)
+    /// 标题行: 发送 / 接收的切换放在标题右边, 和关闭键一排, 下面整块都留给内容。
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "laptopcomputer.and.iphone")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(PMColor.brand).frame(width: 34, height: 34)
-                .background(PMColor.brand.opacity(0.11), in: .rect(cornerRadius: 9))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(WiFiTransferText.string("nativeTitle")).font(.system(size: 16, weight: .semibold))
-                Text(WiFiTransferText.string("nativeSubtitle")).font(.system(size: 11.5))
-                    .foregroundStyle(PMColor.textMuted).lineLimit(2)
-            }
-            Spacer(minLength: 20)
-            Button { requestClose() } label: {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(PMColor.textMuted).frame(width: 28, height: 28)
-                    .background(PMColor.glassBtn, in: .circle)
-            }.buttonStyle(.plain).keyboardShortcut(.cancelAction)
-                .accessibilityLabel(WiFiTransferText.string("done"))
-        }.padding(.horizontal, 20).padding(.vertical, 12)
-            .background(PMColor.bgElev)
-            .overlay(alignment: .bottom) { Rectangle().fill(PMColor.divider).frame(height: 0.5) }
+        MacSheetHeader(
+            Text(verbatim: WiFiTransferText.string("nativeTitle")),
+            subtitle: Text(verbatim: WiFiTransferText.string("nativeSubtitle")),
+            systemImage: "laptopcomputer.and.iphone",
+            onClose: { requestClose() }
+        ) {
+            MacSheetSegmentedControl(selection: $mode, segments: [
+                .init(value: "send", title: WiFiTransferText.string("send"), systemImage: "paperplane"),
+                .init(value: "receive", title: WiFiTransferText.string("receive"), systemImage: "tray.and.arrow.down"),
+            ])
+            .disabled(receiver.running || sender.busy)
+            .accessibilityIdentifier("wifiTransfer.mode")
+        }
     }
     #endif
 
+    #if os(iOS)
     private var modeSelector: some View {
         Picker(WiFiTransferText.string("nativeTitle"), selection: $mode) {
             Text(WiFiTransferText.string("send")).tag("send")
@@ -194,17 +192,11 @@ struct WiFiTransferView: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        #if os(macOS)
-        .controlSize(.regular)
-        .fixedSize(horizontal: true, vertical: false)
-        .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        #else
         .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 10)
-        #endif
         .accessibilityIdentifier("wifiTransfer.mode")
         .disabled(receiver.running || sender.busy)
     }
+    #endif
 
     private var receiveForm: some View {
         VStack(spacing: 0) {
@@ -239,6 +231,10 @@ struct WiFiTransferView: View {
                                     Toggle(WiFiTransferText.string("browserAccess"), isOn: Binding(
                                         get: { receiver.browserEnabled }, set: { receiver.setBrowserEnabled($0) }
                                     )).toggleStyle(.switch).font(.system(size: TransferAppearance.bodySize, weight: .semibold))
+                                        #if os(macOS)
+                                        // Mac 上开关默认是系统强调色, 跟着这一页的品牌色。
+                                        .tint(TransferAppearance.accent)
+                                        #endif
                                         .accessibilityIdentifier("wifiTransfer.browser")
                                     Text(WiFiTransferText.string("browserHint"))
                                         .font(.system(size: TransferAppearance.captionSize))
@@ -256,12 +252,22 @@ struct WiFiTransferView: View {
                                 .pmAppearFade(.contentAppear)
                         } else if receiver.receipts.isEmpty {
                             VStack(spacing: 16) {
+                                #if os(macOS)
+                                // Mac 弹框里收小一号, 和弹框其他地方的字号成比例。
+                                Image(systemName: TransferAppearance.deviceIcon(WiFiTransferText.identity.platform))
+                                    .font(.system(size: 38, weight: .ultraLight))
+                                    .foregroundStyle(TransferAppearance.accent)
+                                    .frame(width: 80, height: 76)
+                                    .background(TransferAppearance.accent.opacity(0.07), in: .rect(cornerRadius: 18))
+                                Text(WiFiTransferText.identity.name).font(.system(size: 16, weight: .semibold))
+                                #else
                                 Image(systemName: TransferAppearance.deviceIcon(WiFiTransferText.identity.platform))
                                     .font(.system(size: 54, weight: .ultraLight))
                                     .foregroundStyle(TransferAppearance.accent)
                                     .frame(width: 112, height: 106)
                                     .background(TransferAppearance.accent.opacity(0.07), in: .rect(cornerRadius: 24))
                                 Text(WiFiTransferText.identity.name).font(.system(size: 20, weight: .semibold))
+                                #endif
                                 Text(WiFiTransferText.string("receiveEmptyHint"))
                                     .font(.system(size: TransferAppearance.bodySize)).foregroundStyle(TransferAppearance.muted)
                                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
@@ -307,25 +313,25 @@ struct WiFiTransferView: View {
                 }
             }
             #if os(macOS)
-            HStack(spacing: 18) {
+            MacSheetFooter {
                 Label(WiFiTransferText.string("sameNetwork"), systemImage: "wifi")
                     .font(.system(size: TransferAppearance.captionSize)).foregroundStyle(TransferAppearance.muted)
-                Spacer()
+                    .lineLimit(1)
+            } trailing: {
                 if receiver.running {
                     Button(WiFiTransferText.string("stopReceiving")) {
                         closeAfterStopping = false
                         showStopConfirmation = true
                     }
-                        .buttonStyle(TransferButtonStyle()).accessibilityIdentifier("wifiTransfer.stop")
+                        .buttonStyle(.macSheet).accessibilityIdentifier("wifiTransfer.stop")
                         .disabled(receiver.stopping)
                 } else {
                     Button { start() } label: {
                         Label(WiFiTransferText.string("startReceiving"), systemImage: "tray.and.arrow.down.fill")
-                    }.buttonStyle(TransferButtonStyle(prominent: true)).accessibilityIdentifier("wifiTransfer.start")
+                    }.buttonStyle(.macSheetPrimary).accessibilityIdentifier("wifiTransfer.start")
+                        .keyboardShortcut(.defaultAction)
                 }
-            }.padding(.horizontal, 22).padding(.vertical, 14)
-                .background(TransferAppearance.surface)
-                .overlay(alignment: .top) { Rectangle().fill(TransferAppearance.line).frame(height: 0.5) }
+            }
             #endif
         }
     }

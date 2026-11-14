@@ -797,18 +797,26 @@ struct FavoriteCollectionEditor: View {
                 }
             }
             #if os(macOS)
-            .searchable(
-                text: $searchText,
-                placement: .toolbar,
-                prompt: Text("library_quick_access_search_prompt")
-            )
+            // Mac 弹框: 标题行、标题下的搜索框、底栏「完成」; 原来挂在工具栏上的搜索框和「完成」
+            // 在弹框里被系统摆成一条空工具栏加底部的系统蓝按钮, 弹框也没有固定尺寸。
+            .safeAreaInset(edge: .top, spacing: 0) {
+                MacSheetSearchField(text: $searchText, prompt: Text("library_quick_access_search_prompt"))
+                    .padding(.horizontal, MacSheetMetrics.horizontalPadding)
+                    .padding(.vertical, 10)
+                    .background(PMColor.bg)
+            }
+            .macFormSheet(title: Text("library_edit_quick_access"), systemImage: "heart") {
+                Button("done") { dismiss() }
+                    .buttonStyle(.macSheetPrimary)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .frame(width: 520, height: 620)
             #else
             .searchable(
                 text: $searchText,
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: Text("library_quick_access_search_prompt")
             )
-            #endif
             .navigationTitle("library_edit_quick_access")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -818,6 +826,7 @@ struct FavoriteCollectionEditor: View {
                     }
                 }
             }
+            #endif
             #if os(iOS)
             .environment(\.editMode, .constant(searchText.isEmpty ? .active : .inactive))
             #endif
@@ -903,6 +912,15 @@ struct FavoriteCollectionEditor: View {
         }
     }
 
+    /// 勾选色: Mac 上是品牌色(系统强调色在 Mac 上是另一种颜色)。
+    private static var checkTint: Color {
+        #if os(macOS)
+        PMColor.brand
+        #else
+        Color.accentColor
+        #endif
+    }
+
     private func pinButton<Artwork: View, Title: View, Subtitle: View>(
         _ pin: QuickAccessPinReference,
         @ViewBuilder artwork: () -> Artwork,
@@ -932,7 +950,7 @@ struct FavoriteCollectionEditor: View {
 
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? Self.checkTint : Color.secondary)
             }
             .contentShape(Rectangle())
         }

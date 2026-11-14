@@ -19,24 +19,16 @@ struct EncodingFixPicker: View {
     @ViewBuilder
     var body: some View {
         #if os(macOS)
+        // 和其他 Mac 弹框同一种标题行, 右上角圆形关闭键(原来是系统的小号「取消」按钮)。
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Text(String(localized: "encoding_fix_title"))
-                    .font(.system(size: 13.5, weight: .semibold))
-                Spacer()
-                Button(String(localized: "cancel")) { dismiss() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .keyboardShortcut(.cancelAction)
+            MacSheetHeader(Text(String(localized: "encoding_fix_title")), systemImage: "character.cursor.ibeam") {
+                MacSheetCloseButton { dismiss() }
                     .accessibilityIdentifier("encodingFixPickerClose")
             }
-            .padding(.horizontal, 18)
-            .frame(height: 56)
-
-            Divider()
             pickerContent
         }
         .frame(width: 460, height: 520)
+        .tint(PMColor.brand)
         #else
         NavigationStack {
             pickerContent

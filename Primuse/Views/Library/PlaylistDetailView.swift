@@ -2856,6 +2856,43 @@ private struct PlaylistDescriptionEditor: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        // Mac 弹框: 标题行写歌单名, 输入框是弹框那一种底, 取消 / 保存在底栏。
+        VStack(alignment: .leading, spacing: 8) {
+            TextEditor(text: $text)
+                .font(.system(size: 13))
+                .scrollContentBackground(.hidden)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 6)
+                .frame(maxHeight: .infinity)
+                .background(PMColor.bgElev, in: .rect(cornerRadius: MacSheetMetrics.controlRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: MacSheetMetrics.controlRadius, style: .continuous)
+                        .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+                }
+                .accessibilityLabel(Text("library_insight_editor_summary"))
+            if let errorMessage {
+                Text(errorMessage).foregroundStyle(PMColor.bad).font(.system(size: 11.5))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(MacSheetMetrics.horizontalPadding)
+        .macFormSheet(
+            title: Text("library_insight_editor_summary"),
+            subtitle: Text(verbatim: playlist.name),
+            systemImage: "text.alignleft"
+        ) {
+            Button("cancel") { dismiss() }
+                .buttonStyle(.macSheet)
+                .keyboardShortcut(.cancelAction)
+                .disabled(saving)
+            Button("save") { save() }
+                .buttonStyle(.macSheetPrimary)
+                .disabled(saving)
+        }
+        .interactiveDismissDisabled(saving)
+        .frame(width: 520, height: 380)
+        #else
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
                 Text(playlist.name).font(.headline)
@@ -2889,8 +2926,21 @@ private struct PlaylistDescriptionEditor: View {
             }
             .interactiveDismissDisabled(saving)
         }
-        #if os(macOS)
-        .frame(width: 520, height: 360)
         #endif
+    }
+
+    private func save() {
+        saving = true
+        errorMessage = nil
+        Task {
+            do {
+                try await PlaylistDescriptionService.save(text, playlist: playlist, library: library,
+                    sourcesStore: sourcesStore, sourceManager: sourceManager)
+                dismiss()
+            } catch {
+                errorMessage = SourceErrorPresentation.userFacingDescription(error)
+            }
+            saving = false
+        }
     }
 }

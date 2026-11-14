@@ -580,6 +580,14 @@ struct PodcastShowSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        #if os(macOS)
+        // Mac 弹框: 标题行 + 底栏「完成」; 弹框里导航标题不显示, 工具栏的「完成」是系统蓝。
+        .macFormSheet(title: Text("podcast_show_settings"), systemImage: "slider.horizontal.3") {
+            Button("done") { dismiss() }
+                .buttonStyle(.macSheetPrimary)
+                .keyboardShortcut(.defaultAction)
+        }
+        #else
         .navigationTitle("podcast_show_settings")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -589,6 +597,7 @@ struct PodcastShowSettingsView: View {
                 Button("done") { dismiss() }
             }
         }
+        #endif
     }
 
     private func secondsLabel(_ seconds: Int) -> String {

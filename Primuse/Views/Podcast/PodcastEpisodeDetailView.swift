@@ -441,6 +441,14 @@ struct PodcastSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        #if os(macOS)
+        // Mac 弹框: 标题行 + 底栏「完成」; 弹框里导航标题不显示, 工具栏的「完成」是系统蓝。
+        .macFormSheet(title: Text("podcast_settings"), systemImage: "gearshape") {
+            Button("done") { dismiss() }
+                .buttonStyle(.macSheetPrimary)
+                .keyboardShortcut(.defaultAction)
+        }
+        #else
         .navigationTitle("podcast_settings")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -450,6 +458,7 @@ struct PodcastSettingsView: View {
                 Button("done") { dismiss() }
             }
         }
+        #endif
         .onChange(of: deletePlayed) { _, enabled in
             if enabled { PodcastStore.shared.purgePlayedDownloads() }
         }

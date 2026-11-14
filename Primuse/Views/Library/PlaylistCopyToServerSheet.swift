@@ -598,29 +598,15 @@ struct PlaylistCopyToServerSheet: View {
     #if os(macOS)
     private var content: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: "server.rack")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-                    .frame(width: 34, height: 34)
-                    .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("server_playlist_copy_title")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                    Text(verbatim: subtitle)
-                        .font(PMFont.caption)
-                        .foregroundStyle(PMColor.textMuted)
-                        .lineLimit(1)
-                }
-                Spacer()
-                PMRoundBtn(icon: "xmark", size: 26, iconSize: 11, style: .glass,
-                           help: "cancel") { dismiss() }
+            // 和其他 Mac 弹框同一种标题行(`MacSheetHeader`); 复制中关闭键不可点。
+            MacSheetHeader(
+                Text("server_playlist_copy_title"),
+                subtitle: Text(verbatim: subtitle),
+                systemImage: "server.rack"
+            ) {
+                MacSheetCloseButton { dismiss() }
                     .disabled(isCopying)
             }
-            .padding(18)
-
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             Form { formSections }
                 .formStyle(.grouped)

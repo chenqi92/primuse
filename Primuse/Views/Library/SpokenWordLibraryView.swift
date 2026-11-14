@@ -491,9 +491,11 @@ struct SpokenWordLibraryView: View {
         }
         #endif
         .sheet(isPresented: $showsHomeSpotlight) {
-            NavigationStack { HomeSpotlightManagementView(section: .audiobooks) }
             #if os(macOS)
-                .frame(minWidth: 460, minHeight: 520)
+            // Mac 上是自带标题行和底栏、尺寸固定的弹框, 不套导航栈。
+            HomeSpotlightManagementView(section: .audiobooks)
+            #else
+            NavigationStack { HomeSpotlightManagementView(section: .audiobooks) }
             #endif
         }
         .overlay {

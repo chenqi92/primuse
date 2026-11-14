@@ -2824,39 +2824,31 @@ struct SourceDiagnosticsView: View {
     @ViewBuilder
     var body: some View {
         #if os(macOS)
+        // 和其他 Mac 弹框同一套: 标题行写源名, 「再检查一次」「完成」放底栏(原来是标题行里两颗系统小按钮)。
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("source_diagnostics")
-                        .font(.system(size: 13.5, weight: .semibold))
-                    Text(source.name)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
+            MacSheetHeader(
+                Text("source_diagnostics"),
+                subtitle: Text(verbatim: source.name),
+                systemImage: "stethoscope"
+            )
+            diagnosticsList
+            MacSheetFooter {
                 Button {
                     runID = UUID()
                 } label: {
                     Label("source_diag_run_again", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.macSheet)
                 .disabled(isRunning)
                 .accessibilityIdentifier("sourceDiagnosticsRunAgain")
-
+            } trailing: {
                 Button("done") { dismiss() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .buttonStyle(.macSheetPrimary)
                     .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier("sourceDiagnosticsDone")
             }
-            .padding(.horizontal, 18)
-            .frame(height: 56)
-
-            Divider()
-            diagnosticsList
         }
+        .tint(PMColor.brand)
         .frame(minWidth: 560, idealWidth: 620, minHeight: 460, idealHeight: 540)
         #else
         NavigationStack {

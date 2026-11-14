@@ -143,6 +143,15 @@ struct ListeningShareExportView: View {
                 if let error { Section { Text(error).foregroundStyle(.red).textSelection(.enabled) } }
             }
             .formStyle(.grouped)
+            #if os(macOS)
+            .macFormSheet(title: Text(verbatim: t("share")), systemImage: "square.and.arrow.up") {
+                Button(uploading ? t("cancel") : t("done")) {
+                    if uploading { uploadTask?.cancel() } else { dismiss() }
+                }
+                .buttonStyle(.macSheetPrimary)
+                .keyboardShortcut(.cancelAction)
+            }
+            #else
             .navigationTitle(t("share"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -151,6 +160,7 @@ struct ListeningShareExportView: View {
                     }
                 }
             }
+            #endif
             .sheet(isPresented: $nearby) { if let export { ListeningShareNearbyView(export: export) } }
         }
         .frame(minWidth: 320, idealWidth: 560, minHeight: 400, idealHeight: 660)
@@ -370,10 +380,18 @@ struct ListeningShareImportView: View {
                 if let error { Section { Text(error).foregroundStyle(.red) } }
             }
             .formStyle(.grouped).disabled(busy)
+            #if os(macOS)
+            .macFormSheet(title: Text(verbatim: t("importPreview")), systemImage: "square.and.arrow.down") {
+                Button(busy ? t("cancel") : t("done")) { if busy { task?.cancel() } else { dismiss() } }
+                    .buttonStyle(.macSheet)
+                    .keyboardShortcut(.cancelAction)
+            }
+            #else
             .navigationTitle(t("importPreview"))
             .toolbar { ToolbarItem(placement: .cancellationAction) {
                 Button(busy ? t("cancel") : t("done")) { if busy { task?.cancel() } else { dismiss() } }
             } }
+            #endif
         }
         .frame(minWidth: 320, idealWidth: 560, minHeight: 400, idealHeight: 660)
         .interactiveDismissDisabled(busy)
@@ -436,8 +454,16 @@ struct ListeningShareNearbyView: View {
                 if sent { Label(t("sent"), systemImage: "checkmark.circle") }
                 if let error { Text(error).foregroundStyle(.red) }
             }.formStyle(.grouped).disabled(busy)
+            #if os(macOS)
+            .macFormSheet(title: Text(verbatim: t("nearby")), systemImage: "wifi") {
+                Button(busy ? t("cancel") : t("done")) { task?.cancel(); dismiss() }
+                    .buttonStyle(.macSheet)
+                    .keyboardShortcut(.cancelAction)
+            }
+            #else
             .navigationTitle(t("nearby"))
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button(busy ? t("cancel") : t("done")) { task?.cancel(); dismiss() } } }
+            #endif
         }
         .frame(minWidth: 320, idealWidth: 520, minHeight: 400)
         .task { discovery.start() }
@@ -499,8 +525,16 @@ struct ListeningShareReceiveView: View {
                 if let error { Text(error).foregroundStyle(.red) }
                 if let failure = receiver.error { Text(WiFiTransferText.string(failure)).foregroundStyle(.red) }
             }.formStyle(.grouped)
+            #if os(macOS)
+            .macFormSheet(title: Text(verbatim: t("receive")), systemImage: "wifi") {
+                Button(t("done")) { dismiss() }
+                    .buttonStyle(.macSheetPrimary)
+                    .keyboardShortcut(.cancelAction)
+            }
+            #else
             .navigationTitle(t("receive"))
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button(t("done")) { dismiss() } } }
+            #endif
             .sheet(item: $incoming, onDismiss: { if visible, scenePhase == .active { start() } }) { ListeningShareImportView(incoming: $0) }
         }
         .frame(minWidth: 320, idealWidth: 520, minHeight: 400)
@@ -680,12 +714,23 @@ struct ListeningShareCodeImportView: View {
             }
             .disabled(busy)
             .formStyle(.grouped)
+            #if os(macOS)
+            .macFormSheet(
+                title: Text(verbatim: ListeningShareText.string(scannedReference == nil ? "importCode" : "importShare")),
+                systemImage: "text.badge.plus"
+            ) {
+                Button("cancel") { task?.cancel(); dismiss() }
+                    .buttonStyle(.macSheet)
+                    .keyboardShortcut(.cancelAction)
+            }
+            #else
             .navigationTitle(ListeningShareText.string(scannedReference == nil ? "importCode" : "importShare"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("cancel") { task?.cancel(); dismiss() }
                 }
             }
+            #endif
         }
         .frame(minWidth: 320, idealWidth: 560, minHeight: 400)
         .sheet(item: $incoming) { ListeningShareImportView(incoming: $0) }
@@ -753,8 +798,16 @@ private struct ListeningShareBookLinkView: View {
                 if let error { Text(error).foregroundStyle(.red) }
             }
             .formStyle(.grouped)
+            #if os(macOS)
+            .macFormSheet(title: Text(verbatim: ListeningShareText.string("shareBookLink")), systemImage: "link") {
+                Button("done") { dismiss() }
+                    .buttonStyle(.macSheet)
+                    .keyboardShortcut(.cancelAction)
+            }
+            #else
             .navigationTitle(ListeningShareText.string("shareBookLink"))
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("done") { dismiss() } } }
+            #endif
         }
         .frame(minWidth: 320, idealWidth: 520, minHeight: 280)
         .sheet(item: $outgoing) { ListeningShareExportView(selection: $0) }
@@ -800,8 +853,17 @@ private struct ListeningShareLinksView: View {
                 }
             }
             .overlay { if records.isEmpty { ContentUnavailableView(ListeningShareText.string("noLinks"), systemImage: "link") } }
+            #if os(macOS)
+            .macFormSheet(title: Text(verbatim: ListeningShareText.string("managedLinks")), systemImage: "link") {
+                Button("done") { dismiss() }
+                    .buttonStyle(.macSheetPrimary)
+                    .disabled(revoking)
+                    .keyboardShortcut(.cancelAction)
+            }
+            #else
             .navigationTitle(ListeningShareText.string("managedLinks"))
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("done") { dismiss() }.disabled(revoking) } }
+            #endif
         }
         .frame(minWidth: 320, idealWidth: 560, minHeight: 400)
         .interactiveDismissDisabled(revoking)

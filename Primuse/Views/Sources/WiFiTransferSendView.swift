@@ -393,6 +393,10 @@ struct WiFiTransferSendView: View {
     @State private var pickerError: String?
     @State private var dropTargeted = false
     @State private var isSearching = false
+    #if os(macOS)
+    private enum MacField: Hashable { case address, code }
+    @FocusState private var focusedField: MacField?
+    #endif
 
     private var canSend: Bool { (!sender.files.isEmpty || !sender.selectedSongIDs.isEmpty) && (selectedWatch || (code.count == 6 && !address.isEmpty)) && !sender.busy }
 
@@ -402,9 +406,17 @@ struct WiFiTransferSendView: View {
                 if geometry.size.width >= 680 {
                     HStack(alignment: .top, spacing: 20) {
                         musicPane(compact: false).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        #if os(macOS)
+                        ScrollView { macDevicePane }.scrollIndicators(.never).frame(width: 260)
+                        #else
                         ScrollView { devicePane }.frame(width: 250)
+                        #endif
                     }
+                    #if os(macOS)
+                    .padding(.horizontal, 20).padding(.vertical, 16)
+                    #else
                     .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
+                    #endif
                 } else {
                     VStack(spacing: 12) {
                         #if os(iOS)
@@ -451,8 +463,12 @@ struct WiFiTransferSendView: View {
         VStack(alignment: .leading, spacing: 8) {
             if !compact || !isSearching {
             HStack {
+                #if os(macOS)
+                MacSheetSectionLabel(verbatim: String(localized: "sidebar_all_songs"))
+                #else
                 Text(String(localized: "sidebar_all_songs"))
                     .font(.subheadline.weight(.semibold))
+                #endif
                 Spacer()
                 fileActions
             }
@@ -514,12 +530,23 @@ struct WiFiTransferSendView: View {
                 Label(WiFiTransferText.string("folder"), systemImage: "folder")
             }
         } label: {
+            #if os(macOS)
+            HStack(spacing: 4) {
+                Image(systemName: "plus").font(.system(size: 10.5, weight: .semibold))
+                Text(verbatim: WiFiTransferText.string("files")).font(.system(size: 12, weight: .medium))
+            }
+            .frame(minHeight: 22)
+            .contentShape(.rect)
+            #else
             Label(WiFiTransferText.string("files"), systemImage: "plus")
                 .font(.subheadline)
                 .frame(minHeight: TransferAppearance.compactTarget)
+            #endif
         }
         #if os(macOS)
-        .menuStyle(.borderlessButton)
+        // 系统的无边框弹出按钮会自己画一个下拉箭头、字号也不一样; 只要这一行字。
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
         #endif
         .buttonStyle(.plain)
         .foregroundStyle(TransferAppearance.accent)
@@ -810,18 +837,19 @@ struct WiFiTransferSendView: View {
 
     #if os(macOS)
     private var footer: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+        MacSheetFooter {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(String(format: WiFiTransferText.string("librarySelectedSummary"), sender.selectedSongIDs.count, sender.externalFiles.count))
-                    .font(.caption.weight(.medium))
+                    .font(.system(size: TransferAppearance.captionSize, weight: .medium))
+                    .foregroundStyle(TransferAppearance.text)
                 if !sender.destinationName.isEmpty && sender.completed > 0 {
                     Text(sender.destinationName).font(.system(size: TransferAppearance.captionSize)).foregroundStyle(TransferAppearance.muted)
                 }
-            }.foregroundStyle(TransferAppearance.muted).lineLimit(2)
-            Spacer(minLength: 4)
+            }.lineLimit(1)
+        } trailing: {
             if sender.busy {
                 Button(WiFiTransferText.string("cancel")) { sender.cancel() }
-                    .buttonStyle(TransferButtonStyle())
+                    .buttonStyle(.macSheet)
                     .pmAppearFade(.contentAppear)
             } else {
                 Button {
@@ -829,15 +857,132 @@ struct WiFiTransferSendView: View {
                                 library: library, sources: sources, sourceManager: sourceManager, toWatch: selectedWatch)
                 } label: {
                     Label(WiFiTransferText.string("sendNow"), systemImage: "paperplane.fill")
-                }.buttonStyle(TransferButtonStyle(prominent: true))
+                }.buttonStyle(.macSheetPrimary)
                     .disabled(!canSend).accessibilityIdentifier("transfer.send")
                     .keyboardShortcut(.defaultAction)
                     .pmAppearFade(.contentAppear)
             }
         }
-        .padding(.horizontal, 20).padding(.vertical, 10)
-        .background(TransferAppearance.surface)
-        .overlay(alignment: .top) { Rectangle().fill(TransferAppearance.line).frame(height: 0.5) }
+    }
+
+    /// 右栏「接收设备」: 和「播放设备」弹出层同一种设备行(图标、名字、平台, 选中的打勾),
+    /// 下面是手动地址与连接码, 输入框都是弹框那一种 28 高的底。
+    private var macDevicePane: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    MacSheetSectionLabel(verbatim: WiFiTransferText.string("receivingDevice"))
+                    Spacer(minLength: 4)
+                    Button { discovery.start() } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(PMColor.textMuted)
+                            .frame(width: 22, height: 22)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain).disabled(sender.busy)
+                    .help(WiFiTransferText.string("refresh"))
+                    .accessibilityLabel(WiFiTransferText.string("refresh"))
+                }
+                VStack(spacing: 0) {
+                    if discovery.peers.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "laptopcomputer.and.iphone")
+                                .font(.system(size: 12))
+                                .foregroundStyle(PMColor.textFaint)
+                            Text(verbatim: WiFiTransferText.string("noDevices"))
+                                .font(.system(size: 12))
+                                .foregroundStyle(TransferAppearance.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .padding(.horizontal, 10)
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 2) {
+                                ForEach(discovery.peers) { macPeerRow($0) }
+                            }
+                            .padding(4)
+                        }
+                        .scrollIndicators(.never)
+                        .frame(height: min(CGFloat(discovery.peers.count) * 46 + 8, 192))
+                    }
+                }
+                .background(TransferAppearance.surface, in: .rect(cornerRadius: 8, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+                Text(verbatim: WiFiTransferText.string("discoveryHint"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                MacSheetFieldLabel(verbatim: WiFiTransferText.string("manualAddress"))
+                TextField("", text: $address, prompt: Text(verbatim: "192.168.1.8:12345").foregroundStyle(PMColor.textFaint))
+                    .focused($focusedField, equals: .address)
+                    .autocorrectionDisabled().disabled(sender.busy)
+                    .macSheetField(isFocused: focusedField == .address)
+                    .accessibilityLabel(WiFiTransferText.string("manualAddress"))
+                    .accessibilityIdentifier("transfer.address")
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                MacSheetFieldLabel(verbatim: WiFiTransferText.string("code"))
+                TextField("", text: $code, prompt: Text(verbatim: "000000").foregroundStyle(PMColor.textFaint))
+                    .focused($focusedField, equals: .code)
+                    .disabled(sender.busy)
+                    // 字体要挂在输入框底之内: 外层的字号压不过底里设的那一个。
+                    .font(.system(size: 13, design: .monospaced))
+                    .tracking(2)
+                    .macSheetField(isFocused: focusedField == .code)
+                    .accessibilityLabel(WiFiTransferText.string("code"))
+                    .accessibilityIdentifier("transfer.code")
+                    .onChange(of: code) { _, value in code = String(value.filter { $0.isASCII && $0.isNumber }.prefix(6)) }
+                Text(verbatim: WiFiTransferText.string("codeHint"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            discoveryFeedback
+        }
+    }
+
+    private func macPeerRow(_ peer: WiFiTransferPeer) -> some View {
+        let selected = expectedPeerID == peer.id
+        return Button {
+            selectedWatch = false
+            address = peer.address
+            expectedPeerID = peer.id
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: TransferAppearance.deviceIcon(peer.identity.platform))
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(selected ? TransferAppearance.accent : PMColor.textMuted)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: peer.identity.name)
+                        .font(.system(size: 12.5, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(TransferAppearance.text)
+                        .lineLimit(1)
+                    Text(verbatim: peer.identity.platform)
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(TransferAppearance.accent)
+                        .pmFadeTransition(motion: .hover)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+            .pmRowBackground(selected: selected, cornerRadius: 6)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain).disabled(sender.busy)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
     #endif
 

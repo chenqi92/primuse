@@ -13955,24 +13955,13 @@ struct AddToPlaylistSheet: View {
     #if os(macOS)
     private var macBody: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("add_to_playlist")
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                    Text(verbatim: "\(song.title) · \(library.artistDisplayName(for: song) ?? String(localized: "unknown_artist"))")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(PMColor.textMuted)
-                        .lineLimit(1)
-                }
-                Spacer()
-                PMRoundBtn(icon: "xmark", size: 24, iconSize: 10.5, style: .plain,
-                           help: "cancel") { dismiss() }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            // 和其他 Mac 弹框同一种标题行(`MacSheetHeader`), 批量加入歌单那一块也是这个样子。
+            MacSheetHeader(
+                Text("add_to_playlist"),
+                subtitle: Text(verbatim: "\(song.title) · \(library.artistDisplayName(for: song) ?? String(localized: "unknown_artist"))"),
+                systemImage: "text.badge.plus",
+                onClose: { dismiss() }
+            )
 
             Button {
                 showNewPlaylist = true

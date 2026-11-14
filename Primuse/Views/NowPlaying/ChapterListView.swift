@@ -51,6 +51,26 @@ struct SpokenWordContentsView: View {
     var body: some View {
         Group {
             if isSheet {
+                #if os(macOS)
+                // Mac 弹框: 书名做标题, 「添加书签」在标题右边; 不套导航栈 —— 弹框里导航标题不显示,
+                // 工具栏两个按钮会被系统摆到底下、还是系统蓝。
+                VStack(spacing: 0) {
+                    MacSheetHeader(
+                        Text(verbatim: SpokenWordPlayerText.bookTitle(player)),
+                        systemImage: "list.bullet",
+                        onClose: { dismiss() }
+                    ) {
+                        addBookmarkButton
+                            .buttonStyle(.macSheet)
+                    }
+                    content
+                }
+                .frame(minWidth: 380, idealWidth: 420, minHeight: 440, idealHeight: 520)
+                // 里面的列表不铺系统白底, 和标题行同一个底色。
+                .scrollContentBackground(.hidden)
+                .background(PMColor.bg)
+                .tint(PMColor.brand)
+                #else
                 NavigationStack {
                     content
                         .navigationTitle(SpokenWordPlayerText.bookTitle(player))
@@ -66,6 +86,7 @@ struct SpokenWordContentsView: View {
                             }
                         }
                 }
+                #endif
             } else {
                 content
             }
@@ -102,7 +123,7 @@ struct SpokenWordContentsView: View {
                 selection: $tab,
                 primary: palette?.primary ?? .primary,
                 secondary: palette?.secondary ?? .secondary,
-                accent: palette?.accent ?? .accentColor,
+                accent: palette?.accent ?? spokenContentsSheetAccent,
                 leadingInset: Self.tabLeadingInset
             )
             // 和目录行之间的分隔线一样,从序号那一列起一直通到栏的右边。
@@ -326,7 +347,7 @@ struct SpokenWordContentsView: View {
             if !isSheet {
                 addBookmarkButton
                     .buttonStyle(.plain)
-                    .foregroundStyle(palette?.accent ?? Color.accentColor)
+                    .foregroundStyle(palette?.accent ?? spokenContentsSheetAccent)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
@@ -348,6 +369,16 @@ struct SpokenWordContentsView: View {
         .sensoryFeedback(.success, trigger: bookmarkFeedbackToken)
         #endif
     }
+}
+
+/// 弹出的目录面板(没有播放页配色时)的强调色: Mac 上跟品牌色, 系统的强调色在 Mac 上是另一种颜色。
+@MainActor
+private var spokenContentsSheetAccent: Color {
+    #if os(macOS)
+    PMColor.brand
+    #else
+    Color.accentColor
+    #endif
 }
 
 /// 正在听的这本书的目录,见 `SpokenWordContentsView.contentsPage`。
@@ -445,7 +476,7 @@ private struct SpokenWordContentsList: View, Equatable {
     }
 
     private func rowBackground(_ row: SpokenWordContentsRow) -> some View {
-        let tint = palette?.accent ?? Color.accentColor
+        let tint = palette?.accent ?? spokenContentsSheetAccent
         return (row.isCurrent ? tint.opacity(0.12) : Color.clear)
     }
 
@@ -478,7 +509,7 @@ struct SpokenWordContentsRowView: View {
     private var primary: Color { palette?.primary ?? .primary }
     private var secondary: Color { palette?.secondary ?? .secondary }
     private var tertiary: Color { palette?.tertiary ?? Color.secondary.opacity(0.75) }
-    private var accent: Color { palette?.accent ?? .accentColor }
+    private var accent: Color { palette?.accent ?? spokenContentsSheetAccent }
 
     private var isFinished: Bool { row.state == .finished }
 
@@ -568,7 +599,7 @@ struct SpokenWordBookmarkRowView: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "bookmark.fill")
                 .font(.footnote)
-                .foregroundStyle(palette?.accent ?? Color.accentColor)
+                .foregroundStyle(palette?.accent ?? spokenContentsSheetAccent)
                 .frame(minWidth: 22)
                 .padding(.top, 2)
                 .accessibilityHidden(true)

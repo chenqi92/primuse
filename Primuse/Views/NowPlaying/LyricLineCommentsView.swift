@@ -113,23 +113,30 @@ struct LyricLineCommentsSheet: View {
 
     @ViewBuilder private var platformBody: some View {
         #if os(macOS)
-        VStack(alignment: .leading, spacing: 18) {
-            Text(title)
-                .font(.title2.bold())
+        // 和其他 Mac 弹框同一套: 标题行、内容、底栏按钮(原来是 title2 大标题加系统按钮、材质底)。
+        VStack(spacing: 0) {
+            MacSheetHeader(Text(title), systemImage: "text.bubble")
             content
-            HStack {
-                Button("cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Spacer()
+                .padding(MacSheetMetrics.horizontalPadding)
+                .frame(maxHeight: .infinity, alignment: .top)
+            MacSheetFooter {
+                Button("cancel") { dismiss() }
+                    .buttonStyle(.macSheet)
+                    .keyboardShortcut(.cancelAction)
                 if selectedAnchor != nil {
-                    Button("save", action: save).keyboardShortcut(.defaultAction).disabled(loadFailed)
+                    Button("save", action: save)
+                        .buttonStyle(.macSheetPrimary)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(loadFailed)
                 } else {
                     exportButton
+                        .buttonStyle(.macSheetPrimary)
                 }
             }
         }
-        .padding(24)
         .frame(width: 480, height: 420)
-        .background(.regularMaterial)
+        .background(PMColor.bg)
+        .tint(PMColor.brand)
         .onAppear(perform: load)
         .alert("lyrics_comment_save_failed", isPresented: $showsError) { Button("ok") {} }
         #else

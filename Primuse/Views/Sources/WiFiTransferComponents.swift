@@ -76,25 +76,13 @@ struct TransferButtonStyle: PrimitiveButtonStyle {
     }
 }
 #else
+/// Mac 上传输、缓存同步两块工具面板里的按钮, 和其他弹框底栏的按钮同一个样子(`MacSheetButtonStyle`)。
 struct TransferButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
     var prominent = false
     var compact = false
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: TransferAppearance.bodySize, weight: .semibold))
-            .padding(.horizontal, compact ? 12 : 18)
-            #if os(macOS)
-            .frame(minHeight: compact ? 30 : 34)
-            #else
-            .frame(minHeight: 44)
-            #endif
-            .foregroundStyle(prominent ? Color.white : TransferAppearance.text)
-            .background(prominent ? TransferAppearance.accent : TransferAppearance.line.opacity(0.6),
-                        in: .rect(cornerRadius: 8))
-            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.4)
-            .contentShape(.rect)
+        MacSheetButtonStyle(kind: prominent ? .primary : .secondary).makeBody(configuration: configuration)
     }
 }
 

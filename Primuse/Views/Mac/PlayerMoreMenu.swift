@@ -1501,8 +1501,7 @@ struct MacEqualizerMenuPanel: View {
             Button("eq_use_effects_output") {
                 player.playbackSettings.outputMode = .effects
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+            .buttonStyle(.macSheetPrimary)
             .padding(.top, 2)
         }
         .padding(.horizontal, 12)
@@ -1688,21 +1687,21 @@ struct MacSingAlongPanel: View {
                 Text("sing_along_level_title")
                     .font(.caption)
                     .foregroundStyle(PMColor.textMuted)
-                Picker(selection: Binding(
-                    get: { singAlong.level },
-                    set: { level in
-                        singAlong.setLevel(level)
-                        singAlong.setEnabled(true)
-                    }
-                )) {
-                    ForEach(KaraokeSingAlongLevel.allCases, id: \.self) { level in
-                        Text(verbatim: KaraokeSingAlongText.levelTitle(level)).tag(level)
-                    }
-                } label: {
-                    Text("sing_along_level_title")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                // 和弹框里的分段选择同一种(不用系统的蓝色分段控件)。
+                MacSheetSegmentedControl(
+                    selection: Binding(
+                        get: { singAlong.level },
+                        set: { level in
+                            singAlong.setLevel(level)
+                            singAlong.setEnabled(true)
+                        }
+                    ),
+                    segments: KaraokeSingAlongLevel.allCases.map {
+                        .init(value: $0, title: KaraokeSingAlongText.levelTitle($0))
+                    },
+                    fillsWidth: true
+                )
+                .accessibilityLabel(Text("sing_along_level_title"))
             }
             ForEach(KaraokeSingAlongText.notes(singAlong), id: \.self) { note in
                 Text(verbatim: note)
@@ -1721,11 +1720,13 @@ struct MacSingAlongPanel: View {
                         Button("karaoke_ai_retry") { singAlong.retry() }
                     }
                 }
-                .controlSize(.small)
+                .buttonStyle(.macSheet)
             }
         }
         .padding(14)
         .frame(width: 280, alignment: .leading)
+        // 开关跟品牌色。
+        .tint(PMColor.brand)
         .focusEffectDisabled()
     }
 }

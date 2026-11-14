@@ -156,38 +156,7 @@ struct SongPlaybackRangeEditor: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    header
-                    purposePicker
-                    if songDuration > 0 {
-                        switch purpose {
-                        case .playbackRange:
-                            playbackRangePage
-                        case .clip:
-                            clipPage
-                        }
-                    } else {
-                        Text("playback_range_unknown_duration")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .navigationTitle(Text(verbatim: purpose == .clip ? Self.clipTabTitle : String(localized: "playback_range_title")))
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "done")) { dismiss() }
-                }
-            }
-        }
+        editorChrome
         .onAppear {
             // 曲库里还没有时长、打开时才从播放器知道的那种,结束点补成整首。
             if draft.end <= 0, songDuration > 0 {
@@ -215,11 +184,104 @@ struct SongPlaybackRangeEditor: View {
         }
         #endif
         #if os(macOS)
-        .frame(minWidth: 460, idealWidth: 500, minHeight: 420, idealHeight: 520)
+        .frame(minWidth: 480, idealWidth: 520, minHeight: 460, idealHeight: 560)
+        .background(PMColor.bg)
+        // 开关、进度、勾选跟品牌色,不用系统蓝。
+        .tint(PMColor.brand)
         #else
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
         #endif
+    }
+
+    @ViewBuilder
+    private var pageContent: some View {
+        if songDuration > 0 {
+            switch purpose {
+            case .playbackRange:
+                playbackRangePage
+            case .clip:
+                clipPage
+            }
+        } else {
+            Text("playback_range_unknown_duration")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var navigationTitle: String {
+        purpose == .clip ? Self.clipTabTitle : String(localized: "playback_range_title")
+    }
+
+    #if os(macOS)
+    /// Mac 弹框: 标题行写这首歌, 两页的切换在标题右边, 底栏只有「完成」。
+    /// 弹框里导航栈的标题不显示、工具栏的「完成」是系统蓝, 所以不套导航栈。
+    private var editorChrome: some View {
+        VStack(spacing: 0) {
+            MacSheetHeader(
+                Text(verbatim: song.title),
+                subtitle: song.artistName.flatMap { $0.isEmpty ? nil : Text(verbatim: $0) },
+                systemImage: purpose == .clip ? Self.clipSymbol : "timer",
+                onClose: { dismiss() }
+            ) {
+                MacSheetSegmentedControl(selection: purposeBinding, segments: [
+                    .init(value: .playbackRange, title: String(localized: "playback_range_title")),
+                    .init(value: .clip, title: Self.clipTabTitle),
+                ])
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    pageContent
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            MacSheetFooter {
+                Button(String(localized: "done")) { dismiss() }
+                    .buttonStyle(.macSheetPrimary)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+    #else
+    private var editorChrome: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    purposePicker
+                    pageContent
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .navigationTitle(Text(verbatim: navigationTitle))
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "done")) { dismiss() }
+                }
+            }
+        }
+    }
+    #endif
+
+    private var purposeBinding: Binding<Purpose> {
+        Binding(
+            get: { purpose },
+            set: { newValue in
+                highlightNotice = nil
+                exportError = nil
+                purpose = newValue
+                #if !os(macOS)
+                if newValue == .clip { detent = .large }
+                #endif
+            }
+        )
     }
 
     private var header: some View {
@@ -237,17 +299,7 @@ struct SongPlaybackRangeEditor: View {
     }
 
     private var purposePicker: some View {
-        Picker(selection: Binding(
-            get: { purpose },
-            set: { newValue in
-                highlightNotice = nil
-                exportError = nil
-                purpose = newValue
-                #if !os(macOS)
-                if newValue == .clip { detent = .large }
-                #endif
-            }
-        )) {
+        Picker(selection: purposeBinding) {
             Text("playback_range_title").tag(Purpose.playbackRange)
             Text(verbatim: Self.clipTabTitle).tag(Purpose.clip)
         } label: {
@@ -315,7 +367,7 @@ struct SongPlaybackRangeEditor: View {
             highlightRow(for: .playbackRange)
         }
         .padding(16)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .modifier(RangeEditorCardBackground())
     }
 
     // MARK: - Clip page
@@ -350,7 +402,7 @@ struct SongPlaybackRangeEditor: View {
             highlightRow(for: .clip)
         }
         .padding(16)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .modifier(RangeEditorCardBackground())
     }
 
     @ViewBuilder
@@ -436,7 +488,7 @@ struct SongPlaybackRangeEditor: View {
         Button { startExport(.clip) } label: {
             Label(String(localized: "clip_export_audio_mac"), systemImage: "square.and.arrow.down")
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.macSheetPrimary)
         #endif
     }
 
@@ -508,8 +560,7 @@ struct SongPlaybackRangeEditor: View {
                 .accessibilityLabel(Text("playback_range_set_to_current"))
             }
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .rangeEditorButtonStyle()
     }
 
     /// 「定位到高潮」:找的时候换成转圈和取消,没找到在下面说一句。
@@ -530,8 +581,7 @@ struct SongPlaybackRangeEditor: View {
                     Button { locateHighlight(for: page) } label: {
                         Label(String(localized: "playback_range_highlight"), systemImage: "waveform.badge.magnifyingglass")
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .rangeEditorButtonStyle()
                     .disabled(locatingPurpose != nil || exportPhase != nil)
                 }
             }
@@ -557,7 +607,7 @@ struct SongPlaybackRangeEditor: View {
                 Label(String(localized: "playback_range_preview_end"), systemImage: "forward.end.fill")
             }
         }
-        .buttonStyle(.bordered)
+        .rangeEditorButtonStyle(small: false)
     }
 
     // MARK: - Actions
@@ -745,6 +795,33 @@ extension SongPlaybackRangeEditor {
 private struct ExportedClip: Identifiable {
     let url: URL
     var id: URL { url }
+}
+
+/// 面板里两张卡片的底: Mac 上和其他弹框里的卡片一样是浅底细边。
+private struct RangeEditorCardBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content.pmCard(cornerRadius: PMRadius.l, overOpaqueBackground: true)
+        #else
+        content.background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        #endif
+    }
+}
+
+private extension View {
+    /// 面板里的小按钮: Mac 上是弹框统一的按钮, 不混系统的带边框按钮。
+    @ViewBuilder
+    func rangeEditorButtonStyle(small: Bool = true) -> some View {
+        #if os(macOS)
+        buttonStyle(.macSheet)
+        #else
+        if small {
+            buttonStyle(.bordered).controlSize(.small)
+        } else {
+            buttonStyle(.bordered)
+        }
+        #endif
+    }
 }
 
 /// 整首歌的时间轴,两个把手框出播放时间段;正在播这首时画出播放头。

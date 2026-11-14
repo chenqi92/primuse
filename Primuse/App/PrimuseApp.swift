@@ -3096,7 +3096,7 @@ private enum DebugMotionScript {
 /// - `PRIMUSE_DEBUG_BOOKMARK_AFTER=<秒>`：播放该秒数后在当前位置加一个书签。
 /// - `PRIMUSE_DEBUG_CHAPTER_SLEEP=1`：章节读出后设「本章结束后停止」。
 /// - `PRIMUSE_DEBUG_PRESENT=book`：有声书在播后弹出这本书的详情页,`PRIMUSE_DEBUG_BOOK_RATE=<倍数>` 先把这本书的语速设好。
-/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke|queue|clip|plexSignIn|podcasts|podcastShow|podcastEpisode|podcastDiscover|carouselSettings|tabEditor`：弹出对应页面
+/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|contentsSheet|aiPlaylist|shareExport|shareCode|batchEdit|tidy|batchReview|tidyReview|karaoke|queue|clip|plexSignIn|podcasts|podcastShow|podcastEpisode|podcastDiscover|carouselSettings|tabEditor`：弹出对应页面
 ///   （carouselSettings 是设置 › 播放器 › 转轮切换，tabEditor 是设置 › 外观里的底部标签栏编辑）
 ///   （clip 是正在播的歌的「铃声与导出」，配合 `PRIMUSE_DEBUG_CLIP_ACTION=highlight,ringtone` 依次定位高潮、制作铃声；
 ///   sleep 是睡眠定时面板，`PRIMUSE_DEBUG_SLEEP_MINUTES=<分钟>` 先开一个倒计时）
@@ -3258,7 +3258,9 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
                         return
                     }
                     if page == "karaoke" || page == "queue" || page == "clip" || page == "sleep" {
-                        guard services.playerService.currentSong != nil else { continue }
+                        // 「铃声与导出」在没有歌在放时拿曲库第一首, 截弹框不必真的放歌。
+                        guard services.playerService.currentSong != nil
+                            || (page == "clip" && !services.musicLibrary.musicSongs.isEmpty) else { continue }
                         if page == "sleep", let minutes = env["PRIMUSE_DEBUG_SLEEP_MINUTES"].flatMap(Int.init) {
                             services.playerService.scheduleSleep(minutes: minutes)
                         }
@@ -3367,10 +3369,24 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
             SleepTimerSheet()
                 .environment(services.playerService)
         case "clip":
-            if let song = services.playerService.currentSong {
+            if let song = services.playerService.currentSong ?? services.musicLibrary.musicSongs.first {
                 SongPlaybackRangeEditor(song: song, purpose: .clip)
                     .environment(services.playerService)
             }
+        case "contentsSheet":
+            // 目录弹框本身(不等有声书开播): 核对弹框外观用。
+            SpokenWordContentsView()
+        case "aiPlaylist":
+            AIPlaylistEditorView(existing: nil)
+        case "shareExport":
+            ListeningShareExportView(selection: ListeningShareSelection(
+                title: "Radio",
+                stations: services.radioStationsStore.stations.isEmpty
+                    ? [RadioStation(name: "Debug FM", streamURL: "https://radio.example.org/live")]
+                    : Array(services.radioStationsStore.stations.prefix(3))
+            ))
+        case "shareCode":
+            ListeningShareCodeImportView()
         case "batchEdit":
             BatchTagEditorView(songs: item.songs)
         case "tidy":

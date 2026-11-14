@@ -39,8 +39,9 @@ struct AudioCacheSyncView: View {
         VStack(spacing: 0) {
             #if os(macOS)
             header
-            #endif
+            #else
             modeSelector
+            #endif
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if direction == .send {
@@ -106,41 +107,32 @@ struct AudioCacheSyncView: View {
     // MARK: - Chrome
 
     #if os(macOS)
+    /// 标题行和「设备传输」同一个样子: 发送 / 接收的切换放在标题右边。
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "externaldrive.badge.wifi")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(PMColor.brand).frame(width: 34, height: 34)
-                .background(PMColor.brand.opacity(0.11), in: .rect(cornerRadius: 9))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(verbatim: text("cache_sync_title")).font(.system(size: 16, weight: .semibold))
-                Text(verbatim: text("cache_sync_subtitle")).font(.system(size: 11.5))
-                    .foregroundStyle(PMColor.textMuted).lineLimit(2)
-            }
-            Spacer(minLength: 20)
-            Button { dismiss() } label: {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(PMColor.textMuted).frame(width: 28, height: 28)
-                    .background(PMColor.glassBtn, in: .circle)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.cancelAction)
-            .help(text("cache_sync_close"))
-            .accessibilityLabel(text("cache_sync_close"))
+        MacSheetHeader(
+            Text(verbatim: text("cache_sync_title")),
+            subtitle: Text(verbatim: text("cache_sync_subtitle")),
+            systemImage: "externaldrive.badge.wifi"
+        ) {
+            MacSheetSegmentedControl(
+                selection: $direction,
+                segments: AudioCacheSyncDirection.allCases.map { .init(value: $0, title: $0.title) }
+            )
             .disabled(isBusy)
+            .accessibilityIdentifier("cacheSync.mode")
+            // 传输中不能关, 关闭键在这里单独禁用(公用的关闭键不带禁用状态)。
+            MacSheetCloseButton { dismiss() }
+                .disabled(isBusy)
         }
-        .padding(.horizontal, 20).padding(.vertical, 12)
-        .background(PMColor.bgElev)
-        .overlay(alignment: .bottom) { Rectangle().fill(PMColor.divider).frame(height: 0.5) }
     }
 
     private var footer: some View {
-        HStack(spacing: 12) {
+        MacSheetFooter {
             Label(text("cache_sync_encrypted_footer"), systemImage: "lock.shield")
                 .font(.system(size: TransferAppearance.captionSize))
                 .foregroundStyle(TransferAppearance.muted)
                 .lineLimit(1)
-            Spacer(minLength: 4)
+        } trailing: {
             if cacheSync.operation == .transferring {
                 Button(text("cache_sync_stop")) { cacheSync.cancelTransfer() }
                     .buttonStyle(TransferButtonStyle())
@@ -159,10 +151,6 @@ struct AudioCacheSyncView: View {
                 .pmAppearFade(.contentAppear)
             }
         }
-        .padding(.horizontal, 20).padding(.vertical, 10)
-        .frame(minHeight: 54)
-        .background(TransferAppearance.surface)
-        .overlay(alignment: .top) { Rectangle().fill(TransferAppearance.line).frame(height: 0.5) }
     }
     #endif
 
@@ -225,6 +213,7 @@ struct AudioCacheSyncView: View {
     }
     #endif
 
+    #if os(iOS)
     private var modeSelector: some View {
         Picker(text("cache_sync_title"), selection: $direction) {
             ForEach(AudioCacheSyncDirection.allCases, id: \.self) { direction in
@@ -233,17 +222,11 @@ struct AudioCacheSyncView: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        #if os(macOS)
-        .controlSize(.regular)
-        .fixedSize(horizontal: true, vertical: false)
-        .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        #else
         .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 10)
-        #endif
         .disabled(isBusy)
         .accessibilityIdentifier("cacheSync.mode")
     }
+    #endif
 
     // MARK: - Send
 

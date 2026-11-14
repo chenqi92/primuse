@@ -36,6 +36,7 @@
 		01D6951366B9D34A0CBC68FA /* LyricsDocumentSourcesResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA6B1DCD6B57A6C2829B3510 /* LyricsDocumentSourcesResolutionTests.swift */; };
 		01DAB45C3121DC21FFAB0E8A /* UgreenSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 404526370F939D7D68BB9F6E /* UgreenSource.swift */; };
 		02096085711DF2575F35A3C5 /* MacRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFCB474474519BE89590D828 /* MacRoute.swift */; };
+		1D09520D944ECCAF2C9E5B72 /* MacSheetChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3B835686D950BCAA410EF8 /* MacSheetChrome.swift */; };
 		0210526C4C63B35683700C39 /* SpokenWordTranscriptOffsetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE16D96830F7AC533B4DD362 /* SpokenWordTranscriptOffsetStore.swift */; };
 		022DBA47DAEBEEDB9A60298F /* PodcastModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D5809673781FF8F935A6E82 /* PodcastModels.swift */; };
 		0263AA1D48551B4AD9E88687 /* AppReviewPromptPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F822C83F2A4B56E2D9B1CC84 /* AppReviewPromptPolicy.swift */; };
@@ -734,6 +735,7 @@
 		4CBDA8F19CD5B69C0161648F /* SpokenWordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D24D75902E225384315DFADB /* SpokenWordStore.swift */; };
 		4D13C4499A17E5CA00486F07 /* PCloudSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1154675D8F2C4FDD945FD6A9 /* PCloudSource.swift */; };
 		4D2711DD289A920BBAFB66F3 /* MacRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFCB474474519BE89590D828 /* MacRoute.swift */; };
+		B5995E15C236FC19CED8CAA9 /* MacSheetChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3B835686D950BCAA410EF8 /* MacSheetChrome.swift */; };
 		4D3A4ACF3185CCECCC8DF8B7 /* STRMDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A808E934F62A6E8AB8548E11 /* STRMDescriptor.swift */; };
 		4D3A6BFB31C8699E95C3469D /* TVCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FFB43F39C3A62C7EBDB2D72 /* TVCredentialStore.swift */; };
 		4D42EE479CE9E73467A23862 /* LiquidBackdropPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3BAD1AFCC87A7AD28F689B /* LiquidBackdropPolicy.swift */; };
@@ -4311,6 +4313,7 @@
 		FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingDownloadDecoder.swift; sourceTree = "<group>"; };
 		FF9694CD231B4175BED85BEA /* ScraperResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperResult.swift; sourceTree = "<group>"; };
 		FFCB474474519BE89590D828 /* MacRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRoute.swift; sourceTree = "<group>"; };
+		1F3B835686D950BCAA410EF8 /* MacSheetChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSheetChrome.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -5521,6 +5524,7 @@
 				BEF5FD80A376FCFC69894248 /* MacRadioStationEditorView.swift */,
 				CF1F59E05FD764211336C02D /* MacRadioStationsView.swift */,
 				FFCB474474519BE89590D828 /* MacRoute.swift */,
+				1F3B835686D950BCAA410EF8 /* MacSheetChrome.swift */,
 				C45DBC29426E786513B5CFA0 /* MacSettingsView.swift */,
 				EBB01F11731477FA9B7F27D0 /* MacSidebar.swift */,
 				01ACB48074C4FBB9A9A9561B /* MacSongTableLayout.swift */,
@@ -8334,6 +8338,7 @@
 				DB18A0C7FC05D5856F733A90 /* MacRadioStationEditorView.swift in Sources */,
 				433E966DEA605413C5CFDBB6 /* MacRadioStationsView.swift in Sources */,
 				4D2711DD289A920BBAFB66F3 /* MacRoute.swift in Sources */,
+				B5995E15C236FC19CED8CAA9 /* MacSheetChrome.swift in Sources */,
 				983084B9EA621EC0D7E43351 /* MacSettingsView.swift in Sources */,
 				75E15015A39C26CB480FCCBA /* MacSidebar.swift in Sources */,
 				6BCCAEF923D3E723E9EB3563 /* MacSongTableLayout.swift in Sources */,
@@ -9197,6 +9202,7 @@
 				72F059AB959F4A3ADFF0DCC7 /* MacRadioStationEditorView.swift in Sources */,
 				ED5685157FF3ACC9ACA8421D /* MacRadioStationsView.swift in Sources */,
 				02096085711DF2575F35A3C5 /* MacRoute.swift in Sources */,
+				1D09520D944ECCAF2C9E5B72 /* MacSheetChrome.swift in Sources */,
 				C563EE8F814D118AC050F7C0 /* MacSettingsView.swift in Sources */,
 				E52F27E3149107BA3772CBB7 /* MacSidebar.swift in Sources */,
 				B3F80E4EFFA331FD5D5212E7 /* MacSongTableLayout.swift in Sources */,

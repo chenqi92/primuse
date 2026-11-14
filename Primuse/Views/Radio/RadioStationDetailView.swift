@@ -43,6 +43,15 @@ struct RadioStationDetailView: View {
                     }
                 }
             }
+            #if os(macOS)
+            // Mac 弹框: 弹框里导航标题不显示、「完成」会是底部的系统蓝按钮; 换成弹框标题行和关闭键。
+            .safeAreaInset(edge: .top, spacing: 0) {
+                MacSheetHeader(Text("radio_details"), systemImage: "dot.radiowaves.left.and.right", onClose: { close() })
+                    .background(PMColor.bg)
+            }
+            .background(PMColor.bg)
+            .tint(PMColor.brand)
+            #else
             .navigationTitle(Text("radio_details"))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -52,6 +61,7 @@ struct RadioStationDetailView: View {
                     Button("done") { close() }
                 }
             }
+            #endif
         }
         #if os(macOS)
         .frame(minWidth: 460, idealWidth: 500, minHeight: 600, idealHeight: 680)

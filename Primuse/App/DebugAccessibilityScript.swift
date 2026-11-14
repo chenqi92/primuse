@@ -33,6 +33,11 @@ import PrimuseKit
 /// - `layers`：按类名统计主窗口的图层树，系统私有类（背板、传送门、远端图层）逐个记下位置 ——
 ///   离屏截图某块画不出来时拿它找原因。
 /// - `trace:<标签>`：开始 1.5 秒的红绿灯状态取样（`PMWindowChromeTrace`），换页前先开好能看到换页前的样子。
+/// - `tool:<MacTool 原始值>`：打开这个工具弹框（cacheSync、deviceTransfer…），和菜单栏「工具」走同一条通知。
+/// - `press:<辅助功能标识>`：在所有窗口的辅助功能树里找标识是这个的元素，执行「按下」——
+///   打开页头按钮挂的弹框、弹出层用。
+/// - `windows:<png 路径前缀>`：把主窗口以外看得见的窗口（弹框、弹出层）各画一张 PNG，
+///   文件名后缀是序号和窗口类名 —— `snapshot:` 只拍主窗口，弹框是单独的窗口。
 /// - `quit`：退出 App。
 /// 每一步都写 🧪 日志。
 enum DebugAccessibilityScript {
@@ -89,8 +94,18 @@ enum DebugAccessibilityScript {
             reportLayers()
         case "trace":
             PMWindowChromeTrace.start(argument)
+        case "tool":
+            NotificationCenter.default.post(name: .primuseOpenMacTool, object: argument)
+            plog("🧪 AX script: tool -> \(argument)")
+        case "press":
+            await press(identifier: argument)
+        case "windows":
+            snapshotAuxiliaryWindows(prefix: argument)
         case "quit":
             NSApp.terminate(nil)
+            // 开着弹框时系统会拒绝退出, 等一下还在就直接结束进程。
+            try? await Task.sleep(for: .seconds(3))
+            exit(0)
         default:
             plog("🧪 AX script: unknown step \(step)")
         }
@@ -383,6 +398,64 @@ enum DebugAccessibilityScript {
         } catch {
             plog("🧪 AX script: snapshot failed \(error.localizedDescription)")
         }
+    }
+
+    @MainActor
+    private static func press(identifier: String) async {
+        await connectAccessibilityClient()
+        var match: NSObject?
+        func find(_ element: Any, depth: Int) {
+            guard match == nil, depth < 48, let object = element as? NSObject else { return }
+            if (send("accessibilityIdentifier", to: object) as? String) == identifier {
+                match = object
+                return
+            }
+            for child in (send("accessibilityChildren", to: object) as? [Any]) ?? [] {
+                find(child, depth: depth + 1)
+            }
+        }
+        for window in NSApp.windows where window.isVisible {
+            find(window, depth: 0)
+        }
+        guard let match else {
+            plog("🧪 AX script: press \(identifier) found nothing")
+            return
+        }
+        // SwiftUI 的按钮节点认 `accessibilityPerformPress`; 不认时再按动作名发一次。
+        let pressSelector = NSSelectorFromString("accessibilityPerformPress")
+        typealias Perform = @convention(c) (NSObject, Selector) -> Bool
+        var handled = match.responds(to: pressSelector)
+            && unsafeBitCast(match.method(for: pressSelector), to: Perform.self)(match, pressSelector)
+        let actionSelector = NSSelectorFromString("accessibilityPerformAction:")
+        typealias PerformAction = @convention(c) (NSObject, Selector, NSString) -> Bool
+        if !handled, match.responds(to: actionSelector) {
+            handled = unsafeBitCast(match.method(for: actionSelector), to: PerformAction.self)(
+                match, actionSelector, NSAccessibility.Action.press.rawValue as NSString
+            )
+        }
+        plog("🧪 AX script: press \(identifier) on \(type(of: match)) returned \(handled)")
+    }
+
+    @MainActor
+    private static func snapshotAuxiliaryWindows(prefix: String) {
+        let main = mainWindow
+        var index = 0
+        for window in NSApp.windows where window.isVisible && window !== main {
+            // 弹出层的材质底画在内容视图外面的边框视图上, 连它一起拍。
+            guard let view = window.contentView?.superview ?? window.contentView,
+                  view.bounds.width > 40, view.bounds.height > 40,
+                  let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            let path = "\(prefix)-\(index)-\(type(of: window)).png"
+            index += 1
+            do {
+                try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+                plog("🧪 AX script: window snapshot \(type(of: window)) \(view.bounds.size) -> \(path)")
+            } catch {
+                plog("🧪 AX script: window snapshot failed \(error.localizedDescription)")
+            }
+        }
+        if index == 0 { plog("🧪 AX script: windows found no auxiliary window") }
     }
 
     @MainActor
