@@ -75,33 +75,46 @@ struct MacImmersiveEffectPicker: View {
     // MARK: - 内容
 
     private var content: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            // 十四张卡片一次建好,不用 Lazy 容器:惰性容器会在滚动途中一行一行装载,
-            // 每装一行就是一轮 SwiftUI 更新,主窗口的自定义标题栏跟着逐帧重算,
-            // 左上角的红绿灯就会抖。卡片都停在静态帧,一次建好并不贵。
-            VStack(alignment: .leading, spacing: 18) {
-                ForEach(groups, id: \.collection.id) { group in
-                    VStack(alignment: .leading, spacing: 9) {
-                        Text(verbatim: group.collection.title)
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .tracking(0.5)
-                            .foregroundStyle(ImmersiveStagePalette.text.opacity(0.48))
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                // 十四张卡片一次建好,不用 Lazy 容器:惰性容器会在滚动途中一行一行装载,
+                // 每装一行就是一轮 SwiftUI 更新,主窗口的自定义标题栏跟着逐帧重算,
+                // 左上角的红绿灯就会抖。卡片都停在静态帧,一次建好并不贵。
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(groups, id: \.collection.id) { group in
+                        VStack(alignment: .leading, spacing: 9) {
+                            Text(verbatim: group.collection.title)
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .tracking(0.5)
+                                .foregroundStyle(ImmersiveStagePalette.text.opacity(0.48))
 
-                        ForEach(group.rows) { row in
-                            HStack(alignment: .top, spacing: Self.columnSpacing) {
-                                ForEach(row.effects) { card($0) }
-                                // 落单的一张不该被拉成整行宽,补一个等宽的空位。
-                                if row.effects.count < Self.columnCount {
-                                    Color.clear.frame(maxWidth: .infinity)
+                            ForEach(group.rows) { row in
+                                HStack(alignment: .top, spacing: Self.columnSpacing) {
+                                    ForEach(row.effects) { card($0) }
+                                    // 落单的一张不该被拉成整行宽,补一个等宽的空位。
+                                    if row.effects.count < Self.columnCount {
+                                        Color.clear.frame(maxWidth: .infinity)
+                                    }
                                 }
+                                .id(Self.rowAnchor(row.id))
                             }
                         }
                     }
                 }
+                .padding(.horizontal, Self.contentInset)
+                .padding(.top, 14)
+                .padding(.bottom, 16)
             }
-            .padding(.horizontal, Self.contentInset)
-            .padding(.top, 14)
-            .padding(.bottom, 16)
+            // 打开时把当前效果那一行滚到中间:两列排开也要翻好几屏,当前效果排在后面时
+            // 一打开看不到它,得从「原生」往下找。只在出现时定一次位,开着时不去抢用户正在看的位置。
+            .onAppear {
+                guard let rowID = selectedRowID else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    proxy.scrollTo(Self.rowAnchor(rowID), anchor: .center)
+                }
+            }
         }
     }
 
@@ -223,6 +236,21 @@ struct MacImmersiveEffectPicker: View {
             }
             return Group(collection: collection, rows: rows)
         }
+    }
+
+    /// 当前效果所在那一行；当前效果不在列表里时为 nil。
+    private var selectedRowID: String? {
+        for group in groups {
+            if let row = group.rows.first(where: { $0.effects.contains(selected) }) {
+                return row.id
+            }
+        }
+        return nil
+    }
+
+    /// 行的滚动锚点。行 id 由效果 id 拼成,单张一行时和卡片自己的 id 撞名,加个前缀分开。
+    private static func rowAnchor(_ rowID: String) -> String {
+        "effect-row:" + rowID
     }
 
     // MARK: - 尺寸

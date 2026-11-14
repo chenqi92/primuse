@@ -1179,11 +1179,17 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var readsRealtimeSpectrum: Bool { usesRealtimeSpectrum || self == .kineticLyrics }
     var usesShowcaseChrome: Bool { !isNative }
 
+    /// 效果面板里看到的顺序：按 `FullscreenEffectCollection` 分组排，原生打头。
+    /// 手机的效果抽屉和捏合换效果都按它走；macOS 的数字快捷键仍按声明顺序（`immersiveCases`）。
+    static let groupedCases: [FullscreenPlayerEffect] = FullscreenEffectCollection.allCases.flatMap(\.effects)
+
+    /// 捏合换效果：按抽屉里的顺序往前 / 往后挪，绕圈，跳过原生 —— 原生要换宿主，只能在抽屉里点选。
     func advanced(by offset: Int) -> FullscreenPlayerEffect {
-        let values = Self.immersiveCases
-        guard !values.isEmpty else { return self }
-        let index = values.firstIndex(of: self) ?? 0
-        let wrapped = (index + offset % values.count + values.count) % values.count
+        let values = Self.groupedCases.filter { !$0.isNative }
+        guard !values.isEmpty, offset != 0 else { return self }
+        // 原生排在抽屉第一张：从它往后是第一种效果，往前绕到最后一种。
+        let index = values.firstIndex(of: self) ?? (offset > 0 ? -1 : 0)
+        let wrapped = ((index + offset) % values.count + values.count) % values.count
         return values[wrapped]
     }
 

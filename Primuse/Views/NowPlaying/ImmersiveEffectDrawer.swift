@@ -10,6 +10,9 @@ import PrimuseKit
 /// 抽屉自己按视口决定贴哪一边（横屏贴尾侧、竖屏贴底部）与转轮方向；宿主只负责
 /// 把它放进自己的 ZStack、加 `if` 与同侧的滑入过渡，这样宿主才能准确知道它开着，
 /// 继续暂停浮动控件的自动隐藏。
+///
+/// 转轮首尾相接：清单排三遍，平时停在中间那一遍，滚停在前后两遍里就悄悄换回中间那遍的同一张
+/// （格子换算见 `ImmersiveEffectWheelLoop`）。打开时停在当前效果上，不用从第一张一张张翻过去。
 struct ImmersiveEffectDrawer: View {
     @Binding var selection: FullscreenPlayerEffect
     /// 要列出的效果，顺序即转轮顺序。
@@ -27,9 +30,15 @@ struct ImmersiveEffectDrawer: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
-    @State private var centeredID: String?
+    /// 停在转轮正中的那一格（三遍连着数，见 `ImmersiveEffectWheelLoop`）。
+    @State private var centeredSlot: Int?
     @State private var settleTask: Task<Void, Never>?
-    /// 每张卡排第几个换上真实画面(从打开时停着的那张往两边排)。
+    /// 转轮第一次出现时已经按打开时的那一格摆好；之后再出现（转屏换了横竖转轮）就按当时停着的那格摆。
+    @State private var hasPlacedWheel = false
+    private let loop: ImmersiveEffectWheelLoop
+    /// 打开时停的那一格：中间那一遍里的当前效果。
+    private let initialSlot: Int?
+    /// 每一格排第几个换上真实画面(从打开时停着的那格往两边排)。
     private let previewSequence: [Int]
 
     init(
@@ -50,17 +59,19 @@ struct ImmersiveEffectDrawer: View {
         self.safeAreaInsets = safeAreaInsets
         self.onPick = onPick
         self.onClose = onClose
-        // 打开时就停在当前效果上。放在 init 里而不是 onAppear，转轮第一次布局就位，
-        // 不会先显示第一张再跳一下。
+        // 打开时就停在当前效果上（中间那一遍里的那张）。初值放在 init 里，转轮第一次布局就能就位；
+        // 出现时再按格子明确滚一次（`placeWheel`），初值没被照着滚过去也不会停在第一张上。
         let initialCenterID = ImmersiveEffectDrawerPolicy.initialCenterID(
             effectIDs: effects.map(\.id),
             currentID: selection.wrappedValue.id
         )
-        _centeredID = State(initialValue: initialCenterID)
-        previewSequence = ImmersiveEffectDrawerPolicy.previewSequence(
-            count: effects.count,
-            centerIndex: effects.firstIndex { $0.id == initialCenterID } ?? 0
-        )
+        let initialItem = effects.firstIndex { $0.id == initialCenterID } ?? 0
+        let loop = ImmersiveEffectWheelLoop(itemCount: effects.count)
+        let initialSlot = loop.homeSlot(forItem: initialItem)
+        self.loop = loop
+        self.initialSlot = initialSlot
+        _centeredSlot = State(initialValue: initialSlot)
+        previewSequence = loop.previewSequence(centerItem: initialItem)
     }
 
     var body: some View {
@@ -71,8 +82,11 @@ struct ImmersiveEffectDrawer: View {
             .accessibilityElement(children: .contain)
             .accessibilityAddTraits(.isModal)
             .accessibilityAction(.escape, onClose)
-            .onChange(of: centeredID) { _, newValue in
-                scheduleSettle(newValue)
+            .onChange(of: centeredSlot) { oldSlot, newSlot in
+                // 滚停后换回中间那一遍时效果没变：正在等的那次应用照旧算数，不重新计时。
+                let candidate = effect(atSlot: newSlot)
+                guard candidate != effect(atSlot: oldSlot) else { return }
+                scheduleSettle(candidate?.id)
             }
             .onDisappear {
                 settleTask?.cancel()
@@ -80,13 +94,15 @@ struct ImmersiveEffectDrawer: View {
             }
             #if DEBUG
             .task {
-                // 取证:`PRIMUSE_DEBUG_EFFECT_DRAWER_SWEEP=1` 打开后转轮挨张转到头再转回来,录屏看卡片滑进来时
-                // 是不是已经画好(模拟器上没法用手指划)。
+                // 取证:`PRIMUSE_DEBUG_EFFECT_DRAWER_SWEEP=1` 打开后转轮往后挨张转一整圈再倒回来,录屏看卡片滑进来时
+                // 是不是已经画好、转过首尾相接处停稳后换回中间那一遍时有没有跳(模拟器上没法用手指划)。
                 guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_EFFECT_DRAWER_SWEEP"] == "1" else { return }
                 try? await Task.sleep(for: .seconds(0.4))
-                for effect in effects + effects.reversed() {
-                    guard !Task.isCancelled else { return }
-                    withAnimation(.easeInOut(duration: 0.35)) { centeredID = effect.id }
+                let steps = Array(repeating: 1, count: effects.count) + Array(repeating: -1, count: effects.count)
+                for step in steps {
+                    guard !Task.isCancelled, let slot = centeredSlot ?? initialSlot else { return }
+                    let next = min(max(slot + step, 0), loop.slotCount - 1)
+                    withAnimation(.easeInOut(duration: 0.35)) { centeredSlot = next }
                     try? await Task.sleep(for: .seconds(0.45))
                 }
             }
@@ -220,7 +236,7 @@ struct ImmersiveEffectDrawer: View {
                 .lineLimit(2)
         }
         .contentTransition(.opacity)
-        .pmAnimation(.control, value: centeredID)
+        .pmAnimation(.control, value: centeredEffect.id)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: Self.captionHeight, alignment: .topLeading)
     }
@@ -239,7 +255,7 @@ struct ImmersiveEffectDrawer: View {
                     .lineLimit(1)
             }
             .contentTransition(.opacity)
-            .pmAnimation(.control, value: centeredID)
+            .pmAnimation(.control, value: centeredEffect.id)
 
             Spacer(minLength: 8)
             closeButton
@@ -258,28 +274,34 @@ struct ImmersiveEffectDrawer: View {
     }
 
     private var centeredEffect: FullscreenPlayerEffect {
-        guard let centeredID, let match = effects.first(where: { $0.id == centeredID }) else {
-            return selection
+        effect(atSlot: centeredSlot) ?? selection
+    }
+
+    /// 第几格是哪种效果。三遍里同一种效果各占一格。
+    private func effect(atSlot slot: Int?) -> FullscreenPlayerEffect? {
+        guard let slot, let index = loop.itemIndex(forSlot: slot), effects.indices.contains(index) else {
+            return nil
         }
-        return match
+        return effects[index]
     }
 
     // MARK: - 转轮
 
     /// 卡片一次全建好、不用惰性容器:惰性容器滑到才建,建一张那一帧就卡一下,卡片是「闪」出来的。
     /// 全建好时重的只是真实画面,由 `ImmersiveEffectThumbnail` 排着队换上,打开那一下只画占位。
-    private var indexedEffects: [(offset: Int, element: FullscreenPlayerEffect)] {
-        Array(effects.enumerated())
+    /// 首尾相接要把清单排三遍,卡片也是三遍的数目;真实画面照样排队,离停着那格越远越晚换上。
+    private var wheelSlots: Range<Int> {
+        0..<loop.slotCount
     }
 
     private func verticalWheel(layout: ImmersiveEffectDrawerLayout) -> some View {
         // scrollTransition 的闭包是 @Sendable 的，读不到 @MainActor 的视图成员，
         // 所以先把要用到的环境取成局部值，闭包里只调用文件内的自由函数。
         let reducesMotion = reduceMotion
-        return ScrollView(.vertical, showsIndicators: false) {
+        return wheelScroller(vertical: true, margin: layout.wheelMargin) {
             VStack(spacing: Self.cardSpacing) {
-                ForEach(indexedEffects, id: \.element.id) { index, effect in
-                    card(effect, sequence: previewSequence[index], layout: layout)
+                ForEach(wheelSlots, id: \.self) { slot in
+                    card(atSlot: slot, layout: layout)
                         .scrollTransition(.interactive, axis: .vertical) { content, phase in
                             immersiveEffectWheelEffect(
                                 content,
@@ -290,20 +312,15 @@ struct ImmersiveEffectDrawer: View {
                         }
                 }
             }
-            .scrollTargetLayout()
         }
-        .scrollTargetBehavior(.viewAligned)
-        .scrollPosition(id: $centeredID, anchor: .center)
-        .contentMargins(.vertical, layout.wheelMargin, for: .scrollContent)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func horizontalWheel(layout: ImmersiveEffectDrawerLayout) -> some View {
         let reducesMotion = reduceMotion
-        return ScrollView(.horizontal, showsIndicators: false) {
+        return wheelScroller(vertical: false, margin: layout.wheelMargin) {
             HStack(spacing: Self.cardSpacing) {
-                ForEach(indexedEffects, id: \.element.id) { index, effect in
-                    card(effect, sequence: previewSequence[index], layout: layout)
+                ForEach(wheelSlots, id: \.self) { slot in
+                    card(atSlot: slot, layout: layout)
                         .scrollTransition(.interactive, axis: .horizontal) { content, phase in
                             immersiveEffectWheelEffect(
                                 content,
@@ -314,22 +331,84 @@ struct ImmersiveEffectDrawer: View {
                         }
                 }
             }
-            .scrollTargetLayout()
         }
-        .scrollTargetBehavior(.viewAligned)
-        .scrollPosition(id: $centeredID, anchor: .center)
-        .contentMargins(.horizontal, layout.wheelMargin, for: .scrollContent)
+    }
+
+    /// 两个方向的转轮共用的滚动行为：居中那格跟着 `centeredSlot` 走、按卡片对齐停下，
+    /// 出现时摆到该停的那格，滚停在前后两遍里就换回中间那一遍。
+    private func wheelScroller<Cards: View>(
+        vertical: Bool,
+        margin: CGFloat,
+        @ViewBuilder cards: () -> Cards
+    ) -> some View {
+        let stack = cards()
+        let axis: Axis.Set = vertical ? .vertical : .horizontal
+        let marginEdges: Edge.Set = vertical ? .vertical : .horizontal
+        return ScrollViewReader { proxy in
+            ScrollView(axis, showsIndicators: false) {
+                stack
+                    .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $centeredSlot, anchor: .center)
+            .contentMargins(marginEdges, margin, for: .scrollContent)
+            .onScrollPhaseChange { _, phase in
+                guard phase == .idle else { return }
+                recenterOnHomeCopy(proxy)
+            }
+            .onAppear { placeWheel(proxy) }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 转轮出现时摆到该停的那一格：第一次是打开时的当前效果，之后（转屏换了横竖转轮）是当时停着的那格。
+    ///
+    /// `scrollPosition` 的初值不一定会被第一次布局照着滚过去，那样转轮就停在第一张「原生」上，
+    /// 得从头一张张翻回当前效果；这里按格子明确滚一次。本来就停在那格时什么也不变，不会先显示第一张再跳。
+    private func placeWheel(_ proxy: ScrollViewProxy) {
+        let target = hasPlacedWheel ? (centeredSlot ?? initialSlot) : initialSlot
+        hasPlacedWheel = true
+        guard let target else { return }
+        jumpWheel(to: target, proxy: proxy)
+    }
+
+    /// 滚停在前后两遍里时，换回中间那一遍的同一张：卡片一模一样，不加动画看不出换过，
+    /// 下一次滑动前后又各有一整遍的余量。
+    private func recenterOnHomeCopy(_ proxy: ScrollViewProxy) {
+        guard let slot = centeredSlot, let home = loop.recenteredSlot(for: slot) else { return }
+        jumpWheel(to: home, proxy: proxy)
+    }
+
+    /// 不加动画地把某一格摆到正中。滚动位置和滚动本身一起改：只改位置时第一次布局可能不照着滚，
+    /// 只滚不改位置时说明文字要等滚动回报才跟上。
+    private func jumpWheel(to slot: Int, proxy: ScrollViewProxy) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            centeredSlot = slot
+            proxy.scrollTo(slot, anchor: .center)
+        }
+    }
+
+    private func card(atSlot slot: Int, layout: ImmersiveEffectDrawerLayout) -> some View {
+        let shown = effect(atSlot: slot) ?? selection
+        let sequence = previewSequence.indices.contains(slot) ? previewSequence[slot] : slot
+        return card(shown, slot: slot, sequence: sequence, layout: layout)
+            // 前后两遍只是转圈用的替身：朗读只念中间那一遍，同一种效果不会被念三次。
+            .accessibilityHidden(!loop.isHomeSlot(slot))
+            // 和 ForEach 给的身份同一个值，写明了 `ScrollViewProxy.scrollTo` 才稳稳找得到这一格。
+            .id(slot)
     }
 
     private func card(
         _ effect: FullscreenPlayerEffect,
+        slot: Int,
         sequence: Int,
         layout: ImmersiveEffectDrawerLayout
     ) -> some View {
         let isCurrent = effect == selection
         return Button {
-            selectCard(effect)
+            selectCard(effect, slot: slot)
         } label: {
             VStack(spacing: Self.cardNameSpacing) {
                 ImmersiveEffectThumbnail(
@@ -368,7 +447,8 @@ struct ImmersiveEffectDrawer: View {
 
     // MARK: - 应用
 
-    private func selectCard(_ effect: FullscreenPlayerEffect) {
+    /// `slot` 是点中的那一格：点了前后两遍里露出来的那张，就滚到那一格，停稳后再换回中间那一遍。
+    private func selectCard(_ effect: FullscreenPlayerEffect, slot: Int) {
         settleTask?.cancel()
         settleTask = nil
 
@@ -380,7 +460,7 @@ struct ImmersiveEffectDrawer: View {
             secondsSinceCenterChange: 0
         )
         if applies { selection = effect }
-        pmWithAnimation(.selection) { centeredID = effect.id }
+        pmWithAnimation(.selection) { centeredSlot = slot }
         onPick?(effect)
         if !appliesOnSettle { onClose() }
     }
@@ -398,7 +478,8 @@ struct ImmersiveEffectDrawer: View {
             } catch {
                 return
             }
-            guard !Task.isCancelled, centeredID == candidateID else { return }
+            // 比的是效果不是格子：等的时候换回了中间那一遍，仍是同一种效果。
+            guard !Task.isCancelled, effect(atSlot: centeredSlot)?.id == candidateID else { return }
 
             let elapsed = Date().timeIntervalSince(start)
             let applies = ImmersiveEffectDrawerPolicy.shouldApply(
@@ -466,10 +547,8 @@ private let immersiveEffectWheelRotationDegrees: Double = -28
 private let immersiveEffectWheelPerspective: CGFloat = 0.55
 
 extension ImmersiveEffectDrawer {
-    /// 手机的普通全屏歌词也必须能从效果面板切回。
-    static let fullscreenCases: [FullscreenPlayerEffect] = FullscreenEffectCollection
-        .allCases
-        .flatMap(\.effects)
+    /// 手机的普通全屏歌词也必须能从效果面板切回。按分组排，和捏合换效果（`advanced(by:)`）同一个顺序。
+    static let fullscreenCases: [FullscreenPlayerEffect] = FullscreenPlayerEffect.groupedCases
 
     /// 抽屉从哪一边滑入。宿主的 `if` 上要挂同侧的 `pmSlideTransition`。
     static func transitionEdge(for viewportSize: CGSize) -> Edge {

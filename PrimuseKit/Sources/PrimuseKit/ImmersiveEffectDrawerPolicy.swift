@@ -279,3 +279,89 @@ public enum ImmersiveEffectDrawerPolicy {
         return value
     }
 }
+
+/// 效果转轮首尾相接用的格子换算。
+///
+/// 做法是把效果清单原样排三遍，平时停在中间那一遍：往后滚过最后一张接着是下一遍的第一张，
+/// 往前反过来。滚停时如果落在前后两遍里，就不加动画换回中间那一遍的同一张 —— 卡片一模一样，
+/// 看不出换过，下一次滑动又从中间出发，前后各有一整遍的余量，一次滑动一般滑不到头。
+///
+/// 格子（slot）是转轮里从头数的第几张，三遍连着数；同一种效果在三遍里各占一格，
+/// 视图拿格子当滚动位置的身份，卡片身份就不会重复。
+public struct ImmersiveEffectWheelLoop: Sendable, Equatable {
+    /// 不重复的效果有几种。
+    public let itemCount: Int
+    /// 清单排了几遍：两种以上排三遍转圈，只有一种（或没有）就排一遍、不转圈。
+    public let copies: Int
+
+    public init(itemCount: Int) {
+        let count = max(itemCount, 0)
+        self.itemCount = count
+        self.copies = count > 1 ? 3 : 1
+    }
+
+    /// 是不是首尾相接。
+    public var loops: Bool { copies > 1 }
+
+    /// 转轮里一共几格。
+    public var slotCount: Int { itemCount * copies }
+
+    /// 平时停的那一遍（三遍时是中间那遍）。
+    public var homeCopy: Int { copies / 2 }
+
+    /// 第 `slot` 格是第几种效果；格子越界时为 nil。
+    public func itemIndex(forSlot slot: Int) -> Int? {
+        guard itemCount > 0, slot >= 0, slot < slotCount else { return nil }
+        return slot % itemCount
+    }
+
+    /// 这一格在不在平时停的那一遍里。前后两遍只是转圈用的替身，无障碍朗读跳过它们。
+    public func isHomeSlot(_ slot: Int) -> Bool {
+        guard itemIndex(forSlot: slot) != nil else { return false }
+        return slot / itemCount == homeCopy
+    }
+
+    /// 平时停的那一遍里第 `item` 种效果在第几格；越界时为 nil。
+    public func homeSlot(forItem item: Int) -> Int? {
+        guard item >= 0, item < itemCount else { return nil }
+        return homeCopy * itemCount + item
+    }
+
+    /// 滚停在 `slot` 之后要不要换回平时停的那一遍：落在前后两遍里时返回中间那遍里同一种效果的格子，
+    /// 已经在中间（或不转圈、格子越界）时为 nil。
+    public func recenteredSlot(for slot: Int) -> Int? {
+        guard loops,
+              let item = itemIndex(forSlot: slot),
+              let home = homeSlot(forItem: item),
+              home != slot else { return nil }
+        return home
+    }
+
+    /// 三遍里每一格排第几个换上真实画面，按格子给出名次。
+    ///
+    /// 从打开时停着的那一格（中间那遍里的 `centerItem`）往两边一格一格排，后面那格先于前面那格，
+    /// 和 `ImmersiveEffectDrawerPolicy.previewSequence` 一样。多出来的一条：排到前后两遍里的某一格时，
+    /// 它在中间那遍里的同一张紧跟着排 —— 滚停后换回中间那遍时，换上的那张已经画好，不会从真实画面
+    /// 退回占位。
+    public func previewSequence(centerItem: Int) -> [Int] {
+        guard itemCount > 0 else { return [] }
+        let center = homeCopy * itemCount + min(max(centerItem, 0), itemCount - 1)
+        var ranks = Array(repeating: -1, count: slotCount)
+        var rank = 0
+
+        for distance in 0..<slotCount {
+            let candidates = distance == 0 ? [center] : [center + distance, center - distance]
+            for slot in candidates {
+                guard slot >= 0, slot < slotCount, ranks[slot] < 0 else { continue }
+                ranks[slot] = rank
+                rank += 1
+                if let home = recenteredSlot(for: slot), ranks[home] < 0 {
+                    ranks[home] = rank
+                    rank += 1
+                }
+            }
+            if rank >= slotCount { break }
+        }
+        return ranks
+    }
+}
