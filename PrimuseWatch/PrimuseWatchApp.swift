@@ -108,7 +108,9 @@ private struct WatchPlaybackPager: View {
         }
         .ignoresSafeArea(.container, edges: .bottom)
         .navigationTitle(navigationTitle)
-        .toolbarBackground(selection == .seek ? .hidden : .automatic, for: .navigationBar)
+        // 三页共用一条导航栏:系统按队列列表滚没滚动决定画不画模糊底色,队列一进来就滚到正在放的那首,
+        // 封面页顶上也跟着出现一条模糊带(watchOS 11)。三页都不画底色,队列行在列表里自己淡出。
+        .toolbarBackground(.hidden, for: .navigationBar)
         .containerBackground(for: .navigation) {
             WatchNowPlayingBackdrop(cover: store.coverImage, accent: store.accent)
         }

@@ -48,6 +48,8 @@ struct LibraryWatchView: View {
                         .listRowBackground(Color.clear)
                 }
             }
+            // 导航栏不画底色:行滚到时间和标题底下时渐渐淡掉,不压着字。
+            .mask { WatchTopFadeMask() }
             .onAppear {
                 if let currentIndex { proxy.scrollTo(currentIndex, anchor: .center) }
             }
@@ -69,6 +71,24 @@ struct LibraryWatchView: View {
             }
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+/// 列表顶上的淡出遮罩:停在原位的第一行完整显示,往上滚进导航栏那一段才逐渐透明。
+/// 列表的区域不含导航栏时 `safeAreaInsets.top` 为 0,什么也不遮。
+private struct WatchTopFadeMask: View {
+    var body: some View {
+        GeometryReader { geometry in
+            let fadeEnd = geometry.safeAreaInsets.top
+            let fadeLength = min(18, fadeEnd)
+            VStack(spacing: 0) {
+                Color.clear.frame(height: max(0, fadeEnd - fadeLength))
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: fadeLength)
+                Color.black
+            }
+            .ignoresSafeArea()
         }
     }
 }
