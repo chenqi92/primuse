@@ -7397,3 +7397,4 @@
 "library_insight_export_unavailable_title" = "ส่งออกคำอธิบายนี้ไม่ได้";
 "library_insight_export_unavailable_message" = "คำอธิบายจาก Apple Music จะแสดงเฉพาะใน Primuse และไม่ส่งออกเป็นไฟล์ คำอธิบายที่ AI เขียน ดึงจาก Last.fm หรือวิกิพีเดีย หรือที่คุณเขียนเองส่งออกได้";
 "library_insight_export_wikipedia_attribution_format" = "ที่มา: ผู้ร่วมเขียนวิกิพีเดีย %@ เผยแพร่ภายใต้สัญญาอนุญาต CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
+"player_controls_effect_picker_karaoke_footer" = "วางได้เฉพาะปุ่มที่ไม่ออกจากหน้านี้ ยกเว้นคาราโอเกะซึ่งจะออกจากโหมดเต็มหน้าจอก่อนแล้วจึงเปิด หากเลือกปุ่มที่อยู่ตำแหน่งอื่นแล้ว สองช่องจะสลับกัน";

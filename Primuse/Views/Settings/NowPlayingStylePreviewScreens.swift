@@ -177,7 +177,8 @@ struct ImmersiveLyricsPreviewScreen: View {
 // MARK: - 全屏效果
 
 /// 全屏效果页(竖屏):设置里选的那种效果画满整屏(选的是原生全屏时拿第一种效果来演示),
-/// 顶上收起、效果抽屉与能换的一格,底下玻璃胶囊里的播放键两侧各一格。版面照 `ImmersivePlayerView.chrome`。
+/// 顶上收起、效果抽屉与能换的一格,底下玻璃胶囊里的播放键两侧各一格,胶囊下面那一排两头各一格。
+/// 版面照 `ImmersivePlayerView.chrome`。
 struct EffectPlayerPreviewScreen: View {
     let context: NowPlayingPreviewContext
 
@@ -209,6 +210,11 @@ struct EffectPlayerPreviewScreen: View {
         let palette = ImmersiveArtworkPalette(primary: theme.accentColor, secondary: theme.secondaryDarkAccent)
         let ink = ImmersiveStagePalette.ink
         let pillEdges = showsCell(.pillLeading) || showsCell(.pillTrailing)
+        let bottomRow = showsCell(.bottomRowLeading) || showsCell(.bottomRowTrailing)
+        // 舞台给控件让出的高度照 `ImmersivePlayerView.controlsInset`:胶囊下面那一排有按钮时多让一截。
+        let stageControlsInset: CGFloat = controls.hasBottomRow
+            ? metrics.s(106) + ImmersivePlayerView.bottomRowExtraHeight
+            : metrics.s(106)
 
         ZStack {
             ImmersiveDemoStage.make(
@@ -218,7 +224,7 @@ struct EffectPlayerPreviewScreen: View {
                 levels: ImmersiveDemoStage.baseLevels,
                 elapsed: 108,
                 animates: context.animatesStage,
-                controlsInset: metrics.s(106),
+                controlsInset: stageControlsInset,
                 song: .current(player: player, library: library)
             )
             .frame(width: canvas.size.width, height: canvas.size.height)
@@ -243,26 +249,38 @@ struct EffectPlayerPreviewScreen: View {
 
                 Spacer(minLength: 0)
 
-                ImmersiveGlassPill(horizontalPadding: metrics.s(18), verticalPadding: metrics.s(8)) {
-                    HStack(spacing: metrics.s(18)) {
-                        if pillEdges {
-                            pillEdge(.pillLeading, ink: ink)
-                        }
-                        pillGlyph("backward.fill", ink: ink)
-                        ZStack {
-                            Circle().fill(palette.primary.opacity(0.06))
-                            Circle().strokeBorder(palette.primary.opacity(0.72), lineWidth: 1.2)
-                            Image(systemName: "pause.fill")
-                                .font(.system(size: 48 * 0.38, weight: .semibold))
-                                .foregroundStyle(palette.primary)
-                        }
-                        .frame(width: 48, height: 48)
-                        pillGlyph("forward.fill", ink: ink)
-                        if pillEdges {
-                            pillEdge(.pillTrailing, ink: ink)
+                // 胶囊下面那一排两头和胶囊左右对齐:整块取胶囊的宽度,那一排再铺满。
+                VStack(spacing: 8) {
+                    ImmersiveGlassPill(horizontalPadding: metrics.s(18), verticalPadding: metrics.s(8)) {
+                        HStack(spacing: metrics.s(18)) {
+                            if pillEdges {
+                                pillEdge(.pillLeading, ink: ink)
+                            }
+                            pillGlyph("backward.fill", ink: ink)
+                            ZStack {
+                                Circle().fill(palette.primary.opacity(0.06))
+                                Circle().strokeBorder(palette.primary.opacity(0.72), lineWidth: 1.2)
+                                Image(systemName: "pause.fill")
+                                    .font(.system(size: 48 * 0.38, weight: .semibold))
+                                    .foregroundStyle(palette.primary)
+                            }
+                            .frame(width: 48, height: 48)
+                            pillGlyph("forward.fill", ink: ink)
+                            if pillEdges {
+                                pillEdge(.pillTrailing, ink: ink)
+                            }
                         }
                     }
+                    if bottomRow {
+                        HStack(spacing: 0) {
+                            bottomRowCell(.bottomRowLeading, ink: ink)
+                            Spacer(minLength: 12)
+                            bottomRowCell(.bottomRowTrailing, ink: ink)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
                 }
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.bottom, max(canvas.bottomSafeArea + 10, 18))
             }
         }
@@ -283,6 +301,23 @@ struct EffectPlayerPreviewScreen: View {
             .foregroundStyle(ink.opacity(0.88))
             .frame(width: 38, height: 38)
             .accessibilityHidden(true)
+    }
+
+    /// 胶囊下面那一排的一格:和右上角同一种玻璃圆钮。
+    private func bottomRowCell(_ slot: NowPlayingEffectPlayerSlot, ink: Color) -> some View {
+        PreviewSlotCell(target: .effect(slot), context: context, cornerRadius: 22) {
+            Group {
+                if let action = controls.action(in: slot) {
+                    ImmersiveGlassActionLabel(symbol: Self.symbol(action))
+                } else {
+                    PreviewEmptySlotFace(
+                        showsPlaceholder: context.showsPlaceholder(for: .effect(slot)),
+                        tint: ink.opacity(0.5)
+                    )
+                    .frame(width: 44, height: 44)
+                }
+            }
+        }
     }
 
     private func pillEdge(_ slot: NowPlayingEffectPlayerSlot, ink: Color) -> some View {

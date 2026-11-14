@@ -7491,3 +7491,4 @@
 "library_insight_export_unavailable_title" = "Diese Einführung kann nicht exportiert werden";
 "library_insight_export_unavailable_message" = "Einführungen aus Apple Music werden nur in Primuse angezeigt und nicht in Dateien exportiert. Einführungen, die von KI geschrieben, aus Last.fm oder Wikipedia abgerufen oder selbst verfasst wurden, können exportiert werden.";
 "library_insight_export_wikipedia_attribution_format" = "Quelle: Wikipedia-Autoren, %@. Lizenziert unter CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
+"player_controls_effect_picker_karaoke_footer" = "Hier passen nur Tasten, die diese Ansicht nicht verlassen. Ausnahme ist Karaoke: Es beendet zuerst das Vollbild und öffnet sich dann. Wählst du eine Taste, die schon woanders liegt, tauschen die beiden Plätze.";

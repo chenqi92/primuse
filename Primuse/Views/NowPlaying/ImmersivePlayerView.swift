@@ -28,7 +28,7 @@ struct ImmersivePlayerView: View {
     var occlusions: [OcclusionAvoidancePolicy.Region] = []
     /// 封面流(#191)里长按：打开正在播的这张专辑的全部歌曲。播放页给，nil 时长按不做事。
     var onShowAlbum: (() -> Void)? = nil
-    /// 右上角与底部播放胶囊两侧放什么(设置 › 播放器 › 播放页按钮 › 全屏效果)。
+    /// 右上角、底部播放胶囊两侧与胶囊下面那一排放什么(设置 › 播放器 › 播放页按钮 › 全屏效果)。
     var chromeControls: NowPlayingEffectPlayerControls = .default
     /// 队列以外的按钮由播放页画、走播放页同一套动作(弹出的面板也挂在播放页上)。nil 时那几格空着。
     var chromeControl: ((NowPlayingControlAction, ImmersiveChromeControlPlacement, Color) -> AnyView)? = nil
@@ -552,8 +552,9 @@ struct ImmersivePlayerView: View {
     }
 
     /// 画面底部要给控件让出的高度。控件淡出后也保留,避免文字来回跳。
+    /// 胶囊下面那一排有按钮时多让出那一排比状态行高出的一截;那一排只随设置出现,不随控件显隐变。
     private func controlsInset(_ metrics: ImmersiveStageMetrics) -> CGFloat {
-        switch metrics.layout {
+        let base: CGFloat = switch metrics.layout {
         case .wide:
             metrics.s(presentationEffect.chromeFamily == .deck ? 184 : (presentationEffect.usesShowcaseChrome ? 112 : 142))
         case .phoneLandscape:
@@ -567,6 +568,7 @@ struct ImmersivePlayerView: View {
             case .showcase: metrics.s(106)
             }
         }
+        return showsBottomRow ? base + Self.bottomRowExtraHeight : base
     }
 
     // MARK: - 控件
@@ -574,9 +576,11 @@ struct ImmersivePlayerView: View {
     private func chrome(metrics: ImmersiveStageMetrics) -> some View {
         let topInset = topChromeInset(metrics)
         let bottomInset = max(metrics.safeArea.bottom + 10, 18)
+        // 胶囊下面那一排有按钮时底部控件高出一截,让遮挡区的那一段跟着往上算。
+        let bottomRowHeight: CGFloat = showsBottomRow ? Self.bottomRowExtraHeight : 0
         let bottomClearance = OcclusionAvoidancePolicy.sideClearance(
             regions: occlusions,
-            bandMinY: Double(metrics.size.height - bottomInset) - 72,
+            bandMinY: Double(metrics.size.height - bottomInset - bottomRowHeight) - 72,
             bandMaxY: Double(metrics.size.height),
             width: Double(metrics.size.width)
         )
@@ -801,20 +805,72 @@ struct ImmersivePlayerView: View {
 
     @ViewBuilder
     private func bottomChrome(metrics: ImmersiveStageMetrics) -> some View {
-        VStack(spacing: 6) {
-            showcaseControls(metrics: metrics)
-            if !presentsOnExternalDisplay {
-                NowPlayingStatusLine(
-                    showsSleepTimer: !player.currentItemIsSpokenWord,
-                    showsOutput: true,
-                    source: player.currentSong.flatMap { song in
-                        guard sourcesStore.sources.count > 1,
-                              let source = sourcesStore.source(id: song.sourceID) else { return nil }
-                        return NowPlayingSourceLabel(iconName: source.type.iconName, name: source.name)
-                    },
-                    tint: chromeInk.opacity(0.6)
-                )
+        if showsBottomRow {
+            // 胶囊下面多一排:两头的按钮和胶囊左右对齐,状态行夹在中间。整块先取胶囊的宽度
+            // (`fixedSize`,那一排自己只要两颗按钮宽),那一排再铺满这个宽度;整块照胶囊原来的位置靠边。
+            VStack(spacing: 8) {
+                showcaseControlSurface(metrics: metrics)
+                bottomRow
             }
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(maxWidth: .infinity, alignment: showcaseControlAlignment(metrics))
+        } else {
+            VStack(spacing: 6) {
+                showcaseControls(metrics: metrics)
+                if !presentsOnExternalDisplay {
+                    statusLine
+                }
+            }
+        }
+    }
+
+    private var statusLine: some View {
+        NowPlayingStatusLine(
+            showsSleepTimer: !player.currentItemIsSpokenWord,
+            showsOutput: true,
+            source: player.currentSong.flatMap { song in
+                guard sourcesStore.sources.count > 1,
+                      let source = sourcesStore.source(id: song.sourceID) else { return nil }
+                return NowPlayingSourceLabel(iconName: source.type.iconName, name: source.name)
+            },
+            tint: chromeInk.opacity(0.6)
+        )
+    }
+
+    /// 播放胶囊下面那一排有没有按钮(设置 › 播放器 › 播放页按钮 › 全屏效果,两格默认空着)。
+    /// 两格都空着时没有这一排,版面和原来一样。外接屏上不出控件。
+    private var showsBottomRow: Bool {
+        chromeControl != nil && !presentsOnExternalDisplay && chromeControls.hasBottomRow
+    }
+
+    /// 那一排比原来只有状态行时高出的一截:按钮 44 + 间距 8,减去状态行与它上面的间距。
+    /// 设置里的预览(`EffectPlayerPreviewScreen`)按同一个值给舞台让位。
+    static let bottomRowExtraHeight: CGFloat = 36
+
+    /// 胶囊下面那一排。按钮是和右上角同一种玻璃圆钮:这一排没有胶囊垫底,直接压在舞台上。
+    /// 状态行放在覆盖层里,再长也不会把这一排撑得比胶囊宽,放不下就截断。
+    private var bottomRow: some View {
+        HStack(spacing: 0) {
+            bottomRowControl(.bottomRowLeading)
+            Spacer(minLength: 12)
+            bottomRowControl(.bottomRowTrailing)
+        }
+        .frame(maxWidth: .infinity)
+        .overlay {
+            statusLine
+                .padding(.horizontal, 44 + 10)
+        }
+    }
+
+    /// 只摆了一头时另一头留同样大的空位,状态行仍在正中。
+    @ViewBuilder
+    private func bottomRowControl(_ slot: NowPlayingEffectPlayerSlot) -> some View {
+        if let action = chromeControls.action(in: slot) {
+            configuredChromeControl(action, placement: .bottomRow)
+        } else {
+            Color.clear
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
         }
     }
 
@@ -1409,7 +1465,8 @@ struct ImmersivePlayerView: View {
     }
 
     private var controlsInsetForHitTesting: CGFloat {
-        presentationEffect.chromeFamily == .lyrics ? 34 : 112
+        let base: CGFloat = presentationEffect.chromeFamily == .lyrics ? 34 : 112
+        return showsBottomRow ? base + Self.bottomRowExtraHeight : base
     }
 
     private func surfaceDrag(in size: CGSize, metrics: ImmersiveStageMetrics) -> some Gesture {
@@ -1889,6 +1946,8 @@ private struct ImmersiveLibraryCountObserver: View {
 enum ImmersiveChromeControlPlacement {
     case top
     case pill
+    /// 播放胶囊下面那一排。
+    case bottomRow
 }
 
 #endif

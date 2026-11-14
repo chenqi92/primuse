@@ -2139,6 +2139,27 @@ struct NowPlayingView: View {
         onMinimize?()
     }
 
+    #if os(iOS)
+    /// 全屏效果页上点卡拉 OK:先收起全屏回到播放页,再和播放页上一样盖上卡拉 OK,不在全屏上面再叠一层。
+    /// 全屏收起后普通播放页重新装上,转轮回到进全屏前那一面;那一面是舞台的话它自己那一份卡拉 OK
+    /// 先别挂(`isKaraokeHandedOff`),盖上的这一份收起后再挂回来 —— 同一时刻只能有一场卡拉 OK。
+    private func presentKaraokeLeavingFullscreenPlayer() {
+        guard isFullscreenPlayerPresented else {
+            showKaraoke = true
+            return
+        }
+        if usesPlayerCarousel, carouselState.currentOrSuspendedPage == .panel(.stage) {
+            carouselState.isKaraokeHandedOff = true
+        }
+        dismissFullscreenPlayer()
+        // 等全屏那一层卸下(频谱、舞台随之停下)再盖上,和从转轮舞台进卡拉 OK 全屏同一个间隔。
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            showKaraoke = true
+        }
+    }
+    #endif
+
     /// 分享页打开期间可能已经换歌：海报取的是当前这首的歌词，只在分享的还是它时才给入口。
     private func canShareLyricPoster(for song: Song) -> Bool {
         player.currentSong?.id == song.id && !lyrics.isEmpty
@@ -4045,10 +4066,12 @@ struct NowPlayingView: View {
                         },
                         chromeControls: NowPlayingControlLayoutCache.effectPlayerControls(for: effectPlayerControlStorage),
                         chromeControl: { action, placement, ink in
-                            AnyView(controlButton(
-                                action,
-                                style: placement == .top ? .effectGlass(ink: ink) : .effectPill(ink: ink)
-                            ))
+                            // 右上角和胶囊下面那一排都直接压在舞台上,用玻璃圆钮;胶囊里的和上一首、下一首同一种画法。
+                            let style: NowPlayingControlStyle = switch placement {
+                            case .top, .bottomRow: .effectGlass(ink: ink)
+                            case .pill: .effectPill(ink: ink)
+                            }
+                            return AnyView(controlButton(action, style: style))
                         }
                     )
                     .zIndex(100)
@@ -11069,7 +11092,16 @@ struct NowPlayingView: View {
             player.advanceABRepeat()
         case .sleepTimer: showSleepTimer = true
         case .equalizer: openEqualizer()
-        case .karaoke: showKaraoke = true
+        case .karaoke:
+            #if os(iOS)
+            if style.isOnFullscreenEffectPage {
+                presentKaraokeLeavingFullscreenPlayer()
+            } else {
+                showKaraoke = true
+            }
+            #else
+            showKaraoke = true
+            #endif
         case .fullScreen: presentImmersiveLyrics()
         case .addToPlaylist: addCurrentSongToPlaylist()
         case .share: shareSong = player.currentSong
@@ -14369,6 +14401,14 @@ private enum NowPlayingControlStyle: Equatable {
     case effectGlass(ink: Color)
     /// 全屏效果页底部播放胶囊里播放键两侧:和上一首、下一首同一种画法。
     case effectPill(ink: Color)
+
+    /// 全屏效果页上的按钮(右上角、播放胶囊两侧、胶囊下面那一排)。
+    var isOnFullscreenEffectPage: Bool {
+        switch self {
+        case .effectGlass, .effectPill: true
+        case .bar, .wideBar, .edge, .header, .glass, .column: false
+        }
+    }
 
     /// 点队列键直接弹出半屏的「接下来播放」,不走分栏右栏。
     var opensQueueSheet: Bool {

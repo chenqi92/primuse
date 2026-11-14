@@ -1058,7 +1058,8 @@ private struct NowPlayingSlotPickerSheet: View {
                     return NowPlayingEffectPlayerSlot.allCases
                         .first { $0 != slot && controls.action(in: $0) == action }?.editorTitleKey
                 },
-                footer: "player_controls_effect_picker_footer"
+                // 卡拉OK 也能放:点了先退出全屏再打开,说明里写明这个例外。
+                footer: "player_controls_effect_picker_karaoke_footer"
             ) { choice in
                 effectStorage = controls.placing(choice.pickedAction, in: slot).encoded()
                 onDone()
@@ -2600,6 +2601,9 @@ extension NowPlayingEffectPlayerSlot {
         case .topTrailing: "player_controls_slot_effect_top"
         case .pillLeading: "player_controls_slot_dock_leading"
         case .pillTrailing: "player_controls_slot_dock_trailing"
+        // 胶囊下面那一排(状态行两头)从左往右第 1、2 个,和播放页最下面那一排同样的叫法。
+        case .bottomRowLeading: NowPlayingControlPosition.bar(0).editorTitleKey
+        case .bottomRowTrailing: NowPlayingControlPosition.bar(1).editorTitleKey
         }
     }
 }

@@ -7397,3 +7397,4 @@
 "library_insight_export_unavailable_title" = "يتعذّر تصدير هذه النبذة";
 "library_insight_export_unavailable_message" = "النبذات الواردة من Apple Music تُعرض في Primuse فقط ولا تُصدَّر إلى ملفات. يمكن تصدير النبذات التي كتبها الذكاء الاصطناعي أو جُلبت من Last.fm أو ويكيبيديا أو كتبتها بنفسك.";
 "library_insight_export_wikipedia_attribution_format" = "المصدر: مساهمو ويكيبيديا، %@. مرخّص بموجب CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
+"player_controls_effect_picker_karaoke_footer" = "لا يمكن وضع هنا سوى الأزرار التي لا تغادر هذه الشاشة، باستثناء كاريوكي الذي يخرج من ملء الشاشة أولًا ثم يفتح. اختيار زر موجود في مكان آخر يبدّل المكانين.";

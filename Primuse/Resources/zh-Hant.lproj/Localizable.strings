@@ -7468,3 +7468,4 @@
 "library_insight_export_unavailable_title" = "這段簡介無法匯出";
 "library_insight_export_unavailable_message" = "來自 Apple Music 的簡介只在 Primuse 裡顯示，不會匯出成檔案。AI 產生、從 Last.fm 或維基百科讀取以及自己寫的簡介可以匯出。";
 "library_insight_export_wikipedia_attribution_format" = "出處：維基百科貢獻者，%@。依 CC BY-SA 4.0 授權：https://creativecommons.org/licenses/by-sa/4.0/";
+"player_controls_effect_picker_karaoke_footer" = "這一頁只放不會換走整頁的按鈕，卡拉OK例外：點了會先退出全螢幕再開啟。選已經在別處的按鈕，兩格會對調。";

@@ -153,10 +153,67 @@ import Testing
     }
 
     @Test func pageChangingActionsAreRejected() {
-        for action in [NowPlayingControlAction.lyrics, .fullScreen, .karaoke, .cast] {
+        for action in [NowPlayingControlAction.lyrics, .fullScreen, .cast] {
             #expect(!Controls.allows(action))
             #expect(Controls.default.placing(action, in: .pillLeading) == .default)
+            #expect(Controls.default.placing(action, in: .bottomRowLeading) == .default)
         }
+    }
+
+    /// 卡拉OK 点了先收起全屏再打开,可以放进全屏效果页。
+    @Test func karaokeCanBePlaced() {
+        #expect(Controls.allows(.karaoke))
+        let controls = Controls.default.placing(.karaoke, in: .pillTrailing)
+        #expect(controls.action(in: .pillTrailing) == .karaoke)
+        #expect(Controls.decode(controls.encoded()) == controls)
+    }
+
+    /// 加这两格之前存下的配置照旧读出来:原来那几格不变,新的两格空着,不出那一排,再编码也不多出键。
+    @Test func configurationsSavedBeforeTheBottomRowStillDecode() {
+        let raw = #"{"slots":{"pillLeading":"like","pillTrailing":"sleepTimer","topTrailing":""}}"#
+        let controls = Controls.decode(raw)
+        #expect(controls.actions == [.pillLeading: .like, .pillTrailing: .sleepTimer])
+        #expect(controls.action(in: .topTrailing) == nil)
+        #expect(controls.action(in: .bottomRowLeading) == nil)
+        #expect(controls.action(in: .bottomRowTrailing) == nil)
+        #expect(!controls.hasBottomRow)
+        #expect(controls.encoded() == raw)
+
+        let defaults = Controls.decode(#"{"slots":{"pillLeading":"share"}}"#)
+        #expect(defaults.actions == [.topTrailing: .queue, .pillLeading: .share])
+        #expect(!defaults.hasBottomRow)
+        #expect(!Controls.default.hasBottomRow)
+    }
+
+    @Test func bottomRowSlotsPlaceSwapAndClear() {
+        let controls = Controls.default
+            .placing(.karaoke, in: .bottomRowLeading)
+            .placing(.equalizer, in: .bottomRowTrailing)
+        #expect(controls.hasBottomRow)
+        #expect(controls.action(in: .bottomRowLeading) == .karaoke)
+        #expect(controls.action(in: .bottomRowTrailing) == .equalizer)
+        #expect(controls.action(in: .topTrailing) == .queue)
+        #expect(Controls.decode(controls.encoded()) == controls)
+
+        // 选已经在别处的按钮,两格对调。
+        let swapped = controls.placing(.queue, in: .bottomRowLeading)
+        #expect(swapped.action(in: .bottomRowLeading) == .queue)
+        #expect(swapped.action(in: .topTrailing) == .karaoke)
+
+        // 两格都清空就没有那一排了,也回到默认。
+        let cleared = controls.placing(nil, in: .bottomRowLeading).placing(nil, in: .bottomRowTrailing)
+        #expect(!cleared.hasBottomRow)
+        #expect(cleared.isDefault)
+        #expect(cleared.encoded() == "")
+    }
+
+    /// 同一个按钮被写进两格(别的设备同步来的)时只留前面那格:原来的几格排在新的两格前面。
+    @Test func duplicatesKeepTheEarlierSlot() {
+        let raw = #"{"slots":{"bottomRowLeading":"like","pillLeading":"like"}}"#
+        let controls = Controls.decode(raw)
+        #expect(controls.action(in: .pillLeading) == .like)
+        #expect(controls.action(in: .bottomRowLeading) == nil)
+        #expect(!controls.hasBottomRow)
     }
 }
 

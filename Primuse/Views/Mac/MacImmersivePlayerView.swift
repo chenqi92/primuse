@@ -90,6 +90,12 @@ struct MacImmersivePlayerView: View {
     /// 重试过也挂不上频谱的那首歌。换歌或挂上了就清掉。
     @State private var spectrumFeedMissingSongID: String?
     @FocusState private var acceptsKeyInput: Bool
+    /// 「喜欢」:搜索里点播的 Apple Music 歌先加进资料库、同步进曲库,再标在那一行上(和底栏同一套)。
+    @State private var libraryActions = NowPlayingLibraryActions()
+    /// 卡拉 OK 弹窗,和「更多」菜单里那一个是同一个(`KaraokeStageView`)。
+    @State private var showsKaraoke = false
+    /// Apple Music 曲目点卡拉 OK:按钮照样在、淡一些,点了说明为什么用不了。
+    @State private var showsKaraokeUnavailable = false
 
     private var effect: FullscreenPlayerEffect {
         #if DEBUG
@@ -298,6 +304,25 @@ struct MacImmersivePlayerView: View {
         .ignoresSafeArea(edges: ignoresWindowSafeArea ? .all : [])
         .macPlaybackErrorFeedback()
         .environment(\.colorScheme, presentationEffect.prefersLightContent ? .light : .dark)
+        // 弹窗挂在沉浸页上:全屏窗口里照常弹得出来,不必先退出全屏;收起后还在原来的效果里。
+        // 会话随弹窗开关(`KaraokeStageView`),同一时刻只有这一场。
+        .sheet(isPresented: $showsKaraoke, onDismiss: {
+            // 弹窗收起后键盘交回沉浸页:空格、方向键、数字键照常。
+            acceptsKeyInput = true
+            revealChrome()
+        }) {
+            KaraokeStageView()
+        }
+        .nowPlayingLibraryActionAlert(libraryActions)
+        .alert(Text("karaoke_title"), isPresented: $showsKaraokeUnavailable) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text("karaoke_unavailable_apple_music")
+        }
+        .onChange(of: showsKaraokeUnavailable) { _, shown in
+            // 说明框收起后键盘交回沉浸页。
+            if !shown { acceptsKeyInput = true }
+        }
         .animation(.easeInOut(duration: 0.5), value: theme.colorID)
         .focusable()
         .focused($acceptsKeyInput)
@@ -638,11 +663,11 @@ struct MacImmersivePlayerView: View {
                 VStack(spacing: metrics.s(15)) {
                     seekBar
                     HStack(spacing: metrics.s(14)) {
-                        modeButton("shuffle", active: player.shuffleEnabled) {
+                        modeButton("shuffle", active: player.shuffleEnabled, label: "shuffle") {
                             player.shuffleEnabled.toggle()
                         }
                         transportStrip
-                        modeButton(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
+                        modeButton(repeatSymbol, active: player.repeatMode != .off, label: "repeat") {
                             advanceRepeatMode()
                         }
                         if showsPlayerVolumeBar {
@@ -700,14 +725,36 @@ struct MacImmersivePlayerView: View {
     /// `Capsule`,圆角等于高度的一半,套在两行内容上两端就会鼓成两个大半圆,
     /// 看着像一块突兀的厚板。一行之后胶囊的形状才成立,按钮也跟着 metrics
     /// 缩放,不会在 4K 屏上显得又小又散。
+    ///
+    /// 传输键两边是随机、循环(和底栏同样的排法),进度条后面是喜欢与卡拉 OK;
+    /// 这几颗不描圈,比传输键轻一级。胶囊按多出来的几颗加宽,进度条照旧占剩下的地方。
     @ViewBuilder
     private func macShowcaseControlSurface(metrics: ImmersiveStageMetrics) -> some View {
+        let accessoryDiameter = metrics.s(34)
+        let showsModeButtons = !isSpokenWord
+        let accessoryCount: Int = (showsModeButtons ? 2 : 0) + (showsLikeButton ? 1 : 0) + (canOpenKaraoke ? 1 : 0)
         ImmersiveGlassPill(
             horizontalPadding: metrics.s(22),
             verticalPadding: metrics.s(10)
         ) {
             HStack(spacing: metrics.s(16)) {
-                showcaseTransport(metrics: metrics)
+                HStack(spacing: metrics.s(10)) {
+                    if showsModeButtons {
+                        shuffleModeButton(diameter: accessoryDiameter)
+                    }
+                    showcaseTransport(metrics: metrics)
+                    if showsModeButtons {
+                        modeButton(
+                            repeatSymbol,
+                            active: player.repeatMode != .off,
+                            label: "repeat",
+                            diameter: accessoryDiameter
+                        ) {
+                            advanceRepeatMode()
+                        }
+                        .pmPlaybackModeSymbolEffect(shuffleEnabled: false, repeatMode: player.repeatMode)
+                    }
+                }
 
                 Text((scrubPreview ?? player.currentTime).formattedDuration)
                     .font(.system(size: metrics.s(11), weight: .medium, design: .monospaced))
@@ -724,9 +771,135 @@ struct MacImmersivePlayerView: View {
                     .font(.system(size: metrics.s(11), weight: .medium, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(chromeInk.opacity(0.52))
+
+                if showsLikeButton || canOpenKaraoke {
+                    HStack(spacing: metrics.s(10)) {
+                        if showsLikeButton {
+                            likeButton(diameter: accessoryDiameter)
+                        }
+                        if canOpenKaraoke {
+                            karaokeButton(diameter: accessoryDiameter)
+                        }
+                    }
+                }
             }
-            .frame(width: min(metrics.s(520), metrics.size.width * 0.44))
+            .frame(width: showcaseRowWidth(metrics: metrics, accessoryCount: accessoryCount))
         }
+    }
+
+    /// 胶囊里那一行的宽度:没有多出来的按钮时照原来;每多一颗加一截,最宽占屏幕六成,进度条照旧占剩下的地方。
+    private func showcaseRowWidth(metrics: ImmersiveStageMetrics, accessoryCount: Int) -> CGFloat {
+        guard accessoryCount > 0 else { return min(metrics.s(520), metrics.size.width * 0.44) }
+        let extra: CGFloat = metrics.s(46) * CGFloat(accessoryCount)
+        return min(metrics.s(520) + extra, metrics.size.width * 0.6)
+    }
+
+    private var isSpokenWord: Bool {
+        player.currentItemIsSpokenWord && !player.isLiveRadio
+    }
+
+    private var repeatSymbol: String {
+        player.repeatMode == .one ? "repeat.1" : "repeat"
+    }
+
+    /// 随机键:点一下开关随机,右键选抽歌偏好(#332),和底栏那一颗一样。
+    private func shuffleModeButton(diameter: CGFloat) -> some View {
+        modeButton("shuffle", active: player.shuffleEnabled, label: "shuffle", diameter: diameter) {
+            player.shuffleEnabled.toggle()
+        }
+        .pmPlaybackModeSymbolEffect(shuffleEnabled: player.shuffleEnabled, repeatMode: 0)
+        .contextMenu {
+            Picker(selection: Binding(
+                get: { player.playbackSettings.shufflePreference },
+                set: { player.playbackSettings.shufflePreference = $0 }
+            )) {
+                ForEach(ShufflePreference.allCases) { preference in
+                    Text(verbatim: preference.displayName).tag(preference)
+                }
+            } label: {
+                Text("shuffle_preference_title")
+            }
+            .pickerStyle(.inline)
+        }
+    }
+
+    /// 喜欢的是正在播的这一首;电台没有这颗。
+    private var showsLikeButton: Bool {
+        player.currentSong != nil && !player.isLiveRadio
+    }
+
+    /// 喜欢:和底栏同一套做法。播客单集记在播客自己的喜欢里;搜索里点播的 Apple Music 歌先加进资料库再标。
+    @ViewBuilder
+    private func likeButton(diameter: CGFloat) -> some View {
+        if let song = player.currentSong, !player.isLiveRadio {
+            let isEpisode = PodcastPlaybackSong.isEpisode(song)
+            let liked = isEpisode
+                ? PodcastStore.shared.isLiked(episodeID: song.id)
+                : NowPlayingLibraryActions.isLiked(song, library: library)
+            Button {
+                revealChrome()
+                if isEpisode {
+                    player.toggleLikeForCurrentPodcastEpisode()
+                } else {
+                    Task { await libraryActions.perform(.like(!liked), song: song, library: library) }
+                }
+            } label: {
+                Image(systemName: liked ? "heart.fill" : "heart")
+                    .font(.system(size: diameter * 14 / 36, weight: .medium))
+                    .foregroundStyle(liked ? artworkPalette.primary : chromeInk.opacity(0.88))
+                    .contentTransition(.symbolEffect(.replace))
+                    .pmLikeBurst(isLiked: liked, identity: song.id, tint: artworkPalette.primary)
+                    .opacity(libraryActions.isBusy ? 0 : 1)
+                    .overlay {
+                        if libraryActions.isBusy {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(chromeInk)
+                        }
+                    }
+                    .frame(width: diameter, height: diameter)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .pmPointingHand()
+            .disabled(libraryActions.isBusy)
+            .help(Text(liked ? "a11y_unlike" : "a11y_like"))
+            .accessibilityLabel(Text(liked ? "a11y_unlike" : "a11y_like"))
+        }
+    }
+
+    /// 音乐才给卡拉 OK(有声内容、电台不给,和「更多」菜单一样);环境音没有人声,也不给。
+    /// Apple Music 曲目是模式上用不了:按钮照样在,点了说明原因(`karaokeButton`)。
+    private var canOpenKaraoke: Bool {
+        player.currentSong != nil
+            && !isSpokenWord
+            && !player.isLiveRadio
+            && !player.currentItemIsAmbient
+    }
+
+    private func karaokeButton(diameter: CGFloat) -> some View {
+        let isAvailable = !player.isAppleMusicMode
+        return Button {
+            revealChrome()
+            if isAvailable {
+                // 控件照常按时淡出,弹窗后面留一块干净的舞台;收起弹窗时再叫回来。
+                showsKaraoke = true
+            } else {
+                showsKaraokeUnavailable = true
+            }
+        } label: {
+            Image(systemName: "music.mic")
+                .font(.system(size: diameter * 14 / 36, weight: .medium))
+                .foregroundStyle(chromeInk.opacity(0.88))
+                .opacity(isAvailable ? 1 : 0.4)
+                .frame(width: diameter, height: diameter)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .pmPointingHand()
+        .help(Text("karaoke_title"))
+        .accessibilityLabel(Text("karaoke_title"))
+        .accessibilityValue(isAvailable ? Text(verbatim: "") : Text("karaoke_unavailable_apple_music"))
     }
 
     /// 展示型效果专用的传输键 —— 比 `transportStrip` 小一号,且尺寸跟着
@@ -958,23 +1131,33 @@ struct MacImmersivePlayerView: View {
         .accessibilityLabel(Text("queue"))
     }
 
-    private func modeButton(_ symbol: String, active: Bool, action: @escaping () -> Void) -> some View {
+    /// 随机、循环这类开关:关着时压淡,开着时垫强调色的圆。`diameter` 默认是标准控件里那一档,
+    /// 展示型胶囊里跟着 metrics 缩放。
+    private func modeButton(
+        _ symbol: String,
+        active: Bool,
+        label: LocalizedStringKey,
+        diameter: CGFloat = 36,
+        action: @escaping () -> Void
+    ) -> some View {
         Button {
             revealChrome()
             action()
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: diameter * 14 / 36, weight: .medium))
                 .foregroundStyle(active ? artworkPalette.primary : chromeInk.opacity(0.54))
-                .frame(width: 36, height: 36)
+                .frame(width: diameter, height: diameter)
                 .playbackToggleHighlight(
                     isActive: active,
                     tint: artworkPalette.primary,
-                    diameter: 30
+                    diameter: diameter * 30 / 36
                 )
         }
         .buttonStyle(.plain)
         .pmPointingHand()
+        .help(Text(label))
+        .accessibilityLabel(Text(label))
         .accessibilityValue(Text(active ? "a11y_value_on" : "a11y_value_off"))
     }
 

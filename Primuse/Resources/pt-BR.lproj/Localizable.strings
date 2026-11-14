@@ -7397,3 +7397,4 @@
 "library_insight_export_unavailable_title" = "Não é possível exportar esta apresentação";
 "library_insight_export_unavailable_message" = "Apresentações do Apple Music só aparecem no Primuse e não são exportadas para arquivos. Apresentações escritas por IA, obtidas do Last.fm ou da Wikipédia, ou escritas por você podem ser exportadas.";
 "library_insight_export_wikipedia_attribution_format" = "Fonte: colaboradores da Wikipédia, %@. Licenciado sob CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
+"player_controls_effect_picker_karaoke_footer" = "Aqui só cabem botões que não saem desta tela, exceto Karaokê, que primeiro sai da tela cheia e depois abre. Escolher um botão que já está em outro lugar troca os dois lugares.";

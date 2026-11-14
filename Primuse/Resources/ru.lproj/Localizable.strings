@@ -7397,3 +7397,4 @@
 "library_insight_export_unavailable_title" = "Это описание нельзя экспортировать";
 "library_insight_export_unavailable_message" = "Описания из Apple Music показываются только в Primuse и не экспортируются в файлы. Описания, написанные ИИ, полученные из Last.fm или Википедии либо написанные вами, можно экспортировать.";
 "library_insight_export_wikipedia_attribution_format" = "Источник: участники Википедии, %@. Распространяется по лицензии CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
+"player_controls_effect_picker_karaoke_footer" = "Сюда подходят только кнопки, которые не уводят с этого экрана. Исключение — караоке: перед открытием оно сначала выходит из полноэкранного режима. Если выбрать кнопку, которая уже стоит в другом месте, два места поменяются.";

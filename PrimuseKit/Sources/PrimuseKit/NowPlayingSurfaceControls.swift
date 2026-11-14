@@ -266,15 +266,27 @@ public struct NowPlayingImmersiveLyricsControls: Equatable, Sendable {
 
 // MARK: - 全屏效果
 
-/// 全屏效果播放页上能换按钮的位置。
+/// 全屏效果播放页上能换按钮的位置。rawValue 是配置里的键并经 iCloud 同步,发布后不能改名;
+/// 新的格只往后加:「同一个按钮只留前面那格」按这里的先后。
 public enum NowPlayingEffectPlayerSlot: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     /// 右上角(原来的队列键)。
     case topTrailing
     /// 底部播放胶囊里播放键两侧。
     case pillLeading
     case pillTrailing
+    /// 播放胶囊下面那一排(和状态行同一排)的两头,和胶囊左右对齐。默认空着,空着时没有这一排。
+    case bottomRowLeading
+    case bottomRowTrailing
 
     public var id: String { rawValue }
+
+    /// 播放胶囊下面那一排的两格。
+    public var isBottomRow: Bool {
+        switch self {
+        case .bottomRowLeading, .bottomRowTrailing: true
+        case .topTrailing, .pillLeading, .pillTrailing: false
+        }
+    }
 }
 
 public struct NowPlayingEffectPlayerControls: Equatable, Sendable {
@@ -284,10 +296,11 @@ public struct NowPlayingEffectPlayerControls: Equatable, Sendable {
     public static let `default` = NowPlayingEffectPlayerControls(stored: [:])
     private static let defaultActions: [Slot: NowPlayingControlAction] = [.topTrailing: .queue]
 
-    /// 全屏效果页上能放的。这一页没有「更多」,歌词、全屏、卡拉OK、投放这类会换走整页的不放。
+    /// 全屏效果页上能放的。这一页没有「更多」,歌词、全屏、投放这类会换走整页的不放。
+    /// 卡拉OK 例外:点了先收起全屏,再和播放页上一样盖上卡拉OK(同一时刻只有一场)。
     public static let allowedActions: [NowPlayingControlAction] = [
         .like, .dislike, .queue, .shuffle, .repeatMode, .playMode, .abRepeat, .sleepTimer,
-        .airPlay, .equalizer, .playbackSpeed, .addToPlaylist, .share,
+        .airPlay, .equalizer, .playbackSpeed, .karaoke, .addToPlaylist, .share,
     ]
 
     private var stored: [String: String]
@@ -324,6 +337,11 @@ public struct NowPlayingEffectPlayerControls: Equatable, Sendable {
 
     public func action(in slot: Slot) -> NowPlayingControlAction? {
         actions[slot]
+    }
+
+    /// 播放胶囊下面那一排有没有按钮。两格都空着时不出这一排,版面和原来一样。
+    public var hasBottomRow: Bool {
+        actions.keys.contains { $0.isBottomRow }
     }
 
     private func storedAction(in slot: Slot) -> NowPlayingControlAction? {

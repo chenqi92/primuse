@@ -7397,3 +7397,4 @@
 "library_insight_export_unavailable_title" = "Nie można wyeksportować tego wprowadzenia";
 "library_insight_export_unavailable_message" = "Wprowadzenia z Apple Music są wyświetlane tylko w Primuse i nie są eksportowane do plików. Wprowadzenia napisane przez AI, pobrane z Last.fm lub Wikipedii albo napisane samodzielnie można wyeksportować.";
 "library_insight_export_wikipedia_attribution_format" = "Źródło: autorzy Wikipedii, %@. Udostępniono na licencji CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/";
+"player_controls_effect_picker_karaoke_footer" = "Pasują tu tylko przyciski, które nie opuszczają tego ekranu. Wyjątkiem jest Karaoke, które przed otwarciem najpierw wychodzi z trybu pełnoekranowego. Wybranie przycisku, który jest już gdzie indziej, zamienia oba miejsca.";
