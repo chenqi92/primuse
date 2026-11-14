@@ -729,7 +729,8 @@ struct CachedArtworkView: View {
         guard !Task.isCancelled, appleMusicArtworkIdentity == identity else { return }
         resolvedAppleMusicArtwork = resolved
         resolvedAppleMusicArtworkID = resolved == nil ? nil : identity
-        onResolutionChange(resolved != nil)
+        // MusicKit 没封面时下层可能已经读到媒体库或文件里的封面(#77), 不能报成没有。
+        onResolutionChange(resolved != nil || displayedImage != nil)
     }
 
     @ViewBuilder
@@ -2329,6 +2330,8 @@ struct CachedArtworkView: View {
         allowsRemoteFetch: Bool
     ) async -> Data? {
         let maximumBytes = ArtworkAnimationLimits.default.maximumCompressedBytes
+        // Apple Music 资料库的歌没有可问的连接器, 也没有能读内嵌动图的缓存文件。
+        guard sourceID != AppleMusicLibraryIdentity.sourceID else { return nil }
 
         if allowsRemoteFetch, let ref, !ref.isEmpty {
             if let sourceID, !sourceID.isEmpty {
@@ -2407,12 +2410,20 @@ struct CachedArtworkView: View {
         // 播客单集同理:封面是 feed 里写的公网地址。
         let isLiveRadioReference = sourceID == RadioStation.playbackSourceID
             || sourceID == PodcastPlaybackSong.sourceID
+        // Apple Music 资料库的歌没有连接器可问(以前落到 UnsupportedSourceConnector 里报
+        // 「未实现」)。MusicKit 有封面时由 ArtworkImage 画; 没有时(导入「音乐」App 的文件常见,
+        // 没订阅的用户只有这种歌)用系统媒体库条目的封面, 再退到文件内嵌的封面(#77)。
+        let isAppleMusicLibrary = sourceID == AppleMusicLibraryIdentity.sourceID
+        if isAppleMusicLibrary, let songID, !songID.isEmpty, let amID = filePath,
+           let data = await AppServices.shared.appleMusicLibrary.importedArtworkData(songID: songID, amID: amID) {
+            return data
+        }
 
         // Case 1: Any source-owned reference, including a historical absolute
         // LAN URL, stays inside the connector operation until its bytes arrive.
         // This lets adaptive routing observe the actual image failure and retry
         // the complete request through the alternate endpoint.
-        if let ref, !ref.isEmpty, let sourceID, !isLiveRadioReference {
+        if let ref, !ref.isEmpty, let sourceID, !isLiveRadioReference, !isAppleMusicLibrary {
             if let data = await sourceManager.artworkData(
                 for: ref,
                 sourceID: sourceID,
@@ -2428,6 +2439,7 @@ struct CachedArtworkView: View {
 
         // Case 2: A URL without source ownership (for example a scraper CDN)
         // cannot be rebased, but it is still bounded and response-validated.
+        // Apple Music 资料库的封面地址不在这里取: 有封面的那张由 ArtworkImage 画, 不必再下载一份。
         if sourceID == nil || isLiveRadioReference,
            let ref,
            ref.contains("://"),
@@ -2460,7 +2472,7 @@ struct CachedArtworkView: View {
         // 产生缓存副本, 所以 cachedURLForBackgroundRead 对它永远是 nil。
         // 少了这一条, 封面 content 被容量驱逐之后本地源就再没有任何回源路径,
         // 界面上是封面凭空消失且刷新不回来。
-        if let sourceID, !isLiveRadioReference, let filePath {
+        if let sourceID, !isLiveRadioReference, !isAppleMusicLibrary, let filePath {
             let inferredFormat = fileFormat
                 ?? AudioFormat.from(fileExtension: (filePath as NSString).pathExtension)
                 ?? .mp3

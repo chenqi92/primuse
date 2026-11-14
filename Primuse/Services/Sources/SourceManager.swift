@@ -16208,7 +16208,10 @@ final class SourceManager {
         purpose: ArtworkFetchPurpose = .thumbnail,
         priority: ArtworkRequestCoordinator.Priority = .background
     ) async -> Data? {
+        // Apple Music 资料库没有能取封面的连接器(只会落到「未实现」的占位连接器上);
+        // 它的封面走 MusicKit 或 `AppleMusicLibraryService.importedArtworkData`(#77)。
         guard maximumBytes > 0,
+              sourceID != AppleMusicLibraryIdentity.sourceID,
               let sources = try? await sourcesProvider(),
               let source = sources.first(where: { $0.id == sourceID }) else {
             return nil

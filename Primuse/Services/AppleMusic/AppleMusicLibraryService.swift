@@ -1213,6 +1213,53 @@ final class AppleMusicLibraryService {
         return lines
     }
 
+    /// MusicKit 没给封面的资料库歌曲改用系统那份封面(#77): 先要媒体库条目自己的封面(只有 iOS),
+    /// 再读导入文件里内嵌的封面。没订阅的用户只有同步、导入进「音乐」App 的歌, MusicKit 常常不给
+    /// 它们封面。MusicKit 有封面时返回 nil —— 那张由 `ArtworkImage` 画, 不必再进媒体库查一遍。
+    /// 取到的按歌存进封面缓存, 之后直接读盘; 在「音乐」App 里换了封面要等这份缓存被清掉才跟上。
+    func importedArtworkData(songID: String, amID: String) async -> Data? {
+        let cacheKey = Self.importedArtworkCacheKey(songID: songID)
+        if let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: cacheKey) {
+            return cached
+        }
+        guard !amID.isEmpty, await musicKitArtwork(amID: amID) == nil, !Task.isCancelled else { return nil }
+        // 整库那遍 MPMediaQuery 由同步来做; 这里只用已经对上的文件, 没对上就按条目 id 去问媒体库。
+        let file = library.song(id: songID).flatMap { localFile(for: $0) }
+            ?? localFileIDsBySongID[songID].flatMap { localFiles[$0] }
+        var persistentIDs = file.map { [$0.persistentID] } ?? []
+        for candidate in Self.persistentIDCandidates(amID) where !persistentIDs.contains(candidate) {
+            persistentIDs.append(candidate)
+        }
+        guard !persistentIDs.isEmpty || file != nil else { return nil }
+        guard let data = await AppleMusicLocalFileReader.artworkData(
+            persistentIDs: persistentIDs,
+            file: file,
+            maximumPixels: Self.importedArtworkPixels
+        ), !Task.isCancelled else { return nil }
+        _ = await MetadataAssetStore.shared.cacheCover(data, forSongID: cacheKey)
+        return data
+    }
+
+    private nonisolated static let importedArtworkPixels = 1024
+
+    /// 跟按歌曲 id 存的封面分开放, 不和别的路径写的镜像混在一起。
+    private nonisolated static func importedArtworkCacheKey(songID: String) -> String {
+        "apple-music-imported-artwork:" + songID
+    }
+
+    /// iOS 本机资料库条目的 MusicKit id 就是媒体库的 persistent ID(十进制, 大于 Int64 的会写成负数,
+    /// 旧数据也有十六进制)。云端资料库的 `i.*` id 解析不出来, 只能靠同步时对上的文件。
+    nonisolated static func persistentIDCandidates(_ amID: String) -> [UInt64] {
+        let trimmed = amID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let value = UInt64(trimmed) { return [value] }
+        if let value = Int64(trimmed) { return [UInt64(bitPattern: value)] }
+        if !trimmed.isEmpty, trimmed.count <= 16, trimmed.allSatisfy(\.isHexDigit),
+           let value = UInt64(trimmed, radix: 16) {
+            return [value]
+        }
+        return []
+    }
+
     /// 把 ApplicationMusicPlayer 返回的 Song 规范化到 user library 版本。
     /// ApplicationMusicPlayer.queue.currentEntry.item 给的常常是 catalog Song
     /// (id 是纯数字), 跟我们 sync 拉回来的 user library Song (id `i.*`) 不一样,

@@ -3,6 +3,7 @@ import Foundation
 import PrimuseKit
 #if os(iOS)
 import MediaPlayer
+import UIKit
 #endif
 
 /// A file the user imported into Music.app, as the platform media library
@@ -88,7 +89,52 @@ enum AppleMusicLocalFileReader {
         return nil
     }
 
+    /// 资料库里 MusicKit 没给封面的歌(多是导入「音乐」App 的文件, 没订阅的用户只有这种歌)
+    /// 退到系统那份封面(#77): 先要媒体库条目自己的封面(只有 iOS 有 MPMediaLibrary),
+    /// 再读文件里内嵌的封面(资产地址读得开时)。都没有返回 nil。
+    @concurrent
+    static func artworkData(
+        persistentIDs: [UInt64],
+        file: AppleMusicLocalFile?,
+        maximumPixels: Int
+    ) async -> Data? {
+        #if os(iOS)
+        if !persistentIDs.isEmpty {
+            // 跟歌词一样排进媒体库的门, 不和列表冷启动的其它查询同时进去。
+            let data = await AppleMusicMediaLibraryGate.run {
+                mediaLibraryArtwork(persistentIDs: persistentIDs, maximumPixels: maximumPixels)
+            }
+            if let data { return data }
+        }
+        #endif
+        guard let file else { return nil }
+        let metadata = file.assetURL.isFileURL
+            ? await FileMetadataReader.read(from: file.assetURL)
+            : await FileMetadataReader.readAssetMetadata(at: file.assetURL)
+        guard let data = metadata.coverArtData, !data.isEmpty else { return nil }
+        return data
+    }
+
     #if os(iOS)
+    private static func mediaLibraryArtwork(persistentIDs: [UInt64], maximumPixels: Int) -> Data? {
+        guard MPMediaLibrary.authorizationStatus() == .authorized else { return nil }
+        let side = CGFloat(max(maximumPixels, 1))
+        for persistentID in persistentIDs {
+            let query = MPMediaQuery.songs()
+            query.addFilterPredicate(MPMediaPropertyPredicate(
+                value: NSNumber(value: persistentID),
+                forProperty: MPMediaItemPropertyPersistentID
+            ))
+            // 没有封面的条目这里是 nil, 或者给不出图; 换下一个候选 id。
+            guard let artwork = query.items?.first?.artwork,
+                  let image = artwork.image(at: CGSize(width: side, height: side)),
+                  let data = image.jpegData(compressionQuality: 0.9),
+                  !data.isEmpty else { continue }
+            return data
+        }
+        return nil
+    }
+
     private static func mediaLibraryLyrics(persistentID: UInt64) -> String? {
         guard MPMediaLibrary.authorizationStatus() == .authorized else { return nil }
         let query = MPMediaQuery.songs()
