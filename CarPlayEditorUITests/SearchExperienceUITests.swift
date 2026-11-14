@@ -129,7 +129,7 @@ final class SearchExperienceUITests: XCTestCase {
         app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "settings"
         app.launch()
         defer { app.terminate() }
-        let field = app.textFields["settings.search.field"]
+        let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 25))
         XCTAssertGreaterThan(field.frame.width, app.frame.width * 0.7)
         attach(app, "settings-search-above-list")
@@ -163,7 +163,7 @@ final class SearchExperienceUITests: XCTestCase {
             app.terminate()
         }
         app.launch()
-        let field = app.textFields["settings.search.field"]
+        let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 90))
         let rootFieldFrame = field.frame
         let results = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'settings.result.'"))

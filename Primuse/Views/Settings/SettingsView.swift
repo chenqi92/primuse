@@ -22,8 +22,6 @@ struct SettingsView: View {
     @State private var showsHiddenAppIcons = false
     /// 极简模式下设置不在分段里：左上角回到进设置之前那一页。
     @Environment(\.minimalSettingsReturn) private var minimalReturn
-    /// iPhone Duo 竖栏时为非 nil：顶部滚动边缘照 `pmVerticalBarTitleEdge()` 用实底。
-    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     #endif
 
     init(
@@ -32,6 +30,14 @@ struct SettingsView: View {
     ) {
         _scraperSettingsRoute = scraperSettingsRoute
         _search = State(initialValue: search ?? SettingsSearchState())
+    }
+
+    private var searchPlacement: SearchFieldPlacement {
+        #if os(iOS)
+        .navigationBarDrawer(displayMode: .always)
+        #else
+        .toolbar
+        #endif
     }
 
     /// The issue form opens with this build's version, device and system
@@ -94,20 +100,10 @@ struct SettingsView: View {
 
     @ViewBuilder private var searchableContent: some View {
         // Search belongs to this column; putting it on the stack hides it in iPad split view.
-        #if os(iOS)
-        // 搜索框钉在列表上方、由页面自己画（见 SettingsSearchBar）：系统抽屉搜索框长在导航栏上，
-        // 每次切到设置页签都先缩在顶上再落下来。安全区栏和列表同一帧排好，切过来时直接出现。
         settingsContent
             .modifier(SettingsSearchNavigationDismissal(isNavigating: !path.isEmpty, search: search))
-            .minimalSafeAreaBar(edge: .top, edgeEffect: verticalBarEdge == nil ? .soft : .hard) {
-                SettingsSearchBar(search: search)
-            }
-        #else
-        settingsContent
-            .modifier(SettingsSearchNavigationDismissal(isNavigating: !path.isEmpty, search: search))
-            .searchable(text: $search.query, isPresented: $search.isPresented, placement: .toolbar,
+            .searchable(text: $search.query, isPresented: $search.isPresented, placement: searchPlacement,
                         prompt: Text(SettingsStrings.text("Search settings")))
-        #endif
     }
 
     private var searchableNavigation: some View {
