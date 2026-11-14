@@ -1249,7 +1249,7 @@
 "dup_clean_failed_format" = "As cópias %d não puderam ser excluídas e foram mantidas";
 "dup_cleaning_progress_format" = "Limpeza %d/%d";
 "dup_groups_count" = "Grupos duplicados";
-"dup_keep_best_action_format" = "Mantenha o melhor, remova outras versões do %d";
+"dup_keep_best_action_format" = "Manter a melhor e remover as outras versões (%d)";
 "dup_keep_best_action_short" = "Mantenha o melhor";
 "dup_keep_highest_bitrate" = "Manter a taxa de bits mais alta";
 "dup_keep_largest_file" = "Manter o maior arquivo";

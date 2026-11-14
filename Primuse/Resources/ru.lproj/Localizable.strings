@@ -3291,7 +3291,7 @@
 "batch_delete_source_files_message_format" = "Исходные файлы %d песен будут удалены навсегда, а сами песни — из медиатеки. Отменить это действие нельзя.";
 "metadata_status_unreadable" = "Нечитаемые теги";
 "scrape_writeback_sidecar" = "Запись в сопутствующие файлы";
-"artist_appears_on" = "Появляется";
+"artist_appears_on" = "Участие в альбомах";
 "lyrics_editor_add_line" = "Добавить строку";
 "Speed" = "Скорость";
 "equalizer" = "Эквалайзер";
@@ -4185,7 +4185,7 @@
 "CPU (playback)" = "ЦП (воспроизведение)";
 "library_folder_apple_music_unnamed_playlist" = "Плейлист без названия";
 "relay_import_error_empty" = "Загруженный контент слишком мал, чтобы быть действительным аудио.";
-"dup_mac_keep" = "Держи";
+"dup_mac_keep" = "Оставить";
 "smart_playlist_combinator_or" = "Любое состояние";
 "disc_label" = "Диск";
 "stats_minutes_format" = "%d мин.";

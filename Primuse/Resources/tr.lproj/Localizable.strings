@@ -2216,7 +2216,7 @@
 "audio_output_type_builtin" = "Dahili";
 "ssl_trust_fingerprint %@" = "SHA-256: %@";
 "yearly_report_entry_subtitle" = "Bu yıl müzikle aranızda neler olduğunu görün";
-"metadata_status_explanation_title" = "Bu Eyaletler Hakkında";
+"metadata_status_explanation_title" = "Durumlar Hakkında";
 "keyboard_shortcuts_click_a_keycap" = "Aşağıdaki tuşlardan birine tıklayın";
 "ai_recommendation_intent_prompt_label" = "Yapay Zeka İstemi";
 "Genre" = "Tür";
@@ -3291,7 +3291,7 @@
 "batch_delete_source_files_message_format" = "%d şarkının kaynak dosyaları kalıcı olarak silinecek ve şarkılar arşivden kaldırılacak. Bu işlem geri alınamaz.";
 "metadata_status_unreadable" = "Okunamayan Etiketler";
 "scrape_writeback_sidecar" = "Yan dosyaya geri yazma";
-"artist_appears_on" = "Şu Tarihte Görünür:";
+"artist_appears_on" = "Yer Aldığı Albümler";
 "lyrics_editor_add_line" = "Satır ekle";
 "Speed" = "Hız";
 "equalizer" = "Ekolayzır";

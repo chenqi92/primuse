@@ -840,7 +840,7 @@
 "apple_music_unavailable" = "Przesyłanie strumieniowe Apple Music nie jest dostępne dla tego konta lub regionu.";
 "apple_music_view_lyrics" = "Wyświetl teksty w Apple Music";
 "apply_changes" = "Zastosuj zmiany";
-"artist_appears_on" = "Pojawia się jako włączone";
+"artist_appears_on" = "Występuje na";
 "artist_changed" = "Artysta zaktualizowany";
 "artist_label" = "Wykonawca";
 "artist_monthly_plays_format" = "%d gra w tym miesiącu";
@@ -1249,7 +1249,7 @@
 "dup_clean_failed_format" = "Kopie %d nie mogły zostać usunięte i zostały zachowane";
 "dup_cleaning_progress_format" = "Czyszczenie %d / %d";
 "dup_groups_count" = "Zduplikowane grupy";
-"dup_keep_best_action_format" = "Zachowaj najlepsze, usuń inne wersje %d";
+"dup_keep_best_action_format" = "Zachowaj najlepszą, usuń pozostałe wersje (%d)";
 "dup_keep_best_action_short" = "Zachowaj najlepsze";
 "dup_keep_highest_bitrate" = "Zachowaj najwyższą przepływność";
 "dup_keep_largest_file" = "Zachowaj największy plik";

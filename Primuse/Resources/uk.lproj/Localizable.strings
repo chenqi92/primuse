@@ -2216,7 +2216,7 @@
 "audio_output_type_builtin" = "Вбудований";
 "ssl_trust_fingerprint %@" = "SHA-256: %@";
 "yearly_report_entry_subtitle" = "Подивіться, що сталося з вами та музикою цього року";
-"metadata_status_explanation_title" = "Про ці держави";
+"metadata_status_explanation_title" = "Пояснення статусів";
 "keyboard_shortcuts_click_a_keycap" = "Натисніть клавішу нижче";
 "ai_recommendation_intent_prompt_label" = "Підказка AI";
 "Genre" = "Жанр";
@@ -4185,7 +4185,7 @@
 "CPU (playback)" = "ЦП (відтворення)";
 "library_folder_apple_music_unnamed_playlist" = "Список відтворення без назви";
 "relay_import_error_empty" = "Завантажений вміст замалий, щоб бути дійсним звуком.";
-"dup_mac_keep" = "Тримайте";
+"dup_mac_keep" = "Залишити";
 "smart_playlist_combinator_or" = "Будь-який стан";
 "disc_label" = "Диск";
 "stats_minutes_format" = "%d мін";
