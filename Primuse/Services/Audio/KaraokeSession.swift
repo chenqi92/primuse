@@ -1138,8 +1138,10 @@ final class KaraokeSession {
                 plog("⚠️ Karaoke: mixdown failed: \(error.localizedDescription)")
                 result = nil
             }
-            try? FileManager.default.removeItem(at: accompanimentURL)
-            try? FileManager.default.removeItem(at: voice.url)
+            if result != nil {
+                try? FileManager.default.removeItem(at: accompanimentURL)
+                try? FileManager.default.removeItem(at: voice.url)
+            }
             guard let self else { return }
             self.isMixingRecording = false
             self.lastRecordingURL = result

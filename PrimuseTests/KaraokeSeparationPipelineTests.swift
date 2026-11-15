@@ -208,3 +208,94 @@ private final class ReferenceInput: @unchecked Sendable {
     init(_ buffer: AVAudioPCMBuffer) { self.buffer = buffer }
     func take() -> AVAudioPCMBuffer? { defer { buffer = nil }; return buffer }
 }
+
+@MainActor
+final class KaraokeRecordingTests: XCTestCase {
+    func testMixdownFinishesAtEOFForPartialAndFullChunks() async throws {
+        for frames in [4_096, 8_192, 20_003] {
+            try await verifyMix(rate: 44_100, channels: 2, frames: frames)
+            try await verifyMix(rate: 48_000, channels: 1, frames: frames)
+        }
+    }
+
+    func testHighSampleRateTakesProduceReadableAAC() async throws {
+        for rate in [88_200.0, 96_000, 176_400, 192_000] {
+            try await verifyMix(rate: rate, channels: 2, frames: Int(rate) + 333)
+        }
+    }
+
+    func testFailedMixLeavesSourceTakesReadable() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("take.caf")
+        try writeTake(source, rate: 48_000, channels: 1, frames: 8_192, amplitude: 0.2)
+        let blocker = directory.appendingPathComponent("not-a-directory")
+        try Data([0]).write(to: blocker)
+        do {
+            _ = try await KaraokeMixdown.mix(
+                accompaniment: .init(url: source, firstHostSeconds: 1),
+                voice: .init(url: source, firstHostSeconds: 1),
+                outputLatency: 0, inputLatency: 0, voiceGain: 1,
+                destination: blocker.appendingPathComponent("recording.m4a")
+            )
+            XCTFail("An unwritable destination must fail")
+        } catch {
+            let retained = try AVAudioFile(forReading: source)
+            XCTAssertEqual(retained.length, 8_192)
+        }
+    }
+
+    private func verifyMix(rate: Double, channels: AVAudioChannelCount, frames: Int) async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let accompaniment = directory.appendingPathComponent("accompaniment.caf")
+        let voice = directory.appendingPathComponent("voice.caf")
+        let destination = directory.appendingPathComponent("recording.m4a")
+        try writeTake(accompaniment, rate: rate, channels: channels, frames: frames, amplitude: 0)
+        // A different microphone rate and channel count must still preserve the sung voice.
+        try writeTake(voice, rate: 48_000, channels: 1,
+                      frames: Int(ceil(Double(frames) / rate * 48_000)), amplitude: 0.2)
+        let result = try await KaraokeMixdown.mix(
+            accompaniment: .init(url: accompaniment, firstHostSeconds: 1),
+            voice: .init(url: voice, firstHostSeconds: 1),
+            outputLatency: 0, inputLatency: 0, voiceGain: 1, destination: destination
+        )
+        XCTAssertEqual(result, destination)
+        let output = try AVAudioFile(forReading: result)
+        let targetRate = rate == 44_100 ? 44_100.0 : 48_000.0
+        XCTAssertEqual(output.fileFormat.streamDescription.pointee.mFormatID, kAudioFormatMPEG4AAC)
+        XCTAssertEqual(output.processingFormat.sampleRate, targetRate)
+        XCTAssertEqual(output.processingFormat.channelCount, channels)
+        XCTAssertEqual(Double(output.length), Double(frames) / rate * targetRate, accuracy: 1)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(
+            pcmFormat: output.processingFormat, frameCapacity: AVAudioFrameCount(output.length)
+        ))
+        try output.read(into: buffer, frameCount: AVAudioFrameCount(output.length))
+        let samples = UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength))
+        XCTAssertTrue(samples.allSatisfy(\.isFinite))
+        let energy = samples.reduce(0.0) { $0 + Double($1 * $1) }
+        XCTAssertGreaterThan(sqrt(energy / Double(samples.count)), 0.05)
+    }
+
+    private func makeDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("karaoke-recording-test-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func writeTake(_ url: URL, rate: Double, channels: AVAudioChannelCount,
+                           frames: Int, amplitude: Float) throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: rate, channels: channels))
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        defer { file.close() }
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)))
+        buffer.frameLength = AVAudioFrameCount(frames)
+        for channel in 0..<Int(channels) {
+            for frame in 0..<frames {
+                buffer.floatChannelData![channel][frame] = amplitude * Float(sin(Double(frame) / rate * 2 * .pi * 437))
+            }
+        }
+        try file.write(from: buffer)
+    }
+}

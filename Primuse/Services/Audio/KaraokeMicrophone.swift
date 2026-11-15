@@ -196,6 +196,33 @@ final class KaraokeMicrophone {
 
 /// Mixes the accompaniment take and the voice take into one shareable file.
 enum KaraokeMixdown {
+    private final class FileInput: @unchecked Sendable {
+        let file: AVAudioFile
+        let buffer: AVAudioPCMBuffer
+        private(set) var failure: Error?
+
+        init(file: AVAudioFile) throws {
+            self.file = file
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 8_192) else {
+                throw MixError.unreadable
+            }
+            self.buffer = buffer
+        }
+
+        func next(_ requested: AVAudioPacketCount) -> AVAudioPCMBuffer? {
+            let remaining = file.length - file.framePosition
+            guard failure == nil, remaining > 0 else { return nil }
+            let count = min(buffer.frameCapacity, requested, AVAudioFrameCount(min(remaining, 8_192)))
+            do {
+                try file.read(into: buffer, frameCount: count)
+                return buffer.frameLength > 0 ? buffer : nil
+            } catch {
+                failure = error
+                return nil
+            }
+        }
+    }
+
     private final class PendingBuffer: @unchecked Sendable {
         private var buffer: AVAudioPCMBuffer?
 
@@ -254,11 +281,19 @@ enum KaraokeMixdown {
     ) throws -> URL {
         let accompanimentFile = try AVAudioFile(forReading: accompaniment.url)
         let voiceFile = try AVAudioFile(forReading: voice.url)
-        let format = accompanimentFile.processingFormat
-        guard format.channelCount >= 1,
+        let sourceFormat = accompanimentFile.processingFormat
+        // AAC output must not inherit a DAC's high sample rate or channel layout.
+        guard accompanimentFile.length > 0,
+              let format = AVAudioFormat(
+                standardFormatWithSampleRate: sourceFormat.sampleRate == 44_100 ? 44_100 : 48_000,
+                channels: min(2, sourceFormat.channelCount)
+              ),
+              let converter = AVAudioConverter(from: sourceFormat, to: format),
               let voiceBuffer = try readConverted(voiceFile, to: format) else {
             throw MixError.unreadable
         }
+        converter.downmix = sourceFormat.channelCount > format.channelCount
+        let input = try FileInput(file: accompanimentFile)
 
         let lead = KaraokeRecordingAlignment.microphoneLeadFrames(
             accompanimentFirstHostSeconds: accompaniment.firstHostSeconds,
@@ -284,6 +319,7 @@ enum KaraokeMixdown {
             commonFormat: .pcmFormatFloat32,
             interleaved: false
         )
+        defer { output.close() }
 
         let chunk: AVAudioFrameCount = 8_192
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk),
@@ -293,9 +329,17 @@ enum KaraokeMixdown {
         let voiceLength = Int(voiceBuffer.frameLength)
         var frame = 0
         while true {
-            try accompanimentFile.read(into: buffer, frameCount: chunk)
+            var conversionError: NSError?
+            let status = converter.convert(to: buffer, error: &conversionError) { requested, inputStatus in
+                let next = input.next(requested)
+                inputStatus.pointee = next == nil ? .endOfStream : .haveData
+                return next
+            }
+            if let failure = input.failure { throw failure }
+            if status == .error { throw conversionError ?? MixError.unreadable }
             let count = Int(buffer.frameLength)
-            guard count > 0, let channels = buffer.floatChannelData else { break }
+            if count == 0, status == .endOfStream { break }
+            guard count > 0, let channels = buffer.floatChannelData else { throw MixError.unreadable }
             for channel in 0..<Int(format.channelCount) {
                 let voiceChannel = min(channel, Int(voiceBuffer.format.channelCount) - 1)
                 let samples = channels[channel]
@@ -311,6 +355,7 @@ enum KaraokeMixdown {
             }
             try output.write(from: buffer)
             frame += count
+            if status == .endOfStream { break }
         }
         return destination
     }
