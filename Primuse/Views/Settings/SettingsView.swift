@@ -956,6 +956,8 @@ private struct LibraryDisplaySettingsView: View {
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
     #if os(iOS)
     @AppStorage(CollectionCoverWall.preferenceKey) private var usesPlaylistCoverWall = CollectionCoverWall.defaultEnabled
+    @AppStorage(PlaylistDetailDisplayPreferences.coverTintKey)
+    private var tintsPlaylistFromCover = PlaylistDetailDisplayPreferences.coverTintByDefault
     @AppStorage(LibraryIconStyle.storageKey) private var libraryIconStyle = LibraryIconStyle.colorful
     @AppStorage(ArtistAppearancePreferences.colorStyleKey)
     private var artistColorStyle = ArtistAppearancePreferences.defaultColorStyle
@@ -1068,6 +1070,12 @@ private struct LibraryDisplaySettingsView: View {
                     }
                 }
                 .settingsAnchor("library.playlistCoverWall")
+                Toggle(isOn: $tintsPlaylistFromCover) {
+                    SettingsInfoLabel("library_playlist_cover_tint_title") {
+                        Text("library_playlist_cover_tint_description")
+                    }
+                }
+                .settingsAnchor("library.playlistCoverTint")
             }
             #endif
 

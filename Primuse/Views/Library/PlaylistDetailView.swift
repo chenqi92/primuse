@@ -9,6 +9,8 @@ import AppKit
 struct PlaylistDetailView: View {
     @AppStorage(LibraryRowNumberPreferences.storageKey)
     private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
+    @AppStorage(PlaylistDetailDisplayPreferences.showsAlbumKey) private var showsRowAlbum = true
+    @AppStorage(PlaylistDetailDisplayPreferences.showsDurationKey) private var showsRowDuration = true
     @Environment(\.dismiss) private var dismiss
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -577,7 +579,7 @@ struct PlaylistDetailView: View {
             .scrollContentBackground(.hidden)
             #if os(iOS)
             .environment(\.editMode, .constant(.active))
-            .songRowColumnsContainer()
+            .songRowColumnsContainer(showsAlbum: showsRowAlbum)
             #endif
         }
         .navigationTitle(currentPlaylist?.name ?? playlist.name)
@@ -607,6 +609,8 @@ struct PlaylistDetailView: View {
                 SongRowView(
                     song: song,
                     isPlaying: player.currentSong?.id == song.id,
+                    showAlbum: showsRowAlbum,
+                    showsDuration: showsRowDuration,
                     trackNumber: index + 1,
                     largestTrackNumber: count,
                     showsActions: false,
@@ -659,7 +663,12 @@ struct PlaylistDetailView: View {
                 playlistListSections
             }
         }
+        #if os(iOS)
+        // 整页底色跟随封面(#425)也在这一层里,见 `PlaylistCoverTintModifier`。
+        .modifier(PlaylistCoverTintModifier(playlistID: playlist.id))
+        #else
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         #if os(iOS)
         .libraryDetailFind(isPresented: $isFindPresented, text: $findText, prompt: "playlist_find_prompt")
         #endif
@@ -903,6 +912,8 @@ struct PlaylistDetailView: View {
             }
         }
 
+        PlaylistRowDisplayMenuSection()
+
         Section {
             Button(role: .destructive) {
                 prepareOfflineRemoval()
@@ -995,7 +1006,7 @@ struct PlaylistDetailView: View {
             }
         }
         #if os(iOS)
-        .songRowColumnsContainer()
+        .songRowColumnsContainer(showsAlbum: showsRowAlbum)
         #endif
     }
 
@@ -1223,6 +1234,8 @@ struct PlaylistDetailView: View {
         SongRowView(
             song: song,
             isPlaying: player.currentSong?.id == song.id,
+            showAlbum: showsRowAlbum,
+            showsDuration: showsRowDuration,
             trackNumber: number,
             largestTrackNumber: count,
             showsActions: false,
@@ -2978,3 +2991,170 @@ private struct PlaylistDescriptionEditor: View {
         }
     }
 }
+
+// MARK: - 歌曲行显示什么、整页底色(#425)
+
+/// 歌单详情页的显示选项:歌曲行写不写专辑名、时长(普通歌单与智能歌单共用),整页底色跟不跟封面。
+/// 所有歌单共用一份,走 iCloud 界面布局同步。
+enum PlaylistDetailDisplayPreferences {
+    static let showsAlbumKey = "primuse.playlist.rowShowsAlbum.v1"
+    static let showsDurationKey = "primuse.playlist.rowShowsDuration.v1"
+    static let coverTintKey = "primuse.playlist.coverTint.v1"
+    static let coverTintByDefault = false
+}
+
+/// 歌单页「⋯」里的「显示」一组,和专辑页「⋯」里的「歌曲封面」一样就地开关。Mac 的歌单是曲目表,
+/// 专辑、时长两列在表头的列设置里开关;底色只有 iPhone / iPad 的歌单页有。
+private struct PlaylistRowDisplayMenuSection: View {
+    @AppStorage(PlaylistDetailDisplayPreferences.showsAlbumKey) private var showsAlbum = true
+    @AppStorage(PlaylistDetailDisplayPreferences.showsDurationKey) private var showsDuration = true
+    #if os(iOS)
+    @AppStorage(PlaylistDetailDisplayPreferences.coverTintKey)
+    private var tintsFromCover = PlaylistDetailDisplayPreferences.coverTintByDefault
+    #endif
+
+    var body: some View {
+        Section("lyrics_display_section") {
+            Toggle(isOn: $showsAlbum) {
+                Label("album_label", systemImage: "square.stack")
+            }
+            Toggle(isOn: $showsDuration) {
+                Label("duration_label", systemImage: "clock")
+            }
+            #if os(iOS)
+            Toggle(isOn: $tintsFromCover) {
+                Label("playlist_cover_tint", systemImage: "paintpalette")
+            }
+            #endif
+        }
+    }
+}
+
+#if os(iOS)
+/// 歌单页整页底色跟随歌单封面(#425,「⋯」或设置 › 资料库显示里打开)。取色、压深、正文换深色外观、
+/// 弹出页换回原外观,都和专辑页同一套(`LibraryDetailTintStyle`、`ImmersiveLibraryDetailScrollView`、
+/// `libraryDetailPresentationReset()`)。没打开时只把外观原样传下去。
+/// 封面依次认:上传的图、选定的那首歌、歌单自带的封面、自动挑的那首(`PlaylistArtworkResolutionPlan.tintCandidate`)。
+private struct PlaylistCoverTintModifier: ViewModifier {
+    let playlistID: String
+
+    @AppStorage(PlaylistDetailDisplayPreferences.coverTintKey)
+    private var tintsFromCover = PlaylistDetailDisplayPreferences.coverTintByDefault
+    @Environment(MusicLibrary.self) private var library
+    @Environment(CoverTintProvider.self) private var coverTints
+    @Environment(ThemeService.self) private var theme: ThemeService?
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.libraryDetailUnderlyingColorScheme) private var outerUnderlyingColorScheme
+    @State private var source = PlaylistCoverTintSource.none
+
+    func body(content: Content) -> some View {
+        let tint = tintsFromCover ? resolvedTint : nil
+        content
+            // 底色是深的,正文的语义色按深色取值;链接和图标按钮换成白色(同专辑页)。
+            .environment(\.colorScheme, tint == nil ? colorScheme : .dark)
+            .environment(
+                \.libraryDetailUnderlyingColorScheme,
+                tint == nil ? outerUnderlyingColorScheme : (outerUnderlyingColorScheme ?? colorScheme)
+            )
+            .environment(\.libraryDetailTint, tint)
+            .tint(tint == nil ? theme?.uiAccentColor : Color.white)
+            .background {
+                if let tint {
+                    tint.background.ignoresSafeArea()
+                }
+            }
+            .pmAnimation(.ambient, value: tint)
+            .navigationBarTitleDisplayMode(.inline)
+            .task(id: tintsFromCover ? sourceIdentity : nil) {
+                guard tintsFromCover else { return }
+                await resolveSource()
+            }
+            // 就地换了封面要马上改底色,不等下次进页面。
+            .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+                guard tintsFromCover else { return }
+                coverTints.invalidateArtwork(from: note)
+            }
+    }
+
+    private var resolvedTint: LibraryDetailTintStyle {
+        let color: Color?
+        switch source {
+        case .none: color = nil
+        case .song(let songID): color = coverTints.tint(forSongID: songID)
+        case .color(let value): color = value
+        }
+        return .artwork(color, colorScheme: colorScheme)
+    }
+
+    /// 封面可能换掉的几种情况:成员或歌单信息变了、自选封面变了。
+    private var sourceIdentity: String {
+        let presentation = library.artworkPresentation(for: LibraryArtworkOwner(kind: .playlist, id: playlistID))
+        return [
+            playlistID,
+            String(library.playlistCollectionRevision),
+            String(library.artworkOverrideRevision),
+            presentation.uploadedContentID ?? "",
+            presentation.selectedSong?.id ?? "",
+        ].joined(separator: "#")
+    }
+
+    private func resolveSource() async {
+        let presentation = library.artworkPresentation(for: LibraryArtworkOwner(kind: .playlist, id: playlistID))
+        if let contentID = presentation.uploadedContentID {
+            let color = await PlaylistCoverTintSource.color(identity: "uploaded:" + contentID) {
+                MetadataAssetStore.shared.customArtworkData(contentID: contentID)
+            }
+            guard !Task.isCancelled else { return }
+            source = .color(color)
+            return
+        }
+        if let song = presentation.selectedSong {
+            coverTints.prepare([song])
+            source = .song(song.id)
+            return
+        }
+        guard let playlist = library.playlist(id: playlistID) else {
+            source = .none
+            return
+        }
+        let songs = library.songs(forPlaylist: playlistID)
+        // 上千首的歌单排一遍候选也不便宜,放到后台排。
+        let candidate = await Task.detached(priority: .utility) {
+            PlaylistArtworkResolutionPolicy.makePlan(playlist: playlist, songs: songs).tintCandidate
+        }.value
+        guard !Task.isCancelled else { return }
+        switch candidate?.kind {
+        case .dedicated?:
+            guard let reference = candidate?.artworkReference else { return }
+            let color = await PlaylistCoverTintSource.color(identity: "playlist:" + reference) {
+                MetadataAssetStore.shared.readCoverData(named: reference)
+            }
+            guard !Task.isCancelled else { return }
+            source = .color(color)
+        case .song?:
+            guard let songID = candidate?.songID,
+                  let song = songs.first(where: { $0.id == songID }) else {
+                source = .none
+                return
+            }
+            coverTints.prepare([song])
+            source = .song(song.id)
+        case nil:
+            source = .none
+        }
+    }
+}
+
+/// 歌单页底色的取色来源:曲库里的某首歌(走 `CoverTintProvider`,和专辑页同一份缓存),
+/// 或者上传的图、歌单自带的封面这类不属于哪首歌的图(直接取好的颜色)。
+private enum PlaylistCoverTintSource {
+    case none
+    case song(String)
+    case color(Color?)
+
+    /// 不属于哪首歌的图:读出来按同一套规则取主色,结果记在 `ArtworkTintCache`。
+    static func color(identity: String, load: @escaping @Sendable () -> Data?) async -> Color? {
+        await ArtworkTintCache.shared.palette(identity: identity, load: load).palette?.primary
+    }
+}
+#endif

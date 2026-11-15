@@ -6397,6 +6397,9 @@
 "library_artist_softens_edges" = "Soften Artist Page Edges";
 "library_playlist_cover_wall_title" = "Cover Wall for Playlist and Genre Headers";
 "library_playlist_cover_wall_description" = "When a playlist, smart playlist or genre has at least 4 different album covers, its header becomes a tilted wall of covers that rearranges every few seconds. Phones in landscape keep the single cover.";
+"library_playlist_cover_tint_title" = "Playlist Background from Cover";
+"library_playlist_cover_tint_description" = "The whole playlist page takes its background color from the playlist cover, the same way album and artist pages do.";
+"playlist_cover_tint" = "Background from Cover";
 "player_backdrop_strength_footer" = "Further right brings the background closer to the cover's colors. In Light Mode, very dark cover colors stop where text stays readable. With a background image such as Blurred Cover, this sets how strong the dimming layer is.";
 "player_progress_style_title" = "Progress Bar";
 "player_progress_style_footer" = "The wave flows only while playing and flattens when paused or while you drag. Applies to the player on iPhone, iPad and Mac. Podcasts and audiobooks follow it too, except that the portrait audiobook layout only switches to the wave and keeps its own thin line otherwise. Turn on Audiobooks below to use the other two there as well.";

@@ -6,6 +6,9 @@ import PrimuseKit
 struct SmartPlaylistDetailView: View {
     @AppStorage(LibraryRowNumberPreferences.storageKey)
     private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
+    /// 歌曲行写不写专辑、时长,跟普通歌单页「⋯ › 显示」同一份设置(#425)。
+    @AppStorage(PlaylistDetailDisplayPreferences.showsAlbumKey) private var showsRowAlbum = true
+    @AppStorage(PlaylistDetailDisplayPreferences.showsDurationKey) private var showsRowDuration = true
     /// 用 ID 查找而不是直接持值, 让规则编辑后 detail 能跟着 library 状态刷新。
     let smartPlaylistID: String
     private let onMacInlineBack: (() -> Void)?
@@ -289,6 +292,8 @@ struct SmartPlaylistDetailView: View {
                     SongRowView(
                         song: song,
                         isPlaying: player.currentSong?.id == song.id,
+                        showAlbum: showsRowAlbum,
+                        showsDuration: showsRowDuration,
                         trackNumber: index + 1,
                         largestTrackNumber: rows.count,
                         showsActions: false,
@@ -303,7 +308,7 @@ struct SmartPlaylistDetailView: View {
                 }
             }
             #if os(iOS)
-            .songRowColumnsContainer()
+            .songRowColumnsContainer(showsAlbum: showsRowAlbum)
             #endif
             // 只在"空态 ⇄ 曲目表"重建时淡入一次: 匹配结果变化不换
             // 分支, 不会每次刷新都重放; 表内的行一律不动。

@@ -6637,6 +6637,9 @@
 "library_artist_softens_edges" = "アーティストページの縁をぼかす";
 "library_playlist_cover_wall_title" = "プレイリストとジャンルのヘッダーをジャケットウォールにする";
 "library_playlist_cover_wall_description" = "プレイリスト、スマートプレイリスト、ジャンルに異なるアルバムジャケットが4枚以上あると、ヘッダーが傾いたジャケットの壁になり、数秒ごとに並びが変わります。iPhoneの横向き表示では1枚のカバーのままです。";
+"library_playlist_cover_tint_title" = "プレイリストの背景色をジャケットに合わせる";
+"library_playlist_cover_tint_description" = "プレイリストのページ全体の背景色をプレイリストのジャケットから取ります。アルバムやアーティストのページと同じです。";
+"playlist_cover_tint" = "背景色をジャケットに合わせる";
 "player_backdrop_strength_footer" = "右にするほど背景がジャケットの色に近づきます。ライトモードでジャケットの色がとても濃い場合は、文字が読みやすい程度で止まります。「ぼかしジャケット」などの背景画像では、画像に重ねる暗さの度合いを調整します。";
 "player_progress_style_title" = "プログレスバー";
 "player_progress_style_footer" = "波は再生中だけ流れ、一時停止中やドラッグ中はまっすぐな線になります。iPhone、iPad、Macのプレーヤーに反映されます。ポッドキャストとオーディオブックにも反映されます。ただしオーディオブックの縦向きレイアウトは波のときだけ切り替わり、それ以外は独自の細い線のままです。下の「オーディオブック」をオンにすると、ほかの2つもオーディオブックに反映されます。";

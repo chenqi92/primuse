@@ -6636,6 +6636,9 @@
 "library_artist_softens_edges" = "Ränder der Künstlerseite weichzeichnen";
 "library_playlist_cover_wall_title" = "Cover-Wand im Kopf von Playlists und Genres";
 "library_playlist_cover_wall_description" = "Hat eine Playlist, intelligente Playlist oder ein Genre mindestens 4 verschiedene Albumcover, wird der Kopfbereich zu einer schrägen Cover-Wand, die sich alle paar Sekunden neu anordnet. Smartphones im Querformat zeigen weiterhin ein einzelnes Cover.";
+"library_playlist_cover_tint_title" = "Playlist-Hintergrund aus dem Cover";
+"library_playlist_cover_tint_description" = "Die ganze Playlist-Seite übernimmt ihre Hintergrundfarbe vom Playlist-Cover, wie die Album- und Künstlerseiten.";
+"playlist_cover_tint" = "Hintergrund aus dem Cover";
 "player_backdrop_strength_footer" = "Je weiter rechts, desto näher kommt der Hintergrund den Farben des Covers. Im hellen Modus stoppen sehr dunkle Coverfarben dort, wo Text noch gut lesbar ist. Bei einem Hintergrundbild wie „Unscharfes Cover“ steuert dies die Stärke der Abdunklung.";
 "player_progress_style_title" = "Fortschrittsbalken";
 "player_progress_style_footer" = "Die Welle bewegt sich nur bei der Wiedergabe und wird beim Pausieren oder Ziehen zur geraden Linie. Gilt für den Player auf iPhone, iPad und Mac. Podcasts und Hörbücher folgen ebenfalls, nur wechselt das Hörbuch-Layout im Hochformat lediglich zur Welle und behält sonst seine eigene dünne Linie. Aktiviere unten „Hörbücher“, damit dort auch die anderen beiden gelten.";

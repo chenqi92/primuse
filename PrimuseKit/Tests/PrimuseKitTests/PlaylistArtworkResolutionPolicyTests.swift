@@ -223,6 +223,32 @@ struct PlaylistArtworkResolutionPolicyTests {
         #expect(forward == reversed)
     }
 
+    @Test("Cover tint uses the shown cover order and skips what cannot be read locally")
+    func tintCandidateFollowsCoverOrder() {
+        let localDedicated = PlaylistArtworkResolutionPlan(signature: "a", candidates: [
+            PlaylistArtworkCandidate(kind: .dedicated, id: "d", artworkReference: "playlist-cover.jpg"),
+            PlaylistArtworkCandidate(kind: .song, id: "s", songID: "s", artworkReference: "s.jpg"),
+        ])
+        #expect(localDedicated.tintCandidate?.kind == .dedicated)
+
+        let remoteDedicated = PlaylistArtworkResolutionPlan(signature: "b", candidates: [
+            PlaylistArtworkCandidate(kind: .dedicated, id: "d", artworkReference: "https://example.com/cover.jpg"),
+            PlaylistArtworkCandidate(kind: .song, id: "bare", songID: "bare"),
+            PlaylistArtworkCandidate(kind: .song, id: "covered", songID: "covered", artworkReference: "c.jpg"),
+        ])
+        #expect(remoteDedicated.tintCandidate?.songID == "covered")
+
+        let bareOnly = PlaylistArtworkResolutionPlan(signature: "c", candidates: [
+            PlaylistArtworkCandidate(kind: .song, id: "first", songID: "first"),
+            PlaylistArtworkCandidate(kind: .song, id: "second", songID: "second"),
+        ])
+        #expect(bareOnly.tintCandidate?.songID == "first")
+
+        let empty = PlaylistArtworkResolutionPlan(signature: "d", candidates: [])
+        #expect(empty.tintCandidate == nil)
+        #expect(!PlaylistArtworkResolutionPlan.isLocalArtworkReference("/Music/cover.jpg"))
+    }
+
     private func song(
         _ id: String,
         cover: String?,

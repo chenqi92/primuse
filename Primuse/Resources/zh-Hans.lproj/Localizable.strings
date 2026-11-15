@@ -6729,6 +6729,9 @@
 "library_artist_softens_edges" = "艺术家页边缘柔化";
 "library_playlist_cover_wall_title" = "歌单和风格头图用封面墙";
 "library_playlist_cover_wall_description" = "歌单、智能歌单和风格里有 4 张以上不同的专辑封面时，头图铺成一面倾斜的封面墙，每隔几秒换一次排法。手机横屏仍显示单张封面。";
+"library_playlist_cover_tint_title" = "歌单页底色跟随封面";
+"library_playlist_cover_tint_description" = "歌单详情页的整页底色取自歌单封面，和专辑页、艺人页一样。";
+"playlist_cover_tint" = "底色跟随封面";
 "player_backdrop_strength_footer" = "越往右，背景越贴近封面的颜色。浅色外观下封面颜色很深时，会停在文字还看得清的程度；选了模糊封面等背景图时，调的是图上那层遮罩的深浅。";
 "player_progress_style_title" = "进度条";
 "player_progress_style_footer" = "波浪只在播放时流动，暂停或拖动时抚平成直线。iPhone、iPad 与 Mac 的播放页都会跟着换。播客和有声书也一样，只是有声书的竖屏版式只跟着换成波浪，选另外两种时保留它自己的细线。打开下面的「有声书」，另外两种也会用到有声书上。";

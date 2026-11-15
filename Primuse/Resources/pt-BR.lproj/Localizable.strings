@@ -6542,6 +6542,9 @@
 "library_artist_softens_edges" = "Suavizar bordas das páginas de artistas";
 "library_playlist_cover_wall_title" = "Mural de capas no cabeçalho de playlists e gêneros";
 "library_playlist_cover_wall_description" = "Quando uma playlist, playlist inteligente ou gênero tem pelo menos 4 capas de álbum diferentes, o cabeçalho vira um mural inclinado de capas que se reorganiza a cada poucos segundos. No celular na horizontal, continua aparecendo uma só capa.";
+"library_playlist_cover_tint_title" = "Fundo das playlists pela capa";
+"library_playlist_cover_tint_description" = "A página inteira da playlist usa a cor de fundo tirada da capa da playlist, como as páginas de álbum e de artista.";
+"playlist_cover_tint" = "Fundo pela capa";
 "player_backdrop_strength_footer" = "Quanto mais para a direita, mais o fundo se aproxima das cores da capa. No modo claro, cores muito escuras param onde o texto continua legível. Com uma imagem de fundo como Capa desfocada, isto ajusta a intensidade da camada que a escurece.";
 "player_progress_style_title" = "Barra de progresso";
 "player_progress_style_footer" = "A onda só se move durante a reprodução e vira uma linha reta ao pausar ou arrastar. Vale para o player no iPhone, iPad e Mac. Podcasts e audiolivros também seguem, só que o layout vertical de audiolivros muda apenas para a onda e, nas outras opções, mantém sua própria linha fina. Ative Audiolivros abaixo para usar também as outras duas lá.";

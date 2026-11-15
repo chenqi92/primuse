@@ -744,6 +744,10 @@ final class InterfaceLayoutSync {
         LibraryRowNumberPreferences.storageKey,
         // 歌单头图用封面墙(`CollectionCoverWall.preferenceKey`,只有 iPhone / iPad 用,Mac 照样转发)。
         "primuse.library.playlistCoverWall.v1",
+        // 歌单页歌曲行写不写专辑、时长,整页底色跟不跟封面(`PlaylistDetailDisplayPreferences`)。
+        "primuse.playlist.rowShowsAlbum.v1",
+        "primuse.playlist.rowShowsDuration.v1",
+        "primuse.playlist.coverTint.v1",
         // 资料库分类图标彩色 / 简洁(`LibraryIconStyle`,同样只有 iPhone / iPad 画)。
         "primuse.library.iconStyle.v1",
         ArtistAppearancePreferences.colorStyleKey,

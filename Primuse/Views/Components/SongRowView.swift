@@ -40,6 +40,8 @@ struct SongRowView: View {
     var actionRequest: SongRowActionRequest? = nil
     var isPlaying: Bool = false
     var showAlbum: Bool = true
+    /// 歌单页可以按设置不写时长(#425);副标题和右边的时长列一起收起。
+    var showsDuration: Bool = true
     var showsArtwork: Bool = true
     var trackNumber: Int? = nil
     var largestTrackNumber: Int = 1
@@ -393,7 +395,7 @@ struct SongRowView: View {
         // 只是内容为空——否则徽标与 ⋯ 会一行一个位置。
         let columns = songRowColumns
         let showsAlbumColumn = columns.showsAlbum && showAlbum
-        let showsDurationColumn = columns.showsDuration
+        let showsDurationColumn = columns.showsDuration && showsDuration
         let style = rowStyle
         HStack(spacing: style.artworkSpacing) {
             if showsArtwork {
@@ -519,7 +521,7 @@ struct SongRowView: View {
                         let artist = library.artistDisplayName(for: song)
                         let album = showAlbum && !showsAlbumColumn ? song.albumTitle : nil
                         // 独立 MV 时长可能尚未回填, 不显示 0:00
-                        let showsDuration = !showsDurationColumn && song.duration > 0
+                        let durationInSubtitle = showsDuration && !showsDurationColumn && song.duration > 0
                         let leadsWithStatus = song.isStandaloneMusicVideo || unreachable
                         if let artist {
                             if leadsWithStatus { Text("·") }
@@ -529,13 +531,13 @@ struct SongRowView: View {
                             if leadsWithStatus || artist != nil { Text("·") }
                             Text(album)
                         }
-                        if showsDuration {
+                        if durationInSubtitle {
                             if leadsWithStatus || artist != nil || album != nil { Text("·") }
                             Text(formatDuration(song.duration))
                                 .monospacedDigit()
                         }
                         if let sourceName {
-                            if leadsWithStatus || artist != nil || album != nil || showsDuration {
+                            if leadsWithStatus || artist != nil || album != nil || durationInSubtitle {
                                 Text("·")
                             }
                             if let sourceIconName {
@@ -2315,6 +2317,7 @@ extension SongRowView {
         song: Song,
         isPlaying: Bool = false,
         showAlbum: Bool = true,
+        showsDuration: Bool = true,
         showsArtwork: Bool = true,
         trackNumber: Int? = nil,
         largestTrackNumber: Int = 1,
@@ -2332,6 +2335,7 @@ extension SongRowView {
         self.song = song
         self.isPlaying = isPlaying
         self.showAlbum = showAlbum
+        self.showsDuration = showsDuration
         self.showsArtwork = showsArtwork
         self.trackNumber = trackNumber
         self.largestTrackNumber = largestTrackNumber

@@ -175,6 +175,32 @@ public struct PlaylistArtworkResolutionPlan: Equatable, Sendable {
     }
 }
 
+extension PlaylistArtworkResolutionPlan {
+    /// 歌单页底色跟随封面时从哪一个候选取色(#425)。和封面同样按顺序挑:歌单自带的封面是本机文件才取得到色,
+    /// 不是就跳过;歌曲候选先挑带封面引用的那首,都没有时用排第一的那首。
+    public var tintCandidate: PlaylistArtworkCandidate? {
+        var firstSong: PlaylistArtworkCandidate?
+        for candidate in candidates {
+            switch candidate.kind {
+            case .dedicated:
+                if let reference = candidate.artworkReference, Self.isLocalArtworkReference(reference) {
+                    return candidate
+                }
+            case .song:
+                guard candidate.songID != nil else { continue }
+                if candidate.artworkReference != nil { return candidate }
+                if firstSong == nil { firstSong = candidate }
+            }
+        }
+        return firstSong
+    }
+
+    /// 封面引用是本机封面库里的文件名(不是路径、不是网址)。
+    public static func isLocalArtworkReference(_ reference: String) -> Bool {
+        !reference.isEmpty && !reference.contains("/") && !reference.contains("://")
+    }
+}
+
 public struct PlaylistArtworkResolution<Value> {
     public let candidate: PlaylistArtworkCandidate
     public let value: Value
