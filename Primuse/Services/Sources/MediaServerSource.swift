@@ -2164,7 +2164,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             includesCover: coverData?.isEmpty == false
         )
         let requestedMetadataFields = requestedFields.intersection(
-            TagMetadataWritebackField.metadataFields
+            TagMetadataWritebackField.metadataFields.union([.albumArtist])
         )
 
         do {
@@ -2193,7 +2193,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             switch kind {
             case .jellyfin, .emby:
                 do {
-                    try await updateJellyfinOrEmbyItem(itemID: itemID, song: updated)
+                    try await updateJellyfinOrEmbyItem(itemID: itemID, song: updated, fields: requestedMetadataFields)
                     let mismatched = try await jellyfinOrEmbyReadbackMismatches(
                         itemID: itemID,
                         expected: updated,
@@ -3510,7 +3510,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return SSLTrustStore.isTrustedSync(domain: endpoint.key)
     }
 
-    private func updateJellyfinOrEmbyItem(itemID: String, song: Song) async throws {
+    private func updateJellyfinOrEmbyItem(itemID: String, song: Song, fields: Set<TagMetadataWritebackField>) async throws {
         let itemPath: String
         switch kind {
         case .jellyfin:
@@ -3529,15 +3529,21 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         let artist = normalizedMetadataText(song.artistName)
         let artists = (song.sourceArtistNames ?? artist.map { [$0] } ?? [])
             .compactMap(normalizedMetadataText)
-        let albumArtist = normalizedMetadataText(song.albumArtistName) ?? artist
-        item["Name"] = song.title
-        item["AlbumArtist"] = albumArtist ?? ""
-        item["Artists"] = artists
-        item["Album"] = normalizedMetadataText(song.albumTitle) ?? ""
-        item["IndexNumber"] = song.trackNumber.map { $0 as Any } ?? NSNull()
-        item["ParentIndexNumber"] = song.discNumber.map { $0 as Any } ?? NSNull()
-        item["ProductionYear"] = song.year.map { $0 as Any } ?? NSNull()
-        item["Genres"] = Self.serverGenreNames(song.genre)
+        if fields.contains(.title) { item["Name"] = song.title }
+        if fields.contains(.albumArtist) {
+            let names = normalizedMetadataText(song.albumArtistName).map { [$0] } ?? []
+            item["AlbumArtist"] = names.first ?? ""
+            item["AlbumArtists"] = names.map { ["Name": $0] }
+        }
+        if fields.contains(.artist) {
+            item["Artists"] = artists
+            item["ArtistItems"] = artists.map { ["Name": $0] }
+        }
+        if fields.contains(.album) { item["Album"] = normalizedMetadataText(song.albumTitle) ?? "" }
+        if fields.contains(.trackNumber) { item["IndexNumber"] = song.trackNumber.map { $0 as Any } ?? NSNull() }
+        if fields.contains(.discNumber) { item["ParentIndexNumber"] = song.discNumber.map { $0 as Any } ?? NSNull() }
+        if fields.contains(.year) { item["ProductionYear"] = song.year.map { $0 as Any } ?? NSNull() }
+        if fields.contains(.genre) { item["Genres"] = Self.serverGenreNames(song.genre) }
 
         let body = try SafeJSONSerialization.data(withJSONObject: item)
         _ = try await performRequest(path: "/Items/\(itemID)", method: "POST", body: body)
@@ -3577,18 +3583,19 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         expected: Song
     ) -> Bool {
         switch field {
-        case .albumArtist: return false
+        case .albumArtist:
+            let actual = item.albumArtists?.compactMap { normalizedMetadataText($0.name) }
+                ?? normalizedMetadataText(item.albumArtist).map { [$0] } ?? []
+            return actual == (normalizedMetadataText(expected.albumArtistName).map { [$0] } ?? [])
         case .title:
             return normalizedMetadataText(item.name) == normalizedMetadataText(expected.title)
         case .artist:
-            let actualArtists = (item.artists ?? []).compactMap(normalizedMetadataText)
+            let actualArtists = item.artistItems?.compactMap { normalizedMetadataText($0.name) }
+                ?? (item.artists ?? []).compactMap(normalizedMetadataText)
             let expectedArtists = (expected.sourceArtistNames
                 ?? normalizedMetadataText(expected.artistName).map { [$0] }
                 ?? []).compactMap(normalizedMetadataText)
             return actualArtists == expectedArtists
-                || (actualArtists.isEmpty
-                    && normalizedMetadataText(item.albumArtist)
-                        == normalizedMetadataText(expected.artistName))
         case .album:
             return normalizedMetadataText(item.album) == normalizedMetadataText(expected.albumTitle)
         case .genre:

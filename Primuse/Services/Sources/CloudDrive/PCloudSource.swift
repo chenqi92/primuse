@@ -17,10 +17,10 @@ import PrimuseKit
 /// `Song.filePath` 存的就是它,文件夹层级靠 `parentPath` 重建 —— 那里填调用方用来
 /// 定位本目录的标识,与光鸭、123 等 ID 寻址网盘一致。
 ///
-/// 目前支持列目录、按段播放与删除源文件(进 pCloud 回收站)。封面、歌词与标签
-/// 写回还没接,沿用 Primuse 本地保存。
-actor PCloudSource: MusicSourceConnector, OAuthCloudSource {
+/// 标签和伴随文件通过 uploadfile 同名覆盖，pCloud 保留旧内容为文件修订。
+actor PCloudSource: MusicSourceConnector, OAuthCloudSource, EmbeddedMetadataWritebackAdapter, LyricsSidecarTargetResolving {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true
     private let helper: CloudDriveHelper
     private let session: URLSession?
     private let tokenProvider: (@Sendable () async throws -> CloudTokenManager.Tokens)?
@@ -40,7 +40,7 @@ actor PCloudSource: MusicSourceConnector, OAuthCloudSource {
         requests: CloudRequestScheduler = .shared
     ) {
         self.sourceID = sourceID
-        self.helper = CloudDriveHelper(sourceID: sourceID, requests: requests)
+        self.helper = CloudDriveHelper(sourceID: sourceID, requests: requests, session: session ?? .shared)
         self.session = session
         self.tokenProvider = tokenProvider
     }
@@ -105,13 +105,15 @@ actor PCloudSource: MusicSourceConnector, OAuthCloudSource {
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         let url = try await fileLink(for: path)
         do {
-            return try await helper.rangeRequest(url: url, offset: offset, length: length)
+            return try await helper.rangeRequest(url: url, offset: offset, length: length,
+                                                 session: session ?? CloudDriveHelper.rangeSession)
         } catch CloudDriveError.apiError(let status, _) where [401, 403, 410].contains(status) {
             // 直链在有效期内也可能失效(比如换了网络出口)。换一条再试一次,
             // 而不是把这次播放判死。
             fileLinkCache.removeValue(forKey: path)
             let refreshed = try await fileLink(for: path)
-            return try await helper.rangeRequest(url: refreshed, offset: offset, length: length)
+            return try await helper.rangeRequest(url: refreshed, offset: offset, length: length,
+                                                 session: session ?? CloudDriveHelper.rangeSession)
         }
     }
 
@@ -148,6 +150,162 @@ actor PCloudSource: MusicSourceConnector, OAuthCloudSource {
         let ttl = serverTTL > 0 ? min(serverTTL, Self.maximumFileLinkTTL) : Self.maximumFileLinkTTL
         fileLinkCache[path] = (link.url, Date().addingTimeInterval(ttl))
         return link.url
+    }
+
+    // MARK: - 文件写回
+
+    private func metadata(for path: String) async throws -> PCloudAPIProtocol.FileMetadata {
+        guard let id = PCloudAPIProtocol.fileID(from: path) else { throw CloudDriveError.fileNotFound(path) }
+        let data = try await authorizedCall(notFoundPath: path) { PCloudAPIProtocol.statURL(host: $0, fileID: id) }
+        guard let file = PCloudAPIProtocol.parseFileMetadata(data), file.entry.id == "f\(id)" else {
+            throw CloudDriveError.invalidResponse
+        }
+        return file
+    }
+
+    private func state(_ file: PCloudAPIProtocol.FileMetadata) -> EmbeddedMetadataRemoteFileState {
+        .init(fileSize: file.entry.size, modifiedDate: file.entry.modifiedAt,
+              revision: file.entry.contentHash, replacementToken: "\(file.parentID)/\(file.entry.name)")
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        state(try await metadata(for: path))
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        fileLinkCache.removeValue(forKey: path)
+        helper.invalidateCachedFile(path: path)
+    }
+
+    func replaceMetadataFile(at path: String, with localURL: URL, expected: EmbeddedMetadataRemoteFileState) async throws {
+        _ = try await replaceMetadataFileReturningPath(at: path, with: localURL, expected: expected)
+    }
+
+    func replaceMetadataFileReturningPath(at path: String, with localURL: URL,
+                                          expected: EmbeddedMetadataRemoteFileState) async throws -> String {
+        let current = try await metadata(for: path)
+        guard state(current).matches(expected) else { throw EmbeddedMetadataWritebackSourceError.conflict }
+        let siblings = try await listFiles(at: "d\(current.parentID)").filter {
+            $0.name.caseInsensitiveCompare(current.entry.name) == .orderedSame
+        }
+        guard siblings.count == 1, siblings.first?.path == current.entry.id else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        guard try await metadataWritebackState(for: path).matches(expected) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        defer { fileLinkCache.removeValue(forKey: path); helper.invalidateCachedFile(path: path) }
+        let uploaded = try await upload(localURL, name: current.entry.name, parentID: current.parentID)
+        await invalidateMetadataWritebackCache(for: uploaded.entry.id)
+        do {
+            let confirmed = try await metadata(for: uploaded.entry.id)
+            guard confirmed == uploaded else { throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed }
+        } catch {
+            throw EmbeddedMetadataReplacementReadbackError(filePath: uploaded.entry.id,
+                fileSize: uploaded.entry.size, detail: error.localizedDescription)
+        }
+        return uploaded.entry.id
+    }
+
+    private func upload(_ file: URL, name: String, parentID: Int64) async throws -> PCloudAPIProtocol.FileMetadata {
+        let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard size > 0 else { throw CloudDriveError.invalidResponse }
+        let tokens = try await currentTokens()
+        guard let url = PCloudAPIProtocol.uploadURL(host: PCloudAPIProtocol.apiHost(from: tokens.extra),
+                                                  folderID: parentID, filename: name) else { throw CloudDriveError.invalidResponse }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue(String(size), forHTTPHeaderField: "Content-Length")
+        request.timeoutInterval = 3_600
+        let (data, response) = try await helper.sendOnce(request) { session, request in
+            try await session.upload(for: request, fromFile: file)
+        }
+        guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
+        if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+        if http.statusCode == 403 { throw SourceFileMutationError.permissionDenied }
+        guard (200...299).contains(http.statusCode), let envelope = PCloudAPIProtocol.parseEnvelope(data) else {
+            throw CloudDriveError.invalidResponse
+        }
+        guard envelope.isSuccess else {
+            if envelope.result == PCloudAPIProtocol.ResultCode.accessDenied { throw SourceFileMutationError.permissionDenied }
+            throw Self.connectorError(for: envelope, notFoundPath: nil)
+        }
+        guard let uploaded = PCloudAPIProtocol.parseFileMetadata(data, uploaded: true),
+              uploaded.parentID == parentID, uploaded.entry.name == name, uploaded.entry.size == Int64(size) else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        return uploaded
+    }
+
+    func lyricsSidecarTarget(for song: Song, request: LyricsDocumentRequest) async throws -> LyricsSidecarTarget {
+        let file = try await metadata(for: song.filePath)
+        let base = (file.entry.name as NSString).deletingPathExtension
+        let directory = "d\(file.parentID)"
+        let siblings = try await listFiles(at: directory)
+        let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(baseName: base, in: siblings, request: request)
+        let companion = LyricsSidecarTargetPolicy.translationTrackItem(forPrimary: existing, baseName: base, in: siblings)
+        let name = existing?.name ?? "\(base).lrc"
+        return LyricsSidecarTarget(targetPath: song.filePath + "." + (name as NSString).pathExtension.lowercased(),
+            fileName: name, containerPath: directory, exists: existing != nil, existingPath: existing?.path,
+            existingSize: existing?.size, songBaseName: base, translationPath: companion?.path,
+            translationFileName: companion?.name, translationSize: companion?.size,
+            documents: LyricsSidecarTargetPolicy.documents(baseName: base, in: siblings))
+    }
+
+    func writeLyricsSidecar(data: Data, target: LyricsSidecarTarget, priority: RangeFetchPriority) async throws -> LyricsSidecarWriteReceipt {
+        let suffix = "." + (target.fileName as NSString).pathExtension.lowercased()
+        guard PrimuseConstants.supportedLyricsExtensions.contains(String(suffix.dropFirst())),
+              target.targetPath.hasSuffix(suffix) else { throw CloudDriveError.invalidResponse }
+        let source = try await metadata(for: String(target.targetPath.dropLast(suffix.count)))
+        guard target.containerPath == "d\(source.parentID)",
+              (source.entry.name as NSString).deletingPathExtension.caseInsensitiveCompare(
+                (target.fileName as NSString).deletingPathExtension) == .orderedSame else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        let existing = try await listFiles(at: target.containerPath).filter {
+            $0.name.caseInsensitiveCompare(target.fileName) == .orderedSame
+        }
+        guard existing.count <= 1,
+              existing.allSatisfy({ !$0.isDirectory && $0.name == target.fileName }),
+              target.exists ? existing.first?.path == target.existingPath && target.existingPath != nil
+                && (target.existingSize == nil || existing.first?.size == target.existingSize) : existing.isEmpty else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        let uploaded = try await uploadSidecar(data, name: target.fileName, parentID: source.parentID)
+        return LyricsSidecarWriteReceipt(requestedTargetPath: target.targetPath, writtenPath: uploaded.entry.id,
+            fileName: target.fileName, containerPath: target.containerPath, remoteSize: uploaded.entry.size, readback: data)
+    }
+
+    func writeFile(data: Data, to path: String) async throws {
+        let suffix: String
+        if path.hasSuffix("-cover.jpg") { suffix = "-cover.jpg" }
+        else if let ext = PrimuseConstants.supportedLyricsExtensions.first(where: { path.hasSuffix(".\($0)") }) { suffix = "." + ext }
+        else { throw CloudDriveError.invalidResponse }
+        let source = try await metadata(for: String(path.dropLast(suffix.count)))
+        let name = (source.entry.name as NSString).deletingPathExtension + suffix
+        let matches = try await listFiles(at: "d\(source.parentID)").filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        guard matches.count <= 1, matches.allSatisfy({ !$0.isDirectory && $0.name == name }) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        _ = try await uploadSidecar(data, name: name, parentID: source.parentID)
+    }
+
+    private func uploadSidecar(_ data: Data, name: String, parentID: Int64) async throws -> PCloudAPIProtocol.FileMetadata {
+        guard !data.isEmpty else { throw CloudDriveError.invalidResponse }
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("primuse-pcloud-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        try data.write(to: temporary)
+        let uploaded = try await upload(temporary, name: name, parentID: parentID)
+        await invalidateMetadataWritebackCache(for: uploaded.entry.id)
+        let readback = try await fetchRange(path: uploaded.entry.id, offset: 0, length: Int64(data.count))
+        guard readback == data else { throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed }
+        return uploaded
+    }
+
+    func verifySidecarWrite(data: Data, at path: String) async throws {
+        // writeFile verifies the uploaded provider ID before returning.
     }
 
     // MARK: - 鉴权请求

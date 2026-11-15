@@ -149,6 +149,43 @@ public enum PCloudAPIProtocol {
         ])
     }
 
+    public static func statURL(host: String, fileID: Int64) -> URL? {
+        methodURL(host: host, method: "stat", queryItems: [.init(name: "fileid", value: String(fileID))])
+    }
+
+    public static func uploadURL(host: String, folderID: Int64, filename: String) -> URL? {
+        guard folderID >= 0, !filename.isEmpty, filename != ".", filename != "..",
+              !filename.contains("/"), !filename.contains("\0") else { return nil }
+        return methodURL(host: host, method: "uploadfile", queryItems: [
+            .init(name: "folderid", value: String(folderID)),
+            .init(name: "filename", value: filename),
+            .init(name: "nopartial", value: "1"),
+        ])
+    }
+
+    public struct FileMetadata: Sendable, Equatable {
+        public let entry: Entry
+        public let parentID: Int64
+    }
+
+    public static func parseFileMetadata(_ data: Data, uploaded: Bool = false) -> FileMetadata? {
+        guard let json = object(data), envelope(json).isSuccess else { return nil }
+        let item: [String: Any]
+        if uploaded {
+            guard let items = json["metadata"] as? [[String: Any]], items.count == 1,
+                  let first = items.first else { return nil }
+            item = first
+        } else {
+            guard let metadata = json["metadata"] as? [String: Any] else { return nil }
+            item = metadata
+        }
+        guard bool(item["isfolder"]) == false, bool(item["isdeleted"]) != true,
+              let entry = entry(item), let parentID = int64(item["parentfolderid"]), parentID >= 0,
+              let size = int64(item["size"]), size >= 0,
+              entry.contentHash != nil, entry.modifiedAt != nil else { return nil }
+        return FileMetadata(entry: entry, parentID: parentID)
+    }
+
     public static func userInfoURL(host: String) -> URL? {
         methodURL(host: host, method: "userinfo")
     }

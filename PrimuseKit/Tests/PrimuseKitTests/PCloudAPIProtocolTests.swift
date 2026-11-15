@@ -4,6 +4,34 @@ import Testing
 
 @Suite("pCloud HTTP JSON protocol")
 struct PCloudAPIProtocolTests {
+    @Test func uploadsOverwriteWithoutSavingPartialFilesAndEncodeNames() throws {
+        let url = try #require(PCloudAPIProtocol.uploadURL(host: "eapi.pcloud.com", folderID: 42, filename: "歌 &+.flac"))
+        let fields = Dictionary(uniqueKeysWithValues: URLComponents(url: url, resolvingAgainstBaseURL: false)!.queryItems!.map { ($0.name, $0.value ?? "") })
+        #expect(url.path == "/uploadfile")
+        #expect(fields["filename"] == "歌 &+.flac")
+        #expect(fields["folderid"] == "42")
+        #expect(fields["nopartial"] == "1")
+        #expect(fields["renameifexists"] == nil)
+        #expect(fields["access_token"] == nil)
+        #expect(PCloudAPIProtocol.uploadURL(host: "evil.invalid", folderID: 0, filename: "a.flac") == nil)
+        #expect(PCloudAPIProtocol.uploadURL(host: "api.pcloud.com", folderID: 0, filename: "../a.flac") == nil)
+    }
+
+    @Test func writableMetadataNeedsAnIdentityParentSizeAndRevision() throws {
+        let valid: [String: Any] = ["id": "f7", "fileid": 7, "isfolder": false, "parentfolderid": 42,
+                                  "name": "Song.flac", "size": 100, "modified": 1000, "hash": "18446744073709551615"]
+        func encoded(_ item: [String: Any], upload: Bool = false) throws -> Data {
+            try JSONSerialization.data(withJSONObject: ["result": 0, "metadata": upload ? [item] as Any : item])
+        }
+        #expect(try PCloudAPIProtocol.parseFileMetadata(encoded(valid))?.entry.contentHash == "18446744073709551615")
+        #expect(try PCloudAPIProtocol.parseFileMetadata(encoded(valid, upload: true), uploaded: true)?.parentID == 42)
+        for key in ["parentfolderid", "size", "modified", "hash", "isfolder"] {
+            var broken = valid
+            broken.removeValue(forKey: key)
+            #expect(try PCloudAPIProtocol.parseFileMetadata(encoded(broken)) == nil)
+        }
+    }
+
 
     // MARK: - 主机与地区
 

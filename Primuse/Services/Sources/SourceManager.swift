@@ -15961,7 +15961,7 @@ final class SourceManager {
         var writesServerAudio = false
         if mode == .serverAPI {
             let type = (try? await sourcesProvider())?.first(where: { $0.id == original.sourceID })?.type
-            writesServerAudio = type == .airsonic || type == .fnMusic || type == .synologyAudioStation
+            writesServerAudio = type == .subsonic || type == .airsonic || type == .fnMusic || type == .synologyAudioStation
         }
         if mode == .embedded || writesServerAudio {
             // The file may already have reached the replace stage even when a

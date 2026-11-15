@@ -426,9 +426,11 @@ public enum AudioMetadataWritebackPolicy {
         .googleDrive,
         .oneDrive,
         .dropbox,
+        .pcloud,
     ]
 
     public static let serverAPISourceTypes: Set<MusicSourceType> = [
+        .subsonic,
         .jellyfin,
         .emby,
         .plex,

@@ -5,6 +5,168 @@ import XCTest
 @testable import Primuse
 
 final class CloudRequestTests: XCTestCase {
+    func testJellyfinAndEmbyAlbumArtistWritesAreVerifiedAndPreserveOtherServerTags() async throws {
+        for kind in [MediaServerSource.Kind.jellyfin, .emby] {
+            for albumArtist in ["New album artist", ""] {
+                let before = #"{"Id":"42","Name":"Fresh remote title","AlbumArtist":"Old","AlbumArtists":[{"Id":"old-album-artist","Name":"Old"}],"Artists":["Remote singer"],"ArtistItems":[{"Id":"old-singer","Name":"Remote singer"}],"Album":"Remote album","Genres":["Rock"]}"#
+                let after = try JSONSerialization.data(withJSONObject: ["Id": "42", "Name": "Fresh remote title", "AlbumArtists": albumArtist.isEmpty ? [] : [["Name": albumArtist, "Id": "new-artist"]]])
+                let fixture = CloudHTTPFixture(responses: [
+                    .init(status: 200, body: Data(#"{"Id":"editor","Name":"Editor"}"#.utf8)),
+                    .init(status: 200, body: Data(before.utf8)), .init(status: 204),
+                    .init(status: 200, body: after),
+                ])
+                defer { fixture.remove() }
+                let source = MediaServerSource(sourceID: fixture.id, kind: kind, host: "metadata.invalid", port: nil,
+                    useSsl: true, basePath: nil, username: "editor", secret: "fixture", authType: .apiKey,
+                    requestDataLoader: { request in
+                        let response = fixture.response(to: request)
+                        return (response.body, HTTPURLResponse(url: request.url!, statusCode: response.status, httpVersion: nil, headerFields: nil)!)
+                    })
+                let original = Song(id: "song", title: "Stale title", albumTitle: "Stale album", artistName: "Stale artist",
+                                    albumArtistName: "Old", fileFormat: .flac, filePath: "42.flac", sourceID: fixture.id)
+                var updated = original
+                updated.albumArtistName = albumArtist.isEmpty ? nil : albumArtist
+                let result = await TagMetadataWritebackCoordinator.write(mode: .serverAPI, connector: source,
+                    original: original, updated: updated, coverData: nil)
+                XCTAssertEqual(result.fields.first { $0.field == .albumArtist }?.disposition, .written, result.issueMessage ?? "")
+                XCTAssertNil(result.issueMessage)
+                let request = try XCTUnwrap(fixture.requests.first { $0.httpMethod == "POST" })
+                let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(request.httpBody)) as? [String: Any])
+                XCTAssertEqual(payload["AlbumArtist"] as? String, albumArtist)
+                XCTAssertEqual(payload["AlbumArtists"] as? [[String: String]], albumArtist.isEmpty ? [] : [["Name": albumArtist]])
+                XCTAssertEqual(payload["Name"] as? String, "Fresh remote title")
+                XCTAssertEqual(payload["Artists"] as? [String], ["Remote singer"])
+                XCTAssertEqual(payload["ArtistItems"] as? [[String: String]], [["Id": "old-singer", "Name": "Remote singer"]])
+                XCTAssertEqual(payload["Album"] as? String, "Remote album")
+                await source.disconnect()
+            }
+        }
+    }
+
+    func testPCloudReplacementChecksRevisionAndReadsBackResultingIdentity() async throws {
+        for readbackMismatch in [false, true] {
+            let old = #"{"id":"f7","fileid":7,"name":"Song.flac","isfolder":false,"parentfolderid":42,"size":3,"modified":1000,"hash":"old"}"#
+            let new = #"{"id":"f8","fileid":8,"name":"Song.flac","isfolder":false,"parentfolderid":42,"size":4,"modified":1001,"hash":"new"}"#
+            let confirmed = readbackMismatch ? new.replacingOccurrences(of: "new", with: "changed-again") : new
+            let fixture = CloudHTTPFixture(responses: [
+                .init(status: 200, body: Data("{\"result\":0,\"metadata\":\(old)}".utf8)),
+                .init(status: 200, body: Data("{\"result\":0,\"metadata\":{\"contents\":[\(old)]}}".utf8)),
+                .init(status: 200, body: Data("{\"result\":0,\"metadata\":\(old)}".utf8)),
+                .init(status: 200, body: Data("{\"result\":0,\"metadata\":[\(new)]}".utf8)),
+                .init(status: 200, body: Data("{\"result\":0,\"metadata\":\(confirmed)}".utf8)),
+            ])
+            let session = fixture.session()
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { session.invalidateAndCancel(); fixture.remove(); try? FileManager.default.removeItem(at: file) }
+            try Data([1, 2, 3, 4]).write(to: file)
+            let source = PCloudSource(sourceID: fixture.id, session: session, tokenProvider: { .init(accessToken: "fixture") })
+            do {
+                let path = try await source.replaceMetadataFileReturningPath(at: "f7", with: file,
+                    expected: .init(fileSize: 3, modifiedDate: Date(timeIntervalSince1970: 1000), revision: "old", replacementToken: "42/Song.flac"))
+                XCTAssertEqual(path, "f8")
+                XCTAssertFalse(readbackMismatch)
+            } catch let error as EmbeddedMetadataReplacementReadbackError {
+                XCTAssertTrue(readbackMismatch)
+                XCTAssertEqual(error.filePath, "f8")
+                XCTAssertEqual(error.fileSize, 4)
+            }
+            XCTAssertEqual(fixture.requests.map { $0.url?.path }, ["/stat", "/listfolder", "/stat", "/uploadfile", "/stat"])
+            XCTAssertEqual(fixture.requests[3].httpMethod, "PUT")
+            XCTAssertTrue(fixture.requests[3].url?.query?.contains("nopartial=1") == true)
+            XCTAssertFalse(fixture.requests[3].url?.query?.contains("renameifexists") == true)
+        }
+    }
+
+    func testJellyfinAndEmbyWriteAllEightTextTagsUsingEditableArtistObjects() async throws {
+        for kind in [MediaServerSource.Kind.jellyfin, .emby] {
+            let fixture = CloudHTTPFixture(responses: [
+                .init(status: 200, body: Data(#"{"Id":"editor","Name":"Editor"}"#.utf8)),
+                .init(status: 200, body: Data(#"{"Id":"42","Name":"Old title","AlbumArtist":"Old album artist","AlbumArtists":[{"Id":"old","Name":"Old album artist"}],"ArtistItems":[{"Id":"old","Name":"Old singer"}],"Overview":"Keep overview"}"#.utf8)),
+                .init(status: 204),
+                .init(status: 200, body: Data(#"{"Id":"42","Name":"New title","AlbumArtists":[{"Name":"New album artist"}],"ArtistItems":[{"Name":"New singer"},{"Name":"Guest"}],"Album":"New album","Genres":["Rock","Folk"],"ProductionYear":2026,"IndexNumber":4,"ParentIndexNumber":2}"#.utf8)),
+            ])
+            defer { fixture.remove() }
+            let source = MediaServerSource(sourceID: fixture.id, kind: kind, host: "metadata.invalid", port: nil,
+                useSsl: true, basePath: nil, username: "editor", secret: "fixture", authType: .apiKey,
+                requestDataLoader: { request in
+                    let response = fixture.response(to: request)
+                    return (response.body, HTTPURLResponse(url: request.url!, statusCode: response.status, httpVersion: nil, headerFields: nil)!)
+                })
+            let original = Song(id: "song", title: "Old title", fileFormat: .flac, filePath: "42.flac", sourceID: fixture.id)
+            var edited = original
+            edited.title = "New title"
+            edited.artistName = "New singer; Guest"
+            edited.sourceArtistNames = ["New singer", "Guest"]
+            edited.albumArtistName = "New album artist"
+            edited.albumTitle = "New album"
+            edited.genre = "Rock; Folk"
+            edited.year = 2026
+            edited.trackNumber = 4
+            edited.discNumber = 2
+            let result = await TagMetadataWritebackCoordinator.write(mode: .serverAPI, connector: source,
+                original: original, updated: edited, coverData: nil)
+            XCTAssertNil(result.issueMessage)
+            XCTAssertEqual(result.fields.filter { $0.disposition == .written }.count, 8)
+            let request = try XCTUnwrap(fixture.requests.first { $0.httpMethod == "POST" })
+            let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(request.httpBody)) as? [String: Any])
+            XCTAssertEqual(payload["ArtistItems"] as? [[String: String]], [["Name": "New singer"], ["Name": "Guest"]])
+            XCTAssertEqual(payload["AlbumArtists"] as? [[String: String]], [["Name": "New album artist"]])
+            XCTAssertEqual(payload["Overview"] as? String, "Keep overview")
+            await source.disconnect()
+        }
+    }
+
+    func testPCloudChangedFileIsNotOverwritten() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(#"{"result":0,"metadata":{"id":"f7","name":"Song.flac","isfolder":false,"parentfolderid":42,"size":3,"modified":1000,"hash":"changed"}}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let source = PCloudSource(sourceID: fixture.id, session: session, tokenProvider: { .init(accessToken: "fixture") })
+        do {
+            try await source.replaceMetadataFile(at: "f7", with: URL(fileURLWithPath: "/unused"),
+                expected: .init(fileSize: 3, modifiedDate: Date(timeIntervalSince1970: 1000), revision: "old", replacementToken: "42/Song.flac"))
+            XCTFail("Conflicting remote bytes must not be replaced")
+        } catch EmbeddedMetadataWritebackSourceError.conflict {}
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    func testPCloudSidecarRequiresExactReadbackAndDoesNotRetryRejectedUploads() async throws {
+        for outcome in ["success", "mismatch", "denied"] {
+            let fixture = CloudHTTPFixture(responses: [], responder: { request, _ in
+                switch request.url!.path {
+                case "/stat": return .init(status: 200, body: Data(#"{"result":0,"metadata":{"id":"f7","name":"Song.flac","isfolder":false,"parentfolderid":42,"size":3,"modified":1000,"hash":"old"}}"#.utf8))
+                case "/listfolder": return .init(status: 200, body: Data(#"{"result":0,"metadata":{"contents":[]}}"#.utf8))
+                case "/uploadfile":
+                    if outcome == "denied" { return .init(status: 200, body: Data(#"{"result":2003,"error":"Access denied"}"#.utf8)) }
+                    return .init(status: 200, body: Data(#"{"result":0,"metadata":[{"id":"f8","name":"Song.lrc","isfolder":false,"parentfolderid":42,"size":4,"modified":1001,"hash":"new"}]}"#.utf8))
+                case "/getfilelink": return .init(status: 200, body: Data(#"{"result":0,"hosts":["download.pcloud.com"],"path":"/lyrics","expires":9999999999}"#.utf8))
+                case "/lyrics": return .init(status: 206, headers: ["Content-Range": "bytes 0-3/4"], body: Data((outcome == "success" ? "song" : "nope").utf8))
+                default: return .init(status: 404)
+                }
+            })
+            let session = fixture.session()
+            defer { session.invalidateAndCancel(); fixture.remove() }
+            let source = PCloudSource(sourceID: fixture.id, session: session, tokenProvider: { .init(accessToken: "fixture") })
+            do {
+                let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "f7", sourceID: fixture.id)
+                let target = try await source.lyricsSidecarTarget(for: song, request: .current(pinned: nil))
+                XCTAssertEqual(target.fileName, "Song.lrc")
+                XCTAssertEqual(target.targetPath, "f7.lrc")
+                let receipt = try await source.writeLyricsSidecar(data: Data("song".utf8), target: target, priority: .userInitiated)
+                XCTAssertEqual(receipt.writtenPath, "f8")
+                XCTAssertEqual(outcome, "success")
+            } catch {
+                XCTAssertNotEqual(outcome, "success", error.localizedDescription)
+                if outcome == "denied" { XCTAssertTrue(MetadataWriteFailurePolicy.allowsLocalSave(error)) }
+                if outcome == "mismatch" {
+                    if case EmbeddedMetadataWritebackSourceError.remoteVerificationFailed = error {} else {
+                        XCTFail("Expected a verified content mismatch, got \(error)")
+                    }
+                }
+            }
+            XCTAssertEqual(fixture.requests.filter { $0.url?.path == "/uploadfile" }.count, 1)
+        }
+    }
+
     func testPan115PastedRefreshTokenNeedsNoAppCredentialsAndKeepsRotation() async throws {
         let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(
             #"{"state":true,"data":{"access_token":"fresh","refresh_token":"rotated","expires_in":"7200"}}"#.utf8))])

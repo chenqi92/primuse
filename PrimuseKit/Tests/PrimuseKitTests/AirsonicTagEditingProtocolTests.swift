@@ -4,6 +4,19 @@ import Testing
 
 @Suite("Airsonic native tag editor protocol")
 struct AirsonicTagEditingProtocolTests {
+    @Test func nativeSubsonicLoginRequiresTheRecognizedFormInsideTheSameApplication() {
+        let base = URL(string: "https://server.invalid/music")!
+        let inputs = #"<input name="j_username"><input type="password" name="j_password">"#
+        for action in ["j_acegi_security_check", "/music/j_acegi_security_check"] {
+            #expect(AirsonicTagEditingProtocol.subsonicLoginRoute(in: "<form method='POST' action='\(action)'>\(inputs)</form>", baseURL: base) == "j_acegi_security_check")
+        }
+        for action in ["https://other.invalid/music/j_acegi_security_check", "//other.invalid/j_acegi_security_check",
+                       "/other/j_acegi_security_check", "j_acegi_security_check?next=other", "login"] {
+            #expect(AirsonicTagEditingProtocol.subsonicLoginRoute(in: "<form method='POST' action='\(action)'>\(inputs)</form>", baseURL: base) == nil)
+        }
+        #expect(AirsonicTagEditingProtocol.subsonicLoginRoute(in: "<form method='POST' action='j_acegi_security_check'></form>", baseURL: base) == nil)
+    }
+
     @Test func legacyWireEscapesValuesWithoutChangingParameterOrder() throws {
         let values = AirsonicTagValues(title: "标题\n歌手&=+", artist: "独立歌手", album: "原专辑", genre: "", year: nil, track: 3)
         let body = String(decoding: AirsonicTagEditingProtocol.dwrBody(batch: 1, page: "/music/editTags?id=42", httpSessionID: "web-session", scriptSessionID: "script-session", mediaFileID: 42, values: values), as: UTF8.self)
@@ -61,7 +74,8 @@ struct AirsonicTagEditingProtocolTests {
 
     @Test func capabilitiesKeepReadOnlyServersAndEmbeddedLyricsOut() {
         #expect(AudioMetadataWritebackPolicy.capability(sourceType: .airsonic, format: .flac) == .serverAPI)
-        for type in [MusicSourceType.subsonic, .navidrome, .gonic] {
+        #expect(AudioMetadataWritebackPolicy.capability(sourceType: .subsonic, format: .mp3) == .serverAPI)
+        for type in [MusicSourceType.navidrome, .gonic] {
             #expect(AudioMetadataWritebackPolicy.capability(sourceType: type, format: .mp3) == .localOnly)
         }
         #expect(!EmbeddedLyricsCopyPolicy.canEmbed(sourceType: .airsonic, format: .mp3, isCueTrack: false, isStreamDescriptor: false))

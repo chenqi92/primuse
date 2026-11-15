@@ -434,7 +434,7 @@ import Testing
     let writable: Set<MusicSourceType> = [
         .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
         .oneDrive, .dropbox, .googleDrive, .baiduPan, .aliyunDrive,
-        .pan123, .drime, .infiniCloud,
+        .pan123, .drime, .infiniCloud, .pcloud,
     ]
 
     for sourceType in MusicSourceType.allCases {
@@ -446,7 +446,7 @@ import Testing
 @Test func embeddedMetadataWritebackCapabilityCoversVerifiedFormats() {
     let expectedEmbeddedSources: Set<MusicSourceType> = [
         .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
-        .baiduPan, .pan123, .drime, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .infiniCloud,
+        .baiduPan, .pan123, .drime, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .infiniCloud, .pcloud,
     ]
     #expect(AudioMetadataWritebackPolicy.embeddedSourceTypes == expectedEmbeddedSources)
 
@@ -466,8 +466,8 @@ import Testing
     #expect(AudioMetadataWritebackPolicy.capability(sourceType: .upnp, format: .mp3) == .localOnly)
     #expect(AudioMetadataWritebackPolicy.capability(sourceType: .synologyAudioStation, format: .flac) == .serverAPI)
     #expect(AudioMetadataWritebackPolicy.capability(sourceType: .guangya, format: .mp3) == .localOnly)
-    // pCloud 连接器还没接上传,封面、歌词与标签留在本地。
-    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .pcloud, format: .flac) == .localOnly)
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .pcloud, format: .flac) == .embedded)
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .subsonic, format: .flac) == .serverAPI)
 }
 
 @Test func embeddedLyricsCopyIsOptInAndFollowsEmbeddedTagWriteback() throws {

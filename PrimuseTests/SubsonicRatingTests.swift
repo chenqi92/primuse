@@ -305,7 +305,7 @@ final class AirsonicMetadataWritebackTests: XCTestCase {
     }
 
     func testOtherSubsonicServersNeverReachNativeWriteEndpoints() async {
-        for type in [MusicSourceType.subsonic, .navidrome, .gonic] {
+        for type in [MusicSourceType.navidrome, .gonic] {
             let fixture = AirsonicTagHTTPFixture()
             let (source, session) = makeSource(fixture, type: type)
             defer { session.invalidateAndCancel(); AirsonicTagHTTPProtocol.remove(host: fixture.host) }
@@ -317,6 +317,53 @@ final class AirsonicMetadataWritebackTests: XCTestCase {
             XCTAssertFalse(result.unsupported.isEmpty)
             XCTAssertEqual(fixture.requestCount, 0)
         }
+    }
+
+    func testGenericSubsonicSourceUsesDetectedAirsonicEditor() async {
+        let fixture = AirsonicTagHTTPFixture()
+        let (source, session) = makeSource(fixture, type: .subsonic)
+        defer { session.invalidateAndCancel(); AirsonicTagHTTPProtocol.remove(host: fixture.host) }
+        let original = song(fixture)
+        var updated = original
+        updated.title = "Generic source edit"
+        let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: nil, lyricsLines: nil, lyricsContent: nil)
+        XCTAssertEqual(result.fieldResults.first { $0.field == .title }?.disposition, .written)
+        XCTAssertEqual(fixture.mutationCount, 1)
+        XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
+    }
+
+    func testGenericSubsonicSourceRejectsDetectedNavidromeBeforeNativeLogin() async {
+        let fixture = AirsonicTagHTTPFixture(mode: .navidrome)
+        let (source, session) = makeSource(fixture, type: .subsonic)
+        defer { session.invalidateAndCancel(); AirsonicTagHTTPProtocol.remove(host: fixture.host) }
+        let original = song(fixture)
+        var updated = original
+        updated.title = "Edited title"
+        let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: nil, lyricsLines: nil, lyricsContent: nil)
+        XCTAssertFalse(result.metadataWritten)
+        XCTAssertFalse(result.unsupported.isEmpty)
+        XCTAssertEqual(fixture.requestCount, 1)
+        XCTAssertEqual(fixture.mutationCount, 0)
+    }
+
+    func testNativeSubsonicEditorWritesAndReadsBackAllSixSupportedTags() async {
+        let fixture = AirsonicTagHTTPFixture(mode: .subsonic)
+        let (source, session) = makeSource(fixture, type: .subsonic)
+        defer { session.invalidateAndCancel(); AirsonicTagHTTPProtocol.remove(host: fixture.host) }
+        let original = song(fixture)
+        var updated = original
+        updated.title = "New title"
+        updated.artistName = "New artist"
+        updated.albumTitle = "New album"
+        updated.genre = "Fiction"
+        updated.year = 2026
+        updated.trackNumber = 2
+        let result = await TagMetadataWritebackCoordinator.write(mode: .serverAPI, connector: source,
+            original: original, updated: updated, coverData: nil)
+        XCTAssertEqual(result.fields.filter { $0.disposition == .written }.count, 6)
+        XCTAssertNil(result.issueMessage)
+        XCTAssertEqual(fixture.mutationCount, 1)
+        XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
     }
 
     private func song(_ fixture: AirsonicTagHTTPFixture) -> Song {
@@ -335,7 +382,7 @@ final class AirsonicMetadataWritebackTests: XCTestCase {
 }
 
 private final class AirsonicTagHTTPFixture: @unchecked Sendable {
-    enum Mode { case legacy, advanced, denied, loginFailure, legacyError, advancedError, mismatchedReadback }
+    enum Mode { case legacy, advanced, subsonic, navidrome, denied, loginFailure, legacyError, advancedError, mismatchedReadback }
     let host = "airsonic-tags-\(UUID().uuidString.lowercased()).invalid"
     let mode: Mode
     private let lock = NSLock()
@@ -361,7 +408,7 @@ private final class AirsonicTagHTTPFixture: @unchecked Sendable {
             func require(_ condition: Bool, _ detail: String) { if !condition { failures.append(detail) } }
             if path.contains("/rest/") {
                 switch request.url!.lastPathComponent {
-                case "ping.view": return try json(["status": "ok", "type": "airsonic"])
+                case "ping.view": return try json(mode == .subsonic ? ["status": "ok"] : ["status": "ok", "type": mode == .navidrome ? "navidrome" : "airsonic"])
                 case "getUser.view": return try json(["status": "ok", "user": ["username": "editor", "coverArtRole": mode != .denied]])
                 case "getSong.view":
                     var song: [String: Any] = ["id": "42", "title": "Old title", "artist": "Remote artist", "album": "Fresh remote album", "genre": "Rock", "year": 2020, "track": 1]
@@ -371,8 +418,13 @@ private final class AirsonicTagHTTPFixture: @unchecked Sendable {
                 }
             }
             let cookie = request.value(forHTTPHeaderField: "Cookie") ?? ""
-            if path == "/music/login" {
+            if path == "/music/login" || path == "/music/login.view" || path == "/music/j_acegi_security_check" {
                 if request.httpMethod == "GET" {
+                    if mode == .subsonic {
+                        require(path == "/music/login.view", "Native login route")
+                        return text(#"<form action="/music/j_acegi_security_check" method="POST"><input name="j_username"><input name="j_password" type="password"></form>"#,
+                            headers: ["Set-Cookie": "JSESSIONID=before-login; Path=/music; HttpOnly"])
+                    }
                     return text(#"<form><input name="_csrf" type="hidden" value="login-csrf"/></form>"#, headers: ["Set-Cookie": "JSESSIONID=before-login; Path=/music; HttpOnly"])
                 }
                 let body = String(decoding: Self.body(request), as: UTF8.self)
@@ -380,14 +432,15 @@ private final class AirsonicTagHTTPFixture: @unchecked Sendable {
                 components.percentEncodedQuery = body
                 let fields = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
                 require(cookie.contains("JSESSIONID=before-login"), "Missing pre-login cookie")
-                require(fields["_csrf"] == "login-csrf" && fields["j_password"] == "中&=+" && fields["j_username"] == "editor", "Login form encoding")
+                require((mode == .subsonic || fields["_csrf"] == "login-csrf") && fields["j_password"] == "中&=+" && fields["j_username"] == "editor", "Login form encoding")
+                if mode == .subsonic { require(path == "/music/j_acegi_security_check", "Native login submission route") }
                 if mode == .loginFailure { return text("Forbidden", status: 403) }
                 return text("", status: 302, headers: ["Set-Cookie": "JSESSIONID=authenticated; Path=/music; HttpOnly", "Location": "/music/index"])
             }
             require(cookie.contains("JSESSIONID=authenticated"), "Missing authenticated cookie at \(path)")
             switch path {
             case "/music/index": return text(#"var csrfheaderName = "X-CSRF-TOKEN"; var csrftoken = "index-csrf";"#)
-            case "/music/editTags": return text(mode == .advanced || mode == .advancedError ? "top.StompClient.send('/app/tags/edit');" : "tagService.setTags(id,track,artist,album,title,year,genre);")
+            case "/music/editTags", "/music/editTags.view": return text(mode == .advanced || mode == .advancedError ? "top.StompClient.send('/app/tags/edit');" : "tagService.setTags(id,track,artist,album,title,year,genre);")
             case "/music/dwr/call/plaincall/__System.pageLoaded.dwr":
                 require(String(decoding: Self.body(request), as: UTF8.self).contains("scriptSessionId=null\n"), "Missing DWR handshake")
                 return text(#"dwr.engine.remote.handleNewScriptSession("script-session"); dwr.engine.remote.handleCallback("0","0",null);"#)

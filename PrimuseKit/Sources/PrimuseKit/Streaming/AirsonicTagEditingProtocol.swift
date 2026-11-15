@@ -31,6 +31,22 @@ public struct AirsonicTagValues: Equatable, Sendable {
 /// Wire formats used by Airsonic's own tag editor. Responses are parsed as
 /// data; DWR JavaScript is never evaluated.
 public enum AirsonicTagEditingProtocol {
+    /// Subsonic's original editor predates CSRF tokens. Only accept its
+    /// known, same-application login form before sending a password.
+    public static func subsonicLoginRoute(in html: String, baseURL: URL) -> String? {
+        let inputs = tags("input", in: html)
+        guard inputs.contains(where: { $0["name"] == "j_username" }),
+              inputs.contains(where: { $0["name"] == "j_password" && $0["type"]?.lowercased() == "password" }) else { return nil }
+        for form in tags("form", in: html) where form["method"]?.lowercased() == "post" {
+            guard let action = form["action"],
+                  let resolved = URL(string: action, relativeTo: baseURL.appendingPathComponent("login.view"))?.absoluteURL,
+                  resolved.query == nil, resolved.fragment == nil,
+                  resolved == baseURL.appendingPathComponent("j_acegi_security_check") else { continue }
+            return "j_acegi_security_check"
+        }
+        return nil
+    }
+
     public static func dwrBody(
         batch: Int, page: String, httpSessionID: String, scriptSessionID: String?,
         mediaFileID: Int? = nil, values: AirsonicTagValues? = nil

@@ -79,6 +79,24 @@ final class ReadOnlyMetadataWritebackTests: XCTestCase {
         }
     }
 
+    func testLocalOnlyTagSaveDisclosesPersistenceWithoutAttemptingUpload() async {
+        let connector = DeniedMetadataConnector(error: SourceFileMutationError.readOnly)
+        let original = song()
+        var edited = original
+        edited.title = "Edited title"
+        let report = await TagMetadataWritebackCoordinator.write(mode: .localOnly, connector: connector,
+            original: original, updated: edited, coverData: nil)
+        XCTAssertFalse(report.shouldAbortLocalSave)
+        XCTAssertFalse(report.remoteMutationOccurred)
+        XCTAssertEqual(report.updatedSong.title, edited.title)
+        XCTAssertNotNil(report.issueMessage)
+        let attempts = await connector.attempts
+        XCTAssertEqual(attempts, 0)
+        let unchanged = await TagMetadataWritebackCoordinator.write(mode: .localOnly, connector: connector,
+            original: original, updated: original, coverData: nil)
+        XCTAssertNil(unchanged.issueMessage)
+    }
+
     func testUncertainTagFailuresStillAbortSave() async {
         for error: any Error in [URLError(.timedOut), CancellationError(), SourceError.authenticationFailed,
                                  EmbeddedMetadataWritebackSourceError.conflict,

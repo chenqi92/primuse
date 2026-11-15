@@ -3601,18 +3601,28 @@ private actor AirsonicTagEditorClient {
 
     deinit { session.invalidateAndCancel() }
 
-    func edit(mediaFileID: Int, values: AirsonicTagValues) async throws {
+    func edit(mediaFileID: Int, values: AirsonicTagValues, nativeSubsonic: Bool = false) async throws {
         cookies.removeAll()
-        let login = try await request("login")
-        guard let csrf = AirsonicTagEditingProtocol.csrf(in: login) else {
-            throw SourceError.authenticationFailed
+        let loginRoute = nativeSubsonic ? "login.view" : "login"
+        let login = try await request(loginRoute)
+        var fields = ["j_username": username, "j_password": password]
+        let submitRoute: String
+        if nativeSubsonic {
+            guard let route = AirsonicTagEditingProtocol.subsonicLoginRoute(in: login, baseURL: baseURL) else {
+                throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_unsupported"))
+            }
+            submitRoute = route
+            if let csrf = AirsonicTagEditingProtocol.csrf(in: login) { fields[csrf.parameter] = csrf.token }
+        } else {
+            guard let csrf = AirsonicTagEditingProtocol.csrf(in: login) else { throw SourceError.authenticationFailed }
+            fields[csrf.parameter] = csrf.token
+            submitRoute = loginRoute
         }
-        _ = try await request("login", body: AirsonicTagEditingProtocol.form([
-            "j_username": username, "j_password": password, csrf.parameter: csrf.token,
-        ]), contentType: "application/x-www-form-urlencoded")
-        let page = try await request("editTags", query: [URLQueryItem(name: "id", value: String(mediaFileID))])
+        _ = try await request(submitRoute, body: AirsonicTagEditingProtocol.form(fields), contentType: "application/x-www-form-urlencoded")
+        let editorRoute = nativeSubsonic ? "editTags.view" : "editTags"
+        let page = try await request(editorRoute, query: [URLQueryItem(name: "id", value: String(mediaFileID))])
         if page.contains("tagService.setTags") {
-            try await editDWR(mediaFileID: mediaFileID, values: values)
+            try await editDWR(mediaFileID: mediaFileID, values: values, editorRoute: editorRoute)
         } else if page.contains("/app/tags/edit") {
             let index = try await request("index")
             guard let csrf = AirsonicTagEditingProtocol.csrf(in: index) else { throw SourceError.authenticationFailed }
@@ -3697,8 +3707,8 @@ private actor AirsonicTagEditorClient {
         }
     }
 
-    private func editDWR(mediaFileID: Int, values: AirsonicTagValues) async throws {
-        let page = ProxyPrefixedBasePathPolicy.appending("editTags", to: baseURL).path + "?id=\(mediaFileID)"
+    private func editDWR(mediaFileID: Int, values: AirsonicTagValues, editorRoute: String) async throws {
+        let page = ProxyPrefixedBasePathPolicy.appending(editorRoute, to: baseURL).path + "?id=\(mediaFileID)"
         let handshake = try await request("dwr/call/plaincall/__System.pageLoaded.dwr", body:
             AirsonicTagEditingProtocol.dwrBody(batch: 0, page: page, httpSessionID: cookies["JSESSIONID"] ?? "", scriptSessionID: nil),
             contentType: "text/plain; charset=UTF-8")
@@ -3758,7 +3768,7 @@ extension SubsonicSource {
     ) async -> MediaServerWritebackResult {
         let changed = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: coverData?.isEmpty == false)
         let supported: Set<TagMetadataWritebackField> = [.title, .artist, .album, .genre, .year, .trackNumber]
-        let writable = sourceType == .airsonic ? changed.intersection(supported) : []
+        let writable = sourceType == .airsonic || sourceType == .subsonic ? changed.intersection(supported) : []
         let unavailable = String(localized: "metadata_writeback_error_unsupported")
         var result = MediaServerWritebackResult()
         result.fieldResults = changed.subtracting(writable).map {
@@ -3770,6 +3780,13 @@ extension SubsonicSource {
         guard !writable.isEmpty else { return result }
         do {
             try await connect()
+            let implementation = serverType?.lowercased()
+            guard sourceType == .airsonic || implementation == nil || implementation == "subsonic"
+                || implementation?.hasPrefix("airsonic") == true else {
+                result.unsupported.append(unavailable)
+                result.fieldResults += writable.map { .init(field: $0, disposition: .unsupported(unavailable)) }
+                return result
+            }
             let user: TagEditorUserContainer = try await requestJSON("getUser", query: [URLQueryItem(name: "username", value: username)])
             guard user.user?.coverArtRole == true else { throw SourceError.connectionFailed(String(localized: "auth_permission_denied")) }
             guard original.sourceID == sourceID, original.sourceID == updated.sourceID, original.filePath == updated.filePath,
@@ -3794,7 +3811,8 @@ extension SubsonicSource {
             let cache = cacheDirectory.appendingPathComponent("\(id).\(ext.isEmpty ? "bin" : ext)")
             // A lost response can follow a successful audio-file mutation.
             defer { try? FileManager.default.removeItem(at: cache) }
-            try await editor.edit(mediaFileID: numericID, values: values)
+            try await editor.edit(mediaFileID: numericID, values: values,
+                                  nativeSubsonic: sourceType == .subsonic && implementation?.hasPrefix("airsonic") != true)
             let after: GetSongContainer = try await requestJSON("getSong", query: [URLQueryItem(name: "id", value: id)])
             guard let readback = after.song, readback.id == id else { throw URLError(.cannotParseResponse) }
             for field in writable {

@@ -88,7 +88,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     case pan115
     case pan123
     /// 光鸭云盘(guangyapan.com)开放平台。Device Code 扫码 / 拉起官方 App 授权,
-    /// 或 Web OAuth 2.0 + PKCE;业务接口只读(列目录 / 取直链),不支持写回。
+    /// 或 Web OAuth 2.0 + PKCE；当前连接器仅接入列目录和取直链，尚未接入文件写回。
     case guangya
     /// pCloud(pcloud.com)。美国 / 欧洲两个数据中心共用一套接口,每个源记住授权时
     /// pCloud 指给它的那台 API 主机;OAuth token 不过期,没有 refresh_token。
@@ -360,7 +360,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
              .oneDrive, .dropbox, .googleDrive, .baiduPan, .aliyunDrive,
-             .pan123, .drime, .infiniCloud:
+             .pan123, .drime, .infiniCloud, .pcloud:
             return true
         default:
             return false
