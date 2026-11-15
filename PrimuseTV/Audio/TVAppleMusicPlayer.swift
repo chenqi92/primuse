@@ -43,6 +43,7 @@ final class TVAppleMusicPlayer {
 
     private var mirrorTask: Task<Void, Never>?
     private(set) var activeItemID: String?
+    private var activeDuration: TimeInterval = 0
 
     var authorizationState: AppleMusicAuthorizationState {
         Self.map(MusicAuthorization.currentStatus)
@@ -255,6 +256,7 @@ final class TVAppleMusicPlayer {
                             autoPlay: Bool, canContinue: () -> Bool) async throws -> TimeInterval {
         guard songs.indices.contains(startIndex) else { throw StartFailure.itemNotFound }
         let first = songs[startIndex]
+        plog("Apple Music TV start id=\(first.id.rawValue) title=\(first.title) duration=\(first.duration ?? 0) queueCount=\(songs.count) startAt=\(startAt) autoPlay=\(autoPlay)")
         try checkCurrent(canContinue)
         let player = ApplicationMusicPlayer.shared
         do {
@@ -302,6 +304,8 @@ final class TVAppleMusicPlayer {
         }
         try checkCurrent(canContinue)
         activeItemID = first.id.rawValue
+        activeDuration = first.duration ?? 0
+        plog("Apple Music TV start returned id=\(first.id.rawValue) status=\(player.state.playbackStatus) time=\(player.playbackTime) entry=\(player.queue.currentEntry?.id ?? "nil")")
         return first.duration ?? 0
     }
 
@@ -495,10 +499,12 @@ final class TVAppleMusicPlayer {
     // MARK: 传输控制
 
     func pause() {
+        plog("Apple Music TV pause requested id=\(activeItemID ?? "nil")")
         ApplicationMusicPlayer.shared.pause()
     }
 
     func resume() async {
+        plog("Apple Music TV resume requested id=\(activeItemID ?? "nil")")
         try? await ApplicationMusicPlayer.shared.play()
     }
 
@@ -507,9 +513,11 @@ final class TVAppleMusicPlayer {
     }
 
     func stop() {
+        plog("Apple Music TV stop requested id=\(activeItemID ?? "nil")")
         mirrorTask?.cancel()
         mirrorTask = nil
         activeItemID = nil
+        activeDuration = 0
         let player = ApplicationMusicPlayer.shared
         player.stop()
         player.queue = ApplicationMusicPlayer.Queue()
@@ -522,6 +530,11 @@ final class TVAppleMusicPlayer {
         mirrorTask?.cancel()
         mirrorTask = Task { @MainActor [weak self] in
             var sawPlayback = false
+            var furthestTime: TimeInterval = 0
+            var previousState = ""
+            var lastProgressLog: TimeInterval = -5
+            var observedItemID: String?
+            var observedDuration = self?.activeDuration ?? 0
             while !Task.isCancelled {
                 guard let self, self.activeItemID != nil else { return }
                 let player = ApplicationMusicPlayer.shared
@@ -540,12 +553,34 @@ final class TVAppleMusicPlayer {
                 } else {
                     song = nil
                 }
-                if isPlaying || time > 0 { sawPlayback = true }
-                // 只有确实播过之后停下、且时间归零,才算整条队列放完。
-                // 起播前的 stopped + time==0 是初始状态,不能当成结束。
-                let didFinish = sawPlayback
-                    && player.state.playbackStatus == .stopped
-                    && player.queue.currentEntry == nil
+                if let song {
+                    if let observedItemID, observedItemID != song.id {
+                        sawPlayback = false
+                        furthestTime = 0
+                        observedDuration = 0
+                    }
+                    observedItemID = song.id
+                    if let duration = song.duration, duration > 0 { observedDuration = duration }
+                }
+                if isPlaying { sawPlayback = true }
+                furthestTime = max(furthestTime, time)
+                let state = "\(player.state.playbackStatus)|\(song?.id ?? "nil")"
+                if state != previousState || time - lastProgressLog >= 30 {
+                    plog("Apple Music TV state requested=\(self.activeItemID ?? "nil") status=\(player.state.playbackStatus) current=\(song?.id ?? "nil") title=\(song?.title ?? "nil") time=\(time) furthest=\(furthestTime) duration=\(observedDuration) sawPlayback=\(sawPlayback)")
+                    previousState = state
+                    lastProgressLog = time
+                }
+                // 当前条目在 tvOS 正常播放时也可能为空，时长保留起播与最近条目的值。
+                let didFinish = AppleMusicTVPlaybackPolicy.didFinishPlayback(
+                    hasObservedPlayingState: sawPlayback,
+                    isStopped: player.state.playbackStatus == .stopped,
+                    hasCurrentEntry: player.queue.currentEntry != nil,
+                    duration: observedDuration,
+                    furthestObservedTime: furthestTime
+                )
+                if didFinish {
+                    plog("Apple Music TV finish detected requested=\(self.activeItemID ?? "nil") time=\(time) furthest=\(furthestTime)")
+                }
                 // 时长在起播时就拿到了,这里不再从队列条目里二次读取 ——
                 // 队列条目的 item 类型会随 MusicKit 版本增删 case,没必要为一个
                 // 已知值去依赖它。

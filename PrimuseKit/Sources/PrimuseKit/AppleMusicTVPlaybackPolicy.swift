@@ -16,6 +16,26 @@ public enum AppleMusicAuthorizationState: String, Sendable, Equatable, CaseItera
 /// 那个 requestID 本身就是代次,不需要再加一层。移交要做的事是一样的:
 /// 自家引擎先停、音频会话让出去、再把 MusicKit 的状态回灌成本机播放状态。
 public enum AppleMusicTVPlaybackPolicy {
+    /// tvOS 起播时可能仍返回 stopped、空条目和微小的非零时钟，不能当作播完。
+    public static func didFinishPlayback(
+        hasObservedPlayingState: Bool,
+        isStopped: Bool,
+        hasCurrentEntry: Bool,
+        duration: TimeInterval,
+        furthestObservedTime: TimeInterval
+    ) -> Bool {
+        guard hasObservedPlayingState, isStopped, !hasCurrentEntry,
+              furthestObservedTime.isFinite else { return false }
+        guard duration.isFinite, duration > 0 else {
+            return furthestObservedTime > 5
+        }
+        return AppleMusicPlaybackEndPolicy.isNearEnd(
+            duration: duration,
+            playbackTime: 0,
+            furthestObservedTime: furthestObservedTime
+        )
+    }
+
     /// 这首歌是否要交给系统播放器。Apple Music 是 DRM 流,既不能按字节读,
     /// 也不能经 iPhone 中继转发,只有 MusicKit 自己能播。
     public static func usesSystemPlayer(sourceType: MusicSourceType, sourceID: String) -> Bool {
