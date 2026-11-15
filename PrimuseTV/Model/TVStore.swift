@@ -4797,10 +4797,11 @@ final class TVStore {
 
     /// 在 Apple TV 上启用 / 停用音乐源。停用源的歌曲在资料库里是隐藏的,启用后即可
     /// 浏览 / 播放(快照含全量歌曲,显隐由各源的 enabled 状态决定)。
+    /// 只作用于这台 Apple TV:不改源配置的修改时间,也不回传 iCloud。
     func setSourceEnabled(_ id: String, _ enabled: Bool) {
         guard canMutateLibrary else { return }
         do {
-            guard try sourcesStore.updateDurably(id, mutate: { $0.isEnabled = enabled }) else { return }
+            guard try sourcesStore.setEnabledOnThisDeviceDurably(id, enabled) else { return }
         } catch {
             playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
             return
@@ -4815,7 +4816,23 @@ final class TVStore {
         let fromThis = allSongCountsBySource()[id] ?? 0
         let visibleFromThis = library.visibleSongCount(forSourceID: id)
         plog("🔀 TV setSourceEnabled \(id)→\(enabled); 该源歌曲 全量=\(fromThis) 可见=\(visibleFromThis); 总可见=\(library.visibleSongs.count)")
-        enqueueSnapshotUpload()
+    }
+
+    /// 这个源在这台 Apple TV 上是否经 iCloud 同步。
+    func sourceSyncsViaICloud(_ id: String) -> Bool {
+        sourcesStore.syncsViaICloud(id)
+    }
+
+    /// 打开 / 关掉一个源在这台 Apple TV 上的 iCloud 同步(规则见 `SourcesStore.setSyncsViaICloud`)。
+    /// 重新打开时本机这份可能要传上去,快照里的源清单也补一份。
+    func setSourceSyncsViaICloud(_ id: String, _ syncs: Bool) {
+        guard sourcesStore.syncsViaICloud(id) != syncs else { return }
+        sourcesStore.setSyncsViaICloud(syncs, for: id)
+        if syncs {
+            refreshVisibility()
+            sourcesRevision += 1
+            enqueueSnapshotUpload()
+        }
     }
 
     // MARK: 源 CRUD(TV 本机新增 / 编辑 / 回收站;改后回传快照)

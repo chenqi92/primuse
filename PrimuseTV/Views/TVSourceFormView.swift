@@ -237,6 +237,8 @@ struct TVSourceFormView: View {
     @State private var saveFailed = false
     @State private var isResolvingInfiniCloud = false
     @State private var infiniCloudError: String?
+    /// 这个源在这台 Apple TV 上是否经 iCloud 同步。编辑能跨设备同步的源时才显示,保存时生效。
+    @State private var syncsViaICloud = true
     /// 用户填的那一到两行地址。上面那组 host/portText/useSsl/publicHost/… 仍然是
     /// `draftSource()` 唯一读取的字段 —— 提交时由 `applyAddressPlan` 一次性写回。
     @State private var addressRows: [TVSourceAddressRow] = [TVSourceAddressRow()]
@@ -662,8 +664,23 @@ struct TVSourceFormView: View {
                 }
                 .padding(.top, 4)
             }
+
+            if showsICloudSyncSwitch {
+                TVSourceICloudSyncSwitch(isOn: $syncsViaICloud)
+            }
         }
         .frame(maxWidth: 760, alignment: .leading)
+    }
+
+    private var showsICloudSyncSwitch: Bool {
+        guard let editing else { return false }
+        return MusicSourceCloudSyncPolicy.isEligible(editing)
+    }
+
+    /// 关掉同步要在保存之前生效(这次的修改就不再传出去),重新打开放在保存之后。
+    private func applyICloudSyncChoice(afterSave: Bool) {
+        guard let editing, showsICloudSyncSwitch, syncsViaICloud == afterSave else { return }
+        store.setSourceSyncsViaICloud(editing.id, syncsViaICloud)
     }
 
     /// 云盘要填的东西:要么是 API token(Drime),要么是开放平台的 client 凭据
@@ -931,6 +948,7 @@ struct TVSourceFormView: View {
             username = e.username ?? ""
             authType = e.authType
             plexServerIdentifier = e.plexServerIdentifier
+            syncsViaICloud = store.sourceSyncsViaICloud(e.id)
             if supportsAdaptiveConnections {
                 let configuration = e.effectiveConnectionConfiguration
                     ?? SourceConnectionConfiguration()
@@ -1480,6 +1498,7 @@ struct TVSourceFormView: View {
             && !fnConnectAccessCode.isEmpty
             ? fnConnectAccessCode
             : nil
+        applyICloudSyncChoice(afterSave: false)
         let didSave = editing == nil
             ? store.addSource(src, password: passwordToSave, fnConnectAccessCode: accessCodeToSave)
             : store.updateSource(src, password: passwordToSave, fnConnectAccessCode: accessCodeToSave)
@@ -1487,6 +1506,7 @@ struct TVSourceFormView: View {
             saveFailed = true
             return
         }
+        applyICloudSyncChoice(afterSave: true)
         // 账号 token 只用来日后重查服务器地址；写不进去不拦保存。
         if type == .plex, !plexAccountToken.isEmpty,
            !TVCredentialStore.savePlexAccountToken(plexAccountToken, sourceID: src.id) {
@@ -1522,6 +1542,7 @@ struct TVSourceFormView: View {
     }
 
     private func commitCloudDrive(_ src: MusicSource) {
+        applyICloudSyncChoice(afterSave: false)
         let didSave = editing == nil
             ? store.addSource(src, password: nil, fnConnectAccessCode: nil)
             : store.updateSource(src, password: nil, fnConnectAccessCode: nil)
@@ -1529,6 +1550,7 @@ struct TVSourceFormView: View {
             saveFailed = true
             return
         }
+        applyICloudSyncChoice(afterSave: true)
         onSaved(store.source(id: src.id) ?? src, editing == nil)
         dismiss()
     }
@@ -2355,6 +2377,25 @@ struct TVRecycleBinView: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
+    }
+}
+
+/// 编辑页里的「通过 iCloud 同步」开关,下面一行说明关掉之后会怎样。
+private struct TVSourceICloudSyncSwitch: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TVSwitchRow(icon: isOn ? "icloud" : "icloud.slash",
+                        title: PMString("source_syncs_via_icloud"),
+                        isOn: $isOn)
+            Text(PMString("source_syncs_via_icloud_tv_info"))
+                .tvFont(.meta)
+                .foregroundStyle(TVColor.textFaint)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 720, alignment: .leading)
+        }
+        .padding(.top, 8)
     }
 }
 #endif

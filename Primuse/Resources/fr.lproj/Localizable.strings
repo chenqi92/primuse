@@ -7558,3 +7558,13 @@
 "dup_same_file_caption_format" = "Même fichier que dans %@";
 "dup_same_file_badge" = "Même fichier";
 "dup_same_file_ledger_detail_format" = "Le même fichier se trouve aussi dans %@";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "Désactivée sur cet appareil";
+"source_enable_on_this_device" = "Activer sur cet appareil";
+"source_disable_on_this_device" = "Désactiver sur cet appareil";
+"source_syncs_via_icloud" = "Synchroniser via iCloud";
+"source_syncs_via_icloud_info" = "Lorsque cette option est désactivée, cet appareil n’envoie plus à iCloud les réglages, les résultats d’analyse ni les mots de passe modifiés ici pour cette source, et n’applique plus les modifications ou suppressions faites sur vos autres appareils. La copie déjà dans iCloud, cette source sur vos autres appareils ainsi que les morceaux et favoris de cet appareil restent inchangés. Quand vous la réactivez, la modification la plus récente l’emporte ; si un autre appareil a supprimé la source entre-temps, elle passe aussi dans Supprimés récemment ici. Activer ou désactiver une source ne concerne toujours que cet appareil.";
+"source_syncs_via_icloud_channel_off" = "La synchronisation des sources de musique est désactivée dans les réglages iCloud. Ce commutateur prendra effet une fois qu’elle sera activée.";
+"source_not_syncing_via_icloud" = "Non synchronisée via iCloud";
+"icloud_sync_sources_per_device_footer" = "Activer ou désactiver une source de musique ne concerne que cet appareil. Vous pouvez aussi désactiver la synchronisation iCloud d’une seule source depuis sa page de modification.";

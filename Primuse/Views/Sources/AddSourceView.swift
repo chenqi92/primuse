@@ -82,6 +82,9 @@ struct AddSourceView: View {
     /// 网盘在选目录页按目录标,不再提供;只给已经开着的源留着,好让它能关掉。
     @State private var wholeSourceSpokenWord = false
     @State private var wholeSourceSpokenWordWasOn = false
+    /// 这个源在这台设备上是否经 iCloud 同步。编辑已有的、能跨设备同步的源时才显示;
+    /// 保存时生效(关掉在写凭据之前,打开在保存之后)。
+    @State private var syncsViaICloud = true
     /// 用户填的那一到两行地址。上面那组 host/port/useSsl/publicHost/… 仍然是
     /// 保存路径唯一读取的字段 —— 提交时由 `applyAddressPlan` 一次性写回。
     @State private var addressRows: [SourceAddressRow] = [SourceAddressRow()]
@@ -119,6 +122,11 @@ struct AddSourceView: View {
         continuesToConnectionAfterSave ? "Next" : "save"
     }
     private var supportsAPIKeyAuth: Bool { [.jellyfin, .emby, .plex, .audiobookshelf].contains(sourceType) }
+    private var showsICloudSyncToggle: Bool {
+        guard let editingSource else { return false }
+        return MusicSourceCloudSyncPolicy.isEligible(editingSource)
+    }
+
     private var showsServerLibrarySection: Bool {
         isEditing && sourceType.organizesCatalogByServerLibrary
     }
@@ -659,6 +667,9 @@ struct AddSourceView: View {
             if showsWholeSourceSpokenWordToggle {
                 macToggleRow("whole_source_spoken_word", isOn: $wholeSourceSpokenWord)
                 macInfoRow("whole_source_spoken_word_hint")
+            }
+            if showsICloudSyncToggle {
+                MacSourceICloudSyncRow(isOn: $syncsViaICloud)
             }
         }
 
@@ -1337,6 +1348,9 @@ struct AddSourceView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if showsICloudSyncToggle {
+                SourceICloudSyncToggle(isOn: $syncsViaICloud)
+            }
         }
 
         if !isEditing && sourceType.requiresHost && !continuesToConnectionAfterSave {
@@ -1564,6 +1578,7 @@ struct AddSourceView: View {
             plexServerIdentifier = s.plexServerIdentifier
             wholeSourceSpokenWord = SpokenWordStore.shared.isWholeSourceSpokenWord(sourceID: s.id)
             wholeSourceSpokenWordWasOn = wholeSourceSpokenWord
+            syncsViaICloud = AppServices.shared.sourcesStore.syncsViaICloud(s.id)
             if supportsAdaptiveConnections {
                 loadAdaptiveConnectionFields(from: s)
             } else {
@@ -2086,6 +2101,10 @@ struct AddSourceView: View {
     }
 
     private func saveSource() {
+        // 关掉 iCloud 同步要赶在下面写密码之前:关着的源改的密码只存这台设备。
+        if let editingSource, showsICloudSyncToggle, !syncsViaICloud {
+            AppServices.shared.sourcesStore.setSyncsViaICloud(false, for: editingSource.id)
+        }
         // 用户名做常规规范化；密码必须逐字节保留，因为首尾空白可能是
         // 服务端凭据本身的一部分。
         let username = self.username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2451,6 +2470,10 @@ struct AddSourceView: View {
     private func completeSave(_ source: MusicSource) {
         applySpokenWordChoices(sourceID: source.id)
         onSave(source)
+        // 重新打开放在保存之后:刚存下的这份就是本机最新的,合并时按较新的为准传上去。
+        if let editingSource, showsICloudSyncToggle, syncsViaICloud {
+            AppServices.shared.sourcesStore.setSyncsViaICloud(true, for: editingSource.id)
+        }
         rescanIfLibraryStampsAreNeeded(source)
         // The main Sources flow keeps this sheet alive and replaces the form
         // with the existing connection / OTP / directory UI. Sources whose
@@ -2658,3 +2681,63 @@ enum ServerLibrariesLoadState: Equatable {
     case loaded
     case failed
 }
+
+/// 编辑页「高级」里的「通过 iCloud 同步」。说明收在圈问号里;iCloud 设置里「音乐源」同步
+/// 整体关着时照样能改,下面一行说明它要等那边打开才起作用。
+private struct SourceICloudSyncToggle: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            SettingsInfoLabel("source_syncs_via_icloud") {
+                Text("source_syncs_via_icloud_info")
+            }
+        }
+        if !CloudSyncChannel.isEnabled(.sources) {
+            Text("source_syncs_via_icloud_channel_off")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+#if os(macOS)
+/// Mac 编辑页的同一行,照 `macToggleRow` 的样子,标题旁挂圈问号。
+private struct MacSourceICloudSyncRow: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                HStack(spacing: 6) {
+                    Text("source_syncs_via_icloud")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(PMColor.text)
+                    SettingsInfoButton { Text("source_syncs_via_icloud_info") }
+                }
+                Spacer(minLength: 20)
+                Toggle("", isOn: $isOn)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+            .overlay(alignment: .top) {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            }
+            if !CloudSyncChannel.isEnabled(.sources) {
+                Text("source_syncs_via_icloud_channel_off")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                    }
+            }
+        }
+    }
+}
+#endif

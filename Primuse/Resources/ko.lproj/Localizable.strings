@@ -7558,3 +7558,13 @@
 "dup_same_file_caption_format" = "%@의 파일과 같은 파일";
 "dup_same_file_badge" = "같은 파일";
 "dup_same_file_ledger_detail_format" = "같은 파일이 %@에도 있음";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "이 기기에서 꺼짐";
+"source_enable_on_this_device" = "이 기기에서 켜기";
+"source_disable_on_this_device" = "이 기기에서 끄기";
+"source_syncs_via_icloud" = "iCloud로 동기화";
+"source_syncs_via_icloud_info" = "끄면 이 기기는 이 음악 소스의 설정, 스캔 결과, 여기에서 바꾼 암호를 iCloud로 보내지 않고, 다른 기기에서 한 변경이나 삭제도 적용하지 않습니다. iCloud에 이미 있는 사본, 다른 기기의 이 음악 소스, 이 기기의 노래와 즐겨찾기는 그대로 유지됩니다. 다시 켜면 더 최근의 변경이 우선하며, 꺼져 있는 동안 다른 기기에서 삭제했다면 여기에서도 '최근 삭제된 항목'으로 이동합니다. 켜기와 끄기는 언제나 이 기기에만 적용됩니다.";
+"source_syncs_via_icloud_channel_off" = "iCloud 설정에서 음악 소스 동기화가 꺼져 있습니다. 켜면 이 스위치가 적용됩니다.";
+"source_not_syncing_via_icloud" = "iCloud로 동기화하지 않음";
+"icloud_sync_sources_per_device_footer" = "음악 소스를 켜거나 끄는 것은 이 기기에만 적용됩니다. 음악 소스별로 편집 화면에서 iCloud 동기화를 끌 수도 있습니다.";

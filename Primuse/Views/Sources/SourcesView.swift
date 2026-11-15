@@ -912,14 +912,7 @@ struct SourcesContentView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(source.name).font(.body).fontWeight(.medium)
-                        if !source.isEnabled {
-                            Text(String(localized: "disabled"))
-                                .font(.caption2).fontWeight(.medium)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color.red.opacity(0.12))
-                                .foregroundStyle(.red)
-                                .clipShape(Capsule())
-                        }
+                        SourceDeviceStateMarks(source: source)
                     }
                     HStack(spacing: 4) {
                         Text(source.type.displayName).fixedSize()
@@ -2642,7 +2635,8 @@ struct SourcesContentView: View {
         }
         // 改源会同步发出源变更通知,曲库的可见内容由 AppServices 在后台重算;Apple Music
         // 同步的开停和回填都看曲库里的停用集合,也由它等落地之后再处理。
-        updateSource(current.id) { $0.isEnabled = enabled }
+        // 启用 / 停用只作用于这台设备,不经 iCloud 带到别的设备上。
+        sourceStore.setEnabledOnThisDevice(current.id, enabled)
     }
 
     /// 撤销提示条的来源键:每个源一条。新删一个源时它顶掉上一条(原地换内容),
@@ -3087,5 +3081,31 @@ struct ScanStateScope<Content: View>: View {
     var body: some View {
         let _ = scanService.scanStates
         content()
+    }
+}
+
+/// 音乐源卡片名字旁的两个小标记:这台设备上禁用了它、这台设备关了它的 iCloud 同步。
+/// 两件事都只关于这台设备,标出来免得以为是在所有设备上停用或删除。
+private struct SourceDeviceStateMarks: View {
+    let source: MusicSource
+
+    var body: some View {
+        if !source.isEnabled {
+            Text("source_disabled_on_this_device")
+                .font(.caption2).fontWeight(.medium)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Color.red.opacity(0.12))
+                .foregroundStyle(.red)
+                .clipShape(Capsule())
+                .fixedSize()
+        }
+        if MusicSourceCloudSyncPolicy.isEligible(source),
+           !AppServices.shared.sourcesStore.syncsViaICloud(source.id) {
+            Image(systemName: "icloud.slash")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel(Text("source_not_syncing_via_icloud"))
+                .help(Text("source_not_syncing_via_icloud"))
+        }
     }
 }

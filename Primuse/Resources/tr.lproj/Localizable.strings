@@ -7464,3 +7464,13 @@
 "dup_same_file_caption_format" = "%@ içindekiyle aynı dosya";
 "dup_same_file_badge" = "Aynı dosya";
 "dup_same_file_ledger_detail_format" = "Aynı dosya %@ içinde de var";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "Bu cihazda kapalı";
+"source_enable_on_this_device" = "Bu cihazda etkinleştir";
+"source_disable_on_this_device" = "Bu cihazda devre dışı bırak";
+"source_syncs_via_icloud" = "iCloud ile eşzamanla";
+"source_syncs_via_icloud_info" = "Kapatıldığında bu cihaz, bu kaynağın ayarlarını, tarama sonuçlarını ve burada değiştirdiğiniz parolaları iCloud'a göndermez ve diğer cihazlarınızda yapılan değişiklikleri veya silmeleri uygulamaz. iCloud'daki mevcut kopya, diğer cihazlarınızdaki bu kaynak ve bu cihazdaki şarkılar ile favoriler olduğu gibi kalır. Yeniden açtığınızda daha yeni değişiklik geçerli olur; bu arada başka bir cihaz kaynağı sildiyse burada da Son silinenler'e taşınır. Bir kaynağı etkinleştirmek veya devre dışı bırakmak her zaman yalnızca bu cihazı etkiler.";
+"source_syncs_via_icloud_channel_off" = "Müzik kaynağı eşzamanlaması iCloud ayarlarında kapalı. Bu anahtar, o açıldığında etkili olur.";
+"source_not_syncing_via_icloud" = "iCloud ile eşzamanlanmıyor";
+"icloud_sync_sources_per_device_footer" = "Bir müzik kaynağını etkinleştirmek veya devre dışı bırakmak yalnızca bu cihazı etkiler. Tek bir kaynağın iCloud eşzamanlamasını düzenleme sayfasından da kapatabilirsiniz.";

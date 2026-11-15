@@ -7464,3 +7464,13 @@
 "dup_same_file_caption_format" = "Ten sam plik co w %@";
 "dup_same_file_badge" = "Ten sam plik";
 "dup_same_file_ledger_detail_format" = "Ten sam plik jest też w %@";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "Wyłączone na tym urządzeniu";
+"source_enable_on_this_device" = "Włącz na tym urządzeniu";
+"source_disable_on_this_device" = "Wyłącz na tym urządzeniu";
+"source_syncs_via_icloud" = "Synchronizuj przez iCloud";
+"source_syncs_via_icloud_info" = "Po wyłączeniu to urządzenie przestaje wysyłać do iCloud ustawienia, wyniki skanowania i zmienione tutaj hasła tego źródła oraz nie stosuje zmian ani usunięć wprowadzonych na innych Twoich urządzeniach. Kopia w iCloud, to źródło na innych urządzeniach oraz utwory i ulubione na tym urządzeniu pozostają bez zmian. Po ponownym włączeniu wygrywa nowsza zmiana; jeśli w międzyczasie inne urządzenie usunęło źródło, tutaj również trafi ono do Ostatnio usuniętych. Włączanie i wyłączanie źródła zawsze dotyczy tylko tego urządzenia.";
+"source_syncs_via_icloud_channel_off" = "Synchronizacja źródeł muzyki jest wyłączona w ustawieniach iCloud. Ten przełącznik zadziała, gdy zostanie włączona.";
+"source_not_syncing_via_icloud" = "Nie synchronizuje się przez iCloud";
+"icloud_sync_sources_per_device_footer" = "Włączanie i wyłączanie źródła muzyki dotyczy tylko tego urządzenia. Synchronizację iCloud pojedynczego źródła możesz też wyłączyć na stronie jego edycji.";

@@ -1025,3 +1025,7 @@
 "genre_split_comma" = "Dziel gatunki na przecinkach";
 "genre_split_bar" = "Dziel gatunki na pionowych kreskach i ukośnikach wstecznych";
 "genre_split_tv_detail" = "Dotyczy tylko przeglądania; tagi w plikach się nie zmieniają";
+
+/* Apple TV source form: per-source iCloud sync */
+"source_syncs_via_icloud" = "Synchronizuj przez iCloud";
+"source_syncs_via_icloud_tv_info" = "Po wyłączeniu to Apple TV przestaje wysyłać do iCloud ustawienia tego źródła i nie stosuje zmian ani usunięć wprowadzonych na innych Twoich urządzeniach. Kopia w iCloud i to źródło na innych urządzeniach pozostają bez zmian. Po ponownym włączeniu wygrywa nowsza zmiana.";

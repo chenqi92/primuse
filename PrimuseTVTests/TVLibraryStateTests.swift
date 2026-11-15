@@ -1047,6 +1047,45 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertTrue(restored.source(id: deleted.id)?.isDeleted == true)
     }
 
+    /// 启用状态按设备:手机传来的快照不改电视上的启用 / 停用;电视单独关了 iCloud 同步的源整行留着。
+    func testSnapshotInstallKeepsThisDevicesEnableChoiceAndOptedOutSources() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        var shared = fixture.source
+        shared.type = .webdav
+        shared.isEnabled = false
+        var privateSource = shared
+        privateSource.id = "tv-private-source"
+        privateSource.name = "Edited on the TV"
+        privateSource.isEnabled = true
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode([shared, privateSource])
+            .write(to: fixture.directory.appendingPathComponent("sources.json"))
+        var settings = MusicSourceDeviceSettings()
+        settings.seed(from: [shared, privateSource])
+        settings.setSyncsViaICloud(false, for: privateSource.id, localRow: privateSource)
+        try settings.encoded()
+            .write(to: fixture.directory.appendingPathComponent(MusicSourceDeviceSettings.fileName))
+
+        var incomingShared = shared
+        incomingShared.isEnabled = true
+        incomingShared.name = "Renamed on the phone"
+        incomingShared.modifiedAt = Date().addingTimeInterval(60)
+        var incomingPrivate = privateSource
+        incomingPrivate.name = "Edited on the phone"
+        incomingPrivate.modifiedAt = Date().addingTimeInterval(60)
+        let sync = LibrarySnapshotSync(storageDirectoryURL: fixture.directory)
+        let payload = try fixture.payload(songs: [fixture.song("book")], sources: [incomingShared, incomingPrivate])
+        XCTAssertTrue(sync.installTVPayload(payload, credentialReference: nil,
+                                            destinationDirectory: fixture.directory))
+        let restored = SourcesStore(storageDirectoryURL: fixture.directory)
+        XCTAssertEqual(restored.source(id: shared.id)?.name, incomingShared.name)
+        XCTAssertEqual(restored.source(id: shared.id)?.isEnabled, false)
+        XCTAssertEqual(restored.source(id: privateSource.id)?.name, "Edited on the TV")
+        XCTAssertFalse(restored.syncsViaICloud(privateSource.id))
+    }
+
     func testCloudSourceRestoreKeepsLocalTrustAndRejectsForeignTrust() throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

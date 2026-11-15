@@ -7464,3 +7464,13 @@
 "dup_same_file_caption_format" = "%@ वाली फ़ाइल जैसी ही";
 "dup_same_file_badge" = "एक ही फ़ाइल";
 "dup_same_file_ledger_detail_format" = "यही फ़ाइल %@ में भी है";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "इस डिवाइस पर बंद";
+"source_enable_on_this_device" = "इस डिवाइस पर चालू करें";
+"source_disable_on_this_device" = "इस डिवाइस पर बंद करें";
+"source_syncs_via_icloud" = "iCloud से सिंक करें";
+"source_syncs_via_icloud_info" = "बंद करने पर यह डिवाइस इस स्रोत की सेटिंग, स्कैन के नतीजे और यहाँ बदले गए पासवर्ड iCloud पर नहीं भेजेगा, और आपके दूसरे डिवाइस पर किए गए बदलाव या हटाना भी लागू नहीं करेगा। iCloud में मौजूद कॉपी, दूसरे डिवाइस पर यह स्रोत, और इस डिवाइस के गाने व पसंदीदा जैसे हैं वैसे ही रहेंगे। फिर से चालू करने पर नया बदलाव माना जाएगा; अगर इस बीच किसी दूसरे डिवाइस ने स्रोत हटा दिया हो, तो यहाँ भी वह हाल ही में हटाए गए में चला जाएगा। स्रोत को चालू या बंद करना हमेशा सिर्फ़ इसी डिवाइस पर लागू होता है।";
+"source_syncs_via_icloud_channel_off" = "iCloud सेटिंग में संगीत स्रोतों का सिंक बंद है। उसे चालू करने के बाद ही यह स्विच काम करेगा।";
+"source_not_syncing_via_icloud" = "iCloud से सिंक नहीं होता";
+"icloud_sync_sources_per_device_footer" = "संगीत स्रोत को चालू या बंद करना सिर्फ़ इसी डिवाइस पर लागू होता है। किसी एक स्रोत का iCloud सिंक उसके संपादन पेज से भी बंद किया जा सकता है।";

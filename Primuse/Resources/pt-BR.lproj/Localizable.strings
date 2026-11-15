@@ -7464,3 +7464,13 @@
 "dup_same_file_caption_format" = "Mesmo arquivo que em %@";
 "dup_same_file_badge" = "Mesmo arquivo";
 "dup_same_file_ledger_detail_format" = "O mesmo arquivo também está em %@";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "Desativada neste dispositivo";
+"source_enable_on_this_device" = "Ativar neste dispositivo";
+"source_disable_on_this_device" = "Desativar neste dispositivo";
+"source_syncs_via_icloud" = "Sincronizar pelo iCloud";
+"source_syncs_via_icloud_info" = "Quando desativado, este dispositivo deixa de enviar ao iCloud os ajustes, os resultados da varredura e as senhas alteradas aqui para esta fonte, e deixa de aplicar alterações ou exclusões feitas nos seus outros dispositivos. A cópia que já está no iCloud, esta fonte nos seus outros dispositivos e as músicas e favoritos deste dispositivo continuam como estão. Ao reativar, vale a alteração mais recente; se outro dispositivo tiver excluído a fonte nesse meio-tempo, ela também vai para Apagados recentemente aqui. Ativar ou desativar uma fonte sempre afeta só este dispositivo.";
+"source_syncs_via_icloud_channel_off" = "A sincronização de fontes musicais está desativada nos ajustes do iCloud. Esta chave passa a valer quando ela for ativada.";
+"source_not_syncing_via_icloud" = "Não sincroniza pelo iCloud";
+"icloud_sync_sources_per_device_footer" = "Ativar ou desativar uma fonte musical afeta só este dispositivo. Você também pode desativar a sincronização pelo iCloud de uma única fonte na página de edição dela.";

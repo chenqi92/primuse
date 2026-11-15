@@ -392,11 +392,17 @@ final class PeerScanSeedCoordinator {
     }
 
     private var seedScope: PeerScanSeedScope {
-        PeerScanSeedScope.make(
+        let optedOutSourceIDs = sourcesStore.deviceSettings.optedOutSourceIDs
+        return PeerScanSeedScope.make(
             sources: sourcesStore.allSources,
             deletedSourceIDs: Set(sourcesStore.sourceDeletionRecords.map(\.id)),
-            isEligible: PeerScanSeedStore.isEligible
+            isEligible: { PeerScanSeedStore.isEligible($0) && !optedOutSourceIDs.contains($0.id) }
         )
+    }
+
+    /// 这台设备单独关了 iCloud 同步的源也不借别的设备的结果:关掉之后这个源只在本机。
+    private static func isEligible(_ source: MusicSource, in store: SourcesStore) -> Bool {
+        PeerScanSeedStore.isEligible(source) && store.syncsViaICloud(source.id)
     }
 
     /// 扫描开始前调用。本机还没扫过这个源时先去 iCloud 取一次最新的结果,最多等 15 秒。
@@ -404,7 +410,7 @@ final class PeerScanSeedCoordinator {
     /// 别的设备不可能扫过;之前建的、还没扫过就被关掉的,别的设备也只是可能扫过,
     /// 扫完再去看一眼,有结果就交给补读接过来。
     func lookup(for source: MusicSource) async -> PeerScanSeedLookup? {
-        guard PeerScanSeedStore.isEnabled, PeerScanSeedStore.isEligible(source) else { return nil }
+        guard PeerScanSeedStore.isEnabled, Self.isEligible(source, in: sourcesStore) else { return nil }
         let hasLocalRows = library?.songs.contains { $0.sourceID == source.id } ?? true
         if !hasLocalRows, sourcesStore.sourceIDsCreatedOnThisDevice.contains(source.id) {
             if !sourcesStore.sourceIDsCreatedThisRun.contains(source.id) {
@@ -458,7 +464,7 @@ final class PeerScanSeedCoordinator {
     /// 在这里补一遍;首扫没等别的设备的源再去看一眼;然后让别的设备早点拿到本机的结果。
     func sourceScanSucceeded(sourceID: String) {
         guard let source = sourcesStore.source(id: sourceID),
-              PeerScanSeedStore.isEligible(source) else { return }
+              Self.isEligible(source, in: sourcesStore) else { return }
         if PeerScanSeedStore.isEnabled {
             if source.type == .synology {
                 Task { [weak self] in await self?.fill(sourceIDs: [sourceID]) }

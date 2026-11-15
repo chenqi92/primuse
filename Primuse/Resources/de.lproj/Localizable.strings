@@ -7558,3 +7558,13 @@
 "dup_same_file_caption_format" = "Dieselbe Datei wie in %@";
 "dup_same_file_badge" = "Dieselbe Datei";
 "dup_same_file_ledger_detail_format" = "Dieselbe Datei liegt auch in %@";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "Auf diesem Gerät aus";
+"source_enable_on_this_device" = "Auf diesem Gerät aktivieren";
+"source_disable_on_this_device" = "Auf diesem Gerät deaktivieren";
+"source_syncs_via_icloud" = "Über iCloud synchronisieren";
+"source_syncs_via_icloud_info" = "Wenn ausgeschaltet, sendet dieses Gerät die Einstellungen, Scanergebnisse und hier geänderten Passwörter dieser Quelle nicht mehr an iCloud und übernimmt keine Änderungen oder Löschungen von deinen anderen Geräten. Die Kopie in iCloud, diese Quelle auf deinen anderen Geräten sowie die Titel und Favoriten auf diesem Gerät bleiben unverändert. Beim Wiedereinschalten gewinnt die neuere Änderung; hat ein anderes Gerät die Quelle inzwischen gelöscht, landet sie auch hier unter „Zuletzt gelöscht“. Aktivieren oder Deaktivieren einer Quelle wirkt sich immer nur auf dieses Gerät aus.";
+"source_syncs_via_icloud_channel_off" = "Die Synchronisierung von Musikquellen ist in den iCloud-Einstellungen aus. Dieser Schalter wirkt, sobald sie eingeschaltet ist.";
+"source_not_syncing_via_icloud" = "Wird nicht über iCloud synchronisiert";
+"icloud_sync_sources_per_device_footer" = "Das Aktivieren oder Deaktivieren einer Musikquelle betrifft nur dieses Gerät. Für einzelne Quellen kannst du die iCloud-Synchronisierung auch auf ihrer Bearbeitungsseite ausschalten.";

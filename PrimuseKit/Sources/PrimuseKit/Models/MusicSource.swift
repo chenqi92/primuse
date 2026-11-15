@@ -2002,6 +2002,228 @@ public enum MusicSourceCloudSyncPolicy {
     }
 }
 
+// MARK: - Per-device source settings
+
+/// 一个音乐源在这台设备上的设置。启用与否就是本机 sources.json 里的 `MusicSource.isEnabled`,
+/// 只在这台设备上生效;这里记的是与它配套、同样不出设备的几项。
+public struct MusicSourceDeviceSetting: Codable, Equatable, Sendable {
+    /// 同步配置(CloudKit 记录、整库快照)里的那份 `isEnabled`。本机往外写源配置时写回
+    /// 这个值,还认这个字段的旧版本就不会被这台设备的启用选择带着改。
+    public var syncedIsEnabled: Bool
+    /// 关掉后这台设备不再上传、也不再套用这个源的配置(连同删除);云端已有的那份不动。
+    public var syncsViaICloud: Bool
+    /// 关着期间收到的最新一份远端配置(可能是墓碑),重新打开时按原有规则合并。
+    public var parkedRemote: MusicSource?
+    /// 关掉那一刻本机这行的时钟。重新打开时没收到过远端配置,就靠它判断本机期间改没改过。
+    public var localClockAtOptOut: Date?
+
+    public init(
+        syncedIsEnabled: Bool,
+        syncsViaICloud: Bool = true,
+        parkedRemote: MusicSource? = nil,
+        localClockAtOptOut: Date? = nil
+    ) {
+        self.syncedIsEnabled = syncedIsEnabled
+        self.syncsViaICloud = syncsViaICloud
+        self.parkedRemote = parkedRemote
+        self.localClockAtOptOut = localClockAtOptOut
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case syncedIsEnabled, syncsViaICloud, parkedRemote, localClockAtOptOut
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        syncedIsEnabled = try c.decodeIfPresent(Bool.self, forKey: .syncedIsEnabled) ?? true
+        syncsViaICloud = try c.decodeIfPresent(Bool.self, forKey: .syncsViaICloud) ?? true
+        // 存着的远端配置读不出来(更新的版本写的)就当没收到过,别让整份设置读不出来。
+        parkedRemote = (try? c.decodeIfPresent(MusicSource.self, forKey: .parkedRemote)) ?? nil
+        localClockAtOptOut = try c.decodeIfPresent(Date.self, forKey: .localClockAtOptOut)
+    }
+}
+
+/// 重新打开一个源的 iCloud 同步时要做的两件事。
+public struct MusicSourceSyncRejoinPlan: Equatable, Sendable {
+    /// 关着期间收到的远端配置,先按原有规则(较新的为准、删除优先于未明确恢复的修改)并进本机。
+    public var remoteToMerge: MusicSource?
+    /// 本机这份比云端新,或者云端从来没有过它,要传上去。
+    public var uploadsLocal: Bool
+
+    public init(remoteToMerge: MusicSource?, uploadsLocal: Bool) {
+        self.remoteToMerge = remoteToMerge
+        self.uploadsLocal = uploadsLocal
+    }
+}
+
+/// 全部音乐源在这台设备上的设置,存在本机 `source-device-settings.json`,从不同步。
+public struct MusicSourceDeviceSettings: Codable, Equatable, Sendable {
+    public static let fileName = "source-device-settings.json"
+
+    public var entries: [String: MusicSourceDeviceSetting]
+
+    public init(entries: [String: MusicSourceDeviceSetting] = [:]) {
+        self.entries = entries
+    }
+
+    public func syncsViaICloud(_ sourceID: String) -> Bool {
+        entries[sourceID]?.syncsViaICloud ?? true
+    }
+
+    public var optedOutSourceIDs: Set<String> {
+        Set(entries.lazy.filter { !$0.value.syncsViaICloud }.map(\.key))
+    }
+
+    /// 升级到按设备启用的那一次(以及每个第一次见到的源):还没有记录的源,以它现在的启用
+    /// 状态作为同步值。本机的启用状态本来就是同步来的这个值,所以升级不会翻转任何一个源。
+    @discardableResult
+    public mutating func seed(from sources: [MusicSource]) -> Bool {
+        var changed = false
+        for source in sources where entries[source.id] == nil {
+            entries[source.id] = MusicSourceDeviceSetting(syncedIsEnabled: source.isEnabled)
+            changed = true
+        }
+        return changed
+    }
+
+    /// 同步配置里的启用状态变了(远端那份落地、本机新建)。
+    @discardableResult
+    public mutating func noteSyncedIsEnabled(_ value: Bool, for sourceID: String) -> Bool {
+        if var entry = entries[sourceID] {
+            guard entry.syncedIsEnabled != value else { return false }
+            entry.syncedIsEnabled = value
+            entries[sourceID] = entry
+        } else {
+            entries[sourceID] = MusicSourceDeviceSetting(syncedIsEnabled: value)
+        }
+        return true
+    }
+
+    /// 往 iCloud 写的那份:启用状态换成同步值,本机的启用选择不出设备。
+    public func outgoing(_ source: MusicSource) -> MusicSource {
+        guard let synced = entries[source.id]?.syncedIsEnabled,
+              synced != source.isEnabled else { return source }
+        var copy = source
+        copy.isEnabled = synced
+        return copy
+    }
+
+    /// 整库快照里的源清单。这台设备关了同步的源不写本机这行;服务器上原来有它就原样
+    /// 带上,别的设备照旧看得到,也不会被当成删掉。
+    public func outgoingSnapshotSources(
+        _ local: [MusicSource],
+        carryingRemote remote: [MusicSource] = []
+    ) -> [MusicSource] {
+        let optedOut = optedOutSourceIDs
+        var result = local.compactMap { source -> MusicSource? in
+            optedOut.contains(source.id) ? nil : outgoing(source)
+        }
+        guard !optedOut.isEmpty else { return result }
+        var carried = Set<String>()
+        for row in remote where optedOut.contains(row.id) && carried.insert(row.id).inserted {
+            result.append(row)
+        }
+        return result
+    }
+
+    /// 远端或快照里的一行落到本机:本机已有这行就保留这台设备的启用状态,新来的行先用
+    /// 同步来的值。
+    public static func applyingLocalEnablement(
+        to incoming: MusicSource,
+        local: MusicSource?
+    ) -> MusicSource {
+        guard let local, local.isEnabled != incoming.isEnabled else { return incoming }
+        var merged = incoming
+        merged.isEnabled = local.isEnabled
+        return merged
+    }
+
+    /// 关着同步时收到的远端配置:只留最新的一份。
+    @discardableResult
+    public mutating func park(_ remote: MusicSource) -> Bool {
+        var entry = entries[remote.id] ?? MusicSourceDeviceSetting(
+            syncedIsEnabled: remote.isEnabled,
+            syncsViaICloud: false
+        )
+        if let parked = entry.parkedRemote,
+           MusicSourceLifecyclePolicy.winner(local: parked, remote: remote) == .local {
+            return false
+        }
+        guard entry.parkedRemote != remote else { return false }
+        entry.parkedRemote = remote
+        entries[remote.id] = entry
+        return true
+    }
+
+    /// 打开或关掉一个源的 iCloud 同步。打开时返回要做的合并;没有变化时返回 nil。
+    @discardableResult
+    public mutating func setSyncsViaICloud(
+        _ syncs: Bool,
+        for sourceID: String,
+        localRow: MusicSource?
+    ) -> MusicSourceSyncRejoinPlan? {
+        var entry = entries[sourceID] ?? MusicSourceDeviceSetting(
+            syncedIsEnabled: localRow?.isEnabled ?? true
+        )
+        guard entry.syncsViaICloud != syncs else { return nil }
+        if syncs {
+            let plan = MusicSourceSyncRejoinPolicy.plan(local: localRow, setting: entry)
+            entry.syncsViaICloud = true
+            entry.parkedRemote = nil
+            entry.localClockAtOptOut = nil
+            entries[sourceID] = entry
+            return plan
+        }
+        entry.syncsViaICloud = false
+        entry.parkedRemote = nil
+        entry.localClockAtOptOut = localRow.map(MusicSourceLifecyclePolicy.lifecycleClock)
+        entries[sourceID] = entry
+        return MusicSourceSyncRejoinPlan(remoteToMerge: nil, uploadsLocal: false)
+    }
+
+    // MARK: Persistence
+
+    public static func load(from url: URL) -> MusicSourceDeviceSettings? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(MusicSourceDeviceSettings.self, from: data)
+    }
+
+    public func encoded() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(self)
+    }
+}
+
+/// 重新打开同步时本机与云端怎么合:关着期间收到过远端配置,就按原有规则比新旧;没收到过,
+/// 本机这行在关掉之后改过(或者从没传上去过)才上传。只在这台设备上删掉的源不会因为重新
+/// 打开而把删除传出去。
+public enum MusicSourceSyncRejoinPolicy {
+    public static func plan(
+        local: MusicSource?,
+        setting: MusicSourceDeviceSetting?
+    ) -> MusicSourceSyncRejoinPlan {
+        let parked = setting?.parkedRemote
+        guard let local, !local.isDeleted else {
+            return MusicSourceSyncRejoinPlan(remoteToMerge: parked, uploadsLocal: false)
+        }
+        if let parked {
+            return MusicSourceSyncRejoinPlan(
+                remoteToMerge: parked,
+                uploadsLocal: MusicSourceLifecyclePolicy.winner(local: local, remote: parked) == .local
+            )
+        }
+        let clockAtOptOut = setting?.localClockAtOptOut ?? .distantPast
+        return MusicSourceSyncRejoinPlan(
+            remoteToMerge: nil,
+            uploadsLocal: MusicSourceLifecyclePolicy.lifecycleClock(local) > clockAtOptOut
+        )
+    }
+}
+
 /// Keeps best-effort file maintenance from turning every scene transition
 /// into a directory walk. Callers persist `lastCompletedAt` only after the
 /// entire maintenance pass finishes successfully.

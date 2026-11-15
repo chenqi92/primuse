@@ -2495,7 +2495,7 @@ final class AppServices {
                 }
             }
         }
-        // iCloud 同步过来的停用与设置页里的停用按钮走的是同一个语义:
+        // 停用(只作用于这台设备,别的设备的启用状态不会经 iCloud 改到这里)
         // 名下的离线批量 / 单曲下载 / 后台音频与 MV 缓存都要停掉。启用方向
         // 不做任何事, 与手动路径一致。
         for sourceID in current.subtracting(previous) {
@@ -2855,7 +2855,8 @@ final class AppServices {
 
     private func enqueueSourceCloudCleanup(_ tombstone: MusicSource) {
         sourcesStore.registerDeletionTombstone(tombstone)
-        guard MusicSourceCloudSyncPolicy.isEligible(tombstone) else {
+        // 这台设备单独关了同步的源只在本机删:不传墓碑、不改快照、不动云端凭据。
+        guard sourcesStore.isCloudSyncEligible(tombstone) else {
             if pendingSourceCloudCleanups.removeValue(forKey: tombstone.id) != nil {
                 persistPendingSourceCloudCleanups()
             }
@@ -2880,7 +2881,7 @@ final class AppServices {
         }
         var removedDeviceLocalIntent = false
         for intent in intents where intent.tombstone.isDeleted {
-            guard MusicSourceCloudSyncPolicy.isEligible(intent.tombstone) else {
+            guard sourcesStore.isCloudSyncEligible(intent.tombstone) else {
                 removedDeviceLocalIntent = true
                 continue
             }
@@ -2986,7 +2987,7 @@ final class AppServices {
         }
         for intent in snapshot {
             let sourceID = intent.tombstone.id
-            if SourceCloudCleanupPolicy.isSuperseded(
+            if !sourcesStore.syncsViaICloud(sourceID) || SourceCloudCleanupPolicy.isSuperseded(
                 intent,
                 by: sourcesStore.source(id: sourceID)
             ) {

@@ -1078,3 +1078,7 @@
 "genre_split_comma" = "쉼표로 장르 분리";
 "genre_split_bar" = "세로선과 백슬래시로 장르 분리";
 "genre_split_tv_detail" = "탐색에만 영향을 주며 파일 태그는 바뀌지 않습니다";
+
+/* Apple TV source form: per-source iCloud sync */
+"source_syncs_via_icloud" = "iCloud로 동기화";
+"source_syncs_via_icloud_tv_info" = "끄면 이 Apple TV는 이 음악 소스의 설정을 iCloud로 보내지 않고, 다른 기기에서 한 변경이나 삭제도 적용하지 않습니다. iCloud의 사본과 다른 기기의 이 음악 소스는 그대로 유지됩니다. 다시 켜면 더 최근의 변경이 우선합니다.";

@@ -40,6 +40,12 @@ enum KeychainService {
         // 本机为这个源保存过密码, 就不再当它「密码还在路上」。
         RemoteSourceArrivalLedger.forget(sourceID: account)
 
+        // 这台设备单独关了这个音乐源的 iCloud 同步:密码只写一条本机项,iCloud 钥匙串里
+        // 那份原样留着 —— 改它或删它都会落到别的设备上。读取先查本机项,写下即生效。
+        if SourceCloudSyncOptOutRegistry.isOptedOut(account: account) {
+            return setDeviceOnlySourceSecret(password, for: account)
+        }
+
         // The `credentials` channel toggle decides whether new writes go to
         // iCloud Keychain (synchronizable) or stay local. Past entries already
         // on iCloud Keychain stay there — that's a system-level decision the
@@ -379,6 +385,11 @@ enum KeychainService {
 
     @discardableResult
     static func deletePassword(for account: String) -> Bool {
+        // 关了 iCloud 同步的音乐源只删这台设备上的那份:同步项一删,别的设备上同一个源
+        // 也就没有密码了。
+        if SourceCloudSyncOptOutRegistry.isOptedOut(account: account) {
+            return deleteDeviceOnlySourceSecret(for: account)
+        }
         // Always sweep BOTH synchronizable and non-synchronizable variants with
         // `kSecAttrSynchronizableAny`, regardless of the current `credentials`
         // channel state. If we honored the channel toggle here, turning the
@@ -420,6 +431,87 @@ enum KeychainService {
         #endif
         cacheWrite(nil, for: account)
         return true
+    }
+
+    // MARK: - 关了 iCloud 同步的音乐源
+
+    private static func setDeviceOnlySourceSecret(_ secret: String, for account: String) -> Bool {
+        let status = persistPasswordItem(
+            Data(secret.utf8),
+            account: account,
+            synchronizable: false,
+            deviceOnly: true
+        )
+        guard status == errSecSuccess else {
+            plog("⚠️ Device-only source secret write failed item=\(account.prefix(12))… status=\(status)")
+            return false
+        }
+        cacheWrite(secret, for: account)
+        return true
+    }
+
+    private static func deleteDeviceOnlySourceSecret(for account: String) -> Bool {
+        let status = deletePasswordVariant(for: account, synchronizable: false)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            plog("⚠️ Device-only source secret delete failed item=\(account.prefix(12))… status=\(status)")
+            return false
+        }
+        cacheWrite(nil, for: account)
+        return true
+    }
+
+    /// 一个音乐源重新打开 iCloud 同步时,处理关着期间在这台设备上存下的本机密码项。
+    /// `promote`:本机这份配置比云端新、要传上去,密码也跟着它写成同步项;否则丢掉本机项,
+    /// 改用 iCloud 钥匙串里的那份(没有同步项时留着,免得这台设备没了密码)。
+    static func resolveDeviceOnlySourceSecrets(sourceID: String, promote: Bool) {
+        guard supportsSynchronizableKeychainAttributes else { return }
+        let accounts = [
+            sourceID,
+            FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: sourceID),
+            PlexAccountAPI.accountTokenKeychainAccount(sourceID: sourceID),
+        ]
+        for account in accounts {
+            guard let secret = deviceOnlyItemSecret(for: account) else { continue }
+            if promote {
+                // 凭据同步关着时新写的密码本来就只留在本机,不必挪。
+                guard CloudSyncChannel.usesSynchronizableKeychain() else { continue }
+                _ = setPassword(secret, for: account)
+            } else {
+                guard synchronizableItemExists(for: account) else { continue }
+                _ = deletePasswordVariant(for: account, synchronizable: false)
+                cacheWrite(nil, for: account)
+            }
+        }
+    }
+
+    /// 本机项里打了「仅本机」标记的那条的值;普通的非同步项(凭据同步关着时写的)不算。
+    private static func deviceOnlyItemSecret(for account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: PrimuseConstants.keychainServiceName,
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+            kSecReturnAttributes as String: true,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let item = result as? [String: Any],
+              isDeviceOnlyItem(item),
+              let data = item[kSecValueData as String] as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func synchronizableItemExists(for account: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: PrimuseConstants.keychainServiceName,
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
     }
 
     /// 记录条目走的是哪条写入路径的标记，写在 `kSecAttrGeneric`（钥匙串留给应用

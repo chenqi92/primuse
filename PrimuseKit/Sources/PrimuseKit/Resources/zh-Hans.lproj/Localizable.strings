@@ -1075,3 +1075,7 @@
 "genre_split_comma" = "按逗号和顿号拆分流派";
 "genre_split_bar" = "按竖线和反斜杠拆分流派";
 "genre_split_tv_detail" = "只影响浏览，不改文件里的标签";
+
+/* Apple TV source form: per-source iCloud sync */
+"source_syncs_via_icloud" = "通过 iCloud 同步";
+"source_syncs_via_icloud_tv_info" = "关掉后，这台 Apple TV 不再把这个音乐源的设置同步到 iCloud，也不再接收其他设备对它的修改和删除；iCloud 里的那份和其他设备上的这个音乐源保持原样。重新打开时以较新的修改为准。";

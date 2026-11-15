@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import PrimuseKit
 import XCTest
@@ -655,5 +656,182 @@ final class LargeLibraryBackfillCursorTests: XCTestCase {
         cursor = MetadataBackfillService.BatchSelectionCursor()
         _ = MetadataBackfillService.selectBatch(input(songs, limit: 2), cursor: &cursor)
         XCTAssertEqual(MetadataBackfillService.selectBatch(input(Array(songs.reversed()), limit: 2), cursor: &cursor).map(\.id), ["5", "4"])
+    }
+}
+
+/// 音乐源按设备启用、按源关闭 iCloud 同步:SourcesStore 与快照合并这两处接线。
+@MainActor
+final class SourceDeviceSettingsTests: XCTestCase {
+    private func makeDirectory() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SourceDeviceSettings-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        return root
+    }
+
+    private func uniqueID(_ name: String) -> String {
+        "device-settings-\(name)-\(UUID().uuidString)"
+    }
+
+    func testUpgradeKeepsEveryEnableChoiceAndRemoteEditsNeverFlipIt() throws {
+        let root = try makeDirectory()
+        let onID = uniqueID("on")
+        let offID = uniqueID("off")
+        let store = SourcesStore(storageDirectoryURL: root)
+        store.add(MusicSource(id: onID, name: "On", type: .webdav))
+        store.add(MusicSource(id: offID, name: "Off", type: .webdav, isEnabled: false))
+        // 升级前的安装没有设备设置文件。
+        let settingsURL = root.appendingPathComponent(MusicSourceDeviceSettings.fileName)
+        try FileManager.default.removeItem(at: settingsURL)
+
+        let upgraded = SourcesStore(storageDirectoryURL: root)
+        XCTAssertEqual(upgraded.source(id: onID)?.isEnabled, true)
+        XCTAssertEqual(upgraded.source(id: offID)?.isEnabled, false)
+        XCTAssertEqual(upgraded.deviceSettings.entries[offID]?.syncedIsEnabled, false)
+        XCTAssertTrue(upgraded.syncsViaICloud(onID))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: settingsURL.path))
+
+        // 本机停用:不改修改时间,通知标成只在这台设备上。
+        let before = try XCTUnwrap(upgraded.source(id: onID))
+        var origins: [String] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .primuseSourcesDidChange, object: nil, queue: nil
+        ) { note in
+            origins.append((note.userInfo?["origin"] as? String) ?? "")
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        upgraded.setEnabledOnThisDevice(onID, false)
+        XCTAssertEqual(origins, [SourcesStore.deviceOnlyChangeOrigin])
+        XCTAssertEqual(upgraded.source(id: onID)?.isEnabled, false)
+        XCTAssertEqual(upgraded.source(id: onID)?.modifiedAt, before.modifiedAt)
+        // 往 iCloud 写的仍是同步值。
+        let disabledRow = try XCTUnwrap(upgraded.source(id: onID))
+        XCTAssertTrue(upgraded.cloudPayload(for: disabledRow).isEnabled)
+
+        // 别的设备改名并启用:名字跟着变,这台设备的停用不变。
+        var remote = before
+        remote.name = "Renamed elsewhere"
+        remote.isEnabled = true
+        remote.modifiedAt = before.modifiedAt.addingTimeInterval(60)
+        upgraded.upsertFromRemote(remote)
+        XCTAssertEqual(upgraded.source(id: onID)?.name, "Renamed elsewhere")
+        XCTAssertEqual(upgraded.source(id: onID)?.isEnabled, false)
+
+        // 还没升级的设备把它停用了:同步值跟着变,本机的选择不变;本机再启用,往外写的仍是同步值。
+        var remoteDisabled = remote
+        remoteDisabled.isEnabled = false
+        remoteDisabled.modifiedAt = remote.modifiedAt.addingTimeInterval(60)
+        upgraded.upsertFromRemote(remoteDisabled)
+        XCTAssertEqual(upgraded.deviceSettings.entries[onID]?.syncedIsEnabled, false)
+        upgraded.setEnabledOnThisDevice(onID, true)
+        let enabledRow = try XCTUnwrap(upgraded.source(id: onID))
+        XCTAssertTrue(enabledRow.isEnabled)
+        XCTAssertFalse(upgraded.cloudPayload(for: enabledRow).isEnabled)
+
+        // 重启后仍是这台设备的选择。
+        let relaunched = SourcesStore(storageDirectoryURL: root)
+        XCTAssertEqual(relaunched.source(id: onID)?.isEnabled, true)
+        XCTAssertEqual(relaunched.source(id: offID)?.isEnabled, false)
+    }
+
+    func testOptedOutSourceSetsRemoteChangesAsideUntilSyncIsBackOn() throws {
+        let root = try makeDirectory()
+        let id = uniqueID("nas")
+        let store = SourcesStore(storageDirectoryURL: root, publishesKeychainOptOuts: true)
+        store.add(MusicSource(id: id, name: "NAS", type: .webdav))
+        let original = try XCTUnwrap(store.source(id: id))
+
+        store.setSyncsViaICloud(false, for: id)
+        XCTAssertFalse(store.isCloudSyncEligible(original))
+        XCTAssertTrue(SourceCloudSyncOptOutRegistry.isOptedOut(account: id))
+        XCTAssertTrue(SourceCloudSyncOptOutRegistry.isOptedOut(
+            account: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: id)
+        ))
+
+        var renamed = original
+        renamed.name = "Renamed elsewhere"
+        renamed.modifiedAt = original.modifiedAt.addingTimeInterval(60)
+        store.upsertFromRemote(renamed)
+        var deleted = renamed
+        deleted.isDeleted = true
+        deleted.deletedAt = renamed.modifiedAt.addingTimeInterval(60)
+        deleted.modifiedAt = renamed.modifiedAt.addingTimeInterval(60)
+        store.upsertFromRemote(deleted)
+        // 关着时本机这行一点不动,重启后也还关着。
+        XCTAssertEqual(store.source(id: id)?.name, "NAS")
+        XCTAssertEqual(store.source(id: id)?.isDeleted, false)
+        XCTAssertFalse(SourcesStore(storageDirectoryURL: root).syncsViaICloud(id))
+
+        var uploads: [Bool] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .primuseSourceCloudSyncPreferenceDidChange, object: nil, queue: nil
+        ) { note in
+            uploads.append((note.userInfo?["uploadsLocal"] as? Bool) ?? false)
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        store.setSyncsViaICloud(true, for: id)
+        // 关着期间别的设备删了它:按原有规则落到本机「最近删除」,本机不再传回去。
+        XCTAssertTrue(store.syncsViaICloud(id))
+        XCTAssertEqual(store.source(id: id)?.isDeleted, true)
+        XCTAssertEqual(uploads, [false])
+        XCTAssertFalse(SourceCloudSyncOptOutRegistry.isOptedOut(account: id))
+    }
+
+    func testRejoinUploadsEditsMadeWhileSyncWasOff() async throws {
+        let root = try makeDirectory()
+        let id = uniqueID("edited")
+        let store = SourcesStore(storageDirectoryURL: root)
+        store.add(MusicSource(id: id, name: "NAS", type: .webdav))
+        store.setSyncsViaICloud(false, for: id)
+        try await Task.sleep(for: .milliseconds(20))
+        store.update(id) { $0.name = "Edited while off" }
+
+        var uploads: [Bool] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .primuseSourceCloudSyncPreferenceDidChange, object: nil, queue: nil
+        ) { note in
+            uploads.append((note.userInfo?["uploadsLocal"] as? Bool) ?? false)
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        store.setSyncsViaICloud(true, for: id)
+        XCTAssertEqual(uploads, [true])
+        XCTAssertEqual(store.source(id: id)?.name, "Edited while off")
+        let row = try XCTUnwrap(store.source(id: id))
+        XCTAssertTrue(store.isCloudSyncEligible(row))
+    }
+
+    func testSnapshotRestoreKeepsThisDevicesEnableChoiceAndOptedOutRows() throws {
+        let root = try makeDirectory()
+        let sharedID = uniqueID("shared")
+        let privateID = uniqueID("private")
+        let store = SourcesStore(storageDirectoryURL: root)
+        store.add(MusicSource(id: sharedID, name: "Shared", type: .webdav))
+        store.add(MusicSource(id: privateID, name: "Private", type: .webdav))
+        store.setEnabledOnThisDevice(sharedID, false)
+        store.setSyncsViaICloud(false, for: privateID)
+
+        var incomingShared = try XCTUnwrap(store.source(id: sharedID))
+        incomingShared.isEnabled = true
+        incomingShared.name = "Shared renamed"
+        incomingShared.modifiedAt = incomingShared.modifiedAt.addingTimeInterval(60)
+        var incomingPrivate = try XCTUnwrap(store.source(id: privateID))
+        incomingPrivate.name = "Private renamed"
+        incomingPrivate.modifiedAt = incomingPrivate.modifiedAt.addingTimeInterval(60)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let record = CKRecord(recordType: "LibrarySnapshot")
+        record["sourcesGz"] = (try (encoder.encode([incomingShared, incomingPrivate]) as NSData)
+            .compressed(using: .zlib)) as CKRecordValue
+
+        let sync = LibrarySnapshotSync(storageDirectoryURL: root)
+        XCTAssertTrue(sync.extractSourcesSnapshot(
+            record, to: root.appendingPathComponent("sources.json"), fm: .default
+        ))
+        let restored = SourcesStore(storageDirectoryURL: root)
+        XCTAssertEqual(restored.source(id: sharedID)?.name, "Shared renamed")
+        XCTAssertEqual(restored.source(id: sharedID)?.isEnabled, false)
+        XCTAssertEqual(restored.source(id: privateID)?.name, "Private")
+        XCTAssertFalse(restored.syncsViaICloud(privateID))
     }
 }

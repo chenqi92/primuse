@@ -1025,3 +1025,7 @@
 "genre_split_comma" = "Türleri Virgülden Böl";
 "genre_split_bar" = "Türleri Dikey Çizgi ve Ters Eğik Çizgiden Böl";
 "genre_split_tv_detail" = "Yalnızca göz atmayı etkiler; dosya etiketleri değişmez";
+
+/* Apple TV source form: per-source iCloud sync */
+"source_syncs_via_icloud" = "iCloud ile eşzamanla";
+"source_syncs_via_icloud_tv_info" = "Kapatıldığında bu Apple TV, bu kaynağın ayarlarını iCloud'a göndermez ve diğer cihazlarınızda yapılan değişiklikleri veya silmeleri uygulamaz. iCloud'daki kopya ve diğer cihazlarınızdaki bu kaynak olduğu gibi kalır. Yeniden açtığınızda daha yeni değişiklik geçerli olur.";

@@ -7535,3 +7535,13 @@
 "dup_same_file_caption_format" = "與「%@」中的是同一個檔案";
 "dup_same_file_badge" = "同一個檔案";
 "dup_same_file_ledger_detail_format" = "同一個檔案也在「%@」中";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "本機已停用";
+"source_enable_on_this_device" = "在這台裝置上啟用";
+"source_disable_on_this_device" = "在這台裝置上停用";
+"source_syncs_via_icloud" = "透過 iCloud 同步";
+"source_syncs_via_icloud_info" = "關閉後，這台裝置不再把這個音樂來源的設定、掃描結果和在這裡改的密碼同步到 iCloud，也不再接收其他裝置對它的修改和刪除。iCloud 裡已有的那份、其他裝置上的這個音樂來源，以及這台裝置上的歌曲和收藏都保持原樣。重新開啟時以較新的修改為準；關閉期間其他裝置刪除了它的話，這裡也會把它移到「最近刪除」。啟用和停用始終只作用於目前這台裝置。";
+"source_syncs_via_icloud_channel_off" = "iCloud 設定裡的「音樂來源」同步目前關閉，開啟後這個開關才會生效。";
+"source_not_syncing_via_icloud" = "不透過 iCloud 同步";
+"icloud_sync_sources_per_device_footer" = "音樂來源的啟用和停用只作用於目前這台裝置。單個音樂來源也可以在它的編輯頁裡關閉 iCloud 同步。";

@@ -1,5 +1,35 @@
 import Foundation
+import os
 import PrimuseKit
+
+/// 这台设备单独关了 iCloud 同步的音乐源。钥匙串在任意线程上被调用,读不到 SourcesStore,
+/// 所以由它把名单(连同各源的附属钥匙串账号)同步到这里。
+enum SourceCloudSyncOptOutRegistry {
+    private static let accounts = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+
+    static func update(optedOutSourceIDs: Set<String>) {
+        var expanded = Set<String>()
+        for sourceID in optedOutSourceIDs {
+            expanded.insert(sourceID)
+            expanded.insert(FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: sourceID))
+            expanded.insert(PlexAccountAPI.accountTokenKeychainAccount(sourceID: sourceID))
+        }
+        let snapshot = expanded
+        accounts.withLock { $0 = snapshot }
+    }
+
+    /// 这个钥匙串账号属于一个关了 iCloud 同步的音乐源。
+    static func isOptedOut(account: String) -> Bool {
+        accounts.withLock { $0.contains(account) }
+    }
+}
+
+extension Notification.Name {
+    /// 一个音乐源在这台设备上打开或关掉了 iCloud 同步。userInfo: `id`、`syncsViaICloud`、
+    /// `uploadsLocal`(重新打开时本机这份要不要传上去)。
+    static let primuseSourceCloudSyncPreferenceDidChange =
+        Notification.Name("primuse.sourceCloudSyncPreferenceDidChange")
+}
 
 private actor SourceCredentialPurgeExecutor {
     static let shared = SourceCredentialPurgeExecutor()
@@ -20,7 +50,11 @@ private actor SourceCredentialPurgeExecutor {
             || KeychainService.deletePassword(
                 for: PlexAccountAPI.accountTokenKeychainAccount(sourceID: source.id)
             )
+        // 这台设备单独关了 iCloud 同步的源:云盘授权存在 iCloud 钥匙串里、别的设备还在用,
+        // 在这里彻底删除时不动它(删了会在所有设备上一起删)。密码类走 KeychainService,
+        // 那边同样只删这台设备上的那份。
         let cloudCredentialsDeleted = !requiredStores.contains(.cloudCredentials)
+            || SourceCloudSyncOptOutRegistry.isOptedOut(account: source.id)
             || CloudTokenManager.deleteStoredCredentials(for: source.id)
         guard SourcePermanentDeletionPolicy.canRemoveTombstone(
             requiredStores: requiredStores,
@@ -93,10 +127,21 @@ final class SourcesStore {
     /// Live (non-deleted) accounts.
     var accounts: [CloudAccount] { allAccounts.filter { !$0.isDeleted } }
 
+    /// 每个源在这台设备上的设置:同步配置里的启用值、是否经 iCloud 同步、关着期间收到的
+    /// 远端配置。启用状态本身就是 `allSources` 里的 `isEnabled`,只在这台设备上生效。
+    private(set) var deviceSettings = MusicSourceDeviceSettings()
+
+    /// 只改了这台设备上的状态(启用 / 停用)。iCloud 同步不把这种变更当成要上传的修改。
+    nonisolated static let deviceOnlyChangeOrigin = "device"
+
     private let storeURL: URL
     private let accountsURL: URL
     private let sourceDeletionsURL: URL
     private let createdOnThisDeviceURL: URL
+    private let deviceSettingsURL: URL
+    /// 钥匙串查的是全局名单,只让 App 自己那份(默认目录)去写;取证页、测试另建的
+    /// store 不能把它改掉。
+    private let publishesKeychainOptOuts: Bool
     private let sourceDataWriter: (Data, URL) throws -> Void
     private let credentialPurger: CredentialPurger
     private let encoder = JSONEncoder()
@@ -122,7 +167,8 @@ final class SourcesStore {
         sourceDataWriter: @escaping (Data, URL) throws -> Void = { data, url in
             try data.write(to: url, options: .atomic)
         },
-        credentialPurger: CredentialPurger? = nil
+        credentialPurger: CredentialPurger? = nil,
+        publishesKeychainOptOuts: Bool? = nil
     ) {
         // tvOS 只允许写 Caches / tmp;须与 LibrarySnapshotSync / MusicLibrary 同目录。
         let directory: URL
@@ -142,6 +188,8 @@ final class SourcesStore {
         self.accountsURL = directory.appendingPathComponent("cloudAccounts.json")
         self.sourceDeletionsURL = directory.appendingPathComponent(MusicSourceDeletionRecord.fileName)
         self.createdOnThisDeviceURL = directory.appendingPathComponent("sourcesCreatedOnThisDevice.json")
+        self.deviceSettingsURL = directory.appendingPathComponent(MusicSourceDeviceSettings.fileName)
+        self.publishesKeychainOptOuts = publishesKeychainOptOuts ?? (storageDirectoryURL == nil)
         self.sourceDataWriter = sourceDataWriter
         self.credentialPurger = credentialPurger ?? { source in
             await SourceCredentialPurgeExecutor.shared.purge(source)
@@ -161,6 +209,7 @@ final class SourcesStore {
         pruneForeignDeviceLocalSources()
         loadAccounts()
         loadSourcesCreatedOnThisDevice()
+        loadDeviceSettings()
     }
 
     func source(id: String) -> MusicSource? {
@@ -186,6 +235,7 @@ final class SourcesStore {
         pruneForeignDeviceLocalSources()
         loadAccounts()
         loadSourcesCreatedOnThisDevice()
+        loadDeviceSettings()
     }
 
     func sourceDeletionRecord(id: String) -> MusicSourceDeletionRecord? {
@@ -260,6 +310,9 @@ final class SourcesStore {
         } else {
             allSources.append(stamped)
             allSources.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
+        }
+        if deviceSettings.seed(from: [stamped]) {
+            persistDeviceSettings()
         }
     }
 
@@ -650,6 +703,14 @@ final class SourcesStore {
     /// on the conflict path); the fetch path was the missing half.
     func upsertFromRemote(_ remote: MusicSource) {
         guard MusicSourceCloudSyncPolicy.isEligible(remote) else { return }
+        // 这台设备单独关了这个源的 iCloud 同步:远端的修改(连同删除)先存着不套用,
+        // 重新打开时再按下面同一套规则合并。
+        guard deviceSettings.syncsViaICloud(remote.id) else {
+            if deviceSettings.park(remote) {
+                persistDeviceSettings()
+            }
+            return
+        }
         if remote.isDeleted {
             let incomingDeletion = MusicSourceDeletionRecord(tombstone: remote)
             if let existing = allSources.first(where: { $0.id == remote.id }),
@@ -670,10 +731,14 @@ final class SourcesStore {
                 return
             }
             let wasActive = !allSources[index].isDeleted
-            var merged = remote
+            var merged = MusicSourceDeviceSettings.applyingLocalEnablement(
+                to: remote,
+                local: allSources[index]
+            )
             merged.lastScannedAt = allSources[index].lastScannedAt
             merged.songCount = allSources[index].songCount
             merged.deviceId = allSources[index].deviceId
+            noteSyncedIsEnabled(remote)
             // 同一块墓碑再拉一遍(全量重拉、本机推上去又回来)不重写也不广播。
             if Self.isSameIgnoringSubsecondDates(merged, allSources[index]) { return }
             allSources[index] = merged
@@ -712,7 +777,8 @@ final class SourcesStore {
                 // CloudKit will push them on the next sendChanges.
                 return
             }
-            var merged = remote
+            // 启用状态按设备:别的设备启用 / 停用(或者改了别的设置)都不改这台设备的选择。
+            var merged = MusicSourceDeviceSettings.applyingLocalEnablement(to: remote, local: existing)
             merged.lastScannedAt = existing.lastScannedAt
             merged.songCount = existing.songCount
             // Synology's trusted-device token belongs to this physical
@@ -720,6 +786,7 @@ final class SourcesStore {
             // with another device's token, otherwise the next scan needlessly
             // falls back to password + TOTP.
             merged.deviceId = existing.deviceId
+            noteSyncedIsEnabled(remote)
             // iCloud 会把本机刚推上去的那份原样拉回来。一个字段都没变的记录
             // 不落盘也不广播: 广播会被当成源被改过 —— 缓存审查、连接器重建、
             // 音乐源列表整页重建都会跟着跑一遍。
@@ -735,6 +802,7 @@ final class SourcesStore {
             if remote.isDeleted { return }
             var sanitized = remote
             sanitized.deviceId = nil
+            noteSyncedIsEnabled(remote)
             allSources.append(sanitized)
             RemoteSourceArrivalLedger.markArrived(sourceID: sanitized.id)
             allSources.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
@@ -748,6 +816,124 @@ final class SourcesStore {
             origin: "remote",
             previous: previousRow.map { [remote.id: $0] } ?? [:]
         )
+    }
+
+    // MARK: - This device only
+
+    /// 这个源是否经 iCloud 同步。没单独关过的都是 true。
+    func syncsViaICloud(_ sourceID: String) -> Bool {
+        deviceSettings.syncsViaICloud(sourceID)
+    }
+
+    /// 这个源现在能不能经 iCloud 同步:类型允许(不是本机文件、音乐 App 资料库),
+    /// 而且这台设备没有单独关掉它。
+    func isCloudSyncEligible(_ source: MusicSource) -> Bool {
+        MusicSourceCloudSyncPolicy.isEligible(source) && deviceSettings.syncsViaICloud(source.id)
+    }
+
+    /// 往 iCloud 写的那份:启用状态换成同步配置里的值,这台设备的选择不出设备。
+    func cloudPayload(for source: MusicSource) -> MusicSource {
+        deviceSettings.outgoing(source)
+    }
+
+    /// 只在这台设备上启用 / 停用。不改 `modifiedAt`,不上传 iCloud,别的设备不受影响;
+    /// 停用只是不显示这个源的歌,歌曲记录、喜欢、评分和歌单都留着。
+    func setEnabledOnThisDevice(_ sourceID: String, _ enabled: Bool) {
+        guard let index = allSources.firstIndex(where: { $0.id == sourceID }),
+              allSources[index].isEnabled != enabled else { return }
+        let previous = allSources[index]
+        allSources[index].isEnabled = enabled
+        persist()
+        notifyChanged([sourceID], origin: Self.deviceOnlyChangeOrigin, previous: [sourceID: previous])
+    }
+
+    /// 同上,落盘成功才算数;写不进去时内存里那行还原。
+    @discardableResult
+    func setEnabledOnThisDeviceDurably(_ sourceID: String, _ enabled: Bool) throws -> Bool {
+        guard let index = allSources.firstIndex(where: { $0.id == sourceID }) else { return false }
+        let previous = allSources[index]
+        guard previous.isEnabled != enabled else { return true }
+        allSources[index].isEnabled = enabled
+        do {
+            try persistThrowing()
+        } catch {
+            if let current = allSources.firstIndex(where: { $0.id == sourceID }) {
+                allSources[current] = previous
+            }
+            throw error
+        }
+        notifyChanged([sourceID], origin: Self.deviceOnlyChangeOrigin, previous: [sourceID: previous])
+        return true
+    }
+
+    /// 打开或关掉一个源的 iCloud 同步。
+    ///
+    /// 关掉:这台设备不再上传这个源的配置、扫描结果和在这里改的密码,也不再套用别的设备
+    /// 对它的修改与删除;iCloud 里已有的那份和别的设备上的这个源都不动,本机数据也不删。
+    /// 打开:关着期间收到的远端配置按原有规则(较新的为准,删除优先于未明确恢复的修改)
+    /// 并进本机;本机这份更新(或从没传上去过)就再传上去。
+    func setSyncsViaICloud(_ syncs: Bool, for sourceID: String) {
+        let local = allSources.first { $0.id == sourceID }
+        guard let plan = deviceSettings.setSyncsViaICloud(syncs, for: sourceID, localRow: local) else {
+            return
+        }
+        persistDeviceSettings()
+        plog("☁️ Source iCloud sync \(syncs ? "on" : "off") source=\(sourceID.prefix(8))… merge=\(plan.remoteToMerge != nil) upload=\(plan.uploadsLocal)")
+        if syncs, let remote = plan.remoteToMerge {
+            upsertFromRemote(remote)
+        }
+        #if os(iOS) || os(macOS)
+        if syncs {
+            // 关着时在这台设备上改的密码只存在本机。本机这份配置赢了就把它当成这个源的密码
+            // 传出去,远端赢了就丢掉本机那份,改用 iCloud 钥匙串里的。
+            let promote = plan.uploadsLocal
+            Task.detached(priority: .utility) {
+                KeychainService.resolveDeviceOnlySourceSecrets(sourceID: sourceID, promote: promote)
+            }
+        }
+        #endif
+        NotificationCenter.default.post(
+            name: .primuseSourceCloudSyncPreferenceDidChange,
+            object: nil,
+            userInfo: [
+                "id": sourceID,
+                "syncsViaICloud": syncs,
+                "uploadsLocal": syncs && plan.uploadsLocal,
+            ]
+        )
+    }
+
+    private func noteSyncedIsEnabled(_ remote: MusicSource) {
+        if deviceSettings.noteSyncedIsEnabled(remote.isEnabled, for: remote.id) {
+            persistDeviceSettings()
+        }
+    }
+
+    private func loadDeviceSettings() {
+        var settings = MusicSourceDeviceSettings.load(from: deviceSettingsURL) ?? MusicSourceDeviceSettings()
+        // 升级到按设备启用后的第一次启动:每个源现在的启用状态就是同步来的那份,原样记成
+        // 同步值,也就成了这台设备的选择,什么都不会翻转。之后第一次见到的源同理。
+        let seeded = settings.seed(from: allSources)
+        deviceSettings = settings
+        if seeded {
+            persistDeviceSettings()
+        } else {
+            publishKeychainOptOuts()
+        }
+    }
+
+    private func publishKeychainOptOuts() {
+        guard publishesKeychainOptOuts else { return }
+        SourceCloudSyncOptOutRegistry.update(optedOutSourceIDs: deviceSettings.optedOutSourceIDs)
+    }
+
+    private func persistDeviceSettings() {
+        publishKeychainOptOuts()
+        do {
+            try deviceSettings.encoded().write(to: deviceSettingsURL, options: .atomic)
+        } catch {
+            plog("⛔ Source device settings persist failed — \(error.localizedDescription)")
+        }
     }
 
     /// `origin` tells observers whether the change was produced locally or is

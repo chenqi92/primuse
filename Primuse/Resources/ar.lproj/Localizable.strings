@@ -7464,3 +7464,13 @@
 "dup_same_file_caption_format" = "الملف نفسه الموجود في %@";
 "dup_same_file_badge" = "الملف نفسه";
 "dup_same_file_ledger_detail_format" = "الملف نفسه موجود أيضًا في %@";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "متوقف على هذا الجهاز";
+"source_enable_on_this_device" = "تمكين على هذا الجهاز";
+"source_disable_on_this_device" = "تعطيل على هذا الجهاز";
+"source_syncs_via_icloud" = "المزامنة عبر iCloud";
+"source_syncs_via_icloud_info" = "عند الإيقاف، يتوقف هذا الجهاز عن إرسال إعدادات هذا المصدر ونتائج فحصه وكلمات المرور التي تغيّرها هنا إلى iCloud، ولا يطبّق التغييرات أو عمليات الحذف التي تتم على أجهزتك الأخرى. تبقى النسخة الموجودة في iCloud وهذا المصدر على أجهزتك الأخرى والأغاني والمفضلة على هذا الجهاز كما هي. عند إعادة التشغيل يُعتمد التغيير الأحدث، وإذا حذف جهاز آخر المصدر في هذه الأثناء فسينتقل هنا أيضًا إلى «المحذوفة مؤخرًا». تمكين المصدر أو تعطيله يؤثر دائمًا في هذا الجهاز فقط.";
+"source_syncs_via_icloud_channel_off" = "مزامنة مصادر الموسيقى متوقفة في إعدادات iCloud. يسري هذا المفتاح بعد تشغيلها.";
+"source_not_syncing_via_icloud" = "لا تتم المزامنة عبر iCloud";
+"icloud_sync_sources_per_device_footer" = "تمكين مصدر الموسيقى أو تعطيله يؤثر في هذا الجهاز فقط. ويمكنك أيضًا إيقاف مزامنة iCloud لمصدر واحد من صفحة تعديله.";

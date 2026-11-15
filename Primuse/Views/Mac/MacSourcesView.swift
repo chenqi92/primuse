@@ -315,11 +315,14 @@ struct MacSourcesView: View {
                                 in: .rect(cornerRadius: 9))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(source.name)
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    HStack(spacing: 6) {
+                        Text(source.name)
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(PMColor.text)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        MacSourceICloudSyncMark(source: source)
+                    }
                     Text(hostLine(source))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(PMColor.textFaint)
@@ -389,7 +392,7 @@ struct MacSourcesView: View {
             Button {
                 toggleSourceEnabled(source)
             } label: {
-                Label(source.isEnabled ? "disable" : "enable",
+                Label(source.isEnabled ? "source_disable_on_this_device" : "source_enable_on_this_device",
                       systemImage: source.isEnabled ? "eye.slash" : "eye")
             }
             Button { editingSource = source } label: {
@@ -810,7 +813,7 @@ struct MacSourcesView: View {
                 }
         }
         .buttonStyle(.plain)
-        .help(Text(isOn ? "disable" : "enable"))
+        .help(Text(isOn ? "source_disable_on_this_device" : "source_enable_on_this_device"))
     }
 
     // MARK: - Runtime state
@@ -846,7 +849,7 @@ struct MacSourcesView: View {
         case .online: "source_state_online"
         case .scanning: "scanning"
         case .attention: "source_state_attention"
-        case .disabled: "disabled"
+        case .disabled: "source_disabled_on_this_device"
         }
     }
 
@@ -1138,7 +1141,8 @@ struct MacSourcesView: View {
         // source library rows and caches belongs to deleteSource(_:).
         // 改源会同步发出源变更通知,曲库的可见内容由 AppServices 在后台重算,
         // 回填等落地之后再由它通知;这里再同步重建一遍会让后台那次作废、在主线程卡几百毫秒。
-        updateSource(source.id) { $0.isEnabled = enabled }
+        // 启用 / 停用只作用于这台设备,不经 iCloud 带到别的设备上。
+        sourceStore.setEnabledOnThisDevice(source.id, enabled)
     }
 
     private func toggleSourceEnabled(_ source: MusicSource) {
@@ -1287,6 +1291,22 @@ private struct MacPillButton: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .animation(.easeOut(duration: 0.12), value: hover)
+    }
+}
+
+/// 卡片标题旁:这台设备关了这个源的 iCloud 同步。
+private struct MacSourceICloudSyncMark: View {
+    let source: MusicSource
+
+    var body: some View {
+        if MusicSourceCloudSyncPolicy.isEligible(source),
+           !AppServices.shared.sourcesStore.syncsViaICloud(source.id) {
+            Image(systemName: "icloud.slash")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(PMColor.textFaint)
+                .help(Text("source_not_syncing_via_icloud"))
+                .accessibilityLabel(Text("source_not_syncing_via_icloud"))
+        }
     }
 }
 #endif

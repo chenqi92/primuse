@@ -7651,3 +7651,13 @@
 "dup_same_file_caption_format" = "和「%@」里的是同一个文件";
 "dup_same_file_badge" = "同一个文件";
 "dup_same_file_ledger_detail_format" = "同一个文件也在「%@」里";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "本机已禁用";
+"source_enable_on_this_device" = "在这台设备上启用";
+"source_disable_on_this_device" = "在这台设备上禁用";
+"source_syncs_via_icloud" = "通过 iCloud 同步";
+"source_syncs_via_icloud_info" = "关掉后，这台设备不再把这个音乐源的设置、扫描结果和在这里改的密码同步到 iCloud，也不再接收其他设备对它的修改和删除。iCloud 里已有的那份、其他设备上的这个音乐源，以及这台设备上的歌曲和收藏都保持原样。重新打开时以较新的修改为准；关着期间其他设备删除了它的话，这里也会把它移到「最近删除」。启用和禁用始终只作用于当前设备。";
+"source_syncs_via_icloud_channel_off" = "iCloud 设置里的「音乐源」同步现在关着，打开后这个开关才起作用。";
+"source_not_syncing_via_icloud" = "不通过 iCloud 同步";
+"icloud_sync_sources_per_device_footer" = "音乐源的启用和禁用只作用于当前设备。单个音乐源也可以在它的编辑页里关掉 iCloud 同步。";

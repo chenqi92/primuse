@@ -7319,3 +7319,13 @@
 "dup_same_file_caption_format" = "Same file as in %@";
 "dup_same_file_badge" = "Same file";
 "dup_same_file_ledger_detail_format" = "The same file is also in %@";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "Off on This Device";
+"source_enable_on_this_device" = "Enable on This Device";
+"source_disable_on_this_device" = "Disable on This Device";
+"source_syncs_via_icloud" = "Sync via iCloud";
+"source_syncs_via_icloud_info" = "When off, this device stops sending this source's settings, scan results and any password you change here to iCloud, and stops applying changes or deletions made on your other devices. The copy already in iCloud, this source on your other devices, and the songs and favorites on this device all stay as they are. When you turn it back on, the newer change wins; if another device deleted the source in the meantime, it moves to Recently Deleted here too. Enabling or disabling a source only ever affects this device.";
+"source_syncs_via_icloud_channel_off" = "Music source sync is off in iCloud settings. This switch takes effect once it is on.";
+"source_not_syncing_via_icloud" = "Not syncing via iCloud";
+"icloud_sync_sources_per_device_footer" = "Enabling or disabling a music source only affects this device. You can also turn off iCloud sync for a single source on its edit page.";

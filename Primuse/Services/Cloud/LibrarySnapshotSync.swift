@@ -254,9 +254,10 @@ final class LibrarySnapshotSync: Sendable {
 
     private func automaticUploadFingerprint() -> AutomaticUploadFingerprint? {
         guard let library = Self.fileIdentity(at: libraryCacheURL) else { return nil }
-        let cloudSourcesDigest = localSourcesData(including: []).flatMap {
-            Self.sanitizedSourcesData($0, includeDeviceLocalSources: false)
-        }.map(Self.sha256Hex)
+        let cloudSourcesDigest = localSourcesData(including: [])
+            .flatMap { cloudOutgoingSourcesData($0) }
+            .flatMap { Self.sanitizedSourcesData($0, includeDeviceLocalSources: false) }
+            .map(Self.sha256Hex)
         return AutomaticUploadFingerprint(
             formatVersion: 3,
             library: library,
@@ -417,7 +418,8 @@ final class LibrarySnapshotSync: Sendable {
               let preparedSnapshot = await MusicLibrary
                   .preparePortableSnapshotDataIncludingArtworkAssets(
                       rawLibraryData,
-                      cloudSources: cloudSources
+                      cloudSources: cloudSources,
+                      excludedSourceIDs: Self.deviceSettings(in: directory).optedOutSourceIDs
                   ) else {
             guard !Task.isCancelled else { return .failure(.cancelled) }
             plog("LibrarySnapshotSync: cloud snapshot source filtering failed")
@@ -522,12 +524,16 @@ final class LibrarySnapshotSync: Sendable {
             record = CKRecord(recordType: recordType, recordID: recordID)
         }
         guard !Task.isCancelled else { return .failure(.cancelled) }
+        // 这台设备关了同步的源不写本机那行,服务器上原来的那行原样带回去。
+        let remoteSourcesData = sourcesSnapshotData(from: record, fm: fm)
         for key in libraryKeys + catalogKeys {
             record[key] = nil
         }
         var inlineBudget = Self.inlineRecordBudget
         var srcInfo = "sources=skip"
-        if let sourcesData = localSourcesData(including: []) {
+        if let sourcesData = localSourcesData(including: []).flatMap({
+            cloudOutgoingSourcesData($0, carryingRemote: remoteSourcesData)
+        }) {
             let attached = attachSourcesSnapshot(
                 record,
                 rawData: sourcesData,
@@ -721,8 +727,10 @@ final class LibrarySnapshotSync: Sendable {
         tombstones: [MusicSource]
     ) -> String {
         // Merge the server fields with the latest local file every time this is
-        // called, including conflict retry.
-        guard let localData = localSourcesData(including: tombstones) else {
+        // called, including conflict retry. 本机这一侧先换成往外写的那份:启用状态用
+        // 同步值,这台设备关了同步的源不写,合并时服务器上那行原样留着。
+        guard let localData = localSourcesData(including: tombstones)
+            .flatMap({ cloudOutgoingSourcesData($0) }) else {
             return "sourcesGz=no-file"
         }
         let payload: Data
@@ -771,6 +779,28 @@ final class LibrarySnapshotSync: Sendable {
         return try? decoder.decode([MusicSource].self, from: data)
     }
 
+    /// 本机各音乐源的设备设置(`MusicSourceDeviceSettings`),与 sources.json 同目录。
+    private nonisolated static func deviceSettings(in root: URL) -> MusicSourceDeviceSettings {
+        MusicSourceDeviceSettings.load(
+            from: root.appendingPathComponent(MusicSourceDeviceSettings.fileName)
+        ) ?? MusicSourceDeviceSettings()
+    }
+
+    /// 本机源清单往 iCloud 写之前:启用状态换成同步配置里的值(这台设备的选择不出设备),
+    /// 这台设备关了同步的源不写本机那行;`remoteData` 是服务器上现有的清单,关了同步的源
+    /// 从它那里原样带上。只在本机的源与信任令牌仍由 `sanitizedSourcesData` 去掉。
+    private func cloudOutgoingSourcesData(_ localData: Data, carryingRemote remoteData: Data? = nil) -> Data? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let local = try? decoder.decode([MusicSource].self, from: localData) else { return nil }
+        let remote = remoteData.flatMap { try? decoder.decode([MusicSource].self, from: $0) } ?? []
+        let rows = Self.deviceSettings(in: directory).outgoingSnapshotSources(local, carryingRemote: remote)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return try? encoder.encode(rows)
+    }
+
     private func augmentedSourcesData(
         _ local: Data?,
         including tombstones: [MusicSource]
@@ -784,7 +814,10 @@ final class LibrarySnapshotSync: Sendable {
         } else {
             persistedRecords = []
         }
-        let allTombstones = persistedRecords.compactMap(\.tombstone) + tombstones
+        // 这台设备关了同步的源只在本机删,删除记录不随源清单出去。
+        let optedOutSourceIDs = Self.deviceSettings(in: directory).optedOutSourceIDs
+        let allTombstones = (persistedRecords.compactMap(\.tombstone) + tombstones)
+            .filter { !optedOutSourceIDs.contains($0.id) }
         guard !allTombstones.isEmpty else { return local }
 
         let encoder = JSONEncoder()
@@ -803,11 +836,13 @@ final class LibrarySnapshotSync: Sendable {
 
     private func mergeSourcesJSON(
         localData: Data?,
-        incomingData: Data
+        incomingData: Data,
+        pinnedLocalSourceIDs: Set<String> = []
     ) -> SourcesMergeResult? {
         Self.mergeSourcesJSON(
             localData: augmentedSourcesData(localData, including: []),
-            incomingData: incomingData
+            incomingData: incomingData,
+            pinnedLocalSourceIDs: pinnedLocalSourceIDs
         )
     }
 
@@ -818,7 +853,8 @@ final class LibrarySnapshotSync: Sendable {
     private func mergeCloudSourcesJSON(
         localData: Data?,
         incomingData: Data,
-        preserveLocalDeviceSources: Bool
+        preserveLocalDeviceSources: Bool,
+        pinnedLocalSourceIDs: Set<String> = []
     ) -> SourcesMergeResult? {
         guard let filteredIncoming = Self.sanitizedSourcesData(
             incomingData,
@@ -833,7 +869,8 @@ final class LibrarySnapshotSync: Sendable {
             }
         return Self.mergeSourcesJSON(
             localData: filteredLocal,
-            incomingData: filteredIncoming
+            incomingData: filteredIncoming,
+            pinnedLocalSourceIDs: pinnedLocalSourceIDs
         )
     }
 
@@ -1364,7 +1401,8 @@ final class LibrarySnapshotSync: Sendable {
                 #else
                 true
                 #endif
-            }()
+            }(),
+            pinnedLocalSourceIDs: Self.deviceSettings(in: dest.deletingLastPathComponent()).optedOutSourceIDs
         ) else {
             plog("LibrarySnapshotSync: sources merge failed; keeping local sources.json")
             return false
@@ -1459,7 +1497,12 @@ final class LibrarySnapshotSync: Sendable {
         let totalCount: Int
     }
 
-    private static func mergeSourcesJSON(localData: Data?, incomingData: Data) -> SourcesMergeResult? {
+    /// `pinnedLocalSourceIDs`:这台设备关了 iCloud 同步的源,本机有这行就整行留着,不看来的那份。
+    private static func mergeSourcesJSON(
+        localData: Data?,
+        incomingData: Data,
+        pinnedLocalSourceIDs: Set<String> = []
+    ) -> SourcesMergeResult? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard var incoming = try? decoder.decode([MusicSource].self, from: incomingData) else {
@@ -1475,7 +1518,9 @@ final class LibrarySnapshotSync: Sendable {
 
         var merged = normalizeSources(incoming)
         for source in local {
-            if let current = merged[source.id] {
+            if pinnedLocalSourceIDs.contains(source.id) {
+                merged[source.id] = source
+            } else if let current = merged[source.id] {
                 merged[source.id] = mergeSource(local: source, incoming: current)
             } else {
                 merged[source.id] = source
@@ -1515,6 +1560,8 @@ final class LibrarySnapshotSync: Sendable {
             : incoming
 
         if !winner.isDeleted {
+            // 启用状态按设备:来的那份赢了也保留本机这行的选择。
+            winner = MusicSourceDeviceSettings.applyingLocalEnablement(to: winner, local: local)
             // Device-local authentication state always comes from the local
             // row, independent of which user-editable payload wins LWW.
             winner.deviceId = local.deviceId
@@ -1904,9 +1951,13 @@ final class LibrarySnapshotSync: Sendable {
         }
 
         var entries: [String: CredentialEntry] = [:]
+        // 走 iCloud 时这台设备关了同步的源不传:合并上传会留着服务器上那份,别的设备不受影响。
+        let optedOutSourceIDs = respectingChannel
+            ? Self.deviceSettings(in: directory).optedOutSourceIDs
+            : []
         // 含手机上「停用」的源:Apple TV 可能本地启用某个手机上停用的源来播放,
         // 若只传已启用源的凭证,TV 上会「缺登录凭证」无法播。只排除已删除的。
-        for source in sources where !source.isDeleted {
+        for source in sources where !source.isDeleted && !optedOutSourceIDs.contains(source.id) {
             var entry = CredentialEntry(username: source.username)
             if source.type.requiresCredentials, source.authType != .none {
                 switch KeychainService.passwordLookup(for: source.id) {
@@ -2731,8 +2782,11 @@ final class LibrarySnapshotSync: Sendable {
                   var libraryData = Self.gunzip(libraryGz),
                   MusicLibrary.isValidSnapshotData(libraryData),
                   let sourceData = Self.gunzip(sourcesGz, maxOutputBytes: Self.maxSourcesRawBytes),
-                  let merged = mergeSourcesJSON(localData: localSourceData,
-                                                incomingData: sourceData) else { return nil }
+                  let merged = mergeSourcesJSON(
+                      localData: localSourceData,
+                      incomingData: sourceData,
+                      pinnedLocalSourceIDs: Self.deviceSettings(in: root).optedOutSourceIDs
+                  ) else { return nil }
             if let existingLibraryData {
                 let originalRows = try JSONSerialization.jsonObject(with: libraryData) as? [String: Any]
                 let incomingIDs = Set((originalRows?["songs"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
@@ -2808,8 +2862,11 @@ final class LibrarySnapshotSync: Sendable {
             let localSourceData = try encoder.encode(localSources)
             guard let sourcesGz = payload.sourcesGz,
                   let sourceData = Self.gunzip(sourcesGz, maxOutputBytes: Self.maxSourcesRawBytes),
-                  let merged = mergeSourcesJSON(localData: localSourceData,
-                                                incomingData: sourceData) else { return nil }
+                  let merged = mergeSourcesJSON(
+                      localData: localSourceData,
+                      incomingData: sourceData,
+                      pinnedLocalSourceIDs: Self.deviceSettings(in: root).optedOutSourceIDs
+                  ) else { return nil }
             var files: [URL: Data] = [root.appendingPathComponent("sources.json"): merged.data]
             if let credentialReference {
                 files[root.appendingPathComponent("paired-credential-reference.json")] = credentialReference

@@ -17264,6 +17264,7 @@ final class MusicLibrary {
     nonisolated static func preparePortableSnapshotDataIncludingArtworkAssets(
         _ data: Data,
         cloudSources: [MusicSource]? = nil,
+        excludedSourceIDs: Set<String> = [],
         assetStore: MetadataAssetStore = .shared,
         maximumArtworkBytes: Int = portableArtworkBudgetBytes
     ) async -> PortableSnapshotTransferData? {
@@ -17284,6 +17285,10 @@ final class MusicLibrary {
                 snapshot.songs,
                 sources: cloudSources
             )
+            // 这台设备单独关了 iCloud 同步的源:扫描结果也不出设备。
+            if !excludedSourceIDs.isEmpty {
+                snapshot.songs.removeAll { excludedSourceIDs.contains($0.sourceID) }
+            }
             let retainedSourceIDs = Set(snapshot.songs.map(\.sourceID))
             snapshot.automaticArtistArtworkCatalogs?.removeAll {
                 !retainedSourceIDs.contains($0.sourceID)

@@ -1078,3 +1078,7 @@
 "genre_split_comma" = "Séparer les genres aux virgules";
 "genre_split_bar" = "Séparer les genres aux barres verticales et obliques inverses";
 "genre_split_tv_detail" = "Ne concerne que la navigation ; les étiquettes des fichiers ne changent pas";
+
+/* Apple TV source form: per-source iCloud sync */
+"source_syncs_via_icloud" = "Synchroniser via iCloud";
+"source_syncs_via_icloud_tv_info" = "Lorsque cette option est désactivée, cette Apple TV n’envoie plus les réglages de cette source à iCloud et n’applique plus les modifications ou suppressions faites sur vos autres appareils. La copie dans iCloud et cette source sur vos autres appareils restent inchangées. Quand vous la réactivez, la modification la plus récente l’emporte.";

@@ -7559,3 +7559,13 @@
 "dup_same_file_caption_format" = "%@ と同じファイル";
 "dup_same_file_badge" = "同じファイル";
 "dup_same_file_ledger_detail_format" = "同じファイルが %@ にもあります";
+
+/* Music sources: per-device enable and per-source iCloud sync */
+"source_disabled_on_this_device" = "このデバイスで無効";
+"source_enable_on_this_device" = "このデバイスで有効にする";
+"source_disable_on_this_device" = "このデバイスで無効にする";
+"source_syncs_via_icloud" = "iCloud で同期";
+"source_syncs_via_icloud_info" = "オフにすると、このデバイスはこの音楽ソースの設定、スキャン結果、ここで変更したパスワードを iCloud に送らなくなり、ほかのデバイスでの変更や削除も反映しなくなります。iCloud にある既存のデータ、ほかのデバイスのこの音楽ソース、このデバイスの曲やお気に入りはそのまま残ります。再びオンにすると新しいほうの変更が優先されます。オフの間にほかのデバイスで削除されていた場合は、ここでも「最近削除した項目」に移ります。有効・無効の切り替えはいつもこのデバイスだけに適用されます。";
+"source_syncs_via_icloud_channel_off" = "iCloud 設定で「音楽ソース」の同期がオフになっています。オンにするとこのスイッチが有効になります。";
+"source_not_syncing_via_icloud" = "iCloud で同期しない";
+"icloud_sync_sources_per_device_footer" = "音楽ソースの有効・無効はこのデバイスだけに適用されます。音楽ソースごとに、編集画面で iCloud 同期をオフにすることもできます。";

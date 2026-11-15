@@ -1113,8 +1113,18 @@ final class CloudKitSyncService {
             // enqueued again as a save and ping-pong between devices forever.
             // The origin the store carries survives that hop.
             guard !Self.notificationCameFromRemote(note) else { return }
+            // 只在这台设备上启用 / 停用:启用状态不出设备,没有要传的修改。
+            guard (note.userInfo?["origin"] as? String) != SourcesStore.deviceOnlyChangeOrigin else { return }
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.sourcesChanged(ids: ids) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseSourceCloudSyncPreferenceDidChange, object: nil, queue: .main) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String else { return }
+            let syncs = (note.userInfo?["syncsViaICloud"] as? Bool) ?? true
+            let uploadsLocal = (note.userInfo?["uploadsLocal"] as? Bool) ?? false
+            Task { @MainActor in
+                self?.sourceCloudSyncPreferenceChanged(id: id, syncsViaICloud: syncs, uploadsLocal: uploadsLocal)
+            }
         })
         observerTokens.append(nc.addObserver(forName: .primuseSourceDidDelete, object: nil, queue: .main) { [weak self] note in
             guard let id = note.userInfo?["id"] as? String else { return }
@@ -1256,12 +1266,28 @@ final class CloudKitSyncService {
         enqueueSaves(recordType: RecordType.musicSource, ids: resolved.deleted)
     }
 
+    /// 一个源在这台设备上关掉 / 重新打开了 iCloud 同步。关掉时撤下还没发出去的修改
+    /// (发送前也会再挡一次),云端那条记录不动;重新打开时本机这份更新就传上去,
+    /// 远端更新的那份已由 SourcesStore 按原有规则并进来。
+    func sourceCloudSyncPreferenceChanged(id: String, syncsViaICloud: Bool, uploadsLocal: Bool) {
+        guard syncsViaICloud else {
+            let sourceRecordID = recordID(recordType: RecordType.musicSource, id: id)
+            engine(for: sourceRecordID.zoneID)?.state.remove(pendingRecordZoneChanges: [
+                .saveRecord(sourceRecordID),
+                .deleteRecord(sourceRecordID),
+            ])
+            return
+        }
+        guard uploadsLocal else { return }
+        sourcesChanged(ids: [id])
+    }
+
     @discardableResult
     func enqueueSourceTombstoneForCleanup(id: String) -> Bool {
         guard isStarted,
               CloudSyncChannel.isEnabled(.sources),
               let tombstone = sourcesStore.sourceDeletionRecord(id: id)?.tombstone,
-              MusicSourceCloudSyncPolicy.isEligible(tombstone) else { return false }
+              sourcesStore.isCloudSyncEligible(tombstone) else { return false }
         enqueueSaves(recordType: RecordType.musicSource, ids: [id])
         return true
     }
@@ -1646,14 +1672,14 @@ final class CloudKitSyncService {
         var deleted: [String] = []
         for id in ids where seen.insert(id).inserted {
             if let source = sourcesStore.allSources.first(where: { $0.id == id }) {
-                guard MusicSourceCloudSyncPolicy.isEligible(source) else { continue }
+                guard sourcesStore.isCloudSyncEligible(source) else { continue }
                 if source.isDeleted {
                     deleted.append(id)
                 } else {
                     active.append(id)
                 }
             } else if let tombstone = sourcesStore.sourceDeletionRecord(id: id)?.tombstone,
-                      MusicSourceCloudSyncPolicy.isEligible(tombstone) {
+                      sourcesStore.isCloudSyncEligible(tombstone) {
                 deleted.append(id)
             }
         }
@@ -1662,11 +1688,11 @@ final class CloudKitSyncService {
 
     private func sourceIDsForCatchUp() -> [String] {
         let storedIDs = sourcesStore.allSources
-            .filter(MusicSourceCloudSyncPolicy.isEligible)
+            .filter { sourcesStore.isCloudSyncEligible($0) }
             .map(\.id)
         let tombstoneIDs: [String] = sourcesStore.sourceDeletionRecords.compactMap { record -> String? in
             guard let tombstone = record.tombstone,
-                  MusicSourceCloudSyncPolicy.isEligible(tombstone) else { return nil }
+                  sourcesStore.isCloudSyncEligible(tombstone) else { return nil }
             return record.id
         }
         return Array(Set(storedIDs + tombstoneIDs))
@@ -1835,7 +1861,8 @@ final class CloudKitSyncService {
             let stored = sourcesStore.source(id: metadata.localID)
             let tombstone = sourcesStore.sourceDeletionRecord(id: metadata.localID)?.tombstone
             guard let source = stored ?? tombstone else { return false }
-            return MusicSourceCloudSyncPolicy.isEligible(source)
+            // 这台设备单独关了同步的源也不发:关之前排进去的修改在这里挡下。
+            return sourcesStore.isCloudSyncEligible(source)
         }
         return true
     }
@@ -2584,6 +2611,10 @@ final class CloudKitSyncService {
            !MusicSourceCloudSyncPolicy.isEligible(source) {
             return
         }
+        // 这台设备单独关了同步的源:云端删掉记录也不动本机这行。
+        if recordType == RecordType.musicSource, !sourcesStore.syncsViaICloud(id) {
+            return
+        }
         if recordType == RecordType.playlist, let contentID = Self.songCoverAssetContentID(id) {
             #if !os(tvOS)
             if SongTagEditStore.shared.remotePortableCoverDeleted(contentID: contentID),
@@ -3065,9 +3096,11 @@ final class CloudKitSyncService {
             storedSource
         }
         guard let source,
-              MusicSourceCloudSyncPolicy.isEligible(source) else { return false }
+              sourcesStore.isCloudSyncEligible(source) else { return false }
         do {
-            let data = try JSONEncoder().encode(SyncableSource(source: source))
+            // 启用状态写同步配置里的那份:这台设备的启用选择不出设备,还认这个字段的
+            // 旧版本也就不会被它带着改。
+            let data = try JSONEncoder().encode(SyncableSource(source: sourcesStore.cloudPayload(for: source)))
             record["payload"] = data
             record["updatedAt"] = source.modifiedAt
             return true
@@ -3097,7 +3130,7 @@ final class CloudKitSyncService {
     private func shouldReassertSourceTombstone(for record: CKRecord) -> Bool {
         guard record.recordType == RecordType.musicSource,
               let source = decodedSource(from: record),
-              MusicSourceCloudSyncPolicy.isEligible(source),
+              sourcesStore.isCloudSyncEligible(source),
               !source.isDeleted,
               let deletion = sourcesStore.sourceDeletionRecord(id: source.id),
               deletion.tombstone != nil else { return false }

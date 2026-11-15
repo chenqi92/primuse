@@ -1075,3 +1075,7 @@
 "genre_split_comma" = "按逗號和頓號拆分類型";
 "genre_split_bar" = "按直線和反斜線拆分類型";
 "genre_split_tv_detail" = "只影響瀏覽，不更動檔案裡的標籤";
+
+/* Apple TV source form: per-source iCloud sync */
+"source_syncs_via_icloud" = "透過 iCloud 同步";
+"source_syncs_via_icloud_tv_info" = "關閉後，這台 Apple TV 不再把這個音樂來源的設定同步到 iCloud，也不再接收其他裝置對它的修改和刪除；iCloud 裡的那份和其他裝置上的這個音樂來源保持原樣。重新開啟時以較新的修改為準。";
