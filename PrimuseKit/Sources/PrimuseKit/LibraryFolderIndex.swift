@@ -957,9 +957,48 @@ public enum LibraryFolderBrowsePolicy {
         switch order {
         case .trackOrder:
             return sortedSongs(songs, spokenWordSongIDs: spokenWordSongIDs)
+        case .originalName(let ascending):
+            let entries = songs.map { song in
+                let path = song.filePath
+                let hasFileName = !path.contains("://") && AudioFormat.from(fileExtension: (path as NSString).pathExtension) != nil
+                return (song: song, name: hasFileName ? path : song.title)
+            }
+            return entries.sorted { lhs, rhs in
+                let comparison = lhs.name.localizedStandardCompare(rhs.name)
+                if comparison == .orderedSame { return lhs.song.id < rhs.song.id }
+                return comparison == (ascending ? .orderedAscending : .orderedDescending)
+            }.map(\.song)
         case .sorted(let listOrder):
             return SongListSnapshot.sortedSongs(songs, order: listOrder)
+        case .titleLanguageFirst(let priority, let ascending):
+            let sorted = SongListSnapshot.sortedSongs(songs, order: ascending ? .title : .titleDescending)
+            var groups = [[Song](), [Song](), [Song]()]
+            for song in sorted {
+                groups[priority.group(for: song.title)].append(song)
+            }
+            return groups.flatMap { $0 }
         }
+    }
+
+    public static func sortedNodes(_ nodes: [LibraryFolderNode], order: HomeFolderSongOrder) -> [LibraryFolderNode] {
+        guard order.isOriginalName || order.titleLanguagePriority != nil || order.criterion == .title else { return nodes }
+        let entries = nodes.map { node in
+            let name = node.displayName ?? ""
+            return (
+                node: node, name: name,
+                key: order.isOriginalName ? nil : LibraryCollationPolicy.songTitleKey(for: name),
+                group: order.titleLanguagePriority?.group(for: name) ?? 0
+            )
+        }
+        return entries.sorted { lhs, rhs in
+            if lhs.group != rhs.group { return lhs.group < rhs.group }
+            if let leftKey = lhs.key, let rightKey = rhs.key, leftKey != rightKey {
+                return order.isAscending ? leftKey < rightKey : rightKey < leftKey
+            }
+            let comparison = lhs.name.localizedStandardCompare(rhs.name)
+            if comparison == .orderedSame { return lhs.node.id.normalizedRelativePath < rhs.node.id.normalizedRelativePath }
+            return comparison == (order.isAscending ? .orderedAscending : .orderedDescending)
+        }.map(\.node)
     }
 
     /// Folder browsing in track order: each directory's songs in disc/track
@@ -1649,7 +1688,33 @@ public struct LibraryFolderRescanAnchor: Hashable, Sendable {
 /// starts with — or one of the song list's sorts.
 public enum HomeFolderSongOrder: Hashable, Sendable {
     case trackOrder
+    case originalName(ascending: Bool)
     case sorted(LibrarySongSortOrder)
+    case titleLanguageFirst(FolderTitleLanguagePriority, ascending: Bool)
+
+    public var isOriginalName: Bool {
+        if case .originalName = self { return true }
+        return false
+    }
+
+    public func selectingOriginalName() -> HomeFolderSongOrder {
+        isOriginalName ? self : .originalName(ascending: true)
+    }
+
+    public var titleLanguagePriority: FolderTitleLanguagePriority? {
+        guard case .titleLanguageFirst(let priority, _) = self else { return nil }
+        return priority
+    }
+
+    public var isAscending: Bool {
+        if case .originalName(let ascending) = self { return ascending }
+        if case .titleLanguageFirst(_, let ascending) = self { return ascending }
+        return listOrder?.isAscending ?? true
+    }
+
+    public func selectingTitleLanguage(_ priority: FolderTitleLanguagePriority) -> HomeFolderSongOrder {
+        titleLanguagePriority == priority ? self : .titleLanguageFirst(priority, ascending: true)
+    }
 
     /// The sorts a folder offers. They read only the song itself; play counts,
     /// download state and source names are not at hand where folders are
@@ -1658,15 +1723,28 @@ public enum HomeFolderSongOrder: Hashable, Sendable {
         .title, .artist, .album, .dateAdded, .sourceDate, .format,
     ]
 
-    /// Stored form: empty for track order, otherwise the sort's raw value.
+    /// Stored form: empty for track order, otherwise a stable sort identifier.
     public var storageValue: String {
         switch self {
         case .trackOrder: return ""
+        case .originalName(let ascending): return ascending ? "originalName" : "originalNameDescending"
         case .sorted(let order): return order.rawValue
+        case .titleLanguageFirst(let priority, let ascending):
+            return priority.rawValue + (ascending ? "" : "Descending")
         }
     }
 
     public init(storageValue: String) {
+        if storageValue == "originalName" || storageValue == "originalNameDescending" {
+            self = .originalName(ascending: storageValue == "originalName")
+            return
+        }
+        for priority in FolderTitleLanguagePriority.allCases {
+            if storageValue == priority.rawValue || storageValue == priority.rawValue + "Descending" {
+                self = .titleLanguageFirst(priority, ascending: storageValue == priority.rawValue)
+                return
+            }
+        }
         guard let order = LibrarySongSortOrder(rawValue: storageValue),
               Self.criteria.contains(order.criterion) else {
             self = .trackOrder
@@ -1675,7 +1753,7 @@ public enum HomeFolderSongOrder: Hashable, Sendable {
         self = .sorted(order)
     }
 
-    /// The song-list sort in use; nil for track order.
+    /// The shared song-list sort, when using one of its criteria.
     public var listOrder: LibrarySongSortOrder? {
         guard case .sorted(let order) = self else { return nil }
         return order
@@ -1693,8 +1771,32 @@ public enum HomeFolderSongOrder: Hashable, Sendable {
 
     /// Track order reads from the first track and has no direction.
     public func withAscending(_ ascending: Bool) -> HomeFolderSongOrder {
+        if isOriginalName { return .originalName(ascending: ascending) }
+        if case .titleLanguageFirst(let priority, _) = self {
+            return .titleLanguageFirst(priority, ascending: ascending)
+        }
         guard case .sorted(let order) = self, order.isAscending != ascending else { return self }
         return .sorted(order.reversed)
+    }
+}
+
+public enum FolderTitleLanguagePriority: String, CaseIterable, Hashable, Sendable {
+    case englishFirst = "titleEnglishFirst"
+    case chineseFirst = "titleChineseFirst"
+
+    /// Classify the first non-whitespace character; mixed titles follow their opening script.
+    /// Keep language priority fixed when reversing the alphabetical order within each group.
+    fileprivate func group(for title: String) -> Int {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = title.unicodeScalars.first else { return 2 }
+        let character = String(first)
+        if character.range(of: #"^\p{Latin}$"#, options: .regularExpression) != nil {
+            return self == .englishFirst ? 0 : 1
+        }
+        if character.range(of: #"^\p{Han}$"#, options: .regularExpression) != nil {
+            return self == .chineseFirst ? 0 : 1
+        }
+        return 2
     }
 }
 

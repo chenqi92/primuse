@@ -7478,3 +7478,8 @@
 "source_syncs_via_icloud_channel_off" = "Synchronizacja źródeł muzyki jest wyłączona w ustawieniach iCloud. Ten przełącznik zadziała, gdy zostanie włączona.";
 "source_not_syncing_via_icloud" = "Nie synchronizuje się przez iCloud";
 "icloud_sync_sources_per_device_footer" = "Włączanie i wyłączanie źródła muzyki dotyczy tylko tego urządzenia. Synchronizację iCloud pojedynczego źródła możesz też wyłączyć na stronie jego edycji.";
+
+"sort_title_english_first" = "Tytuł - najpierw angielski";
+"sort_title_chinese_first" = "Tytuł - najpierw chiński";
+
+"sort_original_name" = "Oryginalna nazwa";

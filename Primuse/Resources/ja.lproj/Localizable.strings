@@ -7573,3 +7573,8 @@
 "source_syncs_via_icloud_channel_off" = "iCloud 設定で「音楽ソース」の同期がオフになっています。オンにするとこのスイッチが有効になります。";
 "source_not_syncing_via_icloud" = "iCloud で同期しない";
 "icloud_sync_sources_per_device_footer" = "音楽ソースの有効・無効はこのデバイスだけに適用されます。音楽ソースごとに、編集画面で iCloud 同期をオフにすることもできます。";
+
+"sort_title_english_first" = "タイトル - 英語優先";
+"sort_title_chinese_first" = "タイトル - 中国語優先";
+
+"sort_original_name" = "元の名前";

@@ -7333,3 +7333,8 @@
 "source_syncs_via_icloud_channel_off" = "Music source sync is off in iCloud settings. This switch takes effect once it is on.";
 "source_not_syncing_via_icloud" = "Not syncing via iCloud";
 "icloud_sync_sources_per_device_footer" = "Enabling or disabling a music source only affects this device. You can also turn off iCloud sync for a single source on its edit page.";
+
+"sort_title_english_first" = "Title - English first";
+"sort_title_chinese_first" = "Title - Chinese first";
+
+"sort_original_name" = "Original name";

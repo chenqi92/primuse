@@ -485,7 +485,9 @@ struct HomeFolderBrowser: View {
     }
     private var children: [LibraryFolderNode] {
         if let currentNodeID, let index = model.index {
-            return LibraryFolderBrowsePolicy.displayedChildren(in: index, of: currentNodeID)
+            return LibraryFolderBrowsePolicy.sortedNodes(
+                LibraryFolderBrowsePolicy.displayedChildren(in: index, of: currentNodeID), order: songOrder
+            )
         }
         return model.index?.sourceNodes ?? []
     }
@@ -2123,9 +2125,15 @@ struct HomeFolderSongOrderMenuItems: View {
     var body: some View {
         Section {
             Picker("sort_by", selection: criterionBinding) {
-                Text("sort_track_order").tag(LibrarySongSortCriterion?.none)
+                Text("sort_track_order").tag("")
+                Text("sort_original_name").tag("originalName")
                 ForEach(HomeFolderSongOrder.criteria, id: \.self) { criterion in
-                    Text(verbatim: criterion.label).tag(Optional(criterion))
+                    Text(verbatim: criterion.label).tag(criterion.rawValue)
+                    if criterion == .title {
+                        ForEach(FolderTitleLanguagePriority.allCases, id: \.self) { priority in
+                            Text(verbatim: priority.label).tag(priority.rawValue)
+                        }
+                    }
                 }
             }
             .pickerStyle(.inline)
@@ -2141,13 +2149,24 @@ struct HomeFolderSongOrderMenuItems: View {
         }
     }
 
-    private var criterionBinding: Binding<LibrarySongSortCriterion?> {
-        Binding(get: { order.criterion }, set: { order = order.selecting($0) })
+    private var criterionBinding: Binding<String> {
+        Binding(
+            get: { order.isOriginalName ? "originalName" : (order.titleLanguagePriority?.rawValue ?? order.criterion?.rawValue ?? "") },
+            set: { value in
+                if value == "originalName" {
+                    order = order.selectingOriginalName()
+                } else if let priority = FolderTitleLanguagePriority(rawValue: value) {
+                    order = order.selectingTitleLanguage(priority)
+                } else {
+                    order = order.selecting(LibrarySongSortCriterion(rawValue: value))
+                }
+            }
+        )
     }
 
     private var ascendingBinding: Binding<Bool> {
         Binding(
-            get: { order.listOrder?.isAscending ?? true },
+            get: { order.isAscending },
             set: { order = order.withAscending($0) }
         )
     }
@@ -2172,11 +2191,11 @@ struct HomeFolderSongOrderSummary: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            if let listOrder = order.listOrder {
-                Text(verbatim: listOrder.criterion.label)
-                Image(systemName: listOrder.isAscending ? "arrow.up" : "arrow.down")
+            if order != .trackOrder {
+                Text(verbatim: order.isOriginalName ? String(localized: "sort_original_name") : (order.titleLanguagePriority?.label ?? order.criterion?.label ?? ""))
+                Image(systemName: order.isAscending ? "arrow.up" : "arrow.down")
                     .font(.caption.weight(.semibold))
-                    .accessibilityLabel(listOrder.isAscending ? Text("smart_sort_ascending") : Text("smart_sort_descending"))
+                    .accessibilityLabel(order.isAscending ? Text("smart_sort_ascending") : Text("smart_sort_descending"))
             } else {
                 Text("sort_track_order")
             }
@@ -2184,3 +2203,11 @@ struct HomeFolderSongOrderSummary: View {
     }
 }
 
+private extension FolderTitleLanguagePriority {
+    var label: String {
+        switch self {
+        case .englishFirst: String(localized: "sort_title_english_first")
+        case .chineseFirst: String(localized: "sort_title_chinese_first")
+        }
+    }
+}

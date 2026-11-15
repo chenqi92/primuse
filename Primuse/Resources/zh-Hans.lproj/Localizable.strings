@@ -7665,3 +7665,8 @@
 "source_syncs_via_icloud_channel_off" = "iCloud 设置里的「音乐源」同步现在关着，打开后这个开关才起作用。";
 "source_not_syncing_via_icloud" = "不通过 iCloud 同步";
 "icloud_sync_sources_per_device_footer" = "音乐源的启用和禁用只作用于当前设备。单个音乐源也可以在它的编辑页里关掉 iCloud 同步。";
+
+"sort_title_english_first" = "标题-英文优先";
+"sort_title_chinese_first" = "标题-中文优先";
+
+"sort_original_name" = "原始名称";

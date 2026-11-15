@@ -7478,3 +7478,8 @@
 "source_syncs_via_icloud_channel_off" = "Müzik kaynağı eşzamanlaması iCloud ayarlarında kapalı. Bu anahtar, o açıldığında etkili olur.";
 "source_not_syncing_via_icloud" = "iCloud ile eşzamanlanmıyor";
 "icloud_sync_sources_per_device_footer" = "Bir müzik kaynağını etkinleştirmek veya devre dışı bırakmak yalnızca bu cihazı etkiler. Tek bir kaynağın iCloud eşzamanlamasını düzenleme sayfasından da kapatabilirsiniz.";
+
+"sort_title_english_first" = "Başlık - önce İngilizce";
+"sort_title_chinese_first" = "Başlık - önce Çince";
+
+"sort_original_name" = "Özgün ad";

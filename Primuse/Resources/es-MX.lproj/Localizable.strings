@@ -7478,3 +7478,8 @@
 "source_syncs_via_icloud_channel_off" = "La sincronización de fuentes de música está desactivada en la configuración de iCloud. Este interruptor surtirá efecto cuando la actives.";
 "source_not_syncing_via_icloud" = "No se sincroniza con iCloud";
 "icloud_sync_sources_per_device_footer" = "Activar o desactivar una fuente de música solo afecta a este dispositivo. También puedes desactivar la sincronización con iCloud de una sola fuente desde su página de edición.";
+
+"sort_title_english_first" = "Título - inglés primero";
+"sort_title_chinese_first" = "Título - chino primero";
+
+"sort_original_name" = "Nombre original";

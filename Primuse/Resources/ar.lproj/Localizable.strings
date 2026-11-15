@@ -7478,3 +7478,8 @@
 "source_syncs_via_icloud_channel_off" = "مزامنة مصادر الموسيقى متوقفة في إعدادات iCloud. يسري هذا المفتاح بعد تشغيلها.";
 "source_not_syncing_via_icloud" = "لا تتم المزامنة عبر iCloud";
 "icloud_sync_sources_per_device_footer" = "تمكين مصدر الموسيقى أو تعطيله يؤثر في هذا الجهاز فقط. ويمكنك أيضًا إيقاف مزامنة iCloud لمصدر واحد من صفحة تعديله.";
+
+"sort_title_english_first" = "العنوان - الإنجليزية أولاً";
+"sort_title_chinese_first" = "العنوان - الصينية أولاً";
+
+"sort_original_name" = "الاسم الأصلي";

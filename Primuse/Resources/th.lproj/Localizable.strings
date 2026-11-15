@@ -7478,3 +7478,8 @@
 "source_syncs_via_icloud_channel_off" = "การซิงค์แหล่งเพลงปิดอยู่ในการตั้งค่า iCloud สวิตช์นี้จะมีผลเมื่อเปิดการซิงค์นั้น";
 "source_not_syncing_via_icloud" = "ไม่ซิงค์ผ่าน iCloud";
 "icloud_sync_sources_per_device_footer" = "การเปิดหรือปิดแหล่งเพลงมีผลกับอุปกรณ์นี้เท่านั้น และยังปิดการซิงค์ iCloud ของแหล่งเพลงเดียวได้จากหน้าแก้ไขของแหล่งเพลงนั้น";
+
+"sort_title_english_first" = "ชื่อ - ภาษาอังกฤษก่อน";
+"sort_title_chinese_first" = "ชื่อ - ภาษาจีนก่อน";
+
+"sort_original_name" = "ชื่อเดิม";

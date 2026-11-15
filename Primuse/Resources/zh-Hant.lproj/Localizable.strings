@@ -7549,3 +7549,8 @@
 "source_syncs_via_icloud_channel_off" = "iCloud 設定裡的「音樂來源」同步目前關閉，開啟後這個開關才會生效。";
 "source_not_syncing_via_icloud" = "不透過 iCloud 同步";
 "icloud_sync_sources_per_device_footer" = "音樂來源的啟用和停用只作用於目前這台裝置。單個音樂來源也可以在它的編輯頁裡關閉 iCloud 同步。";
+
+"sort_title_english_first" = "標題-英文優先";
+"sort_title_chinese_first" = "標題-中文優先";
+
+"sort_original_name" = "原始名稱";

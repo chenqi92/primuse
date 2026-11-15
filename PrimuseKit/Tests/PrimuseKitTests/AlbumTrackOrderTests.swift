@@ -288,6 +288,99 @@ struct AlbumTrackOrderTests {
         #expect(HomeFolderSongOrderPreference.load(from: defaults) == .sorted(.format))
     }
 
+    @Test("Folder title language priority stays fixed in both directions")
+    func folderTitleLanguagePriority() {
+        let titles = ["Bell", "安静", "Apple", "北京", "2 Intro", "# Outro", " ", "Ωmega"]
+        let songs = titles.map { song($0, disc: 1, track: 1, title: $0) }
+        for priority in FolderTitleLanguagePriority.allCases {
+            for ascending in [true, false] {
+                let order = HomeFolderSongOrder.titleLanguageFirst(priority, ascending: ascending)
+                let english = ascending ? ["Apple", "Bell"] : ["Bell", "Apple"]
+                let chinese = ascending ? ["安静", "北京"] : ["北京", "安静"]
+                let expected = priority == .englishFirst ? english + chinese : chinese + english
+                let actual = LibraryFolderBrowsePolicy.sortedSongs(songs, order: order).map(\.id)
+                #expect(Array(actual.prefix(4)) == expected)
+                #expect(Set(actual.suffix(4)) == Set(["2 Intro", "# Outro", " ", "Ωmega"]))
+                #expect(HomeFolderSongOrder(storageValue: order.storageValue) == order)
+                #expect(order.selectingTitleLanguage(priority) == order)
+                #expect(order.withAscending(!ascending).isAscending == !ascending)
+                #expect(order.selecting(.title) == .sorted(.title))
+                #expect(order.selecting(nil) == .trackOrder)
+            }
+        }
+        #expect(HomeFolderSongOrder.trackOrder.selectingTitleLanguage(.englishFirst)
+            == .titleLanguageFirst(.englishFirst, ascending: true))
+    }
+
+    @Test("Folder title grouping handles whitespace, mixed scripts and Unicode variants")
+    func folderTitleLanguageUnicode() {
+        let latin = ["  Apple 中文", "Écho", "Ａlpha"]
+        let chinese = ["  安 Apple", "愛", "𠀀"]
+        let others = ["1 Apple", "#爱", "Ωmega", "", "   "]
+        let songs = (others + chinese + latin).map { song($0, disc: 1, track: 1, title: $0) }
+        for priority in FolderTitleLanguagePriority.allCases {
+            let actual = LibraryFolderBrowsePolicy.sortedSongs(
+                songs, order: .titleLanguageFirst(priority, ascending: true)
+            ).map(\.id)
+            #expect(Set(actual.prefix(3)) == Set(priority == .englishFirst ? latin : chinese))
+            #expect(Set(actual.dropFirst(3).prefix(3)) == Set(priority == .englishFirst ? chinese : latin))
+            #expect(Set(actual.suffix(others.count)) == Set(others))
+        }
+    }
+
+    @Test("Original names preserve numeric directory and filename order instead of metadata order")
+    func originalFolderNames() {
+        let names = ["10 晨光 [FLAC]", "2 海风 [FLAC]", "01 夜航 [FLAC]"]
+        let nodes = names.map { name in
+            LibraryFolderNode(
+                id: LibraryFolderNodeID(sourceID: "source", kind: .folder, normalizedRelativePath: "/" + name),
+                parentID: nil, sourceID: "source", kind: .folder, displayName: name,
+                directSongCount: 1, descendantSongCount: 1, childNodeCount: 0
+            )
+        }
+        let songs = [
+            song("ten", disc: 1, track: 1, title: "Alpha", path: "/Album/10 Alpha.flac"),
+            song("two", disc: 1, track: 3, title: "Zulu", path: "/Album/2 Zulu.flac"),
+            song("one", disc: 1, track: 2, title: "Middle", path: "/Album/01 Middle.flac"),
+        ]
+        for ascending in [true, false] {
+            let order = HomeFolderSongOrder.originalName(ascending: ascending)
+            let expectedNames = [names[2], names[1], names[0]]
+            let expectedIDs = ["one", "two", "ten"]
+            #expect(LibraryFolderBrowsePolicy.sortedNodes(nodes, order: order).map(\.displayName)
+                == (ascending ? expectedNames : Array(expectedNames.reversed())).map(Optional.some))
+            #expect(LibraryFolderBrowsePolicy.sortedSongs(songs, order: order).map(\.id)
+                == (ascending ? expectedIDs : Array(expectedIDs.reversed())))
+            #expect(HomeFolderSongOrder(storageValue: order.storageValue) == order)
+            #expect(order.selectingOriginalName() == order)
+            #expect(order.withAscending(!ascending).isAscending == !ascending)
+            #expect(order.selecting(nil) == .trackOrder)
+        }
+        #expect(HomeFolderSongOrder.trackOrder.selectingOriginalName() == .originalName(ascending: true))
+        #expect(LibraryFolderBrowsePolicy.sortedNodes(nodes, order: .trackOrder).map(\.id) == nodes.map(\.id))
+        let opaque = [
+            song("b", disc: nil, track: nil, title: "Beta", path: "100"),
+            song("a", disc: nil, track: nil, title: "Alpha", path: "900"),
+        ]
+        #expect(LibraryFolderBrowsePolicy.sortedSongs(opaque, order: .originalName(ascending: true)).map(\.id) == ["a", "b"])
+    }
+
+    @Test("Title language priority also sorts the visible child folders")
+    func folderNodeLanguagePriority() {
+        let names = ["Bell", "安静", "Apple", "北京"]
+        let nodes = names.map { name in
+            LibraryFolderNode(
+                id: LibraryFolderNodeID(sourceID: "source", kind: .folder, normalizedRelativePath: "/" + name),
+                parentID: nil, sourceID: "source", kind: .folder, displayName: name,
+                directSongCount: 1, descendantSongCount: 1, childNodeCount: 0
+            )
+        }
+        #expect(LibraryFolderBrowsePolicy.sortedNodes(nodes, order: .titleLanguageFirst(.englishFirst, ascending: true)).map(\.displayName)
+            == ["Apple", "Bell", "安静", "北京"])
+        #expect(LibraryFolderBrowsePolicy.sortedNodes(nodes, order: .titleLanguageFirst(.chineseFirst, ascending: false)).map(\.displayName)
+            == ["北京", "安静", "Bell", "Apple"])
+    }
+
     @Test("Choosing a folder sort never flips the direction by itself")
     func folderSongOrderSelection() {
         let byTitle = HomeFolderSongOrder.trackOrder.selecting(.title)

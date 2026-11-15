@@ -7478,3 +7478,8 @@
 "source_syncs_via_icloud_channel_off" = "iCloud सेटिंग में संगीत स्रोतों का सिंक बंद है। उसे चालू करने के बाद ही यह स्विच काम करेगा।";
 "source_not_syncing_via_icloud" = "iCloud से सिंक नहीं होता";
 "icloud_sync_sources_per_device_footer" = "संगीत स्रोत को चालू या बंद करना सिर्फ़ इसी डिवाइस पर लागू होता है। किसी एक स्रोत का iCloud सिंक उसके संपादन पेज से भी बंद किया जा सकता है।";
+
+"sort_title_english_first" = "शीर्षक - अंग्रेज़ी पहले";
+"sort_title_chinese_first" = "शीर्षक - चीनी पहले";
+
+"sort_original_name" = "मूल नाम";

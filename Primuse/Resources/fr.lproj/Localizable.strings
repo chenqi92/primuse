@@ -7572,3 +7572,8 @@
 "source_syncs_via_icloud_channel_off" = "La synchronisation des sources de musique est désactivée dans les réglages iCloud. Ce commutateur prendra effet une fois qu’elle sera activée.";
 "source_not_syncing_via_icloud" = "Non synchronisée via iCloud";
 "icloud_sync_sources_per_device_footer" = "Activer ou désactiver une source de musique ne concerne que cet appareil. Vous pouvez aussi désactiver la synchronisation iCloud d’une seule source depuis sa page de modification.";
+
+"sort_title_english_first" = "Titre - anglais en premier";
+"sort_title_chinese_first" = "Titre - chinois en premier";
+
+"sort_original_name" = "Nom d’origine";

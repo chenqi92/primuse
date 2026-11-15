@@ -7572,3 +7572,8 @@
 "source_syncs_via_icloud_channel_off" = "iCloud 설정에서 음악 소스 동기화가 꺼져 있습니다. 켜면 이 스위치가 적용됩니다.";
 "source_not_syncing_via_icloud" = "iCloud로 동기화하지 않음";
 "icloud_sync_sources_per_device_footer" = "음악 소스를 켜거나 끄는 것은 이 기기에만 적용됩니다. 음악 소스별로 편집 화면에서 iCloud 동기화를 끌 수도 있습니다.";
+
+"sort_title_english_first" = "제목 - 영어 우선";
+"sort_title_chinese_first" = "제목 - 중국어 우선";
+
+"sort_original_name" = "원래 이름";

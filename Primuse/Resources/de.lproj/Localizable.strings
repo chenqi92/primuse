@@ -7572,3 +7572,8 @@
 "source_syncs_via_icloud_channel_off" = "Die Synchronisierung von Musikquellen ist in den iCloud-Einstellungen aus. Dieser Schalter wirkt, sobald sie eingeschaltet ist.";
 "source_not_syncing_via_icloud" = "Wird nicht über iCloud synchronisiert";
 "icloud_sync_sources_per_device_footer" = "Das Aktivieren oder Deaktivieren einer Musikquelle betrifft nur dieses Gerät. Für einzelne Quellen kannst du die iCloud-Synchronisierung auch auf ihrer Bearbeitungsseite ausschalten.";
+
+"sort_title_english_first" = "Titel - Englisch zuerst";
+"sort_title_chinese_first" = "Titel - Chinesisch zuerst";
+
+"sort_original_name" = "Ursprünglicher Name";
