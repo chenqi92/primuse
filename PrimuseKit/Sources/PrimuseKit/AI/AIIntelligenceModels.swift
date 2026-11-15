@@ -347,7 +347,14 @@ public enum AIRecommendationIntentStoragePolicy {
     public static let storageKey = "primuse.ai.recommendationIntents.v1"
     public static let maximumCustomIntents = 12
     public static let maximumTitleLength = 24
+    /// 交给内置 AI 时提示词最多这么长（服务端按这个收）。
     public static let maximumPromptLength = 160
+    /// 用自己的 AI 服务时放开到这么长；存下来的也按这个上限，交给内置 AI 时再截到 `maximumPromptLength`。
+    public static let maximumCustomProviderPromptLength = AIRecommendationRequest.maximumIntentLength
+
+    public static func maximumPromptLength(usesBuiltInAI: Bool) -> Int {
+        usesBuiltInAI ? maximumPromptLength : maximumCustomProviderPromptLength
+    }
 
     public static func decode(_ rawValue: String) -> [AICustomRecommendationIntent] {
         guard let data = rawValue.data(using: .utf8),
@@ -369,7 +376,7 @@ public enum AIRecommendationIntentStoragePolicy {
         prompt: String
     ) -> AICustomRecommendationIntent? {
         let title = clean(title, limit: maximumTitleLength)
-        let prompt = clean(prompt, limit: maximumPromptLength)
+        let prompt = clean(prompt, limit: maximumCustomProviderPromptLength)
         guard !title.isEmpty, !prompt.isEmpty else { return nil }
         return AICustomRecommendationIntent(id: id, title: title, prompt: prompt)
     }
@@ -538,6 +545,15 @@ public struct AIRecommendationRequest: Hashable, Sendable {
     /// 新版内置 AI 一次收 100 首候选、最多挑 30 首;旧版服务只用前 36 首、最多 12 首,
     /// 多送的被它截掉,照样能答。首页、资料库、电视仍按各自的 36 首 / 12 首请求。
     public static let maximumCandidates = 100
+    /// 提示词（`intent`）上限：自己的 AI 服务放开到这么长；内置 AI 只收 `maximumBuiltInIntentLength`，
+    /// 发给它之前再截（`builtInIntent`）。
+    public static let maximumIntentLength = 2_000
+    public static let maximumBuiltInIntentLength = 160
+
+    /// 交给内置 AI 的那份提示词。
+    public var builtInIntent: String? {
+        intent.map { String($0.prefix(Self.maximumBuiltInIntentLength)) }
+    }
     public static let maximumSongSelections = 30
     public static let maximumAlbumCandidates = 12
     public static let maximumAlbumSelections = 6
@@ -575,7 +591,7 @@ public struct AIRecommendationRequest: Hashable, Sendable {
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let normalizedIntent, !normalizedIntent.isEmpty {
-            self.intent = String(normalizedIntent.prefix(160))
+            self.intent = String(normalizedIntent.prefix(Self.maximumIntentLength))
         } else {
             self.intent = nil
         }

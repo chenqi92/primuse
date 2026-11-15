@@ -672,6 +672,11 @@ final class MusicIntelligenceService {
             && decision.isAllowed
     }
 
+    /// 这个功能的提示词最多多长:交给内置 AI 时 160 字(服务端按这个收),只用自己的服务时放开。
+    func promptCharacterLimit(for feature: AIFeature) -> Int {
+        AIRecommendationIntentStoragePolicy.maximumPromptLength(usesBuiltInAI: isPrimuseRelaySelected(for: feature))
+    }
+
     /// 这个功能现在可以交给内置 AI:选了它,并且在同意页点过同意。没同意时
     /// 自动功能当作内置 AI 没开,按需功能由界面先弹同意页(`needsBuiltInConsent`)。
     private func isPrimuseRelayAvailable(for feature: AIFeature) -> Bool {

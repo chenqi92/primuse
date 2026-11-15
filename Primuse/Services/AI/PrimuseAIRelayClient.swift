@@ -2265,7 +2265,8 @@ actor PrimuseAIRelayClient {
 
         init(request: AIRecommendationRequest) {
             scene = request.scene.rawValue
-            intent = request.intent
+            // 内置 AI 只收 160 字，自己的服务才放开（`AIRecommendationRequest.maximumIntentLength`）。
+            intent = request.builtInIntent
             languageCode = request.languageCode
             preferences = request.preferences.map {
                 RecommendationPreference(

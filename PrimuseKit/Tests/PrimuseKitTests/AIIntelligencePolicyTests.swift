@@ -1254,7 +1254,7 @@ struct AIRecommendationPolicyTests {
     @Test func recommendationIntentIsSanitizedAndBounded() {
         let request = AIRecommendationRequest(
             scene: .relaxation,
-            intent: "  rainy\n  " + String(repeating: "m", count: 200),
+            intent: "  rainy\n  " + String(repeating: "m", count: 2_200),
             preferences: [],
             candidates: [
                 AIRecommendationCandidate(songID: "one", title: "One", artist: "A"),
@@ -1263,7 +1263,18 @@ struct AIRecommendationPolicyTests {
 
         #expect(request.intent?.hasPrefix("rainy ") == true)
         #expect(request.intent?.contains("\n") == false)
-        #expect(request.intent?.count == 160)
+        // 自己的 AI 服务放开到 2000 字，内置 AI 那份仍截到 160 字。
+        #expect(request.intent?.count == AIRecommendationRequest.maximumIntentLength)
+        #expect(request.builtInIntent?.count == AIRecommendationRequest.maximumBuiltInIntentLength)
+        #expect(request.builtInIntent?.hasPrefix("rainy ") == true)
+    }
+
+    @Test func customIntentPromptKeepsTheLongerOwnProviderLimit() throws {
+        let long = String(repeating: "雨", count: 500)
+        let intent = try #require(AIRecommendationIntentStoragePolicy.makeIntent(title: "Rain", prompt: long))
+        #expect(intent.prompt.count == 500)
+        #expect(AIRecommendationIntentStoragePolicy.maximumPromptLength(usesBuiltInAI: true) == 160)
+        #expect(AIRecommendationIntentStoragePolicy.maximumPromptLength(usesBuiltInAI: false) == 2_000)
     }
 
     @Test func customRecommendationIntentsNormalizeAndDeduplicate() throws {

@@ -365,7 +365,9 @@ struct AIPlaylistEditorView: View {
                             .frame(minHeight: 104)
                             .accessibilityIdentifier("aiPlaylistPromptEditor")
                             .onChange(of: prompt) { _, value in
-                                if value.count > 160 { prompt = String(value.prefix(160)) }
+                                // 内置 AI 160 字，用自己的 AI 服务时放开。
+                                let limit = intelligence.promptCharacterLimit(for: .recommendations)
+                                if value.count > limit { prompt = String(value.prefix(limit)) }
                             }
                     }
 
