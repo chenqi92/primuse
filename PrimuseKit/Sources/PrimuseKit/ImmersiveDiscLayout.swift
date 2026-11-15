@@ -6,14 +6,15 @@ public struct ImmersiveDiscLayout: Sendable {
     public let diameter: CGFloat
     public let canvasSize: CGSize
 
-    public init(content: CGRect, portrait: Bool, hasTonearm: Bool, spacing: CGFloat) {
+    /// - Parameter artworkShare: 唱片那一块占内容区的比例(竖屏按高、横屏按宽),不给时竖屏 0.57、横屏 0.55。
+    public init(content: CGRect, portrait: Bool, hasTonearm: Bool, spacing: CGFloat, artworkShare: CGFloat? = nil) {
         if portrait {
-            let artHeight = max(0, content.height * 0.57 - spacing / 2)
+            let artHeight = max(0, content.height * (artworkShare ?? 0.57) - spacing / 2)
             artworkBounds = CGRect(x: content.minX, y: content.minY, width: content.width, height: artHeight)
             textBounds = CGRect(x: content.minX, y: artworkBounds.maxY + spacing,
                                 width: content.width, height: max(0, content.maxY - artworkBounds.maxY - spacing))
         } else {
-            let artWidth = max(0, (content.width - spacing) * 0.55)
+            let artWidth = max(0, (content.width - spacing) * (artworkShare ?? 0.55))
             artworkBounds = CGRect(x: content.minX, y: content.minY, width: artWidth, height: content.height)
             textBounds = CGRect(x: artworkBounds.maxX + spacing, y: content.minY,
                                 width: max(0, content.width - artWidth - spacing), height: content.height)

@@ -357,7 +357,9 @@ struct ImmersiveStageView<Artwork: View>: View {
             } else {
                 HStack(spacing: metrics.s(platform == .tvOS ? 82 : 46)) {
                     artworkPlate(
-                        side: min(metrics.size.height * 0.48, metrics.size.width * 0.30),
+                        side: metrics.isHandheldLandscape
+                            ? min(metrics.size.height * 0.52, metrics.size.width * 0.36)
+                            : min(metrics.size.height * 0.48, metrics.size.width * 0.30),
                         radius: metrics.f(14)
                     )
                     VStack(alignment: .leading, spacing: metrics.s(18)) {
@@ -547,11 +549,12 @@ struct ImmersiveStageView<Artwork: View>: View {
         let isPhoneLandscape = metrics.layout == .phoneLandscape
         let innerWidth = metrics.size.width - leadingInset - trailingInset
         let contentBottom = metrics.size.height - max(metrics.safeArea.bottom, metrics.s(14))
+        // Duo 内屏竖握按高度取的 0.44 会把板下面的歌名挤小，那里改成 0.37、间距收紧。
         let plateSide = metrics.isPortrait
-            ? min(innerWidth, metrics.size.height * 0.44)
+            ? min(innerWidth, metrics.size.height * (metrics.isHandheldPortrait ? 0.37 : 0.44))
             : min(
                 contentBottom - topInset - metrics.s(isPhoneLandscape ? 6 : 28),
-                innerWidth * (isPhoneLandscape ? 0.46 : 0.44)
+                innerWidth * (isPhoneLandscape ? (metrics.isHandheldLandscape ? 0.52 : 0.46) : 0.44)
             )
         let plateCenterY = topInset + (contentBottom - topInset) / 2
         let textLeading = leadingInset + plateSide
@@ -581,7 +584,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.30, strength: 0.46)
 
             if metrics.isPortrait {
-                VStack(alignment: .leading, spacing: metrics.s(24)) {
+                VStack(alignment: .leading, spacing: metrics.s(metrics.isHandheldPortrait ? 12 : 24)) {
                     chladniPlate(side: plateSide)
                         .frame(maxWidth: .infinity, alignment: .center)
                     titleBlock(size: metrics.s(40), weight: .semibold)
@@ -652,7 +655,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             } else {
                 let skyBottom = metrics.size.height * fieldTop
                 lyricsOnlyColumn(
-                    fontSize: metrics.s(isPhoneLandscape ? 24 : (platform == .tvOS ? 58 : 48)),
+                    fontSize: metrics.s(isPhoneLandscape ? (metrics.isHandheldLandscape ? 30 : 24) : (platform == .tvOS ? 58 : 48)),
                     width: metrics.size.width * (isPhoneLandscape ? 0.70 : 0.62),
                     alignment: .center
                 )
@@ -673,14 +676,16 @@ struct ImmersiveStageView<Artwork: View>: View {
         let innerWidth = metrics.size.width - leadingInset - trailingInset
         let availableTop = topInset
         let availableHeight = max(metrics.size.height - bottomInset - availableTop, 1)
-        let textWidth = metrics.isPortrait ? innerWidth : innerWidth * (isPhoneLandscape ? 0.38 : 0.34)
+        let textWidth = metrics.isPortrait
+            ? innerWidth
+            : innerWidth * (isPhoneLandscape && !metrics.isHandheldLandscape ? 0.38 : 0.34)
         let brainLeading = metrics.isPortrait
             ? leadingInset
             : leadingInset + textWidth + metrics.s(isPhoneLandscape ? 12 : 32)
         let brainWidth = metrics.isPortrait ? innerWidth : metrics.size.width - trailingInset - brainLeading
         let halfWidth = metrics.isPortrait
-            ? min(innerWidth * 0.48, metrics.size.height * 0.23)
-            : min(brainWidth * 0.45, availableHeight * 0.64)
+            ? min(innerWidth * 0.48, metrics.size.height * (metrics.isHandheldPortrait ? 0.27 : 0.23))
+            : min(brainWidth * (metrics.isHandheldLandscape ? 0.48 : 0.45), availableHeight * 0.64)
         let brainCenterX = brainLeading + brainWidth / 2
         let brainCenterY = metrics.isPortrait
             ? metrics.size.height * 0.50
@@ -834,7 +839,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     private var kineticFontBase: CGFloat {
         switch metrics.layout {
         case .phonePortrait: metrics.s(36)
-        case .phoneLandscape: metrics.s(40)
+        case .phoneLandscape: metrics.s(metrics.isHandheldLandscape ? 50 : 40)
         case .wide: metrics.s(platform == .tvOS ? 118 : 104)
         }
     }
@@ -842,7 +847,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     private var kineticMaximumLines: Int {
         switch metrics.layout {
         case .phonePortrait: 4
-        case .phoneLandscape: 2
+        case .phoneLandscape: metrics.isHandheldLandscape ? 3 : 2
         case .wide: 3
         }
     }
@@ -1449,7 +1454,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     private var flowingLinesScene: some View {
         let diameter = metrics.isPortrait
             ? min(metrics.size.width * 0.54, metrics.size.height * 0.28)
-            : min(metrics.size.height * 0.54, metrics.size.width * 0.34)
+            : min(metrics.size.height * 0.54, metrics.size.width * (metrics.isHandheldLandscape ? 0.37 : 0.34))
         let fieldCenter = metrics.isPortrait
             ? UnitPoint(x: 0.5, y: 0.42)
             : UnitPoint(x: 0.53, y: 0.44)
@@ -1539,10 +1544,11 @@ struct ImmersiveStageView<Artwork: View>: View {
         let landscapeRingSpan = min(
             metrics.size.height - topInset - max(metrics.safeArea.bottom, metrics.s(14))
                 - metrics.s(isPhoneLandscape ? 4 : 24),
-            innerWidth * (isPhoneLandscape ? 0.44 : 0.42)
+            innerWidth * (isPhoneLandscape ? (metrics.isHandheldLandscape ? 0.50 : 0.44) : 0.42)
         )
+        // Duo 内屏竖握比手机竖屏方正，按高度取的 0.46 让环把下面的歌名挤小；那里改成 0.36、间距收紧。
         let diameter = metrics.isPortrait
-            ? min(metrics.size.height * 0.46, metrics.size.width * 0.88)
+            ? min(metrics.size.height * (metrics.isHandheldPortrait ? 0.36 : 0.46), metrics.size.width * 0.88)
             : landscapeRingSpan / radialRingSpanRatio
         let ringSpan = diameter * radialRingSpanRatio
         let textLeading = leadingInset + ringSpan
@@ -1566,7 +1572,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             }
 
             if metrics.isPortrait {
-                VStack(spacing: metrics.s(28)) {
+                VStack(spacing: metrics.s(metrics.isHandheldPortrait ? 14 : 28)) {
                     radialArtwork(diameter: diameter)
                     if layers.shows("text") {
                         titleBlock(size: metrics.s(43), weight: .semibold)
@@ -1808,9 +1814,11 @@ struct ImmersiveStageView<Artwork: View>: View {
         let isPhoneLandscape = metrics.layout == .phoneLandscape
         let horizonY = metrics.size.height - bottomInset + metrics.s(6)
         let side = metrics.isPortrait
-            ? min(metrics.size.width * 0.58, metrics.size.height * 0.28)
+            ? min(metrics.size.width * 0.58, metrics.size.height * (metrics.isHandheldPortrait ? 0.32 : 0.28))
             : (isPhoneLandscape
-                ? min(metrics.size.height * 0.34, metrics.size.width * 0.22)
+                ? (metrics.isHandheldLandscape
+                    ? min(metrics.size.height * 0.40, metrics.size.width * 0.28)
+                    : min(metrics.size.height * 0.34, metrics.size.width * 0.22))
                 : min(metrics.size.height * 0.40, metrics.size.width * 0.26))
         let barHeight = metrics.size.height * (metrics.isPortrait ? 0.20 : 0.24)
         let textRegionTop = topInset
@@ -1868,7 +1876,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     private var particleBloomScene: some View {
         let diameter = metrics.isPortrait
             ? min(metrics.size.width * 0.56, metrics.size.height * 0.28)
-            : min(metrics.size.height * 0.52, metrics.size.width * 0.30)
+            : min(metrics.size.height * 0.52, metrics.size.width * (metrics.isHandheldLandscape ? 0.36 : 0.30))
         let availableTop = topInset
         let availableBottom = metrics.size.height - bottomInset
         let emitter = metrics.isPortrait
@@ -2565,7 +2573,10 @@ enum ImmersiveAlbumFlowGeometry {
         case .phonePortrait:
             LyricFonts(current: metrics.s(17), next: metrics.s(13), currentLineLimit: 2, showsNextLine: true, spacing: metrics.s(6))
         case .phoneLandscape:
-            LyricFonts(current: metrics.s(15), next: metrics.s(11), currentLineLimit: 1, showsNextLine: false, spacing: 0)
+            // Duo 内屏横握比手机横屏高出一大截，放得下两行当前句和下一句。
+            metrics.isHandheldLandscape
+                ? LyricFonts(current: metrics.s(17), next: metrics.s(13), currentLineLimit: 2, showsNextLine: true, spacing: metrics.s(6))
+                : LyricFonts(current: metrics.s(15), next: metrics.s(11), currentLineLimit: 1, showsNextLine: false, spacing: 0)
         case .wide:
             platform == .tvOS
                 ? LyricFonts(current: metrics.s(40), next: metrics.s(27), currentLineLimit: 2, showsNextLine: true, spacing: metrics.s(12))

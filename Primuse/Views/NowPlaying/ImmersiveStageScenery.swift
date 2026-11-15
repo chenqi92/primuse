@@ -330,6 +330,12 @@ struct ImmersiveStageMetrics {
     var isWide: Bool { layout == .wide }
     var isPortrait: Bool { layout == .phonePortrait }
 
+    /// iPhone Duo 内屏横握 / 竖握。手机的构图是照 852×393 / 393×852(约 2.17:1)排的,内屏方正得多
+    /// (约 1.42:1):封面、唱片、声谱环这些按长边取值的元素只占画面中间一条,短边那头空出一大截。
+    /// 各效果在这两种画布上把按长边取的比例放宽,让主体吃到多出来的那截。
+    var isHandheldLandscape: Bool { isHandheldCanvas && layout == .phoneLandscape }
+    var isHandheldPortrait: Bool { isHandheldCanvas && layout == .phonePortrait }
+
     /// 各效果共用的舞台内容上沿。全屏页也按它判断内容会不会落进遮挡区那段高度。
     /// 手持的大画布上至少让开全屏页的圆钮排(`handheldChromeClearance`),手机上为 0,取值不变。
     func stageContentTopInset(isTV: Bool) -> CGFloat {
@@ -907,7 +913,8 @@ enum ImmersiveDemoStage {
 /// 调试构建的舞台取证页，`PRIMUSE_VISUAL_EVIDENCE=immersiveStage` 启动时替换根视图。
 /// `PRIMUSE_EVIDENCE_EFFECT`（rawValue，逗号分隔，默认 radialPulse）指定效果，
 /// `PRIMUSE_EVIDENCE_LAYOUTS`（phoneLandscape / phonePortrait / wide，默认这三种；另有 iPhone Duo 内屏的
-/// innerLandscape 951×669 / innerLandscapeSmall 890×626 / innerPortrait 669×951）指定视口；
+/// innerLandscape 951×669 / innerLandscapeSmall 890×626 / innerPortrait 669×951，以及对照用的 iPad 11 英寸
+/// padLandscape 1210×834 / padPortrait 834×1210）指定视口；
 /// `PRIMUSE_EVIDENCE_RESTING`（lyric / title）按休憩态渲染：舞台文字淡出、压暗，叠上带歌词或只有歌名的休憩层；
 /// `PRIMUSE_EVIDENCE_ANIMATE=1` 让各帧按播放中运行动画，并喂每分钟 120 拍的合成频谱（流星这类间歇出现的元素要连拍才截得到）；
 /// `PRIMUSE_EVIDENCE_WORDS=0.55` 让当前句按字配上时间、停在唱到这句 55% 的那一刻，看逐字浪尖。
@@ -975,6 +982,15 @@ struct ImmersiveStageEvidenceHost: View {
                         safeArea: EdgeInsets(),
                         prefersWide: true, controlsInsetDesignValue: 112,
                         showsIOSChrome: false
+                    ))
+                case "padLandscape", "padPortrait":
+                    // iPad 11 英寸的全屏页，拿来和 iPhone Duo 内屏对照。
+                    let isLandscape = layout == "padLandscape"
+                    frames.append(Frame(
+                        effect: effect, layout: layout,
+                        size: isLandscape ? CGSize(width: 1210, height: 834) : CGSize(width: 834, height: 1210),
+                        safeArea: EdgeInsets(top: 24, leading: 0, bottom: 20, trailing: 0),
+                        prefersWide: false, controlsInsetDesignValue: 0
                     ))
                 case "innerLandscape", "innerLandscapeSmall", "innerPortrait":
                     // iPhone Duo 内屏：状态栏收起，全屏页自己量到的左右安全区是 0，底部留 home 指示条。
@@ -2140,7 +2156,9 @@ enum ImmersiveDiscGeometry {
             content: CGRect(x: left, y: top, width: max(0, metrics.size.width - left - right),
                             height: max(0, metrics.size.height - top - bottom)),
             portrait: metrics.isPortrait, hasTonearm: hasTonearm,
-            spacing: metrics.s(metrics.isPortrait ? 24 : (platform == .tvOS ? 90 : 52))
+            spacing: metrics.s(metrics.isPortrait ? 24 : (platform == .tvOS ? 90 : 52)),
+            // Duo 内屏上唱片按宽(横握)或按高(竖握)封顶,另一头空着;多分一些给唱片。
+            artworkShare: metrics.isHandheldCanvas ? (metrics.isPortrait ? 0.64 : 0.62) : nil
         )
     }
 }
