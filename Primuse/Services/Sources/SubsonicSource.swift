@@ -1331,6 +1331,11 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 try? FileManager.default.removeItem(at: temporaryURL)
             } else {
+                // 缓存目录只在建连接器时建过一次,清理这个源的缓存会把它整个删掉。
+                try FileManager.default.createDirectory(
+                    at: fileURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
                 try FileManager.default.moveItem(at: temporaryURL, to: fileURL)
             }
             if isDescriptor { resolvedMediaCacheURLs[songID] = fileURL }

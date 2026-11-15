@@ -521,12 +521,18 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
             .compactMap(\.url?.lastPathComponent).filter { $0 != "ping.view" }
         XCTAssertEqual(mediaMethods, ["stream.view"])
 
-        // The processing file must not become the connector's ordinary download cache.
-        do {
-            _ = try await connector.localURL(for: song.filePath)
-            XCTFail("The download endpoint must still enforce its own permission")
-        } catch is SourceError {}
-        XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: host).last?.url?.lastPathComponent, "download.view")
+        // The processing file must not become the connector's ordinary download cache:
+        // a complete-file request still asks `download` first, and only after the
+        // server refuses it fetches its own copy through the raw stream.
+        let local = try await connector.localURL(for: song.filePath)
+        defer { try? FileManager.default.removeItem(at: local) }
+        XCTAssertNotEqual(local.standardizedFileURL, file.url.standardizedFileURL)
+        XCTAssertEqual(try Data(contentsOf: local), content)
+        XCTAssertEqual(
+            MediaServerRedirectURLProtocol.requests(host: host)
+                .compactMap(\.url?.lastPathComponent).filter { $0 != "ping.view" },
+            ["stream.view", "download.view", "stream.view"]
+        )
 
         let decoded = try await KaraokeSeparationService.decodeForModel(file: file, start: nil, end: nil)
         XCTAssertEqual(decoded.left.count, 4_410)
@@ -634,7 +640,8 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
             for body in [json, xml] {
                 try await assertSubsonicMediaFailure(
                     body: body,
-                    expectedMessage: code == 40 ? nil : message ?? "Subsonic error \(code)"
+                    expectedMessage: code == 40 ? nil : message ?? "Subsonic error \(code)",
+                    downloadRejected: code == 50
                 )
             }
         }
@@ -674,7 +681,13 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
         await source.disconnect()
     }
 
-    private func assertSubsonicMediaFailure(body: Data, expectedMessage: String?) async throws {
+    /// `downloadRejected`: error 50 means downloads are disabled, so the first
+    /// complete-file request falls back to the raw stream and later ones go there directly.
+    private func assertSubsonicMediaFailure(
+        body: Data,
+        expectedMessage: String?,
+        downloadRejected: Bool = false
+    ) async throws {
         let host = uniqueHost("subsonic-media-error")
         MediaServerRedirectURLProtocol.configure(host: host) { request in
             if request.url?.lastPathComponent == "ping.view" {
@@ -708,8 +721,12 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: host).compactMap(\.url?.lastPathComponent),
-                       ["ping.view", "download.view", "download.view", "stream.view", "stream.view"])
+        XCTAssertEqual(
+            MediaServerRedirectURLProtocol.requests(host: host).compactMap(\.url?.lastPathComponent),
+            downloadRejected
+                ? ["ping.view", "download.view", "stream.view", "stream.view", "stream.view", "stream.view"]
+                : ["ping.view", "download.view", "download.view", "stream.view", "stream.view"]
+        )
         await source.disconnect()
     }
 
