@@ -4308,12 +4308,12 @@ struct NowPlayingView: View {
             setLyrics(lines)
         }
         // 这里弹出的面板都套 `playerPresentationColorScheme`:「播放页始终用深色」时弹出页整页一起深色。
-        // 专辑、书、播客节目、电台这几张资料库页面和有声内容的目录面板套 `playerLibraryPagePresentation`,
-        // 照 App 的外观画。
+        // 专辑、书、播客节目、电台这几张资料库页面和有声内容的目录面板、音乐的播放队列套
+        // `playerLibraryPagePresentation`,照 App 的外观画。
         .sheet(isPresented: $showQueue) {
             QueueView(player: player)
                 .queueSheetPresentation()
-                .playerPresentationColorScheme()
+                .playerLibraryPagePresentation()
         }
         .modifier(NowPlayingSpokenWordTextPresentations(
             showChapterList: $showChapterList,
