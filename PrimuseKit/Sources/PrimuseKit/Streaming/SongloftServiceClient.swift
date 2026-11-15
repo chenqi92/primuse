@@ -405,13 +405,28 @@ public actor SongloftServiceClient {
         }
         let (body, response) = try await data(path: "/songs/\(id)/play", query: Self.originalAudioQuery,
             headers: ["Range": range, "Accept-Encoding": "identity"])
-        guard response.statusCode == 206,
-              HTTPByteRangeResponsePolicy.validatedTotalLength(
+        switch response.statusCode {
+        case 206:
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
                 contentRange: response.value(forHTTPHeaderField: "Content-Range"),
                 contentLength: response.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
                 bodyLength: body.count, requestedOffset: offset, requestedLength: length
-              ) != nil else { throw SongloftServiceError.invalidResponse }
-        return body
+            ) != nil else { throw SongloftServiceError.invalidResponse }
+            return body
+        case 200:
+            let mime = response.mimeType?.lowercased() ?? ""
+            guard !mime.contains("json"), !mime.contains("html"), !mime.contains("mpegurl") else {
+                throw SongloftServiceError.invalidResponse
+            }
+            // 服务器（或前面的反代）不认 Range、回了整个文件：整首比要的这一段还短就是答案；
+            // 否则报「不认 Range」，离线下载、预取认得这个错，会改成整首下载，不再按块读到报错。
+            guard HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
+                bodyLength: body.count, requestedOffset: offset, requestedLength: length
+            ) else { throw SpeculativeRangeReadError.rangeUnsupported }
+            return body
+        default:
+            throw SongloftServiceError.invalidResponse
+        }
     }
 
     public func downloadTrack(trackPath: String) async throws -> URL {

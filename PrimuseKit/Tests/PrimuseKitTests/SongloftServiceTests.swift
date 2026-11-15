@@ -237,6 +237,22 @@ struct SongloftServiceTests {
         }
     }
 
+    @Test func serverIgnoringRangeFallsBackToWholeFile() async throws {
+        let client = SongloftFixture(mode: .ignoredRange).client()
+        // 整首比要的一段短：直接就是答案。
+        #expect(try await client.fetchRange(trackPath: "/songloft/songs/1.flac", offset: 0, length: 4) == Data([0x66, 0x4c]))
+        // 否则报「不认 Range」，离线下载据此改成整首下载。
+        await #expect(throws: SpeculativeRangeReadError.rangeUnsupported) {
+            try await client.fetchRange(trackPath: "/songloft/songs/1.flac", offset: 0, length: 1)
+        }
+        await #expect(throws: SpeculativeRangeReadError.rangeUnsupported) {
+            try await client.fetchRange(trackPath: "/songloft/songs/1.flac", offset: 1, length: 1)
+        }
+        let file = try await client.downloadTrack(trackPath: "/songloft/songs/1.flac")
+        defer { try? FileManager.default.removeItem(at: file) }
+        #expect(try Data(contentsOf: file) == Data([0x66, 0x4c]))
+    }
+
     @Test func htmlCannotBecomeOfflineAudio() async throws {
         let client = SongloftFixture(mode: .htmlAudio).client()
         await #expect(throws: SongloftServiceError.invalidResponse) { try await client.downloadTrack(trackPath: "/songloft/songs/1.flac") }
@@ -353,7 +369,7 @@ struct SongloftServiceTests {
 }
 
 private actor SongloftFixture {
-    enum Mode { case normal, empty, changedIDs, refresh, forbidden, wrongRange, htmlAudio, absentLyrics, failedLyrics, irregularPlaylists }
+    enum Mode { case normal, empty, changedIDs, refresh, forbidden, wrongRange, ignoredRange, htmlAudio, absentLyrics, failedLyrics, irregularPlaylists }
     let mode: Mode
     var requests: [URLRequest] = []
     var favorite = false
@@ -411,9 +427,9 @@ private actor SongloftFixture {
             return response(url, json: mode == .empty ? #"{"ids":null,"total":0}"#
                 : mode == .changedIDs && idReads > 1 ? #"{"ids":[2],"total":1}"# : #"{"ids":[1],"total":1}"#)
         case "/songs/1/play", "/songs/1/cover":
-            let range = request.value(forHTTPHeaderField: "Range") != nil
-            let fields = ["Content-Type": mode == .htmlAudio ? "text/html" : "audio/flac", "Content-Length": "2",
-                          "Content-Range": mode == .wrongRange ? "bytes 2-3/4" : "bytes 0-1/2"]
+            let range = request.value(forHTTPHeaderField: "Range") != nil && mode != .ignoredRange
+            var fields = ["Content-Type": mode == .htmlAudio ? "text/html" : "audio/flac", "Content-Length": "2"]
+            if range { fields["Content-Range"] = mode == .wrongRange ? "bytes 2-3/4" : "bytes 0-1/2" }
             return (Data([0x66, 0x4c]), HTTPURLResponse(url: url, statusCode: range ? 206 : 200, httpVersion: nil, headerFields: fields)!)
         case "/songs/1/lyric":
             if mode == .absentLyrics { return response(url, status: 404, json: "{}") }
