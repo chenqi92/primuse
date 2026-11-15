@@ -2070,6 +2070,7 @@ extension AudioPlayerService {
 
     func handleAppDidBecomeActive() {
         #if os(iOS)
+        resampleCarAudioRoute(reason: "foreground")
         retryEmptySystemLyricsAfterForegroundingIfNeeded()
         #endif
         if interruptionResumePolicy.isAwaitingInterruptionEnd {

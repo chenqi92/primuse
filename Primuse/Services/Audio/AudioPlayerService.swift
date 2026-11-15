@@ -1355,6 +1355,24 @@ final class AudioPlayerService {
             output.portType == .carAudio
         }
     }
+
+    private static func currentOutputPortTypes() -> String {
+        AVAudioSession.sharedInstance().currentRoute.outputs
+            .map { $0.portType.rawValue }
+            .joined(separator: ",")
+    }
+
+    /// 在手机上打开 App 时车机已经连着:启动那一刻会话还没激活,读到的路由可能不是车机,
+    /// 之后路由没变也就没有路由变化通知,车机场景又要等用户在车机上点进来才连。会话激活、
+    /// 回到前台时各重取一次,别让锁屏那套标题歌词一直留在车机上。
+    func resampleCarAudioRoute(reason: String) {
+        let wasConnected = isCarAudioRouteConnected
+        isCarAudioRouteConnected = Self.isCarAudioRouteActive()
+        guard wasConnected != isCarAudioRouteConnected else { return }
+        plog("🚗 car audio route resampled reason=\(reason) carAudio=\(isCarAudioRouteConnected) scene=\(isCarPlaySceneActive) outputs=[\(Self.currentOutputPortTypes())]")
+        refreshAudioSessionOutputDelay()
+        refreshSystemLyricsPresentation()
+    }
     #endif
 
     // MARK: - Shuffle Order
@@ -2558,6 +2576,12 @@ final class AudioPlayerService {
             self?.updateNowPlayingInfo()
         }
 
+        #if os(iOS)
+        manager.onPlaybackSessionActivated = { [weak self] in
+            self?.resampleCarAudioRoute(reason: "session-activated")
+        }
+        #endif
+
         manager.onInterruptionBegan = { [weak self] interruptionTime in
             guard let self else { return }
             self.transportDisturbanceGeneration &+= 1
@@ -2938,8 +2962,10 @@ final class AudioPlayerService {
             $0 is CPTemplateApplicationScene && $0.activationState != .unattached
         }
         // currentRoute performs synchronous IPC; lyric ticks only need the
-        // latest route snapshot, which route-change notifications keep current.
+        // latest route snapshot, which route-change notifications, session
+        // activation and foregrounding keep current.
         isCarAudioRouteConnected = Self.isCarAudioRouteActive()
+        plog("🚗 car state at launch scene=\(isCarPlaySceneActive) carAudio=\(isCarAudioRouteConnected) outputs=[\(Self.currentOutputPortTypes())]")
         refreshAudioSessionOutputDelay()
         let center = NotificationCenter.default
 
@@ -3003,6 +3029,7 @@ final class AudioPlayerService {
                 self.isCarAudioRouteConnected = handlingOutputs.contains { $0.portType == .carAudio }
                 self.refreshAudioSessionOutputDelay()
                 if wasCarAudioConnected != self.isCarAudioRouteConnected {
+                    plog("🚗 car audio route changed carAudio=\(self.isCarAudioRouteConnected) scene=\(self.isCarPlaySceneActive)")
                     self.refreshSystemLyricsPresentation()
                 }
                 let handlingOutputTypes = handlingOutputs

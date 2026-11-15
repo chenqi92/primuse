@@ -14,6 +14,9 @@ final class AudioSessionManager {
     /// 后台临时混音之后又切回了独占:系统重新把 Primuse 当成正在播放的 App,播放器要整份重发
     /// 一次「正在播放」,锁屏、控制中心和灵动岛才跟着回来。
     var onExclusivePlaybackRestored: (() -> Void)?
+    /// 会话激活成功(含退回可混音)之后。激活前读到的路由可能还不是最终那条,
+    /// 路由没变时系统也不发路由变化通知,播放器在这里重新取一次路由快照。
+    var onPlaybackSessionActivated: (() -> Void)?
     /// Called whenever an interruption ends, carrying the system resume grant.
     /// Delivering denied endings is required so stale resume intent can be
     /// cleared instead of being revived by a later lifecycle callback.
@@ -78,8 +81,12 @@ final class AudioSessionManager {
                 plog("🔊 Audio session back to exclusive playback reason=activation")
                 onExclusivePlaybackRestored?()
             }
+            onPlaybackSessionActivated?()
         } catch {
-            if activateBackgroundMixingFallback(session, after: error) { return }
+            if activateBackgroundMixingFallback(session, after: error) {
+                onPlaybackSessionActivated?()
+                return
+            }
             plog("Failed to activate audio session: \(error)")
             throw PlaybackAudioSessionFailure(error)
         }
