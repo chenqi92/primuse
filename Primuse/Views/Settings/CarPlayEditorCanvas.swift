@@ -531,10 +531,7 @@ struct CarPlayEditorCanvas: View {
                 Text("carplay_now_playing").font(.system(size: 16, weight: .semibold))
                 Spacer()
                 if configuration.topRightAction != .hidden {
-                    Text(configuration.topRightAction == .audioInfo && !quality.summary.isEmpty
-                         ? quality.summary : NSLocalizedString(configuration.topRightAction.titleKey, comment: ""))
-                        .font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                        .accessibilityIdentifier("carplay.previewTopAction")
+                    topActionPreview(quality: quality)
                 }
             }.padding(.horizontal, 20).padding(.top, 18)
             HStack(spacing: 24) {
@@ -574,6 +571,24 @@ struct CarPlayEditorCanvas: View {
                 .foregroundStyle(CarPlayEditorTheme.secondary).padding(.horizontal, 48).padding(.top, 6)
             }
             Spacer(minLength: 0)
+        }
+    }
+
+    /// 右上角那颗键:「即将播放」在车上是系统的列表图标(#423),其余写字。
+    @ViewBuilder
+    private func topActionPreview(quality: CarPlayAudioQualityText) -> some View {
+        if configuration.topRightAction == .queue {
+            Image(systemName: "list.bullet")
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 30, height: 30)
+                .background(CarPlayEditorTheme.row, in: Circle())
+                .accessibilityLabel(Text("carplay_up_next"))
+                .accessibilityIdentifier("carplay.previewTopAction")
+        } else {
+            Text(configuration.topRightAction == .audioInfo && !quality.summary.isEmpty
+                 ? quality.summary : NSLocalizedString(configuration.topRightAction.titleKey, comment: ""))
+                .font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                .accessibilityIdentifier("carplay.previewTopAction")
         }
     }
 

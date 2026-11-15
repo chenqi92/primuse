@@ -2313,8 +2313,10 @@ extension CarPlaySceneDelegate {
         let topAction = layout.topRightAction
         let quality = player.currentSong.map { CarPlayAudioQualityText(song: $0, transcodePlan: player.activeTranscodePlan) }
         let title = topAction == .audioInfo ? quality?.summary : nil
+        // 「即将播放」不写字(#423):标题留空时车机画系统自己的列表图标,和 Apple 播客、图书一样;
+        // 写了字就是一颗文字键。其余几种右上角键照旧写字,点了做什么得看得出来。
         template.upNextTitle = title.flatMap { $0.isEmpty ? nil : $0 }
-            ?? NSLocalizedString(topAction.titleKey, comment: "")
+            ?? (topAction == .queue ? "" : NSLocalizedString(topAction.titleKey, comment: ""))
         let hasAlbum = player.currentSong?.albumID.map { id in
             AppServices.shared.musicLibrary.visibleAlbums.contains { $0.id == id }
         } ?? false

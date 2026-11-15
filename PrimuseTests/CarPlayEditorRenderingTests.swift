@@ -190,7 +190,12 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         settings.configuration.customNowPlayingButtons = [.queue, .audioQuality, .audioBitRate]
         delegate.refreshNowPlayingButtons()
         XCTAssertTrue(CPNowPlayingTemplate.shared.isUpNextButtonEnabled)
+        // 标题留空,车机画系统的列表图标(#423)。
+        XCTAssertEqual(CPNowPlayingTemplate.shared.upNextTitle, "")
         XCTAssertEqual(CPNowPlayingTemplate.shared.nowPlayingButtons.count, 2)
+        settings.configuration.topRightAction = .more
+        delegate.refreshNowPlayingButtons()
+        XCTAssertEqual(CPNowPlayingTemplate.shared.upNextTitle, String(localized: "more"))
     }
 
     func testLayoutOnlyEditsDoNotInvalidateCatalogInputs() throws {
