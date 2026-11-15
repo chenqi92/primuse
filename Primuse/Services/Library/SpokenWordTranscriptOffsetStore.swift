@@ -111,10 +111,26 @@ final class SpokenWordTranscriptOffsetStore {
         return items[key]?.delay ?? 0
     }
 
-    /// 显示用的文稿与歌词:按这首的偏移平移时间轴。
+    /// 显示用的文稿与歌词:先换到这一段自己的时间轴,再按这首的偏移平移。
     func presenting(_ lines: [LyricLine], for song: Song?) -> [LyricLine] {
         guard let song, !lines.isEmpty else { return lines }
-        return SpokenWordTranscriptOffsetPolicy.applying(delay: effectiveDelay(for: song), to: lines)
+        return SpokenWordTranscriptOffsetPolicy.applying(
+            delay: effectiveDelay(for: song),
+            to: Self.segmentTimeline(lines, for: song)
+        )
+    }
+
+    /// 整轨 CUE 分轨读到的是整个文件那份歌词 / 文稿、串烧的一段读到的是整首的歌词时,只留
+    /// 这一段时间窗里的行并平移到这一段的起点(#426):播放器给这两种的时间都从这一段的起点算。
+    private static func segmentTimeline(_ lines: [LyricLine], for song: Song) -> [LyricLine] {
+        if let segment = CueTrackLyricsTimelinePolicy.segment(for: song) {
+            return CueTrackLyricsTimelinePolicy.presenting(lines, in: segment)
+        }
+        if let slice = CueTrackLyricsTimelinePolicy.medleySliceSegment(for: song),
+           AppServices.shared.playerService.medleySongIDs.contains(song.id) {
+            return CueTrackLyricsTimelinePolicy.presenting(lines, in: slice, assumingWholeFile: true)
+        }
+        return lines
     }
 
     /// 偏移变了:播放页马上重排一遍。

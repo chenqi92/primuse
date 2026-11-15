@@ -432,3 +432,124 @@ private extension Character {
         return (48...57).contains(ascii)
     }
 }
+
+/// 整轨 CUE 分轨（一个 m4b/FLAC + 章节或曲目 CUE）旁边常常只有一份覆盖整个音频
+/// 文件的歌词或文稿：`书.elrc`、`书.ttml`、`CDImage.lrc`。播放器给分轨的时间从
+/// 这一轨的起点算，这份文档的时间从整个文件的起点算，直接拿来对位，第二章一开始
+/// 文稿就又从文件开头那句念起（#426）。
+///
+/// 这里判定一份已经读出来的文档是不是整个文件的那份；是，就只留这一轨时间窗里的
+/// 行，平移到这一轨的起点。只给显示和对位用：缓存、编辑器、写回仍是文件原样的
+/// 时间轴，用户的文件不动。
+///
+/// 判定只看内容不看文件名：分轨自己的歌词都落在这一轨的长度里，整个文件的那份在
+/// 这一轨长度之后还有成段的行。记下的引用可能是整轨同名、本机缓存名或不透明 ID，
+/// 分轨文件也可能是早先编辑器按整个文件的时间轴另存出来的，名字都靠不住。
+public enum CueTrackLyricsTimelinePolicy {
+    /// 一轨在整个文件里的时间窗。`end` 为 nil 是最后一轨，往后都算它的。
+    public struct Segment: Equatable, Sendable {
+        public var start: TimeInterval
+        public var end: TimeInterval?
+        public var duration: TimeInterval
+
+        public init(start: TimeInterval, end: TimeInterval?, duration: TimeInterval) {
+            self.start = start
+            self.end = end
+            self.duration = duration
+        }
+    }
+
+    /// 至少这么多行落在这一轨长度之后，才认定是整个文件的文档；一两行写错的尾巴不算。
+    static let minimumOverrunLineCount = 2
+
+    /// CUE 的 INDEX 和文档时间戳各自取整，边界前这么久之内的行算后一轨的。
+    static let boundaryTolerance: TimeInterval = 0.5
+
+    /// 分轨歌词收尾行比 CUE 边界晚一点是常事，超出这么多才算这一轨之后的行。
+    static func overrunTolerance(forDuration duration: TimeInterval) -> TimeInterval {
+        max(3, duration * 0.03)
+    }
+
+    /// 真正的 CUE 分轨（含 SACD/ISO 镜像里的音轨）的时间窗。时长取 CUE 起止；最后
+    /// 一轨没有终点时取这首的整段时长（带播放时间段的副本先还原）。
+    public static func segment(for song: Song) -> Segment? {
+        guard song.isCueTrack,
+              let start = song.cueStartTime,
+              start.isFinite, start >= 0 else { return nil }
+        let end = song.cueEndTime.flatMap { $0.isFinite && $0 > start ? $0 : nil }
+        let duration = end.map { $0 - start } ?? song.withoutAppliedPlaybackRange.duration
+        guard duration.isFinite, duration > 0 else { return nil }
+        return Segment(start: start, end: end, duration: duration)
+    }
+
+    /// 串烧里的一段：不是 CUE 分轨，但同样用 `cueStartTime`/`cueEndTime` 记它在整首里的
+    /// 位置，播放时间也从这一段的起点算。它读到的永远是整首的歌词。
+    public static func medleySliceSegment(for song: Song) -> Segment? {
+        guard !song.isCueTrack,
+              let start = song.cueStartTime, start.isFinite, start >= 0,
+              let end = song.cueEndTime, end.isFinite, end > start else { return nil }
+        return Segment(start: start, end: end, duration: end - start)
+    }
+
+    /// 这些时间戳（只给已同步的行）是不是整个文件的文档：落在这一轨长度之后的行够多。
+    public static func coversWholeFile<Timestamps: Sequence>(
+        timestamps: Timestamps,
+        segment: Segment
+    ) -> Bool where Timestamps.Element == TimeInterval {
+        guard segment.duration.isFinite, segment.duration > 0 else { return false }
+        let limit = segment.duration + overrunTolerance(forDuration: segment.duration)
+        var overrun = 0
+        for timestamp in timestamps where timestamp.isFinite && timestamp > limit {
+            overrun += 1
+            if overrun >= minimumOverrunLineCount { return true }
+        }
+        return false
+    }
+
+    /// 整个文件那份文档里的一行属不属于这一轨：开头落在时间窗里（边界前一点也算后
+    /// 一轨），或者开头在这一轨之前、但自己写明的行末跨进了这一轨。
+    public static func keepsLine(
+        startingAt timestamp: TimeInterval,
+        endingAt lineEnd: TimeInterval?,
+        in segment: Segment
+    ) -> Bool {
+        guard timestamp.isFinite else { return false }
+        if let end = segment.end, timestamp >= end - boundaryTolerance { return false }
+        if timestamp >= segment.start - boundaryTolerance { return true }
+        guard let lineEnd, lineEnd.isFinite else { return false }
+        return lineEnd > segment.start + boundaryTolerance
+    }
+
+    /// 真正的 CUE 分轨显示用的歌词；不是分轨、或文档就是这一轨自己的，原样返回。
+    public static func presenting(_ lines: [LyricLine], for song: Song) -> [LyricLine] {
+        guard let segment = segment(for: song) else { return lines }
+        return presenting(lines, in: segment)
+    }
+
+    /// 只留时间窗里的行并平移到这一段的起点；逐字时间、行末、和声行一起挪，译文和
+    /// 读音跟着各自的行走。`assumingWholeFile` 给串烧用：它读到的一定是整首的。
+    /// 时间窗里一行都没有时原样返回，不把整份歌词换成空白。
+    public static func presenting(
+        _ lines: [LyricLine],
+        in segment: Segment,
+        assumingWholeFile: Bool = false
+    ) -> [LyricLine] {
+        guard lines.contains(where: \.isSynchronized) else { return lines }
+        if !assumingWholeFile {
+            let timestamps = lines.lazy.filter(\.isSynchronized).map(\.timestamp)
+            guard coversWholeFile(timestamps: timestamps, segment: segment) else { return lines }
+        }
+        var kept = lines.filter { line in
+            keepsLine(startingAt: line.timestamp, endingAt: line.endTime, in: segment)
+        }
+        guard !kept.isEmpty else { return lines }
+        if let first = lines.first, kept[0].id != first.id {
+            // 文档级的记录（LRC 头、来源、本机改过）只记在第一行上，开头的行被裁掉时
+            // 挪到新的第一行。
+            kept[0].metadataLines = first.metadataLines
+            kept[0].documentSource = first.documentSource
+            kept[0].documentIsLocalOverride = first.documentIsLocalOverride
+        }
+        return LyricDocumentOffsetPolicy.applying(offset: segment.start, to: kept)
+    }
+}

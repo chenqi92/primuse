@@ -36,7 +36,9 @@ enum LyricsFileExporter {
         isTranscript: Bool,
         sourceManager: SourceManager
     ) async throws -> URL {
-        let lines = await LyricsLoader.load(for: song, sourceManager: sourceManager)
+        // 整轨 CUE 分轨读到整个文件那份时只导出这一轨的、按这一轨的时间,和文件名说的这一首一致(#426)。
+        let loaded = await LyricsLoader.load(for: song, sourceManager: sourceManager)
+        let lines = CueTrackLyricsTimelinePolicy.presenting(loaded, for: song)
         try Task.checkCancellation()
         guard let text = LyricsExportPolicy.render(lines, as: format, readsAsProse: isTranscript) else {
             let formats = LyricsExportPolicy.formats(for: lines)

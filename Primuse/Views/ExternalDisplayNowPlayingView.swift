@@ -255,7 +255,8 @@ struct ExternalDisplayNowPlayingView: View {
         let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
         guard !Task.isCancelled, player.currentSong?.id == song.id,
               lyricsLoadRevision == revision else { return }
-        lyrics = cached ?? []
+        // 和主屏同一份显示时间轴:整轨 CUE 分轨换到这一轨的时间、按这首的偏移平移(#426)。
+        lyrics = SpokenWordTranscriptOffsetStore.shared.presenting(cached ?? [], for: player.currentSong)
         updateLyricIndex(for: player.currentTime)
     }
 }
@@ -338,7 +339,7 @@ struct ExternalDisplayImmersiveView: View {
         let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID)
         guard !Task.isCancelled, player.currentSong?.id == songID,
               lyricsLoadRevision == revision else { return }
-        lyrics = cached ?? []
+        lyrics = SpokenWordTranscriptOffsetStore.shared.presenting(cached ?? [], for: player.currentSong)
         isResolvingLyrics = false
     }
 }

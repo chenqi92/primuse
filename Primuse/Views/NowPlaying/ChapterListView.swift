@@ -97,7 +97,11 @@ struct SpokenWordContentsView: View {
                     song: song,
                     bookSongs: player.currentBookItemIDs.compactMap { library.song(id: $0) },
                     library: library,
-                    loadTranscript: { await LyricsLoader.load(for: $0, sourceManager: manager, allowsAutomaticOnlineLyrics: false) }
+                    // 整轨 CUE 分轨读到整个文件那份文稿时只给这一章的、按这一章的时间(#426)。
+                    loadTranscript: { chapter in
+                        let lines = await LyricsLoader.load(for: chapter, sourceManager: manager, allowsAutomaticOnlineLyrics: false)
+                        return CueTrackLyricsTimelinePolicy.presenting(lines, for: chapter)
+                    }
                 )
             }
         }

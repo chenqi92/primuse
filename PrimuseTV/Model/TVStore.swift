@@ -6834,7 +6834,9 @@ final class TVStore {
     }
 
     func chapterTranscript(for song: Song) async -> [LyricLine] {
-        await coordinator.chapterTranscript(for: song)
+        // 整轨 CUE 分轨读到整个文件那份文稿时只给这一章的、按这一章的时间(#426)。
+        let lines = await coordinator.chapterTranscript(for: song)
+        return CueTrackLyricsTimelinePolicy.presenting(lines, for: song)
     }
 
     /// 这一条文件里的章节标记(AVPlayer 从流里读,SFB 路径从下载的文件里读);
@@ -9304,9 +9306,30 @@ final class TVStore {
         guard currentSongID == songID else { return }
         if isMedleyActive, let offset = medleySlices[songID]?.cueStartTime {
             lyrics = lines.map { $0.shiftedForMedley(by: offset) }
+        } else if let segment = library.song(id: songID).flatMap(CueTrackLyricsTimelinePolicy.segment(for:)) {
+            lyrics = Self.cueTrackLyrics(lines, in: segment)
         } else {
             lyrics = lines
         }
+    }
+
+    /// 整轨 CUE 分轨读到的是整个文件那份歌词 / 文稿时,只留这一轨时间窗里的行并换到这一轨的
+    /// 时间(#426);判定与手机同一套(`CueTrackLyricsTimelinePolicy`),分轨自己的歌词原样。
+    nonisolated static func cueTrackLyrics(
+        _ lines: [TVLyricLine],
+        in segment: CueTrackLyricsTimelinePolicy.Segment
+    ) -> [TVLyricLine] {
+        let timestamps = lines.lazy.filter(\.isSynchronized).map(\.time)
+        guard CueTrackLyricsTimelinePolicy.coversWholeFile(timestamps: timestamps, segment: segment) else {
+            return lines
+        }
+        let kept = lines.filter { line in
+            let lineEnd = [line.endTimestamp, line.syllables.last?.end].compactMap { $0 }.max()
+            return CueTrackLyricsTimelinePolicy.keepsLine(startingAt: line.time, endingAt: lineEnd, in: segment)
+        }
+        guard !kept.isEmpty else { return lines }
+        guard segment.start > 0 else { return kept }
+        return kept.map { $0.shiftedForMedley(by: segment.start) }
     }
 }
 

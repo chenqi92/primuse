@@ -366,3 +366,189 @@ private struct SeededGenerator: RandomNumberGenerator {
         return state
     }
 }
+
+@Suite("CUE track lyrics on the whole-file timeline")
+struct CueTrackLyricsTimelinePolicyTests {
+    private typealias Policy = CueTrackLyricsTimelinePolicy
+
+    /// 一本书:序章 0–60s,第一章 60–180s,第二章 180s 起到文件末尾(300s)。
+    private static func chapter(
+        start: TimeInterval,
+        end: TimeInterval?,
+        duration: TimeInterval? = nil
+    ) -> Song {
+        Song(
+            id: "book#\(Int(start))",
+            title: "Chapter",
+            duration: duration ?? end.map { $0 - start } ?? 0,
+            fileFormat: .flac,
+            filePath: "/books/Book.m4b",
+            sourceID: "nas",
+            cueSheetPath: "/books/Book.cue",
+            cueStartTime: start,
+            cueEndTime: end
+        )
+    }
+
+    private static func stamp(_ time: TimeInterval) -> String {
+        let minutes = Int(time) / 60
+        let seconds = time - Double(minutes * 60)
+        return String(format: "%02d:%05.2f", minutes, seconds)
+    }
+
+    /// 整本书一份 ELRC:每 10 秒一句,每句两个逐字时间。
+    private static func wholeBookELRC(until end: TimeInterval = 300) -> [LyricLine] {
+        let text = stride(from: 0.0, to: end, by: 10).map { time in
+            "[\(stamp(time))]<\(stamp(time))>Line <\(stamp(time + 1))>\(Int(time))<\(stamp(time + 2))>"
+        }.joined(separator: "\n")
+        return LyricsContentParser.parse("[ti:Book]\n" + text)
+    }
+
+    @Test("A later chapter continues the whole-book ELRC from its own start")
+    func laterChapterShiftsWholeFileDocument() {
+        let lines = Self.wholeBookELRC()
+        #expect(lines.count == 30)
+        let song = Self.chapter(start: 60, end: 180)
+
+        let presented = Policy.presenting(lines, for: song)
+
+        let texts = presented.map(\.text)
+        #expect(texts.first == "Line 60")
+        #expect(texts.last == "Line 170")
+        #expect(presented.count == 12)
+        #expect(presented.first?.timestamp == 0)
+        // 逐字时间一起挪:原来 61s 的第二个字现在在 1s。
+        #expect(presented.first?.syllables?.map(\.start) == [0, 1])
+        #expect(presented.first?.syllables?.last?.end == 2)
+        // 章内 15 秒对应整本书 75 秒那句。
+        let active = LyricPlaybackPositionPolicy.activeLineIndex(in: presented, at: 15)
+        #expect(active.map { presented[$0].text } == "Line 70")
+        // 文档头跟着挪到新的第一行。
+        #expect(presented.first?.metadataLines == lines.first?.metadataLines)
+    }
+
+    @Test("The first chapter keeps its times and drops the chapters after it")
+    func firstChapterOnlyClips() {
+        let lines = Self.wholeBookELRC()
+        let presented = Policy.presenting(lines, for: Self.chapter(start: 0, end: 60))
+        #expect(presented.map(\.text) == (0..<6).map { "Line \($0 * 10)" })
+        #expect(presented.map(\.timestamp) == lines.prefix(6).map(\.timestamp))
+        #expect(presented.map(\.id) == lines.prefix(6).map(\.id))
+    }
+
+    @Test("The last chapter without a CUE end runs to the end of the document")
+    func lastChapterUsesSongDuration() {
+        let lines = Self.wholeBookELRC()
+        let song = Self.chapter(start: 180, end: nil, duration: 120)
+        let presented = Policy.presenting(lines, for: song)
+        #expect(presented.map(\.text).first == "Line 180")
+        #expect(presented.map(\.text).last == "Line 290")
+        #expect(presented.last?.timestamp == 110)
+
+        // 播放时间段的副本时长是区间终点,时间窗仍按整轨。
+        let ranged = song.playing(AppliedSongPlaybackRange(start: 10, end: 40, songDuration: 120))
+        #expect(Policy.segment(for: ranged) == Policy.Segment(start: 180, end: nil, duration: 120))
+    }
+
+    @Test("A chapter's own document is left exactly as it is")
+    func perTrackDocumentUnchanged() {
+        // 第一章自己的文稿:时间都在 0–120s 之内,哪怕落在 60s 以后也不能当整本书的挪走。
+        let own = LyricsContentParser.parse(
+            stride(from: 0.0, to: 120, by: 10).map { "[\(Self.stamp($0))]Own \(Int($0))" }
+                .joined(separator: "\n")
+        )
+        let song = Self.chapter(start: 60, end: 180)
+        #expect(Policy.presenting(own, for: song) == own)
+
+        // 只有一行写错的尾巴也不算整本书的。
+        let stray = own + [LyricLine(timestamp: 900, text: "credits")]
+        #expect(Policy.presenting(stray, for: song) == stray)
+    }
+
+    @Test("A whole-file document with nothing in this chapter is not blanked")
+    func emptyWindowKeepsDocument() {
+        let lines = Self.wholeBookELRC().filter { $0.timestamp < 60 || $0.timestamp >= 180 }
+        let song = Self.chapter(start: 60, end: 180)
+        #expect(Policy.presenting(lines, for: song) == lines)
+    }
+
+    @Test("Subtitle cues keep their end times and a cue running into the chapter stays")
+    func subtitleCuesShiftWithEnds() {
+        let srt = """
+        1
+        00:00:50,000 --> 00:01:05,000
+        Across the boundary
+
+        2
+        00:01:10,000 --> 00:01:20,000
+        Inside
+
+        3
+        00:02:00,000 --> 00:02:10,000
+        Later one
+
+        4
+        00:03:30,000 --> 00:03:40,000
+        Next chapter
+
+        5
+        00:04:30,000 --> 00:04:40,000
+        Near the end
+        """
+        let lines = LyricsContentParser.parse(srt)
+        #expect(lines.count == 5)
+        let presented = Policy.presenting(lines, for: Self.chapter(start: 60, end: 180))
+        #expect(presented.map(\.text) == ["Across the boundary", "Inside", "Later one"])
+        #expect(presented.map(\.timestamp) == [0, 10, 60])
+        #expect(presented.first?.endTimestamp == 5)
+        #expect(presented[1].endTimestamp == 20)
+    }
+
+    @Test("Translations and the document source ride with their lines")
+    func translationsAndDocumentFieldsMove() {
+        var lines = Self.wholeBookELRC()
+        lines[0].documentSource = .file("/books/Book.elrc")
+        lines[7].manualTranslation = LyricManualTranslation(text: "第七十秒", source: .embeddedField)
+        lines[7].romanization = "di qi shi miao"
+        let presented = Policy.presenting(lines, for: Self.chapter(start: 60, end: 180))
+        #expect(presented.first?.documentSource == lines[0].documentSource)
+        let seventy = presented.first { $0.text == "Line 70" }
+        #expect(seventy?.manualTranslation?.text == "第七十秒")
+        #expect(seventy?.romanization == "di qi shi miao")
+        #expect(seventy?.timestamp == 10)
+    }
+
+    @Test("A medley slice always reads the whole song; real CUE tracks are not slices")
+    func medleySlice() {
+        let slice = Song(
+            id: "song", title: "Song", duration: 30, fileFormat: .flac,
+            filePath: "/music/song.flac", sourceID: "nas",
+            cueStartTime: 120, cueEndTime: 150
+        )
+        #expect(Policy.segment(for: slice) == nil)
+        let segment = Policy.medleySliceSegment(for: slice)
+        #expect(segment == Policy.Segment(start: 120, end: 150, duration: 30))
+        #expect(Policy.medleySliceSegment(for: Self.chapter(start: 60, end: 180)) == nil)
+
+        let song = LyricsContentParser.parse(
+            stride(from: 0.0, to: 160, by: 10).map { "[\(Self.stamp($0))]S\(Int($0))" }
+                .joined(separator: "\n")
+        )
+        if let segment {
+            let presented = Policy.presenting(song, in: segment, assumingWholeFile: true)
+            #expect(presented.map(\.text) == ["S120", "S130", "S140"])
+            #expect(presented.map(\.timestamp) == [0, 10, 20])
+        }
+    }
+
+    @Test("Plain unsynchronized text and songs that are not CUE tracks pass through")
+    func passThrough() {
+        let plain = [LyricLine(timestamp: 0, text: "one", isSynchronized: false),
+                     LyricLine(timestamp: 0, text: "two", isSynchronized: false)]
+        #expect(Policy.presenting(plain, for: Self.chapter(start: 60, end: 180)) == plain)
+
+        let lines = Self.wholeBookELRC()
+        let ordinary = Song(id: "x", title: "x", duration: 60, fileFormat: .flac, filePath: "/x.flac", sourceID: "nas")
+        #expect(Policy.presenting(lines, for: ordinary) == lines)
+    }
+}

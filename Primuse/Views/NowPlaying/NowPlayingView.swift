@@ -11849,7 +11849,7 @@ struct NowPlayingView: View {
            value.first?.documentSource == lyrics.first?.documentSource,
            LyricsDocumentFingerprint(lines: value) == LyricsDocumentFingerprint(lines: lyrics) {
             clearLyricsResolution()
-            consumePendingLyricsJump(from: lyrics)
+            consumePendingLyricsJump(from: presentedLyrics)
             return
         }
         clearLyricsResolution()
@@ -11862,7 +11862,8 @@ struct NowPlayingView: View {
         plog("📜 setLyrics: lines=\(value.count) wordLevelLines=\(wordLevelCount) direction=\(String(describing: lyricsWritingDirection)) firstSyllables=\(value.first?.syllables?.count ?? -1)")
         // currentLineIndex / hasWordLevelLyrics 已迁移到 LyricsScrollView 子 view,
         // 子 view 自己 onChange(of: songID) 重置 + computed property 算 hasWord。
-        consumePendingLyricsJump(from: value)
+        // 按显示的那份时间跳:CUE 分轨读到整个文件的歌词时已平移到这一轨(#426),也带着按首偏移。
+        consumePendingLyricsJump(from: presentedLyrics)
     }
 
     /// 全屏文字稿读的那份:和歌词页同一份,带着这一集 / 这本书的时间偏移(#320),关了「显示歌词

@@ -231,7 +231,10 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
             guard let self else { return }
             self.lyricsTask?.cancel()
             self.lyricsTask = nil
-            self.lyrics = lines.filter { $0.isSynchronized }
+            // 和首次加载(loadForDisplay)同一份显示时间轴:CUE 分轨、按这首的偏移(#426)。
+            self.lyrics = SpokenWordTranscriptOffsetStore.shared
+                .presenting(lines, for: AppServices.shared.playerService.currentSong)
+                .filter { $0.isSynchronized }
             self.updateLyricLine()
             self.observeLyricTime()
         }

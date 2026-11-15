@@ -782,7 +782,8 @@ final class KaraokeSession {
             let loaded = await LyricsLoader.load(for: song, sourceManager: sourceManager)
             guard !Task.isCancelled, let self, self.songID == expectedID else { return }
             self.isLoadingLyrics = false
-            self.applyLyrics(loaded)
+            // 整轨 CUE 分轨读到整个文件那份歌词时换到这一轨的时间轴;分离出的人声也只有这一轨(#426)。
+            self.applyLyrics(CueTrackLyricsTimelinePolicy.presenting(loaded, for: song))
         }
     }
 

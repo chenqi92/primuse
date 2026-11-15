@@ -169,7 +169,8 @@ final class FloatingLyricsService {
                   self.hasDemand, self.player?.currentSong?.id == songID,
                   let cached, !cached.isEmpty else { return }
             self.cancelLoad()
-            self.accept(cached)
+            // 和首次加载(loadForDisplay)同一份显示时间轴:CUE 分轨、按这首的偏移(#426)。
+            self.accept(SpokenWordTranscriptOffsetStore.shared.presenting(cached, for: self.player?.currentSong))
         }
     }
 
