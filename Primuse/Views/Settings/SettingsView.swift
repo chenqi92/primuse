@@ -23,6 +23,8 @@ struct SettingsView: View {
     /// 极简模式下设置不在分段里：左上角回到进设置之前那一页。
     @Environment(\.minimalSettingsReturn) private var minimalReturn
     #endif
+    /// 看不见的预建副本（见 ContentView 的 `SettingsTabPrewarmer`）：不接跳转请求，免得把它从真设置页手里拿走。
+    @Environment(\.isSettingsPrewarm) private var isPrewarm
 
     init(
         scraperSettingsRoute: Binding<ScraperSettingsRouteState> = .constant(.init()),
@@ -155,12 +157,12 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: scraperSettingsRoute.isMetadataScrapingPresented, initial: true) { _, requested in
-                guard requested else { return }
+                guard requested, !isPrewarm else { return }
                 path = [.page(.scraping, nil)]
                 scraperSettingsRoute.setMetadataScrapingPresented(false)
             }
             .onChange(of: SettingsNavigation.shared.request, initial: true) { _, request in
-                guard let request, SettingsNavigation.shared.presentedToken != request.token,
+                guard !isPrewarm, let request, SettingsNavigation.shared.presentedToken != request.token,
                       let item = SettingsCatalog.byID[request.settingID] else { return }
                 SettingsNavigation.shared.presentedToken = request.token
                 path = []
@@ -4586,4 +4588,9 @@ struct CompanionAssetDownloadAlerts: ViewModifier {
                 CompanionAssetDownloadFlow.limitLabel(flow.suggestedLimit)
             )
     }
+}
+
+extension EnvironmentValues {
+    /// 这份设置页只是启动后预先建出来又拆掉的副本，不是用户看到的那一份。
+    @Entry var isSettingsPrewarm = false
 }

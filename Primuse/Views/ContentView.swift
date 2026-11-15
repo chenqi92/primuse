@@ -1577,6 +1577,21 @@ struct ContentView: View {
         visibleLibrarySections.map(SidebarItem.libraryChild(for:))
     }
 
+    @ViewBuilder
+    private var idlePrewarmers: some View {
+        NowPlayingPrewarmers(isPlayerPresented: $showNowPlaying)
+        SettingsTabPrewarmer(
+            isEnabled: prewarmsSettingsTab,
+            isShowingSettings: selectedTab == AppNavigationTab.settings.rawValue
+        )
+    }
+
+    /// 只在底部标签栏布局、设置标签看得见时预建。
+    private var prewarmsSettingsTab: Bool {
+        navigationScenePhase == .active && library.isReady && rootLayout == .standardTabs
+            && tabConfiguration.isVisible(.settings)
+    }
+
     private var searchTabRole: TabRole? {
         #if compiler(>=6.4)
         // iOS 27 no longer separates a search tab unless it activates search.
@@ -2236,9 +2251,8 @@ struct ContentView: View {
             }
         }
         // 播放页背景选了图时，没展开前先备好，点迷你条拉起来就是那张图，不先露出底色。
-        .background {
-            NowPlayingPrewarmers(isPlayerPresented: $showNowPlaying)
-        }
+        // 设置页也在这里预先建一次，见 `SettingsTabPrewarmer`。
+        .background { idlePrewarmers }
         // 跨年自动弹年度报告 ── 每次 ContentView 进入 (app 启动 / 切前台后
         // 重新出现) 都跑一次, trigger 内部用 UserDefaults 记录已弹避免重复。
         // 触发条件: 当前月份 == 1 + 上一年没弹过 + 上一年听满 ≥ 2 个不同月份。
@@ -2890,6 +2904,48 @@ private struct PlayerOverlayMount: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             if !isPresented { isResident = false }
         }
+    }
+}
+
+/// 第一次切到「设置」标签时，设置页的列表、导航栏里的系统搜索框和工具栏菜单都是在点下去的那一刻才第一次建出来，
+/// 主线程要卡一阵（模拟器上 0.5–0.9 秒，搜索与其他标签连在一起时更久），标签栏的选中水滴就停在半空，
+/// 等页面出来才落下去。这份成本绝大部分是整个进程只付一次的（类型、系统控件第一次创建），所以启动稳定后
+/// 在看不见的地方建一份设置页再拆掉，之后第一次切过去就和其他标签一样一次到位。每个进程只做一次；
+/// 真设置页已经打开过（比如启动就停在设置）就不用再做。
+private struct SettingsTabPrewarmer: View {
+    let isEnabled: Bool
+    let isShowingSettings: Bool
+    @State private var mounted = false
+    @MainActor private static var finished = false
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .overlay(alignment: .topLeading) {
+                if mounted {
+                    SettingsView()
+                        .environment(\.isSettingsPrewarm, true)
+                        .frame(width: 390, height: 844)
+                        .opacity(0)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: isShowingSettings, initial: true) { _, showing in
+                if showing { Self.finished = true }
+            }
+            .task(id: isEnabled && !isShowingSettings) {
+                guard isEnabled, !isShowingSettings, !Self.finished else { return }
+                // 等启动这一阵（曲库装载、首页首屏）过去再做，不跟它们抢主线程。
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled, !Self.finished else { return }
+                Self.finished = true
+                mounted = true
+                try? await Task.sleep(for: .seconds(1))
+                mounted = false
+            }
     }
 }
 
