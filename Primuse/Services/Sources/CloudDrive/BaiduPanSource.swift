@@ -1621,7 +1621,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
 
         try await tracker.check()
         let diff = try BaiduSnapshotDiffPolicy.plan(
-            previousIndex: state.index.dictionary,
+            previousIndex: state.index,
             currentItems: Array(traversal.snapshot.values),
             liveDirectories: traversal.liveDirectories,
             identityAliases: state.identityAliases,

@@ -392,6 +392,11 @@ public actor ScanCheckpointFileStore {
     /// recovered primary, so only a snapshot this store has written itself is
     /// known to match the primary file byte for byte.
     private var hasWrittenSnapshot = false
+    /// 目录走查进度的段文件(`SourceScanResumeState` 的索引与歌曲 ID)。JSON 里只记清单,
+    /// 每段只写一次;不再被主文件和备份引用的段在写完之后删掉。
+    private let segmentStore: ScanResumeSegmentStore
+    /// 上一份写成功(或启动时读到)的快照引用的段。写新快照时它会变成备份,段要留着。
+    private var retainedSegmentIDs: Set<UUID>
 
     public init(
         checkpointURL: URL,
@@ -407,6 +412,8 @@ public actor ScanCheckpointFileStore {
             from: checkpointURL,
             backupURL: resolvedBackupURL
         )
+        self.segmentStore = ScanResumeSegmentStore(directory: Self.segmentDirectory(for: checkpointURL))
+        self.retainedSegmentIDs = Set(self.checkpoints.values.flatMap { $0.directoryState?.segmentIDs ?? [] })
     }
 
     public func snapshot() -> [String: ScanCheckpoint] {
@@ -420,12 +427,7 @@ public actor ScanCheckpointFileStore {
     @discardableResult
     public func replace(with snapshot: [String: ScanCheckpoint]) throws -> Int {
         guard !(hasWrittenSnapshot && snapshot == checkpoints) else { return 0 }
-        let byteCount = try Self.writeSnapshot(
-            snapshot,
-            to: checkpointURL,
-            backupURL: backupURL,
-            atomicWriter: atomicWriter
-        )
+        let byteCount = try writeSegmented(snapshot)
         checkpoints = snapshot
         hasWrittenSnapshot = true
         return byteCount
@@ -437,12 +439,7 @@ public actor ScanCheckpointFileStore {
         }
         var candidate = checkpoints
         candidate[sourceID] = checkpoint
-        try Self.writeSnapshot(
-            candidate,
-            to: checkpointURL,
-            backupURL: backupURL,
-            atomicWriter: atomicWriter
-        )
+        try writeSegmented(candidate)
         checkpoints = candidate
         hasWrittenSnapshot = true
     }
@@ -450,18 +447,38 @@ public actor ScanCheckpointFileStore {
     public func remove(sourceID: String) throws {
         var candidate = checkpoints
         candidate[sourceID] = nil
-        try Self.writeSnapshot(
-            candidate,
-            to: checkpointURL,
-            backupURL: backupURL,
-            atomicWriter: atomicWriter
-        )
+        try writeSegmented(candidate)
         checkpoints = candidate
         hasWrittenSnapshot = true
     }
 
+    /// 走查进度的段先写成文件,再原子替换 JSON;替换成功后删掉主文件与备份都不再引用的段。
+    /// 返回这次实际写盘的字节数(JSON 加上新写的段文件),写入间隔按它放宽
+    /// (`ScanCheckpointPersistencePolicy`),和以前整份内联 JSON 时一样受写盘预算约束。
+    @discardableResult
+    private func writeSegmented(_ snapshot: [String: ScanCheckpoint]) throws -> Int {
+        segmentStore.beginPass()
+        let byteCount = try Self.writeSnapshot(
+            snapshot,
+            to: checkpointURL,
+            backupURL: backupURL,
+            atomicWriter: atomicWriter,
+            segmentStore: segmentStore
+        )
+        let referenced = segmentStore.endPass()
+        let segmentBytes = segmentStore.bytesWrittenThisPass
+        segmentStore.removeFiles(keeping: referenced.union(retainedSegmentIDs))
+        retainedSegmentIDs = referenced
+        return byteCount + segmentBytes
+    }
+
     public nonisolated static func defaultBackupURL(for checkpointURL: URL) -> URL {
         checkpointURL.deletingPathExtension().appendingPathExtension("backup.json")
+    }
+
+    /// 走查进度段文件所在的目录(与断点文件同级)。
+    public nonisolated static func segmentDirectory(for checkpointURL: URL) -> URL {
+        checkpointURL.deletingPathExtension().appendingPathExtension("segments")
     }
 
     public nonisolated static func load(
@@ -469,9 +486,10 @@ public actor ScanCheckpointFileStore {
         backupURL: URL? = nil
     ) -> [String: ScanCheckpoint] {
         let resolvedBackupURL = backupURL ?? defaultBackupURL(for: checkpointURL)
+        let segmentStore = ScanResumeSegmentStore(directory: segmentDirectory(for: checkpointURL))
         for candidateURL in [checkpointURL, resolvedBackupURL] {
             guard let data = try? Data(contentsOf: candidateURL),
-                  let decoded = decodeRecoveringValidEntries(from: data) else {
+                  let decoded = decodeRecoveringValidEntries(from: data, segmentStore: segmentStore) else {
                 continue
             }
             return decoded
@@ -479,12 +497,29 @@ public actor ScanCheckpointFileStore {
         return [:]
     }
 
+    /// 整份内联写出(走查进度不拆成段文件),格式与以前完全一样。
     @discardableResult
     public nonisolated static func writeSnapshot(
         _ checkpoints: [String: ScanCheckpoint],
         to checkpointURL: URL,
         backupURL: URL? = nil,
         atomicWriter: AtomicWriter = ScanCheckpointFileStore.defaultAtomicWriter
+    ) throws -> Int {
+        try writeSnapshot(
+            checkpoints,
+            to: checkpointURL,
+            backupURL: backupURL,
+            atomicWriter: atomicWriter,
+            segmentStore: nil
+        )
+    }
+
+    private nonisolated static func writeSnapshot(
+        _ checkpoints: [String: ScanCheckpoint],
+        to checkpointURL: URL,
+        backupURL: URL?,
+        atomicWriter: AtomicWriter,
+        segmentStore: ScanResumeSegmentStore?
     ) throws -> Int {
         if let invalid = checkpoints.first(where: { !$0.value.isUsable }) {
             throw ScanCheckpointStoreError.invalidCheckpoint(invalid.key)
@@ -493,6 +528,9 @@ public actor ScanCheckpointFileStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
+        if let segmentStore {
+            encoder.userInfo[.scanResumeSegmentStore] = segmentStore
+        }
         let data = try encoder.encode(checkpoints)
         let resolvedBackupURL = backupURL ?? defaultBackupURL(for: checkpointURL)
         let preserveExistingAsBackup: Bool
@@ -510,9 +548,12 @@ public actor ScanCheckpointFileStore {
         return data.count
     }
 
-    private nonisolated static func decoder() -> JSONDecoder {
+    private nonisolated static func decoder(segmentStore: ScanResumeSegmentStore? = nil) -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        if let segmentStore {
+            decoder.userInfo[.scanResumeSegmentStore] = segmentStore
+        }
         return decoder
     }
 
@@ -524,9 +565,10 @@ public actor ScanCheckpointFileStore {
     }
 
     private nonisolated static func decodeRecoveringValidEntries(
-        from data: Data
+        from data: Data,
+        segmentStore: ScanResumeSegmentStore
     ) -> [String: ScanCheckpoint]? {
-        if let decoded = try? decoder().decode([String: ScanCheckpoint].self, from: data) {
+        if let decoded = try? decoder(segmentStore: segmentStore).decode([String: ScanCheckpoint].self, from: data) {
             return decoded.filter { $0.value.isUsable }
         }
 
@@ -543,7 +585,7 @@ public actor ScanCheckpointFileStore {
                   let entryData = try? JSONSerialization.data(
                     withJSONObject: [sourceID: rawEntry]
                   ),
-                  let entry = try? decoder().decode(
+                  let entry = try? decoder(segmentStore: segmentStore).decode(
                     [String: ScanCheckpoint].self,
                     from: entryData
                   )[sourceID],

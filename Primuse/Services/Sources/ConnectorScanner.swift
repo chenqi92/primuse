@@ -17,7 +17,7 @@ actor ConnectorScanner {
     private let connector: any MusicSourceConnector
     private let sourceID: String
     private let metadataService = MetadataService()
-    private var completedSyncIndex: [String: SourceSyncIndexedItem] = [:]
+    private var completedSyncIndex = SourceSyncIndex()
     private var completedReconciliation: SourceSyncReconciliation?
     private var completedMissingStableKeys: [String: Int] = [:]
     /// IDs returned by server-catalog scanners whose API already supplied the
@@ -64,7 +64,7 @@ actor ConnectorScanner {
         self.peerCoverLinker = peerCoverLinker
     }
 
-    func syncIndexSnapshot() -> [String: SourceSyncIndexedItem] {
+    func syncIndexSnapshot() -> SourceSyncIndex {
         completedSyncIndex
     }
 
@@ -177,7 +177,7 @@ actor ConnectorScanner {
 
     struct IncrementalResult: Sendable {
         var songs: [Song]
-        var index: [String: SourceSyncIndexedItem]
+        var index: SourceSyncIndex
         var changedCount: Int
     }
 
@@ -198,7 +198,7 @@ actor ConnectorScanner {
         _ directories: Set<String>,
         deletedStableKeys: Set<String>,
         existingSongs: [Song],
-        existingIndex: [String: SourceSyncIndexedItem],
+        existingIndex: SourceSyncIndex,
         scanEpoch: Int64,
         requiresCompleteListings: Bool = false,
         progress: (@Sendable (
@@ -216,17 +216,15 @@ actor ConnectorScanner {
         var songsByID = existingByID
         let existingIDsByPath = uniqueSongIDsByPath(existingSongs)
         let existingPathsByID = Dictionary(existingSongs.map { ($0.id, $0.filePath) }, uniquingKeysWith: { first, _ in first })
+        // 紧凑索引直接改:第一次改动时才拷一份(与 `reconciliationBaseline` 分开),
+        // 不展开成字典。
         var index = existingIndex
         var changedCount = 0
         // Keep the pre-deletion identity baseline. If an item reappears between
         // the provider snapshot and the authoritative parent re-list, it must
         // recover its existing Song ID instead of being recreated.
         let reconciliationBaseline = existingIndex
-        var entriesByParent: [String: [String: SourceSyncIndexedItem]] = [:]
-        for (key, entry) in reconciliationBaseline {
-            guard let parent = entry.parentPath, directories.contains(parent) else { continue }
-            entriesByParent[parent, default: [:]][key] = entry
-        }
+        let entriesByParent = reconciliationBaseline.entries(withParentIn: directories)
         let confirmedDeletedDirectoryPaths = SourceSyncDirectoryPruningPolicy.confirmedDeletedDirectoryPaths(
             index: reconciliationBaseline,
             deletedKeys: deletedStableKeys
@@ -314,7 +312,7 @@ actor ConnectorScanner {
             }
             for rawItem in siblings where !rawItem.isDirectory {
                 try Task.checkCancellation()
-                if SourceArtistArtworkCatalog.isSupportedCandidateFileName(rawItem.name) {
+                if Self.isArtistArtworkCandidate(rawItem.name) {
                     try validateStableIdentity(
                         for: rawItem,
                         observedPaths: &observedStablePaths
@@ -330,10 +328,7 @@ actor ConnectorScanner {
                     )
                     continue
                 }
-                guard let item = SidecarHintResolver.scannableItem(
-                    rawItem,
-                    index: sidecarIndex
-                ) else { continue }
+                guard let item = Self.scannableItem(rawItem, index: sidecarIndex) else { continue }
                 try validateStableIdentity(
                     for: item,
                     observedPaths: &observedStablePaths
@@ -341,7 +336,7 @@ actor ConnectorScanner {
                 let stableKey = item.providerID ?? "path:\(item.path.lowercased())"
                 rebuiltStableKeys.insert(stableKey)
                 let oldEntry = reconciliationBaseline[stableKey]
-                let ext = (item.name as NSString).pathExtension.lowercased()
+                let ext = Self.lowercasedExtension(item.name)
 
                 if ext == "iso", cueTracks[item.path]?.isEmpty != false { continue }
                 if PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
@@ -525,11 +520,11 @@ actor ConnectorScanner {
         existingSongs: [Song] = [],
         startingCount: Int = 0,
         resumeState: SourceScanResumeState? = nil,
-        identityIndex: [String: SourceSyncIndexedItem] = [:],
+        identityIndex: SourceSyncIndex = SourceSyncIndex(),
         identityMissingStableKeys: [String: Int] = [:],
         scanEpoch: Int64 = 0
     ) -> AsyncThrowingStream<ScanUpdate, Error> {
-        completedSyncIndex = [:]
+        completedSyncIndex = SourceSyncIndex()
         completedReconciliation = nil
         completedMissingStableKeys = [:]
         pendingMetadataInspectedSongIDs.removeAll(keepingCapacity: true)
@@ -578,27 +573,48 @@ actor ConnectorScanner {
                         mutationCount += 1
                     }
                     let usableResumeState = resumeState?.isUsable == true ? resumeState : nil
-                    var encounteredSongIDs = usableResumeState?.encounteredSongIDs ?? []
-                    let identityBaseline = identityIndex.merging(
-                        usableResumeState?.index ?? [:],
-                        uniquingKeysWith: { _, resumed in resumed }
-                    )
-                    let observedChildren = connector is any DestructiveDirectoryListingConfirmingConnector
-                        ? try ObservedChildPathIndex(
-                            paths: identityBaseline.values.map(\.path) + existingSongs.map(\.filePath),
-                            parentLinks: identityBaseline.values.compactMap { entry in
-                                entry.parentPath.map { (parent: $0, child: entry.path) }
+                    // 走过的条目与歌曲 ID 记在 `SourceScanWalkLog` 里:每个目录交一次快照
+                    // 只拷段的列表,不像字典/集合那样被握着的快照逼着整份写时复制。
+                    var walk = usableResumeState?.walkLog ?? SourceScanWalkLog()
+                    // 已提交的索引叠上续扫带回来的进度(续扫的为准),都保持紧凑,不合成字典。
+                    let identityBaseline = SourceSyncIndexOverlay(lower: identityIndex, upper: walk)
+                    let observedChildren: ObservedChildPathIndex?
+                    if connector is any DestructiveDirectoryListingConfirmingConnector {
+                        // 逐条收进去,不先把整份索引的路径攒成数组。
+                        var observed = ObservedChildPathIndex()
+                        for (_, entry) in identityBaseline {
+                            try observed.insert(path: entry.path)
+                            if let parent = entry.parentPath {
+                                try observed.insert(parentLink: (parent: parent, child: entry.path))
                             }
-                        )
-                        : nil
+                        }
+                        for song in existingSongs { try observed.insert(path: song.filePath) }
+                        observedChildren = observed
+                    } else {
+                        observedChildren = nil
+                    }
                     var hadDirectoryFailure = false
                     var successfulDirectoryCount = 0
                     var firstDirectoryError: Error?
-                    var syncIndex = usableResumeState?.index ?? [:]
                     var claimedIdentityKeys: Set<String> = []
-                    var observedStablePaths = Dictionary(
-                        uniqueKeysWithValues: syncIndex.map { ($0.key, $0.value.path) }
-                    )
+                    // 只有按提供方 ID 认条目的连接器才查重(`validateStableIdentity`),
+                    // 别的连接器从来不读它,不必把续扫进度展开一遍。
+                    var observedStablePaths: [String: String] = [:]
+                    if connector is any StableProviderSongIdentityConnector {
+                        for (key, entry) in walk { observedStablePaths[key] = entry.path }
+                    }
+                    var cachedLegacyIdentityEntries: BaiduSnapshotDiffPolicy.LegacyEntries?
+                    func legacyIdentityEntries() -> BaiduSnapshotDiffPolicy.LegacyEntries {
+                        if let cachedLegacyIdentityEntries { return cachedLegacyIdentityEntries }
+                        let entries = BaiduSnapshotDiffPolicy.legacyEntries(in: identityBaseline)
+                        cachedLegacyIdentityEntries = entries
+                        return entries
+                    }
+                    /// 交出快照前先封存走查进度的尾巴,快照与之后的改动不共用任何可变存储。
+                    func walkResumeState(_ pendingDirectories: [String]) -> SourceScanResumeState {
+                        walk.seal()
+                        return SourceScanResumeState(pendingDirectories: pendingDirectories, walkLog: walk)
+                    }
                     var preferredProviderHierarchies: [String: [SourceSyncIndexedItem]] = [:]
                     var lastProgressYieldAt = Date()
                     let songIDsByServerSongID: [String: String] = carriesServerSongIdentities
@@ -621,6 +637,8 @@ actor ConnectorScanner {
                     }
 
                     if let songConnector = connector as? any SongScanningConnector {
+                        // 服务器目录的扫描不交走查快照,歌曲 ID 就地用集合记。
+                        var encounteredSongIDs = walk.songIDSet()
                         let enrichmentProvider = connector as? any ServerCatalogEnrichingConnector
                         let enrichmentScanID = UUID()
                         let revision = enrichmentProvider == nil ? nil : try? await (connector as? any ResumablePagedSongCatalogConnector)?.stableSongCatalogRevision()
@@ -779,11 +797,12 @@ actor ConnectorScanner {
 
                         for hierarchy in preferredProviderHierarchies.values {
                             for item in hierarchy {
-                                syncIndex[item.stableKey] = item
+                                walk.updateValue(item, forKey: item.stableKey)
                             }
                         }
 
-                        completedSyncIndex = syncIndex
+                        walk.consolidate()
+                        completedSyncIndex = walk.materializedIndex()
 
                         continuation.yield(
                             ScanUpdate(
@@ -827,11 +846,7 @@ actor ConnectorScanner {
                             currentFile: pendingDirectories.last ?? "",
                             songs: [],
                             carriesFullSnapshot: false,
-                            resumeState: SourceScanResumeState(
-                                pendingDirectories: pendingDirectories,
-                                encounteredSongIDs: encounteredSongIDs,
-                                index: syncIndex
-                            )
+                            resumeState: walkResumeState(pendingDirectories)
                         )
                     )
 
@@ -878,10 +893,8 @@ actor ConnectorScanner {
                             pendingSet.remove(directory)
                             guard visitedDirectories.insert(directory).inserted else { continue }
 
-                            let inFlightResumeState = SourceScanResumeState(
-                                pendingDirectories: pendingDirectories + [directory] + failedDirectories,
-                                encounteredSongIDs: encounteredSongIDs,
-                                index: syncIndex
+                            let inFlightResumeState = walkResumeState(
+                                pendingDirectories + [directory] + failedDirectories
                             )
                             continuation.yield(
                                 ScanUpdate(
@@ -908,7 +921,7 @@ actor ConnectorScanner {
                                         directoryItem,
                                         songIDs: [],
                                         seenEpoch: scanEpoch,
-                                        in: &syncIndex
+                                        in: &walk
                                     )
                                 }
                                 for child in siblings
@@ -926,7 +939,7 @@ actor ConnectorScanner {
                                 if listingConcurrency > 1 { enqueueListings(&group) }
                                 let cueTracksByAudioPath = try await loadCueTracks(from: siblings)
                                 for rawItem in siblings where !rawItem.isDirectory {
-                                    if SourceArtistArtworkCatalog.isSupportedCandidateFileName(rawItem.name) {
+                                    if Self.isArtistArtworkCandidate(rawItem.name) {
                                         try validateStableIdentity(
                                             for: rawItem,
                                             observedPaths: &observedStablePaths
@@ -935,15 +948,12 @@ actor ConnectorScanner {
                                             rawItem,
                                             songIDs: [],
                                             seenEpoch: scanEpoch,
-                                            in: &syncIndex
+                                            in: &walk
                                         )
                                         continue
                                     }
-                                    guard let item = SidecarHintResolver.scannableItem(
-                                        rawItem,
-                                        index: sidecarIndex
-                                    ) else { continue }
-                                    if (item.name as NSString).pathExtension.lowercased() == "iso",
+                                    guard let item = Self.scannableItem(rawItem, index: sidecarIndex) else { continue }
+                                    if Self.lowercasedExtension(item.name) == "iso",
                                        cueTracksByAudioPath[item.path]?.isEmpty != false { continue }
                                     try Task.checkCancellation()
 
@@ -971,6 +981,7 @@ actor ConnectorScanner {
                                         for: item,
                                         stableKey: stableKey,
                                         baseline: identityBaseline,
+                                        legacyEntries: legacyIdentityEntries,
                                         claimedKeys: claimedIdentityKeys
                                     )
                                     let priorEntry = identityMatch?.item
@@ -986,9 +997,9 @@ actor ConnectorScanner {
                                     let songID = preferredSongID ?? generatedSongID(for: item, existingPathsByID: existingPathsByID)
 
                                     if PrimuseConstants.supportedStreamDescriptorExtensions.contains(
-                                        (item.name as NSString).pathExtension.lowercased()
+                                        Self.lowercasedExtension(item.name)
                                     ) {
-                                        encounteredSongIDs.insert(songID)
+                                        walk.insertSongID(songID)
                                         if let existing = existingByID[songID],
                                            STRMRevision.wrapperMatches(
                                                songRevision: existing.revision,
@@ -1000,7 +1011,7 @@ actor ConnectorScanner {
                                                 item,
                                                 songIDs: [songID],
                                                 seenEpoch: scanEpoch,
-                                                in: &syncIndex
+                                                in: &walk
                                             )
                                             if let idx = allSongIndexByID[songID] {
                                                 var refreshed = existing
@@ -1023,7 +1034,7 @@ actor ConnectorScanner {
                                                     item,
                                                     songIDs: [songID],
                                                     seenEpoch: scanEpoch,
-                                                    in: &syncIndex
+                                                    in: &walk
                                                 )
                                             }
                                             continue
@@ -1032,7 +1043,7 @@ actor ConnectorScanner {
                                             item,
                                             songIDs: [songID],
                                             seenEpoch: scanEpoch,
-                                            in: &syncIndex
+                                            in: &walk
                                         )
                                         if let existing = existingByID[songID] {
                                             if songContentChanged(existing: existing, incoming: descriptorSong),
@@ -1082,10 +1093,10 @@ actor ConnectorScanner {
                                             cueImage,
                                             songIDs: cueSongs.map(\.id),
                                             seenEpoch: scanEpoch,
-                                            in: &syncIndex
+                                            in: &walk
                                         )
                                         for cueSong in cueSongs {
-                                            encounteredSongIDs.insert(cueSong.id)
+                                            walk.insertSongID(cueSong.id)
                                             if let existing = existingByID[cueSong.id] {
                                                 if let index = allSongIndexByID[cueSong.id] {
                                                     let carried = carriedOverCueTrack(
@@ -1107,12 +1118,12 @@ actor ConnectorScanner {
                                         continue
                                     }
 
-                                    encounteredSongIDs.insert(songID)
+                                    walk.insertSongID(songID)
                                     recordSyncItem(
                                         item,
                                         songIDs: [songID],
                                         seenEpoch: scanEpoch,
-                                        in: &syncIndex
+                                        in: &walk
                                     )
 
                                     if let existing = existingByID[songID] {
@@ -1137,7 +1148,7 @@ actor ConnectorScanner {
                                                     stored: refreshed.duration,
                                                     fileSize: refreshed.fileSize,
                                                     bitRateKbps: refreshed.bitRate,
-                                                    fileExtension: (refreshed.filePath as NSString).pathExtension,
+                                                    fileExtension: autoreleasepool { (refreshed.filePath as NSString).pathExtension },
                                                     format: refreshed.fileFormat
                                                 ) {
                                                     refreshed.duration = repairedDuration
@@ -1145,7 +1156,11 @@ actor ConnectorScanner {
                                                 if let adopted = adoptingPeerSeed(intoUnreadRow: refreshed) {
                                                     refreshed = adopted
                                                 }
-                                                allSongs[idx] = refreshed
+                                                // 没变的行不换掉:改字段时 Song 的存储已经写时复制了一份,
+                                                // 换进去就和资料库里那份各占一份,整库重扫时多出一整份歌曲。
+                                                if allSongs[idx] != refreshed {
+                                                    allSongs[idx] = refreshed
+                                                }
                                                 recordRow(refreshed, for: songID)
                                             }
                                             continue
@@ -1208,11 +1223,7 @@ actor ConnectorScanner {
                                         currentFile: "",
                                         songs: [],
                                         carriesFullSnapshot: false,
-                                        resumeState: SourceScanResumeState(
-                                            pendingDirectories: pendingDirectories + failedDirectories,
-                                            encounteredSongIDs: encounteredSongIDs,
-                                            index: syncIndex
-                                        )
+                                        resumeState: walkResumeState(pendingDirectories + failedDirectories)
                                     )
                                 )
                             } catch is CancellationError {
@@ -1245,8 +1256,8 @@ actor ConnectorScanner {
                                         in: identityBaseline
                                     )
                                     for (key, entry) in preserved {
-                                        syncIndex[key] = entry
-                                        encounteredSongIDs.formUnion(entry.songIDs)
+                                        walk.updateValue(entry, forKey: key)
+                                        walk.insertSongIDs(entry.songIDs)
                                     }
                                     // Source edits and older libraries can leave
                                     // the identity index empty or incomplete.
@@ -1254,7 +1265,7 @@ actor ConnectorScanner {
                                     for song in existingSongs where Self.immediateChildPath(
                                         descendant: song.filePath, of: directory
                                     ) != nil {
-                                        encounteredSongIDs.insert(song.id)
+                                        walk.insertSongID(song.id)
                                     }
                                     plog("↷ Dropped stale child directory from scan checkpoint: \(directory)")
                                     continuation.yield(
@@ -1266,11 +1277,7 @@ actor ConnectorScanner {
                                             currentFile: "",
                                             songs: [],
                                             carriesFullSnapshot: false,
-                                            resumeState: SourceScanResumeState(
-                                                pendingDirectories: pendingDirectories + failedDirectories,
-                                                encounteredSongIDs: encounteredSongIDs,
-                                                index: syncIndex
-                                            )
+                                            resumeState: walkResumeState(pendingDirectories + failedDirectories)
                                         )
                                     )
                                     continue
@@ -1294,11 +1301,7 @@ actor ConnectorScanner {
                                         currentFile: directory,
                                         songs: [],
                                         carriesFullSnapshot: false,
-                                        resumeState: SourceScanResumeState(
-                                            pendingDirectories: pendingDirectories + failedDirectories,
-                                            encounteredSongIDs: encounteredSongIDs,
-                                            index: syncIndex
-                                        )
+                                        resumeState: walkResumeState(pendingDirectories + failedDirectories)
                                     )
                                 )
                                 let sharedCooldown = (error as? HTTPResponseFailure).map {
@@ -1320,9 +1323,8 @@ actor ConnectorScanner {
                     }
 
                     if connector is any StableProviderSongIdentityConnector {
-                        let unresolvedLegacy = identityBaseline.filter { key, entry in
-                            key.hasPrefix("path:")
-                                && !claimedIdentityKeys.contains(key)
+                        let unresolvedLegacy = legacyIdentityEntries().filter { key, entry in
+                            !claimedIdentityKeys.contains(key)
                                 && !entry.songIDs.isEmpty
                         }
                         if !unresolvedLegacy.isEmpty {
@@ -1330,8 +1332,8 @@ actor ConnectorScanner {
                                 let observations = (identityMissingStableKeys[key] ?? 0) + 1
                                 guard observations < BaiduSnapshotDiffPolicy
                                     .deletionConfirmationCount else { continue }
-                                syncIndex[key] = entry
-                                encounteredSongIDs.formUnion(entry.songIDs)
+                                walk.updateValue(entry, forKey: key)
+                                walk.insertSongIDs(entry.songIDs)
                                 completedMissingStableKeys[key] = observations
                             }
                             if !completedMissingStableKeys.isEmpty {
@@ -1345,11 +1347,14 @@ actor ConnectorScanner {
                     }
 
                     if !hadDirectoryFailure {
+                        let encounteredSongIDs = walk.songIDSet()
                         allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
                         scannedCount = allSongs.count
                     }
 
-                    completedSyncIndex = syncIndex
+                    // 并成一段:终态快照与提交用的索引共用这一份存储,不再另拷。
+                    walk.consolidate()
+                    completedSyncIndex = walk.materializedIndex()
 
                     // 终态快照: completeScan 的删除对账就是拿这一份和资料库比。
                     continuation.yield(
@@ -1360,11 +1365,7 @@ actor ConnectorScanner {
                             totalCount: totalCount,
                             currentFile: "",
                             songs: allSongs,
-                            resumeState: SourceScanResumeState(
-                                pendingDirectories: pendingDirectories + failedDirectories,
-                                encounteredSongIDs: encounteredSongIDs,
-                                index: syncIndex
-                            )
+                            resumeState: walkResumeState(pendingDirectories + failedDirectories)
                         )
                     )
                     if let stopError = rateLimitStopError ?? firstDirectoryError {
@@ -1382,6 +1383,24 @@ actor ConnectorScanner {
         }
     }
 
+    // NSString 的路径方法每调一次都往当前的自动释放池里放一个对象。走查跑在并发线程上,
+    // 那里的池子要到整次扫描结束才清:每个文件十来个,45 万首就攒下四五百万个、几百 MB。
+    // 逐个文件要调的几处都包在小池子里,用完就清。
+    private nonisolated static func lowercasedExtension(_ name: String) -> String {
+        autoreleasepool { (name as NSString).pathExtension.lowercased() }
+    }
+
+    private nonisolated static func isArtistArtworkCandidate(_ name: String) -> Bool {
+        autoreleasepool { SourceArtistArtworkCatalog.isSupportedCandidateFileName(name) }
+    }
+
+    private nonisolated static func scannableItem(
+        _ item: RemoteFileItem,
+        index: SidecarHintResolver.DirectoryIndex
+    ) -> RemoteFileItem? {
+        autoreleasepool { SidecarHintResolver.scannableItem(item, index: index) }
+    }
+
     private nonisolated static func isMissingPathError(_ error: Error) -> Bool {
         switch error {
         case CloudDriveError.fileNotFound,
@@ -1393,25 +1412,29 @@ actor ConnectorScanner {
         }
     }
 
-    private nonisolated static func indexedSubtree(
+    /// `rootPath` 这个目录本身与它之下的所有条目。先只沿目录条目一层层找出子树里的
+    /// 目录路径,再扫一遍收下父目录落在其中的条目——与反复整份扫描直到不再变化的结果相同。
+    private nonisolated static func indexedSubtree<Index: SourceSyncIndexReading>(
         rootedAt rootPath: String,
-        in index: [String: SourceSyncIndexedItem]
+        in index: Index
     ) -> [String: SourceSyncIndexedItem] {
         var knownPaths: Set<String> = [rootPath]
-        var result: [String: SourceSyncIndexedItem] = [:]
+        var directories: [SourceSyncIndexedItem] = []
+        index.forEachDirectoryItem { directories.append($0) }
         var madeProgress = true
         while madeProgress {
             madeProgress = false
-            for (key, entry) in index where result[key] == nil {
+            for entry in directories where !knownPaths.contains(entry.path) {
                 guard entry.path == rootPath
-                        || entry.parentPath.map(knownPaths.contains) == true else {
-                    continue
-                }
-                result[key] = entry
-                if entry.isDirectory, knownPaths.insert(entry.path).inserted {
-                    madeProgress = true
-                }
+                        || entry.parentPath.map(knownPaths.contains) == true else { continue }
+                knownPaths.insert(entry.path)
+                madeProgress = true
             }
+        }
+        var result: [String: SourceSyncIndexedItem] = [:]
+        for (key, entry) in index
+        where entry.path == rootPath || entry.parentPath.map(knownPaths.contains) == true {
+            result[key] = entry
         }
         return result
     }
@@ -1433,14 +1456,14 @@ actor ConnectorScanner {
         var externalSheets: [ISOAlbumMetadataPolicy.Sidecar] = []
         let ordered = siblings.filter {
             !$0.isDirectory && PrimuseConstants.supportedVirtualTrackExtensions.contains(
-                ($0.name as NSString).pathExtension.lowercased()
+                Self.lowercasedExtension($0.name)
             )
         }.sorted {
-            ($0.name as NSString).pathExtension.lowercased() < ($1.name as NSString).pathExtension.lowercased()
+            Self.lowercasedExtension($0.name) < Self.lowercasedExtension($1.name)
         }
         for cueItem in ordered {
             let cue: CueSheet
-            if (cueItem.name as NSString).pathExtension.lowercased() == "iso" {
+            if Self.lowercasedExtension(cueItem.name) == "iso" {
                 guard let parsed = try await ISOAudioReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [connector] offset, length in
                     try await connector.fetchMetadataRange(path: cueItem.path, offset: offset, length: length)
                 }) else { continue }
@@ -1457,9 +1480,9 @@ actor ConnectorScanner {
                 guard let audioItem = siblings.first(where: {
                     !$0.isDirectory && $0.name.caseInsensitiveCompare(referencedName) == .orderedSame
                 }), var format = AudioFormat.from(
-                    fileExtension: (audioItem.name as NSString).pathExtension.lowercased()
+                    fileExtension: Self.lowercasedExtension(audioItem.name)
                 ) else { continue }
-                if (audioItem.name as NSString).pathExtension.lowercased() == "wav",
+                if Self.lowercasedExtension(audioItem.name) == "wav",
                    await wavContainsDTS(audioItem) {
                     format = .dts
                 }
@@ -1813,6 +1836,10 @@ actor ConnectorScanner {
     /// currently listed directory. Local cache names and sidecars that still
     /// live in an old directory after an audio-only move are retained.
     private func applySidecarHints(from item: RemoteFileItem, to song: inout Song) {
+        autoreleasepool { applySidecarHintsInPool(from: item, to: &song) }
+    }
+
+    private func applySidecarHintsInPool(from item: RemoteFileItem, to song: inout Song) {
         guard let hints = item.sidecarHints else { return }
         let parent = item.parentPath ?? (item.path as NSString).deletingLastPathComponent
         song.coverArtFileName = SourceSidecarReferencePolicy.reconciledReference(
@@ -1871,10 +1898,17 @@ actor ConnectorScanner {
         _ siblings: [RemoteFileItem],
         of directory: String
     ) async -> SidecarHintResolver.DirectoryIndex {
-        let index = SidecarHintResolver.DirectoryIndex(siblings)
-        let ownCover = index.folderCover()
+        let (index, ownCover, isGeneric) = autoreleasepool {
+            () -> (SidecarHintResolver.DirectoryIndex, RemoteFileItem?, Bool) in
+            let index = SidecarHintResolver.DirectoryIndex(siblings)
+            return (
+                index,
+                index.folderCover(),
+                FolderCoverNamePolicy.isGenericDirectory(named: (directory as NSString).lastPathComponent)
+            )
+        }
         // 「音乐」这类整个曲库的根目录里那张图不是哪张专辑的封面。
-        if !FolderCoverNamePolicy.isGenericDirectory(named: (directory as NSString).lastPathComponent) {
+        if !isGeneric {
             for child in siblings where child.isDirectory && DiscFolderPolicy.isDiscFolderName(child.name) {
                 discFolderParentCovers[child.path] = .some(ownCover)
             }
@@ -1943,7 +1977,11 @@ actor ConnectorScanner {
     /// probe immediately before playback; reading the same 256 KB here made
     /// every new WAV pay for the header twice.
     private func buildBareSong(from item: RemoteFileItem, songID: String) -> Song {
-        let ext = (item.name as NSString).pathExtension.lowercased()
+        autoreleasepool { buildBareSongInPool(from: item, songID: songID) }
+    }
+
+    private func buildBareSongInPool(from item: RemoteFileItem, songID: String) -> Song {
+        let ext = Self.lowercasedExtension(item.name)
         let format = AudioFormat.from(fileExtension: ext) ?? .mp3
         let fileBaseName = sourceTitle(from: item)
         let provisionalDuration = format == .dts
@@ -2004,6 +2042,13 @@ actor ConnectorScanner {
     }
 
     private func refreshSuspiciousSourceTitle(
+        in song: inout Song,
+        from item: RemoteFileItem
+    ) {
+        autoreleasepool { refreshSuspiciousSourceTitleInPool(in: &song, from: item) }
+    }
+
+    private func refreshSuspiciousSourceTitleInPool(
         in song: inout Song,
         from item: RemoteFileItem
     ) {
@@ -2149,14 +2194,33 @@ actor ConnectorScanner {
         _ item: RemoteFileItem,
         songIDs: [String],
         seenEpoch: Int64 = 0,
-        in index: inout [String: SourceSyncIndexedItem]
+        in index: inout SourceSyncIndex
     ) {
+        let entry = syncIndexEntry(item, songIDs: songIDs, seenEpoch: seenEpoch)
+        index[entry.stableKey] = entry
+    }
+
+    private func recordSyncItem(
+        _ item: RemoteFileItem,
+        songIDs: [String],
+        seenEpoch: Int64 = 0,
+        in walk: inout SourceScanWalkLog
+    ) {
+        let entry = syncIndexEntry(item, songIDs: songIDs, seenEpoch: seenEpoch)
+        walk.updateValue(entry, forKey: entry.stableKey)
+    }
+
+    private func syncIndexEntry(
+        _ item: RemoteFileItem,
+        songIDs: [String],
+        seenEpoch: Int64
+    ) -> SourceSyncIndexedItem {
         let stableKey = item.providerID ?? "path:\(item.path.lowercased())"
-        let parent = item.parentPath ?? {
+        let parent = item.parentPath ?? autoreleasepool { () -> String in
             let value = (item.path as NSString).deletingLastPathComponent
             return value.isEmpty || value == "." ? "/" : value
-        }()
-        index[stableKey] = SourceSyncIndexedItem(
+        }
+        return SourceSyncIndexedItem(
             stableKey: stableKey,
             path: item.path,
             displayName: item.name,
@@ -2176,24 +2240,40 @@ actor ConnectorScanner {
         /// 按 ID 寻址的网盘(115 的目录 id / pick_code)路径里没有「/」,按路径拆不出父子:
         /// 用同步索引里记下的父目录补上,确认列表才知道这个目录以前有过哪些子项。
         private var opaqueChildren: [String: Set<String>] = [:]
+        private var insertedPathCount = 0
+        private var insertedLinkCount = 0
 
-        init(paths: [String], parentLinks: [(parent: String, child: String)] = []) throws {
-            for (offset, path) in paths.enumerated() {
-                if offset.isMultiple(of: 512) { try Task.checkCancellation() }
-                let path = path.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard path.hasPrefix("/") else { continue }
-                var parent = ""
-                for component in path.split(separator: "/", omittingEmptySubsequences: true) {
-                    children[parent, default: []].insert(String(component))
-                    parent += "/" + component.lowercased()
-                }
+        init() {}
+
+        init<Paths: Sequence>(paths: Paths) throws where Paths.Element == String {
+            for path in paths { try insert(path: path) }
+        }
+
+        init<Paths: Sequence, Links: Sequence>(paths: Paths, parentLinks: Links) throws
+        where Paths.Element == String, Links.Element == (parent: String, child: String) {
+            for path in paths { try insert(path: path) }
+            for link in parentLinks { try insert(parentLink: link) }
+        }
+
+        /// 一条一条收,调用方不必先把整份索引的路径攒成数组。
+        mutating func insert(path: String) throws {
+            if insertedPathCount.isMultiple(of: 512) { try Task.checkCancellation() }
+            insertedPathCount += 1
+            let path = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard path.hasPrefix("/") else { return }
+            var parent = ""
+            for component in path.split(separator: "/", omittingEmptySubsequences: true) {
+                children[parent, default: []].insert(String(component))
+                parent += "/" + component.lowercased()
             }
-            for (offset, link) in parentLinks.enumerated() {
-                if offset.isMultiple(of: 512) { try Task.checkCancellation() }
-                // 路径式的子项上面已经按路径收过了,这里只补不带「/」的 ID。
-                guard !link.child.isEmpty, !link.parent.isEmpty, !link.child.hasPrefix("/") else { continue }
-                opaqueChildren[link.parent, default: []].insert(link.child)
-            }
+        }
+
+        mutating func insert(parentLink link: (parent: String, child: String)) throws {
+            if insertedLinkCount.isMultiple(of: 512) { try Task.checkCancellation() }
+            insertedLinkCount += 1
+            // 路径式的子项上面已经按路径收过了,这里只补不带「/」的 ID。
+            guard !link.child.isEmpty, !link.parent.isEmpty, !link.child.hasPrefix("/") else { return }
+            opaqueChildren[link.parent, default: []].insert(link.child)
         }
 
         func childPaths(in directory: String) -> Set<String> {
@@ -2243,7 +2323,8 @@ actor ConnectorScanner {
     private func identityMatch(
         for item: RemoteFileItem,
         stableKey: String,
-        baseline: [String: SourceSyncIndexedItem],
+        baseline: SourceSyncIndexOverlay,
+        legacyEntries: () -> BaiduSnapshotDiffPolicy.LegacyEntries,
         claimedKeys: Set<String>
     ) -> (key: String, item: SourceSyncIndexedItem)? {
         if let direct = baseline[stableKey], !claimedKeys.contains(stableKey) {
@@ -2264,6 +2345,7 @@ actor ConnectorScanner {
         return BaiduSnapshotDiffPolicy.migrationMatch(
             for: probe,
             previousIndex: baseline,
+            cachedLegacyEntries: legacyEntries,
             claimedPreviousKeys: claimedKeys
         )
     }

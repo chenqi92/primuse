@@ -580,6 +580,10 @@ final class ScanService {
     /// still frequent enough for resume while avoiding a queue of full-library
     /// JSON encodes. Cancellation and completion always force a final write.
     private var lastCheckpointPersistenceAt = Date.distantPast
+    /// 还没写完的断点写入。前一次还在写(大曲库的走查进度段要落盘、磁盘又忙)时不再排
+    /// 新的定时写入:排着的每一次都握着一份那时的快照,越排越多就一直占着内存。
+    /// 强制写入(取消、完成)照常排队;定时写入等前一次写完后写最新的那份。
+    @ObservationIgnored private var inFlightCheckpointWrites = 0
     /// Size of the last checkpoint snapshot that reached disk. It drives the
     /// adaptive persistence interval: a multi-megabyte checkpoint is rewritten
     /// far less often than a small one (see ScanCheckpointPersistencePolicy).
@@ -3429,19 +3433,19 @@ final class ScanService {
             existingSongs: existingForScan,
             startingCount: existingForScan.count,
             resumeState: resumableDirectoryState,
-            // 目录走查要整体比对、改写这一份,扫描期间展开成字典用;常驻的仍是紧凑的那份。
+            // 紧凑形式直接交给走查对照身份,不展开成字典。
             identityIndex: SourceSyncIdentityReusePolicy.reusableIndex(
                 from: workingState,
                 sourceID: source.id,
                 scopeFingerprint: scopeFingerprint
-            ).dictionary,
+            ),
             identityMissingStableKeys: workingState?.missingStableKeys ?? [:],
             scanEpoch: nextScanEpoch
         )
 
         // 扫描失败时用它把已经走通的目录层级留下来,见
         // `preserveDiscoveredFolderTopology`。
-        var lastObservedSyncIndex: [String: SourceSyncIndexedItem] = [:]
+        var lastObservedSyncIndex = SourceScanWalkLog()
         var lastObservedPendingDirectories: [String] = []
 
         // 走过但还没进资料库的行。checkpoint 只带这一小段: 已经发布的行由
@@ -3535,7 +3539,7 @@ final class ScanService {
                 }
 
                 if let directoryState = update.resumeState {
-                    lastObservedSyncIndex = directoryState.index
+                    lastObservedSyncIndex = directoryState.walkLog
                     lastObservedPendingDirectories = directoryState.pendingDirectories
                     // Update the in-memory checkpoint on every completed (or
                     // in-flight) directory. Disk encoding remains throttled;
@@ -3709,7 +3713,7 @@ final class ScanService {
                 scopeFingerprint: scopeFingerprint,
                 identityScopeFingerprint: identityScopeFingerprint,
                 cursors: baselineCursors,
-                index: SourceSyncIndex(scanIndex),
+                index: scanIndex,
                 pendingDirectories: [],
                 scanEpoch: nextScanEpoch,
                 // 还有歌在等确认时下一轮要完整走查：增量对账看不到「还是没有」。
@@ -3833,8 +3837,8 @@ final class ScanService {
     /// 一并留下,层级因此仍会被排进自动重建。
     private func preserveDiscoveredFolderTopology(
         source: MusicSource,
-        discovered: [String: SourceSyncIndexedItem],
-        fallbackIndex: [String: SourceSyncIndexedItem],
+        discovered: SourceSyncIndex,
+        fallbackIndex: SourceScanWalkLog,
         pendingDirectories: [String],
         scopeFingerprint: String,
         identityScopeFingerprint: String,
@@ -3844,16 +3848,16 @@ final class ScanService {
     ) async {
         guard source.type.usesOpaqueDirectoryIdentifiers else { return }
         // 已经有一份层级就别拿半份结果盖掉它。
-        if let previousState, previousState.index.values.contains(where: \.isDirectory) { return }
-        let index = discovered.values.contains(where: \.isDirectory) ? discovered : fallbackIndex
-        guard index.values.contains(where: \.isDirectory) else { return }
+        if let previousState, previousState.index.hasDirectoryEntries { return }
+        let index = discovered.hasDirectoryEntries ? discovered : fallbackIndex.materializedIndex()
+        guard index.hasDirectoryEntries else { return }
         do {
             try await persistSyncState(SourceSyncState(
                 sourceID: source.id,
                 scopeFingerprint: scopeFingerprint,
                 identityScopeFingerprint: identityScopeFingerprint,
                 cursors: previousState?.cursors ?? [:],
-                index: SourceSyncIndex(index),
+                index: index,
                 // 留下「还有目录没走完」的痕迹:层级不完整,
                 // `SourceSyncFolderTopologyPolicy` 据此在下次回到前台时自动
                 // 补一次完整遍历。
@@ -5073,14 +5077,14 @@ final class ScanService {
             plog("📂 \(source.name): folder rescan could not place the folder in the scan index; walking the whole source")
             return false
         }
-        let rootName = state.index.values.first { $0.isDirectory && $0.path == root }?.displayName
+        let rootName = state.index.directoryItems.first { $0.path == root }?.displayName
             ?? (root as NSString).lastPathComponent
         scanStates[source.id]?.currentFile = rootName
         let startedAt = Date()
         let nextScanEpoch = state.scanEpoch + 1
         var songs = existingSongs
-        // 逐层改写这一份;扫描期间展开成字典,提交时再存回紧凑形式。
-        var index = state.index.dictionary
+        // 逐层改写这一份紧凑索引(第一次改动时拷一份,不展开成字典)。
+        var index = state.index
         var listed: Set<String> = []
         var frontier = roots
         var changedCount = 0
@@ -5103,8 +5107,8 @@ final class ScanService {
             changedCount += result.changedCount
             listed.formUnion(frontier)
             let justListed = frontier
-            frontier = Set(index.values.lazy
-                .filter { $0.isDirectory && !listed.contains($0.path) }
+            frontier = Set(index.directoryItems.lazy
+                .filter { !listed.contains($0.path) }
                 .filter { $0.parentPath.map(justListed.contains) == true }
                 .map(\.path))
         }
@@ -5113,7 +5117,7 @@ final class ScanService {
         if !folderPeerSeedAdoptions.isEmpty { peerSeedAdoptionHandler?(folderPeerSeedAdoptions) }
 
         var candidateState = state
-        candidateState.index = SourceSyncIndex(index)
+        candidateState.index = index
         candidateState.scanEpoch = nextScanEpoch
         candidateState.lastSuccessfulSyncAt = Date()
         var progressTimestamp = Date.distantPast
@@ -5204,7 +5208,7 @@ final class ScanService {
         if changes.changedParentPaths.isEmpty && changes.deletedStableKeys.isEmpty {
             var candidateState = state
             candidateState.cursors = changes.cursors
-            candidateState.index = changes.reconciledIndex.map { SourceSyncIndex($0) } ?? state.index
+            candidateState.index = changes.reconciledIndex ?? state.index
             candidateState.pendingDirectories = []
             candidateState.scanEpoch = nextScanEpoch
             candidateState.requiresDeepScan = false
@@ -5273,7 +5277,7 @@ final class ScanService {
                     changes.changedParentPaths,
                     deletedStableKeys: changes.deletedStableKeys,
                     existingSongs: existingSongs,
-                    existingIndex: changes.reconciledIndex ?? state.index.dictionary,
+                    existingIndex: changes.reconciledIndex ?? state.index,
                     scanEpoch: nextScanEpoch,
                     requiresCompleteListings: true
                 ) { [weak self] completedCount, totalCount, currentDirectory in
@@ -5306,7 +5310,7 @@ final class ScanService {
                 changes.changedParentPaths,
                 deletedStableKeys: changes.deletedStableKeys,
                 existingSongs: existingSongs,
-                existingIndex: changes.reconciledIndex ?? state.index.dictionary,
+                existingIndex: changes.reconciledIndex ?? state.index,
                 scanEpoch: nextScanEpoch,
                 requiresCompleteListings: false
             )
@@ -5315,7 +5319,7 @@ final class ScanService {
         if !quickSyncPeerSeedAdoptions.isEmpty { peerSeedAdoptionHandler?(quickSyncPeerSeedAdoptions) }
         var candidateState = state
         candidateState.cursors = changes.cursors
-        candidateState.index = SourceSyncIndex(result.index)
+        candidateState.index = result.index
         candidateState.pendingDirectories = []
         candidateState.scanEpoch = nextScanEpoch
         candidateState.requiresDeepScan = false
@@ -6032,23 +6036,28 @@ final class ScanService {
             maximumInterval: Self.maximumCheckpointPersistenceInterval
         )
         guard force
-                || now.timeIntervalSince(lastCheckpointPersistenceAt) >= interval else { return nil }
+                || (inFlightCheckpointWrites == 0
+                    && now.timeIntervalSince(lastCheckpointPersistenceAt) >= interval) else { return nil }
         lastCheckpointPersistenceAt = now
         let snapshot = checkpoints
         let store = checkpointStore
         let previous = checkpointWriteTask
+        inFlightCheckpointWrites += 1
         let writeTask = Task.detached(priority: .utility) { [weak self] in
             _ = await previous?.value
+            let succeeded: Bool
             do {
                 let byteCount = try await store.replace(with: snapshot)
                 if byteCount > 0 {
                     await self?.recordCheckpointPersistence(encodedByteCount: byteCount)
                 }
-                return true
+                succeeded = true
             } catch {
                 plog("⛔ Scan checkpoint persistence failed: \(error.localizedDescription)")
-                return false
+                succeeded = false
             }
+            await self?.finishCheckpointWrite()
+            return succeeded
         }
         checkpointWriteTask = writeTask
         return writeTask
@@ -6056,6 +6065,10 @@ final class ScanService {
 
     private func recordCheckpointPersistence(encodedByteCount: Int) {
         lastCheckpointEncodedByteCount = encodedByteCount
+    }
+
+    private func finishCheckpointWrite() {
+        inFlightCheckpointWrites -= 1
     }
 
     private func waitForCheckpointPersistence(force: Bool = true) async throws {

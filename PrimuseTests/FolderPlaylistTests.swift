@@ -61,7 +61,7 @@ final class FolderPlaylistTests: XCTestCase {
         let stale = SourceSyncIndexedItem(stableKey: "42", path: "42", displayName: "Track.mp3",
                                           parentPath: "0", isDirectory: false, songIDs: [original.id],
                                           size: 123, modifiedDate: nil, revision: "old")
-        for index in [[:], ["42": stale]] {
+        for index: SourceSyncIndex in [[:], ["42": stale]] {
             var final: [Song] = []
             for try await update in await scanner.scan(directories: ["0"], existingSongs: [original], identityIndex: index) {
                 final = update.songs
@@ -136,7 +136,8 @@ final class FolderPlaylistTests: XCTestCase {
             let scanner = ConnectorScanner(connector: connector, sourceID: "source")
             var final: ConnectorScanner.ScanUpdate?
             for try await update in await scanner.scan(
-                directories: ["/Music"], existingSongs: [first, nested, removedSibling], identityIndex: index
+                directories: ["/Music"], existingSongs: [first, nested, removedSibling],
+                identityIndex: SourceSyncIndex(index)
             ) {
                 final = update
             }
@@ -202,7 +203,7 @@ final class FolderPlaylistTests: XCTestCase {
         let scanner = ConnectorScanner(connector: connector, sourceID: "source")
         let result = try await scanner.reconcileChangedDirectories(
             ["root", "nested"], deletedStableKeys: ["gone"],
-            existingSongs: [song("removed"), song("kept")], existingIndex: index, scanEpoch: 2
+            existingSongs: [song("removed"), song("kept")], existingIndex: SourceSyncIndex(index), scanEpoch: 2
         )
         XCTAssertEqual(result.songs.map(\.id), ["kept"])
         XCTAssertEqual(Set(result.index.keys), ["root", "kept"])

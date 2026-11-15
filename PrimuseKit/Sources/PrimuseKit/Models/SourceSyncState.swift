@@ -405,11 +405,21 @@ public struct SourceScanResumeState: Codable, Sendable, Equatable {
     /// completed directories. Restart once rather than commit an incomplete
     /// automatic-artwork catalogue.
     public static let currentSchemaVersion = 2
+    /// 写进扫描断点时走查进度放在旁边的段文件里(见 `ScanResumeSegmentStore`),
+    /// JSON 里只有清单和没封存的尾巴。旧版本读到这个版本号会当成不可用、从选中的
+    /// 根目录重新走查,不会拿着半份索引续扫。读回来以后按 `currentSchemaVersion` 算。
+    static let segmentedSchemaVersion = 3
 
     public var schemaVersion: Int
     public var pendingDirectories: [String]
-    public var encounteredSongIDs: Set<String>
-    public var index: [String: SourceSyncIndexedItem]
+    private var progress: Progress
+
+    /// 走过的条目与歌曲 ID。群晖与电视的扫描器按字典/集合读写(`.plain`);
+    /// 通用目录走查用 `SourceScanWalkLog`(`.walk`),每个目录交一次快照不必整份拷贝。
+    private enum Progress: Sendable {
+        case plain(index: [String: SourceSyncIndexedItem], songIDs: Set<String>)
+        case walk(SourceScanWalkLog)
+    }
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -419,14 +429,204 @@ public struct SourceScanResumeState: Codable, Sendable, Equatable {
     ) {
         self.schemaVersion = schemaVersion
         self.pendingDirectories = pendingDirectories
-        self.encounteredSongIDs = encounteredSongIDs
-        self.index = index
+        self.progress = .plain(index: index, songIDs: encounteredSongIDs)
+    }
+
+    public init(
+        schemaVersion: Int = Self.currentSchemaVersion,
+        pendingDirectories: [String],
+        walkLog: SourceScanWalkLog
+    ) {
+        self.schemaVersion = schemaVersion
+        self.pendingDirectories = pendingDirectories
+        self.progress = .walk(walkLog)
     }
 
     public var isUsable: Bool {
         schemaVersion == Self.currentSchemaVersion
     }
+
+    /// 走查进度里已封存的段(按字典存着的没有段)。
+    var segmentIDs: [UUID] {
+        if case .walk(let log) = progress { return log.segments.map(\.id) }
+        return []
+    }
+
+    /// 走查进度,通用目录走查直接接着记。按字典存着的(群晖、电视、旧测试)现转一份。
+    public var walkLog: SourceScanWalkLog {
+        get {
+            switch progress {
+            case .walk(let log):
+                return log
+            case .plain(let index, let songIDs):
+                return SourceScanWalkLog(index: index, songIDs: songIDs)
+            }
+        }
+        set { progress = .walk(newValue) }
+    }
+
+    public var encounteredSongIDs: Set<String> {
+        get {
+            switch progress {
+            case .plain(_, let songIDs): return songIDs
+            case .walk(let log): return log.songIDSet()
+            }
+        }
+        set {
+            let index = takePlainProgress().index
+            progress = .plain(index: index, songIDs: newValue)
+        }
+        _modify {
+            let index: [String: SourceSyncIndexedItem]
+            var songIDs: Set<String>
+            (index, songIDs) = takePlainProgress()
+            progress = .plain(index: [:], songIDs: [])
+            defer { progress = .plain(index: index, songIDs: songIDs) }
+            yield &songIDs
+        }
+    }
+
+    public var index: [String: SourceSyncIndexedItem] {
+        get {
+            switch progress {
+            case .plain(let index, _): return index
+            case .walk(let log): return log.indexDictionary
+            }
+        }
+        set {
+            let songIDs = takePlainProgress().songIDs
+            progress = .plain(index: newValue, songIDs: songIDs)
+        }
+        _modify {
+            var index: [String: SourceSyncIndexedItem]
+            let songIDs: Set<String>
+            (index, songIDs) = takePlainProgress()
+            // 先放掉自己这份引用,交出去改的那份才是唯一的,不会整份写时复制。
+            progress = .plain(index: [:], songIDs: [])
+            defer { progress = .plain(index: index, songIDs: songIDs) }
+            yield &index
+        }
+    }
+
+    private func takePlainProgress() -> (index: [String: SourceSyncIndexedItem], songIDs: Set<String>) {
+        switch progress {
+        case .plain(let index, let songIDs):
+            return (index, songIDs)
+        case .walk(let log):
+            return (log.indexDictionary, log.songIDSet())
+        }
+    }
+
+    // MARK: Equatable
+
+    public static func == (lhs: SourceScanResumeState, rhs: SourceScanResumeState) -> Bool {
+        guard lhs.schemaVersion == rhs.schemaVersion,
+              lhs.pendingDirectories == rhs.pendingDirectories else { return false }
+        switch (lhs.progress, rhs.progress) {
+        case let (.plain(lhsIndex, lhsSongs), .plain(rhsIndex, rhsSongs)):
+            return lhsSongs == rhsSongs && lhsIndex == rhsIndex
+        case let (.walk(lhsLog), .walk(rhsLog)):
+            return lhsLog == rhsLog
+        default:
+            return lhs.walkLog == rhs.walkLog
+        }
+    }
+
+    // MARK: Codable
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case pendingDirectories
+        case encounteredSongIDs
+        case index
+        case segments
+        case shadowedKeys
+    }
+
+    private struct DynamicKey: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    /// 走查进度的索引部分按以前字典的 JSON 形状(以条目键为键的对象)编码。
+    private struct WalkIndexEncoding: Encodable {
+        let log: SourceScanWalkLog
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: DynamicKey.self)
+            for (key, item) in log {
+                try container.encode(item, forKey: DynamicKey(stringValue: key))
+            }
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch progress {
+        case .plain(let index, let songIDs):
+            try container.encode(schemaVersion, forKey: .schemaVersion)
+            try container.encode(pendingDirectories, forKey: .pendingDirectories)
+            try container.encode(songIDs, forKey: .encounteredSongIDs)
+            try container.encode(index, forKey: .index)
+        case .walk(let log):
+            if let segmentStore = encoder.userInfo[.scanResumeSegmentStore] as? ScanResumeSegmentStore,
+               schemaVersion == Self.currentSchemaVersion,
+               !log.segments.isEmpty {
+                let manifests = try log.segments.map { try segmentStore.store($0) }
+                try container.encode(Self.segmentedSchemaVersion, forKey: .schemaVersion)
+                try container.encode(pendingDirectories, forKey: .pendingDirectories)
+                try container.encode(manifests, forKey: .segments)
+                try container.encode(log.pendingSongIDs, forKey: .encounteredSongIDs)
+                try container.encode(log.pendingIndex, forKey: .index)
+                if !log.shadowedKeys.isEmpty {
+                    try container.encode(log.shadowedKeys.sorted(), forKey: .shadowedKeys)
+                }
+            } else {
+                // 与字典形式的 JSON 完全一样:歌曲 ID 是数组(可能有重复,读成集合时自然去重)。
+                try container.encode(schemaVersion, forKey: .schemaVersion)
+                try container.encode(pendingDirectories, forKey: .pendingDirectories)
+                try container.encode(log.allSongIDs, forKey: .encounteredSongIDs)
+                try container.encode(WalkIndexEncoding(log: log), forKey: .index)
+            }
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        pendingDirectories = try container.decode([String].self, forKey: .pendingDirectories)
+        // 索引直接解成紧凑形式,歌曲 ID 按数组读,都不经过字典/集合。
+        let tail = try container.decode(SourceSyncIndex.self, forKey: .index)
+        let tailSongIDs = try container.decode([String].self, forKey: .encounteredSongIDs)
+        guard let manifests = try container.decodeIfPresent(
+            [ScanResumeSegmentManifest].self,
+            forKey: .segments
+        ) else {
+            schemaVersion = decodedVersion
+            progress = .walk(SourceScanWalkLog(index: tail, songIDs: tailSongIDs))
+            return
+        }
+        let shadowed = try container.decodeIfPresent([String].self, forKey: .shadowedKeys) ?? []
+        guard decodedVersion == Self.segmentedSchemaVersion,
+              let segmentStore = decoder.userInfo[.scanResumeSegmentStore] as? ScanResumeSegmentStore,
+              let segments = try? manifests.map({ try segmentStore.load($0) }) else {
+            // 段文件缺了或对不上:这份走查进度不能用,按不可用处理(从根目录重新走查),
+            // 断点里其余的东西照常保留。
+            schemaVersion = -1
+            progress = .walk(SourceScanWalkLog())
+            return
+        }
+        schemaVersion = Self.currentSchemaVersion
+        progress = .walk(SourceScanWalkLog(
+            segments: segments,
+            tail: tail,
+            tailSongIDs: tailSongIDs,
+            shadowedKeys: Set(shadowed)
+        ))
+    }
 }
+
 
 /// Pure commit policy used by ScanService and regression tests.
 public enum SourceSyncCommitPolicy {
@@ -1050,7 +1250,7 @@ public enum BaiduSnapshotRootPolicy {
 }
 
 public struct BaiduSnapshotDiffResult: Sendable, Equatable {
-    public var reconciledIndex: [String: SourceSyncIndexedItem]
+    public var reconciledIndex: SourceSyncIndex
     public var changedParentPaths: Set<String>
     public var deletedStableKeys: Set<String>
     public var identityAliases: [String: String]
@@ -1058,7 +1258,7 @@ public struct BaiduSnapshotDiffResult: Sendable, Equatable {
     public var reconciliation: SourceSyncReconciliation?
 
     public init(
-        reconciledIndex: [String: SourceSyncIndexedItem],
+        reconciledIndex: SourceSyncIndex,
         changedParentPaths: Set<String>,
         deletedStableKeys: Set<String>,
         identityAliases: [String: String],
@@ -1086,8 +1286,19 @@ public enum BaiduSnapshotDiffError: Error, Sendable, Equatable {
 public enum BaiduSnapshotDiffPolicy {
     public static let deletionConfirmationCount = 2
 
+    /// 上一份索引里的 `path:` 旧键条目。只在有条目需要按内容指纹认领时才用到。
+    public typealias LegacyEntries = [(key: String, value: SourceSyncIndexedItem)]
+
+    public static func legacyEntries<Index: SourceSyncIndexReading>(in index: Index) -> LegacyEntries {
+        index.filter { $0.key.hasPrefix("path:") }
+    }
+
+    /// 已提交的索引直接以紧凑形式传进来,结果也是紧凑索引:对账结果就是这一轮快照里的
+    /// 条目(沿用认领到的旧条目的歌曲 ID),加上旧索引里既没被认领、这轮也没出现、
+    /// 又带着歌曲 ID 的条目(等第二次确认或交给扫描器删除)。与在旧索引的字典副本上
+    /// 逐条改写的结果相同,只是不必把旧索引展开成字典。
     public static func plan(
-        previousIndex: [String: SourceSyncIndexedItem],
+        previousIndex: SourceSyncIndex,
         currentItems: [SourceSyncIndexedItem],
         liveDirectories: Set<String>,
         identityAliases: [String: String] = [:],
@@ -1105,28 +1316,41 @@ public enum BaiduSnapshotDiffPolicy {
             }
         }
 
-        var reconciledIndex = previousIndex
+        var reconciledCurrent: [(key: String, item: SourceSyncIndexedItem)] = []
+        reconciledCurrent.reserveCapacity(currentByKey.count)
         var changedParents: Set<String> = []
         var deletedKeys: Set<String> = []
         var aliases = identityAliases
         var nextMissing = missingStableKeys
         var claimedPreviousKeys: Set<String> = []
 
-        let legacyEntries = previousIndex.filter { key, _ in
-            key.hasPrefix("path:")
+        // 旧键条目与同路径替换的候选表都按需建一次:它们只取决于旧索引与这轮快照。
+        var cachedLegacyEntries: LegacyEntries?
+        func legacy() -> LegacyEntries {
+            if let cachedLegacyEntries { return cachedLegacyEntries }
+            let entries = legacyEntries(in: previousIndex)
+            cachedLegacyEntries = entries
+            return entries
+        }
+        var replacementCandidates: ReplacementCandidates?
+        func candidates() -> ReplacementCandidates {
+            if let replacementCandidates { return replacementCandidates }
+            let built = ReplacementCandidates(previousIndex: previousIndex, currentByKey: currentByKey)
+            replacementCandidates = built
+            return built
         }
 
         for currentValue in currentByKey.values.sorted(by: { $0.stableKey < $1.stableKey }) {
             let match = migrationMatch(
                 for: currentValue,
                 previousIndex: previousIndex,
-                legacyEntries: legacyEntries,
+                legacyEntries: legacy(),
                 aliases: aliases,
                 claimedPreviousKeys: claimedPreviousKeys
             ) ?? exactStrongIdentityReplacementMatch(
                 for: currentValue,
                 previousIndex: previousIndex,
-                currentByKey: currentByKey,
+                candidates: candidates(),
                 claimedPreviousKeys: claimedPreviousKeys
             )
 
@@ -1139,7 +1363,6 @@ public enum BaiduSnapshotDiffPolicy {
                 nextMissing[current.stableKey] = nil
                 if match.key != current.stableKey {
                     aliases[match.key] = current.stableKey
-                    reconciledIndex[match.key] = nil
                     if BaiduSnapshotIdentity.fsID(from: match.key) != nil {
                         insertLiveParent(
                             match.item.parentPath,
@@ -1166,14 +1389,18 @@ public enum BaiduSnapshotDiffPolicy {
                     insertLiveParent(current.path, into: &changedParents, live: liveDirectories)
                 }
             }
-            reconciledIndex[current.stableKey] = current
+            // 字典赋值会沿用已有那个键的写法。
+            reconciledCurrent.append((previousIndex.storedKey(matching: current.stableKey) ?? current.stableKey, current))
         }
 
         var unresolved: Set<String> = []
-        for (key, previous) in previousIndex.sorted(by: { $0.key < $1.key }) {
+        var retainedPrevious: [String] = []
+        // 每个旧键各自处理、互不影响,遍历顺序无关;只取键,用到时才建条目。
+        for key in previousIndex.keys {
             if claimedPreviousKeys.contains(key) || currentByKey[key] != nil {
                 continue
             }
+            guard let previous = previousIndex[key] else { continue }
 
             // Rows without a Song ID — directories (whose children are keyed
             // independently) and the artist-image files indexed for automatic
@@ -1182,7 +1409,6 @@ public enum BaiduSnapshotDiffPolicy {
             // held behind the song-deletion confirmation. A vanished image
             // re-lists its parent so the artwork catalogue follows.
             if previous.songIDs.isEmpty {
-                reconciledIndex[key] = nil
                 nextMissing[key] = nil
                 if !previous.isDirectory {
                     insertLiveParent(previous.parentPath, into: &changedParents, live: liveDirectories)
@@ -1190,6 +1416,7 @@ public enum BaiduSnapshotDiffPolicy {
                 continue
             }
 
+            retainedPrevious.append(key)
             let observations = (missingStableKeys[key] ?? 0) + 1
             if observations >= deletionConfirmationCount {
                 // Keep the row in the reconciliation baseline until
@@ -1203,13 +1430,21 @@ public enum BaiduSnapshotDiffPolicy {
             }
         }
 
+        var builder = SourceSyncIndex.Builder(minimumCapacity: reconciledCurrent.count + retainedPrevious.count)
+        for key in retainedPrevious {
+            if let previous = previousIndex[key] { builder.insert(previous, forKey: key) }
+        }
+        for (key, item) in reconciledCurrent {
+            builder.insert(item, forKey: key)
+        }
+
         let reconciliation = unresolved.isEmpty ? nil : SourceSyncReconciliation(
             kind: .baiduIdentityAndDeletionConfirmation,
             unresolvedStableKeys: Array(unresolved),
             detectedAt: now
         )
         return BaiduSnapshotDiffResult(
-            reconciledIndex: reconciledIndex,
+            reconciledIndex: builder.build(),
             changedParentPaths: changedParents,
             deletedStableKeys: deletedKeys,
             identityAliases: aliases,
@@ -1220,41 +1455,57 @@ public enum BaiduSnapshotDiffPolicy {
 
     /// Used by a user-selected deep scan that encounters a path-keyed legacy
     /// index before the first snapshot migration has completed.
-    public static func migrationMatch(
+    public static func migrationMatch<Index: SourceSyncIndexReading>(
         for current: SourceSyncIndexedItem,
-        previousIndex: [String: SourceSyncIndexedItem],
+        previousIndex: Index,
         claimedPreviousKeys: Set<String> = []
     ) -> (key: String, item: SourceSyncIndexedItem)? {
         migrationMatch(
             for: current,
             previousIndex: previousIndex,
-            legacyEntries: previousIndex.filter { $0.key.hasPrefix("path:") },
+            legacyEntries: legacyEntries(in: previousIndex),
             aliases: [:],
             claimedPreviousKeys: claimedPreviousKeys
         )
     }
 
-    private static func migrationMatch(
+    /// 同上,旧键条目由调用方缓存(上一份索引在整次走查里不变)。
+    public static func migrationMatch<Index: SourceSyncIndexReading>(
         for current: SourceSyncIndexedItem,
-        previousIndex: [String: SourceSyncIndexedItem],
-        legacyEntries: @autoclosure () -> [String: SourceSyncIndexedItem],
+        previousIndex: Index,
+        cachedLegacyEntries: () -> LegacyEntries,
+        claimedPreviousKeys: Set<String> = []
+    ) -> (key: String, item: SourceSyncIndexedItem)? {
+        migrationMatch(
+            for: current,
+            previousIndex: previousIndex,
+            legacyEntries: cachedLegacyEntries(),
+            aliases: [:],
+            claimedPreviousKeys: claimedPreviousKeys
+        )
+    }
+
+    private static func migrationMatch<Index: SourceSyncIndexReading>(
+        for current: SourceSyncIndexedItem,
+        previousIndex: Index,
+        legacyEntries: @autoclosure () -> LegacyEntries,
         aliases: [String: String],
         claimedPreviousKeys: Set<String>
     ) -> (key: String, item: SourceSyncIndexedItem)? {
-        if let direct = previousIndex[current.stableKey],
+        if let direct = previousIndex.item(forKey: current.stableKey),
            !claimedPreviousKeys.contains(current.stableKey) {
             return (current.stableKey, direct)
         }
 
         let exactPathKey = BaiduSnapshotIdentity.legacyPathKey(current.path)
-        if let exact = previousIndex[exactPathKey],
+        if let exact = previousIndex.item(forKey: exactPathKey),
            exact.path == current.path,
            !claimedPreviousKeys.contains(exactPathKey) {
             return (exactPathKey, exact)
         }
 
         if let aliasedKey = aliases.first(where: { $0.value == current.stableKey })?.key,
-           let aliased = previousIndex[aliasedKey],
+           let aliased = previousIndex.item(forKey: aliasedKey),
            !claimedPreviousKeys.contains(aliasedKey) {
             return (aliasedKey, aliased)
         }
@@ -1276,39 +1527,48 @@ public enum BaiduSnapshotDiffPolicy {
         return (candidate.key, candidate.value)
     }
 
+    /// 同路径替换认领要用到的两张表,一轮对账只建一次:这轮快照里每个文件路径出现了几次,
+    /// 以及旧索引里这轮已经不在的、带歌曲 ID 的 fs_id 文件条目按路径分组的键。
+    private struct ReplacementCandidates {
+        var livePathCounts: [String: Int] = [:]
+        var vanishedKeysByPath: [String: [String]] = [:]
+
+        init(previousIndex: SourceSyncIndex, currentByKey: [String: SourceSyncIndexedItem]) {
+            for item in currentByKey.values where !item.isDirectory {
+                livePathCounts[item.path, default: 0] += 1
+            }
+            for key in previousIndex.keys
+            where BaiduSnapshotIdentity.fsID(from: key) != nil && currentByKey[key] == nil {
+                guard let item = previousIndex[key], !item.isDirectory, !item.songIDs.isEmpty else { continue }
+                vanishedKeysByPath[item.path, default: []].append(key)
+            }
+        }
+    }
+
     /// Baidu can replace a file in place and assign it a new fs_id. A complete
     /// snapshot proves that the old identity disappeared globally, so an
     /// otherwise unique file at the exact same path can inherit the existing
     /// Song ID. Ambiguous paths and directories remain fail-closed.
     private static func exactStrongIdentityReplacementMatch(
         for current: SourceSyncIndexedItem,
-        previousIndex: [String: SourceSyncIndexedItem],
-        currentByKey: [String: SourceSyncIndexedItem],
+        previousIndex: SourceSyncIndex,
+        candidates: @autoclosure () -> ReplacementCandidates,
         claimedPreviousKeys: Set<String>
     ) -> (key: String, item: SourceSyncIndexedItem)? {
         guard !current.isDirectory,
               BaiduSnapshotIdentity.fsID(from: current.stableKey) != nil else {
             return nil
         }
-
-        let livePathMatches = currentByKey.values.filter {
-            !$0.isDirectory && $0.path == current.path
+        let tables = candidates()
+        guard tables.livePathCounts[current.path] == 1 else { return nil }
+        // 候选键已经排除了这轮快照里还在的键(当前条目自己的键也在其中)。
+        let keys = (tables.vanishedKeysByPath[current.path] ?? []).filter {
+            !claimedPreviousKeys.contains($0)
         }
-        guard livePathMatches.count == 1 else { return nil }
-
-        let candidates = previousIndex.filter { key, item in
-            key != current.stableKey
-                && BaiduSnapshotIdentity.fsID(from: key) != nil
-                && currentByKey[key] == nil
-                && !claimedPreviousKeys.contains(key)
-                && !item.isDirectory
-                && !item.songIDs.isEmpty
-                && item.path == current.path
-        }
-        guard candidates.count == 1, let candidate = candidates.first else {
+        guard keys.count == 1, let key = keys.first, let item = previousIndex[key] else {
             return nil
         }
-        return (candidate.key, candidate.value)
+        return (key, item)
     }
 
     private static func entryChanged(

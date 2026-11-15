@@ -3,15 +3,34 @@ import Foundation
 
 // MARK: - 读同步索引的统一接口
 
+/// 能按键查、能逐条(键, 条目)遍历的同步索引:紧凑索引 `SourceSyncIndex`、目录走查的
+/// `SourceScanWalkLog`、两者叠起来读的 `SourceSyncIndexOverlay`,以及测试里常用的
+/// `[String: SourceSyncIndexedItem]`。遍历时每个键只出现一次。
+public protocol SourceSyncIndexReading: Sequence where Element == (key: String, value: SourceSyncIndexedItem) {
+    func item(forKey key: String) -> SourceSyncIndexedItem?
+    /// 只遍历目录条目。紧凑索引按行标志跳过文件行,不必把它们一条条建出来。
+    func forEachDirectoryItem(_ body: (SourceSyncIndexedItem) throws -> Void) rethrows
+}
+
+extension SourceSyncIndexReading {
+    public func forEachDirectoryItem(_ body: (SourceSyncIndexedItem) throws -> Void) rethrows {
+        for (_, item) in self where item.isDirectory { try body(item) }
+    }
+}
+
 /// 能逐条读出同步索引的东西:已提交的紧凑索引 `SourceSyncIndex`,以及扫描过程中
 /// 现建现用的 `[String: SourceSyncIndexedItem]`。只读条目的策略写成对它泛型,
 /// 两种都能直接传进来,不必为了调用先把紧凑索引展开成字典。
-public protocol SourceSyncIndexContents {
+public protocol SourceSyncIndexContents: SourceSyncIndexReading {
     associatedtype ItemValues: Collection where ItemValues.Element == SourceSyncIndexedItem
     var values: ItemValues { get }
     var isEmpty: Bool { get }
     var count: Int { get }
     subscript(key: String) -> SourceSyncIndexedItem? { get set }
+}
+
+extension Dictionary: SourceSyncIndexReading where Key == String, Value == SourceSyncIndexedItem {
+    public func item(forKey key: String) -> SourceSyncIndexedItem? { self[key] }
 }
 
 extension Dictionary: SourceSyncIndexContents where Key == String, Value == SourceSyncIndexedItem {}
@@ -118,6 +137,95 @@ public struct SourceSyncIndex: Sendable {
     /// 只用来跳过「内容一定相同」的比较与重写。
     public func isIdentical(to other: SourceSyncIndex) -> Bool {
         storage === other.storage
+    }
+
+    public func item(forKey key: String) -> SourceSyncIndexedItem? {
+        self[key]
+    }
+
+    /// 存着的那个键的写法(与 `key` 按 String 相等,字节可能不同)。没有这个键时为 nil。
+    func storedKey(matching key: String) -> String? {
+        storage.find(key).map { storage.key(at: $0.row) }
+    }
+
+    /// 有没有目录条目。只看行标志,不建条目。
+    public var hasDirectoryEntries: Bool {
+        let storage = storage
+        for row in 0..<storage.rows.count
+        where storage.rows[row].flags & (RowFlag.dead | RowFlag.isDirectory) == RowFlag.isDirectory {
+            return true
+        }
+        return false
+    }
+
+    public func forEachDirectoryItem(_ body: (SourceSyncIndexedItem) throws -> Void) rethrows {
+        for item in directoryItems { try body(item) }
+    }
+
+    /// 逐条给出目录条目的(键, 条目)。文件行按标志跳过。
+    public func forEachDirectoryEntry(_ body: (String, SourceSyncIndexedItem) throws -> Void) rethrows {
+        let storage = storage
+        var cache = SharedStringCache()
+        for row in 0..<storage.rows.count
+        where storage.rows[row].flags & (RowFlag.dead | RowFlag.isDirectory) == RowFlag.isDirectory {
+            try body(storage.key(at: row), storage.item(at: row, cache: &cache))
+        }
+    }
+
+    /// 只含目录条目的视图。文件行按标志跳过,不建出来。
+    public var directoryItems: DirectoryItems { DirectoryItems(storage: storage) }
+
+    public struct DirectoryItems: Sequence {
+        let storage: Storage
+
+        public struct Iterator: IteratorProtocol {
+            let storage: Storage
+            var row = 0
+            var cache = SharedStringCache()
+
+            public mutating func next() -> SourceSyncIndexedItem? {
+                while row < storage.rows.count {
+                    let current = row
+                    row += 1
+                    guard storage.rows[current].flags & (RowFlag.dead | RowFlag.isDirectory)
+                        == RowFlag.isDirectory else { continue }
+                    return storage.item(at: current, cache: &cache)
+                }
+                return nil
+            }
+        }
+
+        public func makeIterator() -> Iterator { Iterator(storage: storage) }
+    }
+
+    /// 父目录在 `parents` 里的条目,按父目录分组(组名是条目自己记的 `parentPath`)。
+    /// 与逐条判断 `parents.contains(item.parentPath)` 结果相同;父目录路径相同的行
+    /// (同一个目录下的歌共用一段字节)只判断一次,不在的行不建条目。
+    public func entries(withParentIn parents: Set<String>) -> [String: [String: SourceSyncIndexedItem]] {
+        var result: [String: [String: SourceSyncIndexedItem]] = [:]
+        guard !parents.isEmpty else { return result }
+        let storage = storage
+        var memoTags = [UInt64](repeating: .max, count: 64)
+        var memoHits = [Bool](repeating: false, count: 64)
+        var cache = SharedStringCache()
+        for row in 0..<storage.rows.count {
+            let value = storage.rows[row]
+            guard value.flags & (RowFlag.dead | RowFlag.hasParent) == RowFlag.hasParent else { continue }
+            let tag = UInt64(value.parentOffset) << 32 | UInt64(value.parentLength)
+            let slot = Int((value.parentOffset ^ (value.parentOffset >> 6) ^ value.parentLength) & 63)
+            let isWanted: Bool
+            if memoTags[slot] == tag {
+                isWanted = memoHits[slot]
+            } else {
+                isWanted = parents.contains(cache.string(value.parentOffset, value.parentLength, in: storage))
+                memoTags[slot] = tag
+                memoHits[slot] = isWanted
+            }
+            guard isWanted else { continue }
+            let item = storage.item(at: row, cache: &cache)
+            result[item.parentPath!, default: [:]][storage.key(at: row)] = item
+        }
+        return result
     }
 
     @usableFromInline
@@ -323,6 +431,104 @@ extension SourceSyncIndex {
     }
 }
 
+// MARK: - Layered construction (directory walks)
+
+extension SourceSyncIndex {
+    /// 写入一条并沿用 `interner`(同一批里目录路径只存一份)。存储被拷走过时
+    /// 旧的去重表不再对得上,换一张新的。
+    @discardableResult
+    mutating func insert(
+        _ item: SourceSyncIndexedItem,
+        forKey key: String,
+        hash: UInt32,
+        interner: inout Interner?
+    ) -> SourceSyncIndexedItem? {
+        if !isKnownUniquelyReferenced(&storage) {
+            storage = storage.copy()
+            if interner != nil { interner = Interner() }
+        }
+        return storage.set(item, forKey: key, hash: hash, interner: &interner)
+    }
+
+    /// 按预先算好的哈希找一个键,返回所在行。
+    func row(forKey key: String, hash: UInt32) -> Int? {
+        guard storage.liveCount > 0 else { return nil }
+        return storage.find(key, hash: hash)?.row
+    }
+
+    /// 找另一份索引第 `row` 行的那个键,返回在这份里的行号。
+    func row(matchingRow row: Int, of other: SourceSyncIndex) -> Int? {
+        guard storage.liveCount > 0 else { return nil }
+        return storage.find(matchingKeyOf: row, in: other.storage)
+    }
+
+    /// 存活行的行号,按存放顺序。
+    var liveRows: LazyFilterSequence<Range<Int>> {
+        let storage = storage
+        return (0..<storage.rows.count).lazy.filter { storage.isLive($0) }
+    }
+
+    func key(atRow row: Int) -> String { storage.key(at: row) }
+    func item(atRow row: Int) -> SourceSyncIndexedItem { storage.item(at: row) }
+
+    /// 把几份索引按先后接成一份,行与字节整段搬过去,不把条目一条条建出来。
+    ///
+    /// `skipping(part, row)` 为真的行不搬(调用方用它丢掉被后面同键条目盖住的旧行)。
+    /// 调用方保证留下来的行里没有相同的键。
+    static func concatenating(
+        _ parts: [SourceSyncIndex],
+        skipping: ((_ part: Int, _ row: Int) -> Bool)? = nil
+    ) -> SourceSyncIndex {
+        let result = Storage(minimumCapacity: 0)
+        var rowCapacity = 0
+        var arenaCapacity = 0
+        var spanCapacity = 0
+        for part in parts {
+            rowCapacity += part.storage.liveCount
+            arenaCapacity += part.storage.arena.count
+            spanCapacity += part.storage.songIDSpans.count
+        }
+        precondition(arenaCapacity < Int(UInt32.max), "Source sync index arena exceeds 4 GB")
+        result.rows.reserveCapacity(rowCapacity)
+        result.hashes.reserveCapacity(rowCapacity)
+        result.arena.reserveCapacity(arenaCapacity)
+        result.songIDSpans.reserveCapacity(spanCapacity)
+        for (partIndex, part) in parts.enumerated() {
+            let source = part.storage
+            let base = UInt32(result.arena.count)
+            let spanBase = UInt32(result.songIDSpans.count)
+            result.arena.append(contentsOf: source.arena)
+            for span in source.songIDSpans {
+                result.songIDSpans.append(Span(offset: span.offset + base, length: span.length))
+            }
+            for index in source.rows.indices where source.isLive(index) {
+                if let skipping, skipping(partIndex, index) { continue }
+                var row = source.rows[index]
+                let flags = row.flags
+                row.keyOffset += base
+                row.pathOffset += base
+                if flags & RowFlag.stableKeyIsKey == 0 { row.stableKeyOffset += base }
+                if flags & RowFlag.hasDisplayName != 0 { row.displayNameOffset += base }
+                if flags & RowFlag.hasParent != 0 { row.parentOffset += base }
+                if flags & RowFlag.hasRevision != 0 { row.revisionOffset += base }
+                if flags & RowFlag.hasSidecar != 0 { row.sidecarOffset += base }
+                if flags & RowFlag.singleSongID != 0 {
+                    row.songIDsFirst += base
+                } else if row.songIDsSecond > 0 {
+                    row.songIDsFirst += spanBase
+                }
+                result.rows.append(row)
+                result.hashes.append(source.hashes[index])
+            }
+        }
+        precondition(result.rows.count < Int(Int32.max), "Source sync index exceeds Int32 rows")
+        result.liveCount = result.rows.count
+        result.rebuildSlots(slotCount: Storage.slotCount(for: result.liveCount))
+        result.shrinkToFit()
+        return SourceSyncIndex(storage: result)
+    }
+}
+
 // MARK: - Storage
 
 extension SourceSyncIndex {
@@ -445,7 +651,8 @@ extension SourceSyncIndex {
         }
 
         /// 写时复制。没有作废行时数组本身也是写时复制的,改到哪个才真的拷哪个;
-        /// 有作废行就顺便压掉,反正要整份拷。
+        /// 有作废行就顺便压掉,反正要整份拷。作废行的字节不能留在共用的字节块里
+        /// 跟着拷下去:作废行数随即清零,那些字节以后再也看不出来,会一轮轮攒着。
         func copy() -> Storage {
             deadCount == 0 ? Storage(copying: self) : compacted()
         }
@@ -650,6 +857,8 @@ extension SourceSyncIndex {
         private func spanBytesEqual(_ offset: UInt32, _ length: UInt32, _ bytes: UnsafeBufferPointer<UInt8>) -> Bool {
             guard Int(length) == bytes.count else { return false }
             guard length > 0 else { return true }
+            // 构建器记下的位置在就地压缩之后可能已经不在这块字节里了:按不相等处理,另存一份。
+            guard Int(offset) + Int(length) <= arena.count else { return false }
             return arena.withUnsafeBufferPointer { buffer in
                 memcmp(buffer.baseAddress! + Int(offset), bytes.baseAddress!, bytes.count) == 0
             }
@@ -957,46 +1166,55 @@ extension SourceSyncIndex {
 
         /// 只留存活行的一份拷贝。同一段字节(共用的目录路径、键与歌曲 ID 共用的字节)
         /// 拷过去仍是同一段。
+        ///
+        /// 跨行共用的只有构建时去重的目录路径(目录行的 `path` 与子项的 `parentPath`),
+        /// 只给它们建对照表;键、歌曲 ID 这类只在同一行里共用,逐行比一下就够,不必为
+        /// 整份索引的每一段字节建一张大表(45 万行时那张表就有上百 MB)。
         func compacted() -> Storage {
             let result = Storage(minimumCapacity: 0)
             result.rows.reserveCapacity(liveCount)
             result.hashes.reserveCapacity(liveCount)
-            var moved: [UInt64: Span] = [:]
-            func move(_ offset: UInt32, _ length: UInt32) -> Span {
-                let tag = UInt64(offset) << 32 | UInt64(length)
-                if let span = moved[tag] { return span }
-                let span = arena.withUnsafeBufferPointer { buffer in
+            var shared: [UInt64: Span] = [:]
+            var local: [(tag: UInt64, span: Span)] = []
+            local.reserveCapacity(8)
+            func copyBytes(_ offset: UInt32, _ length: UInt32) -> Span {
+                arena.withUnsafeBufferPointer { buffer in
                     result.append(UnsafeBufferPointer(rebasing: buffer[Int(offset)..<Int(offset) + Int(length)]))
                 }
-                moved[tag] = span
+            }
+            /// 同一行里已经搬过的那段就沿用。
+            func move(_ offset: UInt32, _ length: UInt32) -> Span {
+                let tag = UInt64(offset) << 32 | UInt64(length)
+                for entry in local where entry.tag == tag { return entry.span }
+                let span = copyBytes(offset, length)
+                local.append((tag, span))
+                return span
+            }
+            /// 可能被别的行共用的目录路径。
+            func moveShared(_ offset: UInt32, _ length: UInt32) -> Span {
+                let tag = UInt64(offset) << 32 | UInt64(length)
+                for entry in local where entry.tag == tag { return entry.span }
+                let span: Span
+                if let existing = shared[tag] {
+                    span = existing
+                } else {
+                    span = copyBytes(offset, length)
+                    shared[tag] = span
+                }
+                local.append((tag, span))
                 return span
             }
             for index in rows.indices where isLive(index) {
                 var row = rows[index]
                 let flags = row.flags
-                var span = move(row.keyOffset, row.keyLength)
-                (row.keyOffset, row.keyLength) = (span.offset, span.length)
-                if flags & RowFlag.stableKeyIsKey == 0 {
-                    span = move(row.stableKeyOffset, row.stableKeyLength)
-                    (row.stableKeyOffset, row.stableKeyLength) = (span.offset, span.length)
-                }
-                span = move(row.pathOffset, row.pathLength)
+                local.removeAll(keepingCapacity: true)
+                var span = flags & RowFlag.isDirectory != 0
+                    ? moveShared(row.pathOffset, row.pathLength)
+                    : move(row.pathOffset, row.pathLength)
                 (row.pathOffset, row.pathLength) = (span.offset, span.length)
-                if flags & RowFlag.hasDisplayName != 0 {
-                    span = move(row.displayNameOffset, row.displayNameLength)
-                    (row.displayNameOffset, row.displayNameLength) = (span.offset, span.length)
-                }
                 if flags & RowFlag.hasParent != 0 {
-                    span = move(row.parentOffset, row.parentLength)
+                    span = moveShared(row.parentOffset, row.parentLength)
                     (row.parentOffset, row.parentLength) = (span.offset, span.length)
-                }
-                if flags & RowFlag.hasRevision != 0 {
-                    span = move(row.revisionOffset, row.revisionLength)
-                    (row.revisionOffset, row.revisionLength) = (span.offset, span.length)
-                }
-                if flags & RowFlag.hasSidecar != 0 {
-                    span = move(row.sidecarOffset, row.sidecarLength)
-                    (row.sidecarOffset, row.sidecarLength) = (span.offset, span.length)
                 }
                 if flags & RowFlag.singleSongID != 0 {
                     span = move(row.songIDsFirst, row.songIDsSecond)
@@ -1010,6 +1228,24 @@ extension SourceSyncIndex {
                     row.songIDsFirst = UInt32(start)
                 } else {
                     row.songIDsFirst = 0
+                }
+                span = move(row.keyOffset, row.keyLength)
+                (row.keyOffset, row.keyLength) = (span.offset, span.length)
+                if flags & RowFlag.stableKeyIsKey == 0 {
+                    span = move(row.stableKeyOffset, row.stableKeyLength)
+                    (row.stableKeyOffset, row.stableKeyLength) = (span.offset, span.length)
+                }
+                if flags & RowFlag.hasDisplayName != 0 {
+                    span = move(row.displayNameOffset, row.displayNameLength)
+                    (row.displayNameOffset, row.displayNameLength) = (span.offset, span.length)
+                }
+                if flags & RowFlag.hasRevision != 0 {
+                    span = move(row.revisionOffset, row.revisionLength)
+                    (row.revisionOffset, row.revisionLength) = (span.offset, span.length)
+                }
+                if flags & RowFlag.hasSidecar != 0 {
+                    span = move(row.sidecarOffset, row.sidecarLength)
+                    (row.sidecarOffset, row.sidecarLength) = (span.offset, span.length)
                 }
                 result.rows.append(row)
                 result.hashes.append(hashes[index])
@@ -1056,7 +1292,9 @@ extension SourceSyncIndex {
     @discardableResult
     public func writeBinary(_ write: (UnsafeRawBufferPointer) throws -> Void) throws -> BinarySummary {
         precondition(MemoryLayout<Row>.stride == Self.rowStride && MemoryLayout<Row>.size == Self.rowStride)
-        let storage = storage
+        // 有作废行时先压一份再写:作废行的字节没有行指向,写进文件读回来以后作废行数是零,
+        // 那些字节就再也看不出来,增量对账一轮轮改下去会越攒越多。
+        let storage = storage.deadCount == 0 ? storage : storage.compacted()
         var hasher = SHA256()
         var byteCount = 0
         func emit(_ buffer: UnsafeRawBufferPointer) throws {
@@ -1079,21 +1317,7 @@ extension SourceSyncIndex {
         put(UInt64(storage.arena.count), at: 32)
         try header.withUnsafeBytes { try emit($0) }
 
-        if storage.deadCount == 0 {
-            try storage.rows.withUnsafeBytes { try emit($0) }
-        } else {
-            // 作废的行不落盘,它们留在共享字节里的内容没有行再指向,无害。
-            var chunk: [Row] = []
-            chunk.reserveCapacity(4_096)
-            for row in storage.rows where row.flags & RowFlag.dead == 0 {
-                chunk.append(row)
-                if chunk.count == 4_096 {
-                    try chunk.withUnsafeBytes { try emit($0) }
-                    chunk.removeAll(keepingCapacity: true)
-                }
-            }
-            try chunk.withUnsafeBytes { try emit($0) }
-        }
+        try storage.rows.withUnsafeBytes { try emit($0) }
         try storage.songIDSpans.withUnsafeBytes { try emit($0) }
         try storage.arena.withUnsafeBytes { try emit($0) }
         let digest = Data(hasher.finalize())

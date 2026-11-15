@@ -7,6 +7,83 @@ import XCTest
 @testable import Primuse
 
 final class DirectoryScanCooldownTests: XCTestCase {
+    /// 走查每个目录交一份断点快照,之后接着往下记。交出去的快照不能被之后的写入改到;
+    /// 从中途任何一份快照续扫,得到的索引与歌曲和一口气走完的完全一样;快照写进断点
+    /// (段文件)再读回来也照样能续。
+    func testWalkResumeSnapshotsStayFrozenAndResumeReproducesTheFullWalk() async throws {
+        var listings: [String: [RemoteFileItem]] = [:]
+        var root: [RemoteFileItem] = []
+        for artist in 0..<6 {
+            let artistPath = "/Music/歌手 \(artist)"
+            root.append(RemoteFileItem(name: "歌手 \(artist)", path: artistPath, isDirectory: true, size: 0, modifiedDate: nil))
+            var albums: [RemoteFileItem] = [RemoteFileItem(
+                name: "artist.jpg", path: "\(artistPath)/artist.jpg", isDirectory: false, size: 10, modifiedDate: nil
+            )]
+            for album in 0..<5 {
+                let albumPath = "\(artistPath)/专辑 \(album)"
+                albums.append(RemoteFileItem(name: "专辑 \(album)", path: albumPath, isDirectory: true, size: 0, modifiedDate: nil))
+                var tracks: [RemoteFileItem] = []
+                for track in 0..<13 {
+                    let name = String(format: "%02d 歌 %d.flac", track + 1, artist * 100 + album * 13 + track)
+                    tracks.append(RemoteFileItem(name: name, path: "\(albumPath)/\(name)", isDirectory: false,
+                                                 size: Int64(1_000 + track), modifiedDate: nil, revision: "e\(track)"))
+                }
+                tracks.append(RemoteFileItem(name: "cover.jpg", path: "\(albumPath)/cover.jpg", isDirectory: false,
+                                             size: 20, modifiedDate: nil))
+                listings[albumPath] = tracks
+            }
+            listings[artistPath] = albums
+        }
+        listings["/Music"] = root
+        let connector = IncrementalReconciliationTestConnector(listings: listings)
+        let scanner = ConnectorScanner(connector: connector, sourceID: "source")
+        var snapshots: [(state: SourceScanResumeState, index: [String: SourceSyncIndexedItem], songs: Set<String>)] = []
+        var last: ConnectorScanner.ScanUpdate?
+        for try await update in await scanner.scan(directories: ["/Music"], scanEpoch: 4) {
+            last = update
+            if let resume = update.resumeState {
+                snapshots.append((resume, resume.index, resume.encounteredSongIDs))
+            }
+        }
+        let full = try XCTUnwrap(last)
+        let fullIndex = await scanner.syncIndexSnapshot()
+        XCTAssertEqual(full.songs.count, 6 * 5 * 13)
+        // 目录 6 + 30、歌 390、图片(歌手图 6、封面 30,自动歌手封面要用)。
+        XCTAssertEqual(fullIndex.count, 36 + 390 + 36)
+        XCTAssertGreaterThan(snapshots.count, 30)
+        for (offset, snapshot) in snapshots.enumerated() {
+            XCTAssertEqual(snapshot.state.index, snapshot.index, "snapshot \(offset) was changed after it was handed out")
+            XCTAssertEqual(snapshot.state.encounteredSongIDs, snapshot.songs, "snapshot \(offset)")
+        }
+        let segmentCount = snapshots.last?.state.walkLog.segments.count ?? 0
+        XCTAssertLessThanOrEqual(segmentCount, 1, "the terminal snapshot is consolidated")
+
+        let segmentDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("walk-resume-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: segmentDirectory) }
+        for offset in [1, snapshots.count / 3, snapshots.count / 2, snapshots.count - 2] {
+            var resume = snapshots[offset].state
+            if offset == snapshots.count / 2 {
+                // 走一遍断点文件:段写到旁边,JSON 只留清单,冷启动读回。
+                let encoder = JSONEncoder()
+                encoder.userInfo[.scanResumeSegmentStore] = ScanResumeSegmentStore(directory: segmentDirectory)
+                let decoder = JSONDecoder()
+                decoder.userInfo[.scanResumeSegmentStore] = ScanResumeSegmentStore(directory: segmentDirectory)
+                resume = try decoder.decode(SourceScanResumeState.self, from: encoder.encode(resume))
+                XCTAssertTrue(resume.isUsable)
+                XCTAssertEqual(resume, snapshots[offset].state)
+            }
+            let resumedScanner = ConnectorScanner(connector: connector, sourceID: "source")
+            var resumed: ConnectorScanner.ScanUpdate?
+            for try await update in await resumedScanner.scan(
+                directories: ["/Music"], existingSongs: full.songs, resumeState: resume, scanEpoch: 4
+            ) { resumed = update }
+            let resumedIndex = await resumedScanner.syncIndexSnapshot()
+            XCTAssertEqual(resumedIndex, fullIndex, "resumed from snapshot \(offset)")
+            XCTAssertEqual(Set(try XCTUnwrap(resumed).songs.map(\.id)), Set(full.songs.map(\.id)))
+        }
+    }
+
     func testLargeDirectoryProgressReusesSafeResumeBoundary() async throws {
         let items = (0..<52_258).map { offset in
             RemoteFileItem(name: "track-\(offset).mp3", path: "/Music/track-\(offset).mp3",
@@ -381,7 +458,7 @@ final class DirectoryScanCooldownTests: XCTestCase {
         let scanner = ConnectorScanner(connector: connector, sourceID: "source")
         let result = try await scanner.reconcileChangedDirectories(
             Set((0..<20).map { "/Music/Album-\($0)" }), deletedStableKeys: [removedID],
-            existingSongs: existing, existingIndex: index, scanEpoch: 2,
+            existingSongs: existing, existingIndex: SourceSyncIndex(index), scanEpoch: 2,
             requiresCompleteListings: true
         )
         let byID = Dictionary(uniqueKeysWithValues: result.songs.map { ($0.id, $0) })

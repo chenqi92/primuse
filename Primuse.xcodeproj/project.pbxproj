@@ -2058,6 +2058,7 @@
 		DF207060532441F426923D9E /* UPnPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A7C2D0F07C125A333AC1046 /* UPnPSource.swift */; };
 		DF2BC050126042D35229A91E /* SourceSyncState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB6C29267E2B82E79D4DC038 /* SourceSyncState.swift */; };
 		3D61AA837A2DB03F9868AB1B /* SourceSyncIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50CBE6B438AE50A877E75CEC /* SourceSyncIndex.swift */; };
+		95D381049A0881318FD16748 /* SourceScanWalkLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C5A5033B9057F960BDF897 /* SourceScanWalkLog.swift */; };
 		DF4469CDB877811E19FA897E /* SourceFileCachePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D3B5EC3C19D67E0A1BFD66 /* SourceFileCachePolicy.swift */; };
 		DF6DB757C35FC7333742AF9B /* ReplayGainAnalysisCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0708527251C486B3C55EACB6 /* ReplayGainAnalysisCache.swift */; };
 		DFFE0575061D74F00FCB2BD3 /* GRDB-dynamic in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 79A916673EFC636EAD5F2A6D /* GRDB-dynamic */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -4197,6 +4198,7 @@
 		EB3A3AB01792078E57665353 /* LyricsTranslationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsTranslationSettings.swift; sourceTree = "<group>"; };
 		EB6C29267E2B82E79D4DC038 /* SourceSyncState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceSyncState.swift; sourceTree = "<group>"; };
 		50CBE6B438AE50A877E75CEC /* SourceSyncIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceSyncIndex.swift; sourceTree = "<group>"; };
+		72C5A5033B9057F960BDF897 /* SourceScanWalkLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceScanWalkLog.swift; sourceTree = "<group>"; };
 		EBB01F11731477FA9B7F27D0 /* MacSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSidebar.swift; sourceTree = "<group>"; };
 		EBD6678B75E0ED0C185FD110 /* SceneTransitionScanQuiescePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneTransitionScanQuiescePolicy.swift; sourceTree = "<group>"; };
 		EC0E9461E8549D78052D9E5F /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -5401,6 +5403,7 @@
 				4C46A7CFAEE41704BC45A8CB /* SongIdentity.swift */,
 				EB6C29267E2B82E79D4DC038 /* SourceSyncState.swift */,
 				50CBE6B438AE50A877E75CEC /* SourceSyncIndex.swift */,
+				72C5A5033B9057F960BDF897 /* SourceScanWalkLog.swift */,
 				10EA195119C963A2DA62FC69 /* WidgetSnapshots.swift */,
 			);
 			path = Models;
@@ -7880,6 +7883,7 @@
 				84FE74F58142B67C53943885 /* SourceSyncDirectoryPruningPolicy.swift in Sources */,
 				DF2BC050126042D35229A91E /* SourceSyncState.swift in Sources */,
 				3D61AA837A2DB03F9868AB1B /* SourceSyncIndex.swift in Sources */,
+				95D381049A0881318FD16748 /* SourceScanWalkLog.swift in Sources */,
 				882A8056156F2E82C41F0763 /* SpokenChapterGeneration.swift in Sources */,
 				AF9C1EA52AA45B17D0BE715F /* SpokenChapterImport.swift in Sources */,
 				2C720880F1B5659342E41792 /* SpokenTranscriptGeneration.swift in Sources */,

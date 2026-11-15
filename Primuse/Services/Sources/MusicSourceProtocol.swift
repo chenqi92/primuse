@@ -2218,7 +2218,7 @@ struct IncrementalSourceChanges: Sendable {
     var changedParentPaths: Set<String>
     var deletedStableKeys: Set<String>
     var requiresDeepScan: Bool
-    var reconciledIndex: [String: SourceSyncIndexedItem]?
+    var reconciledIndex: SourceSyncIndex?
     var identityAliases: [String: String]?
     var rootIdentities: [SourceSyncRootIdentity]?
     var missingStableKeys: [String: Int]?
@@ -2230,7 +2230,7 @@ struct IncrementalSourceChanges: Sendable {
         changedParentPaths: Set<String> = [],
         deletedStableKeys: Set<String> = [],
         requiresDeepScan: Bool = false,
-        reconciledIndex: [String: SourceSyncIndexedItem]? = nil,
+        reconciledIndex: SourceSyncIndex? = nil,
         identityAliases: [String: String]? = nil,
         rootIdentities: [SourceSyncRootIdentity]? = nil,
         missingStableKeys: [String: Int]? = nil,
