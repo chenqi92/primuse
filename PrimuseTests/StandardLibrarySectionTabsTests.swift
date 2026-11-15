@@ -70,7 +70,8 @@ final class StandardLibrarySectionTabsTests: XCTestCase {
             window.rootViewController = host
             window.isHidden = false
             try await Task.sleep(for: .milliseconds(500))
-            let expected = section == .shelf ? snapshot.shelf : snapshot.finished
+            // 书架页的「书架」一节里在听的书也留在原位（#418），和视图一样按 InPlace 两份比。
+            let expected = section == .shelf ? snapshot.shelfInPlace : snapshot.finishedInPlace
             XCTAssertEqual(built, Set(expected.map(\.id)))
             XCTAssertFalse(defaults.bool(forKey: "spokenWord.shelf.showsFinished"))
             attach(window, name: "home-subtabs-books-\(section.rawValue)")
@@ -141,11 +142,19 @@ final class StandardLibrarySectionTabsTests: XCTestCase {
     func testLiveToggleRemovesReservedSpaceAndPreservesSelection() async throws {
         let suite = "StandardLibrarySectionTabsTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        // 分类条要看资料库里有没有环境音，得有一份资料库在环境里。
+        let library = MusicLibrary(storageDirectory: directory)
+        await library.whenReady()
         let probe = SectionTabsProbe()
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         let host = UIHostingController(rootView: SectionTabsHarness(probe: probe)
+            .environment(library)
             .defaultAppStorage(defaults)
             .environment(\.locale, Locale(identifier: "zh-Hans")))
         host.safeAreaRegions = []
