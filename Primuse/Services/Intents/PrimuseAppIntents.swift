@@ -128,9 +128,9 @@ struct PrimusePlaybackControlIntent: AudioPlaybackIntent {
             _ = await bridge.restorePlaybackSession()
             bridge.togglePlayPause()
         case .next:
-            await performRestoringPlaybackSession { await bridge.next() }
+            await performRestoringPlaybackSession { await bridge.next("PrimusePlaybackControlIntent") }
         case .previous:
-            await performRestoringPlaybackSession { await bridge.previous() }
+            await performRestoringPlaybackSession { await bridge.previous("PrimusePlaybackControlIntent") }
         }
         return .result()
     }
@@ -142,7 +142,7 @@ struct PrimuseNextIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.next() }
+        await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.next("PrimuseNextIntent") }
         return .result()
     }
 }
@@ -153,7 +153,7 @@ struct PrimusePreviousIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.previous() }
+        await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.previous("PrimusePreviousIntent") }
         return .result()
     }
 }
@@ -314,8 +314,8 @@ struct PrimuseSkipTrackIntent: AudioPlaybackIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         switch direction {
-        case .next: await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.next() }
-        case .previous: await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.previous() }
+        case .next: await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.next("PrimuseSkipTrackIntent") }
+        case .previous: await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.previous("PrimuseSkipTrackIntent") }
         }
         return .result()
     }

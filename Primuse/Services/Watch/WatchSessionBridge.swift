@@ -941,7 +941,7 @@ extension WatchSessionBridge: WCSessionDelegate {
             await player.next(caller: "watch")
         case "previous":
             guard !player.isLiveRadio || player.canSwitchRadioStation else { return }
-            await player.previous()
+            await player.previous(caller: "watch")
         case "skipForward":
             guard player.currentItemIsSpokenWord, !player.isLiveRadio else { return }
             player.skipSpokenWordForward()

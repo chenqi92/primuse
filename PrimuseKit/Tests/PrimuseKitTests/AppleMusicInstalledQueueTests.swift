@@ -90,4 +90,68 @@ struct AppleMusicInstalledQueueTests {
         cache.complete(attemptID: current, songIDs: ["a"], entryIDs: ids, nativeEntryIDs: ["n1"])
         #expect(!cache.matches(songIDs: ["a"], entryIDs: ids, nativeEntryIDs: ["n1"]))
     }
+
+    @Test("Next and previous to the adjacent installed entry skip natively instead of rebuilding")
+    func adjacentEntriesSkipNatively() {
+        let ids = [UUID(), UUID(), UUID()]
+        let entries: [UUID?] = ids
+        #expect(AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: entries, currentIndex: 1, currentEntryID: ids[1], targetEntryID: ids[2], direction: .forward
+        ))
+        #expect(AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: entries, currentIndex: 1, currentEntryID: ids[1], targetEntryID: ids[0], direction: .backward
+        ))
+    }
+
+    @Test("A target that is not the native neighbour falls back to rebuilding the queue")
+    func nonAdjacentTargetsRebuild() {
+        let ids = [UUID(), UUID(), UUID()]
+        let entries: [UUID?] = ids
+        // 队列改过 / 随机顺序换过: 系统里挨着的不是 Primuse 要去的那条。
+        #expect(!AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: entries, currentIndex: 0, currentEntryID: ids[0], targetEntryID: ids[2], direction: .forward
+        ))
+        // 方向反了。
+        #expect(!AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: entries, currentIndex: 1, currentEntryID: ids[1], targetEntryID: ids[0], direction: .forward
+        ))
+        // 下一首是本地歌, 不在系统那段里。
+        #expect(!AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: entries, currentIndex: 2, currentEntryID: ids[2], targetEntryID: UUID(), direction: .forward
+        ))
+        // 不绕回: 队尾按下一首、队首按上一首交给重装。
+        #expect(!AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: entries, currentIndex: 2, currentEntryID: ids[2], targetEntryID: ids[0], direction: .forward
+        ))
+        #expect(!AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: entries, currentIndex: 0, currentEntryID: ids[0], targetEntryID: ids[2], direction: .backward
+        ))
+        // 回到当前这条本身(没有上一首时)不是切歌。
+        #expect(!AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: entries, currentIndex: 1, currentEntryID: ids[1], targetEntryID: ids[1], direction: .backward
+        ))
+    }
+
+    @Test("The native current entry must be the Primuse current entry and the neighbour must be mapped")
+    func outOfSyncOrUnmappedQueuesRebuild() {
+        let ids = [UUID(), UUID(), UUID()]
+        // 系统已经自己换到别的歌、镜像还没收养: 当前条对不上。
+        #expect(!AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: ids, currentIndex: 2, currentEntryID: ids[1], targetEntryID: ids[2], direction: .forward
+        ))
+        #expect(!AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: ids, currentIndex: nil, currentEntryID: ids[1], targetEntryID: ids[2], direction: .forward
+        ))
+        #expect(!AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: ids, currentIndex: 7, currentEntryID: ids[1], targetEntryID: ids[2], direction: .forward
+        ))
+        // 系统队列里挨着的那条还没认出是哪个条目(重复出现的同一首)。
+        #expect(!AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: [ids[0], ids[1], nil], currentIndex: 1, currentEntryID: ids[1], targetEntryID: ids[2], direction: .forward
+        ))
+        // 停止点只留下当前这一条。
+        #expect(!AppleMusicManagedSkipPolicy.canSkipNatively(
+            entryIDs: [ids[1]], currentIndex: 0, currentEntryID: ids[1], targetEntryID: ids[2], direction: .forward
+        ))
+    }
 }

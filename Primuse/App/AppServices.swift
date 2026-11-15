@@ -3257,8 +3257,8 @@ final class AppServices {
             // 已经对齐就别动 (避免来回开停)。
             if desired != player.isPlaybackActive { player.togglePlayPause() }
         }
-        bridge.next = { await player.next(caller: "AppIntent") }
-        bridge.previous = { await player.previous() }
+        bridge.next = { source in await player.next(caller: "AppIntent.\(source)") }
+        bridge.previous = { source in await player.previous(caller: "AppIntent.\(source)") }
         bridge.skipBackward = {
             player.skipSpokenWordBackward()
             player.updatePlaybackState()

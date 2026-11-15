@@ -778,6 +778,74 @@ final class AppleMusicService {
          }
      }
 
+     /// Primuse 托管的队列里切到紧挨着的那一条(#94)。系统里装着的那段当前条就是
+     /// `currentEntryID`、挨着的正是 `targetEntryID` 时直接 skipToNext/PreviousEntry,
+     /// 不再整段重装 —— 几百首的队列每按一次下一首都重建一遍, 换歌要等好一阵。
+     /// 返回 true 表示系统已经停在目标那一条上; false 时调用方照旧重装队列。
+     func skipManagedQueueNatively(
+         from currentEntryID: UUID,
+         to targetEntryID: UUID,
+         direction: AppleMusicManagedSkipPolicy.Direction,
+         requestID: UUID
+     ) async -> Bool {
+         guard isPlaybackRequestActive(requestID),
+               playbackPhase(for: requestID) == .started,
+               managedQueueUpdateID == nil,
+               managedQueueProjection != nil,
+               !recoveredWithSingleItem,
+               !Task.isCancelled else { return false }
+         refreshManagedQueueEntryIDs()
+         let entries = ApplicationMusicPlayer.shared.queue.entries
+         let nativeCurrentIndex = ApplicationMusicPlayer.shared.queue.currentEntry.flatMap { current in
+             entries.firstIndex { $0.id == current.id }
+         }
+         guard AppleMusicManagedSkipPolicy.canSkipNatively(
+             entryIDs: entries.map { managedQueueEntryIDs[$0.id] },
+             currentIndex: nativeCurrentIndex,
+             currentEntryID: currentEntryID,
+             targetEntryID: targetEntryID,
+             direction: direction
+         ) else { return false }
+         do {
+             switch direction {
+             case .forward: try await ApplicationMusicPlayer.shared.skipToNextEntry()
+             case .backward: try await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+             }
+         } catch {
+             guard isPlaybackRequestActive(requestID), !Task.isCancelled else { return false }
+             plog("Apple Music managed skip \(direction.rawValue) failed: \(error.localizedDescription)")
+             return false
+         }
+         // skip 返回时 currentEntry 不一定已经换好: 最多等 1 秒看它落到目标那条上。
+         for _ in 0..<20 {
+             guard isPlaybackRequestActive(requestID),
+                   managedQueueUpdateID == nil,
+                   !Task.isCancelled else { return false }
+             refreshManagedQueueEntryIDs()
+             if let current = ApplicationMusicPlayer.shared.queue.currentEntry,
+                let entryID = managedQueueEntryIDs[current.id] {
+                 if entryID == targetEntryID {
+                     // 换曲由我们发起, 曲末观测窗口按新的一首重开(和轮询里遇到新 entry 一样),
+                     // 再立刻同步一拍, 镜像不用等下一次 0.5 秒轮询就能收养这次换歌。
+                     lastObservedEntryID = current.id
+                     hasObservedActivePlayback = false
+                     lastObservedPlaybackTime = nil
+                     furthestObservedPlaybackTime = 0
+                     nearEndStallSampleCount = 0
+                     await tickAppleMusicState(requestID: requestID)
+                     return true
+                 }
+                 if entryID != currentEntryID {
+                     plog("Apple Music managed skip \(direction.rawValue) landed on an unexpected entry")
+                     return false
+                 }
+             }
+             try? await Task.sleep(for: .milliseconds(50))
+         }
+         plog("Apple Music managed skip \(direction.rawValue) did not reach the target entry in time")
+         return false
+     }
+
     func play(_ song: MusicKit.Song) async {
         let requestID = beginPlaybackRequest()
         // 让 Primuse 自家播放器先停掉, audio session 让给 ApplicationMusicPlayer。

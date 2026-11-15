@@ -5192,6 +5192,87 @@ final class AudioPlayerService {
         }
     }
 
+    /// #94: Primuse 托管 Apple Music 队列时按下一首 / 上一首, 要去的那条正好是系统队列里
+    /// 紧挨着的那条 —— 让系统播放器自己跳, 再按条目 ID 收养这次换歌(锁屏、车机上切歌走的就是
+    /// 这条收养路)。以前每按一次都经 `play(song:)` 把整段队列(日志里 requested=649)重新交给
+    /// MusicKit。返回 false 时调用方照旧 `play(song:)` 重装: 暂停着、下一首是本地歌、要开新一轮
+    /// 随机、队列或随机顺序刚改过还没同步到系统、停止点只留了当前这一条。
+    func skipManagedAppleMusicQueueNatively(
+        to target: QueueTraversalTarget,
+        direction: AppleMusicManagedSkipPolicy.Direction
+    ) async -> Bool {
+        let appleMusic = AppServices.shared.appleMusic
+        guard isAppleMusicMode,
+              isPrimuseManagingAppleMusicQueue,
+              let requestID = activeAppleMusicRequestID,
+              playID == requestID,
+              appleMusic.playbackPhase(for: requestID) == .started,
+              // 暂停时按切歌原来会接着放, 系统 skip 不一定会; 留给重装。
+              isPlaying, appleMusic.isAppleMusicPlaying,
+              // 系统那段开着单曲循环时 skip 是换歌还是重放这首说不准, 留给重装。
+              repeatMode != .one,
+              target.pendingShuffleRound == nil,
+              queueEntries.indices.contains(currentIndex),
+              queueEntries.indices.contains(target.queueIndex),
+              target.queueIndex != currentIndex else { return false }
+        let currentEntry = queueEntries[currentIndex]
+        let targetEntry = queueEntries[target.queueIndex]
+        // Primuse 这边现在要交给系统的那段里目标也得紧挨着当前; 系统里装着的那段由
+        // AppleMusicService 再核对一遍。镜像还没收养系统自己换的歌时当前条对不上, 也交给重装。
+        guard currentEntry.song.id == currentSong?.id,
+              appleMusic.nowPlayingQueueEntryID == currentEntry.id,
+              targetEntry.song.sourceID == AppleMusicLibraryService.systemSourceID,
+              let projection = appleMusicQueueProjection(),
+              AppleMusicManagedSkipPolicy.canSkipNatively(
+                entryIDs: projection.entries.map { Optional($0.id) },
+                currentIndex: projection.startIndex,
+                currentEntryID: currentEntry.id,
+                targetEntryID: targetEntry.id,
+                direction: direction
+              ) else { return false }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        rememberSpokenWordPosition(force: true)
+        invalidateInterruptionResumePreservingIntent()
+        let skipped = await appleMusic.skipManagedQueueNatively(
+            from: currentEntry.id,
+            to: targetEntry.id,
+            direction: direction,
+            requestID: requestID
+        )
+        // 等系统跳的这段时间里别处已经换了歌、停了, 或者队列变了: 那边说了算, 不再拿这次按键时
+        // 算好的位置去重装。镜像已经把目标那条收养成当前条时, 就当这次跳成了。
+        guard activeAppleMusicRequestID == requestID, playID == requestID,
+              queueEntries.indices.contains(currentIndex),
+              queueEntries.indices.contains(target.queueIndex),
+              queueEntries[target.queueIndex].id == targetEntry.id else {
+            plog("Apple Music managed skip \(direction.rawValue) superseded while waiting; skipped=\(skipped)")
+            return true
+        }
+        let landedOnTarget = queueEntries[currentIndex].id == targetEntry.id
+        guard landedOnTarget || queueEntries[currentIndex].id == currentEntry.id else {
+            plog("Apple Music managed skip \(direction.rawValue) superseded while waiting; skipped=\(skipped)")
+            return true
+        }
+        guard skipped || landedOnTarget else {
+            plog("Apple Music managed skip \(direction.rawValue) unavailable natively; rebuilding the queue")
+            return false
+        }
+        // `play(song:)` 换歌时顺手做的几件事。
+        preparePlaybackMetadataSelection(for: targetEntry.song)
+        if pendingAppleMusicRestoredPosition?.songID != targetEntry.song.id {
+            pendingAppleMusicRestoredPosition = nil
+        }
+        // 立刻收养, 连按时下一次从新位置数起, 不必等镜像任务被唤醒。
+        mirrorAppleMusicState(sessionGeneration: appleMusicMirrorGeneration, requestID: requestID)
+        if let lockedID = sleepStopAfterSongID, lockedID != targetEntry.song.id {
+            plog("🌙 Sleep-at-track-end cancelled by explicit track change")
+            sleepStopAfterSongID = nil
+        }
+        let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
+        plog("Apple Music managed queue native skip \(direction.rawValue) index=\(currentIndex) adopted=\(currentSong?.id == targetEntry.song.id) took=\(elapsed)ms")
+        return true
+    }
+
     /// 启动 Apple Music 状态镜像 ── observation tracking 监听 appleMusic 的
      /// nowPlayingSong / isAppleMusicPlaying / currentPlaybackTime 等字段,
      /// 每次变化把值 mirror 到 self 的 currentSong / isPlaying / currentTime 等。

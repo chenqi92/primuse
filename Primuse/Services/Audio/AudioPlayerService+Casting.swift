@@ -901,6 +901,14 @@ extension AudioPlayerService {
             plog("⏭️ next: no enabled successor; keeping current playback")
             return false
         }
+        // #94: Primuse 托管的 Apple Music 队列里, 下一首正好是系统队列里紧挨着的那条时让系统
+        // 自己跳过去, 不再每按一次就把几百首的整段队列重新交给 MusicKit。
+        if isManualSkip, !countedPendingSkip,
+           queueEntries.indices.contains(successor.queueIndex),
+           !skipsAdjacentDuplicate(queueEntries[successor.queueIndex].song, context: context),
+           await skipManagedAppleMusicQueueNatively(to: successor, direction: .forward) {
+            return true
+        }
         applyQueueTraversalTarget(successor)
         // 跳过相邻同 title+artist 的"重复歌曲" —— NAS 上同一首歌有多个版本
         // (mp3 + flac, 不同目录) scan 后是不同 song.id, 但用户看就是同一首,
@@ -929,13 +937,22 @@ extension AudioPlayerService {
         )
     }
 
-    /// - Parameter restartsCurrentFirst: 放过 3 秒时先回到这首开头（按钮、耳机线控的习惯）。
-    ///   封面流里往回拖、点左边那张时为 false：用户要的就是左边那一首。设置里关了
-    ///   「上一首先回到开头」时(#348)一律直接切到上一首。
+    /// - Parameters:
+    ///   - restartsCurrentFirst: 放过 3 秒时先回到这首开头（按钮、耳机线控的习惯）。
+    ///     封面流里往回拖、点左边那张时为 false：用户要的就是左边那一首。设置里关了
+    ///     「上一首先回到开头」时(#348)一律直接切到上一首。
+    ///   - caller: 和 `next()` 一样记下是谁调的(调用处的文件与行号, 小组件、手表等传名字)。
+    ///     #100「下一首一秒后又跳回原来那首」查到回跳那次 play 来自这里, 按钮、手势、小组件、
+    ///     手表、锁屏都会调到, 靠这一行分清来源。
     @discardableResult
-    func previous(restartsCurrentFirst: Bool = true) async -> Bool {
+    func previous(
+        restartsCurrentFirst: Bool = true,
+        caller: String = #fileID,
+        callerLine: Int = #line
+    ) async -> Bool {
         let restartsCurrentFirst = restartsCurrentFirst && playbackSettings.previousRestartsCurrentSong
-        plog("previous() called restartsCurrentFirst=\(restartsCurrentFirst) \(queueSkipDiagnosticState)")
+        let callerFile = (caller as NSString).lastPathComponent
+        plog("previous() called FROM=\(callerFile):\(callerLine) restartsCurrentFirst=\(restartsCurrentFirst) \(queueSkipDiagnosticState)")
         if isLiveRadio {
             guard let station = currentRadioStation,
                   radioStationOrder.count > 1,
@@ -958,10 +975,14 @@ extension AudioPlayerService {
         guard !queueEntries.isEmpty else { return false }
         // A song playing its range restarts at the range start.
         if restartsCurrentFirst, currentTime - currentPlaybackRangeStart > 3 {
+            plog("previous: restarting current song at time=\(currentTime)")
             seek(to: 0)
             return true
         }
-        guard var predecessor = previousQueueTraversalTarget() else { return false }
+        guard var predecessor = previousQueueTraversalTarget() else {
+            plog("previous: no predecessor; keeping current playback")
+            return false
+        }
         // 真的要换到上一首(不是回到这首开头):播放页大封面据此往回换。
         ManualTrackTraversal.note(.backward)
         let sourcePlayID = playID
@@ -975,6 +996,11 @@ extension AudioPlayerService {
         case nil:
             break
         }
+        // #94: 托管的 Apple Music 队列里上一首就是系统队列里前一条时让系统自己跳。
+        if await skipManagedAppleMusicQueueNatively(to: predecessor, direction: .backward) {
+            return true
+        }
+        plog("previous: moving index \(currentIndex) → \(predecessor.queueIndex) FROM=\(callerFile):\(callerLine)")
         applyQueueTraversalTarget(predecessor)
         await play(song: queueEntries[currentIndex].song)
         return true
@@ -989,13 +1015,18 @@ extension AudioPlayerService {
     /// 全屏「封面流」(#191)：沿播放顺序跳 `steps` 首（负数往回），落在连按 |steps| 次下一首 / 上一首
     /// 会到的那首，中间那几首不播。一步时就是下一首 / 上一首（照样走淡入淡出），往回不先回到开头。
     @discardableResult
-    func skipAlongQueue(by steps: Int) async -> Bool {
+    func skipAlongQueue(
+        by steps: Int,
+        caller: String = #fileID,
+        callerLine: Int = #line
+    ) async -> Bool {
         switch steps {
         case 0: return false
-        case 1: return await next()
-        case -1: return await previous(restartsCurrentFirst: false)
+        case 1: return await next(caller: caller, callerLine: callerLine)
+        case -1: return await previous(restartsCurrentFirst: false, caller: caller, callerLine: callerLine)
         default: break
         }
+        plog("skipAlongQueue(by: \(steps)) FROM=\((caller as NSString).lastPathComponent):\(callerLine) \(queueSkipDiagnosticState)")
         guard !isLiveRadio,
               !(isAppleMusicMode && !isPrimuseManagingAppleMusicQueue),
               !queueEntries.isEmpty else { return false }

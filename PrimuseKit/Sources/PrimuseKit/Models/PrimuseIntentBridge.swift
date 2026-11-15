@@ -105,8 +105,10 @@ public final class PrimuseIntentBridge {
     /// Control Widget 的 toggle 走这个: 系统把"用户想要的下一帧状态"直接
     /// 给我们 (true = 想播放, false = 想暂停), 我们对齐到实际播放器即可。
     public var setPlaying: @MainActor (Bool) -> Void = { _ in }
-    public var next: @MainActor () async -> Void = {}
-    public var previous: @MainActor () async -> Void = {}
+    /// `source` 是发起的 intent 名字, 播放器日志里据此分清是小组件、控制中心、
+    /// 快捷指令还是 Siri 切的歌(#100 查「下一首又被跳回去」)。
+    public var next: @MainActor (_ source: String) async -> Void = { _ in }
+    public var previous: @MainActor (_ source: String) async -> Void = { _ in }
     /// Spoken word's replacements for previous / next: back and forward by
     /// the listener's skip intervals.
     public var skipBackward: @MainActor () -> Void = {}
