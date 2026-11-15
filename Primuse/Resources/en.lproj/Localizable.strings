@@ -6907,7 +6907,8 @@
 "chapter_generation_monthly_limit" = "This month’s chapter generation allowance has been used up. Try again next month.";
 
 "album_show_track_artwork" = "Track Artwork";
-"home_play_latest_album" = "Play Latest Album";
+"home_play_recently_added" = "Play Recently Added";
+"home_play_recently_added_subtitle" = "Starting with the newest album";
 "content_explicit" = "Explicit Content";
 "content_rating" = "Content Rating";
 "copyright_label" = "Copyright";

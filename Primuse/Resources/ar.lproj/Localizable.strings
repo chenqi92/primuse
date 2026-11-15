@@ -7052,7 +7052,8 @@
 "chapter_generation_monthly_limit" = "تم استنفاد حصة إنشاء الفصول لهذا الشهر. حاول مرة أخرى الشهر المقبل.";
 
 "album_show_track_artwork" = "صور الأغاني";
-"home_play_latest_album" = "تشغيل أحدث ألبوم";
+"home_play_recently_added" = "تشغيل الأغاني المضافة مؤخرًا";
+"home_play_recently_added_subtitle" = "بدءًا من أحدث ألبوم";
 "content_explicit" = "محتوى صريح";
 "content_rating" = "تصنيف المحتوى";
 "copyright_label" = "حقوق النشر";

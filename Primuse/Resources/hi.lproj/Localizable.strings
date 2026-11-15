@@ -7052,7 +7052,8 @@
 "chapter_generation_monthly_limit" = "इस महीने की अध्याय बनाने की सीमा पूरी हो गई है। अगले महीने फिर कोशिश करें।";
 
 "album_show_track_artwork" = "गानों के कवर";
-"home_play_latest_album" = "नवीनतम एल्बम चलाएँ";
+"home_play_recently_added" = "हाल ही में जोड़े गए गाने चलाएँ";
+"home_play_recently_added_subtitle" = "सबसे नए एल्बम से शुरू करके";
 "content_explicit" = "अश्लील सामग्री";
 "content_rating" = "सामग्री रेटिंग";
 "copyright_label" = "कॉपीराइट";

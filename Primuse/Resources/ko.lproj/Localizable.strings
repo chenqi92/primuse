@@ -7146,7 +7146,8 @@
 "chapter_generation_monthly_limit" = "이번 달의 챕터 생성 한도를 모두 사용했습니다. 다음 달에 다시 시도하세요.";
 
 "album_show_track_artwork" = "곡 아트워크";
-"home_play_latest_album" = "최근 추가한 앨범 재생";
+"home_play_recently_added" = "최근 추가한 곡 재생";
+"home_play_recently_added_subtitle" = "가장 최근 앨범부터";
 "content_explicit" = "유해 콘텐츠";
 "content_rating" = "콘텐츠 등급";
 "copyright_label" = "저작권";

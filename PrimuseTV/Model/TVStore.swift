@@ -7381,6 +7381,16 @@ final class TVStore {
         playResolvedQueue(songIDs: songIDs(forAlbum: album.id), shuffled: shuffleEnabled)
     }
 
+    /// 首页「最近添加」那张播放卡片(#390):按这一排专辑的先后连着放最近加进来的歌,取法同手机首页。
+    @discardableResult
+    func playRecentlyAdded(includingExternalSongs: Bool) -> Bool {
+        let albumIDs = recentlyAddedAlbums(includingExternalSongs: includingExternalSongs).map(\.id)
+        let queue = library.recentlyAddedPlaybackQueue(
+            albumIDs: albumIDs, includingExternalSongs: includingExternalSongs
+        )
+        return playResolvedQueue(songIDs: queue.map(\.id), shuffled: false)
+    }
+
     /// 在电视上新建一个歌单(看板 PRIM-35),经 iCloud 同步到其他设备。名字去掉首尾空白后为空时不建,
     /// 取消也不会留下空歌单。
     @discardableResult

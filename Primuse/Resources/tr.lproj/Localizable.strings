@@ -7052,7 +7052,8 @@
 "chapter_generation_monthly_limit" = "Bu ayki bölüm oluşturma kotası doldu. Gelecek ay tekrar deneyin.";
 
 "album_show_track_artwork" = "Şarkı kapakları";
-"home_play_latest_album" = "Son eklenen albümü çal";
+"home_play_recently_added" = "Son eklenen şarkıları çal";
+"home_play_recently_added_subtitle" = "En yeni albümden başlayarak";
 "content_explicit" = "Uygunsuz İçerik";
 "content_rating" = "İçerik Derecelendirmesi";
 "copyright_label" = "Telif Hakkı";

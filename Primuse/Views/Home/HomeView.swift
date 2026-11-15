@@ -5189,17 +5189,7 @@ struct HomeView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home.recentAlbums.options")
                 Spacer()
-                Button(action: playLatestAlbum) {
-                    Label("home_play_latest_album", systemImage: "play.fill")
-                        .labelStyle(.iconOnly)
-                        .font(.subheadline.weight(.semibold))
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
-                .disabled(albums.isEmpty)
-                .accessibilityIdentifier("home.recentAlbums.playLatest")
+                HomeRecentlyAddedPlayButton(albumIDs: albums.map(\.album.id), includesExternalSongs: showsExternalAlbums)
                 // value 式:页里的专辑卡要压在这一页上面,见 `HomeSeeAllPage`。
                 NavigationLink(value: HomeSeeAllPage.recentlyAddedAlbums) {
                     HStack(spacing: 5) {
@@ -5269,15 +5259,6 @@ struct HomeView: View {
                 .pmCoversExtendUnderVerticalBar()
             }
         }
-    }
-
-    private func playLatestAlbum() {
-        guard let album = model.snapshot.recentlyAddedAlbums.first?.album else { return }
-        let queue = library.songs(forAlbum: album.id).filteredPlayable()
-        guard !queue.isEmpty else { return }
-        player.shuffleEnabled = false
-        SiriMediaInteractionDonor.donate(.album(id: album.id), shuffled: false)
-        Task { await player.play(queue: queue, startingAt: 0) }
     }
 
     /// 「最近添加」网格的列方案。
@@ -5529,5 +5510,39 @@ struct HomeView: View {
         guard !ids.isEmpty else { return }
         player.shuffleEnabled = false
         Task { await player.play(queueIDs: ids, order: shuffled ? .shuffled : .asGiven) }
+    }
+}
+
+/// 首页「最近添加」标题右边那颗播放键(#390):从最新的专辑起,把最近加进来的歌连着放;长按可以随机放。
+/// 队列怎么取见 `MusicLibrary.recentlyAddedPlaybackQueue`。
+private struct HomeRecentlyAddedPlayButton: View {
+    let albumIDs: [String]
+    let includesExternalSongs: Bool
+    @Environment(MusicLibrary.self) private var library
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        Button { play(shuffled: false) } label: {
+            Label("home_play_recently_added", systemImage: "play.fill")
+                .labelStyle(.iconOnly)
+                .font(.subheadline.weight(.semibold))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.tint)
+        .disabled(albumIDs.isEmpty)
+        .contextMenu {
+            Button("play", systemImage: "play.fill") { play(shuffled: false) }
+            Button("shuffle", systemImage: "shuffle") { play(shuffled: true) }
+        }
+        .accessibilityIdentifier("home.recentAlbums.playLatest")
+    }
+
+    private func play(shuffled: Bool) {
+        HomeDiscoveryPlayback.playRecentlyAdded(
+            albumIDs: albumIDs, includingExternalSongs: includesExternalSongs, shuffled: shuffled,
+            library: library, player: player
+        )
     }
 }

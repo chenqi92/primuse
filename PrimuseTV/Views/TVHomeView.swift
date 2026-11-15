@@ -325,6 +325,7 @@ struct TVHomeView: View {
             if !store.albums.isEmpty {
                 TVRow(label: PMString("ext.tv.home.recentlyAdded"), rule: true,
                       showsExternalAlbums: $showsExternalAlbums) {
+                    recentlyAddedPlayCard
                     ForEach(store.recentlyAddedAlbums(includingExternalSongs: showsExternalAlbums)) { album in
                         albumCard(album, row: "added")
                     }
@@ -332,6 +333,22 @@ struct TVHomeView: View {
             }
         case .radio:
             radioRow
+        }
+    }
+
+    /// 「最近添加」这一排打头的播放卡片(#390):从最新的专辑起,把最近加进来的歌连着放。
+    private var recentlyAddedPlayCard: some View {
+        let id = cardID("added", "play-recent")
+        return TVRadioTileCard(
+            icon: "play.fill",
+            title: String(localized: "home_play_recently_added"),
+            subtitle: String(localized: "home_play_recently_added_subtitle"),
+            dashed: false,
+            width: 240,
+            focusBinding: $focusedCardID,
+            focusID: id
+        ) {
+            if store.playRecentlyAdded(includingExternalSongs: showsExternalAlbums) { playerOpener(id)() }
         }
     }
 

@@ -1566,7 +1566,7 @@ struct MacHomeView: View {
             sectionHeader(title: LocalizedStringKey(HomeDiscoveryText.string("recent_albums")),
                           subtitle: "home_recently_added_subtitle",
                           destination: .recentlyAdded,
-                          onPlay: playLatestAlbum)
+                          onPlay: { playRecentlyAdded(shuffled: false) })
 
             LazyVGrid(
                 columns: Array(repeating: GridItem(.adaptive(minimum: 130, maximum: 160),
@@ -1585,13 +1585,15 @@ struct MacHomeView: View {
         }
     }
 
-    private func playLatestAlbum() {
-        guard let album = model.snapshot.recentlyAddedAlbums.first else { return }
-        let queue = library.songs(forAlbum: album.id).filteredPlayable()
-        guard !queue.isEmpty else { return }
-        player.shuffleEnabled = false
-        SiriMediaInteractionDonor.donate(.album(id: album.id), shuffled: false)
-        Task { await player.play(queue: queue, startingAt: 0) }
+    /// 从最新的专辑起,把最近加进来的歌连着放(#390);队列取法同手机首页。
+    private func playRecentlyAdded(shuffled: Bool) {
+        HomeDiscoveryPlayback.playRecentlyAdded(
+            albumIDs: model.snapshot.recentlyAddedAlbums.map(\.id),
+            includingExternalSongs: showsExternalAlbums,
+            shuffled: shuffled,
+            library: library,
+            player: player
+        )
     }
 
     private func albumCard(_ album: Album) -> some View {
@@ -1767,14 +1769,18 @@ struct MacHomeView: View {
             Spacer()
             if let onPlay {
                 PMScrollingButton(action: onPlay) {
-                    Label("home_play_latest_album", systemImage: "play.fill")
+                    Label("home_play_recently_added", systemImage: "play.fill")
                         .labelStyle(.iconOnly)
                         .font(.system(size: 12, weight: .semibold))
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
                 .foregroundStyle(PMColor.brand)
-                .help(Text("home_play_latest_album"))
+                .help(Text("home_play_recently_added"))
+                .contextMenu {
+                    Button("play", systemImage: "play.fill") { playRecentlyAdded(shuffled: false) }
+                    Button("shuffle", systemImage: "shuffle") { playRecentlyAdded(shuffled: true) }
+                }
                 .accessibilityIdentifier("home.recentAlbums.playLatest")
             }
             if let destination {

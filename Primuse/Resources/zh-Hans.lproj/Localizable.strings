@@ -7239,7 +7239,8 @@
 "chapter_generation_monthly_limit" = "本月的章节生成额度已用完，请下个月再试。";
 
 "album_show_track_artwork" = "歌曲封面";
-"home_play_latest_album" = "播放最新专辑";
+"home_play_recently_added" = "播放最近添加的歌曲";
+"home_play_recently_added_subtitle" = "从最新的专辑开始";
 "content_explicit" = "含露骨内容";
 "content_rating" = "内容分级";
 "copyright_label" = "版权";

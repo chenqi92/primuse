@@ -7052,7 +7052,8 @@
 "chapter_generation_monthly_limit" = "Месячный лимит создания глав исчерпан. Попробуйте в следующем месяце.";
 
 "album_show_track_artwork" = "Обложки треков";
-"home_play_latest_album" = "Воспроизвести последний альбом";
+"home_play_recently_added" = "Воспроизвести недавно добавленные";
+"home_play_recently_added_subtitle" = "Начиная с самого нового альбома";
 "content_explicit" = "Ненормативная лексика";
 "content_rating" = "Возрастная маркировка";
 "copyright_label" = "Авторские права";

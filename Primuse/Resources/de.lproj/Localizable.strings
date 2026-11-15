@@ -7146,7 +7146,8 @@
 "chapter_generation_monthly_limit" = "Das monatliche Kontingent zur Kapitelerstellung ist aufgebraucht. Versuche es nächsten Monat erneut.";
 
 "album_show_track_artwork" = "Titelcover";
-"home_play_latest_album" = "Neuestes Album abspielen";
+"home_play_recently_added" = "Zuletzt hinzugefügte Titel abspielen";
+"home_play_recently_added_subtitle" = "Beginnend mit dem neuesten Album";
 "content_explicit" = "Explizite Inhalte";
 "content_rating" = "Inhaltsbewertung";
 "copyright_label" = "Copyright";

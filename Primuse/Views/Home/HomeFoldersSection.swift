@@ -2097,6 +2097,20 @@ enum HomeDiscoveryPlayback {
             play(ids: ordered, library: library, player: player)
         }
     }
+
+    /// 首页「最近添加」那颗播放键(#390,手机与 Mac 共用):`albumIDs` 是区块里专辑的先后。
+    static func playRecentlyAdded(
+        albumIDs: [String], includingExternalSongs: Bool, shuffled: Bool,
+        library: MusicLibrary, player: AudioPlayerService
+    ) {
+        let songs = library.recentlyAddedPlaybackQueue(
+            albumIDs: albumIDs, includingExternalSongs: includingExternalSongs
+        )
+        guard !songs.isEmpty else { return }
+        let queue = shuffled ? player.shufflePlayOrder(songs) : songs
+        player.shuffleEnabled = shuffled
+        Task { await player.play(queue: queue, startingAt: 0) }
+    }
 }
 
 // MARK: - 目录里的歌曲顺序

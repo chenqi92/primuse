@@ -7052,7 +7052,8 @@
 "chapter_generation_monthly_limit" = "ใช้โควตาสร้างบทของเดือนนี้หมดแล้ว โปรดลองใหม่เดือนหน้า";
 
 "album_show_track_artwork" = "ภาพปกเพลง";
-"home_play_latest_album" = "เล่นอัลบั้มล่าสุด";
+"home_play_recently_added" = "เล่นเพลงที่เพิ่มล่าสุด";
+"home_play_recently_added_subtitle" = "เริ่มจากอัลบั้มล่าสุด";
 "content_explicit" = "เนื้อหาโจ่งแจ้ง";
 "content_rating" = "การจัดประเภทเนื้อหา";
 "copyright_label" = "ลิขสิทธิ์";

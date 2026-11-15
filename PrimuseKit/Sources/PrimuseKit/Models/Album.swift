@@ -313,6 +313,34 @@ public enum RecentlyAddedAlbumPolicy {
     }
 }
 
+extension RecentlyAddedAlbumPolicy {
+    /// 首页「最近添加」那颗播放键一次放进队列的上限:够连着听一阵,又不会把大曲库整个塞进去。
+    public static let playbackQueueLimit = 200
+    /// 同一张专辑里和最新那首相隔多久以内的,算同一批加进来的。
+    public static let playbackBatchWindow: TimeInterval = 24 * 60 * 60
+
+    /// 首页「最近添加」一键播放的队列(#390)。`albumSongs` 按区块里专辑的先后给(最新的在前),
+    /// 每张专辑的歌已按曲序排好;每张只取最近那一批加进来的歌,旧专辑里新补的几首就只放这几首。
+    /// 凑满 `limit` 首就停,后面的专辑不再取。
+    public static func playbackQueue<S: Sequence>(
+        albumSongs: S,
+        limit: Int = playbackQueueLimit,
+        batchWindow: TimeInterval = playbackBatchWindow
+    ) -> [Song] where S.Element == [Song] {
+        guard limit > 0 else { return [] }
+        var queue: [Song] = []
+        for songs in albumSongs {
+            guard let latest = songs.lazy.map(date(for:)).max() else { continue }
+            let threshold = latest.addingTimeInterval(-batchWindow)
+            for song in songs where date(for: song) >= threshold {
+                queue.append(song)
+                if queue.count >= limit { return queue }
+            }
+        }
+        return queue
+    }
+}
+
 public enum AlbumArtworkFallbackPolicy {
     public static func preferredSongID(
         orderedSongIDs: [String],

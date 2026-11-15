@@ -7052,7 +7052,8 @@
 "chapter_generation_monthly_limit" = "Wykorzystano miesięczny limit generowania rozdziałów. Spróbuj w przyszłym miesiącu.";
 
 "album_show_track_artwork" = "Okładki utworów";
-"home_play_latest_album" = "Odtwórz najnowszy album";
+"home_play_recently_added" = "Odtwórz ostatnio dodane utwory";
+"home_play_recently_added_subtitle" = "Zaczynając od najnowszego albumu";
 "content_explicit" = "Treści niecenzuralne";
 "content_rating" = "Klasyfikacja treści";
 "copyright_label" = "Prawa autorskie";

@@ -7052,7 +7052,8 @@
 "chapter_generation_monthly_limit" = "Місячний ліміт створення розділів вичерпано. Спробуйте наступного місяця.";
 
 "album_show_track_artwork" = "Обкладинки композицій";
-"home_play_latest_album" = "Відтворити останній альбом";
+"home_play_recently_added" = "Відтворити нещодавно додані";
+"home_play_recently_added_subtitle" = "Починаючи з найновішого альбому";
 "content_explicit" = "Ненормативна лексика";
 "content_rating" = "Маркування вмісту";
 "copyright_label" = "Авторські права";

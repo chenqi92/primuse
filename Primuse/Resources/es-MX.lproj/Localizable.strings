@@ -7052,7 +7052,8 @@
 "chapter_generation_monthly_limit" = "Se agotó la cuota mensual para generar capítulos. Inténtalo el próximo mes.";
 
 "album_show_track_artwork" = "Portadas de canciones";
-"home_play_latest_album" = "Reproducir el álbum más reciente";
+"home_play_recently_added" = "Reproducir canciones agregadas recientemente";
+"home_play_recently_added_subtitle" = "Empezando por el álbum más reciente";
 "content_explicit" = "Contenido explícito";
 "content_rating" = "Clasificación del contenido";
 "copyright_label" = "Derechos de autor";

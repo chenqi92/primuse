@@ -9911,6 +9911,23 @@ final class MusicLibrary {
                                         includingExternalSongs: includingExternalSongs)
     }
 
+    /// 首页「最近添加」那颗播放键的队列(#390):按传进来的专辑先后(区块里的顺序),每张只取最近那一批
+    /// 加进来的歌,见 `RecentlyAddedAlbumPolicy.playbackQueue`。只放音乐:有声书、播客、环境音和不喜欢的歌
+    /// 不进队列;区块没开「显示试听专辑」时外部曲目也不进。专辑够了就不再往后取。
+    func recentlyAddedPlaybackQueue(albumIDs: [String], includingExternalSongs: Bool) -> [Song] {
+        let nonMusic = nonMusicSongIDs
+        let disliked = dislikedSongIDs
+        let albumSongs = albumIDs.lazy.map { albumID in
+            self.songs(forAlbum: albumID).filter { song in
+                song.isPlayable
+                    && !nonMusic.contains(song.id)
+                    && !disliked.contains(song.id)
+                    && (includingExternalSongs || song.isExternal != true)
+            }
+        }
+        return RecentlyAddedAlbumPolicy.playbackQueue(albumSongs: albumSongs)
+    }
+
     func playlist(id: String) -> Playlist? {
         allPlaylists.first(where: { $0.id == id })
     }

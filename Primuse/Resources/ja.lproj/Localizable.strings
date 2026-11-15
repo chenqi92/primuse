@@ -7147,7 +7147,8 @@
 "chapter_generation_monthly_limit" = "今月のチャプター生成の上限に達しました。来月もう一度お試しください。";
 
 "album_show_track_artwork" = "曲のアートワーク";
-"home_play_latest_album" = "最新のアルバムを再生";
+"home_play_recently_added" = "最近追加した曲を再生";
+"home_play_recently_added_subtitle" = "最新のアルバムから";
 "content_explicit" = "露骨な表現を含む";
 "content_rating" = "コンテンツレーティング";
 "copyright_label" = "著作権";

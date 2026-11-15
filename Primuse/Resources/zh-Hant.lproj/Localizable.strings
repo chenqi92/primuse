@@ -7123,7 +7123,8 @@
 "chapter_generation_monthly_limit" = "本月的章節生成額度已用完，請下個月再試。";
 
 "album_show_track_artwork" = "歌曲封面";
-"home_play_latest_album" = "播放最新專輯";
+"home_play_recently_added" = "播放最近加入的歌曲";
+"home_play_recently_added_subtitle" = "從最新的專輯開始";
 "content_explicit" = "含露骨內容";
 "content_rating" = "內容分級";
 "copyright_label" = "版權";
