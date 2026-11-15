@@ -194,12 +194,27 @@ struct TVImmersivePlayerView: View {
     @State private var restDriftTask: Task<Void, Never>?
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
+    /// 卡拉OK 就地叠在舞台上(不另开全屏页),进来时建好并开始,收起或退出全屏页时停。
+    @State private var karaokeSession: TVKaraokeSession?
+    /// 卡拉OK 正在收起:先不接焦点,焦点回到控件排上以后才拿掉(理由同 `yieldChromeFocus`)。
+    @State private var karaokeYieldsFocus = false
     @Namespace private var chromeFocus
     @FocusState private var focusedControl: Control?
     @FocusState private var scrubberFocused: Bool
     @FocusState private var wakesChrome: Bool
 
-    private enum Control: Hashable { case previous, playPause, next, modes, queue, discPosition }
+    private enum Control: Hashable { case previous, playPause, next, karaoke, modes, queue, discPosition }
+
+    /// 卡拉OK 层挂着(包括收起时等焦点离开的那一小段)。
+    private var showsKaraoke: Bool { karaokeSession != nil }
+
+    /// 正在唱:舞台定格压暗、控件排让出焦点。收起时一让出焦点就算结束,背后先恢复。
+    private var isKaraokeActive: Bool { karaokeSession != nil && !karaokeYieldsFocus }
+
+    /// 与「更多」面板里那一格同一条规则。
+    private var canSingKaraoke: Bool {
+        store.currentSongID != nil && !store.currentItemIsSpokenWord && !store.isMedleyActive
+    }
 
     private var effect: FullscreenPlayerEffect {
         #if DEBUG
@@ -229,7 +244,7 @@ struct TVImmersivePlayerView: View {
             mode: rotationMode,
             displayedEffect: displayedEffect.rawValue,
             isRunning: presentationActivity.isRenderingActive && store.isPlaying && !isLowPower
-                && !showsModePicker && !showsQueue && !showsDiscPosition
+                && !showsModePicker && !showsQueue && !showsDiscPosition && !isKaraokeActive
         )
     }
 
@@ -259,7 +274,7 @@ struct TVImmersivePlayerView: View {
             + "mounted=\(presentationActivity.isMounted) rendering=\(presentationActivity.isRenderingActive) "
             + "playing=\(store.isPlaying) reduceMotion=\(reduceMotion) lowPower=\(isLowPower) "
             + "picker=\(showsModePicker) queue=\(showsQueue) discPanel=\(showsDiscPosition) "
-            + "galleryCovers=\(gallerySongs.count)"
+            + "karaoke=\(isKaraokeActive) galleryCovers=\(gallerySongs.count)"
     }
 
     /// 实际用的帧率与动效强度:电视发热时临时封顶,不改设置(Apple TV 没有低电量模式)。
@@ -313,7 +328,7 @@ struct TVImmersivePlayerView: View {
                         scale: rotator.focusScale,
                         maximumBlur: metrics.s(22)
                     ))
-                    .accessibilityHidden(showsModePicker || showsDiscPosition)
+                    .accessibilityHidden(showsModePicker || showsDiscPosition || showsKaraoke)
 
                 if isLowPower {
                     TVImmersiveAwayClock(
@@ -335,21 +350,23 @@ struct TVImmersivePlayerView: View {
                 .buttonStyle(TVBareButtonStyle())
                 .focused($wakesChrome)
                 .focusEffectDisabled()
-                .disabled(showsDiscPosition || (showsChrome && !chromeYieldsFocus) || (showsModePicker && !modePickerYieldsFocus))
-                .accessibilityHidden(showsChrome || showsModePicker)
+                .disabled(showsDiscPosition || showsKaraoke || (showsChrome && !chromeYieldsFocus) || (showsModePicker && !modePickerYieldsFocus))
+                .accessibilityHidden(showsChrome || showsModePicker || showsKaraoke)
 
                 if showsChrome {
                     // 选择器盖在上面时这排键看不见,也不能再拿焦点:否则打开选择器后焦点还停在
                     // 「沉浸风格」键上,遥控器只有朝网格那一侧按才进得去。
+                    // 卡拉OK 叠在上面时这排键留着但看不见、不接焦点,收起时焦点才回得到卡拉OK 键上。
                     controls(metrics: metrics)
+                        .opacity(isKaraokeActive ? 0 : 1)
                         .transition(.opacity)
-                        .disabled(showsDiscPosition || (showsModePicker && !modePickerYieldsFocus) || chromeYieldsFocus)
-                        .accessibilityHidden(showsModePicker || showsDiscPosition)
+                        .disabled(showsDiscPosition || isKaraokeActive || (showsModePicker && !modePickerYieldsFocus) || chromeYieldsFocus)
+                        .accessibilityHidden(showsModePicker || showsDiscPosition || isKaraokeActive)
                 }
 
                 // 顶部正中:没有实时频谱、临时降档时写明原因。右上角是「返回」提示。
                 VStack(spacing: 8) {
-                    if showsSimulatedWordTiming && !isLowPower && !showsModePicker {
+                    if showsSimulatedWordTiming && !isLowPower && !showsModePicker && !isKaraokeActive {
                         Text("lyrics_simulated_word_badge")
                             .tvFont(.meta)
                             .padding(.horizontal, 12)
@@ -360,7 +377,7 @@ struct TVImmersivePlayerView: View {
                     ImmersiveStageNotice(
                         items: stageNoticeItems,
                         isChromeVisible: showsChrome,
-                        isSuppressed: isLowPower || showsModePicker || showsQueue,
+                        isSuppressed: isLowPower || showsModePicker || showsQueue || isKaraokeActive,
                         isTelevision: true
                     )
                 }
@@ -378,15 +395,23 @@ struct TVImmersivePlayerView: View {
             .animation(.easeInOut(duration: reduceMotion ? 0.01 : 0.30), value: showsChrome)
             .animation(.easeInOut(duration: reduceMotion ? 0.01 : 0.26), value: showsModePicker)
             .animation(.easeInOut(duration: reduceMotion ? 0.01 : 1.2), value: isLowPower)
+            .animation(.easeInOut(duration: reduceMotion ? 0.01 : 0.30), value: isKaraokeActive)
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.65)
                     .onEnded { _ in
                         ScreenIdleHoldController.shared.noteUserInteraction()
-                        if !showsDiscPosition { presentModePicker() }
+                        if !showsDiscPosition && !showsKaraoke { presentModePicker() }
                     }
             )
         }
         .ignoresSafeArea()
+        // 放在 ignoresSafeArea 外面:舞台照「更多」面板里那页一样按安全区排,压暗层自己铺满。
+        .overlay {
+            if let karaokeSession {
+                karaokeLayer(session: karaokeSession)
+                    .transition(.opacity)
+            }
+        }
         .overlay(alignment: .bottom) {
             PlayerActivityBar(songID: store.currentSongID).padding(.bottom, 16)
         }
@@ -399,8 +424,11 @@ struct TVImmersivePlayerView: View {
         ))
         .onExitCommand {
             ScreenIdleHoldController.shared.noteUserInteraction()
+            // 卡拉OK 在最上层:第一下回到沉浸播放页,再按一下才退出全屏页。
             // 省电时和屏保一样：第一下只是叫醒，不直接退出全屏页。
-            if showsDiscPosition {
+            if showsKaraoke {
+                closeKaraoke()
+            } else if showsDiscPosition {
                 closeDiscPosition()
             } else if isLowPower {
                 exitLowPower()
@@ -418,8 +446,11 @@ struct TVImmersivePlayerView: View {
             }
         }
         .onMoveCommand(perform: handleMoveCommand)
+        // 卡拉OK 时不接双击、长按这些快捷键(要叫出的进度条和控件排都在舞台底下),
+        // 播放键单按仍走系统那条路暂停 / 继续。
         .modifier(TVRemoteTransportModifier(
-            shortcutsEnabled: presentationActivity.isRenderingActive && !showsQueue && !showsModePicker && !showsDiscPosition
+            shortcutsEnabled: presentationActivity.isRenderingActive && !showsQueue && !showsModePicker
+                && !showsDiscPosition && !showsKaraoke
         ) { command in
             guard presentationActivity.isRenderingActive else { return }
             switch command {
@@ -456,6 +487,8 @@ struct TVImmersivePlayerView: View {
         .onAppear {
             FullscreenPlayerEffectSync.shared.install()
             presentationActivity.handle(.appeared)
+            // 被盖住又回来时卡拉OK 层还在,接着唱(`stop` 在消失时已经做过)。
+            if let karaokeSession, !karaokeYieldsFocus { karaokeSession.start() }
             let initialPresentation = ImmersiveEffectEntryPolicy.initialPresentation(
                 isNativeEffect: effect == .native,
                 presentsEffectPicker: presentsModePickerOnAppear
@@ -485,7 +518,10 @@ struct TVImmersivePlayerView: View {
             plog("TV immersive animation \(state)")
         }
         .onChange(of: focusedControl) { _, control in
-            if control != nil { closeModePickerAfterFocusYielded() }
+            if control != nil {
+                closeModePickerAfterFocusYielded()
+                removeKaraokeAfterFocusYielded()
+            }
             // 遥控在传输键之间移动焦点即视为有操作,重置淡出计时。
             if showsChrome, !chromeYieldsFocus {
                 scheduleChromeHide()
@@ -538,12 +574,28 @@ struct TVImmersivePlayerView: View {
         .onChange(of: showsModePicker) { _, _ in
             updateSpectrumAnalysis(for: presentationEffect)
         }
+        .onChange(of: isKaraokeActive) { _, active in
+            updateSpectrumAnalysis(for: presentationEffect)
+            if active {
+                // 唱的时候舞台歌词收着、控件排不出来,也不进省电档。
+                chromeTask?.cancel()
+                chromeTask = nil
+                idleTask?.cancel()
+                idleTask = nil
+                lyricObservationTask?.cancel()
+                lyricObservationTask = nil
+            } else {
+                restartLyricObservation()
+                scheduleChromeHide()
+                scheduleLowPower()
+            }
+        }
         .onChange(of: store.nowPlaying.songID) { _, _ in
             refreshGallerySongs()
             if rotationMode == .perSong, presentationActivity.isRenderingActive,
-               !showsModePicker, !showsQueue, !showsDiscPosition {
+               !showsModePicker, !showsQueue, !showsDiscPosition, !isKaraokeActive {
                 advanceRotation()
-            } else if presentationActivity.isRenderingActive {
+            } else if presentationActivity.isRenderingActive, !isKaraokeActive {
                 rotator.settleAfterSongChange(on: presentationEffect, isEnabled: !reduceMotion && !isLowPower)
             }
         }
@@ -660,9 +712,10 @@ struct TVImmersivePlayerView: View {
             lyricsPlaceholder: PMString("ext.tv.nowPlaying.noLyrics"),
             visualizerDisclosure: PMString("ext.tv.immersive.timelineDisclosure"),
             controlsInset: metrics.s(150),
-            isResting: isLowPower,
-            isLowPower: isLowPower,
-            showsPlaybackProgress: showsChrome,
+            // 卡拉OK 叠在上面时舞台只当背景:自己的歌词、歌名收起(省电档那套),装饰动画与频谱停下定格。
+            isResting: isLowPower || isKaraokeActive,
+            isLowPower: isLowPower || isKaraokeActive,
+            showsPlaybackProgress: showsChrome && !isKaraokeActive,
             chromeBlurRadius: 60,
             discFace: discFace,
             discPosition: discPosition.value,
@@ -691,7 +744,7 @@ struct TVImmersivePlayerView: View {
                         presentationRole: .animatedHero,
                         animationRequiresPlayback: true,
                         isPlaying: store.isPlaying,
-                        isAnimationVisible: !showsModePicker && !showsQueue && !isLowPower,
+                        isAnimationVisible: !showsModePicker && !showsQueue && !isLowPower && !isKaraokeActive,
                         onResolutionChange: { hasResolvedArtwork = $0 }
                     )
                     .opacity(hasResolvedArtwork ? 1 : 0)
@@ -836,6 +889,17 @@ struct TVImmersivePlayerView: View {
 
     private func modeAndQueueControls(surface: ControlSurface) -> some View {
         HStack(spacing: 16) {
+            if canSingKaraoke {
+                controlButton(
+                    .karaoke,
+                    icon: "music.mic",
+                    accessibilityLabel: String(localized: "karaoke_title"),
+                    surface: surface,
+                    diameter: 60
+                ) {
+                    presentKaraoke()
+                }
+            }
             if presentationEffect.scene == .vinylDeck {
                 controlButton(.discPosition, icon: discStyle.symbol,
                               accessibilityLabel: PMString("immersive_disc_settings"), surface: surface, diameter: 60) {
@@ -867,6 +931,68 @@ struct TVImmersivePlayerView: View {
 
     private func closeDiscPosition() {
         showsDiscPosition = false
+    }
+
+    // MARK: - 卡拉OK
+
+    /// 压暗到白字压得住亮封面(背后再叠舞台自带的那层 0.35)。
+    private func karaokeLayer(session: TVKaraokeSession) -> some View {
+        ZStack {
+            Color.black.opacity(0.5).ignoresSafeArea()
+            TVKaraokeStageContent(session: session, onClose: closeKaraoke)
+        }
+        .disabled(karaokeYieldsFocus)
+    }
+
+    /// 就地进卡拉OK:舞台留作背景,控件排让出焦点给卡拉OK 舞台。
+    private func presentKaraoke() {
+        guard presentationActivity.isRenderingActive, karaokeSession == nil, canSingKaraoke,
+              !showsModePicker, !showsDiscPosition else { return }
+        chromeTask?.cancel()
+        chromeTask = nil
+        idleTask?.cancel()
+        idleTask = nil
+        exitLowPower()
+        chromeYieldsFocus = false
+        showsChrome = true
+        showsSeekControls = false
+        scrubberFocused = false
+        karaokeYieldsFocus = false
+        let session = TVKaraokeSession(store: store)
+        session.start()
+        withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(0.3, reduceMotion: reduceMotion))) {
+            karaokeSession = session
+        }
+    }
+
+    /// 收起卡拉OK 的第一步:马上停唱,舞台不再接焦点、控件排接回来并把焦点放回卡拉OK 键;
+    /// 焦点到了(`removeKaraokeAfterFocusYielded`)再拿掉。一直等不到焦点也稍后不带动画直接拿掉。
+    private func closeKaraoke() {
+        guard let karaokeSession, !karaokeYieldsFocus else { return }
+        karaokeSession.stop()
+        karaokeYieldsFocus = true
+        let target: Control = canSingKaraoke ? .karaoke : .playPause
+        Task { @MainActor in
+            await Task.yield()
+            guard showsKaraoke, karaokeYieldsFocus else { return }
+            resetFocus(in: chromeFocus)
+            focusedControl = target
+            try? await Task.sleep(for: .milliseconds(750))
+            removeKaraokeAfterFocusYielded(animated: false)
+        }
+    }
+
+    private func removeKaraokeAfterFocusYielded(animated: Bool = true) {
+        guard showsKaraoke, karaokeYieldsFocus else { return }
+        var transaction = Transaction(animation: animated ? .easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(
+            0.3,
+            reduceMotion: reduceMotion
+        )) : nil)
+        transaction.disablesAnimations = !animated
+        withTransaction(transaction) {
+            karaokeSession = nil
+            karaokeYieldsFocus = false
+        }
     }
 
     private enum ControlSurface { case bare, outlined, tile }
@@ -1225,7 +1351,7 @@ struct TVImmersivePlayerView: View {
     private func restartLyricObservation() {
         lyricObservationTask?.cancel()
         lyricObservationTask = nil
-        guard presentationActivity.isRenderingActive else { return }
+        guard presentationActivity.isRenderingActive, !isKaraokeActive else { return }
         // 进全屏、换歌、从队列回来时当场定好当前句，不带过渡。等观察任务头一回报要晚几帧，
         // 那几帧舞台会先摆出歌词第一行（不少 LRC 是「歌名 - 歌手」），再和真正的当前句叠着淡入淡出。
         updateLyricPlaybackPosition(disablesAnimations: true)
@@ -1266,6 +1392,7 @@ struct TVImmersivePlayerView: View {
             presentationActivity.isRenderingActive
                 && !isLowPower
                 && !showsModePicker
+                && !isKaraokeActive
                 && effect != .native
                 && presentation.readsRealtimeSpectrum
         )
@@ -1293,6 +1420,8 @@ struct TVImmersivePlayerView: View {
 
     private func suspendPresentation(for event: TVImmersivePresentationActivity.Event) {
         presentationActivity.handle(event)
+        // 退出全屏页时卡拉OK 跟着停(层留着,页面随即拿掉)。
+        if event == .dismissalRequested || event == .disappeared { karaokeSession?.stop() }
         lyricObservationTask?.cancel()
         lyricObservationTask = nil
         chromeTask?.cancel()
@@ -1355,7 +1484,7 @@ struct TVImmersivePlayerView: View {
     }
 
     private func presentModePicker() {
-        guard presentationActivity.isRenderingActive else { return }
+        guard presentationActivity.isRenderingActive, !showsKaraoke else { return }
         chromeTask?.cancel()
         chromeYieldsFocus = false
         modePickerYieldsFocus = false
@@ -1366,7 +1495,8 @@ struct TVImmersivePlayerView: View {
     private func handleMoveCommand(_ direction: MoveCommandDirection) {
         // 全屏页上方向键多半不挪焦点，系统的焦点通知收不到，这里自己报一次操作。
         ScreenIdleHoldController.shared.noteUserInteraction()
-        guard !showsDiscPosition else { return }
+        // 卡拉OK 时方向键只挪舞台上的焦点,不切歌、不叫控件排。
+        guard !showsDiscPosition, !showsKaraoke else { return }
         // 省电时第一下只是叫醒，不在黑着的屏幕上切歌。
         if isLowPower {
             exitLowPower()
@@ -1405,7 +1535,7 @@ struct TVImmersivePlayerView: View {
     }
 
     private func revealChrome(preferScrubber: Bool = false) {
-        guard presentationActivity.isRenderingActive else { return }
+        guard presentationActivity.isRenderingActive, !showsKaraoke else { return }
         exitLowPower()
         scheduleLowPower()
         wakesChrome = false
@@ -1450,7 +1580,7 @@ struct TVImmersivePlayerView: View {
         }
         #endif
         guard presentationActivity.isRenderingActive,
-              !showsModePicker, !showsDiscPosition, !scrubberFocused,
+              !showsModePicker, !showsDiscPosition, !isKaraokeActive, !scrubberFocused,
               !assistiveNavigationEnabled else { return }
         chromeTask = Task { @MainActor in
             do {
@@ -1460,7 +1590,7 @@ struct TVImmersivePlayerView: View {
             }
             guard !Task.isCancelled,
                   presentationActivity.isRenderingActive,
-                  !showsModePicker, !showsDiscPosition, !scrubberFocused,
+                  !showsModePicker, !showsDiscPosition, !isKaraokeActive, !scrubberFocused,
                   !assistiveNavigationEnabled else { return }
             yieldChromeFocus()
         }
@@ -1504,7 +1634,7 @@ extension TVImmersivePlayerView {
         idleTask?.cancel()
         idleTask = nil
         guard presentationActivity.isRenderingActive,
-              !assistiveNavigationEnabled, !showsDiscPosition,
+              !assistiveNavigationEnabled, !showsDiscPosition, !isKaraokeActive,
               let idleDelay = ImmersiveIdlePowerPolicy.delayToNextStage(from: .awake, restsEarly: false) else { return }
         let delay = Self.debugIdleDelay ?? idleDelay
         idleTask = Task { @MainActor in
@@ -1515,7 +1645,7 @@ extension TVImmersivePlayerView {
             }
             guard !Task.isCancelled,
                   presentationActivity.isRenderingActive,
-                  !showsModePicker, !showsDiscPosition,
+                  !showsModePicker, !showsDiscPosition, !isKaraokeActive,
                   !scrubberFocused,
                   !assistiveNavigationEnabled else { return }
             enterLowPower()

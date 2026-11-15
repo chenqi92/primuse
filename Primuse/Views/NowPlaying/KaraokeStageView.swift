@@ -16,15 +16,29 @@ struct KaraokeStageView: View {
     /// 嵌在播放页转轮「舞台」那一面里:最上面是转轮那一行(转盘、进全屏、回到播放器),舞台自己那一行
     /// 不再放收起与进全屏(同一面上两套去处,收起键的向下箭头还像是把整个播放页收掉)。
     var isEmbeddedInCarousel = false
+    /// 叠在 Mac 沉浸播放页上:背后是压暗的全屏效果,不铺自己的氛围底,也不要弹窗那套最小尺寸;
+    /// 收起键照旧在,点了回到沉浸页(`onClose`),不是 `dismiss`。
+    var isEmbeddedInImmersive = false
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
     @State private var session: KaraokeSession?
 
-    init(onClose: (() -> Void)? = nil, onExpand: (() -> Void)? = nil, isEmbeddedInCarousel: Bool = false) {
+    init(
+        onClose: (() -> Void)? = nil,
+        onExpand: (() -> Void)? = nil,
+        isEmbeddedInCarousel: Bool = false,
+        isEmbeddedInImmersive: Bool = false
+    ) {
         self.onClose = onClose
         self.onExpand = onExpand
         self.isEmbeddedInCarousel = isEmbeddedInCarousel
+        self.isEmbeddedInImmersive = isEmbeddedInImmersive
+    }
+
+    /// 嵌在别处时底由宿主铺(转轮那一面、沉浸页的效果),这里不再叠一层。
+    private var drawsOwnBackdrop: Bool {
+        !isEmbeddedInCarousel && !isEmbeddedInImmersive
     }
 
     var body: some View {
@@ -35,9 +49,9 @@ struct KaraokeStageView: View {
                     onClose: { (onClose ?? { dismiss() })() },
                     onExpand: isEmbeddedInCarousel ? nil : onExpand,
                     showsCloseButton: !isEmbeddedInCarousel,
-                    drawsBackdrop: !isEmbeddedInCarousel
+                    drawsBackdrop: drawsOwnBackdrop
                 )
-            } else if !isEmbeddedInCarousel {
+            } else if drawsOwnBackdrop {
                 KaraokeStageBackdrop(isPlaying: false)
             } else {
                 // 会话建好之前也得有个占位:组里一个视图都没有时下面的 onAppear 不会触发,会话就永远起不来。
@@ -54,10 +68,16 @@ struct KaraokeStageView: View {
             session?.stop()
         }
         #if os(macOS)
-        .frame(minWidth: 760, idealWidth: 900, minHeight: 620, idealHeight: 720)
+        // 这套尺寸是给弹窗定的;叠在沉浸页上时铺满宿主给的那块。
+        .frame(
+            minWidth: isEmbeddedInImmersive ? nil : 760,
+            idealWidth: isEmbeddedInImmersive ? nil : 900,
+            minHeight: isEmbeddedInImmersive ? nil : 620,
+            idealHeight: isEmbeddedInImmersive ? nil : 720
+        )
         #endif
 
-        if onClose != nil || isEmbeddedInCarousel {
+        if onClose != nil || isEmbeddedInCarousel || isEmbeddedInImmersive {
             // 嵌在播放页里:只把这一页画成深色。`preferredColorScheme` 会一路改到整个呈现
             // (播放页背后的 App 也跟着变),嵌入时不能用。
             stage.environment(\.colorScheme, .dark)

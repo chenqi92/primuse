@@ -3,7 +3,7 @@ import SwiftUI
 import PrimuseKit
 
 /// macOS 沉浸播放：鼠标静置 3 秒淡出，0 返回原生、1–5 切换 A–E，
-/// 方向键定位，Option+方向键切歌，Esc 直接退出窗口全屏。
+/// 方向键定位，Option+方向键切歌，Esc 直接退出窗口全屏（卡拉 OK 开着时先回到沉浸页）。
 /// 15 分钟没动鼠标、没按键就进省电档：压暗、停下装饰动画与频谱，叠上时钟和当前歌词。
 struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
@@ -77,6 +77,11 @@ struct MacImmersivePlayerView: View {
 
     private var isRenderingActive: Bool { isPresentationActive && (isWindowVisible || rendersWhileHidden) }
 
+    /// 舞台定格:省电档,或卡拉 OK 叠在上面。卡拉 OK 同时在跑人声分离、音高检测和 60 帧扫光,
+    /// 背后那层又压得很暗、文字全淡出,接着按帧画效果(有的是 Metal / 粒子)只是和分离抢算力、让机器发热;
+    /// 停在当前这一帧当底色,和省电档走同一套开关(装饰动画、频谱、唱片转动都停,文字淡出)。
+    private var isStageFrozen: Bool { isLowPower || showsKaraoke }
+
     /// 取证演示页在锁屏的编译机上跑：窗口一直被判成看不见，照常渲染才截得到舞台。
     private var rendersWhileHidden: Bool {
         #if DEBUG
@@ -92,7 +97,8 @@ struct MacImmersivePlayerView: View {
     @FocusState private var acceptsKeyInput: Bool
     /// 「喜欢」:搜索里点播的 Apple Music 歌先加进资料库、同步进曲库,再标在那一行上(和底栏同一套)。
     @State private var libraryActions = NowPlayingLibraryActions()
-    /// 卡拉 OK 弹窗,和「更多」菜单里那一个是同一个(`KaraokeStageView`)。
+    /// 卡拉 OK 舞台直接叠在沉浸页上(`KaraokeStageView`,和「更多」菜单里弹窗那一个是同一个):
+    /// 全屏里再弹一张窗口表单,背后的效果被盖住一半、收起时还得找回焦点。会话随这一层开关。
     @State private var showsKaraoke = false
     /// Apple Music 曲目点卡拉 OK:按钮照样在、淡一些,点了说明为什么用不了。
     @State private var showsKaraokeUnavailable = false
@@ -151,7 +157,7 @@ struct MacImmersivePlayerView: View {
         ImmersiveEffectRotationSchedule(
             mode: rotationMode,
             displayedEffect: displayedEffect.rawValue,
-            isRunning: isRenderingActive && isStageReady && player.isPlaying && !isLowPower && !showsEffectPicker && !discPosition.isDragging
+            isRunning: isRenderingActive && isStageReady && player.isPlaying && !isStageFrozen && !showsEffectPicker && !discPosition.isDragging
         )
     }
 
@@ -221,14 +227,15 @@ struct MacImmersivePlayerView: View {
                     .transition(.opacity)
                 }
 
-                if showsChrome && isRenderingActive {
+                // 卡拉 OK 舞台有自己的收起、进度和传输键,沉浸页的控件让开。
+                if showsChrome && isRenderingActive && !showsKaraoke {
                     chrome(metrics: metrics)
                         .transition(.opacity)
                 }
 
                 // 顶栏那排按钮下面:没有实时频谱、临时降档时写明原因。
                 VStack(spacing: 8) {
-                    if showsSimulatedWordTiming && !isLowPower && !showsEffectPicker {
+                    if showsSimulatedWordTiming && !isLowPower && !showsEffectPicker && !showsKaraoke {
                         LyricsInfoBadges(
                             showsWordLevel: false,
                             showsSimulatedWordTiming: true,
@@ -242,12 +249,18 @@ struct MacImmersivePlayerView: View {
                         items: stageNoticeItems,
                         isChromeVisible: showsChrome,
                         isSuppressed: !isStageReady || !isRenderingActive || isLowPower || showsEffectPicker
-                            || player.lastPlaybackError != nil
+                            || showsKaraoke || player.lastPlaybackError != nil
                     )
                 }
                 .padding(.top, 70)
                 .padding(.horizontal, 26)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+                // 只看沉浸页开着没有、不看窗口可见:切到别的桌面再回来,唱到一半的会话不该被停掉重开。
+                if showsKaraoke && isPresentationActive {
+                    karaokeLayer(metrics: metrics)
+                        .transition(.opacity)
+                }
 
                 // 遮罩压在顶栏之上：面板一开就接管整块界面，点面板之外的任何地方
                 // （包括顶栏那排按钮）都只是把它收起来。
@@ -280,12 +293,13 @@ struct MacImmersivePlayerView: View {
             .onChange(of: discStyle) { _, _ in discPosition.endDrag() }
             .animation(.easeInOut(duration: 0.3), value: showsChrome)
             .animation(.easeInOut(duration: 1.2), value: isLowPower)
+            .animation(.easeInOut(duration: 0.3), value: showsKaraoke)
             .contentShape(Rectangle())
             .onTapGesture { location in handleSurfaceClick(at: location, metrics: metrics) }
             .simultaneousGesture(
                 DragGesture(minimumDistance: 6)
                     .onChanged { value in
-                        guard presentationEffect.scene == .vinylDeck, !showsEffectPicker,
+                        guard presentationEffect.scene == .vinylDeck, !showsEffectPicker, !showsKaraoke,
                               isRenderingActive, isStageReady else { return }
                         let layout = ImmersiveDiscGeometry.layout(
                             metrics: metrics, platform: .macOS, controlsInset: controlsInset(metrics),
@@ -304,15 +318,6 @@ struct MacImmersivePlayerView: View {
         .ignoresSafeArea(edges: ignoresWindowSafeArea ? .all : [])
         .macPlaybackErrorFeedback()
         .environment(\.colorScheme, presentationEffect.prefersLightContent ? .light : .dark)
-        // 弹窗挂在沉浸页上:全屏窗口里照常弹得出来,不必先退出全屏;收起后还在原来的效果里。
-        // 会话随弹窗开关(`KaraokeStageView`),同一时刻只有这一场。
-        .sheet(isPresented: $showsKaraoke, onDismiss: {
-            // 弹窗收起后键盘交回沉浸页:空格、方向键、数字键照常。
-            acceptsKeyInput = true
-            revealChrome()
-        }) {
-            KaraokeStageView()
-        }
         .nowPlayingLibraryActionAlert(libraryActions)
         .alert(Text("karaoke_title"), isPresented: $showsKaraokeUnavailable) {
             Button("done", role: .cancel) {}
@@ -330,7 +335,10 @@ struct MacImmersivePlayerView: View {
             handleKeyPress(press)
         }
         .onExitCommand {
-            if showsEffectPicker {
+            // 卡拉 OK 舞台的收起键也认 Esc;焦点落在别处时由这里兜住。第二下 Esc 才退出全屏。
+            if showsKaraoke {
+                leaveKaraoke()
+            } else if showsEffectPicker {
                 closeEffectPicker()
             } else {
                 beginExitFullScreen()
@@ -396,10 +404,12 @@ struct MacImmersivePlayerView: View {
         .onChange(of: player.currentSong?.id) { _, _ in
             refreshArtworkInputs()
             if isStageReady { updateVisualizer(for: presentationEffect) }
-            if rotationMode == .perSong, isRenderingActive, isStageReady, !showsEffectPicker, !discPosition.isDragging {
+            // 唱卡拉 OK 时背后那层定格不换场:换场的柔焦一闪会从暗幕底下透出来。
+            if rotationMode == .perSong, isRenderingActive, isStageReady, !showsEffectPicker, !discPosition.isDragging,
+               !showsKaraoke {
                 advanceRotation()
             } else if isRenderingActive, isStageReady {
-                rotator.settleAfterSongChange(on: presentationEffect, isEnabled: !reduceMotion && !isLowPower)
+                rotator.settleAfterSongChange(on: presentationEffect, isEnabled: !reduceMotion && !isStageFrozen)
             }
         }
         .onChange(of: effectRawValue) { _, _ in
@@ -521,9 +531,9 @@ struct MacImmersivePlayerView: View {
             lyricInterlude: lyricInterlude,
             lyricsPlaceholder: String(localized: "no_lyrics"),
             controlsInset: controlsInset(metrics),
-            isResting: isLowPower,
-            isLowPower: isLowPower,
-            showsPlaybackProgress: showsChrome,
+            isResting: isStageFrozen,
+            isLowPower: isStageFrozen,
+            showsPlaybackProgress: showsChrome && !showsKaraoke,
             chromeBlurRadius: 52,
             discFace: discFace,
             discPosition: discPosition.value,
@@ -543,7 +553,7 @@ struct MacImmersivePlayerView: View {
                         presentationRole: .animatedHero,
                         animationRequiresPlayback: true,
                         isPlaying: player.isPlaying && isRenderingActive,
-                        isAnimationVisible: isRenderingActive && !showsEffectPicker && !isLowPower,
+                        isAnimationVisible: isRenderingActive && !showsEffectPicker && !isStageFrozen,
                         onResolutionChange: { hasResolvedArtwork = $0 }
                     )
                     .frame(width: side, height: side)
@@ -887,8 +897,7 @@ struct MacImmersivePlayerView: View {
         return Button {
             revealChrome()
             if isAvailable {
-                // 控件照常按时淡出,弹窗后面留一块干净的舞台;收起弹窗时再叫回来。
-                showsKaraoke = true
+                enterKaraoke()
             } else {
                 showsKaraokeUnavailable = true
             }
@@ -905,6 +914,33 @@ struct MacImmersivePlayerView: View {
         .help(Text("karaoke_title"))
         .accessibilityLabel(Text("karaoke_title"))
         .accessibilityValue(isAvailable ? Text(verbatim: "") : Text("karaoke_unavailable_apple_music"))
+    }
+
+    /// 卡拉 OK 叠在沉浸页上那一层:背后是定格的效果(`isStageFrozen`),再压一层暗幕让白字读得清;
+    /// 浅色效果底子亮,暗幕再加深一档。舞台本身限宽居中,4K 全屏时收起键和「…」不至于分到两头去。
+    private func karaokeLayer(metrics: ImmersiveStageMetrics) -> some View {
+        let lift = presentationEffect.prefersLightContent ? 0.16 : 0
+        return ZStack {
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.5 + lift), location: 0),
+                    .init(color: .black.opacity(0.66 + lift), location: 0.5),
+                    .init(color: .black.opacity(0.6 + lift), location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+
+            KaraokeStageView(onClose: leaveKaraoke, isEmbeddedInImmersive: true)
+                .frame(maxWidth: 1200)
+                .padding(.top, metrics.safeArea.top + 18)
+                .padding(.bottom, metrics.safeArea.bottom + 22)
+                .padding(.leading, metrics.safeArea.leading + 32)
+                .padding(.trailing, metrics.safeArea.trailing + 32)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     /// 展示型效果专用的传输键 —— 比 `transportStrip` 小一号,且尺寸跟着
@@ -1534,7 +1570,7 @@ struct MacImmersivePlayerView: View {
 
         if press.key == .leftArrow {
             if press.modifiers.contains(.option) {
-                if presentationEffect == .albumFlow {
+                if presentationEffect == .albumFlow && !showsKaraoke {
                     moveAlbumFlow(by: -1)
                 } else {
                     Task { await player.previous() }
@@ -1547,7 +1583,7 @@ struct MacImmersivePlayerView: View {
 
         if press.key == .rightArrow {
             if press.modifiers.contains(.option) {
-                if presentationEffect == .albumFlow {
+                if presentationEffect == .albumFlow && !showsKaraoke {
                     moveAlbumFlow(by: 1)
                 } else {
                     Task { await player.next() }
@@ -1557,6 +1593,9 @@ struct MacImmersivePlayerView: View {
             }
             return .handled
         }
+
+        // 唱的时候背后定格,数字键换效果看不出变化,还会在离开时冒出另一种效果。
+        if showsKaraoke { return .ignored }
 
         let characters = press.characters.lowercased()
         if characters == "l" {
@@ -1605,7 +1644,7 @@ struct MacImmersivePlayerView: View {
         visualizerRetryTask?.cancel()
         visualizerRetryTask = nil
         guard isRenderingActive,
-              !isLowPower,
+              !isStageFrozen,
               player.isPlaying,
               value.readsRealtimeSpectrum else {
             visualizer.release(owner: visualizerOwnerID)
@@ -1661,6 +1700,9 @@ struct MacImmersivePlayerView: View {
     }
 
     private func deactivatePresentation() {
+        // 沉浸页收起时卡拉 OK 跟着收:这一层拿掉,会话在 `KaraokeStageView` 消失时停下;
+        // 下次进沉浸页回到效果本身,不接着唱。
+        showsKaraoke = false
         chromeTask?.cancel()
         idleTask?.cancel()
         restDriftTask?.cancel()
@@ -1676,6 +1718,26 @@ struct MacImmersivePlayerView: View {
         guard isPresentationActive else { return }
         deactivatePresentation()
         onExitFullScreen()
+    }
+
+    /// 进卡拉 OK:叫醒省电档,停掉控件淡出与省电计时(唱歌时不看键鼠,十五分钟后不该压暗),
+    /// 再放开频谱(背后定格,不需要)。
+    private func enterKaraoke() {
+        guard !showsKaraoke else { return }
+        exitLowPower()
+        chromeTask?.cancel()
+        idleTask?.cancel()
+        showsKaraoke = true
+        updateVisualizer(for: presentationEffect)
+    }
+
+    /// 回到沉浸页:键盘交回这一层(空格、方向键、数字键照常),控件叫出来、计时重新开始。
+    private func leaveKaraoke() {
+        guard showsKaraoke else { return }
+        showsKaraoke = false
+        acceptsKeyInput = true
+        updateVisualizer(for: presentationEffect)
+        revealChrome()
     }
 
     private func revealChrome() {
@@ -1694,6 +1756,7 @@ struct MacImmersivePlayerView: View {
         idleTask?.cancel()
         guard isRenderingActive,
               !voiceOverEnabled,
+              !showsKaraoke,
               let musicDelay = ImmersiveIdlePowerPolicy.delayToNextStage(from: .awake, restsEarly: false) else { return }
         // 环境音进全屏就是要一块安静的屏:几秒没动就压暗、叠上时钟,不必等十五分钟。
         let delay = player.currentItemIsAmbient ? AmbientSoundPlaybackPolicy.fullscreenRestDelayForAmbient : musicDelay
@@ -1708,7 +1771,8 @@ struct MacImmersivePlayerView: View {
                   isStageReady,
                   !voiceOverEnabled,
                   scrubPreview == nil,
-                  !showsEffectPicker else { return }
+                  !showsEffectPicker,
+                  !showsKaraoke else { return }
             enterLowPower()
         }
     }
@@ -1769,7 +1833,9 @@ struct MacImmersivePlayerView: View {
     private func handleSurfaceClick(at location: CGPoint, metrics: ImmersiveStageMetrics) {
         let wasLowPower = isLowPower
         revealChrome()
+        // 卡拉 OK 舞台空白处的点按会落到这里:不能被当成点封面流去暂停、切歌。
         guard !wasLowPower,
+              !showsKaraoke,
               presentationEffect == .albumFlow,
               isStageReady,
               !showsEffectPicker else { return }

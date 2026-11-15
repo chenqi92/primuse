@@ -18,7 +18,7 @@ struct TVKaraokeStageView: View {
             )
             TVColor.bg.opacity(0.6).ignoresSafeArea()
             if let session {
-                TVKaraokeStageContent(session: session)
+                TVKaraokeStageContent(session: session, onClose: { dismiss() })
             }
         }
         .preferredColorScheme(.dark)
@@ -33,8 +33,12 @@ struct TVKaraokeStageView: View {
     }
 }
 
+/// 舞台本身。背景由宿主给:「更多」面板里那页铺氛围底,沉浸播放页里叠在压暗的效果上。
 struct TVKaraokeStageContent: View {
     @Bindable var session: TVKaraokeSession
+    /// 关闭键做什么由宿主定:叠在沉浸播放页里时 dismiss 会连整个全屏页一起关掉。
+    /// 不给时照旧 dismiss。
+    private let onClose: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var showsMicrophone = false
     /// 进页落在播放键上;−/+ 调到头变成不可用时由这里把焦点交给同一行另一颗。
@@ -43,6 +47,11 @@ struct TVKaraokeStageContent: View {
     private var store: TVStore { session.store }
 
     private static let playPauseFocusID = "playPause"
+
+    init(session: TVKaraokeSession, onClose: (() -> Void)? = nil) {
+        _session = Bindable(session)
+        self.onClose = onClose
+    }
 
     var body: some View {
         VStack(spacing: 28) {
@@ -91,11 +100,19 @@ struct TVKaraokeStageContent: View {
             }
         }
         .focusScope(stageFocus)
+        .task {
+            // 叠在沉浸播放页上时,按下的那颗键随即不可用,系统接着把焦点放到哪颗说不准;
+            // 没落在带编号的键上就交给播放键,和单独一页进来时一样。
+            await Task.yield()
+            if focusedControl == nil { focusedControl = Self.playPauseFocusID }
+        }
     }
 
     private var header: some View {
         HStack(spacing: 24) {
-            stepButton(systemImage: "chevron.down", label: "close", enabled: true) { dismiss() }
+            stepButton(systemImage: "chevron.down", label: "close", enabled: true) {
+                if let onClose { onClose() } else { dismiss() }
+            }
             TVArtworkView(coverKey: store.nowPlaying.albumID, artist: store.nowPlaying.artist,
                           album: store.nowPlaying.album, songID: store.nowPlaying.songID,
                           coverRef: store.nowPlaying.coverRef, tint: store.nowPlaying.tint,
