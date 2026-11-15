@@ -237,9 +237,31 @@ final class AppleMusicLibraryService {
     @ObservationIgnored private var localFileProbeTask: Task<Void, Never>?
 
     @ObservationIgnored private var subscriptionUpdatesTask: Task<Void, Never>?
+    @ObservationIgnored private var deviceLibraryUpdatesTask: Task<Void, Never>?
+    @ObservationIgnored private var deviceLibraryRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var isRefreshingAccess = false
     private var lastAccess: AppleMusicLibraryAccess?
+    @ObservationIgnored private var lastSyncedDeviceLibraryModificationDate: Date?
     private static let syncedStorefrontKey = "primuse.appleMusic.syncedStorefront"
+
+    private static var usesCompleteDeviceLibrary: Bool {
+        #if os(iOS)
+        true
+        #else
+        false
+        #endif
+    }
+
+    private func deviceLibraryModificationDate() async -> Date? {
+        #if os(iOS)
+        return await withMediaLibraryGate {
+            guard MPMediaLibrary.authorizationStatus() == .authorized else { return nil }
+            return MPMediaLibrary.default().lastModifiedDate
+        }
+        #else
+        return nil
+        #endif
+    }
 
     func refreshAfterAccountChange() async {
         guard !isRefreshingAccess,
@@ -262,7 +284,11 @@ final class AppleMusicLibraryService {
                 invalidateAccountCaches()
                 appleMusic.clearCatalogSearchResults()
                 sync()
-            } else if let message = appleMusic.libraryAccessMessage, syncTask == nil {
+            } else if let modifiedAt = await deviceLibraryModificationDate(),
+                      modifiedAt != lastSyncedDeviceLibraryModificationDate {
+                sync()
+            } else if !Self.usesCompleteDeviceLibrary,
+                      let message = appleMusic.libraryAccessMessage, syncTask == nil {
                 state = .failed(message)
             }
         } catch {
@@ -273,6 +299,7 @@ final class AppleMusicLibraryService {
     }
 
     private func startObservingSubscription() {
+        startObservingDeviceLibrary()
         guard subscriptionUpdatesTask == nil else { return }
         subscriptionUpdatesTask = Task { @MainActor [weak self] in
             for await _ in MusicSubscription.subscriptionUpdates {
@@ -280,6 +307,31 @@ final class AppleMusicLibraryService {
                 await self.refreshAfterAccountChange()
             }
         }
+    }
+
+    private func startObservingDeviceLibrary() {
+        #if os(iOS)
+        guard deviceLibraryUpdatesTask == nil else { return }
+        deviceLibraryUpdatesTask = Task { @MainActor [weak self] in
+            let mediaLibrary = MPMediaLibrary.default()
+            let changes = NotificationCenter.default.notifications(named: .MPMediaLibraryDidChange)
+                .map { _ in () }
+            mediaLibrary.beginGeneratingLibraryChangeNotifications()
+            defer { mediaLibrary.endGeneratingLibraryChangeNotifications() }
+            for await _ in changes {
+                guard !Task.isCancelled, let self else { return }
+                self.deviceLibraryRefreshTask?.cancel()
+                self.deviceLibraryRefreshTask = Task { @MainActor [weak self] in
+                    do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+                    guard let self else { return }
+                    // Restart an in-flight read as well: its snapshot may
+                    // predate the deletion even if it finishes afterwards.
+                    self.cancel()
+                    self.sync()
+                }
+            }
+        }
+        #endif
     }
 
     private func invalidateAccountCaches() {
@@ -293,6 +345,7 @@ final class AppleMusicLibraryService {
         subscriptionIndependentLocalFileIDs.removeAll()
         hasLoadedLocalFileProvenance = false
         hasCompletedLibrarySnapshot = false
+        lastSyncedDeviceLibraryModificationDate = nil
         localFileProbeTask?.cancel()
         localFileProbeTask = nil
         localFileIDsBySongID.removeAll()
@@ -301,6 +354,8 @@ final class AppleMusicLibraryService {
 
     deinit {
         subscriptionUpdatesTask?.cancel()
+        deviceLibraryUpdatesTask?.cancel()
+        deviceLibraryRefreshTask?.cancel()
         localFileProbeTask?.cancel()
     }
 
@@ -726,6 +781,10 @@ final class AppleMusicLibraryService {
         cancel()
         subscriptionUpdatesTask?.cancel()
         subscriptionUpdatesTask = nil
+        deviceLibraryUpdatesTask?.cancel()
+        deviceLibraryUpdatesTask = nil
+        deviceLibraryRefreshTask?.cancel()
+        deviceLibraryRefreshTask = nil
         lastAccess = nil
         lastSyncAt = nil
         syncHistory.clear(defaults: defaults)
@@ -1544,9 +1603,10 @@ final class AppleMusicLibraryService {
             if lastAccess != nil, lastAccess != access { invalidateAccountCaches() }
             lastAccess = access
             plog("Apple Music library access: storefront=\(access.storefrontCountryCode ?? "unknown") catalogPlayback=\(access.canPlayCatalogContent)")
+            let deviceLibraryModifiedAt = await deviceLibraryModificationDate()
             await refreshSubscriptionIndependentLocalFileIDs()
             let fetchResult: LibrarySongFetchResult
-            if access.canPlayCatalogContent {
+            if access.syncMode(hasCompleteDeviceLibrary: Self.usesCompleteDeviceLibrary) == .authoritative {
                 fetchResult = try await fetchLibrarySongs(acceptEmptyCloudSnapshot: access.storefrontChanged(
                     since: UserDefaults.standard.string(forKey: Self.syncedStorefrontKey)
                 ))
@@ -1639,37 +1699,7 @@ final class AppleMusicLibraryService {
             // 先在后台算好, 上万首的资料库同步时主线程上只剩合并。
             let prepared = await library.prepareIncomingSongsOffMain(songs + playlistOnlySongs)
             guard syncGeneration == generation, !Task.isCancelled else { return }
-            library.addSongs(
-                prepared,
-                affectedSourceIDs: [Self.systemSourceID],
-                notifyRemovals: fetchResult.syncMode.shouldPruneMissingSongs,
-                pruneMissingSongs: fetchResult.syncMode.shouldPruneMissingSongs,
-                mergeServerCatalogRows: false,
-                indexMaintenance: .immediate
-            )
-
-            // 同步生成「Apple Music 资料库」镜像歌单 ── 让用户在资料库 →
-            // 播放列表里直接看到这一坨同步过来的歌, 而不是被混进总库里找不见。
-            library.ensurePlaylist(
-                id: Self.systemPlaylistID,
-                name: String(localized: "apple_music_library_playlist_name")
-            )
-            if fetchResult.syncMode.shouldReplaceMirrorPlaylist {
-                library.replaceMirrorPlaylistSongs(
-                    playlistID: Self.systemPlaylistID,
-                    songIDs: songs.map(\.id),
-                    coverArtPath: nil
-                )
-            } else {
-                var mergedIDs = library.rawSongIDs(forPlaylist: Self.systemPlaylistID)
-                var seenIDs = Set(mergedIDs)
-                mergedIDs.append(contentsOf: songs.map(\.id).filter { seenIDs.insert($0).inserted })
-                library.replaceMirrorPlaylistSongs(
-                    playlistID: Self.systemPlaylistID,
-                    songIDs: mergedIDs,
-                    coverArtPath: nil
-                )
-            }
+            commitLibrarySongs(prepared, librarySongIDs: songs.map(\.id), syncMode: fetchResult.syncMode)
 
             probeLocalFileDetails()
 
@@ -1691,6 +1721,7 @@ final class AppleMusicLibraryService {
 
             let completedAt = Date()
             lastSyncAt = completedAt
+            lastSyncedDeviceLibraryModificationDate = deviceLibraryModifiedAt
             if let warning = fetchResult.fallbackWarning {
                 state = .failed(warning)
                 plog("⚠️Apple Music library partially synced: \(songs.count) local songs preserved; \(warning)")
@@ -1712,6 +1743,36 @@ final class AppleMusicLibraryService {
                 state = .failed(error.localizedDescription)
             }
         }
+    }
+
+    func commitLibrarySongs(
+        _ prepared: MusicLibrary.PreparedIncomingSongs,
+        librarySongIDs: [String],
+        syncMode: AppleMusicLibrarySyncMode
+    ) {
+        library.addSongs(
+            prepared,
+            affectedSourceIDs: [Self.systemSourceID],
+            notifyRemovals: syncMode.shouldPruneMissingSongs,
+            pruneMissingSongs: syncMode.shouldPruneMissingSongs,
+            mergeServerCatalogRows: false,
+            indexMaintenance: .immediate
+        )
+        library.ensurePlaylist(
+            id: Self.systemPlaylistID,
+            name: String(localized: "apple_music_library_playlist_name")
+        )
+        var mirrorIDs = librarySongIDs
+        if !syncMode.shouldReplaceMirrorPlaylist {
+            mirrorIDs = library.rawSongIDs(forPlaylist: Self.systemPlaylistID)
+            var seenIDs = Set(mirrorIDs)
+            mirrorIDs.append(contentsOf: librarySongIDs.filter { seenIDs.insert($0).inserted })
+        }
+        library.replaceMirrorPlaylistSongs(
+            playlistID: Self.systemPlaylistID,
+            songIDs: mirrorIDs,
+            coverArtPath: nil
+        )
     }
 
     /// Refreshes trusted local-file provenance before every MusicKit snapshot.
@@ -2133,7 +2194,9 @@ final class AppleMusicLibraryService {
             var currentBatch = response.items
             while currentBatch.hasNextBatch {
                 try Task.checkCancellation()
-                guard let next = try await currentBatch.nextBatch() else { break }
+                guard let next = try await currentBatch.nextBatch() else {
+                    throw URLError(.cannotParseResponse)
+                }
                 try Task.checkCancellation()
                 songs.append(contentsOf: next)
                 currentBatch = next
@@ -2353,7 +2416,9 @@ final class AppleMusicLibraryService {
             var currentBatch = response.items
             while currentBatch.hasNextBatch {
                 try Task.checkCancellation()
-                guard let next = try await currentBatch.nextBatch() else { break }
+                guard let next = try await currentBatch.nextBatch() else {
+                    throw URLError(.cannotParseResponse)
+                }
                 try Task.checkCancellation()
                 playlists.append(contentsOf: next)
                 currentBatch = next

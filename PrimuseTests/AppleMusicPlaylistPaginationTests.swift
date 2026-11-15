@@ -3,6 +3,104 @@ import PrimuseKit
 import XCTest
 @testable import Primuse
 
+@MainActor
+final class AppleMusicLibraryReconciliationTests: XCTestCase {
+    private let sourceID = AppleMusicLibraryService.systemSourceID
+    private let mirrorID = AppleMusicLibraryService.systemPlaylistID
+
+    private func song(_ id: String, sourceID: String? = nil) -> Song {
+        Song(id: id, title: id, duration: 180, fileFormat: .mp3,
+             filePath: id, sourceID: sourceID ?? self.sourceID)
+    }
+
+    private func withLibrary(
+        _ body: (MusicLibrary, AppleMusicLibraryService) async throws -> Void
+    ) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let suite = "AppleMusicReconciliation-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults)
+        await library.whenReady()
+        library.updateAppleMusicSourceInstalled(true)
+        let appleMusic = AppleMusicService(playbackSettings: PlaybackSettingsStore(), library: library)
+        let service = AppleMusicLibraryService(library: library, appleMusic: appleMusic, defaults: defaults)
+        try await body(library, service)
+        await library.waitForPendingIndex()
+        _ = await library.persistNowAndWait(materializePortableSnapshot: false)
+    }
+
+    private func commit(
+        _ songs: [Song], to library: MusicLibrary, using service: AppleMusicLibraryService,
+        completeDeviceLibrary: Bool = true
+    ) async {
+        let access = AppleMusicLibraryAccess(
+            storefrontCountryCode: nil, canPlayCatalogContent: false, canBecomeSubscriber: true
+        )
+        let prepared = await library.prepareIncomingSongsOffMain(songs)
+        service.commitLibrarySongs(
+            prepared, librarySongIDs: songs.map(\.id),
+            syncMode: access.syncMode(hasCompleteDeviceLibrary: completeDeviceLibrary)
+        )
+        await library.waitForPendingIndex()
+    }
+
+    func testSystemDeletionUpdatesSongsCountAndMirrorWithoutSubscription() async throws {
+        try await withLibrary { library, service in
+            let imported = [song("local-1"), song("local-2"), song("local-3")]
+            let unrelated = song("nas-song", sourceID: "nas")
+            library.addSongs([unrelated])
+            await commit(imported, to: library, using: service)
+            await commit([imported[2]], to: library, using: service)
+
+            XCTAssertNil(library.song(id: imported[0].id))
+            XCTAssertNil(library.song(id: imported[1].id))
+            XCTAssertEqual(library.songCountsBySourceID()[sourceID], 1)
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: mirrorID), [imported[2].id])
+            XCTAssertNotNil(library.song(id: unrelated.id))
+
+            // A later re-import is allowed: reconciliation must not create a deletion tombstone.
+            await commit(imported, to: library, using: service)
+            XCTAssertEqual(library.songCountsBySourceID()[sourceID], 3)
+        }
+    }
+
+    func testDeletingLastSystemSongClearsLibraryMirrorWithoutSubscription() async throws {
+        try await withLibrary { library, service in
+            await commit([song("last-local")], to: library, using: service)
+            await commit([], to: library, using: service)
+            XCTAssertEqual(library.songCountsBySourceID()[sourceID] ?? 0, 0)
+            XCTAssertTrue(library.rawSongIDs(forPlaylist: mirrorID).isEmpty)
+        }
+    }
+
+    func testSystemDeletionAlsoClearsLocallyRemovedEntries() async throws {
+        try await withLibrary { library, service in
+            let imported = [song("removed-1"), song("removed-2"), song("remaining")]
+            await commit(imported, to: library, using: service)
+            try library.removeSongsFromThisDevice(Array(imported.prefix(2)))
+            XCTAssertEqual(library.locallyRemovedCount(forSourceID: sourceID), 2)
+            await commit([imported[2]], to: library, using: service)
+            XCTAssertEqual(library.locallyRemovedCount(forSourceID: sourceID), 0)
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: mirrorID), [imported[2].id])
+        }
+    }
+
+    func testPartialFallbackStillPreservesExistingSongsAndMirror() async throws {
+        try await withLibrary { library, service in
+            let existing = [song("cloud-1"), song("local-2")]
+            await commit(existing, to: library, using: service)
+            await commit([existing[1]], to: library, using: service, completeDeviceLibrary: false)
+            await commit([], to: library, using: service, completeDeviceLibrary: false)
+            XCTAssertEqual(library.songCountsBySourceID()[sourceID], 2)
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: mirrorID), existing.map(\.id))
+        }
+    }
+}
+
 final class AppleMusicMediaLibraryGateTests: XCTestCase, @unchecked Sendable {
     private actor AccessProbe {
         var active = 0

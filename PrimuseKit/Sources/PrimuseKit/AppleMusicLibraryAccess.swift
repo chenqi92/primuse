@@ -15,6 +15,12 @@ public struct AppleMusicLibraryAccess: Equatable, Sendable {
         canPlayCatalogContent ? .authoritative : .partialFallback
     }
 
+    public func syncMode(hasCompleteDeviceLibrary: Bool) -> AppleMusicLibrarySyncMode {
+        // Catalog playback entitlement does not limit a successful, unfiltered
+        // read of the iPhone's system library, including an empty library.
+        hasCompleteDeviceLibrary ? .authoritative : syncMode
+    }
+
     public func canCommit(comparedTo latest: Self) -> Bool {
         self == latest
     }
