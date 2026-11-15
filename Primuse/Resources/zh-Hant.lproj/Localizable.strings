@@ -1147,6 +1147,11 @@
 "ai_playlist_streaming_results" = "正在逐首產生歌曲…";
 "ai_playlist_preview_section" = "產生預覽";
 "ai_playlist_no_suggestions" = "找不到符合描述的新歌曲，請換一種說法再試。";
+"ai_playlist_failed_timeout" = "AI 服務沒有在限定時間內挑完歌曲，請稍後再試。";
+"ai_playlist_failed_rejected_format" = "AI 服務拒絕了這次請求（HTTP %d），請稍後再試。";
+"ai_playlist_failed_authentication" = "AI 服務驗證沒有通過，請在智能設定裡檢查服務和 API 金鑰。";
+"ai_playlist_failed_daily_limit" = "今天的 AI 推薦次數已用完，明天再試。";
+"ai_playlist_failed_monthly_limit" = "本月的 AI 推薦次數已用完，下個月再試。";
 "ai_playlist_add_count_format" = "新增 %d 首";
 "ai_playlist_create" = "建立歌單";
 "ai_playlist_generated_count_format" = "已產生 %d 首歌曲";

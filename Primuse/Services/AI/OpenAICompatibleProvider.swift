@@ -1297,9 +1297,13 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         } catch let error as OpenAICompatibleProviderError {
             throw error
         } catch let error as URLError where error.code == .timedOut {
+            plog("AI provider stream timed out received=\(text.utf8.count)B")
             throw MusicIntelligenceError.timedOut
         } catch {
             if Task.isCancelled || error is CancellationError { throw CancellationError() }
+            // 转成 transportFailure 之后就看不出是哪种网络错误了,先记下错误码(不记地址)。
+            let code = (error as? URLError).map { String($0.code.rawValue) } ?? "-"
+            plog("AI provider stream failed url=\(code) received=\(text.utf8.count)B")
             throw OpenAICompatibleProviderError.transportFailure
         }
         guard !text.isEmpty else { throw OpenAICompatibleProviderError.invalidResponse }
@@ -1711,8 +1715,10 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             throw MusicIntelligenceError.timedOut
         } catch let error as URLError {
             if Task.isCancelled || error.code == .cancelled { throw CancellationError() }
+            plog("AI provider request failed url=\(error.code.rawValue)")
             throw OpenAICompatibleProviderError.transportFailure
         } catch is RequestExecutor.AdmissionError {
+            plog("AI provider request queue full")
             throw OpenAICompatibleProviderError.transportFailure
         }
     }

@@ -1195,6 +1195,11 @@
 "ai_playlist_streaming_results" = "Adding songs as they arrive…";
 "ai_playlist_preview_section" = "Generated Preview";
 "ai_playlist_no_suggestions" = "No new songs matched this description. Try describing it another way.";
+"ai_playlist_failed_timeout" = "The AI service didn’t finish picking songs in time. Try again later.";
+"ai_playlist_failed_rejected_format" = "The AI service rejected this request (HTTP %d). Try again later.";
+"ai_playlist_failed_authentication" = "The AI service couldn’t verify this request. Check the service and its API key in AI settings.";
+"ai_playlist_failed_daily_limit" = "Today’s AI recommendations are used up. Try again tomorrow.";
+"ai_playlist_failed_monthly_limit" = "This month’s AI recommendations are used up. They come back next month.";
 "ai_playlist_add_count_format" = "Add %d Songs";
 "ai_playlist_create" = "Create Playlist";
 "ai_playlist_generated_count_format" = "Generated %d Songs";

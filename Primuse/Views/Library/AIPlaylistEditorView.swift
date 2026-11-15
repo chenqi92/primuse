@@ -592,7 +592,7 @@ struct AIPlaylistEditorView: View {
             )
             guard !Task.isCancelled, generationID == operationID else { return }
             guard didGenerate, !nextRecommendation.orderedSongIDs.isEmpty else {
-                generationMessage = nextRecommendation.statusText
+                generationMessage = nextRecommendation.playlistFailureText
                 return
             }
 

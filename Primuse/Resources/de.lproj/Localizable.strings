@@ -1391,6 +1391,11 @@
 "ai_playlist_streaming_results" = "Songs werden nach und nach hinzugefügt…";
 "ai_playlist_preview_section" = "Generierte Vorschau";
 "ai_playlist_no_suggestions" = "Keine neuen Songs passen zu dieser Beschreibung. Versuche eine andere Formulierung.";
+"ai_playlist_failed_timeout" = "Der KI-Dienst hat die Songs nicht rechtzeitig ausgewählt. Versuche es später erneut.";
+"ai_playlist_failed_rejected_format" = "Der KI-Dienst hat diese Anfrage abgelehnt (HTTP %d). Versuche es später erneut.";
+"ai_playlist_failed_authentication" = "Der KI-Dienst konnte die Anfrage nicht verifizieren. Prüfe den Dienst und seinen API-Schlüssel in den KI-Einstellungen.";
+"ai_playlist_failed_daily_limit" = "Die KI-Empfehlungen für heute sind aufgebraucht. Versuche es morgen erneut.";
+"ai_playlist_failed_monthly_limit" = "Die KI-Empfehlungen für diesen Monat sind aufgebraucht. Nächsten Monat stehen sie wieder zur Verfügung.";
 "ai_playlist_add_count_format" = "%d Songs hinzufügen";
 "ai_playlist_create" = "Wiedergabeliste erstellen";
 "ai_playlist_generated_count_format" = "%d Songs generiert";

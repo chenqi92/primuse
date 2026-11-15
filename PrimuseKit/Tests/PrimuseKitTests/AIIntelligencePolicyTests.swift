@@ -1422,6 +1422,52 @@ struct AIRequestLimitPolicyTests {
         #expect(quickProbe.forGeneration().requestTimeout == 6)
     }
 
+    @Test func recommendationTimeoutGrowsWithTheNumberOfPicks() {
+        func request(picks: Int, candidates: Int, albums: Int = 0) -> AIRecommendationRequest {
+            AIRecommendationRequest(
+                scene: .automatic,
+                intent: "night run",
+                preferences: [],
+                candidates: (0..<candidates).map {
+                    AIRecommendationCandidate(songID: "song-\($0)", title: "Title \($0)", artist: "Artist")
+                },
+                maximumResults: picks,
+                minimumResults: min(8, picks),
+                unit: albums > 0 ? .mixed : .songs,
+                albumCandidates: (0..<albums).map {
+                    AIRecommendationAlbumCandidate(
+                        albumKey: "album-\($0)",
+                        title: "Album \($0)",
+                        artist: "Artist",
+                        trackCount: 10,
+                        durationSeconds: 2_400
+                    )
+                }
+            )
+        }
+        let playlist = request(picks: 25, candidates: 100)
+        let home = request(picks: 12, candidates: 36)
+        // A 25-song AI playlist with a reason for each pick gets the full minute;
+        // the 12-song home shelf more than the old 12 seconds, never past the cap.
+        #expect(AIRecommendationTimeoutPolicy.generationFloor(for: playlist) == AIRequestTimeoutPolicy.maximum)
+        #expect(AIRecommendationTimeoutPolicy.generationFloor(for: home) == 34)
+        let mixed = request(picks: 12, candidates: 36, albums: 4)
+        #expect(AIRecommendationTimeoutPolicy.generationFloor(for: mixed) > AIRecommendationTimeoutPolicy.generationFloor(for: home))
+
+        let cloud = AIRemoteProviderConfiguration(baseURL: "https://api.example.com/v1")
+        let playlistTimeout = cloud.forGeneration(
+            atLeast: AIRecommendationTimeoutPolicy.generationFloor(for: playlist)
+        ).requestTimeout
+        #expect(playlistTimeout == AIRequestTimeoutPolicy.maximum)
+        #expect(AIRequestTimeoutPolicy.validated(playlistTimeout) != nil)
+
+        let fullBytes = playlist.approximateBodyBytes()
+        let compactBytes = playlist.approximateBodyBytes(compactIDs: true)
+        #expect(compactBytes < fullBytes)
+        #expect(fullBytes > home.approximateBodyBytes())
+        #expect(fullBytes > 100 * 80)
+    }
+
     @Test func responseLimitChecksEveryIncomingChunkWithoutOverflow() {
         let maximum = AIResponseSizePolicy.maximumBytes
         #expect(AIResponseSizePolicy.allowsAppend(

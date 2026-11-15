@@ -450,6 +450,44 @@ extension AIRemoteProviderConfiguration {
     }
 }
 
+/// 自己的服务写一份推荐要多久。每条结果都带一句推荐语,AI 歌单一次要从 100 首里挑 25 首,
+/// 输出要一千多 token,默认的 12 秒常常连一半都写不完就被掐断(以前报成「网络连接不可用」)。
+/// 按要挑的条数留时间:读提示词、开始出字算 `baseSeconds`,每条再加 `secondsPerSelection`,
+/// 上限仍是 `AIRequestTimeoutPolicy.maximum`。
+public enum AIRecommendationTimeoutPolicy {
+    public static let baseSeconds: TimeInterval = 10
+    public static let secondsPerSelection: TimeInterval = 2
+
+    public static func generationFloor(for request: AIRecommendationRequest) -> TimeInterval {
+        let selections = max(0, request.maximumResults) + max(0, request.maximumAlbumResults)
+        return min(
+            AIRequestTimeoutPolicy.maximum,
+            baseSeconds + Double(selections) * secondsPerSelection
+        )
+    }
+}
+
+extension AIRecommendationRequest {
+    /// 请求体大约多少字节,只写进日志。`compactIDs` 是自己的服务那份:候选换成 c0、c1… 的短编号。
+    public func approximateBodyBytes(compactIDs: Bool = false) -> Int {
+        func bytes(_ text: String?) -> Int { text?.utf8.count ?? 0 }
+        // 字段名、引号、数字这些固定开销按每条估一个整数。
+        var total = 160 + bytes(intent) + bytes(languageCode)
+        for (index, candidate) in candidates.enumerated() {
+            let id = compactIDs ? 1 + String(index).utf8.count : bytes(candidate.songID)
+            total += 80 + id + bytes(candidate.title) + bytes(candidate.artist) + bytes(candidate.genre)
+        }
+        for preference in preferences {
+            total += 60 + bytes(preference.title) + bytes(preference.artist) + bytes(preference.genre)
+        }
+        for (index, album) in albumCandidates.enumerated() {
+            let id = compactIDs ? 1 + String(index).utf8.count : bytes(album.albumKey)
+            total += 110 + id + bytes(album.title) + bytes(album.artist) + bytes(album.genre)
+        }
+        return total
+    }
+}
+
 /// 自己在本机或局域网架的模型服务。地址是本机/局域网,或者用的是 Ollama 的默认端口
 /// (映射到外网时多半也保留它)。
 public enum AISelfHostedEndpointPolicy {

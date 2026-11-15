@@ -1211,6 +1211,11 @@
 "ai_playlist_streaming_results" = "正在逐首生成歌曲…";
 "ai_playlist_preview_section" = "生成预览";
 "ai_playlist_no_suggestions" = "没有找到符合描述的新歌曲，请换一种说法再试。";
+"ai_playlist_failed_timeout" = "AI 服务没有在限定时间内挑完歌曲，请稍后再试。";
+"ai_playlist_failed_rejected_format" = "AI 服务拒绝了这次请求（HTTP %d），请稍后再试。";
+"ai_playlist_failed_authentication" = "AI 服务验证没有通过，请在智能设置里检查服务和 API 密钥。";
+"ai_playlist_failed_daily_limit" = "今天的 AI 推荐次数已用完，明天再试。";
+"ai_playlist_failed_monthly_limit" = "本月的 AI 推荐次数已用完，下个月再试。";
 "ai_playlist_add_count_format" = "添加 %d 首";
 "ai_playlist_create" = "创建歌单";
 "ai_playlist_generated_count_format" = "已生成 %d 首歌曲";

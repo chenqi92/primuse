@@ -1392,6 +1392,11 @@
 "ai_playlist_streaming_results" = "曲を受け取り次第追加しています…";
 "ai_playlist_preview_section" = "生成プレビュー";
 "ai_playlist_no_suggestions" = "説明に合う新しい曲が見つかりません。表現を変えてお試しください。";
+"ai_playlist_failed_timeout" = "AI サービスが時間内に曲を選び終えませんでした。しばらくしてからもう一度お試しください。";
+"ai_playlist_failed_rejected_format" = "AI サービスがこのリクエストを拒否しました（HTTP %d）。しばらくしてからもう一度お試しください。";
+"ai_playlist_failed_authentication" = "AI サービスの認証に失敗しました。AI 設定でサービスと API キーを確認してください。";
+"ai_playlist_failed_daily_limit" = "今日の AI おすすめの回数を使い切りました。明日もう一度お試しください。";
+"ai_playlist_failed_monthly_limit" = "今月の AI おすすめの回数を使い切りました。来月またお試しください。";
 "ai_playlist_add_count_format" = "%d曲を追加";
 "ai_playlist_create" = "プレイリストを作成";
 "ai_playlist_generated_count_format" = "%d曲を生成しました";

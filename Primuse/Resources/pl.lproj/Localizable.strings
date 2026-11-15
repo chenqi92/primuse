@@ -629,6 +629,11 @@
 "ai_playlist_name_section" = "Nazwa listy odtwarzania";
 "ai_playlist_new" = "Nowa inteligentna lista odtwarzania AI";
 "ai_playlist_no_suggestions" = "Żadne nowe utwory nie pasują do tego opisu. Spróbuj opisać to w inny sposób.";
+"ai_playlist_failed_timeout" = "Usługa AI nie zdążyła wybrać utworów na czas. Spróbuj ponownie później.";
+"ai_playlist_failed_rejected_format" = "Usługa AI odrzuciła to żądanie (HTTP %d). Spróbuj ponownie później.";
+"ai_playlist_failed_authentication" = "Usługa AI nie zweryfikowała żądania. Sprawdź usługę i jej klucz API w ustawieniach AI.";
+"ai_playlist_failed_daily_limit" = "Dzisiejszy limit rekomendacji AI został wykorzystany. Spróbuj jutro.";
+"ai_playlist_failed_monthly_limit" = "Limit rekomendacji AI na ten miesiąc został wykorzystany. Odnowi się w przyszłym miesiącu.";
 "ai_playlist_preview_section" = "Wygenerowano podgląd";
 "ai_playlist_prompt_footer" = "AI wybiera tylko utwory z Twojej biblioteki i korzysta ze zgody na prywatność w ustawieniach AI.";
 "ai_playlist_prompt_placeholder" = "Na przykład: energetyczna muzyka elektroniczna do nocnych występów, z mniejszą ilością wokali";

@@ -629,6 +629,11 @@
 "ai_playlist_name_section" = "प्लेलिस्ट का नाम";
 "ai_playlist_new" = "नई एआई स्मार्ट प्लेलिस्ट";
 "ai_playlist_no_suggestions" = "कोई भी नया गीत इस विवरण से मेल नहीं खाता। इसे दूसरे तरीके से वर्णित करने का प्रयास करें.";
+"ai_playlist_failed_timeout" = "AI सेवा समय पर गाने नहीं चुन पाई। बाद में फिर कोशिश करें।";
+"ai_playlist_failed_rejected_format" = "AI सेवा ने यह अनुरोध अस्वीकार कर दिया (HTTP %d)। बाद में फिर कोशिश करें।";
+"ai_playlist_failed_authentication" = "AI सेवा का सत्यापन नहीं हो सका। AI सेटिंग्स में सेवा और उसकी API कुंजी जाँचें।";
+"ai_playlist_failed_daily_limit" = "आज के AI सुझाव खत्म हो गए। कल फिर कोशिश करें।";
+"ai_playlist_failed_monthly_limit" = "इस महीने के AI सुझाव खत्म हो गए। अगले महीने फिर उपलब्ध होंगे।";
 "ai_playlist_preview_section" = "जनरेट किया गया पूर्वावलोकन";
 "ai_playlist_prompt_footer" = "एआई केवल आपकी लाइब्रेरी से गाने चुनता है और एआई सेटिंग्स में गोपनीयता सहमति का उपयोग करता है।";
 "ai_playlist_prompt_placeholder" = "उदाहरण के लिए: एक रात के लिए उच्च ऊर्जा वाला इलेक्ट्रॉनिक संगीत, कम स्वर के साथ";

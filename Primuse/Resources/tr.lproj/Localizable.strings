@@ -3193,6 +3193,11 @@
 "keychain_sync_hint_body" = "Kaynak şifreleri ve bulut sürücüsü belirteçleri, iCloud Anahtar Zinciri aracılığıyla uçtan uca şifrelenmiş olarak senkronize edilir. Kullanmak için Sistem Ayarlarında Anahtar Zinciri senkronizasyonunu etkinleştirin.";
 "Master bypass" = "Ana bypass";
 "ai_playlist_no_suggestions" = "Bu açıklamaya uyan yeni şarkı yok. Başka bir şekilde tanımlamayı deneyin.";
+"ai_playlist_failed_timeout" = "Yapay zekâ hizmeti şarkıları zamanında seçemedi. Daha sonra yeniden dene.";
+"ai_playlist_failed_rejected_format" = "Yapay zekâ hizmeti bu isteği reddetti (HTTP %d). Daha sonra yeniden dene.";
+"ai_playlist_failed_authentication" = "Yapay zekâ hizmeti doğrulanamadı. Yapay zekâ ayarlarından hizmeti ve API anahtarını kontrol et.";
+"ai_playlist_failed_daily_limit" = "Bugünkü yapay zekâ öneri hakkın doldu. Yarın yeniden dene.";
+"ai_playlist_failed_monthly_limit" = "Bu ayki yapay zekâ öneri hakkın doldu. Gelecek ay yenilenecek.";
 "smart_mac_header_new" = "Yeni Akıllı Çalma Listesi";
 "insecure_http_domains_footer" = "Yalnızca bu genel ana bilgisayarlar, şifresiz metin HTTP'yi kullanabilir. Bağlantı şifrelenmediğinden hesap kimlik bilgileri, oturumlar ve medya ele geçirilebilir. HTTPS'yi tercih edin.";
 "smart_sort_field_albumTitle" = "Albüm";

@@ -629,6 +629,11 @@
 "ai_playlist_name_section" = "ชื่อเพลย์ลิสต์";
 "ai_playlist_new" = "เพลย์ลิสต์อัจฉริยะ AI ใหม่";
 "ai_playlist_no_suggestions" = "ไม่มีเพลงใหม่ที่ตรงกับคำอธิบายนี้ ลองอธิบายเป็นอย่างอื่นดูครับ";
+"ai_playlist_failed_timeout" = "บริการ AI เลือกเพลงไม่ทันเวลา โปรดลองอีกครั้งภายหลัง";
+"ai_playlist_failed_rejected_format" = "บริการ AI ปฏิเสธคำขอนี้ (HTTP %d) โปรดลองอีกครั้งภายหลัง";
+"ai_playlist_failed_authentication" = "ยืนยันตัวตนกับบริการ AI ไม่สำเร็จ ตรวจสอบบริการและคีย์ API ในการตั้งค่า AI";
+"ai_playlist_failed_daily_limit" = "ใช้สิทธิ์คำแนะนำจาก AI ของวันนี้หมดแล้ว โปรดลองใหม่พรุ่งนี้";
+"ai_playlist_failed_monthly_limit" = "ใช้สิทธิ์คำแนะนำจาก AI ของเดือนนี้หมดแล้ว จะกลับมาใช้ได้เดือนหน้า";
 "ai_playlist_preview_section" = "ดูตัวอย่างที่สร้างขึ้น";
 "ai_playlist_prompt_footer" = "AI เลือกเฉพาะเพลงจากคลังเพลงของคุณและใช้ความยินยอมความเป็นส่วนตัวในการตั้งค่า AI";
 "ai_playlist_prompt_placeholder" = "ตัวอย่างเช่น ดนตรีอิเล็กทรอนิกส์พลังงานสูงสำหรับการวิ่งกลางคืน โดยมีเสียงร้องน้อยลง";

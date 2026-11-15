@@ -1391,6 +1391,11 @@
 "ai_playlist_streaming_results" = "Ajout des morceaux au fur et à mesure…";
 "ai_playlist_preview_section" = "Aperçu généré";
 "ai_playlist_no_suggestions" = "Aucun nouveau morceau ne correspond à cette description. Essayez une autre formulation.";
+"ai_playlist_failed_timeout" = "Le service d’IA n’a pas fini de choisir les morceaux à temps. Réessayez plus tard.";
+"ai_playlist_failed_rejected_format" = "Le service d’IA a refusé cette requête (HTTP %d). Réessayez plus tard.";
+"ai_playlist_failed_authentication" = "Le service d’IA n’a pas pu vérifier la requête. Vérifiez le service et sa clé API dans les réglages IA.";
+"ai_playlist_failed_daily_limit" = "Les recommandations IA du jour sont épuisées. Réessayez demain.";
+"ai_playlist_failed_monthly_limit" = "Les recommandations IA de ce mois-ci sont épuisées. Elles reviennent le mois prochain.";
 "ai_playlist_add_count_format" = "Ajouter %d morceaux";
 "ai_playlist_create" = "Créer la liste";
 "ai_playlist_generated_count_format" = "%d morceaux générés";

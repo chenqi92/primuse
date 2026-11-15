@@ -139,7 +139,11 @@ enum AIRecommendationOutcome: Sendable {
     case unavailable
     case success(AIRecommendationExecution)
     case empty(providerName: String, fallbackDepth: Int)
-    case failed(AIRecommendationFallbackReason, retryAt: Date? = nil)
+    case failed(
+        AIRecommendationFallbackReason,
+        retryAt: Date? = nil,
+        detail: AIRecommendationFailureDetail? = nil
+    )
 }
 
 enum AIRecommendationFallbackReason: Equatable, Sendable {
@@ -232,6 +236,203 @@ enum AIRecommendationFallbackReason: Equatable, Sendable {
 
     fileprivate var retriesBriefly: Bool {
         self == .busy
+    }
+}
+
+/// 推荐请求失败的细节:`AIRecommendationFallbackReason` 把超时和断网都算作 `.network`,
+/// 自己服务的 HTTP 拒绝、断网又都落到 `.upstream`。日志要写清楚,AI 歌单也要按它说清
+/// 是超时、被拒还是网络不通。只记状态码和错误码,不带地址、密钥或提示词。
+struct AIRecommendationFailureDetail: Equatable, Sendable {
+    enum Kind: String, Sendable {
+        case timedOut
+        case network
+        /// 服务答了 4xx。
+        case rejected
+        /// 没发出去:没填密钥、配置不全或停用了。
+        case notConfigured
+        case cancelled
+        case other
+    }
+
+    var kind: Kind
+    var httpStatus: Int?
+    var urlErrorCode: Int?
+    /// 内置 AI 回的错误码(`PrimuseAIRelayDiagnostic.code`)。
+    var relayCode: String?
+    /// 错误的简短名字,只给日志看。
+    var summary: String
+
+    init(
+        kind: Kind,
+        httpStatus: Int? = nil,
+        urlErrorCode: Int? = nil,
+        relayCode: String? = nil,
+        summary: String
+    ) {
+        self.kind = kind
+        self.httpStatus = httpStatus
+        self.urlErrorCode = urlErrorCode
+        self.relayCode = relayCode
+        self.summary = summary
+    }
+
+    private static func httpKind(_ code: Int) -> Kind {
+        (400..<500).contains(code) ? .rejected : .other
+    }
+
+    init(_ error: Error) {
+        switch error {
+        case is CancellationError:
+            self.init(kind: .cancelled, summary: "cancelled")
+        case let error as URLError:
+            let kind: Kind = switch error.code {
+            case .timedOut: .timedOut
+            case .cancelled: .cancelled
+            default: .network
+            }
+            self.init(
+                kind: kind,
+                urlErrorCode: error.code.rawValue,
+                relayCode: PrimuseAIRelayDiagnostic.classify(error).code,
+                summary: "urlError"
+            )
+        case let error as PrimuseAIRelayError:
+            let code = PrimuseAIRelayDiagnostic.classify(error).code
+            if case .requestFailed(let statusCode, _, _) = error {
+                self.init(
+                    kind: Self.httpKind(statusCode),
+                    httpStatus: statusCode,
+                    relayCode: code,
+                    summary: "relay"
+                )
+            } else {
+                self.init(kind: .other, relayCode: code, summary: "relay")
+            }
+        case let error as MusicIntelligenceError:
+            switch error {
+            case .timedOut:
+                self.init(kind: .timedOut, summary: "timedOut")
+            case .unavailable(let reason):
+                let skipped: Set<AIProviderUnavailableReason> = [
+                    .missingCredential, .missingConfiguration, .disabled,
+                ]
+                self.init(
+                    kind: skipped.contains(reason) ? .notConfigured : .other,
+                    summary: "unavailable.\(reason.rawValue)"
+                )
+            case .requestFailed(let statusCode):
+                self.init(
+                    kind: Self.httpKind(statusCode),
+                    httpStatus: statusCode,
+                    summary: "requestFailed"
+                )
+            case .invalidConfiguration:
+                self.init(kind: .notConfigured, summary: "invalidConfiguration")
+            case .invalidResponse:
+                self.init(kind: .other, summary: "invalidResponse")
+            }
+        case let error as OpenAICompatibleProviderError:
+            switch error {
+            case .missingCredential, .missingGenerationModel, .missingEmbeddingModel:
+                self.init(kind: .notConfigured, summary: "\(error)")
+            case .invalidConfiguration:
+                self.init(kind: .notConfigured, summary: "invalidConfiguration")
+            case .transportFailure:
+                self.init(kind: .network, summary: "transportFailure")
+            case .requestFailed(let statusCode, _):
+                self.init(
+                    kind: Self.httpKind(statusCode),
+                    httpStatus: statusCode,
+                    summary: "requestFailed"
+                )
+            case .responseTooLarge, .invalidResponse:
+                self.init(kind: .other, summary: "\(error)")
+            }
+        default:
+            self.init(kind: .other, summary: String(describing: type(of: error)))
+        }
+    }
+
+    /// AI 歌单生成失败时给的话。编辑器里没有「现有推荐」可保留,所以不用 `statusText`
+    /// 那套「已保留现有推荐」的说法;超时、被服务拒绝、网络不通分开说。
+    static func playlistMessage(
+        reason: AIRecommendationFallbackReason,
+        detail: AIRecommendationFailureDetail?
+    ) -> String {
+        if detail?.kind == .timedOut {
+            return String(localized: "ai_playlist_failed_timeout")
+        }
+        switch reason {
+        case .busy:
+            return String(localized: "ai_song_discovery_failed_busy")
+        case .minuteLimit:
+            return String(localized: "ai_song_discovery_failed_minute_limit")
+        case .dailyLimit:
+            return String(localized: "ai_playlist_failed_daily_limit")
+        case .monthlyLimit:
+            return String(localized: "ai_playlist_failed_monthly_limit")
+        case .regionRestricted:
+            return String(localized: "ai_song_discovery_failed_region")
+        case .authentication:
+            return String(localized: "ai_playlist_failed_authentication")
+        case .network:
+            return String(localized: "ai_song_discovery_failed_network")
+        case .empty:
+            return String(localized: "ai_playlist_no_suggestions")
+        case .unavailable, .deviceRegistration, .upstream:
+            break
+        }
+        switch detail?.kind {
+        case .network:
+            return String(localized: "ai_song_discovery_failed_network")
+        case .rejected:
+            switch detail?.httpStatus {
+            case 401?, 403?:
+                return String(localized: "ai_playlist_failed_authentication")
+            case 429?:
+                return String(localized: "ai_song_discovery_failed_minute_limit")
+            case let statusCode?:
+                return String(
+                    format: String(localized: "ai_playlist_failed_rejected_format"),
+                    statusCode
+                )
+            case nil:
+                break
+            }
+        case .notConfigured:
+            return String(localized: "ai_playlist_failed_authentication")
+        default:
+            break
+        }
+        return String(localized: "ai_song_discovery_failed_generic")
+    }
+}
+
+/// 一次推荐依次问了几个服务时,给用户看哪个失败原因:以先问、并且真发出去了的那个服务为准。
+/// 没填密钥这类根本没发出去的后备服务只在谁都没发出去时才算。以前最后一个后备服务的原因
+/// 盖掉前面的,内置 AI 出了错却显示成后备服务的「鉴权失败」或「网络连接不可用」。
+/// 稍后再试的时间仍跟最后一次失败走,和原来一样。
+struct AIRecommendationFailureTally {
+    private var reported: (reason: AIRecommendationFallbackReason, detail: AIRecommendationFailureDetail)?
+    private var skipped: (reason: AIRecommendationFallbackReason, detail: AIRecommendationFailureDetail)?
+    private(set) var retryAt: Date?
+
+    mutating func note(_ error: Error) {
+        let failure = (
+            reason: AIRecommendationFallbackReason.classify(error),
+            detail: AIRecommendationFailureDetail(error)
+        )
+        retryAt = (error as? PrimuseAIRelayError)?.retryAt
+        if failure.detail.kind == .notConfigured {
+            if skipped == nil { skipped = failure }
+        } else if reported == nil {
+            reported = failure
+        }
+    }
+
+    var shown: (reason: AIRecommendationFallbackReason, detail: AIRecommendationFailureDetail?) {
+        guard let failure = reported ?? skipped else { return (.upstream, nil) }
+        return (failure.reason, failure.detail)
     }
 }
 
@@ -1956,8 +2157,7 @@ final class MusicIntelligenceService {
 
         let now = ProcessInfo.processInfo.systemUptime
         var lastEmptyProvider: (name: String, fallbackDepth: Int)?
-        var lastFailureReason: AIRecommendationFallbackReason?
-        var lastRetryAt: Date?
+        var failures = AIRecommendationFailureTally()
         var customFallbackOffset = 0
         var streamedSelections: [AIRecommendationSelection] = []
         var streamedSelectionIDs = Set<String>()
@@ -1981,6 +2181,7 @@ final class MusicIntelligenceService {
                 request: request,
                 regionRevision: regionSnapshot.revision
             )
+            let relayStartedAt = ProcessInfo.processInfo.systemUptime
             do {
                 let plan: AIRecommendationPlan
                 if let onStreamEvent {
@@ -2063,6 +2264,13 @@ final class MusicIntelligenceService {
                     request: request,
                     slot: reuseSlot
                 )
+                logRecommendationAttempt(
+                    request,
+                    via: Self.builtInRecommendationLogRoute,
+                    startedAt: relayStartedAt,
+                    streamed: streamedSelections.count,
+                    plan: plan
+                )
                 return .success(AIRecommendationExecution(
                     plan: plan,
                     providerName: primuseRelayProviderName,
@@ -2073,8 +2281,14 @@ final class MusicIntelligenceService {
             } catch is CancellationError {
                 return .failed(.upstream)
             } catch {
-                lastFailureReason = AIRecommendationFallbackReason.classify(error)
-                lastRetryAt = (error as? PrimuseAIRelayError)?.retryAt
+                failures.note(error)
+                logRecommendationAttempt(
+                    request,
+                    via: Self.builtInRecommendationLogRoute,
+                    startedAt: relayStartedAt,
+                    streamed: streamedSelections.count,
+                    error: error
+                )
                 if !Task.isCancelled, !streamedSelections.isEmpty,
                    canUsePrimuseRelay(
                     feature: .recommendations,
@@ -2104,6 +2318,13 @@ final class MusicIntelligenceService {
                             route: Self.builtInRecommendationRoute,
                             request: request,
                             slot: reuseSlot
+                        )
+                        logRecommendationAttempt(
+                            request,
+                            via: Self.builtInRecommendationLogRoute,
+                            startedAt: relayStartedAt,
+                            streamed: streamedSelections.count,
+                            plan: partial
                         )
                         return .success(AIRecommendationExecution(
                             plan: partial,
@@ -2155,6 +2376,8 @@ final class MusicIntelligenceService {
                 ))
             }
 
+            let providerStartedAt = ProcessInfo.processInfo.systemUptime
+            let providerRoute = Self.recommendationLogRoute(for: configuration, request: request)
             do {
                 let engine = engine
                 let regionContext = regionSnapshot.context
@@ -2202,20 +2425,18 @@ final class MusicIntelligenceService {
                     latest: regionAvailability.snapshot,
                     configuration: configuration
                 ) else { return .failed(.regionRestricted) }
+                logRecommendationAttempt(
+                    request,
+                    via: providerRoute,
+                    startedAt: providerStartedAt,
+                    streamed: streamedSelections.count,
+                    plan: plan
+                )
                 guard !plan.selections.isEmpty else {
                     lastEmptyProvider = (configuration.displayName, effectiveFallbackDepth)
                     continue
                 }
-                recommendationCache[cacheKey] = RecommendationCacheEntry(
-                    plan: plan,
-                    createdAt: now
-                )
-                if recommendationCache.count > Self.recommendationCacheLimit,
-                   let oldestKey = recommendationCache.min(by: {
-                       $0.value.createdAt < $1.value.createdAt
-                   })?.key {
-                    recommendationCache[oldestKey] = nil
-                }
+                storeOwnRecommendation(plan, for: cacheKey, createdAt: now)
                 rememberRecommendation(
                     plan,
                     providerName: configuration.displayName,
@@ -2234,8 +2455,52 @@ final class MusicIntelligenceService {
             } catch is CancellationError {
                 return .failed(.upstream)
             } catch {
-                lastFailureReason = AIRecommendationFallbackReason.classify(error)
-                lastRetryAt = (error as? PrimuseAIRelayError)?.retryAt
+                failures.note(error)
+                logRecommendationAttempt(
+                    request,
+                    via: providerRoute,
+                    startedAt: providerStartedAt,
+                    streamed: streamedSelections.count,
+                    error: error
+                )
+                // 写到一半超时或断开:已经一首首出来的留下,和内置 AI 一样算一份不完整的结果,
+                // 不再整份作废(AI 歌单预览里的歌一闪就没了,也存不了)。
+                if !Task.isCancelled, !streamedSelections.isEmpty,
+                   AIRegionRequestPolicy.canCommitRemoteResponse(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot,
+                    configuration: configuration
+                   ) {
+                    let partial = AIRecommendationPlan(
+                        selections: streamedSelections,
+                        isPartial: true
+                    ).normalized(for: request)
+                    if !partial.selections.isEmpty {
+                        storeOwnRecommendation(partial, for: cacheKey, createdAt: now)
+                        rememberRecommendation(
+                            partial,
+                            providerName: configuration.displayName,
+                            fallbackDepth: effectiveFallbackDepth,
+                            route: Self.recommendationRoute(for: configuration),
+                            request: request,
+                            slot: reuseSlot
+                        )
+                        logRecommendationAttempt(
+                            request,
+                            via: providerRoute,
+                            startedAt: providerStartedAt,
+                            streamed: streamedSelections.count,
+                            plan: partial
+                        )
+                        return .success(AIRecommendationExecution(
+                            plan: partial,
+                            providerName: configuration.displayName,
+                            fallbackDepth: effectiveFallbackDepth,
+                            resolvedScene: request.scene,
+                            isCached: false
+                        ))
+                    }
+                }
                 continue
             }
         }
@@ -2245,7 +2510,80 @@ final class MusicIntelligenceService {
                 fallbackDepth: lastEmptyProvider.fallbackDepth
             )
         }
-        return .failed(lastFailureReason ?? .upstream, retryAt: lastRetryAt)
+        let shown = failures.shown
+        let shownKind = shown.detail?.kind.rawValue ?? "-"
+        let shownStatus = shown.detail?.httpStatus.map { String($0) } ?? "-"
+        plog("AI recommendations gave up reason=\(shown.reason) kind=\(shownKind) http=\(shownStatus) providers=\(providers.count) builtIn=\(customFallbackOffset == 1)")
+        return .failed(shown.reason, retryAt: failures.retryAt, detail: shown.detail)
+    }
+
+    private func storeOwnRecommendation(
+        _ plan: AIRecommendationPlan,
+        for key: RecommendationCacheKey,
+        createdAt: TimeInterval
+    ) {
+        recommendationCache[key] = RecommendationCacheEntry(plan: plan, createdAt: createdAt)
+        if recommendationCache.count > Self.recommendationCacheLimit,
+           let oldestKey = recommendationCache.min(by: {
+               $0.value.createdAt < $1.value.createdAt
+           })?.key {
+            recommendationCache[oldestKey] = nil
+        }
+    }
+
+    private static let builtInRecommendationLogRoute = "built-in"
+
+    /// 日志里怎么称呼自己的服务:名字、模型、协议、是否自托管和这次的限时。名字是用户自己
+    /// 填的,像地址或带 @ 的(可能夹着账号)就只写 custom;不写地址和密钥。
+    private static func recommendationLogRoute(
+        for configuration: AIRemoteProviderConfiguration,
+        request: AIRecommendationRequest
+    ) -> String {
+        let trimmed = configuration.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmed.isEmpty || trimmed.contains("://") || trimmed.contains("@")
+            ? "custom"
+            : String(trimmed.prefix(32)).replacingOccurrences(of: "\"", with: "'")
+        let timeout = configuration
+            .forGeneration(atLeast: AIRecommendationTimeoutPolicy.generationFloor(for: request))
+            .requestTimeout
+        let protocolName = configuration.backend == .remote
+            ? configuration.apiStyle.rawValue
+            : configuration.backend.rawValue
+        let selfHosted = configuration.backend == .remote
+            && AISelfHostedEndpointPolicy.isSelfHosted(configuration: configuration)
+        return "own provider=\"\(name)\" model=\(configuration.generationModel) style=\(protocolName) selfHosted=\(selfHosted) timeout=\(Int(timeout))s"
+    }
+
+    /// 推荐问了一次的结果写进日志,失败时写清楚是超时、被拒还是网络不通。只写条数、字数、
+    /// 状态码这类数字,不写密钥、地址和提示词原文。
+    private func logRecommendationAttempt(
+        _ request: AIRecommendationRequest,
+        via route: String,
+        startedAt: TimeInterval,
+        streamed: Int,
+        plan: AIRecommendationPlan? = nil,
+        error: Error? = nil
+    ) {
+        let elapsed = String(format: "%.1f", max(0, ProcessInfo.processInfo.systemUptime - startedAt))
+        let compactIDs = route != Self.builtInRecommendationLogRoute
+        let kilobytes = String(
+            format: "%.1f",
+            Double(request.approximateBodyBytes(compactIDs: compactIDs)) / 1_024
+        )
+        let shape = "scene=\(request.scene.rawValue) intent=\(request.intent?.count ?? 0)ch "
+            + "candidates=\(request.candidates.count) albums=\(request.albumCandidates.count) "
+            + "want=\(request.maximumResults)/\(request.minimumResults) bytes≈\(kilobytes)KB"
+        guard let error else {
+            let picks = plan?.selections.count ?? 0
+            let partial = plan?.isPartial ?? false
+            plog("AI recommendations ok via=\(route) picks=\(picks) partial=\(partial) streamed=\(streamed) elapsed=\(elapsed)s \(shape)")
+            return
+        }
+        let detail = AIRecommendationFailureDetail(error)
+        let reason = AIRecommendationFallbackReason.classify(error)
+        let http = detail.httpStatus.map { String($0) } ?? "-"
+        let url = detail.urlErrorCode.map { String($0) } ?? "-"
+        plog("AI recommendations failed via=\(route) reason=\(reason) kind=\(detail.kind.rawValue) error=\(detail.summary) http=\(http) url=\(url) code=\(detail.relayCode ?? "-") streamed=\(streamed) elapsed=\(elapsed)s \(shape)")
     }
 
     /// Runs a provider call whose progress callback fires off the main actor,
@@ -3348,6 +3686,8 @@ final class AIRecommendationViewModel {
     private(set) var isPartial = false
     private(set) var retryAvailableAt: Date?
     private(set) var streamedSongCount = 0
+    /// 上一次失败的细节(超时、被拒、网络不通),AI 歌单据此说清原因。
+    private(set) var failureDetail: AIRecommendationFailureDetail?
     private var generation: UInt64 = 0
 
     @discardableResult
@@ -3429,6 +3769,7 @@ final class AIRecommendationViewModel {
         } else {
             if let retryAvailableAt, retryAvailableAt > Date() { return false }
             feedback = .loading
+            failureDetail = nil
             isPartial = false
             streamedSongCount = 0
             isStreaming = true
@@ -3559,8 +3900,9 @@ final class AIRecommendationViewModel {
                 reason: .empty
             )
             return false
-        case .failed(let reason, let retryAt):
+        case .failed(let reason, let retryAt, let detail):
             retryAvailableAt = retryAt
+            failureDetail = detail
             orderedSongIDs = startingSongIDs
             reasonsBySongID = startingReasons
             orderedAlbumKeys = startingAlbumKeys
@@ -3697,6 +4039,14 @@ final class AIRecommendationViewModel {
             }
             return String(localized: String.LocalizationValue(key))
         }
+    }
+
+    /// AI 歌单生成失败时给的话:编辑器里没有现有推荐可保留,超时、被拒、网络不通分开说。
+    var playlistFailureText: String {
+        guard case .localFallback(_, _, let reason) = feedback, orderedSongIDs.isEmpty else {
+            return statusText
+        }
+        return AIRecommendationFailureDetail.playlistMessage(reason: reason, detail: failureDetail)
     }
 
     var summaryText: String? {
@@ -4171,7 +4521,10 @@ private actor MusicIntelligenceEngine {
         requestAuthorization: @escaping @Sendable () async -> Bool,
         onSelection: (@Sendable (AIRecommendationSelection) -> Void)? = nil
     ) async throws -> AIRecommendationPlan {
-        let configuration = configuration.forGeneration()
+        // 限时按这次要挑多少条放宽:AI 歌单 25 首带推荐语,12 秒写不完。
+        let configuration = configuration.forGeneration(
+            atLeast: AIRecommendationTimeoutPolicy.generationFloor(for: request)
+        )
         let candidates = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
             capability: .recommendations,

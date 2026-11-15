@@ -1391,6 +1391,11 @@
 "ai_playlist_streaming_results" = "노래를 받는 대로 추가하는 중…";
 "ai_playlist_preview_section" = "생성 미리보기";
 "ai_playlist_no_suggestions" = "설명에 맞는 새 노래를 찾지 못했습니다. 다른 표현으로 다시 시도하세요.";
+"ai_playlist_failed_timeout" = "AI 서비스가 제한 시간 안에 곡을 다 고르지 못했습니다. 잠시 후 다시 시도하세요.";
+"ai_playlist_failed_rejected_format" = "AI 서비스가 이 요청을 거부했습니다(HTTP %d). 잠시 후 다시 시도하세요.";
+"ai_playlist_failed_authentication" = "AI 서비스 인증에 실패했습니다. AI 설정에서 서비스와 API 키를 확인하세요.";
+"ai_playlist_failed_daily_limit" = "오늘의 AI 추천 횟수를 모두 사용했습니다. 내일 다시 시도하세요.";
+"ai_playlist_failed_monthly_limit" = "이번 달 AI 추천 횟수를 모두 사용했습니다. 다음 달에 다시 시도하세요.";
 "ai_playlist_add_count_format" = "%d곡 추가";
 "ai_playlist_create" = "재생 목록 생성";
 "ai_playlist_generated_count_format" = "%d곡 생성됨";

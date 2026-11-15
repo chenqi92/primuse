@@ -531,6 +531,103 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         )
     }
 
+    func testRecommendationFailureDetailSeparatesTimeoutsRejectionsAndNetworkFailures() {
+        XCTAssertEqual(AIRecommendationFailureDetail(MusicIntelligenceError.timedOut).kind, .timedOut)
+        let urlTimeout = AIRecommendationFailureDetail(URLError(.timedOut))
+        XCTAssertEqual(urlTimeout.kind, .timedOut)
+        XCTAssertEqual(urlTimeout.urlErrorCode, URLError.Code.timedOut.rawValue)
+        XCTAssertEqual(AIRecommendationFailureDetail(URLError(.notConnectedToInternet)).kind, .network)
+        XCTAssertEqual(
+            AIRecommendationFailureDetail(OpenAICompatibleProviderError.transportFailure).kind,
+            .network
+        )
+        let rejected = AIRecommendationFailureDetail(
+            OpenAICompatibleProviderError.requestFailed(statusCode: 400)
+        )
+        XCTAssertEqual(rejected.kind, .rejected)
+        XCTAssertEqual(rejected.httpStatus, 400)
+        let relayRejected = AIRecommendationFailureDetail(
+            PrimuseAIRelayError.requestFailed(statusCode: 413, code: "payload_too_large")
+        )
+        XCTAssertEqual(relayRejected.kind, .rejected)
+        XCTAssertEqual(relayRejected.httpStatus, 413)
+        XCTAssertEqual(relayRejected.relayCode, "payload_too_large")
+        XCTAssertEqual(
+            AIRecommendationFailureDetail(
+                PrimuseAIRelayError.requestFailed(statusCode: 503, code: "upstreams_failed")
+            ).kind,
+            .other
+        )
+        XCTAssertEqual(
+            AIRecommendationFailureDetail(MusicIntelligenceError.unavailable(.missingCredential)).kind,
+            .notConfigured
+        )
+        XCTAssertEqual(
+            AIRecommendationFailureDetail(OpenAICompatibleProviderError.missingCredential).kind,
+            .notConfigured
+        )
+    }
+
+    func testRecommendationFailureShownIsTheFirstServiceThatActuallyAnswered() {
+        // Built-in AI fails, two fallback services have no key on this device and
+        // the last one times out: the built-in failure is what the listener sees.
+        var tally = AIRecommendationFailureTally()
+        tally.note(PrimuseAIRelayError.requestFailed(statusCode: 503, code: "upstreams_failed"))
+        tally.note(MusicIntelligenceError.unavailable(.missingCredential))
+        tally.note(MusicIntelligenceError.unavailable(.missingCredential))
+        tally.note(MusicIntelligenceError.timedOut)
+        XCTAssertEqual(tally.shown.reason, .upstream)
+        XCTAssertEqual(tally.shown.detail?.relayCode, "upstreams_failed")
+
+        // Services without a key only speak when nothing was sent at all.
+        var skippedFirst = AIRecommendationFailureTally()
+        skippedFirst.note(MusicIntelligenceError.unavailable(.missingCredential))
+        skippedFirst.note(MusicIntelligenceError.timedOut)
+        XCTAssertEqual(skippedFirst.shown.reason, .network)
+        XCTAssertEqual(skippedFirst.shown.detail?.kind, .timedOut)
+
+        var nothingSent = AIRecommendationFailureTally()
+        nothingSent.note(MusicIntelligenceError.unavailable(.missingCredential))
+        XCTAssertEqual(nothingSent.shown.reason, .authentication)
+        XCTAssertEqual(nothingSent.shown.detail?.kind, .notConfigured)
+
+        XCTAssertEqual(AIRecommendationFailureTally().shown.reason, .upstream)
+        XCTAssertNil(AIRecommendationFailureTally().shown.detail)
+    }
+
+    func testPlaylistFailureMessageNamesTimeoutsRejectionsAndNetworkFailures() {
+        func message(_ error: Error) -> String {
+            AIRecommendationFailureDetail.playlistMessage(
+                reason: AIRecommendationFallbackReason.classify(error),
+                detail: AIRecommendationFailureDetail(error)
+            )
+        }
+        let timeout = String(localized: "ai_playlist_failed_timeout")
+        let network = String(localized: "ai_song_discovery_failed_network")
+        XCTAssertEqual(message(MusicIntelligenceError.timedOut), timeout)
+        XCTAssertEqual(message(URLError(.timedOut)), timeout)
+        XCTAssertEqual(message(URLError(.notConnectedToInternet)), network)
+        // An own service's dropped connection used to read as an upstream failure.
+        XCTAssertEqual(message(OpenAICompatibleProviderError.transportFailure), network)
+        XCTAssertEqual(
+            message(OpenAICompatibleProviderError.requestFailed(statusCode: 413)),
+            String(format: String(localized: "ai_playlist_failed_rejected_format"), 413)
+        )
+        XCTAssertEqual(
+            message(OpenAICompatibleProviderError.requestFailed(statusCode: 401)),
+            String(localized: "ai_playlist_failed_authentication")
+        )
+        XCTAssertEqual(
+            message(PrimuseAIRelayError.requestFailed(statusCode: 429, code: "daily_request_limit_exhausted")),
+            String(localized: "ai_playlist_failed_daily_limit")
+        )
+        XCTAssertEqual(
+            message(PrimuseAIRelayError.requestFailed(statusCode: 503, code: "upstreams_failed")),
+            String(localized: "ai_song_discovery_failed_generic")
+        )
+        XCTAssertNotEqual(timeout, network)
+    }
+
     func testRecommendationCoordinatorRetriesOneBusyResponse() async throws {
         let host = "primuse-relay-recommendation-retry.invalid"
         PrimuseRelayURLProtocol.configure(
