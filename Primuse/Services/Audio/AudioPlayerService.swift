@@ -1743,6 +1743,8 @@ final class AudioPlayerService {
     var isFailureAdvanceChainActive = false
     var consecutiveFailureAdvanceCount = 0
     static let maxConsecutiveFailureAdvances = 8
+    /// 缓存副本解不出来、已经删掉从源头重取过的歌(#48), 每首每次启动只重取一次。
+    @ObservationIgnored private var undecodableCacheRefetches = UndecodableCachedAudioRefetchLedger()
 
     /// Seconds of buffered audio we let drain before forcibly advancing
     /// after a mid-stream decode error. Without this cap, the ~100 buffers
@@ -7716,6 +7718,9 @@ final class AudioPlayerService {
         guard playID == id else { return }
         guard useFFmpeg || assetReaderDecoder.canDecode(url: url) else {
             plog("⚠️ No decoder available for '\(song.title)'")
+            if await refetchAfterUndecodableCachedAudio(
+                song: song, url: url, playID: id, failure: "no fallback decoder"
+            ) { return }
             showPlaybackError(String(localized: "playback_error_format"))
             isLoading = false
             await autoAdvanceAfterFailure()
@@ -7748,6 +7753,12 @@ final class AudioPlayerService {
                 timeoutSeconds: Self.remoteFallbackFirstBufferTimeoutSeconds
             ) else {
                 guard playID == id else { return }
+                // 只截一段播(CUE 分轨、播放时间段)时没有声音, 可能只是时间点落在文件外, 不算缓存坏了。
+                let window = song.playbackMediaWindow
+                if window.start == nil, window.end == nil,
+                   await refetchAfterUndecodableCachedAudio(
+                    song: song, url: url, playID: id, failure: "\(fallbackName) produced no audio"
+                   ) { return }
                 isLoading = false
                 await autoAdvanceAfterFailure()
                 return
@@ -7900,9 +7911,74 @@ final class AudioPlayerService {
         } catch {
             guard !Task.isCancelled, playID == id else { return }
             plog("⚠️ \(fallbackName) fallback also failed: \(error.localizedDescription)")
+            if await refetchAfterUndecodableCachedAudio(
+                song: song, url: url, playID: id, failure: "\(fallbackName): \(error.localizedDescription)"
+            ) { return }
             isLoading = false
             await autoAdvanceAfterFailure()
         }
+    }
+
+    /// #48: 从本机音频缓存起播, 原生解码器和兜底解码器都解不出来 —— 这份缓存副本多半坏了
+    /// (写到一半、被截断、源上的文件换过)。删掉它、从源头重新起播这一首, 而不是每次播到都跳过;
+    /// 每首每次启动只重取一次, 重取再失败就照原来的失败处理走。
+    /// 返回 true 表示已经接手, 调用方不再走失败处理。
+    private func refetchAfterUndecodableCachedAudio(
+        song: Song,
+        url: URL,
+        playID id: UUID,
+        failure: String
+    ) async -> Bool {
+        guard playID == id, url.isFileURL, let sourceManager else { return false }
+        // 只认这首歌在音频缓存里的那份: 解析地址时缓存命中返回的就是它。本机源、播客下载、
+        // Apple Music 本地文件不在音频缓存里, 路径对不上。
+        let playedFromAudioCache = sourceManager.cachedPlaybackURL(for: song).map {
+            $0.standardizedFileURL.resolvingSymlinksInPath().path
+                == url.standardizedFileURL.resolvingSymlinksInPath().path
+        } ?? false
+        let sourceType = playbackMetadataSourceType?(song.sourceID)
+        // 光盘镜像的分轨是从整张镜像切出来的, 删掉的不是这份; 外部地址没有源可重取。
+        let sourceIsRefetchable = !song.isDiscImageTrack
+            && !isExternalURLItem(song)
+            && sourceType != .local
+            && sourceType != .appleMusicLibrary
+        let decision = UndecodableCachedAudioPolicy.decision(
+            playedFromAudioCache: playedFromAudioCache,
+            sourceIsRefetchable: sourceIsRefetchable,
+            cacheFileIsReadable: FileManager.default.isReadableFile(atPath: url.path),
+            alreadyRefetched: undecodableCacheRefetches.hasRefetched(songID: song.id)
+        )
+        guard decision == .discardAndRefetch else {
+            if playedFromAudioCache {
+                plog("Undecodable cached audio for '\(song.title)' keeps failure handling: \(decision)")
+            }
+            return false
+        }
+        // 和 AlwaysDownloadCoordinator 一样按 filePath 现算缓存的相对路径。
+        let relativePath = "\(song.sourceID)/" + CacheFileNamePolicy.make(
+            path: song.filePath,
+            preferredExtension: song.fileFormat.rawValue
+        )
+        let wasManuallyPinned = await AudioCacheManager.shared.isManuallyPinned(path: relativePath)
+        guard playID == id, !Task.isCancelled else { return true }
+        undecodableCacheRefetches.claim(songID: song.id)
+        plog("Undecodable cached audio for '\(song.title)' (\(failure)); deleting the cache copy and refetching once from source manuallyPinned=\(wasManuallyPinned)")
+        // 先放掉这次播放对缓存文件的租约: 同一首重播不会走换歌时的收尾, 留着只读租约,
+        // 重取时流式缓存就拿不到可写的那一份。
+        sourceManager.finalizeStreamingSession(for: song)
+        sourceManager.deleteAudioCache(for: song)
+        // 删除会把离线下载记成「用户删掉的」, 那样「始终保持离线」的歌单不会再下。这次不是用户删的。
+        try? AudioCacheManager.shared.downloadStore.allowDownloadAgain([relativePath])
+        await play(song: song)
+        guard wasManuallyPinned else { return true }
+        if currentSong?.id == song.id, isPlaying {
+            // 用户点过离线下载的歌, 重取成功后把离线副本也补回来。
+            plog("Re-downloading offline copy of '\(song.title)' after discarding the undecodable one")
+            sourceManager.downloadForOffline(song: song)
+        } else {
+            plog("Offline copy of '\(song.title)' was discarded and the refetch did not start; not re-downloading")
+        }
+        return true
     }
 
     func scheduleDecodedFinalBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) async {

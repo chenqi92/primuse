@@ -161,4 +161,56 @@ struct PlaybackPipelineFailurePolicyTests {
             currentScopeFingerprint: nil
         ) == .invalidateSecurityScope)
     }
+
+    @Test("An undecodable audio-cache copy is dropped and fetched again from its source")
+    func undecodableCacheCopyIsRefetched() {
+        #expect(UndecodableCachedAudioPolicy.decision(
+            playedFromAudioCache: true,
+            sourceIsRefetchable: true,
+            cacheFileIsReadable: true,
+            alreadyRefetched: false
+        ) == .discardAndRefetch)
+    }
+
+    @Test("Files that are not a refetchable cache copy keep the normal failure handling")
+    func nonCacheFailuresKeepFailureHandling() {
+        // 本机文件、播客下载、Apple Music 本地文件: 删了就没了, 也无处可取。
+        #expect(UndecodableCachedAudioPolicy.decision(
+            playedFromAudioCache: false,
+            sourceIsRefetchable: true,
+            cacheFileIsReadable: true,
+            alreadyRefetched: false
+        ) == .keepFailureHandling(.notPlayedFromAudioCache))
+        #expect(UndecodableCachedAudioPolicy.decision(
+            playedFromAudioCache: true,
+            sourceIsRefetchable: false,
+            cacheFileIsReadable: true,
+            alreadyRefetched: false
+        ) == .keepFailureHandling(.notRefetchable))
+        // 读不到不等于坏了: 数据保护或权限问题不能让离线副本被删掉。
+        #expect(UndecodableCachedAudioPolicy.decision(
+            playedFromAudioCache: true,
+            sourceIsRefetchable: true,
+            cacheFileIsReadable: false,
+            alreadyRefetched: false
+        ) == .keepFailureHandling(.cacheFileUnreadable))
+    }
+
+    @Test("A song is refetched at most once per launch")
+    func refetchHappensOncePerSong() {
+        var ledger = UndecodableCachedAudioRefetchLedger()
+        #expect(!ledger.hasRefetched(songID: "a"))
+        let firstClaim = ledger.claim(songID: "a")
+        #expect(firstClaim)
+        let secondClaim = ledger.claim(songID: "a")
+        #expect(!secondClaim)
+        #expect(ledger.hasRefetched(songID: "a"))
+        #expect(!ledger.hasRefetched(songID: "b"))
+        #expect(UndecodableCachedAudioPolicy.decision(
+            playedFromAudioCache: true,
+            sourceIsRefetchable: true,
+            cacheFileIsReadable: true,
+            alreadyRefetched: ledger.hasRefetched(songID: "a")
+        ) == .keepFailureHandling(.alreadyRefetched))
+    }
 }

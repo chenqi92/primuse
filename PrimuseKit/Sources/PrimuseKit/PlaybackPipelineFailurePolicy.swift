@@ -46,6 +46,60 @@ public enum PlaybackPipelineFailurePolicy {
     }
 }
 
+/// 从本机音频缓存起播、原生解码器和兜底解码器(FFmpeg / AVAssetReader)都解不出来时怎么办(#48)。
+/// 缓存只是源上那个文件的一份副本, 两种解码器都打不开多半是这份副本坏了(写到一半、被截断、
+/// 源上的文件换过) —— 丢掉它、从源头重新取一次, 而不是每次播到这首都直接跳过。
+/// 同一首每次启动只重取一次, 再失败就照原来的失败处理走, 不会在坏文件和重下之间来回打转。
+public enum UndecodableCachedAudioPolicy {
+    public enum Decision: Equatable, Sendable {
+        /// 删掉这份缓存, 从源头重新起播这一首。
+        case discardAndRefetch
+        /// 照原来的失败处理走(跳下一首或停住)。
+        case keepFailureHandling(Reason)
+    }
+
+    public enum Reason: String, Equatable, Sendable {
+        /// 播的不是音频缓存里的副本: 本机文件、播客下载、Apple Music 本地文件、远程流。
+        case notPlayedFromAudioCache
+        /// 没有能重新取的源头(光盘镜像切出来的分轨、DLNA / 播客这类外部地址)。
+        case notRefetchable
+        /// 文件读不到(权限、数据保护)不等于内容坏了, 不能因此删掉用户的离线副本。
+        case cacheFileUnreadable
+        /// 这次启动已经为这首重取过一次。
+        case alreadyRefetched
+    }
+
+    public static func decision(
+        playedFromAudioCache: Bool,
+        sourceIsRefetchable: Bool,
+        cacheFileIsReadable: Bool,
+        alreadyRefetched: Bool
+    ) -> Decision {
+        guard playedFromAudioCache else { return .keepFailureHandling(.notPlayedFromAudioCache) }
+        guard sourceIsRefetchable else { return .keepFailureHandling(.notRefetchable) }
+        guard cacheFileIsReadable else { return .keepFailureHandling(.cacheFileUnreadable) }
+        guard !alreadyRefetched else { return .keepFailureHandling(.alreadyRefetched) }
+        return .discardAndRefetch
+    }
+}
+
+/// 这次启动里哪些歌已经因为缓存解不出来重取过 —— 每首只给一次机会。
+public struct UndecodableCachedAudioRefetchLedger: Sendable {
+    private var refetchedSongIDs: Set<String> = []
+
+    public init() {}
+
+    public func hasRefetched(songID: String) -> Bool {
+        refetchedSongIDs.contains(songID)
+    }
+
+    /// 记下这一首要重取; 已经记过时返回 false, 调用方不能再重取。
+    @discardableResult
+    public mutating func claim(songID: String) -> Bool {
+        refetchedSongIDs.insert(songID).inserted
+    }
+}
+
 /// App 在后台时系统不许激活不可混音的会话(`AVAudioSession.ErrorCode.cannotInterruptOthers`,
 /// '!int')。锁屏下 Apple Music 播完接本地歌就撞这条: MusicKit 起播时打断了 Primuse 自己的会话,
 /// 后台再要独占系统不给。可混音的会话后台能激活, 先这样把歌接上, 再找机会切回独占 ——

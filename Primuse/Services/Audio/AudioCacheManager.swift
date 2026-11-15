@@ -785,6 +785,12 @@ actor AudioCacheManager {
         return offlineManifest[path]?.isPinned == true
     }
 
+    /// 用户自己点了离线下载(不只是被开着「始终保持离线」的歌单带着)。
+    func isManuallyPinned(path: String) -> Bool {
+        ensureInitialized()
+        return offlineManifest[path]?.isManuallyPinned == true
+    }
+
     /// 精简副本装好之后调用。这组文件仍被离线固定、原文件也没在转换期间被换掉
     /// 时删掉原文件、按副本记账; 判断与删除之间没有挂起点, 播放方取锁排在这之后,
     /// 拿到的就是副本。原文件此刻正被别处读写时先留着。
