@@ -2811,7 +2811,7 @@ struct NowPlayingView: View {
     }
 
     /// 歌词键:分栏时打开右栏的歌词(已经在看就收起右栏),其它时候在同一栏里切歌词。
-    /// 打开「歌词时间」:歌词没在显示就先翻到歌词,挪的时候看得到效果。
+    /// 打开「歌词时间」(有声内容是「文字稿时间」):歌词、文字稿没在显示就先翻过去,挪的时候看得到效果。
     private func openLyricsTimingRuler() {
         let lyricsVisible = isPlayerSplit ? (!sidePaneHidden && showLyrics) : showLyrics
         if !lyricsVisible { toggleLyricsForLayout() }
@@ -4119,13 +4119,13 @@ struct NowPlayingView: View {
                         .zIndex(61)
                 }
 
-                // 「歌词时间」刻度尺:浮在底部,歌词留在上面看得见,拖的时候能对着歌声看。
-                if showsLyricsTimingRuler, let song = player.currentSong,
-                   let key = SpokenWordTranscriptOffsetStore.shared.lyricsItemKey(for: song) {
-                    LyricsTimingRulerPanel(itemKey: key, appearance: appearance) {
+                // 「歌词时间」刻度尺、有声内容的「文字稿时间」:浮在底部,歌词、文字稿留在上面看得见,
+                // 挪的时候能对着声音看。
+                if showsLyricsTimingRuler, let song = player.currentSong {
+                    NowPlayingTimingPanel(song: song, appearance: appearance) {
                         showsLyricsTimingRuler = false
                     }
-                    .id(key)
+                    .id(song.id)
                     .frame(maxWidth: 520)
                     .padding(.horizontal, 12)
                     .padding(.bottom, max(safeInsets.bottom, 12))
@@ -14660,7 +14660,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             && lhs.plainLabel == rhs.plainLabel
     }
 
-    /// 文字稿时间:这一集 / 这本书往前、往后挪。iPhone 上点了菜单不收起,能连着点几下(#320)。
+    #if !os(iOS)
+    /// 文字稿时间:这一集 / 这本书往前、往后挪(#320)。iPhone、iPad 上换成底部那块面板(#423)。
     private func transcriptOffsetMenu(key: String, delay: TimeInterval) -> some View {
         let store = SpokenWordTranscriptOffsetStore.shared
         let step = SpokenWordTranscriptOffsetPolicy.step
@@ -14669,12 +14670,12 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 Button {
                     store.setItemDelay(delay - step, forKey: key)
                 } label: {
-                    Label("transcript_offset_earlier_step", systemImage: "backward")
+                    Label("lyrics_timing_earlier_step", systemImage: "backward")
                 }
                 Button {
                     store.setItemDelay(delay + step, forKey: key)
                 } label: {
-                    Label("transcript_offset_later_step", systemImage: "forward")
+                    Label("lyrics_timing_later_step", systemImage: "forward")
                 }
             }
             Section {
@@ -14702,10 +14703,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 Image(systemName: "arrow.left.arrow.right")
             }
         }
-        #if os(iOS)
-        .menuActionDismissBehavior(.disabled)
-        #endif
     }
+    #endif
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(
@@ -15218,9 +15217,23 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         .pickerStyle(.menu)
                     }
 
+                    #if os(iOS)
+                    if snapshot.transcriptOffsetItemKey != nil, snapshot.shows(.transcriptOffset) {
+                        // 打开底部那块「文字稿时间」(#423):一下 0.1 秒,也能直接输入。
+                        Button { onAdjustLyricsTiming() } label: {
+                            Label {
+                                Text("transcript_offset_title")
+                                Text(verbatim: SpokenWordTranscriptOffsetRow.valueText(snapshot.transcriptOffsetItemDelay))
+                            } icon: {
+                                Image(systemName: "arrow.left.arrow.right")
+                            }
+                        }
+                    }
+                    #else
                     if let offsetKey = snapshot.transcriptOffsetItemKey, snapshot.shows(.transcriptOffset) {
                         transcriptOffsetMenu(key: offsetKey, delay: snapshot.transcriptOffsetItemDelay)
                     }
+                    #endif
 
                     #if os(iOS)
                     if let delay = snapshot.lyricsTimingDelay, snapshot.shows(.lyricsTiming) {

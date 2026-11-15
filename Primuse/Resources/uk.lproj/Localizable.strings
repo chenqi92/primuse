@@ -5320,12 +5320,14 @@
 "transcript_offset_footer" = "Якщо текст з’являється раніше за звук, посуньте його пізніше (+); якщо запізнюється — раніше (−). «Усі тексти» — для пристроїв із власною затримкою, як-от CarPlay чи Bluetooth; зсув для цього випуску чи книги додається зверху.";
 "transcript_offset_earlier" = "Показувати текст раніше";
 "transcript_offset_later" = "Показувати текст пізніше";
-"transcript_offset_earlier_step" = "На 0,5 с раніше";
-"transcript_offset_later_step" = "На 0,5 с пізніше";
 "transcript_offset_earlier_coarse" = "На 5 с раніше";
 "transcript_offset_later_coarse" = "На 5 с пізніше";
 "transcript_offset_reset" = "Скинути на 0";
 "transcript_offset_seconds_format" = "%@ с";
+"transcript_offset_panel_hint" = "Якщо текст з’являється раніше за звук, посуньте його пізніше (+); якщо запізнюється — раніше (−). Торкніться числа, щоб ввести значення.";
+"transcript_offset_input_message" = "Введіть секунди: додатне значення зсуває текст пізніше, від’ємне — раніше. Для великої різниці використовуйте хвилини:секунди, наприклад -2:30.";
+"transcript_offset_input_placeholder" = "Секунди або хв:сс";
+"transcript_offset_input_action" = "Ввести час";
 "lyrics_translation_font_size" = "Розмір перекладу";
 "lyrics_translation_font_follow" = "Як оригінал";
 "lyrics_translation_font_follows_original" = "Розмір перекладу як в оригіналу";

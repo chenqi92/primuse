@@ -5320,12 +5320,14 @@
 "transcript_offset_footer" = "Metin sesten önce görünüyorsa sonraya (+), geride kalıyorsa öne (−) kaydırın. \"Tüm metinler\" CarPlay veya Bluetooth gibi kendi gecikmesi olan cihazlar içindir; bu bölüm ya da kitap için yaptığınız kaydırma üstüne eklenir.";
 "transcript_offset_earlier" = "Metni daha erken göster";
 "transcript_offset_later" = "Metni daha geç göster";
-"transcript_offset_earlier_step" = "0,5 sn erken";
-"transcript_offset_later_step" = "0,5 sn geç";
 "transcript_offset_earlier_coarse" = "5 sn erken";
 "transcript_offset_later_coarse" = "5 sn geç";
 "transcript_offset_reset" = "0'a sıfırla";
 "transcript_offset_seconds_format" = "%@ sn";
+"transcript_offset_panel_hint" = "Metin sesten önce görünüyorsa sonraya (+), geride kalıyorsa öne (−) kaydırın. Değer yazmak için sayıya dokunun.";
+"transcript_offset_input_message" = "Saniye girin: pozitif değer metni sonraya, negatif değer öne kaydırır. Büyük farklar için dakika:saniye yazın, örneğin -2:30.";
+"transcript_offset_input_placeholder" = "Saniye veya dk:sn";
+"transcript_offset_input_action" = "Süre gir";
 "lyrics_translation_font_size" = "Çeviri boyutu";
 "lyrics_translation_font_follow" = "Orijinalle aynı";
 "lyrics_translation_font_follows_original" = "Çeviri boyutu orijinale uyar";

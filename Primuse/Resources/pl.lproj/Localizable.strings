@@ -5320,12 +5320,14 @@
 "transcript_offset_footer" = "Jeśli tekst pojawia się, zanim go usłyszysz, przesuń go później (+); jeśli się spóźnia — wcześniej (−). „Wszystkie teksty” służy urządzeniom z własnym opóźnieniem, jak CarPlay czy Bluetooth; przesunięcie dla tego odcinka lub książki dodaje się do niego.";
 "transcript_offset_earlier" = "Pokazuj tekst wcześniej";
 "transcript_offset_later" = "Pokazuj tekst później";
-"transcript_offset_earlier_step" = "0,5 s wcześniej";
-"transcript_offset_later_step" = "0,5 s później";
 "transcript_offset_earlier_coarse" = "5 s wcześniej";
 "transcript_offset_later_coarse" = "5 s później";
 "transcript_offset_reset" = "Przywróć 0";
 "transcript_offset_seconds_format" = "%@ s";
+"transcript_offset_panel_hint" = "Jeśli tekst pojawia się przed dźwiękiem, przesuń go później (+); jeśli się spóźnia — wcześniej (−). Stuknij liczbę, aby wpisać wartość.";
+"transcript_offset_input_message" = "Wpisz sekundy: wartość dodatnia przesuwa tekst później, ujemna wcześniej. Przy dużej różnicy użyj formatu minuty:sekundy, np. -2:30.";
+"transcript_offset_input_placeholder" = "Sekundy lub m:ss";
+"transcript_offset_input_action" = "Wpisz czas";
 "lyrics_translation_font_size" = "Rozmiar tłumaczenia";
 "lyrics_translation_font_follow" = "Jak oryginał";
 "lyrics_translation_font_follows_original" = "Rozmiar tłumaczenia jak oryginał";

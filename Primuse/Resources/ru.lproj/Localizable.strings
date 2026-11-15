@@ -5320,12 +5320,14 @@
 "transcript_offset_footer" = "Если текст появляется раньше звука, сдвиньте его позже (+); если отстаёт — раньше (−). «Все тексты» — для устройств с собственной задержкой, например CarPlay или Bluetooth; сдвиг для этого выпуска или книги добавляется сверху.";
 "transcript_offset_earlier" = "Показывать текст раньше";
 "transcript_offset_later" = "Показывать текст позже";
-"transcript_offset_earlier_step" = "На 0,5 с раньше";
-"transcript_offset_later_step" = "На 0,5 с позже";
 "transcript_offset_earlier_coarse" = "На 5 с раньше";
 "transcript_offset_later_coarse" = "На 5 с позже";
 "transcript_offset_reset" = "Сбросить на 0";
 "transcript_offset_seconds_format" = "%@ с";
+"transcript_offset_panel_hint" = "Если текст появляется раньше звука, сдвиньте его позже (+); если отстаёт — раньше (−). Нажмите на число, чтобы ввести значение.";
+"transcript_offset_input_message" = "Введите секунды: положительное значение сдвигает текст позже, отрицательное — раньше. Для большого расхождения используйте минуты:секунды, например -2:30.";
+"transcript_offset_input_placeholder" = "Секунды или м:сс";
+"transcript_offset_input_action" = "Ввести время";
 "lyrics_translation_font_size" = "Размер перевода";
 "lyrics_translation_font_follow" = "Как оригинал";
 "lyrics_translation_font_follows_original" = "Размер перевода как у оригинала";

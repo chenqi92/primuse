@@ -693,6 +693,53 @@ struct SpokenWordTranscriptOffsetPolicyTests {
         #expect(Policy.normalized(.nan) == 0)
     }
 
+    @Test("Typed offsets accept seconds, minutes:seconds and full-width input (#423)")
+    func parsesTypedOffsets() {
+        #expect(Policy.parse("") == 0)
+        #expect(Policy.parse("  ") == 0)
+        #expect(Policy.parse("1.5") == 1.5)
+        #expect(Policy.parse("+3") == 3)
+        #expect(Policy.parse("-12.34") == -12.3)
+        #expect(Policy.parse("90") == 90)
+        #expect(Policy.parse("2:30") == 150)
+        #expect(Policy.parse("-0:01:05") == -65)
+        #expect(Policy.parse("1:02:03") == Policy.limit)
+        #expect(Policy.parse("２：３０") == 150)
+        #expect(Policy.parse("－5秒") == -5)
+        #expect(Policy.parse("3,5") == 3.5)
+        #expect(Policy.parse("4 s") == 4)
+        #expect(Policy.parse("\u{2212}0.4") == -0.4)
+    }
+
+    @Test("Typos are rejected instead of guessed")
+    func rejectsMalformedOffsets() {
+        #expect(Policy.parse("1:75") == nil)
+        #expect(Policy.parse("1:60:00") == nil)
+        #expect(Policy.parse("abc") == nil)
+        #expect(Policy.parse("1e3") == nil)
+        #expect(Policy.parse("-") == nil)
+        #expect(Policy.parse("2:") == nil)
+        #expect(Policy.parse(":30") == nil)
+        #expect(Policy.parse("1.2.3") == nil)
+        #expect(Policy.parse("1:2:3:4") == nil)
+    }
+
+    @Test("A minute or more reads as minutes:seconds; the input field round-trips")
+    func clockAndInputText() {
+        #expect(Policy.clockText(59.9) == nil)
+        #expect(Policy.clockText(60) == "+1:00")
+        #expect(Policy.clockText(-125.5) == "-2:05.5")
+        #expect(Policy.inputText(for: 0) == "")
+        #expect(Policy.inputText(for: 1.5) == "1.5")
+        #expect(Policy.inputText(for: -12) == "-12")
+        #expect(Policy.inputText(for: 125.5) == "2:05.5")
+        #expect(Policy.inputText(for: -60) == "-1:00")
+        for value in [0.1, -0.1, 59.9, -60, 125.5, -1799.9, Policy.limit] {
+            let text = Policy.inputText(for: value)
+            #expect(Policy.parse(text) == value, "\(text)")
+        }
+    }
+
     @Test("Podcast episodes keep their own offset, book chapters share the book's")
     func itemKeys() {
         #expect(Policy.itemKey(songID: "ep1", bookID: "show", isPodcastEpisode: true) == "song:ep1")

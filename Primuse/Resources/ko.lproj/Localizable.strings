@@ -5414,12 +5414,14 @@
 "transcript_offset_footer" = "소리보다 글자가 먼저 나오면 뒤로(+), 늦게 나오면 앞으로(−) 옮기세요. '모든 텍스트'는 CarPlay나 블루투스처럼 자체 지연이 있는 기기용이며, 이 에피소드나 책에 따로 준 값이 그 위에 더해집니다.";
 "transcript_offset_earlier" = "텍스트 앞당기기";
 "transcript_offset_later" = "텍스트 늦추기";
-"transcript_offset_earlier_step" = "0.5초 앞당기기";
-"transcript_offset_later_step" = "0.5초 늦추기";
 "transcript_offset_earlier_coarse" = "5초 앞당기기";
 "transcript_offset_later_coarse" = "5초 늦추기";
 "transcript_offset_reset" = "0으로 재설정";
 "transcript_offset_seconds_format" = "%@초";
+"transcript_offset_panel_hint" = "소리보다 글자가 먼저 나오면 뒤로(+), 늦으면 앞으로(−) 옮기세요. 숫자를 탭하면 직접 입력할 수 있습니다.";
+"transcript_offset_input_message" = "초를 입력하세요. 양수는 텍스트를 늦추고 음수는 앞당깁니다. 차이가 크면 분:초(예: -2:30)로 입력해도 됩니다.";
+"transcript_offset_input_placeholder" = "초 또는 분:초";
+"transcript_offset_input_action" = "시간 입력";
 "lyrics_translation_font_size" = "번역 글자 크기";
 "lyrics_translation_font_follow" = "원문과 같게";
 "lyrics_translation_font_follows_original" = "번역 크기를 원문에 맞춤";

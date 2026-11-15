@@ -5178,12 +5178,14 @@
 "transcript_offset_footer" = "If the text shows up before you hear it, move it later (+); if it lags behind, move it earlier (−). \"All Transcripts\" is for devices with their own delay, such as CarPlay or Bluetooth; a shift for this episode or book is added on top.";
 "transcript_offset_earlier" = "Show Text Earlier";
 "transcript_offset_later" = "Show Text Later";
-"transcript_offset_earlier_step" = "0.5 s Earlier";
-"transcript_offset_later_step" = "0.5 s Later";
 "transcript_offset_earlier_coarse" = "5 s Earlier";
 "transcript_offset_later_coarse" = "5 s Later";
 "transcript_offset_reset" = "Reset to 0";
 "transcript_offset_seconds_format" = "%@ s";
+"transcript_offset_panel_hint" = "If the text shows up before you hear it, move it later (+); if it lags, move it earlier (−). Tap the number to type a value.";
+"transcript_offset_input_message" = "Enter seconds: positive moves the text later, negative earlier. For bigger gaps use minutes:seconds, such as -2:30.";
+"transcript_offset_input_placeholder" = "Seconds or m:ss";
+"transcript_offset_input_action" = "Enter Time";
 "lyrics_translation_font_size" = "Translation Size";
 "lyrics_translation_font_follow" = "Match Original";
 "lyrics_translation_font_follows_original" = "Translation Size Matches Original";

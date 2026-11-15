@@ -113,16 +113,7 @@ struct LyricsTimingRulerPanel: View {
         .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 12)
-        .background {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(appearance.primary.opacity(0.10), lineWidth: 0.5)
-                )
-                .shadow(color: .black.opacity(0.22), radius: 18, y: 6)
-                .environment(\.colorScheme, appearance.colorScheme)
-        }
+        .modifier(NowPlayingFloatingPanelChrome(appearance: appearance))
         .sensoryFeedback(.selection, trigger: tick)
         .onChange(of: tick) { _, newTick in
             SpokenWordTranscriptOffsetStore.shared.setItemDelay(
@@ -289,6 +280,95 @@ struct LyricsTimingRulerPanel: View {
     private static func secondsLabel(_ index: Int) -> String {
         let seconds = index / 10
         return seconds == 0 ? "0" : seconds > 0 ? "+\(seconds)" : "\u{2212}\(-seconds)"
+    }
+}
+
+/// 播放页底部浮着的「歌词时间」「文字稿时间」:有声书、播客挪文字稿,音乐挪这一首的歌词。
+/// 「更多」里两项都打开这一块,按放的是什么换内容。
+struct NowPlayingTimingPanel: View {
+    let song: Song
+    let appearance: NowPlayingAppearance
+    let onClose: () -> Void
+
+    var body: some View {
+        let store = SpokenWordTranscriptOffsetStore.shared
+        if store.itemKey(for: song) != nil {
+            SpokenWordTranscriptTimingPanel(song: song, appearance: appearance, onClose: onClose)
+        } else if let key = store.lyricsItemKey(for: song) {
+            LyricsTimingRulerPanel(itemKey: key, appearance: appearance, onClose: onClose)
+        }
+    }
+}
+
+/// 播放页的「文字稿时间」(#423):和全屏文稿菜单、文稿设置里同一行「− 秒数 +」——一下 0.1 秒、
+/// 按住连着走,点中间的秒数直接输入(插播的动态广告能差好几分钟);下面一行是所有文字稿那一层。
+/// 浮在底部,文字稿留在上面看得见,挪的时候能对着声音看。
+struct SpokenWordTranscriptTimingPanel: View {
+    let song: Song
+    let appearance: NowPlayingAppearance
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            header
+                .padding(.trailing, 8)
+            // 「+」键自己带着点按区的留白,行尾比标题少留一点,和上面的关闭键对齐。
+            VStack(spacing: 0) {
+                SpokenWordTranscriptOffsetRow(scope: .item(song))
+                Divider()
+                    .overlay(appearance.primary.opacity(0.10))
+                SpokenWordTranscriptOffsetRow(scope: .all)
+            }
+            .font(.body)
+        }
+        .foregroundStyle(appearance.primary)
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+        .modifier(NowPlayingFloatingPanelChrome(appearance: appearance))
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("transcript_offset_title")
+                    .font(.headline)
+                Text("transcript_offset_panel_hint")
+                    .font(.caption)
+                    .foregroundStyle(appearance.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(appearance.primary)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(appearance.primary.opacity(0.12)))
+                    .contentShape(Circle().inset(by: -6))
+            }
+            .buttonStyle(.pmPressable)
+            .accessibilityLabel(Text("close"))
+        }
+    }
+}
+
+/// 播放页底部浮着的小面板的底:毛玻璃圆角卡片,深浅跟播放页。
+private struct NowPlayingFloatingPanelChrome: ViewModifier {
+    let appearance: NowPlayingAppearance
+
+    func body(content: Content) -> some View {
+        content.background {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(appearance.primary.opacity(0.10), lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.22), radius: 18, y: 6)
+                .environment(\.colorScheme, appearance.colorScheme)
+        }
     }
 }
 #endif

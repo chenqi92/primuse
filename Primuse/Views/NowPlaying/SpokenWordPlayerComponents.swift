@@ -3401,6 +3401,8 @@ struct SpokenWordTranscriptTypographyPanel: View {
 
 /// 文稿时间偏移的一行:− 秒数 +(#320)。正数是文稿往后挪,晚一点出来。
 /// 「这一集 / 这本书」改的是当前这一项自己的那层,「所有文稿」改全局那层。
+/// 「−」「+」一下 0.1 秒(这一集 / 这本书那层按住连着走);插播广告能差好几分钟,点中间的秒数
+/// 直接输入(#423)。
 struct SpokenWordTranscriptOffsetRow: View {
     enum Scope {
         case item(Song)
@@ -3409,6 +3411,15 @@ struct SpokenWordTranscriptOffsetRow: View {
 
     let scope: Scope
     var compact = false
+
+    @State private var inputText = ""
+    #if os(macOS)
+    /// Mac 上点秒数就地换成输入框;菜单是自绘的浮层,不从里面再弹提示框。
+    @State private var isEditingInline = false
+    @FocusState private var inputFocused: Bool
+    #else
+    @State private var showsInput = false
+    #endif
 
     private var store: SpokenWordTranscriptOffsetStore { .shared }
 
@@ -3445,16 +3456,7 @@ struct SpokenWordTranscriptOffsetRow: View {
             stepButton("minus", label: "transcript_offset_earlier", disabled: delay <= -limit) {
                 set(delay - SpokenWordTranscriptOffsetPolicy.step)
             }
-            Text(verbatim: Self.valueText(delay))
-                .monospacedDigit()
-                .foregroundStyle(delay == 0 ? .secondary : .primary)
-                .contentTransition(.numericText(value: delay))
-                .animation(.snappy(duration: 0.2), value: delay)
-                .frame(minWidth: 64)
-                .contextMenu {
-                    Button("transcript_offset_reset") { set(0) }
-                        .disabled(delay == 0)
-                }
+            valueControl
             stepButton("plus", label: "transcript_offset_later", disabled: delay >= limit) {
                 set(delay + SpokenWordTranscriptOffsetPolicy.step)
             }
@@ -3462,6 +3464,15 @@ struct SpokenWordTranscriptOffsetRow: View {
         .disabled(isUnavailable)
         #if os(iOS)
         .sensoryFeedback(.selection, trigger: delay)
+        .alert("transcript_offset_title", isPresented: $showsInput) {
+            TextField("transcript_offset_input_placeholder", text: $inputText)
+                .keyboardType(.numbersAndPunctuation)
+            Button("cancel", role: .cancel) {}
+            Button("ok") { _ = applyInput() }
+                .disabled(SpokenWordTranscriptOffsetPolicy.parse(inputText) == nil)
+        } message: {
+            Text("transcript_offset_input_message")
+        }
         #endif
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(titleKey))
@@ -3473,10 +3484,84 @@ struct SpokenWordTranscriptOffsetRow: View {
             @unknown default: break
             }
         }
+        .accessibilityAction(named: Text("transcript_offset_input_action")) { beginInput() }
+    }
+
+    @ViewBuilder
+    private var valueControl: some View {
+        #if os(macOS)
+        if isEditingInline {
+            inlineInputField
+        } else {
+            valueButton
+        }
+        #else
+        valueButton
+        #endif
+    }
+
+    private var valueButton: some View {
+        Button(action: beginInput) {
+            Text(verbatim: Self.valueText(delay))
+                .monospacedDigit()
+                .foregroundStyle(delay == 0 ? .secondary : .primary)
+                .contentTransition(.numericText(value: delay))
+                .animation(.snappy(duration: 0.2), value: delay)
+                .frame(minWidth: 64, minHeight: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("transcript_offset_reset") { set(0) }
+                .disabled(delay == 0)
+        }
+    }
+
+    #if os(macOS)
+    private var inlineInputField: some View {
+        TextField("transcript_offset_input_placeholder", text: $inputText)
+            .textFieldStyle(.roundedBorder)
+            .multilineTextAlignment(.center)
+            .monospacedDigit()
+            .frame(width: 96)
+            .focused($inputFocused)
+            .onSubmit {
+                // 认不出来就留着输入框接着改,不悄悄当成改好了。
+                if applyInput() { isEditingInline = false }
+            }
+            .onExitCommand { isEditingInline = false }
+            .onChange(of: inputFocused) { _, focused in
+                if !focused { isEditingInline = false }
+            }
+            .onAppear {
+                DispatchQueue.main.async { inputFocused = true }
+            }
+    }
+    #endif
+
+    private func beginInput() {
+        inputText = SpokenWordTranscriptOffsetPolicy.inputText(for: delay)
+        #if os(macOS)
+        isEditingInline = true
+        #else
+        showsInput = true
+        #endif
+    }
+
+    /// 认得出来就存下、返回 true。
+    private func applyInput() -> Bool {
+        guard let value = SpokenWordTranscriptOffsetPolicy.parse(inputText) else { return false }
+        set(value)
+        return true
     }
 
     private var isUnavailable: Bool {
         if case .item = scope { return itemKey == nil }
+        return false
+    }
+
+    private var repeatsOnHold: Bool {
+        if case .item = scope { return true }
         return false
     }
 
@@ -3503,13 +3588,17 @@ struct SpokenWordTranscriptOffsetRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // 按住连着走只给这一集 / 这本书那层:它停手才存盘、才叫锁屏这些地方重取;所有文字稿那层
+        // 每改一下都马上存、马上通知,一下一下点就够了(那层多半只差零点几秒)。
+        .buttonRepeatBehavior(repeatsOnHold ? .enabled : .disabled)
         .disabled(disabled)
         .opacity(disabled ? 0.3 : 1)
         .accessibilityLabel(Text(label))
     }
 
-    /// 「+1.5 秒」「−0.5 秒」「0 秒」。
+    /// 「+1.5 秒」「−0.5 秒」「0 秒」;一分钟以上写分:秒,「+2:05.5」。
     static func valueText(_ delay: TimeInterval) -> String {
+        if let clock = SpokenWordTranscriptOffsetPolicy.clockText(delay) { return clock }
         let number = delay.formatted(
             .number
                 .precision(.fractionLength(0...1))

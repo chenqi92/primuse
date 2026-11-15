@@ -916,10 +916,10 @@ public enum SpokenWordTranscriptEdgeTapPolicy {
 /// 自己的一层,两层相加。偏移改的是显示用的文稿时间轴,不改缓存里的原文:点一行跳过去,跳到的是
 /// 平移后的时间,也就是这句话在音频里真正出现的地方。
 public enum SpokenWordTranscriptOffsetPolicy {
-    /// 微调一下的步长。
-    public static let step: TimeInterval = 0.5
-    /// 插播广告可能有一两分钟;再大多半是误操作。
-    public static let limit: TimeInterval = 600
+    /// 「−」「+」点一下挪多少(#423 起和存的精度一样细);差得多的直接输入秒数。
+    public static let step: TimeInterval = 0.1
+    /// 插播的动态广告加起来能差好几分钟(#423);半小时以外多半是文字稿配错了这一集。
+    public static let limit: TimeInterval = 1800
 
     /// 存起来之前统一取到 0.1 秒、夹在范围内。
     public static func normalized(_ delay: TimeInterval) -> TimeInterval {
@@ -927,6 +927,95 @@ public enum SpokenWordTranscriptOffsetPolicy {
         let clamped = min(max(delay, -limit), limit)
         let rounded = (clamped * 10).rounded() / 10
         return rounded == 0 ? 0 : rounded
+    }
+
+    /// 一分钟以上写成「+2:05.5」「-1:00」这样的分:秒(带正负号),不到一分钟返回 nil、照旧写秒数。
+    public static func clockText(_ delay: TimeInterval) -> String? {
+        let value = normalized(delay)
+        guard abs(value) >= 60 else { return nil }
+        return (value < 0 ? "-" : "+") + unsignedClock(tenths: Int((abs(value) * 10).rounded()))
+    }
+
+    /// 输入框里预先填的:不挪时空着;不到一分钟写秒数(「1.5」「-12」),再大写分:秒(「2:05.5」)。
+    /// 正数不写「+」。
+    public static func inputText(for delay: TimeInterval) -> String {
+        let value = normalized(delay)
+        guard value != 0 else { return "" }
+        let tenths = Int((abs(value) * 10).rounded())
+        let magnitude = tenths >= 600
+            ? unsignedClock(tenths: tenths)
+            : (tenths % 10 == 0 ? "\(tenths / 10)" : "\(tenths / 10).\(tenths % 10)")
+        return value < 0 ? "-" + magnitude : magnitude
+    }
+
+    /// 用户输入的偏移(#423):秒数(「-12.5」「+3」「90」),或分:秒、时:分:秒(「2:30」「-1:02:03」);
+    /// 全角数字和符号、逗号小数点、末尾的「秒」「s」都认。空着是 0(不挪)。认不出来返回 nil。
+    /// 结果按 `normalized` 取到 0.1 秒、夹在范围内。
+    public static func parse(_ text: String) -> TimeInterval? {
+        var characters = text.map(halfWidth).filter { !$0.isWhitespace }
+        if let last = characters.last, last == "秒" || last == "s" || last == "S" {
+            characters.removeLast()
+        }
+        var sign: TimeInterval = 1
+        if let first = characters.first, first == "+" || first == "-" {
+            sign = first == "-" ? -1 : 1
+            characters.removeFirst()
+        }
+        guard !characters.isEmpty else { return text.allSatisfy(\.isWhitespace) ? 0 : nil }
+        let parts = String(characters).split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count <= 3, let last = parts.last, let seconds = decimal(last) else { return nil }
+        let leading = parts.dropLast()
+        // 冒号后面那一段不能满 60:「1:75」多半是打错了。
+        if !leading.isEmpty, seconds >= 60 { return nil }
+        var total = seconds
+        var multiplier: TimeInterval = 60
+        for (index, part) in leading.reversed().enumerated() {
+            guard !part.isEmpty, part.allSatisfy(isDigit), let value = Double(part) else { return nil }
+            // 时:分:秒里中间的分也不能满 60。
+            if index == 0, leading.count == 2, value >= 60 { return nil }
+            total += value * multiplier
+            multiplier *= 60
+        }
+        guard total.isFinite else { return nil }
+        return normalized(sign * total)
+    }
+
+    /// 「125」十分之一秒 → 「0:12.5」;整秒不写小数。
+    private static func unsignedClock(tenths: Int) -> String {
+        let minutes = tenths / 600
+        let secondTenths = tenths % 600
+        let seconds = secondTenths / 10
+        let fraction = secondTenths % 10
+        let base = "\(minutes):" + (seconds < 10 ? "0" : "") + "\(seconds)"
+        return fraction == 0 ? base : "\(base).\(fraction)"
+    }
+
+    /// 只认数字和一个小数点,不认「1e3」「inf」这类 `Double` 自己认得的写法。
+    private static func decimal(_ text: String) -> TimeInterval? {
+        guard text.contains(where: isDigit),
+              text.allSatisfy({ isDigit($0) || $0 == "." }),
+              text.filter({ $0 == "." }).count <= 1 else { return nil }
+        let normalizedText = text.hasPrefix(".") ? "0" + text : text.hasSuffix(".") ? text + "0" : text
+        return Double(normalizedText)
+    }
+
+    private static let digits: ClosedRange<Character> = "0"..."9"
+
+    private static func isDigit(_ character: Character) -> Bool {
+        digits.contains(character)
+    }
+
+    /// 全角数字与符号换成半角,逗号小数点换成点。
+    private static func halfWidth(_ character: Character) -> Character {
+        switch character {
+        case "０"..."９":
+            return Character(String(character.wholeNumberValue ?? 0))
+        case "：": return ":"
+        case "．", "，", ",", "。": return "."
+        case "＋": return "+"
+        case "－", "−", "–", "—": return "-"
+        default: return character
+        }
     }
 
     /// 两层相加后的偏移。

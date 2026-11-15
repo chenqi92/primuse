@@ -5415,12 +5415,14 @@
 "transcript_offset_footer" = "音声より先に文字が出るときは後ろへ（+）、遅れるときは前へ（−）ずらします。「すべてのテキスト」は CarPlay や Bluetooth など遅延のある機器向けで、このエピソードやこの本だけのずれはそこに加算されます。";
 "transcript_offset_earlier" = "文字を早める";
 "transcript_offset_later" = "文字を遅らせる";
-"transcript_offset_earlier_step" = "0.5 秒早める";
-"transcript_offset_later_step" = "0.5 秒遅らせる";
 "transcript_offset_earlier_coarse" = "5 秒早める";
 "transcript_offset_later_coarse" = "5 秒遅らせる";
 "transcript_offset_reset" = "0 に戻す";
 "transcript_offset_seconds_format" = "%@ 秒";
+"transcript_offset_panel_hint" = "音声より文字が早ければ後ろへ（+）、遅ければ前へ（−）。数字をタップすると直接入力できます。";
+"transcript_offset_input_message" = "秒数を入力します。正の値で文字が遅れ、負の値で早まります。大きくずれているときは 分:秒（例：-2:30）でも入力できます。";
+"transcript_offset_input_placeholder" = "秒数 または 分:秒";
+"transcript_offset_input_action" = "時間を入力";
 "lyrics_translation_font_size" = "訳文の文字サイズ";
 "lyrics_translation_font_follow" = "原文に合わせる";
 "lyrics_translation_font_follows_original" = "訳文を原文と同じ比率にする";

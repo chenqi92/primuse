@@ -5320,12 +5320,14 @@
 "transcript_offset_footer" = "ถ้าข้อความขึ้นก่อนเสียง ให้เลื่อนไปทีหลัง (+) ถ้าช้ากว่าเสียง ให้เลื่อนมาก่อน (−) \"ข้อความทั้งหมด\" ใช้กับอุปกรณ์ที่หน่วงเอง เช่น CarPlay หรือบลูทูธ ส่วนที่ตั้งเฉพาะตอนนี้หรือหนังสือเล่มนี้จะบวกเพิ่มเข้าไป";
 "transcript_offset_earlier" = "แสดงข้อความเร็วขึ้น";
 "transcript_offset_later" = "แสดงข้อความช้าลง";
-"transcript_offset_earlier_step" = "เร็วขึ้น 0.5 วิ";
-"transcript_offset_later_step" = "ช้าลง 0.5 วิ";
 "transcript_offset_earlier_coarse" = "เร็วขึ้น 5 วิ";
 "transcript_offset_later_coarse" = "ช้าลง 5 วิ";
 "transcript_offset_reset" = "รีเซ็ตเป็น 0";
 "transcript_offset_seconds_format" = "%@ วิ";
+"transcript_offset_panel_hint" = "ถ้าข้อความขึ้นก่อนเสียง ให้เลื่อนไปทีหลัง (+) ถ้าช้ากว่าเสียง ให้เลื่อนมาก่อน (−) แตะตัวเลขเพื่อพิมพ์ค่าเอง";
+"transcript_offset_input_message" = "พิมพ์จำนวนวินาที ค่าบวกเลื่อนข้อความไปทีหลัง ค่าลบเลื่อนมาก่อน ถ้าห่างกันมากพิมพ์เป็น นาที:วินาที ได้ เช่น -2:30";
+"transcript_offset_input_placeholder" = "วินาที หรือ นาที:วินาที";
+"transcript_offset_input_action" = "พิมพ์เวลา";
 "lyrics_translation_font_size" = "ขนาดคำแปล";
 "lyrics_translation_font_follow" = "ตามต้นฉบับ";
 "lyrics_translation_font_follows_original" = "ขนาดคำแปลตามต้นฉบับ";
