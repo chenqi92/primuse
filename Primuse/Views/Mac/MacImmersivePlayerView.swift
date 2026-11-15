@@ -529,7 +529,7 @@ struct MacImmersivePlayerView: View {
             frameRate: renderBudget.frameRate,
             motionIntensity: renderBudget.intensity,
             lyricInterlude: lyricInterlude,
-            lyricsPlaceholder: String(localized: "no_lyrics"),
+            // 没有歌词时舞台上不写「暂无歌词」,只留画面(#423)。
             controlsInset: controlsInset(metrics),
             isResting: isStageFrozen,
             isLowPower: isStageFrozen,

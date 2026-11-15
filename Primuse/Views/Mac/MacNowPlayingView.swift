@@ -1213,7 +1213,8 @@ struct MacNowPlayingView: View {
                     Spacer(minLength: isWindowFullScreen ? 120 : 80)
                         .frame(height: isWindowFullScreen ? 120 : 80)
                     if lyrics.isEmpty {
-                        if player.currentSong == nil || isLoadingLyrics {
+                        // 全屏时没有歌词也不写「暂无歌词」、不摆刮削与听写(#423),这两件在「更多」里照旧有。
+                        if player.currentSong == nil || isLoadingLyrics || isWindowFullScreen {
                             Color.clear.frame(height: 1)
                                 .padding(.top, lyricsRowSpacing)
                         } else {

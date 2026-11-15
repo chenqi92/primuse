@@ -518,9 +518,8 @@ struct ImmersivePlayerView: View {
             frameRate: renderBudget.frameRate,
             motionIntensity: renderBudget.intensity,
             lyricInterlude: lyricInterlude,
-            lyricsPlaceholder: isResolvingLyrics
-                ? String(localized: "lyrics_loading")
-                : String(localized: "no_lyrics"),
+            // 没有歌词时舞台上不写「暂无歌词」,只留画面(#423)。
+            lyricsPlaceholder: isResolvingLyrics ? String(localized: "lyrics_loading") : "",
             controlsInset: controlsInset(metrics),
             isResting: isAmbientRest,
             isLowPower: isLowPower,

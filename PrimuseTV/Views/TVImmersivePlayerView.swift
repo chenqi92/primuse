@@ -709,7 +709,7 @@ struct TVImmersivePlayerView: View {
             frameRate: renderBudget.frameRate,
             motionIntensity: renderBudget.intensity,
             lyricInterlude: lyricInterlude,
-            lyricsPlaceholder: PMString("ext.tv.nowPlaying.noLyrics"),
+            // 没有歌词时舞台上不写「暂无歌词」,只留画面(#423)。
             visualizerDisclosure: PMString("ext.tv.immersive.timelineDisclosure"),
             controlsInset: metrics.s(150),
             // 卡拉OK 叠在上面时舞台只当背景:自己的歌词、歌名收起(省电档那套),装饰动画与频谱停下定格。

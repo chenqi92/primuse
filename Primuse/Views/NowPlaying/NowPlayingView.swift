@@ -9552,7 +9552,8 @@ struct NowPlayingView: View {
             isSpokenWordTranscript: usesSpokenWordTransport,
             // 全屏键 34 宽、右边距 12,标签再空 8。
             translationStatusTrailingInset: showsReaderButton && usesSpokenWordTransport && !lyrics.isEmpty
-                ? 12 + 34 + 8 : 12
+                ? 12 + 34 + 8 : 12,
+            hidesMissingLyricsNotice: isLyricsImmersive && !usesSpokenWordTransport
         )
         .overlay(alignment: .topTrailing) {
             if showsReaderButton {
@@ -16294,6 +16295,9 @@ struct LyricsScrollView: View {
     var isSpokenWordTranscript = false
     /// 右上角翻译状态标签离右边多远:文字稿右上角有全屏键时让开它,点得到「翻译这份文字稿」。
     var translationStatusTrailingInset: CGFloat = 12
+    /// 全屏里放的:确定没有歌词时不写「暂无歌词」、不摆刮削与听写两颗键,整片留给背景(#423)。
+    /// 这两件事在「更多」里和不全屏的歌词页上照旧有。
+    var hidesMissingLyricsNotice = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -16635,7 +16639,18 @@ struct LyricsScrollView: View {
         commentPresentation = presentation
     }
 
+    @ViewBuilder
     private var emptyLyricsView: some View {
+        if hidesMissingLyricsNotice, !isResolvingLyrics {
+            // 点空白照旧由外层的点按叫出 / 收起全屏控件。
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            emptyLyricsNotice
+        }
+    }
+
+    private var emptyLyricsNotice: some View {
         VStack(spacing: 12) {
             Spacer().frame(height: 60)
             Text(isResolvingLyrics ? LocalizedStringKey("lyrics_loading") : LocalizedStringKey("no_lyrics"))
