@@ -151,10 +151,11 @@ public enum RepeatBehavior: String, CaseIterable, Sendable, Identifiable {
         includingEachTrackStops ? allCases : [.off, .all, .one]
     }
 
-    /// 按钮上的图标。关着时和列表循环同一个,只是不亮。
+    /// 按钮上的图标，各种播放行为直接通过形状区分。
     public var symbolName: String {
         switch self {
-        case .off, .all: "repeat"
+        case .off: "arrow.right"
+        case .all: "repeat"
         case .one: "repeat.1"
         case .playOnce: "arrow.right.to.line"
         case .trackByTrack: "forward.frame"

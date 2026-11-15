@@ -10626,7 +10626,7 @@ struct NowPlayingView: View {
                 Text("shuffle_preference_apple_music_note")
             }
         } label: {
-            controlLabel(face, style: style)
+            controlLabel(face, style: style, showsSelectionBackground: false)
                 .pmPlaybackModeSymbolEffect(shuffleEnabled: player.shuffleEnabled, repeatMode: 0)
         } primaryAction: {
             performControl(.shuffle, style: style)
@@ -10644,7 +10644,7 @@ struct NowPlayingView: View {
             repeatBehaviorPicker
             abRepeatMenuSection
         } label: {
-            controlLabel(face, style: style)
+            controlLabel(face, style: style, showsSelectionBackground: false)
                 .pmPlaybackModeSymbolEffect(shuffleEnabled: false, repeatMode: player.repeatBehavior)
         } primaryAction: {
             performControl(.repeatMode, style: style)
@@ -10878,8 +10878,13 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
-    private func controlLabel(_ face: NowPlayingControlFace, style: NowPlayingControlStyle) -> some View {
+    private func controlLabel(
+        _ face: NowPlayingControlFace,
+        style: NowPlayingControlStyle,
+        showsSelectionBackground: Bool = true
+    ) -> some View {
         let activeTint = face.activeTint ?? themedControlAccent
+        let isSelected = face.isActive && showsSelectionBackground
         switch style {
         // 这几种的按钮在外面套了 44×44,但那一圈空白不接点按,点到的只有图标本身那一小块;
         // 整格的点按区要在标签里铺出来。
@@ -10895,14 +10900,14 @@ struct NowPlayingView: View {
             Image(systemName: face.symbol).font(.body)
                 .foregroundStyle(face.isActive ? activeTint : appearance.tertiary)
                 .contentTransition(.symbolEffect(.replace))
-                .playbackToggleHighlight(isActive: face.isActive, tint: activeTint, diameter: 32)
+                .playbackToggleHighlight(isActive: isSelected, tint: activeTint, diameter: 32)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         case .header:
             nowPlayingActionIcon(
                 symbol: face.symbol,
                 tint: face.isActive ? activeTint : appearance.secondary,
-                isSelected: face.isActive
+                isSelected: isSelected
             )
         case .glass:
             NowPlayingGlassActionLabel(
@@ -10910,7 +10915,7 @@ struct NowPlayingView: View {
                 appearance: appearance,
                 tint: face.isActive ? (face.activeTint ?? appearance.primary) : appearance.primary,
                 diameter: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter),
-                isSelected: face.isActive
+                isSelected: isSelected
             )
         case .column(let itemSize):
             NowPlayingBarColumnIcon(
@@ -10918,14 +10923,14 @@ struct NowPlayingView: View {
                 appearance: appearance,
                 size: itemSize,
                 tint: activeTint,
-                isSelected: face.isActive
+                isSelected: isSelected
             )
         case .effectGlass(let ink):
             ImmersiveGlassActionLabel(
                 symbol: face.symbol,
                 tint: face.isActive ? (face.activeTint ?? ink) : ink,
                 diameter: 44,
-                isSelected: face.isActive
+                isSelected: isSelected
             )
         case .effectPill(let ink):
             Image(systemName: face.symbol)
@@ -12575,7 +12580,7 @@ struct ProgressSlider: View {
 
             Capsule()
                 .fill(fillColor)
-                .frame(width: trackHeight, height: isActive ? (reduceMotion ? 16 : 20) : 14)
+                .frame(width: trackHeight, height: ProgressWaveShape.amplitude * 2 + trackHeight)
                 .offset(x: filledWidth - trackHeight / 2)
                 .animation(fillAnimation, value: progress)
                 .modifier(progressGlow)
