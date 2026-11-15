@@ -9,6 +9,36 @@ struct OfflineSettingsBackupView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var action: OfflineSettingsBackupAction?
     var body: some View {
+        #if os(macOS)
+        // Mac 弹框: 标题行 + 两颗同一种按钮 + 底栏「完成」(不是一张空表单配系统蓝的「完成」)。
+        VStack(alignment: .leading, spacing: 0) {
+            MacSheetHeader(Text("settings_backup_title"), systemImage: "externaldrive.badge.timemachine")
+            HStack(spacing: 10) {
+                Button { action = .export } label: {
+                    Label("settings_backup_export", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.macSheet)
+                .accessibilityIdentifier("settings.backup.export")
+                Button { action = .import } label: {
+                    Label("settings_backup_import", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.macSheet)
+                .accessibilityIdentifier("settings.backup.import")
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, MacSheetMetrics.horizontalPadding)
+            .padding(.vertical, 22)
+            .frame(maxHeight: .infinity, alignment: .top)
+            MacSheetFooter {
+                Button("done") { dismiss() }
+                    .buttonStyle(.macSheetPrimary)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .background(PMColor.bg)
+        .frame(width: 460, height: 220)
+        .offlineSettingsBackup(action: $action)
+        #else
         NavigationStack {
             Form {
                 Button("settings_backup_export", systemImage: "square.and.arrow.up") { action = .export }
@@ -20,10 +50,8 @@ struct OfflineSettingsBackupView: View {
             .navigationTitle("settings_backup_title")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("done") { dismiss() } } }
         }
-        #if os(macOS)
-        .frame(minWidth: 440, minHeight: 280)
-        #endif
         .offlineSettingsBackup(action: $action)
+        #endif
     }
 }
 

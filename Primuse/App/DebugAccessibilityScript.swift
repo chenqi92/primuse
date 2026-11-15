@@ -36,6 +36,7 @@ import PrimuseKit
 /// - `tool:<MacTool 原始值>`：打开这个工具弹框（cacheSync、deviceTransfer…），和菜单栏「工具」走同一条通知。
 /// - `press:<辅助功能标识>`：在所有窗口的辅助功能树里找标识是这个的元素，执行「按下」——
 ///   打开页头按钮挂的弹框、弹出层用。
+/// - `present:<页面>`：弹出 `PRIMUSE_DEBUG_PRESENT` 认得的那个页面（先收起正在弹的）；`present:` 不带页面就是收起。
 /// - `windows:<png 路径前缀>`：把主窗口以外看得见的窗口（弹框、弹出层）各画一张 PNG，
 ///   文件名后缀是序号和窗口类名 —— `snapshot:` 只拍主窗口，弹框是单独的窗口。
 /// - `quit`：退出 App。
@@ -99,6 +100,9 @@ enum DebugAccessibilityScript {
             plog("🧪 AX script: tool -> \(argument)")
         case "press":
             await press(identifier: argument)
+        case "present":
+            NotificationCenter.default.post(name: .primuseDebugPresentPage, object: argument)
+            plog("🧪 AX script: present -> \(argument)")
         case "windows":
             snapshotAuxiliaryWindows(prefix: argument)
         case "quit":

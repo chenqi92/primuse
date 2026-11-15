@@ -3103,6 +3103,10 @@ private enum DebugMotionScript {
 ///   （播客页配合 `PRIMUSE_DEBUG_PODCAST_SEED=<feed 地址>` 先订阅，见 `PodcastDebugScreen`）
 ///   （plexSignIn 是添加 Plex 源的表单，配合 `PRIMUSE_DEBUG_PLEX=servers` 直接显示演示服务器清单）
 ///   （karaoke 等有歌在播后再弹；配合 `PRIMUSE_KARAOKE_MODEL` 可在不下载资源包的情况下走 AI 分离）。
+///   另有只为核对面板外观的:albumMetadata|albumMetadataSingle|addFeed|radioSubscriptions|radioSubscriptionAdd|
+///   artistMerge|artistMergeSuggestions|pendingMatch|lyricAlignment|motionCover(Mac)|typography|chapterGeneration|
+///   insightBatch|insightEditor|karaokeResult|lyricsSources|pendingWriteback|disliked|settingsBackup|
+///   offlineDownloads(Mac)|diagnostics(Mac)。Mac 上也能用调试脚本的 `present:<页面>` 在一次启动里挨个弹。
 /// - `PRIMUSE_DEBUG_BATCH_APPLY=<专辑名>`：把全部音乐的专辑名批量改成该值并写回，再撤销（结果写日志）。
 /// - `PRIMUSE_DEBUG_TIDY_APPLY=1`：把规则整理出的所有建议写回（结果写日志）。
 private struct DebugListeningFeatureAutomation: ViewModifier {
@@ -3122,6 +3126,17 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
         content
             .sheet(item: $presented) { item in
                 sheet(for: item)
+            }
+            // Mac 调试脚本的 `present:<页面>` 一次启动依次弹出好几个面板;页面名为空时收起。
+            .onReceive(NotificationCenter.default.publisher(for: .primuseDebugPresentPage)) { note in
+                let page = (note.object as? String) ?? ""
+                guard !page.isEmpty else {
+                    presented = nil
+                    return
+                }
+                let songs = services.musicLibrary.musicSongs
+                plog("🧪 Debug: present \(page) songs=\(songs.count)")
+                presented = Presented(page: page, songs: songs, proposals: Self.debugProposals(for: page, songs: songs))
             }
             .task {
                 guard let raw = env["PRIMUSE_DEBUG_MEDLEY"], let count = Int(raw) else { return }
@@ -3270,21 +3285,7 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
                     let songs = services.musicLibrary.musicSongs
                     guard needsPlayback || page == "spokenWord" || page == "plexSignIn"
                         || page.hasPrefix("podcast") || songs.count >= 2 else { continue }
-                    var proposals: [TagCleanupProposal] = []
-                    switch page {
-                    case "tidyReview":
-                        proposals = TagCleanupPolicy.proposals(
-                            for: songs.map(BatchTagEditService.cleanupSong),
-                            currentYear: Calendar.current.component(.year, from: Date())
-                        )
-                    case "batchReview":
-                        proposals = songs.map {
-                            TagCleanupProposal(songID: $0.id, field: .album, oldValue: $0.albumTitle,
-                                               newValue: "Debug Album", reason: .assistant)
-                        }
-                    default:
-                        break
-                    }
+                    let proposals = Self.debugProposals(for: page, songs: songs)
                     plog("🧪 Debug: present \(page) songs=\(songs.count) proposals=\(proposals.count)")
                     presented = Presented(page: page, songs: songs, proposals: proposals)
                     return
@@ -3418,9 +3419,160 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
                     showsReasons: item.page == "tidyReview"
                 )) { presented = nil }
             }
+            #if os(macOS)
+            // 平时是推进批量编辑 / 整理弹框里的一页, 跟着那张弹框的大小; 单独弹出时给同样的大小。
+            .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 640)
+            #endif
+        default:
+            debugPanel(for: item)
+        }
+    }
+
+    /// 只为核对面板外观弹出的页面(Mac 弹框走查用),不依赖正在播放。
+    @ViewBuilder
+    private func debugPanel(for item: Presented) -> some View {
+        let first = item.songs.first
+        switch item.page {
+        case "albumMetadata":
+            AlbumMetadataView(songs: item.songs)
+        case "albumMetadataSingle":
+            AlbumMetadataView(songs: item.songs.filter { $0.albumTitle == first?.albumTitle })
+        case "addFeed":
+            NavigationStack { PodcastAddFeedView() }
+            #if os(macOS)
+                .frame(minWidth: 480, idealWidth: 520, minHeight: 360, idealHeight: 420)
+            #endif
+        case "radioSubscriptions":
+            RadioSubscriptionsView()
+        case "radioSubscriptionAdd":
+            RadioSubscriptionsView(startsAdding: true)
+        case "artistMerge":
+            ArtistMergeView()
+        case "artistMergeSuggestions":
+            ArtistMergeSuggestionsSheet { presented = nil }
+        case "pendingMatch":
+            PlaylistPendingMatchSheet(
+                entry: PlaylistPendingEntry(title: first?.title ?? "Song", artists: [first?.artistName ?? "Artist"]),
+                playlistID: "debug"
+            )
+        case "lyricAlignment":
+            LyricAlignmentSheet(run: { _ in throw CancellationError() }, apply: { _ in })
+        #if os(macOS)
+        case "motionCover":
+            if let first {
+                MotionCoverMacSheet(owner: .song(first.id), albumID: first.albumID)
+            }
+        #endif
+        case "typography":
+            SpokenWordTranscriptTypographyPanel(
+                fontRawValue: .constant(PlayerTextFont.system.rawValue),
+                fontWeightRawValue: .constant(SpokenWordTranscriptWeight.regular.rawValue),
+                fontSize: .constant(20),
+                lineSpacingRawValue: .constant(""),
+                paragraphSpacingRawValue: .constant(""),
+                themeRawValue: .constant(""),
+                appearanceRawValue: .constant(SpokenWordTranscriptAppearance.allCases.first?.rawValue ?? ""),
+                highlightRawValue: .constant(SpokenWordTranscriptHighlight.allCases.first?.rawValue ?? ""),
+                customTextHex: .constant(""),
+                customBackgroundHex: .constant(""),
+                customDarkTextHex: .constant(""),
+                customDarkBackgroundHex: .constant(""),
+                revealsChromeOnScroll: .constant(true),
+                paragraphModeRawValue: .constant(""),
+                colorScheme: .light,
+                translationFontSize: .constant(0),
+                justifiesText: .constant(false),
+                pageMargin: .constant(24),
+                showsScrollIndicator: .constant(true)
+            )
+            #if os(macOS)
+            .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 680)
+            #endif
+        case "chapterGeneration":
+            if let first {
+                SpokenChapterGenerationSheet(song: first, library: services.musicLibrary, loadTranscript: { _ in [] })
+            }
+        case "insightBatch":
+            LibraryInsightBatchSheet(
+                plan: LibraryInsightBatchPlan(kind: .artist, items: item.songs.prefix(6).map {
+                    LibraryInsightBatchItem(
+                        subject: .artist(name: $0.artistName ?? "Artist", genres: [], albums: [], tracks: []),
+                        albumID: nil,
+                        artistID: nil
+                    )
+                }),
+                openSetting: { _ in }
+            )
+        case "insightEditor":
+            let subject = LibraryInsightSubject.artist(name: first?.artistName ?? "Artist", genres: [], albums: [], tracks: [])
+            LibraryInsightEditorSheet(subject: subject, details: { subject }, record: nil, onSaved: {})
+        case "karaokeResult":
+            KaraokeResultView(performance: Self.debugPerformance(for: first), session: KaraokeSession(player: services.playerService))
+        case "lyricsSources":
+            if let first {
+                LyricsSourcesView(song: first, editorHasUnsavedChanges: false, onActiveDocumentChanged: { _ in })
+            }
+        case "pendingWriteback":
+            #if os(macOS)
+            PendingTagWritebackView(showsDoneButton: true)
+            #else
+            NavigationStack { PendingTagWritebackView(showsDoneButton: true) }
+            #endif
+        case "disliked":
+            #if os(macOS)
+            DislikedSongsView(showsDoneButton: true)
+            #else
+            NavigationStack { DislikedSongsView(showsDoneButton: true) }
+            #endif
+        case "settingsBackup":
+            OfflineSettingsBackupView()
+        #if os(macOS)
+        case "offlineDownloads":
+            OfflineDownloadsView(showsDoneButton: true)
+                .frame(minWidth: 560, idealWidth: 600, minHeight: 520, idealHeight: 600)
+        case "diagnostics":
+            DiagnosticReportsView(service: services.crashDiagnostics, showsDoneButton: true)
+        #endif
         default:
             Text(verbatim: item.page)
         }
+    }
+
+    private static func debugProposals(for page: String, songs: [Song]) -> [TagCleanupProposal] {
+        switch page {
+        case "tidyReview":
+            TagCleanupPolicy.proposals(
+                for: songs.map(BatchTagEditService.cleanupSong),
+                currentYear: Calendar.current.component(.year, from: Date())
+            )
+        case "batchReview":
+            songs.map {
+                TagCleanupProposal(songID: $0.id, field: .album, oldValue: $0.albumTitle,
+                                   newValue: "Debug Album", reason: .assistant)
+            }
+        default:
+            []
+        }
+    }
+
+    /// 演一遍两句歌词的打分, 给结果页一个真实的分数。
+    private static func debugPerformance(for song: Song?) -> KaraokePerformance {
+        var scorer = KaraokeScorer(lines: [
+            LyricLine(timestamp: 0, text: "Debug line one"),
+            LyricLine(timestamp: 4, text: "Debug line two"),
+            LyricLine(timestamp: 8, text: "Debug line three"),
+        ])
+        for step in 0..<220 {
+            let time = Double(step) * 0.05
+            scorer.record(time: time, reference: 60, sung: step % 7 == 0 ? nil : 60.4)
+        }
+        return KaraokePerformance(
+            songTitle: song?.title ?? "Debug Song",
+            artistName: song?.artistName ?? "",
+            summary: scorer.summary(),
+            bestLineText: "Debug line two",
+            recordingURL: nil
+        )
     }
 
     private func waitForMusic(atLeast count: Int) async -> [Song]? {
@@ -3437,6 +3589,11 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
         plog("🧪 Debug: library never reached \(count) songs")
         return nil
     }
+}
+
+extension Notification.Name {
+    /// 调试脚本弹出 `PRIMUSE_DEBUG_PRESENT` 认得的页面,object 是页面名;空串表示收起。
+    static let primuseDebugPresentPage = Notification.Name("primuse.debug.presentPage")
 }
 #endif
 

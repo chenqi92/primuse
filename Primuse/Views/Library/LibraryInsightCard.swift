@@ -822,25 +822,23 @@ struct LibraryInsightEditorSheet: View {
 
     var body: some View {
         #if os(macOS)
-        VStack(alignment: .leading, spacing: 0) {
-            Text(verbatim: title)
-                .font(.title3.bold())
-                .padding([.horizontal, .top], 20)
-                .padding(.bottom, 8)
-            form
-                .builtInAIConsentSheet($builtInConsent)
-            HStack {
-                Spacer()
+        // 和其他 Mac 弹框同一种标题行、底栏和按钮; 「保存」铺品牌色, 不是系统蓝。
+        form
+            .builtInAIConsentSheet($builtInConsent)
+            .macFormSheet(
+                title: Text(verbatim: title),
+                subtitle: Text(verbatim: subjectLine),
+                systemImage: subject.kind == .album ? "square.stack" : "music.mic"
+            ) {
                 Button("cancel", role: .cancel) { dismiss() }
+                    .buttonStyle(.macSheet)
                     .keyboardShortcut(.cancelAction)
                 Button("save", action: save)
+                    .buttonStyle(.macSheetPrimary)
                     .disabled(isFilling || store.isGenerating(subject))
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
             }
-            .padding(20)
-        }
-        .frame(minWidth: 520, minHeight: 480)
+            .frame(minWidth: 520, idealWidth: 560, minHeight: 520, idealHeight: 620)
         #else
         NavigationStack {
             form
@@ -874,11 +872,13 @@ struct LibraryInsightEditorSheet: View {
 
     private var form: some View {
         Form {
+            #if !os(macOS)
             Section {
                 Text(verbatim: subjectLine)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
+            #endif
 
             Section {
                 Button(action: fillFromLastFm) {
@@ -932,8 +932,16 @@ struct LibraryInsightEditorSheet: View {
             }
 
             Section {
+                #if os(macOS)
+                // Mac 表单里输入框的标题会变成左边的标签; 只留提示字。
+                TextField("", text: $tagText, prompt: Text("library_insight_editor_tags_placeholder"), axis: .vertical)
+                    .labelsHidden()
+                    .macSheetField()
+                    .disabled(isFilling)
+                #else
                 TextField("library_insight_editor_tags_placeholder", text: $tagText, axis: .vertical)
                     .disabled(isFilling)
+                #endif
                 let tags = LibraryInsightEditing.tags(fromText: tagText)
                 if !tags.isEmpty {
                     LibraryInsightTagRow(tags: tags)

@@ -143,20 +143,14 @@ struct LibraryInsightBatchSheet: View {
 
     var body: some View {
         #if os(macOS)
-        VStack(alignment: .leading, spacing: 0) {
-            Text(verbatim: title)
-                .font(.title3.bold())
-                .padding([.horizontal, .top], 20)
-                .padding(.bottom, 4)
-            form
-            HStack {
-                Spacer()
+        // 和其他 Mac 弹框同一种标题行、底栏和按钮(不是一行大号粗体加系统按钮)。
+        form
+            .macFormSheet(title: Text(verbatim: title), subtitle: Text(verbatim: countLine), systemImage: "sparkles") {
                 Button("cancel", role: .cancel) { dismiss() }
+                    .buttonStyle(.macSheet)
                     .keyboardShortcut(.cancelAction)
             }
-            .padding(20)
-        }
-        .frame(minWidth: 500, minHeight: 440)
+            .frame(minWidth: 500, idealWidth: 540, minHeight: 440, idealHeight: 520)
         #else
         NavigationStack {
             form
@@ -174,9 +168,11 @@ struct LibraryInsightBatchSheet: View {
 
     private var form: some View {
         Form {
+            #if !os(macOS)
             Section {
                 Text(verbatim: countLine)
             }
+            #endif
             if intelligence.libraryInsightNeedsRemoteConsent {
                 consentSection
             } else if !intelligence.isLibraryInsightAvailable {

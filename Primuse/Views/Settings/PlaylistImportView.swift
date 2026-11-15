@@ -162,6 +162,9 @@ struct PlaylistImportView: View {
         }
         .sheet(isPresented: $showsPodcastImport) {
             NavigationStack { PodcastAddFeedView(initialText: routedText) }
+            #if os(macOS)
+                .frame(minWidth: 480, idealWidth: 520, minHeight: 360, idealHeight: 420)
+            #endif
         }
         .task {
             guard !didReadInitialText, !initialText.isEmpty else { return }

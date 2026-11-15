@@ -304,9 +304,19 @@ struct LyricsRomanizationGoogleSettingsView: View {
                 }
             }
         }
+        #if os(macOS)
+        // Mac 设置窗口里弹出的一张: 标题行 + 分组表单 + 底栏「完成」(不用系统标题栏和底部系统按钮)。
+        .formStyle(.grouped)
+        .macFormSheet(title: Text("lyrics_romanization_google_title"), systemImage: "character.bubble") {
+            Button("done") { dismiss() }
+                .buttonStyle(.macSheetPrimary)
+                .keyboardShortcut(.defaultAction)
+        }
+        #else
         .navigationTitle("lyrics_romanization_google_title")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         #endif
         .fileImporter(
             isPresented: $showsImporter,
@@ -327,12 +337,7 @@ struct LyricsRomanizationGoogleSettingsView: View {
         }
         .onAppear { account.reload() }
         #if os(macOS)
-        .frame(minWidth: 560, minHeight: 520)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("close") { dismiss() }
-            }
-        }
+        .frame(minWidth: 560, idealWidth: 580, minHeight: 520, idealHeight: 600)
         #endif
     }
 
@@ -379,6 +384,17 @@ struct LyricsRomanizationGoogleSettingsView: View {
                     Text("lyrics_romanization_google_paste_footer")
                 }
             }
+            #if os(macOS)
+            .formStyle(.grouped)
+            .macFormSheet(title: Text("lyrics_romanization_google_paste"), systemImage: "doc.on.clipboard") {
+                Button("cancel") { showsPasteEditor = false }
+                    .buttonStyle(.macSheet)
+                    .keyboardShortcut(.cancelAction)
+                Button("save", action: savePastedKey)
+                    .buttonStyle(.macSheetPrimary)
+                    .disabled(pastedJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            #else
             .navigationTitle("lyrics_romanization_google_paste")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -388,18 +404,21 @@ struct LyricsRomanizationGoogleSettingsView: View {
                     Button("cancel") { showsPasteEditor = false }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("save") {
-                        showsPasteEditor = false
-                        importKey(Data(pastedJSON.utf8))
-                        pastedJSON = ""
-                    }
-                    .disabled(pastedJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("save", action: savePastedKey)
+                        .disabled(pastedJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            #endif
         }
         #if os(macOS)
-        .frame(minWidth: 520, minHeight: 360)
+        .frame(minWidth: 520, idealWidth: 540, minHeight: 400, idealHeight: 440)
         #endif
+    }
+
+    private func savePastedKey() {
+        showsPasteEditor = false
+        importKey(Data(pastedJSON.utf8))
+        pastedJSON = ""
     }
 
     private func importKey(_ data: Data) {

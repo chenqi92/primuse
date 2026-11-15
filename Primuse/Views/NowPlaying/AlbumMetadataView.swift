@@ -52,6 +52,40 @@ struct AlbumMetadataView: View {
 
     var body: some View {
         let groups = AlbumMetadataGroup.groups(for: songs)
+        #if os(macOS)
+        // Mac 弹框: 每一页自己画标题行(返回 / 关闭)、搜索框和按钮, 不用系统标题栏和底部系统按钮。
+        NavigationStack {
+            Group {
+                if groups.count == 1, let group = groups.first {
+                    AlbumMetadataSearchView(group: group, isPushed: false)
+                } else {
+                    List(groups) { group in
+                        NavigationLink {
+                            AlbumMetadataSearchView(group: group, isPushed: true)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(verbatim: group.title)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(PMColor.text)
+                                Text(verbatim: [group.artist, String(group.songs.count)].compactMap { $0 }.joined(separator: " · "))
+                                    .font(.system(size: 11.5)).foregroundStyle(PMColor.textMuted)
+                            }
+                            .padding(.vertical, 3)
+                        }
+                    }
+                    .listStyle(.inset)
+                    .macSheetPage(
+                        title: Text("album_metadata_search"),
+                        subtitle: Text(verbatim: String(format: String(localized: "album_metadata_tracks_format"), songs.count)),
+                        systemImage: "text.badge.checkmark",
+                        onClose: { dismiss() }
+                    )
+                }
+            }
+        }
+        .environment(\.macSheetDismiss, dismiss)
+        .frame(minWidth: 600, idealWidth: 680, minHeight: 560, idealHeight: 680)
+        #else
         NavigationStack {
             Group {
                 if groups.count == 1, let group = groups.first {
@@ -75,15 +109,19 @@ struct AlbumMetadataView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("done") { dismiss() } }
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 580, idealWidth: 700, minHeight: 540, idealHeight: 700)
         #endif
     }
 }
 
 private struct AlbumMetadataSearchView: View {
     let group: AlbumMetadataGroup
+    /// Mac:从专辑列表推进来的(标题行给返回键),还是弹框里唯一的一页(给关闭键)。
+    var isPushed = false
     @Environment(MusicLibrary.self) private var library
+    #if os(macOS)
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.macSheetDismiss) private var sheetDismiss
+    #endif
     @State private var title: String
     @State private var artist: String
     @State private var candidates: [Candidate] = []
@@ -102,20 +140,87 @@ private struct AlbumMetadataSearchView: View {
         var id: String { config.id + ":" + album.id }
     }
 
-    init(group: AlbumMetadataGroup) {
+    init(group: AlbumMetadataGroup, isPushed: Bool = false) {
         self.group = group
+        self.isPushed = isPushed
         _title = State(initialValue: group.title)
         _artist = State(initialValue: group.artist ?? "")
     }
 
     var body: some View {
+        #if os(macOS)
+        VStack(spacing: 0) {
+            MacSheetHeader(
+                Text("album_metadata_search"),
+                subtitle: Text(verbatim: [group.title, group.artist].compactMap { $0 }.joined(separator: " · ")),
+                systemImage: isPushed ? nil : "text.badge.checkmark",
+                onBack: isPushed ? { dismiss() } : nil,
+                onClose: sheetDismiss.macCloseAction ?? { dismiss() }
+            )
+            macSearchBar
+            results
+                .scrollContentBackground(.hidden)
+                .frame(maxHeight: .infinity)
+        }
+        .background(PMColor.bg)
+        .tint(PMColor.brand)
+        .navigationBarBackButtonHidden(true)
+        .navigationDestination(item: $review) { input in
+            TagChangeReviewView(input: input, onFinished: { review = nil })
+        }
+        .onDisappear { request?.cancel() }
+        #else
+        results
+            .navigationTitle("album_metadata_search")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .navigationDestination(item: $review) { input in
+                TagChangeReviewView(input: input, onFinished: { review = nil })
+            }
+            .onDisappear { request?.cancel() }
+        #endif
+    }
+
+    #if os(macOS)
+    /// 专辑名、艺人两个框和「搜索」排一行, 和弹框里其他输入框、按钮同一档高度。
+    private var macSearchBar: some View {
+        HStack(spacing: 8) {
+            TextField("", text: $title, prompt: Text("tag_editor_album"))
+                .labelsHidden()
+                .macSheetField()
+                .onSubmit { search() }
+            TextField("", text: $artist, prompt: Text("tag_editor_artist"))
+                .labelsHidden()
+                .macSheetField()
+                .frame(maxWidth: 200)
+                .onSubmit { search() }
+            Button {
+                search()
+            } label: {
+                Label("album_metadata_search", systemImage: "magnifyingglass")
+            }
+            .buttonStyle(.macSheetPrimary)
+            .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+        }
+        .padding(.horizontal, MacSheetMetrics.horizontalPadding)
+        .padding(.vertical, 12)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+    }
+    #endif
+
+    private var results: some View {
         List {
+            #if !os(macOS)
             Section {
                 TextField("tag_editor_album", text: $title)
                 TextField("tag_editor_artist", text: $artist)
                 Button("album_metadata_search", systemImage: "magnifyingglass") { search() }
                     .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
             }
+            #endif
             if isLoading { ProgressView().frame(maxWidth: .infinity) }
             if let errorMessage { Text(verbatim: errorMessage).foregroundStyle(.secondary) }
             if let album = selectedAlbum {
@@ -125,6 +230,20 @@ private struct AlbumMetadataSearchView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Text(String(format: String(localized: "album_metadata_matched_format"), assignments.count, group.songs.count, tracks.count))
                         .font(.caption).foregroundStyle(.secondary)
+                    #if os(macOS)
+                    HStack(spacing: 8) {
+                        Button("back_to_results") {
+                            selectedAlbum = nil
+                            tracks = []
+                            assignments = [:]
+                        }
+                        .buttonStyle(.macSheet)
+                        Button("album_metadata_review") { makeReview() }
+                            .buttonStyle(.macSheetPrimary)
+                            .disabled(assignments.isEmpty || isLoading)
+                    }
+                    .padding(.vertical, 2)
+                    #else
                     Button("album_metadata_review") { makeReview() }
                         .disabled(assignments.isEmpty || isLoading)
                     Button("back_to_results") {
@@ -132,6 +251,7 @@ private struct AlbumMetadataSearchView: View {
                         tracks = []
                         assignments = [:]
                     }
+                    #endif
                 }
                 Section("album_metadata_match") {
                     ForEach(Array(group.songs.enumerated()), id: \.element.id) { index, song in
@@ -151,20 +271,20 @@ private struct AlbumMetadataSearchView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }
+                        #if os(macOS)
+                        // Mac 列表里的按钮默认是一颗带边框的按键; 候选是整行点。
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        #endif
                     }
+                    #if os(macOS)
+                    .buttonStyle(.plain)
+                    #endif
                     .disabled(isLoading)
                 }
                 if didSearch && !isLoading && candidates.isEmpty && errorMessage == nil { Text("no_results") }
             }
         }
-        .navigationTitle("album_metadata_search")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .navigationDestination(item: $review) { input in
-            TagChangeReviewView(input: input, onFinished: { review = nil })
-        }
-        .onDisappear { request?.cancel() }
     }
 
     private func search() {

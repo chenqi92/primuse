@@ -3332,7 +3332,7 @@ private struct LyricAlignmentDraft: Identifiable {
     let document: LyricsEditorDocument
 }
 
-private struct LyricAlignmentSheet: View {
+struct LyricAlignmentSheet: View {
     @Environment(\.dismiss) private var dismiss
     let run: (String) async throws -> LyricAlignmentExecution
     let apply: (LyricsEditorDocument) throws -> Void
@@ -3360,48 +3360,64 @@ private struct LyricAlignmentSheet: View {
                 }
                 if let message { Text(message).foregroundStyle(.red) }
             }
+            #if os(macOS)
+            // Mac 弹框: 标题行 + 表单 + 底栏「取消 / 开始(应用)」; 原来的固定 470×300 里系统标题栏占掉一截, 表单被挤得左边出界。
+            .formStyle(.grouped)
+            .macFormSheet(title: Text("lyric_alignment_title"), systemImage: "text.word.spacing") {
+                Button(String(localized: "cancel")) { task?.cancel(); dismiss() }
+                    .buttonStyle(.macSheet)
+                    .keyboardShortcut(.cancelAction)
+                Button(String(localized: result == nil ? "lyric_alignment_start" : "lyric_alignment_apply"), action: confirm)
+                    .buttonStyle(.macSheetPrimary)
+                    .disabled(task != nil)
+                    .keyboardShortcut(.defaultAction)
+            }
+            #else
             .navigationTitle(String(localized: "lyric_alignment_title"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "cancel")) { task?.cancel(); dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: result == nil ? "lyric_alignment_start" : "lyric_alignment_apply")) {
-                        if let result {
-                            do { try apply(result.document); dismiss() }
-                            catch { message = String(localized: "lyric_alignment_editor_changed") }
-                        } else {
-                            message = nil
-                            task = Task { @MainActor in
-                                defer { task = nil }
-                                do {
-                                    let value = try await run(language)
-                                    try Task.checkCancellation()
-                                    result = value
-                                } catch is CancellationError {
-                                } catch let error as LyricAlignmentFailure {
-                                    switch error {
-                                    case .invalidDuration: message = String(localized: "lyric_alignment_duration_error")
-                                    case .unsupportedLyrics: message = String(localized: "lyric_alignment_lyrics_error")
-                                    default: message = String(localized: "lyric_alignment_failed")
-                                    }
-                                } catch let error as PrimuseAIRelayError {
-                                    if case .requestFailed(_, let code, _) = error,
-                                       ["feature_quota_exhausted", "period_quota_exhausted", "daily_quota_exhausted", "daily_request_limit_exhausted", "feature_not_in_plan"].contains(code) {
-                                        message = String(localized: "lyric_alignment_quota_error")
-                                    } else { message = String(localized: "lyric_alignment_failed") }
-                                } catch { message = String(localized: "lyric_alignment_failed") }
-                            }
-                        }
-                    }
-                    .disabled(task != nil)
+                    Button(String(localized: result == nil ? "lyric_alignment_start" : "lyric_alignment_apply"), action: confirm)
+                        .disabled(task != nil)
                 }
             }
+            #endif
         }
         #if os(macOS)
-        .frame(width: 470, height: 300)
+        .frame(width: 480, height: 340)
         #endif
         .interactiveDismissDisabled(task != nil)
         .onDisappear { task?.cancel() }
+    }
+
+    private func confirm() {
+        if let result {
+            do { try apply(result.document); dismiss() }
+            catch { message = String(localized: "lyric_alignment_editor_changed") }
+        } else {
+            message = nil
+            task = Task { @MainActor in
+                defer { task = nil }
+                do {
+                    let value = try await run(language)
+                    try Task.checkCancellation()
+                    result = value
+                } catch is CancellationError {
+                } catch let error as LyricAlignmentFailure {
+                    switch error {
+                    case .invalidDuration: message = String(localized: "lyric_alignment_duration_error")
+                    case .unsupportedLyrics: message = String(localized: "lyric_alignment_lyrics_error")
+                    default: message = String(localized: "lyric_alignment_failed")
+                    }
+                } catch let error as PrimuseAIRelayError {
+                    if case .requestFailed(_, let code, _) = error,
+                       ["feature_quota_exhausted", "period_quota_exhausted", "daily_quota_exhausted", "daily_request_limit_exhausted", "feature_not_in_plan"].contains(code) {
+                        message = String(localized: "lyric_alignment_quota_error")
+                    } else { message = String(localized: "lyric_alignment_failed") }
+                } catch { message = String(localized: "lyric_alignment_failed") }
+            }
+        }
     }
 }

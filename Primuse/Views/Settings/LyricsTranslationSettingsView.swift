@@ -447,6 +447,8 @@ final class LyricsTranscriptionSettingsEditorModel {
 }
 
 struct GoogleLyricsTranscriptionSettingsView: View {
+    /// Mac 设置窗口里以弹框打开(而不是设置页本身)时为真:画弹框的标题行和底栏。
+    var presentedAsSheet = false
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.dismiss) private var dismiss
     @State private var editor = LyricsTranscriptionSettingsEditorModel()
@@ -461,6 +463,32 @@ struct GoogleLyricsTranscriptionSettingsView: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        if presentedAsSheet {
+            // 和其他 Mac 弹框同一种标题行、分组表单、底栏「完成」(弹框里工具栏按钮会是底部的系统蓝按钮)。
+            form
+                .formStyle(.grouped)
+                .macFormSheet(title: Text("lyrics_transcription_settings_title"), systemImage: "waveform.and.mic") {
+                    Button("done") { dismiss() }
+                        .buttonStyle(.macSheetPrimary)
+                        .keyboardShortcut(.defaultAction)
+                }
+                .frame(minWidth: 560, idealWidth: 600, minHeight: 600, idealHeight: 680)
+        } else {
+            form
+                .frame(minWidth: 560, minHeight: 600)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("close") { dismiss() }
+                    }
+                }
+        }
+        #else
+        form
+        #endif
+    }
+
+    private var form: some View {
         Form {
             if intelligence.regionAvailability.isRefreshing,
                intelligence.regionAvailability.context.region == .unknown {
@@ -631,14 +659,6 @@ struct GoogleLyricsTranscriptionSettingsView: View {
         #endif
         .task { await editor.load(using: intelligence) }
         .builtInAIConsentSheet($builtInConsent)
-        #if os(macOS)
-        .frame(minWidth: 560, minHeight: 600)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("close") { dismiss() }
-            }
-        }
-        #endif
     }
 
     @ViewBuilder

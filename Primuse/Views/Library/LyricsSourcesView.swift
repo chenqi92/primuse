@@ -58,7 +58,6 @@ struct LyricsSourcesView: View {
                 documentEditor(entry)
             } else {
                 macHeader
-                Rectangle().fill(PMColor.divider).frame(height: 0.5)
                 listContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -66,26 +65,17 @@ struct LyricsSourcesView: View {
         .frame(width: 600, height: 640)
         .background(PMColor.bg)
         .foregroundStyle(PMColor.text)
+        .tint(PMColor.brand)
     }
 
+    /// 和其他 Mac 弹框同一种标题行; 改了就生效, 右上角关闭即可(不再是一颗系统蓝的「完成」)。
     private var macHeader: some View {
-        HStack(spacing: PMSpace.m) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(String(localized: "lyrics_sources_title"))
-                    .font(.system(size: 14, weight: .semibold))
-                Text(songCaption)
-                    .font(PMFont.caption)
-                    .foregroundStyle(PMColor.textMuted)
-                    .lineLimit(1)
-            }
-            Spacer()
-            Button(String(localized: "done")) { dismiss() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .keyboardShortcut(.defaultAction)
-        }
-        .padding(.horizontal, PMSpace.m16)
-        .frame(height: 56)
+        MacSheetHeader(
+            Text(String(localized: "lyrics_sources_title")),
+            subtitle: Text(songCaption),
+            systemImage: "doc.text.magnifyingglass",
+            onClose: { dismiss() }
+        )
     }
     #else
     private var container: some View {
@@ -140,7 +130,11 @@ struct LyricsSourcesView: View {
                     listing = nil
                     reloadToken += 1
                 }
+                #if os(macOS)
+                .buttonStyle(.macSheet)
+                #else
                 .buttonStyle(.bordered)
+                #endif
             }
         case .documents(let documents):
             documentList(documents)
@@ -221,6 +215,9 @@ struct LyricsSourcesView: View {
         if let error = documents.sourceError {
             noticeRow(systemImage: "exclamationmark.triangle", text: error)
             Button(String(localized: "retry")) { reloadToken += 1 }
+                #if os(macOS)
+                .buttonStyle(.macSheet)
+                #endif
         }
         if documents.usesLocalCopy {
             noticeRow(
@@ -284,7 +281,7 @@ struct LyricsSourcesView: View {
                 HStack(spacing: 12) {
                     Text(String(format: "%02d", number))
                         .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(entry.isActive ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(entry.isActive ? LyricsSourcesStyle.accent : Color.secondary)
                         .frame(minWidth: 22, alignment: .leading)
                     selectionMark(entry)
                     VStack(alignment: .leading, spacing: 4) {
@@ -299,7 +296,7 @@ struct LyricsSourcesView: View {
                             if entry.isActive {
                                 Text(String(localized: "lyrics_sources_in_use"))
                                     .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(LyricsSourcesStyle.accent)
                             }
                             let detail = detailText(entry)
                             if !detail.isEmpty {
@@ -336,8 +333,12 @@ struct LyricsSourcesView: View {
             Button(String(localized: entry.isEditable ? "lyrics_sources_edit" : "lyrics_sources_view")) {
                 editingID = entry.id
             }
+            #if os(macOS)
+            .buttonStyle(.macSheet)
+            #else
             .buttonStyle(.bordered)
             .controlSize(.small)
+            #endif
             .disabled(activatingID != nil)
         }
         .padding(.vertical, 2)
@@ -351,7 +352,7 @@ struct LyricsSourcesView: View {
             } else {
                 Image(systemName: entry.isActive ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 21))
-                    .foregroundStyle(entry.isActive ? Color.accentColor : Color.secondary.opacity(0.45))
+                    .foregroundStyle(entry.isActive ? LyricsSourcesStyle.accent : Color.secondary.opacity(0.45))
                     .symbolEffect(.bounce, value: entry.isActive)
             }
         }
@@ -451,6 +452,20 @@ struct LyricsSourcesView: View {
     @ViewBuilder
     private var fetchMoreButton: some View {
         if !song.isCueTrack {
+            #if os(macOS)
+            // Mac: 和弹框里其他按钮同一种(28 高浅底), 进度圈放在按钮旁边, 不把按钮撑宽。
+            HStack(spacing: 8) {
+                Button {
+                    isFetching = true
+                    fetchToken += 1
+                } label: {
+                    Label(String(localized: "lyrics_sources_fetch_more"), systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(.macSheet)
+                .disabled(isFetching || activatingID != nil)
+                if isFetching { ProgressView().controlSize(.small) }
+            }
+            #else
             Button {
                 isFetching = true
                 fetchToken += 1
@@ -461,6 +476,7 @@ struct LyricsSourcesView: View {
                 }
             }
             .disabled(isFetching || activatingID != nil)
+            #endif
         }
     }
 
@@ -537,6 +553,18 @@ struct LyricsDocumentFormatBadge: View {
 
 // MARK: - 原文编辑页
 
+/// 来源列表、编辑页里「正在使用」的颜色: Mac 上 `Color.accentColor` 是系统强调色(多半是蓝), 用品牌色。
+@MainActor
+enum LyricsSourcesStyle {
+    static var accent: Color {
+        #if os(macOS)
+        PMColor.brand
+        #else
+        Color.accentColor
+        #endif
+    }
+}
+
 /// 一个歌词文件的完整原文。保存时按原来的格式和编码写回这一个文件；
 /// 写回前确认文件还是打开时的样子，写完逐字节回读。
 struct LyricsDocumentEditorView: View {
@@ -602,52 +630,40 @@ struct LyricsDocumentEditorView: View {
     // MARK: 容器
 
     #if os(macOS)
+    /// 和来源列表同一种标题行: 左上角返回(有没存的修改时先问), 底栏「取消 / 保存」。
     private var editorContainer: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Button {
-                    if hasChanges { showDiscardConfirm = true } else { onClose() }
-                } label: {
-                    Label(String(localized: hasChanges ? "cancel" : "lyrics_sources_title"),
-                          systemImage: hasChanges ? "xmark" : "chevron.left")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .keyboardShortcut(.cancelAction)
-                .confirmationDialog(
-                    String(localized: "lyrics_sources_discard_title"),
-                    isPresented: $showDiscardConfirm,
-                    titleVisibility: .visible
-                ) {
-                    discardActions
-                }
-
-                VStack(spacing: 1) {
-                    Text(String(localized: entry.isEditable ? "lyrics_sources_editor_title" : "lyrics_sources_viewer_title"))
-                        .font(.system(size: 13.5, weight: .semibold))
-                    Text(entry.name)
-                        .font(PMFont.caption)
-                        .foregroundStyle(PMColor.textMuted)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .frame(maxWidth: .infinity)
-
-                if entry.isEditable {
+            MacSheetHeader(
+                Text(String(localized: entry.isEditable ? "lyrics_sources_editor_title" : "lyrics_sources_viewer_title")),
+                subtitle: Text(entry.name),
+                onBack: requestClose
+            )
+            .confirmationDialog(
+                String(localized: "lyrics_sources_discard_title"),
+                isPresented: $showDiscardConfirm,
+                titleVisibility: .visible
+            ) {
+                discardActions
+            }
+            editorBody
+                .frame(maxHeight: .infinity)
+            if entry.isEditable {
+                MacSheetFooter {
+                    Button(String(localized: "cancel"), action: requestClose)
+                        .buttonStyle(.macSheet)
+                        .keyboardShortcut(.cancelAction)
                     Button(String(localized: "save")) { Task { await save() } }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
+                        .buttonStyle(.macSheetPrimary)
                         .keyboardShortcut("s", modifiers: .command)
                         .disabled(!hasChanges || isSaving)
-                } else {
-                    Color.clear.frame(width: 60, height: 1)
                 }
             }
-            .padding(.horizontal, 16)
-            .frame(height: 56)
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-            editorBody
         }
+        .tint(PMColor.brand)
+    }
+
+    private func requestClose() {
+        if hasChanges { showDiscardConfirm = true } else { onClose() }
     }
     #else
     private var editorContainer: some View {
@@ -699,7 +715,11 @@ struct LyricsDocumentEditorView: View {
                 Text(loadError)
             } actions: {
                 Button(String(localized: "retry")) { reloadFromSource() }
+                    #if os(macOS)
+                    .buttonStyle(.macSheet)
+                    #else
                     .buttonStyle(.bordered)
+                    #endif
             }
         } else if content == nil {
             VStack(spacing: 12) {
@@ -747,7 +767,7 @@ struct LyricsDocumentEditorView: View {
                 if entry.isActive {
                     Text(String(localized: "lyrics_sources_in_use"))
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(LyricsSourcesStyle.accent)
                 }
                 Spacer(minLength: 0)
             }

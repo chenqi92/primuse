@@ -64,7 +64,11 @@ struct OfflineDownloadsView: View {
             .toolbar { toolbarContent }
             .safeAreaInset(edge: .top, spacing: 0) { offlineBatchBanner }
             #if os(macOS)
-            .safeAreaInset(edge: .bottom) { macActionBar }
+            .safeAreaInset(edge: .bottom, spacing: 0) { macActionBar }
+            .safeAreaInset(edge: .top, spacing: 0) { macSheetHeader }
+            .scrollContentBackground(showsDoneButton ? .hidden : .automatic)
+            .background(showsDoneButton ? PMColor.bg : Color.clear)
+            .tint(PMColor.brand)
             #endif
             .task { await reload() }
             .onReceive(NotificationCenter.default.publisher(for: .primuseAudioCacheFilesDidChange)) { _ in
@@ -171,13 +175,21 @@ struct OfflineDownloadsView: View {
                 Button("offline_download_stop") {
                     sourceManager.cancelAllOfflineBatches()
                 }
+                #if os(macOS)
+                .buttonStyle(.macSheet)
+                #else
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                #endif
                 .accessibilityIdentifier("offline.batch.stopAll")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            #if os(macOS)
+            .background(PMColor.glassBtn)
+            #else
             .background(.bar)
+            #endif
         }
     }
 
@@ -266,41 +278,61 @@ struct OfflineDownloadsView: View {
             }
         }
         #else
-        ToolbarItem {
-            Button("offline_downloads_show_in_finder") {
-                let downloads = AudioCacheManager.shared.downloadStore
-                try? downloads.prepareDirectory()
-                NSWorkspace.shared.open(downloads.directory)
-            }
-            .accessibilityIdentifier("offline.downloads.showInFinder")
-        }
-        if showsDoneButton {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("done") { dismiss() }
+        // 弹框里(设置窗口)「在访达中显示」挂在标题行上, 不放进系统工具栏。
+        if !showsDoneButton {
+            ToolbarItem {
+                Button("offline_downloads_show_in_finder", action: showInFinder)
+                    .accessibilityIdentifier("offline.downloads.showInFinder")
             }
         }
         #endif
     }
 
     #if os(macOS)
+    private func showInFinder() {
+        let downloads = AudioCacheManager.shared.downloadStore
+        try? downloads.prepareDirectory()
+        NSWorkspace.shared.open(downloads.directory)
+    }
+
+    /// 设置窗口弹出时的标题行: 和其他 Mac 弹框一样, 右上角关闭, 「在访达中显示」放在标题行右边。
+    @ViewBuilder
+    private var macSheetHeader: some View {
+        if showsDoneButton {
+            MacSheetHeader(
+                Text("offline_downloads"),
+                systemImage: "arrow.down.circle",
+                onClose: { dismiss() }
+            ) {
+                Button(action: showInFinder) {
+                    Label("offline_downloads_show_in_finder", systemImage: "folder")
+                }
+                .buttonStyle(.macSheet)
+                .accessibilityIdentifier("offline.downloads.showInFinder")
+            }
+            .background(PMColor.bg)
+        }
+    }
+
+    /// 底栏: 左边「全部移除」, 右边「移除所选」, 和其他弹框的底栏同一种高度和按钮。
     @ViewBuilder
     private var macActionBar: some View {
         if !items.isEmpty {
-            HStack {
+            MacSheetFooter {
                 Button("offline_downloads_remove_all", role: .destructive) {
                     requestRemoval(items, confirmsPlainRemoval: true)
                 }
-                Spacer()
+                .buttonStyle(.macSheetDestructive)
+            } trailing: {
                 Button(role: .destructive) {
                     requestRemoval(selectedItems, confirmsPlainRemoval: true)
                 } label: {
                     Text(verbatim: removeSelectedTitle)
                 }
+                .buttonStyle(.macSheet)
                 .disabled(selection.isEmpty)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.bar)
+            .background(PMColor.bg)
         }
     }
     #endif

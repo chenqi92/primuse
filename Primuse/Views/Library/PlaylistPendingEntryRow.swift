@@ -160,6 +160,29 @@ struct PlaylistPendingMatchSheet: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        // Mac 弹框: 标题行写着要对哪一首, 下面一个搜索框和结果列表(不用挤在系统标题栏角上的搜索框)。
+        VStack(spacing: 0) {
+            MacSheetHeader(
+                Text("playlist_pending_match_title"),
+                subtitle: Text(verbatim: [entry.title, entry.artistLine].filter { !$0.isEmpty }.joined(separator: " · ")),
+                systemImage: "circle.dashed",
+                onClose: { dismiss() }
+            )
+            MacSheetSearchField(text: $query, prompt: Text("search_query"))
+                .padding(.horizontal, MacSheetMetrics.horizontalPadding)
+                .padding(.vertical, 12)
+            List {
+                resultsSection
+            }
+            .listStyle(.inset)
+            .scrollContentBackground(.hidden)
+        }
+        .background(PMColor.bg)
+        .tint(PMColor.brand)
+        .task(id: "\(library.visibleSongCollectionRevision)\u{0}\(query)") { await refreshResults() }
+        .frame(width: 520, height: 540)
+        #else
         NavigationStack {
             List {
                 Section {
@@ -170,56 +193,10 @@ struct PlaylistPendingMatchSheet: View {
                         }
                     }
                 }
-                Section {
-                    if results.isEmpty {
-                        Text("playlist_pending_no_results")
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(Array(results.enumerated()), id: \.element.id) { index, song in
-                        Button {
-                            library.resolvePendingEntry(entry.id, inPlaylist: playlistID, with: song.id)
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 10) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                                        SongRowTrackNumber(number: index + 1, largestNumber: results.count)
-                                        Text(song.title).foregroundStyle(.primary)
-                                    }
-                                    Text(
-                                        [library.artistDisplayName(for: song), song.albumTitle]
-                                            .compactMap { $0 }
-                                            .joined(separator: " · ")
-                                    )
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+                resultsSection
             }
             .searchable(text: $query)
-            .task(id: "\(library.visibleSongCollectionRevision)\u{0}\(query)") {
-                try? await Task.sleep(for: .milliseconds(200))
-                guard !Task.isCancelled else { return }
-                let query = self.query
-                let songs = library.visibleSongs
-                let search = Task.detached(priority: .userInitiated) {
-                    Self.matches(for: query, in: songs)
-                }
-                // 下一次按键会取消这次 task, 让还在走整库的那次搜索也停下。
-                let found = await withTaskCancellationHandler {
-                    await search.value
-                } onCancel: {
-                    search.cancel()
-                }
-                guard !Task.isCancelled else { return }
-                results = found
-            }
+            .task(id: "\(library.visibleSongCollectionRevision)\u{0}\(query)") { await refreshResults() }
             .navigationTitle("playlist_pending_match_title")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -230,9 +207,59 @@ struct PlaylistPendingMatchSheet: View {
                 }
             }
         }
-        #if os(macOS)
-        .frame(width: 520, height: 520)
         #endif
+    }
+
+    private var resultsSection: some View {
+        Section {
+            if results.isEmpty {
+                Text("playlist_pending_no_results")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(Array(results.enumerated()), id: \.element.id) { index, song in
+                Button {
+                    library.resolvePendingEntry(entry.id, inPlaylist: playlistID, with: song.id)
+                    dismiss()
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                SongRowTrackNumber(number: index + 1, largestNumber: results.count)
+                                Text(song.title).foregroundStyle(.primary)
+                            }
+                            Text(
+                                [library.artistDisplayName(for: song), song.albumTitle]
+                                    .compactMap { $0 }
+                                    .joined(separator: " · ")
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func refreshResults() async {
+        try? await Task.sleep(for: .milliseconds(200))
+        guard !Task.isCancelled else { return }
+        let query = self.query
+        let songs = library.visibleSongs
+        let search = Task.detached(priority: .userInitiated) {
+            Self.matches(for: query, in: songs)
+        }
+        // 下一次按键会取消这次 task, 让还在走整库的那次搜索也停下。
+        let found = await withTaskCancellationHandler {
+            await search.value
+        } onCancel: {
+            search.cancel()
+        }
+        guard !Task.isCancelled else { return }
+        results = found
     }
 }
 

@@ -174,7 +174,14 @@ struct ArtistMergeView: View {
                         ForEach(selected.sorted(), id: \.self) { Text($0) }
                     }
                     Section("artist_merge_name") {
+                        #if os(macOS)
+                        // 分组标题已经写了名字; Mac 表单里输入框的标题会再变成左边的标签。
+                        TextField("", text: $canonicalName, prompt: Text("artist_merge_name"))
+                            .labelsHidden()
+                            .macSheetField()
+                        #else
                         TextField("artist_merge_name", text: $canonicalName)
+                        #endif
                         Menu("artist_merge_use_name") {
                             ForEach(selected.sorted(), id: \.self) { name in
                                 Button(name) { canonicalName = name }
@@ -194,23 +201,62 @@ struct ArtistMergeView: View {
                     }
                 } else {
                     Section {
+                        #if os(macOS)
+                        MacSheetSearchField(text: $query, prompt: Text("filter_artists_placeholder"))
+                        #else
                         TextField("filter_artists_placeholder", text: $query)
+                        #endif
                         ForEach(artistNames.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }, id: \.self) { name in
                             Button {
                                 if selected.contains(name) { selected.remove(name) } else { selected.insert(name) }
                             } label: {
+                                #if os(macOS)
+                                // Mac 表单里的按钮默认是一颗带边框的按键; 这里是整行点、右边一个勾。
+                                HStack {
+                                    Text(name).foregroundStyle(PMColor.text)
+                                    Spacer()
+                                    Image(systemName: selected.contains(name) ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 15))
+                                        .foregroundStyle(selected.contains(name) ? PMColor.brand : PMColor.textFaint)
+                                }
+                                .contentShape(Rectangle())
+                                #else
                                 HStack {
                                     Text(name).foregroundStyle(.primary)
                                     Spacer()
                                     Image(systemName: selected.contains(name) ? "checkmark.circle.fill" : "circle")
                                 }
+                                #endif
                             }
+                            #if os(macOS)
+                            .buttonStyle(.plain)
+                            #endif
                             .accessibilityAddTraits(selected.contains(name) ? .isSelected : [])
                         }
                     }
                 }
             }
             .formStyle(.grouped)
+            #if os(macOS)
+            // Mac 弹框: 标题行 + 底栏(关掉 / 预览 / 合并), 不用系统的标题栏和底部系统按钮。
+            .macFormSheet(
+                title: Text("artist_merge_title"),
+                subtitle: selected.isEmpty || mergeService.isRunning || mergeService.outcome != nil
+                    ? nil
+                    : Text(String(format: String(localized: "tag_review_selected_format"), selected.count)),
+                systemImage: "person.2"
+            ) {
+                macDismissButton
+                if !mergeService.isRunning && mergeService.outcome == nil {
+                    Button(isReviewing ? "artist_merge_confirm" : "batch_edit_review") {
+                        if isReviewing { merge() } else { prepareReview() }
+                    }
+                    .buttonStyle(.macSheetPrimary)
+                    .disabled(selected.count < 2 || isPreparing || (isReviewing && (!validName || reviewedSongIDs.isEmpty)))
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            #else
             .navigationTitle("artist_merge_title")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -229,6 +275,7 @@ struct ArtistMergeView: View {
                     }
                 }
             }
+            #endif
             .onAppear {
                 if !mergeService.isRunning && mergeService.outcome == nil && !initialNames.isEmpty && selected.isEmpty {
                     selected = initialNames
@@ -238,9 +285,21 @@ struct ArtistMergeView: View {
             .onDisappear { preparationTask?.cancel() }
         }
         #if os(macOS)
-        .frame(minWidth: 440, idealWidth: 520, minHeight: 480)
+        .frame(minWidth: 480, idealWidth: 520, minHeight: 520, idealHeight: 600)
         #endif
     }
+
+    #if os(macOS)
+    private var macDismissButton: some View {
+        Button(mergeService.isRunning ? "dup_mac_continue_background" : (mergeService.outcome == nil ? "cancel" : "done")) {
+            if !mergeService.isRunning { mergeService.clearResult() }
+            dismiss()
+        }
+        .buttonStyle(MacSheetButtonStyle(kind: mergeService.outcome != nil && !mergeService.isRunning ? .primary : .secondary))
+        .keyboardShortcut(.cancelAction)
+        .accessibilityIdentifier("artistMerge.dismiss")
+    }
+    #endif
 
     private func prepareReview() {
         canonicalName = selected.sorted().first ?? ""
@@ -273,8 +332,34 @@ struct ArtistMergeView: View {
 
 }
 
+/// 艺人页「合并建议」单独弹出的那一层。
+struct ArtistMergeSuggestionsSheet: View {
+    let onDone: () -> Void
+
+    var body: some View {
+        #if os(macOS)
+        // Mac 弹框: 页面自己画标题行和关闭键, 不用弹框里系统蓝的工具栏「完成」。
+        NavigationStack {
+            ArtistMergeSuggestionsView(onClose: onDone)
+        }
+        .frame(minWidth: 480, idealWidth: 520, minHeight: 440, idealHeight: 520)
+        #else
+        NavigationStack {
+            ArtistMergeSuggestionsView()
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("done", action: onDone) } }
+        }
+        #endif
+    }
+}
+
 struct ArtistMergeSuggestionsView: View {
+    /// Mac:单独弹出时(艺人页「合并建议」)标题行的关闭键;为空时是从「整理标签」推进来的,标题行给返回键。
+    var onClose: (() -> Void)? = nil
     @Environment(MusicLibrary.self) private var library
+    #if os(macOS)
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.macSheetDismiss) private var sheetDismiss
+    #endif
     @State private var suggestions: [ArtistMergePolicy.Suggestion] = []
     @State private var selected: ArtistMergePolicy.Suggestion?
     @AppStorage("library.dismissedArtistMerges.v1") private var dismissedData = Data()
@@ -287,6 +372,9 @@ struct ArtistMergeSuggestionsView: View {
                     Text(suggestion.names.joined(separator: " · "))
                     HStack {
                         Button("artist_merge_review") { selected = suggestion }
+                            #if os(macOS)
+                            .buttonStyle(.macSheet)
+                            #endif
                         Spacer()
                         Button("artist_merge_different") {
                             var dismissed = (try? JSONDecoder().decode(Set<String>.self, from: dismissedData)) ?? []
@@ -294,12 +382,30 @@ struct ArtistMergeSuggestionsView: View {
                             dismissedData = (try? JSONEncoder().encode(dismissed)) ?? Data()
                             suggestions.removeAll { $0.id == suggestion.id }
                         }
+                        #if os(macOS)
+                        .buttonStyle(.macSheetText())
+                        #endif
                     }
+                    #if !os(macOS)
                     .buttonStyle(.borderless)
+                    #endif
                 }
+                #if os(macOS)
+                .padding(.vertical, 4)
+                #endif
             }
         }
+        #if os(macOS)
+        // Mac 弹框里的一页: 标题行(返回或关闭) → 列表。
+        .macSheetPage(
+            title: Text("artist_merge_suggestions"),
+            systemImage: onClose == nil ? nil : "person.2",
+            onBack: onClose == nil ? { dismiss() } : nil,
+            onClose: onClose ?? sheetDismiss.macCloseAction
+        )
+        #else
         .navigationTitle("artist_merge_suggestions")
+        #endif
         .task(id: library.visibleSongsVersion) {
             let names = (library.visibleArtists + library.visibleAlbumArtists).map(\.name)
             let dismissed = (try? JSONDecoder().decode(Set<String>.self, from: dismissedData)) ?? []

@@ -677,10 +677,9 @@ private struct MacSTStorageView: View {
         .sheet(isPresented: $showsOfflineDownloads, onDismiss: {
             Task { await refreshOfflineDownloadsSummary() }
         }) {
-            NavigationStack {
-                OfflineDownloadsView(showsDoneButton: true)
-            }
-            .frame(minWidth: 560, minHeight: 520)
+            // 页面自己画弹框的标题行(关闭、在访达中显示)和底栏, 不用系统标题栏和底部系统按钮。
+            OfflineDownloadsView(showsDoneButton: true)
+                .frame(minWidth: 560, idealWidth: 600, minHeight: 520, idealHeight: 600)
         }
     }
 
@@ -1478,9 +1477,7 @@ private struct MacLyricsRomanizationSection: View {
             }
         }
         .sheet(isPresented: $showsGoogleSettings) {
-            NavigationStack {
-                LyricsRomanizationGoogleSettingsView()
-            }
+            LyricsRomanizationGoogleSettingsView()
         }
     }
 
@@ -4507,10 +4504,7 @@ private struct MacSTScrapingView: View {
             TagTidyView(songs: batch.songs, isLibraryWide: true)
         }
         .sheet(isPresented: $showsPendingWritebacks) {
-            NavigationStack {
-                PendingTagWritebackView(showsDoneButton: true)
-            }
-            .frame(minWidth: 520, idealWidth: 600, minHeight: 420)
+            PendingTagWritebackView(showsDoneButton: true)
         }
         .sheet(isPresented: $showImportSheet) {
             importScraperSheet
@@ -4929,42 +4923,24 @@ private struct MacLyricsAPIServersSheet: View {
 
             footer
         }
-        .frame(minWidth: 560, minHeight: 360)
+        .frame(minWidth: 560, idealWidth: 600, minHeight: 400, idealHeight: 480)
         .background(PMColor.bg)
     }
 
+    /// 和其他 Mac 弹框同一种标题行; 说明比较长, 放在标题行下面单独一段。
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 14) {
-                Image(systemName: "server.rack")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-                    .frame(width: 34, height: 34)
-                    .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 8))
-                Text(verbatim: Lz("Lyrics API Servers"))
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                Spacer()
-                Button(action: onDone) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(PMColor.textMuted)
-                        .frame(width: 26, height: 26)
-                        .background(PMColor.glassBtn, in: .circle)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            MacSheetHeader(Text(verbatim: Lz("Lyrics API Servers")), systemImage: "server.rack", onClose: onDone)
             Text(verbatim: Lz("Requests go to each address in order with title, artist, album and duration; the first server that returns lyrics wins. You configure and are responsible for these addresses."))
-                .font(PMFont.caption)
+                .font(.system(size: 11.5))
                 .foregroundStyle(PMColor.textMuted)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                .padding(.horizontal, MacSheetMetrics.horizontalPadding)
+                .padding(.vertical, 10)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                }
         }
     }
 
@@ -5008,16 +4984,16 @@ private struct MacLyricsAPIServersSheet: View {
     }
 
     private var footer: some View {
-        HStack {
-            MacSTButton(title: Lz("Add Address"), systemImage: "plus") { addNewAddress() }
-                .disabled(!canAddNewAddress)
-            Spacer()
-            MacSTButton(title: Lz("Done"), prominent: true, action: onDone)
-        }
-        .padding(.horizontal, 18)
-        .frame(height: 56)
-        .overlay(alignment: .top) {
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        MacSheetFooter {
+            Button { addNewAddress() } label: {
+                Label(PMLocalizedOrVerbatim(Lz("Add Address")), systemImage: "plus")
+            }
+            .buttonStyle(.macSheet)
+            .disabled(!canAddNewAddress)
+        } trailing: {
+            Button(PMLocalizedOrVerbatim(Lz("Done")), action: onDone)
+                .buttonStyle(.macSheetPrimary)
+                .keyboardShortcut(.defaultAction)
         }
     }
 
@@ -5315,34 +5291,14 @@ private struct MacScraperImportSheet: View {
         .background(PMColor.bg)
     }
 
+    /// 和其他 Mac 弹框同一种标题行; Esc 留给底栏的「取消」。
     private var header: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-                    .frame(width: 34, height: 34)
-                    .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: Lz("Add Custom Scraper Source"))
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                    Text(verbatim: "ConfigurableScraper")
-                        .font(PMFont.caption)
-                        .foregroundStyle(PMColor.textMuted)
-                }
-                Spacer()
-                Button(action: onCancel) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(PMColor.textMuted)
-                        .frame(width: 26, height: 26)
-                        .background(PMColor.glassBtn, in: .circle)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
+        MacSheetHeader(
+            Text(verbatim: Lz("Add Custom Scraper Source")),
+            subtitle: Text(verbatim: "ConfigurableScraper"),
+            systemImage: "square.and.arrow.down"
+        ) {
+            MacSheetCloseButton(handlesEscape: false, action: onCancel)
         }
     }
 
@@ -5544,29 +5500,33 @@ private struct MacScraperImportSheet: View {
         .padding(.bottom, 12)
     }
 
+    /// 和其他 Mac 弹框同一种底栏和按钮(28 高), 不是设置页那种 24 高的小按钮。
     private var footer: some View {
-        HStack {
+        MacSheetFooter {
             if summary != nil {
-                MacSTButton(title: String(localized: "edit"), systemImage: "pencil") {
+                Button {
                     summary = nil
                     automaticallyUpdates = false
+                } label: {
+                    Label(String(localized: "edit"), systemImage: "pencil")
                 }
+                .buttonStyle(.macSheet)
             } else {
-                MacSTButton(title: String(localized: "scraper_import_file_button"),
-                            systemImage: "folder", action: onChooseFile)
+                Button(action: onChooseFile) {
+                    Label(String(localized: "scraper_import_file_button"), systemImage: "folder")
+                }
+                .buttonStyle(.macSheet)
             }
-            Spacer()
+        } trailing: {
             if isLoading { ProgressView().controlSize(.small) }
-            MacSTButton(title: Lz("Cancel"), action: onCancel)
-            MacSTButton(title: summary != nil ? String(localized: "scraper_confirm_import")
-                        : isRemoteURL ? String(localized: "scraper_review_action") : Lz("Add and Enable"),
-                        prominent: true, action: onImport)
+            Button(PMLocalizedOrVerbatim(Lz("Cancel")), action: onCancel)
+                .buttonStyle(.macSheet)
+                .keyboardShortcut(.cancelAction)
+            Button(PMLocalizedOrVerbatim(summary != nil ? String(localized: "scraper_confirm_import")
+                        : isRemoteURL ? String(localized: "scraper_review_action") : Lz("Add and Enable")),
+                   action: onImport)
+                .buttonStyle(.macSheetPrimary)
                 .disabled(isLoading || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-        .padding(.horizontal, 18)
-        .frame(height: 64)
-        .overlay(alignment: .top) {
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
         }
     }
 }
@@ -6395,9 +6355,7 @@ private struct MacSTLyricsView: View {
             await languageCatalog.refresh()
         }
         .sheet(isPresented: $showTranscriptionSettings) {
-            NavigationStack {
-                GoogleLyricsTranscriptionSettingsView()
-            }
+            GoogleLyricsTranscriptionSettingsView(presentedAsSheet: true)
         }
     }
 
@@ -8910,42 +8868,37 @@ private struct MacAIRecommendationIntentDetailSheet: View {
     let details: AIRecommendationIntentDetails
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(verbatim: details.title)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(PMColor.text)
-                Spacer()
-                MacSTButton(title: String(localized: "done")) { dismiss() }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("ai_recommendation_intent_description_label")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(PMColor.textMuted)
-                Text(verbatim: details.detail)
-                    .font(.system(size: 13))
-                    .foregroundStyle(PMColor.text)
-                    .textSelection(.enabled)
-            }
-
-            if let prompt = details.prompt {
+        // 和其他 Mac 弹框同一种标题行(右上角关闭), 不是一行 18 号粗体配设置页的小按钮。
+        VStack(alignment: .leading, spacing: 0) {
+            MacSheetHeader(Text(verbatim: details.title), systemImage: "sparkles", onClose: { dismiss() })
+            VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("ai_recommendation_intent_prompt_label")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(PMColor.textMuted)
-                    Text(verbatim: prompt)
-                        .font(.system(size: 12, design: .monospaced))
+                    MacSheetFieldLabel("ai_recommendation_intent_description_label")
+                    Text(verbatim: details.detail)
+                        .font(.system(size: 13))
                         .foregroundStyle(PMColor.text)
                         .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(12)
-                .background(PMColor.bg, in: RoundedRectangle(cornerRadius: 8))
+
+                if let prompt = details.prompt {
+                    VStack(alignment: .leading, spacing: 6) {
+                        MacSheetFieldLabel("ai_recommendation_intent_prompt_label")
+                        Text(verbatim: prompt)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(PMColor.text)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(PMColor.bgElev, in: RoundedRectangle(cornerRadius: 8))
+                }
             }
+            .padding(MacSheetMetrics.horizontalPadding)
         }
-        .padding(22)
         .frame(width: 520)
-        .background(PMColor.bgElev)
+        .background(PMColor.bg)
     }
 }
 
@@ -9269,44 +9222,57 @@ private struct MacAppIconFinderSetupSheet: View {
     @State private var exportError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 12) {
+        // 和其他 Mac 弹框同一种标题行、按钮和底栏(不是系统默认的蓝色按钮)。
+        VStack(alignment: .leading, spacing: 0) {
+            MacSheetHeader(
+                Text("app_icon_finder_setup_title"),
+                subtitle: Text(LocalizedStringKey(icon.nameKey)),
+                onClose: { dismiss() }
+            ) {
                 if let image = MacAppIcon.dockIconImage(for: icon) {
                     Image(nsImage: image)
                         .resizable()
                         .interpolation(.high)
-                        .frame(width: 64, height: 64)
+                        .frame(width: 40, height: 40)
                         .accessibilityHidden(true)
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("app_icon_finder_setup_title")
-                        .font(.headline)
-                    Text(LocalizedStringKey(icon.nameKey))
-                        .foregroundStyle(.secondary)
-                }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("app_icon_finder_step_export")
-                Button("app_icon_export", action: exportIcon)
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("app_icon_finder_step_select")
-                Button("app_icon_reveal_application") {
-                    NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("app_icon_finder_step_export")
+                        .font(.system(size: 13))
+                        .foregroundStyle(PMColor.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("app_icon_export", action: exportIcon)
+                        .buttonStyle(.macSheet)
                 }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("app_icon_finder_step_select")
+                        .font(.system(size: 13))
+                        .foregroundStyle(PMColor.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("app_icon_reveal_application") {
+                        NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
+                    }
+                    .buttonStyle(.macSheet)
+                }
+                Text("app_icon_finder_step_apply")
+                    .font(.system(size: 13))
+                    .foregroundStyle(PMColor.text)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Text("app_icon_finder_step_apply")
+            .padding(MacSheetMetrics.horizontalPadding)
 
-            HStack {
-                Spacer()
+            MacSheetFooter {
                 Button("done") { dismiss() }
+                    .buttonStyle(.macSheetPrimary)
                     .keyboardShortcut(.defaultAction)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
-        .padding(24)
         .frame(width: 480)
+        .background(PMColor.bg)
         .onExitCommand { dismiss() }
         .alert("app_icon_export_failed_title", isPresented: Binding(
             get: { exportError != nil },
@@ -9865,40 +9831,18 @@ private struct MacSTSSLView: View {
 
     private var addDomainSheet: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: "lock.shield")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(PMColor.brand)
-                    .frame(width: 34, height: 34)
-                    .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: Lz("Add Trusted Domain"))
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                    Text(verbatim: PMTextWithoutDesignCodes(Lz("ST-10 · Accept any certificate this domain presents")))
-                        .font(PMFont.caption)
-                        .foregroundStyle(PMColor.textMuted)
-                }
-                Spacer()
-            }
-            .padding(18)
-
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            // 和其他 Mac 弹框同一种标题行、输入框和底栏。
+            MacSheetHeader(
+                Text(verbatim: Lz("Add Trusted Domain")),
+                subtitle: Text(verbatim: PMTextWithoutDesignCodes(Lz("ST-10 · Accept any certificate this domain presents"))),
+                systemImage: "lock.shield"
+            )
 
             VStack(alignment: .leading, spacing: 10) {
-                Text(verbatim: Lz("Domain"))
-                    .font(PMFont.bodyM)
-                    .foregroundStyle(PMColor.text)
-                TextField("music.example.local", text: $newDomain)
-                    .textFieldStyle(.plain)
-                    .font(PMFont.bodyS)
-                    .padding(.horizontal, 10)
-                    .frame(height: 30)
-                    .background(PMColor.bgElev, in: .rect(cornerRadius: 6))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                    }
+                MacSheetFieldLabel(verbatim: Lz("Domain"))
+                TextField("", text: $newDomain, prompt: Text(verbatim: "music.example.local"))
+                    .labelsHidden()
+                    .macSheetField()
                     .onSubmit { commitAdd() }
                 Text(verbatim: Lz("Enter only the host — no need to include https:// or a path."))
                     .font(PMFont.caption)
@@ -9913,24 +9857,24 @@ private struct MacSTSSLView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(18)
+            .padding(MacSheetMetrics.horizontalPadding)
 
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
-            HStack {
-                Spacer()
-                MacSTButton(title: Lz("Cancel")) {
+            MacSheetFooter {
+                Button(PMLocalizedOrVerbatim(Lz("Cancel"))) {
                     showAddSheet = false
                     newDomain = ""
                 }
-                MacSTButton(title: Lz("Add"), prominent: true) {
+                .buttonStyle(.macSheet)
+                .keyboardShortcut(.cancelAction)
+                Button(PMLocalizedOrVerbatim(Lz("Add"))) {
                     commitAdd()
                 }
+                .buttonStyle(.macSheetPrimary)
                 .disabled(newDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .keyboardShortcut(.defaultAction)
             }
-            .padding(18)
         }
-        .frame(width: 400)
+        .frame(width: 420)
         .background(PMColor.bg)
     }
 
@@ -10304,51 +10248,26 @@ private struct MacLicensesPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: selected?.name ?? Lz("Open-Source Licenses"))
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                    Text(verbatim: selected == nil ? Lz("Open-source components used by Primuse") : String(format: Lz("%@ · Full license text"), selected?.license ?? ""))
-                        .font(.system(size: 11))
-                        .foregroundStyle(PMColor.textMuted)
-                }
-                Spacer()
+            // 和其他 Mac 弹框同一种标题行: 看某一份许可证全文时左上角返回, 右上角关闭。
+            MacSheetHeader(
+                Text(verbatim: selected?.name ?? Lz("Open-Source Licenses")),
+                subtitle: Text(verbatim: selected == nil ? Lz("Open-source components used by Primuse") : String(format: Lz("%@ · Full license text"), selected?.license ?? "")),
+                systemImage: selected == nil ? "doc.text" : nil,
+                onBack: selected == nil ? nil : { selected = nil },
+                onClose: onClose
+            ) {
                 Link(destination: IssueFeedbackLink.repositoryURL) {
                     Image(systemName: "chevron.left.forwardslash.chevron.right")
-                        .frame(width: 26, height: 26)
-                }
-                .help(Text("github_repository"))
-                .accessibilityLabel(Text("github_repository"))
-                .accessibilityIdentifier("about.repository")
-                if selected != nil {
-                    Button {
-                        selected = nil
-                    } label: {
-                        Image(systemName: "chevron.backward")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(PMColor.textMuted)
-                            .frame(width: 26, height: 26)
-                            .background(PMColor.glassBtn, in: .circle)
-                    }
-                    .buttonStyle(.plain)
-                    .help(Text("back_to_options"))
-                    .accessibilityLabel(Text("back_to_options"))
-                    .accessibilityIdentifier("licensesInlineBack")
-                }
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 10.5, weight: .semibold))
                         .foregroundStyle(PMColor.textMuted)
                         .frame(width: 26, height: 26)
                         .background(PMColor.glassBtn, in: .circle)
                 }
                 .buttonStyle(.plain)
+                .help(Text("github_repository"))
+                .accessibilityLabel(Text("github_repository"))
+                .accessibilityIdentifier("about.repository")
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             if let selected {
                 ScrollView(.vertical, showsIndicators: false) {
@@ -10649,15 +10568,7 @@ private struct MacDiagnosticsWindowView: View {
         }
         .background(PMColor.bg)
         .sheet(isPresented: $showReportManager, onDismiss: refreshDiagnosticReportURLs) {
-            NavigationStack {
-                DiagnosticReportsView(service: AppServices.shared.crashDiagnostics)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("done") { showReportManager = false }
-                        }
-                    }
-            }
-            .frame(minWidth: 520, minHeight: 560)
+            DiagnosticReportsView(service: AppServices.shared.crashDiagnostics, showsDoneButton: true)
         }
         .alert(
             uploadedCode != nil ? String(localized: "diagnostics_cleanup_failed")
@@ -11173,13 +11084,9 @@ private struct MacSTAboutView: View {
             }
         }
         .sheet(isPresented: $showsHiddenAppIcons) {
-            VStack(spacing: 24) {
-                HStack {
-                    Text("app_icon").font(.title2.bold())
-                    Spacer()
-                    Button("done") { showsHiddenAppIcons = false }
-                        .keyboardShortcut(.cancelAction)
-                }
+            // 和其他 Mac 弹框同一种标题行(右上角关闭), 不是一行大号粗体配系统按钮。
+            VStack(spacing: 0) {
+                MacSheetHeader(Text("app_icon"), systemImage: "app.badge", onClose: { showsHiddenAppIcons = false })
                 HStack(spacing: 24) {
                     ForEach([MacAppIcon.hidden, MacAppIcon.all[0]]) { icon in
                         MacAppIconCell(icon: icon, selected: MacUIPreferences.shared.appIconID == icon.id) {
@@ -11187,9 +11094,11 @@ private struct MacSTAboutView: View {
                         }
                     }
                 }
+                .padding(24)
+                .frame(maxWidth: .infinity)
             }
-            .padding(28)
-            .frame(width: 360)
+            .background(PMColor.bg)
+            .frame(width: 380)
         }
         .onDisappear { iconEasterEgg = AppIconEasterEggTrigger() }
     }
@@ -11333,10 +11242,7 @@ private struct MacDislikedSongsSettings: View {
             }
         }
         .sheet(isPresented: $showsList) {
-            NavigationStack {
-                DislikedSongsView(showsDoneButton: true)
-            }
-            .frame(minWidth: 520, minHeight: 480)
+            DislikedSongsView(showsDoneButton: true)
         }
     }
 }

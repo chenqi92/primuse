@@ -142,13 +142,13 @@ private struct PodcastNavigationDestinations: ViewModifier {
             .sheet(isPresented: $navigation.showsDiscover) {
                 NavigationStack { PodcastDiscoverView() }
                 #if os(macOS)
-                    .frame(minWidth: 560, minHeight: 640)
+                    .frame(minWidth: 600, idealWidth: 680, minHeight: 600, idealHeight: 700)
                 #endif
             }
             .sheet(isPresented: $navigation.showsAddFeed) {
                 NavigationStack { PodcastAddFeedView() }
                 #if os(macOS)
-                    .frame(minWidth: 460, minHeight: 360)
+                    .frame(minWidth: 480, idealWidth: 520, minHeight: 360, idealHeight: 420)
                 #endif
             }
             .sheet(isPresented: $navigation.showsSettings) {

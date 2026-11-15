@@ -34,17 +34,37 @@ struct PodcastDiscoverView: View {
             }
             .padding(.vertical, 12)
         }
+        #if os(macOS)
+        // Mac 弹框: 搜索框放进标题行, 右上角关闭(不用系统标题栏角上的搜索框和底部的系统「完成」)。
+        .safeAreaInset(edge: .top, spacing: 0) {
+            MacSheetHeader(
+                Text("podcast_discover"),
+                systemImage: "magnifyingglass",
+                tint: tint,
+                onClose: { dismiss() }
+            ) {
+                MacSheetSearchField(text: $search.query, prompt: Text("podcast_search_prompt"), tint: tint)
+                    .frame(width: 240)
+            }
+            .background(PMColor.bg)
+        }
+        .background(PMColor.bg)
+        .tint(tint)
+        #else
         .navigationTitle("podcast_discover")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .searchable(text: $search.query, prompt: Text("podcast_search_prompt"))
+        #endif
         .task(id: trimmedQuery) { await search.run() }
+        #if !os(macOS)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("done") { dismiss() }
             }
         }
+        #endif
         .navigationDestination(item: $selectedShow) { show in
             PodcastShowDetailView(source: .directory(show))
         }
@@ -71,6 +91,16 @@ struct PodcastDiscoverView: View {
         Button {
             pmWithAnimation(.selection) { action() }
         } label: {
+            #if os(macOS)
+            // 和弹框里其他控件同一档高度(28)、同一种浅底。
+            title
+                .font(.system(size: 12, weight: selected ? .semibold : .medium))
+                .foregroundStyle(selected ? Color.white : PMColor.text)
+                .padding(.horizontal, 12)
+                .frame(height: MacSheetMetrics.controlHeight)
+                .background(selected ? AnyShapeStyle(tint) : AnyShapeStyle(PMColor.glassBtn), in: Capsule())
+                .contentShape(Capsule())
+            #else
             title
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(selected ? .white : .primary)
@@ -78,6 +108,7 @@ struct PodcastDiscoverView: View {
                 .padding(.vertical, 7)
                 .background(selected ? AnyShapeStyle(tint) : AnyShapeStyle(.quaternary.opacity(0.7)), in: Capsule())
                 .contentShape(Capsule())
+            #endif
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -393,6 +424,23 @@ struct PodcastAddFeedView: View {
     var body: some View {
         Form {
             Section {
+                #if os(macOS)
+                // Mac 表单里输入框的标题会变成左边的标签; 只留提示字, 和弹框里其他输入框同一种底。
+                // 提示字是一个网址; 按本地化键写会被当成链接染色, 看着像已经填好了。
+                TextField(
+                    "",
+                    text: $text,
+                    prompt: Text(verbatim: String(localized: "podcast_feed_url_placeholder")),
+                    axis: .vertical
+                )
+                    .labelsHidden()
+                    .lineLimit(1...4)
+                    .macSheetField(isFocused: focused)
+                    .autocorrectionDisabled()
+                    .focused($focused)
+                    .onSubmit(check)
+                    .accessibilityIdentifier("podcast.addFeed.field")
+                #else
                 TextField("podcast_feed_url_placeholder", text: $text, axis: .vertical)
                     #if os(iOS)
                     .textContentType(.URL)
@@ -403,6 +451,7 @@ struct PodcastAddFeedView: View {
                     .focused($focused)
                     .onSubmit(check)
                     .accessibilityIdentifier("podcast.addFeed.field")
+                #endif
             } footer: {
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(.red)
@@ -410,6 +459,7 @@ struct PodcastAddFeedView: View {
                     Text("podcast_feed_url_footer")
                 }
             }
+            #if !os(macOS)
             Section {
                 Button {
                     check()
@@ -422,17 +472,43 @@ struct PodcastAddFeedView: View {
                 }
                 .disabled(MediaImportText.cleaned(text).isEmpty || isChecking)
             }
+            #endif
             if !importEntries.isEmpty {
                 Section {
                     ForEach(importEntries, id: \.feedURL) { entry in
                         Text(entry.title ?? entry.feedURL.absoluteString)
                     }
+                    #if !os(macOS)
                     Button("podcast_subscribe") { subscribeImportedEntries() }
                         .disabled(isChecking)
+                    #endif
                 }
             }
         }
         .formStyle(.grouped)
+        #if os(macOS)
+        // Mac 弹框: 标题行 + 底栏; 「查找节目」/ 导入清单时的「订阅」放在底栏右边。
+        .macFormSheet(title: Text("podcast_add_by_url"), systemImage: "link") {
+            if isChecking {
+                ProgressView().controlSize(.small)
+            }
+        } trailing: {
+            Button("cancel") { dismiss() }
+                .buttonStyle(.macSheet)
+                .keyboardShortcut(.cancelAction)
+            if importEntries.isEmpty {
+                Button("podcast_feed_url_continue", action: check)
+                    .buttonStyle(.macSheetPrimary(tint: ListeningSpace.podcast.tint))
+                    .disabled(MediaImportText.cleaned(text).isEmpty || isChecking)
+                    .keyboardShortcut(.defaultAction)
+            } else {
+                Button("podcast_subscribe") { subscribeImportedEntries() }
+                    .buttonStyle(.macSheetPrimary(tint: ListeningSpace.podcast.tint))
+                    .disabled(isChecking)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        #else
         .navigationTitle("podcast_add_by_url")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -442,6 +518,7 @@ struct PodcastAddFeedView: View {
                 Button("cancel") { dismiss() }
             }
         }
+        #endif
         .onAppear {
             if text.isEmpty { text = initialText }
             focused = text.isEmpty

@@ -32,9 +32,15 @@ struct DiagnosticReportsView: View {
     /// 诊断模式开到什么时候;nil 表示没开。开关在这一页,到期由日志模块自己收。
     @State private var diagnosticModeExpiry: Date?
     private let service: CrashDiagnosticsService
+    /// Mac 设置窗口以弹框打开时为真:自己画标题行和关闭键(不用系统标题栏和底部系统按钮)。
+    private let showsDoneButton: Bool
+    #if os(macOS)
+    @Environment(\.dismiss) private var dismiss
+    #endif
 
-    init(service: CrashDiagnosticsService) {
+    init(service: CrashDiagnosticsService, showsDoneButton: Bool = false) {
         self.service = service
+        self.showsDoneButton = showsDoneButton
     }
 
     var body: some View {
@@ -61,7 +67,18 @@ struct DiagnosticReportsView: View {
             )
         }
         #else
-        reportsList
+        if showsDoneButton {
+            // 和其他 Mac 弹框同一种标题行, 右上角关闭; 「清空」在列表里。
+            reportsList
+                .macSheetPage(
+                    title: Text(String(localized: "diagnostics_title")),
+                    systemImage: "stethoscope",
+                    onClose: { dismiss() }
+                )
+                .frame(minWidth: 520, idealWidth: 560, minHeight: 540, idealHeight: 620)
+        } else {
+            reportsList
+        }
         #endif
     }
 
@@ -89,7 +106,9 @@ struct DiagnosticReportsView: View {
                 standardToolbar
             }
             #else
-            standardToolbar
+            if !showsDoneButton {
+                standardToolbar
+            }
             #endif
         }
         .task { reload() }
@@ -154,7 +173,14 @@ struct DiagnosticReportsView: View {
                         Spacer()
                         Image(systemName: "square.and.arrow.up").foregroundStyle(.secondary)
                     }
+                    #if os(macOS)
+                    .contentShape(Rectangle())
+                    #endif
                 }
+                #if os(macOS)
+                // Mac 列表里的按钮默认是一颗带边框的按键, 整行会被撑成一颗长按钮; 这里是整行点。
+                .buttonStyle(.plain)
+                #endif
                 .contextMenu {
                     Button("delete", role: .destructive) { reportToDelete = report }
                 }

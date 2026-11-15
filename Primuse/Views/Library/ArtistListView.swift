@@ -205,13 +205,7 @@ struct ArtistListView: View {
         }
         .sheet(isPresented: $showsMerge) { ArtistMergeView() }
         .sheet(isPresented: $showsMergeSuggestions) {
-            NavigationStack {
-                ArtistMergeSuggestionsView()
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("done") { showsMergeSuggestions = false } } }
-            }
-            #if os(macOS)
-            .frame(minWidth: 480, minHeight: 420)
-            #endif
+            ArtistMergeSuggestionsSheet { showsMergeSuggestions = false }
         }
     }
 

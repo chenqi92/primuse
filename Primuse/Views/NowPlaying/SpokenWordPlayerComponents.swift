@@ -1581,7 +1581,7 @@ struct SpokenWordTranscriptReader: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             #else
-            .frame(minWidth: 440, minHeight: 600)
+            .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 680)
             #endif
         }
         .sheet(isPresented: $showsContents) {
@@ -3198,6 +3198,15 @@ struct SpokenWordTranscriptTypographyPanel: View {
                     #endif
                 }
             }
+            #if os(macOS)
+            // Mac 弹框: 标题行 + 分组表单 + 底栏「完成」; 原来是两栏式表单, 「完成」叠在内容上。
+            .formStyle(.grouped)
+            .macFormSheet(title: Text("transcript_reader_themes_settings"), systemImage: "textformat") {
+                Button("done") { dismiss() }
+                    .buttonStyle(.macSheetPrimary)
+                    .keyboardShortcut(.defaultAction)
+            }
+            #else
             .navigationTitle("transcript_reader_themes_settings")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -3207,6 +3216,7 @@ struct SpokenWordTranscriptTypographyPanel: View {
                     Button("done") { dismiss() }
                 }
             }
+            #endif
         }
     }
 

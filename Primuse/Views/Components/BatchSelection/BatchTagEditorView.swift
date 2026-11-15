@@ -124,6 +124,18 @@ struct BatchTagEditorView: View {
                 }
             }
             .formStyle(.grouped)
+            #if os(macOS)
+            // Mac 弹框: 标题行 + 底栏「取消 / 检查」; 推进去的检查页自己画返回键。
+            .macFormSheet(title: Text("batch_edit_title"), systemImage: "square.and.pencil") {
+                Button("cancel") { dismiss() }
+                    .buttonStyle(.macSheet)
+                    .keyboardShortcut(.cancelAction)
+                Button("batch_edit_review") { review = makeReview() }
+                    .buttonStyle(.macSheetPrimary)
+                    .disabled(!hasAnyChange || isLoadingCover)
+                    .keyboardShortcut(.defaultAction)
+            }
+            #else
             .navigationTitle("batch_edit_title")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -137,6 +149,7 @@ struct BatchTagEditorView: View {
                         .disabled(!hasAnyChange || isLoadingCover)
                 }
             }
+            #endif
             .navigationDestination(item: $review) { input in
                 TagChangeReviewView(input: input) {
                     onFinished()
@@ -157,7 +170,8 @@ struct BatchTagEditorView: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 460, minHeight: 560)
+        .environment(\.macSheetDismiss, dismiss)
+        .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 640)
         #endif
     }
 
@@ -187,6 +201,16 @@ struct BatchTagEditorView: View {
                 }
             }
             if enabled.contains(field) {
+                #if os(macOS)
+                // 表单里的输入框在 Mac 上会把标题当成左边的标签; 这里只要提示字, 和弹框里其他输入框同一种底。
+                SwiftUI.TextField(
+                    "",
+                    text: Binding(get: { values[field] ?? "" }, set: { values[field] = $0 }),
+                    prompt: Text(LocalizedStringKey(field == .title ? "tag_editor_title" : "batch_edit_empty_clears"))
+                )
+                .labelsHidden()
+                .macSheetField()
+                #else
                 SwiftUI.TextField(
                     field == .title ? String(localized: "tag_editor_title") : String(localized: "batch_edit_empty_clears"),
                     text: Binding(get: { values[field] ?? "" }, set: { values[field] = $0 })
@@ -194,6 +218,7 @@ struct BatchTagEditorView: View {
                 .textFieldStyle(.roundedBorder)
                 #if os(iOS)
                 .keyboardType(field.isNumeric ? .numberPad : .default)
+                #endif
                 #endif
             }
         }
@@ -347,6 +372,7 @@ struct TagTidyView: View {
 
                 Section {
                     NavigationLink("artist_merge_suggestions") { ArtistMergeSuggestionsView() }
+                        .accessibilityIdentifier("tagTidy.artistMergeSuggestions")
                 }
 
                 Section {
@@ -417,6 +443,21 @@ struct TagTidyView: View {
                 }
             }
             .formStyle(.grouped)
+            #if os(macOS)
+            // Mac 弹框: 标题行 + 底栏「取消 / 检查」; 推进去的检查页、艺人合并建议页自己画返回键。
+            .macFormSheet(title: Text("tag_tidy_title"), systemImage: "wand.and.stars") {
+                Button("cancel") {
+                    aiTask?.cancel()
+                    dismiss()
+                }
+                .buttonStyle(.macSheet)
+                .keyboardShortcut(.cancelAction)
+                Button("batch_edit_review", action: openReview)
+                    .buttonStyle(.macSheetPrimary)
+                    .disabled(localProposals.isEmpty && aiProposals.isEmpty || aiTask != nil)
+                    .keyboardShortcut(.defaultAction)
+            }
+            #else
             .navigationTitle("tag_tidy_title")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -429,24 +470,11 @@ struct TagTidyView: View {
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("batch_edit_review") {
-                        // An exact decoding of garbled text beats a guess;
-                        // otherwise the AI service, which saw the whole
-                        // list, wins and the rules fill in what it left.
-                        let proposals = TagCleanupPolicy.reviewProposals(ai: aiProposals, local: localProposals)
-                        let changedIDs = Set(proposals.map(\.songID))
-                        review = TagChangeReviewInput(
-                            // Only the songs with something to review: the
-                            // review list is grouped per song it is given.
-                            songs: songs.filter { changedIDs.contains($0.id) },
-                            proposals: proposals,
-                            coverData: nil,
-                            showsReasons: true
-                        )
-                    }
-                    .disabled(localProposals.isEmpty && aiProposals.isEmpty || aiTask != nil)
+                    Button("batch_edit_review", action: openReview)
+                        .disabled(localProposals.isEmpty && aiProposals.isEmpty || aiTask != nil)
                 }
             }
+            #endif
             .navigationDestination(item: $review) { input in
                 TagChangeReviewView(input: input) {
                     onFinished()
@@ -478,8 +506,25 @@ struct TagTidyView: View {
             .builtInAIConsentSheet($builtInConsent)
         }
         #if os(macOS)
-        .frame(minWidth: 460, minHeight: 420)
+        .environment(\.macSheetDismiss, dismiss)
+        .frame(minWidth: 480, idealWidth: 520, minHeight: 480, idealHeight: 560)
         #endif
+    }
+
+    private func openReview() {
+        // An exact decoding of garbled text beats a guess;
+        // otherwise the AI service, which saw the whole
+        // list, wins and the rules fill in what it left.
+        let proposals = TagCleanupPolicy.reviewProposals(ai: aiProposals, local: localProposals)
+        let changedIDs = Set(proposals.map(\.songID))
+        review = TagChangeReviewInput(
+            // Only the songs with something to review: the
+            // review list is grouped per song it is given.
+            songs: songs.filter { changedIDs.contains($0.id) },
+            proposals: proposals,
+            coverData: nil,
+            showsReasons: true
+        )
     }
 
     private func allowRemoteConsentAndStartAI() {
@@ -563,6 +608,10 @@ struct TagChangeReviewView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(SourceManager.self) private var sourceManager
     @Environment(AudioPlayerService.self) private var player
+    #if os(macOS)
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.macSheetDismiss) private var sheetDismiss
+    #endif
 
     @State private var excluded: Set<String> = []
     @State private var appliesCover = true
@@ -600,6 +649,27 @@ struct TagChangeReviewView: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        Group {
+            if let outcome {
+                resultView(outcome)
+            } else {
+                reviewList
+            }
+        }
+        // Mac 弹框里的一页: 标题行(返回 / 关闭) → 列表 → 底栏(选了几项、应用 / 完成)。
+        // 写入时不能退也不能关; 写完只留「完成」, 让外层收尾。
+        .macFormSheet(
+            title: Text(LocalizedStringKey(outcome == nil ? "tag_review_title" : "tag_review_done_title")),
+            onBack: progress == nil && outcome == nil ? { dismiss() } : nil,
+            onClose: progress == nil && outcome == nil ? sheetDismiss.macCloseAction : nil
+        ) {
+            macFooterLeading
+        } trailing: {
+            macFooterTrailing
+        }
+        .interactiveDismissDisabled(progress != nil)
+        #else
         Group {
             if let outcome {
                 resultView(outcome)
@@ -615,11 +685,65 @@ struct TagChangeReviewView: View {
         #endif
         .navigationBarBackButtonHidden(progress != nil || outcome != nil)
         .interactiveDismissDisabled(progress != nil)
+        #endif
     }
 
+    #if os(macOS)
+    @ViewBuilder
+    private var macFooterLeading: some View {
+        if let progress {
+            ProgressView(value: Double(progress.done), total: Double(max(1, progress.total)))
+                .frame(width: 140)
+            Text(String(
+                format: String(localized: "tag_review_progress_format"),
+                progress.done,
+                progress.total
+            ))
+            .font(.system(size: 11.5).monospacedDigit())
+            .foregroundStyle(PMColor.textMuted)
+        } else if outcome == nil {
+            Text(String(format: String(localized: "tag_review_selected_format"), selectedCount))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(PMColor.text)
+            if !input.proposals.isEmpty {
+                Button {
+                    excluded = excluded.isEmpty ? Set(input.proposals.map(\.id)) : []
+                } label: {
+                    if excluded.isEmpty {
+                        Text("tag_review_select_none")
+                    } else {
+                        Text("tag_review_select_all")
+                    }
+                }
+                .buttonStyle(.macSheetText())
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var macFooterTrailing: some View {
+        if outcome != nil {
+            Button("done") { onFinished() }
+                .buttonStyle(.macSheetPrimary)
+                .disabled(progress != nil)
+                .keyboardShortcut(.defaultAction)
+        } else {
+            Button {
+                Task { await apply() }
+            } label: {
+                Text(String(format: String(localized: "tag_review_apply_format"), selectedCount))
+            }
+            .buttonStyle(.macSheetPrimary)
+            .disabled(selectedCount == 0 || progress != nil)
+            .keyboardShortcut(.defaultAction)
+        }
+    }
+    #endif
+
     private var reviewList: some View {
-        List {
+        reviewContainer {
             Section {
+                #if !os(macOS)
                 HStack {
                     Text(String(format: String(localized: "tag_review_selected_format"), selectedCount))
                         .font(.subheadline.weight(.semibold))
@@ -637,6 +761,7 @@ struct TagChangeReviewView: View {
                         .font(.subheadline)
                     }
                 }
+                #endif
                 // One row, so an empty note leaves no blank row behind.
                 VStack(alignment: .leading, spacing: 6) {
                     Text("tag_review_footer")
@@ -682,9 +807,21 @@ struct TagChangeReviewView: View {
                 }
             }
         }
+        #if !os(macOS)
         .safeAreaInset(edge: .bottom) {
             applyBar
         }
+        #endif
+    }
+
+    /// iPhone 是列表; Mac 弹框里换成分组表单, 和前一页(批量编辑、整理)同一种分组底, 「应用」在底栏。
+    @ViewBuilder
+    private func reviewContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        #if os(macOS)
+        Form { content() }
+        #else
+        List { content() }
+        #endif
     }
 
     private var applyBar: some View {
@@ -754,7 +891,7 @@ struct TagChangeReviewView: View {
 
     @ViewBuilder
     private func resultView(_ outcome: BatchTagEditService.Outcome) -> some View {
-        List {
+        reviewContainer {
             Section {
                 Label(
                     String(format: String(localized: "tag_review_applied_format"), outcome.applied.count),
@@ -810,18 +947,22 @@ struct TagChangeReviewView: View {
                     Text("tag_review_undo_footer")
                 }
             }
+            #if !os(macOS)
             if let progress {
                 Section {
                     ProgressView(value: Double(progress.done), total: Double(max(1, progress.total)))
                 }
             }
+            #endif
         }
+        #if !os(macOS)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("done") { onFinished() }
                     .disabled(progress != nil)
             }
         }
+        #endif
     }
 
     private func apply() async {
@@ -1167,8 +1308,27 @@ struct PendingTagWritebackView: View {
     private var store: PendingTagWritebackStore { .shared }
 
     var body: some View {
+        #if os(macOS)
+        if showsDoneButton {
+            // Mac 设置里弹出的那一张: 和其他弹框同一种标题行, 右上角关闭(不是系统蓝的「完成」)。
+            list
+                .macSheetPage(
+                    title: Text("pending_writeback_title"),
+                    systemImage: "square.and.arrow.down.on.square",
+                    onClose: { dismiss() }
+                )
+                .frame(minWidth: 520, idealWidth: 600, minHeight: 440, idealHeight: 540)
+        } else {
+            list
+        }
+        #else
+        list
+        #endif
+    }
+
+    private var list: some View {
         let writes = store.localOnlyWrites(in: library)
-        List {
+        return List {
             BatchWritebackIssuesSection(
                 entries: writes,
                 rewrittenCount: store.rewrittenCount,
@@ -1207,7 +1367,6 @@ struct PendingTagWritebackView: View {
         .navigationTitle("pending_writeback_title")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .toolbar {
             if showsDoneButton {
                 ToolbarItem(placement: .confirmationAction) {
@@ -1215,6 +1374,7 @@ struct PendingTagWritebackView: View {
                 }
             }
         }
+        #endif
         // Drops what no longer needs writing (an undo, a song removed).
         .task { store.dropFinished() }
     }

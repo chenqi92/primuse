@@ -23,6 +23,7 @@ struct MacSheetHeader<Accessory: View>: View {
     private let subtitle: Text?
     private let systemImage: String?
     private let tint: Color?
+    private let onBack: (() -> Void)?
     private let onClose: (() -> Void)?
     private let accessory: Accessory
 
@@ -31,6 +32,7 @@ struct MacSheetHeader<Accessory: View>: View {
         subtitle: Text? = nil,
         systemImage: String? = nil,
         tint: Color? = nil,
+        onBack: (() -> Void)? = nil,
         onClose: (() -> Void)? = nil,
         @ViewBuilder accessory: () -> Accessory
     ) {
@@ -38,12 +40,16 @@ struct MacSheetHeader<Accessory: View>: View {
         self.subtitle = subtitle
         self.systemImage = systemImage
         self.tint = tint
+        self.onBack = onBack
         self.onClose = onClose
         self.accessory = accessory()
     }
 
     var body: some View {
         HStack(spacing: 12) {
+            if let onBack {
+                MacSheetBackButton(action: onBack)
+            }
             if let systemImage {
                 let tint = tint ?? PMColor.brand
                 Image(systemName: systemImage)
@@ -87,11 +93,46 @@ extension MacSheetHeader where Accessory == EmptyView {
         subtitle: Text? = nil,
         systemImage: String? = nil,
         tint: Color? = nil,
+        onBack: (() -> Void)? = nil,
         onClose: (() -> Void)? = nil
     ) {
-        self.init(title, subtitle: subtitle, systemImage: systemImage, tint: tint, onClose: onClose) {
+        self.init(title, subtitle: subtitle, systemImage: systemImage, tint: tint, onBack: onBack, onClose: onClose) {
             EmptyView()
         }
+    }
+}
+
+/// 弹框里推进去的那一页, 标题行最左边的圆形返回键(和右上角的关闭键一个样子)。⌘[ 也走它。
+struct MacSheetBackButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "chevron.backward")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(PMColor.textMuted)
+                .frame(width: 26, height: 26)
+                .background(PMColor.glassBtn, in: .circle)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("[", modifiers: .command)
+        .help(Text("back_to_options"))
+        .accessibilityLabel(Text("back_to_options"))
+        .accessibilityIdentifier("macSheet.back")
+    }
+}
+
+extension EnvironmentValues {
+    /// 弹框带导航栈时, 根页面把收起整个弹框的动作放在这里; 推进去的页面右上角的关闭键用它
+    /// (推进去的页面自己的 `dismiss` 只退回上一页)。
+    @Entry var macSheetDismiss: DismissAction? = nil
+}
+
+extension Optional where Wrapped == DismissAction {
+    /// 交给 `MacSheetHeader(onClose:)` 的闭包; 没有可收起的弹框时是 nil, 标题行就不画关闭键。
+    var macCloseAction: (() -> Void)? {
+        map { action in { action() } }
     }
 }
 
@@ -272,6 +313,8 @@ struct MacSheetFieldChrome: ViewModifier {
         // 不设前景色: 设了会连提示字一起染成正文色, 空输入框看着像已经填了值; 系统的正文色和 PMColor.text 一样。
         content
             .textFieldStyle(.plain)
+            // 放在分组表单里时系统会把输入框里的字靠右排; 弹框里的输入框一律靠左。
+            .multilineTextAlignment(.leading)
             .font(.system(size: 12.5))
             .padding(.horizontal, 9)
             .frame(minHeight: MacSheetMetrics.controlHeight)
@@ -390,12 +433,13 @@ extension View {
         title: Text,
         subtitle: Text? = nil,
         systemImage: String? = nil,
+        onBack: (() -> Void)? = nil,
         onClose: (() -> Void)? = nil,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder trailing: () -> Trailing
     ) -> some View {
         VStack(spacing: 0) {
-            MacSheetHeader(title, subtitle: subtitle, systemImage: systemImage, onClose: onClose)
+            MacSheetHeader(title, subtitle: subtitle, systemImage: systemImage, onBack: onBack, onClose: onClose)
             self
                 .formStyle(.grouped)
                 .scrollContentBackground(.hidden)
@@ -404,19 +448,42 @@ extension View {
         }
         .background(PMColor.bg)
         .tint(PMColor.brand)
+        // 推进去的页面自己画返回键; 万一系统也给一个, 藏掉。
+        .navigationBarBackButtonHidden(onBack != nil)
     }
 
     func macFormSheet<Trailing: View>(
         title: Text,
         subtitle: Text? = nil,
         systemImage: String? = nil,
+        onBack: (() -> Void)? = nil,
         onClose: (() -> Void)? = nil,
         @ViewBuilder trailing: () -> Trailing
     ) -> some View {
         macFormSheet(
-            title: title, subtitle: subtitle, systemImage: systemImage, onClose: onClose,
+            title: title, subtitle: subtitle, systemImage: systemImage, onBack: onBack, onClose: onClose,
             leading: { EmptyView() }, trailing: trailing
         )
+    }
+
+    /// 同上, 但没有底栏: 列表一类改了就生效、只需要关掉的页面。
+    func macSheetPage(
+        title: Text,
+        subtitle: Text? = nil,
+        systemImage: String? = nil,
+        onBack: (() -> Void)? = nil,
+        onClose: (() -> Void)? = nil
+    ) -> some View {
+        VStack(spacing: 0) {
+            MacSheetHeader(title, subtitle: subtitle, systemImage: systemImage, onBack: onBack, onClose: onClose)
+            self
+                .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
+                .frame(maxHeight: .infinity)
+        }
+        .background(PMColor.bg)
+        .tint(PMColor.brand)
+        .navigationBarBackButtonHidden(onBack != nil)
     }
 }
 

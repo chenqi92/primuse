@@ -140,6 +140,25 @@ struct MotionCoverEditorView<Preview: View>: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        if showsDoneButton {
+            // Mac 单独一张弹框: 标题行 + 表单 + 底栏「完成」, 不用系统的标题栏和底部系统按钮。
+            editor
+                .macFormSheet(title: Text("motion_cover_title"), systemImage: "play.rectangle") {
+                    Button(String(localized: "done")) { dismiss() }
+                        .buttonStyle(.macSheetPrimary)
+                        .disabled(controller.isProcessing)
+                        .keyboardShortcut(.defaultAction)
+                }
+        } else {
+            editor
+        }
+        #else
+        editor
+        #endif
+    }
+
+    private var editor: some View {
         Form {
             Section {
                 HStack(spacing: 16) {
@@ -197,6 +216,7 @@ struct MotionCoverEditorView<Preview: View>: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        #if !os(macOS)
         .toolbar {
             if showsDoneButton {
                 ToolbarItem(placement: .confirmationAction) {
@@ -205,6 +225,7 @@ struct MotionCoverEditorView<Preview: View>: View {
                 }
             }
         }
+        #endif
         .overlay {
             if controller.isProcessing {
                 processingCard
@@ -275,6 +296,9 @@ struct MotionCoverEditorView<Preview: View>: View {
             }
             .frame(width: 200)
             Button(String(localized: "cancel")) { controller.cancel() }
+                #if os(macOS)
+                .buttonStyle(.macSheet)
+                #endif
         }
         .padding(20)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -515,18 +539,26 @@ struct MotionCoverMacButton<ButtonLabel: View>: View {
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $isPresented) {
-            NavigationStack {
-                MotionCoverEditorView(owner: owner, albumID: albumID, showsDoneButton: true) {
-                    switch owner {
-                    case .song(let songID):
-                        MacMotionCoverSongPreview(songID: songID)
-                    case .album(let id):
-                        AlbumMotionCoverPreview(albumID: id)
-                    }
-                }
-            }
-            .frame(width: 460, height: 480)
+            MotionCoverMacSheet(owner: owner, albumID: albumID)
         }
+    }
+}
+
+/// 「动态封面」那一张弹框: 编辑页自己画标题行和底栏, 固定大小。
+struct MotionCoverMacSheet: View {
+    let owner: MotionCoverOwner
+    var albumID: String? = nil
+
+    var body: some View {
+        MotionCoverEditorView(owner: owner, albumID: albumID, showsDoneButton: true) {
+            switch owner {
+            case .song(let songID):
+                MacMotionCoverSongPreview(songID: songID)
+            case .album(let id):
+                AlbumMotionCoverPreview(albumID: id)
+            }
+        }
+        .frame(width: 480, height: 520)
     }
 }
 

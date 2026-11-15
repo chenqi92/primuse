@@ -10,8 +10,27 @@ struct DislikedSongsView: View {
     var showsDoneButton = false
 
     var body: some View {
+        #if os(macOS)
+        if showsDoneButton {
+            // Mac 设置里弹出的那一张: 和其他弹框同一种标题行, 右上角关闭(不是系统蓝的「完成」)。
+            list
+                .macSheetPage(
+                    title: Text("playlist_disliked_name"),
+                    systemImage: "hand.thumbsdown",
+                    onClose: { dismiss() }
+                )
+                .frame(minWidth: 520, idealWidth: 560, minHeight: 480, idealHeight: 560)
+        } else {
+            list
+        }
+        #else
+        list
+        #endif
+    }
+
+    private var list: some View {
         let songs = library.dislikedSongs
-        List {
+        return List {
             if !songs.isEmpty {
                 Section {
                     ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
@@ -41,7 +60,6 @@ struct DislikedSongsView: View {
         .navigationTitle("playlist_disliked_name")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .toolbar {
             if showsDoneButton {
                 ToolbarItem(placement: .confirmationAction) {
@@ -49,6 +67,7 @@ struct DislikedSongsView: View {
                 }
             }
         }
+        #endif
     }
 }
 
@@ -86,7 +105,11 @@ private struct DislikedSongRow: View {
             Button(action: onRemove) {
                 Text("song_undislike")
             }
+            #if os(macOS)
+            .buttonStyle(.macSheet)
+            #else
             .buttonStyle(.bordered)
+            #endif
             .fixedSize()
             .accessibilityLabel(Text(verbatim: String(localized: "song_undislike") + " " + song.title))
         }

@@ -1681,12 +1681,51 @@ extension View {
 
 // MARK: - Result
 
-private struct KaraokeResultView: View {
+struct KaraokeResultView: View {
     let performance: KaraokePerformance
     let session: KaraokeSession
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        #if os(macOS)
+        // Mac 弹框: 标题行 → 分数 → 底栏(分享 / 删除录音, 完成); 按钮和其他弹框同一种。
+        VStack(spacing: 0) {
+            MacSheetHeader(Text("karaoke_result_title"), systemImage: "music.mic")
+            ScrollView {
+                scoreCard
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 22)
+            }
+            .frame(maxHeight: .infinity)
+            MacSheetFooter {
+                if session.isMixingRecording, performance.recordingURL == nil {
+                    ProgressView().controlSize(.small)
+                    Text("karaoke_mixing")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textMuted)
+                } else if let url = performance.recordingURL {
+                    Button(role: .destructive) {
+                        session.deleteRecording(at: url)
+                    } label: {
+                        Label("karaoke_delete_recording", systemImage: "trash")
+                    }
+                    .buttonStyle(.macSheetDestructive)
+                }
+            } trailing: {
+                if let url = performance.recordingURL {
+                    ShareLink(item: url) {
+                        Label("karaoke_share_recording", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.macSheet)
+                }
+                Button("done") { dismiss() }
+                    .buttonStyle(.macSheetPrimary)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .background(PMColor.bg)
+        .frame(width: 440, height: 480)
+        #else
         VStack(spacing: 20) {
             Text("karaoke_result_title")
                 .font(.headline)
@@ -1757,12 +1796,57 @@ private struct KaraokeResultView: View {
         }
         .padding(24)
         .frame(maxWidth: 480)
-        #if os(macOS)
-        .frame(minWidth: 420)
-        #else
         .presentationDetents([.medium, .large])
         #endif
     }
+
+    #if os(macOS)
+    /// 分数、评级、最好的一句。
+    private var scoreCard: some View {
+        VStack(spacing: 18) {
+            VStack(spacing: 4) {
+                Text(performance.songTitle)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .multilineTextAlignment(.center)
+                if !performance.artistName.isEmpty {
+                    Text(performance.artistName)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(PMColor.textMuted)
+                }
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("\(performance.summary.totalScore)")
+                    .font(.system(size: 64, weight: .heavy, design: .rounded).monospacedDigit())
+                    .foregroundStyle(PMColor.text)
+                Text(performance.summary.grade.rawValue.uppercased())
+                    .font(.system(size: 36, weight: .black, design: .rounded))
+                    .foregroundStyle(gradeColor)
+            }
+            .accessibilityElement(children: .combine)
+            Text(String(format: String(localized: "karaoke_lines_judged_format"), performance.summary.lines.count))
+                .font(.system(size: 11.5))
+                .foregroundStyle(PMColor.textMuted)
+            if let best = performance.bestLineText, !best.isEmpty {
+                VStack(spacing: 6) {
+                    MacSheetSectionLabel("karaoke_best_line")
+                    Text("“\(best)”")
+                        .font(.system(size: 13).italic())
+                        .foregroundStyle(PMColor.text)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity)
+                .background(PMColor.card, in: .rect(cornerRadius: PMRadius.l))
+                .overlay {
+                    RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+    #endif
 
     private var gradeColor: Color {
         switch performance.summary.grade {

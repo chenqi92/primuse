@@ -226,9 +226,34 @@ struct RadioSubscriptionsView: View {
                     subscriptionList.pmAppearFade(.contentAppear)
                 }
             }
+            #if os(macOS)
+            // 空态只有自己那么高, 不铺满时弹框上下会露出两截白底。
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Mac 弹框: 标题行(「添加订阅」+ 关闭), 推进去的添加页、详情页各自画返回键。
+            .safeAreaInset(edge: .top, spacing: 0) {
+                MacSheetHeader(
+                    Text("radio_subscriptions_title"),
+                    systemImage: "arrow.triangle.2.circlepath",
+                    onClose: { dismiss() }
+                ) {
+                    if !store.subscriptions.isEmpty {
+                        Button {
+                            path.append(.add)
+                        } label: {
+                            Label("radio_subscriptions_add", systemImage: "plus")
+                        }
+                        .buttonStyle(.macSheet)
+                    }
+                }
+                .background(PMColor.bg)
+            }
+            .background(PMColor.bg)
+            .tint(PMColor.brand)
+            #else
             .navigationTitle("radio_subscriptions_title")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             #endif
             .navigationDestination(for: Route.self) { route in
                 switch route {
@@ -241,6 +266,7 @@ struct RadioSubscriptionsView: View {
                     }
                 }
             }
+            #if !os(macOS)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("done") { dismiss() }
@@ -253,9 +279,11 @@ struct RadioSubscriptionsView: View {
                     }
                 }
             }
+            #endif
         }
         #if os(macOS)
-        .frame(minWidth: 560, minHeight: 560)
+        .environment(\.macSheetDismiss, dismiss)
+        .frame(minWidth: 560, idealWidth: 600, minHeight: 560, idealHeight: 640)
         #endif
     }
 
@@ -265,9 +293,14 @@ struct RadioSubscriptionsView: View {
         } description: {
             Text("radio_subscriptions_empty_description")
         } actions: {
+            #if os(macOS)
+            Button("radio_subscriptions_add") { path.append(.add) }
+                .buttonStyle(.macSheetPrimary)
+            #else
             Button("radio_subscriptions_add") { path.append(.add) }
                 .buttonStyle(.borderedProminent)
                 .prominentLabelOnAccent()
+            #endif
         }
     }
 
@@ -300,6 +333,15 @@ private struct RadioSubscriptionRow: View {
     let stationCount: Int
     let isRefreshing: Bool
 
+    /// Mac 上 `Color.accentColor` 是系统强调色(多半是蓝), 不跟 App 的主题色。
+    static var accent: Color {
+        #if os(macOS)
+        PMColor.brand
+        #else
+        Color.accentColor
+        #endif
+    }
+
     private var detailText: String {
         let count = String(format: String(localized: "radio_subscription_station_count %lld"), stationCount)
         let refreshed = [subscription.lastRefreshedAt, status.lastSuccessAt].compactMap { $0 }.max()
@@ -310,9 +352,9 @@ private struct RadioSubscriptionRow: View {
         HStack(spacing: 12) {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Self.accent)
                 .frame(width: 30, height: 30)
-                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(Self.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -366,6 +408,10 @@ struct RadioSubscriptionAddView: View {
     let onOpenSubscription: @MainActor (String) -> Void
 
     @Environment(RadioStationsStore.self) private var stationsStore
+    #if os(macOS)
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.macSheetDismiss) private var sheetDismiss
+    #endif
     @State private var urlString = ""
     /// 当前结果表是从哪个地址取回的；地址一改就作废。
     @State private var fetchedURL: String?
@@ -413,6 +459,30 @@ struct RadioSubscriptionAddView: View {
     var body: some View {
         Form {
             Section {
+                #if os(macOS)
+                // Mac: 地址框和「取回清单」排一行, 同一档高度; 表单里输入框的标题会变成左边多出来的标签, 不要。
+                HStack(spacing: 8) {
+                    TextField("", text: $urlString, prompt: Text(verbatim: "https://example.com/radio.m3u"))
+                        .labelsHidden()
+                        .font(.system(.callout, design: .monospaced))
+                        .autocorrectionDisabled()
+                        .macSheetField(isFocused: urlFieldFocused)
+                        .focused($urlFieldFocused)
+                        .onSubmit { fetch() }
+                    if isFetching {
+                        ProgressView()
+                            .controlSize(.small)
+                            .pmFadeTransition(motion: .control)
+                    }
+                    Button {
+                        fetch()
+                    } label: {
+                        Label("radio_batch_url_fetch", systemImage: "arrow.down.circle")
+                    }
+                    .buttonStyle(.macSheet)
+                    .disabled(isFetching || trimmedURL.isEmpty)
+                }
+                #else
                 TextField(
                     text: $urlString,
                     prompt: Text(verbatim: "https://example.com/radio.m3u")
@@ -443,6 +513,7 @@ struct RadioSubscriptionAddView: View {
                     }
                 }
                 .disabled(isFetching || trimmedURL.isEmpty)
+                #endif
             } header: {
                 Text("radio_subscription_list_url")
             } footer: {
@@ -457,6 +528,19 @@ struct RadioSubscriptionAddView: View {
             }
         }
         .formStyle(.grouped)
+        #if os(macOS)
+        // Mac 弹框里推进来的一页: 标题行(返回 / 关闭) → 表单 → 底栏「订阅」。
+        .macFormSheet(
+            title: Text("radio_subscriptions_add"),
+            onBack: { dismiss() },
+            onClose: sheetDismiss.macCloseAction
+        ) {
+            Button("radio_subscription_subscribe_only") { subscribe() }
+                .buttonStyle(.macSheetPrimary)
+                .disabled(!canSubscribe)
+                .keyboardShortcut(.defaultAction)
+        }
+        #else
         .navigationTitle("radio_subscriptions_add")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -467,6 +551,7 @@ struct RadioSubscriptionAddView: View {
                     .disabled(!canSubscribe)
             }
         }
+        #endif
         .onChange(of: urlString) { _, _ in
             // 结果表只对应取回它的那个地址；改了地址就收起旧结果，免得订阅错。
             guard fetchedURL != nil else { return }
@@ -569,7 +654,7 @@ struct RadioSubscriptionAddView: View {
             HStack(spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.5))
+                    .foregroundStyle(isSelected ? RadioSubscriptionRow.accent : Color.secondary.opacity(0.5))
 
                 RadioCandidateLogoView(urlString: candidate.logoURLString, size: 32)
 
@@ -715,6 +800,14 @@ struct RadioSubscriptionDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        #if os(macOS)
+        // Mac: 弹框里唯一的一页, 标题行右上角关闭。
+        NavigationStack {
+            RadioSubscriptionDetailView(subscriptionID: subscriptionID, isPushed: false)
+        }
+        .environment(\.macSheetDismiss, dismiss)
+        .frame(minWidth: 560, idealWidth: 600, minHeight: 560, idealHeight: 640)
+        #else
         NavigationStack {
             RadioSubscriptionDetailView(subscriptionID: subscriptionID)
                 .toolbar {
@@ -723,16 +816,19 @@ struct RadioSubscriptionDetailSheet: View {
                     }
                 }
         }
-        #if os(macOS)
-        .frame(minWidth: 560, minHeight: 560)
         #endif
     }
 }
 
 struct RadioSubscriptionDetailView: View {
     let subscriptionID: String
+    /// Mac:从订阅列表推进来的(标题行给返回键),还是单独打开的那一页(只给关闭键)。
+    var isPushed = true
 
     @Environment(\.dismiss) private var dismiss
+    #if os(macOS)
+    @Environment(\.macSheetDismiss) private var sheetDismiss
+    #endif
     @Environment(RadioStationsStore.self) private var stationsStore
     @Environment(AudioPlayerService.self) private var player
     @State private var nameDraft = ""
@@ -775,9 +871,18 @@ struct RadioSubscriptionDetailView: View {
                 )
             }
         }
+        #if os(macOS)
+        .macSheetPage(
+            title: Text(verbatim: subscription?.name ?? ""),
+            subtitle: subscription.map { Text(verbatim: $0.displayHost) },
+            onBack: isPushed ? { dismiss() } : nil,
+            onClose: isPushed ? sheetDismiss.macCloseAction : Optional({ dismiss() })
+        )
+        #else
         .navigationTitle(subscription?.name ?? "")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         #endif
         .onAppear { nameDraft = subscription?.name ?? "" }
         .onDisappear { commitRename() }
@@ -861,6 +966,29 @@ struct RadioSubscriptionDetailView: View {
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                #if os(macOS)
+                // Mac 表单里的按钮是一颗按键, 标签里放 Spacer 会把它撑满整行; 进度圈放在按键旁边。
+                HStack(spacing: 8) {
+                    Button {
+                        refresh()
+                    } label: {
+                        Label(
+                            status.hasFailure
+                                ? String(localized: "radio_subscription_retry")
+                                : String(localized: "radio_subscription_refresh_now"),
+                            systemImage: "arrow.clockwise"
+                        )
+                    }
+                    .buttonStyle(.macSheet)
+                    .disabled(isRefreshing)
+                    if isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .pmFadeTransition(motion: .control)
+                    }
+                    Spacer(minLength: 0)
+                }
+                #else
                 Button {
                     refresh()
                 } label: {
@@ -880,6 +1008,7 @@ struct RadioSubscriptionDetailView: View {
                     }
                 }
                 .disabled(isRefreshing)
+                #endif
             } header: {
                 Text("radio_subscription_status_section")
             }

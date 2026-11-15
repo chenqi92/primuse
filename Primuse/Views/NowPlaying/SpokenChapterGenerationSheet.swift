@@ -109,7 +109,17 @@ struct SpokenChapterGenerationSheet: View {
                 }
             }
             #if os(macOS)
+            // Mac 弹框: 标题行(写着是哪一本 / 哪一集) + 表单 + 底栏「完成」。
             .formStyle(.grouped)
+            .macFormSheet(
+                title: Text("spoken_chapters_manage"),
+                subtitle: Text(verbatim: song.title),
+                systemImage: "list.bullet.rectangle"
+            ) {
+                Button("done") { dismiss() }
+                    .buttonStyle(.macSheetPrimary)
+                    .keyboardShortcut(.defaultAction)
+            }
             #endif
             #if os(tvOS)
             .safeAreaInset(edge: .top) {
@@ -122,13 +132,13 @@ struct SpokenChapterGenerationSheet: View {
                 .padding(.vertical, 24)
                 .background(.black)
             }
-            #else
+            #elseif os(iOS)
             .navigationTitle(Text("spoken_chapters_manage"))
             #endif
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            #if !os(tvOS)
+            #if os(iOS)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("done") { dismiss() } } }
             #endif
             .alert(Text("chapter_generation_title"), isPresented: $confirmsUpload) {
@@ -188,7 +198,7 @@ struct SpokenChapterGenerationSheet: View {
         .onDisappear { importTask?.cancel() }
         .builtInAIConsentSheet($consent)
         #if os(macOS)
-        .frame(minWidth: 480, minHeight: 540)
+        .frame(minWidth: 500, idealWidth: 540, minHeight: 540, idealHeight: 640)
         #elseif os(tvOS)
         .preferredColorScheme(.dark)
         .environment(\.colorScheme, .dark)

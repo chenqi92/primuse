@@ -163,6 +163,7 @@ struct MacRadioBatchAddView: View {
         }
         .sheet(isPresented: $showsPodcastImport) {
             NavigationStack { PodcastAddFeedView(initialText: routedText) }
+                .frame(minWidth: 480, idealWidth: 520, minHeight: 360, idealHeight: 420)
         }
         .onDisappear { playlistFetchTask?.cancel() }
         .task {
