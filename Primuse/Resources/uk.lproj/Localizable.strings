@@ -7484,3 +7484,13 @@
 "sort_title_chinese_first" = "Назва - спочатку китайська";
 
 "sort_original_name" = "Початкова назва";
+
+"player_backdrop_cache_title" = "Кеш фонових зображень";
+"player_backdrop_cache_enabled" = "Завантажувати зображення наперед";
+"player_backdrop_cache_daily" = "Перевіряти щодня";
+"player_backdrop_cache_refresh" = "Оновити поточний альбом";
+"player_backdrop_cache_syncing" = "Синхронізація зображень…";
+"player_backdrop_cache_failed" = "Не вдалося синхронізувати зображення. Повторіть оновлення.";
+"player_backdrop_cache_clear" = "Очистити кеш";
+"player_backdrop_cache_refresh_all" = "Оновити всі колекції";
+"player_backdrop_cache_empty" = "Немає кешованих фонових зображень";

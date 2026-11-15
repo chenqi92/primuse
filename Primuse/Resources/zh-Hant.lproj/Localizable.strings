@@ -7555,3 +7555,13 @@
 "sort_title_chinese_first" = "標題-中文優先";
 
 "sort_original_name" = "原始名稱";
+
+"player_backdrop_cache_title" = "背景圖片快取";
+"player_backdrop_cache_enabled" = "本機預先快取";
+"player_backdrop_cache_daily" = "每天檢查更新";
+"player_backdrop_cache_refresh" = "重新整理目前專輯";
+"player_backdrop_cache_syncing" = "正在同步圖片…";
+"player_backdrop_cache_failed" = "圖片同步失敗，請重試重新整理。";
+"player_backdrop_cache_clear" = "清除快取";
+"player_backdrop_cache_refresh_all" = "重新整理所有圖集";
+"player_backdrop_cache_empty" = "尚無已快取的背景圖片";

@@ -12,6 +12,14 @@ struct TVPlayerBackdrop: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var settingsStore = PlayerBackdropSettingsStore.shared
     @State private var resolver = TVPlayerBackdropResolver.shared
+    @State private var cache = TVAlbumBackdropCache.shared
+
+    private struct CacheTimerKey: Equatable {
+        let active: Bool
+        let directory: String?
+        let enabled: Bool
+        let automatic: Bool
+    }
 
     private struct TimerKey: Equatable {
         let isActive: Bool
@@ -50,6 +58,22 @@ struct TVPlayerBackdrop: View {
             .onChange(of: songID, initial: true) { _, songID in
                 resolver.observeSong(songID, rotation: settings.rotation)
             }
+            .onChange(of: cache.revision) { _, _ in
+                resolver.albumCacheDidChange(request: request, store: store)
+            }
+            .task(id: CacheTimerKey(
+                active: scenePhase == .active && source == .albumBack,
+                directory: songID.flatMap { store.library.song(id: $0) }.map(TVAlbumBackArtwork.directoryKey),
+                enabled: cache.isEnabled,
+                automatic: cache.automaticRefresh
+            )) {
+                guard scenePhase == .active, source == .albumBack, cache.isEnabled,
+                      let songID, let song = store.library.song(id: songID) else { return }
+                while !Task.isCancelled {
+                    await cache.refresh(for: song, store: store)
+                    try? await Task.sleep(for: .seconds(60))
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
                 resolver.artworkDidCache(note, request: request, store: store)
             }
@@ -74,6 +98,7 @@ struct TVPlayerBackdropSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var store = PlayerBackdropSettingsStore.shared
     @State private var choosingInterval = false
+    @State private var showsCacheManagement = false
 
     static let sourceRows: [[PlayerBackdropSource]] = [
         [.coverAmbient, .liquid],
@@ -151,6 +176,14 @@ struct TVPlayerBackdropSettingsView: View {
                         }
                     }
 
+                    if settings.source == .albumBack {
+                        TVPillButton(title: String(localized: "player_backdrop_cache_title"),
+                                     systemImage: "internaldrive", style: .glass) {
+                            showsCacheManagement = true
+                        }
+                        .accessibilityIdentifier("tv.playerBackdrop.cache.manage")
+                    }
+
                     Text("player_backdrop_footer")
                         .tvFont(.caption)
                         .foregroundStyle(TVColor.textMuted)
@@ -164,6 +197,7 @@ struct TVPlayerBackdropSettingsView: View {
         .onAppear { store.pruneMissingCustomImages() }
         .onExitCommand { dismiss() }
         .tvFullScreenCover(isPresented: $choosingInterval) { TVPlayerBackdropIntervalPicker() }
+        .tvFullScreenCover(isPresented: $showsCacheManagement) { TVPlayerBackdropCacheView() }
     }
 
     static func intervalTitle(_ seconds: Int) -> String {
@@ -217,6 +251,103 @@ struct TVPlayerBackdropSettingsView: View {
             action: action
         )
         .accessibilityIdentifier(identifier)
+    }
+}
+
+struct TVPlayerBackdropCacheView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(TVStore.self) private var store
+    @State private var cache = TVAlbumBackdropCache.shared
+
+    var body: some View {
+        ZStack {
+            TVColor.bg.ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 26) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("player_backdrop_cache_title").tvFont(.pageTitle)
+                        Spacer()
+                        Text(verbatim: ByteCountFormatter.string(
+                            fromByteCount: cache.usage.reduce(0) { $0 + $1.bytes }, countStyle: .file
+                        )).tvFont(.rowTitle).foregroundStyle(TVColor.textMuted)
+                    }
+                    HStack(spacing: 22) {
+                        TVPillButton(title: String(localized: "player_backdrop_cache_enabled"),
+                                     systemImage: cache.isEnabled ? "checkmark.circle.fill" : "circle",
+                                     style: cache.isEnabled ? .solid : .glass, isSelected: cache.isEnabled) {
+                            Task { await cache.setEnabled(!cache.isEnabled) }
+                        }
+                        .accessibilityIdentifier("tv.playerBackdrop.cache.enabled")
+                        if cache.isEnabled {
+                            TVPillButton(title: String(localized: "player_backdrop_cache_daily"),
+                                         systemImage: cache.automaticRefresh ? "checkmark.circle.fill" : "circle",
+                                         style: cache.automaticRefresh ? .solid : .glass,
+                                         isSelected: cache.automaticRefresh) {
+                                cache.automaticRefresh.toggle()
+                            }
+                            .accessibilityIdentifier("tv.playerBackdrop.cache.automatic")
+                        }
+                    }
+                    .disabled(cache.isManagingCollections)
+                    HStack(spacing: 22) {
+                        TVPillButton(title: String(localized: "player_backdrop_cache_refresh"),
+                                     systemImage: "arrow.clockwise", style: .glass) {
+                            Task { await cache.refreshCurrentAlbum(store: store) }
+                        }
+                        .disabled(store.currentSongID.flatMap { store.library.song(id: $0) } == nil)
+                        .accessibilityIdentifier("tv.playerBackdrop.cache.refresh")
+                        TVPillButton(title: String(localized: "player_backdrop_cache_refresh_all"),
+                                     systemImage: "arrow.triangle.2.circlepath", style: .glass) {
+                            Task { await cache.refreshAllCached(store: store) }
+                        }
+                        .disabled(cache.usage.isEmpty)
+                        .accessibilityIdentifier("tv.playerBackdrop.cache.refreshAll")
+                        TVPillButton(title: String(localized: "clear_all"), systemImage: "trash", style: .glass) {
+                            Task { await cache.clearAll() }
+                        }
+                        .disabled(cache.usage.isEmpty)
+                        .accessibilityIdentifier("tv.playerBackdrop.cache.clearAll")
+                    }
+                    .disabled(cache.isManagingCollections)
+                    if !cache.syncing.isEmpty {
+                        ProgressView(String(localized: "player_backdrop_cache_syncing"))
+                    } else if cache.isManagingCollections {
+                        ProgressView()
+                    }
+                    if !cache.failures.isEmpty {
+                        Text("player_backdrop_cache_failed").tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                    }
+                    if cache.usage.isEmpty {
+                        Text("player_backdrop_cache_empty").tvFont(.rowTitle).foregroundStyle(TVColor.textMuted)
+                    }
+                    ForEach(cache.usage) { item in
+                        HStack(spacing: 22) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(verbatim: item.snapshot.collection.title).tvFont(.rowTitle)
+                                Text(verbatim: ByteCountFormatter.string(fromByteCount: item.bytes, countStyle: .file))
+                                    .tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                            }
+                            Spacer()
+                            TVPillButton(title: String(localized: "refresh"), systemImage: "arrow.clockwise", style: .glass) {
+                                Task { await cache.refreshCollections([item.snapshot.collection], store: store) }
+                            }
+                            .accessibilityIdentifier("tv.playerBackdrop.cache.refresh.\(item.id)")
+                            TVPillButton(title: String(localized: "player_backdrop_cache_clear"),
+                                         systemImage: "trash", style: .glass) {
+                                Task { await cache.clear(item.id) }
+                            }
+                            .accessibilityIdentifier("tv.playerBackdrop.cache.clear.\(item.id)")
+                        }
+                        .disabled(cache.isManagingCollections)
+                    }
+                }
+                .foregroundStyle(TVColor.text)
+                .frame(maxWidth: 1400, alignment: .leading)
+                .padding(70)
+            }
+        }
+        .task { await cache.reloadUsage() }
+        .onExitCommand { dismiss() }
     }
 }
 

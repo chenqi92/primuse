@@ -7484,3 +7484,13 @@
 "sort_title_chinese_first" = "العنوان - الصينية أولاً";
 
 "sort_original_name" = "الاسم الأصلي";
+
+"player_backdrop_cache_title" = "ذاكرة صور الخلفية المؤقتة";
+"player_backdrop_cache_enabled" = "تخزين الصور مسبقًا";
+"player_backdrop_cache_daily" = "التحقق يوميًا";
+"player_backdrop_cache_refresh" = "تحديث الألبوم الحالي";
+"player_backdrop_cache_syncing" = "جارٍ مزامنة الصور…";
+"player_backdrop_cache_failed" = "تعذرت مزامنة الصور. حاول التحديث مجددًا.";
+"player_backdrop_cache_clear" = "مسح الذاكرة المؤقتة";
+"player_backdrop_cache_refresh_all" = "تحديث كل المجموعات";
+"player_backdrop_cache_empty" = "لا توجد صور خلفية مخزنة مؤقتًا";

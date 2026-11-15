@@ -2365,6 +2365,7 @@
 		FFA8A0D80B2614FB9E78AE03 /* AudioEffectsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78324748ACDF339A48E0E8D4 /* AudioEffectsService.swift */; };
 		FFB6F3076CD8D107E17A9C33 /* ServerCatalogIncrementalSyncPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BADBBDCE4D75C75C46571A8 /* ServerCatalogIncrementalSyncPolicy.swift */; };
 		FFD2B29D7B89BDA769B2D069 /* AudioDecoderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF62F5046D29F993786AE489 /* AudioDecoderProtocol.swift */; };
+		01B6F2B3999C32DE93DC4189 /* AlbumBackdropCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A573EAE16B090B35AC776382 /* AlbumBackdropCache.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -4326,6 +4327,7 @@
 		FF9694CD231B4175BED85BEA /* ScraperResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperResult.swift; sourceTree = "<group>"; };
 		FFCB474474519BE89590D828 /* MacRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRoute.swift; sourceTree = "<group>"; };
 		1F3B835686D950BCAA410EF8 /* MacSheetChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSheetChrome.swift; sourceTree = "<group>"; };
+		A573EAE16B090B35AC776382 /* AlbumBackdropCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumBackdropCache.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4829,6 +4831,7 @@
 				2FA0906C329178D1769FD72B /* AIPlaylistCandidatePool.swift */,
 				DE5F9F33E3579D59A21D8A8F /* AlbumArtistInferencePolicy.swift */,
 				46FFB8D8D24CA063D1F1CB62 /* AlbumFlowLayoutPolicy.swift */,
+				A573EAE16B090B35AC776382 /* AlbumBackdropCache.swift */,
 				D5EB059070C7776E2907A8F2 /* AlbumFolderArtwork.swift */,
 				D3D190973E7BC8F585A1EFA7 /* AlbumRecommender.swift */,
 				814EC07D8C6BB876C1FB6E95 /* AlbumReleaseClassification.swift */,
@@ -7432,6 +7435,7 @@
 				B65DC3C2BA53616ED86C7C90 /* AlbumArtistBrowsing.swift in Sources */,
 				0A12E737FD6DE9550881552D /* AlbumArtistInferencePolicy.swift in Sources */,
 				7B8790E4F535FA4D8A3E3962 /* AlbumFlowLayoutPolicy.swift in Sources */,
+				01B6F2B3999C32DE93DC4189 /* AlbumBackdropCache.swift in Sources */,
 				9551F614210460B2273B8E3C /* AlbumFolderArtwork.swift in Sources */,
 				9DBF37E0148D96A21A0CA724 /* AlbumRecommender.swift in Sources */,
 				47276EC33641217ADCA32285 /* AlbumReleaseClassification.swift in Sources */,

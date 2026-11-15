@@ -7484,3 +7484,13 @@
 "sort_title_chinese_first" = "Título - chinês primeiro";
 
 "sort_original_name" = "Nome original";
+
+"player_backdrop_cache_title" = "Cache de imagens de fundo";
+"player_backdrop_cache_enabled" = "Pré-carregar imagens";
+"player_backdrop_cache_daily" = "Verificar diariamente";
+"player_backdrop_cache_refresh" = "Atualizar álbum atual";
+"player_backdrop_cache_syncing" = "Sincronizando imagens…";
+"player_backdrop_cache_failed" = "Falha ao sincronizar imagens. Tente atualizar novamente.";
+"player_backdrop_cache_clear" = "Limpar cache";
+"player_backdrop_cache_refresh_all" = "Atualizar todas as coleções";
+"player_backdrop_cache_empty" = "Nenhuma imagem de fundo em cache";

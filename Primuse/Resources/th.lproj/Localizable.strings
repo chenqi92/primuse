@@ -7484,3 +7484,13 @@
 "sort_title_chinese_first" = "ชื่อ - ภาษาจีนก่อน";
 
 "sort_original_name" = "ชื่อเดิม";
+
+"player_backdrop_cache_title" = "แคชรูปภาพพื้นหลัง";
+"player_backdrop_cache_enabled" = "แคชรูปภาพล่วงหน้า";
+"player_backdrop_cache_daily" = "ตรวจสอบทุกวัน";
+"player_backdrop_cache_refresh" = "รีเฟรชอัลบั้มปัจจุบัน";
+"player_backdrop_cache_syncing" = "กำลังซิงค์รูปภาพ…";
+"player_backdrop_cache_failed" = "ซิงค์รูปภาพไม่สำเร็จ โปรดลองรีเฟรชอีกครั้ง";
+"player_backdrop_cache_clear" = "ล้างแคช";
+"player_backdrop_cache_refresh_all" = "รีเฟรชทุกชุดภาพ";
+"player_backdrop_cache_empty" = "ยังไม่มีรูปภาพพื้นหลังที่แคชไว้";

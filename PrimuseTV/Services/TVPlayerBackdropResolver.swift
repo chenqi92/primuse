@@ -95,10 +95,6 @@ final class TVPlayerBackdropResolver {
                 clear()
                 return
             }
-            if let files = TVAlbumBackArtwork.cachedFiles(for: song) {
-                showAlbumBack(files: files, song: song, request: request, store: store)
-                return
-            }
             let listingKey = "back-list|\(TVAlbumBackArtwork.directoryKey(for: song))"
             guard loadingKey != listingKey else { return }
             cancelLoading()
@@ -118,6 +114,13 @@ final class TVPlayerBackdropResolver {
         guard request.source == .coverBlur, frame == nil, loadingKey == nil,
               let cover = request.cover, cover.concerns(note) else { return }
         failedKeys[cover.blurKey] = nil
+        update(request, store: store)
+    }
+
+    func albumCacheDidChange(request: Request, store: TVStore) {
+        guard request.source == .albumBack else { return }
+        failedKeys.removeAll()
+        cancelLoading()
         update(request, store: store)
     }
 
@@ -275,17 +278,19 @@ enum TVPlayerCoverArtwork {
 }
 
 /// 专辑文件夹里的封底图(back / rear / inside 开头,见 `AlbumBackArtworkPolicy`):播放页「专辑封底」
-/// 背景和专辑页背景共用一套查找、读取与缓存。列过的文件夹记在内存里(真没有封底也记,列失败不记),
-/// 缩好的图在磁盘缓存(`PlayerBackdropAlbumBackCache`)和内存缓存里各一份。
+/// 背景和专辑页共用查找规则；默认读取整组预缓存，关闭预缓存时按张加载。
 @MainActor
 enum TVAlbumBackArtwork {
     struct File: Sendable {
         let path: String
         let size: Int64
         let modified: Date?
+        var providerID: String? = nil
+        var revision: String? = nil
+        var localURL: URL? = nil
 
         var cacheKey: String {
-            "\(path)|\(size)|\(modified?.timeIntervalSinceReferenceDate ?? 0)"
+            "\(path)|\(size)|\(modified?.timeIntervalSinceReferenceDate ?? 0)|\(providerID ?? "")|\(revision ?? "")|\(localURL?.lastPathComponent ?? "")"
         }
     }
 
@@ -309,7 +314,11 @@ enum TVAlbumBackArtwork {
 
     /// 列歌所在文件夹（分碟子文件夹再看上一层）找封底。只做电视能按路径列目录、又能直接
     /// 读文件的源；列失败返回 nil（下次再试），真没有返回空。
-    static func files(for song: Song, store: TVStore) async -> [File]? {
+    static func files(for song: Song, store: TVStore, prefetch: Bool = true) async -> [File]? {
+        if TVAlbumBackdropCache.shared.isEnabled {
+            if prefetch { return await TVAlbumBackdropCache.shared.files(for: song, store: store) }
+            if let files = await TVAlbumBackdropCache.shared.cachedFiles(for: song) { return files }
+        }
         if let cached = cachedFiles(for: song) { return cached }
         guard let source = store.sourcesStore.source(id: song.sourceID),
               source.isEnabled, !source.isDeleted,
@@ -326,7 +335,8 @@ enum TVAlbumBackArtwork {
                 let order = AlbumBackArtworkPolicy.orderedCandidateIndices(names: entries.map(\.name))
                 guard !order.isEmpty else { continue }
                 let files = order.map {
-                    File(path: entries[$0].path, size: entries[$0].size, modified: entries[$0].modifiedDate)
+                    File(path: entries[$0].path, size: entries[$0].size, modified: entries[$0].modifiedDate,
+                         providerID: entries[$0].providerID, revision: entries[$0].revision)
                 }
                 listings[key] = files
                 return files
@@ -347,6 +357,9 @@ enum TVAlbumBackArtwork {
         let source = store.sourcesStore.source(id: sourceID)
         let bundle = store.credentialBundle
         return {
+            if let localURL = file.localURL {
+                return PlayerBackdropImaging.decodedImage(url: localURL, maxPixel: maxPixel)
+            }
             let format = preservingAlpha ? "disc-alpha-v1|" : ""
             let diskKey = "\(format)\(sourceID)|\(file.cacheKey)|\(maxPixel)"
             let cachedURL = PlayerBackdropAlbumBackCache.fileURL(forKey: diskKey, preservingAlpha: preservingAlpha)
@@ -383,7 +396,7 @@ enum TVAlbumBackArtwork {
     /// `PlayerBackdropImaging.softenedBackdrop`)。没有封底、源列不了目录或读失败都是 nil。
     static func softenedFirstImage(forAlbumSongID songID: String, store: TVStore) async -> (id: String, image: CGImage)? {
         guard let song = store.library.song(id: songID),
-              let file = await files(for: song, store: store)?.first,
+              let file = await files(for: song, store: store, prefetch: false)?.first,
               !Task.isCancelled else { return nil }
         let key = memoryKey(sourceID: song.sourceID, file: file)
         let softKey = "soft|" + key
@@ -402,6 +415,282 @@ enum TVAlbumBackArtwork {
         return (softKey, softened)
     }
 }
+
+@MainActor
+@Observable
+final class TVAlbumBackdropCache {
+    static let shared = TVAlbumBackdropCache()
+    static let disk = AlbumBackdropCache(directory: FileManager.default.urls(
+        for: .cachesDirectory, in: .userDomainMask
+    )[0].appendingPathComponent("Primuse/AlbumBackdropCollections", isDirectory: true))
+
+    private(set) var isEnabled = UserDefaults.standard.object(forKey: "tv.backdropCache.enabled") as? Bool ?? true
+    var automaticRefresh = UserDefaults.standard.object(forKey: "tv.backdropCache.automatic") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(automaticRefresh, forKey: "tv.backdropCache.automatic") }
+    }
+    private(set) var revision = 0
+    private(set) var syncing = Set<String>()
+    private(set) var failures = Set<String>()
+    private(set) var usage: [AlbumBackdropCache.Usage] = []
+    private(set) var isManagingCollections = false
+    @ObservationIgnored private var tasks: [String: Task<AlbumBackdropCache.Snapshot?, Never>] = [:]
+    @ObservationIgnored private var taskIDs: [String: UUID] = [:]
+    @ObservationIgnored private var lastAttempts: [String: Date] = [:]
+    @ObservationIgnored private var cleared = Set<String>()
+    @ObservationIgnored private var selectedDirectory: String?
+    @ObservationIgnored private var prefetchDirectory: String?
+
+    func setEnabled(_ enabled: Bool) async {
+        isEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "tv.backdropCache.enabled")
+        if !enabled { await cancelPendingRefreshes() }
+        revision += 1
+    }
+
+    private func cancelPendingRefreshes() async {
+        for task in tasks.values { task.cancel() }
+        tasks.removeAll()
+        taskIDs.removeAll()
+        syncing.removeAll()
+        lastAttempts.removeAll()
+        await Self.disk.cancelSynchronizations()
+    }
+
+    func refreshCurrentAlbum(store: TVStore) async {
+        guard let songID = store.currentSongID, let song = store.library.song(id: songID) else { return }
+        await refreshCollections([collection(for: song)], store: store)
+    }
+
+    func refreshAllCached(store: TVStore) async {
+        await reloadUsage()
+        await refreshCollections(usage.map { $0.snapshot.collection }, store: store)
+    }
+
+    func refreshCollections(_ collections: [AlbumBackdropCache.Collection], store: TVStore) async {
+        guard !isManagingCollections, !collections.isEmpty else { return }
+        isManagingCollections = true
+        defer {
+            isManagingCollections = false
+            revision += 1
+        }
+        await cancelPendingRefreshes()
+        for collection in collections {
+            guard !Task.isCancelled else { return }
+            let prefix = collection.sourceID + "|"
+            guard collection.id.hasPrefix(prefix) else { failures.insert(collection.id); continue }
+            let directory = String(collection.id.dropFirst(prefix.count))
+            guard directory.hasPrefix("/") else { failures.insert(collection.id); continue }
+            await refresh(collection: collection, directory: directory, store: store, force: true)
+        }
+    }
+
+    func clearAll() async {
+        guard !isManagingCollections else { return }
+        isManagingCollections = true
+        defer {
+            isManagingCollections = false
+            revision += 1
+        }
+        await cancelPendingRefreshes()
+        await reloadUsage()
+        var keys = Set(usage.map(\.id))
+        if let prefetchDirectory { keys.insert(prefetchDirectory) }
+        for key in keys { await clearCollection(key) }
+    }
+
+    private func collection(for song: Song) -> AlbumBackdropCache.Collection {
+        let directory = (song.filePath as NSString).deletingLastPathComponent
+        return AlbumBackdropCache.Collection(
+            id: TVAlbumBackArtwork.directoryKey(for: song), sourceID: song.sourceID, songID: song.id,
+            title: song.albumTitle ?? (directory as NSString).lastPathComponent
+        )
+    }
+
+    func reloadUsage() async {
+        usage = await Self.disk.usage()
+    }
+
+    func clear(_ key: String) async {
+        guard !isManagingCollections else { return }
+        isManagingCollections = true
+        defer {
+            isManagingCollections = false
+            revision += 1
+        }
+        await clearCollection(key)
+    }
+
+    private func clearCollection(_ key: String) async {
+        cleared.insert(key)
+        tasks.removeValue(forKey: key)?.cancel()
+        taskIDs[key] = nil
+        syncing.remove(key)
+        do {
+            try await Self.disk.remove(forKey: key)
+            failures.remove(key)
+            revision += 1
+        } catch {
+            failures.insert(key)
+        }
+        await reloadUsage()
+    }
+
+    func files(for song: Song, store: TVStore) async -> [TVAlbumBackArtwork.File]? {
+        guard !Task.isCancelled else { return nil }
+        let key = TVAlbumBackArtwork.directoryKey(for: song)
+        if selectedDirectory != key {
+            selectedDirectory = key
+            cleared.remove(key)
+        }
+        guard !cleared.contains(key) else { return [] }
+        if let snapshot = await Self.disk.snapshot(forKey: key) {
+            guard !Task.isCancelled, selectedDirectory == key else { return nil }
+            Task {
+                guard selectedDirectory == key else { return }
+                await refresh(for: song, store: store)
+            }
+            return await files(snapshot)
+        }
+        guard let snapshot = await refresh(for: song, store: store) else { return nil }
+        return await files(snapshot)
+    }
+
+    func cachedFiles(for song: Song) async -> [TVAlbumBackArtwork.File]? {
+        let key = TVAlbumBackArtwork.directoryKey(for: song)
+        guard !cleared.contains(key) else { return [] }
+        guard let snapshot = await Self.disk.snapshot(forKey: key) else { return nil }
+        return await files(snapshot)
+    }
+
+    @discardableResult
+    func refresh(for song: Song, store: TVStore, force: Bool = false) async -> AlbumBackdropCache.Snapshot? {
+        let collection = collection(for: song)
+        if isManagingCollections && !force { return await Self.disk.snapshot(forKey: collection.id) }
+        guard let directory = TVFolderRescanPolicy.directory(containingFilePath: song.filePath, levelsAbove: 0)
+        else { return nil }
+        return await refresh(collection: collection, directory: directory, store: store, force: force)
+    }
+
+    @discardableResult
+    private func refresh(
+        collection: AlbumBackdropCache.Collection, directory: String, store: TVStore, force: Bool
+    ) async -> AlbumBackdropCache.Snapshot? {
+        let key = collection.id
+        guard (isEnabled || force), !Task.isCancelled else { return nil }
+        if prefetchDirectory != key {
+            prefetchDirectory = key
+            for previous in Array(tasks.keys) where previous != key {
+                tasks.removeValue(forKey: previous)?.cancel()
+                taskIDs[previous] = nil
+                syncing.remove(previous)
+                lastAttempts[previous] = nil
+                await Self.disk.cancelSynchronization(forKey: previous)
+            }
+            guard prefetchDirectory == key, !Task.isCancelled else { return nil }
+        }
+        if force { cleared.remove(key) }
+        guard !cleared.contains(key) else { return nil }
+        if let task = tasks[key] { return await task.value }
+        let id = UUID()
+        let task = Task { [weak self] () -> AlbumBackdropCache.Snapshot? in
+            guard let self, !Task.isCancelled else { return nil }
+            defer {
+                if taskIDs[key] == id {
+                    tasks[key] = nil
+                    taskIDs[key] = nil
+                    syncing.remove(key)
+                }
+            }
+            let old = await Self.disk.snapshot(forKey: key)
+            if !force {
+                if let last = lastAttempts[key], Date().timeIntervalSince(last) < 60 { return old }
+                guard await Self.disk.needsRefresh(forKey: key, interval: automaticRefresh ? 86_400 : nil)
+                else { return old }
+            }
+            guard !Task.isCancelled, taskIDs[key] == id,
+                  let source = store.sourcesStore.source(id: collection.sourceID), source.isEnabled, !source.isDeleted,
+                  TVFolderRescanPolicy.supports(source.type), TVMetadataReaderPool.canRead(source),
+                  let lister = store.makeLister(for: source)
+            else {
+                if force, !Task.isCancelled { failures.insert(key) }
+                return old
+            }
+            lastAttempts[key] = Date()
+            syncing.insert(key)
+            failures.remove(key)
+            let bundle = store.credentialBundle
+            do {
+                let snapshot = try await Self.disk.synchronize(
+                    collection: collection, forceDownload: force,
+                    list: {
+                        for candidate in AlbumBackArtworkPolicy.searchDirectories(forSongDirectory: directory) {
+                            try Task.checkCancellation()
+                            let entries = try await lister.list(candidate).filter { !$0.isDir }
+                            let indices = AlbumBackArtworkPolicy.orderedCandidateIndices(names: entries.map(\.name))
+                            if !indices.isEmpty {
+                                return indices.map {
+                                    let entry = entries[$0]
+                                    return AlbumBackdropCache.Item(path: entry.path, size: entry.size,
+                                        modified: entry.modifiedDate, providerID: entry.providerID, revision: entry.revision)
+                                }
+                            }
+                        }
+                        return []
+                    },
+                    download: { item in
+                        let download = Task.detached(priority: .utility) {
+                            let credential = TVCredentialStore.credential(for: source, bundle: bundle)
+                            let pool = TVMetadataReaderPool(source: source, credential: credential)
+                            do {
+                                var length = item.size
+                                if length <= 0 { length = try await pool.contentLength(path: item.path, size: 0) }
+                                guard length > 0, length <= 40 * 1024 * 1024 else { throw CocoaError(.fileReadTooLarge) }
+                                let data = try await pool.read(path: item.path, size: length, offset: 0, length: length)
+                                await pool.closeAll()
+                                try Task.checkCancellation()
+                                guard let image = PlayerBackdropImaging.downscaledJPEG(
+                                    from: data, maxPixel: PlayerBackdropPixelPolicy.televisionPixel
+                                ) else { throw CocoaError(.fileReadCorruptFile) }
+                                return image
+                            } catch {
+                                await pool.closeAll()
+                                throw error
+                            }
+                        }
+                        return try await withTaskCancellationHandler {
+                            try await download.value
+                        } onCancel: {
+                            download.cancel()
+                        }
+                    }
+                )
+                guard !Task.isCancelled, taskIDs[key] == id else { return nil }
+                revision += 1
+                await reloadUsage()
+                return snapshot
+            } catch {
+                if !Task.isCancelled, taskIDs[key] == id { failures.insert(key) }
+                return old
+            }
+        }
+        taskIDs[key] = id
+        tasks[key] = task
+        return await task.value
+    }
+
+    private func files(_ snapshot: AlbumBackdropCache.Snapshot) async -> [TVAlbumBackArtwork.File] {
+        var files: [TVAlbumBackArtwork.File] = []
+        for entry in snapshot.entries {
+            guard let url = await Self.disk.fileURL(for: entry, collectionKey: snapshot.id) else { continue }
+            files.append(TVAlbumBackArtwork.File(
+                path: entry.item.path, size: entry.item.size, modified: entry.item.modified,
+                providerID: entry.item.providerID, revision: entry.item.revision, localURL: url
+            ))
+        }
+        return files
+    }
+}
+
 /// 一首歌所在专辑文件夹里的图片(歌在分碟子文件夹里时连上一层一起列):盘面图和专辑页「编辑封面」
 /// 都从这里取。列过的文件夹记在内存里(列失败不记,下次再试)。
 @MainActor
@@ -453,7 +742,8 @@ enum TVAlbumFolderPictures {
     }
 
     static func file(_ entry: TVDirEntry) -> TVAlbumBackArtwork.File {
-        TVAlbumBackArtwork.File(path: entry.path, size: entry.size, modified: entry.modifiedDate)
+        TVAlbumBackArtwork.File(path: entry.path, size: entry.size, modified: entry.modifiedDate,
+                                providerID: entry.providerID, revision: entry.revision)
     }
 
     /// 原图的字节,给「编辑封面」存成专辑封面用。在后台读。

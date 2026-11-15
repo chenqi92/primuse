@@ -7578,3 +7578,13 @@
 "sort_title_chinese_first" = "제목 - 중국어 우선";
 
 "sort_original_name" = "원래 이름";
+
+"player_backdrop_cache_title" = "배경 이미지 캐시";
+"player_backdrop_cache_enabled" = "이미지 미리 캐시";
+"player_backdrop_cache_daily" = "매일 확인";
+"player_backdrop_cache_refresh" = "현재 앨범 새로 고침";
+"player_backdrop_cache_syncing" = "이미지 동기화 중…";
+"player_backdrop_cache_failed" = "이미지 동기화에 실패했습니다. 다시 새로 고침해 주세요.";
+"player_backdrop_cache_clear" = "캐시 지우기";
+"player_backdrop_cache_refresh_all" = "모든 이미지 모음 새로 고침";
+"player_backdrop_cache_empty" = "캐시된 배경 이미지가 없습니다";

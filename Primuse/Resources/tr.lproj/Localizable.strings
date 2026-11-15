@@ -7484,3 +7484,13 @@
 "sort_title_chinese_first" = "Başlık - önce Çince";
 
 "sort_original_name" = "Özgün ad";
+
+"player_backdrop_cache_title" = "Arka Plan Görsel Önbelleği";
+"player_backdrop_cache_enabled" = "Görselleri Önceden Yükle";
+"player_backdrop_cache_daily" = "Her Gün Kontrol Et";
+"player_backdrop_cache_refresh" = "Geçerli Albümü Yenile";
+"player_backdrop_cache_syncing" = "Görseller eşzamanlanıyor…";
+"player_backdrop_cache_failed" = "Görseller eşzamanlanamadı. Yenilemeyi tekrar deneyin.";
+"player_backdrop_cache_clear" = "Önbelleği Temizle";
+"player_backdrop_cache_refresh_all" = "Tüm Koleksiyonları Yenile";
+"player_backdrop_cache_empty" = "Önbelleğe alınmış arka plan görseli yok";

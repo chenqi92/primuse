@@ -7579,3 +7579,13 @@
 "sort_title_chinese_first" = "タイトル - 中国語優先";
 
 "sort_original_name" = "元の名前";
+
+"player_backdrop_cache_title" = "背景画像キャッシュ";
+"player_backdrop_cache_enabled" = "画像を事前にキャッシュ";
+"player_backdrop_cache_daily" = "毎日確認";
+"player_backdrop_cache_refresh" = "現在のアルバムを更新";
+"player_backdrop_cache_syncing" = "画像を同期中…";
+"player_backdrop_cache_failed" = "画像の同期に失敗しました。もう一度更新してください。";
+"player_backdrop_cache_clear" = "キャッシュを削除";
+"player_backdrop_cache_refresh_all" = "すべての画像集を更新";
+"player_backdrop_cache_empty" = "キャッシュされた背景画像はありません";

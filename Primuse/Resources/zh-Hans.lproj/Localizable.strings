@@ -7671,3 +7671,13 @@
 "sort_title_chinese_first" = "标题-中文优先";
 
 "sort_original_name" = "原始名称";
+
+"player_backdrop_cache_title" = "背景图片缓存";
+"player_backdrop_cache_enabled" = "本地预缓存";
+"player_backdrop_cache_daily" = "每天检查更新";
+"player_backdrop_cache_refresh" = "刷新当前专辑";
+"player_backdrop_cache_syncing" = "正在同步图片…";
+"player_backdrop_cache_failed" = "图片同步失败，请重试刷新。";
+"player_backdrop_cache_clear" = "清理缓存";
+"player_backdrop_cache_refresh_all" = "刷新全部图集";
+"player_backdrop_cache_empty" = "暂无已缓存的背景图片";

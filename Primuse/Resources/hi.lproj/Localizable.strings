@@ -7484,3 +7484,13 @@
 "sort_title_chinese_first" = "शीर्षक - चीनी पहले";
 
 "sort_original_name" = "मूल नाम";
+
+"player_backdrop_cache_title" = "पृष्ठभूमि छवि कैश";
+"player_backdrop_cache_enabled" = "छवियाँ पहले से कैश करें";
+"player_backdrop_cache_daily" = "रोज़ जाँचें";
+"player_backdrop_cache_refresh" = "वर्तमान एल्बम रीफ़्रेश करें";
+"player_backdrop_cache_syncing" = "छवियाँ सिंक हो रही हैं…";
+"player_backdrop_cache_failed" = "छवियाँ सिंक नहीं हो सकीं। फिर से रीफ़्रेश करें।";
+"player_backdrop_cache_clear" = "कैश साफ़ करें";
+"player_backdrop_cache_refresh_all" = "सभी संग्रह रीफ़्रेश करें";
+"player_backdrop_cache_empty" = "कोई पृष्ठभूमि छवि कैश नहीं है";

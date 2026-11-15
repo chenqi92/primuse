@@ -7339,3 +7339,13 @@
 "sort_title_chinese_first" = "Title - Chinese first";
 
 "sort_original_name" = "Original name";
+
+"player_backdrop_cache_title" = "Background Image Cache";
+"player_backdrop_cache_enabled" = "Pre-cache Images";
+"player_backdrop_cache_daily" = "Check Daily";
+"player_backdrop_cache_refresh" = "Refresh Current Album";
+"player_backdrop_cache_syncing" = "Syncing images…";
+"player_backdrop_cache_failed" = "Image sync failed. Try refreshing again.";
+"player_backdrop_cache_clear" = "Clear Cache";
+"player_backdrop_cache_refresh_all" = "Refresh All Collections";
+"player_backdrop_cache_empty" = "No background images cached";

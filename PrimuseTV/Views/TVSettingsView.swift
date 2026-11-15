@@ -131,6 +131,8 @@ struct TVSettingsView: View {
     @AppStorage(TVHomeSectionConfiguration.storageKey) private var homeSectionsRawValue = ""
     @State private var showsBackdropSettings = tvDebugShowsBackdropSettings
     @State private var backdropSettings = PlayerBackdropSettingsStore.shared
+    @State private var showsBackdropCache = false
+    @State private var backdropCache = TVAlbumBackdropCache.shared
     @AppStorage(TVTabBarConfiguration.storageKey) private var tabBarConfigurationRawValue = ""
     @State private var isSyncing = false
     @State private var syncMsg: String?
@@ -457,6 +459,14 @@ struct TVSettingsView: View {
                                 )
                             }
                         }
+                        settingsSection(String(localized: "storage_management")) {
+                            navRow("photo.stack", String(localized: "player_backdrop_cache_title"),
+                                   ByteCountFormatter.string(fromByteCount: backdropCache.usage.reduce(0) { $0 + $1.bytes },
+                                                             countStyle: .file)) {
+                                showsBackdropCache = true
+                            }
+                            .accessibilityIdentifier("tv.settings.storage.backdropCache")
+                        }
                         settingsSection(String(localized: "about")) {
                             navRow("star.bubble", PMString("rate_on_app_store"), "App Store", trailing: "arrow.up.right") {
                                 openURL(PrimuseAppStore.reviewURL)
@@ -531,6 +541,8 @@ struct TVSettingsView: View {
             TVHomeSectionsSettingsView().environment(intelligence)
         }
         .tvFullScreenCover(isPresented: $showsBackdropSettings) { TVPlayerBackdropSettingsView() }
+        .tvFullScreenCover(isPresented: $showsBackdropCache) { TVPlayerBackdropCacheView() }
+        .task { await backdropCache.reloadUsage() }
         .tvFullScreenCover(isPresented: $showsAISettings) {
             TVAISettingsView()
                 .environment(intelligence)
