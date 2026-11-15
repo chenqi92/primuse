@@ -17,7 +17,7 @@ final class MacSongTableAndIconTests: XCTestCase {
     }
     func testRetiredIconsFallBackToPrimaryOnLaunch() throws {
         let defaults = try fixtureDefaults()
-        for retired in ["AppIcon21", "AppIcon14"] {
+        for retired in ["AppIcon21", "AppIcon14", "AppIcon16"] {
             defaults.set(retired, forKey: "pm.mac.appIcon")
             let preferences = MacUIPreferences(defaults: defaults)
             XCTAssertEqual(preferences.appIconID, "")

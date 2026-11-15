@@ -48,7 +48,7 @@ final class AppIconService {
         let supportsAppearance: Bool
     }
 
-    private static let themeOrder = [20, 19, 16, 15, 12]
+    private static let themeOrder = [20, 19, 22, 15, 12]
 
     /// Themes that ship only a single visual variant (no dark counterpart in
     /// the asset catalog). Add a theme index here when no dark image exists.

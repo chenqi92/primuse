@@ -487,7 +487,7 @@
 		31FA8CEBB3CC3844D3EE939F /* CloudDriveConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21727E0AB276B85CA9B19BE9 /* CloudDriveConnectionView.swift */; };
 		32077220E6E72B9BB167B68E /* EmbeddedCommentWriteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 606CF932512856DC14587F5A /* EmbeddedCommentWriteTests.swift */; };
 		321DFF8FCAA3C62172458517 /* LyricsActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD56094A6AC4671F1DE203DC /* LyricsActivityAttributes.swift */; };
-		323E13FB471ADE331E3F501E /* AppIcon16.icon in Resources */ = {isa = PBXBuildFile; fileRef = AEC9A07885B7FAA0DF5DAA12 /* AppIcon16.icon */; };
+		323E13FB471ADE331E3F501E /* AppIcon22.icon in Resources */ = {isa = PBXBuildFile; fileRef = AEC9A07885B7FAA0DF5DAA12 /* AppIcon22.icon */; };
 		325ABA3DD06BA2FE77B7634E /* MacLazyStackAccessibilityGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8993EB01B647C223D06CA7AB /* MacLazyStackAccessibilityGuard.swift */; };
 		325C09DC9D9271795E966AAD /* SpokenWordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D24D75902E225384315DFADB /* SpokenWordStore.swift */; };
 		32A52E4A8812064991A9095A /* LyricsTranslationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3A3AB01792078E57665353 /* LyricsTranslationSettings.swift */; };
@@ -3802,7 +3802,7 @@
 		AE41DF2E4D5B75A369E0159B /* ScraperManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperManager.swift; sourceTree = "<group>"; };
 		AE44C96AA2373FDDE2BC3D69 /* RadioICYProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioICYProbe.swift; sourceTree = "<group>"; };
 		AEC39297EEA0DE678B391304 /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = "es-MX"; path = "es-MX.lproj/AppIntentVocabulary.plist"; sourceTree = "<group>"; };
-		AEC9A07885B7FAA0DF5DAA12 /* AppIcon16.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon16.icon; sourceTree = "<group>"; };
+		AEC9A07885B7FAA0DF5DAA12 /* AppIcon22.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon22.icon; sourceTree = "<group>"; };
 		AF1D8CFBCDA161E39FD948E2 /* TVSpokenWordNowPlaying.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSpokenWordNowPlaying.swift; sourceTree = "<group>"; };
 		AF1E7A40D2D8B42A419AFA43 /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/CacheSync.strings"; sourceTree = "<group>"; };
 		AF23E2C32C29F875836D06BE /* FFmpegDecoderBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FFmpegDecoderBridge.m; sourceTree = "<group>"; };
@@ -5422,7 +5422,7 @@
 			children = (
 				689C33A4E16E5398ACAEFBA5 /* AppIcon12.icon */,
 				B4E678A7788F43EE2A64E071 /* AppIcon15.icon */,
-				AEC9A07885B7FAA0DF5DAA12 /* AppIcon16.icon */,
+				AEC9A07885B7FAA0DF5DAA12 /* AppIcon22.icon */,
 				328976B021ACE0B2395E2621 /* AppIcon19.icon */,
 				F6B0D08B5C57B0A2DE16008F /* AppIcon20.icon */,
 				0C6DBCC2480F1607676C8F97 /* AppIconPrimary.icon */,
@@ -7122,7 +7122,7 @@
 			files = (
 				BF99C076E88EABE0665A9F6B /* AppIcon12.icon in Resources */,
 				9995CF68B723A19C2C24CABB /* AppIcon15.icon in Resources */,
-				323E13FB471ADE331E3F501E /* AppIcon16.icon in Resources */,
+				323E13FB471ADE331E3F501E /* AppIcon22.icon in Resources */,
 				D5AA281AE069EFCD8F0377B3 /* AppIcon19.icon in Resources */,
 				FB68485AACD2198288DB5786 /* AppIcon20.icon in Resources */,
 				BA6C247278C46711ECE02B19 /* AppIconPrimary.icon in Resources */,
@@ -9979,7 +9979,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 28EE6B136CE82FFC872F9E86 /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon16 AppIcon19 AppIcon20 AppIconGroove";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon22 AppIcon19 AppIcon20 AppIconGroove";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconPrimary;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
@@ -10440,7 +10440,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 63D1E2C3BE30F68AD3F01632 /* Debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon16 AppIcon19 AppIcon20 AppIconGroove";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon22 AppIcon19 AppIcon20 AppIconGroove";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconPrimary;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;

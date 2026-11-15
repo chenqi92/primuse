@@ -128,15 +128,19 @@ def build_marks() -> dict[str, tuple[Layer, Layer | None]]:
         (glyph_colour(load("12-pikaqiu-dark"), dark_alpha), dark_alpha),
     )
 
-    # NonoEnd and Chris's Muse are white glyphs on a colour in Light, which
-    # would vanish on a light sidebar; their Dark plates carry the colour-tinted
-    # glyph, and NonoEnd's Dark clef has no rim light or cast shadow.
+    # Chris's Muse uses its colour-tinted Dark glyph on both sidebar appearances.
     for name, stem in (
-        ("AppIcon16", "16-nonoend"),
         ("AppIcon19", "19-chris-muse"),
     ):
         alpha = luma_alpha(load(f"{stem}-tinted"), 1, 10, 40)
         marks[name] = ((glyph_colour(load(f"{stem}-dark"), alpha), alpha), None)
+
+    # The dark pearl plate provides a high-contrast contour for both appearances.
+    alpha = luma_alpha(load("22-kai-dark"), 1, 10, 70)
+    marks["AppIcon22"] = (
+        (glyph_colour(load("22-kai"), alpha), alpha),
+        (glyph_colour(load("22-kai-dark"), alpha), alpha),
+    )
 
     alpha = luma_alpha(load("15-folded-note-tinted"), 1, 10, 40)
     marks["AppIcon15"] = (

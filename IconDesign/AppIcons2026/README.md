@@ -7,7 +7,7 @@ The public catalog contains one primary icon and five alternates, in this order:
 | `00-primuse.png` | `AppIcon` | Primuse |
 | `20-soft-note.png` | `AppIcon20` | 清新音符 |
 | `19-chris-muse.png` | `AppIcon19` | Chris’s Muse |
-| `16-nonoend.png` | `AppIcon16` | NonoEnd |
+| `22-kai.png` | `AppIcon22` | Kai |
 | `15-folded-note.png` | `AppIcon15` | 折页音符 |
 | `12-pikaqiu.png` | `AppIcon12` | 皮卡丘 |
 

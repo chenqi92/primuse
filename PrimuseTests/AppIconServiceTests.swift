@@ -74,7 +74,7 @@ final class AppIconServiceTests: XCTestCase {
     }
 
     func testRetiredSelectionResetsTheSystemIconOnActivation() async throws {
-        for retired in ["AppIcon21", "AppIcon14"] {
+        for retired in ["AppIcon21", "AppIcon14", "AppIcon16"] {
             let system = IconSystem()
             system.current = retired
             let (service, defaults) = try fixture(system, stored: retired)
@@ -110,12 +110,12 @@ final class AppIconServiceTests: XCTestCase {
 
     func testActivationReconcilesWithSystemAndAvoidsRedundantChanges() async throws {
         let system = IconSystem()
-        system.current = "AppIcon16"
+        system.current = "AppIcon22"
         let (service, defaults) = try fixture(system, stored: "AppIcon19")
         await service.restorePrimaryIconIfNeeded()
-        XCTAssertEqual(service.currentIconID, "AppIcon16")
-        XCTAssertEqual(defaults.string(forKey: AppIconService.storageKey), "AppIcon16")
-        let option = try XCTUnwrap(service.options.first { $0.id == "AppIcon16" })
+        XCTAssertEqual(service.currentIconID, "AppIcon22")
+        XCTAssertEqual(defaults.string(forKey: AppIconService.storageKey), "AppIcon22")
+        let option = try XCTUnwrap(service.options.first { $0.id == "AppIcon22" })
         let succeeded = await service.setIcon(option)
         XCTAssertTrue(succeeded)
         XCTAssertTrue(system.requested.isEmpty)
@@ -173,6 +173,7 @@ final class AppIconServiceTests: XCTestCase {
         XCTAssertEqual(Set(names), Set(service.availableOptions.compactMap(\.alternateName)))
         XCTAssertFalse(names.contains("AppIcon21"))
         XCTAssertFalse(names.contains("AppIcon14"))
+        XCTAssertFalse(names.contains("AppIcon16"))
         for option in service.availableOptions {
             XCTAssertNotNil(UIImage(named: option.previewAsset), option.id)
             #if os(tvOS)

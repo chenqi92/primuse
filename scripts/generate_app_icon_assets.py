@@ -43,12 +43,12 @@ EXACT_ICONS = [
         "19-chris-muse-tinted.png",
     ),
     (
-        "16-nonoend",
-        "AppIcon16",
-        "AppIcon16Preview",
-        "16-nonoend.png",
-        "16-nonoend-dark.png",
-        "16-nonoend-tinted.png",
+        "22-kai",
+        "AppIcon22",
+        "AppIcon22Preview",
+        "22-kai.png",
+        "22-kai-dark.png",
+        "22-kai-tinted.png",
     ),
     (
         "15-folded-note",
@@ -68,7 +68,7 @@ EXACT_ICONS = [
     ),
 ]
 
-CATALOG_ORDER = ["AppIcon", "AppIcon20", "AppIcon19", "AppIcon16", "AppIcon15", "AppIcon12"]
+CATALOG_ORDER = ["AppIcon", "AppIcon20", "AppIcon19", "AppIcon22", "AppIcon15", "AppIcon12"]
 
 # In-app previews render at 60–100 pt (and 512 pt@2x for the macOS Dock icon).
 PREVIEW_SIDE = 512
