@@ -629,6 +629,7 @@ struct SpokenWordShelfContent: View {
     var section: SpokenWordShelfSection = .all
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourceManager.self) private var sourceManager
     @AppStorage("spokenWord.shelf.showsFinished") private var showsFinished = false
     @AppStorage("spokenWord.shelf.expandsArchived") private var expandsArchived = false
     @AppStorage("spokenWord.shelf.layout") private var layout = SpokenWordShelfLayout.bookshelf
@@ -644,6 +645,7 @@ struct SpokenWordShelfContent: View {
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritePinsRawValue = ""
     /// 要整本加进歌单的那本书。
     @State private var playlistTarget: SpokenWordLibrarySnapshot.Entry?
+    @State private var cacheRemovalTarget: SpokenWordLibrarySnapshot.Entry?
     /// 菜单里点了「始终保持离线」,这本书却一章都不能下:说明为什么。
     @State private var offlineUnavailable: AudiobookOfflinePolicy.Availability?
     /// 书架「排序」开着: iPhone、iPad 上只有这时按住一本书是拖动, 平时长按是这本书的菜单。
@@ -698,6 +700,27 @@ struct SpokenWordShelfContent: View {
                 Text(offlineUnavailable == .alreadyOnDevice
                      ? "spoken_word_keep_offline_on_device_message"
                      : "spoken_word_keep_offline_unsupported_message")
+            }
+            .confirmationDialog(
+                "spoken_word_auto_download_remove_all_title",
+                isPresented: Binding(
+                    get: { cacheRemovalTarget != nil },
+                    set: { if !$0 { cacheRemovalTarget = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: cacheRemovalTarget
+            ) { entry in
+                Button("spoken_word_auto_download_remove_all", role: .destructive) {
+                    SpokenWordBookSupport.removeAllCaches(
+                        entry.book, songs: entry.songs,
+                        sourceManager: sourceManager, coordinator: AppServices.shared.alwaysDownload
+                    )
+                }
+                Button("cancel", role: .cancel) {}
+            } message: { entry in
+                Text(AppServices.shared.alwaysDownload.isEnabled(forBook: entry.id)
+                     ? "spoken_word_auto_download_remove_all_message_enabled"
+                     : "spoken_word_auto_download_remove_all_message")
             }
     }
 
@@ -1160,6 +1183,13 @@ struct SpokenWordShelfContent: View {
         } label: {
             Label(String(localized: "mark_as_music"), systemImage: "music.note")
         }
+        Button(role: .destructive) {
+            cacheRemovalTarget = SpokenWordLibrarySnapshot.Entry(book: book, songs: songs)
+        } label: {
+            Label("spoken_word_auto_download_remove_all", systemImage: "trash")
+        }
+        .disabled(songs.isEmpty)
+        .accessibilityIdentifier("spokenWord.book.removeAllCaches")
         if book.lastListenedAt != nil {
             Button(role: .destructive) {
                 for item in book.items { store.clearPosition(forSongID: item.id) }
@@ -1814,11 +1844,13 @@ struct SpokenWordBookDetailView: View {
             isPresented: $confirmsCacheRemoval,
             titleVisibility: .visible
         ) {
-            if let offline {
-                Button("spoken_word_auto_download_remove_all", role: .destructive) {
-                    removeAllCaches(book, songs: songs, offline: offline)
-                }
+            Button("spoken_word_auto_download_remove_all", role: .destructive) {
+                SpokenWordBookSupport.removeAllCaches(
+                    book, songs: songs,
+                    sourceManager: sourceManager, coordinator: AppServices.shared.alwaysDownload
+                )
             }
+            Button("cancel", role: .cancel) {}
         } message: {
             Text(offline?.isEnabled == true
                  ? "spoken_word_auto_download_remove_all_message_enabled"
@@ -1827,7 +1859,7 @@ struct SpokenWordBookDetailView: View {
     }
 
     /// 「始终保持离线」收成语速右边的一颗键(#336,照 Apple 播客的「自动下载」):
-    /// 关着是下载箭头、开着是对勾;点了弹菜单开关,有下好的章节时多一项「删除所有缓存」。
+    /// 关着是下载箭头、开着是对勾;点了弹菜单开关与「删除所有缓存」。
     /// 菜单顶上写着已下载几章。整本都不能下时看得出不可用,点了讲原因。
     @ViewBuilder
     private func autoDownloadKey(
@@ -1863,7 +1895,7 @@ struct SpokenWordBookDetailView: View {
                             systemImage: offline.isEnabled ? "xmark.circle" : "arrow.down.circle"
                         )
                     }
-                    if !offline.downloadedSongs.isEmpty {
+                    if !songs.isEmpty {
                         Button(role: .destructive) {
                             confirmsCacheRemoval = true
                         } label: {
@@ -1890,19 +1922,6 @@ struct SpokenWordBookDetailView: View {
             .accessibilityLabel(Text("spoken_word_auto_download"))
             .accessibilityValue(Text(verbatim: offline.statusText))
         }
-    }
-
-    /// 删掉这本书下好的章节。开着自动下载时先关掉,不然删完又会被下回来。
-    private func removeAllCaches(_ book: SpokenWordBook, songs: [Song], offline: SpokenWordBookOfflineStatus) {
-        if offline.isEnabled {
-            AppServices.shared.alwaysDownload.setEnabled(
-                false,
-                forBook: book.id,
-                title: book.title,
-                songIDs: songs.map(\.id)
-            )
-        }
-        sourceManager.removeOfflineDownloads(offline.downloadedSongs)
     }
 
     /// 「继续」、语速、「自动下载」一排。语速和「自动下载」按自己的宽度画,剩下的宽度才给「继续」:
@@ -1960,7 +1979,7 @@ struct SpokenWordBookOfflineStatus {
     /// nil:还没读到下了几章。
     let progress: AudiobookOfflinePolicy.Progress?
     let waitingReason: AutomaticOfflineDownloadDeferralReason?
-    /// 已经下到本机的章节:「删除所有缓存」删的就是它们。
+    /// 已经完整下到本机的章节。
     let downloadedSongs: [Song]
 
     /// 开着却还没下完:页面上要写出下到第几章、在等什么(#313)。
@@ -3037,6 +3056,18 @@ struct SpokenWordBookSpeedMenu: View {
 // MARK: - Support
 
 enum SpokenWordBookSupport {
+    @MainActor
+    static func removeAllCaches(
+        _ book: SpokenWordBook,
+        songs: [Song],
+        sourceManager: SourceManager,
+        coordinator: AlwaysDownloadCoordinator
+    ) {
+        coordinator.setEnabled(false, forBook: book.id, title: book.title, songIDs: songs.map(\.id))
+        // 章节尚未下载完整时也可能已有分段缓存，不能只清理 downloadedSongs。
+        sourceManager.removeOfflineDownloads(songs)
+    }
+
     @MainActor
     static func item(for song: Song, store: SpokenWordStore) -> SpokenWordBookItem {
         let stored = store.position(forSongID: song.id)

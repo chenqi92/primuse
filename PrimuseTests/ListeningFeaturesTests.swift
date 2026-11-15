@@ -14,6 +14,74 @@ import XCTest
 /// these check the wiring into the player, the stores and the library.
 @MainActor
 final class ListeningFeaturesTests: XCTestCase {
+    func testBookCacheRemovalIncludesPartialChaptersAndPreservesOtherBooksAndOriginals() async throws {
+        let source = MusicSource(id: UUID().uuidString, name: "Book cache fixture", type: .navidrome)
+        let localSource = MusicSource(id: UUID().uuidString, name: "Local book fixture", type: .local)
+        let original = makeDirectory().appendingPathComponent("chapter.flac")
+        try Data(repeating: 3, count: 128).write(to: original)
+        let chapters = ["downloaded", "partial", "uncached", "local"].map { name in
+            Song(id: UUID().uuidString, title: name, albumTitle: "Cache removal book",
+                 fileFormat: .flac, filePath: name == "local" ? original.path : "/book/\(name).flac",
+                 sourceID: name == "local" ? localSource.id : source.id, fileSize: 128)
+        }
+        let other = Song(id: UUID().uuidString, title: "Other book", fileFormat: .flac,
+                         filePath: "/other/chapter.flac", sourceID: source.id, fileSize: 128)
+        let manager = SourceManager(sourcesProvider: { [source, localSource] })
+        defer {
+            manager.deleteSourceCaches(sourceID: source.id)
+            manager.deleteSourceCaches(sourceID: localSource.id)
+        }
+        let deadline = Date().addingTimeInterval(3)
+        while !(await manager.prepareAutomaticOfflineDownload(song: chapters[0], forceRedownload: false)) {
+            guard Date() < deadline else { throw URLError(.timedOut) }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let completeURL = manager.cacheURL(for: chapters[0])
+        let completePath = source.id + "/" + completeURL.lastPathComponent
+        try Data(repeating: 7, count: 128).write(to: completeURL)
+        let pinned = await AudioCacheManager.shared.pin(path: completePath, byteCount: 128)
+        XCTAssertTrue(pinned)
+        let downloadURL = try XCTUnwrap(AudioCacheManager.shared.downloadStore.fileURL(for: completePath, kind: .original))
+        let partialURL = URL(fileURLWithPath: manager.cacheURL(for: chapters[1]).path + ".partial")
+        try Data(repeating: 8, count: 64).write(to: partialURL)
+        let otherURL = manager.cacheURL(for: other)
+        try Data(repeating: 9, count: 128).write(to: otherURL)
+
+        let defaults = try makeDefaults()
+        let coordinator = AlwaysDownloadCoordinator(
+            library: MusicLibrary(storageDirectory: makeDirectory()),
+            sourcesStore: SourcesStore(storageDirectoryURL: makeDirectory()),
+            sourceManager: manager, player: try makePlayer(), defaults: defaults
+        )
+        let book = try XCTUnwrap(SpokenWordBookGrouping.books(from: chapters.map { SpokenWordBookItem(song: $0) }).first)
+        coordinator.setEnabled(true, forBook: book.id, title: book.title, songIDs: chapters.map(\.id))
+        coordinator.setEnabled(true, forBook: "other-book", title: "Other book", songIDs: [other.id])
+
+        SpokenWordBookSupport.removeAllCaches(book, songs: chapters, sourceManager: manager, coordinator: coordinator)
+
+        XCTAssertFalse(coordinator.isEnabled(forBook: book.id))
+        XCTAssertTrue(coordinator.isEnabled(forBook: "other-book"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: completeURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partialURL.path))
+        XCTAssertEqual(try Data(contentsOf: otherURL), Data(repeating: 9, count: 128))
+        XCTAssertEqual(try Data(contentsOf: original), Data(repeating: 3, count: 128))
+        for chapter in chapters {
+            XCTAssertEqual(manager.offlineAudioSnapshot(for: chapter).state, .notCached)
+        }
+        // The removal marker also prevents another automatic owner from restoring these chapters.
+        let repinned = await AudioCacheManager.shared.pin(
+            path: completePath, byteCount: 128, forPlaylistIDs: ["other-playlist"]
+        )
+        XCTAssertFalse(repinned)
+        // Repeating the action with automatic download already off is harmless.
+        SpokenWordBookSupport.removeAllCaches(book, songs: chapters, sourceManager: manager, coordinator: coordinator)
+        for chapter in chapters {
+            let url = manager.cacheURL(for: chapter)
+            await AudioCacheManager.shared.removeEntry(path: chapter.sourceID + "/" + url.lastPathComponent)
+        }
+    }
+
     func testAlternatePodcastVideoUsesItsOwnURLAndSpokenWordPreference() throws {
         let audioURL = URL(string: "https://audio.example.com/episode.mp3")!
         let audioCDN = URL(string: "https://audio-cdn.example.com/resolved.mp3")!
