@@ -77,8 +77,13 @@ final class SubsonicArtworkPolicyTests: XCTestCase {
         let references = [
             TingReaderAPIProtocol.coverReference(bookID: "book", libraryID: "library", coverPath: "/covers/book.jpg"),
             AudiobookshelfAPIProtocol.coverReference(itemID: "book", updatedAt: nil),
+            SongloftAPIProtocol.coverReference(id: 42, revision: "a|b"),
+            SongloftAPIProtocol.coverReference(id: 7, playlist: true),
+            SynologyAudioStationCoverReference.song(id: "music_42", revision: "1").rawValue,
+            SynologyAudioStationCoverReference.album(name: "专辑", albumArtist: "艺人").rawValue,
         ]
         for reference in references {
+            XCTAssertTrue(SourceArtworkPolicy.isOpaqueCoverReference(reference), reference)
             let key = try XCTUnwrap(SourceArtworkPolicy.cacheID(sourceID: "server", reference: reference, maximumPixels: 480))
             XCTAssertEqual(key, SourceArtworkPolicy.cacheID(sourceID: "server", reference: reference, maximumPixels: 192))
             XCTAssertNotEqual(key, SourceArtworkPolicy.cacheID(sourceID: "other", reference: reference, maximumPixels: 480))
@@ -94,6 +99,10 @@ final class SubsonicArtworkPolicyTests: XCTestCase {
              TingReaderAPIProtocol.coverReference(bookID: "book", libraryID: "library", coverPath: "/new.jpg")),
             (AudiobookshelfAPIProtocol.coverReference(itemID: "book", updatedAt: nil),
              AudiobookshelfAPIProtocol.coverReference(itemID: "book", updatedAt: Date(timeIntervalSince1970: 100))),
+            (SongloftAPIProtocol.coverReference(id: 42, revision: "old"),
+             SongloftAPIProtocol.coverReference(id: 42, revision: "new")),
+            (SynologyAudioStationCoverReference.song(id: "music_42", revision: "1").rawValue,
+             SynologyAudioStationCoverReference.song(id: "music_42", revision: "2").rawValue),
         ]
         for (old, new) in pairs {
             let oldKey = try XCTUnwrap(SourceArtworkPolicy.cacheID(sourceID: "server", reference: old, maximumPixels: 480))

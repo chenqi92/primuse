@@ -559,9 +559,13 @@ public enum StoredArtworkOrigin: String, CaseIterable, Sendable {
 public enum SourceArtworkPolicy {
     public static let maximumAge: TimeInterval = 24 * 60 * 60
 
+    /// 服务端源自己编的封面引用（不带「/」、也不是网址）。认不出来的会被当成本机封面文件名：
+    /// 没有缓存键、按文件名去读、服务器换了封面也不认，每次都重新联网取。
     public static func isOpaqueCoverReference(_ reference: String) -> Bool {
         TingReaderAPIProtocol.coverReference(from: reference) != nil
             || AudiobookshelfAPIProtocol.coverItemID(fromReference: reference) != nil
+            || SongloftAPIProtocol.coverEndpoint(reference: reference) != nil
+            || SynologyAudioStationCoverReference(rawValue: reference) != nil
     }
 
     public static func cacheID(sourceID: String?, reference: String?, maximumPixels: Int) -> String? {
