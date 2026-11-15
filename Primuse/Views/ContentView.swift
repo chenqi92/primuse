@@ -3132,6 +3132,7 @@ struct PlayerOverlay: View {
                 dismissalState.cancelForSystemInterruption()
             }
             surfaceMotion.isDismissing = false
+            surfaceMotion.pullDistance = 0
             presentationPhase = .visible
             motion.setOffset(.zero)
             motion.setProgress(1)
@@ -3174,6 +3175,7 @@ struct PlayerOverlay: View {
         dismissalTask = nil
         if dismissalState.isDismissing { dismissalState.cancelForSystemInterruption() }
         surfaceMotion.isDismissing = false
+        surfaceMotion.pullDistance = 0
         if presentationPhase == .visible, motion.progress == 1, motion.offset == .zero {
             completeEntranceIfPossible()
             return
@@ -3238,6 +3240,7 @@ struct PlayerOverlay: View {
         dismissalTask = nil
         if dismissalState.isDismissing { dismissalState.cancelForSystemInterruption() }
         surfaceMotion.isDismissing = false
+        surfaceMotion.pullDistance = 0
         motion.stop()
         motion.setOffset(.zero)
         motion.setProgress(0)
@@ -3267,6 +3270,7 @@ struct PlayerOverlay: View {
             motion.setOffset(CGSize(width: value, height: 0))
         case .vertical:
             motion.setOffset(CGSize(width: 0, height: value))
+            surfaceMotion.pullDistance = value
         }
     }
 
@@ -3283,6 +3287,10 @@ struct PlayerOverlay: View {
                 ? Self.verticalSnapBackSpring
                 : Spring(response: 0.34, dampingRatio: 0.86)
             motion.animateOffset(to: .zero, spring: snapBack)
+            // 拉回去时顶上的柔化跟着整页回弹一起淡回来。
+            if surfaceMotion.pullDistance != 0 {
+                withAnimation(.spring(Self.verticalSnapBackSpring)) { surfaceMotion.pullDistance = 0 }
+            }
         }
     }
 

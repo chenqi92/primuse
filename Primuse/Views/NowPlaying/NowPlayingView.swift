@@ -8620,7 +8620,8 @@ struct NowPlayingView: View {
                         artworkRect: rect,
                         topSafeArea: topSafeArea,
                         appearance: appearance,
-                        allowsLoading: isPresentationSettled
+                        allowsLoading: isPresentationSettled,
+                        pullMotion: surfaceMotion
                     )
                     .transition(.opacity)
                 }
@@ -18333,6 +18334,9 @@ private final class NowPlayingMinimizeDragActivity {
 final class NowPlayingSurfaceMotion {
     var isDragging = false
     var isDismissing = false
+    /// 正往下拉着收起时整页下移了多少点。铺满封面顶上的柔化据此渐隐(`NowPlayingPullFade`):
+    /// 拉下来以后背后的 App 已经露出来,顶上还挂着一截模糊会很突兀。只有那两层读它。
+    var pullDistance: CGFloat = 0
 
     var isHeld: Bool { isDragging || isDismissing }
 }

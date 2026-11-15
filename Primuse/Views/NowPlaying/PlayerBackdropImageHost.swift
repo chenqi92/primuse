@@ -164,6 +164,8 @@ struct FullBleedTopChrome: View {
     let appearance: NowPlayingAppearance
     /// 底下垫着模糊的封面(`FullBleedArtworkTopSoftening`):时间已经看得清,淡底减轻,不再压出一道灰。
     var softened = false
+    /// 播放页上传进来:往下拉着收起时淡底跟着渐隐,把手留着。设置里的预览不传。
+    var pullMotion: NowPlayingSurfaceMotion? = nil
 
     static func bandHeight(topSafeArea: CGFloat) -> CGFloat { topSafeArea + 44 }
 
@@ -175,6 +177,7 @@ struct FullBleedTopChrome: View {
                 endPoint: .bottom
             )
             .frame(height: Self.bandHeight(topSafeArea: topSafeArea))
+            .modifier(NowPlayingPullFade(motion: pullMotion))
 
             Capsule()
                 .fill(appearance.primary.opacity(appearance.isLight ? 0.3 : 0.36))
@@ -197,6 +200,8 @@ struct FullBleedArtworkTop: View {
     let topSafeArea: CGFloat
     let appearance: NowPlayingAppearance
     let allowsLoading: Bool
+    /// 往下拉着收起时柔化与淡底渐隐(`NowPlayingPullFade`)。
+    var pullMotion: NowPlayingSurfaceMotion? = nil
 
     @AppStorage(PlayerAppearancePreferences.fullBleedTopSofteningKey)
     private var softens = PlayerAppearancePreferences.fullBleedTopSofteningByDefault
@@ -212,11 +217,29 @@ struct FullBleedArtworkTop: View {
                     height: FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea),
                     allowsLoading: allowsLoading
                 )
+                .modifier(NowPlayingPullFade(motion: pullMotion))
             }
-            FullBleedTopChrome(topSafeArea: topSafeArea, appearance: appearance, softened: softens)
+            FullBleedTopChrome(topSafeArea: topSafeArea, appearance: appearance, softened: softens, pullMotion: pullMotion)
                 .frame(width: artworkRect.width)
                 .position(x: artworkRect.midX, y: artworkRect.minY + band / 2)
         }
+    }
+}
+
+/// 往下拉着收起播放页时按下拉距离渐隐:背后的 App 露出来以后，顶上的柔化与淡底不再挂在卡片顶上。
+/// 拉过 `fadeDistance` 就完全退掉，拉回去随回弹淡回来。下拉距离只在这个修饰符里读，每帧只刷新这一层。
+struct NowPlayingPullFade: ViewModifier {
+    let motion: NowPlayingSurfaceMotion?
+
+    static let fadeDistance: CGFloat = 140
+
+    static func opacity(pullDistance: CGFloat) -> Double {
+        let t = min(max(pullDistance / fadeDistance, 0), 1)
+        return Double(1 - t * t * (3 - 2 * t))
+    }
+
+    func body(content: Content) -> some View {
+        content.opacity(motion.map { Self.opacity(pullDistance: $0.pullDistance) } ?? 1)
     }
 }
 
