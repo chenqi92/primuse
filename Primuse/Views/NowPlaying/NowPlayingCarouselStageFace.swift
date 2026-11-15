@@ -20,6 +20,7 @@ struct NowPlayingCarouselStageFace: View {
 
     /// 整面有多高:矮屏上底下那一排全屏效果收成小胶囊(`NowPlayingCarouselStageLayout`)。
     @State private var faceHeight: CGFloat = 0
+    @Environment(AudioPlayerService.self) private var player
 
     /// 舞台上的字、键一律是深色舞台上的浅色。
     private static var stageAppearance: NowPlayingAppearance {
@@ -109,12 +110,9 @@ struct NowPlayingCarouselStageFace: View {
             }
         }
         .background {
-            LinearGradient(
-                colors: [Color(red: 0.16, green: 0.05, blue: 0.14), Color(red: 0.03, green: 0.02, blue: 0.06)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            // 整面一张氛围底(与舞台里歌词那块同一套封面取色):顶上转轮那一行、舞台、底下全屏效果一排连成一片。
+            // 原来这里是一张固定的紫黑渐变,舞台又自己铺了一层封面色,转到这一面时顶上那一行和下面断成两截。
+            KaraokeStageBackdrop(isPlaying: player.isPlaying)
         }
         .environment(\.colorScheme, .dark)
         .animation(.easeInOut(duration: 0.3), value: showsStage)

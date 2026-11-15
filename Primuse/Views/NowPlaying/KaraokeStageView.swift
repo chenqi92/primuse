@@ -34,10 +34,14 @@ struct KaraokeStageView: View {
                     session: session,
                     onClose: { (onClose ?? { dismiss() })() },
                     onExpand: isEmbeddedInCarousel ? nil : onExpand,
-                    showsCloseButton: !isEmbeddedInCarousel
+                    showsCloseButton: !isEmbeddedInCarousel,
+                    drawsBackdrop: !isEmbeddedInCarousel
                 )
-            } else {
+            } else if !isEmbeddedInCarousel {
                 KaraokeStageBackdrop(isPlaying: false)
+            } else {
+                // 会话建好之前也得有个占位:组里一个视图都没有时下面的 onAppear 不会触发,会话就永远起不来。
+                Color.clear
             }
         }
         .onAppear {
@@ -70,6 +74,8 @@ private struct KaraokeStageContent: View {
     let onClose: () -> Void
     var onExpand: (() -> Void)? = nil
     var showsCloseButton = true
+    /// 嵌在转轮里时氛围底由那一面整面铺(连同顶上转轮那一行),这里再铺一层会在那一行下沿接出一道色差。
+    var drawsBackdrop = true
 
     @Environment(\.pmHeightClass) private var heightClass
     /// 「…」里点的「导出伴奏 / 人声」(#362)。
@@ -108,7 +114,9 @@ private struct KaraokeStageContent: View {
         .padding(.bottom, isSideBySide ? 8 : 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            KaraokeStageBackdrop(isPlaying: player.isPlaying)
+            if drawsBackdrop {
+                KaraokeStageBackdrop(isPlaying: player.isPlaying)
+            }
         }
         .animation(.easeInOut(duration: 0.25), value: session.microphoneState)
         .animation(.easeInOut(duration: 0.25), value: session.isVocalAssisting)
@@ -1604,7 +1612,7 @@ private struct KaraokeNotice: View {
 
 /// 与播放页深色外观同一套氛围底：封面取色的缓动色场，再压一层保证白字可读的暗幕。
 /// 卡拉OK的歌词比播放页大、停留久，暗幕在中段再加深一点。
-private struct KaraokeStageBackdrop: View {
+struct KaraokeStageBackdrop: View {
     let isPlaying: Bool
 
     @Environment(ThemeService.self) private var theme
