@@ -166,6 +166,9 @@ struct FullBleedTopChrome: View {
     var softened = false
     /// 播放页上传进来:往下拉着收起时淡底跟着渐隐,把手留着。设置里的预览不传。
     var pullMotion: NowPlayingSurfaceMotion? = nil
+    /// 把手离这一条正中横着挪多少(屏幕坐标,右为正):iPhone Duo 上封面伸进了竖栏那一条,
+    /// 把手要对着版面那一列的正中，和版面里那根重合。
+    var grabberOffset: CGFloat = 0
 
     static func bandHeight(topSafeArea: CGFloat) -> CGFloat { topSafeArea + 44 }
 
@@ -184,6 +187,7 @@ struct FullBleedTopChrome: View {
                 .frame(width: 48, height: 5)
                 .shadow(color: .black.opacity(appearance.isLight ? 0 : 0.16), radius: 1.5)
                 .padding(.top, topSafeArea + 6)
+                .offset(x: grabberOffset)
         }
         .frame(height: Self.bandHeight(topSafeArea: topSafeArea), alignment: .top)
         .allowsHitTesting(false)
@@ -202,6 +206,8 @@ struct FullBleedArtworkTop: View {
     let allowsLoading: Bool
     /// 往下拉着收起时柔化与淡底渐隐(`NowPlayingPullFade`)。
     var pullMotion: NowPlayingSurfaceMotion? = nil
+    /// 见 `FullBleedTopChrome.grabberOffset`。
+    var grabberOffset: CGFloat = 0
 
     @AppStorage(PlayerAppearancePreferences.fullBleedTopSofteningKey)
     private var softens = PlayerAppearancePreferences.fullBleedTopSofteningByDefault
@@ -219,10 +225,108 @@ struct FullBleedArtworkTop: View {
                 )
                 .modifier(NowPlayingPullFade(motion: pullMotion))
             }
-            FullBleedTopChrome(topSafeArea: topSafeArea, appearance: appearance, softened: softens, pullMotion: pullMotion)
+            FullBleedTopChrome(
+                topSafeArea: topSafeArea,
+                appearance: appearance,
+                softened: softens,
+                pullMotion: pullMotion,
+                grabberOffset: grabberOffset
+            )
                 .frame(width: artworkRect.width)
                 .position(x: artworkRect.midX, y: artworkRect.minY + band / 2)
         }
+    }
+}
+
+/// iPhone Duo 上铺满的封面(台标)画进了系统竖栏那一条，竖排的状态栏和前置摄像头那一块(遮挡区)压在封面上：
+/// 和顶上 `FullBleedTopChrome` 那道一样垫背景色的淡底，让时间、电量看得清。从屏幕边往里、从贴着的上沿
+/// (外屏横握另一个方向是下沿)往另一头渐隐，没有一刀切的边。只画和封面相交的那几块的外接框；
+/// 没有遮挡区(普通 iPhone、Xcode 27.0 构建)时什么也不画。
+struct FullBleedOcclusionScrim: View {
+    /// 遮挡区，和 `artworkRect` 同一套坐标(这一层自己的坐标，左上角是原点)。
+    let regions: [OcclusionAvoidancePolicy.Region]
+    let artworkRect: CGRect
+    let containerSize: CGSize
+    let appearance: NowPlayingAppearance
+    var pullMotion: NowPlayingSurfaceMotion? = nil
+
+    /// 从遮挡区边上往封面里渐隐出去多远。
+    static let feather: CGFloat = 44
+    static let opacity: Double = 0.45
+
+    /// 和封面相交的遮挡区的外接框(裁在封面里)。
+    static func coveredBox(regions: [OcclusionAvoidancePolicy.Region], artworkRect: CGRect) -> CGRect? {
+        var box: CGRect?
+        for region in regions where region.width > 0 && region.height > 0 {
+            let rect = CGRect(x: region.minX, y: region.minY, width: region.width, height: region.height)
+                .intersection(artworkRect)
+            guard !rect.isNull, rect.width > 0, rect.height > 0 else { continue }
+            box = box.map { $0.union(rect) } ?? rect
+        }
+        return box
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let box = Self.coveredBox(regions: regions, artworkRect: artworkRect) {
+                // 贴着哪条屏幕边就从哪边起渐隐(竖栏在左 / 在右，状态栏在顶上 / 在底下)。
+                let fromRight = box.maxX >= containerSize.width - 1
+                    || (box.minX > 1 && box.midX > containerSize.width / 2)
+                let fromBottom = box.minY > 1 && box.maxY >= containerSize.height - 1
+                let width = box.width + Self.feather
+                let height = box.height + Self.feather
+                let base = appearance.backgroundBase
+                Rectangle()
+                    .fill(Self.gradient(
+                        base: base,
+                        solid: box.width / width,
+                        start: fromRight ? .trailing : .leading,
+                        end: fromRight ? .leading : .trailing
+                    ))
+                    .mask {
+                        Self.gradient(
+                            base: .black,
+                            solid: box.height / height,
+                            start: fromBottom ? .bottom : .top,
+                            end: fromBottom ? .top : .bottom,
+                            peak: 1
+                        )
+                    }
+                    .frame(width: width, height: height)
+                    .position(
+                        x: fromRight ? box.maxX - width / 2 : box.minX + width / 2,
+                        y: fromBottom ? box.maxY - height / 2 : box.minY + height / 2
+                    )
+                    .modifier(NowPlayingPullFade(motion: pullMotion))
+            }
+        }
+        .frame(width: containerSize.width, height: containerSize.height, alignment: .topLeading)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// `solid` 那一截实色，往后按 smoothstep 取的几个点渐隐到 0。
+    private static func gradient(
+        base: Color,
+        solid: CGFloat,
+        start: UnitPoint,
+        end: UnitPoint,
+        peak: Double = opacity
+    ) -> LinearGradient {
+        let solid = min(max(solid, 0), 1)
+        let fade = 1 - solid
+        return LinearGradient(
+            stops: [
+                .init(color: base.opacity(peak), location: 0),
+                .init(color: base.opacity(peak), location: solid),
+                .init(color: base.opacity(peak * 0.844), location: solid + fade * 0.25),
+                .init(color: base.opacity(peak * 0.5), location: solid + fade * 0.5),
+                .init(color: base.opacity(peak * 0.156), location: solid + fade * 0.75),
+                .init(color: base.opacity(0), location: 1),
+            ],
+            startPoint: start,
+            endPoint: end
+        )
     }
 }
 
@@ -506,7 +610,10 @@ struct FullBleedArtworkExtension: View {
     }
 
     private func bottomLayer(_ images: FullBleedArtworkExtensionImages) -> some View {
-        let width = max(artworkRect.width, pageSize.width)
+        // 封面可能比这一页宽(iPhone Duo 分栏时左栏的封面伸过左栏外面那条竖栏):左右按两者合起来的范围铺。
+        let minX = min(artworkRect.minX, 0)
+        let maxX = max(artworkRect.maxX, pageSize.width)
+        let width = maxX - minX
         let fadeHeight = max(1, artworkRect.height * fadeFraction)
         // 往屏幕底外多铺一截，版面比窗口略矮时底边也不露缝。
         let lowerHeight = max(1, pageSize.height - artworkRect.maxY + 40)
@@ -526,7 +633,7 @@ struct FullBleedArtworkExtension: View {
         }
         .mask { overlapFade(fraction: fadeHeight / total, along: .vertical) }
         .frame(width: width, height: total)
-        .position(x: pageSize.width / 2, y: artworkRect.maxY - fadeHeight + total / 2)
+        .position(x: (minX + maxX) / 2, y: artworkRect.maxY - fadeHeight + total / 2)
     }
 
     /// 横屏：左半垫在封面渐隐那段底下，右半一直铺到屏幕边（多铺一截，版面比窗口略窄时也不露缝）。上下铺满整页。

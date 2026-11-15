@@ -998,6 +998,18 @@ private struct LyricsArtworkAnchor {
     /// 铺满的封面位：长方形封面也盖满整块、居中裁两头，不看槽位长得方不方。手机横屏、封面下歌词选「自动」、
     /// 矮一些的屏上铺满的槽位接近方形，只按形状判断时长方形封面会整张缩进避开顶栏和渐隐的那一小块里。
     var fillsSlot = false
+    /// 铺满封面伸进了版面那一列以外(iPhone Duo 竖栏那一条、分栏时左栏外让出的竖栏)时，封面左右两边各有多宽
+    /// 不在那一列里(按屏幕的左右，不按前后沿)。把手、MV 准备提示、视频切换这些画在封面上的东西按那一列摆，
+    /// 不落到竖栏底下。
+    var chromeLeftInset: CGFloat = 0
+    var chromeRightInset: CGFloat = 0
+}
+
+private extension CGRect {
+    /// 铺满封面里属于版面那一列的部分(左右各去掉伸进竖栏的那一截)。
+    func fullBleedChromeColumn(left: CGFloat, right: CGFloat) -> CGRect {
+        CGRect(x: minX + left, y: minY, width: max(0, width - left - right), height: height)
+    }
 }
 
 private struct LyricsArtworkAnchorKey: PreferenceKey {
@@ -2676,7 +2688,12 @@ struct NowPlayingView: View {
             let showsSidePane = canSplit && !sidePaneHidden
             PMHorizontalArrangement {
                 GeometryReader { pane in
+                    // 铺满封面伸过左栏外面让出的竖栏,画到屏幕边(右栏收着时两边都是)。
                     let insets = portraitInsets(geo: pane, safeInsets: EdgeInsets(), occlusions: [])
+                        .extendingArtwork(
+                            leading: safeInsets.leading,
+                            trailing: showsSidePane ? 0 : safeInsets.trailing
+                        )
                     portraitLayout(
                         geo: pane,
                         artSize: insets.artworkSize,
@@ -3482,9 +3499,20 @@ struct NowPlayingView: View {
                 }
             }
         }
+    }
 
+    /// iPhone Duo 竖栏里那一列:换构图(分栏 ⇄ 收起右栏 ⇄ 转屏)时同一个身份留在竖栏里。画在大封面那一层
+    /// 上面(和它挂在同一个 overlay 里):铺满的封面一直画进竖栏那一条，按钮要浮在封面上，不能被它盖住。
+    @ViewBuilder
+    private func playerToolColumnLayer(
+        geo: GeometryProxy,
+        safeInsets: EdgeInsets,
+        occlusions: [OcclusionAvoidancePolicy.Region],
+        arrangement: NowPlayingArrangement?,
+        usesCompactLandscapeSkeleton: Bool,
+        toolColumnEdge: HorizontalEdge?
+    ) -> some View {
         #if os(iOS)
-        // iPhone Duo 竖栏里那一列:换构图(分栏 ⇄ 收起右栏 ⇄ 转屏)时同一个身份留在竖栏里。
         if let toolColumnEdge {
             barToolColumn(
                 edge: toolColumnEdge,
@@ -3506,7 +3534,9 @@ struct NowPlayingView: View {
                !player.isMusicVideoPlaybackActive, !showLyrics {
                 GeometryReader { geometry in
                     if let anchor = anchors[.cover] {
+                        // 铺满的封面伸进了竖栏那一条时按版面那一列摆。
                         let rect = geometry[anchor.bounds]
+                            .fullBleedChromeColumn(left: anchor.chromeLeftInset, right: anchor.chromeRightInset)
                         spokenWordVideoToggleButton(showsVideo: false, compact: rect.width < 220)
                             .frame(width: rect.width, height: rect.height, alignment: .topLeading)
                             .position(x: rect.midX, y: rect.midY)
@@ -4000,6 +4030,14 @@ struct NowPlayingView: View {
                                 .modifier(persistentPhoneLyricsOverlay(isActive: usesPersistentPhoneLyrics))
                                 .overlayPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
                                     playerArtworkOverlays(anchors: anchors)
+                                    playerToolColumnLayer(
+                                        geo: geo,
+                                        safeInsets: safeInsets,
+                                        occlusions: occlusions,
+                                        arrangement: arrangement,
+                                        usesCompactLandscapeSkeleton: usesCompactLandscapeSkeleton,
+                                        toolColumnEdge: toolColumnEdge
+                                    )
                                 }
                             }
                         } else {
@@ -4038,6 +4076,14 @@ struct NowPlayingView: View {
                         // 转轮打开时这一层画在转轮正中那一面里(见上),这里不再画第二份。
                         if !usesPlayerCarousel {
                             playerArtworkOverlays(anchors: anchors)
+                            playerToolColumnLayer(
+                                geo: geo,
+                                safeInsets: safeInsets,
+                                occlusions: occlusions,
+                                arrangement: arrangement,
+                                usesCompactLandscapeSkeleton: usesCompactLandscapeSkeleton,
+                                toolColumnEdge: toolColumnEdge
+                            )
                         }
                     }
                     .onChange(of: canSplit, initial: true) { _, split in
@@ -4691,7 +4737,7 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             if fullBleedLogo {
                 // 台标从屏幕顶端铺满整宽,最多画成正方形;下面几行照旧,空出来的高度留在台标与台名之间。
-                liveRadioFullBleedLogo
+                liveRadioFullBleedLogo(occlusions: occlusions)
                     .frame(maxHeight: geo.size.width)
                     .layoutPriority(1)
             } else {
@@ -4804,9 +4850,16 @@ struct NowPlayingView: View {
         // 横竖屏切换键和音乐页一样摆在把手那一行的右边，不占版面的高度。
         .overlay(alignment: .topTrailing) {
             if showsPortraitOrientationButton(usesToolColumn: false) {
+                // 整屏居中(iPhone Duo)时让开竖排的状态栏与摄像头那一块。
+                let clearance = OcclusionAvoidancePolicy.sideClearance(
+                    regions: occlusions,
+                    bandMinY: Double(topSafeArea),
+                    bandMaxY: Double(topSafeArea + 6 + 2.5 + 15),
+                    width: Double(geo.size.width)
+                ).trailing
                 playerOrientationButton(diameter: 30)
                     .padding(.top, topSafeArea + 6 + 2.5 - 15)
-                    .padding(.trailing, 26)
+                    .padding(.trailing, clearance > 0 ? CGFloat(clearance) + 12 : 26)
             }
         }
         // 侧边安全区按侧取值，内容不会压到侧置系统控件或摄像头区域下面。
@@ -4933,7 +4986,8 @@ struct NowPlayingView: View {
             if fullBleedLogo {
                 liveRadioLandscapeFullBleedLogo(
                     width: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedArtworkWidth(metrics: metrics)),
-                    height: geo.size.height
+                    height: geo.size.height,
+                    occlusions: occlusions
                 )
             }
         }
@@ -4958,10 +5012,10 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 「封面样式」(电台那一页)选了铺满时，横屏的台标也铺满：判定同音乐横屏(`compactLandscapeUsesFullBleedArtwork`)，
-    /// iPhone Duo 外屏整屏居中与内屏横握照旧是卡片。
+    /// 「封面样式」(电台那一页)选了铺满时，横屏的台标也铺满：判定同音乐横屏(`usesFullBleedArtwork`)，
+    /// iPhone Duo 外屏横握(整屏居中)与内屏横握(放大的骨架)也一样，竖排状态栏压在台标上的那一块垫一道淡底。
     private var liveRadioLandscapeUsesFullBleedLogo: Bool {
-        isPhoneCanvas && !centersOnFullScreen && !usesExpandedLandscapeCanvas
+        isPhoneCanvas
             && PlayerAppearancePreferences.artworkStyle(rawValue: radioArtworkStyleRawValue) == .fullBleed
     }
 
@@ -4978,7 +5032,12 @@ struct NowPlayingView: View {
     }
 
     /// 铺满的台标：从屏幕首侧边缘、上下边缘画到右栏起点，直角，靠右栏那一截渐隐进背景(比例和音乐横屏铺满一样)。
-    private func liveRadioLandscapeFullBleedLogo(width: CGFloat, height: CGFloat) -> some View {
+    /// 整屏的左上角起画，和遮挡区同一套坐标：iPhone Duo 外屏横握竖排状态栏压在台标上那一块垫淡底。
+    private func liveRadioLandscapeFullBleedLogo(
+        width: CGFloat,
+        height: CGFloat,
+        occlusions: [OcclusionAvoidancePolicy.Region]
+    ) -> some View {
         ZStack {
             if let station = player.currentRadioStation, width >= 48, height >= 48 {
                 RadioStationArtworkContent(station: station, decodeSize: max(width, height))
@@ -4991,6 +5050,13 @@ struct NowPlayingView: View {
                         )
                     }
             }
+
+            FullBleedOcclusionScrim(
+                regions: occlusions,
+                artworkRect: CGRect(x: 0, y: 0, width: width, height: height),
+                containerSize: CGSize(width: width, height: height),
+                appearance: appearance
+            )
         }
         .frame(width: width, height: height)
         .accessibilityHidden(true)
@@ -5232,7 +5298,8 @@ struct NowPlayingView: View {
 
     /// 铺满的台标：从屏幕顶端画到这一块的下沿，整宽、直角，下沿和音乐铺满封面一样渐隐进背景；
     /// 顶上垫一道背景色的淡底让状态栏看得清，下拉把手画在台标上面。
-    private var liveRadioFullBleedLogo: some View {
+    /// `occlusions`:整屏居中(iPhone Duo)时台标从屏幕左上角画起，坐标和遮挡区是同一套；竖排状态栏那一块垫淡底。
+    private func liveRadioFullBleedLogo(occlusions: [OcclusionAvoidancePolicy.Region]) -> some View {
         GeometryReader { region in
             let width = region.size.width
             let height = region.size.height
@@ -5247,6 +5314,13 @@ struct NowPlayingView: View {
                 FullBleedTopChrome(topSafeArea: topSafeArea, appearance: appearance)
                     .frame(height: min(height, FullBleedTopChrome.bandHeight(topSafeArea: topSafeArea)), alignment: .top)
                     .clipped()
+
+                FullBleedOcclusionScrim(
+                    regions: occlusions,
+                    artworkRect: CGRect(x: 0, y: 0, width: width, height: height),
+                    containerSize: region.size,
+                    appearance: appearance
+                )
             }
             .frame(width: width, height: height, alignment: .top)
         }
@@ -5456,7 +5530,8 @@ struct NowPlayingView: View {
         let showsEdgeToggles = showLyrics
             ? lyricsMetrics.showsEdgeToggles
             : metrics.showsEdgeToggles
-        let fullBleedArtwork = compactLandscapeUsesFullBleedArtwork(usesToolColumn: usesToolColumn)
+        // 手机横屏骨架的封面也按「封面样式」铺满(判定见 `usesFullBleedArtwork`)。
+        let fullBleedArtwork = usesFullBleedArtwork
 
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
@@ -5501,7 +5576,9 @@ struct NowPlayingView: View {
             if fullBleedArtwork && !showLyrics {
                 compactLandscapeFullBleedArtworkSlot(
                     width: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedArtworkWidth(metrics: metrics)),
-                    height: geo.size.height
+                    height: geo.size.height,
+                    // iPhone Duo 外屏横握竖栏在首侧时封面压着那一条,封面上的提示与按钮让开它。
+                    chromeLeading: centersOnFullScreen ? windowInsets.leading : 0
                 )
                 .transition(lyricsHandoffArtworkTransition)
             }
@@ -5528,16 +5605,14 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 手机横屏骨架的封面也按「封面样式」铺满(判定同竖屏,见 `usesFullBleedArtwork`)。iPhone Duo 外屏整屏居中、
-    /// 竖栏那一列与内屏横握照旧是卡片。
-    private func compactLandscapeUsesFullBleedArtwork(usesToolColumn: Bool) -> Bool {
-        !centersOnFullScreen && !usesExpandedLandscapeCanvas
-            && usesFullBleedArtwork(lyricsInline: nil, usesToolColumn: usesToolColumn)
-    }
-
     /// 手机横屏铺满封面的封面位：直角、无阴影，靠右栏那一侧渐隐。点封面和卡片封面一样进歌词，锁上之后不响应。
-    private func compactLandscapeFullBleedArtworkSlot(width: CGFloat, height: CGFloat) -> some View {
-        Color.clear
+    private func compactLandscapeFullBleedArtworkSlot(
+        width: CGFloat,
+        height: CGFloat,
+        chromeLeading: CGFloat = 0
+    ) -> some View {
+        let isRightToLeft = layoutDirection == .rightToLeft
+        return Color.clear
             .frame(width: width, height: height)
             .contentShape(Rectangle())
             .anchorPreference(key: LyricsArtworkAnchorKey.self, value: .bounds) {
@@ -5547,7 +5622,9 @@ struct NowPlayingView: View {
                     shadow: .init(),
                     showsVideoPreparation: true,
                     trailingFade: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.fullBleedTrailingFadeFraction),
-                    fillsSlot: true
+                    fillsSlot: true,
+                    chromeLeftInset: isRightToLeft ? 0 : chromeLeading,
+                    chromeRightInset: isRightToLeft ? chromeLeading : 0
                 )]
             }
             .onTapGesture { openTextFromArtwork() }
@@ -5792,7 +5869,7 @@ struct NowPlayingView: View {
                 if showLyrics {
                     compactLandscapeLyricsHeader(
                         metrics: lyricsMetrics,
-                        receivesFullBleedArtwork: compactLandscapeUsesFullBleedArtwork(usesToolColumn: usesToolColumn)
+                        receivesFullBleedArtwork: usesFullBleedArtwork
                     )
                         .transition(lyricsHeaderHandoffTransition)
                 } else {
@@ -6959,8 +7036,7 @@ struct NowPlayingView: View {
             ? spokenWordControlLayout.resolved(in: spokenWordPortraitControlContext(usesToolColumn: usesToolColumn))
             : nil
         // 封面模式下大封面铺满(设置里的「封面样式」)。歌词模式不铺,小封面照旧。
-        let fullBleedArtwork = !showLyrics
-            && usesFullBleedArtwork(lyricsInline: lyricsInline, usesToolColumn: usesToolColumn)
+        let fullBleedArtwork = !showLyrics && usesFullBleedArtwork
 
         if usesAudiobookPlayerDesign, !isLyricsImmersive {
             // 包一层壳子,别在这个分支里现场构造整套版面(见 `NowPlayingDeferredContent`)。
@@ -7016,10 +7092,7 @@ struct NowPlayingView: View {
                                     lyricsThumbnailArtwork(
                                         size: 44,
                                         cornerRadius: 6,
-                                        receivesFullBleedArtwork: usesFullBleedArtwork(
-                                            lyricsInline: lyricsInline,
-                                            usesToolColumn: usesToolColumn
-                                        )
+                                        receivesFullBleedArtwork: usesFullBleedArtwork
                                     )
                                     .lyricsHeaderReveal(isArtwork: true)
 
@@ -7124,9 +7197,13 @@ struct NowPlayingView: View {
                     } else if fullBleedArtwork {
                         // 铺满封面(见 `fullBleedArtworkRegion`):这一块只占把手以下的高度,封面往上伸到屏幕顶端。
                         // 矮屏照样按剩下的高度压扁,封面居中裁掉上下;高屏往下多伸一截,左右裁掉一点(#329)。
-                        fullBleedArtworkRegion(width: geo.size.width)
+                        // iPhone Duo 竖栏那一条(和分栏时左栏外让出的竖栏)底下也是封面,一直画到屏幕边。
+                        fullBleedArtworkRegion(
+                            bleedLeading: insets.containerLeading + insets.artworkOuterLeading,
+                            bleedTrailing: insets.containerTrailing + insets.artworkOuterTrailing
+                        )
                             .frame(maxHeight: Self.fullBleedArtworkRegionLimit(
-                                width: geo.size.width,
+                                width: geo.size.width + insets.artworkOuterLeading + insets.artworkOuterTrailing,
                                 topSafeArea: topSafeArea,
                                 extendsBelowSquare: !artworkLyricsFill
                             ))
@@ -8397,8 +8474,15 @@ struct NowPlayingView: View {
     }
 
     /// 铺满封面的大封面位：整宽、从屏幕顶端到这一块的下沿，直角、无阴影，下沿渐隐。
-    private func lyricsArtworkFullBleedSlot(width: CGFloat, height: CGFloat) -> some View {
-        Color.clear
+    /// `chromeLeading` / `chromeTrailing`：封面伸出版面那一列的部分(见 `LyricsArtworkAnchor.chromeLeftInset`)。
+    private func lyricsArtworkFullBleedSlot(
+        width: CGFloat,
+        height: CGFloat,
+        chromeLeading: CGFloat = 0,
+        chromeTrailing: CGFloat = 0
+    ) -> some View {
+        let isRightToLeft = layoutDirection == .rightToLeft
+        return Color.clear
             .frame(width: width, height: height)
             .contentShape(Rectangle())
             .anchorPreference(key: LyricsArtworkAnchorKey.self, value: .bounds) {
@@ -8409,7 +8493,9 @@ struct NowPlayingView: View {
                     showsVideoPreparation: true,
                     bottomFade: Self.fullBleedArtworkBottomFade,
                     coversTopChrome: true,
-                    fillsSlot: true
+                    fillsSlot: true,
+                    chromeLeftInset: isRightToLeft ? chromeTrailing : chromeLeading,
+                    chromeRightInset: isRightToLeft ? chromeLeading : chromeTrailing
                 )]
             }
     }
@@ -8439,12 +8525,22 @@ struct NowPlayingView: View {
 
     /// 铺满封面在竖版里占的那一块：版面里只占把手以下的高度，封面槽位按底边对齐往上伸出把手那一行，
     /// 从屏幕顶端画起。点封面和卡片封面一样进歌词。
-    private func fullBleedArtworkRegion(width: CGFloat) -> some View {
+    /// `bleedLeading` / `bleedTrailing`：这一列两侧之外封面还要伸出去多宽，一直画到屏幕边
+    /// (iPhone Duo 竖栏那一条；普通 iPhone 竖屏两侧都是 0)。
+    private func fullBleedArtworkRegion(bleedLeading: CGFloat, bleedTrailing: CGFloat) -> some View {
         let grabberBand = Self.portraitGrabberBand(topSafeArea: topSafeArea)
         return GeometryReader { region in
-            lyricsArtworkFullBleedSlot(width: width, height: region.size.height + grabberBand)
-                .onTapGesture { openTextFromArtwork() }
-                .frame(width: region.size.width, height: region.size.height, alignment: .bottom)
+            let width = region.size.width + bleedLeading + bleedTrailing
+            lyricsArtworkFullBleedSlot(
+                width: width,
+                height: region.size.height + grabberBand,
+                chromeLeading: bleedLeading,
+                chromeTrailing: bleedTrailing
+            )
+            .onTapGesture { openTextFromArtwork() }
+            .frame(width: width, height: region.size.height, alignment: .bottom)
+            .padding(.leading, -bleedLeading)
+            .padding(.trailing, -bleedTrailing)
         }
     }
 
@@ -8485,26 +8581,26 @@ struct NowPlayingView: View {
         .buttonStyle(.plain)
     }
 
-    /// 竖屏播放页的大封面铺满（设置里「封面样式」选了铺满，音乐与播客各选各的）。只在 iPhone 的整屏竖版
-    /// 与手机横屏骨架上（后者见 `compactLandscapeUsesFullBleedArtwork`）：
-    /// iPad 竖屏太宽，铺满会把下面几行挤没；Duo 分栏、竖栏那一列的版面窄而高，照旧用卡片。
+    /// 播放页的大封面铺满（设置里「封面样式」选了铺满，音乐与播客各选各的）。只在 iPhone 上：竖版
+    /// (`portraitLayout`)与手机横屏骨架(`compactLandscapePlayerLayout`)。iPhone Duo 也一样：外屏竖握 / 横握、
+    /// 内屏分栏的左栏、内屏竖握、右栏收起后的放大横屏骨架都铺满，封面画到屏幕边(竖栏那一条底下也是封面)，
+    /// 那一列的按钮浮在封面上。iPad 竖屏太宽，铺满会把下面几行挤没，照旧用卡片；Duo 桌面半折是另一副
+    /// 上下分屏的版式(`tabletopPlayerLayout`)，封面是歌词旁边的一块，也照旧。
     /// MV 有自己的画面，有声书的书封是竖版，都不铺。电台另见 `liveRadioUsesFullBleedLogo`。
-    private func usesFullBleedArtwork(lyricsInline: Bool?, usesToolColumn: Bool) -> Bool {
+    private var usesFullBleedArtwork: Bool {
         let styleRawValue = usesSpokenWordTransport
             ? (currentItemIsPodcast ? podcastArtworkStyleRawValue : NowPlayingArtworkStyle.card.rawValue)
             : artworkStyleRawValue
         return isPhoneCanvas
             && PlayerAppearancePreferences.artworkStyle(rawValue: styleRawValue) == .fullBleed
-            && lyricsInline == nil
-            && !usesToolColumn
             && !player.isMusicVideoPlaybackActive
             && !player.isLiveRadio
     }
 
-    /// 电台台标铺满（「播放页样式与按钮 › 电台」里选）：同样只在 iPhone 整屏竖版上，横屏与 Duo 整屏居中照旧是卡片。
+    /// 电台台标铺满（「播放页样式与按钮 › 电台」里选）：iPhone 竖版上，含 iPhone Duo 整屏居中(台标画到屏幕边，
+    /// 竖排状态栏那一块垫一道淡底)。横屏另见 `liveRadioLandscapeUsesFullBleedLogo`。
     private func liveRadioUsesFullBleedLogo(in size: CGSize) -> Bool {
         isPhoneCanvas
-            && !centersOnFullScreen
             && size.height > size.width
             && PlayerAppearancePreferences.artworkStyle(rawValue: radioArtworkStyleRawValue) == .fullBleed
     }
@@ -8621,15 +8717,30 @@ struct NowPlayingView: View {
                         topSafeArea: topSafeArea,
                         appearance: appearance,
                         allowsLoading: isPresentationSettled,
+                        pullMotion: surfaceMotion,
+                        grabberOffset: (anchor.chromeLeftInset - anchor.chromeRightInset) / 2
+                    )
+                    .transition(.opacity)
+                }
+
+                // iPhone Duo:铺满的封面画进了竖栏那一条,竖排的状态栏压在封面上,垫一道淡底让它看得清。
+                if anchor.fillsSlot {
+                    FullBleedOcclusionScrim(
+                        regions: playerOcclusions(in: geometry),
+                        artworkRect: rect,
+                        containerSize: geometry.size,
+                        appearance: appearance,
                         pullMotion: surfaceMotion
                     )
                     .transition(.opacity)
                 }
 
                 if anchor.showsVideoPreparation {
+                    // 按版面那一列摆,不落到竖栏底下。
+                    let column = rect.fullBleedChromeColumn(left: anchor.chromeLeftInset, right: anchor.chromeRightInset)
                     MusicVideoPreparationBadge(songID: player.currentSong?.id)
-                        .frame(width: rect.width, height: rect.height, alignment: .bottom)
-                        .position(x: rect.midX, y: rect.midY)
+                        .frame(width: column.width, height: column.height, alignment: .bottom)
+                        .position(x: column.midX, y: column.midY)
                 }
 
                 #if os(iOS)
@@ -19065,6 +19176,17 @@ struct NowPlayingPortraitInsets: Equatable {
     var immersiveContentTop: CGFloat = 0
     var immersiveTopRowLeading: CGFloat = 0
     var immersiveTopRowTrailing: CGFloat = 0
+    /// 铺满封面在这块画布两侧之外还要伸出去多宽:iPhone Duo 内屏分栏时左栏外面让出的那条竖栏,
+    /// 封面要一直画到屏幕边。别处都是 0(这块画布本来就到屏幕边)。
+    var artworkOuterLeading: CGFloat = 0
+    var artworkOuterTrailing: CGFloat = 0
+
+    func extendingArtwork(leading: CGFloat, trailing: CGFloat) -> NowPlayingPortraitInsets {
+        var insets = self
+        insets.artworkOuterLeading = leading
+        insets.artworkOuterTrailing = trailing
+        return insets
+    }
 }
 
 private struct PlayerLyricsViewport {
