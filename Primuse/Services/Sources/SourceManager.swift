@@ -16226,11 +16226,19 @@ final class SourceManager {
                 let actualPurpose: ArtworkFetchPurpose = purpose == .originalAnimation ? .originalAnimation
                     : (pixels > 480 ? .fullResolution : .thumbnail)
                 let data = try await conn.fetchArtworkData(for: reference, maximumBytes: maximumBytes, purpose: actualPurpose)
+                SourceArtworkFailureRetention.shared.recordSettledLoad(sourceID: sourceID, reference: reference)
                 if data == nil {
                     pdiag("🖼️ artwork fetch empty source=\(source.type.rawValue) ref=\(reference) purpose=\(purpose)")
                 }
                 return data
             } catch {
+                // A dropped connection says nothing about the cover: views
+                // ask again soon instead of waiting out the usual miss window.
+                if PlainHTTPClient.isInterruptedExchange(error) {
+                    SourceArtworkFailureRetention.shared.recordInterruptedTransfer(sourceID: sourceID, reference: reference)
+                } else if !OperationCancellationPolicy.isCancellation(error) {
+                    SourceArtworkFailureRetention.shared.recordSettledLoad(sourceID: sourceID, reference: reference)
+                }
                 pdiag(
                     "🖼️ artwork fetch failed source=\(source.type.rawValue) ref=\(reference) purpose=\(purpose) "
                         + "error=\(error.localizedDescription)"

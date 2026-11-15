@@ -1160,7 +1160,22 @@ enum PlainHTTPClient {
     private final class StateBox: @unchecked Sendable {
         private let lock = NSLock()
         private var didResume = false
+        private var established = false
         private var received = Data()
+
+        /// The TCP connection came up; a reset from here on is the peer
+        /// dropping it, not the host being unreachable.
+        var isEstablished: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return established
+        }
+
+        func markEstablished() {
+            lock.lock()
+            defer { lock.unlock() }
+            established = true
+        }
 
         func append(_ data: Data, maxBytes: Int) -> Bool {
             lock.lock()
@@ -1352,6 +1367,33 @@ enum PlainHTTPClient {
         }
     }
 
+    /// The network cut an exchange off. Carries what the caller sees when the
+    /// exchange is not tried again.
+    private struct InterruptedExchange: Error {
+        let failure: CleartextHTTPExchangeFailure
+        let underlying: (any Error)?
+
+        var callerError: any Error {
+            underlying ?? ScraperError.networkError(failure.diagnosticDescription)
+        }
+    }
+
+    /// Queueing this long for a connection slot is worth a diagnostic line.
+    private static let noticeableSlotWait: Duration = .seconds(1)
+
+    /// The network cut the exchange off: the connection closed before the
+    /// headers or the promised body arrived, or the peer reset it. Unlike an
+    /// HTTP status or a body that is not what was asked for, it says nothing
+    /// about what the server holds.
+    static func isInterruptedExchange(_ error: any Error) -> Bool {
+        if case ScraperError.networkError(let message) = error {
+            return CleartextHTTPExchangeFailure.allCases.contains { $0.diagnosticDescription == message }
+        }
+        if CleartextHTTPExchangeFailure.isPeerReset(error) { return true }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorNetworkConnectionLost
+    }
+
     static func data(for request: URLRequest, maxBytes: Int = defaultMaxBytes) async throws -> (Data, URLResponse) {
         try Task.checkCancellation()
         guard let url = request.url,
@@ -1362,15 +1404,86 @@ enum PlainHTTPClient {
             throw ScraperError.networkError("Invalid HTTP URL: \(request.url?.absoluteString ?? "nil")")
         }
 
+        // Every exchange opens its own TCP connection. Bound how many run at
+        // once against one host:port so a scrolling wall of covers does not
+        // open a burst of sockets to one server.
+        let endpoint = NetworkEndpointIdentity(url: url)?.key ?? "\(host):\(rawPort)"
+        let lane: HTTPEndpointConnectionGate.Lane =
+            request.value(forHTTPHeaderField: "Range") == nil ? .standard : .media
+        let permit = try await HTTPEndpointConnectionGate.shared.acquire(endpoint: endpoint, lane: lane)
+        defer { permit.release() }
+        if permit.waited >= noticeableSlotWait {
+            plog("Cleartext HTTP waited for a connection slot endpoint=\(endpoint) path=\(diagnosticPath(of: url)) "
+                + "waited=\(secondsText(permit.waited)) ahead=\(permit.ahead)")
+        }
+
+        // URLRequest 默认 timeoutInterval 为 60s; 未显式设置(<= 0)时退回 15s,
+        // 与 ScraperSessionManager 的 URLSession timeoutIntervalForRequest 一致。
+        // 重试与第一次共用这一份时限。
+        let timeout = request.timeoutInterval > 0 && request.timeoutInterval.isFinite
+            ? min(request.timeoutInterval, 24 * 60 * 60) : 15
+        let clock = ContinuousClock()
+        let started = clock.now
+        let deadline = started + .seconds(timeout)
+        let hasBody = request.httpBody != nil || request.httpBodyStream != nil
+        var retries = 0
+        var firstFailure: CleartextHTTPExchangeFailure?
+        while true {
+            do {
+                let result = try await exchange(
+                    request, url: url, host: host, port: port, maxBytes: maxBytes,
+                    timeout: seconds(deadline - clock.now)
+                )
+                if let firstFailure {
+                    logRetry(endpoint: endpoint, url: url, first: firstFailure, result: "ok", elapsed: clock.now - started)
+                }
+                return result
+            } catch let interrupted as InterruptedExchange {
+                let backoff = CleartextHTTPRetryPolicy.backoff(randomFraction: Double.random(in: 0...1))
+                if CleartextHTTPRetryPolicy.shouldRetry(
+                    method: request.httpMethod,
+                    hasBody: hasBody,
+                    failure: interrupted.failure,
+                    retriesSoFar: retries,
+                    remainingTime: seconds(deadline - clock.now) - backoff
+                ) {
+                    retries += 1
+                    firstFailure = interrupted.failure
+                    try await Task.sleep(for: .seconds(backoff))
+                    continue
+                }
+                if let firstFailure {
+                    logRetry(endpoint: endpoint, url: url, first: firstFailure,
+                             result: interrupted.failure.rawValue, elapsed: clock.now - started)
+                }
+                throw interrupted.callerError
+            } catch {
+                if let firstFailure {
+                    logRetry(endpoint: endpoint, url: url, first: firstFailure,
+                             result: retryResultLabel(error), elapsed: clock.now - started)
+                }
+                throw error
+            }
+        }
+    }
+
+    /// One request on one fresh connection. A response the network cut off
+    /// is thrown as `InterruptedExchange`; everything else as the caller sees it.
+    private static func exchange(
+        _ request: URLRequest,
+        url: URL,
+        host: String,
+        port: NWEndpoint.Port,
+        maxBytes: Int,
+        timeout: TimeInterval
+    ) async throws -> (Data, URLResponse) {
+        try Task.checkCancellation()
         let parameters = NWParameters.tcp
         parameters.prohibitExpensivePaths = !request.allowsExpensiveNetworkAccess
         parameters.prohibitConstrainedPaths = !request.allowsConstrainedNetworkAccess
         let connection = NWConnection(host: socketHost(host), port: port, using: parameters)
         let queue = DispatchQueue(label: "Primuse.PlainHTTPClient.\(UUID().uuidString)")
-
-        // URLRequest 默认 timeoutInterval 为 60s; 未显式设置(<= 0)时退回 15s,
-        // 与 ScraperSessionManager 的 URLSession timeoutIntervalForRequest 一致。
-        let timeout = request.timeoutInterval > 0 ? request.timeoutInterval : 15
+        let method = (request.httpMethod ?? "GET").uppercased()
         // Read here: the receive callbacks run on the socket queue, outside the task.
         let progress = TrustedHTTPTransport.DownloadProgress.observer
 
@@ -1383,6 +1496,37 @@ enum PlainHTTPClient {
                     continuation.resume(with: result)
                 }
 
+                /// After the connection came up, a reset means the peer
+                /// dropped it mid-exchange rather than that it is unreachable.
+                @Sendable func fail(_ error: Error) {
+                    if stateBox.isEstablished, CleartextHTTPExchangeFailure.isPeerReset(error) {
+                        finish(.failure(InterruptedExchange(failure: .resetByPeer, underlying: error)))
+                    } else {
+                        finish(.failure(error))
+                    }
+                }
+
+                @Sendable func finishFramed(_ response: Data) {
+                    finish(Result { try parseResponse(response, for: url) })
+                }
+
+                /// The peer closed the connection: decide from the framing
+                /// whether what arrived is the whole response.
+                @Sendable func finishAtEndOfStream() {
+                    let snapshot = stateBox.snapshot()
+                    switch HTTPResponseFramingPolicy.endOfStream(in: snapshot, requestMethod: method) {
+                    case .complete(let messageLength):
+                        finishFramed(Data(snapshot.prefix(messageLength)))
+                    case .closedBeforeResponse:
+                        finish(.failure(InterruptedExchange(failure: .closedBeforeResponse, underlying: nil)))
+                    case .truncatedBody:
+                        finish(.failure(InterruptedExchange(failure: .truncatedBody, underlying: nil)))
+                    case .malformed:
+                        // The parser names what is wrong (Content-Length, chunk size).
+                        finishFramed(snapshot)
+                    }
+                }
+
                 // 整体超时:连接卡在 .preparing 或服务器接受连接后不回包时,
                 // receiveLoop 永不回调,这里兜底 cancel 连接并 finish,避免 continuation
                 // 永久挂起及 NWConnection 泄漏。finish 幂等,正常完成后此回调是 no-op。
@@ -1393,7 +1537,7 @@ enum PlainHTTPClient {
                 @Sendable func receiveLoop() {
                     connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, isComplete, error in
                         if let error {
-                            finish(.failure(error))
+                            fail(error)
                             return
                         }
 
@@ -1405,24 +1549,16 @@ enum PlainHTTPClient {
                             }
 
                             let snapshot = stateBox.snapshot()
-                            if let messageLength = HTTPResponseFramingPolicy.completeMessageLength(in: snapshot) {
-                                do {
-                                    let framedResponse = Data(snapshot.prefix(messageLength))
-                                    finish(.success(try parseResponse(framedResponse, for: url)))
-                                } catch {
-                                    finish(.failure(error))
-                                }
+                            if let messageLength = HTTPResponseFramingPolicy.completeMessageLength(
+                                in: snapshot, requestMethod: method
+                            ) {
+                                finishFramed(Data(snapshot.prefix(messageLength)))
                                 return
                             }
                         }
 
                         if isComplete || data?.isEmpty == true {
-                            do {
-                                let parsed = try parseResponse(stateBox.snapshot(), for: url)
-                                finish(.success(parsed))
-                            } catch {
-                                finish(.failure(error))
-                            }
+                            finishAtEndOfStream()
                         } else {
                             receiveLoop()
                         }
@@ -1432,11 +1568,12 @@ enum PlainHTTPClient {
                 connection.stateUpdateHandler = { state in
                     switch state {
                     case .ready:
+                        stateBox.markEstablished()
                         do {
                             let payload = try buildRequestData(for: request)
                             connection.send(content: payload, completion: .contentProcessed { error in
                                 if let error {
-                                    finish(.failure(error))
+                                    fail(error)
                                 } else {
                                     receiveLoop()
                                 }
@@ -1445,7 +1582,7 @@ enum PlainHTTPClient {
                             finish(.failure(error))
                         }
                     case .failed(let error):
-                        finish(.failure(error))
+                        fail(error)
                     case .cancelled:
                         finish(.failure(CancellationError()))
                     default:
@@ -1458,6 +1595,36 @@ enum PlainHTTPClient {
         } onCancel: {
             connection.cancel()
         }
+    }
+
+    private static func logRetry(
+        endpoint: String, url: URL, first: CleartextHTTPExchangeFailure, result: String, elapsed: Duration
+    ) {
+        plog("Cleartext HTTP retried endpoint=\(endpoint) path=\(diagnosticPath(of: url)) "
+            + "first=\(first.rawValue) result=\(result) elapsed=\(secondsText(elapsed))")
+    }
+
+    private static func retryResultLabel(_ error: any Error) -> String {
+        if OperationCancellationPolicy.isCancellation(error) { return "cancelled" }
+        if (error as? URLError)?.code == .timedOut { return "timedOut" }
+        let nsError = error as NSError
+        return "\(nsError.domain)/\(nsError.code)"
+    }
+
+    /// Path only: query strings carry credentials (Subsonic u/t/s/p, tokens).
+    private static func diagnosticPath(of url: URL) -> String {
+        let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+        guard !path.isEmpty else { return "/" }
+        return path.count > 96 ? String(path.prefix(96)) + "..." : path
+    }
+
+    private static func seconds(_ duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
+    }
+
+    private static func secondsText(_ duration: Duration) -> String {
+        String(format: "%.1fs", seconds(duration))
     }
 
     /// Disk-backed download for large cleartext responses. The returned file
@@ -1609,15 +1776,18 @@ enum PlainHTTPClient {
     }
 
     private static func parseResponse(_ responseData: Data, for url: URL) throws -> (Data, URLResponse) {
+        // 1xx interim heads (100 Continue, 103 Early Hints) come before the real response.
+        let finalResponse = responseData.dropFirst(HTTPResponseFramingPolicy.finalResponseOffset(in: responseData))
         let separator = Data("\r\n\r\n".utf8)
-        guard let headerRange = responseData.range(of: separator) else {
+        guard let headerRange = finalResponse.range(of: separator) else {
             throw ScraperError.networkError("Invalid HTTP response")
         }
 
-        let headerData = Data(responseData[..<headerRange.lowerBound])
-        var body = Data(responseData[headerRange.upperBound...])
+        let headerData = Data(finalResponse[..<headerRange.lowerBound])
+        var body = Data(finalResponse[headerRange.upperBound...])
         let parsedHeader = try parseResponseHeader(headerData, for: url)
-        if parsedHeader.isChunked {
+        // HEAD, 204 and 304 replies may announce chunked framing without any body.
+        if parsedHeader.isChunked, !body.isEmpty {
             body = try decodeChunked(body)
         }
         return (body, parsedHeader.response)
@@ -1671,39 +1841,18 @@ enum PlainHTTPClient {
     }
 
     private static func decodeChunked(_ data: Data) throws -> Data {
-        var cursor = data.startIndex
+        var decoder = HTTPChunkedBodyDecoder()
         var decoded = Data()
-        let lineBreak = Data("\r\n".utf8)
-
-        while cursor < data.endIndex {
-            guard let sizeLineRange = data[cursor...].range(of: lineBreak) else {
-                throw ScraperError.networkError("Invalid chunked body")
-            }
-
-            let sizeLine = String(decoding: data[cursor..<sizeLineRange.lowerBound], as: UTF8.self)
-            let hexPart = sizeLine.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
-            guard let chunkSize = Int(hexPart.trimmingCharacters(in: .whitespacesAndNewlines), radix: 16) else {
-                throw ScraperError.networkError("Invalid chunk size: \(sizeLine)")
-            }
-
-            cursor = sizeLineRange.upperBound
-            if chunkSize == 0 {
-                break
-            }
-
-            guard let chunkEnd = data.index(cursor, offsetBy: chunkSize, limitedBy: data.endIndex) else {
-                throw ScraperError.networkError("Chunk exceeds response body")
-            }
-
-            decoded.append(data[cursor..<chunkEnd])
-            cursor = chunkEnd
-
-            guard data[cursor...].starts(with: lineBreak) else {
-                throw ScraperError.networkError("Missing chunk terminator")
-            }
-            cursor = data.index(cursor, offsetBy: lineBreak.count)
+        do {
+            try decoder.append(data) { decoded.append($0) }
+        } catch {
+            throw ScraperError.networkError("Invalid chunked body")
         }
-
+        // A body that stops at a chunk boundary without the last chunk must
+        // never pass for the whole response.
+        guard decoder.isComplete else {
+            throw ScraperError.networkError(CleartextHTTPExchangeFailure.truncatedBody.diagnosticDescription)
+        }
         return decoded
     }
 }

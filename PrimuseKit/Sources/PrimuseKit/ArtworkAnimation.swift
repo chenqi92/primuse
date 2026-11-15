@@ -613,3 +613,56 @@ public enum SourceArtworkPolicy {
         return components.url ?? url
     }
 }
+
+/// How long a failed source-artwork load is left alone before a view asks
+/// again. A source with no cover for the song, or one answering with an error
+/// page, is asked again after five minutes. A load that died because the
+/// connection dropped mid-exchange says nothing about the cover, so it is
+/// tried again after a short pause instead.
+public final class SourceArtworkFailureRetention: @unchecked Sendable {
+    public static let shared = SourceArtworkFailureRetention()
+    public static let missingArtworkInterval: TimeInterval = 5 * 60
+    public static let interruptedTransferInterval: TimeInterval = 30
+    /// A dropped transfer older than this no longer explains a failure.
+    public static let observationWindow: TimeInterval = 2 * 60
+    private static let pruneThreshold = 512
+
+    private let lock = NSLock()
+    private var interruptedAt: [String: Date] = [:]
+
+    public init() {}
+
+    public func recordInterruptedTransfer(sourceID: String, reference: String, at date: Date = Date()) {
+        lock.withLock {
+            if interruptedAt.count >= Self.pruneThreshold {
+                interruptedAt = interruptedAt.filter {
+                    date.timeIntervalSince($0.value) < Self.observationWindow
+                }
+            }
+            interruptedAt[Self.key(sourceID: sourceID, reference: reference)] = date
+        }
+    }
+
+    /// The source answered for this cover: with image bytes, with nothing, or
+    /// with an error that is not a dropped connection.
+    public func recordSettledLoad(sourceID: String, reference: String) {
+        _ = lock.withLock {
+            interruptedAt.removeValue(forKey: Self.key(sourceID: sourceID, reference: reference))
+        }
+    }
+
+    public func suppressionInterval(sourceID: String?, reference: String?, now: Date = Date()) -> TimeInterval {
+        guard let sourceID, let reference else { return Self.missingArtworkInterval }
+        let interrupted = lock.withLock {
+            interruptedAt[Self.key(sourceID: sourceID, reference: reference)]
+        }
+        guard let interrupted, now.timeIntervalSince(interrupted) < Self.observationWindow else {
+            return Self.missingArtworkInterval
+        }
+        return Self.interruptedTransferInterval
+    }
+
+    private static func key(sourceID: String, reference: String) -> String {
+        sourceID + "\u{1F}" + reference
+    }
+}

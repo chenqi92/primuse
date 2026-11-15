@@ -189,14 +189,15 @@ struct CachedArtworkView: View {
     }()
 
     /// Remember recent failed loads so scrolling away and back does not keep
-    /// re-checking the same missing sidecar / source artwork.
+    /// re-checking the same missing sidecar / source artwork. Each entry holds
+    /// the time the view may ask again.
     nonisolated(unsafe) private static let failedLoadCache: NSCache<NSString, NSDate> = {
         let cache = NSCache<NSString, NSDate>()
         cache.countLimit = 1_000
         return cache
     }()
 
-    static let failedLoadCacheTTL: TimeInterval = 5 * 60
+    static let failedLoadCacheTTL: TimeInterval = SourceArtworkFailureRetention.missingArtworkInterval
     nonisolated static let maximumSourceArtworkBytes = 32 * 1024 * 1024
 
     private final class ArtworkDescriptorBox: NSObject {
@@ -1758,7 +1759,12 @@ struct CachedArtworkView: View {
             onResolutionChange(hasResolvedArtwork)
         }
         if decoded == nil {
-            Self.failedLoadCache.setObject(NSDate(), forKey: failureNSKey)
+            // A transfer the network cut off is asked again after a short
+            // pause; a source that simply has no cover waits the full window.
+            let interval = SourceArtworkFailureRetention.shared.suppressionInterval(
+                sourceID: sourceID, reference: coverRef
+            )
+            Self.failedLoadCache.setObject(NSDate(timeIntervalSinceNow: interval), forKey: failureNSKey)
         }
     }
 
@@ -1836,8 +1842,8 @@ struct CachedArtworkView: View {
     }
 
     private static func hasRecentFailure(for key: NSString) -> Bool {
-        guard let failedAt = failedLoadCache.object(forKey: key) else { return false }
-        if abs(failedAt.timeIntervalSinceNow) < failedLoadCacheTTL {
+        guard let retryAfter = failedLoadCache.object(forKey: key) else { return false }
+        if retryAfter.timeIntervalSinceNow > 0 {
             return true
         }
         failedLoadCache.removeObject(forKey: key)

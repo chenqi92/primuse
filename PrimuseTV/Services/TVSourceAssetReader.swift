@@ -320,6 +320,16 @@ actor TVSourceAssetReader {
         let routes = candidates.isEmpty
             ? [source]
             : candidates.map { source.applyingConnectionCandidate($0) }
+        // A route that dropped the connection mid-transfer says nothing about
+        // the cover; the loader asks again soon instead of in five minutes.
+        var interrupted = false
+        defer {
+            if interrupted {
+                SourceArtworkFailureRetention.shared.recordInterruptedTransfer(sourceID: source.id, reference: reference)
+            } else if !Task.isCancelled {
+                SourceArtworkFailureRetention.shared.recordSettledLoad(sourceID: source.id, reference: reference)
+            }
+        }
         for routed in routes {
             guard !Task.isCancelled else { return nil }
             do {
@@ -342,12 +352,14 @@ actor TVSourceAssetReader {
                     data = try await connector.fetchArtworkData(for: reference, maximumBytes: maximumBytes, purpose: maximumPixels > 480 ? .fullResolution : .thumbnail)
                 }
                 try Task.checkCancellation()
+                interrupted = false
                 if data == nil {
                     pdiag("🖼️ tv artwork fetch empty source=\(routed.type.rawValue) ref=\(reference)")
                 }
                 return data
             } catch is CancellationError { return nil }
             catch {
+                if PlainHTTPClient.isInterruptedExchange(error) { interrupted = true }
                 pdiag("🖼️ tv artwork fetch failed source=\(routed.type.rawValue) ref=\(reference) error=\(error.localizedDescription)")
                 continue
             }

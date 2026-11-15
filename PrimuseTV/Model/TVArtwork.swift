@@ -512,7 +512,10 @@ actor TVArtworkLoader {
         guard !Task.isCancelled, await assets.isCurrentArtworkLoad(ticket) else { return nil }
         guard let result,
               let prepared = await preparedSongArtwork(result, songID: songID, animationCacheKey: animationCacheKey) else {
-            markTemporarilyNegative(key)
+            // A transfer the network cut off is asked again after a short pause.
+            markTemporarilyNegative(key, for: SourceArtworkFailureRetention.shared.suppressionInterval(
+                sourceID: sourceID, reference: ref
+            ))
             return await fallback()
         }
         negativeUntil.removeValue(forKey: key)
@@ -873,8 +876,8 @@ actor TVArtworkLoader {
         return false
     }
 
-    private func markTemporarilyNegative(_ key: String) {
-        negativeUntil[key] = Date().addingTimeInterval(Self.negativeCacheTTL)
+    private func markTemporarilyNegative(_ key: String, for interval: TimeInterval = TVArtworkLoader.negativeCacheTTL) {
+        negativeUntil[key] = Date().addingTimeInterval(interval)
     }
 
     /// 界面里显示成「未知艺术家」之类的占位名,拿去搜索前当作没有。
