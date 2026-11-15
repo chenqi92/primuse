@@ -4102,9 +4102,13 @@
 "navigation_tabs_join_search_footer" = "Désactivé, Recherche est isolée à droite. Activé, elle rejoint la même barre qu’Accueil et Bibliothèque.";
 "minimal_mode_title" = "Mode minimal";
 "minimal_mode_description" = "Masque la navigation inférieure : passez d’Accueil à Musique, Radio et Audio en haut, le lecteur reste ancré en bas.";
-"minimal_show_home" = "Afficher « Accueil »";
 "minimal_section_swipe" = "Balayer entre les catégories";
 "minimal_tab_spoken" = "Audio";
+"minimal_top_tabs_title" = "Onglets du haut";
+"minimal_top_tabs_edit" = "Modifier les onglets du haut";
+"minimal_top_tabs_footer" = "Faites glisser pour réorganiser. Au moins un onglet reste activé. Désactiver un onglet le retire seulement de la barre du haut, sans rien supprimer.";
+"minimal_top_tabs_radio_unavailable" = "S’affiche quand « Radio » est activé dans la Bibliothèque";
+"minimal_top_tabs_spoken_unavailable" = "S’affiche quand votre bibliothèque contient des livres audio ou des podcasts";
 "minimal_radio_on_air" = "En direct";
 
 // MARK: - Authoritative lyrics refresh

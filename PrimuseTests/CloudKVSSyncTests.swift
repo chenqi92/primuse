@@ -107,6 +107,7 @@ final class CloudKVSSyncTests: XCTestCase {
         XCTAssertEqual(Set(keys).count, keys.count)
         XCTAssertTrue(keys.contains(HomeSectionConfiguration.orderKey))
         XCTAssertTrue(keys.contains(HomeFilterBarConfiguration.storageKey))
+        XCTAssertTrue(keys.contains(MinimalTopTabConfiguration.storageKey))
         XCTAssertTrue(keys.contains(LibrarySectionLayoutPolicy.hiddenKey))
         XCTAssertTrue(keys.contains(PlaylistGrouping.storageKey))
         XCTAssertTrue(keys.contains("primuse.home.showHero"))

@@ -2402,9 +2402,13 @@
 "min" = "الحد الأدنى";
 "mini_player" = "مشغل صغير";
 "minimal_mode_description" = "يخفي شريط التنقل السفلي: بدّل بين الرئيسية والموسيقى والإذاعة والصوتيات من الأعلى، ويبقى المشغّل مثبتًا في الأسفل.";
-"minimal_show_home" = "إظهار «الرئيسية»";
 "minimal_section_swipe" = "التمرير للتنقل بين الفئات";
 "minimal_tab_spoken" = "صوتيات";
+"minimal_top_tabs_title" = "علامات التبويب العلوية";
+"minimal_top_tabs_edit" = "تعديل علامات التبويب العلوية";
+"minimal_top_tabs_footer" = "اسحب لإعادة الترتيب. تبقى علامة تبويب واحدة على الأقل مفعّلة. إيقاف علامة التبويب يزيلها من الشريط العلوي فقط ولا يحذف أي محتوى.";
+"minimal_top_tabs_radio_unavailable" = "تظهر عند تفعيل «الإذاعة» في المكتبة";
+"minimal_top_tabs_spoken_unavailable" = "تظهر عندما تحتوي مكتبتك على كتب صوتية أو بودكاست";
 "minimal_radio_on_air" = "مباشر";
 "minimal_mode_title" = "الوضع الأدنى";
 "minutes" = "دقيقة";

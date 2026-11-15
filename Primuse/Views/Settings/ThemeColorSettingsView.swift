@@ -48,7 +48,6 @@ struct AppearanceSettingsView: View {
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     #if os(iOS)
-    @AppStorage(MinimalNavigationPolicy.showsHomeKey) private var minimalShowsHome = true
     @AppStorage(LibrarySectionPagingPolicy.storageKey) private var sectionSwipeEnabled = true
     @AppStorage(AppTabConfiguration.storageKey) private var hiddenTabsMask = 0
     @State private var showsTabEditor = false
@@ -109,12 +108,10 @@ struct AppearanceSettingsView: View {
                 .id(ThemeColorSettings.shared.isWhiteTheme)
 
                 #if os(iOS)
-                // 极简顶栏上要不要摆「首页」那一格(#69:想要的是能藏,不是去掉)。
+                // 极简顶栏摆哪几格、什么顺序(首页那一格也在这里关,#69:想要的是能藏,不是去掉)。
                 if minimalModeEnabled.wrappedValue {
-                    Toggle(isOn: $minimalShowsHome) {
-                        Label("minimal_show_home", systemImage: "house")
-                    }
-                    .id(ThemeColorSettings.shared.isWhiteTheme)
+                    MinimalTopTabsSettingsRow()
+                        .settingsAnchor("appearance.minimalTopTabs")
                     // 「音乐」下面的分类（收藏、歌曲、流派……）在内容区左右滑动切换，只在 iPhone 上。
                     if UIDevice.current.userInterfaceIdiom == .phone {
                         Toggle(isOn: $sectionSwipeEnabled) {

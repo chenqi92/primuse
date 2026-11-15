@@ -4102,9 +4102,13 @@
 "navigation_tabs_join_search_footer" = "Wenn aus, steht die Suche einzeln rechts. Wenn an, liegt sie in derselben Leiste wie Start und Mediathek.";
 "minimal_mode_title" = "Minimalmodus";
 "minimal_mode_description" = "Blendet die untere Navigation aus: Oben wechselst du zwischen Start, Musik, Radio und Audio, der Player sitzt unten.";
-"minimal_show_home" = "„Start“ anzeigen";
 "minimal_section_swipe" = "Zwischen Kategorien wischen";
 "minimal_tab_spoken" = "Audio";
+"minimal_top_tabs_title" = "Tabs oben";
+"minimal_top_tabs_edit" = "Tabs oben bearbeiten";
+"minimal_top_tabs_footer" = "Zum Umsortieren ziehen. Mindestens ein Tab bleibt aktiv. Ausgeschaltete Tabs verschwinden nur aus der oberen Leiste, es wird nichts gelöscht.";
+"minimal_top_tabs_radio_unavailable" = "Erscheint, wenn „Radio“ in der Mediathek eingeschaltet ist";
+"minimal_top_tabs_spoken_unavailable" = "Erscheint, wenn deine Mediathek Hörbücher oder Podcasts enthält";
 "minimal_radio_on_air" = "Live";
 
 // MARK: - Authoritative lyrics refresh

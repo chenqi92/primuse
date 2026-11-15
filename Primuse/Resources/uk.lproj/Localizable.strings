@@ -3831,9 +3831,13 @@
 "smart_playlist_combinator_and" = "Всі умови";
 "lyrics_converter_summary_format" = "%1$d рядків · %2$d синхронізовано · %3$d зі словом";
 "minimal_mode_description" = "Приховує нижню панель навігації: угорі перемикайтеся між «Головна», «Музика», «Радіо» та «Аудіо», плеєр закріплено внизу.";
-"minimal_show_home" = "Показувати «Головна»";
 "minimal_section_swipe" = "Перемикати розділи змахуванням";
 "minimal_tab_spoken" = "Аудіо";
+"minimal_top_tabs_title" = "Верхні вкладки";
+"minimal_top_tabs_edit" = "Змінити верхні вкладки";
+"minimal_top_tabs_footer" = "Перетягніть, щоб змінити порядок. Принаймні одна вкладка лишається ввімкненою. Вимкнена вкладка лише зникає з верхньої панелі — нічого не видаляється.";
+"minimal_top_tabs_radio_unavailable" = "З’явиться, коли в медіатеці ввімкнено «Радіо»";
+"minimal_top_tabs_spoken_unavailable" = "З’явиться, коли в медіатеці будуть аудіокниги або подкасти";
 "minimal_radio_on_air" = "В ефірі";
 "relay_share_password_placeholder" = "Додатковий пароль слухача";
 "a11y_close_lyrics" = "Сховати слова";

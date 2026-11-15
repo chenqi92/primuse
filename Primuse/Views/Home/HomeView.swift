@@ -2667,7 +2667,7 @@ struct HomeView: View {
     }
     #endif
 
-    /// 顶上的筛选胶囊钉在最上面,编辑态里一行预览,点按钮排顺序、开关每一颗。
+    /// 顶上的筛选胶囊钉在最上面,编辑态里一行预览,点按钮排顺序、开关每一颗。极简模式换成顶栏那几格。
     @ViewBuilder
     private var filterBarEditorRow: some View {
         #if os(iOS)
@@ -2711,6 +2711,11 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showsFilterBarEditor) {
                 HomeFilterBarEditor(sectionShown: isFilterSectionShown)
+            }
+        } else {
+            // 极简模式首页顶上没有筛选胶囊，这里调的是顶栏那几格（另存一份，见 `MinimalTopTabConfiguration`）。
+            editorBlockFrame(visible: true) {
+                MinimalTopTabsHomeEditorBlock()
             }
         }
         #endif

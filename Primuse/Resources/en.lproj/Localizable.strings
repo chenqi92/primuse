@@ -3874,9 +3874,13 @@
 "navigation_tabs_join_search_footer" = "When off, Search sits on its own at the right. Turn on to place it in the same bar as Home and Library.";
 "minimal_mode_title" = "Minimal Mode";
 "minimal_mode_description" = "Hides the bottom navigation bar: switch between Home, Music, Radio and Audio at the top, with the player docked at the bottom.";
-"minimal_show_home" = "Show Home";
 "minimal_section_swipe" = "Swipe Between Categories";
 "minimal_tab_spoken" = "Audio";
+"minimal_top_tabs_title" = "Top Tabs";
+"minimal_top_tabs_edit" = "Edit Top Tabs";
+"minimal_top_tabs_footer" = "Drag to reorder. At least one tab stays on. Turning a tab off only removes it from the top bar and doesn’t delete anything.";
+"minimal_top_tabs_radio_unavailable" = "Appears when Radio is turned on in Library";
+"minimal_top_tabs_spoken_unavailable" = "Appears when your library has audiobooks or podcasts";
 "minimal_radio_on_air" = "Live";
 
 // MARK: - Authoritative lyrics refresh

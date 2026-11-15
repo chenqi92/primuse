@@ -674,7 +674,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
     func testMinimalTopTabsFollowWhatTheLibraryOffers() {
         XCTAssertEqual(
             MinimalNavigationPolicy.topTabs(
-                showsHome: true,
+                configuration: .decode(""),
                 visibleSections: [.songs, .radio],
                 spokenSections: [.spokenWord]
             ),
@@ -682,11 +682,55 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         )
         XCTAssertEqual(
             MinimalNavigationPolicy.topTabs(
-                showsHome: false,
+                configuration: .decode("", legacyShowsHome: false),
                 visibleSections: [.songs],
                 spokenSections: []
             ),
             [.music]
+        )
+    }
+
+    /// 顶部切换里关掉的格不摆，和资料库显隐、播客订阅无关；打开了但没内容的格也不摆。
+    func testMinimalTopTabsHideWhatTheUserTurnedOff() {
+        var configuration = MinimalTopTabConfiguration()
+        configuration.setShown(false, for: .music)
+        configuration.setShown(false, for: .spoken)
+        XCTAssertEqual(
+            MinimalNavigationPolicy.topTabs(
+                configuration: configuration,
+                visibleSections: [.songs, .radio, .podcasts],
+                spokenSections: [.podcasts]
+            ),
+            [.home, .radio]
+        )
+        configuration.setShown(true, for: .spoken)
+        XCTAssertEqual(
+            MinimalNavigationPolicy.topTabs(
+                configuration: configuration,
+                visibleSections: [.songs],
+                spokenSections: []
+            ),
+            [.home]
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.availableTopTabs(radioShown: false, hasSpokenSections: true),
+            [.home, .music, .spoken]
+        )
+    }
+
+    /// 资料库槽位落在顶栏上排在最前的音乐、电台或有声；只剩首页时停的页没了就回首页。
+    func testMinimalLandingFollowsTheFirstVisibleTab() {
+        XCTAssertEqual(MinimalNavigationPolicy.libraryLandingTab(topTabs: [.home, .music, .radio]), .music)
+        XCTAssertEqual(MinimalNavigationPolicy.libraryLandingTab(topTabs: [.home, .radio, .spoken]), .radio)
+        XCTAssertEqual(MinimalNavigationPolicy.libraryLandingTab(topTabs: [.spoken, .home]), .spoken)
+        XCTAssertEqual(MinimalNavigationPolicy.libraryLandingTab(topTabs: [.home]), .music)
+        XCTAssertEqual(
+            MinimalNavigationPolicy.landingPage(topTabs: [.home, .radio], librarySection: .radio),
+            .librarySection(.radio)
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.landingPage(topTabs: [.home], librarySection: .songs),
+            .home
         )
     }
 
@@ -792,7 +836,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         XCTAssertTrue(visible.isEmpty)
         XCTAssertEqual(MinimalNavigationPolicy.musicSections(visibleSections: visible), [])
         XCTAssertEqual(
-            MinimalNavigationPolicy.topTabs(showsHome: true, visibleSections: visible, spokenSections: []),
+            MinimalNavigationPolicy.topTabs(configuration: .decode(""), visibleSections: visible, spokenSections: []),
             [.home, .music]
         )
     }

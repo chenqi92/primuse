@@ -3831,9 +3831,13 @@
 "smart_playlist_combinator_and" = "Tüm koşullar";
 "lyrics_converter_summary_format" = "%1$d satırları · %2$d senkronize edildi · %3$d kelime zamanlı";
 "minimal_mode_description" = "Alttaki gezinme çubuğunu gizler: üstte Ana sayfa, Müzik, Radyo ve Sesli arasında geçiş yaparsınız; oynatıcı altta sabit kalır.";
-"minimal_show_home" = "“Ana sayfa” sekmesini göster";
 "minimal_section_swipe" = "Kategoriler arasında kaydır";
 "minimal_tab_spoken" = "Sesli";
+"minimal_top_tabs_title" = "Üst sekmeler";
+"minimal_top_tabs_edit" = "Üst sekmeleri düzenle";
+"minimal_top_tabs_footer" = "Sıralamak için sürükleyin. En az bir sekme açık kalır. Bir sekmeyi kapatmak onu yalnızca üst çubuktan kaldırır, hiçbir şey silinmez.";
+"minimal_top_tabs_radio_unavailable" = "Arşiv’de “Radyo” açıldığında görünür";
+"minimal_top_tabs_spoken_unavailable" = "Arşivde sesli kitap veya podcast olduğunda görünür";
 "minimal_radio_on_air" = "Canlı";
 "relay_share_password_placeholder" = "İsteğe bağlı dinleyici şifresi";
 "a11y_close_lyrics" = "Şarkı sözlerini gizle";

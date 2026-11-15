@@ -4102,9 +4102,13 @@
 "navigation_tabs_join_search_footer" = "끄면 검색이 오른쪽에 따로 표시됩니다. 켜면 홈, 보관함과 같은 막대에 나란히 놓입니다.";
 "minimal_mode_title" = "미니멀 모드";
 "minimal_mode_description" = "하단 탐색 막대를 숨기고 상단에서 홈, 음악, 라디오, 오디오를 전환합니다. 재생 막대는 하단에 고정됩니다.";
-"minimal_show_home" = "‘홈’ 표시";
 "minimal_section_swipe" = "좌우로 스와이프해 카테고리 전환";
 "minimal_tab_spoken" = "오디오";
+"minimal_top_tabs_title" = "상단 탭";
+"minimal_top_tabs_edit" = "상단 탭 편집";
+"minimal_top_tabs_footer" = "드래그하여 순서를 바꿉니다. 최소 한 개는 켜져 있어야 합니다. 탭을 끄면 상단 바에서만 사라지고 내용은 삭제되지 않습니다.";
+"minimal_top_tabs_radio_unavailable" = "라이브러리에서 ‘라디오’를 켜면 표시됩니다";
+"minimal_top_tabs_spoken_unavailable" = "라이브러리에 오디오북이나 팟캐스트가 있으면 표시됩니다";
 "minimal_radio_on_air" = "생방송 중";
 
 // MARK: - Authoritative lyrics refresh

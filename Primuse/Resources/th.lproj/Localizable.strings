@@ -2402,9 +2402,13 @@
 "min" = "นาที";
 "mini_player" = "เครื่องเล่นขนาดเล็ก";
 "minimal_mode_description" = "ซ่อนแถบนำทางด้านล่าง สลับหน้าแรก เพลง วิทยุ และเสียงได้จากด้านบน แถบเล่นอยู่ด้านล่าง";
-"minimal_show_home" = "แสดง “หน้าแรก”";
 "minimal_section_swipe" = "ปัดเพื่อสลับหมวดหมู่";
 "minimal_tab_spoken" = "เสียง";
+"minimal_top_tabs_title" = "แท็บด้านบน";
+"minimal_top_tabs_edit" = "แก้ไขแท็บด้านบน";
+"minimal_top_tabs_footer" = "ลากเพื่อจัดลำดับ ต้องเปิดไว้อย่างน้อยหนึ่งแท็บ การปิดแท็บเพียงนำออกจากแถบด้านบน ไม่มีสิ่งใดถูกลบ";
+"minimal_top_tabs_radio_unavailable" = "จะแสดงเมื่อเปิด “วิทยุ” ในคลังเพลง";
+"minimal_top_tabs_spoken_unavailable" = "จะแสดงเมื่อคลังเพลงมีหนังสือเสียงหรือพอดแคสต์";
 "minimal_radio_on_air" = "กำลังออกอากาศ";
 "minimal_mode_title" = "โหมดขั้นต่ำ";
 "minutes" = "นาที";

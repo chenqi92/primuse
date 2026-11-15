@@ -709,6 +709,8 @@ final class InterfaceLayoutSync {
         HomeSectionLayoutConfiguration.storageKey,
         HomeFilterBarConfiguration.storageKey,
         HomeFilterBarConfiguration.showsLibrarySectionsKey,
+        // 极简模式顶栏几格的顺序与开关(「顶部切换」,外观设置与首页编辑里改)
+        MinimalTopTabConfiguration.storageKey,
         HomeSubtabPresentation.pullDownKey,
         HomeSubtabPresentation.doubleTapKey,
         "primuse.home.showHero",

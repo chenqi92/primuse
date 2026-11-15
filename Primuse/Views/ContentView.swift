@@ -149,9 +149,6 @@ enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
 }
 
 enum MinimalNavigationPolicy {
-    /// 极简模式要不要摆「首页」那一格。
-    static let showsHomeKey = "primuse.minimal.showsHome.v1"
-
     /// 「音乐」下面的分类：资料库里排好的顺序与显隐，电台、有声书、播客各在自己的格里。
     static func musicSections(visibleSections: [LibrarySection]) -> [LibrarySection] {
         visibleSections.filter { MinimalTopTab.tab(for: $0) == .music }
@@ -169,17 +166,41 @@ enum MinimalNavigationPolicy {
         return sections
     }
 
+    /// 顶栏各格在这台设备上有没有内容：首页、音乐总有；电台要资料库里开着；有声要有有声书或播客
+    /// （`spokenSections` 不为空）。没内容的格在「顶部切换」里打开了也不出现。
+    static func availableTopTabs(radioShown: Bool, hasSpokenSections: Bool) -> Set<MinimalTopTab> {
+        var tabs: Set<MinimalTopTab> = [.home, .music]
+        if radioShown { tabs.insert(.radio) }
+        if hasSpokenSections { tabs.insert(.spoken) }
+        return tabs
+    }
+
+    /// 顶栏上摆哪几格、什么顺序：「顶部切换」里打开的、且有内容的。
     static func topTabs(
-        showsHome: Bool,
+        configuration: MinimalTopTabConfiguration,
         visibleSections: [LibrarySection],
         spokenSections: [LibrarySection]
     ) -> [MinimalTopTab] {
-        var tabs: [MinimalTopTab] = []
-        if showsHome { tabs.append(.home) }
-        tabs.append(.music)
-        if visibleSections.contains(.radio) { tabs.append(.radio) }
-        if !spokenSections.isEmpty { tabs.append(.spoken) }
-        return tabs
+        let available = availableTopTabs(
+            radioShown: visibleSections.contains(.radio),
+            hasSpokenSections: !spokenSections.isEmpty
+        )
+        return configuration.visibleTabs(isAvailable: available.contains)
+    }
+
+    /// 资料库槽位默认落在哪一格：顶栏上排在最前的音乐、电台或有声。只摆了首页时还是音乐——
+    /// 槽位总得有一页给深链、「在资料库中显示」落脚。
+    static func libraryLandingTab(topTabs: [MinimalTopTab]) -> MinimalTopTab {
+        topTabs.first(where: \.isLibraryTab) ?? .music
+    }
+
+    /// 停着的那一页没了（关掉了那一格、资料库里收起了、内容没了）时去哪：资料库那几格有摆出来的
+    /// 就去排在最前的那格（`librarySection` 是它要落的分类），顶栏上只剩首页就回首页。
+    static func landingPage(
+        topTabs: [MinimalTopTab],
+        librarySection: LibrarySection
+    ) -> MinimalNavigationPage {
+        topTabs.contains(where: \.isLibraryTab) ? .librarySection(librarySection) : .home
     }
 
     /// 点某一格落在哪一页：上次在这一格停过的页还在就回那一页，否则排在最前的一页。
@@ -1434,7 +1455,9 @@ struct ContentView: View {
     /// 「音乐」「有声」两格各自上次停的分类，点回这一格时落在那里。
     @AppStorage("primuse.minimal.musicSection.v1") private var minimalMusicSectionRaw = ""
     @AppStorage("primuse.minimal.spokenSection.v1") private var minimalSpokenSectionRaw = ""
-    @AppStorage(MinimalNavigationPolicy.showsHomeKey) private var minimalShowsHome = true
+    /// 顶栏几格的顺序与开关（「顶部切换」）。没调过时首页那一格照老的「显示首页」。
+    @AppStorage(MinimalTopTabConfiguration.storageKey) private var minimalTopTabsRawValue = ""
+    @AppStorage(MinimalTopTabConfiguration.legacyShowsHomeKey) private var minimalLegacyShowsHome = true
     /// 进搜索、设置之前停的那一页；「取消」与设置的返回键回到这里。
     @State private var minimalReturnPage: MinimalNavigationPage?
     /// 点顶栏换页的过渡（旧页截屏淡出、新页轻推、选中指示滑过去）。普通引用，记下换页不会让谁重算。
@@ -1540,20 +1563,35 @@ struct ContentView: View {
 
     private var minimalTopTabs: [MinimalTopTab] {
         MinimalNavigationPolicy.topTabs(
-            showsHome: minimalShowsHome,
+            configuration: .decode(minimalTopTabsRawValue, legacyShowsHome: minimalLegacyShowsHome),
             visibleSections: visibleLibrarySections,
             spokenSections: minimalSpokenSections
         )
     }
 
-    /// 资料库槽位还没落定分类时（刚启动、刚换到极简）去的那一页。
+    /// 资料库槽位还没落定分类时（刚启动、刚换到极简）去的那一页：顶栏上排在最前的音乐、电台或有声那一格。
     private var minimalFallbackSection: LibrarySection {
-        MinimalNavigationPolicy.section(
-            for: .music,
-            remembered: LibrarySection(rawValue: minimalMusicSectionRaw),
+        minimalSection(for: MinimalNavigationPolicy.libraryLandingTab(topTabs: minimalTopTabs)) ?? .songs
+    }
+
+    /// 停着的那一页没了时去的那一页（见 `MinimalNavigationPolicy.landingPage`）。
+    private var minimalLandingPage: MinimalNavigationPage {
+        MinimalNavigationPolicy.landingPage(topTabs: minimalTopTabs, librarySection: minimalFallbackSection)
+    }
+
+    /// 点某一格落在资料库的哪一页：上次在这一格停过的分类还在就回那里。首页那一格为空。
+    private func minimalSection(for tab: MinimalTopTab) -> LibrarySection? {
+        let remembered: LibrarySection? = switch tab {
+        case .music: LibrarySection(rawValue: minimalMusicSectionRaw)
+        case .spoken: LibrarySection(rawValue: minimalSpokenSectionRaw)
+        case .home, .radio: nil
+        }
+        return MinimalNavigationPolicy.section(
+            for: tab,
+            remembered: remembered,
             musicSections: minimalMusicSections,
             spokenSections: minimalSpokenSections
-        ) ?? .songs
+        )
     }
 
     private var currentMinimalPage: MinimalNavigationPage {
@@ -1837,7 +1875,7 @@ struct ContentView: View {
     /// 设置页左上角回到进设置之前那一页。
     private var minimalSettingsReturn: MinimalReturnAction? {
         guard navigationMode == .minimal else { return nil }
-        let target = minimalReturnPage ?? .librarySection(minimalFallbackSection)
+        let target = minimalReturnPage ?? minimalLandingPage
         let title = target.topTab?.title ?? MinimalTopTab.music.title
         return MinimalReturnAction(title: title) {
             selectMinimalPage(target)
@@ -2298,14 +2336,23 @@ struct ContentView: View {
             }
         }
         .onChange(of: visibleLibrarySections) { _, _ in
-            // 资料库设置里把正停着的分类藏了，或者有声内容都移走了：回到音乐。
+            // 资料库设置里把正停着的分类藏了，或者有声内容都移走了：回到顶栏上排在最前的那一格（默认是音乐）。
             guard library.isReady, navigationMode == .minimal, selectedTab == 1 else { return }
             if let section = minimalLibrarySection, minimalSectionIsAvailable(section) { return }
-            selectMinimalPage(.librarySection(minimalFallbackSection))
+            selectMinimalPage(minimalLandingPage)
         }
-        .onChange(of: minimalShowsHome) { _, showsHome in
-            guard navigationMode == .minimal, !showsHome, selectedTab == 0 else { return }
-            selectMinimalPage(.librarySection(minimalFallbackSection))
+        .onChange(of: minimalTopTabs) { previous, tabs in
+            // 「顶部切换」里关掉了正停着的那一格：去排在最前的那一格。进设置之前停的就是它的话，
+            // 设置的返回键也改回那里。本来就不在顶栏上的格（深链进去的）不管。
+            guard navigationMode == .minimal else { return }
+            let removed = Set(previous).subtracting(tabs)
+            guard !removed.isEmpty else { return }
+            if let returnTab = minimalReturnPage?.topTab, removed.contains(returnTab) {
+                minimalReturnPage = nil
+            }
+            if let tab = currentMinimalPage.topTab, removed.contains(tab) {
+                selectMinimalPage(minimalLandingPage)
+            }
         }
         .fullScreenCover(item: $autoYearlyReport) { item in
             YearlyReportScreen(year: item.year)
@@ -2390,11 +2437,13 @@ struct ContentView: View {
         )
     }
 
-    /// 进极简模式、启动时落在哪一页：资料库槽位回到上次停的分类；首页那一格关掉了就去音乐。
+    /// 进极简模式、启动时落在哪一页：资料库槽位回到上次停的分类；停的那一格（或首页）在「顶部切换」里
+    /// 关掉了，就去顶栏上排在最前的那一格。
     private func activateMinimalLandingPageIfNeeded() {
         guard navigationMode == .minimal else { return }
         let tab = AppTabSelectionPolicy.resolve(selectedTab)
-        if tab == 0, minimalShowsHome {
+        let topTabs = minimalTopTabs
+        if tab == 0, topTabs.contains(.home) {
             synchronizeSidebarForCurrentSelection()
             return
         }
@@ -2407,20 +2456,24 @@ struct ContentView: View {
             return
         }
         let stored = LibrarySection(rawValue: minimalStoredSectionRaw)
-        if tab == 1, let stored, minimalSectionIsAvailable(stored) {
+        if tab == 1, let stored, minimalSectionIsAvailable(stored),
+           topTabs.contains(MinimalTopTab.tab(for: stored)) {
             selectMinimalPage(.librarySection(stored))
         } else {
-            selectMinimalPage(.librarySection(minimalFallbackSection))
+            selectMinimalPage(minimalLandingPage)
         }
     }
 
-    /// 这个分类在顶栏上还够得着：音乐的分类要在资料库里开着，电台、有声要它们那一格还在。
+    /// 这个分类还有页可落：音乐的分类要在资料库里开着（全收起时还有歌曲页），电台要资料库里开着，
+    /// 有声要有那一页的内容。和它那一格摆不摆在顶栏上无关：关掉的格照样能从深链、搜索结果进去。
     private func minimalSectionIsAvailable(_ section: LibrarySection) -> Bool {
         switch MinimalTopTab.tab(for: section) {
-        case .music: minimalMusicSections.contains(section) || section == minimalFallbackSection
-        case .radio: minimalTopTabs.contains(.radio)
-        case .spoken: minimalSpokenSections.contains(section)
-        case .home: false
+        case .music:
+            let music = minimalMusicSections
+            return music.contains(section) || (music.isEmpty && section == .songs)
+        case .radio: return visibleLibrarySections.contains(.radio)
+        case .spoken: return minimalSpokenSections.contains(section)
+        case .home: return false
         }
     }
 
@@ -2443,17 +2496,7 @@ struct ContentView: View {
         if tab == .home {
             page = .home
         } else {
-            let remembered: LibrarySection? = switch tab {
-            case .music: LibrarySection(rawValue: minimalMusicSectionRaw)
-            case .spoken: LibrarySection(rawValue: minimalSpokenSectionRaw)
-            default: nil
-            }
-            guard let section = MinimalNavigationPolicy.section(
-                for: tab,
-                remembered: remembered,
-                musicSections: minimalMusicSections,
-                spokenSections: minimalSpokenSections
-            ) else { return }
+            guard let section = minimalSection(for: tab) else { return }
             page = .librarySection(section)
         }
         animateMinimalSelection(to: page)
@@ -2504,7 +2547,7 @@ struct ContentView: View {
     private func cancelMinimalSearch() {
         searchText = ""
         searchScope = nil
-        selectMinimalPage(minimalReturnPage ?? .librarySection(minimalFallbackSection))
+        selectMinimalPage(minimalReturnPage ?? minimalLandingPage)
     }
 
     private var searchAwareTabSelection: Binding<Int> {

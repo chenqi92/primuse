@@ -2402,9 +2402,13 @@
 "min" = "Min";
 "mini_player" = "Miniodtwarzacz";
 "minimal_mode_description" = "Ukrywa dolny pasek nawigacyjny: u góry przełączasz Główna, Muzyka, Radia i Audio, a odtwarzacz jest przypięty na dole.";
-"minimal_show_home" = "Pokazuj „Główna”";
 "minimal_section_swipe" = "Przesuwaj, aby zmieniać kategorie";
 "minimal_tab_spoken" = "Audio";
+"minimal_top_tabs_title" = "Karty u góry";
+"minimal_top_tabs_edit" = "Edytuj karty u góry";
+"minimal_top_tabs_footer" = "Przeciągnij, aby zmienić kolejność. Co najmniej jedna karta pozostaje włączona. Wyłączenie karty tylko chowa ją z górnego paska, niczego nie usuwa.";
+"minimal_top_tabs_radio_unavailable" = "Pojawi się po włączeniu „Radia” w Bibliotece";
+"minimal_top_tabs_spoken_unavailable" = "Pojawi się, gdy w bibliotece będą audiobooki lub podcasty";
 "minimal_radio_on_air" = "Na żywo";
 "minimal_mode_title" = "Tryb minimalny";
 "minutes" = "min";

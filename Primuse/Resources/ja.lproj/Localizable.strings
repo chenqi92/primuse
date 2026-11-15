@@ -4103,9 +4103,13 @@
 "navigation_tabs_join_search_footer" = "オフのときは検索が右側に独立して表示されます。オンにするとホームやライブラリと同じバーに並びます。";
 "minimal_mode_title" = "ミニマルモード";
 "minimal_mode_description" = "下部のナビゲーションバーを隠し、上部でホーム・ミュージック・ラジオ・音声を切り替えます。再生バーは下部に固定されます。";
-"minimal_show_home" = "「ホーム」を表示";
 "minimal_section_swipe" = "左右スワイプでカテゴリを切り替え";
 "minimal_tab_spoken" = "音声";
+"minimal_top_tabs_title" = "上部のタブ";
+"minimal_top_tabs_edit" = "上部のタブを編集";
+"minimal_top_tabs_footer" = "ドラッグで並べ替えます。少なくとも1つはオンのままです。オフにしたタブは上部バーに表示されなくなるだけで、内容は削除されません。";
+"minimal_top_tabs_radio_unavailable" = "ライブラリで「ラジオ」をオンにすると表示されます";
+"minimal_top_tabs_spoken_unavailable" = "ライブラリにオーディオブックかポッドキャストがあると表示されます";
 "minimal_radio_on_air" = "ライブ配信中";
 
 // MARK: - Authoritative lyrics refresh

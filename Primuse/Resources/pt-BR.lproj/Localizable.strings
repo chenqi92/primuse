@@ -2402,9 +2402,13 @@
 "min" = "Mínimo";
 "mini_player" = "Miniplayer";
 "minimal_mode_description" = "Oculta a barra de navegação inferior: alterne entre Início, Música, Rádio e Áudio no topo; o player fica fixo embaixo.";
-"minimal_show_home" = "Mostrar “Início”";
 "minimal_section_swipe" = "Deslizar entre categorias";
 "minimal_tab_spoken" = "Áudio";
+"minimal_top_tabs_title" = "Abas superiores";
+"minimal_top_tabs_edit" = "Editar abas superiores";
+"minimal_top_tabs_footer" = "Arraste para reordenar. Pelo menos uma aba fica ativada. Desativar uma aba só a remove da barra superior; nada é apagado.";
+"minimal_top_tabs_radio_unavailable" = "Aparece quando “Rádio” está ativado na Biblioteca";
+"minimal_top_tabs_spoken_unavailable" = "Aparece quando sua biblioteca tem audiolivros ou podcasts";
 "minimal_radio_on_air" = "Ao vivo";
 "minimal_mode_title" = "Modo Mínimo";
 "minutes" = "minutos";

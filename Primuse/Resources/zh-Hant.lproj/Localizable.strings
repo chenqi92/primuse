@@ -4088,9 +4088,13 @@
 "navigation_tabs_join_search_footer" = "關閉時搜尋單獨放在右邊；打開後和首頁、資料庫排在同一條裡。";
 "minimal_mode_title" = "極簡模式";
 "minimal_mode_description" = "隱藏底部導覽列：在頂部切換首頁、音樂、電台與有聲，播放條停靠在底部。";
-"minimal_show_home" = "顯示「首頁」";
 "minimal_section_swipe" = "左右滑動切換分類";
 "minimal_tab_spoken" = "有聲";
+"minimal_top_tabs_title" = "頂部切換";
+"minimal_top_tabs_edit" = "調整頂部切換";
+"minimal_top_tabs_footer" = "拖動調整順序，至少保留一項。關掉的只是不放在頂欄上，不會刪除任何內容。";
+"minimal_top_tabs_radio_unavailable" = "在資料庫裡開啟「電台」後顯示";
+"minimal_top_tabs_spoken_unavailable" = "資料庫裡有有聲書或播客時顯示";
 "minimal_radio_on_air" = "正在直播";
 
 // MARK: - Authoritative lyrics refresh

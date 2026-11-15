@@ -2402,9 +2402,13 @@
 "min" = "न्यूनतम";
 "mini_player" = "मिनी प्लेयर";
 "minimal_mode_description" = "नीचे का नेविगेशन बार छुपाता है: ऊपर होम, संगीत, रेडियो और ऑडियो के बीच बदलें, प्लेयर नीचे टिका रहता है।";
-"minimal_show_home" = "“होम” दिखाएँ";
 "minimal_section_swipe" = "श्रेणियाँ बदलने के लिए स्वाइप करें";
 "minimal_tab_spoken" = "ऑडियो";
+"minimal_top_tabs_title" = "ऊपर के टैब";
+"minimal_top_tabs_edit" = "ऊपर के टैब बदलें";
+"minimal_top_tabs_footer" = "क्रम बदलने के लिए खींचें। कम से कम एक टैब चालू रहता है। टैब बंद करने से वह सिर्फ़ ऊपर की पट्टी से हटता है, कुछ भी मिटाया नहीं जाता।";
+"minimal_top_tabs_radio_unavailable" = "लाइब्रेरी में “रेडियो” चालू करने पर दिखेगा";
+"minimal_top_tabs_spoken_unavailable" = "लाइब्रेरी में ऑडियोबुक या पॉडकास्ट होने पर दिखेगा";
 "minimal_radio_on_air" = "लाइव";
 "minimal_mode_title" = "न्यूनतम मोड";
 "minutes" = "मि";

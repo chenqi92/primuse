@@ -5,15 +5,9 @@ import UIKit
 
 // MARK: - 顶栏的去处
 
-/// 极简模式顶栏上的去处。音乐、电台、有声落在资料库的分类页上，首页就是首页标签。
-enum MinimalTopTab: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case home
-    case music
-    case radio
-    case spoken
-
-    var id: String { rawValue }
-
+/// 极简模式顶栏上的去处（`MinimalTopTab`，顺序与开关见 `MinimalTopTabConfiguration`）。
+/// 音乐、电台、有声落在资料库的分类页上，首页就是首页标签。
+extension MinimalTopTab {
     private var titleKeyName: String {
         switch self {
         case .home: "home_title"
@@ -26,6 +20,16 @@ enum MinimalTopTab: String, CaseIterable, Identifiable, Hashable, Sendable {
     var titleKey: LocalizedStringKey { LocalizedStringKey(titleKeyName) }
 
     var title: String { String(localized: String.LocalizationValue(titleKeyName)) }
+
+    /// 「顶部切换」编辑页里的图标：和首页那排胶囊、资料库分类用同一个字形。
+    var systemImage: String {
+        switch self {
+        case .home: "house.fill"
+        case .music: ListeningSpace.music.systemImage
+        case .radio: ListeningSpace.radio.systemImage
+        case .spoken: ListeningSpace.spokenWord.systemImage
+        }
+    }
 
     /// 资料库分类归哪一格：电台自成一格，有声书与播客同在「有声」，其余都在「音乐」下面。
     static func tab(for section: LibrarySection) -> MinimalTopTab {
@@ -483,6 +487,217 @@ private struct MinimalTopTabPicker: View {
         colorScheme == .dark
             ? Color(uiColor: .systemGray3)
             : Color(uiColor: .systemBackground)
+    }
+}
+
+// MARK: - 顶部切换（顶栏几格的顺序与开关）
+
+/// 这台设备上顶栏哪几格有内容：电台跟资料库里的开关，有声跟外壳算好的那几页（`minimalSpokenSections`）。
+/// 和外壳摆顶栏用的是同一条规则（`MinimalNavigationPolicy.availableTopTabs`）。
+private struct MinimalTopTabAvailability: DynamicProperty {
+    @Environment(\.minimalSpokenSections) private var spokenSections
+    @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey) private var hiddenLibrarySectionsRawValue = ""
+
+    var tabs: Set<MinimalTopTab> {
+        MinimalNavigationPolicy.availableTopTabs(
+            radioShown: !LibraryDisplayConfiguration.decodeHiddenSections(hiddenLibrarySectionsRawValue)
+                .contains(.radio),
+            hasSpokenSections: !spokenSections.isEmpty
+        )
+    }
+}
+
+/// 外观设置里极简模式下面那一行，点开「顶部切换」。
+struct MinimalTopTabsSettingsRow: View {
+    private var availability = MinimalTopTabAvailability()
+    @State private var showsEditor = false
+
+    var body: some View {
+        Button {
+            showsEditor = true
+        } label: {
+            HStack {
+                Label("minimal_top_tabs_title", systemImage: "rectangle.split.3x1")
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .foregroundStyle(.primary)
+            .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("minimal.editTopTabs")
+        .sheet(isPresented: $showsEditor) {
+            MinimalTopTabEditor(availableTabs: availability.tabs)
+        }
+    }
+}
+
+/// 首页编辑里（极简模式）「顶部切换」那一块：标题、调整键，下面是顶栏那排分段的样子。
+/// 经典模式那里是首页筛选胶囊的编辑（`HomeFilterBarEditor`），两份各存各的。
+struct MinimalTopTabsHomeEditorBlock: View {
+    @AppStorage(MinimalTopTabConfiguration.storageKey) private var rawValue = ""
+    @AppStorage(MinimalTopTabConfiguration.legacyShowsHomeKey) private var legacyShowsHome = true
+    private var availability = MinimalTopTabAvailability()
+    @State private var showsEditor = false
+
+    var body: some View {
+        let available = availability.tabs
+        let tabs = MinimalTopTabConfiguration.decode(rawValue, legacyShowsHome: legacyShowsHome)
+            .visibleTabs(isAvailable: available.contains)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "pin.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+
+                Text("minimal_top_tabs_title")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Button { showsEditor = true } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.footnote.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .accessibilityLabel(Text("minimal_top_tabs_edit"))
+                .accessibilityIdentifier("home.edit.minimalTopTabs")
+            }
+            .padding(.horizontal, 20)
+
+            MinimalTopTabsPreview(tabs: tabs, horizontalInset: 20)
+        }
+        .sheet(isPresented: $showsEditor) {
+            MinimalTopTabEditor(availableTabs: available)
+        }
+    }
+}
+
+/// 顶栏那排分段的样子（不能点），选中块停在第一格。放不下时可以横着滑。
+private struct MinimalTopTabsPreview: View {
+    let tabs: [MinimalTopTab]
+    let horizontalInset: CGFloat
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            MinimalTopTabPicker(tabs: tabs, selection: tabs.first, onSelect: { _ in })
+                .allowsHitTesting(false)
+                .padding(.horizontal, horizontalInset)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .accessibilityHidden(true)
+    }
+}
+
+/// 「顶部切换」：极简模式顶栏几格的顺序与开关。关掉的格只是顶栏上不摆，那几页照样能从别处进去；
+/// 至少要留一格；没内容的格（电台在资料库里收起了、没有有声内容）打开了也不出现，行里写明。
+struct MinimalTopTabEditor: View {
+    /// 这台设备上有内容的格（`MinimalNavigationPolicy.availableTopTabs`）。
+    let availableTabs: Set<MinimalTopTab>
+
+    @AppStorage(MinimalTopTabConfiguration.storageKey) private var rawValue = ""
+    @AppStorage(MinimalTopTabConfiguration.legacyShowsHomeKey) private var legacyShowsHome = true
+    @Environment(\.dismiss) private var dismiss
+
+    private var configuration: MinimalTopTabConfiguration {
+        .decode(rawValue, legacyShowsHome: legacyShowsHome)
+    }
+
+    var body: some View {
+        let current = configuration
+        NavigationStack {
+            List {
+                Section {
+                    MinimalTopTabsPreview(
+                        tabs: current.visibleTabs(isAvailable: availableTabs.contains),
+                        horizontalInset: 16
+                    )
+                    .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 0))
+                }
+
+                Section {
+                    ForEach(current.order) { tab in
+                        MinimalTopTabEditorRow(
+                            tab: tab,
+                            isAvailable: availableTabs.contains(tab),
+                            canToggle: current.canHide(tab, isAvailable: availableTabs.contains),
+                            isOn: shownBinding(for: tab)
+                        )
+                    }
+                    .onMove(perform: move)
+                } footer: {
+                    Text("minimal_top_tabs_footer")
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("minimal_top_tabs_title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func shownBinding(for tab: MinimalTopTab) -> Binding<Bool> {
+        Binding {
+            configuration.isShown(tab)
+        } set: { shown in
+            var updated = configuration
+            guard shown || updated.canHide(tab, isAvailable: availableTabs.contains) else { return }
+            updated.setShown(shown, for: tab)
+            rawValue = updated.encoded()
+        }
+    }
+
+    private func move(_ source: IndexSet, _ destination: Int) {
+        var updated = configuration
+        updated.move(fromOffsets: source, toOffset: destination)
+        rawValue = updated.encoded()
+    }
+}
+
+/// 「顶部切换」里的一行：开关、图标、名字；没内容的格在名字下面写明要怎样才出现。
+private struct MinimalTopTabEditorRow: View {
+    let tab: MinimalTopTab
+    let isAvailable: Bool
+    /// 顶栏上只剩这一格时关不掉。
+    let canToggle: Bool
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(tab.titleKey)
+                    if !isAvailable, let unavailableHint {
+                        Text(unavailableHint)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } icon: {
+                Image(systemName: tab.systemImage)
+            }
+        }
+        .disabled(!canToggle)
+        .accessibilityIdentifier("minimal.topTabs.toggle.\(tab.rawValue)")
+    }
+
+    private var unavailableHint: LocalizedStringKey? {
+        switch tab {
+        case .radio: return "minimal_top_tabs_radio_unavailable"
+        case .spoken: return "minimal_top_tabs_spoken_unavailable"
+        case .home, .music: return nil
+        }
     }
 }
 
