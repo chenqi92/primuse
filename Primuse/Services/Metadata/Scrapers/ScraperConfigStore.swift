@@ -231,7 +231,8 @@ final class ScraperConfigStore: @unchecked Sendable {
             var batches: [URL: [String: SubscriptionSnapshot]] = [:]
             var next = subscriptions
             for (id, subscription) in subscriptions {
-                guard subscription.nextCheck <= now, !updatingURLs.contains(subscription.url),
+                guard subscription.nextCheck.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate,
+                      !updatingURLs.contains(subscription.url),
                       let config = cache[id], config.isDeleted != true,
                       !ScraperConfig.builtInConfigs.contains(where: { $0.id == id }) else { continue }
                 batches[subscription.url, default: [:]][id] = SubscriptionSnapshot(
