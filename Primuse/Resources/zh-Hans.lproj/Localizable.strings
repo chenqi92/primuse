@@ -7345,6 +7345,7 @@
 "player_activity_scraping" = "正在刮削";
 
 "artist_name_settings_merge_collaborative_albums" = "合并同名合作专辑";
+"artist_name_settings_merge_same_named_albums" = "合并同名专辑";
 
 "ai_apple_unavailable" = "此设备或当前地区暂不可用 Apple Intelligence。";
 "ai_apple_not_ready" = "Apple Intelligence 尚未准备好，请在系统设置中开启并等待准备完成。";

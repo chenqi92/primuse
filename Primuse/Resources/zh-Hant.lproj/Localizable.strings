@@ -7229,6 +7229,7 @@
 "player_activity_scraping" = "正在擷取資料";
 
 "artist_name_settings_merge_collaborative_albums" = "合併同名合作專輯";
+"artist_name_settings_merge_same_named_albums" = "合併同名專輯";
 
 "ai_apple_unavailable" = "此裝置或目前地區暫時無法使用 Apple Intelligence。";
 "ai_apple_not_ready" = "Apple Intelligence 尚未準備好，請在系統設定中開啟並等待準備完成。";

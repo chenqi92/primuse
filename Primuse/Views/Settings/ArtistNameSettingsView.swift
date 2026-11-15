@@ -117,6 +117,14 @@ struct ArtistNameSettingsView: View {
             .settingsAnchor("artists.mergeCollaborativeAlbums")
 
             Section {
+                Toggle("artist_name_settings_merge_same_named_albums", isOn: Binding(
+                    get: { store.configuration.mergesSameNamedAlbums },
+                    set: { store.setMergesSameNamedAlbums($0) }
+                ))
+            }
+            .settingsAnchor("artists.mergeSameNamedAlbums")
+
+            Section {
                 Toggle("genre_split_slash", isOn: genreSeparatorBinding(.slash))
                 Toggle("genre_split_comma", isOn: genreSeparatorBinding(.comma))
                 Toggle("genre_split_bar", isOn: genreSeparatorBinding(.bar))

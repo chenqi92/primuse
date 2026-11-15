@@ -7253,6 +7253,7 @@
 "player_activity_scraping" = "メタデータを取得中";
 
 "artist_name_settings_merge_collaborative_albums" = "同名のコラボアルバムを統合";
+"artist_name_settings_merge_same_named_albums" = "同名のアルバムを統合";
 
 "ai_apple_unavailable" = "このデバイスまたは現在の地域では Apple Intelligence を利用できません。";
 "ai_apple_not_ready" = "Apple Intelligence の準備ができていません。システム設定で有効にし、設定が完了するまでお待ちください。";

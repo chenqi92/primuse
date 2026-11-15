@@ -182,6 +182,21 @@ import Testing
     #expect(value.cacheSignature == originalSignature)
 }
 
+@Test func sameNamedAlbumSettingDefaultsOffAndInvalidatesCachedGrouping() throws {
+    let data = Data(#"{"schemaVersion":1,"separators":["|"],"protectedNames":["AC/DC"],"displaySeparator":" + ","mergesCollaborativeAlbums":true}"#.utf8)
+    var value = try JSONDecoder().decode(ArtistNameConfiguration.self, from: data)
+    #expect(!value.mergesSameNamedAlbums)
+    let originalSignature = value.cacheSignature
+    value.mergesSameNamedAlbums = true
+    let restored = try JSONDecoder().decode(ArtistNameConfiguration.self, from: value.encodedData())
+    #expect(restored.mergesSameNamedAlbums)
+    #expect(restored.mergesCollaborativeAlbums)
+    #expect(restored.separators == ["|"])
+    #expect(restored.cacheSignature != originalSignature)
+    value.mergesSameNamedAlbums = false
+    #expect(value.cacheSignature == originalSignature)
+}
+
 @Test func songSnapshotsFromOlderVersionsDecodeWithoutNativeArtists() throws {
     let original = Song(
         id: "legacy",

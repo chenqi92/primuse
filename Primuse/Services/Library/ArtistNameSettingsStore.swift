@@ -77,6 +77,12 @@ final class ArtistNameSettingsStore {
         _ = apply(next)
     }
 
+    func setMergesSameNamedAlbums(_ value: Bool) {
+        var next = configuration
+        next.mergesSameNamedAlbums = value
+        _ = apply(next)
+    }
+
     @discardableResult
     func apply(_ value: ArtistNameConfiguration) -> Bool {
         let value = value.normalized()

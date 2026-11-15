@@ -7158,6 +7158,7 @@
 "player_activity_scraping" = "กำลังดึงข้อมูลเมตา";
 
 "artist_name_settings_merge_collaborative_albums" = "รวมอัลบั้มร่วมงานที่มีชื่อเดียวกัน";
+"artist_name_settings_merge_same_named_albums" = "รวมอัลบั้มที่มีชื่อเดียวกัน";
 
 "ai_apple_unavailable" = "Apple Intelligence is unavailable on this device or in its current region.";
 "ai_apple_not_ready" = "Apple Intelligence is not ready. Enable it in system settings and wait for setup to finish.";

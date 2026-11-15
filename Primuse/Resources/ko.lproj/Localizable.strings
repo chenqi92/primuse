@@ -7252,6 +7252,7 @@
 "player_activity_scraping" = "메타데이터 가져오는 중";
 
 "artist_name_settings_merge_collaborative_albums" = "제목이 같은 협업 앨범 병합";
+"artist_name_settings_merge_same_named_albums" = "같은 이름의 앨범 병합";
 
 "ai_apple_unavailable" = "이 기기 또는 현재 지역에서는 Apple Intelligence를 사용할 수 없습니다.";
 "ai_apple_not_ready" = "Apple Intelligence가 아직 준비되지 않았습니다. 시스템 설정에서 활성화하고 준비가 끝날 때까지 기다려 주세요.";

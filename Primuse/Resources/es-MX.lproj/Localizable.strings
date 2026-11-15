@@ -7158,6 +7158,7 @@
 "player_activity_scraping" = "Obteniendo metadatos";
 
 "artist_name_settings_merge_collaborative_albums" = "Combinar álbumes colaborativos con el mismo título";
+"artist_name_settings_merge_same_named_albums" = "Combinar álbumes con el mismo nombre";
 
 "ai_apple_unavailable" = "Apple Intelligence no está disponible en este dispositivo o en su región actual.";
 "ai_apple_not_ready" = "Apple Intelligence aún no está listo. Actívalo en la configuración del sistema y espera a que termine la preparación.";

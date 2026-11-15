@@ -17991,7 +17991,7 @@ final class MusicLibrary {
 
         var scoped: [AlbumArtistInferencePolicy.Track] = []
         for song in library where !candidateIDs.contains(song.id) {
-            guard let titles = configuration.mergesCollaborativeAlbums
+            guard let titles = (configuration.mergesCollaborativeAlbums || configuration.mergesSameNamedAlbums)
                     ? sharedTitles : titlesBySource[song.sourceID] else { continue }
             let needsAuthority = !authoritative.contains(song.sourceID)
             let sharesTitle = albumArtistInferenceTitle(song.albumTitle)

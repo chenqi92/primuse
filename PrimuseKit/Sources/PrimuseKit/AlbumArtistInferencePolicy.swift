@@ -199,6 +199,18 @@ public enum AlbumArtistInferencePolicy {
         if configuration.mergesCollaborativeAlbums {
             result.merge(sharedArtistTargets(for: tracks, configuration: configuration)) { _, shared in shared }
         }
+        if configuration.mergesSameNamedAlbums {
+            for scope in Dictionary(grouping: tracks.filter { $0.trimmedAlbumTitle != nil }, by: { $0.trimmedAlbumTitle! }).values
+            where scope.count >= 2 {
+                let names = scope.compactMap { result[$0.id] ?? $0.effectiveArtist }
+                let artistKeys = Set(names.map { keys.key($0) })
+                // Keep an already agreed album credit; otherwise use a stable compilation
+                // credit so scan order and display language cannot change the album ID.
+                let artist = artistKeys.count > 1 ? "Various Artists" : names.min()
+                guard let artist else { continue }
+                for track in scope { result[track.id] = artist }
+            }
+        }
         return result
     }
 

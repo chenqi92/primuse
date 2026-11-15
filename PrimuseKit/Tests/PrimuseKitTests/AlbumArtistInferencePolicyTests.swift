@@ -558,6 +558,40 @@ struct AlbumArtistInferencePolicyTests {
         return value
     }
 
+    @Test func sameNamedAlbumsMergeUnrelatedExplicitArtistsAcrossSourcesAndFolders() {
+        let tracks = [
+            track("1", sourceID: "smb", directory: "/one", albumTitle: "夜色合辑",
+                  albumArtistName: "乐队甲", trackArtistName: "歌手甲", year: 2020, number: 1),
+            track("2", sourceID: "drive", directory: "/two", albumTitle: " 夜色合辑 ",
+                  albumArtistName: "乐队乙", trackArtistName: "歌手乙", year: 2026, number: 1),
+            track("3", sourceID: "drive", directory: "/three", albumTitle: "另一张专辑", trackArtistName: "歌手丙"),
+            track("4", albumTitle: " ", trackArtistName: "歌手丁"),
+            track("5", albumTitle: nil, trackArtistName: "歌手戊"),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks, configuration: mergingConfiguration).isEmpty)
+        var configuration = ArtistNameConfiguration.defaultValue
+        configuration.mergesSameNamedAlbums = true
+        let expected = ["1": "Various Artists", "2": "Various Artists"]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks, configuration: configuration) == expected)
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks.reversed(), configuration: configuration) == expected)
+        configuration.mergesCollaborativeAlbums = true
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks, configuration: configuration) == expected)
+    }
+
+    @Test func sameNamedAlbumsKeepAgreedCreditsAndIncludeMissingArtists() {
+        var configuration = ArtistNameConfiguration.defaultValue
+        configuration.mergesSameNamedAlbums = true
+        let tracks = [
+            track("1", sourceID: "a", albumArtistName: "合辑厂牌", trackArtistName: "甲"),
+            track("2", sourceID: "b", albumArtistName: "合辑厂牌", trackArtistName: "乙"),
+            track("3", sourceID: "c"),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks, configuration: configuration)
+                == ["1": "合辑厂牌", "2": "合辑厂牌", "3": "合辑厂牌"])
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(
+            for: [flat("1", nil), flat("2", nil)], configuration: configuration).isEmpty)
+    }
+
     @Test func optInMergesAnAlbumMadeEntirelyOfCollaborationsAcrossFoldersAndSources() {
         let guests = ["A-Lin", "陈立农", "黄子弘凡", "王赫野", "汪苏泷", "姚晓棠"]
         let tracks = guests.enumerated().map { index, guest in

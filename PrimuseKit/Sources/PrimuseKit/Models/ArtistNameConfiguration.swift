@@ -15,23 +15,27 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
     public var protectedNames: [String]
     public var displaySeparator: String
     public var mergesCollaborativeAlbums: Bool
+    public var mergesSameNamedAlbums: Bool
 
     public init(
         schemaVersion: Int = currentSchemaVersion,
         separators: [String],
         protectedNames: [String],
         displaySeparator: String,
-        mergesCollaborativeAlbums: Bool = false
+        mergesCollaborativeAlbums: Bool = false,
+        mergesSameNamedAlbums: Bool = false
     ) {
         self.schemaVersion = schemaVersion
         self.separators = separators
         self.protectedNames = protectedNames
         self.displaySeparator = displaySeparator
         self.mergesCollaborativeAlbums = mergesCollaborativeAlbums
+        self.mergesSameNamedAlbums = mergesSameNamedAlbums
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, separators, protectedNames, displaySeparator, mergesCollaborativeAlbums
+        case mergesSameNamedAlbums
     }
 
     public init(from decoder: Decoder) throws {
@@ -41,6 +45,7 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
         protectedNames = try values.decode([String].self, forKey: .protectedNames)
         displaySeparator = try values.decode(String.self, forKey: .displaySeparator)
         mergesCollaborativeAlbums = try values.decodeIfPresent(Bool.self, forKey: .mergesCollaborativeAlbums) ?? false
+        mergesSameNamedAlbums = try values.decodeIfPresent(Bool.self, forKey: .mergesSameNamedAlbums) ?? false
     }
 
     public var isSupported: Bool {
@@ -109,7 +114,8 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
                 widthInsensitive: true
             ),
             displaySeparator: Self.normalizedDisplaySeparator(displaySeparator),
-            mergesCollaborativeAlbums: mergesCollaborativeAlbums
+            mergesCollaborativeAlbums: mergesCollaborativeAlbums,
+            mergesSameNamedAlbums: mergesSameNamedAlbums
         )
     }
 
@@ -125,8 +131,10 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
             .map { "\($0.utf8.count):\($0)" }
             .joined(separator: "|")
         // Matching semantics are part of the cache key even when saved rules have not changed.
-        let signature = rules + "|separatorWidth:1"
-        return value.mergesCollaborativeAlbums ? signature + "|mergeCollaborativeAlbums:1" : signature
+        var signature = rules + "|separatorWidth:1"
+        if value.mergesCollaborativeAlbums { signature += "|mergeCollaborativeAlbums:1" }
+        if value.mergesSameNamedAlbums { signature += "|mergeSameNamedAlbums:1" }
+        return signature
     }
 
     private static func normalizedList(

@@ -240,6 +240,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "artists.protectedNames", titleKey: "artist_name_settings_protected_names", iosPage: .artists, macPage: .artists, keywords: ["artist_name_settings_protected_placeholder", "add"]),
         SettingDefinition(id: "artists.displaySeparator", titleKey: "artist_name_settings_display_separator", iosPage: .artists, macPage: .artists, keywords: ["artist_name_settings_display_separator_placeholder", "save"]),
         SettingDefinition(id: "artists.mergeCollaborativeAlbums", titleKey: "artist_name_settings_merge_collaborative_albums", iosPage: .artists, macPage: .artists),
+        SettingDefinition(id: "artists.mergeSameNamedAlbums", titleKey: "artist_name_settings_merge_same_named_albums", iosPage: .artists, macPage: .artists),
         SettingDefinition(id: "artists.genreSeparators", titleKey: "genre_split_title", iosPage: .artists, macPage: .artists, keywords: ["genre", "genre_split_slash", "genre_split_comma", "genre_split_bar"]),
         SettingDefinition(id: "artists.reset", titleKey: "artist_name_settings_reset", iosPage: .artists, macPage: .artists, anchor: "artists.separators"),
         SettingDefinition(id: "scraping.sources", titleKey: "scraper_sources", iosPage: .scraping, macPage: .scraping, keywords: ["Scraping Sources"]),

@@ -429,6 +429,11 @@ struct TVSettingsView: View {
                                 set: { artistNameSettings.setMergesCollaborativeAlbums($0) }
                             ))
                             settingDivider
+                            toggleRow("square.stack", PMString("artist_name_settings_merge_same_named_albums"), isOn: Binding(
+                                get: { artistNameSettings.configuration.mergesSameNamedAlbums },
+                                set: { artistNameSettings.setMergesSameNamedAlbums($0) }
+                            ))
+                            settingDivider
                             toggleRow("guitars", PMString("genre_split_slash"), detail: PMString("genre_split_tv_detail"), isOn: genreSeparatorBinding(.slash))
                             settingDivider
                             toggleRow("guitars", PMString("genre_split_comma"), isOn: genreSeparatorBinding(.comma))
