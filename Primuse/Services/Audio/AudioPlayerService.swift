@@ -5753,7 +5753,7 @@ final class AudioPlayerService {
         // 转码流交付的是 mp3, 探测原 WAV 容器既得不到有用结论, 又要在移动网络上
         // 额外拉 256KB 原文件 —— 正好抵消掉转码省下的流量。
         if (isRemoteURL || isCloudStream), song.fileFormat == .wav, !isAdaptiveTranscodedStream {
-            remoteWAVProbeOutcome = await probeRemoteWAVPayload(for: song)
+            remoteWAVProbeOutcome = await probeRemoteWAVPayload(for: song, playbackURL: url)
         } else {
             remoteWAVProbeOutcome = nil
         }
@@ -7671,19 +7671,29 @@ final class AudioPlayerService {
     }
 
     private func probeRemoteWAVPayload(
-        for song: Song
+        for song: Song,
+        playbackURL: URL
     ) async -> RemoteWAVPlaybackPolicy.ProbeOutcome {
-        guard let manager = sourceManager else { return .unavailable }
         do {
             let prefix: Data
-            if let seeded = await manager.prewarmedBytes(for: song, offset: 0, length: 256 * 1024) {
-                prefix = seeded
-            } else {
-                prefix = try await manager.fetchMetadataRange(
-                    for: song,
+            if song.sourceID == "dlna" {
+                prefix = try await SourceManager.fetchRemoteMetadataRange(
+                    url: playbackURL,
                     offset: 0,
-                    length: 256 * 1024
+                    length: 256 * 1024,
+                    intent: .bulkBounded
                 )
+            } else {
+                guard let manager = sourceManager else { return .unavailable }
+                if let seeded = await manager.prewarmedBytes(for: song, offset: 0, length: 256 * 1024) {
+                    prefix = seeded
+                } else {
+                    prefix = try await manager.fetchMetadataRange(
+                        for: song,
+                        offset: 0,
+                        length: 256 * 1024
+                    )
+                }
             }
             guard !prefix.isEmpty else { return .unavailable }
             return FFmpegAudioDecoder.dataContainsDTSSync(prefix) ? .dts : .pcm

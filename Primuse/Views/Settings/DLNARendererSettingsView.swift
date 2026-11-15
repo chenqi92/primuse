@@ -7,10 +7,23 @@ struct DLNARendererSettingsView: View {
     @Environment(DLNARendererService.self) private var renderer
     @AppStorage("dlna.rendererEnabled") private var enabled: Bool = false
     @AppStorage("dlna.keepAlive") private var keepAlive: Bool = false
+    @State private var isRenaming = false
+    @State private var receiverName = ""
 
     var body: some View {
         Form {
             Section {
+                Button {
+                    receiverName = renderer.friendlyName
+                    isRenaming = true
+                } label: {
+                    LabeledContent("source_name") {
+                        Text(renderer.friendlyName)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(.primary)
+                }
                 Toggle(isOn: $enabled) {
                     SettingsInfoLabel("settings_dlna_enable") {
                         Text("settings_dlna_footer")
@@ -20,7 +33,7 @@ struct DLNARendererSettingsView: View {
                     .onChange(of: enabled) { _, new in
                         if new { renderer.start() } else { renderer.stop() }
                     }
-                if renderer.isRunning && !renderer.statusText.isEmpty {
+                if enabled && !renderer.statusText.isEmpty {
                     HStack {
                         Image(systemName: "dot.radiowaves.left.and.right")
                             .foregroundStyle(.green)
@@ -61,6 +74,11 @@ struct DLNARendererSettingsView: View {
         }
         .navigationTitle("settings_dlna_section")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("source_name", isPresented: $isRenaming) {
+            TextField("source_name", text: $receiverName)
+            Button("cancel", role: .cancel) { }
+            Button("save") { renderer.setFriendlyName(receiverName) }
+        }
         .task {
             // 用户上次打开 toggle 后 app 重启,需要恢复 service 状态。
             if enabled && !renderer.isRunning { renderer.start() }

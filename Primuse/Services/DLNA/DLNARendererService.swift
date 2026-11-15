@@ -43,7 +43,7 @@ private let dlnaRemoteRendererSearchTargets = [
 /// 实现范围 (MVP, 跟主流控制点已能互通):
 /// - **SSDP**: 监听 239.255.255.250:1900 的 UDP multicast, 回 M-SEARCH; 周期
 ///   广播 alive。
-/// - **HTTP**: 监听 TCP 49152, 提供 device.xml / 服务 SCPD xml / 控制 endpoint。
+/// - **HTTP**: 优先监听 TCP 49152，端口占用时自动分配，提供描述与控制接口。
 /// - **AVTransport 服务**: 实现 SetAVTransportURI / SetNextAVTransportURI /
 ///   Play / Pause / Stop / Next / Seek / 状态查询; DIDL-Lite metadata 只读
 ///   dc:title / upnp:artist (不读 cover, 因为推过来的 URL 一般是 HTTP stream,
@@ -184,7 +184,8 @@ final class DLNARendererService {
     private let deviceUUID: String
 
     /// 我们暴露的友好名称 ── 默认 "Primuse · <设备名>"。
-    private let friendlyName: String
+    private(set) var friendlyName: String
+    private let defaultFriendlyName: String
 
     /// 主 player 引用,SetAVTransportURI 时把 URL 推过去。
     private let player: AudioPlayerService
@@ -208,7 +209,7 @@ final class DLNARendererService {
     private var activeControllerID: String?
     private var transportPlaybackTask: Task<Void, Never>?
 
-    private let httpPort: NWEndpoint.Port = 49152
+    private var advertisement = DLNARendererAdvertisement()
     private static let ssdpMulticastHost: NWEndpoint.Host = "239.255.255.250"
     private static let ssdpPort: NWEndpoint.Port = 1900
 
@@ -227,11 +228,24 @@ final class DLNARendererService {
         #else
         let device = Host.current().localizedName ?? "Mac"
         #endif
-        self.friendlyName = String(
+        let defaultName = String(
             format: String(localized: "renderer_friendly_name_format"),
             String(localized: "app_name"),
             device
         )
+        self.defaultFriendlyName = DLNARendererAdvertisement.normalizedName(defaultName, fallback: "Primuse")
+        self.friendlyName = DLNARendererAdvertisement.normalizedName(
+            defaults.string(forKey: "dlna.receiverName") ?? "", fallback: defaultFriendlyName
+        )
+    }
+
+    func setFriendlyName(_ name: String) {
+        let normalized = DLNARendererAdvertisement.normalizedName(name, fallback: defaultFriendlyName)
+        guard normalized != friendlyName else { return }
+        sendByebyeBatch()
+        friendlyName = normalized
+        UserDefaults.standard.set(normalized, forKey: "dlna.receiverName")
+        if isRunning, advertisement.listeningPort != nil { startAdvertising() }
     }
 
     deinit {
@@ -273,15 +287,20 @@ final class DLNARendererService {
     func start() {
         guard !isRunning else { return }
         do {
-            let action = httpRestartMachine.start()
-            if case .startListener(let generation) = action {
-                try startHTTP(generation: generation)
-            }
+            advertisement = DLNARendererAdvertisement()
             try startSSDP()
             syncRenderingStateFromEngine()
             installPlayerObservation()
             isRunning = true
-            statusText = String(localized: "dlna_status_listening")
+            statusText = ""
+            let action = httpRestartMachine.start()
+            if case .startListener(let generation) = action {
+                do {
+                    try startHTTP(generation: generation)
+                } catch {
+                    handleHTTPListenerFailure(error, generation: generation)
+                }
+            }
             syncKeepAliveState()
             // 启动 Controller 侧的主动设备发现循环 ── 跟 NOTIFY alive 一样
             // 前 60s 频繁 (3s/次) 让用户进 UI 就能立刻看到设备, 之后改 5min
@@ -300,10 +319,10 @@ final class DLNARendererService {
             }
             dlnaLog.notice("DLNA renderer started as \(self.friendlyName) (uuid=\(self.deviceUUID))")
         } catch {
-            statusText = String(format: String(localized: "dlna_status_error_format"), error.localizedDescription)
             logEvent(.error, "start failed: \(error.localizedDescription)")
             dlnaLog.error("DLNA start failed: \(error.localizedDescription)")
             stop()
+            statusText = String(format: String(localized: "dlna_status_error_format"), error.localizedDescription)
         }
     }
 
@@ -374,6 +393,7 @@ final class DLNARendererService {
     func stop() {
         // 优雅下线: 先发 byebye 让控制点立刻把我们从设备列表移除,再关 listener
         sendByebyeBatch()
+        advertisement.listenerUnavailable()
         // 先停重启状态机: 代际 +1 后, 任何在途的 listener 回调都变成 stale,
         // 不会在 teardown 之后又把 listener 拉起来。
         httpRetryTask?.cancel(); httpRetryTask = nil
@@ -646,7 +666,7 @@ final class DLNARendererService {
         let nts = headerValue("nts", in: raw)?.lowercased()
         let usn = headerValue("usn", in: raw) ?? ""
         let udn = extractUDN(from: usn)
-        guard !udn.isEmpty else { return }
+        guard !udn.isEmpty, udn.caseInsensitiveCompare("uuid:\(deviceUUID)") != .orderedSame else { return }
 
         if nts == "ssdp:byebye" {
             if discoveredRenderers.removeValue(forKey: udn) != nil {
@@ -856,12 +876,11 @@ final class DLNARendererService {
                           userInfo: [NSLocalizedDescriptionKey: "bind(0.0.0.0:1900) failed errno=\(e)"])
         }
 
-        // multicast TTL + 关 loopback ── 跨网段 4 跳够用, 自己发的 NOTIFY
-        // 不需要再回到自己 (会触发 handleSSDPRead 浪费 CPU)。
+        // 同机控制端也需要收到设备公告；自身公告通过 UDN 过滤。
         var ttl: UInt8 = 4
         _ = setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl,
                        socklen_t(MemoryLayout<UInt8>.size))
-        var loop: UInt8 = 0
+        var loop: UInt8 = 1
         _ = setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &loop,
                        socklen_t(MemoryLayout<UInt8>.size))
 
@@ -883,12 +902,15 @@ final class DLNARendererService {
             "SSDP socket bound UDP/1900 + joined 239.255.255.250 on \(interfaceNames)"
         )
 
+    }
+
+    private func startAdvertising() {
+        notifyTask?.cancel()
+        sendNotifyBatch(isAlive: true)
         // 启动 NOTIFY alive 广播循环。前 60s 内每 3s 发一次 (新加入网络
         // 的控制点能尽快看到我们),之后改成每 5 分钟,跟 max-age=1800
         // 的标准建议(发送间隔 < max-age/2)对齐。
         notifyTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(50))
-            await MainActor.run { self?.sendNotifyBatch(isAlive: true) }
             var fastTicks = 0
             while !Task.isCancelled {
                 let delay = fastTicks < 20 ? 3 : 300
@@ -898,10 +920,6 @@ final class DLNARendererService {
                 fastTicks += 1
             }
         }
-    }
-
-    private var interestedSSDPTargets: [String] {
-        (["ssdp:all"] + usnTypes).map { $0.lowercased() }
     }
 
     /// DispatchSource 触发时调 recvfrom 取一个 UDP 包 ── UDP datagram 边界
@@ -949,9 +967,7 @@ final class DLNARendererService {
         return source
     }
 
-    /// 解析 M-SEARCH, 命中我们 ST 时按 UPnP/AV 规范 unicast 回 6 条 200 OK
-    /// (rootdevice / uuid / device:MediaRenderer:1 / 3 个 service:*) ──
-    /// 控制点按 USN 去重。
+    /// 精确搜索只返回匹配的 ST；ssdp:all 才返回全部设备与服务类型。
     ///
     /// 同一个 SSDP socket 三种入流量按 message 起始行分发:
     /// - "M-SEARCH * HTTP/1.1" → 别人在扫, 走 renderer 回 200 OK
@@ -962,19 +978,20 @@ final class DLNARendererService {
         let firstLine = request.split(separator: "\r\n", maxSplits: 1, omittingEmptySubsequences: false)
             .first.map(String.init) ?? ""
         if firstLine.hasPrefix("M-SEARCH") {
-            let lower = request.lowercased()
-            guard interestedSSDPTargets.contains(where: { lower.contains($0) }) else { return }
-            let st = headerValue("st", in: request) ?? "?"
+            guard advertisement.listeningPort != nil,
+                  let st = headerValue("st", in: request) else { return }
+            let types = DLNARendererAdvertisement.responseTypes(searchTarget: st, uuid: deviceUUID)
+            guard !types.isEmpty else { return }
             logEvent(.discovery, "M-SEARCH from \(host):\(port) (ST=\(st)) — replied")
-            sendSSDPReplies(toHost: host, toPort: port)
+            sendSSDPReplies(toHost: host, toPort: port, types: types)
         } else if firstLine.hasPrefix("HTTP/1.1 200") || firstLine.hasPrefix("NOTIFY") {
             handleDiscoveryMessage(request, fromHost: host)
         }
     }
 
-    private func sendSSDPReplies(toHost host: String, toPort port: UInt16) {
+    private func sendSSDPReplies(toHost host: String, toPort port: UInt16, types: [String]) {
         guard let location = httpLocation(reachableFrom: host) ?? httpLocation() else { return }
-        for nt in usnTypes {
+        for nt in types {
             let usn = nt == "uuid:\(deviceUUID)" ? nt : "uuid:\(deviceUUID)::\(nt)"
             let response = """
             HTTP/1.1 200 OK\r
@@ -1039,14 +1056,7 @@ final class DLNARendererService {
     /// SSDP 一个设备要按 root / uuid / device-type / 各 service-type 分别
     /// 广告自己。控制点根据这些 NT 决定是否感兴趣。
     private var usnTypes: [String] {
-        [
-            "upnp:rootdevice",
-            "uuid:\(deviceUUID)",
-            "urn:schemas-upnp-org:device:MediaRenderer:1",
-            "urn:schemas-upnp-org:service:AVTransport:1",
-            "urn:schemas-upnp-org:service:RenderingControl:1",
-            "urn:schemas-upnp-org:service:ConnectionManager:1",
-        ]
+        DLNARendererAdvertisement.deviceTypes(uuid: deviceUUID)
     }
 
     private func sendUDP(data: Data, toHost host: String, toPort port: UInt16) {
@@ -1165,27 +1175,29 @@ final class DLNARendererService {
     private func startHTTP(generation: UInt64) throws {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
-        let listener = try NWListener(using: params, on: httpPort)
+        let port = advertisement.requestedPort.flatMap(NWEndpoint.Port.init(rawValue:)) ?? .any
+        let listener = try NWListener(using: params, on: port)
         listener.stateUpdateHandler = { [weak self] state in
             Task { @MainActor in
                 guard let self else { return }
                 // stale 回调: 不改状态、不记日志、不排重启。持续 bind 失败时
                 // 这一条是防止旧 listener 回调放大成日志洪水的关键。
-                guard self.isRunning, generation == self.httpRestartMachine.currentGeneration else { return }
+                guard self.isRunning,
+                      generation == self.httpRestartMachine.currentGeneration,
+                      self.httpRestartMachine.currentState == .listening else { return }
                 switch state {
                 case .ready:
-                    let recovered = self.httpRestartMachine.currentAttempt > 0
+                    guard let port = self.httpListener?.port else { return }
                     _ = self.httpRestartMachine.listenerReady(generation: generation)
-                    if recovered {
-                        self.logEvent(.event, "HTTP control server restarted after failure")
-                    } else {
-                        self.logEvent(.event, "HTTP control server ready on TCP \(self.httpPort.rawValue)")
-                    }
+                    self.advertisement.listenerReady(port: port.rawValue)
+                    self.statusText = String(localized: "dlna_status_listening")
+                    self.logEvent(.event, "HTTP control server ready on TCP \(port.rawValue)")
+                    self.startAdvertising()
+                case .waiting(let error):
+                    self.withdrawAdvertisement()
+                    self.statusText = String(format: String(localized: "dlna_status_error_format"), error.localizedDescription)
                 case .failed(let error):
                     self.logEvent(.error, "HTTP control server failed: \(error.localizedDescription)")
-                    // NWListener 进 .failed 不会自愈; SSDP 仍在广播指向这个死
-                    // server 的 LOCATION, 必须重建 (固定端口 49152, LOCATION 不变)。
-                    // 但重建要走退避 + 单飞, 不能在回调里立刻重来。
                     self.handleHTTPListenerFailure(error, generation: generation)
                 default:
                     break
@@ -1199,10 +1211,22 @@ final class DLNARendererService {
         httpListener = listener
     }
 
-    /// HTTP control listener 失效后的自愈调度: 退避重试, 次数用尽后停在一个
-    /// 稳定的降级态 (SSDP/GENA/保活保持原样, 只把错误摆到 UI 上), 不再重试。
+    private func withdrawAdvertisement() {
+        sendByebyeBatch()
+        notifyTask?.cancel(); notifyTask = nil
+        advertisement.listenerUnavailable()
+    }
+
+    /// 保留有界退避；地址占用时让下次监听由系统分配端口。
     private func handleHTTPListenerFailure(_ error: Error, generation: UInt64) {
-        switch httpRestartMachine.listenerFailed(generation: generation, jitterUnit: Double.random(in: 0..<1)) {
+        let action = httpRestartMachine.listenerFailed(generation: generation, jitterUnit: Double.random(in: 0..<1))
+        guard action != .ignore else { return }
+        withdrawAdvertisement()
+        if let networkError = error as? NWError, case .posix(.EADDRINUSE) = networkError {
+            advertisement.listenerUnavailable(addressInUse: true)
+        }
+        statusText = String(format: String(localized: "dlna_status_error_format"), error.localizedDescription)
+        switch action {
         case .scheduleRetry(let delay, let retryGeneration):
             cancelHTTPListener()
             httpRetryTask?.cancel()
@@ -2658,7 +2682,7 @@ final class DLNARendererService {
 
     private func httpLocation() -> String? {
         guard let ip = primaryIPv4() else { return nil }
-        return "http://\(ip):\(httpPort.rawValue)/device.xml"
+        return advertisement.location(host: ip)
     }
 
     private func httpLocation(on interface: SSDPIPv4Interface) -> String? {
@@ -2666,12 +2690,12 @@ final class DLNARendererService {
             ? primaryIPv4()
             : interface.addressString
         guard let ip, ip.isEmpty == false else { return nil }
-        return "http://\(ip):\(httpPort.rawValue)/device.xml"
+        return advertisement.location(host: ip)
     }
 
     private func httpLocation(reachableFrom host: String) -> String? {
         guard let ip = localIPv4Address(reachableFrom: host) else { return nil }
-        return "http://\(ip):\(httpPort.rawValue)/device.xml"
+        return advertisement.location(host: ip)
     }
 
     /// 选择用于 SSDP LOCATION 的首选局域网 IPv4 地址。
@@ -3084,7 +3108,7 @@ final class RemoteRendererController {
 /// http://<iphone-ip>:<port>/<token>/<name>.ext, renderer 拿到后用 HEAD + Range
 /// GET 拉数据。
 ///
-/// 跟 Renderer 的 49152 HTTP server (服务 device.xml / SOAP) 分开走 49160, 避免
+/// 跟 Renderer 的 HTTP server (服务 device.xml / SOAP) 分开走 49160, 避免
 /// 端口冲突 + 概念混淆。range 是 DLNA 1.0 必备 ── renderer 经常先 HEAD 拿
 /// Content-Length 再用 Range 起步 / 跳秒, 必须支持。
 @MainActor
