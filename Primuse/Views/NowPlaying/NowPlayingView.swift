@@ -11451,7 +11451,6 @@ struct NowPlayingView: View {
         loadRevision: UInt
     ) {
         let capturedSourceManager = sourceManager
-        let capturedScraperService = scraperService
         let songID = song.id
         let songTitle = song.title
         let isRefresh = currentCache != nil
@@ -11510,12 +11509,8 @@ struct NowPlayingView: View {
                     // title-compatible online lyrics pipeline used by manual
                     // scraping, then bind the result to this local song ID.
                     if LyricsLoader.songAcceptsAutomaticOnlineLyrics(song),
-                       let online = await capturedScraperService.fetchOnlineLyrics(
-                        title: song.title,
-                        artist: song.artistName,
-                        album: song.albumTitle,
-                        duration: song.duration > 0 ? song.duration : nil
-                    ), !online.isEmpty {
+                       let online = await LyricsLoader.serverFallbackOnlineLyrics(for: song),
+                       !online.isEmpty {
                         guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                         let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                             online,

@@ -471,12 +471,7 @@ enum LyricsLoader {
                     let onlineCacheSnapshot = await MetadataAssetStore.shared
                         .cachedLyrics(forSongID: song.id)
                     if songAcceptsAutomaticOnlineLyrics(song),
-                       let online = await AppServices.shared.scraperService.fetchOnlineLyrics(
-                        title: song.title,
-                        artist: song.artistName,
-                        album: song.albumTitle,
-                        duration: song.duration > 0 ? song.duration : nil
-                    ), !online.isEmpty {
+                       let online = await serverFallbackOnlineLyrics(for: song), !online.isEmpty {
                     guard !Task.isCancelled else { return [] }
                     let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                         online,
@@ -1158,6 +1153,27 @@ extension LyricsLoader {
     /// 一律不走；用户在刮削页手动搜仍然可以。环境音(雨声、白噪音)没有歌词可找,同样不走。
     static func songAcceptsAutomaticOnlineLyrics(_ song: Song) -> Bool {
         SpokenWordStore.shared.isMusic(song)
+    }
+
+    /// 服务端源确认没有歌词后的在线兜底。播放页、锁屏、小组件、手表各自加载同一首歌,
+    /// 以前每处各问一轮在线歌词源(没有歌词的歌半分钟里打四五轮); 现在同一首歌同时只问
+    /// 一轮、问过 6 小时内不再自动问(`AutomaticOnlineLyricsLedger`)。
+    static func serverFallbackOnlineLyrics(for song: Song) async -> [LyricLine]? {
+        // 没网、或者用户不让这个 App 联网时不问，也不记进台账：网络回来后这首照常能问。
+        await NetworkMonitor.shared.waitForInitialPath()
+        guard NetworkMonitor.shared.allowsAutomaticInternetRequests else { return nil }
+        let title = song.title
+        let artist = song.artistName
+        let album = song.albumTitle
+        let duration: TimeInterval? = song.duration > 0 ? song.duration : nil
+        return await AutomaticOnlineLyricsLedger.shared.serverFallbackLyrics(songID: song.id) {
+            await AppServices.shared.scraperService.fetchOnlineLyrics(
+                title: title,
+                artist: artist,
+                album: album,
+                duration: duration
+            )
+        }
     }
 
     /// Tier4：本地/网盘等普通源确实没有歌词时，按启用顺序向在线歌词源取一次并写入缓存。

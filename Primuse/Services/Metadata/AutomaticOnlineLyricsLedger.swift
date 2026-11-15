@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 
 // MARK: - Tier4: 普通源的自动在线歌词兜底
 //
@@ -13,6 +14,24 @@ actor AutomaticOnlineLyricsLedger {
     private static let pruneThreshold = 2048
 
     private var lastAttempt: [String: Date] = [:]
+    private var inFlight: [String: (token: UUID, task: Task<[LyricLine]?, Never>)] = [:]
+
+    /// 服务端源确认没有歌词后的在线兜底：播放页、锁屏、小组件、手表各自加载同一首歌时，
+    /// 同一时间只问一轮，后到的等着用同一份结果；问过的 6 小时内不再自动问。
+    /// 问到的歌词由调用方写进缓存，之后的加载在缓存那一层就命中了。
+    func serverFallbackLyrics(
+        songID: String,
+        fetch: @escaping @Sendable () async -> [LyricLine]?
+    ) async -> [LyricLine]? {
+        if let running = inFlight[songID] { return await running.task.value }
+        guard shouldAttempt(songID: songID) else { return nil }
+        let token = UUID()
+        let task = Task { await fetch() }
+        inFlight[songID] = (token, task)
+        let result = await task.value
+        if inFlight[songID]?.token == token { inFlight[songID] = nil }
+        return result
+    }
 
     /// 最近 6 小时没问过就登记并返回 true；问过返回 false。
     func shouldAttempt(songID: String) -> Bool {

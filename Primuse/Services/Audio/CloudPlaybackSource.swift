@@ -1202,13 +1202,33 @@ enum CloudPlaybackSource {
             .union(pathWriterOwnerships.keys)
     }
 
+    /// Whole-response downloads that playback decodes while they arrive
+    /// (`StreamingDownloadDecoder` with a length-less MP3). Guarded by
+    /// `registryLock`.
+    nonisolated(unsafe) private static var progressivePlaybackDownloads = 0
+
+    static func beginProgressivePlaybackDownload() {
+        registryLock.lock()
+        progressivePlaybackDownloads += 1
+        registryLock.unlock()
+    }
+
+    static func endProgressivePlaybackDownload() {
+        registryLock.lock()
+        progressivePlaybackDownloads = max(0, progressivePlaybackDownloads - 1)
+        registryLock.unlock()
+    }
+
     /// Network reads the live playback streams are waiting on or reading
-    /// ahead with, across every source.
+    /// ahead with, across every source. A progressive download counts as one:
+    /// a server transcoding the current song should not have to share itself
+    /// with queue prefetch while playback still depends on it.
     static func playbackNetworkFetchesInFlight() -> Int {
         registryLock.lock()
         let states = Array(activeStates.values)
+        let progressive = progressivePlaybackDownloads
         registryLock.unlock()
-        return states.reduce(0) { $0 + $1.inFlightNetworkFetchCount() }
+        return progressive + states.reduce(0) { $0 + $1.inFlightNetworkFetchCount() }
     }
 
     /// Returns once no playback stream has had a network read in flight for

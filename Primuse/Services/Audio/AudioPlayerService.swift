@@ -6829,6 +6829,14 @@ final class AudioPlayerService {
             // 策略本来就要求时长已知才允许转码。
             onResolveSourceLength: adaptiveTranscodeBitRate == nil
                 ? makeResolveLengthCallback(for: song)
+                : nil,
+            // 长度未知的 MP3(群晖 Audio Station 整轨切出来的分轨等服务端现转的流)
+            // 边下边解, 不等整首下完才出声。按网络转码的流仍走单飞物化。
+            allowsProgressiveDecoding: completedFileProvider == nil,
+            // CUE 分轨与串烧切片下载的是整份文件, 它的长度这里不知道。
+            expectedDuration: song.cueStartTime == nil && song.cueEndTime == nil
+                && song.withoutAppliedPlaybackRange.duration > 0
+                ? song.withoutAppliedPlaybackRange.duration
                 : nil
         )
         let stream = segmented(rawStream, for: song)

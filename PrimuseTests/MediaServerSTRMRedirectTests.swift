@@ -1077,6 +1077,154 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
         }
     }
 
+    // MARK: - 长度未知的 MP3 边下边解
+
+    /// MPEG-1 Layer III, 128 kbps, 44.1 kHz stereo: silent 417-byte frames of
+    /// 1,152 samples with no Xing header, the shape of an on-the-fly transcode.
+    private static func silentMP3(seconds: Double) -> (bytes: Data, frames: Int) {
+        let count = Int((seconds * 44_100 / 1_152).rounded(.up))
+        var frame = Data([0xFF, 0xFB, 0x90, 0x00])
+        frame.append(Data(count: 413))
+        var bytes = Data(capacity: frame.count * count)
+        for _ in 0..<count { bytes.append(frame) }
+        return (bytes, count * 1_152)
+    }
+
+    private func makeProgressiveFixtureDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    func testProgressiveMP3StartsBeforeTranscodeEndsAndCachesOnlyTheWholeFile() async throws {
+        let (mp3, sourceFrames) = Self.silentMP3(seconds: 12)
+        let headLength = 48 * 1_024
+        let server = try ProgressiveMP3HTTPServer(
+            status: 200,
+            headers: ["Content-Type": "audio/mpeg"],
+            head: mp3.prefix(headLength),
+            tail: mp3.dropFirst(headLength)
+        )
+        defer { server.stop() }
+        let url = try await server.start().appendingPathComponent("webapi/AudioStation/stream.cgi/0.mp3")
+        let directory = try makeProgressiveFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cacheURL = directory.appendingPathComponent("track.mp3")
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
+        let control = StreamingDownloadSessionControl()
+        var iterator = StreamingDownloadDecoder().decode(
+            from: url, outputFormat: format, cacheFileURL: cacheURL, fileExtension: "mp3",
+            sessionControl: control, allowsProgressiveDecoding: true, expectedDuration: 12
+        ).makeAsyncIterator()
+
+        let first = try await iterator.next()
+        let firstBuffer = try XCTUnwrap(first)
+        XCTAssertFalse(server.tailSent, "Audio must start while the server is still transcoding")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheURL.path), "A partial transcode is never cached")
+        XCTAssertEqual(firstBuffer.format.sampleRate, 48_000)
+        XCTAssertEqual(firstBuffer.format.channelCount, 2)
+
+        server.releaseTail()
+        var frames = Int(firstBuffer.frameLength)
+        while let buffer = try await iterator.next() {
+            frames += Int(buffer.frameLength)
+        }
+        await control.waitForTermination()
+        XCTAssertEqual(Double(frames), Double(sourceFrames) * 48_000 / 44_100, accuracy: 4_096)
+        XCTAssertEqual(try Data(contentsOf: cacheURL), mp3)
+        XCTAssertEqual(server.requestCount, 1)
+    }
+
+    func testProgressiveMP3PlaysWhatArrivedBeforeTranscodeBreaksOff() async throws {
+        let (mp3, _) = Self.silentMP3(seconds: 12)
+        let headLength = 48 * 1_024
+        let server = try ProgressiveMP3HTTPServer(
+            status: 200,
+            headers: ["Content-Type": "audio/mpeg"],
+            head: mp3.prefix(headLength),
+            tail: mp3.dropFirst(headLength)
+        )
+        defer { server.stop() }
+        let url = try await server.start().appendingPathComponent("stream.cgi/0.mp3")
+        let directory = try makeProgressiveFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cacheURL = directory.appendingPathComponent("track.mp3")
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        let control = StreamingDownloadSessionControl()
+        var iterator = StreamingDownloadDecoder().decode(
+            from: url, outputFormat: format, cacheFileURL: cacheURL, fileExtension: "mp3",
+            sessionControl: control, allowsProgressiveDecoding: true, expectedDuration: 12
+        ).makeAsyncIterator()
+
+        let first = try await iterator.next()
+        let firstBuffer = try XCTUnwrap(first)
+        var frames = Int(firstBuffer.frameLength)
+        server.abortTail()
+        var failed = false
+        do {
+            while let buffer = try await iterator.next() {
+                frames += Int(buffer.frameLength)
+            }
+        } catch {
+            failed = true
+        }
+        await control.waitForTermination()
+        XCTAssertTrue(failed, "A transcode that breaks off must not end like a complete song")
+        let headFrames = Double(headLength / 417 * 1_152)
+        XCTAssertGreaterThan(Double(frames), headFrames * 0.9, "Audio already on disk is still played")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheURL.path))
+    }
+
+    func testProgressiveMP3HTTPFailurePreservesStatusWithoutRetrying() async throws {
+        let server = try ProgressiveMP3HTTPServer(
+            status: 503, headers: ["Retry-After": "17"], head: Data(), tail: Data()
+        )
+        defer { server.stop() }
+        let url = try await server.start().appendingPathComponent("stream.cgi/0.mp3")
+        let directory = try makeProgressiveFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cacheURL = directory.appendingPathComponent("track.mp3")
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        let control = StreamingDownloadSessionControl()
+        do {
+            for try await _ in StreamingDownloadDecoder().decode(
+                from: url, outputFormat: format, cacheFileURL: cacheURL, fileExtension: "mp3",
+                sessionControl: control, allowsProgressiveDecoding: true, expectedDuration: 12
+            ) {
+                XCTFail("An HTTP error must never produce PCM")
+            }
+            XCTFail("The progressive decoder must preserve the HTTP failure")
+        } catch let error as RemoteMediaHTTPError {
+            XCTAssertEqual(error.statusCode, 503)
+            XCTAssertEqual(error.retryAfter, 17)
+        }
+        await control.waitForTermination()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheURL.path))
+        XCTAssertEqual(server.requestCount, 1)
+    }
+
+    func testProgressiveMP3RedirectFallsBackToTheCompleteDownload() async throws {
+        let server = try ProgressiveMP3HTTPServer(status: 302, headers: [:], head: Data(), tail: Data())
+        defer { server.stop() }
+        let url = try await server.start().appendingPathComponent("stream.cgi/0.mp3")
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        let control = StreamingDownloadSessionControl()
+        do {
+            for try await _ in StreamingDownloadDecoder().decode(
+                from: url, outputFormat: format, fileExtension: "mp3",
+                sessionControl: control, allowsProgressiveDecoding: true
+            ) {
+                XCTFail("A redirect without a target must never produce PCM")
+            }
+            XCTFail("The complete download must report the redirect it could not follow")
+        } catch let error as RemoteMediaHTTPError {
+            XCTAssertEqual(error.statusCode, 302)
+        }
+        await control.waitForTermination()
+        // One progressive attempt, then the complete download that follows redirects.
+        XCTAssertEqual(server.requestCount, 2)
+    }
+
     func testMediaRedirectRejectsDowngradeAndKeepsAPITrafficRestricted() async throws {
         let host = uniqueHost("restricted")
         let cdn = uniqueHost("cdn")
@@ -1551,5 +1699,141 @@ private final class MediaServerResponseGate: @unchecked Sendable {
             return response
         }
         response?()
+    }
+}
+
+/// Answers like a server transcoding on the fly: chunked, no length, no Range.
+/// The head goes out at once; the tail waits for `releaseTail()`, and
+/// `abortTail()` drops the connection without the terminating chunk.
+private final class ProgressiveMP3HTTPServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "ProgressiveMP3HTTPServer")
+    private let lock = NSLock()
+    private let status: Int
+    private let headers: [String: String]
+    private let head: Data
+    private let tail: Data
+    private var connections: [NWConnection] = []
+    private var waiting: [NWConnection] = []
+    private var released = false
+    private var aborted = false
+    private var requests = 0
+    private var sentTail = false
+
+    var requestCount: Int { lock.withLock { requests } }
+    var tailSent: Bool { lock.withLock { sentTail } }
+
+    init(status: Int, headers: [String: String], head: Data, tail: Data) throws {
+        self.status = status
+        self.headers = headers
+        self.head = head
+        self.tail = tail
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        listener = try NWListener(using: parameters)
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let self else { connection.cancel(); return }
+            self.lock.withLock { self.connections.append(connection) }
+            connection.start(queue: self.queue)
+            self.receiveRequest(connection, buffered: Data())
+        }
+    }
+
+    func start() async throws -> URL {
+        listener.start(queue: queue)
+        for _ in 0..<500 {
+            if let port = listener.port, port.rawValue != 0 {
+                return URL(string: "http://127.0.0.1:\(port.rawValue)/")!
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw URLError(.timedOut)
+    }
+
+    func stop() {
+        listener.cancel()
+        lock.withLock { connections }.forEach { $0.cancel() }
+    }
+
+    func releaseTail() {
+        let ready: [NWConnection] = lock.withLock {
+            released = true
+            defer { waiting.removeAll() }
+            return waiting
+        }
+        ready.forEach(sendTail)
+    }
+
+    func abortTail() {
+        let ready: [NWConnection] = lock.withLock {
+            aborted = true
+            defer { waiting.removeAll() }
+            return waiting
+        }
+        ready.forEach { $0.forceCancel() }
+    }
+
+    private func receiveRequest(_ connection: NWConnection, buffered: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, complete, error in
+            guard let self, error == nil else { connection.cancel(); return }
+            var input = buffered
+            input.append(data ?? Data())
+            guard input.range(of: Data("\r\n\r\n".utf8)) != nil else {
+                if complete || input.count >= 65_536 { connection.cancel() }
+                else { self.receiveRequest(connection, buffered: input) }
+                return
+            }
+            self.lock.withLock { self.requests += 1 }
+            self.respond(connection)
+        }
+    }
+
+    private func respond(_ connection: NWConnection) {
+        let succeeds = (200...299).contains(status)
+        var text = "HTTP/1.1 \(status) Fixture\r\nConnection: close\r\n"
+        text += succeeds ? "Transfer-Encoding: chunked\r\n" : "Content-Length: 0\r\n"
+        for (key, value) in headers { text += "\(key): \(value)\r\n" }
+        var output = Data((text + "\r\n").utf8)
+        guard succeeds else {
+            connection.send(content: output, completion: .contentProcessed { _ in connection.cancel() })
+            return
+        }
+        output.append(Self.chunked(head))
+        connection.send(content: output, completion: .contentProcessed { [weak self] _ in
+            guard let self else { return }
+            enum Next { case wait, sendTail, abort }
+            let next: Next = self.lock.withLock {
+                if self.aborted { return .abort }
+                if self.released { return .sendTail }
+                self.waiting.append(connection)
+                return .wait
+            }
+            switch next {
+            case .wait: break
+            case .sendTail: self.sendTail(connection)
+            case .abort: connection.forceCancel()
+            }
+        })
+    }
+
+    private func sendTail(_ connection: NWConnection) {
+        lock.withLock { sentTail = true }
+        var output = Self.chunked(tail)
+        output.append(Data("0\r\n\r\n".utf8))
+        connection.send(content: output, completion: .contentProcessed { _ in connection.cancel() })
+    }
+
+    private static func chunked(_ data: Data) -> Data {
+        var output = Data()
+        var offset = data.startIndex
+        while offset < data.endIndex {
+            let end = min(offset + 16 * 1_024, data.endIndex)
+            output.append(Data(String(end - offset, radix: 16).utf8))
+            output.append(Data("\r\n".utf8))
+            output.append(data[offset..<end])
+            output.append(Data("\r\n".utf8))
+            offset = end
+        }
+        return output
     }
 }

@@ -250,7 +250,8 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
 
     /// 交给播放层的链接带当前 `_sid`。先用一次轻量请求确认会话还有效(过期时
     /// 客户端会自动重登),免得交出一个播放器那边才发现已失效的链接。虚拟音轨
-    /// 由客户端自动转成 mp3;它在曲库里没有文件大小,播放层本来就不会按大小 Range。
+    /// 由客户端自动转成 mp3;它在曲库里没有文件大小,播放层本来就不会按大小 Range,
+    /// 而是按长度未知的 MP3 边下边解(`StreamingDownloadDecoder`),不等整首转完才出声。
     func streamingURL(for path: String) async throws -> URL? {
         let id = try Self.songID(from: path)
         if connected {

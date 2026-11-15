@@ -143,3 +143,77 @@ struct CompleteFileTransferPolicyTests {
         ))
     }
 }
+
+@Suite("Progressive download start policy")
+struct ProgressiveDownloadStartPolicyTests {
+    /// 128 kbps MP3, the bit rate Audio Station's transcode delivered in the report.
+    private let audioRate: Double = 16_000
+
+    @Test("A finished download always starts")
+    func finishedDownloadStarts() {
+        #expect(ProgressiveDownloadStartPolicy.canStart(
+            bufferedAudioBytes: 1_000, downloadedBytes: 1_000, elapsedSeconds: 0.1,
+            downloadFinished: true, audioBytesPerSecond: nil, expectedDuration: nil
+        ))
+    }
+
+    @Test("Nothing starts before the first frames tell the bit rate")
+    func unknownBitRateWaits() {
+        #expect(!ProgressiveDownloadStartPolicy.canStart(
+            bufferedAudioBytes: 500_000, downloadedBytes: 500_000, elapsedSeconds: 5,
+            downloadFinished: false, audioBytesPerSecond: nil, expectedDuration: 200
+        ))
+    }
+
+    @Test("A fast download still waits for the minimum lead and a trusted rate")
+    func fastDownloadNeedsLeadAndObservation() {
+        // 1.25 s of audio on disk.
+        #expect(!ProgressiveDownloadStartPolicy.canStart(
+            bufferedAudioBytes: 20_000, downloadedBytes: 20_000, elapsedSeconds: 2,
+            downloadFinished: false, audioBytesPerSecond: audioRate, expectedDuration: 200
+        ))
+        // Plenty of audio, but the rate has been watched for under a second.
+        #expect(!ProgressiveDownloadStartPolicy.canStart(
+            bufferedAudioBytes: 60_000, downloadedBytes: 60_000, elapsedSeconds: 0.5,
+            downloadFinished: false, audioBytesPerSecond: audioRate, expectedDuration: 200
+        ))
+    }
+
+    @Test("A server that delivers many seconds at once starts without the observation wait")
+    func fastServerStartsImmediately() {
+        #expect(ProgressiveDownloadStartPolicy.canStart(
+            bufferedAudioBytes: 160_000, downloadedBytes: 160_000, elapsedSeconds: 0.2,
+            downloadFinished: false, audioBytesPerSecond: audioRate, expectedDuration: 199
+        ))
+    }
+
+    @Test("A download faster than playback starts after the lead")
+    func fastDownloadStarts() {
+        // About 59 KB/s, the rate in the report, two seconds in.
+        #expect(ProgressiveDownloadStartPolicy.canStart(
+            bufferedAudioBytes: 116_000, downloadedBytes: 118_000, elapsedSeconds: 2,
+            downloadFinished: false, audioBytesPerSecond: audioRate, expectedDuration: 199
+        ))
+    }
+
+    @Test("A slower download waits until the shortfall over the song is covered")
+    func slowDownloadCoversShortfall() {
+        // 16 KB/s against the 20 KB/s required: 4 KB/s short over 300 s.
+        #expect(!ProgressiveDownloadStartPolicy.canStart(
+            bufferedAudioBytes: 200_000, downloadedBytes: 200_000, elapsedSeconds: 12.5,
+            downloadFinished: false, audioBytesPerSecond: audioRate, expectedDuration: 300
+        ))
+        #expect(ProgressiveDownloadStartPolicy.canStart(
+            bufferedAudioBytes: 1_200_000, downloadedBytes: 1_200_000, elapsedSeconds: 75,
+            downloadFinished: false, audioBytesPerSecond: audioRate, expectedDuration: 300
+        ))
+    }
+
+    @Test("A slower download of unknown length waits for the whole file")
+    func slowDownloadWithoutDurationWaits() {
+        #expect(!ProgressiveDownloadStartPolicy.canStart(
+            bufferedAudioBytes: 4_000_000, downloadedBytes: 4_000_000, elapsedSeconds: 250,
+            downloadFinished: false, audioBytesPerSecond: audioRate, expectedDuration: nil
+        ))
+    }
+}

@@ -96,3 +96,54 @@ public enum ConfiguredSourceDirectURLPolicy {
             && (!requiresCompleteLocalFile || usesServerTranscodedStream)
     }
 }
+
+/// When a stream with no length and no Range support (a server transcoding
+/// on the fly) that is decoded while it downloads may start playing.
+///
+/// A download faster than playback starts after a short lead. A slower one
+/// waits until what has arrived covers the shortfall over the whole song at
+/// the rate seen so far: running dry mid-song can only recover by fetching
+/// the whole file again, which is far worse than a few more seconds at the
+/// start.
+public enum ProgressiveDownloadStartPolicy {
+    /// Audio that has to be on disk before playback starts.
+    public static let minimumLeadSeconds: Double = 2
+    /// The download rate is not trusted before it has been watched this long…
+    public static let minimumObservationSeconds: Double = 1.5
+    /// …unless this much audio has already arrived, which only a fast
+    /// server delivers within that time.
+    public static let fastStartLeadSeconds: Double = 8
+    /// Headroom the download rate needs over the audio bit rate.
+    public static let rateSafetyFactor: Double = 1.25
+
+    /// - Parameters:
+    ///   - bufferedAudioBytes: audio payload received so far, without the
+    ///     leading tag the stream may start with.
+    ///   - downloadedBytes: every byte received so far.
+    ///   - elapsedSeconds: time since the response arrived.
+    ///   - audioBytesPerSecond: how fast playback consumes the payload; nil
+    ///     until the first frames have been parsed.
+    ///   - expectedDuration: the song's length when known.
+    public static func canStart(
+        bufferedAudioBytes: Int64,
+        downloadedBytes: Int64,
+        elapsedSeconds: Double,
+        downloadFinished: Bool,
+        audioBytesPerSecond: Double?,
+        expectedDuration: Double?
+    ) -> Bool {
+        if downloadFinished { return true }
+        guard let audioBytesPerSecond, audioBytesPerSecond.isFinite, audioBytesPerSecond > 0,
+              elapsedSeconds.isFinite else { return false }
+        let buffered = Double(max(0, bufferedAudioBytes))
+        let bufferedSeconds = buffered / audioBytesPerSecond
+        guard bufferedSeconds >= minimumLeadSeconds,
+              elapsedSeconds >= minimumObservationSeconds || bufferedSeconds >= fastStartLeadSeconds,
+              elapsedSeconds > 0 else { return false }
+        let downloadRate = Double(max(0, downloadedBytes)) / elapsedSeconds
+        let requiredRate = audioBytesPerSecond * rateSafetyFactor
+        if downloadRate >= requiredRate { return true }
+        guard let expectedDuration, expectedDuration.isFinite, expectedDuration > 0 else { return false }
+        return buffered >= (requiredRate - downloadRate) * expectedDuration
+    }
+}
