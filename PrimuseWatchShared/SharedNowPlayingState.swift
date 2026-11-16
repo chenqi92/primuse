@@ -817,14 +817,14 @@ enum SharedNowPlayingState {
         }
     }
 
-    static func read() -> Snapshot {
+    static func read(includeCover: Bool = true) -> Snapshot {
         guard let d = defaults else { return .empty }
         let songID = d.string(forKey: "wnp.songID") ?? ""
         let accent = d.array(forKey: "wnp.accent") as? [Double]
         let cover: Data? = {
-            guard !songID.isEmpty, d.string(forKey: "wnp.coverSongID") == songID,
+            guard includeCover, !songID.isEmpty, d.string(forKey: "wnp.coverSongID") == songID,
                   let url = coverURL else { return nil }
-            return try? Data(contentsOf: url)
+            return try? Data(contentsOf: url, options: .mappedIfSafe)
         }()
         return Snapshot(
             songID: songID,

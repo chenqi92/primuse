@@ -53,7 +53,10 @@ final class WatchOfflineStorage: @unchecked Sendable {
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         let url = root.appendingPathComponent(".index.json")
         if fm.fileExists(atPath: url.path) {
-            index = try JSONDecoder().decode([String: WatchOfflineFileMetadata].self, from: Data(contentsOf: url))
+            index = try JSONDecoder().decode(
+                [String: WatchOfflineFileMetadata].self,
+                from: Data(contentsOf: url, options: .mappedIfSafe)
+            )
         } else { index = [:] }
     }
 

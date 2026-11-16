@@ -125,6 +125,9 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     private var phoneQueue: [WatchLibrarySong] = []
     private var phoneQueueTotal = 0
     private var phoneQueueTruncated = false
+    private var tickerTask: Task<Void, Never>?
+    private var lastOfflineCoverIdentity: ObjectIdentifier?
+    private var hasDeliveredInitialOfflineCover = false
 
 
     override init() {
@@ -152,34 +155,69 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         if let demo = environment["PRIMUSE_WATCH_DEMO"] {
             demoScreen = environment["PRIMUSE_WATCH_DEMO_SCREEN"] ?? ""
             applyDemo(demo)
-            startTicker()
+            refreshTicker()
             return
         }
         #endif
         session?.delegate = self
         session?.activate()
-        startTicker()
+        refreshTicker()
     }
 
-    /// 100ms 外推 currentTime ── iPhone 端只在状态真变时才推, 中间的时间
-    /// 流逝完全靠这里基于 sentTimeAnchor 计算。loading 期间 player 实际
-    /// 不动, 所以也不外推 (避免显示比实际靠前)。
-    private func startTicker() {
-        Task { [weak self] in
+    private var shouldRunTicker: Bool {
+        let uiActive: Bool
+        #if DEBUG
+        uiActive = connectionPresentation.isActive || isDemo
+        #else
+        uiActive = connectionPresentation.isActive
+        #endif
+        guard uiActive else { return false }
+        if isOfflinePlayback {
+            return offlinePlayer.isPlaying
+        }
+        return isPlaying && !isLoading && hasSong
+    }
+
+    private func extrapolateCurrentTimeOnce() {
+        if isOfflinePlayback {
+            guard offlinePlayer.current != nil else { return }
+            let time = offlinePlayer.currentTime
+            if abs(time - currentTime) >= 0.02 { currentTime = time }
+            if !offlinePlayer.lyrics.isEmpty {
+                let lines = WatchOfflineLyric.visibleLines(offlinePlayer.lyrics, at: time)
+                if currentLyric != lines.current { currentLyric = lines.current }
+                if nextLyric != lines.next { nextLyric = lines.next }
+            }
+            return
+        }
+        guard isPlaying, !isLoading, hasSong else { return }
+        let extrapolated = sentCurrentTime
+            + (Date().timeIntervalSince1970 - sentTimeAnchor) * playbackRate
+        let nextTime = isLiveStream
+            ? max(0, extrapolated)
+            : min(duration, max(0, extrapolated))
+        if abs(nextTime - currentTime) >= 0.02 {
+            currentTime = nextTime
+        }
+    }
+
+    /// 100ms 外推 currentTime ── 仅在前台活跃且正在播放时运行，暂停、空态或息屏时挂起。
+    private func refreshTicker() {
+        guard shouldRunTicker else {
+            tickerTask?.cancel()
+            tickerTask = nil
+            return
+        }
+        guard tickerTask == nil else { return }
+        tickerTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 100_000_000)
-                guard let self else { return }
-                if self.isOfflinePlayback {
-                    self.updateOfflineState()
-                    continue
+                guard !Task.isCancelled, let self else { return }
+                guard self.shouldRunTicker else {
+                    self.tickerTask = nil
+                    return
                 }
-                if self.isPlaying, !self.isLoading {
-                    let extrapolated = self.sentCurrentTime
-                        + (Date().timeIntervalSince1970 - self.sentTimeAnchor) * self.playbackRate
-                    self.currentTime = self.isLiveStream
-                        ? max(0, extrapolated)
-                        : min(self.duration, max(0, extrapolated))
-                }
+                self.extrapolateCurrentTimeOnce()
             }
         }
     }
@@ -221,6 +259,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             sentCurrentTime = currentTime
             sentTimeAnchor = Date().timeIntervalSince1970
         }
+        refreshTicker()
         send(["command": "togglePlayPause"]) { [weak self] in
             guard let self else { return }
             self.isPlaying = previousPlaying
@@ -228,6 +267,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             self.currentTime = previousCurrentTime
             self.sentCurrentTime = previousSentTime
             self.sentTimeAnchor = previousAnchor
+            self.refreshTicker()
         }
     }
     func next() {
@@ -350,7 +390,11 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         #endif
         connectionPresentation.setActive(active, reachable: canSendRealtimeCommand, now: Date())
         refreshConnectionPresentation()
-        if active { requestCurrentState() }
+        if active {
+            extrapolateCurrentTimeOnce()
+            requestCurrentState()
+        }
+        refreshTicker()
     }
     func play(songID: String) {
         if isOfflinePlayback, let file = offlineFiles.first(where: { $0.id == songID }) { playOffline(file); return }
@@ -364,6 +408,8 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
 
     func returnToPhone() {
         offlinePlayer.stop()
+        lastOfflineCoverIdentity = nil
+        hasDeliveredInitialOfflineCover = false
         queue = phoneQueue; queueTotalCount = phoneQueueTotal; queueTruncated = phoneQueueTruncated
         coverImage = nil
         let state = latestPhoneState
@@ -403,9 +449,23 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             "outputKind": output?.portType == .builtInSpeaker ? "watch" : "bluetooth",
             "accentR": 0.078, "accentG": 0.490, "accentB": 0.541,
         ])
-        applyContext(snapshot, cover: includeCover ? offlinePlayer.cover?.jpegData(compressionQuality: 0.7) ?? Data() : nil, isOffline: true)
-        queue = offlinePlayer.queue.map { WatchLibrarySong(id: $0.id, title: $0.title, artist: $0.artist) }
-        queueTotalCount = queue.count; queueTruncated = false
+        let currentCoverIdentity = offlinePlayer.cover.map(ObjectIdentifier.init)
+        let coverData: Data?
+        if includeCover,
+           !hasDeliveredInitialOfflineCover || currentCoverIdentity != lastOfflineCoverIdentity {
+            lastOfflineCoverIdentity = currentCoverIdentity
+            hasDeliveredInitialOfflineCover = true
+            coverData = offlinePlayer.cover?.jpegData(compressionQuality: 0.7) ?? Data()
+        } else {
+            coverData = nil
+        }
+        applyContext(snapshot, cover: coverData, isOffline: true)
+        if queue.count != offlinePlayer.queue.count
+            || zip(queue, offlinePlayer.queue).contains(where: { $0.id != $1.id }) {
+            queue = offlinePlayer.queue.map { WatchLibrarySong(id: $0.id, title: $0.title, artist: $0.artist) }
+            queueTotalCount = queue.count
+            queueTruncated = false
+        }
     }
 
 
@@ -700,6 +760,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             )
             WidgetCenter.shared.reloadTimelines(ofKind: SharedNowPlayingState.widgetKind)
         }
+        refreshTicker()
     }
 
     /// Complication 关心的字段 ── 用来去重重复推送, 只有它变了才刷新表盘。

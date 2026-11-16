@@ -171,7 +171,7 @@ final class WatchOfflinePlayer: NSObject, AVAudioPlayerDelegate {
             artwork = Self.makeArtwork(image)
         }
         if let url = storage.companionURL(for: current.path, extensions: ["watchlyrics"]),
-           let data = try? Data(contentsOf: url), data.count <= 8 * 1024 * 1024,
+           let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count <= 8 * 1024 * 1024,
            let decoded = try? JSONDecoder().decode([WatchOfflineLyric].self, from: data) {
             lyrics = decoded.filter { $0.time.isFinite && $0.time >= 0 }.sorted { $0.time < $1.time }
         }
@@ -179,13 +179,19 @@ final class WatchOfflinePlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     static func thumbnail(at url: URL) -> UIImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 400,
-              ] as CFDictionary) else { return nil }
-        return UIImage(cgImage: image)
+        autoreleasepool {
+            guard let source = CGImageSourceCreateWithURL(
+                url as CFURL,
+                [kCGImageSourceShouldCache: false] as CFDictionary
+            ),
+                  let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 400,
+                  ] as CFDictionary) else { return nil }
+            return UIImage(cgImage: image)
+        }
     }
 
     /// MediaPlayer 在后台队列取封面；闭包若继承主线程隔离，Swift 6 运行时断言会直接闪退。

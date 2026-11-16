@@ -1,7 +1,7 @@
 import Foundation
 
 /// Stores recent album info in App Group UserDefaults for Widget access.
-public struct RecentAlbumEntry: Codable, Sendable {
+public struct RecentAlbumEntry: Codable, Equatable, Sendable {
     public let id: String
     public let title: String
     public let artistName: String
@@ -54,13 +54,16 @@ public enum RecentAlbumsStore {
         return (try? JSONDecoder().decode([RecentAlbumEntry].self, from: data)) ?? []
     }
 
-    public static func record(_ entry: RecentAlbumEntry) {
+    @discardableResult
+    public static func record(_ entry: RecentAlbumEntry) -> Bool {
         record(entry, in: UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier))
     }
 
-    static func record(_ entry: RecentAlbumEntry, in defaults: UserDefaults?) {
+    @discardableResult
+    static func record(_ entry: RecentAlbumEntry, in defaults: UserDefaults?) -> Bool {
         lock.withLock {
-            var albums = loadUnlocked(from: defaults)
+            let previous = loadUnlocked(from: defaults)
+            var albums = previous
             // Remove existing entry with same id to avoid duplicates
             albums.removeAll { $0.id == entry.id }
             // Insert at front (most recent first)
@@ -69,25 +72,33 @@ public enum RecentAlbumsStore {
             if albums.count > maxCount {
                 albums = Array(albums.prefix(maxCount))
             }
-            save(albums, in: defaults)
+            if albums == previous, defaults?.data(forKey: key) != nil {
+                return false
+            }
+            return save(albums, in: defaults)
         }
     }
 
-    private static func save(_ albums: [RecentAlbumEntry], in defaults: UserDefaults?) {
+    private static func save(_ albums: [RecentAlbumEntry], in defaults: UserDefaults?) -> Bool {
         guard let defaults,
               let data = try? JSONEncoder().encode(albums) else {
-            return
+            return false
         }
         defaults.set(data, forKey: key)
+        return true
     }
 
-    public static func clear() {
+    @discardableResult
+    public static func clear() -> Bool {
         clear(in: UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier))
     }
 
-    static func clear(in defaults: UserDefaults?) {
+    @discardableResult
+    static func clear(in defaults: UserDefaults?) -> Bool {
         lock.withLock {
-            defaults?.removeObject(forKey: key)
+            guard let defaults, defaults.object(forKey: key) != nil else { return false }
+            defaults.removeObject(forKey: key)
+            return true
         }
     }
 }

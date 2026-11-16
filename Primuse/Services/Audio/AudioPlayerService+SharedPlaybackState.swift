@@ -634,7 +634,7 @@ extension AudioPlayerService {
             sampledAt: sampledAt,
             currentTime: sampledCurrentTime,
             duration: duration,
-            queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
+            queueSongIDs: [],
             playbackKind: playbackKind,
             radioStationID: currentRadioStation?.id,
             repeatMode: repeatMode,
@@ -688,10 +688,9 @@ extension AudioPlayerService {
             clearSharedWidgetCovers()
             lastWidgetCoverKey = nil
             if WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey),
-               !RecentAlbumsStore.load().isEmpty {
+               RecentAlbumsStore.clear() {
                 // Recent-albums widget renders covers; with covers disclosed off
                 // there's nothing meaningful to show, so clear its store too.
-                RecentAlbumsStore.clear()
                 recentAlbumsChanged = true
             }
         } else if let song = currentSong {
@@ -740,14 +739,14 @@ extension AudioPlayerService {
                        writeWidgetCover(song: song, fileName: albumCoverName, size: 200) != nil {
                         widgetAlbumCoverContents[albumEntry.id] = coverContent
                     }
-                    RecentAlbumsStore.record(albumEntry)
-                    recentAlbumsChanged = true
+                    if RecentAlbumsStore.record(albumEntry) {
+                        recentAlbumsChanged = true
+                    }
                 }
             } else {
                 coverName = sharedCoverName
             }
-            if !recentAlbumsEnabled {
-                RecentAlbumsStore.clear()
+            if !recentAlbumsEnabled, RecentAlbumsStore.clear() {
                 recentAlbumsChanged = true
             }
         } else {
@@ -768,7 +767,7 @@ extension AudioPlayerService {
             // hasn't granted progress disclosure (defaults to 0 via the init).
             currentTime: sampledCurrentTime,
             duration: scope.includesProgress ? duration : 0,
-            queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
+            queueSongIDs: [],
             playbackKind: playbackKind,
             radioStationID: currentRadioStation?.id,
             repeatMode: repeatMode,
@@ -885,97 +884,16 @@ extension AudioPlayerService {
         }
         #endif
 
-        guard let data = coverData else { return nil }
+        guard let data = coverData,
+              !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else { return nil }
 
-        let targetSize = CGSize(width: size, height: size)
         let destinationURL = containerURL.appendingPathComponent(fileName)
 
-        /// Aspect-fill (centered crop) rect for `sourceSize` into `targetSize`.
-        func aspectFillRect(sourceSize: CGSize) -> CGRect {
-            let sourceAspect = sourceSize.width / sourceSize.height
-            if sourceAspect > 1 {
-                let scaledWidth = targetSize.height * sourceAspect
-                return CGRect(x: (targetSize.width - scaledWidth) / 2, y: 0,
-                              width: scaledWidth, height: targetSize.height)
-            } else {
-                let scaledHeight = targetSize.width / sourceAspect
-                return CGRect(x: 0, y: (targetSize.height - scaledHeight) / 2,
-                              width: targetSize.width, height: scaledHeight)
-            }
-        }
-
-        #if os(iOS)
-        if keepsWholeCover,
-           let jpegData = WidgetBookCoverRenderer.squareJPEG(
-               from: data,
-               pixelSize: Int(size),
-               keepsWholeCover: true
-           ) {
-            do {
-                try jpegData.write(to: destinationURL, options: .atomic)
-                return fileName
-            } catch {
-                return nil
-            }
-        }
-
-        guard let originalImage = UIImage(data: data) else { return nil }
-
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1.0
-        format.opaque = true
-
-        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
-        let resizedImage = renderer.image { context in
-            UIColor.black.setFill()
-            context.fill(CGRect(origin: .zero, size: targetSize))
-            originalImage.draw(in: aspectFillRect(sourceSize: originalImage.size))
-        }
-
-        guard let jpegData = resizedImage.jpegData(compressionQuality: 0.8) else { return nil }
-
-        do {
-            try jpegData.write(to: destinationURL, options: .atomic)
-            return fileName
-        } catch {
-            return nil
-        }
-        #elseif os(macOS)
-        guard let originalImage = NSImage(data: data) else { return nil }
-
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(targetSize.width),
-            pixelsHigh: Int(targetSize.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else { return nil }
-        rep.size = targetSize
-
-        guard let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
-        let previousContext = NSGraphicsContext.current
-        NSGraphicsContext.current = context
-        NSColor.black.setFill()
-        NSRect(origin: .zero, size: targetSize).fill()
-        // Centered aspect-fill crop is symmetric in both axes, so AppKit's
-        // y-up coordinate space yields the same framing as iOS's renderer.
-        originalImage.draw(
-            in: aspectFillRect(sourceSize: originalImage.size),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1.0
-        )
-        context.flushGraphics()
-        NSGraphicsContext.current = previousContext
-
-        guard let jpegData = rep.representation(
-            using: .jpeg,
-            properties: [.compressionFactor: 0.8]
+        #if os(iOS) || os(macOS)
+        guard let jpegData = WidgetBookCoverRenderer.squareJPEG(
+            from: data,
+            pixelSize: Int(size),
+            keepsWholeCover: keepsWholeCover
         ) else { return nil }
 
         do {
