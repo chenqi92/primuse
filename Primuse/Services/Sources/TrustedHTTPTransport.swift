@@ -241,28 +241,16 @@ enum TrustedHTTPTransport {
     ) async throws -> (Data, URLResponse) {
         try Task.checkCancellation()
         guard maxBytes >= 0 else { throw URLError(.dataLengthExceedsMaximum) }
-        let (bytes, response) = try await session.bytes(for: request)
         let progress = DownloadProgress.observer
-        progress?(0)
-        var data = Data()
-        if response.expectedContentLength > 0,
-           response.expectedContentLength <= Int64(maxBytes) {
-            data.reserveCapacity(Int(response.expectedContentLength))
-        }
-        var unreported = 0
-        for try await byte in bytes {
-            guard data.count < maxBytes else {
-                throw URLError(.dataLengthExceedsMaximum)
+        let delegate = BoundedDataTaskDelegate(maxBytes: maxBytes, progress: progress)
+        let task = session.dataTask(with: request)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.start(task: task, continuation: continuation)
             }
-            data.append(byte)
-            unreported += 1
-            if unreported == 16 * 1_024 {
-                progress?(unreported)
-                unreported = 0
-            }
+        } onCancel: {
+            delegate.cancel()
         }
-        if unreported > 0 { progress?(unreported) }
-        return (data, response)
     }
 
     static func data(
@@ -392,44 +380,20 @@ enum TrustedHTTPTransport {
             if !returnedFile { try? FileManager.default.removeItem(at: fileURL) }
         }
 
-        let (bytes, response) = try await session.bytes(for: request)
-        DownloadProgress.observer?(0)
-        let isWholeResponsePrefix = (response as? HTTPURLResponse)?.statusCode == 200
-            && wholeResponsePrefixLimit != nil
-        let bodyLimit = isWholeResponsePrefix
-            ? wholeResponsePrefixLimit
-            : (maximumRangedBodyBytes ?? wholeResponsePrefixLimit)
-        guard let bodyLimit else {
-            throw URLError(.dataLengthExceedsMaximum)
-        }
-
-        if !isWholeResponsePrefix,
-           response.expectedContentLength > Int64(bodyLimit) {
-            throw URLError(.dataLengthExceedsMaximum)
-        }
-
         let progress = DownloadProgress.observer
-        var iterator = bytes.makeAsyncIterator()
-        var buffer = Data()
-        buffer.reserveCapacity(min(64 * 1_024, bodyLimit))
-        var writtenBytes = 0
-        while writtenBytes < bodyLimit, let byte = try await iterator.next() {
-            buffer.append(byte)
-            writtenBytes += 1
-            if buffer.count == 64 * 1_024 {
-                try handle.write(contentsOf: buffer)
-                progress?(buffer.count)
-                buffer.removeAll(keepingCapacity: true)
+        let delegate = BoundedDownloadTaskDelegate(
+            handle: handle,
+            maximumRangedBodyBytes: maximumRangedBodyBytes,
+            wholeResponsePrefixLimit: wholeResponsePrefixLimit,
+            progress: progress
+        )
+        let task = session.dataTask(with: request)
+        let response = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.start(task: task, continuation: continuation)
             }
-        }
-        if !buffer.isEmpty {
-            try handle.write(contentsOf: buffer)
-        }
-
-        if !isWholeResponsePrefix,
-           writtenBytes == bodyLimit,
-           try await iterator.next() != nil {
-            throw URLError(.dataLengthExceedsMaximum)
+        } onCancel: {
+            delegate.cancel()
         }
         try Task.checkCancellation()
         try handle.close()
@@ -471,5 +435,319 @@ final class MediaHTTPRedirectSessionDelegate: NSObject, URLSessionTaskDelegate, 
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         await trust.urlSession(session, task: task, didReceive: challenge)
+    }
+}
+
+private final class BoundedDataTaskDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let maxBytes: Int
+    private let progress: (@Sendable (Int) -> Void)?
+    private let lock = NSLock()
+    private var task: URLSessionDataTask?
+    private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+    private var isCancelled = false
+    private var terminalError: Error?
+    private var response: URLResponse?
+    private var data = Data()
+    private var unreported = 0
+
+    init(maxBytes: Int, progress: (@Sendable (Int) -> Void)?) {
+        self.maxBytes = maxBytes
+        self.progress = progress
+    }
+
+    func start(
+        task: URLSessionDataTask,
+        continuation: CheckedContinuation<(Data, URLResponse), Error>
+    ) {
+        lock.lock()
+        if isCancelled {
+            lock.unlock()
+            task.cancel()
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        self.task = task
+        self.continuation = continuation
+        lock.unlock()
+        task.delegate = self
+        task.resume()
+    }
+
+    func cancel() {
+        lock.lock()
+        isCancelled = true
+        let activeTask = task
+        lock.unlock()
+        activeTask?.cancel()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        lock.lock()
+        if isCancelled {
+            lock.unlock()
+            completionHandler(.cancel)
+            return
+        }
+        self.response = response
+        if response.expectedContentLength > 0,
+           response.expectedContentLength <= Int64(maxBytes) {
+            data.reserveCapacity(min(Int(response.expectedContentLength), 4 * 1_024 * 1_024))
+        }
+        lock.unlock()
+        progress?(0)
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
+        var toReport = 0
+        var exceededLimit = false
+        lock.lock()
+        if isCancelled || terminalError != nil {
+            lock.unlock()
+            return
+        }
+        if chunk.count > maxBytes - data.count {
+            terminalError = URLError(.dataLengthExceedsMaximum)
+            exceededLimit = true
+        } else {
+            data.append(chunk)
+            unreported += chunk.count
+            if unreported >= 16 * 1_024 {
+                toReport = unreported
+                unreported = 0
+            }
+        }
+        lock.unlock()
+        if exceededLimit {
+            dataTask.cancel()
+            return
+        }
+        if toReport > 0 {
+            progress?(toReport)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        self.task = nil
+        let isCancelled = self.isCancelled
+        let terminalError = self.terminalError
+        let finalResponse = self.response ?? task.response
+        let finalData = self.data
+        let remainingProgress = self.unreported
+        self.data = Data()
+        self.unreported = 0
+        lock.unlock()
+
+        guard let continuation else { return }
+        if isCancelled {
+            continuation.resume(throwing: error ?? CancellationError())
+            return
+        }
+        if let terminalError {
+            continuation.resume(throwing: terminalError)
+            return
+        }
+        if let error {
+            continuation.resume(throwing: error)
+            return
+        }
+        guard let finalResponse else {
+            continuation.resume(throwing: URLError(.badServerResponse))
+            return
+        }
+        if remainingProgress > 0 {
+            progress?(remainingProgress)
+        }
+        continuation.resume(returning: (finalData, finalResponse))
+    }
+}
+
+private final class BoundedDownloadTaskDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let handle: FileHandle
+    private let maximumRangedBodyBytes: Int?
+    private let wholeResponsePrefixLimit: Int?
+    private let progress: (@Sendable (Int) -> Void)?
+    private let lock = NSLock()
+    private var task: URLSessionDataTask?
+    private var continuation: CheckedContinuation<URLResponse, Error>?
+    private var isCancelled = false
+    private var completedEarly = false
+    private var terminalError: Error?
+    private var response: URLResponse?
+    private var isWholeResponsePrefix = false
+    private var bodyLimit = 0
+    private var writtenBytes = 0
+
+    init(
+        handle: FileHandle,
+        maximumRangedBodyBytes: Int?,
+        wholeResponsePrefixLimit: Int?,
+        progress: (@Sendable (Int) -> Void)?
+    ) {
+        self.handle = handle
+        self.maximumRangedBodyBytes = maximumRangedBodyBytes
+        self.wholeResponsePrefixLimit = wholeResponsePrefixLimit
+        self.progress = progress
+    }
+
+    func start(
+        task: URLSessionDataTask,
+        continuation: CheckedContinuation<URLResponse, Error>
+    ) {
+        lock.lock()
+        if isCancelled {
+            lock.unlock()
+            task.cancel()
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        self.task = task
+        self.continuation = continuation
+        lock.unlock()
+        task.delegate = self
+        task.resume()
+    }
+
+    func cancel() {
+        lock.lock()
+        isCancelled = true
+        let activeTask = task
+        lock.unlock()
+        activeTask?.cancel()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        let wholePrefix = (response as? HTTPURLResponse)?.statusCode == 200
+            && wholeResponsePrefixLimit != nil
+        let resolvedLimit = wholePrefix
+            ? wholeResponsePrefixLimit
+            : (maximumRangedBodyBytes ?? wholeResponsePrefixLimit)
+
+        lock.lock()
+        if isCancelled {
+            lock.unlock()
+            completionHandler(.cancel)
+            return
+        }
+        self.response = response
+        guard let resolvedLimit else {
+            terminalError = URLError(.dataLengthExceedsMaximum)
+            lock.unlock()
+            completionHandler(.cancel)
+            return
+        }
+        if !wholePrefix, response.expectedContentLength > Int64(resolvedLimit) {
+            terminalError = URLError(.dataLengthExceedsMaximum)
+            lock.unlock()
+            completionHandler(.cancel)
+            return
+        }
+        self.isWholeResponsePrefix = wholePrefix
+        self.bodyLimit = resolvedLimit
+        if wholePrefix, resolvedLimit == 0 {
+            completedEarly = true
+            lock.unlock()
+            progress?(0)
+            completionHandler(.cancel)
+            return
+        }
+        lock.unlock()
+        progress?(0)
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        var sliceToWrite: Data?
+        var shouldCancelTask = false
+
+        lock.lock()
+        if isCancelled || completedEarly || terminalError != nil {
+            lock.unlock()
+            return
+        }
+        let remaining = bodyLimit - writtenBytes
+        if isWholeResponsePrefix {
+            let count = min(chunk.count, max(0, remaining))
+            if count > 0 {
+                sliceToWrite = count == chunk.count ? chunk : Data(chunk.prefix(count))
+                writtenBytes += count
+            }
+            if writtenBytes >= bodyLimit {
+                completedEarly = true
+                shouldCancelTask = true
+            }
+        } else if chunk.count > remaining {
+            terminalError = URLError(.dataLengthExceedsMaximum)
+            shouldCancelTask = true
+        } else {
+            sliceToWrite = chunk
+            writtenBytes += chunk.count
+        }
+        lock.unlock()
+
+        if let sliceToWrite {
+            do {
+                try handle.write(contentsOf: sliceToWrite)
+                progress?(sliceToWrite.count)
+            } catch {
+                lock.lock()
+                if terminalError == nil { terminalError = error }
+                lock.unlock()
+                dataTask.cancel()
+                return
+            }
+        }
+        if shouldCancelTask {
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        self.task = nil
+        let isCancelled = self.isCancelled
+        let completedEarly = self.completedEarly
+        let terminalError = self.terminalError
+        let finalResponse = self.response ?? task.response
+        lock.unlock()
+
+        guard let continuation else { return }
+        if isCancelled {
+            continuation.resume(throwing: error ?? CancellationError())
+            return
+        }
+        if let terminalError {
+            continuation.resume(throwing: terminalError)
+            return
+        }
+        if completedEarly, let finalResponse {
+            continuation.resume(returning: finalResponse)
+            return
+        }
+        if let error {
+            continuation.resume(throwing: error)
+            return
+        }
+        guard let finalResponse else {
+            continuation.resume(throwing: URLError(.badServerResponse))
+            return
+        }
+        continuation.resume(returning: finalResponse)
     }
 }

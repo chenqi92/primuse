@@ -4153,8 +4153,21 @@ final class ScanService {
         checkpoint: ScanCheckpoint?
     ) async -> Bool {
         let enrichmentProvider = connector as? any ServerCatalogEnrichingConnector
+        let ratingObserver = connector as? any ServerRatingObservingConnector
+        let libraryObserver = connector as? any ServerLibraryListingConnector
         let enrichmentScanID = UUID()
-        defer { Task { await enrichmentProvider?.endCatalogEnrichment(scanID: enrichmentScanID) } }
+        var scanCommitted = false
+        defer {
+            let shouldDrainObservations = !scanCommitted
+            Task {
+                await enrichmentProvider?.endCatalogEnrichment(scanID: enrichmentScanID)
+                if shouldDrainObservations {
+                    _ = await ratingObserver?.takeObservedServerRatings()
+                    _ = await ratingObserver?.takeObservedSongAlbumIDs()
+                    _ = await libraryObserver?.takeObservedServerLibraries()
+                }
+            }
+        }
         let catalogPath = directories.first ?? "/"
         var pageSize = SubsonicCatalogPagingPolicy.pageSize
         var (existingByID, songIDsByServerSongID) = await preparePagedCatalogSeed(
@@ -4785,6 +4798,7 @@ final class ScanService {
                     syncState: candidateState,
                     source: source
                 )
+                scanCommitted = true
                 try checkScanCommitFence(
                     sourceID: source.id,
                     generation: generation,

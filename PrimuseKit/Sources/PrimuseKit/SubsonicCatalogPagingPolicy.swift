@@ -717,6 +717,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
             authoritativeSongIDs.reserveCapacity(existingCount)
             var metadataInspectedSongIDs = Set<String>()
             var upserts: [Song] = []
+            var interner = SongStringInterner()
             var lastOrderKey = -1
             while true {
                 try Task.checkCancellation()
@@ -739,18 +740,22 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                         let payload: Data = row["payload"]
                         var song = try Self.decodedPayload(Song.self, from: payload, decoder: decoder)
                         if let enrichment { song = enrichment.applying(to: song) }
-                        if let existing = existingSong(song.id) {
+                        let existing = existingSong(song.id)
+                        if let existing {
                             song = ServerSongCatalogMergePolicy.merged(
                                 existing: existing,
                                 incoming: song
                             )
                         }
-                        authoritativeSongIDs.insert(song.id)
+                        let sharedSongID = existing?.id ?? song.id
+                        authoritativeSongIDs.insert(sharedSongID)
                         let metadataInspected: Bool = row["metadataInspected"]
                         if metadataInspected {
-                            metadataInspectedSongIDs.insert(song.id)
+                            metadataInspectedSongIDs.insert(sharedSongID)
                         }
-                        if existingSong(song.id) != song {
+                        if existing != song {
+                            song.id = sharedSongID
+                            interner.intern(&song)
                             upserts.append(song)
                         }
                         lastOrderKey = orderKey

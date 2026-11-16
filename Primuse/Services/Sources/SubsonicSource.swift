@@ -59,6 +59,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private var observedServerRatings: [String: Int] = [:]
     /// 走查读到的每首歌所属的服务端专辑(歌曲 id → 专辑 id),给专辑评分对号用。
     private var observedSongAlbumIDs: [String: String] = [:]
+    private var observedAlbumIDPool: [String: String] = [:]
+    private let ownsSession: Bool
     /// 用户在源设置里选了「不同步」的库(只对按库组织的 Navidrome 有意义)。
     private let excludedLibraryIDs: Set<String>
     /// 这一轮走查的库范围:读哪几个库、每张专辑在哪个库。每轮从头走时重取。
@@ -220,7 +222,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
         let songs = children.compactMap { child -> ConnectorScannedSong? in
             guard child.isVideo != true else { return nil }
-            let song = buildSong(from: child)
+            let song = buildSong(from: child, recordsCatalogObservation: true)
             return ConnectorScannedSong(
                 song: song,
                 displayName: child.title ?? song.title,
@@ -276,13 +278,17 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
         if let session {
             self.session = session
+            self.ownsSession = false
         } else {
+            self.ownsSession = true
             let configuration = URLSessionConfiguration.default
             // Matches WebDAV / Synology / S3: catalogue pages contain bounded JSON
             // and a full walk is one request per page, which needs more than a
             // LAN-sized budget over the public internet.
             configuration.timeoutIntervalForRequest = 60
             configuration.timeoutIntervalForResource = 600
+            configuration.urlCache = nil
+            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
             configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
             // 家用 Navidrome 常用自签 HTTPS, 复用全局 SmartSSLDelegate 放行受信任证书。
             self.session = URLSession(
@@ -301,6 +307,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
 
         let mediaConfiguration = self.session.configuration
+        mediaConfiguration.urlCache = nil
+        mediaConfiguration.requestCachePolicy = .reloadIgnoringLocalCacheData
         mediaConfiguration.httpShouldSetCookies = false
         mediaConfiguration.httpCookieStorage = nil
         mediaConfiguration.urlCredentialStorage = nil
@@ -357,12 +365,20 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     func disconnect() async {
         mediaTransportGeneration &+= 1
         if let scanID = catalogScanID { await endCatalogEnrichment(scanID: scanID) }
+        clearCatalogObservations()
         isConnected = false
+    }
+
+    private func clearCatalogObservations() {
+        observedServerRatings.removeAll(keepingCapacity: false)
+        observedSongAlbumIDs.removeAll(keepingCapacity: false)
+        observedAlbumIDPool.removeAll(keepingCapacity: false)
     }
 
     deinit {
         albumMetadataTask?.cancel()
         prefetchedSongPage?.task.cancel()
+        if ownsSession { session.invalidateAndCancel() }
         mediaSession.invalidateAndCancel()
     }
 
@@ -437,6 +453,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                                 path: path,
                                 toleratesDriftOnLastAttempt: true,
                                 retainingSongs: false,
+                                usesScanPrefetch: true,
                                 onValidatedPage: { page in
                                     try yieldSearch3Catalog(page, continuation: continuation)
                                 }
@@ -502,7 +519,11 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                                     guard SubsonicCatalogPagingPolicy.isWithinSongLimit(seenSongIDs.count) else {
                                         throw SourceError.connectionFailed("Subsonic song catalog exceeded the safety limit")
                                     }
-                                    let song = buildSong(from: child, album: result.album)
+                                    let song = buildSong(
+                                        from: child,
+                                        album: result.album,
+                                        recordsCatalogObservation: true
+                                    )
                                     continuation.yield(
                                         ConnectorScannedSong(
                                             song: song,
@@ -526,40 +547,104 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     continuation.finish()
                 } catch {
                     if let scanID { await endCatalogEnrichment(scanID: scanID) }
+                    clearCatalogObservations()
                     Task.isCancelled ? continuation.finish() : continuation.finish(throwing: error)
                 }
             }
             continuation.onTermination = { @Sendable termination in
                 producer.cancel()
-                if case .cancelled = termination, let scanID {
-                    Task { await self.endCatalogEnrichment(scanID: scanID) }
+                if case .cancelled = termination {
+                    Task {
+                        if let scanID { await self.endCatalogEnrichment(scanID: scanID) }
+                        await self.clearCatalogObservations()
+                    }
                 }
             }
         }
     }
 
+    private struct StatsEventSongMetadata {
+        let title: String?
+        let artist: String?
+        let album: String?
+        let content: ServerListeningContent
+    }
+
+    private struct ResolvedSongIdentity {
+        let id: String
+        let relativePath: String
+        let format: AudioFormat
+        let genre: String?
+    }
+
+    private func resolvedSongIdentity(for child: SubsonicChild) -> ResolvedSongIdentity {
+        let suffix = (child.suffix ?? (child.path.map { ($0 as NSString).pathExtension }) ?? "mp3").lowercased()
+        let format = AudioFormat.from(fileExtension: suffix) ?? .mp3
+        let relativePath = "/songs/\(child.id).\(suffix.isEmpty ? "mp3" : suffix)"
+        let genre = child.genres?.genre(fallback: child.genre) ?? child.genre
+        return ResolvedSongIdentity(
+            id: Self.hash("\(sourceID):\(relativePath)"),
+            relativePath: relativePath,
+            format: format,
+            genre: genre
+        )
+    }
+
     private func statsContent(for child: SubsonicChild) -> ServerListeningContent {
-        let song = buildSong(from: child)
-        return ServerListeningContent(songID: song.id, filePath: song.filePath, genre: song.genre)
+        let identity = resolvedSongIdentity(for: child)
+        return ServerListeningContent(
+            songID: identity.id,
+            filePath: identity.relativePath,
+            genre: identity.genre
+        )
     }
 
     func fetchServerListeningStats() async throws -> ServerListeningStatsPayload {
         try await connect()
         let history = try await fetchNavidromeListeningHistoryIfAvailable()
-        let catalog = try await fetchCompleteStatsCatalog()
-        let tracks = catalog.map { child in
-            ServerListeningTrackAggregate(
-                remoteTrackID: child.id,
-                title: child.title ?? child.id,
-                artist: child.artist ?? child.displayArtist,
-                album: child.album,
-                playCount: child.playCount ?? 0,
-                lastPlayedAt: child.played.flatMap(Self.parseDate),
-                content: statsContent(for: child)
-            )
-        }
+        let referencedEventIDs = Set(history?.entries.map(\.mediaFileId) ?? [])
+        var playedTracks: [ServerListeningTrackAggregate] = []
+        var eventMetadataByID: [String: StatsEventSongMetadata] = [:]
+        eventMetadataByID.reserveCapacity(referencedEventIDs.count)
+
+        try await streamCompleteStatsCatalog(
+            resetAttempt: {
+                playedTracks.removeAll(keepingCapacity: false)
+                eventMetadataByID.removeAll(keepingCapacity: true)
+            },
+            onPage: { page in
+                for child in page {
+                    let playCount = child.playCount ?? 0
+                    let isReferencedByEvent = referencedEventIDs.contains(child.id)
+                    guard playCount > 0 || isReferencedByEvent else { continue }
+                    let content = statsContent(for: child)
+                    let resolvedArtist = child.artist ?? child.displayArtist
+                    if playCount > 0 {
+                        playedTracks.append(
+                            ServerListeningTrackAggregate(
+                                remoteTrackID: child.id,
+                                title: child.title ?? child.id,
+                                artist: resolvedArtist,
+                                album: child.album,
+                                playCount: playCount,
+                                lastPlayedAt: child.played.flatMap(Self.parseDate),
+                                content: content
+                            )
+                        )
+                    }
+                    if isReferencedByEvent {
+                        eventMetadataByID[child.id] = StatsEventSongMetadata(
+                            title: child.title,
+                            artist: resolvedArtist,
+                            album: child.album,
+                            content: content
+                        )
+                    }
+                }
+            }
+        )
+
         if let history {
-            let songsByID = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
             return ServerListeningStatsPayload(
                 accountFingerprint: ServerListeningStatsFingerprint.account(
                     service: "navidrome",
@@ -568,19 +653,19 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 ),
                 temporalDetail: .events,
                 events: history.entries.map { entry in
-                    let song = songsByID[entry.mediaFileId]
+                    let song = eventMetadataByID[entry.mediaFileId]
                     return ServerListeningEvent(
                         id: String(entry.id),
                         remoteTrackID: entry.mediaFileId,
                         title: song?.title ?? entry.mediaFileId,
-                        artist: song?.artist ?? song?.displayArtist,
+                        artist: song?.artist,
                         album: song?.album,
                         playedAt: Date(timeIntervalSince1970: TimeInterval(entry.submissionTime)),
-                        content: song.map(statsContent)
+                        content: song?.content
                     )
                 },
-                allTimePlayCount: tracks.reduce(0) { $0 + $1.playCount },
-                cumulativeTracks: tracks
+                allTimePlayCount: playedTracks.reduce(0) { $0 + $1.playCount },
+                cumulativeTracks: playedTracks
             )
         }
         let payload = ServerListeningStatsPayload(
@@ -590,7 +675,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 accountIdentifier: username
             ),
             temporalDetail: .aggregate,
-            tracks: tracks
+            tracks: playedTracks
         )
         guard payload.isStructurallyValid else {
             throw ServerListeningStatsConnectorError.invalidSnapshot
@@ -702,24 +787,33 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     /// Statistics are published only after the complete catalogue has been read.
     /// This deliberately does not consume `scanSongs`, whose legacy path streams rows
     /// before the final page and therefore cannot provide an atomic server snapshot.
-    private func fetchCompleteStatsCatalog() async throws -> [SubsonicChild] {
+    private func streamCompleteStatsCatalog(
+        resetAttempt: () -> Void,
+        onPage: ([SubsonicChild]) throws -> Void
+    ) async throws {
         if SubsonicCatalogPagingPolicy.shouldUseDirectSongSearch(
             isOpenSubsonic: isOpenSubsonic,
             serverType: serverType
         ) {
             do {
-                if let catalog = try await fetchStableSearch3Catalog(path: "/") {
-                    return catalog
+                if try await fetchStableSearch3Catalog(
+                    path: "/",
+                    retainingSongs: false,
+                    usesScanPrefetch: false,
+                    resetAttempt: resetAttempt,
+                    onValidatedPage: onPage
+                ) != nil {
+                    return
                 }
             } catch SubsonicCompatibilityError.directCatalogUnavailable {
                 try Task.checkCancellation()
             }
         }
 
+        resetAttempt()
         var offset = 0
         var seenAlbumIDs = Set<String>()
         var seenSongIDs = Set<String>()
-        var catalog: [SubsonicChild] = []
         while true {
             try Task.checkCancellation()
             let listContainer: AlbumListContainer = try await requestJSON(
@@ -743,6 +837,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 throw ServerListeningStatsConnectorError.invalidSnapshot
             }
 
+            var pageSongs: [SubsonicChild] = []
             for result in try await fetchLegacyAlbums(newAlbums) {
                 for child in result.songs where child.isVideo != true {
                     try Task.checkCancellation()
@@ -750,13 +845,15 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     guard SubsonicCatalogPagingPolicy.isWithinSongLimit(seenSongIDs.count) else {
                         throw ServerListeningStatsConnectorError.invalidSnapshot
                     }
-                    catalog.append(child)
+                    pageSongs.append(child)
                 }
+            }
+            if !pageSongs.isEmpty {
+                try onPage(pageSongs)
             }
             offset += albums.count
             if albums.count < Self.pageSize { break }
         }
-        return catalog
     }
 
     private func search3SongPage(offset: Int, path: String, pageSize: Int? = nil) async throws -> [SubsonicChild] {
@@ -858,13 +955,17 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         path: String,
         toleratesDriftOnLastAttempt: Bool = false,
         retainingSongs: Bool = true,
+        usesScanPrefetch: Bool? = nil,
+        resetAttempt: () -> Void = {},
         onValidatedPage: ([SubsonicChild]) throws -> Void = { _ in }
     ) async throws -> [SubsonicChild]? {
+        let shouldPrefetch = usesScanPrefetch ?? !retainingSongs
         for attempt in 0..<Self.catalogSnapshotMaximumAttempts {
             do {
-                let firstPage = try await (retainingSongs
-                    ? search3SongPage(offset: 0, path: path)
-                    : catalogSongPage(offset: 0, path: path))
+                resetAttempt()
+                let firstPage = try await (shouldPrefetch
+                    ? catalogSongPage(offset: 0, path: path)
+                    : search3SongPage(offset: 0, path: path))
                 guard !firstPage.isEmpty else { return nil }
                 return try await collectSearch3Catalog(
                     firstPage: firstPage,
@@ -872,6 +973,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     toleratesDrift: toleratesDriftOnLastAttempt
                         && attempt + 1 == Self.catalogSnapshotMaximumAttempts,
                     retainingSongs: retainingSongs,
+                    usesScanPrefetch: shouldPrefetch,
                     onValidatedPage: onValidatedPage
                 )
             } catch SubsonicCompatibilityError.catalogChangedDuringPagination {
@@ -892,6 +994,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         path: String,
         toleratesDrift: Bool,
         retainingSongs: Bool,
+        usesScanPrefetch: Bool,
         onValidatedPage: ([SubsonicChild]) throws -> Void
     ) async throws -> [SubsonicChild] {
         var offset = 0
@@ -935,9 +1038,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 continuesAfterShortPage: true
             ) else { return catalog }
             offset = nextOffset
-            page = try await (retainingSongs
-                ? search3SongPage(offset: offset, path: path)
-                : catalogSongPage(offset: offset, path: path))
+            page = try await (usesScanPrefetch
+                ? catalogSongPage(offset: offset, path: path)
+                : search3SongPage(offset: offset, path: path))
         }
     }
 
@@ -947,7 +1050,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     ) throws {
         for child in catalog {
             try Task.checkCancellation()
-            let song = buildSong(from: child)
+            let song = buildSong(from: child, recordsCatalogObservation: true)
             continuation.yield(
                 ConnectorScannedSong(
                     song: song,
@@ -1016,6 +1119,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         catalogPreparationID = UUID()
         catalogAlbums = [:]
         provisionalAlbumArtists = [:]
+        clearCatalogObservations()
         overlappingAlbumLibraries = false
         legacyAlbumSearchScopes = []
         usesLegacyAlbumWalk = false
@@ -1023,7 +1127,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             try await connect()
             try await prepareLibraryScope(refreshing: true)
         } catch {
-            if catalogScanID == scanID { catalogScanID = nil }
+            if catalogScanID == scanID {
+                catalogScanID = nil
+                clearCatalogObservations()
+            }
             throw error
         }
     }
@@ -2221,14 +2328,29 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     // MARK: - Song construction
 
-    private func buildSong(from child: SubsonicChild, album: AlbumSummary? = nil) -> Song {
-        observedServerRatings[child.id] = min(max(child.userRating ?? 0, 0), 5)
-        if let albumID = child.albumId ?? album?.id, !albumID.isEmpty {
-            observedSongAlbumIDs[child.id] = albumID
+    private func buildSong(
+        from child: SubsonicChild,
+        album: AlbumSummary? = nil,
+        recordsCatalogObservation: Bool = false
+    ) -> Song {
+        if recordsCatalogObservation {
+            observedServerRatings[child.id] = min(max(child.userRating ?? 0, 0), 5)
+            if let albumID = child.albumId ?? album?.id, !albumID.isEmpty {
+                let sharedAlbumID: String
+                if albumID.utf8.count > 15 {
+                    if let cached = observedAlbumIDPool[albumID] {
+                        sharedAlbumID = cached
+                    } else {
+                        observedAlbumIDPool[albumID] = albumID
+                        sharedAlbumID = albumID
+                    }
+                } else {
+                    sharedAlbumID = albumID
+                }
+                observedSongAlbumIDs[child.id] = sharedAlbumID
+            }
         }
-        let suffix = (child.suffix ?? (child.path.map { ($0 as NSString).pathExtension }) ?? "mp3").lowercased()
-        let format = AudioFormat.from(fileExtension: suffix) ?? .mp3
-        let relativePath = "/songs/\(child.id).\(suffix.isEmpty ? "mp3" : suffix)"
+        let identity = resolvedSongIdentity(for: child)
         let coverArtID = child.coverArt ?? album?.coverArt
         let created = child.created.flatMap(Self.parseDate)
         let added = created.map(ServerSongCatalogMergePolicy.normalizedAddedDate)
@@ -2261,7 +2383,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             return Self.cleaned(names.joined(separator: ", "), unknown: "[Unknown Artist]")
         }
         let taggedAlbumArtist = Self.cleaned(child.displayAlbumArtist, unknown: "[Unknown Artist]") ?? joinedAlbumArtists
-        if let id = child.albumId, provisionalAlbumArtists[id] == nil {
+        if recordsCatalogObservation, let id = child.albumId, provisionalAlbumArtists[id] == nil {
             provisionalAlbumArtists[id] = taggedAlbumArtist ?? artist
         }
         let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
@@ -2276,7 +2398,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         )
 
         return Song(
-            id: Self.hash("\(sourceID):\(relativePath)"),
+            id: identity.id,
             title: child.title ?? "Unknown",
             albumID: child.albumId,
             artistID: child.artistId,
@@ -2287,14 +2409,14 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             trackNumber: child.track,
             discNumber: child.discNumber,
             duration: TimeInterval(child.duration ?? 0),
-            fileFormat: format,
-            filePath: relativePath,
+            fileFormat: identity.format,
+            filePath: identity.relativePath,
             sourceID: sourceID,
             fileSize: child.size ?? 0,
             bitRate: child.bitRate,
             sampleRate: child.samplingRate,
             bitDepth: child.bitDepth,
-            genre: child.genres?.genre(fallback: child.genre) ?? child.genre,
+            genre: identity.genre,
             year: child.year,
             lastModified: created,
             dateAdded: added ?? Date(),
@@ -2313,7 +2435,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 catalogBitRateKbps: child.bitRate,
                 sampleRate: child.samplingRate,
                 channelCount: child.channelCount,
-                container: format
+                container: identity.format
             ),
             serverDateAdded: added,
             serverAlbumDateAdded: albumCreated,
@@ -3868,7 +3990,10 @@ extension SubsonicSource: ServerRatingObservingConnector {
     }
 
     func takeObservedSongAlbumIDs() -> [String: String] {
-        defer { observedSongAlbumIDs.removeAll(keepingCapacity: false) }
+        defer {
+            observedSongAlbumIDs.removeAll(keepingCapacity: false)
+            observedAlbumIDPool.removeAll(keepingCapacity: false)
+        }
         return observedSongAlbumIDs
     }
 }
