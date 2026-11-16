@@ -2882,7 +2882,9 @@ struct PlayerCoveredContentInteraction: ViewModifier {
 }
 
 private struct PlayerCoveredContentLayout: ViewModifier {
-    @Environment(MusicLibrary.self) private var library
+    /// 播放页展开、收起的弹簧时长（`PlayerOverlay` 的 entrance / dismissal 都是 0.42 秒）再留一点余量。
+    static let presentationTransitionDuration: TimeInterval = 0.5
+
     @Binding var isPlayerPresented: Bool
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -2900,9 +2902,13 @@ private struct PlayerCoveredContentLayout: ViewModifier {
                 .environment(\.horizontalSizeClass, isPlayerPresented ? restingHorizontalClass : horizontalSizeClass)
                 .environment(\.verticalSizeClass, isPlayerPresented ? restingVerticalClass : verticalSizeClass)
                 .frame(width: size.width, height: size.height)
-                .onChange(of: isPlayerPresented, initial: true) { _, presented in
-                    library.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
-                    AppServices.shared.serverMirrorRefresh.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
+                .onChange(of: isPlayerPresented, initial: true) { oldValue, presented in
+                    // 展开、收起的这一段算交互：曲库交付、歌单匹配、服务端歌单刷新都等它停稳。
+                    // 只是开着播放页不算——维护工作照常做，不会因为一直开着就一直推后。
+                    if oldValue != presented {
+                        UserScrollActivityMonitor.shared.recordInteraction(lasting: Self.presentationTransitionDuration)
+                    }
+                    // 只给首页看的推算（推荐、「为你」）盖住时不算，收起后补。
                     ListeningIntentService.shared.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
                     AlbumRecommendationService.shared.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
                     if !presented {
@@ -2913,8 +2919,6 @@ private struct PlayerCoveredContentLayout: ViewModifier {
                     if !isPlayerPresented { remember(size: size) }
                 }
                 .onDisappear {
-                    library.setPlayerPresentationActive(false, owner: presentationWorkOwner)
-                    AppServices.shared.serverMirrorRefresh.setPlayerPresentationActive(false, owner: presentationWorkOwner)
                     ListeningIntentService.shared.setPlayerPresentationActive(false, owner: presentationWorkOwner)
                     AlbumRecommendationService.shared.setPlayerPresentationActive(false, owner: presentationWorkOwner)
                 }

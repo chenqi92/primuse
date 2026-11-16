@@ -2429,7 +2429,8 @@ struct NowPlayingView: View {
             return
         }
         immersiveControlsAutoHideTask?.cancel()
-        if showLyrics != isVisible { UserScrollActivityMonitor.shared.recordInteraction() }
+        // 封面和歌词互换的弹簧约 0.46 秒停稳：整段算交互，后台交付和维护工作等它做完。
+        if showLyrics != isVisible { UserScrollActivityMonitor.shared.recordInteraction(lasting: 0.6) }
         withAnimation(standardLyricsAnimation) {
             showLyrics = isVisible
             isLyricsImmersive = false

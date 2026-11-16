@@ -140,6 +140,9 @@ struct HomeListeningRankingSection: View {
         }
         .task(id: playerCoversContent ? nil : currentRequest) {
             guard !playerCoversContent else { return }
+            // 刚收起播放页、正在滑时先等停稳（最多几秒），不和转场抢。
+            await UserScrollActivityMonitor.shared.waitUntilSettled(maximumHold: 5)
+            guard !Task.isCancelled, !playerCoversContent else { return }
             await refresh()
         }
         .onChange(of: period) { _, _ in showsExpandedRanking = false }

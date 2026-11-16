@@ -69,6 +69,7 @@ final class AlbumRecommendationService {
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var refreshPending = false
     @ObservationIgnored private var playerPresentationOwners: Set<UUID> = []
+    @ObservationIgnored private var playerSettleRefresh: Task<Void, Never>?
     @ObservationIgnored private var forcePicksOnNextRefresh = false
     @ObservationIgnored private var momentTimer: Task<Void, Never>?
     @ObservationIgnored private weak var library: MusicLibrary?
@@ -90,6 +91,8 @@ final class AlbumRecommendationService {
     func setPlayerPresentationActive(_ active: Bool, owner: UUID) {
         if active {
             playerPresentationOwners.insert(owner)
+            playerSettleRefresh?.cancel()
+            playerSettleRefresh = nil
             if refreshTask != nil {
                 refreshPending = true
                 forcePicksOnNextRefresh = true
@@ -99,7 +102,20 @@ final class AlbumRecommendationService {
             momentTimer = nil
         } else if playerPresentationOwners.remove(owner) != nil,
                   playerPresentationOwners.isEmpty, let library {
-            refresh(library: library)
+            refreshAfterPlayerSettles(library: library)
+        }
+    }
+
+    /// 收起播放页时收起动画还在走：等它停稳（最多几秒）再补这一轮，不和动画抢。
+    private func refreshAfterPlayerSettles(library: MusicLibrary) {
+        playerSettleRefresh?.cancel()
+        playerSettleRefresh = Task { @MainActor [weak self, weak library] in
+            #if os(iOS) || os(macOS)
+            await UserScrollActivityMonitor.shared.waitUntilSettled(maximumHold: 5)
+            #endif
+            guard let self, let library, !Task.isCancelled, self.playerPresentationOwners.isEmpty else { return }
+            self.playerSettleRefresh = nil
+            self.refresh(library: library)
         }
     }
 

@@ -30,6 +30,9 @@ private final class HomeRefreshCoordinator {
     var pendingSignature: HomeView.HomeSnapshotSignature?
     /// 上一次真正做完整库重算的时刻, 给资料库版本驱动的刷新做节流。
     var lastRefreshAt: Date?
+    /// 最新入库的那几十首、最近添加的专辑只跟曲库有关。每放完一首歌听歌记录就变、首页就要重算，
+    /// 曲库没变时沿用上次的，不为这个把整库再走两遍；只重排跟听歌记录有关的顶部封面和最近播放。
+    var highlightsBase: HomeHighlightsBase?
 
     func cancelAll() {
         debounceTask?.cancel()
@@ -42,6 +45,24 @@ private final class HomeRefreshCoordinator {
         libraryHighlightsTask = nil
         pendingSignature = nil
     }
+}
+
+/// 首页顶部封面、最近添加里只由曲库决定的那部分，以及它是照哪一版曲库算的。
+struct HomeHighlightsBase {
+    struct LibraryKey: Equatable {
+        let searchRevision: Int
+        /// 任何一次歌曲替换（补读、改标签）都换：入库时间、专辑归属可能跟着变。
+        let replacementToken: UUID
+        let collectionRevision: Int
+        let musicSongsRevision: UInt64
+        let visibleSongs: MusicLibrary.VisibleSongsVersion
+        let albumCount: Int
+        let includesExternalAlbums: Bool
+    }
+
+    let key: LibraryKey
+    let latestAdded: [Song]
+    let albumTiles: [HomeView.HomeAlbumTile]
 }
 
 @MainActor
@@ -3473,6 +3494,8 @@ struct HomeView: View {
         }
 
         try? await Task.sleep(for: .milliseconds(180))
+        // 刚收起播放页、切页转场还在走、正在滑时先等停稳（最多几秒），首页露出来之后再重算。
+        await UserScrollActivityMonitor.shared.waitUntilSettled(maximumHold: 5)
         guard !Task.isCancelled else { return }
         refreshHomeSnapshot()
     }
@@ -4044,14 +4067,27 @@ struct HomeView: View {
         guard showsMusicHomeSnapshot, isHomeVisible, isSceneActive, !playerCoversContent else { return }
         refreshCoordinator.libraryHighlightsTask?.cancel()
         let heroSeeds = currentHeroSeeds(for: signature)
+        let baseKey = HomeHighlightsBase.LibraryKey(
+            searchRevision: library.searchRevision,
+            replacementToken: library.songReplacementToken,
+            collectionRevision: library.visibleSongCollectionRevision,
+            musicSongsRevision: library.musicSongsRevision,
+            visibleSongs: library.visibleSongsVersion,
+            albumCount: albums.count,
+            includesExternalAlbums: signature.showsExternalAlbums
+        )
+        let reusableBase = refreshCoordinator.highlightsBase.flatMap { $0.key == baseKey ? $0 : nil }
+        let cachedLatestAdded = reusableBase?.latestAdded
+        let cachedAlbumTiles = reusableBase?.albumTiles
         refreshCoordinator.libraryHighlightsTask = Task { @MainActor in
             let worker = Task.detached(priority: .utility) {
                 let startedAt = Date()
                 // 两处都只要最近加入的头几十首: 有界选择一次, 不为它把整库复制、
                 // 排序两遍(百万首各要几百 MB)。与 `sorted(by:).prefix` 结果相同。
-                let latestAdded = CarPlayListSelection.firstSorted(musicSongs.indices, limit: 60) {
-                    musicSongs[$0].dateAdded > musicSongs[$1].dateAdded
-                }.map { musicSongs[$0] }
+                let latestAdded = cachedLatestAdded
+                    ?? CarPlayListSelection.firstSorted(musicSongs.indices, limit: 60) {
+                        musicSongs[$0].dateAdded > musicSongs[$1].dateAdded
+                    }.map { musicSongs[$0] }
                 let heroCovers = Self.makeHeroCoverSongs(
                     musicSongs: musicSongs,
                     latestAdded: latestAdded,
@@ -4059,7 +4095,7 @@ struct HomeView: View {
                     playedAlbumKeys: playedAlbumKeys,
                     seeds: heroSeeds
                 )
-                let albumTiles = Self.makeRecentlyAddedAlbumTiles(
+                let albumTiles = cachedAlbumTiles ?? Self.makeRecentlyAddedAlbumTiles(
                     songs: songs,
                     albums: albums,
                     limit: Self.recentlyAddedAlbumPoolLimit,
@@ -4073,7 +4109,8 @@ struct HomeView: View {
                     albumTiles,
                     Date().timeIntervalSince(startedAt),
                     resolvedRecentSongs,
-                    heroCovers.next.map(\.id)
+                    heroCovers.next.map(\.id),
+                    latestAdded
                 )
             }
             let payload = await withTaskCancellationHandler {
@@ -4082,7 +4119,11 @@ struct HomeView: View {
                 worker.cancel()
             }
 
-            guard !Task.isCancelled, homeSnapshotSignature == signature else { return }
+            guard !Task.isCancelled else { return }
+            refreshCoordinator.highlightsBase = HomeHighlightsBase(
+                key: baseKey, latestAdded: payload.5, albumTiles: payload.1
+            )
+            guard homeSnapshotSignature == signature else { return }
             // 首页正文都读同一个 snapshot，写一次整页重新描述。冷启动时先画的是上次
             // 存下的样子，后台算完多半一模一样，这时不写，免得刚开始滚动就整页重算。
             if model.snapshot.heroCoverSongs != payload.0

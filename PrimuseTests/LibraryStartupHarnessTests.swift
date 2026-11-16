@@ -56,42 +56,33 @@ final class LibraryStartupHarnessTests: XCTestCase {
         await Self.drainLaunchCacheWrites(library)
     }
 
-    func testPlayerPresentationDefersPendingMatchesUntilLastOwnerCloses() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PlayerPending-\(UUID())")
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let library = MusicLibrary(storageDirectory: directory)
-        let sourceID = UUID().uuidString
-        let playlistID = ServerPlaylistIdentity.playlistID(sourceID: sourceID, serverPlaylistID: "mirror")
-        let entry = PlaylistPendingEntry(title: "Orbit Window", artists: ["Paper Satellites"], duration: 180,
-                                         origin: "jellyfin", externalID: "target", serverSourceID: sourceID)
-        library.addSongs([Song(id: "existing", title: "Quiet Compass", fileFormat: .flac,
-                               filePath: "/items/existing.flac", sourceID: sourceID)])
-        await library.waitForPendingIndex()
-        library.ensurePlaylist(id: playlistID, name: "Mirror")
-        library.replaceMirrorPlaylistSongs(playlistID: playlistID, songIDs: [entry.id],
-                                           coverArtPath: nil, pendingEntries: [entry])
-        await library.waitForPendingPlaylistResolution()
-        let passes = library.playlistPendingMatchPassCount
-        let first = UUID(), second = UUID()
-        library.setPlayerPresentationActive(true, owner: first)
-        library.setPlayerPresentationActive(true, owner: second)
-        library.addSongs([Song(id: "arrived", title: entry.title, fileFormat: .flac,
-                               filePath: "/items/target.flac", sourceID: sourceID)])
-        await library.waitForPendingIndex()
-        await library.waitForPendingPlaylistResolution()
-        XCTAssertEqual(library.playlistPendingMatchPassCount, passes)
-        XCTAssertEqual(library.songIDs(forPlaylist: playlistID), [entry.id])
-        XCTAssertNotNil(library.pendingEntry(id: entry.id))
+    func testInteractionWindowsHoldBackgroundWorkUntilTheyEndWithinTheMaximumHold() async {
+        let monitor = UserScrollActivityMonitor.shared
+        // 播放页展开这类转场：转场时长加上停稳的一秒都算交互。
+        monitor.recordInteraction(lasting: 0.4)
+        var startedAt = Date()
+        await monitor.waitUntilSettled(maximumHold: 10)
+        var waited = Date().timeIntervalSince(startedAt)
+        XCTAssertGreaterThanOrEqual(waited, 1.2)
+        XCTAssertLessThan(waited, 5)
 
-        library.setPlayerPresentationActive(false, owner: first)
-        await library.waitForPendingPlaylistResolution()
-        XCTAssertEqual(library.playlistPendingMatchPassCount, passes)
-        library.setPlayerPresentationActive(false, owner: second)
-        await library.waitForPendingPlaylistResolution()
-        XCTAssertEqual(library.playlistPendingMatchPassCount, passes + 1)
-        XCTAssertEqual(library.songIDs(forPlaylist: playlistID), ["arrived"])
-        XCTAssertNil(library.pendingEntry(id: entry.id))
-        await Self.drainLaunchCacheWrites(library)
+        // 转场期间的一次点按不会把转场的结束时刻提前。
+        monitor.recordInteraction(lasting: 1.5)
+        monitor.recordInteraction()
+        startedAt = Date()
+        await monitor.waitUntilSettled(maximumHold: 10)
+        waited = Date().timeIntervalSince(startedAt)
+        XCTAssertGreaterThanOrEqual(waited, 2.3)
+
+        // 一直不停时最多等 `maximumHold`，到点照样往下走。
+        monitor.recordInteraction(lasting: 1)
+        startedAt = Date()
+        await monitor.waitUntilSettled(maximumHold: 0.5)
+        waited = Date().timeIntervalSince(startedAt)
+        XCTAssertGreaterThanOrEqual(waited, 0.45)
+        XCTAssertLessThan(waited, 1.5)
+        // 别把这段交互留给后面的用例。
+        await monitor.waitUntilSettled(maximumHold: 5)
     }
 
     private final class PlayerRefreshFileManager: FileManager, @unchecked Sendable {
@@ -101,7 +92,7 @@ final class LibraryStartupHarnessTests: XCTestCase {
                            in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [root] }
     }
 
-    func testPlayerPresentationCancelsMirrorRefreshAndResumesWithoutCooldown() async throws {
+    func testMirrorRefreshWaitsOutInteractionWindowsWithoutBeingCancelled() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("PlayerMirror-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         var configuration = MusicSource(id: UUID().uuidString, name: "Mirror fixture", type: .navidrome,
@@ -116,39 +107,28 @@ final class LibraryStartupHarnessTests: XCTestCase {
         let scanner = ScanService(fileManager: PlayerRefreshFileManager(root: root.appendingPathComponent("Scan")),
                                   connectorProvider: { _ in connector })
         var attempts = 0
-        var cancelledFence: Bool?
         var completedFence: Bool?
         let coordinator = ServerMirrorRefreshCoordinator(
             sourcesStore: store, sourceManager: manager, library: library, scanService: scanner,
             launchDelay: .zero
         ) { _, fence in
             attempts += 1
-            if attempts == 1 {
-                try? await Task.sleep(for: .seconds(30))
-                cancelledFence = fence()
-            } else {
-                completedFence = fence()
-            }
+            completedFence = fence()
         }
+        // 播放页正在展开：刷新等转场停稳再开始，开始了就做完，不会被取消。
+        UserScrollActivityMonitor.shared.recordInteraction(lasting: 0.5)
+        let startedAt = Date()
         coordinator.startColdLaunchRefresh()
-        for _ in 0..<100 where attempts == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(attempts, 0)
+        for _ in 0..<400 where completedFence == nil { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(attempts, 1)
-        let first = UUID(), second = UUID()
-        coordinator.setPlayerPresentationActive(true, owner: first)
-        coordinator.setPlayerPresentationActive(true, owner: second)
-        for _ in 0..<100 where cancelledFence == nil { try await Task.sleep(for: .milliseconds(10)) }
-        XCTAssertEqual(cancelledFence, false)
-        coordinator.applicationDidBecomeActive()
-        coordinator.setPlayerPresentationActive(false, owner: first)
-        try await Task.sleep(for: .milliseconds(550))
-        XCTAssertEqual(attempts, 1)
-        coordinator.setPlayerPresentationActive(false, owner: second)
-        for _ in 0..<150 where completedFence == nil { try await Task.sleep(for: .milliseconds(10)) }
-        XCTAssertEqual(attempts, 2)
         XCTAssertEqual(completedFence, true)
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(startedAt), 1.3)
+        // 冷却期内回到前台不再刷一遍。
         coordinator.applicationDidBecomeActive()
         try await Task.sleep(for: .milliseconds(50))
-        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(attempts, 1)
         await Self.drainLaunchCacheWrites(library)
     }
 

@@ -11853,33 +11853,10 @@ final class MusicLibrary {
         notifyPlaylistsChanged([playlistID])
     }
 
-    @ObservationIgnored private var playerPresentationOwners: Set<UUID> = []
-    @ObservationIgnored private var pendingResolutionDeferredForPlayer = false
-
-    func setPlayerPresentationActive(_ active: Bool, owner: UUID) {
-        if active {
-            playerPresentationOwners.insert(owner)
-            if playlistPendingResolutionTask != nil {
-                pendingResolutionDeferredForPlayer = true
-                playlistPendingResolutionGeneration &+= 1
-                playlistPendingResolutionTask?.cancel()
-                playlistPendingResolutionTask = nil
-            }
-        } else if playerPresentationOwners.remove(owner) != nil,
-                  playerPresentationOwners.isEmpty, pendingResolutionDeferredForPlayer {
-            pendingResolutionDeferredForPlayer = false
-            schedulePlaylistPendingResolution(after: .seconds(1))
-        }
-    }
-
     /// 曲库变了(扫描、回填、启用了一个源)之后, 在后台把占位和曲库重新对一遍:
     /// 把握大的原位点亮, 只够得上「可能是」的记下候选等用户确认。
     private func schedulePlaylistPendingResolution(after delay: Duration = .seconds(3)) {
         guard !playlistPendingEntries.isEmpty, !isPreparing else { return }
-        guard playerPresentationOwners.isEmpty else {
-            pendingResolutionDeferredForPlayer = true
-            return
-        }
         playlistPendingResolutionTask?.cancel()
         playlistPendingResolutionGeneration &+= 1
         let generation = playlistPendingResolutionGeneration
@@ -11895,6 +11872,12 @@ final class MusicLibrary {
                 self.schedulePlaylistPendingResolution(after: .seconds(10))
                 return
             }
+            #if os(iOS) || os(macOS)
+            // 正在滑动、播放页正在展开收起、封面和歌词正在互换时先等它停稳（最多 15 秒）。
+            // 只是开着播放页不算：匹配照常做，不会因为一直开着就一直推后。
+            await UserScrollActivityMonitor.shared.waitUntilSettled()
+            guard !Task.isCancelled, generation == self.playlistPendingResolutionGeneration else { return }
+            #endif
             let entries = self.playlistPendingEntries
             let state = PendingEntryCheckState(
                 songs: self.songMutationGeneration,
@@ -11913,6 +11896,10 @@ final class MusicLibrary {
             }
             let outcome = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             await self.waitForSourceRemoval()
+            #if os(iOS) || os(macOS)
+            // 落地会改歌单、牵动首页和歌单页：算好时正赶上交互，也等停稳再落。
+            await UserScrollActivityMonitor.shared.waitUntilSettled()
+            #endif
             guard !Task.isCancelled, generation == self.playlistPendingResolutionGeneration else { return }
             self.playlistPendingResolutionTask = nil
             guard state.songs == self.songMutationGeneration,

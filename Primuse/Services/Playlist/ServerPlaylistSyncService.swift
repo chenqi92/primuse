@@ -64,6 +64,8 @@ enum ServerPlaylistSyncService {
             source: source,
             library: library
         )
+        // 落地会改一批歌单、牵动首页和歌单页：算好时正赶上交互（滑动、播放页转场），等停稳再落。
+        await UserScrollActivityMonitor.shared.waitUntilSettled()
         guard !Task.isCancelled, applyFence() else {
             plog("\(context) stage=apply result=skipped reason=stale-scan")
             return result
@@ -891,9 +893,6 @@ final class ServerMirrorRefreshCoordinator {
     private var lastRefreshStartedAt: [String: Date] = [:]
     private var runningTask: Task<Void, Never>?
     private var didScheduleColdLaunch = false
-    private var playerPresentationOwners: Set<UUID> = []
-    private var refreshDeferredForPlayer = false
-    private var refreshingSourceID: String?
 
     init(
         sourcesStore: SourcesStore,
@@ -923,42 +922,15 @@ final class ServerMirrorRefreshCoordinator {
         start(after: .zero)
     }
 
-    func setPlayerPresentationActive(_ active: Bool, owner: UUID) {
-        if active {
-            let wasEmpty = playerPresentationOwners.isEmpty
-            playerPresentationOwners.insert(owner)
-            guard wasEmpty else { return }
-            if runningTask != nil {
-                refreshDeferredForPlayer = true
-                // 被界面让行打断不算网络失败，退出播放页后补完这个源。
-                if let refreshingSourceID { lastRefreshStartedAt[refreshingSourceID] = nil }
-                runningTask?.cancel()
-            }
-        } else if playerPresentationOwners.remove(owner) != nil,
-                  playerPresentationOwners.isEmpty, refreshDeferredForPlayer {
-            start(after: .milliseconds(500))
-        }
-    }
-
     private func start(after delay: Duration) {
-        guard playerPresentationOwners.isEmpty else {
-            refreshDeferredForPlayer = true
-            return
-        }
         guard runningTask == nil else { return }
-        refreshDeferredForPlayer = false
         runningTask = Task { @MainActor [weak self] in
             if delay > .zero {
                 try? await Task.sleep(for: delay)
             }
             guard let self else { return }
             // 清干净再返回: 漏掉一次就再也没有下一轮了。
-            defer {
-                self.runningTask = nil
-                if self.refreshDeferredForPlayer, self.playerPresentationOwners.isEmpty {
-                    self.start(after: .milliseconds(500))
-                }
-            }
+            defer { self.runningTask = nil }
             guard !Task.isCancelled else { return }
             // 库还在准备时 `library.songs` 是空的, 服务端歌单会被整份判成
             // "一首都对不上"而不建 —— 等发布完再对。
@@ -969,19 +941,21 @@ final class ServerMirrorRefreshCoordinator {
 
     private func refreshDueSources() async {
         for source in sourcesStore.sources {
-            guard !Task.isCancelled, playerPresentationOwners.isEmpty else { return }
+            guard !Task.isCancelled else { return }
+            guard isDue(source, now: Date()) else { continue }
+            // 用户正在滑动、播放页正在展开收起、封面和歌词正在互换时，等停稳再开始这个源（最多 15 秒）。
+            // 只是开着播放页不算：照常刷新，不取消已经开始的那一轮。
+            await UserScrollActivityMonitor.shared.waitUntilSettled()
             let now = Date()
-            guard isDue(source, now: now) else { continue }
+            guard !Task.isCancelled, isDue(source, now: now) else { continue }
             lastRefreshStartedAt[source.id] = now
-            refreshingSourceID = source.id
-            defer { refreshingSourceID = nil }
 
             // 刷新期间源被停用 / 删除 / 改了凭据, 或者扫描接手了这个源, 拿回来的
             // 快照就不该再落地 —— 与扫描收尾用的是同一道闸。
             let scopeFingerprint = MusicSourceSecurityRevision.scopedFingerprint(for: source)
             let sourceID = source.id
             let applyFence: ServerMirrorApplyFence = { [weak self] in
-                guard let self, !Task.isCancelled, self.playerPresentationOwners.isEmpty,
+                guard let self, !Task.isCancelled,
                       let current = self.sourcesStore.source(id: sourceID),
                       current.isEnabled,
                       !current.isDeleted,
