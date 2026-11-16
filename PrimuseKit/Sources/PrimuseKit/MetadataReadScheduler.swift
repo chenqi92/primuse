@@ -42,6 +42,7 @@ public final class MetadataReadScheduler<Item: Sendable, Outcome: Sendable> {
             defer { group.cancelAll() }
             var nextIndex = 0
             var deferredIndices: [Int] = []
+            var unreapedTasks = 0
             continuation.yield(.configurationChanged)
             for await event in events {
                 guard !Task.isCancelled else { break }
@@ -54,6 +55,10 @@ public final class MetadataReadScheduler<Item: Sendable, Outcome: Sendable> {
                     deferredIndices.append(index)
                 } else if case .skipped = event {
                     inFlightCount -= 1
+                }
+                while unreapedTasks - inFlightCount >= 8 {
+                    _ = await group.next()
+                    unreapedTasks -= 1
                 }
                 guard shouldContinue() else { didCancel = true; break }
                 let budget = limits()
@@ -70,6 +75,7 @@ public final class MetadataReadScheduler<Item: Sendable, Outcome: Sendable> {
                     let item = items[index]
                     guard shouldRead(item) else { continue }
                     inFlightCount += 1
+                    unreapedTasks += 1
                     let readWhenAllowed: @MainActor @Sendable () async -> Event = { [self] in
                         guard shouldRead(item) else { return .skipped }
                         // A reserved slot may have spent time throttling. Do

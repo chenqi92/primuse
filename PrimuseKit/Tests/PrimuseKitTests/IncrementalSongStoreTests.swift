@@ -409,6 +409,25 @@ struct IncrementalSongStoreTests {
         #expect(window.missingPages(totalCount: 0).isEmpty)
     }
 
+    @Test("SongStringInterner shares long lyricsFileName and revision storage across songs")
+    func internsLyricsFileNameAndRevision() {
+        let sharedLyrics = String("sha256:0123456789abcdef0123456789abcdef0123456789abcdef.lrc")
+        let sharedRevision = String("etag-long-server-revision-token-9876543210")
+        var first = makeSong(id: "one", path: "/one.flac", title: "One")
+        first.lyricsFileName = String(sharedLyrics.unicodeScalars)
+        first.revision = String(sharedRevision.unicodeScalars)
+        var second = makeSong(id: "two", path: "/two.flac", title: "Two")
+        second.lyricsFileName = String(sharedLyrics.unicodeScalars)
+        second.revision = String(sharedRevision.unicodeScalars)
+
+        var interner = SongStringInterner()
+        interner.intern(&first)
+        interner.intern(&second)
+
+        #expect(first.lyricsFileName == second.lyricsFileName)
+        #expect(first.revision == second.revision)
+    }
+
     private func makeSong(id: String, path: String, title: String) -> Song {
         Song(
             id: id,

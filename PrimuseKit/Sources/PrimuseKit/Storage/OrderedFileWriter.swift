@@ -10,7 +10,7 @@ public final class OrderedFileWriter: Sendable {
     private let queue: DispatchQueue
 
     public init(label: String, qos: DispatchQoS = .utility) {
-        queue = DispatchQueue(label: label, qos: qos)
+        queue = DispatchQueue(label: label, qos: qos, autoreleaseFrequency: .workItem)
     }
 
     /// 排一次整份写。`encode` 抛错或返回 nil 时这一次什么都不写，后面排的照常执行；
@@ -21,12 +21,14 @@ public final class OrderedFileWriter: Sendable {
         written: (@Sendable (Int) -> Void)? = nil
     ) {
         queue.async {
-            guard let data = try? encode() else { return }
-            do {
-                try data.write(to: url, options: .atomic)
-                written?(data.count)
-            } catch {
-                return
+            autoreleasepool {
+                guard let data = try? encode() else { return }
+                do {
+                    try data.write(to: url, options: .atomic)
+                    written?(data.count)
+                } catch {
+                    return
+                }
             }
         }
     }
@@ -40,19 +42,21 @@ public final class OrderedFileWriter: Sendable {
         written: (@Sendable (Int) -> Void)? = nil
     ) {
         queue.async {
-            guard let data = try? encode(), !data.isEmpty else { return }
-            do {
-                if FileManager.default.fileExists(atPath: url.path) {
-                    let handle = try FileHandle(forWritingTo: url)
-                    defer { try? handle.close() }
-                    try handle.seekToEnd()
-                    try handle.write(contentsOf: data)
-                } else {
-                    try data.write(to: url, options: .atomic)
+            autoreleasepool {
+                guard let data = try? encode(), !data.isEmpty else { return }
+                do {
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        let handle = try FileHandle(forWritingTo: url)
+                        defer { try? handle.close() }
+                        try handle.seekToEnd()
+                        try handle.write(contentsOf: data)
+                    } else {
+                        try data.write(to: url, options: .atomic)
+                    }
+                    written?(data.count)
+                } catch {
+                    return
                 }
-                written?(data.count)
-            } catch {
-                return
             }
         }
     }

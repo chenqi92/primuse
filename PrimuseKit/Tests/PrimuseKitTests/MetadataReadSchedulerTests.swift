@@ -955,6 +955,29 @@ struct MetadataReadSchedulerTests {
         #expect(slots(pooled: true, preference: .automatic) >= slots(pooled: false, preference: .automatic))
     }
 
+    @Test @MainActor func largeSnapshotReapsCompletedChildTasksWithoutAccumulatingInFlight() async {
+        let scheduler = MetadataReadScheduler<Int, Int>()
+        var maxInFlight = 0
+        var completedCount = 0
+        let cancelled = await scheduler.run(
+            items: Array(0..<256),
+            limits: { .init(workerCount: 4, snapshotLimit: 256, interRequestDelay: 0, flushInterval: 5) },
+            read: { item in
+                await Task.yield()
+                return item * 2
+            },
+            completed: { item, value in
+                #expect(value == item * 2)
+                maxInFlight = max(maxInFlight, scheduler.inFlightCount)
+                completedCount += 1
+            }
+        )
+        #expect(!cancelled)
+        #expect(completedCount == 256)
+        #expect(maxInFlight <= 4)
+        #expect(scheduler.inFlightCount == 0)
+    }
+
     @MainActor private func waitUntil(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(3)
         while !condition(), ContinuousClock.now < deadline {

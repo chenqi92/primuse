@@ -2075,15 +2075,17 @@ final class CloudKitSyncService {
         systemFieldsCacheLoaded = true
         stateWriter.drain()
         var table: [String: Data] = [:]
-        if let data = try? Data(contentsOf: systemFieldsURL),
-           let dict = try? PropertyListDecoder().decode([String: Data].self, from: data) {
-            table = dict
-            systemFieldsBaseBytes = data.count
-        }
-        if let journal = try? Data(contentsOf: systemFieldsJournalURL) {
-            let applied = KeyedDataJournal.replay(journal, onto: &table)
-            systemFieldsJournalBytes = journal.count
-            plog("CloudKitSync: system fields journal replayed records=\(applied) bytes=\(journal.count)")
+        autoreleasepool {
+            if let data = try? Data(contentsOf: systemFieldsURL, options: .mappedIfSafe),
+               let dict = try? PropertyListDecoder().decode([String: Data].self, from: data) {
+                table = dict.mapValues { Data($0) }
+                systemFieldsBaseBytes = data.count
+            }
+            if let journal = try? Data(contentsOf: systemFieldsJournalURL, options: .mappedIfSafe) {
+                let applied = KeyedDataJournal.replay(journal, onto: &table)
+                systemFieldsJournalBytes = journal.count
+                plog("CloudKitSync: system fields journal replayed records=\(applied) bytes=\(journal.count)")
+            }
         }
         systemFieldsCache = table
     }

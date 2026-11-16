@@ -552,6 +552,8 @@ public struct SongStringInterner {
         share(&song.genre)
         share(&song.coverArtFileName)
         share(&song.artistArtworkFileName)
+        share(&song.lyricsFileName)
+        share(&song.revision)
         song.shareRareFields(in: &rareFields)
         if let names = song.sourceArtistNames {
             if let shared = stringLists[names] {
