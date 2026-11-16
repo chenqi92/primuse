@@ -174,6 +174,9 @@ final class NowPlayingCarouselState {
     /// (书写方向从左往右时是手指往左拖)。
     private(set) var offset: Double = 0
     private(set) var isDragging = false
+    /// 手指最近一次在转轮上挪动、横拖翻页起手或松手的时刻。转盘上的格子是按钮:横滑从它上面起手时，
+    /// 松手那一下按钮也会触发、跳到那一面。拖过的这一下不算点。不参与界面刷新。
+    @ObservationIgnored private var lastDragActivityAt: Date?
     /// 转到位的那一段在走(含拖回原处、首次回弹)。
     private(set) var isSettling = false
     /// 转到位途中刚离开的那一页;转到位清掉。途中它还露在外面,得挂着。
@@ -237,6 +240,7 @@ final class NowPlayingCarouselState {
     /// 认定是横拖的那一下。上一次还没转到位就又按住:停在原地,从这里接着拖;跳过好几页的那一段被按住时
     /// 直接落到目标页(中间几页没挂,不能从半路接着拖)。
     func beginDrag() {
+        lastDragActivityAt = Date()
         let isJump = departingIndex.map { abs($0 - (settledIndex ?? $0)) > 1 } ?? false
         stopRun()
         withoutAnimation {
@@ -265,7 +269,20 @@ final class NowPlayingCarouselState {
 
     /// 松手:按拖过的距离与惯性挑停在哪一页(一次最多一页),弹簧从手指的速度起步,手感连着,
     /// 不会松手那一下先顿住再转。
+    /// 手指在转轮上挪过(拖动手势挪够 10 点才回调，所以一定不是点按)，不管这一下能不能翻页。
+    func noteTouchMovement() {
+        lastDragActivityAt = Date()
+    }
+
+    /// 这一下是不是刚拖过:正在横拖，或手指挪动 / 松手不到 0.4 秒(按钮的松手和拖动的松手谁先到不一定)。
+    func isFinishingDrag(now: Date = Date()) -> Bool {
+        if isDragging { return true }
+        guard let lastDragActivityAt else { return false }
+        return now.timeIntervalSince(lastDragActivityAt) < 0.4
+    }
+
     func endDrag(translation: Double, predictedEndTranslation: Double, velocity: Double, pageWidth: Double) {
+        lastDragActivityAt = Date()
         guard let index = settledIndex, pageWidth > 0 else {
             settle(on: settledPage)
             return
@@ -722,7 +739,8 @@ struct NowPlayingCarouselContainer<Center: View>: View {
                     width: width,
                     safeInsets: safeInsets,
                     onSelect: { index in
-                        guard pages.indices.contains(index) else { return }
+                        // 横滑从转盘的格子上起手时，松手那一下不算点了这一格。
+                        guard pages.indices.contains(index), !state.isFinishingDrag() else { return }
                         state.settle(on: pages[index])
                     }
                 )
@@ -812,6 +830,7 @@ struct NowPlayingCarouselContainer<Center: View>: View {
         DragGesture(minimumDistance: 10, coordinateSpace: .global)
             .updating($isGestureActive) { _, active, _ in active = true }
             .onChanged { value in
+                state.noteTouchMovement()
                 if state.gestureStart != value.startLocation {
                     state.gestureStart = value.startLocation
                     state.gestureAxis = nil
