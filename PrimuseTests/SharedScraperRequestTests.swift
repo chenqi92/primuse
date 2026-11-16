@@ -1965,3 +1965,78 @@ final class BatchScrapeMemoryBoundsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(MusicScraperService.maximumQueuedSidecarWrites, 40)
     }
 }
+
+/// 一张封面下不来不能让整批刮削挂起:只算这一首没有封面,同一地址不再重复等待。
+final class ScrapeResourceFailureTests: XCTestCase {
+    private let settings = ScraperSettings(sources: [.init(id: "itunes", type: .itunes, isEnabled: true, priority: 0)])
+    private let needs = ScraperManager.ScrapeNeeds(metadata: false, cover: true, lyrics: false)
+
+    func testCoverTimeoutIsASongLevelMissNotSourceUnavailable() async {
+        let downloads = DownloadCounter()
+        let manager = ScraperManager(
+            scraperFactory: { _ in CoverResourceProbe() },
+            imageDownloader: { url, _ in
+                await downloads.record(url)
+                throw ScraperError.networkError("The request timed out.")
+            }
+        )
+        let first = await manager.scrapeMetadata(title: "纸灯", artist: "林舟", album: nil, duration: 180,
+                                                 needs: needs, settings: settings)
+        XCTAssertNil(first.coverData)
+        XCTAssertTrue(first.unavailableParts.isEmpty, "One broken image must not pause the whole batch")
+        XCTAssertFalse(first.errors.isEmpty)
+
+        let second = await manager.scrapeMetadata(title: "纸灯", artist: "林舟", album: nil, duration: 180,
+                                                  needs: needs, settings: settings)
+        XCTAssertTrue(second.unavailableParts.isEmpty)
+        let count = await downloads.count
+        XCTAssertEqual(count, 1, "A failed cover address is not requested again right away")
+    }
+
+    func testRateLimitedCoverStillMarksSourceUnavailable() async {
+        let manager = ScraperManager(
+            scraperFactory: { _ in CoverResourceProbe() },
+            imageDownloader: { _, _ in throw ScraperError.rateLimited(retryAfter: 30) }
+        )
+        let result = await manager.scrapeMetadata(title: "纸灯", artist: "林舟", album: nil, duration: 180,
+                                                  needs: needs, settings: settings)
+        XCTAssertEqual(result.unavailableParts, .cover)
+        XCTAssertEqual(result.retryAfter, 30, accuracy: 0.01)
+    }
+
+    func testDeferredSongMovesBehindRemainingSongs() {
+        XCTAssertEqual(
+            MusicScraperService.songIDsMovingDeferredSongToEnd("b", in: ["a", "b", "c", "d"], resumeIndex: 1),
+            ["a", "c", "d", "b"]
+        )
+        // Already last, or before the resume point: order stays.
+        XCTAssertEqual(
+            MusicScraperService.songIDsMovingDeferredSongToEnd("d", in: ["a", "b", "c", "d"], resumeIndex: 3),
+            ["a", "b", "c", "d"]
+        )
+        XCTAssertEqual(
+            MusicScraperService.songIDsMovingDeferredSongToEnd("a", in: ["a", "b", "c"], resumeIndex: 1),
+            ["a", "b", "c"]
+        )
+    }
+}
+
+private actor DownloadCounter {
+    private(set) var count = 0
+    func record(_ url: String) { count += 1 }
+}
+
+private struct CoverResourceProbe: MusicScraper {
+    let type = MusicScraperType.itunes
+    func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
+        ScraperSearchResult(
+            items: [ScraperSearchItem(externalId: "1", source: .itunes, title: "纸灯", artist: "林舟", durationMs: 180_000)],
+            source: .itunes
+        )
+    }
+    func getDetail(externalId: String) async throws -> ScraperDetail? { nil }
+    func getCoverArt(externalId: String) async throws -> [ScraperCoverResult] {
+        [ScraperCoverResult(source: .itunes, coverUrl: "https://images.test/front-500")]
+    }
+    func getLyrics(externalId: String) async throws -> ScraperLyricsResult? { nil }
+}

@@ -4,13 +4,22 @@ import PrimuseKit
 actor ScraperManager {
     private var scraperCache: [String: any MusicScraper] = [:]
     private let scraperFactory: @Sendable (ScraperSourceConfig) -> any MusicScraper
+    private let imageDownloader: @Sendable (String, ScraperSourceConfig) async throws -> Data?
+    /// 下载失败过的封面地址与到期时刻。同一张图常是整张专辑共用的,一首超时之后,
+    /// 同专辑的其他歌和这一首的重试都不必再等它。
+    private var failedCoverURLs: [String: ContinuousClock.Instant] = [:]
+    private static let failedCoverRetention: Duration = .seconds(30 * 60)
 
     init(
         scraperFactory: @escaping @Sendable (ScraperSourceConfig) -> any MusicScraper = {
             MusicScraperFactory.create(for: $0)
+        },
+        imageDownloader: @escaping @Sendable (String, ScraperSourceConfig) async throws -> Data? = {
+            try await ConfigurableScraper.downloadResource(from: $0, sourceConfig: $1)
         }
     ) {
         self.scraperFactory = scraperFactory
+        self.imageDownloader = imageDownloader
     }
 
     private struct FailureState {
@@ -110,6 +119,30 @@ actor ScraperManager {
         if let error, case ScraperError.rateLimited(let seconds) = error { delay = max(delay, Double(seconds ?? 5)) }
         if let failure = error as? HTTPResponseFailure { delay = max(delay, failure.retryAfter ?? 5) }
         result.retryAfter = max(result.retryAfter, delay)
+    }
+
+    /// 源是通的(这一首的搜索刚成功),只是其中一个资源没拿到:某张封面、某个候选的详情或歌词。
+    /// 这只算这一首这一项没刮到,不标「源不可用」。批量刮削遇到源不可用会把这首整首重做三次,
+    /// 再把整批挂起,续跑又从这首开始,一张下不来的图就能让后面的歌全都停住。
+    /// 限流、服务端要求冷却、或这个源因连续失败熔断时,才按源不可用处理。
+    private func recordResourceFailure(_ error: Error, config: ScraperSourceConfig, part: ScrapeParts,
+                                       result: inout ScrapeResult) async {
+        handleFailure(error, config: config)
+        let sourceLevel: Bool
+        if Self.isRateLimit(error) || isCircuitOpen(config) {
+            sourceLevel = true
+        } else {
+            sourceLevel = await isBackingOff(config)
+        }
+        if sourceLevel {
+            await recordUnavailable(config, part: part, error: error, result: &result)
+        }
+    }
+
+    private static func isRateLimit(_ error: Error) -> Bool {
+        if case ScraperError.rateLimited = error { return true }
+        if let failure = error as? HTTPResponseFailure { return failure.statusCode == 429 || failure.isRateLimited }
+        return false
     }
 
     func scrapeMetadata(
@@ -215,8 +248,7 @@ actor ScraperManager {
                         if isCancellation(error) { return result }
                         plog("🔍 \(config.type.displayName) detail FAILED: \(error.localizedDescription)")
                         await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
-                        handleFailure(error, config: config)
-                        await recordUnavailable(config, part: .metadata, error: error, result: &result)
+                        await recordResourceFailure(error, config: config, part: .metadata, result: &result)
                         result.errors.append("[\(config.type.displayName)] metadata detail: \(error.localizedDescription)")
                     }
                 } catch {
@@ -252,8 +284,7 @@ actor ScraperManager {
                         if isCancellation(error) { return result }
                         plog("🔍 \(candidate.config.type.displayName) fallback detail FAILED: \(error.localizedDescription)")
                         await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
-                        handleFailure(error, config: candidate.config)
-                        await recordUnavailable(candidate.config, part: .metadata, error: error, result: &result)
+                        await recordResourceFailure(error, config: candidate.config, part: .metadata, result: &result)
                         result.errors.append("[\(candidate.config.type.displayName)] metadata detail: \(error.localizedDescription)")
                     }
                 }
@@ -279,7 +310,7 @@ actor ScraperManager {
 
                     // If we already have a detail with cover URL from the same source, use it
                     if let detail = result.detail, detail.source == config.type, let coverUrl = detail.coverUrl {
-                        if let data = try await downloadCover(url: coverUrl, sourceConfig: config) {
+                        if let data = try await downloadCoverResource(url: coverUrl, config: config, result: &result) {
                             registerSuccess(config)
                             result.coverData = data
                             break
@@ -301,7 +332,7 @@ actor ScraperManager {
                         let covers = try await scraper.getCoverArt(externalId: best.externalId)
                         registerSuccess(config)
                         if let coverUrl = covers.first?.coverUrl,
-                           let data = try await downloadCover(url: coverUrl, sourceConfig: config) {
+                           let data = try await downloadCoverResource(url: coverUrl, config: config, result: &result) {
                             result.coverData = data
                             break
                         }
@@ -397,8 +428,7 @@ actor ScraperManager {
                             } catch {
                                 if isCancellation(error) { return result }
                                 plog("🎤 [\(config.type.displayName)] getLyrics failed for '\(candidate.title)': \(error.localizedDescription)")
-                                handleFailure(error, config: config)
-                                await recordUnavailable(config, part: .lyrics, error: error, result: &result)
+                                await recordResourceFailure(error, config: config, part: .lyrics, result: &result)
                                 if await isBackingOff(config) || isCircuitOpen(config) { break }
                             }
                         }
@@ -946,7 +976,27 @@ actor ScraperManager {
     }
 
     private func downloadImage(url: String, sourceConfig: ScraperSourceConfig) async throws -> Data? {
-        try await ConfigurableScraper.downloadResource(from: url, sourceConfig: sourceConfig)
+        try await imageDownloader(url, sourceConfig)
+    }
+
+    /// 刮削时下载一张封面。下不来(超时、服务器出错)只算这一首在这个源没有封面,
+    /// 见 `recordResourceFailure`;这个地址半小时内不再请求。取消照常抛出。
+    private func downloadCoverResource(url: String, config: ScraperSourceConfig,
+                                       result: inout ScrapeResult) async throws -> Data? {
+        let now = ContinuousClock.now
+        failedCoverURLs = failedCoverURLs.filter { $0.value > now }
+        guard failedCoverURLs[url] == nil else { return nil }
+        do {
+            return try await downloadCover(url: url, sourceConfig: config)
+        } catch {
+            if isCancellation(error) { throw error }
+            failedCoverURLs[url] = now + Self.failedCoverRetention
+            plog("🔍 \(config.type.displayName) cover download failed; this song continues without it: \(error.localizedDescription)")
+            await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+            await recordResourceFailure(error, config: config, part: .cover, result: &result)
+            result.errors.append("[\(config.type.displayName)] cover: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// 只收完整的封面图。下载了半截的图封面库存不进去(`MetadataAssetStore.cacheCover`

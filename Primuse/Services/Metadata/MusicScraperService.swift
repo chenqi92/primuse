@@ -1543,8 +1543,9 @@ final class MusicScraperService {
                     }
                 } catch is BatchScrapeSourceUnavailable {
                     publishPendingSongBatch()
+                    moveDeferredSongToEndOfCheckpoint(song.id)
                     deferredForSourceFailure = true
-                    plog("Batch scrape deferred: sources unavailable; current song and remaining checkpoint preserved")
+                    plog("Batch scrape deferred: sources unavailable; '\(song.title)' moved to the end, remaining checkpoint preserved")
                     return
                 } catch is CancellationError {
                     return
@@ -1693,6 +1694,31 @@ final class MusicScraperService {
         if completedIndex.isMultiple(of: 10) || completedIndex == checkpoint.songIDs.count - 1 {
             writeScrapeCheckpoint(checkpoint)
         }
+    }
+
+    /// 整批因源不可用挂起时,把卡住的这首挪到剩余队列最后:续跑先刮别的歌,
+    /// 只因为这一首的问题时不会让后面的歌一直轮不到。它不算失败,轮到时照常再刮。
+    private func moveDeferredSongToEndOfCheckpoint(_ songID: String) {
+        guard var checkpoint = scrapeCheckpoint else { return }
+        let reordered = Self.songIDsMovingDeferredSongToEnd(
+            songID, in: checkpoint.songIDs, resumeIndex: checkpoint.nextSongIndex
+        )
+        guard reordered != checkpoint.songIDs else { return }
+        checkpoint.songIDs = reordered
+        scrapeCheckpoint = checkpoint
+        writeScrapeCheckpoint(checkpoint)
+    }
+
+    nonisolated static func songIDsMovingDeferredSongToEnd(
+        _ songID: String, in songIDs: [String], resumeIndex: Int
+    ) -> [String] {
+        let resumePoint = min(max(resumeIndex, 0), songIDs.count)
+        guard let index = songIDs[resumePoint...].firstIndex(of: songID),
+              index < songIDs.count - 1 else { return songIDs }
+        var reordered = songIDs
+        reordered.remove(at: index)
+        reordered.append(songID)
+        return reordered
     }
 
     /// Commits the completed song phase even when a resumed target no longer
