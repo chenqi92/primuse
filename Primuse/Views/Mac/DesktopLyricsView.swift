@@ -36,6 +36,7 @@ struct DesktopLyricsView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ThemeService.self) private var theme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 设置里选的歌词字体(#332);工具条上的按钮与标签照旧是系统字体。
     @Environment(\.lyricsTypeface) private var lyricsTypeface
     @State private var lyrics: [LyricLine] = []
@@ -444,6 +445,8 @@ struct DesktopLyricsView: View {
                 inactiveColor: .white.opacity(0.35),
                 writingDirection: lyricsWritingDirection,
                 timeAt: { date in player.interpolatedTime(at: date) },
+                fixedTime: player.isPlaying ? nil : player.currentTime,
+                isPlaybackActive: player.isPlaying,
                 deactivationTime: line.voice == .secondary ? line.endTime : nil
             )
             .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
@@ -514,6 +517,7 @@ struct DesktopLyricsView: View {
         }
     }
 
+    @ViewBuilder
     private func verticalWordColumn(_ line: LyricLine,
                                     fontSize: CGFloat,
                                     weight: Font.Weight,
@@ -522,19 +526,50 @@ struct DesktopLyricsView: View {
         // 整句或词组只打一个时间时先拆成单字，不然一整块横着塞进这一列。
         let syllables = LyricSyllableLayoutPolicy.layoutSyllables(line.syllables ?? [])
         let cjkLanguage = LyricsFontLanguage.cjkLanguage(in: line.text)
-        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
-            let now = player.interpolatedTime(at: context.date)
-            VStack(spacing: 0) {
-                ForEach(Array(syllables.enumerated()), id: \.offset) { _, syllable in
-                    lyricsTypeface.text(syllable.text, size: fontSize, weight: weight,
-                                        cjkLanguage: cjkLanguage)
-                        .foregroundStyle(verticalSyllableColor(syllable, now: now,
-                                                               active: activeColor,
-                                                               inactive: inactiveColor))
-                        .shadow(color: .black.opacity(0.55), radius: 5, y: 2)
-                        .frame(height: fontSize * Self.verticalLineHeightFactor)
-                        .animation(.easeOut(duration: 0.12), value: verticalSyllableState(syllable, now: now))
-                }
+        if player.isPlaying && !reduceMotion {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
+                verticalWordSyllableStack(
+                    syllables: syllables,
+                    now: player.interpolatedTime(at: context.date),
+                    fontSize: fontSize,
+                    weight: weight,
+                    cjkLanguage: cjkLanguage,
+                    activeColor: activeColor,
+                    inactiveColor: inactiveColor
+                )
+            }
+        } else {
+            verticalWordSyllableStack(
+                syllables: syllables,
+                now: player.currentTime,
+                fontSize: fontSize,
+                weight: weight,
+                cjkLanguage: cjkLanguage,
+                activeColor: activeColor,
+                inactiveColor: inactiveColor
+            )
+        }
+    }
+
+    private func verticalWordSyllableStack(
+        syllables: [LyricSyllable],
+        now: TimeInterval,
+        fontSize: CGFloat,
+        weight: Font.Weight,
+        cjkLanguage: LyricsFontLanguage,
+        activeColor: Color,
+        inactiveColor: Color
+    ) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(syllables.enumerated()), id: \.offset) { _, syllable in
+                lyricsTypeface.text(syllable.text, size: fontSize, weight: weight,
+                                    cjkLanguage: cjkLanguage)
+                    .foregroundStyle(verticalSyllableColor(syllable, now: now,
+                                                           active: activeColor,
+                                                           inactive: inactiveColor))
+                    .shadow(color: .black.opacity(0.55), radius: 5, y: 2)
+                    .frame(height: fontSize * Self.verticalLineHeightFactor)
+                    .animation(.easeOut(duration: 0.12), value: verticalSyllableState(syllable, now: now))
             }
         }
     }

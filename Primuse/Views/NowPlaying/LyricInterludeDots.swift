@@ -24,7 +24,7 @@ struct LyricInterludeDots: View {
 
     var body: some View {
         let interval: TimeInterval = reduceMotion || !isPlaying ? 0.5 : 1.0 / 20
-        TimelineView(.animation(minimumInterval: interval, paused: !isActive)) { context in
+        TimelineView(.animation(minimumInterval: interval, paused: !isActive || !isPlaying)) { context in
             let current = isActive ? phase() : .idle
             if isActive, isPlaying, !reduceMotion,
                current.secondsUntilNextLine <= anticipationWindow + 0.45 {

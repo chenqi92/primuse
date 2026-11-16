@@ -830,6 +830,9 @@ struct MacMiniPlayerView: View {
                 inactiveColor: .secondary.opacity(isActive ? 0.55 : 0.42),
                 writingDirection: lyricsWritingDirection,
                 timeAt: { date in player.interpolatedTime(at: date) },
+                fixedTime: isActive && player.isPlaying ? nil : player.currentTime,
+                isPlaybackActive: isActive && player.isPlaying,
+                isAnimationEnabled: isActive,
                 deactivationTime: line.voice == .secondary ? line.endTime : nil
             )
         } else {

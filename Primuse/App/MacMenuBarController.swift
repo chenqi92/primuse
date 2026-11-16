@@ -39,6 +39,9 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
     static let lyricsEnabledKey = "menuBarLyricsEnabled"
     static let compactWithIslandKey = "menuBarCompactWithLyricsIsland"
     private var lyricsEnabled = UserDefaults.standard.bool(forKey: MacMenuBarController.lyricsEnabledKey)
+    private var lastKnownShowTitle = UserDefaults.standard.object(forKey: "menuBarShowTitle") as? Bool ?? true
+    private var lastKnownIslandVisible = UserDefaults.standard.bool(forKey: DesktopLyricsWindowController.islandVisibleKey)
+    private var lastKnownCompactWithIsland = UserDefaults.standard.bool(forKey: MacMenuBarController.compactWithIslandKey)
     /// 只保留带时间戳的行：纯文本歌词没有可跟的播放位置。
     private var lyrics: [LyricLine] = []
     private var lyricsSongID: String?
@@ -64,18 +67,21 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
         pop.animates = true
         pop.contentSize = NSSize(width: 320, height: 360)
         pop.delegate = self
-        pop.contentViewController = NSHostingController(
+        self.popover = pop
+
+        observePlayerState()
+        observeLyricsNotifications()
+        refreshStatusItem()
+    }
+
+    private func makePopoverContentViewController() -> NSViewController {
+        NSHostingController(
             rootView: MenuBarPlayerView(onOpenMainWindow: { [weak self] in
                 self?.activateMainWindow()
                 self?.popover?.performClose(nil)
             })
             .applyPrimuseEnvironments()
         )
-        self.popover = pop
-
-        observePlayerState()
-        observeLyricsNotifications()
-        refreshStatusItem()
     }
 
     /// Re-arms whenever any of the tracked observable values changes.
@@ -110,10 +116,23 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
             object: nil,
             queue: nil
         ) { [weak self] _ in
+            let defaults = UserDefaults.standard
+            let enabled = defaults.bool(forKey: Self.lyricsEnabledKey)
+            let showsTitle = defaults.object(forKey: "menuBarShowTitle") as? Bool ?? true
+            let islandVisible = defaults.bool(forKey: DesktopLyricsWindowController.islandVisibleKey)
+            let compactWithIsland = defaults.bool(forKey: Self.compactWithIslandKey)
             Task { @MainActor in
                 guard let self else { return }
-                let enabled = UserDefaults.standard.bool(forKey: Self.lyricsEnabledKey)
-                if enabled != self.lyricsEnabled {
+                let lyricsChanged = enabled != self.lyricsEnabled
+                let displayChanged = lyricsChanged
+                    || showsTitle != self.lastKnownShowTitle
+                    || islandVisible != self.lastKnownIslandVisible
+                    || compactWithIsland != self.lastKnownCompactWithIsland
+                guard displayChanged else { return }
+                self.lastKnownShowTitle = showsTitle
+                self.lastKnownIslandVisible = islandVisible
+                self.lastKnownCompactWithIsland = compactWithIsland
+                if lyricsChanged {
                     self.lyricsEnabled = enabled
                     self.resetLyrics()
                     self.reloadLyricsIfNeeded(for: AppServices.shared.playerService.currentSong)
@@ -316,9 +335,16 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
         if popover.isShown {
             popover.performClose(sender)
         } else {
+            if popover.contentViewController == nil {
+                popover.contentViewController = makePopoverContentViewController()
+            }
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        popover?.contentViewController = nil
     }
 
     private func activateMainWindow() {

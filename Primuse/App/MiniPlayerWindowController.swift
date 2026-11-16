@@ -35,11 +35,17 @@ final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
     private var isExpanded = false
 
     convenience init() {
+        self.init(window: nil)
+        if visible { show() }
+    }
+
+    private func ensurePanel() -> NSPanel {
+        if let existing = window as? NSPanel { return existing }
         let panel = MiniPlayerPanel(
             contentRect: NSRect(x: 0, y: 0, width: Self.fixedWidth, height: Self.collapsedHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
-            defer: false
+            defer: true
         )
         panel.isFloatingPanel = true
         panel.isMovableByWindowBackground = false
@@ -60,9 +66,20 @@ final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
             panel.setFrameOrigin(NSPoint(x: vr.maxX - Self.fixedWidth - 40, y: vr.minY + 80))
         }
         panel.setFrameAutosaveName("PrimuseMiniPlayer")
+        panel.delegate = self
 
-        self.init(window: panel)
+        // 精确钉到折叠态设计尺寸(只保留 restore 出来的屏幕位置)。
+        panel.setFrame(
+            NSRect(origin: panel.frame.origin,
+                   size: NSSize(width: Self.fixedWidth, height: Self.collapsedHeight)),
+            display: false
+        )
+        self.window = panel
+        return panel
+    }
 
+    private func mountContentViewIfNeeded(in panel: NSPanel) {
+        guard hosting == nil || panel.contentView == nil else { return }
         let host = NSHostingController(
             rootView: MacMiniPlayerView(
                 onClose: { [weak self] in self?.hide() },
@@ -74,8 +91,12 @@ final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
         )
         self.hosting = host
         host.sizingOptions = []
-        host.view.frame = panel.contentView?.bounds
-            ?? NSRect(x: 0, y: 0, width: Self.fixedWidth, height: Self.collapsedHeight)
+        host.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: Self.fixedWidth,
+            height: isExpanded ? Self.expandedHeight : Self.collapsedHeight
+        )
         host.view.autoresizingMask = [.width, .height]
         host.view.wantsLayer = true
         // 裁切边界跟随实际窗口,避免目标高度的 SwiftUI 圆角在缩放中被截成直角。
@@ -83,16 +104,6 @@ final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
         host.view.layer?.cornerCurve = .continuous
         host.view.layer?.masksToBounds = true
         panel.contentView = host.view
-        panel.delegate = self
-
-        // 精确钉到折叠态设计尺寸(只保留 restore 出来的屏幕位置)。
-        panel.setFrame(
-            NSRect(origin: panel.frame.origin,
-                   size: NSSize(width: Self.fixedWidth, height: Self.collapsedHeight)),
-            display: false
-        )
-
-        if visible { show() }
     }
 
     private func resize(forMode mode: MacMiniPlayerView.BottomMode) {
@@ -138,16 +149,26 @@ final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func show() {
-        guard let window else { return }
+        let panel = ensurePanel()
+        isExpanded = false
+        panel.setFrame(
+            NSRect(origin: panel.frame.origin,
+                   size: NSSize(width: Self.fixedWidth, height: Self.collapsedHeight)),
+            display: false
+        )
+        mountContentViewIfNeeded(in: panel)
         NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-        window.invalidateShadow()
-        plog("🎵 MiniPlayer.show() frame=\(window.frame)")
+        panel.makeKeyAndOrderFront(nil)
+        panel.invalidateShadow()
+        plog("🎵 MiniPlayer.show() frame=\(panel.frame)")
         visible = true
     }
 
     func hide() {
         window?.orderOut(nil)
+        window?.contentView = nil
+        hosting = nil
+        isExpanded = false
         visible = false
     }
 

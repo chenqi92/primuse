@@ -606,6 +606,7 @@ struct DesktopLyricsIslandView: View {
                     textAlignment: .center,
                     writingDirection: lyricsWritingDirection,
                     timeAt: { date in player.interpolatedTime(at: date) },
+                    fixedTime: player.isPlaying ? nil : player.currentTime,
                     isPlaybackActive: player.isPlaying,
                     deactivationTime: line.voice == .secondary ? line.endTime : nil
                 )

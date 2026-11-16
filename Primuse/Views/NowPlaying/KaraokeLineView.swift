@@ -254,15 +254,15 @@ struct KaraokeLineView: View {
                 } else {
                     renderInactiveLine()
                 }
+            } else if !isAnimationEnabled {
+                renderInactiveLine()
+            } else if !isPlaybackActive || reduceMotion {
+                renderLineRespectingDeactivation(at: timeAt(Date()))
             } else {
                 TimelineView(
-                    .animation(minimumInterval: 1.0 / 60.0, paused: !isAnimationEnabled)
+                    .animation(minimumInterval: 1.0 / 60.0, paused: false)
                 ) { ctx in
-                    if isAnimationEnabled {
-                        renderLineRespectingDeactivation(at: timeAt(ctx.date))
-                    } else {
-                        renderInactiveLine()
-                    }
+                    renderLineRespectingDeactivation(at: timeAt(ctx.date))
                 }
             }
         }
