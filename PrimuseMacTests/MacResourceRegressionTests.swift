@@ -1046,6 +1046,24 @@ final class MacResourceRegressionTests: XCTestCase {
         unit.deallocateRenderResources()
     }
 
+    func testKaraokeSampleRingAllocatesStorageLazily() {
+        let ring = KaraokeSampleRing(capacity: 128)
+        let samples: [Float] = [0.25, -0.5, 0.75, -1.0]
+        var output = [Float](repeating: 0, count: 4)
+
+        samples.withUnsafeBufferPointer { ring.write($0.baseAddress!, count: 4) }
+        XCTAssertEqual(ring.totalWritten, 0)
+        XCTAssertFalse(output.withUnsafeMutableBufferPointer { ring.readLatest(4, into: $0.baseAddress!) })
+        XCTAssertNil(ring.latestWindow(4))
+
+        ring.prepareStorage()
+        samples.withUnsafeBufferPointer { ring.write($0.baseAddress!, count: 4) }
+        XCTAssertEqual(ring.totalWritten, 4)
+        XCTAssertEqual(ring.latestWindow(4)?.samples, samples)
+        XCTAssertTrue(output.withUnsafeMutableBufferPointer { ring.readLatest(4, into: $0.baseAddress!) })
+        XCTAssertEqual(output, samples)
+    }
+
     private func waitUntilAsync(_ predicate: () async -> Bool) async throws {
         let deadline = Date().addingTimeInterval(5)
         while !(await predicate()) {

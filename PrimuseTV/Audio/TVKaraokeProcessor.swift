@@ -45,6 +45,9 @@ final class TVKaraokeProcessor: @unchecked Sendable {
     let vocalRing = TVKaraokeSampleRing(capacity: 1 << 16)
 
     func update(_ newValue: Settings) {
+        if newValue.isActive || newValue.capturesVocal {
+            vocalRing.prepareStorage()
+        }
         settings.withLock { $0 = newValue }
     }
 
@@ -260,13 +263,26 @@ final class TVKaraokeSampleRing: @unchecked Sendable {
 
     init(capacity: Int) {
         self.capacity = capacity
-        state = OSAllocatedUnfairLock(initialState: State(storage: [Float](repeating: 0, count: capacity)))
+        state = OSAllocatedUnfairLock(initialState: State(storage: []))
+    }
+
+    func prepareStorage() {
+        let capacity = self.capacity
+        let needsAllocation = state.withLock { $0.storage.isEmpty }
+        guard needsAllocation else { return }
+        let allocated = [Float](repeating: 0, count: capacity)
+        state.withLock { state in
+            if state.storage.isEmpty {
+                state.storage = allocated
+            }
+        }
     }
 
     func write(_ samples: UnsafePointer<Float>, count: Int) {
         let capacity = self.capacity
         // The pointer is only read synchronously inside the lock.
         _ = state.withLockIfAvailableUnchecked { state in
+            guard state.storage.count == capacity else { return }
             for i in 0..<count {
                 state.storage[(state.written + i) % capacity] = samples[i]
             }
@@ -279,7 +295,7 @@ final class TVKaraokeSampleRing: @unchecked Sendable {
     func readLatest(_ count: Int) -> [Float]? {
         let capacity = self.capacity
         return state.withLock { state -> [Float]? in
-            guard count <= capacity, state.written >= count, state.written > state.consumed else { return nil }
+            guard state.storage.count == capacity, count <= capacity, state.written >= count, state.written > state.consumed else { return nil }
             let start = state.written - count
             state.consumed = state.written
             return (0..<count).map { state.storage[(start + $0) % capacity] }

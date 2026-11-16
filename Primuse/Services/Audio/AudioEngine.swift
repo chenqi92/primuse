@@ -328,7 +328,7 @@ final class AudioEngine {
     private(set) var spatialHeadTrackingEnabled = false
     private(set) var outputMode: AudioOutputMode = .effects
 
-    private var isSetUp = false
+    private(set) var isSetUp = false
     private var playbackClockReadsSuspended = true
     /// Owns both player nodes and their scheduled-frame timelines so decode
     /// pumps can schedule without hopping back to the main actor.
@@ -1569,6 +1569,11 @@ final class AudioEngine {
     /// 振幅用 1/32768 (-90 dB FS, 已经在 16-bit 量化噪声以下), 用户听不到。
     /// 用交替正负避免全 0 buffer 被 iOS 静音检测当成"没在播"。
     func startSilenceKeepAlive() {
+        #if os(macOS)
+        // macOS does not suspend non-playing processes, so spinning a silent
+        // CoreAudio AUHAL render loop wastes CPU and prevents hardware sleep.
+        return
+        #else
         guard keepAlivePlayerNode == nil else { return }
         let keepAliveEngine: AVAudioEngine
         let mainMixer: AVAudioMixerNode
@@ -1634,6 +1639,7 @@ final class AudioEngine {
         keepAlivePlayerNode = node
         keepAliveBuffer = buffer
         plog("🛡 AudioEngine silence keepAlive ON")
+        #endif
     }
 
     func stopSilenceKeepAlive() {
@@ -2287,9 +2293,17 @@ final class AudioEngine {
             self.engineIdleShutdownTask = nil
             // A transport that came back to life owns the graph again.
             guard !self.isPlaying, self.playerNode?.isPlaying != true else { return }
+            self.stopSpatialHeadTracking()
             self.engine?.pause()
             self.flushEffectChain()
         }
+    }
+
+    /// Tears down an idle paused `AVAudioEngine` graph after long pauses or
+    /// memory pressure so AUAudioUnit render buffers are returned to the system.
+    func releaseIdleGraphIfStopped() {
+        guard isSetUp, !isPlaying, playerNode?.isPlaying != true, keepAlivePlayerNode == nil else { return }
+        tearDownGraph()
     }
 
     private func cancelEngineIdleShutdown() {

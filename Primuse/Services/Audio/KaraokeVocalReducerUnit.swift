@@ -8,24 +8,42 @@ import Synchronization
 /// writes, one analysis task reads; neither side ever blocks or allocates.
 final class KaraokeSampleRing: @unchecked Sendable {
     let capacity: Int
-    private let storage: UnsafeMutablePointer<Float>
+    private let storage = Atomic<UnsafeMutablePointer<Float>?>(nil)
     /// Total samples ever written / read; indexes wrap by `capacity`.
     private let written = Atomic<Int>(0)
     private let consumed = Atomic<Int>(0)
 
     init(capacity: Int) {
         self.capacity = capacity
-        storage = .allocate(capacity: capacity)
-        storage.initialize(repeating: 0, count: capacity)
     }
 
     deinit {
-        storage.deallocate()
+        if let pointer = storage.load(ordering: .acquiring) {
+            pointer.deinitialize(count: capacity)
+            pointer.deallocate()
+        }
+    }
+
+    /// Allocates the backing ring outside the real-time audio thread before
+    /// karaoke/sing-along or a microphone tap starts producing samples.
+    func prepareStorage() {
+        guard storage.load(ordering: .acquiring) == nil else { return }
+        let allocated = UnsafeMutablePointer<Float>.allocate(capacity: capacity)
+        allocated.initialize(repeating: 0, count: capacity)
+        let (exchanged, _) = storage.compareExchange(
+            expected: nil,
+            desired: allocated,
+            ordering: .acquiringAndReleasing
+        )
+        if !exchanged {
+            allocated.deinitialize(count: capacity)
+            allocated.deallocate()
+        }
     }
 
     /// Producer side. Overwrites the oldest samples when the reader lags.
     func write(_ samples: UnsafePointer<Float>, count: Int) {
-        guard count > 0 else { return }
+        guard count > 0, let storage = storage.load(ordering: .acquiring) else { return }
         let start = written.load(ordering: .relaxed)
         for offset in 0..<count {
             storage[(start + offset) % capacity] = samples[offset]
@@ -37,6 +55,7 @@ final class KaraokeSampleRing: @unchecked Sendable {
     /// when at least that many arrived since the previous read. Older unread
     /// samples are skipped; analysis only cares about "now".
     func readLatest(_ count: Int, into destination: UnsafeMutablePointer<Float>) -> Bool {
+        guard let storage = storage.load(ordering: .acquiring) else { return false }
         let end = written.load(ordering: .acquiring)
         let start = end - count
         guard count <= capacity, start >= 0, end > consumed.load(ordering: .relaxed) else { return false }
@@ -61,6 +80,7 @@ final class KaraokeSampleRing: @unchecked Sendable {
     /// The newest `count` samples and the absolute index just past them,
     /// without consuming anything.
     func latestWindow(_ count: Int) -> (samples: [Float], endIndex: Int)? {
+        guard let storage = storage.load(ordering: .acquiring) else { return nil }
         let end = written.load(ordering: .acquiring)
         let start = end - count
         guard count <= capacity, start >= 0 else { return nil }
@@ -151,7 +171,13 @@ final class KaraokeRenderControl: Sendable {
 
     var isActive: Bool {
         get { activeFlag.load(ordering: .relaxed) }
-        set { activeFlag.store(newValue, ordering: .relaxed) }
+        set {
+            if newValue {
+                inputRing.prepareStorage()
+                vocalRing.prepareStorage()
+            }
+            activeFlag.store(newValue, ordering: .relaxed)
+        }
     }
 
     /// 0 keeps the vocal, 1 removes it.
@@ -183,7 +209,12 @@ final class KaraokeRenderControl: Sendable {
 
     var capturesVocal: Bool {
         get { capturesVocalFlag.load(ordering: .relaxed) }
-        set { capturesVocalFlag.store(newValue, ordering: .relaxed) }
+        set {
+            if newValue {
+                vocalRing.prepareStorage()
+            }
+            capturesVocalFlag.store(newValue, ordering: .relaxed)
+        }
     }
 
     /// With a stem loaded: reduce spectrally until it is locked (song start,
@@ -217,6 +248,8 @@ final class KaraokeRenderControl: Sendable {
             stemAddress.store(0, ordering: .releasing)
             return
         }
+        inputRing.prepareStorage()
+        vocalRing.prepareStorage()
         stemAddress.store(UInt(bitPattern: track.samples), ordering: .releasing)
         stemFrames.store(track.frames, ordering: .releasing)
     }
@@ -350,7 +383,7 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
         var resources: RenderResources?
     }
 
-    var control = KaraokeRenderControl()
+    var control: KaraokeRenderControl?
     private let slot = ResourceSlot()
     private var inputBus: AUAudioUnitBus!
     private var outputBus: AUAudioUnitBus!
@@ -375,7 +408,7 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
     override var canProcessInPlace: Bool { true }
 
     override var latency: TimeInterval {
-        guard let reducer = slot.resources?.reducer, control.isActive else { return 0 }
+        guard let reducer = slot.resources?.reducer, control?.isActive == true else { return 0 }
         return Double(reducer.latencySamples) / reducer.sampleRate
     }
 
@@ -385,6 +418,11 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
         guard inputBus.format.channelCount == format.channelCount else {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioUnitErr_FormatNotSupported))
         }
+        let resolvedControl = control ?? {
+            let created = KaraokeRenderControl()
+            control = created
+            return created
+        }()
         // Only deinterleaved stereo can be split into left/right spectra;
         // anything else passes through untouched.
         let reducer = format.channelCount == 2 && !format.isInterleaved
@@ -393,7 +431,7 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
             : nil
         slot.resources = RenderResources(
             reducer: reducer,
-            control: control,
+            control: resolvedControl,
             sampleRate: format.sampleRate,
             capacity: Int(maximumFramesToRender),
             channels: Int(format.channelCount)
@@ -402,7 +440,7 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
 
     override func reset() {
         super.reset()
-        control.markDiscontinuity()
+        control?.markDiscontinuity()
     }
 
     override func deallocateRenderResources() {

@@ -36,7 +36,7 @@ final class AudioVisualizerService {
 
     private weak var engine: AVAudioEngine?
     private var tappedNode: AVAudioNode?
-    private let ring = SpectrumSampleRing()
+    private var ring: SpectrumSampleRing?
     private var sampleRate: Double = 0
     private var pacing = ImmersiveFrameRateMode.defaultValue
         .spectrumPacing(displayMaximumFramesPerSecond: 60)
@@ -84,13 +84,18 @@ final class AudioVisualizerService {
         ownerIDs.insert(owner)
         stopPipeline()
         self.engine = engine
+        let activeRing = ring ?? {
+            let created = SpectrumSampleRing()
+            self.ring = created
+            return created
+        }()
 
         // tap 闭包只 memcpy + trylock, 完全不 alloc 不 hop actor。
         AudioVisualizerTap.install(
             on: node,
             bufferSize: AVAudioFrameCount(Self.fftSize),
             format: format,
-            ring: ring
+            ring: activeRing
         )
         self.tappedNode = node
         sampleRate = format.sampleRate
@@ -110,8 +115,8 @@ final class AudioVisualizerService {
     private func startPolling() {
         pollTask?.cancel()
         pollGeneration &+= 1
+        guard let ring = self.ring else { return }
         let generation = pollGeneration
-        let ring = self.ring
         let sampleRate = self.sampleRate
         let pacing = self.pacing
         let analyzer = FFTAnalyzer(
@@ -172,7 +177,7 @@ final class AudioVisualizerService {
         }
         tappedNode = nil
         engine = nil
-        ring.reset()
+        ring = nil
         bandLevels = Array(repeating: 0, count: Self.bandCount)
     }
 }

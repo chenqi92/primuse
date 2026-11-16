@@ -363,6 +363,7 @@ final class AudioCacheSyncService {
     @ObservationIgnored private var activeIncomingConnectionCount = 0
     @ObservationIgnored private var incomingConnections: [ObjectIdentifier: NWConnection] = [:]
     @ObservationIgnored private var receiverShouldRun = false
+    @ObservationIgnored private var syncInterfacePresented = false
     @ObservationIgnored private let receiverPrivateKey = Curve25519.KeyAgreement.PrivateKey()
     @ObservationIgnored private let deviceID: String
     @ObservationIgnored private let deviceName: String
@@ -399,16 +400,24 @@ final class AudioCacheSyncService {
     }
 
     func setApplicationActive(_ active: Bool) {
-        #if os(iOS)
         receiverShouldRun = active
         if active {
             startReceiving()
-        } else {
+        } else if activeIncomingConnectionCount == 0 {
             stopReceiving()
         }
-        #else
-        receiverShouldRun = true
-        startReceiving()
+    }
+
+    /// Enables peer-to-peer AWDL on macOS only while the Cache Sync sheet is
+    /// presented, avoiding 24/7 AWDL radio wakeups during normal idle use.
+    func setSyncInterfacePresented(_ presented: Bool) {
+        #if os(macOS)
+        guard syncInterfacePresented != presented else { return }
+        syncInterfacePresented = presented
+        if !presented, operation != .transferring, activeIncomingConnectionCount == 0, listener != nil {
+            stopReceiving()
+            if receiverShouldRun { startReceiving() }
+        }
         #endif
     }
 
@@ -716,7 +725,11 @@ final class AudioCacheSyncService {
         hasRegisteredService = false
         do {
             let parameters = NWParameters.tcp
+            #if os(macOS)
+            parameters.includePeerToPeer = syncInterfacePresented
+            #else
             parameters.includePeerToPeer = true
+            #endif
             let listener = try NWListener(using: parameters)
             let txtRecord = NWTXTRecord([
                 "id": deviceID,

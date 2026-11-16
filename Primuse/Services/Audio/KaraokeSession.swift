@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Observation
+import os
 import PrimuseKit
 #if canImport(UIKit)
 import UIKit
@@ -1429,10 +1430,43 @@ final class KaraokeSingAlong {
         guard loopTask == nil else { return }
         loopTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                guard let interval = self?.tick() else { return }
-                try? await Task.sleep(for: interval)
+                guard let self else { return }
+                let interval = self.tick()
+                if self.player?.isPlaying == true {
+                    try? await Task.sleep(for: interval)
+                } else {
+                    await self.waitForStateChangeWhileIdle()
+                }
             }
         }
+    }
+
+    private func waitForStateChangeWhileIdle() async {
+        guard isEnabled, let player, !player.isPlaying else { return }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let resumed = OSAllocatedUnfairLock(initialState: false)
+                let resumeOnce: @Sendable () -> Void = {
+                    let shouldResume = resumed.withLock { state -> Bool in
+                        guard !state else { return false }
+                        state = true
+                        return true
+                    }
+                    if shouldResume { continuation.resume() }
+                }
+                withObservationTracking {
+                    _ = self.isEnabled
+                    _ = self.karaokeHolds
+                    _ = player.isPlaying
+                    _ = player.currentSong?.id
+                } onChange: {
+                    resumeOnce()
+                }
+                if Task.isCancelled || player.isPlaying || !self.isEnabled {
+                    resumeOnce()
+                }
+            }
+        } onCancel: {}
     }
 
     private func stopLoop() {
@@ -1488,13 +1522,15 @@ final class KaraokeSingAlong {
                 drop(handoff)
             }
         }
-        if let song, wantsStem {
+        if let song, wantsStem, player.isPlaying || ownsRenderControl {
             updateStem(for: song, player: player)
-        } else {
+        } else if !wantsStem {
             releaseRenderControl(fadingOut: true)
         }
         applyRenderSettings()
-        alignIfDue(player: player)
+        if player.isPlaying {
+            alignIfDue(player: player)
+        }
 
         let isStemLoaded = ownsRenderControl && fadeOutTask == nil && stemSongID != nil && stemSongID == song?.id
         let control = player.audioEngine.karaokeControl
@@ -1509,7 +1545,9 @@ final class KaraokeSingAlong {
             isStemLocked: isStemLoaded && control.isStemLocked
         ))
         updateActivity(songID: song?.id)
-        prefetchIfDue(player: player)
+        if player.isPlaying {
+            prefetchIfDue(player: player)
+        }
         return player.isPlaying ? .milliseconds(250) : .seconds(1)
     }
 
