@@ -310,6 +310,9 @@ final class KaraokeSeparationService {
     @ObservationIgnored private let preparationGate = KaraokePreparationGate()
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
     @ObservationIgnored private var onsetCache: [String: [KaraokeOnset]] = [:]
+    @ObservationIgnored private var separatorIdleUnloadTask: Task<Void, Never>?
+
+    private static let separatorIdleUnloadDelay: Duration = .seconds(90)
 
     /// A separation or the model download is still running (or parked
     /// until the app returns to the foreground).
@@ -325,6 +328,40 @@ final class KaraokeSeparationService {
         } else {
             modelState = KaraokeVocalModel.isAvailableLocally() ? .ready : .notDownloaded
         }
+        NotificationCenter.default.addObserver(
+            forName: .primuseMemoryPressure,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.releaseIdleResources()
+            }
+        }
+    }
+
+    func releaseIdleResources() {
+        onsetCache.removeAll()
+        unloadIdleSeparatorNow()
+    }
+
+    private func scheduleIdleSeparatorUnloadIfNeeded() {
+        separatorIdleUnloadTask?.cancel()
+        separatorIdleUnloadTask = nil
+        guard !hasWorkInFlight, separatorLoad == nil, separator != nil else { return }
+        separatorIdleUnloadTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.separatorIdleUnloadDelay)
+            guard !Task.isCancelled else { return }
+            self?.unloadIdleSeparatorNow()
+        }
+    }
+
+    private func unloadIdleSeparatorNow() {
+        separatorIdleUnloadTask?.cancel()
+        separatorIdleUnloadTask = nil
+        guard !hasWorkInFlight, separatorLoad == nil, let displaced = separator else { return }
+        separator = nil
+        plog("🎤 Karaoke: unloaded idle vocal separator")
+        Task.detached(priority: .utility) { withExtendedLifetime(displaced) {} }
     }
 
     // MARK: Model
@@ -440,6 +477,7 @@ final class KaraokeSeparationService {
                     self.jobs[song.id] = nil
                     self.jobIDs[song.id] = nil
                     self.holdReasons[song.id] = nil
+                    self.scheduleIdleSeparatorUnloadIfNeeded()
                 }
             }
             do {
@@ -747,6 +785,7 @@ final class KaraokeSeparationService {
         songFailureReasons.removeAll()
         holdReasons.removeAll()
         onsetCache.removeAll()
+        unloadIdleSeparatorNow()
         try? FileManager.default.removeItem(at: Self.cacheDirectory)
     }
 
@@ -755,6 +794,8 @@ final class KaraokeSeparationService {
     /// Locating, compiling and loading the model takes a second or two;
     /// never on the main thread.
     private func loadSeparator() async throws -> KaraokeVocalSeparator {
+        separatorIdleUnloadTask?.cancel()
+        separatorIdleUnloadTask = nil
         if let separator { return separator }
         let load = separatorLoad ?? startLoadingSeparator()
         separatorLoad = load

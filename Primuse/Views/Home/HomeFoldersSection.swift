@@ -277,7 +277,7 @@ struct HomeFolderArtwork: View {
 
     var body: some View {
         let _ = model.revision
-        let songs = (model.folderCoverSongIDs[node.id] ?? []).compactMap { model.songsByID[$0] }
+        let songs = model.coverSongs(for: node.id)
         Group {
             if songs.count >= 4 {
                 Grid(horizontalSpacing: 0, verticalSpacing: 0) {

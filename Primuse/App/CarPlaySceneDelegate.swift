@@ -507,10 +507,10 @@ extension CarPlaySceneDelegate: CPNowPlayingTemplateObserver {
             let library = AppServices.shared.musicLibrary
             // Prefer the album view; fall back to artist if the song has no album.
             if let albumID = song.albumID,
-               let album = library.visibleAlbums.first(where: { $0.id == albumID }) {
+               let album = library.visibleAlbum(id: albumID) {
                 self.pushAlbumDetail(album)
             } else if let artistID = song.artistID,
-                      let artist = library.visibleArtists.first(where: { $0.id == artistID }) {
+                      let artist = library.visibleArtist(id: artistID) {
                 self.pushArtistDetail(artist)
             }
         }
@@ -633,35 +633,56 @@ extension CarPlaySceneDelegate {
     }
 
     private func pushSearchResults(for query: String) {
-        let matches = searchMatches(query)
-        let items = matches.enumerated().map { index, song -> CPListItem in
-            let item = songItem(
-                song,
-                ordinal: index + 1,
-                queueProvider: { (matches, index) },
-                loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: index)
-            )
-            return item
-        }
-        let template = CPListTemplate(
-            title: query,
-            sections: [CPListSection(items: items)]
-        )
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let template = CPListTemplate(title: query, sections: [])
         template.emptyViewTitleVariants = [String(localized: "carplay_search_no_results")]
         safePush(template, label: "SearchResults")
+        guard !normalized.isEmpty else { return }
+        let generation = connectionGeneration
+        Task { @MainActor [weak self, weak template] in
+            guard let self else { return }
+            let matches = await self.searchMatches(normalized)
+            guard self.connectionGeneration == generation,
+                  self.interfaceController != nil,
+                  let template else { return }
+            let items = matches.enumerated().map { index, song -> CPListItem in
+                self.songItem(
+                    song,
+                    ordinal: index + 1,
+                    queueProvider: { (matches, index) },
+                    loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: index)
+                )
+            }
+            template.updateSections([CPListSection(items: items)])
+        }
     }
 
-    private func searchMatches(_ query: String) -> [Song] {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return [] }
+    private func searchMatches(_ normalized: String) async -> [Song] {
         let library = AppServices.shared.musicLibrary
-        return Array(library.visibleSongs.lazy.filter { song in
-            song.title.localizedCaseInsensitiveContains(normalized)
-                || library.artistNames(for: song).contains {
-                    $0.localizedCaseInsensitiveContains(normalized)
-                }
-                || (song.albumTitle?.localizedCaseInsensitiveContains(normalized) ?? false)
-        }.prefix(100))
+        let songs = library.visibleSongs
+        let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
+        if let indexed = await LibrarySearchIndex.shared.search(
+            query: normalized,
+            songs: songs,
+            albums: [],
+            metadataRevisionKey: metadataRevisionKey,
+            songLimit: 100,
+            albumLimit: 0
+        ) {
+            return indexed.output.songResults.map(\.song)
+        }
+        return await Task.detached(priority: .userInitiated) {
+            LibrarySearchWorker.compute(
+                query: normalized,
+                songs: songs,
+                albums: [],
+                cache: LibrarySearchCache(),
+                includeMetadata: true,
+                includeLyrics: false,
+                songLimit: 100,
+                albumLimit: 0
+            ).songResults.map(\.song)
+        }.value
     }
 
     /// Serializes navigation and makes room before the five-level framework
@@ -1154,7 +1175,7 @@ extension CarPlaySceneDelegate {
             }
             else { pushPlaylistDetail(playlist) }
         case .album(let id, let directly):
-            guard let album = library.visibleAlbums.first(where: { $0.id == id }) else {
+            guard let album = library.visibleAlbum(id: id) else {
                 presentPlayFailureAlert(songTitle: item.title)
                 return
             }
@@ -2318,7 +2339,7 @@ extension CarPlaySceneDelegate {
         template.upNextTitle = title.flatMap { $0.isEmpty ? nil : $0 }
             ?? (topAction == .queue ? "" : NSLocalizedString(topAction.titleKey, comment: ""))
         let hasAlbum = player.currentSong?.albumID.map { id in
-            AppServices.shared.musicLibrary.visibleAlbums.contains { $0.id == id }
+            AppServices.shared.musicLibrary.visibleAlbum(id: id) != nil
         } ?? false
         template.isUpNextButtonEnabled = !player.isLiveRadio && topAction != .hidden
             && (topAction != .album || hasAlbum)
@@ -2398,8 +2419,8 @@ extension CarPlaySceneDelegate {
         if action == .album {
             let library = AppServices.shared.musicLibrary
             button.isEnabled = player.currentSong.map { song in
-                library.visibleAlbums.contains { $0.id == song.albumID }
-                    || library.visibleArtists.contains { $0.id == song.artistID }
+                (song.albumID.flatMap { library.visibleAlbum(id: $0) } != nil)
+                    || (song.artistID.flatMap { library.visibleArtist(id: $0) } != nil)
             } ?? false
         }
         return button

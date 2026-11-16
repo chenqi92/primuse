@@ -130,12 +130,15 @@ final class FloatingLyricsService {
 
     private func refresh() {
         guard let player else { return }
-        isAvailable = player.currentSong != nil && !player.isLiveRadio
+        let nextAvailable = player.currentSong != nil && !player.isLiveRadio
             && !player.currentItemIsSpokenWord && !player.isMusicVideoPlaybackActive
-        isPlaying = player.isPlaying
-        title = player.currentSong?.title ?? ""
-        songID = player.currentSong?.id
-        let song = isAvailable ? player.currentSong : nil
+        if isAvailable != nextAvailable { isAvailable = nextAvailable }
+        if isPlaying != player.isPlaying { isPlaying = player.isPlaying }
+        let nextTitle = player.currentSong?.title ?? ""
+        if title != nextTitle { title = nextTitle }
+        let nextSongID = player.currentSong?.id
+        if songID != nextSongID { songID = nextSongID }
+        let song = nextAvailable ? player.currentSong : nil
         let nextIdentity = song.map { "\($0.sourceID)|\($0.id)|\($0.lyricsFileName ?? "")" }
         if identity != nextIdentity {
             cancelLoad()
@@ -201,8 +204,10 @@ final class FloatingLyricsService {
 
     private func updatePresentation() {
         let next = FloatingLyricsPresentation(lines: isAvailable ? lines : [], time: player?.currentTime ?? 0)
-        if presentation != next { presentation = next }
-        onPresentationChange?()
+        if presentation != next {
+            presentation = next
+            onPresentationChange?()
+        }
     }
 }
 #endif

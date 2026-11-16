@@ -942,8 +942,6 @@ private final class LibraryFolderBrowserCache {
 
     @ObservationIgnored private var indexReference: LibraryFolderIndex?
     @ObservationIgnored private var orderedQueries: [OrderedQueryKey: [String]] = [:]
-    @ObservationIgnored private var visibleSongIDs: (revision: Int, ids: Set<String>)?
-
     private(set) var hasIndex = false
     private(set) var revision = 0
     /// false = 曲目顺序(默认): 一个文件夹通常就是一张专辑, 按碟号/曲号读;
@@ -992,15 +990,11 @@ private final class LibraryFolderBrowserCache {
         guard let index else { return [] }
 
         if !followsListSort {
-            if visibleSongIDs?.revision != rowOrderRevision {
-                visibleSongIDs = (rowOrderRevision, Set(listCache.orderedSongIDs))
-            }
-            let visible = visibleSongIDs?.ids ?? []
             let ordered = LibraryFolderBrowsePolicy.trackOrderedSongIDs(
                 in: nodeID,
                 scope: scope == .visible ? .direct : .descendants,
                 index: index,
-                isVisible: visible.contains
+                isVisible: listCache.isEmpty ? { _ in true } : { listCache.contains(songID: $0) }
             )
             orderedQueries[key] = ordered
             return ordered
@@ -1438,6 +1432,7 @@ struct SongListView: View {
             .environment(\.songListLocation, songLocation)
             .onChange(of: folderFollowsListSort, initial: true) { _, follows in
                 folderCache.followsListSort = follows
+                if follows { ensureSortedSnapshotIfNeeded() }
             }
             // Keep $sortOrder's State location stable across navigation-bar hosts.
             // A closure-backed Binding invalidates folder menus repeatedly on iOS 18.
@@ -1466,6 +1461,7 @@ struct SongListView: View {
                 } else {
                     folderIndexGeneration &+= 1
                     folderIndexTask?.cancel()
+                    ensureSortedSnapshotIfNeeded()
                 }
             }
             .onChange(of: storedBrowseModeRawValue) { _, rawValue in
@@ -1479,10 +1475,12 @@ struct SongListView: View {
             }
             .onChange(of: searchText) { _, _ in
                 pruneSelection()
+                ensureSortedSnapshotIfNeeded()
             }
             .onChange(of: songFilter) { _, filter in
                 UserDefaults.standard.set(filter.rawValue, forKey: "library.songFilter.v1")
                 selection.deactivate()
+                ensureSortedSnapshotIfNeeded()
                 if requiresDownloadedSongSnapshot {
                     scheduleDownloadedFilterRefresh()
                 } else {
@@ -1538,7 +1536,8 @@ struct SongListView: View {
                 case .title, .artist, .album, .format, .playCount, .source, .downloaded:
                     false
                 }
-                if listCache.isEmpty
+                if requiresSortedSnapshot,
+                   listCache.isEmpty
                     || shouldRetryPendingSort
                     || technicalOrderNeedsRefresh {
                     scheduleSortedRecompute(
@@ -1549,6 +1548,7 @@ struct SongListView: View {
                 }
             }
             .onChange(of: songListInvalidationRevision) { _, _ in
+                guard requiresSortedSnapshot else { return }
                 scheduleSortedRecompute(
                     delay: .milliseconds(80),
                     pruneRowModels: false,
@@ -1630,27 +1630,7 @@ struct SongListView: View {
                 // NavigationStack keeps this destination alive while another
                 // tab is selected. Reuse its existing order instead of
                 // sorting 10K songs again on every return.
-                if listCache.isEmpty {
-                    if let cached = SongListSnapshotStore.shared.cachedSnapshot(
-                        scopeKey: scope.snapshotCacheKey,
-                        version: songListVersion,
-                        order: sortOrder.libraryOrder,
-                        sortValuesVersion: sortValuesVersion
-                    ) {
-                        // 预热过或上次进来已经排好: 这一帧就摆出整张表, 不先闪一下转圈
-                        // 再等后台回话。
-                        sortGeneration &+= 1
-                        publishSnapshotWithoutAnimation(
-                            cached,
-                            pruneRowModels: false,
-                            isExplicitSort: false,
-                            generation: sortGeneration,
-                            order: sortOrder.libraryOrder
-                        )
-                    } else {
-                        scheduleSortedRecompute(pruneRowModels: false)
-                    }
-                }
+                ensureSortedSnapshotIfNeeded()
                 if !publishReusableFolderIndex() {
                     scheduleFolderIndexRecompute()
                 }
@@ -1663,10 +1643,14 @@ struct SongListView: View {
                 handleLocationRequest(request)
             }
             .onChange(of: songListVersion.collectionRevision) { _, _ in
-                scheduleSortedRecompute(
-                    delay: .milliseconds(180),
-                    pruneRowModels: true
-                )
+                if requiresSortedSnapshot {
+                    scheduleSortedRecompute(
+                        delay: .milliseconds(180),
+                        pruneRowModels: true
+                    )
+                } else if !listCache.isEmpty {
+                    listCache = SongListCache()
+                }
                 scheduleFolderIndexRecompute(delay: .milliseconds(180))
                 if requiresDownloadedSongSnapshot {
                     scheduleDownloadedFilterRefresh(delay: .milliseconds(180))
@@ -1848,7 +1832,7 @@ struct SongListView: View {
                 descriptionKey: "no_songs_desc",
                 systemImage: "music.note"
             )
-        } else if (!songs.isEmpty && listCache.isEmpty)
+        } else if (!songs.isEmpty && requiresSortedSnapshot && listCache.isEmpty)
                     || (showsFolderBrowser && !folderCache.hasIndex) {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2020,7 +2004,10 @@ struct SongListView: View {
 
     /// 页头上的「8,426 首歌曲」：眼前这份列表有几首（筛选、查找之后的）。
     private var songCountText: String {
-        "\(filteredProjection.rows.count.formatted()) \(String(localized: "songs_count"))"
+        let count = showsFolderBrowser && listCache.isEmpty
+            ? songs.count
+            : filteredProjection.rows.count
+        return "\(count.formatted()) \(String(localized: "songs_count"))"
     }
 
     /// 只在整个歌曲页、没在筛选、没在多选时出现。
@@ -3152,7 +3139,11 @@ struct SongListView: View {
         LocateCurrentSongButton(
             isEditing: selection.isActive,
             titled: verticalBarEdge != nil,
-            contains: { listCache.contains(songID: $0) },
+            contains: { id in
+                showsFolderBrowser && listCache.isEmpty
+                    ? (folderCache.index?.nodeID(containingSongID: id) != nil)
+                    : listCache.contains(songID: id)
+            },
             isVisible: { id in showsFolderBrowser || filteredProjection.rows.contains { $0.id == id } }
         ) { songID, clearsFilters in
             if clearsFilters {
@@ -3388,7 +3379,38 @@ struct SongListView: View {
             )
         }
         #endif
-        return showsFolderBrowser ? listCache.orderedSongIDs : filteredSongIDs
+        return showsFolderBrowser
+            ? (listCache.isEmpty ? songs.map(\.id) : listCache.orderedSongIDs)
+            : filteredSongIDs
+    }
+
+    private var requiresSortedSnapshot: Bool {
+        #if os(macOS)
+        return true
+        #else
+        return !showsFolderBrowser || folderFollowsListSort
+        #endif
+    }
+
+    private func ensureSortedSnapshotIfNeeded() {
+        guard requiresSortedSnapshot, listCache.isEmpty else { return }
+        if let cached = SongListSnapshotStore.shared.cachedSnapshot(
+            scopeKey: scope.snapshotCacheKey,
+            version: songListVersion,
+            order: sortOrder.libraryOrder,
+            sortValuesVersion: sortValuesVersion
+        ) {
+            sortGeneration &+= 1
+            publishSnapshotWithoutAnimation(
+                cached,
+                pruneRowModels: false,
+                isExplicitSort: false,
+                generation: sortGeneration,
+                order: sortOrder.libraryOrder
+            )
+        } else {
+            scheduleSortedRecompute(pruneRowModels: false)
+        }
     }
 
     private var batchActionContext: SongBatchActionContext {
@@ -3672,7 +3694,10 @@ struct SongListView: View {
                 Self.releaseOffMain(LibraryFolderIndexReuseCache.shared.store(prepared, for: reuseKey))
             }
             if selection.isActive, !selection.isEmpty {
-                selection.prune(to: Set(listCache.orderedSongIDs))
+                let validIDs = listCache.isEmpty
+                    ? Set(songs.lazy.map(\.id))
+                    : Set(listCache.orderedSongIDs)
+                selection.prune(to: validIDs)
             }
         }
     }

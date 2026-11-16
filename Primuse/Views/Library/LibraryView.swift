@@ -607,26 +607,57 @@ private enum LibraryArtworkPreviewBuilder {
         id: (Item) -> String,
         hasArtworkHint: (Item) -> Bool
     ) -> [Item] {
-        let selectedIDs = LibraryArtworkPreviewSelectionPolicy.selectedIDs(
-            from: items.map { item in
-                LibraryArtworkPreviewCandidate(
-                    id: id(item),
-                    hasArtworkHint: autoreleasepool { hasArtworkHint(item) }
-                )
-            },
-            maximumCount: maximumCount,
-            randomSeed: randomSeed
-        )
-        // 只挑几件, 别为此把整个列表复制进字典(二十多万首歌时是上百 MB 的瞬时占用)。
-        let wanted = Set(selectedIDs)
-        var selectedByID: [String: Item] = [:]
-        for item in items {
-            let key = id(item)
-            guard wanted.contains(key), selectedByID[key] == nil else { continue }
-            selectedByID[key] = item
-            if selectedByID.count == wanted.count { break }
+        guard maximumCount > 0, !items.isEmpty else { return [] }
+        typealias RankedItem = (id: String, item: Item, hasArtworkHint: Bool, rank: UInt64)
+        func precedes(_ lhs: RankedItem, _ rhs: RankedItem) -> Bool {
+            if lhs.hasArtworkHint != rhs.hasArtworkHint {
+                return lhs.hasArtworkHint
+            }
+            if lhs.rank != rhs.rank {
+                return lhs.rank < rhs.rank
+            }
+            return lhs.id < rhs.id
         }
-        return selectedIDs.compactMap { selectedByID[$0] }
+
+        var seedHash: UInt64 = 14_695_981_039_346_656_037
+        for byte in randomSeed.utf8 {
+            seedHash ^= UInt64(byte)
+            seedHash = seedHash &* 1_099_511_628_211
+        }
+        seedHash ^= 0
+        seedHash = seedHash &* 1_099_511_628_211
+
+        var selected: [RankedItem] = []
+        selected.reserveCapacity(min(maximumCount, items.count))
+        for item in items {
+            let itemID = id(item)
+            guard !itemID.isEmpty else { continue }
+            let hint = autoreleasepool { hasArtworkHint(item) }
+            var rank = seedHash
+            for byte in itemID.utf8 {
+                rank ^= UInt64(byte)
+                rank = rank &* 1_099_511_628_211
+            }
+            let candidate: RankedItem = (id: itemID, item: item, hasArtworkHint: hint, rank: rank)
+            if let existingIndex = selected.firstIndex(where: { $0.id == itemID }) {
+                guard precedes(candidate, selected[existingIndex]) else { continue }
+                selected.remove(at: existingIndex)
+            } else if selected.count == maximumCount,
+                      let worst = selected.last,
+                      !precedes(candidate, worst) {
+                continue
+            }
+            let insertionIndex = selected.firstIndex { precedes(candidate, $0) } ?? selected.endIndex
+            if insertionIndex < maximumCount {
+                selected.insert(candidate, at: insertionIndex)
+                if selected.count > maximumCount {
+                    selected.removeLast()
+                }
+            } else if selected.count < maximumCount {
+                selected.append(candidate)
+            }
+        }
+        return selected.map(\.item)
     }
 }
 
@@ -1840,16 +1871,21 @@ struct LibraryView: View {
             for: revision
         ) { randomSeed in
             // 只要几组 id, 不复制一份整库歌曲数组。
+            let allPlaylistMemberIDs = playlistMemberIDs.isEmpty
+                ? Set<String>()
+                : Set(playlistMemberIDs.values.joined())
             var albumIDsWithSongArtworkHint = Set<String>()
             var artistIDsWithSongArtworkHint = Set<String>()
-            var songIDsWithArtworkHint = Set<String>()
+            var playlistSongIDsWithArtworkHint = Set<String>()
             for song in songsSnapshot where LibraryArtworkPreviewBuilder.songHasArtworkHint(song) {
-                songIDsWithArtworkHint.insert(song.id)
+                if !allPlaylistMemberIDs.isEmpty, allPlaylistMemberIDs.contains(song.id) {
+                    playlistSongIDsWithArtworkHint.insert(song.id)
+                }
                 if let albumID = song.albumID { albumIDsWithSongArtworkHint.insert(albumID) }
                 if let artistID = song.artistID { artistIDsWithSongArtworkHint.insert(artistID) }
             }
             let playlistIDsWithMemberArtworkHint = Set(playlistMemberIDs.compactMap { entry in
-                entry.value.contains(where: songIDsWithArtworkHint.contains) ? entry.key : nil
+                entry.value.contains(where: playlistSongIDsWithArtworkHint.contains) ? entry.key : nil
             })
 
             let selectedSongs = LibraryArtworkPreviewBuilder.select(

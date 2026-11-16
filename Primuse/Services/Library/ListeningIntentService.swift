@@ -83,6 +83,7 @@ final class ListeningIntentService {
     @ObservationIgnored private var countedHistoryCount = 0
     /// 下一次点亮不等节流(AI 结果到了、开关变了)。
     @ObservationIgnored private var forcesNextRefresh = false
+    @ObservationIgnored private var forcesNextCuration = false
     @ObservationIgnored private var profile: ListeningProfile?
     @ObservationIgnored private var localPersonalIntents: [ListeningIntent] = []
     @ObservationIgnored private var curated: CuratedIntents?
@@ -90,6 +91,7 @@ final class ListeningIntentService {
     @ObservationIgnored private var usage: ListeningIntentUsage
     @ObservationIgnored private var usageRevision = 0
     @ObservationIgnored private var rankingKey: String?
+    @ObservationIgnored nonisolated(unsafe) private var memoryPressureObserver: NSObjectProtocol?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -105,6 +107,27 @@ final class ListeningIntentService {
         } else if !isAICurationEnabled {
             curationStatus = .off
         }
+        memoryPressureObserver = NotificationCenter.default.addObserver(
+            forName: .primuseMemoryPressure,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.releaseRebuildableCaches()
+            }
+        }
+    }
+
+    deinit {
+        if let memoryPressureObserver {
+            NotificationCenter.default.removeObserver(memoryPressureObserver)
+        }
+    }
+
+    func releaseRebuildableCaches() {
+        guard curationTask == nil, let displaced = profile else { return }
+        profile = nil
+        Task.detached(priority: .utility) { withExtendedLifetime(displaced) {} }
     }
 
     /// 「为你」只在手机、iPad、Mac 上有;电视首页是居家场景。
@@ -216,7 +239,11 @@ final class ListeningIntentService {
                     (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
                 ))
             }
-            if result != nil { self.considerCuration(force: false) }
+            if result != nil {
+                let forced = self.forcesNextCuration
+                self.forcesNextCuration = false
+                self.considerCuration(force: forced)
+            }
             if self.refreshPending, let library = self.library {
                 self.refreshPending = false
                 self.refresh(library: library)
@@ -367,6 +394,12 @@ final class ListeningIntentService {
 
     /// 「重新整理」:不等节奏,马上再问一次。
     func recurate() {
+        if profile == nil, let library {
+            forcesNextCuration = true
+            forcesNextRefresh = true
+            refresh(library: library)
+            return
+        }
         considerCuration(force: true)
     }
 
