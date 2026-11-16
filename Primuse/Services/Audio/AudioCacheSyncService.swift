@@ -400,12 +400,18 @@ final class AudioCacheSyncService {
     }
 
     func setApplicationActive(_ active: Bool) {
+        #if os(macOS)
+        // Mac 关了主窗口、退到后面也要能被别的设备找到并收缓存; 只有点对点(AWDL)跟着同步面板开关。
+        receiverShouldRun = true
+        startReceiving()
+        #else
         receiverShouldRun = active
         if active {
             startReceiving()
         } else if activeIncomingConnectionCount == 0 {
             stopReceiving()
         }
+        #endif
     }
 
     /// Enables peer-to-peer AWDL on macOS only while the Cache Sync sheet is

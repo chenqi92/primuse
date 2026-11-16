@@ -8558,6 +8558,9 @@ final class AudioPlayerService {
     func releasePausedPipelineIfIdle() {
         cancelPausedPipelineExpiration()
         guard !isPlaying, !isLoading else { return }
+        // 只放本机引擎这条管线: Apple Music、投放、系统播放器(MV/视频)各有自己的续播路径,
+        // 改 playID、标成要按本机恢复会把它们带偏。
+        guard !isAppleMusicMode, !isCastingMode, !isSystemMediaPlaybackActive else { return }
         let hasLiveResources = pausedLocalPipeline != nil
             || decodingTask != nil
             || hasPreparedLocalPlayback
