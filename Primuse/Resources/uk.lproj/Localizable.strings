@@ -88,7 +88,6 @@
 "tag_editor_album" = "Альбом";
 "SFTP client" = "Клієнт SFTP";
 "scraping_album_covers" = "Отримання обкладинок альбомів...";
-"scrobble_mac_rules_subtitle" = "Надіслати після 50% or 4 хвилин прослуховування; короткий звук обробляється пропорційно";
 "onboarding_mac_add_first_title" = "Додайте своє перше музичне джерело";
 "settings_apple_music_section" = "Apple Music";
 "radio_priority_sort_by_name" = "Сортувати за назвою";
@@ -2051,6 +2050,15 @@
 "cloud_guide_dropbox" = "Перейдіть на dropbox.com/developers/apps, щоб створити програму";
 "scrobble_report_to_server" = "Надсилати історію прослуховування музики на сервери";
 "scrobble_report_to_server_footer" = "Лише музика: прослухані треки надсилаються на сервери Navidrome, Jellyfin, Emby, Plex тощо, щоб оновлювати там кількість відтворень і нещодавно прослухані. Позиція прослуховування аудіокниг синхронізується завжди, незалежно від цього перемикача.";
+"listen_rule_section" = "Підрахунок прослуховувань";
+"listen_rule_percent" = "Зараховувати прослуховування після";
+"listen_rule_percent_info" = "Лічильники відтворень на сервері та Last.fm / ListenBrainz дотримуються цього правила. Треки, коротші за 30 секунд, не зараховуються; аудіокниги та інший мовленнєвий вміст не зачіпаються.";
+"listen_rule_long_track" = "Довгі треки — після 4 хвилин";
+"listen_rule_long_track_info" = "Якщо вимкнено, довгі треки теж треба дослухати до відсотка вище.";
+"listen_rule_local_history" = "Застосовувати до статистики й рекомендацій на пристрої";
+"listen_rule_local_history_info" = "Якщо ввімкнено, недослухані відтворення не потрапляють до лічильників, рейтингів, часу прослуховування й рекомендацій на пристрої. Якщо вимкнено, як і раніше записується будь-яке відтворення від 30 секунд.";
+"listen_rule_summary_long_track_format" = "%@ або 4 хвилини";
+"playback_history_note_rule_format" = "Підраховує відтворення, що досягли %1$@, з останніх %2$d збережених записів.";
 "scrobble_enabled" = "Увімкнути Scrobble";
 "ai_path_mode_append_v1" = "Додайте /v1";
 "ai_playlist_current_section" = "Поточний список відтворення";
@@ -2674,7 +2682,6 @@
 "rules_count" = "правил";
 "scrobble_lastfm_err_token_format" = "Не вдалося отримати маркер: %@";
 "ai_recommendation_status_upstream_local" = "Помилка інтелектуальної служби вгорі; існуючі рекомендації збережено";
-"scrobble_mac_rules_value" = "50% · 4 хв";
 "smart_rule_group_footer" = "Кілька груп правил застосовуються разом. Виключені групи видаляють відповідні пісні з результату.";
 "scanning" = "Сканування";
 "onboarding_later" = "Можливо пізніше";
@@ -2872,7 +2879,7 @@
 "dup_mac_match_hint_format" = "Зіставлено за відбитком пальця (акустичний номер) + назва/виконавець · відновити %@";
 "song_details_source_available" = "Джерело доступне. Читання знову призначено.";
 "player_tap_lyrics_to_seek" = "Переходити до рядка натисканням";
-"scrobble_mac_subtitle" = "Last.fm / ListenBrainz · надсилається після 50% or 4 хвилин";
+"scrobble_mac_subtitle" = "Історія сервера та Last.fm / ListenBrainz";
 "error_token_persistence_failed" = "Не вдалося безпечно зберегти оновлений маркер.";
 "Additional format decoding" = "Додаткове декодування формату";
 "apple_music_library_sync" = "Медіатека синхронізації Apple Music";
@@ -3990,7 +3997,7 @@
 "output_sr_matching" = "Відповідність вихідній частоті дискретизації";
 "immersive_demo_lyric_07" = "Найтихіше відлуння все ще може перетинати кімнату";
 "lyrics_editor_live_hint" = "Enter прив'язує початок рядка до поточного часу";
-"scrobble_overall_footer" = "Надішліть історію прослуховування на Last.fm / ListenBrainz. Відраховується після 50% or 4 хвилин прослуховування.";
+"scrobble_overall_footer" = "Надсилайте історію прослуховування на Last.fm / ListenBrainz. Зараховується за правилом «Зараховувати прослуховування після».";
 "settings_relay_footer" = "Тримайте Primuse відкритим на передньому плані, а обидва пристрої – на одному Wi-Fi. Музику з цього телефона також потрібно надіслати за допомогою «Перенести медіатеку з iPhone» на Apple TV.";
 "search_section_path" = "Шлях збігається";
 "reread_song_tags_completed" = "Теги файлів було прочитано знову.";
@@ -4196,7 +4203,6 @@
 "ai_recommendation_status_monthly_limit_local" = "Квота інтелектуальних послуг на цей місяць вичерпана; існуючі рекомендації збережено";
 "reread_song_tags_failure_requires_complete_technical_read" = "Заголовок файлу було прочитано, але надійні технічні характеристики вимагають повної перевірки файлу.";
 "synology_password_edit_validation_hint" = "Паролі Synology перевіряються та оновлюються під час підключення; поточний пароль залишається незмінним.";
-"scrobble_mac_rules_title" = "Правила подання";
 "CPU (playback)" = "ЦП (відтворення)";
 "library_folder_apple_music_unnamed_playlist" = "Список відтворення без назви";
 "relay_import_error_empty" = "Завантажений вміст замалий, щоб бути дійсним звуком.";

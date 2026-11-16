@@ -87,9 +87,9 @@ extension AudioPlayerService {
                         return
                     }
 
-                    // Scrobble 进度判断 — 50% 或 4 分钟阈值由 service 内部决定。
+                    // Scrobble 进度判断 — 计入规则 (默认 50% 或 4 分钟) 由 service 内部决定。
                     // 传真实 tick 增量而非 currentTime: 否则用户拖进度条到歌曲后段
-                    // 一松手就立刻满足 50% 阈值, 一秒没真听就误上报到 Last.fm/Navidrome。
+                    // 一松手就立刻满足阈值, 一秒没真听就误上报到 Last.fm/Navidrome。
                     // 本地播放历史同理, 传的是这一拍真实前进了多少: 向前拖产生的
                     // 大跳跃截到一个 tick, 向后拖是负数按 0 计, 暂停时时钟不前进也是 0。
                     if clockDecision.shouldRecordListeningProgress {

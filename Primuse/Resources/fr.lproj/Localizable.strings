@@ -1225,9 +1225,18 @@
 "scrobble_title" = "Scrobble";
 "scrobble_report_to_server" = "Envoyer l’historique d’écoute musicale aux serveurs";
 "scrobble_report_to_server_footer" = "Musique uniquement : les morceaux déjà écoutés sont envoyés aux serveurs comme Navidrome, Jellyfin, Emby et Plex, pour mettre à jour leurs nombres de lectures et leurs « Écoutés récemment ». La position d’écoute des livres audio est toujours synchronisée, quel que soit ce réglage.";
+"listen_rule_section" = "Comptage des écoutes";
+"listen_rule_percent" = "Compter comme écouté après";
+"listen_rule_percent_info" = "Les compteurs de lecture du serveur et Last.fm / ListenBrainz suivent cette règle. Les titres de moins de 30 secondes ne comptent jamais ; les livres audio et autres contenus parlés ne sont pas concernés.";
+"listen_rule_long_track" = "Titres longs comptés après 4 minutes";
+"listen_rule_long_track_info" = "Désactivé, les titres longs doivent aussi atteindre le pourcentage ci-dessus.";
+"listen_rule_local_history" = "Appliquer aux statistiques et recommandations locales";
+"listen_rule_local_history_info" = "Activé, les écoutes trop courtes ne sont pas comptées dans les lectures, classements, temps d'écoute et recommandations de l'appareil. Désactivé, toute écoute de 30 secondes ou plus est enregistrée, comme avant.";
+"listen_rule_summary_long_track_format" = "%@ ou 4 minutes";
+"playback_history_note_rule_format" = "Compte les lectures ayant atteint %1$@ parmi les %2$d derniers enregistrements conservés.";
 "scrobble_enabled" = "Activer le scrobble";
 "scrobble_send_now_playing" = "Envoyer le morceau en cours";
-"scrobble_overall_footer" = "Envoyez votre historique d'écoute vers Last.fm / ListenBrainz. Comptabilisé après 50 % ou 4 minutes de lecture.";
+"scrobble_overall_footer" = "Envoyez votre historique d'écoute vers Last.fm / ListenBrainz. Comptabilisé selon « Compter comme écouté après ».";
 "scrobble_provider_section" = "Service";
 "scrobble_lb_token_placeholder" = "Jeton utilisateur ListenBrainz";
 "scrobble_validate" = "Valider";
@@ -1265,7 +1274,7 @@
 "scrobble_clear_queue_confirm" = "Vider toutes les écoutes en attente ?";
 "scrobble_mac_footer_empty" = "Les jetons sont conservés uniquement dans le trousseau local · aucun envoi récent";
 "scrobble_mac_footer_success_format" = "Envois récents · %d réussi(s)";
-"scrobble_mac_subtitle" = "Last.fm / ListenBrainz · envoi après 50 % ou 4 minutes";
+"scrobble_mac_subtitle" = "Historique de lecture du serveur et Last.fm / ListenBrainz";
 "scrobble_mac_enabled_subtitle" = "Envoyer l'historique d'écoute local ; les jetons restent dans le trousseau local";
 "scrobble_mac_now_playing_subtitle" = "Synchroniser le morceau en cours au démarrage de la lecture ; non compté dans l'historique";
 "scrobble_mac_token_saved" = "Jeton enregistré";
@@ -1276,8 +1285,6 @@
 "scrobble_mac_i_authorized" = "J'ai autorisé";
 "scrobble_mac_connecting" = "Connexion";
 "scrobble_mac_create_api_app" = "Créer une app API";
-"scrobble_mac_rules_title" = "Règles d'envoi";
-"scrobble_mac_rules_subtitle" = "Envoi après 50 % ou 4 minutes de lecture ; les audios courts sont traités proportionnellement";
 "scrobble_mac_queue_subtitle" = "Les scrobbles en échec sont conservés jusqu'au prochain envoi";
 "scrobble_mac_recent_reports_title" = "Envois récents";
 "scrobble_mac_recent_reports_subtitle" = "Récemment envoyés à Last.fm / ListenBrainz";
@@ -4296,7 +4303,6 @@
 "tv_siri_remote_badge" = "SIRI REMOTE";
 "a11y_disable_music_video" = "Désactiver la vidéo musicale";
 "a11y_enable_music_video" = "Activer la vidéo musicale";
-"scrobble_mac_rules_value" = "50 % · 4 min";
 "audio_output_type_builtin" = "Intégré";
 "audio_output_device_fallback %@" = "Appareil %@";
 "playlist_import_match_id" = "ID";

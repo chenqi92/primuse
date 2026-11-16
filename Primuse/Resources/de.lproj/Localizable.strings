@@ -1225,9 +1225,18 @@
 "scrobble_title" = "Scrobbeln";
 "scrobble_report_to_server" = "Musik-Wiedergabeverlauf an Server senden";
 "scrobble_report_to_server_footer" = "Nur für Musik: Songs, die du gehört hast, werden an Server wie Navidrome, Jellyfin, Emby und Plex gesendet, damit deren Wiedergaben und „Zuletzt gespielt“ aktuell bleiben. Die Hörposition von Hörbüchern wird unabhängig von diesem Schalter immer synchronisiert.";
+"listen_rule_section" = "Wiedergabezählung";
+"listen_rule_percent" = "Als gehört zählen ab";
+"listen_rule_percent_info" = "Wiedergabezähler auf dem Server sowie Last.fm / ListenBrainz folgen dieser Regel. Titel unter 30 Sekunden zählen nie; Hörbücher und andere Wortinhalte sind nicht betroffen.";
+"listen_rule_long_track" = "Lange Titel zählen nach 4 Minuten";
+"listen_rule_long_track_info" = "Wenn aus, müssen auch lange Titel den Prozentsatz oben erreichen.";
+"listen_rule_local_history" = "Auch für lokale Statistik und Empfehlungen";
+"listen_rule_local_history_info" = "Wenn an, werden zu kurz gehörte Wiedergaben nicht in lokalen Wiedergabezahlen, Ranglisten, Hörzeit und Empfehlungen erfasst. Wenn aus, wird wie bisher jede Wiedergabe ab 30 Sekunden erfasst.";
+"listen_rule_summary_long_track_format" = "%@ oder 4 Minuten";
+"playback_history_note_rule_format" = "Zählt Wiedergaben, die %1$@ erreicht haben, aus den letzten %2$d gespeicherten Einträgen.";
 "scrobble_enabled" = "Scrobbeln aktivieren";
 "scrobble_send_now_playing" = "„Aktuelle Wiedergabe“ senden";
-"scrobble_overall_footer" = "Wiedergabeverlauf an Last.fm / ListenBrainz übermitteln. Zählt erst nach 50 % oder 4 Minuten Wiedergabe.";
+"scrobble_overall_footer" = "Wiedergabeverlauf an Last.fm / ListenBrainz übermitteln. Gezählt wird nach „Als gehört zählen ab“.";
 "scrobble_provider_section" = "Dienst";
 "scrobble_lb_token_placeholder" = "ListenBrainz-Benutzer-Token";
 "scrobble_validate" = "Überprüfen";
@@ -1265,7 +1274,7 @@
 "scrobble_clear_queue_confirm" = "Alle ausstehenden Titel löschen?";
 "scrobble_mac_footer_empty" = "Tokens werden nur im lokalen Schlüsselbund gespeichert · keine kürzlichen Übermittlungen";
 "scrobble_mac_footer_success_format" = "Kürzliche Übermittlungen · %d erfolgreich";
-"scrobble_mac_subtitle" = "Last.fm / ListenBrainz · übermittelt nach 50 % oder 4 Minuten";
+"scrobble_mac_subtitle" = "Server-Wiedergabeverlauf und Last.fm / ListenBrainz";
 "scrobble_mac_enabled_subtitle" = "Lokalen Wiedergabeverlauf übermitteln; Tokens bleiben im lokalen Schlüsselbund";
 "scrobble_mac_now_playing_subtitle" = "Aktuellen Titel beim Wiedergabestart synchronisieren; nicht als Verlauf gezählt";
 "scrobble_mac_token_saved" = "Token gesichert";
@@ -1276,8 +1285,6 @@
 "scrobble_mac_i_authorized" = "Ich habe autorisiert";
 "scrobble_mac_connecting" = "Verbinden";
 "scrobble_mac_create_api_app" = "API-App erstellen";
-"scrobble_mac_rules_title" = "Übermittlungsregeln";
-"scrobble_mac_rules_subtitle" = "Übermittlung nach 50 % oder 4 Minuten Wiedergabe; kurze Audiodateien werden anteilig behandelt";
 "scrobble_mac_queue_subtitle" = "Fehlgeschlagene Scrobbles werden bis zur nächsten Übermittlung aufbewahrt";
 "scrobble_mac_recent_reports_title" = "Kürzliche Übermittlungen";
 "scrobble_mac_recent_reports_subtitle" = "Kürzlich an Last.fm / ListenBrainz übermittelt";
@@ -4296,7 +4303,6 @@
 "tv_siri_remote_badge" = "SIRI REMOTE";
 "a11y_disable_music_video" = "Musikvideo deaktivieren";
 "a11y_enable_music_video" = "Musikvideo aktivieren";
-"scrobble_mac_rules_value" = "50 % · 4 Min.";
 "audio_output_type_builtin" = "Integriert";
 "audio_output_device_fallback %@" = "Gerät %@";
 "playlist_import_match_id" = "ID";

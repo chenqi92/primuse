@@ -1019,9 +1019,18 @@
 "scrobble_title" = "Scrobble";
 "scrobble_report_to_server" = "Send Music Plays to Servers";
 "scrobble_report_to_server_footer" = "Music only: songs you’ve played are sent to servers such as Navidrome, Jellyfin, Emby and Plex, so their play counts and recently played stay current. Audiobook listening progress always syncs, whatever this switch is set to.";
+"listen_rule_section" = "Play Counting";
+"listen_rule_percent" = "Count as Played After";
+"listen_rule_percent_info" = "Server play counts and Last.fm / ListenBrainz scrobbles follow this rule. Tracks under 30 seconds never count; audiobooks and other spoken word are not affected.";
+"listen_rule_long_track" = "Long Tracks Count After 4 Minutes";
+"listen_rule_long_track_info" = "When off, long tracks also need to reach the percentage above.";
+"listen_rule_local_history" = "Apply to Local Stats and Recommendations";
+"listen_rule_local_history_info" = "When on, plays that fall short are left out of local play counts, rankings, listening time and recommendations. When off, any play of 30 seconds or more is recorded, as before.";
+"listen_rule_summary_long_track_format" = "%@ or 4 minutes";
+"playback_history_note_rule_format" = "Counts plays that reached %1$@, from the latest %2$d retained records.";
 "scrobble_enabled" = "Enable Scrobble";
 "scrobble_send_now_playing" = "Send Now Playing";
-"scrobble_overall_footer" = "Submit listening history to Last.fm / ListenBrainz. Counts after 50% or 4 minutes played.";
+"scrobble_overall_footer" = "Submit listening history to Last.fm / ListenBrainz. Plays count according to “Count as Played After”.";
 "scrobble_provider_section" = "Service";
 "scrobble_lb_token_placeholder" = "ListenBrainz User Token";
 "scrobble_validate" = "Validate";
@@ -1059,7 +1068,7 @@
 "scrobble_clear_queue_confirm" = "Clear all pending listens?";
 "scrobble_mac_footer_empty" = "Tokens are stored only in the local Keychain · no recent submissions";
 "scrobble_mac_footer_success_format" = "Recent submissions · %d successful";
-"scrobble_mac_subtitle" = "Last.fm / ListenBrainz · submits after 50% or 4 minutes";
+"scrobble_mac_subtitle" = "Server play history and Last.fm / ListenBrainz";
 "scrobble_mac_enabled_subtitle" = "Submit local listening history; tokens stay in the local Keychain";
 "scrobble_mac_now_playing_subtitle" = "Sync the current track when playback starts; not counted as history";
 "scrobble_mac_token_saved" = "Token saved";
@@ -1070,8 +1079,6 @@
 "scrobble_mac_i_authorized" = "I Authorized It";
 "scrobble_mac_connecting" = "Connecting";
 "scrobble_mac_create_api_app" = "Create API App";
-"scrobble_mac_rules_title" = "Submission Rules";
-"scrobble_mac_rules_subtitle" = "Submit after 50% or 4 minutes played; short audio is handled proportionally";
 "scrobble_mac_queue_subtitle" = "Failed scrobbles are kept until the next submission";
 "scrobble_mac_recent_reports_title" = "Recent Submissions";
 "scrobble_mac_recent_reports_subtitle" = "Recently submitted to Last.fm / ListenBrainz";
@@ -4069,7 +4076,6 @@
 "tv_siri_remote_badge" = "SIRI REMOTE";
 "a11y_disable_music_video" = "Disable music video";
 "a11y_enable_music_video" = "Enable music video";
-"scrobble_mac_rules_value" = "50% · 4 min";
 "audio_output_type_builtin" = "Built-in";
 "audio_output_device_fallback %@" = "Device %@";
 "playlist_import_match_id" = "ID";

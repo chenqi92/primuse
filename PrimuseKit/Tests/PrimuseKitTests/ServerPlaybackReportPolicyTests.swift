@@ -77,6 +77,71 @@ struct ServerPlaybackReportTimingTests {
     }
 }
 
+@Suite("Listen count rule")
+struct ListenCountRuleTests {
+    @Test("默认：听够一半，长歌听满 4 分钟也算")
+    func defaultMatchesTheLastFmRule() {
+        let rule = ListenCountRule.default
+        #expect(rule.requiredListenSeconds(forDuration: 200) == 100)
+        #expect(rule.requiredListenSeconds(forDuration: 480) == 240)
+        #expect(rule.requiredListenSeconds(forDuration: 600) == 240)
+    }
+
+    @Test("短于 30 秒或时长不明的歌不算")
+    func shortOrUnknownTracksNeverCount() {
+        let rule = ListenCountRule.default
+        #expect(rule.requiredListenSeconds(forDuration: 29.9) == nil)
+        #expect(rule.requiredListenSeconds(forDuration: 0) == nil)
+        #expect(rule.requiredListenSeconds(forDuration: .nan) == nil)
+        #expect(rule.requiredListenSeconds(forDuration: .infinity) == nil)
+        #expect(rule.requiredListenSeconds(forDuration: 30) == 15)
+    }
+
+    @Test("调高比例；关掉 4 分钟后长歌也按比例")
+    func stricterRatioAndNoLongTrackCap() {
+        let capped = ListenCountRule(percent: 70, countsAfterFourMinutes: true)
+        #expect(capped.requiredListenSeconds(forDuration: 200) == 140)
+        #expect(capped.requiredListenSeconds(forDuration: 600) == 240)
+        let uncapped = ListenCountRule(percent: 70, countsAfterFourMinutes: false)
+        #expect(uncapped.requiredListenSeconds(forDuration: 600) == 420)
+        #expect(ListenCountRule(percent: 50, countsAfterFourMinutes: false)
+            .requiredListenSeconds(forDuration: 600) == 300)
+    }
+
+    @Test("存下来的比例超出范围时拉回 50–90")
+    func outOfRangePercentIsClamped() {
+        #expect(ListenCountRule(percent: 10).effectivePercent == 50)
+        #expect(ListenCountRule(percent: 100, countsAfterFourMinutes: false)
+            .requiredListenSeconds(forDuration: 200) == 180)
+        #expect(ListenCountRule.percentChoices.first == ListenCountRule.minimumPercent)
+        #expect(ListenCountRule.percentChoices.last == ListenCountRule.maximumPercent)
+    }
+
+    @Test("本机记录：不跟随规则时照旧听满 30 秒就记")
+    func localHistoryKeepsThirtySecondsUnlessFollowingTheRule() {
+        let rule = ListenCountRule(percent: 80, countsAfterFourMinutes: false)
+        #expect(rule.recordsLocalListen(listenedSeconds: 30, duration: 300, followsRule: false, minimumListenSeconds: 30))
+        #expect(!rule.recordsLocalListen(listenedSeconds: 29, duration: 300, followsRule: false, minimumListenSeconds: 30))
+        #expect(!rule.recordsLocalListen(listenedSeconds: 239, duration: 300, followsRule: true, minimumListenSeconds: 30))
+        #expect(rule.recordsLocalListen(listenedSeconds: 240, duration: 300, followsRule: true, minimumListenSeconds: 30))
+        // 时长还没读出来：只看 30 秒。
+        #expect(rule.recordsLocalListen(listenedSeconds: 31, duration: 0, followsRule: true, minimumListenSeconds: 30))
+        // 规则要求不到 30 秒的短歌也要听满 30 秒。
+        #expect(!ListenCountRule.default.recordsLocalListen(
+            listenedSeconds: 25, duration: 40, followsRule: true, minimumListenSeconds: 30))
+    }
+
+    @Test("编码往返不变，缺项按默认补")
+    func roundTripsThroughJSON() throws {
+        let data = try JSONEncoder().encode(ListenCountRule(percent: 70, countsAfterFourMinutes: false))
+        #expect(try JSONDecoder().decode(ListenCountRule.self, from: data)
+            == ListenCountRule(percent: 70, countsAfterFourMinutes: false))
+        #expect(try JSONDecoder().decode(ListenCountRule.self, from: Data("{}".utf8)) == .default)
+        #expect(try JSONDecoder().decode(ListenCountRule.self, from: Data(#"{"percent":80}"#.utf8))
+            == ListenCountRule(percent: 80, countsAfterFourMinutes: true))
+    }
+}
+
 @Suite("Server playback report requests")
 struct ServerPlaybackReportRequestTests {
     /// 2026-11-14 08:30:05.250 UTC

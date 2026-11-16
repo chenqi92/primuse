@@ -1225,9 +1225,18 @@
 "scrobble_title" = "Scrobble";
 "scrobble_report_to_server" = "서버에 음악 재생 기록 보내기";
 "scrobble_report_to_server_footer" = "음악에만 적용됩니다. 재생한 곡을 Navidrome, Jellyfin, Emby, Plex 등의 서버로 보내 서버의 재생 횟수와 최근 재생 기록에 반영합니다. 오디오북의 재생 위치는 이 설정과 관계없이 항상 동기화됩니다.";
+"listen_rule_section" = "재생 집계 기준";
+"listen_rule_percent" = "재생으로 인정하는 비율";
+"listen_rule_percent_info" = "서버 재생 횟수와 Last.fm·ListenBrainz 전송은 이 기준을 따릅니다. 30초 미만의 곡은 집계하지 않으며, 오디오북 등 음성 콘텐츠에는 적용되지 않습니다.";
+"listen_rule_long_track" = "긴 곡은 4분 들으면 인정";
+"listen_rule_long_track_info" = "끄면 긴 곡도 위 비율만큼 들어야 인정됩니다.";
+"listen_rule_local_history" = "기기 통계와 추천에도 적용";
+"listen_rule_local_history_info" = "켜면 기준에 못 미친 재생은 기기의 재생 횟수, 순위, 청취 시간, 추천에 기록되지 않습니다. 끄면 기존처럼 30초 이상이면 기록합니다.";
+"listen_rule_summary_long_track_format" = "%@ 또는 4분";
+"playback_history_note_rule_format" = "최근 보관된 %2$d개 기록 중 %1$@에 도달한 재생을 집계합니다.";
 "scrobble_enabled" = "Scrobble 사용";
 "scrobble_send_now_playing" = "현재 재생 중 전송";
-"scrobble_overall_footer" = "청취 기록을 Last.fm / ListenBrainz로 전송합니다. 50% 또는 4분 이상 재생하면 집계됩니다.";
+"scrobble_overall_footer" = "청취 기록을 Last.fm / ListenBrainz로 전송합니다. ‘재생으로 인정하는 비율’에 따라 집계됩니다.";
 "scrobble_provider_section" = "서비스";
 "scrobble_lb_token_placeholder" = "ListenBrainz 사용자 토큰";
 "scrobble_validate" = "확인";
@@ -1265,7 +1274,7 @@
 "scrobble_clear_queue_confirm" = "대기 중인 모든 재생 기록을 비우시겠습니까?";
 "scrobble_mac_footer_empty" = "토큰은 로컬 키체인에만 저장됩니다 · 최근 전송 내역 없음";
 "scrobble_mac_footer_success_format" = "최근 전송 · %d건 성공";
-"scrobble_mac_subtitle" = "Last.fm / ListenBrainz · 50% 또는 4분 후 전송";
+"scrobble_mac_subtitle" = "서버 재생 기록 및 Last.fm / ListenBrainz";
 "scrobble_mac_enabled_subtitle" = "로컬 재생 기록을 전송합니다. 토큰은 로컬 키체인에 보관됩니다";
 "scrobble_mac_now_playing_subtitle" = "재생이 시작될 때 현재 곡을 동기화하며, 기록에는 포함되지 않습니다";
 "scrobble_mac_token_saved" = "토큰 저장됨";
@@ -1276,8 +1285,6 @@
 "scrobble_mac_i_authorized" = "인증했습니다";
 "scrobble_mac_connecting" = "연결 중";
 "scrobble_mac_create_api_app" = "API 앱 만들기";
-"scrobble_mac_rules_title" = "전송 규칙";
-"scrobble_mac_rules_subtitle" = "재생이 50% 또는 4분을 넘으면 전송하며, 짧은 오디오는 비율에 따라 처리됩니다";
 "scrobble_mac_queue_subtitle" = "실패한 scrobble은 다음 전송까지 보관됩니다";
 "scrobble_mac_recent_reports_title" = "최근 전송";
 "scrobble_mac_recent_reports_subtitle" = "최근 Last.fm / ListenBrainz에 전송됨";
@@ -4296,7 +4303,6 @@
 "tv_siri_remote_badge" = "SIRI REMOTE";
 "a11y_disable_music_video" = "뮤직 비디오 끄기";
 "a11y_enable_music_video" = "뮤직 비디오 켜기";
-"scrobble_mac_rules_value" = "50% · 4분";
 "audio_output_type_builtin" = "내장";
 "audio_output_device_fallback %@" = "기기 %@";
 "playlist_import_match_id" = "ID";

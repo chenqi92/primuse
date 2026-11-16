@@ -30,6 +30,16 @@ final class ScrobbleSettingsStore {
         didSet { persist(); ScrobbleSettingsStore.notifyChanged() }
     }
 
+    /// 一首歌听够多少算听过：服务器回传和 Last.fm / ListenBrainz 都按它(有声内容照默认规则)。
+    var listenCountRule: ListenCountRule {
+        didSet { persist() }
+    }
+
+    /// 本机听歌记录(播放次数、排行、推荐)也按 `listenCountRule` 记;关着时照旧听满 30 秒就记。
+    var countsListeningHistoryByRule: Bool {
+        didSet { persist() }
+    }
+
     private init() {
         if let data = UserDefaults.standard.data(forKey: Self.userDefaultsKey),
            let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
@@ -37,11 +47,15 @@ final class ScrobbleSettingsStore {
             self.isEnabled = decoded.isEnabled
             self.enabledProviders = Set(decoded.enabledProviders.compactMap(ScrobbleProviderID.init(rawValue:)))
             self.sendNowPlaying = decoded.sendNowPlaying
+            self.listenCountRule = decoded.listenCountRule ?? .default
+            self.countsListeningHistoryByRule = decoded.countsListeningHistoryByRule ?? false
         } else {
             self.reportPlaybackToServer = true
             self.isEnabled = false
             self.enabledProviders = []
             self.sendNowPlaying = true
+            self.listenCountRule = .default
+            self.countsListeningHistoryByRule = false
         }
     }
 
@@ -52,6 +66,8 @@ final class ScrobbleSettingsStore {
         isEnabled = loaded.isEnabled
         enabledProviders = loaded.enabledProviders
         sendNowPlaying = loaded.sendNowPlaying
+        listenCountRule = loaded.listenCountRule
+        countsListeningHistoryByRule = loaded.countsListeningHistoryByRule
         suppressPersist = false
         ScrobbleSettingsStore.notifyChanged()
     }
@@ -62,7 +78,9 @@ final class ScrobbleSettingsStore {
             reportPlaybackToServer: reportPlaybackToServer,
             isEnabled: isEnabled,
             enabledProviders: enabledProviders.map(\.rawValue),
-            sendNowPlaying: sendNowPlaying
+            sendNowPlaying: sendNowPlaying,
+            listenCountRule: listenCountRule,
+            countsListeningHistoryByRule: countsListeningHistoryByRule
         )
         if let data = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
@@ -79,6 +97,8 @@ final class ScrobbleSettingsStore {
         let isEnabled: Bool
         let enabledProviders: [String]
         let sendNowPlaying: Bool
+        let listenCountRule: ListenCountRule?
+        let countsListeningHistoryByRule: Bool?
     }
 }
 

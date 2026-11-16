@@ -12,7 +12,7 @@ final class ScrobbleService {
     private let providersOverride: (() -> [any ScrobbleProvider])?
     private let spokenWordStore: SpokenWordStore
     private let songLookup: (String) -> Song?
-    /// 当前正在播放的歌曲信息 (用于 50%/4min 触发判断)。
+    /// 当前正在播放的歌曲信息 (用于计入规则的触发判断)。
     /// AudioPlayerService 切歌时会 reset。
     private var currentSession: PlaySession?
     /// 当前播放的 Song —— 服务端源(Subsonic/Navidrome)回报要按源路由, 需要
@@ -39,11 +39,8 @@ final class ScrobbleService {
     /// 后台 retry task — settings 变化或网络恢复时启动。
     private var retryTask: Task<Void, Never>?
 
-    /// Last.fm 50%/240s 规则 — 听到这个进度才计入 history。
-    private static let listenedThresholdRatio: Double = 0.5
-    private static let listenedThresholdSeconds: Double = 240
-    /// 太短的歌不 scrobble (< 30s) — 协议规范。
-    private static let minTrackDurationSec: Double = 30
+    /// 一首音乐听够多少算听过 (`ListenCountRule`, 设置页可调)。有声内容照默认规则。
+    private let listenCountRule: @MainActor () -> ListenCountRule
 
     /// 失败队列条目 — track entry + 已尝试次数 + 哪些 provider 还没成功。
     private struct QueuedEntry: Codable {
@@ -73,6 +70,8 @@ final class ScrobbleService {
         let startedAtMonotonic: TimeInterval
         var hasSentNowPlaying: Bool
         var hasScrobbled: Bool
+        /// 这首按用户的计入规则算 (音乐); 有声内容、环境音照默认规则。
+        let followsListenCountRule: Bool
         /// 真实累计收听时长 (秒) —— 每个 tick 加固定增量, 跟 song.currentTime 解耦,
         /// 这样 seek 到歌曲后段不会让一秒没听就触发 scrobble。新歌新建 session 自动归零。
         var listenedSeconds: TimeInterval = 0
@@ -91,12 +90,16 @@ final class ScrobbleService {
         spokenWordStore: SpokenWordStore = .shared,
         songLookup: @escaping (String) -> Song? = {
             PlayHistoryStore.shared.classification.library?.song(id: $0)
+        },
+        listenCountRule: @escaping @MainActor () -> ListenCountRule = {
+            ScrobbleSettingsStore.shared.listenCountRule
         }
     ) {
         self.defaults = defaults
         self.providersOverride = providers
         self.spokenWordStore = spokenWordStore
         self.songLookup = songLookup
+        self.listenCountRule = listenCountRule
         loadQueue()
         loadRecentReports()
         loadRejectedCredentials()
@@ -130,6 +133,7 @@ final class ScrobbleService {
         }
         currentSong = song
         let entry = makeEntry(from: song)
+        let reportable = canReport(entry)
         // session 总是建立 —— 它同时驱动服务端源(Subsonic)的 submission 阈值,
         // 后者独立于全局 scrobble 开关。全局 provider 的 nowPlaying/submit 仍各自
         // 在 active providers 为空时 no-op。
@@ -137,14 +141,15 @@ final class ScrobbleService {
             entry: entry,
             startedAtMonotonic: Self.monotonicNow(),
             hasSentNowPlaying: false,
-            hasScrobbled: false
+            hasScrobbled: false,
+            followsListenCountRule: reportable != false
         )
 
         // 服务端源回报 "正在播放"(submission=false)。开关只管音乐,由 handler 按歌曲判断;
         // 非服务端源在 handler 内 no-op。
         serverScrobbleHandler?(song, false)
 
-        guard canReport(entry) == true else { return }
+        guard reportable == true else { return }
         let settings = ScrobbleSettingsStore.shared
         guard settings.isEnabled, !settings.enabledProviders.isEmpty else { return }
         if settings.sendNowPlaying {
@@ -154,8 +159,8 @@ final class ScrobbleService {
     }
 
     /// AVPlayer may only discover a standalone music video's duration after
-    /// playback has started. Refresh the active session so the normal
-    /// 50%/240s threshold can still trigger for that first play.
+    /// playback has started. Refresh the active session so the listen count
+    /// rule can still trigger for that first play.
     func handlePlaybackDurationResolved(songID: String, duration: TimeInterval) {
         guard duration.isFinite, duration > 0,
               var session = currentSession,
@@ -184,19 +189,18 @@ final class ScrobbleService {
         }
     }
 
-    /// 播放进度更新 (AudioPlayerService 每个 tick 触发) — 判断是否到 scrobble 阈值。
+    /// 播放进度更新 (AudioPlayerService 每个 tick 触发) — 判断是否听够了计入规则。
     /// playedDelta: 距上次 tick 实际经过的收听时长 (real wallclock 增量, 不是
     /// song.currentTime)。service 内部累加, 避免用户 seek 到歌曲后段时一秒没听
-    /// 就被当成已收听 50% 而误上报 (污染 Last.fm/ListenBrainz/Navidrome 播放次数)。
+    /// 就被当成已听够而误上报 (污染 Last.fm/ListenBrainz/Navidrome 播放次数)。
     func handleProgressTick(playedDelta: TimeInterval) {
         guard var session = currentSession, !session.hasScrobbled else { return }
         session.listenedSeconds += max(0, playedDelta)
         currentSession = session
-        let durationSec = Double(session.entry.durationSec ?? 0)
-        guard durationSec >= Self.minTrackDurationSec else { return }
-        let half = durationSec * Self.listenedThresholdRatio
-        let threshold = min(half, Self.listenedThresholdSeconds)
-        guard session.listenedSeconds >= threshold else { return }
+        let rule = session.followsListenCountRule ? listenCountRule() : .default
+        guard let threshold = rule.requiredListenSeconds(
+            forDuration: Double(session.entry.durationSec ?? 0)
+        ), session.listenedSeconds >= threshold else { return }
 
         session.hasScrobbled = true
         currentSession = session
@@ -208,7 +212,7 @@ final class ScrobbleService {
         scrobbleAcrossProviders(entry: session.entry)
     }
 
-    /// 切歌 / 用户手动停止 — 清 session, 不补 scrobble (因为听不够 50% 不该计入)。
+    /// 切歌 / 用户手动停止 — 清 session, 不补 scrobble (没听够计入规则不该计入)。
     func handlePlaybackStopped() {
         currentSession = nil
         currentSong = nil

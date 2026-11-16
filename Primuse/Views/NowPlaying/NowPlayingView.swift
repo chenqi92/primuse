@@ -13916,7 +13916,17 @@ struct SongInfoSheet: View {
     #endif
 
     private var playbackHistoryNote: String {
-        String(format: String(localized: "playback_history_note"),
+        let settings = ScrobbleSettingsStore.shared
+        if settings.countsListeningHistoryByRule, SpokenWordStore.shared.isMusic(song) {
+            let rule = settings.listenCountRule
+            let percent = rule.effectivePercent.formatted(.percent)
+            let threshold = rule.countsAfterFourMinutes
+                ? String(format: String(localized: "listen_rule_summary_long_track_format"), percent)
+                : percent
+            return String(format: String(localized: "playback_history_note_rule_format"),
+                          threshold, PlayHistoryStore.maxRetainedEntries)
+        }
+        return String(format: String(localized: "playback_history_note"),
             Int(PlayHistoryStore.recordedThresholdSec),
             PlayHistoryStore.maxRetainedEntries)
     }

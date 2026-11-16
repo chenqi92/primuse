@@ -88,7 +88,6 @@
 "tag_editor_album" = "Albüm";
 "SFTP client" = "SFTP istemcisi";
 "scraping_album_covers" = "Albüm kapakları getiriliyor...";
-"scrobble_mac_rules_subtitle" = "50% or 4 dakika çalındıktan sonra gönderin; kısa ses orantılı olarak işlenir";
 "onboarding_mac_add_first_title" = "İlk müzik kaynağınızı ekleyin";
 "settings_apple_music_section" = "Apple Music";
 "radio_priority_sort_by_name" = "İsme Göre Sırala";
@@ -2051,6 +2050,15 @@
 "cloud_guide_dropbox" = "Bir uygulama oluşturmak için dropbox.com/developers/apps adresine gidin";
 "scrobble_report_to_server" = "Müzik çalma geçmişini sunuculara gönder";
 "scrobble_report_to_server_footer" = "Yalnızca müzik: çalınmış parçalar Navidrome, Jellyfin, Emby, Plex gibi sunuculara gönderilir; böylece oradaki oynatma sayısı ve son çalınanlar güncel kalır. Sesli kitapların dinleme konumu bu anahtardan bağımsız olarak her zaman senkronize edilir.";
+"listen_rule_section" = "Dinleme sayımı";
+"listen_rule_percent" = "Dinlendi sayılma eşiği";
+"listen_rule_percent_info" = "Sunucudaki çalma sayıları ve Last.fm / ListenBrainz bu kurala uyar. 30 saniyeden kısa parçalar asla sayılmaz; sesli kitaplar ve diğer konuşma içerikleri etkilenmez.";
+"listen_rule_long_track" = "Uzun parçalar 4 dakikada sayılır";
+"listen_rule_long_track_info" = "Kapalıyken uzun parçaların da yukarıdaki yüzdeye ulaşması gerekir.";
+"listen_rule_local_history" = "Yerel istatistik ve önerilere de uygula";
+"listen_rule_local_history_info" = "Açıkken eşiğe ulaşmayan çalmalar cihazdaki çalma sayılarına, sıralamalara, dinleme süresine ve önerilere eklenmez. Kapalıyken eskisi gibi 30 saniye ve üzeri her çalma kaydedilir.";
+"listen_rule_summary_long_track_format" = "%@ veya 4 dakika";
+"playback_history_note_rule_format" = "En son tutulan %2$d kayıttan %1$@ eşiğine ulaşan çalmaları sayar.";
 "scrobble_enabled" = "Scrobble'ı Etkinleştir";
 "ai_path_mode_append_v1" = "Ekle /v1";
 "ai_playlist_current_section" = "Güncel Çalma Listesi";
@@ -2674,7 +2682,6 @@
 "rules_count" = "kurallar";
 "scrobble_lastfm_err_token_format" = "Jeton alınamadı: %@";
 "ai_recommendation_status_upstream_local" = "Akıllı hizmet yukarı akışı başarısız oldu; mevcut öneriler korundu";
-"scrobble_mac_rules_value" = "50% · 4 dk";
 "smart_rule_group_footer" = "Birden fazla kural grubu bir arada uygulanır. Hariç tutulan gruplar eşleşen şarkıları sonuçtan kaldırır.";
 "scanning" = "Tarama";
 "onboarding_later" = "Belki daha sonra";
@@ -2872,7 +2879,7 @@
 "dup_mac_match_hint_format" = "Parmak izi (akustik) + başlık/sanatçı ile eşleştirildi · %@'yi kurtar";
 "song_details_source_available" = "Kaynağa ulaşılabilir. Okuma yeniden planlandı.";
 "player_tap_lyrics_to_seek" = "İlerlemek için şarkı sözlerine dokun";
-"scrobble_mac_subtitle" = "Last.fm / ListenBrainz · 50% or 4 dakika sonra gönderilir";
+"scrobble_mac_subtitle" = "Sunucu geçmişi ve Last.fm / ListenBrainz";
 "error_token_persistence_failed" = "Yenilenen jeton güvenli bir şekilde saklanamadı.";
 "Additional format decoding" = "Ek format kod çözme";
 "apple_music_library_sync" = "Apple Music arşivini senkronize et";
@@ -3990,7 +3997,7 @@
 "output_sr_matching" = "Eşleştirme Çıkışı Örnekleme Hızı";
 "immersive_demo_lyric_07" = "En sessiz yankı hâlâ odanın içinden geçebilir";
 "lyrics_editor_live_hint" = "Satır sonu tuşu satırı geçerli zamandan başlatır";
-"scrobble_overall_footer" = "Dinleme geçmişini Last.fm / ListenBrainz'ye gönderin. 50% or 4 dakika çalındıktan sonra sayılır.";
+"scrobble_overall_footer" = "Dinleme geçmişini Last.fm / ListenBrainz'e gönderin. “Dinlendi sayılma eşiği” ayarına göre sayılır.";
 "settings_relay_footer" = "Primuse'yi ön planda açık tutun ve her iki cihazı da aynı Wi-Fi üzerinde tutun. Bu telefonda saklanan müziğin ayrıca Apple TV'deki “iPhone'den Arşivi Aktarın” ile gönderilmesi gerekir.";
 "search_section_path" = "Yol eşleşmeleri";
 "reread_song_tags_completed" = "Dosya etiketleri tekrar okundu.";
@@ -4196,7 +4203,6 @@
 "ai_recommendation_status_monthly_limit_local" = "Bu ayın akıllı servis kotası doldu; mevcut öneriler korundu";
 "reread_song_tags_failure_requires_complete_technical_read" = "Dosya başlığı okundu ancak güvenilir teknik özellikler, dosyanın tamamının incelenmesini gerektirir.";
 "synology_password_edit_validation_hint" = "Synology şifreleri bağlanırken doğrulanır ve güncellenir; mevcut şifre değişmeden kalır.";
-"scrobble_mac_rules_title" = "Gönderim Kuralları";
 "CPU (playback)" = "CPU (oynatma)";
 "library_folder_apple_music_unnamed_playlist" = "Başlıksız Çalma Listesi";
 "relay_import_error_empty" = "İndirilen içerik geçerli ses olamayacak kadar küçük.";

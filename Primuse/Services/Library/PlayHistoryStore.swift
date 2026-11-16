@@ -141,9 +141,9 @@ final class PlayHistoryStore {
 
     static let shared = PlayHistoryStore()
 
-    /// 触发记录的最低实听时长。跟 ScrobbleService 一致 (50% or 240s
-    /// 的较小值, 保底 30s)。短于这个的歌会被认为是用户跳过, 不计入
-    /// 统计避免污染 Top 排行。
+    /// 触发记录的最低实听时长。短于这个的会被认为是用户跳过, 不计入
+    /// 统计避免污染 Top 排行。设置里打开「本机统计也按计入规则」后, 音乐还要
+    /// 听够 `ListenCountRule` (见 `recordsListen`)。
     static let recordedThresholdSec: TimeInterval = 30
 
     /// 最大保留条目数 — 滚动 evict 最老的。5000 条按平均 3 分钟一首
@@ -318,10 +318,21 @@ final class PlayHistoryStore {
     /// high-water mark: 那样把进度条拖过阈值再切歌也会记成一次完整播放,
     /// 实听时长还会被记成拖到的位置。
     private var currentListenedSec: TimeInterval = 0
+    /// 计入规则, 以及本机记录跟不跟它 (`ScrobbleSettingsStore`)。
+    private let localListenRule: @MainActor () -> (rule: ListenCountRule, followsRule: Bool)
 
-    init(storeURL: URL? = nil, defaults: UserDefaults = .standard, spokenWordStore: SpokenWordStore = .shared) {
+    init(
+        storeURL: URL? = nil,
+        defaults: UserDefaults = .standard,
+        spokenWordStore: SpokenWordStore = .shared,
+        localListenRule: @escaping @MainActor () -> (rule: ListenCountRule, followsRule: Bool) = {
+            let settings = ScrobbleSettingsStore.shared
+            return (settings.listenCountRule, settings.countsListeningHistoryByRule)
+        }
+    ) {
         self.defaults = defaults
         self.spokenWordStore = spokenWordStore
+        self.localListenRule = localListenRule
         self.updatesArchives = storeURL == nil
         #if os(tvOS)
         let docs = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
@@ -375,8 +386,28 @@ final class PlayHistoryStore {
             currentStartedAt = nil
             currentListenedSec = 0
         }
-        guard currentListenedSec >= Self.recordedThresholdSec else { return }
+        guard recordsListen(of: song, listenedSec: currentListenedSec) else { return }
         record(song: song, startedAt: startedAt, listenedSec: currentListenedSec)
+    }
+
+    /// 听满 `recordedThresholdSec` 就记; 跟随计入规则时音乐还要听够那条规则, 有声内容、
+    /// 播客、电台只看前一条 (它们的收听时长要照记)。
+    private func recordsListen(of song: Song, listenedSec: TimeInterval) -> Bool {
+        let (rule, followsRule) = localListenRule()
+        let isMusic = followsRule
+            && ListeningHistorySpacePolicy.space(songID: song.id, sourceID: song.sourceID, spokenWordSongIDs: []) == .music
+            && ListeningHistorySpacePolicy.space(of: spokenWordStore.kind(for: song)) == .music
+        var duration = song.duration
+        if isMusic, !(duration.isFinite && duration > 0) {
+            // Apple Music 等播放后才知道时长的歌, 曲库里那份已经补上了。
+            duration = classification.library?.song(id: song.id)?.duration ?? 0
+        }
+        return rule.recordsLocalListen(
+            listenedSeconds: listenedSec,
+            duration: duration,
+            followsRule: isMusic,
+            minimumListenSeconds: Self.recordedThresholdSec
+        )
     }
 
     // MARK: - 写入

@@ -124,6 +124,7 @@ struct ScrobbleSettingsView: View {
 
     private var iosBody: some View {
         Form {
+            listenRuleSection
             Section {
                 Toggle(isOn: $settings.reportPlaybackToServer) {
                     SettingsInfoLabel("scrobble_report_to_server") {
@@ -173,6 +174,9 @@ struct ScrobbleSettingsView: View {
                 .font(.system(size: 12.5))
                 .foregroundStyle(PMColor.textMuted)
 
+            // 计入规则也管服务器回传，不随「启用听歌记录」藏起来。
+            macRulesCard
+
             macRow(icon: "server.rack", title: String(localized: "scrobble_report_to_server")) {
                 macSwitch(isOn: $settings.reportPlaybackToServer)
             }
@@ -187,8 +191,6 @@ struct ScrobbleSettingsView: View {
                 macLastFmCard
                     .pmAppearFade(.contentAppear)
                 macListenBrainzCard
-                    .pmAppearFade(.contentAppear)
-                macRulesCard
                     .pmAppearFade(.contentAppear)
                 macQueueCard
                     .pmAppearFade(.contentAppear)
@@ -412,14 +414,30 @@ struct ScrobbleSettingsView: View {
 
     private var macRulesCard: some View {
         VStack(spacing: 0) {
-            macRow(icon: "timer", title: String(localized: "scrobble_mac_rules_title"), subtitle: String(localized: "scrobble_mac_rules_subtitle")) {
-                Text("scrobble_mac_rules_value")
-                    .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(PMColor.textMuted)
-                    .padding(.horizontal, 9)
-                    .frame(height: 24)
-                    .background(PMColor.glassBtn, in: .capsule)
+            macRow(icon: "timer", title: String(localized: "listen_rule_percent"),
+                   subtitle: String(localized: "listen_rule_percent_info"), wrapsSubtitle: true) {
+                Picker("", selection: listenPercentBinding) {
+                    ForEach(ListenCountRule.percentChoices, id: \.self) { percent in
+                        Text(verbatim: Self.percentText(percent)).tag(percent)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
             }
+            .settingsAnchor("scrobble.listenPercent")
+            Divider().overlay(PMColor.divider).padding(.leading, 44)
+            macRow(icon: "clock", title: String(localized: "listen_rule_long_track"),
+                   subtitle: String(localized: "listen_rule_long_track_info"), wrapsSubtitle: true) {
+                macSwitch(isOn: $settings.listenCountRule.countsAfterFourMinutes)
+            }
+            .settingsAnchor("scrobble.listenLongTrack")
+            Divider().overlay(PMColor.divider).padding(.leading, 44)
+            macRow(icon: "chart.bar", title: String(localized: "listen_rule_local_history"),
+                   subtitle: String(localized: "listen_rule_local_history_info"), wrapsSubtitle: true) {
+                macSwitch(isOn: $settings.countsListeningHistoryByRule)
+            }
+            .settingsAnchor("scrobble.listenLocalHistory")
         }
         .background(PMColor.bgElev, in: .rect(cornerRadius: 12))
         .overlay {
@@ -556,6 +574,7 @@ struct ScrobbleSettingsView: View {
     private func macRow<Trailing: View>(icon: String,
                                         title: String,
                                         subtitle: String? = nil,
+                                        wrapsSubtitle: Bool = false,
                                         @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
@@ -571,7 +590,8 @@ struct ScrobbleSettingsView: View {
                     Text(subtitle)
                         .font(.system(size: 11.5))
                         .foregroundStyle(PMColor.textFaint)
-                        .lineLimit(1)
+                        .lineLimit(wrapsSubtitle ? nil : 1)
+                        .fixedSize(horizontal: false, vertical: wrapsSubtitle)
                 }
             }
             Spacer(minLength: 10)
@@ -853,6 +873,38 @@ struct ScrobbleSettingsView: View {
         }
     }
 
+    // MARK: - 计入规则
+
+    /// 一首歌听够多少算听过：服务器回传、Last.fm / ListenBrainz 都按它，本机记录可选跟随。
+    private var listenRuleSection: some View {
+        Section {
+            Picker(selection: listenPercentBinding) {
+                ForEach(ListenCountRule.percentChoices, id: \.self) { percent in
+                    Text(verbatim: Self.percentText(percent)).tag(percent)
+                }
+            } label: {
+                SettingsInfoLabel("listen_rule_percent") {
+                    Text("listen_rule_percent_info")
+                }
+            }
+            .settingsAnchor("scrobble.listenPercent")
+            Toggle(isOn: $settings.listenCountRule.countsAfterFourMinutes) {
+                SettingsInfoLabel("listen_rule_long_track") {
+                    Text("listen_rule_long_track_info")
+                }
+            }
+            .settingsAnchor("scrobble.listenLongTrack")
+            Toggle(isOn: $settings.countsListeningHistoryByRule) {
+                SettingsInfoLabel("listen_rule_local_history") {
+                    Text("listen_rule_local_history_info")
+                }
+            }
+            .settingsAnchor("scrobble.listenLocalHistory")
+        } header: {
+            Text("listen_rule_section")
+        }
+    }
+
     // MARK: - Failed queue
 
     private var queueSection: some View {
@@ -898,6 +950,18 @@ struct ScrobbleSettingsView: View {
     }
 
     // MARK: - Helpers
+
+    /// 按生效值显示：存下来的比例超出可选范围时，选单上落在拉回后的那一档。
+    private var listenPercentBinding: Binding<Int> {
+        Binding(
+            get: { settings.listenCountRule.effectivePercent },
+            set: { settings.listenCountRule.percent = $0 }
+        )
+    }
+
+    static func percentText(_ percent: Int) -> String {
+        percent.formatted(.percent)
+    }
 
     private func providerToggleBinding(_ pid: ScrobbleProviderID) -> Binding<Bool> {
         Binding(

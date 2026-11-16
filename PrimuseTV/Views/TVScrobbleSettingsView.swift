@@ -46,6 +46,7 @@ struct TVScrobbleSettingsView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 28) {
                     header
+                    listenRulePanel
                     panel {
                         TVSwitchRow(icon: "server.rack", title: String(localized: "scrobble_report_to_server"),
                                     isOn: $settings.reportPlaybackToServer, maxWidth: .infinity)
@@ -125,6 +126,62 @@ struct TVScrobbleSettingsView: View {
                 .foregroundStyle(TVColor.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    // MARK: 计入规则
+
+    /// 听到多少算听过：服务器回传和 Last.fm / ListenBrainz 都按它，所以放在最上面、不随上报开关藏起来。
+    private var listenRulePanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            panel {
+                listenPercentRow
+                divider
+                TVSwitchRow(icon: "clock", title: String(localized: "listen_rule_long_track"),
+                            isOn: $settings.listenCountRule.countsAfterFourMinutes, maxWidth: .infinity)
+                    .accessibilityIdentifier("tv.scrobble.listenLongTrack")
+                divider
+                TVSwitchRow(icon: "chart.bar", title: String(localized: "listen_rule_local_history"),
+                            isOn: $settings.countsListeningHistoryByRule, maxWidth: .infinity)
+                    .accessibilityIdentifier("tv.scrobble.listenLocalHistory")
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(String(localized: "listen_rule_percent_info"))
+                Text(String(localized: "listen_rule_local_history_info"))
+            }
+            .tvFont(.meta)
+            .foregroundStyle(TVColor.textFaint)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// 按一下换下一档，到最严那档后回到一半。
+    private var listenPercentRow: some View {
+        let percent = settings.listenCountRule.effectivePercent
+        return TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: {
+            settings.listenCountRule.percent = ListenCountRule.percentChoices.first { $0 > percent }
+                ?? ListenCountRule.minimumPercent
+        }) { focused in
+            HStack(spacing: 16) {
+                Image(systemName: "timer")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(TVColor.brand)
+                    .frame(width: 34)
+                Text(String(localized: "listen_rule_percent")).tvFont(.caption, weight: .medium).foregroundStyle(TVColor.text)
+                Spacer(minLength: 12)
+                Text(verbatim: percent.formatted(.percent))
+                    .tvFont(.caption, weight: .semibold, design: .monospaced)
+                    .foregroundStyle(TVColor.brand)
+                    .contentTransition(.numericText())
+                    .animation(.easeOut(duration: 0.18), value: percent)
+            }
+            .padding(.horizontal, 22).padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .accessibilityIdentifier("tv.scrobble.listenPercent")
+        .accessibilityLabel(Text(String(localized: "listen_rule_percent")))
+        .accessibilityValue(Text(verbatim: percent.formatted(.percent)))
     }
 
     // MARK: Last.fm

@@ -1033,9 +1033,18 @@
 "scrobble_title" = "听歌记录";
 "scrobble_report_to_server" = "向服务器回传音乐播放记录";
 "scrobble_report_to_server_footer" = "只管音乐：把听过的歌回传给 Navidrome、Jellyfin、Emby、Plex 等服务器，记进它们的播放次数和最近播放。有声书的收听进度一直同步，不受这个开关影响。";
+"listen_rule_section" = "计入规则";
+"listen_rule_percent" = "听到多少算听过";
+"listen_rule_percent_info" = "回传到服务器的播放次数和 Last.fm、ListenBrainz 的记录都按这条计入；不到 30 秒的歌不计，有声内容不受影响。";
+"listen_rule_long_track" = "长歌听满 4 分钟也算";
+"listen_rule_long_track_info" = "关掉后，长歌也要按上面的比例听够才算。";
+"listen_rule_local_history" = "本机统计和推荐也按这条算";
+"listen_rule_local_history_info" = "打开后，没听够的播放不再记进本机的播放次数、排行、听歌时长和推荐；关着时照旧听满 30 秒就记。";
+"listen_rule_summary_long_track_format" = "%@ 或 4 分钟";
+"playback_history_note_rule_format" = "仅统计听够 %1$@ 的记录，基于最近保留的 %2$d 条历史。";
 "scrobble_enabled" = "启用听歌记录";
 "scrobble_send_now_playing" = "上报正在播放";
-"scrobble_overall_footer" = "把听歌历史同步到 Last.fm / ListenBrainz 等服务,听够 50% 或 4 分钟才计入。";
+"scrobble_overall_footer" = "把听歌历史同步到 Last.fm / ListenBrainz 等服务，按「听到多少算听过」计入。";
 "scrobble_provider_section" = "服务";
 "scrobble_lb_token_placeholder" = "ListenBrainz 用户令牌";
 "scrobble_validate" = "验证";
@@ -1073,7 +1082,7 @@
 "scrobble_clear_queue_confirm" = "清空待重试的听歌记录?";
 "scrobble_mac_footer_empty" = "Token 仅保存在本机钥匙串 · 暂无最近上报";
 "scrobble_mac_footer_success_format" = "最近上报 · %d 条成功";
-"scrobble_mac_subtitle" = "Last.fm / ListenBrainz · 50% 或 4 分钟后提交";
+"scrobble_mac_subtitle" = "服务器播放记录与 Last.fm / ListenBrainz";
 "scrobble_mac_enabled_subtitle" = "提交本地播放历史, Token 只保存在本机钥匙串";
 "scrobble_mac_now_playing_subtitle" = "播放开始时同步当前曲目, 不计入历史";
 "scrobble_mac_token_saved" = "Token 已保存";
@@ -1084,8 +1093,6 @@
 "scrobble_mac_i_authorized" = "我已授权";
 "scrobble_mac_connecting" = "连接中";
 "scrobble_mac_create_api_app" = "创建 API 应用";
-"scrobble_mac_rules_title" = "提交规则";
-"scrobble_mac_rules_subtitle" = "播放超过 50% 或 4 分钟后提交, 短音频自动按比例处理";
 "scrobble_mac_queue_subtitle" = "网络失败的 scrobble 会保留到下次提交";
 "scrobble_mac_recent_reports_title" = "最近上报";
 "scrobble_mac_recent_reports_subtitle" = "最近成功提交到 Last.fm / ListenBrainz 的记录";
@@ -4398,7 +4405,6 @@
 "tv_siri_remote_badge" = "SIRI REMOTE 遥控器";
 "a11y_disable_music_video" = "关闭音乐视频";
 "a11y_enable_music_video" = "开启音乐视频";
-"scrobble_mac_rules_value" = "50% · 4 分钟";
 "audio_output_type_builtin" = "内置";
 "audio_output_device_fallback %@" = "设备 %@";
 "playlist_import_match_id" = "ID";

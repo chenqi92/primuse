@@ -2759,10 +2759,67 @@ public enum ServerPlaybackReportPolicy {
 public enum ServerPlaybackReportMoment: Sendable, Equatable {
     /// 开始播放：「正在播放」。
     case started
-    /// 听够了一半或 4 分钟：「已播放」。
+    /// 听够了计入规则（`ListenCountRule`）：「已播放」。
     case listenedEnough
     /// 有声内容的这个文件在本机放到了结尾。
     case finished
+}
+
+/// 一首歌听够多少才算「听过」。服务器回传与 Last.fm / ListenBrainz 都按它，本机听歌记录可选跟随。
+///
+/// 默认听够一半、长歌听满 4 分钟也算，即 Last.fm 的提交规矩；可选的档位只会比它严：
+/// 不给低于一半的档，也不给 100%（淡入淡出、无缝衔接会让结尾几秒判不准）。
+public struct ListenCountRule: Codable, Equatable, Sendable {
+    public static let percentChoices = [50, 60, 70, 80, 90]
+    public static let minimumPercent = 50
+    public static let maximumPercent = 90
+    /// 「长歌听满这么久也算」的时长。
+    public static let longTrackSeconds: TimeInterval = 240
+    /// 短于这个长度的歌不算。
+    public static let minimumTrackSeconds: TimeInterval = 30
+    public static let `default` = ListenCountRule()
+
+    public var percent: Int
+    public var countsAfterFourMinutes: Bool
+
+    public init(percent: Int = 50, countsAfterFourMinutes: Bool = true) {
+        self.percent = percent
+        self.countsAfterFourMinutes = countsAfterFourMinutes
+    }
+
+    private enum CodingKeys: String, CodingKey { case percent, countsAfterFourMinutes }
+
+    /// 缺哪项按默认补：它跟别的设置存在一起，解不开会连累整份设置回到默认。
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        percent = (try? container.decodeIfPresent(Int.self, forKey: .percent)) ?? Self.minimumPercent
+        countsAfterFourMinutes = (try? container.decodeIfPresent(Bool.self, forKey: .countsAfterFourMinutes)) ?? true
+    }
+
+    /// 实际生效的比例：存下来的值超出可选范围时拉回 50–90。
+    public var effectivePercent: Int {
+        min(max(percent, Self.minimumPercent), Self.maximumPercent)
+    }
+
+    /// 这首歌要实听多少秒才算听过。时长不明或短于 30 秒的歌返回 nil：这首不算。
+    public func requiredListenSeconds(forDuration duration: TimeInterval) -> TimeInterval? {
+        guard duration.isFinite, duration >= Self.minimumTrackSeconds else { return nil }
+        let byRatio = duration * Double(effectivePercent) / 100
+        return countsAfterFourMinutes ? min(byRatio, Self.longTrackSeconds) : byRatio
+    }
+
+    /// 本机听歌记录记不记这一次。总要听满 `minimumListenSeconds`；`followsRule` 打开时还要过这条规则，
+    /// 时长不明（还没读出来）的歌只看前一条。
+    public func recordsLocalListen(
+        listenedSeconds: TimeInterval,
+        duration: TimeInterval,
+        followsRule: Bool,
+        minimumListenSeconds: TimeInterval
+    ) -> Bool {
+        guard listenedSeconds.isFinite, listenedSeconds >= minimumListenSeconds else { return false }
+        guard followsRule, let required = requiredListenSeconds(forDuration: duration) else { return true }
+        return listenedSeconds >= required
+    }
 }
 
 // MARK: - 请求

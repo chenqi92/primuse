@@ -421,6 +421,72 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
         }
     }
 
+    /// 调严的计入规则只管音乐；有声内容照默认的一半或 4 分钟回传。
+    @MainActor
+    func testStricterListenCountRuleAppliesToMusicOnly() async throws {
+        try await withContentFixture { defaults, store in
+            let rule = ListenCountRule(percent: 80, countsAfterFourMinutes: false)
+            let service = ScrobbleService(defaults: defaults, providers: { [] },
+                                          spokenWordStore: store, songLookup: { _ in nil },
+                                          listenCountRule: { rule })
+            var played = [String]()
+            service.serverScrobbleHandler = { song, submission in
+                if submission { played.append(song.id) }
+            }
+            var music = contentSong("music")
+            music.duration = 600
+            service.handlePlaybackStarted(song: music)
+            service.handleProgressTick(playedDelta: 479)
+            XCTAssertEqual(played, [])
+            service.handleProgressTick(playedDelta: 1)
+            XCTAssertEqual(played, ["music"])
+
+            var book = contentSong("book", path: "/chapter.m4b")
+            book.duration = 600
+            service.handlePlaybackStarted(song: book)
+            service.handleProgressTick(playedDelta: 240)
+            XCTAssertEqual(played, ["music", "book"])
+        }
+    }
+
+    /// 本机记录默认照旧听满 30 秒就记；跟随计入规则后音乐要听够规则，有声内容照记。
+    @MainActor
+    func testLocalHistoryFollowsListenCountRuleOnlyWhenAsked() async throws {
+        try await withContentFixture { defaults, store in
+            let rule = ListenCountRule(percent: 80, countsAfterFourMinutes: false)
+            @MainActor func makeHistory(follows: Bool) throws -> PlayHistoryStore {
+                let folder = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("listen-rule-" + UUID().uuidString)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                return PlayHistoryStore(storeURL: folder.appendingPathComponent("history.json"),
+                                        defaults: defaults, spokenWordStore: store,
+                                        localListenRule: { (rule, follows) })
+            }
+            @MainActor func play(_ history: PlayHistoryStore, _ song: Song, _ seconds: TimeInterval) {
+                history.beginSession(song: song)
+                history.tick(playedDelta: seconds)
+                history.endSession()
+            }
+            var music = contentSong("music")
+            music.duration = 300
+            var unknown = contentSong("unknown")
+            unknown.duration = 0
+            let book = contentSong("book", path: "/chapter.m4b")
+
+            let lenient = try makeHistory(follows: false)
+            play(lenient, music, 29)
+            play(lenient, music, 60)
+            XCTAssertEqual(lenient.entries.map(\.songID), ["music"])
+
+            let strict = try makeHistory(follows: true)
+            play(strict, music, 60)
+            play(strict, music, 240)
+            play(strict, unknown, 31)
+            play(strict, book, 60)
+            XCTAssertEqual(strict.entries.map(\.songID), ["book", "unknown", "music"])
+        }
+    }
+
     @MainActor
     func testSwitchingToSpokenWordAndReclassificationDoNotSubmitMusicSession() async throws {
         try await withContentFixture { defaults, store in

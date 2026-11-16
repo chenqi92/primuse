@@ -1226,9 +1226,18 @@
 "scrobble_title" = "Scrobble";
 "scrobble_report_to_server" = "サーバーに音楽の再生履歴を送信";
 "scrobble_report_to_server_footer" = "音楽のみが対象です。再生した曲を Navidrome、Jellyfin、Emby、Plex などのサーバーに送信し、サーバー側の再生回数と最近再生した項目に反映します。オーディオブックの再生位置はこの設定に関係なく常に同期されます。";
+"listen_rule_section" = "再生のカウント";
+"listen_rule_percent" = "再生済みとみなす割合";
+"listen_rule_percent_info" = "サーバーの再生回数と Last.fm・ListenBrainz への送信はこのルールで数えます。30 秒未満の曲は数えず、オーディオブックなどの音声コンテンツには影響しません。";
+"listen_rule_long_track" = "長い曲は 4 分聴けばカウント";
+"listen_rule_long_track_info" = "オフにすると、長い曲も上の割合まで聴く必要があります。";
+"listen_rule_local_history" = "端末の統計とおすすめにも適用";
+"listen_rule_local_history_info" = "オンにすると、基準に届かなかった再生は端末の再生回数、ランキング、再生時間、おすすめに記録されません。オフのときは従来どおり 30 秒以上で記録します。";
+"listen_rule_summary_long_track_format" = "%@ または 4 分";
+"playback_history_note_rule_format" = "%1$@ に達した再生を、保存されている最新 %2$d 件から集計します。";
 "scrobble_enabled" = "Scrobble を有効にする";
 "scrobble_send_now_playing" = "再生中の曲を送信";
-"scrobble_overall_footer" = "再生履歴を Last.fm / ListenBrainz に送信します。50% または 4 分以上再生するとカウントされます。";
+"scrobble_overall_footer" = "再生履歴を Last.fm / ListenBrainz に送信します。「再生済みとみなす割合」に従ってカウントされます。";
 "scrobble_provider_section" = "サービス";
 "scrobble_lb_token_placeholder" = "ListenBrainz ユーザートークン";
 "scrobble_validate" = "検証";
@@ -1266,7 +1275,7 @@
 "scrobble_clear_queue_confirm" = "再試行待ちの再生履歴を消去しますか？";
 "scrobble_mac_footer_empty" = "トークンはこの Mac のキーチェーンにのみ保存されます · 最近の送信はありません";
 "scrobble_mac_footer_success_format" = "最近の送信 · %d 件成功";
-"scrobble_mac_subtitle" = "Last.fm / ListenBrainz · 50% または 4 分後に送信";
+"scrobble_mac_subtitle" = "サーバーの再生履歴と Last.fm / ListenBrainz";
 "scrobble_mac_enabled_subtitle" = "ローカルの再生履歴を送信します。トークンはこの Mac のキーチェーンにのみ保存されます";
 "scrobble_mac_now_playing_subtitle" = "再生開始時に現在のトラックを同期します。履歴には記録されません";
 "scrobble_mac_token_saved" = "トークンを保存しました";
@@ -1277,8 +1286,6 @@
 "scrobble_mac_i_authorized" = "認証しました";
 "scrobble_mac_connecting" = "接続中";
 "scrobble_mac_create_api_app" = "API アプリを作成";
-"scrobble_mac_rules_title" = "送信ルール";
-"scrobble_mac_rules_subtitle" = "再生が 50% または 4 分を超えると送信します。短い音源は比率に応じて処理されます";
 "scrobble_mac_queue_subtitle" = "送信に失敗した scrobble は次回の送信まで保持されます";
 "scrobble_mac_recent_reports_title" = "最近の送信";
 "scrobble_mac_recent_reports_subtitle" = "最近 Last.fm / ListenBrainz に送信した記録";
@@ -4297,7 +4304,6 @@
 "tv_siri_remote_badge" = "SIRI REMOTE";
 "a11y_disable_music_video" = "ミュージックビデオを無効にする";
 "a11y_enable_music_video" = "ミュージックビデオを有効にする";
-"scrobble_mac_rules_value" = "50% · 4分";
 "audio_output_type_builtin" = "内蔵";
 "audio_output_device_fallback %@" = "デバイス %@";
 "playlist_import_match_id" = "ID";
