@@ -14,6 +14,93 @@ struct AudioCachePathLease: Hashable, Sendable {
     fileprivate let id: UUID
 }
 
+/// 只读播放不进入缓存 actor 的整库清点队列;淘汰和源隔离使用同一把锁检查保护。
+private final class PlaybackCacheReadLeases: @unchecked Sendable {
+    private let lock = NSLock()
+    private var paths: [UUID: String] = [:]
+    private var counts: [String: Int] = [:]
+    private var purgeGenerations: [String: Int] = [:]
+    private var completedPurgeGenerations: [String: Int] = [:]
+    private var purgesInProgress: Set<String> = []
+
+    func acquire(path: String) -> AudioCachePathLease? {
+        lock.withLock {
+            guard !purgeGenerations.keys.contains(where: { path.hasPrefix($0) }) else { return nil }
+            let lease = AudioCachePathLease(id: UUID())
+            paths[lease.id] = path
+            for member in AudioCachePathFamily.relativePaths(for: path) { counts[member, default: 0] += 1 }
+            return lease
+        }
+    }
+
+    @discardableResult
+    func release(_ lease: AudioCachePathLease) -> Bool {
+        lock.withLock {
+            guard let path = paths.removeValue(forKey: lease.id) else { return false }
+            for member in AudioCachePathFamily.relativePaths(for: path) {
+                let count = (counts[member] ?? 1) - 1
+                counts[member] = count > 0 ? count : nil
+            }
+            return true
+        }
+    }
+
+    func protects(_ path: String) -> Bool { lock.withLock { (counts[path] ?? 0) > 0 } }
+    func hasSource(_ prefix: String) -> Bool { lock.withLock { paths.values.contains { $0.hasPrefix(prefix) } } }
+    func blocks(_ path: String) -> Bool {
+        lock.withLock { purgeGenerations.keys.contains { path.hasPrefix($0) } }
+    }
+    func isPurging(_ prefix: String, generation: Int) -> Bool {
+        lock.withLock { purgeGenerations[prefix] == generation }
+    }
+    func beginPurge(_ prefix: String, generation: Int) -> Bool {
+        lock.withLock {
+            guard generation > (completedPurgeGenerations[prefix] ?? .min),
+                  generation >= (purgeGenerations[prefix] ?? .min) else { return false }
+            purgeGenerations[prefix] = generation
+            return true
+        }
+    }
+    func endPurge(_ prefix: String, generation: Int) {
+        lock.withLock {
+            completedPurgeGenerations[prefix] = max(completedPurgeGenerations[prefix] ?? .min, generation)
+            finishPurgeIfCompleted(prefix)
+        }
+    }
+
+    func beginPurgeOperation(_ prefix: String, generation: Int) -> Bool {
+        lock.withLock {
+            guard purgeGenerations[prefix] == generation,
+                  !paths.values.contains(where: { $0.hasPrefix(prefix) }),
+                  purgesInProgress.insert(prefix).inserted else { return false }
+            return true
+        }
+    }
+
+    func finishPurgeOperation(_ prefix: String) {
+        lock.withLock {
+            purgesInProgress.remove(prefix)
+            finishPurgeIfCompleted(prefix)
+        }
+    }
+
+    private func finishPurgeIfCompleted(_ prefix: String) {
+        guard !purgesInProgress.contains(prefix),
+              let active = purgeGenerations[prefix],
+              active <= (completedPurgeGenerations[prefix] ?? .min) else { return }
+        purgeGenerations[prefix] = nil
+    }
+
+    @discardableResult
+    func performIfUnused(_ path: String, operation: () throws -> Void) rethrows -> Bool {
+        try lock.withLock {
+            guard (counts[path] ?? 0) == 0 else { return false }
+            try operation()
+            return true
+        }
+    }
+}
+
 /// 精简副本装好之后原文件的去留。
 enum OfflineCompactionFinish: Sendable, Equatable {
     /// 原文件已删, 只留副本。
@@ -303,6 +390,7 @@ actor AudioCacheManager {
     private var trackedFileSizes: [String: Int64] = [:]
     private var trackedFileModificationDates: [String: Date] = [:]
     private var trackedTotalSize: Int64 = 0
+    private nonisolated let playbackReadLeases = PlaybackCacheReadLeases()
     private var leasedPathCounts: [String: Int] = [:]
     private var leasedPathsByID: [UUID: Set<String>] = [:]
     private var leasedCanonicalPathByID: [UUID: String] = [:]
@@ -310,8 +398,6 @@ actor AudioCacheManager {
     private var reservationUsesConfiguredCacheByLeaseID: [UUID: Bool] = [:]
     private var activeReservedBytes: Int64 = 0
     private var activeConfiguredCacheReservedBytes: Int64 = 0
-    private var sourcePurgeGenerationByPrefix: [String: Int] = [:]
-    private var completedSourcePurgeGenerationByPrefix: [String: Int] = [:]
     private let logURL: URL
     private let manifestURL: URL
     /// 旧版本把离线清单放在缓存目录里, 读到就搬进离线目录。
@@ -792,8 +878,8 @@ actor AudioCacheManager {
     }
 
     /// 精简副本装好之后调用。这组文件仍被离线固定、原文件也没在转换期间被换掉
-    /// 时删掉原文件、按副本记账; 判断与删除之间没有挂起点, 播放方取锁排在这之后,
-    /// 拿到的就是副本。原文件此刻正被别处读写时先留着。
+    /// 时删掉原文件、按副本记账; 删除与播放读取保护在同一锁内核对。
+    /// 原文件此刻正被别处读写时先留着。
     func finishOfflineCompaction(
         path: String,
         lease: AudioCachePathLease,
@@ -811,7 +897,9 @@ actor AudioCacheManager {
                 matchesByteCount: originalByteCount,
                 modifiedAt: originalModifiedAt
               ) else {
-            try? FileManager.default.removeItem(at: basePath.appendingPathComponent(compactPath))
+            playbackReadLeases.performIfUnused(compactPath) {
+                try? FileManager.default.removeItem(at: basePath.appendingPathComponent(compactPath))
+            }
             refreshTrackedPathFamily(path)
             return .abandoned
         }
@@ -825,10 +913,13 @@ actor AudioCacheManager {
             refreshTrackedPathFamily(path)
             return .keptOriginal
         }
-        do { try downloadStore.remove(path, kind: .original) }
-        catch { return .keptOriginal }
-        try? FileManager.default.removeItem(at: originalURL)
-        try? FileManager.default.removeItem(at: offlineBasePath.appendingPathComponent(path))
+        do {
+            guard try playbackReadLeases.performIfUnused(path, operation: {
+                try downloadStore.remove(path, kind: .original)
+                try? FileManager.default.removeItem(at: originalURL)
+                try? FileManager.default.removeItem(at: offlineBasePath.appendingPathComponent(path))
+            }) else { return .keptOriginal }
+        } catch { return .keptOriginal }
         refreshTrackedPathFamily(path)
         if let compactBytes = trackedFileSizes[compactPath] {
             entry.byteCount = compactBytes
@@ -857,10 +948,13 @@ actor AudioCacheManager {
         }
         guard !isPathFamilyLeased(path: path) else { return .inUse }
         guard downloadStore.fileURL(for: path, kind: .compact) != nil else { return .notApplicable }
-        do { try downloadStore.remove(path, kind: .original) }
-        catch { return .inUse }
-        try? FileManager.default.removeItem(at: originalURL)
-        try? FileManager.default.removeItem(at: offlineBasePath.appendingPathComponent(path))
+        do {
+            guard try playbackReadLeases.performIfUnused(path, operation: {
+                try downloadStore.remove(path, kind: .original)
+                try? FileManager.default.removeItem(at: originalURL)
+                try? FileManager.default.removeItem(at: offlineBasePath.appendingPathComponent(path))
+            }) else { return .inUse }
+        } catch { return .inUse }
         refreshTrackedPathFamily(path)
         if let compactBytes = trackedFileSizes[compactPath] {
             entry.byteCount = compactBytes
@@ -904,12 +998,21 @@ actor AudioCacheManager {
         schedulePersist()
     }
 
+    nonisolated func acquirePlaybackReadLease(path: String) -> AudioCachePathLease? {
+        playbackReadLeases.acquire(path: path)
+    }
+
+    @discardableResult
+    nonisolated func releasePlaybackReadLease(_ lease: AudioCachePathLease) -> Bool {
+        playbackReadLeases.release(lease)
+    }
+
     func acquirePathFamilyLease(
         path: String,
         reserveBytes: Int64 = 0
     ) -> AudioCachePathLease? {
         ensureInitialized()
-        guard !sourcePurgeGenerationByPrefix.keys.contains(where: { path.hasPrefix($0) }) else {
+        guard !playbackReadLeases.blocks(path) else {
             return nil
         }
         let lease = AudioCachePathLease(id: UUID())
@@ -933,6 +1036,7 @@ actor AudioCacheManager {
     }
 
     func releasePathFamilyLease(_ lease: AudioCachePathLease) {
+        if releasePlaybackReadLease(lease) { return }
         ensureInitialized()
         guard let paths = leasedPathsByID.removeValue(forKey: lease.id) else { return }
         let canonicalPath = leasedCanonicalPathByID.removeValue(forKey: lease.id)
@@ -1048,29 +1152,28 @@ actor AudioCacheManager {
     func isPathFamilyLeased(path: String) -> Bool {
         ensureInitialized()
         return AudioCachePathFamily.relativePaths(for: path).contains {
-            (leasedPathCounts[$0] ?? 0) > 0
+            (leasedPathCounts[$0] ?? 0) > 0 || playbackReadLeases.protects($0)
         }
     }
 
     func hasLeasedPath(forSourcePrefix prefix: String) -> Bool {
         ensureInitialized()
-        return leasedCanonicalPathByID.values.contains { $0.hasPrefix(prefix) }
+        return playbackReadLeases.hasSource(prefix)
+            || leasedCanonicalPathByID.values.contains { $0.hasPrefix(prefix) }
     }
 
     func beginSourcePurge(prefix: String, generation: Int) -> Bool {
         ensureInitialized()
-        guard generation > (completedSourcePurgeGenerationByPrefix[prefix] ?? .min),
-              generation >= (sourcePurgeGenerationByPrefix[prefix] ?? .min) else {
-            return false
-        }
-        sourcePurgeGenerationByPrefix[prefix] = generation
-        return !leasedCanonicalPathByID.values.contains { $0.hasPrefix(prefix) }
+        guard playbackReadLeases.beginPurge(prefix, generation: generation) else { return false }
+        return !playbackReadLeases.hasSource(prefix)
+            && !leasedCanonicalPathByID.values.contains { $0.hasPrefix(prefix) }
     }
 
     func sourcePurgeCanProceed(prefix: String, generation: Int) -> Bool {
         ensureInitialized()
-        guard sourcePurgeGenerationByPrefix[prefix] == generation else { return false }
-        return !leasedCanonicalPathByID.values.contains { $0.hasPrefix(prefix) }
+        guard playbackReadLeases.isPurging(prefix, generation: generation) else { return false }
+        return !playbackReadLeases.hasSource(prefix)
+            && !leasedCanonicalPathByID.values.contains { $0.hasPrefix(prefix) }
     }
 
     func purgeSourceCacheDirectoryIfReady(
@@ -1078,10 +1181,11 @@ actor AudioCacheManager {
         generation: Int
     ) -> Bool {
         ensureInitialized()
-        guard sourcePurgeGenerationByPrefix[prefix] == generation,
-              !leasedCanonicalPathByID.values.contains(where: { $0.hasPrefix(prefix) }) else {
+        guard !leasedCanonicalPathByID.values.contains(where: { $0.hasPrefix(prefix) }),
+              playbackReadLeases.beginPurgeOperation(prefix, generation: generation) else {
             return false
         }
+        defer { playbackReadLeases.finishPurgeOperation(prefix) }
         let sourceRelativePath = prefix.hasSuffix("/")
             ? String(prefix.dropLast())
             : prefix
@@ -1122,10 +1226,11 @@ actor AudioCacheManager {
         replacementSignature: String
     ) -> Bool {
         ensureInitialized()
-        guard sourcePurgeGenerationByPrefix[prefix] == generation,
-              !leasedCanonicalPathByID.values.contains(where: { $0.hasPrefix(prefix) }) else {
+        guard !leasedCanonicalPathByID.values.contains(where: { $0.hasPrefix(prefix) }),
+              playbackReadLeases.beginPurgeOperation(prefix, generation: generation) else {
             return false
         }
+        defer { playbackReadLeases.finishPurgeOperation(prefix) }
 
         let sourceID = prefix.hasSuffix("/") ? String(prefix.dropLast()) : prefix
         guard !sourceID.isEmpty,
@@ -1224,16 +1329,8 @@ actor AudioCacheManager {
         return true
     }
 
-    func endSourcePurge(prefix: String, generation: Int) {
-        ensureInitialized()
-        completedSourcePurgeGenerationByPrefix[prefix] = max(
-            completedSourcePurgeGenerationByPrefix[prefix] ?? .min,
-            generation
-        )
-        if let activeGeneration = sourcePurgeGenerationByPrefix[prefix],
-           activeGeneration <= generation {
-            sourcePurgeGenerationByPrefix.removeValue(forKey: prefix)
-        }
+    nonisolated func endSourcePurge(prefix: String, generation: Int) {
+        playbackReadLeases.endPurge(prefix, generation: generation)
     }
 
     func pathFamilyHasOtherLeases(
@@ -1243,7 +1340,7 @@ actor AudioCacheManager {
         ensureInitialized()
         guard leasedCanonicalPathByID[lease.id] == path,
               let ownedPaths = leasedPathsByID[lease.id] else { return true }
-        return ownedPaths.contains { (leasedPathCounts[$0] ?? 0) > 1 }
+        return ownedPaths.contains { (leasedPathCounts[$0] ?? 0) > 1 || playbackReadLeases.protects($0) }
     }
 
     func refreshPathFamily(path: String) {
@@ -1326,7 +1423,9 @@ actor AudioCacheManager {
                   !activeStreamingPaths.contains(cand.relativePath),
                   (leasedPathCounts[cand.relativePath] ?? 0) == 0 else { continue }
             do {
-                try FileManager.default.removeItem(at: basePath.appendingPathComponent(cand.relativePath))
+                guard try playbackReadLeases.performIfUnused(cand.relativePath, operation: {
+                    try FileManager.default.removeItem(at: basePath.appendingPathComponent(cand.relativePath))
+                }) else { continue }
                 let removedSize = trackedFileSizes[cand.relativePath] ?? cand.size
                 removeTrackedPath(cand.relativePath)
                 freed += removedSize
@@ -1712,12 +1811,15 @@ actor AudioCacheManager {
                 : OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)
             let cache = basePath.appendingPathComponent(relative)
             guard (leasedPathCounts[relative] ?? 0) == 0,
+                  !playbackReadLeases.protects(relative),
                   let download = downloadStore.fileURL(for: path, kind: kind),
                   replacesExisting || Self.fileIdentity(at: download) != Self.fileIdentity(at: cache) else { continue }
-            if linkReplacing(download, at: cache) {
-                refreshTrackedPath(relative)
-                restored += 1
-            }
+            playbackReadLeases.performIfUnused(relative, operation: {
+                if linkReplacing(download, at: cache) {
+                    refreshTrackedPath(relative)
+                    restored += 1
+                }
+            })
         }
         return restored
     }

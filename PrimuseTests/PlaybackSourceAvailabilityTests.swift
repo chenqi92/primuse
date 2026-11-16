@@ -4,6 +4,163 @@ import XCTest
 @testable import Primuse
 
 final class PlaybackSourceAvailabilityTests: XCTestCase {
+    private struct OfflineConnector: MusicSourceConnector {
+        let sourceID: String
+        func connect() async throws { throw URLError(.notConnectedToInternet) }
+        func disconnect() async {}
+        func listFiles(at path: String) async throws -> [RemoteFileItem] { throw URLError(.notConnectedToInternet) }
+        func localURL(for path: String) async throws -> URL { throw URLError(.notConnectedToInternet) }
+        func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+            throw URLError(.notConnectedToInternet)
+        }
+        func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+            throw URLError(.notConnectedToInternet)
+        }
+    }
+
+    private actor ColdCacheSourceGate {
+        var calls = 0
+        var continuation: CheckedContinuation<Void, Never>?
+        let entered: XCTestExpectation
+        init(entered: XCTestExpectation) { self.entered = entered }
+        func load(_ source: MusicSource) async -> [MusicSource] {
+            calls += 1
+            if calls == 2 {
+                await withCheckedContinuation { continuation in
+                    self.continuation = continuation
+                    entered.fulfill()
+                }
+            }
+            return [source]
+        }
+        func release() { continuation?.resume(); continuation = nil }
+    }
+
+    @MainActor
+    func testColdCachedPlaybackJoinsScopeValidationAndNeverConnects() async throws {
+        let source = MusicSource(id: "cached-start-\(UUID().uuidString)", name: "Offline", type: .navidrome,
+                                 host: "offline.invalid", port: 4533)
+        let song = Song(id: UUID().uuidString, title: "Cached audio", duration: 90, fileFormat: .flac,
+                        filePath: "/ASMR/track.flac", sourceID: source.id, fileSize: 128)
+        let previous = SourceManager(sourcesProvider: { [source] })
+        let trusted = await previous.prepareAutomaticOfflineDownload(song: song, forceRedownload: false)
+        XCTAssertTrue(trusted)
+        let cached = previous.cacheURL(for: song)
+        try FileManager.default.createDirectory(at: cached.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 7, count: 128).write(to: cached)
+        defer { previous.deleteSourceCaches(sourceID: source.id) }
+
+        let entered = expectation(description: "Cold-start scope validation is reading the source")
+        let gate = ColdCacheSourceGate(entered: entered)
+        let relaunched = SourceManager(sourcesProvider: { await gate.load(source) }, connectorFactory: { _ in
+            XCTFail("A complete cached file must not create a network connector")
+            return LocalFileSource(sourceID: source.id, basePath: cached.deletingLastPathComponent())
+        })
+        await fulfillment(of: [entered], timeout: 3)
+        let returnedEarly = expectation(description: "Playback must wait for the existing local scope check")
+        returnedEarly.isInverted = true
+        var didRelease = false
+        let preparation = Task { @MainActor in
+            let result = await relaunched.prepareAutomaticOfflineDownload(song: song, forceRedownload: false)
+            if !didRelease { returnedEarly.fulfill() }
+            return result
+        }
+        await fulfillment(of: [returnedEarly], timeout: 0.1)
+        didRelease = true
+        await gate.release()
+        let prepared = await preparation.value
+        XCTAssertTrue(prepared)
+        let busy = expectation(description: "Cache inventory is busy")
+        let releaseMaintenance = DispatchSemaphore(value: 0)
+        let maintenance = Task.detached {
+            await AudioCacheManager.shared.holdCacheActorForPlaybackTest(entered: busy, release: releaseMaintenance)
+        }
+        defer { releaseMaintenance.signal() }
+        await fulfillment(of: [busy], timeout: 3)
+        let started = ContinuousClock.now
+        let url = try await relaunched.resolveURL(for: song)
+        XCTAssertLessThan(started.duration(to: .now), .milliseconds(200))
+        XCTAssertEqual(url, cached)
+        XCTAssertTrue(url.isFileURL)
+        relaunched.finalizeStreamingSession(for: song)
+        releaseMaintenance.signal()
+        await maintenance.value
+    }
+
+    @MainActor
+    func testCachedASMRStartsAndSeeksWithoutNetworkWithUnknownDuration() async throws {
+        let suite = "CachedASMRPlayback-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let source = MusicSource(id: suite, name: "Offline", type: .navidrome, host: "offline.invalid")
+        let fixture = try OfflineAudioFixture.writeWAV(to: directory.appendingPathComponent("rain.wav"),
+            seconds: 12, sampleRate: 44_100, channels: 2)
+        let song = Song(id: suite, title: "Rain", duration: 0, fileFormat: .wav,
+            filePath: "/ASMR/rain.wav", sourceID: source.id,
+            fileSize: try OfflineAudioFixture.byteCount(of: fixture), genre: "Audiobook ASMR")
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in
+            OfflineConnector(sourceID: source.id)
+        })
+        let trusted = await manager.prepareAutomaticOfflineDownload(song: song, forceRedownload: false)
+        XCTAssertTrue(trusted)
+        let cached = manager.cacheURL(for: song)
+        try FileManager.default.createDirectory(at: cached.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: fixture, to: cached)
+        defer { manager.deleteSourceCaches(sourceID: source.id) }
+
+        let settings = PlaybackSettingsStore(defaults: defaults,
+            cloudSync: CloudKVSSync(store: nil, defaults: defaults, observing: nil))
+        settings.prewarmQueueCount = 0
+        settings.skipLeadingSilenceEnabled = false
+        settings.skipTrailingSilenceEnabled = false
+        settings.replayGainEnabled = false
+        let player = AudioPlayerService(sourceManager: manager, playbackSettings: settings,
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+        let historyWasSuspended = PlayHistoryStore.shared.isRecordingSuspended
+        let scrobbleWasSuspended = ScrobbleService.shared.isSuspended
+        let playModes = ListeningPlayModeStore.shared.ledger
+        PlayHistoryStore.shared.isRecordingSuspended = true
+        ScrobbleService.shared.isSuspended = true
+        defer {
+            player.stop()
+            ListeningPlayModeStore.shared.update { $0 = playModes }
+            PlayHistoryStore.shared.isRecordingSuspended = historyWasSuspended
+            ScrobbleService.shared.isSuspended = scrobbleWasSuspended
+        }
+        player.playbackMetadataSourceType = { _ in .navidrome }
+        player.audioEngine.setVolume(0, persist: false)
+        player.setQueue([song])
+        player.repeatMode = .off
+        let busy = expectation(description: "Background cache inventory is busy during playback")
+        let release = DispatchSemaphore(value: 0)
+        let maintenance = Task.detached {
+            await AudioCacheManager.shared.holdCacheActorForPlaybackTest(entered: busy, release: release)
+        }
+        defer { release.signal() }
+        await fulfillment(of: [busy], timeout: 3)
+        let started = ContinuousClock.now
+        await player.play(song: song)
+        while (!player.audioEngine.isActuallyPlaying || player.currentTime < 0.05),
+              started.duration(to: .now) < .seconds(3) {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertLessThan(started.duration(to: .now), .seconds(3))
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertTrue(player.audioEngine.isActuallyPlaying)
+        XCTAssertEqual(player.duration, 12, accuracy: 0.1)
+        player.seek(to: 7, startPlaying: true)
+        await player.seekTask?.value
+        XCTAssertEqual(player.currentTime, 7, accuracy: 0.5)
+        XCTAssertTrue(player.isPlaying)
+        release.signal()
+        await maintenance.value
+    }
+
     @MainActor
     func testShuffleQuickActionInstallsEveryPlayableCandidateAndAnchorsTheSelectedEntry() throws {
         let suite = "shuffle-quick-action-\(UUID().uuidString)"

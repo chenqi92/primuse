@@ -33,6 +33,109 @@ final class OfflineDownloadStoreTests: XCTestCase {
         return (attributes?[.systemFileNumber] as? NSNumber)?.uint64Value
     }
 
+    func testCachedPlaybackProtectionDoesNotWaitForBusyCacheActor() async throws {
+        let fixture = try makeFixture()
+        let entered = expectation(description: "Cache maintenance is busy")
+        let release = DispatchSemaphore(value: 0)
+        let maintenance = Task.detached {
+            await fixture.manager.holdCacheActorForPlaybackTest(entered: entered, release: release)
+        }
+        defer { release.signal() }
+        await fulfillment(of: [entered], timeout: 3)
+        let started = ContinuousClock.now
+        fixture.manager.endSourcePurge(prefix: "source/", generation: 1)
+        let lease = try XCTUnwrap(fixture.manager.acquirePlaybackReadLease(path: fixture.relativePath))
+        XCTAssertLessThan(started.duration(to: .now), .milliseconds(200))
+        XCTAssertEqual(try Data(contentsOf: fixture.cacheURL).count, 65_536)
+        XCTAssertTrue(fixture.manager.releasePlaybackReadLease(lease))
+        release.signal()
+        await maintenance.value
+    }
+
+    func testReadLeaseProtectsOriginalAndCompactFilesUntilEveryReaderStops() async throws {
+        let fixture = try makeFixture()
+        let one = try XCTUnwrap(fixture.manager.acquirePlaybackReadLease(path: fixture.relativePath))
+        let two = try XCTUnwrap(fixture.manager.acquirePlaybackReadLease(path: fixture.relativePath))
+        let compact = OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: fixture.relativePath)
+        let compactIsProtected = await fixture.manager.isPathFamilyLeased(path: compact)
+        XCTAssertTrue(compactIsProtected)
+        let began = await fixture.manager.beginSourcePurge(prefix: "source/", generation: 1)
+        XCTAssertFalse(began)
+        XCTAssertNil(fixture.manager.acquirePlaybackReadLease(path: fixture.relativePath))
+        fixture.manager.releasePlaybackReadLease(one)
+        let stillProtected = await fixture.manager.purgeSourceCacheDirectoryIfReady(prefix: "source/", generation: 1)
+        XCTAssertFalse(stillProtected)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+        fixture.manager.releasePlaybackReadLease(two)
+        let purged = await fixture.manager.purgeSourceCacheDirectoryIfReady(prefix: "source/", generation: 1)
+        XCTAssertTrue(purged)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+        fixture.manager.endSourcePurge(prefix: "source/", generation: 1)
+        let next = try XCTUnwrap(fixture.manager.acquirePlaybackReadLease(path: fixture.relativePath))
+        fixture.manager.releasePlaybackReadLease(next)
+    }
+
+    func testReadLeasePreventsEvictionAndCountsAgainstWriterExclusivity() async throws {
+        let fixture = try makeFixture()
+        let acquiredWriter = await fixture.manager.acquirePathFamilyLease(path: fixture.relativePath)
+        let writer = try XCTUnwrap(acquiredWriter)
+        let reader = try XCTUnwrap(fixture.manager.acquirePlaybackReadLease(path: fixture.relativePath))
+        let shared = await fixture.manager.pathFamilyHasOtherLeases(path: fixture.relativePath, excluding: writer)
+        XCTAssertTrue(shared)
+        await fixture.manager.releasePathFamilyLease(writer)
+        let limit = await fixture.manager.cacheLimitBytes()
+        guard limit > 0 else { fixture.manager.releasePlaybackReadLease(reader); throw XCTSkip("Cache limit disabled") }
+        let whileReading = await fixture.manager.evictIfNeeded(reserveBytes: limit)
+        XCTAssertFalse(whileReading)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+        fixture.manager.releasePlaybackReadLease(reader)
+        let afterReading = await fixture.manager.evictIfNeeded(reserveBytes: limit)
+        XCTAssertTrue(afterReading)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+    }
+
+    func testCompactionKeepsOriginalUntilCachedPlaybackReleasesIt() async throws {
+        let fixture = try makeFixture()
+        let pinned = await fixture.manager.pin(path: fixture.relativePath, byteCount: 65_536)
+        XCTAssertTrue(pinned)
+        let acquiredWriter = await fixture.manager.acquirePathFamilyLease(path: fixture.relativePath)
+        let writer = try XCTUnwrap(acquiredWriter)
+        let reader = try XCTUnwrap(fixture.manager.acquirePlaybackReadLease(path: fixture.relativePath))
+        let staging = fixture.root.appendingPathComponent("compact.m4a")
+        try Data(repeating: 9, count: 1_024).write(to: staging)
+        let compact = OfflineCompactArtifact.url(forCanonical: fixture.cacheURL)
+        try OfflineCompactArtifact.install(staging: staging, at: compact,
+            record: OfflineCompactArtifactRecord(originalByteCount: 65_536, bitRateKbps: 128))
+        let finish = await fixture.manager.finishOfflineCompaction(path: fixture.relativePath,
+            lease: writer, originalByteCount: 65_536, originalModifiedAt: nil)
+        XCTAssertEqual(finish, .keptOriginal)
+        await fixture.manager.releasePathFamilyLease(writer)
+        let whileReading = await fixture.manager.removeSupersededOfflineOriginal(
+            path: fixture.relativePath, originalByteCount: 65_536)
+        XCTAssertEqual(whileReading, .inUse)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+        fixture.manager.releasePlaybackReadLease(reader)
+        let afterReading = await fixture.manager.removeSupersededOfflineOriginal(
+            path: fixture.relativePath, originalByteCount: 65_536)
+        XCTAssertEqual(afterReading, .removed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: compact.path))
+    }
+
+    func testFinishedPurgeCannotBeReopenedByAnOlderValidation() async throws {
+        let fixture = try makeFixture()
+        fixture.manager.endSourcePurge(prefix: "source/", generation: 2)
+        let stale = await fixture.manager.beginSourcePurge(prefix: "source/", generation: 1)
+        XCTAssertFalse(stale)
+        let current = await fixture.manager.beginSourcePurge(prefix: "source/", generation: 3)
+        XCTAssertTrue(current)
+        fixture.manager.endSourcePurge(prefix: "source/", generation: 2)
+        XCTAssertNil(fixture.manager.acquirePlaybackReadLease(path: fixture.relativePath))
+        fixture.manager.endSourcePurge(prefix: "source/", generation: 3)
+        let reader = try XCTUnwrap(fixture.manager.acquirePlaybackReadLease(path: fixture.relativePath))
+        fixture.manager.releasePlaybackReadLease(reader)
+    }
+
     func testPinnedFileGetsAnIndependentDownloadWithoutDuplicatingBytes() async throws {
         let fixture = try makeFixture()
         let installed = await fixture.manager.pin(path: fixture.relativePath, byteCount: 64 * 1_024)
@@ -357,5 +460,12 @@ final class SourceFileCacheStorageTests: XCTestCase {
             isDirectory: &isDirectory
         ))
         XCTAssertTrue(isDirectory.boolValue)
+    }
+}
+
+extension AudioCacheManager {
+    func holdCacheActorForPlaybackTest(entered: XCTestExpectation, release: DispatchSemaphore) {
+        entered.fulfill()
+        _ = release.wait(timeout: .now() + 5)
     }
 }

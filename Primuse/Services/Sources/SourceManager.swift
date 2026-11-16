@@ -3596,7 +3596,7 @@ final class SourceManager {
     @ObservationIgnored private var blockedAudioCacheSourceIDs: Set<String> = []
     @ObservationIgnored private var audioCacheScopeGenerationBySourceID: [String: Int] = [:]
     @ObservationIgnored private var audioCacheScopeValidationTasks: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private var audioCacheScopeReconciliationsInProgress: Set<String> = []
+    @ObservationIgnored private var audioCacheScopeReconciliationsInProgress: [String: (generation: Int, task: Task<AudioCacheScopeReconciliationResult, Never>)] = [:]
     @ObservationIgnored private var credentialChangesInProgress: Set<String> = []
     @ObservationIgnored private var automaticAudioCachingEnabled = true
     /// MV 后台下载登记表。带 run 身份: 被取消的旧任务可能过几秒才真正退出,
@@ -7174,14 +7174,27 @@ final class SourceManager {
         sourceID: String,
         generation: Int
     ) async -> AudioCacheScopeReconciliationResult {
-        guard audioCacheScopeReconciliationsInProgress.insert(sourceID).inserted else {
-            return .retry
+        if let running = audioCacheScopeReconciliationsInProgress[sourceID] {
+            let result = await running.task.value
+            guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
+                return .finishedBlocked
+            }
+            if running.generation == generation { return result }
+            // 上一代校验已经结束,当前配置仍需单独核对。
+            if audioCacheScopeReconciliationsInProgress[sourceID]?.generation == running.generation {
+                audioCacheScopeReconciliationsInProgress[sourceID] = nil
+            }
+            return await runAudioCacheScopeReconciliation(sourceID: sourceID, generation: generation)
         }
-        defer { audioCacheScopeReconciliationsInProgress.remove(sourceID) }
-        return await reconcileAudioCacheScope(
-            sourceID: sourceID,
-            generation: generation
-        )
+        let task = Task { @MainActor in
+            await self.reconcileAudioCacheScope(sourceID: sourceID, generation: generation)
+        }
+        audioCacheScopeReconciliationsInProgress[sourceID] = (generation, task)
+        let result = await task.value
+        if audioCacheScopeReconciliationsInProgress[sourceID]?.generation == generation {
+            audioCacheScopeReconciliationsInProgress[sourceID] = nil
+        }
+        return result
     }
 
     private func reconcileAudioCacheScope(
@@ -7242,7 +7255,7 @@ final class SourceManager {
             }
             validatedAudioCacheSourceIDs.insert(sourceID)
             blockedAudioCacheSourceIDs.remove(sourceID)
-            await AudioCacheManager.shared.endSourcePurge(
+            AudioCacheManager.shared.endSourcePurge(
                 prefix: "\(sourceID)/",
                 generation: generation
             )
@@ -7268,7 +7281,7 @@ final class SourceManager {
             finishLegacyAudioCacheAdoption(for: sourceID)
             validatedAudioCacheSourceIDs.insert(sourceID)
             blockedAudioCacheSourceIDs.remove(sourceID)
-            await AudioCacheManager.shared.endSourcePurge(
+            AudioCacheManager.shared.endSourcePurge(
                 prefix: "\(sourceID)/",
                 generation: generation
             )
@@ -7295,7 +7308,7 @@ final class SourceManager {
             finishLegacyAudioCacheAdoption(for: sourceID)
             validatedAudioCacheSourceIDs.insert(sourceID)
             blockedAudioCacheSourceIDs.remove(sourceID)
-            await AudioCacheManager.shared.endSourcePurge(
+            AudioCacheManager.shared.endSourcePurge(
                 prefix: "\(sourceID)/",
                 generation: generation
             )
@@ -7332,7 +7345,7 @@ final class SourceManager {
             finishLegacyAudioCacheAdoption(for: sourceID)
             validatedAudioCacheSourceIDs.insert(sourceID)
             blockedAudioCacheSourceIDs.remove(sourceID)
-            await AudioCacheManager.shared.endSourcePurge(
+            AudioCacheManager.shared.endSourcePurge(
                 prefix: "\(sourceID)/",
                 generation: generation
             )
@@ -13987,15 +14000,15 @@ final class SourceManager {
             }
         }
         let relativePath = audioCacheRelativePath(for: song)
-        guard let lease = await AudioCacheManager.shared.acquirePathFamilyLease(path: relativePath) else {
+        guard let lease = AudioCacheManager.shared.acquirePlaybackReadLease(path: relativePath) else {
             return nil
         }
         guard audioCacheReadsAreAllowed(for: song.sourceID) else {
-            await AudioCacheManager.shared.releasePathFamilyLease(lease)
+            AudioCacheManager.shared.releasePlaybackReadLease(lease)
             return nil
         }
         guard let cached = cachedPlaybackURL(for: song) else {
-            await AudioCacheManager.shared.releasePathFamilyLease(lease)
+            AudioCacheManager.shared.releasePlaybackReadLease(lease)
             await removeBlockedArtifactIfPossible(path: relativePath)
             return nil
         }
@@ -14023,8 +14036,9 @@ final class SourceManager {
         let releasedPath = record.relativePath
         let remaining = max(0, (activePlaybackAudioCachePaths[releasedPath] ?? 1) - 1)
         activePlaybackAudioCachePaths[releasedPath] = remaining == 0 ? nil : remaining
+        let releasedReadLease = AudioCacheManager.shared.releasePlaybackReadLease(record.lease)
         Task { @MainActor [weak self] in
-            await AudioCacheManager.shared.releasePathFamilyLease(record.lease)
+            if !releasedReadLease { await AudioCacheManager.shared.releasePathFamilyLease(record.lease) }
             await self?.removeBlockedArtifactIfPossible(path: releasedPath)
             if let originalByteCount = self?.supersededOfflineOriginalByteCounts[releasedPath] {
                 await self?.removeSupersededOfflineOriginal(
