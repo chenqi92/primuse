@@ -474,6 +474,19 @@ final class LibraryStartupHarnessTests: XCTestCase {
         assertPublishStaysOffTheCriticalPath(measurement, songCount: songCount, variant: "cold")
     }
 
+    /// 冷启动发布出整库时, 依赖 `visibleSongCollectionRevision` 的列表与缓存要看到一次变化,
+    /// 沿用装载时建好的下标表也不能把这次变化吞掉。
+    func testStartupPublishAdvancesVisibleSongCollectionRevision() async throws {
+        let fixture = try await Self.makeFixture(songCount: 48)
+        defer { try? FileManager.default.removeItem(at: fixture) }
+
+        let library = MusicLibrary.makePreparing(storageDirectory: fixture)
+        let before = library.visibleSongCollectionRevision
+        library.publish(await MusicLibrary.prepareStartup(storageDirectory: fixture))
+        XCTAssertEqual(library.songs.count, 48)
+        XCTAssertNotEqual(library.visibleSongCollectionRevision, before)
+    }
+
     // MARK: - 热启动 (启动缓存命中)
 
     func testWarmStartupMovesTheLoadOffTheMainActor() async throws {

@@ -5765,15 +5765,20 @@ final class MusicLibrary {
         previousVisibleSongs: [Song],
         /// `previousVisibleSongs` 的 ID → 下标表(仅当它正是为那一份数组建的)。
         /// 可见歌曲的顺序一首没变时直接沿用, 不再新建一本同样的整库字典压在峰值上。
-        reusableIndexByID: [String: Int]? = nil
+        reusableIndexByID: [String: Int]? = nil,
+        /// `reusableIndexByID` 是为这份数组建的; 不给时就是 `previousVisibleSongs`。
+        /// 只决定下标表能不能沿用, 「可见歌曲变没变」仍和 `previousVisibleSongs` 比。
+        reusableIndexSongs: [Song]? = nil
     ) -> PreparedVisibleCache {
         let nextVisibleSongs = Self.visibleSongs(songs, excluding: disabledSourceIDs)
         let orderedIDsUnchanged = haveSameOrderedIDs(previousVisibleSongs, nextVisibleSongs)
+        let indexStillMatches = reusableIndexSongs.map { haveSameOrderedIDs($0, nextVisibleSongs) }
+            ?? orderedIDsUnchanged
         let lookups = makeVisibleLookups(
             songs: nextVisibleSongs,
             artistNameConfiguration: artistNameConfiguration,
             spokenWordClassification: spokenWordClassification,
-            reusingIndexByID: orderedIDsUnchanged ? reusableIndexByID : nil
+            reusingIndexByID: indexStillMatches ? reusableIndexByID : nil
         )
         // An audiobook or a 200-episode 评书 series would otherwise flood the
         // album and artist grids it has nothing to do with. `visibleSongs`
@@ -15093,8 +15098,9 @@ final class MusicLibrary {
                 artistNameConfiguration: artistNameConfiguration,
                 disabledSourceIDs: disabledSourceIDs,
                 spokenWordClassification: spokenWordClassification,
-                previousVisibleSongs: canReuseSongIndex ? songs : previousVisibleSongs,
-                reusableIndexByID: canReuseSongIndex ? songIndexByID : nil
+                previousVisibleSongs: previousVisibleSongs,
+                reusableIndexByID: canReuseSongIndex ? songIndexByID : nil,
+                reusableIndexSongs: canReuseSongIndex ? songs : nil
             )
         }
         /// `inferredAlbumArtists` 是迁移阶段对同一批歌、同样没有目录时算好的推断。
