@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import MusicKit
 import PrimuseKit
@@ -209,6 +210,7 @@ final class AppleMusicService {
     private var searchTask: Task<Void, Never>?
     private var catalogPlaybackTask: Task<Void, Never>?
     private var playbackStatusObservation: Task<Void, Never>?
+    @ObservationIgnored private var externalStateCancellable: AnyCancellable?
     /// Fired once when an Apple Music track that was observed playing reaches
     /// a terminal boundary. AudioPlayerService uses this to advance its queue.
     @ObservationIgnored var onPlaybackEnded: ((UUID) -> Void)?
@@ -948,19 +950,47 @@ final class AppleMusicService {
     /// after MusicKit's state changed independently of Primuse's last mirror.
     @discardableResult
     func pauseAppleMusic() -> Bool {
-        guard activePlaybackRequestID != nil else { return false }
+        guard let requestID = activePlaybackRequestID else { return false }
         playbackCommandGeneration &+= 1
+        let playbackTime = ApplicationMusicPlayer.shared.playbackTime
+        if playbackTime.isFinite, playbackTime >= 0 {
+            currentPlaybackTime = playbackTime
+        }
         if ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
             ApplicationMusicPlayer.shared.pause()
         }
         isAppleMusicPlaying = false
         wasPausedByUser = true
+        externalStateCancellable?.cancel()
+        externalStateCancellable = nil
+        playbackStatusObservation?.cancel()
+        playbackStatusObservation = nil
+        observeExternalResumeWhilePaused(requestID: requestID)
         return true
+    }
+
+    private func observeExternalResumeWhilePaused(requestID: UUID) {
+        externalStateCancellable?.cancel()
+        externalStateCancellable = ApplicationMusicPlayer.shared.state.objectWillChange
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.isPlaybackRequestActive(requestID) else { return }
+                    if ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
+                        self.externalStateCancellable?.cancel()
+                        self.externalStateCancellable = nil
+                        self.wasPausedByUser = false
+                        self.observePlaybackStatusIfNeeded(requestID: requestID)
+                        await self.tickAppleMusicState(requestID: requestID)
+                    }
+                }
+            }
     }
 
     @discardableResult
     func resumeAppleMusic() -> Bool {
         guard let requestID = activePlaybackRequestID else { return false }
+        externalStateCancellable?.cancel()
+        externalStateCancellable = nil
         playbackCommandGeneration &+= 1
         let commandGeneration = playbackCommandGeneration
         if ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
@@ -968,11 +998,13 @@ final class AppleMusicService {
             wasPausedByUser = false
             isPlaybackInterrupted = false
             lastPlaybackError = nil
+            observePlaybackStatusIfNeeded(requestID: requestID)
             return true
         }
         wasPausedByUser = false
         isPlaybackInterrupted = false
         lastPlaybackError = nil
+        observePlaybackStatusIfNeeded(requestID: requestID)
         let resumeEntryID = ApplicationMusicPlayer.shared.queue.currentEntry?.id
         let resumeTime = ApplicationMusicPlayer.shared.playbackTime
         Task { @MainActor [weak self] in
@@ -1050,6 +1082,8 @@ final class AppleMusicService {
     private func resetPublishedPlaybackState() {
         // 先取消 polling, 否则 stop() 不清空 queue, 下个 tick 会从残留的
         // queue.currentEntry 把 nowPlayingSong 复活, mini player 关不掉。
+        externalStateCancellable?.cancel()
+        externalStateCancellable = nil
         playbackStatusObservation?.cancel()
         playbackStatusObservation = nil
         resetPlaybackEndObservation()
@@ -1315,6 +1349,8 @@ final class AppleMusicService {
          playbackCommandGeneration &+= 1
          catalogPlaybackTask?.cancel()
          catalogPlaybackTask = nil
+         externalStateCancellable?.cancel()
+         externalStateCancellable = nil
          playbackStatusObservation?.cancel()
          playbackStatusObservation = nil
          // Publish the new owner before resetting observable fields so a
@@ -1382,6 +1418,8 @@ final class AppleMusicService {
      func failPlaybackRequest(_ requestID: UUID, message: String, stopsSource: Bool = false) {
          guard isPlaybackRequestPending(requestID) else { return }
          if stopsSource { sourceWideFailureRequestID = requestID }
+         externalStateCancellable?.cancel()
+         externalStateCancellable = nil
          playbackStatusObservation?.cancel()
          playbackStatusObservation = nil
          ApplicationMusicPlayer.shared.stop()

@@ -731,6 +731,7 @@ struct AudioCacheSyncView: View {
     // MARK: - Session
 
     private func startSession() {
+        cacheSync.setSyncInterfacePresented(true)
         if cacheSync.incomingTransferCount > 0 { direction = .receive }
         if cacheSync.operation == .transferring {
             selectedPeerID = cacheSync.activePeerID
@@ -747,6 +748,7 @@ struct AudioCacheSyncView: View {
             cacheSync.cancelTransfer()
         }
         cacheSync.stopDiscovery()
+        cacheSync.setSyncInterfacePresented(false)
         #if os(iOS)
         ScreenWakeLeases.update(owner: "audioCacheSync", holds: false)
         #endif

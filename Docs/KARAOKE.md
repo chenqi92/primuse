@@ -1,6 +1,6 @@
 # 卡拉OK跨端功能
 
-更新日期：2026-10-07。以下区分主工作区实现与已发布版本；未提交、未发布的修改不能视为用户已经收到。
+更新日期：2026-11-15。以下区分主工作区实现与已发布版本；未提交、未发布的修改不能视为用户已经收到。
 
 | 功能 | iPhone / Mac | Apple TV 主工作区 | 电视端边界 |
 | --- | --- | --- | --- |
@@ -49,7 +49,7 @@ QQ 音乐那种「伴唱」：平时听歌（普通播放页、普通歌词）�
 | 记住 | 本机 `UserDefaults`：`singAlongEnabled`、`singAlongVocalLevel`；启动 2 秒后接着开，模型不在了就回到关 | 同左 | — |
 | 播放页底部状态 | 分离 / 下载模型时「伴唱准备中 xx%」（PlayerActivityStore，「活动」状态项），起作用后消失 | 同左（Mac 播放页的同一状态行） | — |
 
-**机制。** `KaraokeSingAlong`（`Primuse/Services/Audio/KaraokeSession.swift`，`AppServices` 里 `attach(player)`）跟着播放走，不跟着界面。它复用卡拉OK的整套东西：托管资源包里的 HTDemucs 模型（打开伴唱即同意下载约 80 MB，打开前菜单里写明大小）、`KaraokeSeparationService` 的分离与缓存（Caches/KaraokeStems）、播放图里的人声消除单元（`AudioEngine.karaokeControl`）、互相关对齐（`KaraokeStemAligner` + `KaraokeStemLockPolicy`）。放着歌时每 0.25 秒一拍、暂停时 1 秒；没锁定时 0.25 秒对齐一次，锁定后 2 秒复核一次。规则都在 Kit 的 `KaraokeSingAlongPolicy`（可用性、状态、提前分离条件、对齐节奏、原唱音量映射），用例 `KaraokeSingAlongPolicyTests`。
+**机制。** `KaraokeSingAlong`（`Primuse/Services/Audio/KaraokeSession.swift`，`AppServices` 里 `attach(player)`）跟着播放走，不跟着界面。它复用卡拉OK的整套东西：托管资源包里的 HTDemucs 模型（打开伴唱即同意下载约 80 MB，打开前菜单里写明大小）、`KaraokeSeparationService` 的分离与缓存（Caches/KaraokeStems）、播放图里的人声消除单元（`AudioEngine.karaokeControl`）、互相关对齐（`KaraokeStemAligner` + `KaraokeStemLockPolicy`）。放着歌时每 0.25 秒一拍，暂停或不放歌时挂起在 `Observation` 上不轮询、也不在暂停态启动分离或队列预取；没锁定时 0.25 秒对齐一次，锁定后 2 秒复核一次。三端采样环（`KaraokeSampleRing` / `TVKaraokeSampleRing`）均改为首次打开会话时在实时音频线程外按需分配，未开启卡拉OK或伴唱时零常驻缓冲。规则都在 Kit 的 `KaraokeSingAlongPolicy`（可用性、状态、提前分离条件、对齐节奏、原唱音量映射），用例 `KaraokeSingAlongPolicyTests`。
 
 - 一首歌分离好之前照放原唱；分离完、装上人声轨、对齐锁定后，原唱在 0.3 秒里淡出（`KaraokeRenderControl.stemFadeDuration`，卡拉OK舞台仍是 0，一个渲染块里变完）。对齐前**不**用普通频谱消除顶着（舞台会顶）：伴唱是听歌，前奏、间奏被挖空比开口那半秒漏一点原唱更难听。所以每首开口、每次拖动后约 0.5 秒原唱会先出来再淡掉。
 - 换歌：卸下旧人声轨、装新的（有缓存时约 0.3 秒装载 + 开口后约 0.5 秒锁定）；没缓存就开始分离。跳过去的歌、伴唱自己发起的分离会取消（卡拉OK舞台、为电视分离发起的不动）。失败的歌自动重试一次，之后靠菜单「重试」；人声轨文件读不出来就删掉重分一次。

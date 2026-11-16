@@ -1996,6 +1996,15 @@ final class AudioPlayerService {
                 self?.refreshRadioStationOrder()
             }
         }
+        NotificationCenter.default.addObserver(
+            forName: .primuseMemoryPressure,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.releasePausedPipelineIfIdle()
+            }
+        }
         observePlaybackRangeChanges()
     }
 
@@ -8508,14 +8517,63 @@ final class AudioPlayerService {
                 recoveryWasArmed: recoveryWasArmed,
                 disturbanceGeneration: transportDisturbanceGeneration
             )
+            schedulePausedPipelineExpiration(for: id)
         } else {
             pausedLocalPipeline = nil
+            cancelPausedPipelineExpiration()
         }
         audioEngine.pauseWithFade()
         isPlaying = false
         checkpointStreamedBytesForPossibleTermination()
         updateNowPlayingInfo()
         updatePlaybackState()
+    }
+
+    private func schedulePausedPipelineExpiration(for expectedPlayID: UUID) {
+        cancelPausedPipelineExpiration()
+        pausedPipelineExpirationTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(PausedPipelineResumePolicy.maximumPauseDuration))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.pausedPipelineExpirationTask = nil
+            guard !self.isPlaying, !self.isLoading,
+                  self.pausedLocalPipeline?.playID == expectedPlayID else { return }
+            self.releasePausedPipelineIfIdle()
+        }
+    }
+
+    func cancelPausedPipelineExpiration() {
+        pausedPipelineExpirationTask?.cancel()
+        pausedPipelineExpirationTask = nil
+    }
+
+    /// Releases a paused local decoder, queued Hi-Res PCM buffers, gapless
+    /// preload buffers, and the idle `AVAudioEngine` graph while preserving the
+    /// exact recovery timestamp so pressing Play later seamlessly rebuilds.
+    func releasePausedPipelineIfIdle() {
+        cancelPausedPipelineExpiration()
+        guard !isPlaying, !isLoading else { return }
+        let hasLiveResources = pausedLocalPipeline != nil
+            || decodingTask != nil
+            || hasPreparedLocalPlayback
+            || audioEngine.isSetUp
+        guard hasLiveResources else { return }
+        let resumeTime = currentTime
+        playID = UUID()
+        decodingTask?.cancel()
+        decodingTask = nil
+        pausedLocalPipeline = nil
+        cancelGaplessTasks()
+        cancelCrossfadeAttempt()
+        audioEngine.stopPlayback()
+        audioEngine.releaseIdleGraphIfStopped()
+        hasPreparedLocalPlayback = false
+        currentTime = resumeTime
+        pendingRecoveryTime = resumeTime
+        needsPlaybackRecovery = currentSong != nil && !isAtTrackEnd
     }
 
     private func canResumePausedPipelineInPlace(song: Song) -> Bool {
@@ -8607,6 +8665,7 @@ final class AudioPlayerService {
         if registeringUserIntent {
             registerPlayIntent()
         }
+        cancelPausedPipelineExpiration()
         if isLiveRadio {
             guard let station = currentRadioStation else { return }
             let stations = radioStationOrder
@@ -8845,6 +8904,7 @@ final class AudioPlayerService {
         let disturbanceGeneration: UInt64
     }
     @ObservationIgnored var pausedLocalPipeline: PausedLocalPipeline?
+    @ObservationIgnored var pausedPipelineExpirationTask: Task<Void, Never>?
     /// Advanced by every interruption and hardware change: either may have
     /// stopped or replaced what a paused pipeline holds.
     @ObservationIgnored var transportDisturbanceGeneration: UInt64 = 0

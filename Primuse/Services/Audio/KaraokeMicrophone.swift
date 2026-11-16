@@ -53,6 +53,7 @@ enum KaraokeTap {
         format: AVAudioFormat,
         ring: KaraokeSampleRing
     ) {
+        ring.prepareStorage()
         node.installTap(onBus: 0, bufferSize: 1_024, format: format) { buffer, _ in
             guard let channel = buffer.floatChannelData?[0] else { return }
             ring.write(channel, count: Int(buffer.frameLength))

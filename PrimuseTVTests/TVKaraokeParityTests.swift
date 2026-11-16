@@ -238,6 +238,18 @@ final class TVKaraokeParityTests: XCTestCase {
         XCTAssertFalse(processor.isProcessing)
     }
 
+    func testTVKaraokeSampleRingAllocatesStorageLazily() {
+        let ring = TVKaraokeSampleRing(capacity: 128)
+        let samples: [Float] = [0.1, -0.2, 0.3, -0.4]
+        samples.withUnsafeBufferPointer { ring.write($0.baseAddress!, count: 4) }
+        XCTAssertNil(ring.readLatest(4))
+
+        ring.prepareStorage()
+        samples.withUnsafeBufferPointer { ring.write($0.baseAddress!, count: 4) }
+        XCTAssertEqual(ring.readLatest(4), samples)
+        XCTAssertNil(ring.readLatest(4))
+    }
+
     func testPhoneSilenceEngagesAssistAndVoiceOrStaleLinkStandsDown() async throws {
         let f = try await Fixture()
         try await f.begin()
