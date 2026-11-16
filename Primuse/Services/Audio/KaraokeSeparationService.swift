@@ -126,9 +126,10 @@ enum KaraokeVocalModel {
 /// to be that abort: from then on, until the system is updated, the model
 /// runs on the CPU only, which never builds the GPU part.
 ///
-/// Apple TV skips the GPU altogether. Every GPU load seen there aborted
-/// (1.11.3 (101) and 1.11.5 (106), tvOS 27.0), and none ever returned, so
-/// the mark above only meant one crash per Apple TV and system version.
+/// tvOS 27.0 and 27.2 abort while MPSGraph serializes its GPU cache and
+/// creates a lock link, before inference starts. Moving the model to a
+/// writable directory does not help. Keep Core ML's GPU disabled on TV
+/// until that path is validated; a failed load cannot fall back in-process.
 enum KaraokeModelLoadGuard {
     private static let pendingKey = "karaokeModelLoadPending"
     private static let cpuOnlySystemKey = "karaokeModelCPUOnlySystem"

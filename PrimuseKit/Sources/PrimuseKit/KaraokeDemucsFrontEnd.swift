@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Accelerate)
+import Accelerate
+#endif
 
 /// The parts of Hybrid Transformer Demucs that run outside the Core ML
 /// model: the spectrogram it expects, the inverse transform of its output,
@@ -50,6 +53,7 @@ public final class KaraokeDemucsSpectrogram: @unchecked Sendable {
     public let layout: KaraokeDemucsLayout
     private let fft: KaraokeComplexFFT
     private let window: [Float]
+    private let windowSquared: [Float]
     private let real: UnsafeMutablePointer<Float>
     private let imag: UnsafeMutablePointer<Float>
 
@@ -59,6 +63,7 @@ public final class KaraokeDemucsSpectrogram: @unchecked Sendable {
         fft = KaraokeComplexFFT(size: n)
         // torch.hann_window is periodic by default.
         window = (0..<n).map { Float(0.5 - 0.5 * cos(2 * Double.pi * Double($0) / Double(n))) }
+        windowSquared = window.map { $0 * $0 }
         real = .allocate(capacity: n)
         imag = .allocate(capacity: n)
         real.initialize(repeating: 0, count: n)
@@ -88,7 +93,11 @@ public final class KaraokeDemucsSpectrogram: @unchecked Sendable {
         let n = source.count
         var result = [Float](repeating: 0, count: padLeft + n + padRight)
         for i in 0..<padLeft { result[i] = source[padLeft - i] }
-        for i in 0..<n { result[padLeft + i] = source[i] }
+        result.withUnsafeMutableBufferPointer { destination in
+            source.withUnsafeBufferPointer { values in
+                destination.baseAddress!.advanced(by: padLeft).update(from: values.baseAddress!, count: n)
+            }
+        }
         for i in 0..<padRight { result[padLeft + n + i] = source[n - 2 - i] }
         return result
     }
@@ -114,11 +123,42 @@ public final class KaraokeDemucsSpectrogram: @unchecked Sendable {
             for frame in 0..<frames {
                 // Demucs keeps stft frames 2 ..< 2 + frames.
                 let start = (frame + 2) * hop
+                #if canImport(Accelerate)
+                window.withUnsafeBufferPointer { w in
+                    l.withUnsafeBufferPointer { samples in
+                        vDSP_vmul(samples.baseAddress! + start, 1, w.baseAddress!, 1, real, 1, vDSP_Length(n))
+                    }
+                    r.withUnsafeBufferPointer { samples in
+                        vDSP_vmul(samples.baseAddress! + start, 1, w.baseAddress!, 1, imag, 1, vDSP_Length(n))
+                    }
+                }
+                #else
                 for i in 0..<n {
                     real[i] = l[start + i] * window[i]
                     imag[i] = r[start + i] * window[i]
                 }
+                #endif
                 fft.forward(real: real, imag: imag)
+                #if canImport(Accelerate)
+                var halfScale = 0.5 * scale
+                vDSP_vsmul(real, 1, &halfScale, real, 1, vDSP_Length(n))
+                vDSP_vsmul(imag, 1, &halfScale, imag, 1, vDSP_Length(n))
+                let lr = out.baseAddress! + frame
+                let li = lr + bins * frames
+                let rr = li + bins * frames
+                let ri = rr + bins * frames
+                lr.pointee = real[0] * 2
+                li.pointee = 0
+                rr.pointee = imag[0] * 2
+                ri.pointee = 0
+                let count = vDSP_Length(bins - 1)
+                let stride = vDSP_Stride(frames)
+                vDSP_vadd(real + 1, 1, real + n - 1, -1, lr + frames, stride, count)
+                // vDSP_vsub computes its second input minus its first.
+                vDSP_vsub(imag + n - 1, -1, imag + 1, 1, li + frames, stride, count)
+                vDSP_vadd(imag + 1, 1, imag + n - 1, -1, rr + frames, stride, count)
+                vDSP_vsub(real + 1, 1, real + n - 1, -1, ri + frames, stride, count)
+                #else
                 for bin in 0..<bins {
                     let mirror = bin == 0 ? 0 : n - bin
                     let a = real[bin], b = imag[bin], c = real[mirror], d = imag[mirror]
@@ -132,6 +172,7 @@ public final class KaraokeDemucsSpectrogram: @unchecked Sendable {
                     out[(2 * bins + bin) * frames + frame] = rr
                     out[(3 * bins + bin) * frames + frame] = ri
                 }
+                #endif
             }
         }
         return output
@@ -160,6 +201,24 @@ public final class KaraokeDemucsSpectrogram: @unchecked Sendable {
             if source >= 0, source < frames {
                 // Build Z = L + iR over the full circle from the one-sided
                 // spectra; the Nyquist bin was dropped and stays zero.
+                #if canImport(Accelerate)
+                spectrum.withUnsafeBufferPointer { values in
+                    let lr = values.baseAddress! + source
+                    let li = lr + bins * frames
+                    let rr = li + bins * frames
+                    let ri = rr + bins * frames
+                    real[0] = lr.pointee
+                    imag[0] = rr.pointee
+                    real[bins] = 0
+                    imag[bins] = 0
+                    let count = vDSP_Length(bins - 1)
+                    let stride = vDSP_Stride(frames)
+                    vDSP_vsub(ri + frames, stride, lr + frames, stride, real + 1, 1, count)
+                    vDSP_vadd(li + frames, stride, rr + frames, stride, imag + 1, 1, count)
+                    vDSP_vadd(lr + frames, stride, ri + frames, stride, real + n - 1, -1, count)
+                    vDSP_vsub(li + frames, stride, rr + frames, stride, imag + n - 1, -1, count)
+                }
+                #else
                 for i in 0..<n { real[i] = 0; imag[i] = 0 }
                 for bin in 0..<bins {
                     let lr = spectrum[(0 * bins + bin) * frames + source]
@@ -175,24 +234,71 @@ public final class KaraokeDemucsSpectrogram: @unchecked Sendable {
                         imag[mirror] = rr - liUsed
                     }
                 }
+                #endif
                 fft.inverse(real: real, imag: imag)
                 let start = frame * hop
+                #if canImport(Accelerate)
+                var multiplier = scale
+                vDSP_vsmul(real, 1, &multiplier, real, 1, vDSP_Length(n))
+                vDSP_vsmul(imag, 1, &multiplier, imag, 1, vDSP_Length(n))
+                window.withUnsafeBufferPointer { w in
+                    left.withUnsafeMutableBufferPointer { samples in
+                        let destination = samples.baseAddress! + start
+                        vDSP_vma(real, 1, w.baseAddress!, 1, destination, 1, destination, 1, vDSP_Length(n))
+                    }
+                    right.withUnsafeMutableBufferPointer { samples in
+                        let destination = samples.baseAddress! + start
+                        vDSP_vma(imag, 1, w.baseAddress!, 1, destination, 1, destination, 1, vDSP_Length(n))
+                    }
+                }
+                #else
                 for i in 0..<n {
                     let w = window[i]
                     left[start + i] += real[i] * scale * w
                     right[start + i] += imag[i] * scale * w
                 }
+                #endif
             }
             let start = frame * hop
-            for i in 0..<n {
-                envelope[start + i] += window[i] * window[i]
+            #if canImport(Accelerate)
+            windowSquared.withUnsafeBufferPointer { weights in
+                envelope.withUnsafeMutableBufferPointer { values in
+                    let destination = values.baseAddress! + start
+                    vDSP_vadd(destination, 1, weights.baseAddress!, 1, destination, 1, vDSP_Length(n))
+                }
             }
+            #else
+            for i in 0..<n {
+                envelope[start + i] += windowSquared[i]
+            }
+            #endif
         }
 
         // Undo the stft centring pad, then the Demucs pad.
         let offset = n / 2 + pad
         var outLeft = [Float](repeating: 0, count: length)
         var outRight = [Float](repeating: 0, count: length)
+        #if canImport(Accelerate)
+        let validLength = max(0, min(length, min(fullLength - offset, paddedLength + n / 2 - offset)))
+        if validLength > 0 {
+            // The centred range has overlapping periodic Hann windows,
+            // so its normalization envelope is strictly positive.
+            envelope.withUnsafeBufferPointer { weights in
+                left.withUnsafeBufferPointer { samples in
+                    outLeft.withUnsafeMutableBufferPointer { output in
+                        vDSP_vdiv(weights.baseAddress! + offset, 1, samples.baseAddress! + offset, 1,
+                                  output.baseAddress!, 1, vDSP_Length(validLength))
+                    }
+                }
+                right.withUnsafeBufferPointer { samples in
+                    outRight.withUnsafeMutableBufferPointer { output in
+                        vDSP_vdiv(weights.baseAddress! + offset, 1, samples.baseAddress! + offset, 1,
+                                  output.baseAddress!, 1, vDSP_Length(validLength))
+                    }
+                }
+            }
+        }
+        #else
         for i in 0..<length {
             let index = offset + i
             guard index < fullLength, index - n / 2 < paddedLength else { break }
@@ -202,6 +308,7 @@ public final class KaraokeDemucsSpectrogram: @unchecked Sendable {
                 outRight[i] = right[index] / weight
             }
         }
+        #endif
         return (outLeft, outRight)
     }
 }

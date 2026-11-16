@@ -70,6 +70,25 @@ struct KaraokeDemucsFrontEndTests {
         #expect(plan.segments.last.map { $0.offset + $0.length } == 44_100 * 240)
     }
 
+    @Test("Inverse normalization stays finite for empty and short segments")
+    func inverseShortBoundaries() {
+        for size in [4, 16, 4_096] {
+            let layout = KaraokeDemucsLayout(
+                sampleRate: 44_100, fftSize: size, hopLength: size / 4,
+                segmentLength: size * 4, overlap: 0.25
+            )
+            let transform = KaraokeDemucsSpectrogram(layout: layout)
+            for length in [0, 1, layout.hopLength, layout.hopLength + 1, size * 4 + 3] {
+                let spectrum = [Float](repeating: 0, count: 4 * layout.bins * layout.frames(forLength: length))
+                let output = transform.inverse(spectrum: spectrum, length: length)
+                #expect(output.left.count == length)
+                #expect(output.right.count == length)
+                #expect(output.left.allSatisfy { $0.isFinite && $0 == 0 })
+                #expect(output.right.allSatisfy { $0.isFinite && $0 == 0 })
+            }
+        }
+    }
+
     @Test("Streaming stitching matches the Demucs reference fixture")
     func streamingStitching() {
         let left = Array(Self.mix[0..<131]), right = Array(Self.mix[131...])

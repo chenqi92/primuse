@@ -1,5 +1,6 @@
 #if os(tvOS)
 import AVFoundation
+import CoreML
 import PrimuseKit
 import XCTest
 @testable import PrimuseTV
@@ -82,16 +83,50 @@ final class TVKaraokeSeparationTests: XCTestCase {
     }
 
     func testLocalModelSeparatesSilenceOnTV() async throws {
-        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_TEST_KARAOKE_MODEL"] else {
-            throw XCTSkip("Requires the locally compiled vocal model")
-        }
-        let separator = try KaraokeVocalSeparator(modelURL: URL(fileURLWithPath: path))
+        let separator = try localSeparator()
         let silence = [Float](repeating: 0, count: 44_100)
         let stem = try await separator.separateVocals(left: silence, right: silence, progress: { _ in }, hold: {})
         XCTAssertEqual(stem.left.count, silence.count)
         XCTAssertEqual(stem.right.count, silence.count)
         XCTAssertTrue(stem.left.allSatisfy { $0.isFinite && abs($0) < 0.0001 })
         XCTAssertTrue(stem.right.allSatisfy { $0.isFinite && abs($0) < 0.0001 })
+    }
+
+    func testLocalModelStreamingMatchesMemoryAcrossOverlapOnTV() async throws {
+        let separator = try localSeparator()
+        let frames = KaraokeDemucsLayout.standard.segmentLength + 8_193
+        let url = try audioFile(rate: 44_100, frames: frames)
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: output)
+        }
+        let left = (0..<frames).map { $0 < 44_100 ? Float(0.25) : Float(0.5) }
+        let expected = try await separator.separateVocals(left: left, right: left.map { -$0 })
+        try await separator.separateVocals(
+            file: KaraokeModelAudioFile(url: url, frames: frames), outputURL: output,
+            songID: "tv-model-regression", progress: { _ in }, hold: {}
+        )
+        let result = try XCTUnwrap(KaraokeStemFile.decode(Data(contentsOf: output)))
+        XCTAssertEqual(result.header.frames, frames)
+        XCTAssertEqual(result.header.sampleRate, 44_100)
+        for (actual, reference) in [(result.left, expected.left), (result.right, expected.right)] {
+            XCTAssertTrue(reference.allSatisfy(\.isFinite))
+            let maximumError = zip(actual, reference).map { abs($0 - max(-1, min(1, $1))) }.max() ?? 0
+            XCTAssertLessThanOrEqual(maximumError, 2 / Float(32_767))
+        }
+    }
+
+    private func localSeparator() throws -> KaraokeVocalSeparator {
+        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_TEST_KARAOKE_MODEL"] else {
+            throw XCTSkip("Requires the locally compiled vocal model")
+        }
+        // Opt-in GPU diagnostics may abort the process; regular device tests
+        // must exercise the same compute policy as the application.
+        let units: MLComputeUnits = ProcessInfo.processInfo.environment["PRIMUSE_TEST_KARAOKE_GPU"] == "1"
+            ? .cpuAndGPU
+            : (KaraokeModelLoadGuard.runsOnCPUOnly() ? .cpuOnly : .cpuAndGPU)
+        return try KaraokeVocalSeparator(modelURL: URL(fileURLWithPath: path), computeUnits: units)
     }
 
     private func audioFile(rate: Double, frames: Int) throws -> URL {

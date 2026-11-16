@@ -21,6 +21,21 @@ actor KaraokeVocalSeparator {
         var right: [Float]
     }
 
+    private struct Prediction {
+        var stem: Stem
+        var timing: PredictionTiming
+    }
+
+    private struct PredictionTiming {
+        var forwardSeconds: TimeInterval
+        var modelSeconds: TimeInterval
+        var inverseSeconds: TimeInterval
+
+        var summary: String {
+            "stft=\(String(format: "%.3f", forwardSeconds))s model=\(String(format: "%.3f", modelSeconds))s istft=\(String(format: "%.3f", inverseSeconds))s"
+        }
+    }
+
     private let model: MLModel
     private let layout = KaraokeDemucsLayout.standard
     private let spectrogram = KaraokeDemucsSpectrogram()
@@ -64,11 +79,11 @@ actor KaraokeVocalSeparator {
             let windowLeft = plan.window(segment, of: left)
             let windowRight = plan.window(segment, of: right)
             let output = try predict(left: windowLeft, right: windowRight)
-            accumulator.add(segment, left: output.left, right: output.right)
+            accumulator.add(segment, left: output.stem.left, right: output.stem.right)
             let segmentSeconds = Date().timeIntervalSince(segmentStartedAt)
             workSeconds += segmentSeconds
             if index == 0 || (index + 1).isMultiple(of: 10) || index + 1 == plan.segments.count {
-                plog("🎤 Karaoke: \(logID) segment=\(index + 1)/\(plan.segments.count) seconds=\(String(format: "%.2f", segmentSeconds)) work=\(String(format: "%.2f", workSeconds))s wait=\(String(format: "%.2f", waitSeconds))s elapsed=\(String(format: "%.2f", Date().timeIntervalSince(startedAt)))s")
+                plog("🎤 Karaoke: \(logID) segment=\(index + 1)/\(plan.segments.count) seconds=\(String(format: "%.2f", segmentSeconds)) \(output.timing.summary) work=\(String(format: "%.2f", workSeconds))s wait=\(String(format: "%.2f", waitSeconds))s elapsed=\(String(format: "%.2f", Date().timeIntervalSince(startedAt)))s")
             }
             progress(Double(index + 1) / Double(plan.segments.count))
             await Task.yield()
@@ -103,13 +118,16 @@ actor KaraokeVocalSeparator {
                 let window = try Self.readWindow(from: input, segment: segment, totalLength: file.frames, layout: layout)
                 let output = try predict(left: window.left, right: window.right)
                 try Task.checkCancellation()
-                return accumulator.add(segment, left: output.left, right: output.right)
+                return (
+                    samples: accumulator.add(segment, left: output.stem.left, right: output.stem.right),
+                    timing: output.timing
+                )
             }
-            try writer.append(left: completed.left, right: completed.right)
+            try writer.append(left: completed.samples.left, right: completed.samples.right)
             let seconds = Date().timeIntervalSince(segmentStartedAt)
             workSeconds += seconds
             if index == 0 || (index + 1).isMultiple(of: 10) || index + 1 == plan.segments.count {
-                plog("🎤 Karaoke: \(logID) segment=\(index + 1)/\(plan.segments.count) seconds=\(String(format: "%.2f", seconds)) work=\(String(format: "%.2f", workSeconds))s wait=\(String(format: "%.2f", waitSeconds))s elapsed=\(String(format: "%.2f", Date().timeIntervalSince(startedAt)))s")
+                plog("🎤 Karaoke: \(logID) segment=\(index + 1)/\(plan.segments.count) seconds=\(String(format: "%.2f", seconds)) \(completed.timing.summary) work=\(String(format: "%.2f", workSeconds))s wait=\(String(format: "%.2f", waitSeconds))s elapsed=\(String(format: "%.2f", Date().timeIntervalSince(startedAt)))s")
             }
             progress(Double(index + 1) / Double(plan.segments.count))
             await Task.yield()
@@ -147,7 +165,8 @@ actor KaraokeVocalSeparator {
     }
 
     /// One model call: vocals for a full-length segment window.
-    private func predict(left: [Float], right: [Float]) throws -> Stem {
+    private func predict(left: [Float], right: [Float]) throws -> Prediction {
+        let startedAt = Date()
         let length = layout.segmentLength
         let bins = layout.bins
         let frames = layout.frames(forLength: length)
@@ -167,7 +186,9 @@ actor KaraokeVocalSeparator {
             "spec": MLFeatureValue(multiArray: spec),
             "mix": MLFeatureValue(multiArray: mix),
         ])
+        let modelStartedAt = Date()
         let output = try model.prediction(from: input)
+        let inverseStartedAt = Date()
         guard let vocalSpec = output.featureValue(for: "vocals_spec")?.multiArrayValue,
               let vocalWave = output.featureValue(for: "vocals_wave")?.multiArrayValue,
               vocalSpec.count == 4 * bins * frames,
@@ -182,7 +203,14 @@ actor KaraokeVocalSeparator {
             outLeft[i] += timeBranch[i]
             outRight[i] += timeBranch[length + i]
         }
-        return Stem(left: outLeft, right: outRight)
+        return Prediction(
+            stem: Stem(left: outLeft, right: outRight),
+            timing: PredictionTiming(
+                forwardSeconds: modelStartedAt.timeIntervalSince(startedAt),
+                modelSeconds: inverseStartedAt.timeIntervalSince(modelStartedAt),
+                inverseSeconds: Date().timeIntervalSince(inverseStartedAt)
+            )
+        )
     }
 
     /// Contiguous values of an output array as Float. The converted model
