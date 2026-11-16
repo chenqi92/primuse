@@ -3167,10 +3167,10 @@
 "scraper_review_configs" = "التكوينات";
 "scraper_review_cookie" = "ملف تعريف الارتباط";
 "scraper_review_endpoints_fmt" = "%1$lld نقاط النهاية، %2$@";
-"scraper_review_footer" = "يتيح الاستيراد لهذا المصدر تشغيل شيفرة JavaScript الخاصة به والاتصال بالنطاقات أعلاه أثناء البحث عن البيانات الوصفية.";
+"scraper_review_footer" = "بعد الاستيراد، يمكن لهذا المصدر الاستعلام عن النطاقات المذكورة باستخدام قواعد JSON.";
 "scraper_review_header" = "المراجعة قبل الاستيراد";
 "scraper_review_headers" = "الرؤوس";
-"scraper_review_javascript" = "جافا سكريبت";
+"scraper_review_javascript" = "قواعد JSON";
 "scraper_review_network_domains" = "مجالات الشبكة";
 "scraper_review_requests" = "الطلبات";
 "scraper_review_secrets" = "الأسرار";
@@ -7496,3 +7496,7 @@
 "player_backdrop_cache_empty" = "لا توجد صور خلفية مخزنة مؤقتًا";
 "lock_screen_hidden_by_mixing" = "خيار «التشغيل مع التطبيقات الأخرى» مفعّل، لذا قد لا يظهر Primuse في شاشة القفل ومركز التحكم وDynamic Island، ولا تؤثر الإعدادات أدناه.";
 "lock_screen_hidden_by_mixing_action" = "إيقاف";
+
+"scraper_legacy_update_required" = "يحتاج هذا المصدر إلى تحديث. استورد النسخة التي تستخدم قواعد JSON.";
+
+"scraper_update_review_required" = "يتطلب التحديث تأكيدًا. أعد استيراد المصدر.";

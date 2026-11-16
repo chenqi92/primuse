@@ -108,6 +108,23 @@ enum ScraperIdentity {
         return !lhs.core.isEmpty && lhs.core == rhs.core && lhs.markers == rhs.markers
     }
 
+    static func matchTier(_ item: ScraperSearchItem, title: String, artist: String?) -> Int {
+        let requested = filenameTitle(title, matching: item.artist, aliases: item.artistAliases) ?? title
+        let clean = requested.replacingOccurrences(of: #"^\d+[.\s]+"#, with: "", options: .regularExpression)
+        guard titleMatches(clean, item.title) else { return 4 }
+        guard !normalized(artist).isEmpty else { return 0 }
+        if artistMatches(artist, item.artist, aliases: item.artistAliases) { return 0 }
+        return normalized(item.artist).isEmpty ? 1 : 3
+    }
+
+    static func albumTier(_ requested: String?, _ candidate: String?) -> Int {
+        let wanted = normalized(requested)
+        guard !wanted.isEmpty else { return 0 }
+        let actual = normalized(candidate)
+        if actual == wanted { return 0 }
+        return actual.isEmpty ? 1 : 2
+    }
+
     static func containsHan(_ value: String) -> Bool {
         value.unicodeScalars.contains { (0x3400...0x9fff).contains($0.value) }
     }

@@ -2474,7 +2474,7 @@
 "scraper_confirm_import" = "Confirmer l'import";
 "scraper_review_banner" = "Aperçu uniquement — pas encore importé. Touchez « Confirmer l'import » pour l'ajouter ; Annuler l'abandonne.";
 "scraper_review_header" = "Vérifier avant l'import";
-"scraper_review_footer" = "L'import autorise ce scraper à exécuter son JavaScript et à contacter les domaines ci-dessus lors de la recherche de métadonnées.";
+"scraper_review_footer" = "Après importation, cette source peut interroger les domaines indiqués selon ses règles JSON.";
 "scraper_review_source" = "Source";
 "scraper_review_configs" = "Configurations";
 "scraper_review_capabilities" = "Fonctionnalités";
@@ -2486,7 +2486,7 @@
 "scraper_review_headers" = "En-têtes";
 "scraper_review_cookie" = "Cookie";
 "scraper_review_secrets" = "Secrets";
-"scraper_review_javascript" = "JavaScript";
+"scraper_review_javascript" = "Règles JSON";
 "scraper_warn_no_fixed_domain" = "Aucun domaine réseau fixe n'a été détecté. Le scraper peut générer des URL dynamiquement en JavaScript.";
 "scraper_warn_includes_cookie" = "Cette configuration contient des données de cookie. N'importez que des configurations provenant de personnes de confiance.";
 "scraper_warn_custom_headers" = "Cette configuration ajoute des en-têtes de requête personnalisés.";
@@ -7590,3 +7590,7 @@
 "player_backdrop_cache_empty" = "Aucune image de fond en cache";
 "lock_screen_hidden_by_mixing" = "« Lire en même temps que d'autres apps » est activé : l'écran verrouillé, le centre de contrôle et la Dynamic Island peuvent ne pas afficher Primuse, et les réglages ci-dessous n'ont aucun effet.";
 "lock_screen_hidden_by_mixing_action" = "Désactiver";
+
+"scraper_legacy_update_required" = "Cette source doit être mise à jour. Importez sa version avec règles JSON.";
+
+"scraper_update_review_required" = "La mise à jour doit être confirmée. Importez à nouveau la source.";

@@ -13,6 +13,16 @@ struct ScraperSourceConfig: Codable, Sendable, Identifiable, Hashable {
 
     var displayName: String { type.displayName }
 
+    var updateNotice: String? {
+        guard case .custom(let id) = type else { return nil }
+        if let config = ScraperConfigStore.shared.config(for: id),
+           ScraperNetworkScope.endpoints(config).values.contains(where: \.hasLegacyCode) {
+            return String(localized: "scraper_legacy_update_required")
+        }
+        return ScraperConfigStore.shared.updateNeedsReview(id: id)
+            ? String(localized: "scraper_update_review_required") : nil
+    }
+
     /// Cookie 在钥匙串里的账户名。自定义源按配置 id 记：行 id 在各设备上可能不同
     /// （配置先经 CloudKit 到达时本机会自己补一行、再被别的设备的 blob 整份换掉），
     /// 配置 id 才是跨设备稳定的那个。内置源不支持 Cookie，按行 id 兜底只为不丢数据。

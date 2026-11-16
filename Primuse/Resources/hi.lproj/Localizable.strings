@@ -3167,10 +3167,10 @@
 "scraper_review_configs" = "कॉन्फिग";
 "scraper_review_cookie" = "कुकी";
 "scraper_review_endpoints_fmt" = "%1$lld समापन बिंदु, %2$@";
-"scraper_review_footer" = "आयात करने पर यह मेटाडेटा स्रोत खोज के दौरान अपनी JavaScript चला सकता है और ऊपर दिए डोमेन से संपर्क कर सकता है।";
+"scraper_review_footer" = "आयात के बाद, यह स्रोत अपने JSON नियमों से सूचीबद्ध डोमेन पर क्वेरी कर सकता है।";
 "scraper_review_header" = "आयात से पहले समीक्षा करें";
 "scraper_review_headers" = "हेडर";
-"scraper_review_javascript" = "जावास्क्रिप्ट";
+"scraper_review_javascript" = "JSON नियम";
 "scraper_review_network_domains" = "नेटवर्क डोमेन";
 "scraper_review_requests" = "अनुरोध";
 "scraper_review_secrets" = "रहस्य";
@@ -7496,3 +7496,7 @@
 "player_backdrop_cache_empty" = "कोई पृष्ठभूमि छवि कैश नहीं है";
 "lock_screen_hidden_by_mixing" = "“दूसरे ऐप्स के साथ चलाएँ” चालू है, इसलिए लॉक स्क्रीन, कंट्रोल सेंटर और Dynamic Island में Primuse शायद न दिखे, और नीचे की सेटिंग्स का असर नहीं होगा।";
 "lock_screen_hidden_by_mixing_action" = "बंद करें";
+
+"scraper_legacy_update_required" = "इस स्रोत को अपडेट करना होगा। इसके JSON नियम वाले संस्करण को आयात करें।";
+
+"scraper_update_review_required" = "अपडेट की पुष्टि ज़रूरी है। स्रोत को फिर से आयात करें।";

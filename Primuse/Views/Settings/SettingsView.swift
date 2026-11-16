@@ -2209,7 +2209,8 @@ struct MetadataScrapingView: View {
 
     /// 源名称下的小字：歌词 API 服务写已配置几个地址；AMLL 名字看不出是什么，写一句它是什么。
     private func scraperSourceSubtitle(for source: ScraperSourceConfig) -> String? {
-        switch source.type {
+        if let notice = source.updateNotice { return notice }
+        return switch source.type {
         case .lyricsServer: lyricsServerCountText
         case .amll: source.type.localizedDescription
         default: nil
@@ -2505,7 +2506,7 @@ struct ScraperImportSummaryView: View {
                     permissionBadge(String(localized: "scraper_review_headers"), enabled: summary.includesHeaders)
                     permissionBadge(String(localized: "scraper_review_cookie"), enabled: summary.includesCookie)
                     permissionBadge(String(localized: "scraper_review_secrets"), enabled: summary.includesSecrets)
-                    permissionBadge(String(localized: "scraper_review_javascript"), enabled: summary.scriptCharacterCount > 0)
+                    permissionBadge(String(localized: "scraper_review_javascript"), enabled: summary.ruleCount > 0)
                 }
                 .font(.caption)
 

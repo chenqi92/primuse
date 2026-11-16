@@ -7,6 +7,182 @@ import XCTest
 
 final class SharedScraperRequestTests: XCTestCase {
 
+    func testSearchUsesSupportedPageSizeAndKeepsRequestedResultCount() async throws {
+        let body = try JSONSerialization.data(withJSONObject: (0..<20).map { ["id": String($0), "title": "Paper Lanterns", "artist": "North Bay"] })
+        let fixture = ScraperHTTPFixture { request in
+            let size = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "limit" }?.value
+            return size == "20" ? .init(body: body) : .init(status: 400)
+        }
+        defer { fixture.close() }
+        var config = fixture.config()
+        config.search = .init(url: fixture.url("search?q={{query}}&limit={{limit}}"), method: "GET", rule: .init())
+        let result = try await ConfigurableScraper(config: config, session: fixture.session)
+            .search(query: "Paper Lanterns", artist: "North Bay", album: nil, limit: 15)
+        XCTAssertEqual(result.items.count, 15)
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    func testSearchBroadensOnlyAfterNoIdentityMatchAndKeepsBestCandidate() async throws {
+        let fixture = ScraperHTTPFixture { request in
+            let keyword = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value
+            let body = keyword == "Paper Lanterns" ? #"[{"id":"wrong","title":"Paper Lanterns","artist":"Someone Else"},{"id":"right","title":"Paper Lanterns","artist":"North Bay","album":"Evening"}]"# : #"[{"id":"wrong","title":"Paper Lanterns","artist":"Someone Else"}]"#
+            return .init(body: Data(body.utf8))
+        }
+        defer { fixture.close() }
+        var config = fixture.config()
+        config.search = .init(url: fixture.url("search?q={{query}}"), method: "GET", rule: .init())
+        let scraper = ConfigurableScraper(config: config, session: fixture.session)
+        let result = try await scraper.search(query: "Paper Lanterns", artist: "North Bay", album: nil, limit: 2)
+        XCTAssertEqual(result.items.map(\.externalId), ["right", "wrong"])
+        XCTAssertEqual(fixture.requests.count, 2)
+    }
+
+    func testSearchDoesNotBroadenAConfidentMatchOrAQuotaFailure() async throws {
+        for status in [200, 429] {
+            let fixture = ScraperHTTPFixture { _ in .init(status: status, headers: ["Retry-After": "60"],
+                body: Data(#"[{"id":"right","title":"Paper Lanterns","artist":"North Bay"}]"#.utf8)) }
+            defer { fixture.close() }
+            var config = fixture.config()
+            config.search = .init(url: fixture.url("search?q={{query}}"), method: "GET", rule: .init())
+            do {
+                let result = try await ConfigurableScraper(config: config, session: fixture.session, requestPool: .init())
+                    .search(query: "Paper Lanterns", artist: "North Bay", album: nil, limit: 1)
+                XCTAssertEqual(status, 200)
+                XCTAssertEqual(result.items.first?.externalId, "right")
+            } catch ScraperError.rateLimited { XCTAssertEqual(status, 429) }
+            XCTAssertEqual(fixture.requests.count, 1)
+        }
+    }
+
+    func testImportedMatchesRejectWrongArtistTitleAndRecordingVersion() {
+        for (title, artist) in [("Paper Lanterns (Live)", "North Bay"), ("Paper Lanterns", "North Bay Tribute"), ("Paper Lanterns Forever", "North Bay")] {
+            let item = ScraperSearchItem(externalId: "wrong", source: .custom("fixture"), title: title, artist: artist, durationMs: 180000)
+            XCTAssertFalse(ScraperManager.isConfidentAutoMatch(item, title: "Paper Lanterns", artist: "North Bay", durationMs: 180000))
+        }
+        let alias = ScraperSearchItem(externalId: "right", source: .custom("fixture"), title: "紙燈", artist: "北岸", artistAliases: ["North Bay"])
+        XCTAssertTrue(ScraperManager.isConfidentAutoMatch(alias, title: "纸灯", artist: "North Bay", durationMs: nil))
+    }
+
+    func testImportedRankingUsesIdentityAndAlbumBeforeDuration() {
+        let source = MusicScraperType.custom("fixture")
+        let wrong = ScraperSearchItem(externalId: "wrong", source: source, title: "Paper Lanterns", artist: "Someone Else", album: "Evening", durationMs: 180000)
+        let compilation = ScraperSearchItem(externalId: "compilation", source: source, title: "Paper Lanterns", artist: "North Bay", album: "Collection", durationMs: 180000)
+        let original = ScraperSearchItem(externalId: "original", source: source, title: "Paper Lanterns", artist: "North Bay", album: "Evening", durationMs: 182000)
+        let result = ScraperManager.topMatches(in: [wrong, compilation, original], title: "Paper Lanterns", artist: "North Bay", durationMs: 180000, maxCount: 3, album: "Evening")
+        XCTAssertEqual(result.map(\.externalId), ["original", "compilation", "wrong"])
+    }
+
+    func testImportedLyricsNeverFetchAConflictingArtistOrVersion() async {
+        let fixture = ScraperHTTPFixture { _ in .init(body: Data(#"[{"id":"cover","title":"Paper Lanterns","artist":"Someone Else","durationMs":180000},{"id":"live","title":"Paper Lanterns (Live)","artist":"North Bay","durationMs":180000}]"#.utf8)) }
+        defer { fixture.close() }
+        var config = fixture.config()
+        config.lyrics = .init(url: fixture.url("lyrics"), method: "GET", rule: .init())
+        let scraper = ConfigurableScraper(config: config, session: fixture.session)
+        let manager = ScraperManager(scraperFactory: { _ in scraper })
+        let result = await manager.scrapeMetadata(title: "Paper Lanterns", artist: "North Bay", album: nil, duration: 180,
+            needs: .init(metadata: false, cover: false, lyrics: true),
+            settings: .init(sources: [.init(id: "fixture", type: .itunes, isEnabled: true, priority: 0)]))
+        XCTAssertNil(result.lyrics)
+        XCTAssertTrue(fixture.requests.allSatisfy { $0.url?.path == "/search" })
+    }
+
+    func testKnownLegacyAdapterConvertsOnlyTheExactApprovedScript() throws {
+        let script = "var parts = response._externalId ? response._externalId.split('|') : []; if (parts.length < 6) return null; var cover = parts[5] || ''; if (cover) cover = cover.replace('/150/', '/400/'); return {title: parts[2], artist: parts[3]||null, coverUrl: cover||null};"
+        let legacy = EndpointConfig(url: "https://fixture.test/unused", method: "GET", script: script)
+        XCTAssertEqual(legacy.rule?.format, .hashCatalogDetail)
+        XCTAssertEqual(legacy.method, "LOCAL")
+        XCTAssertFalse(legacy.hasLegacyCode)
+        try legacy.validateRules()
+        let encoded = try JSONEncoder().encode(legacy)
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("script"))
+        let altered = EndpointConfig(url: "", method: "LOCAL", script: script + "while(true){}")
+        XCTAssertTrue(altered.hasLegacyCode)
+        XCTAssertThrowsError(try altered.validateRules())
+    }
+
+    func testSubscriptionPermissionExpansionKeepsInstalledVersionUntilReimport() async throws {
+        for replacement in [
+            ("https://fixture.test/search", "https://different.test/search"),
+            ("\"GET\"", "\"POST\""),
+            ("\"metadata\"", "\"metadata\",\"newCapability\"")
+        ] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let original = Self.subscriptionManifest(["fixture": 1], credential: "local-only")
+            let fixture = ScraperSubscriptionFixture(manifest: original)
+            let store = ScraperConfigStore(configDirectory: root, manifestLoader: { await fixture.load($0) })
+            let url = URL(string: "https://fixture.test/config.json")!
+            try store.confirmImport(try await store.previewImportFromURL(url), automaticallyUpdates: true)
+            // JSONSerialization may escape slashes; normalize before changing the URL.
+            let changed = Self.subscriptionManifest(["fixture": 2], credential: "remote")
+                .replacingOccurrences(of: "\\/", with: "/")
+                .replacingOccurrences(of: replacement.0, with: replacement.1)
+            await fixture.setManifest(changed)
+            let updated = await store.refreshSubscriptionsIfDue(now: Date().addingTimeInterval(172800))
+            XCTAssertTrue(updated.isEmpty)
+            XCTAssertEqual(store.config(for: "fixture")?.version, 1)
+            XCTAssertEqual(store.config(for: "fixture")?.cookie, "local-only")
+            XCTAssertTrue(store.updateNeedsReview(id: "fixture"))
+            XCTAssertTrue(ScraperConfigStore(configDirectory: root).updateNeedsReview(id: "fixture"))
+            try store.confirmImport(try await store.previewImportFromURL(url), automaticallyUpdates: true)
+            XCTAssertEqual(store.config(for: "fixture")?.version, 2)
+            XCTAssertFalse(store.updateNeedsReview(id: "fixture"))
+        }
+    }
+
+    func testSubscriptionRejectsBroaderTLSAndAssetHosts() throws {
+        let original = try JSONDecoder().decode(ScraperConfig.self, from: Data(Self.subscriptionManifest(["fixture": 1]).utf8))
+        var changed = original
+        changed.sslTrustDomains = ["fixture.test"]
+        XCTAssertFalse(ScraperNetworkScope.permitsAutomaticUpdate(from: original, to: changed))
+        changed = original
+        changed.dynamicCover?.assetHosts = ["*.other.test"]
+        XCTAssertFalse(ScraperNetworkScope.permitsAutomaticUpdate(from: original, to: changed))
+    }
+
+    func testCredentialsStayOnApprovedOriginAndResourceRedirectsAreSanitized() async throws {
+        let fixture = ScraperHTTPFixture { _ in .init() }
+        defer { fixture.close() }
+        let origin = try XCTUnwrap(ScraperNetworkScope.origin(URL(string: fixture.url(""))!))
+        let transport = ScraperSessionManager(headers: ["Cookie": "fixture-cookie", "Authorization": "fixture-token", "X-API-Key": "fixture-key", "User-Agent": "Fixture"],
+            trustDomains: [], credentialOrigins: [origin], session: fixture.session)
+        _ = try await transport.data(for: URLRequest(url: URL(string: fixture.url("cover"))!))
+        _ = try await transport.data(for: URLRequest(url: URL(string: "https://cdn.other.test/cover")!))
+        XCTAssertEqual(fixture.requests.first?.value(forHTTPHeaderField: "Cookie"), "fixture-cookie")
+        let cross = try XCTUnwrap(fixture.requests.last)
+        for header in ["Cookie", "Authorization", "X-API-Key"] { XCTAssertNil(cross.value(forHTTPHeaderField: header)) }
+        XCTAssertEqual(cross.value(forHTTPHeaderField: "User-Agent"), "Fixture")
+        var request = URLRequest(url: URL(string: "https://cdn.other.test/cover")!)
+        request.allHTTPHeaderFields = ["Cookie": "fixture-cookie", "X-API-Key": "fixture-key", "User-Agent": "Fixture"]
+        let source = URL(string: fixture.url("cover"))!
+        XCTAssertNil(ScraperTransportDelegate.redirect(request, from: source, to: request.url!, isResource: false))
+        let redirected = try XCTUnwrap(ScraperTransportDelegate.redirect(request, from: source, to: request.url!, isResource: true))
+        XCTAssertNil(redirected.value(forHTTPHeaderField: "Cookie"))
+        XCTAssertNil(redirected.value(forHTTPHeaderField: "X-API-Key"))
+        XCTAssertNil(ScraperTransportDelegate.redirect(request, from: source, to: URL(string: "http://cdn.other.test/cover")!, isResource: true))
+    }
+
+    func testUnknownLegacyScriptStaysStoredButCannotImportOrExecute() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let raw = #"{"id":"old","name":"Old source","version":1,"capabilities":["metadata"],"search":{"url":"https://fixture.test/search","method":"GET","script":"while(true){}"}}"#
+        let file = root.appendingPathComponent("old.json")
+        try Data(raw.utf8).write(to: file)
+        let store = ScraperConfigStore(configDirectory: root)
+        let config = try XCTUnwrap(store.config(for: "old"))
+        XCTAssertEqual(config.search?.script, "while(true){}")
+        XCTAssertEqual(try Data(contentsOf: file), Data(raw.utf8))
+        XCTAssertThrowsError(try store.previewImportFromJSON(raw))
+        let fixture = ScraperHTTPFixture { _ in XCTFail("Unsupported source sent a request"); return .init() }
+        defer { fixture.close() }
+        do {
+            _ = try await ConfigurableScraper(config: config, session: fixture.session).search(query: "Paper Lanterns", artist: nil, album: nil, limit: 1)
+            XCTFail("Legacy code must not run")
+        } catch ScraperError.parseError { }
+        XCTAssertTrue(fixture.requests.isEmpty)
+    }
+
     func testSubscriptionRequiresExplicitURLConsentAndPersists() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -60,7 +236,7 @@ final class SharedScraperRequestTests: XCTestCase {
         XCTAssertEqual(first.secrets?["sample"], "local-only")
         XCTAssertEqual(first.cookie, "local-only")
         XCTAssertEqual(first.headers?["Authorization"], "local-only")
-        XCTAssertEqual(first.search?.script, "return [2];")
+        XCTAssertEqual(first.search?.rule?.fields?["id"]?.value, "2")
         XCTAssertNotNil(first.cover)
         XCTAssertNotNil(first.lyrics)
         XCTAssertNotNil(first.dynamicCover)
@@ -154,7 +330,7 @@ final class SharedScraperRequestTests: XCTestCase {
             var config: [String: Any] = [
                 "id": id, "name": id, "version": version,
                 "capabilities": ["metadata", "cover", "lyrics", "dynamicCover"],
-                "search": ["url": "https://fixture.test/search", "method": "GET", "script": "return [\(version)];"],
+                "search": ["url": "https://fixture.test/search", "method": "GET", "rule": ["format": "json", "fields": ["id": ["value": String(version)]], "array": true]],
                 "cover": ["url": "", "method": "LOCAL", "script": "return [];"],
                 "lyrics": ["url": "https://fixture.test/lyrics", "method": "GET", "script": "return null;"],
                 "dynamicCover": ["url": "https://fixture.test/motion", "method": "GET", "script": "return [];"],
@@ -172,7 +348,7 @@ final class SharedScraperRequestTests: XCTestCase {
         return String(decoding: try! JSONSerialization.data(withJSONObject: value), as: UTF8.self)
     }
 
-    func testBuiltInMotionSourceExportsAsAnOrdinaryScriptConfig() throws {
+    func testBuiltInMotionSourceExportsAsJSONRulesWithoutCode() throws {
         let source = try XCTUnwrap(ScraperSourceConfig.defaultSources().first { $0.type == .custom("m8tec") })
         XCTAssertTrue(source.type.isBuiltIn)
         XCTAssertTrue(source.isEnabled)
@@ -185,7 +361,8 @@ final class SharedScraperRequestTests: XCTestCase {
         let data = try JSONEncoder().encode(config)
         let imported = try ScraperConfigStore.shared.previewImportFromJSON(String(decoding: data, as: UTF8.self))
         XCTAssertEqual(imported.configs.first?.id, "m8tec")
-        XCTAssertEqual(imported.configs.first?.dynamicCover?.playlistScript, config.dynamicCover?.playlistScript)
+        XCTAssertEqual(imported.configs.first?.dynamicCover?.playlist, "boundedHLS")
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("script"))
         XCTAssertEqual(imported.endpointCount, 1)
     }
 
@@ -245,16 +422,15 @@ final class SharedScraperRequestTests: XCTestCase {
         XCTAssertTrue(preferences.activeMotionArtworkEndpoints.isEmpty)
     }
 
-    func testDynamicManifestPreservesExistingEndpointsAndScripts() throws {
+    func testJSONManifestRoundTripsAllEndpointCapabilities() throws {
         let raw = #"""
         {"id":"fixture-motion","name":"Fixture","version":2,"capabilities":["metadata","cover","lyrics","dynamicCover"],
-         "search":{"url":"https://fixture.test/search","method":"GET","script":"return [];"},
-         "detail":{"url":"https://fixture.test/detail","method":"GET","script":"return {};"},
-         "cover":{"url":"","method":"LOCAL","script":"return [];"},
-         "lyrics":{"url":"https://fixture.test/lyrics","method":"GET","script":"return null;"},
-         "dynamicCover":{"url":"https://fixture.test/motion","method":"POST","script":"return [];",
-            "requestScript":"return response;","responseScript":"return response;","playlistScript":"return null;",
-            "assetHosts":["*.cdn.fixture.test"],"optional":true,"requiredIdSegments":[0,2],
+         "search":{"url":"https://fixture.test/search","method":"GET","rule":{"format":"json","path":"items"}},
+         "detail":{"url":"https://fixture.test/detail","method":"GET","rule":{"format":"json"}},
+         "cover":{"url":"","method":"LOCAL","rule":{"format":"empty"}},
+         "lyrics":{"url":"https://fixture.test/lyrics","method":"GET","rule":{"format":"none"}},
+         "dynamicCover":{"url":"https://fixture.test/motion","method":"POST","rule":{"format":"motionArtwork"},
+            "playlist":"boundedHLS","assetHosts":["*.cdn.fixture.test"],"optional":true,"requiredIdSegments":[0,2],
             "sign":{"type":"md5-wrap","saltSecret":"test"},"crypto":{"algorithm":"aes-128-ecb"}},
          "secrets":{"test":"local-only"}}
         """#
@@ -262,10 +438,10 @@ final class SharedScraperRequestTests: XCTestCase {
         let encoded = try JSONEncoder().encode(decoded)
         var expected = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
         expected.removeValue(forKey: "secrets")
-        let actual = try JSONSerialization.jsonObject(with: encoded)
-        XCTAssertEqual(expected as NSDictionary, actual as? NSDictionary)
+        XCTAssertEqual(expected as NSDictionary, try JSONSerialization.jsonObject(with: encoded) as? NSDictionary)
         let summary = try ScraperConfigStore.shared.previewImportFromJSON(String(decoding: encoded, as: UTF8.self))
         XCTAssertEqual(summary.endpointCount, 5)
+        XCTAssertEqual(summary.ruleCount, 5)
         XCTAssertTrue(summary.domains.contains("*.cdn.fixture.test"))
         XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("local-only"))
     }
@@ -274,48 +450,39 @@ final class SharedScraperRequestTests: XCTestCase {
         let fixture = ScraperHTTPFixture { _ in XCTFail("Local endpoint sent a request"); return .init() }
         defer { fixture.close() }
         var config = fixture.config()
-        config.cover = .init(url: "", method: "LOCAL", script: "return [{coverUrl: response._externalId.split('|')[1]}];")
+        config.cover = .init(url: "", method: "LOCAL", rule: .init(fields: ["coverUrl": .init(path: "$id.1")], array: true))
         let scraper = ConfigurableScraper(config: config, session: fixture.session, requestPool: .init())
         let result = try await scraper.getCoverArt(externalId: "41|https://fixture.test/cover.jpg")
         XCTAssertEqual(result.first?.coverUrl, "https://fixture.test/cover.jpg")
         XCTAssertTrue(fixture.requests.isEmpty)
     }
 
-    func testScriptedRequestAndResponseUseSecretsWithoutDroppingHeaders() async throws {
+    func testFixedSigningAndResponseSelectionKeepRequestBehavior() async throws {
         let fixture = ScraperHTTPFixture { _ in .init(body: Data(#"{"items":[]}"#.utf8)) }
         defer { fixture.close() }
         var config = fixture.config()
         config.secrets = ["sample": "fixture-only"]
-        config.search?.requestScript = """
-        return {url: response.url, method: "POST", headers: {"X-Test": secrets.sample},
-                body: JSON.stringify({query: variables.query, digest: nativeResolver.md5("abc")})};
-        """
-        config.search?.responseScript = "return response.items;"
-        let scraper = ConfigurableScraper(config: config, session: fixture.session, requestPool: .init(), allowExpensiveNetwork: false)
-        _ = try await scraper.search(query: "Paper Lanterns", artist: nil, album: nil, limit: 3)
+        config.search = .init(url: fixture.url("search"), method: "POST", params: ["q": "{{query}}"],
+            headers: ["X-Test": "fixture-only"], bodyTemplate: #"{"query":"{{query}}"}"#,
+            sign: ["type": "md5-wrap", "saltSecret": "sample", "deviceIDSecret": "requestDeviceID"], rule: .init(), responsePath: "items")
+        _ = try await ConfigurableScraper(config: config, session: fixture.session, requestPool: .init(), allowExpensiveNetwork: false)
+            .search(query: "Paper Lanterns", artist: nil, album: nil, limit: 3)
         let request = try XCTUnwrap(fixture.requests.first)
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-Test"), "fixture-only")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "mid")?.count, 32)
         XCTAssertFalse(request.allowsExpensiveNetworkAccess)
+        let query = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first { $0.name == "signature" }?.value, ScraperNativeResolvers.md5("fixture-onlyq=Paper Lanternsfixture-only"))
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(request.httpBody)) as? [String: String])
         XCTAssertEqual(body["query"], "Paper Lanterns")
-        XCTAssertEqual(body["digest"], "900150983cd24fb0d6963f7d28e17f72")
     }
 
-    func testCryptoHelpersRoundTripInTheScraperRuntime() async throws {
-        let fixture = ScraperHTTPFixture { _ in .init(body: Data("{}".utf8)) }
-        defer { fixture.close() }
-        var config = fixture.config()
-        config.cover = .init(url: fixture.url("cover"), method: "GET", script: """
-        var text = "Paper lanterns cross the bay";
-        var encrypted = nativeResolver.aesECB(text, "0123456789abcdef", "utf8", "hex", false);
-        var decoded = nativeResolver.aesECB(encrypted, "0123456789abcdef", "hex", "utf8", true);
-        if (text !== decoded) throw new Error("Round trip failed");
-        return [{coverUrl: "https://fixture.test/cover.jpg"}];
-        """)
-        let scraper = ConfigurableScraper(config: config, session: fixture.session, requestPool: .init())
-        let covers = try await scraper.getCoverArt(externalId: "fixture")
-        XCTAssertEqual(covers.count, 1)
+    func testFixedCodecRoundTripsWithoutAScriptRuntime() throws {
+        let original = Data("Paper lanterns cross the bay".utf8)
+        let encrypted = try XCTUnwrap(ScraperNativeResolvers.aes(original, key: "0123456789abcdef", decrypt: false))
+        XCTAssertEqual(ScraperNativeResolvers.aes(encrypted, key: "0123456789abcdef", decrypt: true), original)
+        XCTAssertEqual(ScraperNativeResolvers.md5("abc"), "900150983cd24fb0d6963f7d28e17f72")
     }
 
     func testLyricsSourceCandidatesKeepPriorityContinueAfterFailureAndStopAtThree() async {
@@ -338,7 +505,7 @@ final class SharedScraperRequestTests: XCTestCase {
     }
 
     func testLegacyConfigRoundTripPreservesUserFieldsAndFallback() throws {
-        let original = Data(#"{"id":"kugou","name":"My source","version":6,"cookie":"fixture-cookie","modifiedAt":12345,"sslTrustDomains":["fixture.test"],"capabilities":["lyrics"],"lyrics":{"url":"https://fixture.test/lyrics","method":"GET","script":"return response;"},"secrets":{"testKey":"fixture-secret"}}"#.utf8)
+        let original = Data(#"{"id":"fixture-source","name":"My source","version":6,"cookie":"fixture-cookie","modifiedAt":12345,"sslTrustDomains":["fixture.test"],"capabilities":["lyrics"],"lyrics":{"url":"https://fixture.test/lyrics","method":"GET","script":"return response;"},"secrets":{"testKey":"fixture-secret"}}"#.utf8)
         let config = try JSONDecoder().decode(ScraperConfig.self, from: original)
         let encoded = try JSONEncoder().encode(config)
         let restored = try JSONDecoder().decode(ScraperConfig.self, from: encoded)
@@ -352,7 +519,7 @@ final class SharedScraperRequestTests: XCTestCase {
         XCTAssertNil(restored.secrets)
         XCTAssertNil(restored.lyricsFallback)
         XCTAssertNil(restored.responseValidation)
-        XCTAssertNotNil(LegacyScraperCompatibility.lyricsFallback(for: restored))
+        XCTAssertNil(LegacyScraperCompatibility.lyricsFallback(for: restored))
         XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("fixture-secret"))
     }
 
@@ -384,7 +551,7 @@ final class SharedScraperRequestTests: XCTestCase {
             }
             defer { fixture.close() }
             // Explicit configuration also overrides the legacy source's default URL.
-            var config = ScraperConfig(id: "kugou", name: "Fixture", version: 7, rateLimit: 0, capabilities: ["lyrics"])
+            var config = ScraperConfig(id: "fixture-source", name: "Fixture", version: 7, rateLimit: 0, capabilities: ["lyrics"])
             config.lyrics = fixture.encryptedConfig().lyrics
             config.lyricsFallback = .init(url: fixture.url("fallback?id={{id}}"), contentField: "text",
                                           encoding: encoding, requiredVariables: ["id"])
@@ -431,7 +598,7 @@ final class SharedScraperRequestTests: XCTestCase {
     func testExplicitBusinessRulesOverrideLegacyDefaults() async throws {
         let fixture = ScraperHTTPFixture { _ in .init(body: Data(#"{"code":200,"items":[]}"#.utf8)) }
         defer { fixture.close() }
-        var config = ScraperConfig(id: "qqmusic", name: "Fixture", version: 2, rateLimit: 0, capabilities: ["metadata"])
+        var config = ScraperConfig(id: "fixture-source", name: "Fixture", version: 2, rateLimit: 0, capabilities: ["metadata"])
         config.search = .init(url: fixture.url("search"), method: "GET", script: "return response.items;")
         config.responseValidation = .init(codePaths: ["code"], successCodes: [200])
         let result = try await ConfigurableScraper(config: config, session: fixture.session).search(query: "Song", artist: nil, album: nil, limit: 1)
@@ -441,7 +608,7 @@ final class SharedScraperRequestTests: XCTestCase {
     func testScriptErrorsAreFailuresWhileExplicitEmptyResultsRemainSuccessful() async throws {
         let fixture = ScraperHTTPFixture { _ in .init() }
         defer { fixture.close() }
-        for script in ["throw new Error('fixture');", "return (;", "return missingVariable.value;"] {
+        for script in ["while(true){}", "throw new Error('fixture');", "return (;", "return missingVariable.value;"] {
             var config = fixture.config()
             config.search = .init(url: fixture.url("search"), method: "GET", script: script)
             do {
@@ -457,7 +624,7 @@ final class SharedScraperRequestTests: XCTestCase {
         }
     }
 
-    func testKugouWithoutPrivateConfigurationFetchesPublicLRC() async throws {
+    func testEncryptedCatalogWithoutPrivateConfigurationFetchesPublicLRC() async throws {
         let expected = "[00:01.00]A line\n[00:02.00]Another line"
         let fixture = ScraperHTTPFixture { request in
             if request.url?.path == "/lyrics" {
@@ -466,42 +633,44 @@ final class SharedScraperRequestTests: XCTestCase {
             return .init(body: Data("{\"status\":200,\"content\":\"\(Data(expected.utf8).base64EncodedString())\"}".utf8))
         }
         defer { fixture.close() }
-        var config = ScraperConfig(id: "kugou", name: "Fixture", version: 6, rateLimit: 0, capabilities: ["lyrics"])
+        var config = ScraperConfig(id: "fixture-source", name: "Fixture", version: 6, rateLimit: 0, capabilities: ["lyrics"])
         config.lyrics = fixture.encryptedConfig().lyrics
+        config.lyricsFallback = .init(url: fixture.url("download?fmt=lrc&id={{id}}&accesskey={{accesskey}}"), contentField: "content", encoding: .base64UTF8, requiredVariables: ["id", "accesskey"])
         let result = try await ConfigurableScraper(config: config, session: fixture.session).getLyrics(externalId: "song")
         XCTAssertEqual(result?.lrcContent, expected)
         let request = try XCTUnwrap(fixture.requests.last)
-        XCTAssertEqual(request.url?.host, "lyrics.kugou.com")
+        XCTAssertEqual(request.url?.host, URL(string: fixture.url(""))?.host)
         let query = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
         XCTAssertEqual(query?.first { $0.name == "fmt" }?.value, "lrc")
         XCTAssertEqual(query?.first { $0.name == "id" }?.value, "123")
     }
 
-    func testKugouPlainFallbackPreservesRateLimit() async {
+    func testEncryptedCatalogPlainFallbackPreservesRateLimit() async {
         let fixture = ScraperHTTPFixture { request in
             request.url?.path == "/lyrics"
                 ? .init(body: Data(#"{"_fetchEncryptedLyrics":true,"vars":{"id":"123","accesskey":"fixture-key"}}"#.utf8))
                 : .init(status: 429, headers: ["Retry-After": "3600"])
         }
         defer { fixture.close() }
-        var config = ScraperConfig(id: "kugou", name: "Fixture", version: 6, rateLimit: 0, capabilities: ["lyrics"])
+        var config = ScraperConfig(id: "fixture-source", name: "Fixture", version: 6, rateLimit: 0, capabilities: ["lyrics"])
         config.lyrics = fixture.encryptedConfig().lyrics
+        config.lyricsFallback = .init(url: fixture.url("download?fmt=lrc&id={{id}}&accesskey={{accesskey}}"), contentField: "content", encoding: .base64UTF8, requiredVariables: ["id", "accesskey"])
         await assertRateLimited {
             _ = try await ConfigurableScraper(config: config, session: fixture.session, requestPool: ScraperRequestPool()).getLyrics(externalId: "song")
         }
         XCTAssertEqual(fixture.requests.count, 2)
     }
 
-    func testQQBusinessFailuresReachCircuitBreakerInsteadOfBecomingSearchMisses() async throws {
+    func testEnvelopeCatalogBusinessFailuresReachCircuitBreakerInsteadOfBecomingSearchMisses() async throws {
         for usesProxy in [false, true] {
             let fixture = ScraperHTTPFixture { _ in
                 .init(body: Data(#"{"code":0,"req_1":{"code":2001,"data":{"body":{"song":{"list":[]}}}}}"#.utf8))
             }
             defer { fixture.close() }
-            let config = ScraperConfig(id: usesProxy ? "qqmusic" : fixture.id, name: "Fixture", version: 1,
+            let config = ScraperConfig(id: fixture.id, name: "Fixture", version: 1,
                 rateLimit: 0, capabilities: ["metadata", "lyrics"], search: .init(
-                    url: usesProxy ? fixture.url("search") : "https://u.y.qq.com/cgi-bin/musicu.fcg",
-                    method: "POST", bodyTemplate: "{}", script: "return [];"))
+                    url: usesProxy ? fixture.url("proxy") : fixture.url("search"),
+                    method: "POST", bodyTemplate: "{}", rule: .init(format: .envelopeCatalogSearch)))
             let scraper = ConfigurableScraper(config: config, session: fixture.session, requestPool: ScraperRequestPool())
             let manager = ScraperManager(scraperFactory: { _ in scraper })
             let settings = ScraperSettings(sources: [
@@ -515,15 +684,15 @@ final class SharedScraperRequestTests: XCTestCase {
         }
     }
 
-    func testQQEmptySuccessAndUnrelatedProviderCodesDoNotOpenCircuit() async throws {
+    func testEnvelopeCatalogEmptySuccessAndUnrelatedProviderCodesDoNotOpenCircuit() async throws {
         for (host, body) in [
-            ("u.y.qq.com", #"{"code":0,"req_1":{"code":0,"data":{}}}"#),
+            ("envelope.fixture.test", #"{"code":0,"req_1":{"code":0,"data":{}}}"#),
             ("unrelated.test", #"{"code":2001,"req_1":{"code":2001}}"#)
         ] {
             let fixture = ScraperHTTPFixture { _ in .init(body: Data(body.utf8)) }
             defer { fixture.close() }
             var config = fixture.config()
-            config.search = .init(url: "https://\(host)/search", method: "GET", script: "return [];")
+            config.search = .init(url: "https://\(host)/search", method: "GET", rule: .init(format: host == "envelope.fixture.test" ? .envelopeCatalogSearch : .empty))
             let scraper = ConfigurableScraper(config: config, session: fixture.session)
             for _ in 0..<4 {
                 let result = try await scraper.search(query: "Song", artist: nil, album: nil, limit: 1)
@@ -1407,7 +1576,7 @@ final class SharedScraperRequestTests: XCTestCase {
 }
 
 /// Only the HTTP transport is replaced: requests still pass through the real
-/// scraper, request executor, response validation and JavaScript/decryption.
+/// scraper, request executor, response validation and fixed data decoding.
 private final class ScraperHTTPFixture: @unchecked Sendable {
     let id = UUID().uuidString.lowercased()
     let session: URLSession

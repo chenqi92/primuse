@@ -2,29 +2,21 @@ import CommonCrypto
 import CryptoKit
 import zlib
 import Foundation
-import JavaScriptCore
 import Network
 import PrimuseKit
 
 /// A generic scraper driven by a ScraperConfig JSON definition.
-/// URL templates use {{var}} placeholders; response parsing is done via embedded JavaScript.
+/// URL templates and fixed JSON rules describe requests and response fields.
 actor ConfigurableScraper: MusicScraper {
     let type: MusicScraperType
     let config: ScraperConfig
 
     private let sessionManager: ScraperSessionManager
-    private let scriptExecutionKey: String
     private let allowExpensiveNetwork: Bool
     private let requestPool: ScraperRequestPool
+    private let anonymousDeviceID = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     nonisolated static let maxEndpointResponseBytes = 5 * 1024 * 1024
     nonisolated static let maxResourceResponseBytes = 20 * 1024 * 1024
-    nonisolated static let maxScriptCharacters = 200_000
-    /// 单次脚本执行的墙钟上限。JSContext 无公开看门狗 API
-    /// (JSContextGroupSetExecutionTimeLimit 是私有符号, 上架会被静态扫描拒),
-    /// 因此把执行放到独立线程并在此时限后放弃, 避免 while(true) 挂死 actor。
-    nonisolated static let maxScriptExecutionSeconds: TimeInterval = 4
-    private static let scriptExecutionGate = ScriptExecutionGate()
-
     /// RFC-reserved example domains are commonly used by scraper manifests to
     /// mark an unsupported optional endpoint. Treat them as absent instead of
     /// issuing a real request and trying to parse the Example Domain HTML.
@@ -43,7 +35,6 @@ actor ConfigurableScraper: MusicScraper {
         self.config = config
         self.type = .custom(config.id)
         self.requestPool = requestPool
-        self.scriptExecutionKey = "\(config.id)#\(config.version)#\(config.modifiedAt?.timeIntervalSince1970 ?? 0)"
 
         var headers = config.headers ?? [:]
         if let cookie = cookie ?? config.cookie, !cookie.isEmpty {
@@ -53,7 +44,7 @@ actor ConfigurableScraper: MusicScraper {
         plog("🔧 ConfigurableScraper init: id=\(config.id) sslTrustDomains=\(config.sslTrustDomains ?? [])")
         self.sessionManager = ScraperSessionManager(
             headers: headers,
-            trustDomains: config.sslTrustDomains ?? [], session: session
+            trustDomains: config.sslTrustDomains ?? [], credentialOrigins: ScraperNetworkScope.credentialOrigins(config), session: session
         )
     }
 
@@ -76,8 +67,10 @@ actor ConfigurableScraper: MusicScraper {
         let data: Data
         do {
             data = try await executor.execute(minimumInterval: interval) {
-                try await sessionManager.data(for: request)
+                try await sessionManager.data(for: request, maxBytes: maxResourceResponseBytes)
             }.data
+        } catch ScraperTransportError.responseTooLarge {
+            return nil
         } catch let failure as HTTPResponseFailure {
             // Optional missing artwork remains a miss. Quota and server errors
             // must reach the caller instead of marking the whole batch missing.
@@ -103,43 +96,36 @@ actor ConfigurableScraper: MusicScraper {
         guard let endpoint = config.search,
               !Self.isPlaceholderEndpoint(endpoint.url) else { return .empty(type) }
 
-        var keyword = query
-        if let artist, !artist.isEmpty { keyword += " \(artist)" }
-        if let album, !album.isEmpty { keyword += " \(album)" }
+        guard limit > 0, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .empty(type) }
+        let count = max(20, (min(limit, 50) + 9) / 10 * 10)
+        let combined = ([query, artist, album].compactMap { $0 }.filter { !$0.isEmpty }).joined(separator: " ")
+        var items = try await searchItems(endpoint: endpoint, keyword: combined, title: query, artist: artist, album: album, limit: count)
+        let usesQuery = ([endpoint.url, endpoint.bodyTemplate ?? ""] + Array((endpoint.params ?? [:]).values)).contains { $0.contains("{{query}}") }
+        if usesQuery && combined != query && !items.contains(where: { ScraperIdentity.matchTier($0, title: query, artist: artist) == 0 && ScraperIdentity.albumTier(album, $0.album) == 0 }) {
+            let broader = try await searchItems(endpoint: endpoint, keyword: query, title: query, artist: artist, album: album, limit: count)
+            var seen = Set(items.map(\.externalId))
+            items += broader.filter { seen.insert($0.externalId).inserted }
+        }
+        return ScraperSearchResult(items: ScraperManager.topMatches(in: items, title: query, artist: artist,
+            durationMs: nil, maxCount: limit, album: album), source: type)
+    }
 
-        let vars: [String: String] = [
-            "query": keyword,
-            "limit": String(limit),
-            "artist": artist ?? "",
-            "album": album ?? "",
-        ]
-
+    private func searchItems(endpoint: EndpointConfig, keyword: String, title: String, artist: String?, album: String?, limit: Int) async throws -> [ScraperSearchItem] {
+        let vars = ["query": keyword, "title": title, "limit": String(limit), "artist": artist ?? "", "album": album ?? ""]
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
-        let parsed = try await runScript(endpoint.script, data: data)
-
-        guard let items = parsed as? [[String: Any]] else {
-            plog("🔧 \(config.id) search: parsed is NOT [[String:Any]], actual=\(String(describing: parsed).prefix(200))")
-            return .empty(type)
-        }
-
-        let searchItems = items.compactMap { item -> ScraperSearchItem? in
-            guard let id = item["id"] as? String ?? (item["id"] as? NSNumber)?.stringValue else { return nil }
-            let title = item["title"] as? String ?? ""
-            return ScraperSearchItem(
-                externalId: id,
-                source: type,
-                title: title,
-                artist: item["artist"] as? String,
-                album: item["album"] as? String,
-                year: item["year"] as? Int ?? (item["year"] as? NSNumber)?.intValue,
-                durationMs: item["durationMs"] as? Int ?? (item["durationMs"] as? NSNumber)?.intValue,
+        let parsed = try parse(endpoint: endpoint, data: data)
+        guard let items = parsed as? [[String: Any]] else { return [] }
+        return items.compactMap { item in
+            guard let id = item["id"] as? String ?? (item["id"] as? NSNumber)?.stringValue,
+                  !id.isEmpty, let title = item["title"] as? String, !title.isEmpty else { return nil }
+            return ScraperSearchItem(externalId: id, source: type, title: title,
+                artist: item["artist"] as? String, album: item["album"] as? String,
+                year: (item["year"] as? NSNumber)?.intValue,
+                durationMs: (item["durationMs"] as? NSNumber)?.intValue,
                 coverUrl: item["coverUrl"] as? String,
-                trackNumber: item["trackNumber"] as? Int ?? (item["trackNumber"] as? NSNumber)?.intValue,
-                genres: item["genres"] as? [String]
-            )
+                trackNumber: (item["trackNumber"] as? NSNumber)?.intValue,
+                genres: item["genres"] as? [String], artistAliases: item["artistAliases"] as? [String] ?? [])
         }
-
-        return ScraperSearchResult(items: searchItems, source: type)
     }
 
     func getDetail(externalId: String) async throws -> ScraperDetail? {
@@ -148,7 +134,7 @@ actor ConfigurableScraper: MusicScraper {
 
         let vars = ["id": externalId]
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
-        let parsed = try await runScript(endpoint.script, data: data, externalId: externalId)
+        let parsed = try parse(endpoint: endpoint, data: data, externalId: externalId)
 
         guard let dict = parsed as? [String: Any] else { return nil }
 
@@ -174,7 +160,7 @@ actor ConfigurableScraper: MusicScraper {
 
         let vars = ["id": externalId]
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
-        let parsed = try await runScript(endpoint.script, data: data, externalId: externalId)
+        let parsed = try parse(endpoint: endpoint, data: data, externalId: externalId)
 
         guard let items = parsed as? [[String: Any]] else { return [] }
 
@@ -194,7 +180,7 @@ actor ConfigurableScraper: MusicScraper {
 
         let vars = ["id": externalId]
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
-        let parsed = try await runScript(endpoint.script, data: data, externalId: externalId)
+        let parsed = try parse(endpoint: endpoint, data: data, externalId: externalId)
 
         guard let dict = parsed as? [String: Any] else { return nil }
 
@@ -217,7 +203,7 @@ actor ConfigurableScraper: MusicScraper {
                 return result
             }
             if let vars = dict["vars"] as? [String: Any] {
-                plog("🔐 \(config.id) getLyrics → _fetchEncryptedLyrics with vars=\(vars)")
+                plog("Encrypted lyrics: fetching one candidate")
                 let result = try await fetchEncryptedLyrics(vars: vars)
                 plog("🔐 \(config.id) fetchEncryptedLyrics result: hasResult=\(result != nil) lrcLen=\(result?.lrcContent?.count ?? 0)")
                 return result
@@ -304,7 +290,7 @@ actor ConfigurableScraper: MusicScraper {
         }
         plog("🔐 Encrypted lyrics: fetched \(data.count) bytes from \(Self.redactedURLDescription(url))")
         guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            plog("⚠️ Encrypted lyrics: response not JSON, head=\(String(data: data.prefix(200), encoding: .utf8) ?? "?")")
+            plog("Encrypted lyrics: invalid JSON response")
             return nil
         }
         guard let base64 = json[contentField] as? String, !base64.isEmpty else {
@@ -381,7 +367,9 @@ actor ConfigurableScraper: MusicScraper {
             guard let title, !title.isEmpty else { return .notFound }
             let result = try await search(query: title, artist: trackArtist, album: nil, limit: 10)
             guard let candidate = ScraperManager.bestMatch(
-                in: result.items, title: title, artist: trackArtist, durationMs: durationMs
+                in: result.items.filter { input.albumTitle?.isEmpty != false || $0.album?.isEmpty != false
+                    || ScraperIdentity.albumTier(input.albumTitle, $0.album) == 0 },
+                title: title, artist: trackArtist, durationMs: durationMs, album: input.albumTitle
             ) else { return .notFound }
             variables["id"] = candidate.externalId
             if let album = input.albumTitle, !album.isEmpty, let candidateAlbum = candidate.album,
@@ -395,7 +383,7 @@ actor ConfigurableScraper: MusicScraper {
             return .notFound
         }
         let data = try await executeRequest(endpoint: endpoint, vars: variables)
-        let parsed = try await runScript(endpoint.script, data: data, externalId: variables["id"], variables: variables)
+        let parsed = try parse(endpoint: endpoint, data: data, externalId: variables["id"])
         guard let candidates = parsed as? [[String: Any]] else { return .notFound }
         for candidate in candidates.prefix(5) {
             try Task.checkCancellation()
@@ -410,9 +398,9 @@ actor ConfigurableScraper: MusicScraper {
                     url, configuredEndpoint: configuredURL, allowedHosts: endpoint.assetHosts ?? []
                   ) else { continue }
             var assetURL = url
-            if let script = endpoint.playlistScript,
+            if endpoint.playlist == "boundedHLS",
                url.pathExtension.lowercased() == "m3u8" || (candidate["mimeType"] as? String)?.contains("mpegurl") == true {
-                assetURL = try await resolvePlaylist(url, endpoint: configuredURL, config: endpoint, script: script, client: client)
+                assetURL = try await resolvePlaylist(url, endpoint: configuredURL, config: endpoint, client: client)
             }
             let kind = (candidate["kind"] as? String).flatMap(MotionArtworkAssetKind.init(rawValue:))
                 ?? (assetURL.pathExtension.lowercased() == "mp4" ? .video : .animatedImage)
@@ -431,7 +419,7 @@ actor ConfigurableScraper: MusicScraper {
     }
 
     private func resolvePlaylist(
-        _ original: URL, endpoint: URL, config: EndpointConfig, script: String, client: MotionArtworkEndpointClient
+        _ original: URL, endpoint: URL, config: EndpointConfig, client: MotionArtworkEndpointClient
     ) async throws -> URL {
         var url = original
         var visited = Set<URL>()
@@ -440,12 +428,11 @@ actor ConfigurableScraper: MusicScraper {
             let bytes = try await client.downloadScriptPlaylist(
                 url, endpoint: endpoint, allowedHosts: config.assetHosts ?? [], allowExpensiveNetwork: allowExpensiveNetwork
             )
-            guard let value = try await runScript(script, data: bytes, variables: ["url": url.absoluteString]) as? [String: Any],
-                  let reference = value["url"] as? String,
-                  let next = URL(string: reference, relativeTo: url)?.absoluteURL,
+            let value = try ScraperArtworkPlaylist.resolve(bytes)
+            guard let next = URL(string: value.reference, relativeTo: url)?.absoluteURL,
                   MotionArtworkEndpointClient.isAuthorizedScriptAssetURL(next, configuredEndpoint: endpoint, allowedHosts: config.assetHosts ?? [])
             else { throw ScraperError.parseError("Unsupported artwork playlist") }
-            if value["complete"] as? Bool == true { return next }
+            if value.complete { return next }
             url = next
         }
         throw ScraperError.parseError("Too many artwork playlists")
@@ -459,176 +446,95 @@ actor ConfigurableScraper: MusicScraper {
 
     // MARK: - Request Execution
 
-    private static let signedRequestScript = #"""
-    var request = response;
-    var sign = request.sign;
-    var salt = (typeof secrets !== "undefined" && secrets[sign.saltSecret]) || sign.salt;
-    if (!salt) throw new Error("Missing signing parameter");
-    var params = request.params || {};
-    var query = Object.keys(params).sort().map(function (key) { return key + "=" + params[key]; }).join("");
-    params[sign.param || "signature"] = nativeResolver.md5(salt + query + salt);
-    request.headers[sign.clientTimeHeader || "clienttime"] = String(Math.floor(Date.now() / 1000));
-    request.url += (request.url.indexOf("?") < 0 ? "?" : "&") + Object.keys(params).map(function (key) {
-        return encodeURIComponent(key) + "=" + encodeURIComponent(params[key]);
-    }).join("&");
-    return request;
-    """#
-
-    private static let encryptedRequestScript = #"""
-    var request = response;
-    var options = request.crypto;
-    if (typeof secrets === "undefined" || !secrets[options.keySecret] || !secrets[options.separatorSecret]) {
-        throw new Error("Missing request parameters");
+    private func parameter(_ name: String, endpoint: EndpointConfig) -> String? {
+        config.secrets?[name] ?? ScraperNativeResolvers.protocolParameter(name, format: endpoint.rule?.format)
     }
-    var values = {path: options.path, text: request.body};
-    values[options.separatorSecret] = secrets[options.separatorSecret];
-    function expand(template) {
-        return template.replace(/\{\{(\w+)\}\}/g, function (_, key) {
-            if (values[key] === undefined) throw new Error("Missing template value");
-            return values[key];
-        });
-    }
-    values.digest = nativeResolver.md5(expand(options.messageTemplate));
-    var encrypted = nativeResolver.aesECB(expand(options.plainTemplate), secrets[options.keySecret], "utf8", "hex", false);
-    if (!encrypted) throw new Error("Invalid encryption parameters");
-    if (options.requestEncoding === "hex-upper") encrypted = encrypted.toUpperCase();
-    request.body = encodeURIComponent(options.requestField) + "=" + encodeURIComponent(encrypted);
-    return request;
-    """#
-
-    private static let encryptedResponseScript = #"""
-    if (responseText.trim().charAt(0) === "{") return response;
-    var options = JSON.parse(variables.crypto);
-    if (typeof secrets === "undefined" || !secrets[options.keySecret]) throw new Error("Missing response parameters");
-    var text = responseText.trim();
-    var encoding = /^[0-9a-fA-F]+$/.test(text) ? "hex" : "base64";
-    var bytes = nativeResolver.aesECB(encoding === "hex" ? text : responseBase64, secrets[options.keySecret], encoding, "base64", true);
-    if (!bytes) throw new Error("Invalid encrypted response");
-    var decoded = nativeResolver.gunzipBase64(bytes) || nativeResolver.decodeText(bytes, "base64");
-    if (!decoded) throw new Error("Invalid response encoding");
-    return JSON.parse(decoded);
-    """#
 
     private func executeRequest(endpoint: EndpointConfig, vars: [String: String]) async throws -> Data {
+        do { try endpoint.validateRules() }
+        catch { throw ScraperError.parseError(error.localizedDescription) }
         let data = try await executeRawRequest(endpoint: endpoint, vars: vars)
-        guard let script = endpoint.responseScript ?? (endpoint.crypto?["algorithm"] == "aes-128-ecb" ? Self.encryptedResponseScript : nil) else { return data }
-        var variables = vars
-        if let crypto = endpoint.crypto {
-            variables["crypto"] = String(decoding: try JSONEncoder().encode(crypto), as: UTF8.self)
+        let decoded: Data
+        if let crypto = endpoint.crypto, crypto["algorithm"] == "aes-128-ecb",
+           String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") != true {
+            guard let keyName = crypto["keySecret"], let key = parameter(keyName, endpoint: endpoint) else {
+                throw ScraperError.parseError("Missing response parameters")
+            }
+            let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let encrypted = !text.isEmpty && text.allSatisfy(\.isHexDigit) ? Data(hexString: text) : data
+            guard let encrypted, let plain = ScraperNativeResolvers.aes(encrypted, key: key, decrypt: true) else {
+                throw ScraperError.parseError("Invalid encrypted response")
+            }
+            decoded = ScraperNativeResolvers.gunzip(plain) ?? plain
+        } else { decoded = data }
+        guard let path = endpoint.responsePath else { return decoded }
+        guard let value = try ScraperJSONRule(path: path).parse(decoded), JSONSerialization.isValidJSONObject(value) else {
+            throw ScraperError.parseError("Invalid response data path")
         }
-        let result = try await runScript(script, data: data, externalId: vars["id"], variables: variables)
-        if let text = result as? String { return Data(text.utf8) }
-        guard let result, JSONSerialization.isValidJSONObject(result) else {
-            throw ScraperError.parseError("Response script must return JSON or text")
-        }
-        return try JSONSerialization.data(withJSONObject: result)
+        return try JSONSerialization.data(withJSONObject: value)
     }
 
     private func executeRawRequest(endpoint: EndpointConfig, vars: [String: String]) async throws -> Data {
         if endpoint.method.uppercased() == "LOCAL" { return Data("{}".utf8) }
-        let requestScript = endpoint.requestScript
-            ?? (endpoint.sign?["type"] == "md5-wrap" ? Self.signedRequestScript : nil)
-            ?? (endpoint.crypto?["algorithm"] == "aes-128-ecb" ? Self.encryptedRequestScript : nil)
-        if let script = requestScript {
-            let input: [String: Any] = [
-                "sign": endpoint.sign ?? [:], "crypto": endpoint.crypto ?? [:],
-                "url": Self.applyURLTemplate(endpoint.url, vars: vars),
-                "method": endpoint.method,
-                "params": endpoint.params?.mapValues { Self.applyTemplate($0, vars: vars) } ?? [:],
-                "headers": endpoint.headers ?? [:],
-                "body": endpoint.bodyTemplate.map { Self.applyJSONTemplate($0, vars: vars) } ?? "",
-            ]
-            let data = try JSONSerialization.data(withJSONObject: input)
-            guard let value = try await runScript(script, data: data, variables: vars) as? [String: Any],
-                  let address = value["url"] as? String,
-                  let url = URL(string: Self.enforceHTTPPolicy(address, trustDomains: config.sslTrustDomains ?? [])),
-                  MotionArtworkServiceResolver.isSafeRemoteURL(url) else {
-                throw ScraperError.parseError("Request script returned an invalid request")
-            }
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 15
-            request.httpMethod = value["method"] as? String ?? endpoint.method
-            guard ["GET", "POST"].contains(request.httpMethod?.uppercased() ?? "") else {
-                throw ScraperError.parseError("Unsupported request method")
-            }
-            request.allHTTPHeaderFields = value["headers"] as? [String: String] ?? endpoint.headers
-            request.httpBody = (value["body"] as? String)?.data(using: .utf8)
-            return try await performValidatedRequest(request)
+        let urlString = Self.enforceHTTPPolicy(Self.applyURLTemplate(endpoint.url, vars: vars), trustDomains: config.sslTrustDomains ?? [])
+        guard let url = URL(string: urlString), MotionArtworkServiceResolver.isSafeRemoteURL(url),
+              ScraperNetworkScope.origin(url) == ScraperNetworkScope.origin(template: endpoint.url, trustDomains: config.sslTrustDomains ?? []) else {
+            throw ScraperError.networkError("Invalid scraper URL")
         }
-        // Build URL with variable substitution
-        var urlString = endpoint.url
-        urlString = Self.applyURLTemplate(urlString, vars: vars)
-
-        // Enforce HTTPS unless domain is in sslTrustDomains or is a local network address
-        urlString = Self.enforceHTTPPolicy(urlString, trustDomains: config.sslTrustDomains ?? [])
-
         let method = endpoint.method.uppercased()
-
-        if method == "POST" {
-            // POST: params or bodyTemplate as JSON body
-            guard let url = URL(string: urlString) else {
-                throw ScraperError.networkError("Invalid scraper URL")
+        guard ["GET", "POST"].contains(method) else { throw ScraperError.networkError("Unsupported request method") }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.httpMethod = method
+        request.allHTTPHeaderFields = endpoint.headers
+        var params = endpoint.params?.mapValues { Self.applyTemplate($0, vars: vars) } ?? [:]
+        var body = endpoint.bodyTemplate.map { Self.applyJSONTemplate($0, vars: vars) }
+        if let sign = endpoint.sign {
+            guard let salt = sign["saltSecret"].flatMap({ parameter($0, endpoint: endpoint) }) ?? sign["salt"], !salt.isEmpty else {
+                throw ScraperError.parseError("Missing signing parameter")
             }
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 15
-
-            // Merge endpoint-specific headers
-            for (k, v) in endpoint.headers ?? [:] {
-                request.setValue(v, forHTTPHeaderField: k)
+            let joined = params.keys.sorted().map { $0 + "=" + (params[$0] ?? "") }.joined()
+            params[sign["param"] ?? "signature"] = ScraperNativeResolvers.md5(salt + joined + salt)
+            request.setValue(String(Int(Date().timeIntervalSince1970)), forHTTPHeaderField: sign["clientTimeHeader"] ?? "clienttime")
+            if let key = sign["deviceIDSecret"], let value = config.secrets?[key] ?? (key == "requestDeviceID" ? anonymousDeviceID : nil) {
+                request.setValue(value, forHTTPHeaderField: "mid")
             }
-
-            if let bodyTemplate = endpoint.bodyTemplate {
-                // Use body template with variable substitution
-                let body = Self.applyJSONTemplate(bodyTemplate, vars: vars)
-                request.httpBody = body.data(using: .utf8)
-                if request.value(forHTTPHeaderField: "Content-Type") == nil {
-                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                }
-            } else if let params = endpoint.params {
-                // Build JSON body from params
-                var bodyDict: [String: String] = [:]
-                for (k, v) in params {
-                    bodyDict[k] = Self.applyTemplate(v, vars: vars)
-                }
-                request.httpBody = try SafeJSONSerialization.data(withJSONObject: bodyDict)
-                if request.value(forHTTPHeaderField: "Content-Type") == nil {
-                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                }
-            }
-
-            return try await performValidatedRequest(request)
-        } else {
-            // GET: params as query items
-            var components = URLComponents(string: urlString)
-            if let params = endpoint.params {
-                var queryItems = components?.queryItems ?? []
-                for (k, v) in params {
-                    queryItems.append(URLQueryItem(name: k, value: Self.applyTemplate(v, vars: vars)))
-                }
-                components?.queryItems = queryItems
-            }
-
-            guard let url = components?.url else {
-                throw ScraperError.networkError("Invalid scraper URL")
-            }
-
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 15
-            for (k, v) in endpoint.headers ?? [:] {
-                request.setValue(v, forHTTPHeaderField: k)
-            }
-
-            return try await performValidatedRequest(request)
         }
+        if let crypto = endpoint.crypto {
+            guard let keyName = crypto["keySecret"], let key = parameter(keyName, endpoint: endpoint),
+                  let separatorName = crypto["separatorSecret"], let separator = parameter(separatorName, endpoint: endpoint),
+                  let messageTemplate = crypto["messageTemplate"], let plainTemplate = crypto["plainTemplate"],
+                  let field = crypto["requestField"] else { throw ScraperError.parseError("Missing request parameters") }
+            var values = ["path": crypto["path"] ?? "", "text": body ?? "", separatorName: separator]
+            values["digest"] = ScraperNativeResolvers.md5(Self.applyTemplate(messageTemplate, vars: values))
+            guard let encrypted = ScraperNativeResolvers.aes(Data(Self.applyTemplate(plainTemplate, vars: values).utf8), key: key, decrypt: false) else {
+                throw ScraperError.parseError("Invalid encryption parameters")
+            }
+            var text = encrypted.map { String(format: "%02x", $0) }.joined()
+            if crypto["requestEncoding"] == "hex-upper" { text = text.uppercased() }
+            body = Self.applyURLTemplate("{{field}}={{value}}", vars: ["field": field, "value": text])
+        }
+        if (method == "GET" || endpoint.sign != nil) && !params.isEmpty {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+            components.queryItems = (components.queryItems ?? []) + params.keys.sorted().map { URLQueryItem(name: $0, value: params[$0]) }
+            request.url = components.url
+        } else if body == nil {
+            body = String(decoding: try JSONSerialization.data(withJSONObject: params), as: UTF8.self)
+        }
+        if method == "POST" {
+            request.httpBody = body?.data(using: .utf8)
+            if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                request.setValue(endpoint.crypto == nil ? "application/json" : "application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            }
+        }
+        return try await performValidatedRequest(request)
     }
 
-    /// 发请求并校验 HTTP 状态码:
-    /// - 2xx 返回 body
     /// - 429 / 503 读取 Retry-After 抛 `ScraperError.rateLimited`,让 ScraperManager 退避或本轮跳过
-    /// - 其它非 2xx 抛 `ScraperError.networkError`,避免把错误页/JSON 错误体当成正常响应喂给 JS 脚本(脚本会静默返回空)
+    /// - 其它非 2xx 抛 `ScraperError.networkError`,避免把错误页当成正常元数据响应。
     private func performValidatedRequest(_ request: URLRequest) async throws -> Data {
         do { return try await performRequest(request) }
+        catch ScraperTransportError.responseTooLarge { throw ScraperError.networkError("Response too large") }
         catch { throw ScraperRequestPool.scraperError(error) }
     }
 
@@ -721,275 +627,15 @@ actor ConfigurableScraper: MusicScraper {
         return result
     }
 
-    // MARK: - JavaScript Execution
-
-    private func runScript(_ script: String, data: Data, externalId: String? = nil, variables: [String: String] = [:]) async throws -> Any? {
-        guard script.count <= Self.maxScriptCharacters else {
-            throw ScraperError.parseError("Script too large")
-        }
-        guard data.count <= Self.maxEndpointResponseBytes else {
-            throw ScraperError.parseError("Response too large")
-        }
-        // JSCore 没有可用于 App Store 的公开中断 API。每个配置最多允许一个
-        // 专用执行线程；若脚本超时则隔离该配置并让等待者快速失败，避免后续
-        // 请求不断制造永久阻塞的线程/JSContext。
+    private func parse(endpoint: EndpointConfig, data: Data, externalId: String? = nil) throws -> Any? {
         do {
-            try await Self.scriptExecutionGate.acquire(scriptExecutionKey)
-        } catch {
-            throw ScraperError.parseError("Script disabled after an earlier timeout")
-        }
-
-        do {
-            let box = try await Self.evaluateScriptOffActor(
-                configID: config.id,
-                secrets: config.secrets,
-                script: script,
-                data: data,
-                externalId: externalId,
-                variables: variables,
-                timeout: Self.maxScriptExecutionSeconds
-            )
-            await Self.scriptExecutionGate.release(scriptExecutionKey, quarantine: false)
-            return box.value
-        } catch {
-            let timedOut = error is ScriptExecutionTimeout
-            await Self.scriptExecutionGate.release(scriptExecutionKey, quarantine: timedOut)
-            if timedOut {
-                throw ScraperError.parseError("Script execution timed out")
+            try endpoint.validateRules()
+            return try (endpoint.rule ?? .init()).parse(data, externalID: externalId) { id in
+                guard let seed = config.secrets?["coverSeedHex"], let template = config.secrets?["coverUrlTemplate"] else { return nil }
+                return ScraperNativeResolvers.coverURL(id: id, seed: seed, template: template)
             }
-            throw error
-        }
+        } catch { throw ScraperError.parseError(error.localizedDescription) }
     }
-
-    /// JS 求值结果跨越 actor / 线程边界。JSValue.toObject() 返回的是
-    /// NSString/NSNumber/NSArray/NSDictionary 等 Foundation 值, 求值完成后
-    /// 即被丢弃, 不再共享; 用 @unchecked Sendable 盒子安全地穿过隔离边界。
-    private struct ResultBox: @unchecked Sendable {
-        let value: Any?
-    }
-
-    private struct ScriptExecutionTimeout: Error, Sendable {}
-    private struct ScriptExecutionUnavailable: Error, Sendable {}
-
-    private actor ScriptExecutionGate {
-        private struct State {
-            var isRunning = false
-            var isQuarantined = false
-            var waiters: [CheckedContinuation<Void, Error>] = []
-        }
-
-        private var states: [String: State] = [:]
-
-        func acquire(_ key: String) async throws {
-            var state = states[key] ?? State()
-            guard !state.isQuarantined else { throw ScriptExecutionUnavailable() }
-            guard state.isRunning else {
-                state.isRunning = true
-                states[key] = state
-                return
-            }
-
-            try await withCheckedThrowingContinuation { continuation in
-                state.waiters.append(continuation)
-                states[key] = state
-            }
-        }
-
-        func release(_ key: String, quarantine: Bool) {
-            guard var state = states[key] else { return }
-            if quarantine {
-                state.isRunning = false
-                state.isQuarantined = true
-                let waiters = state.waiters
-                state.waiters.removeAll(keepingCapacity: false)
-                states[key] = state
-                for waiter in waiters {
-                    waiter.resume(throwing: ScriptExecutionUnavailable())
-                }
-                return
-            }
-
-            if state.waiters.isEmpty {
-                states.removeValue(forKey: key)
-            } else {
-                let next = state.waiters.removeFirst()
-                state.isRunning = true
-                states[key] = state
-                next.resume()
-            }
-        }
-    }
-
-    /// 在专用线程执行嵌入式脚本, 超过 `timeout` 秒则放弃等待并抛出 parseError。
-    /// 入参全部为 Sendable 值类型, 不捕获 actor, 满足 Swift 6 严格并发。
-    nonisolated private static func evaluateScriptOffActor(
-        configID: String,
-        secrets: [String: String]?,
-        script: String,
-        data: Data,
-        externalId: String?,
-        variables: [String: String],
-        timeout: TimeInterval
-    ) async throws -> ResultBox {
-        final class Guard: @unchecked Sendable {
-            private let lock = NSLock()
-            private var resumed = false
-            func claim() -> Bool {
-                lock.lock(); defer { lock.unlock() }
-                if resumed { return false }
-                resumed = true
-                return true
-            }
-        }
-        let guardBox = Guard()
-        let watchdog = DispatchQueue(label: "Primuse.ScraperJS.watchdog")
-
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ResultBox, Error>) in
-            // 超时兜底：当前 JSCore 线程无法公开中断，但上层会隔离该配置，
-            // 因而阻塞资源被严格限制为每个配置最多一组。
-            watchdog.asyncAfter(deadline: .now() + timeout) {
-                if guardBox.claim() {
-                    plog("⏱️ JS[\(configID)] execution timed out after \(timeout.finiteInt())s, quarantining")
-                    continuation.resume(throwing: ScriptExecutionTimeout())
-                }
-            }
-
-            let thread = Thread {
-                let result = Self.runScriptBody(
-                    configID: configID,
-                    secrets: secrets,
-                    script: script,
-                    data: data,
-                    externalId: externalId,
-                    variables: variables
-                )
-                if guardBox.claim() {
-                    continuation.resume(with: result)
-                }
-            }
-            thread.stackSize = 4 * 1024 * 1024
-            thread.name = "Primuse.ScraperJS.\(configID)"
-            thread.start()
-        }
-    }
-
-    /// 同步执行脚本体——只在 `evaluateScriptOffActor` 的专用线程上调用。
-    nonisolated private static func runScriptBody(
-        configID: String,
-        secrets: [String: String]?,
-        script: String,
-        data: Data,
-        externalId: String?,
-        variables: [String: String]
-    ) -> Result<ResultBox, Error> {
-        guard let context = JSContext() else {
-            return .failure(ScraperError.parseError("Failed to create JSContext"))
-        }
-
-        context.setObject(variables, forKeyedSubscript: "variables" as NSString)
-        context.setObject(data.base64EncodedString(), forKeyedSubscript: "responseBase64" as NSString)
-        // Provide console.log for debugging
-        let logBlock: @convention(block) (String) -> Void = { msg in
-            plog("📜 JS[\(configID)]: \(msg)")
-        }
-        context.setObject(logBlock, forKeyedSubscript: "log" as NSString)
-
-        ScraperNativeResolvers.register(in: context)
-
-        // 把 config.secrets 注入为 JS 全局 `secrets`，让 JSON 配置可以引用
-        // 本地敏感配置（URL 模板 / hash seed 等）。
-        // secrets 不存在时 JS 端读到 undefined，需要做 null 检查
-        // 走 fallback。
-        if let secrets, !secrets.isEmpty {
-            context.setObject(secrets, forKeyedSubscript: "secrets" as NSString)
-        }
-
-        // 注入 JS helper：用 secrets 提供的 seed/template 把任意 id 转成 CDN URL。
-        // 如果 secrets 缺字段就返回 null，让 JS 上游 fallback 到 API 直给的 URL。
-        context.evaluateScript("""
-        function nativeCoverUrl(id) {
-          if (!id) return null;
-          if (typeof secrets === 'undefined' || !secrets) return null;
-          if (!secrets.coverSeedHex || !secrets.coverUrlTemplate) return null;
-          return nativeResolver.xorMd5UrlHash(String(id), secrets.coverSeedHex, secrets.coverUrlTemplate);
-        }
-        """)
-
-        // Inject response as string and parsed JSON
-        let responseText = String(data: data, encoding: .utf8) ?? ""
-        context.setObject(responseText, forKeyedSubscript: "responseText" as NSString)
-
-        // Try to parse as JSON (with fallback for non-standard formats like single-quoted JSON)
-        var parsed: Any?
-        if let json = try? JSONSerialization.jsonObject(with: data) {
-            parsed = json
-        } else {
-            // Fallback: try fixing single-quoted JSON (e.g. source_e) or JSONP
-            var text = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Strip JSONP callback: starts with word chars followed by (
-            if text.range(of: #"^\w+\("#, options: .regularExpression) != nil,
-               let openParen = text.firstIndex(of: "("),
-               let closeParen = text.lastIndex(of: ")"),
-               openParen < closeParen {
-                text = String(text[text.index(after: openParen)..<closeParen])
-            }
-            // Replace single quotes with double quotes
-            text = text.replacingOccurrences(of: "'", with: "\"")
-            // Fix &nbsp; entities
-            text = text.replacingOccurrences(of: "&nbsp;", with: " ")
-            if let fixedData = text.data(using: .utf8) {
-                parsed = try? JSONSerialization.jsonObject(with: fixedData)
-                if parsed == nil {
-                    plog("🔧 JSON fallback parse failed for \(configID), first 200: \(text.prefix(200))")
-                }
-            }
-        }
-
-        if var json = parsed as? [String: Any] {
-            if let externalId { json["_externalId"] = externalId }
-            context.setObject(json, forKeyedSubscript: "response" as NSString)
-        } else if let parsed {
-            context.setObject(parsed, forKeyedSubscript: "response" as NSString)
-        } else {
-            // Let JS parse it via responseText if Swift can't
-            var fallback: [String: Any] = [:]
-            if let externalId { fallback["_externalId"] = externalId }
-            context.setObject(fallback, forKeyedSubscript: "response" as NSString)
-        }
-
-        // Also inject externalId as a top-level variable
-        if let externalId {
-            context.setObject(externalId, forKeyedSubscript: "externalId" as NSString)
-        }
-
-        // Handle exceptions
-        var scriptFailed = false
-        context.exceptionHandler = { _, _ in scriptFailed = true }
-
-        // Execute script — wrap in IIFE if not already
-        let wrappedScript: String
-        if script.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("(") {
-            wrappedScript = script
-        } else {
-            wrappedScript = "(function() { \(script) })()"
-        }
-
-        let evaluated = context.evaluateScript(wrappedScript)
-        guard !scriptFailed, context.exception == nil else {
-            return .failure(ScraperError.parseError("Script execution failed"))
-        }
-        guard let result = evaluated else {
-            return .failure(ScraperError.parseError("Script returned nil"))
-        }
-
-        if result.isUndefined || result.isNull {
-            return .success(ResultBox(value: nil))
-        }
-
-        return .success(ResultBox(value: result.toObject()))
-    }
-
-    // MARK: - HTTP Policy
 
     nonisolated private static func buildResourceRequest(
         from urlString: String,
@@ -998,21 +644,20 @@ actor ConfigurableScraper: MusicScraper {
     ) -> URLRequest? {
         let trustDomains = resourceTrustDomains(for: sourceConfig)
         let safeURLString = enforceHTTPPolicy(urlString, trustDomains: trustDomains)
-        guard let url = URL(string: safeURLString) else { return nil }
+        guard let url = URL(string: safeURLString), MotionArtworkServiceResolver.isSafeRemoteURL(url) else { return nil }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        for (header, value) in resourceHeaders(for: sourceConfig) {
-            request.setValue(value, forHTTPHeaderField: header)
-        }
         return request
     }
 
     nonisolated private static func resourceSessionManager(for sourceConfig: ScraperSourceConfig?, session: URLSession?) -> ScraperSessionManager {
         ScraperSessionManager(
             headers: resourceHeaders(for: sourceConfig),
-            trustDomains: resourceTrustDomains(for: sourceConfig), session: session
+            trustDomains: resourceTrustDomains(for: sourceConfig),
+            credentialOrigins: configContext(for: sourceConfig).map { ScraperNetworkScope.credentialOrigins($0.config) } ?? [],
+            isResource: true, session: session
         )
     }
 
@@ -1046,7 +691,7 @@ actor ConfigurableScraper: MusicScraper {
 
     /// Whether `host` matches a trusted domain at a DNS label boundary.
     /// `host == domain` 或 `host` 以 `.domain` 结尾才算匹配，避免
-    /// "evil-kugou.com".hasSuffix("kugou.com") 这类后缀混淆绕过信任校验。
+    /// "untrusted-example.com".hasSuffix("example.com") 这类后缀混淆绕过信任校验。
     nonisolated static func host(_ host: String, matchesTrustDomain domain: String) -> Bool {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let normalizedDomain = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1862,14 +1507,19 @@ enum PlainHTTPClient {
 /// URLSession manager that supports SSL bypass for user-configured trusted domains.
 /// SSL 校验完全委托给共享的 `SmartSSLDelegate`(TOFU 钉扎 + 轮换征询),scraper 这里
 /// 只保留 enforceHTTPPolicy / isTrustedHost 的 host 策略,不再自己实现证书钉扎逻辑。
+private enum ScraperTransportError: Error { case responseTooLarge }
+
 final class ScraperSessionManager: NSObject, @unchecked Sendable {
     private var _session: URLSession!
-    private let sslDelegate = SmartSSLDelegate()
+    private let transportDelegate: ScraperTransportDelegate
+    private let credentialOrigins: Set<String>
     private let defaultHeaders: [String: String]
     private let trustDomains: [String]
     private let ownsSession: Bool
 
-    init(headers: [String: String], trustDomains: [String], session: URLSession? = nil) {
+    init(headers: [String: String], trustDomains: [String], credentialOrigins: Set<String> = [], isResource: Bool = false, session: URLSession? = nil) {
+        self.credentialOrigins = credentialOrigins
+        self.transportDelegate = ScraperTransportDelegate(isResource: isResource)
         self.defaultHeaders = headers
         self.trustDomains = trustDomains
         self.ownsSession = session == nil
@@ -1885,10 +1535,8 @@ final class ScraperSessionManager: NSObject, @unchecked Sendable {
         config.httpCookieAcceptPolicy = .never
         config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        if !headers.isEmpty {
-            config.httpAdditionalHeaders = headers
-        }
-        _session = URLSession(configuration: config, delegate: sslDelegate, delegateQueue: nil)
+        config.urlCredentialStorage = nil
+        _session = URLSession(configuration: config, delegate: transportDelegate, delegateQueue: nil)
     }
 
     deinit {
@@ -1898,26 +1546,39 @@ final class ScraperSessionManager: NSObject, @unchecked Sendable {
         if ownsSession { _session?.finishTasksAndInvalidate() }
     }
 
-    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+    func data(for request: URLRequest, maxBytes: Int = ConfigurableScraper.maxEndpointResponseBytes) async throws -> (Data, URLResponse) {
         var mergedRequest = request
         mergedRequest.cachePolicy = .reloadIgnoringLocalCacheData
         for (header, value) in defaultHeaders where mergedRequest.value(forHTTPHeaderField: header) == nil {
             mergedRequest.setValue(value, forHTTPHeaderField: header)
         }
 
+        let sendsCredentials = mergedRequest.url.flatMap(ScraperNetworkScope.origin).map { credentialOrigins.contains($0) } ?? false
+        if !sendsCredentials {
+            for name in (mergedRequest.allHTTPHeaderFields ?? [:]).keys where !ScraperNetworkScope.isPublicHeader(name) {
+                mergedRequest.setValue(nil, forHTTPHeaderField: name)
+            }
+        }
         let scheme = mergedRequest.url?.scheme ?? "?"
         let host = mergedRequest.url?.host ?? "?"
         plog("🔒 ScraperSession: \(scheme)://\(host) trustDomains=\(trustDomains)")
 
         // HTTP requests must use URLSession.shared (ATS bypass only works with shared/default sessions)
         if scheme == "http" {
-            return try await PlainHTTPClient.data(for: mergedRequest)
+            return try await PlainHTTPClient.data(for: mergedRequest, maxBytes: maxBytes)
         }
 
         do {
             // SSL 校验由 session-level 的 SmartSSLDelegate 统一处理(TOFU 钉扎/轮换征询),
             // 不再传 per-task delegate。
-            return try await _session.data(for: mergedRequest)
+            let (bytes, response) = try await _session.bytes(for: mergedRequest)
+            guard response.expectedContentLength <= maxBytes else { throw ScraperTransportError.responseTooLarge }
+            var data = Data()
+            for try await byte in bytes {
+                guard data.count < maxBytes else { throw ScraperTransportError.responseTooLarge }
+                data.append(byte)
+            }
+            return (data, response)
         } catch {
             plog("⚠️ Request failed: \(mergedRequest.httpMethod ?? "GET") \(ConfigurableScraper.redactedURLDescription(mergedRequest.url)) \(ConfigurableScraper.describeNetworkError(error))")
             throw error
@@ -1925,120 +1586,96 @@ final class ScraperSessionManager: NSObject, @unchecked Sendable {
     }
 }
 
-// MARK: - Native Resolvers
+final class ScraperTransportDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    private let ssl = SmartSSLDelegate()
+    private let isResource: Bool
+    init(isResource: Bool) { self.isResource = isResource }
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await ssl.urlSession(session, didReceive: challenge)
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        let count = Int(task.taskDescription ?? "0") ?? 0
+        guard count < 5, let source = response.url, let target = request.url else { completionHandler(nil); return }
+        task.taskDescription = String(count + 1)
+        completionHandler(Self.redirect(request, from: source, to: target, isResource: isResource))
+    }
+    static func redirect(_ request: URLRequest, from source: URL, to target: URL, isResource: Bool) -> URLRequest? {
+        guard MotionArtworkServiceResolver.isSafeRemoteURL(target) else { return nil }
+        if HTTPRedirectSecurityPolicy.allows(from: source, to: target) { return request }
+        guard isResource, target.scheme?.lowercased() == "https", let host = target.host,
+              !ConfigurableScraper.isLocalNetwork(host), ["GET", "HEAD"].contains(request.httpMethod ?? "GET") else { return nil }
+        var clean = request
+        for name in (clean.allHTTPHeaderFields ?? [:]).keys where !ScraperNetworkScope.isPublicHeader(name) {
+            clean.setValue(nil, forHTTPHeaderField: name)
+        }
+        return clean
+    }
+}
 
-/// Swift-side helpers exposed to scraper JavaScript via the `nativeResolver` global.
-/// 通用算法工具集——任何平台特定常量（seed / URL / key）都不在本文件出现，
-/// 由 JSON 配置的 `secrets` 字段动态注入。
+// MARK: - Fixed codecs
+
 enum ScraperNativeResolvers {
-    static func register(in context: JSContext) {
-        context.evaluateScript("var nativeResolver = nativeResolver || {};")
-        guard let resolver = context.objectForKeyedSubscript("nativeResolver") else { return }
-
-        let md5: @convention(block) (String) -> String = { value in
-            Insecure.MD5.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
-        }
-        resolver.setObject(md5, forKeyedSubscript: "md5" as NSString)
-        let aes: @convention(block) (String, String, String, String, Bool) -> String? = {
-            value, key, inputEncoding, outputEncoding, decrypt in
-            guard let data = decodeBytes(value, encoding: inputEncoding),
-                  let keyData = key.data(using: .utf8), [16, 24, 32].contains(keyData.count),
-                  data.count <= ConfigurableScraper.maxEndpointResponseBytes else { return nil }
-            var output = Data(count: data.count + kCCBlockSizeAES128)
-            var count = 0
-            let capacity = output.count
-            let status = output.withUnsafeMutableBytes { destination in
-                data.withUnsafeBytes { source in
-                    keyData.withUnsafeBytes { key in
-                        CCCrypt(
-                            CCOperation(decrypt ? kCCDecrypt : kCCEncrypt), CCAlgorithm(kCCAlgorithmAES),
-                            CCOptions(kCCOptionECBMode | kCCOptionPKCS7Padding), key.baseAddress, key.count,
-                            nil, source.baseAddress, source.count, destination.baseAddress, capacity, &count
-                        )
-                    }
-                }
-            }
-            guard status == kCCSuccess else { return nil }
-            output.count = count
-            return encodeBytes(output, encoding: outputEncoding)
-        }
-        resolver.setObject(aes, forKeyedSubscript: "aesECB" as NSString)
-        let gunzip: @convention(block) (String) -> String? = { value in
-            guard let compressed = Data(base64Encoded: value),
-                  compressed.count <= ConfigurableScraper.maxEndpointResponseBytes else { return nil }
-            var stream = z_stream()
-            guard inflateInit2_(&stream, 15 + 32, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else { return nil }
-            defer { inflateEnd(&stream) }
-            return compressed.withUnsafeBytes { bytes in
-                stream.next_in = UnsafeMutablePointer(mutating: bytes.bindMemory(to: UInt8.self).baseAddress)
-                stream.avail_in = uInt(bytes.count)
-                var output = Data()
-                var buffer = [UInt8](repeating: 0, count: 16_384)
-                while true {
-                    let status = buffer.withUnsafeMutableBytes { destination -> Int32 in
-                        stream.next_out = destination.bindMemory(to: UInt8.self).baseAddress
-                        stream.avail_out = uInt(destination.count)
-                        return inflate(&stream, Z_NO_FLUSH)
-                    }
-                    let count = buffer.count - Int(stream.avail_out)
-                    guard output.count + count <= ConfigurableScraper.maxEndpointResponseBytes else { return nil }
-                    output.append(contentsOf: buffer.prefix(count))
-                    if status == Z_STREAM_END { return String(data: output, encoding: .utf8) }
-                    guard status == Z_OK, count > 0 || stream.avail_in > 0 else { return nil }
-                }
-            }
-        }
-        resolver.setObject(gunzip, forKeyedSubscript: "gunzipBase64" as NSString)
-        let decode: @convention(block) (String, String) -> String? = { value, encoding in
-            decodeBytes(value, encoding: encoding).flatMap { String(data: $0, encoding: .utf8) }
-        }
-        resolver.setObject(decode, forKeyedSubscript: "decodeText" as NSString)
-        // 通用：input → XOR(seed) → MD5 → URL-safe base64 → 套用 URL 模板。
-        // urlTemplate 占位符：{{hash}}（base64 后的 MD5）, {{id}}（原始 input）
-        let xorMd5UrlHashBlock: @convention(block) (Any?, Any?, Any?) -> String? = {
-            inputArg, seedHexArg, templateArg in
-            guard let input = stringValue(inputArg), !input.isEmpty,
-                  let seedHex = stringValue(seedHexArg), let seed = [UInt8](hexString: seedHex), !seed.isEmpty,
-                  let template = stringValue(templateArg), !template.isEmpty else {
-                return nil
-            }
-            let src = Array(input.utf8)
-            var mixed = [UInt8](repeating: 0, count: src.count)
-            for i in 0..<src.count {
-                mixed[i] = src[i] ^ seed[i % seed.count]
-            }
-            let digest = Insecure.MD5.hash(data: mixed)
-            let hash = Data(digest).base64EncodedString()
-                .replacingOccurrences(of: "/", with: "_")
-                .replacingOccurrences(of: "+", with: "-")
-            return template
-                .replacingOccurrences(of: "{{hash}}", with: hash)
-                .replacingOccurrences(of: "{{id}}", with: input)
-        }
-        resolver.setObject(xorMd5UrlHashBlock, forKeyedSubscript: "xorMd5UrlHash" as NSString)
-    }
-
-    private static func decodeBytes(_ text: String, encoding: String) -> Data? {
-        switch encoding {
-        case "utf8": Data(text.utf8)
-        case "hex": Data(hexString: text)
-        case "base64": Data(base64Encoded: text)
+    // Fixed, publicly documented protocol constants, not account credentials.
+    static func protocolParameter(_ name: String, format: ScraperJSONRule.Format?) -> String? {
+        switch (format, name) {
+        case (.albumCatalogMotionArtwork, "eapiKey"): "e82ckenh8dichen8"
+        case (.albumCatalogMotionArtwork, "eapiSeparator"): "36cd479b6b5"
+        case (.hashCatalogMotionArtwork, "requestSalt"): "OIlwieks28dk2k092lksi2UIkp"
         default: nil
         }
     }
-
-    private static func encodeBytes(_ bytes: Data, encoding: String) -> String? {
-        switch encoding {
-        case "utf8": String(data: bytes, encoding: .utf8)
-        case "hex": bytes.map { String(format: "%02x", $0) }.joined()
-        case "base64": bytes.base64EncodedString()
-        default: nil
+    static func md5(_ value: String) -> String {
+        Insecure.MD5.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+    static func aes(_ data: Data, key: String, decrypt: Bool) -> Data? {
+        guard let keyData = key.data(using: .utf8), [16, 24, 32].contains(keyData.count),
+              data.count <= ConfigurableScraper.maxEndpointResponseBytes else { return nil }
+        var output = Data(count: data.count + kCCBlockSizeAES128)
+        var count = 0
+        let capacity = output.count
+        let status = output.withUnsafeMutableBytes { destination in
+            data.withUnsafeBytes { source in
+                keyData.withUnsafeBytes { key in
+                    CCCrypt(CCOperation(decrypt ? kCCDecrypt : kCCEncrypt), CCAlgorithm(kCCAlgorithmAES),
+                        CCOptions(kCCOptionECBMode | kCCOptionPKCS7Padding), key.baseAddress, key.count,
+                        nil, source.baseAddress, source.count, destination.baseAddress, capacity, &count)
+                }
+            }
+        }
+        guard status == kCCSuccess else { return nil }
+        output.count = count
+        return output
+    }
+    static func gunzip(_ data: Data) -> Data? {
+        guard data.count <= ConfigurableScraper.maxEndpointResponseBytes else { return nil }
+        var stream = z_stream()
+        guard inflateInit2_(&stream, 15 + 32, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else { return nil }
+        defer { inflateEnd(&stream) }
+        return data.withUnsafeBytes { bytes in
+            stream.next_in = UnsafeMutablePointer(mutating: bytes.bindMemory(to: UInt8.self).baseAddress)
+            stream.avail_in = uInt(bytes.count)
+            var output = Data(), buffer = [UInt8](repeating: 0, count: 16_384)
+            while true {
+                let status = buffer.withUnsafeMutableBytes { destination -> Int32 in
+                    stream.next_out = destination.bindMemory(to: UInt8.self).baseAddress
+                    stream.avail_out = uInt(destination.count)
+                    return inflate(&stream, Z_NO_FLUSH)
+                }
+                let count = buffer.count - Int(stream.avail_out)
+                guard output.count + count <= ConfigurableScraper.maxEndpointResponseBytes else { return nil }
+                output.append(contentsOf: buffer.prefix(count))
+                if status == Z_STREAM_END { return output }
+                guard status == Z_OK, count > 0 || stream.avail_in > 0 else { return nil }
+            }
         }
     }
-
-    private static func stringValue(_ value: Any?) -> String? {
-        if let s = value as? String { return s.isEmpty ? nil : s }
-        if let n = value as? NSNumber { return n.stringValue }
-        return nil
+    static func coverURL(id: String, seed: String, template: String) -> String? {
+        guard !id.isEmpty, let seed = [UInt8](hexString: seed), !seed.isEmpty else { return nil }
+        let bytes = Array(id.utf8)
+        let mixed = bytes.enumerated().map { $0.element ^ seed[$0.offset % seed.count] }
+        let hash = Data(Insecure.MD5.hash(data: Data(mixed))).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "+", with: "-")
+        return template.replacingOccurrences(of: "{{hash}}", with: hash).replacingOccurrences(of: "{{id}}", with: id)
     }
 }

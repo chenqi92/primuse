@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2F1BD27F5DD3B6A456109A6E /* ScraperJSONRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB638275B078E9C44B152E91 /* ScraperJSONRule.swift */; };
 		54BA135767A4998E95D1E958 /* NowPlayingCarouselUpNextFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = F584CC469247A34048416F9E /* NowPlayingCarouselUpNextFace.swift */; };
 		967513E316CADFC13E8D1FE1 /* NowPlayingCarouselExploreFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09C0B9A17A59CE43F6EAB17 /* NowPlayingCarouselExploreFace.swift */; };
 		AAEE8C361E5F15F21A9D0BD1 /* NowPlayingCarouselSoundFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A95D907798CF463EF1BB5516 /* NowPlayingCarouselSoundFace.swift */; };
@@ -2633,6 +2634,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		DB638275B078E9C44B152E91 /* ScraperJSONRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperJSONRule.swift; sourceTree = "<group>"; };
 		6904511379BB45DCF7239315 /* RemoteTransferProgressPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTransferProgressPolicy.swift; sourceTree = "<group>"; };
 		A95D907798CF463EF1BB5516 /* NowPlayingCarouselSoundFace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingCarouselSoundFace.swift; sourceTree = "<group>"; };
 		BCB6BB061EEC67A448D0CAC1 /* AutomaticOfflineRunningJobPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomaticOfflineRunningJobPolicy.swift; sourceTree = "<group>"; };
@@ -4835,6 +4837,7 @@
 				D5EB059070C7776E2907A8F2 /* AlbumFolderArtwork.swift */,
 				D3D190973E7BC8F585A1EFA7 /* AlbumRecommender.swift */,
 				814EC07D8C6BB876C1FB6E95 /* AlbumReleaseClassification.swift */,
+				DB638275B078E9C44B152E91 /* ScraperJSONRule.swift */,
 				AB276EB0FD978A0C1AEFBE11 /* AMLLLyricsLookupPolicy.swift */,
 				0D041D8BEB3E75D3D4A605E4 /* AppDistributionChannel.swift */,
 				6CB68ACA43AB262E2D70ACE4 /* AppleHostedAssetPackResolver.swift */,
@@ -7426,6 +7429,7 @@
 				7E3FBA7C13902D9125348C3B /* AISemanticAlbumGroupPolicy.swift in Sources */,
 				4FD2D4DB2A4489CA8EA1959B /* AIServiceSetupGuidance.swift in Sources */,
 				6DB7A4FAB4B02D7A4E54E58A /* AIStreamingResponsePolicy.swift in Sources */,
+				2F1BD27F5DD3B6A456109A6E /* ScraperJSONRule.swift in Sources */,
 				8179CFFE611CABF1141B26D3 /* AMLLLyricsLookupPolicy.swift in Sources */,
 				4F143173989D3435C5DB1644 /* ActiveConnectionRouteOwnershipPolicy.swift in Sources */,
 				8B79263572E878595E3E44B3 /* AdaptiveStreamQualityPolicy.swift in Sources */,

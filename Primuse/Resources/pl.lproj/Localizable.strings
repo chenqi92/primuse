@@ -3167,10 +3167,10 @@
 "scraper_review_configs" = "Konfiguracje";
 "scraper_review_cookie" = "Ciastko";
 "scraper_review_endpoints_fmt" = "Punkty końcowe %1$lld, %2$@";
-"scraper_review_footer" = "Import pozwala temu dostawcy uruchamiać JavaScript i łączyć się z powyższymi domenami podczas wyszukiwania metadanych.";
+"scraper_review_footer" = "Po imporcie źródło może odpytywać wymienione domeny zgodnie z regułami JSON.";
 "scraper_review_header" = "Przejrzyj przed importem";
 "scraper_review_headers" = "Nagłówki";
-"scraper_review_javascript" = "JavaScript";
+"scraper_review_javascript" = "Reguły JSON";
 "scraper_review_network_domains" = "Domeny sieciowe";
 "scraper_review_requests" = "Żądania";
 "scraper_review_secrets" = "Sekrety";
@@ -7496,3 +7496,7 @@
 "player_backdrop_cache_empty" = "Brak obrazów tła w pamięci podręcznej";
 "lock_screen_hidden_by_mixing" = "Opcja „Odtwarzaj razem z innymi aplikacjami” jest włączona, więc ekran blokady, centrum sterowania i Dynamic Island mogą nie pokazywać Primuse, a poniższe ustawienia nie działają.";
 "lock_screen_hidden_by_mixing_action" = "Wyłącz";
+
+"scraper_legacy_update_required" = "To źródło wymaga aktualizacji. Zaimportuj wersję z regułami JSON.";
+
+"scraper_update_review_required" = "Aktualizacja wymaga potwierdzenia. Zaimportuj źródło ponownie.";

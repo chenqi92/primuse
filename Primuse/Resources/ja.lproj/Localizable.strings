@@ -2475,7 +2475,7 @@
 "scraper_confirm_import" = "インポートを確定";
 "scraper_review_banner" = "プレビューのみ — まだインポートされていません。「インポートを確定」で追加、キャンセルで破棄します。";
 "scraper_review_header" = "インポート前に確認";
-"scraper_review_footer" = "インポートすると、このスクレイパーはメタデータ検索時に JavaScript を実行し、上記のドメインに接続できるようになります。";
+"scraper_review_footer" = "読み込み後、このソースは JSON ルールに従って上記のドメインに問い合わせできます。";
 "scraper_review_source" = "ソース";
 "scraper_review_configs" = "設定";
 "scraper_review_capabilities" = "機能";
@@ -2487,7 +2487,7 @@
 "scraper_review_headers" = "ヘッダー";
 "scraper_review_cookie" = "Cookie";
 "scraper_review_secrets" = "シークレット";
-"scraper_review_javascript" = "JavaScript";
+"scraper_review_javascript" = "JSON ルール";
 "scraper_warn_no_fixed_domain" = "固定のネットワークドメインが検出されませんでした。このスクレイパーは JavaScript で URL を動的に生成する可能性があります。";
 "scraper_warn_includes_cookie" = "この設定には Cookie データが含まれています。信頼できる相手の設定のみをインポートしてください。";
 "scraper_warn_custom_headers" = "この設定はカスタムリクエストヘッダーを追加します。";
@@ -7591,3 +7591,7 @@
 "player_backdrop_cache_empty" = "キャッシュされた背景画像はありません";
 "lock_screen_hidden_by_mixing" = "「ほかのアプリと同時に再生」がオンのため、ロック画面、コントロールセンター、Dynamic Island に Primuse が表示されないことがあり、以下の設定も効きません。";
 "lock_screen_hidden_by_mixing_action" = "オフにする";
+
+"scraper_legacy_update_required" = "このソースは更新が必要です。JSON ルール版を読み込んでください。";
+
+"scraper_update_review_required" = "更新には確認が必要です。ソースを再度読み込んでください。";

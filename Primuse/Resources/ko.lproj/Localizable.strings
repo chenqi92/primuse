@@ -2474,7 +2474,7 @@
 "scraper_confirm_import" = "가져오기 확인";
 "scraper_review_banner" = "미리 보기일 뿐 아직 가져오지 않았습니다. \"가져오기 확인\"을 누르면 추가되고, 취소하면 삭제됩니다.";
 "scraper_review_header" = "가져오기 전 검토";
-"scraper_review_footer" = "가져오면 이 스크레이퍼가 메타데이터 조회 시 JavaScript를 실행하고 위 도메인에 연결할 수 있습니다.";
+"scraper_review_footer" = "가져온 후 이 소스는 JSON 규칙에 따라 나열된 도메인에 요청할 수 있습니다.";
 "scraper_review_source" = "소스";
 "scraper_review_configs" = "구성";
 "scraper_review_capabilities" = "기능";
@@ -2486,7 +2486,7 @@
 "scraper_review_headers" = "헤더";
 "scraper_review_cookie" = "쿠키";
 "scraper_review_secrets" = "비밀 값";
-"scraper_review_javascript" = "JavaScript";
+"scraper_review_javascript" = "JSON 규칙";
 "scraper_warn_no_fixed_domain" = "고정된 네트워크 도메인이 감지되지 않았습니다. 이 스크레이퍼는 JavaScript에서 URL을 동적으로 생성할 수 있습니다.";
 "scraper_warn_includes_cookie" = "이 구성에는 쿠키 데이터가 포함되어 있습니다. 신뢰할 수 있는 사람의 구성만 가져오세요.";
 "scraper_warn_custom_headers" = "이 구성은 사용자 지정 요청 헤더를 추가합니다.";
@@ -7590,3 +7590,7 @@
 "player_backdrop_cache_empty" = "캐시된 배경 이미지가 없습니다";
 "lock_screen_hidden_by_mixing" = "‘다른 앱과 동시에 재생’이(가) 켜져 있어 잠금 화면, 제어 센터, Dynamic Island에 Primuse가 표시되지 않을 수 있으며 아래 설정도 적용되지 않습니다.";
 "lock_screen_hidden_by_mixing_action" = "끄기";
+
+"scraper_legacy_update_required" = "이 소스를 업데이트해야 합니다. JSON 규칙 버전을 가져오세요.";
+
+"scraper_update_review_required" = "업데이트를 확인해야 합니다. 소스를 다시 가져오세요.";

@@ -194,6 +194,7 @@ struct TVScraperSettingsView: View {
 
     /// 能力标签;歌词 API 服务开着却一个地址都没填时,提醒去 iPhone 上填。
     private func subtitle(for source: ScraperSourceConfig) -> String {
+        if let notice = source.updateNotice { return notice }
         if source.type == .lyricsServer,
            LyricsAPIServerSettings.load().servers.isEmpty {
             return String(localized: "tv_scrape_lyrics_server_unset")
@@ -385,7 +386,7 @@ struct TVScraperImportView: View {
                         permissionBadge(String(localized: "scraper_review_cookie"), enabled: summary.includesCookie)
                         permissionBadge(String(localized: "scraper_review_secrets"), enabled: summary.includesSecrets)
                         permissionBadge(String(localized: "scraper_review_javascript"),
-                                        enabled: summary.scriptCharacterCount > 0)
+                                        enabled: summary.ruleCount > 0)
                     }
                     ForEach(summary.warnings, id: \.self) { warning in
                         Label(warning, systemImage: "exclamationmark.triangle.fill")

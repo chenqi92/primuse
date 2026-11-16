@@ -328,7 +328,7 @@ final class ScraperSettingsStore {
                       let current = ScraperConfigStore.shared.config(for: config.id), current.isDeleted != true else { continue }
                 self.updateMotionArtworkSource(current)
             }
-            if !updated.isEmpty { self.reloadFromDefaults() }
+            self.reloadFromDefaults()
             self.subscriptionRefreshTask = nil
         }
     }

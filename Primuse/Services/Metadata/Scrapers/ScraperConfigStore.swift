@@ -13,7 +13,7 @@ struct ScraperImportSummary: Sendable {
     let capabilities: [String]
     let methods: [String]
     let endpointCount: Int
-    let scriptCharacterCount: Int
+    let ruleCount: Int
     let includesHeaders: Bool
     let includesCookie: Bool
     let includesSecrets: Bool
@@ -49,6 +49,7 @@ final class ScraperConfigStore: @unchecked Sendable {
         let generation: UUID
         var version: Int
         var nextCheck: Date
+        var reviewVersion: Int?
     }
     private var subscriptions: [String: Subscription] = [:]
     private var updatingURLs: Set<URL> = []
@@ -197,6 +198,10 @@ final class ScraperConfigStore: @unchecked Sendable {
         lock.withLock { subscriptions[id] != nil }
     }
 
+    func updateNeedsReview(id: String) -> Bool {
+        lock.withLock { subscriptions[id]?.reviewVersion != nil }
+    }
+
     /// Each URL is fetched once per batch; only sources explicitly imported with consent can change.
     func refreshSubscriptionsIfDue(now: Date = Date()) async -> [ScraperConfig] {
         let batches = beginSubscriptionRefresh(now: now)
@@ -207,6 +212,15 @@ final class ScraperConfigStore: @unchecked Sendable {
                 let preview = try await previewImportFromURL(url)
                 try Task.checkCancellation()
                 updated += try applySubscriptionRefresh(preview.configs, url: url, snapshots: snapshots, now: now)
+            } catch ScraperConfigError.legacyScriptUnsupported {
+                lock.withLock {
+                    var next = subscriptions
+                    for (id, snapshot) in snapshots where next[id]?.generation == snapshot.subscription.generation {
+                        next[id]?.reviewVersion = snapshot.version
+                        next[id]?.nextCheck = now.addingTimeInterval(86400)
+                    }
+                    try? saveSubscriptionsUnlocked(next)
+                }
             } catch {
                 // Keep the installed configuration and retry later. URLs may contain private query parameters.
                 plog("Scraper subscription refresh failed; keeping installed configs")
@@ -262,15 +276,36 @@ final class ScraperConfigStore: @unchecked Sendable {
                 next[id]?.nextCheck = now.addingTimeInterval(86400)
                 guard var incoming = configs.first(where: { $0.id == id }),
                       incoming.isDeleted != true, incoming.version > current.version else { continue }
+                guard ScraperNetworkScope.permitsAutomaticUpdate(from: current, to: incoming) else {
+                    next[id]?.reviewVersion = incoming.version
+                    continue
+                }
+                next[id]?.reviewVersion = nil
                 incoming.secrets = current.secrets
                 incoming.cookie = current.cookie
                 for (key, value) in current.headers ?? [:]
-                    where ["cookie", "authorization"].contains(key.lowercased()) {
+                    where !ScraperNetworkScope.isPublicHeader(key) {
                     var headers = incoming.headers ?? [:]
                     headers = headers.filter { $0.key.lowercased() != key.lowercased() }
                     headers[key] = value
                     incoming.headers = headers
                 }
+                // Endpoint credentials follow the already-approved endpoint, not the remote publisher.
+                func preserved(_ nextEndpoint: EndpointConfig?, _ oldEndpoint: EndpointConfig?) -> EndpointConfig? {
+                    guard var endpoint = nextEndpoint else { return nil }
+                    for (key, value) in oldEndpoint?.headers ?? [:] where !ScraperNetworkScope.isPublicHeader(key) {
+                        var headers = endpoint.headers ?? [:]
+                        headers = headers.filter { $0.key.lowercased() != key.lowercased() }
+                        headers[key] = value
+                        endpoint.headers = headers
+                    }
+                    return endpoint
+                }
+                incoming.search = preserved(incoming.search, current.search)
+                incoming.detail = preserved(incoming.detail, current.detail)
+                incoming.cover = preserved(incoming.cover, current.cover)
+                incoming.lyrics = preserved(incoming.lyrics, current.lyrics)
+                incoming.dynamicCover = preserved(incoming.dynamicCover, current.dynamicCover)
                 incoming.isDeleted = false
                 incoming.deletedAt = nil
                 incoming.modifiedAt = now
@@ -296,6 +331,7 @@ final class ScraperConfigStore: @unchecked Sendable {
     }
 
     private func parseConfigs(from jsonString: String) throws -> [ScraperConfig] {
+        guard jsonString.utf8.count <= Self.maxRemoteImportBytes else { throw ScraperConfigError.importFileTooLarge }
         let trimmed = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw ScraperConfigError.invalidJSON("Empty input")
@@ -360,7 +396,7 @@ final class ScraperConfigStore: @unchecked Sendable {
         configuration.timeoutIntervalForResource = 30
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        let session = URLSession(configuration: configuration)
+        let session = URLSession(configuration: configuration, delegate: ScraperManifestRedirectDelegate(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
 
         let (bytes, response) = try await session.bytes(for: request)
@@ -426,7 +462,7 @@ final class ScraperConfigStore: @unchecked Sendable {
         }
         let includesSecrets = configs.contains { $0.secrets?.isEmpty == false }
         let scripts = endpoints.flatMap { [$0.script, $0.requestScript, $0.responseScript, $0.playlistScript].compactMap { $0 } }
-        let scriptCharacterCount = scripts.reduce(0) { $0 + $1.count }
+        let ruleCount = endpoints.filter { $0.rule != nil }.count
 
         var warnings: [String] = []
         if Set(endpointDomains).isEmpty {
@@ -460,7 +496,7 @@ final class ScraperConfigStore: @unchecked Sendable {
             capabilities: Array(Set(capabilities)).sorted(),
             methods: Array(Set(methods)).sorted(),
             endpointCount: endpoints.count + fallbacks.count,
-            scriptCharacterCount: scriptCharacterCount,
+            ruleCount: ruleCount,
             includesHeaders: includesHeaders,
             includesCookie: includesCookie,
             includesSecrets: includesSecrets,
@@ -759,7 +795,7 @@ final class ScraperConfigStore: @unchecked Sendable {
             guard let data = try? Data(contentsOf: file),
                   var config = try? JSONDecoder().decode(ScraperConfig.self, from: data) else { continue }
             do {
-                try validate(config)
+                try validate(config, allowStoredLegacy: true)
             } catch {
                 plog("📦 ScraperConfigStore loadAll skipped invalid file=\(file.lastPathComponent): \(error.localizedDescription)")
                 continue
@@ -806,7 +842,7 @@ final class ScraperConfigStore: @unchecked Sendable {
         }
     }
 
-    private func validate(_ config: ScraperConfig) throws {
+    private func validate(_ config: ScraperConfig, allowStoredLegacy: Bool = false) throws {
         guard Self.isSafeConfigID(config.id) else {
             throw ScraperConfigError.validationFailed("Config ID must be 1-64 chars: letters, numbers, '.', '_' or '-'")
         }
@@ -819,6 +855,13 @@ final class ScraperConfigStore: @unchecked Sendable {
         // At least one endpoint must be defined
         guard config.search != nil || config.detail != nil || config.cover != nil || config.lyrics != nil || config.dynamicCover != nil else {
             throw ScraperConfigError.validationFailed("Config has no endpoints defined")
+        }
+        for endpoint in Self.endpoints(in: config) {
+            if !allowStoredLegacy { try endpoint.validateRules() }
+            guard ["GET", "POST", "LOCAL"].contains(endpoint.method.uppercased()),
+                  endpoint.method.uppercased() == "LOCAL" || ScraperNetworkScope.origin(template: endpoint.url, trustDomains: config.sslTrustDomains ?? []) != nil else {
+                throw ScraperConfigError.validationFailed("Invalid endpoint")
+            }
         }
     }
 
@@ -965,7 +1008,20 @@ final class ScraperConfigStore: @unchecked Sendable {
     }
 }
 
+private final class ScraperManifestRedirectDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        let count = Int(task.taskDescription ?? "0") ?? 0
+        guard count < 5, let source = response.url, let target = request.url,
+              target.scheme?.lowercased() == "https", ScraperNetworkScope.origin(source) != nil,
+              ScraperNetworkScope.origin(source) == ScraperNetworkScope.origin(target) else { completionHandler(nil); return }
+        task.taskDescription = String(count + 1)
+        completionHandler(request)
+    }
+}
+
 enum ScraperConfigError: Error, LocalizedError {
+    case legacyScriptUnsupported
     case invalidInput(String)
     case invalidJSON(String)
     case downloadFailed(String)
@@ -975,6 +1031,8 @@ enum ScraperConfigError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .legacyScriptUnsupported:
+            String(localized: "scraper_legacy_update_required")
         case .invalidInput(let message):
             String(format: String(localized: "error_scraper_invalid_import %@"), message)
         case .invalidJSON(let message):

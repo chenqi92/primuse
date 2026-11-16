@@ -421,7 +421,7 @@
 "ai_provider_preset_custom" = "Власний";
 "relay_share_endpoint" = "Реле API URL";
 "local_import_copy_folder" = "Копіювати папку";
-"scraper_review_javascript" = "JavaScript";
+"scraper_review_javascript" = "Правила JSON";
 "synology_auth_error_unknown_format" = "Помилка підключення (код помилки: %d)";
 "lyrics_transcription_google_footer" = "Аудіотранскрипція використовує офіційний API Google і налаштовується незалежно від пошуку, рекомендацій і перекладу тексту.";
 "choose_folder" = "Виберіть папку";
@@ -3013,7 +3013,7 @@
 "Input recognized" = "Введення розпізнано";
 "Audio Output" = "Аудіовихід";
 "cast_picker_title" = "Пристрій відтворення";
-"scraper_review_footer" = "Після імпорту цей скрипт зможе виконувати свій JavaScript і звертатися до вказаних вище доменів під час пошуку метаданих.";
+"scraper_review_footer" = "Після імпорту джерело зможе звертатися до вказаних доменів за правилами JSON.";
 "scraper_review_network_domains" = "Мережні домени";
 "search_apple_music_catalog_disabled" = "Apple Music · Пошук по каталогу вимкнено";
 "server_favorite_update_failed_title" = "Не вдалося оновити вибране";
@@ -7496,3 +7496,7 @@
 "player_backdrop_cache_empty" = "Немає кешованих фонових зображень";
 "lock_screen_hidden_by_mixing" = "Увімкнено параметр «Відтворювати разом з іншими програмами», тому екран блокування, Центр керування й Dynamic Island можуть не показувати Primuse, а налаштування нижче не діють.";
 "lock_screen_hidden_by_mixing_action" = "Вимкнути";
+
+"scraper_legacy_update_required" = "Джерело потребує оновлення. Імпортуйте версію з правилами JSON.";
+
+"scraper_update_review_required" = "Оновлення потребує підтвердження. Імпортуйте джерело повторно.";

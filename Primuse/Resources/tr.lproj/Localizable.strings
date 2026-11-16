@@ -421,7 +421,7 @@
 "ai_provider_preset_custom" = "Özel";
 "relay_share_endpoint" = "Röle API URL";
 "local_import_copy_folder" = "Bir Klasörü Kopyala";
-"scraper_review_javascript" = "JavaScript";
+"scraper_review_javascript" = "JSON kuralları";
 "synology_auth_error_unknown_format" = "Bağlantı başarısız oldu (hata kodu: %d)";
 "lyrics_transcription_google_footer" = "Ses transkripsiyonunda Google'nin resmi API'si kullanılır ve arama, öneriler ve metin çevirisinden bağımsız olarak yapılandırılır.";
 "choose_folder" = "Klasör seç";
@@ -3013,7 +3013,7 @@
 "Input recognized" = "Giriş tanındı";
 "Audio Output" = "Ses Çıkışı";
 "cast_picker_title" = "Oynatma cihazı";
-"scraper_review_footer" = "İçe aktarma, bu üst veri betiğinin JavaScript kodunu çalıştırmasına ve üst veri ararken yukarıdaki alan adlarına bağlanmasına izin verir.";
+"scraper_review_footer" = "İçe aktarıldıktan sonra bu kaynak JSON kurallarıyla listelenen alan adlarını sorgulayabilir.";
 "scraper_review_network_domains" = "Ağ Etki Alanları";
 "search_apple_music_catalog_disabled" = "Apple Music · Katalog arama kapalı";
 "server_favorite_update_failed_title" = "Favori Güncellenemedi";
@@ -7496,3 +7496,7 @@
 "player_backdrop_cache_empty" = "Önbelleğe alınmış arka plan görseli yok";
 "lock_screen_hidden_by_mixing" = "“Diğer uygulamalarla birlikte çal” açık; kilit ekranı, Denetim Merkezi ve Dynamic Island Primuse'u göstermeyebilir ve aşağıdaki ayarlar etkisiz kalır.";
 "lock_screen_hidden_by_mixing_action" = "Kapat";
+
+"scraper_legacy_update_required" = "Bu kaynağın güncellenmesi gerekiyor. JSON kuralları sürümünü içe aktarın.";
+
+"scraper_update_review_required" = "Güncelleme onay gerektiriyor. Kaynağı yeniden içe aktarın.";

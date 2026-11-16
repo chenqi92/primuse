@@ -2311,7 +2311,7 @@
 "scraper_confirm_import" = "Confirm Import";
 "scraper_review_banner" = "Preview only — not imported yet. Tap \"Confirm Import\" to add it; Cancel discards it.";
 "scraper_review_header" = "Review Before Import";
-"scraper_review_footer" = "Importing enables this scraper to run its JavaScript and contact the domains above during metadata lookup.";
+"scraper_review_footer" = "After import, this source can query the listed domains using its JSON rules.";
 "scraper_review_source" = "Source";
 "scraper_review_configs" = "Configs";
 "scraper_review_capabilities" = "Capabilities";
@@ -2323,7 +2323,7 @@
 "scraper_review_headers" = "Headers";
 "scraper_review_cookie" = "Cookie";
 "scraper_review_secrets" = "Secrets";
-"scraper_review_javascript" = "JavaScript";
+"scraper_review_javascript" = "JSON rules";
 "scraper_warn_no_fixed_domain" = "No fixed network domain was detected. The scraper may build URLs dynamically in JavaScript.";
 "scraper_warn_includes_cookie" = "This config includes Cookie data. Import only configs from people you trust.";
 "scraper_warn_custom_headers" = "This config adds custom request headers.";
@@ -7351,3 +7351,7 @@
 "player_backdrop_cache_empty" = "No background images cached";
 "lock_screen_hidden_by_mixing" = "“Play Alongside Other Apps” is on, so the Lock Screen, Control Center and Dynamic Island may not show Primuse, and the settings below have no effect.";
 "lock_screen_hidden_by_mixing_action" = "Turn Off";
+
+"scraper_legacy_update_required" = "This source needs an update. Import its JSON rules version.";
+
+"scraper_update_review_required" = "Update needs confirmation. Import the source again.";

@@ -2576,7 +2576,7 @@
 "scraper_confirm_import" = "确认导入";
 "scraper_review_banner" = "仅为预览，尚未导入。点「确认导入」才会添加；取消则丢弃。";
 "scraper_review_header" = "导入前预览";
-"scraper_review_footer" = "导入后，该刮削源在查询元数据时将可运行其 JavaScript 并连接上述域名。";
+"scraper_review_footer" = "导入后，此刮削源可按 JSON 规则查询上述域名。";
 "scraper_review_source" = "源";
 "scraper_review_configs" = "配置";
 "scraper_review_capabilities" = "能力";
@@ -2588,7 +2588,7 @@
 "scraper_review_headers" = "请求头";
 "scraper_review_cookie" = "Cookie";
 "scraper_review_secrets" = "密钥";
-"scraper_review_javascript" = "JavaScript";
+"scraper_review_javascript" = "JSON 规则";
 "scraper_warn_no_fixed_domain" = "未检测到固定的网络域名。该刮削源可能在 JavaScript 中动态生成 URL。";
 "scraper_warn_includes_cookie" = "此配置包含 Cookie 数据。请仅导入来自可信来源的配置。";
 "scraper_warn_custom_headers" = "此配置会添加自定义请求头。";
@@ -7683,3 +7683,7 @@
 "player_backdrop_cache_empty" = "暂无已缓存的背景图片";
 "lock_screen_hidden_by_mixing" = "「与其他 App 同时播放」开着，锁屏、控制中心和灵动岛可能看不到 Primuse，下面这些设置也不起作用。";
 "lock_screen_hidden_by_mixing_action" = "关闭";
+
+"scraper_legacy_update_required" = "此刮削源需要更新，请导入 JSON 规则版。";
+
+"scraper_update_review_required" = "更新需确认，请重新导入刮削源。";

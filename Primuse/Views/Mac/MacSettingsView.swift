@@ -5753,10 +5753,15 @@ private struct MacScraperSourceRow: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(isEnabled ? source.type.themeColor : PMColor.textFaint)
                     .frame(width: 16)
-                Text(verbatim: source.type.displayName)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(PMColor.text)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: source.type.displayName)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                    if let notice = source.updateNotice {
+                        Text(verbatim: notice).font(.caption).foregroundStyle(PMColor.warn)
+                    }
+                }
                 if source.type.isBuiltIn {
                     Text(verbatim: Lz("Built-In"))
                         .font(.system(size: 9.5, weight: .semibold))

@@ -38,6 +38,7 @@ actor ScraperManager {
 
     private struct RankedMetadataDetail {
         let detail: ScraperDetail
+        let albumTier: Int
         let rank: ScrapeCandidateRank
         let sourceOrder: Int
         let searchOrder: Int
@@ -46,6 +47,8 @@ actor ScraperManager {
     private struct PendingMetadataCandidate {
         let config: ScraperSourceConfig
         let item: ScraperSearchItem
+        let requestedAlbum: String?
+        var albumTier: Int { ScraperIdentity.albumTier(requestedAlbum, item.album) }
         let rank: ScrapeCandidateRank
         let sourceOrder: Int
         let searchOrder: Int
@@ -209,12 +212,13 @@ actor ScraperManager {
                         title: cleanedTitle,
                         artist: effectiveArtist,
                         durationMs: durationMs(duration),
-                        maxCount: Self.autoMetadataCandidatesPerSource
+                        maxCount: Self.autoMetadataCandidatesPerSource, album: album, writtenTitle: title
                     )
                     let confidentCandidates = rankedItems.enumerated().map { searchOrder, item in
                         PendingMetadataCandidate(
                             config: config,
                             item: item,
+                            requestedAlbum: album,
                             rank: Self.candidateRank(
                                 item,
                                 title: cleanedTitle,
@@ -240,7 +244,7 @@ actor ScraperManager {
                             writtenTitle: title
                         ) {
                             selectedDetail = Self.preferredDetail(rankedDetail, current: selectedDetail)
-                            if Self.isSufficientMetadata(selectedDetail?.rank) {
+                            if Self.isSufficientMetadata(selectedDetail) {
                                 break metadataSourceLoop
                             }
                         }
@@ -265,7 +269,7 @@ actor ScraperManager {
             // fields; their second or third detail can be much richer than the
             // server's first row. Try a small globally ranked fallback set only
             // when every provider's primary detail is still insufficient.
-            if !Self.isSufficientMetadata(selectedDetail?.rank) {
+            if !Self.isSufficientMetadata(selectedDetail) {
                 let fallbackCandidates = additionalCandidates.sorted(by: Self.isPreferred)
                 for candidate in fallbackCandidates.prefix(Self.autoMetadataExtraDetailFetchLimit) {
                     if await isBackingOff(candidate.config) || isCircuitOpen(candidate.config) { continue }
@@ -278,7 +282,7 @@ actor ScraperManager {
                             writtenTitle: title
                         ) {
                             selectedDetail = Self.preferredDetail(rankedDetail, current: selectedDetail)
-                            if Self.isSufficientMetadata(selectedDetail?.rank) { break }
+                            if Self.isSufficientMetadata(selectedDetail) { break }
                         }
                     } catch {
                         if isCancellation(error) { return result }
@@ -327,7 +331,7 @@ actor ScraperManager {
                         title: cleanedTitle,
                         artist: effectiveArtist,
                         durationMs: durationMs(duration),
-                        writtenTitle: title
+                        writtenTitle: title, album: album
                     ) {
                         let covers = try await scraper.getCoverArt(externalId: best.externalId)
                         registerSuccess(config)
@@ -393,17 +397,13 @@ actor ScraperManager {
                             query: cleanedTitle, artist: effectiveArtist, album: nil, limit: Self.autoScrapeLimit
                         )
                         registerSuccess(config)
-                        // Lyrics must match the requested title. Duration alone is not a
-                        // sufficient identity signal: short clips with no artist metadata
-                        // can otherwise accept an unrelated same-length song returned by a
-                        // noisy search provider. Metadata/cover retain their legacy ranked
-                        // fallback, while lyrics choose false-negative over false-positive.
                         let titleCompatibleItems = searchResult.items.filter {
-                            Self.isLyricsTitleCompatible(candidate: $0.title, requested: cleanedTitle)
+                            Self.isConfidentAutoMatch($0, title: cleanedTitle, artist: effectiveArtist,
+                                durationMs: durationMs(duration), writtenTitle: title)
                         }
                         let candidates = Self.topMatches(
                             in: titleCompatibleItems, title: cleanedTitle, artist: effectiveArtist,
-                            durationMs: durationMs(duration), maxCount: 3
+                            durationMs: durationMs(duration), maxCount: 3, album: album, writtenTitle: title
                         )
                         plog("🎤 [\(config.type.displayName)] lyrics search: \(searchResult.items.count) items, \(titleCompatibleItems.count) title-compatible → top \(candidates.count) candidates: \(candidates.map { "\($0.title)/\($0.artist ?? "?")" })")
                         var lineLevelFallback: [LyricLine]?
@@ -495,7 +495,8 @@ actor ScraperManager {
         title: String,
         artist: String?,
         durationMs targetMs: Int?,
-        writtenTitle: String? = nil
+        writtenTitle: String? = nil,
+        album: String? = nil
     ) -> ScraperSearchItem? {
         let safeItems = items.filter {
             isConfidentAutoMatch(
@@ -511,7 +512,7 @@ actor ScraperManager {
             title: title,
             artist: artist,
             durationMs: targetMs,
-            maxCount: 1
+            maxCount: 1, album: album, writtenTitle: writtenTitle
         ).first
     }
 
@@ -523,35 +524,19 @@ actor ScraperManager {
         durationMs targetMs: Int?,
         writtenTitle: String? = nil
     ) -> Bool {
-        let identityTitle = item.source.isBuiltIn
-            ? ScraperIdentity.filenameTitle(title, matching: item.artist, aliases: item.artistAliases) ?? title
-            : title
-        if item.source.isBuiltIn {
-            let written = ScraperIdentity.filenameTitle(writtenTitle ?? title, matching: item.artist, aliases: item.artistAliases)
-                ?? writtenTitle ?? title
-            guard ExternalTrackMatchPolicy.splitTitle(written).markers == ExternalTrackMatchPolicy.splitTitle(item.title).markers else {
-                return false
-            }
+        let identityTitle = ScraperIdentity.filenameTitle(title, matching: item.artist, aliases: item.artistAliases) ?? title
+        let written = ScraperIdentity.filenameTitle(writtenTitle ?? title, matching: item.artist, aliases: item.artistAliases)
+            ?? writtenTitle ?? title
+        guard ExternalTrackMatchPolicy.splitTitle(written).markers == ExternalTrackMatchPolicy.splitTitle(item.title).markers else {
+            return false
         }
         let requestedTitle = normalizeComparableText(identityTitle)
         let candidateTitle = normalizeComparableText(item.title)
-        let titleMatches = item.source.isBuiltIn
-            ? candidateTitle == requestedTitle
-            : (candidateTitle == requestedTitle || candidateTitle.contains(requestedTitle)
-                || requestedTitle.contains(candidateTitle))
-        guard !requestedTitle.isEmpty,
-              !candidateTitle.isEmpty,
-              titleMatches else {
-            return false
-        }
+        guard !requestedTitle.isEmpty, candidateTitle == requestedTitle else { return false }
 
-        let requestedArtist = normalizeComparableText(artist)
-        let candidateArtist = normalizeComparableText(item.artist)
-        let artistMatches = item.source.isBuiltIn
-            ? ScraperIdentity.artistMatches(artist, item.artist, aliases: item.artistAliases)
-            : (!candidateArtist.isEmpty && (candidateArtist == requestedArtist
-            || candidateArtist.contains(requestedArtist)
-            || requestedArtist.contains(candidateArtist)))
+        let requestedArtist = ScraperIdentity.normalized(artist)
+        let candidateArtist = ScraperIdentity.normalized(item.artist)
+        let artistMatches = ScraperIdentity.artistMatches(artist, item.artist, aliases: item.artistAliases)
         let durationMatches: Bool = if let targetMs,
                                        targetMs > 0,
                                        let candidateMs = item.durationMs {
@@ -607,17 +592,23 @@ actor ScraperManager {
         title: String,
         artist: String?,
         durationMs targetMs: Int?,
-        maxCount: Int
+        maxCount: Int,
+        album: String? = nil,
+        writtenTitle: String? = nil
     ) -> [ScraperSearchItem] {
         guard !items.isEmpty, maxCount > 0 else { return [] }
         let ranked = items.enumerated().map { index, item in
             (
                 item: item,
                 rank: candidateRank(item, title: title, artist: artist, durationMs: targetMs),
+                identity: ScraperIdentity.matchTier(item, title: writtenTitle ?? title, artist: artist),
+                album: ScraperIdentity.albumTier(album, item.album),
                 index: index
             )
         }
         return ranked.sorted { lhs, rhs in
+            if lhs.identity != rhs.identity { return lhs.identity < rhs.identity }
+            if lhs.album != rhs.album { return lhs.album < rhs.album }
             if ScrapeCandidateRankingPolicy.isPreferred(lhs.rank, over: rhs.rank) {
                 return true
             }
@@ -634,14 +625,13 @@ actor ScraperManager {
         artist: String?,
         durationMs: Int?
     ) -> ScrapeCandidateRank {
-        let title = item.source.isBuiltIn
-            ? ScraperIdentity.filenameTitle(title, matching: item.artist, aliases: item.artistAliases) ?? title : title
+        let title = ScraperIdentity.filenameTitle(title, matching: item.artist, aliases: item.artistAliases) ?? title
         return ScrapeCandidateRankingPolicy.rank(
             requestedTitle: normalizeComparableText(title),
             requestedArtist: normalizeComparableText(artist),
             targetDurationMs: durationMs,
             candidateTitle: normalizeComparableText(item.title),
-            candidateArtist: item.source.isBuiltIn && ScraperIdentity.artistMatches(artist, item.artist, aliases: item.artistAliases)
+            candidateArtist: ScraperIdentity.artistMatches(artist, item.artist, aliases: item.artistAliases)
                 ? normalizeComparableText(artist) : normalizeComparableText(item.artist),
             candidateDurationMs: item.durationMs,
             candidateAlbum: item.album,
@@ -677,6 +667,7 @@ actor ScraperManager {
 
         return RankedMetadataDetail(
             detail: detail,
+            albumTier: ScraperIdentity.albumTier(candidate.requestedAlbum, detail.album),
             rank: Self.candidateRank(
                 detailItem,
                 title: title,
@@ -696,8 +687,10 @@ actor ScraperManager {
         return isPreferred(candidate, over: current) ? candidate : current
     }
 
-    private static func isSufficientMetadata(_ rank: ScrapeCandidateRank?) -> Bool {
-        guard let rank,
+    private static func isSufficientMetadata(_ detail: RankedMetadataDetail?) -> Bool {
+        guard let detail, detail.albumTier == 0 else { return false }
+        let rank = detail.rank
+        guard
               rank.titleMatchLevel == 2,
               rank.metadataCompleteness >= sufficientMetadataCompleteness else {
             return false
@@ -716,6 +709,7 @@ actor ScraperManager {
         _ lhs: PendingMetadataCandidate,
         _ rhs: PendingMetadataCandidate
     ) -> Bool {
+        if lhs.albumTier != rhs.albumTier { return lhs.albumTier < rhs.albumTier }
         // Give every provider's second result a chance before spending the
         // fallback budget on third rows from an earlier provider.
         if lhs.searchOrder != rhs.searchOrder {
@@ -734,6 +728,7 @@ actor ScraperManager {
         _ lhs: RankedMetadataDetail,
         over rhs: RankedMetadataDetail
     ) -> Bool {
+        if lhs.albumTier != rhs.albumTier { return lhs.albumTier < rhs.albumTier }
         if ScrapeCandidateRankingPolicy.isPreferred(lhs.rank, over: rhs.rank) {
             return true
         }
@@ -807,19 +802,6 @@ actor ScraperManager {
         }
         guard let cleaned, !cleaned.isEmpty else { return nil }
         return cleaned
-    }
-
-    /// Lyrics are destructive-looking when wrong, so require a normalized title
-    /// identity before fetching them. Equality covers the normal case; containment
-    /// keeps editions such as "Song Title (Live)" / "Song Title - Remastered"
-    /// working after `cleanTitle` has removed bracket noise.
-    private static func isLyricsTitleCompatible(candidate: String, requested: String) -> Bool {
-        let candidateTitle = normalizeComparableText(candidate)
-        let requestedTitle = normalizeComparableText(requested)
-        guard !candidateTitle.isEmpty, !requestedTitle.isEmpty else { return false }
-        return candidateTitle == requestedTitle
-            || candidateTitle.contains(requestedTitle)
-            || requestedTitle.contains(candidateTitle)
     }
 
     // MARK: - Lyrics candidates (manual search)

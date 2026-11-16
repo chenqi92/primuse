@@ -3167,10 +3167,10 @@
 "scraper_review_configs" = "การกำหนดค่า";
 "scraper_review_cookie" = "คุกกี้";
 "scraper_review_endpoints_fmt" = "%1$lld จุดสิ้นสุด, %2$@";
-"scraper_review_footer" = "การนำเข้าจะอนุญาตให้แหล่งเมทาดาทานี้เรียกใช้ JavaScript ของตนและติดต่อโดเมนข้างต้นระหว่างค้นหาเมทาดาทา";
+"scraper_review_footer" = "หลังนำเข้า แหล่งนี้สามารถสอบถามโดเมนที่ระบุโดยใช้กฎ JSON ได้";
 "scraper_review_header" = "ตรวจสอบก่อนนำเข้า";
 "scraper_review_headers" = "เฮดเดอร์";
-"scraper_review_javascript" = "จาวาสคริปต์";
+"scraper_review_javascript" = "กฎ JSON";
 "scraper_review_network_domains" = "โดเมนเครือข่าย";
 "scraper_review_requests" = "คำขอ";
 "scraper_review_secrets" = "ความลับ";
@@ -7496,3 +7496,7 @@
 "player_backdrop_cache_empty" = "ยังไม่มีรูปภาพพื้นหลังที่แคชไว้";
 "lock_screen_hidden_by_mixing" = "เปิด “เล่นพร้อมกับแอปอื่น” อยู่ หน้าจอล็อก ศูนย์ควบคุม และ Dynamic Island จึงอาจไม่แสดง Primuse และการตั้งค่าด้านล่างจะไม่มีผล";
 "lock_screen_hidden_by_mixing_action" = "ปิด";
+
+"scraper_legacy_update_required" = "แหล่งนี้ต้องได้รับการอัปเดต โปรดนำเข้าเวอร์ชันกฎ JSON";
+
+"scraper_update_review_required" = "ต้องยืนยันการอัปเดต โปรดนำเข้าแหล่งอีกครั้ง";

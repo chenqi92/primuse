@@ -39,7 +39,7 @@ final class MotionArtworkEndpointClientTests: XCTestCase {
         defer { session.invalidateAndCancel() }
         var config = ScraperConfig(id: host, name: "Fixture", version: 1, rateLimit: 0, capabilities: ["dynamicCover"])
         config.dynamicCover = .init(url: endpoint.absoluteString, method: "GET",
-            script: "return [{coverUrl: response.url, kind: 'video'}];")
+            rule: .init(fields: ["coverUrl": .init(path: "url"), "kind": .init(value: "video")], array: true))
         let scraper = ConfigurableScraper(config: config, session: session, requestPool: .init())
         let client = makeClient()
         let result = try await client.resolve(endpoint: endpoint, input: lookupInput(), requestKey: host,

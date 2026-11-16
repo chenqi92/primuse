@@ -2474,7 +2474,7 @@
 "scraper_confirm_import" = "Import bestätigen";
 "scraper_review_banner" = "Nur Vorschau – noch nicht importiert. Auf „Import bestätigen“ tippen zum Hinzufügen; Abbrechen verwirft sie.";
 "scraper_review_header" = "Vor dem Import prüfen";
-"scraper_review_footer" = "Durch den Import darf dieser Scraper bei der Metadatensuche sein JavaScript ausführen und die oben genannten Domains kontaktieren.";
+"scraper_review_footer" = "Nach dem Import kann diese Quelle die aufgeführten Domains anhand ihrer JSON-Regeln abfragen.";
 "scraper_review_source" = "Quelle";
 "scraper_review_configs" = "Konfigurationen";
 "scraper_review_capabilities" = "Funktionen";
@@ -2486,7 +2486,7 @@
 "scraper_review_headers" = "Header";
 "scraper_review_cookie" = "Cookie";
 "scraper_review_secrets" = "Geheimnisse";
-"scraper_review_javascript" = "JavaScript";
+"scraper_review_javascript" = "JSON-Regeln";
 "scraper_warn_no_fixed_domain" = "Es wurde keine feste Netzwerk-Domain erkannt. Der Scraper erstellt URLs möglicherweise dynamisch in JavaScript.";
 "scraper_warn_includes_cookie" = "Diese Konfiguration enthält Cookie-Daten. Importiere nur Konfigurationen von Personen, denen du vertraust.";
 "scraper_warn_custom_headers" = "Diese Konfiguration fügt benutzerdefinierte Anfrage-Header hinzu.";
@@ -7590,3 +7590,7 @@
 "player_backdrop_cache_empty" = "Keine Hintergrundbilder im Cache";
 "lock_screen_hidden_by_mixing" = "„Zusammen mit anderen Apps abspielen“ ist aktiv: Sperrbildschirm, Kontrollzentrum und Dynamic Island zeigen Primuse möglicherweise nicht an, und die Einstellungen unten wirken nicht.";
 "lock_screen_hidden_by_mixing_action" = "Ausschalten";
+
+"scraper_legacy_update_required" = "Diese Quelle benötigt ein Update. Importiere die Version mit JSON-Regeln.";
+
+"scraper_update_review_required" = "Das Update muss bestätigt werden. Importiere die Quelle erneut.";
