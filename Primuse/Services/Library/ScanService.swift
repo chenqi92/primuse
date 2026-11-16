@@ -676,12 +676,6 @@ final class ScanService {
     }
     #endif
 
-    private struct EvictedSyncIndexMetadata: Sendable {
-        let count: Int
-        let hasServerHierarchyRoot: Bool
-        let hasMissingDisplayName: Bool
-    }
-
     private let checkpointStore: ScanCheckpointFileStore
     private let pagedCatalogStore: PagedSongCatalogStagingStore?
     private let syncStateURL: URL
@@ -689,8 +683,6 @@ final class ScanService {
     private var syncStateStore: SourceSyncStateFileStore!
     private var syncStateMutationEpochs: [String: UInt64] = [:]
     private var syncStateAppliedRevisions: [String: UInt64] = [:]
-    @ObservationIgnored private var evictedSyncIndexMetadata: [String: EvictedSyncIndexMetadata] = [:]
-    @ObservationIgnored private var syncStateUsesDirectoryStore = false
     @ObservationIgnored private var startupPreparation: ScanServiceStartupPrewarm?
     @ObservationIgnored private var deferredStartupWorkGeneration = 0
     private(set) var isStartupStateReady = false
@@ -810,7 +802,6 @@ final class ScanService {
                 + "syncStates=\(startupState.syncStates.states.count)"
         )
         observeSourceConfigurationChanges()
-        observeMemoryPressure()
     }
 
     func whenStartupStateReady() async {
@@ -846,13 +837,11 @@ final class ScanService {
         applySyncStates(loaded.states)
         if let legacyURL = loaded.legacySnapshotURL {
             // 迁移没能完成:这次启动照旧写整份旧文件,下次启动再迁。
-            syncStateUsesDirectoryStore = false
             syncStateStore = SourceSyncStateFileStore(
                 url: legacyURL, initialStates: syncStates,
                 initialSnapshotIsPersisted: loaded.legacySnapshotIsPersisted
             )
         } else {
-            syncStateUsesDirectoryStore = true
             syncStateStore = SourceSyncStateFileStore(
                 directory: SourceSyncStateDirectory.directory(forLegacySnapshot: syncStateURL),
                 initialStates: syncStates,
@@ -926,85 +915,13 @@ final class ScanService {
     /// 空到下次扫描，定期增量同步也不必先走一次完整遍历。进行中的扫描已由调用方
     /// 取消；这里先推进写入序号再写，被取消的那次扫描迟到的写入会被挡在外面。
     /// 返回 false 时调用方照旧作废同步状态。
-    private func observeMemoryPressure() {
-        NotificationCenter.default.addObserver(
-            forName: .primuseMemoryPressure,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.releaseIdleSyncIndexes()
-            }
-        }
-    }
-
-    func releaseIdleSyncIndexes() {
-        guard isStartupStateReady, syncStateUsesDirectoryStore else { return }
-        let busySourceIDs = Set(activeTasks.keys).union(postScanMaintenance.pendingSourceIDs)
-        var evictedIDs = Set<String>()
-        for (sourceID, var state) in syncStates where !busySourceIDs.contains(sourceID) && !state.index.isEmpty {
-            let hasServerHierarchyRoot = state.index.values.contains { item in
-                item.isDirectory && item.parentPath == nil && item.stableKey.hasPrefix("hierarchy-root:")
-            }
-            let hasMissingDisplayName = state.index.values.contains { $0.displayName == nil }
-            evictedSyncIndexMetadata[sourceID] = EvictedSyncIndexMetadata(
-                count: state.index.count,
-                hasServerHierarchyRoot: hasServerHierarchyRoot,
-                hasMissingDisplayName: hasMissingDisplayName
-            )
-            state.index = SourceSyncIndex()
-            syncStates[sourceID] = state
-            evictedIDs.insert(sourceID)
-        }
-        guard !evictedIDs.isEmpty, let store = syncStateStore else { return }
-        Task {
-            await store.evictPersistedIndexes(for: evictedIDs)
-        }
-    }
-
-    private func resolvedSyncState(for sourceID: String) -> SourceSyncState? {
-        guard var state = syncStates[sourceID] else { return nil }
-        guard evictedSyncIndexMetadata[sourceID] != nil else { return state }
-        evictedSyncIndexMetadata.removeValue(forKey: sourceID)
-        let directory = SourceSyncStateDirectory.directory(forLegacySnapshot: syncStateURL)
-        if let loaded = try? SourceSyncStateDirectory.readIndex(for: sourceID, in: directory) {
-            state.index = loaded.index
-            syncStates[sourceID] = state
-            let store = syncStateStore
-            Task {
-                await store?.restorePersistedIndex(
-                    loaded.index,
-                    reference: loaded.reference,
-                    for: sourceID
-                )
-            }
-        }
-        return state
-    }
-
-    private func requiresFolderTopologyRebuild(
-        sourceType: MusicSourceType,
-        sourceID: String,
-        state: SourceSyncState?
-    ) -> Bool {
-        if let meta = evictedSyncIndexMetadata[sourceID], let state {
-            if sourceType.isServerLibrary || sourceType == .upnp {
-                return !meta.hasServerHierarchyRoot
-            }
-            guard sourceType.usesOpaqueDirectoryIdentifiers, meta.count > 0 else { return false }
-            if !state.pendingDirectories.isEmpty { return true }
-            return meta.hasMissingDisplayName
-        }
-        return SourceSyncFolderTopologyPolicy.requiresRebuild(sourceType: sourceType, state: state)
-    }
-
     private func carrySyncStateAcrossContentNeutralEdit(
         previous: MusicSource,
         current: MusicSource
     ) -> Bool {
         guard SourceScanContentScopePolicy.contentUnchanged(previous: previous, current: current),
               let directories = scanDirectories(for: current),
-              var state = resolvedSyncState(for: current.id) else { return false }
+              var state = syncStates[current.id] else { return false }
         state.scopeFingerprint = Self.scopeFingerprint(for: current, directories: directories)
         if state.identityScopeFingerprint != nil {
             state.identityScopeFingerprint = Self.scopeFingerprint(for: current, directories: [])
@@ -1057,11 +974,8 @@ final class ScanService {
         finishStartupStateLoading()
         let mutationEpoch = syncStateMutationEpochs[sourceID, default: 0] &+ 1
         syncStateMutationEpochs[sourceID] = mutationEpoch
-        if discardingState {
-            evictedSyncIndexMetadata.removeValue(forKey: sourceID)
-            if syncStates.removeValue(forKey: sourceID) != nil {
-                advanceFolderHierarchyRevision()
-            }
+        if discardingState, syncStates.removeValue(forKey: sourceID) != nil {
+            advanceFolderHierarchyRevision()
         }
         guard let syncStateStore else { return }
         Task {
@@ -1087,7 +1001,7 @@ final class ScanService {
     func libraryFolderSyncIndex(
         for sourceID: String
     ) -> SourceSyncIndex {
-        resolvedSyncState(for: sourceID)?.index ?? SourceSyncIndex()
+        syncStates[sourceID]?.index ?? SourceSyncIndex()
     }
 
     /// Parent folders for the given sources' files, read from the same sync
@@ -1096,7 +1010,7 @@ final class ScanService {
     func albumArtistFolderIndex(for sourceIDs: Set<String>) -> AlbumArtistFolderIndex {
         var parentsBySource: [String: [String: String]] = [:]
         for sourceID in sourceIDs {
-            guard let index = resolvedSyncState(for: sourceID)?.index else { continue }
+            guard let index = syncStates[sourceID]?.index else { continue }
             parentsBySource[sourceID] = AlbumArtistFolderIndex.parents(fromSyncIndex: index)
         }
         return AlbumArtistFolderIndex(parentsBySource: parentsBySource)
@@ -1114,7 +1028,7 @@ final class ScanService {
     ) -> [String: SpokenWordFolderTopology] {
         var result: [String: SpokenWordFolderTopology] = [:]
         for sourceID in sourceIDs {
-            guard let index = resolvedSyncState(for: sourceID)?.index else { continue }
+            guard let index = syncStates[sourceID]?.index else { continue }
             let files = fileParents.parentsBySource[sourceID]
                 ?? AlbumArtistFolderIndex.parents(fromSyncIndex: index)
             guard !files.isEmpty else { continue }
@@ -1176,7 +1090,7 @@ final class ScanService {
         try await library.persistIncrementalNowAndWait().get()
         try await waitForCheckpointPersistence()
         guard original.filePath != updated.filePath,
-              var state = resolvedSyncState(for: sourceID),
+              var state = syncStates[sourceID],
               let oldKey = [original.filePath, "path:\(original.filePath.lowercased())"].first(where: { state.index[$0] != nil }),
               var entry = state.index[oldKey],
               !entry.isDirectory, entry.songIDs == [original.id] else { return }
@@ -1206,7 +1120,7 @@ final class ScanService {
     }
 
     func sourceFileName(for song: Song) -> String? {
-        guard let index = resolvedSyncState(for: song.sourceID)?.index else { return nil }
+        guard let index = syncStates[song.sourceID]?.index else { return nil }
         // Opaque file-ID providers use the ID as their stable key. Path-based
         // providers use the scanner's normalized path key instead.
         for key in [song.filePath, "path:\(song.filePath.lowercased())"] {
@@ -1282,29 +1196,16 @@ final class ScanService {
                     && self.checkpoints[sourceID] != nil
                 if !recoversInterruptedCommit {
                     let state = self.syncStates[sourceID]
-                    let evictedMeta = self.evictedSyncIndexMetadata[sourceID]
-                    let needsRebuild: Bool
-                    if evictedMeta != nil {
-                        needsRebuild = self.requiresFolderTopologyRebuild(
-                            sourceType: source.type,
-                            sourceID: sourceID,
-                            state: state
-                        )
-                    } else {
-                        let worker = Task.detached(priority: .utility) {
-                            SourceSyncFolderTopologyPolicy.requiresRebuild(sourceType: source.type, state: state)
-                        }
-                        needsRebuild = await withTaskCancellationHandler {
-                            await worker.value
-                        } onCancel: { worker.cancel() }
+                    let worker = Task.detached(priority: .utility) {
+                        SourceSyncFolderTopologyPolicy.requiresRebuild(sourceType: source.type, state: state)
                     }
-                    let expectedIndexCount = evictedMeta?.count ?? state?.index.count
-                    let currentIndexCount = self.evictedSyncIndexMetadata[sourceID]?.count
-                        ?? self.syncStates[sourceID]?.index.count
+                    let needsRebuild = await withTaskCancellationHandler {
+                        await worker.value
+                    } onCancel: { worker.cancel() }
                     guard needsRebuild,
                           self.syncStates[sourceID]?.scanEpoch == state?.scanEpoch,
                           self.syncStates[sourceID]?.lastSuccessfulSyncAt == state?.lastSuccessfulSyncAt,
-                          currentIndexCount == expectedIndexCount else { continue }
+                          self.syncStates[sourceID]?.index.count == state?.index.count else { continue }
                 }
                 guard !Task.isCancelled,
                       let current = sourceStore.source(id: sourceID), current.isEnabled, !current.isDeleted,
@@ -2128,9 +2029,8 @@ final class ScanService {
                   sourceID: source.id,
                   scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories)
               ),
-              !requiresFolderTopologyRebuild(
+              !SourceSyncFolderTopologyPolicy.requiresRebuild(
                   sourceType: source.type,
-                  sourceID: source.id,
                   state: state
               ) else { return nil }
         let interval = automaticRefreshIntervalHandler?(source.id) ?? .sixHours
@@ -3016,7 +2916,7 @@ final class ScanService {
         // 就落回下面的完整分页遍历。
         if source.type.usesPagedCatalogStaging,
            let incrementalConnector = connector as? any IncrementalSongCatalogConnector,
-           let previousState = resolvedSyncState(for: source.id),
+           let previousState = syncStates[source.id],
            previousState.isUsable(sourceID: source.id, scopeFingerprint: scopeFingerprint),
            let marker = previousState.catalogSyncMarker,
            ServerCatalogIncrementalSyncPolicy.refusal(
@@ -3130,7 +3030,7 @@ final class ScanService {
             existingForScan = genericResumeSongs + knownExisting.filter { !resumeIDs.contains($0.id) }
         }
 
-        let storedState = resolvedSyncState(for: source.id)
+        let storedState = syncStates[source.id]
         let scopedState = storedState.flatMap { state in
             state.matchesScope(sourceID: source.id, scopeFingerprint: scopeFingerprint)
                 ? state
@@ -3354,7 +3254,7 @@ final class ScanService {
                 } catch BaiduSnapshotExecutionError.reconciliationRequiresDeepScan(let telemetry) {
                     guard scanFenceIsValid() else { return }
                     do {
-                        if var diagnosticState = resolvedSyncState(for: source.id) {
+                        if var diagnosticState = syncStates[source.id] {
                             diagnosticState.lastTelemetry = telemetry
                             try await persistSyncState(diagnosticState)
                         }
@@ -4218,7 +4118,7 @@ final class ScanService {
     ) async throws -> (PagedSongCatalogStageDelta, SourceSyncIndex, Set<String>) {
         let songs = library.songs
         // 上次提交的索引: 目录没变的重扫直接沿用它; 变了也直接读成紧凑索引, 不经过整本字典。
-        let publishedIndex = resolvedSyncState(for: sourceID)?.index ?? SourceSyncIndex()
+        let publishedIndex = syncStates[sourceID]?.index ?? SourceSyncIndex()
         let worker = Task.detached(priority: .utility) {
             try Task.checkCancellation()
             let existing = IndexedSongSnapshot(songs, sourceID: sourceID)
@@ -4782,7 +4682,7 @@ final class ScanService {
                     sourceStore: sourceStore
                 )
 
-                let previousState = resolvedSyncState(for: source.id)
+                let previousState = syncStates[source.id]
                 let committedAt = Date()
                 // This snapshot passed terminal verification: every page was
                 // read, the revision held still before and after, the first
@@ -5899,7 +5799,7 @@ final class ScanService {
             enqueuePostScanMaintenance(
                 source: source, generation: scanGenerations[sourceID] ?? 0,
                 scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories),
-                directories: directories, syncState: resolvedSyncState(for: sourceID), library: library,
+                directories: directories, syncState: syncStates[sourceID], library: library,
                 sourceStore: sourceStore, sourceManager: sourceManager
             )
         }
@@ -6008,7 +5908,6 @@ final class ScanService {
     }
 
     private func applySyncStates(_ decoded: [String: SourceSyncState]) {
-        evictedSyncIndexMetadata.removeAll()
         syncStates = decoded
         for (sourceID, state) in decoded
         where state.reconciliation != nil && scanStates[sourceID] == nil {
@@ -6057,10 +5956,8 @@ final class ScanService {
             throw CancellationError()
         }
 
-        let previousWasEvicted = evictedSyncIndexMetadata.removeValue(forKey: sourceID) != nil
         let previousState = syncStates[sourceID]
         let changesFolderHierarchy = previousState == nil
-            || previousWasEvicted
             || previousState?.scopeFingerprint != state.scopeFingerprint
             || previousState?.identityScopeFingerprint != state.identityScopeFingerprint
             || previousState?.index != state.index

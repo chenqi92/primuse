@@ -302,24 +302,6 @@ public enum SourceSyncStateDirectory {
         return result
     }
 
-    /// Reads and verifies only one source's persisted binary index on demand.
-    public static func readIndex(
-        for sourceID: String,
-        in directory: URL,
-        fileManager: FileManager = .default
-    ) throws -> (index: SourceSyncIndex, reference: IndexReference)? {
-        let stem = fileStem(for: sourceID)
-        let stateURL = directory.appendingPathComponent(stem + stateSuffix)
-        guard fileManager.fileExists(atPath: stateURL.path) else { return nil }
-        let source = try readSource(
-            stateFileNamed: stem + stateSuffix,
-            in: directory,
-            decoder: makeDecoder()
-        )
-        guard let reference = source.record.index else { return nil }
-        return (source.state.index, reference)
-    }
-
     /// 读一个源:state.json,再按它引用的文件名、行数、SHA-256 读回索引并校验。
     static func readSource(
         stateFileNamed name: String,

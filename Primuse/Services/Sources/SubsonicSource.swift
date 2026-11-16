@@ -570,14 +570,32 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         let content: ServerListeningContent
     }
 
-    private func statsContent(for child: SubsonicChild) -> ServerListeningContent {
+    private struct ResolvedSongIdentity {
+        let id: String
+        let relativePath: String
+        let format: AudioFormat
+        let genre: String?
+    }
+
+    private func resolvedSongIdentity(for child: SubsonicChild) -> ResolvedSongIdentity {
         let suffix = (child.suffix ?? (child.path.map { ($0 as NSString).pathExtension }) ?? "mp3").lowercased()
+        let format = AudioFormat.from(fileExtension: suffix) ?? .mp3
         let relativePath = "/songs/\(child.id).\(suffix.isEmpty ? "mp3" : suffix)"
         let genre = child.genres?.genre(fallback: child.genre) ?? child.genre
-        return ServerListeningContent(
-            songID: Self.hash("\(sourceID):\(relativePath)"),
-            filePath: relativePath,
+        return ResolvedSongIdentity(
+            id: Self.hash("\(sourceID):\(relativePath)"),
+            relativePath: relativePath,
+            format: format,
             genre: genre
+        )
+    }
+
+    private func statsContent(for child: SubsonicChild) -> ServerListeningContent {
+        let identity = resolvedSongIdentity(for: child)
+        return ServerListeningContent(
+            songID: identity.id,
+            filePath: identity.relativePath,
+            genre: identity.genre
         )
     }
 
@@ -2332,9 +2350,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 observedSongAlbumIDs[child.id] = sharedAlbumID
             }
         }
-        let suffix = (child.suffix ?? (child.path.map { ($0 as NSString).pathExtension }) ?? "mp3").lowercased()
-        let format = AudioFormat.from(fileExtension: suffix) ?? .mp3
-        let relativePath = "/songs/\(child.id).\(suffix.isEmpty ? "mp3" : suffix)"
+        let identity = resolvedSongIdentity(for: child)
         let coverArtID = child.coverArt ?? album?.coverArt
         let created = child.created.flatMap(Self.parseDate)
         let added = created.map(ServerSongCatalogMergePolicy.normalizedAddedDate)
@@ -2382,7 +2398,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         )
 
         return Song(
-            id: Self.hash("\(sourceID):\(relativePath)"),
+            id: identity.id,
             title: child.title ?? "Unknown",
             albumID: child.albumId,
             artistID: child.artistId,
@@ -2393,14 +2409,14 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             trackNumber: child.track,
             discNumber: child.discNumber,
             duration: TimeInterval(child.duration ?? 0),
-            fileFormat: format,
-            filePath: relativePath,
+            fileFormat: identity.format,
+            filePath: identity.relativePath,
             sourceID: sourceID,
             fileSize: child.size ?? 0,
             bitRate: child.bitRate,
             sampleRate: child.samplingRate,
             bitDepth: child.bitDepth,
-            genre: child.genres?.genre(fallback: child.genre) ?? child.genre,
+            genre: identity.genre,
             year: child.year,
             lastModified: created,
             dateAdded: added ?? Date(),
@@ -2419,7 +2435,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 catalogBitRateKbps: child.bitRate,
                 sampleRate: child.samplingRate,
                 channelCount: child.channelCount,
-                container: format
+                container: identity.format
             ),
             serverDateAdded: added,
             serverAlbumDateAdded: albumCreated,
