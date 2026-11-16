@@ -2350,6 +2350,76 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     }
 
     @MainActor
+    func testInspectedArtworkDeferralPreservesUnfinishedTagsAndSourceEligibility() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        let stateDirectory = directory.appendingPathComponent("backfill")
+        let backfill = MetadataBackfillService(
+            library: library,
+            sourceManager: SourceManager(sourcesProvider: { [] }),
+            backfillableSourceIDs: { ["readable", "manual-disabled"] },
+            manuallyReadableSourceIDs: { ["readable", "backfill-disabled"] },
+            storageDirectory: stateDirectory
+        )
+        defer { backfill.stop() }
+        func song(_ id: String, source: String = "readable", duration: Double = 120) -> Song {
+            Song(id: id, title: id, albumTitle: "Fixture Album", artistName: "Fixture Artist",
+                 albumArtistName: "Fixture Artist", duration: duration, fileFormat: .mp3,
+                 filePath: "/\(id).mp3", sourceID: source)
+        }
+        let songs = [
+            song("artwork-only"), song("uninspected"), song("missing-duration", duration: 0),
+            song("manual-disabled", source: "manual-disabled"),
+            song("backfill-disabled", source: "backfill-disabled")
+        ]
+        library.addSongs(songs, affectedSourceIDs: ["readable", "manual-disabled", "backfill-disabled"])
+        await library.waitForPendingIndex()
+        backfill.acknowledgeScannerMetadataInspection(
+            songIDs: Set(songs.map(\.id)).subtracting(["uninspected"]).union(["deleted-song"])
+        )
+        await backfill.deferInspectedArtworkOnlyRows()?.value
+        try await waitForBackfillState(
+            songID: "artwork-only", files: ["backfill-artwork-givenup.json"], directory: stateDirectory
+        )
+        let deferred = try JSONDecoder().decode(
+            Set<String>.self,
+            from: Data(contentsOf: stateDirectory.appendingPathComponent("backfill-artwork-givenup.json"))
+        )
+        XCTAssertEqual(deferred, ["artwork-only"])
+        XCTAssertTrue(backfill.needsPlaybackTagRead(songID: "artwork-only", expectedSourceID: "readable"))
+    }
+
+    @MainActor
+    func testInspectedArtworkDeferralRechecksSourcesAfterBackgroundScan() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        let stateDirectory = directory.appendingPathComponent("backfill")
+        var manuallyReadable: Set<String> = ["readable"]
+        let backfill = MetadataBackfillService(
+            library: library, sourceManager: SourceManager(sourcesProvider: { [] }),
+            backfillableSourceIDs: { ["readable"] },
+            manuallyReadableSourceIDs: { manuallyReadable }, storageDirectory: stateDirectory
+        )
+        defer { backfill.stop() }
+        let song = Song(id: "changed-source", title: "Evening Shore", albumTitle: "Fixture Album",
+                        artistName: "Fixture Artist", albumArtistName: "Fixture Artist", duration: 120,
+                        fileFormat: .mp3, filePath: "/changed-source.mp3", sourceID: "readable")
+        library.addSongs([song], affectedSourceIDs: ["readable"])
+        await library.waitForPendingIndex()
+        backfill.acknowledgeScannerMetadataInspection(songIDs: [song.id])
+        let pending = backfill.deferInspectedArtworkOnlyRows()
+        manuallyReadable = []
+        await pending?.value
+        try await waitForBackfillState(
+            songID: song.id, files: ["backfill-title-checked.json"], directory: stateDirectory
+        )
+        let data = try Data(contentsOf: stateDirectory.appendingPathComponent("backfill-artwork-givenup.json"))
+        XCTAssertEqual(try JSONDecoder().decode(Set<String>.self, from: data), [])
+    }
+
+    @MainActor
     func testLocalBackfillRecoversMiddleArtworkAndDoesNotRepeatACompleteMiss() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

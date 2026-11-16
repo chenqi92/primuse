@@ -6,6 +6,17 @@ import UIKit
 import AppKit
 #endif
 
+private struct PlayerCoversContentKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var playerCoversContent: Bool {
+        get { self[PlayerCoversContentKey.self] }
+        set { self[PlayerCoversContentKey.self] = newValue }
+    }
+}
+
 /// Task handles are operational state, not rendering state. Keeping them in
 /// `@State` made every debounce cancellation/replacement invalidate HomeView,
 /// defeating the debounce while background metadata batches were arriving.
@@ -1625,6 +1636,7 @@ struct HomeView: View {
 
     @Environment(AppUpdateChecker.self) private var updateChecker
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.playerCoversContent) private var playerCoversContent
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1879,7 +1891,7 @@ struct HomeView: View {
                 onPlaylistRevisionChange: refreshHomeSnapshotForPlaylistChange,
                 onScanningChange: updateLibraryScanning
             )
-            if library.isReady, showsMusicHomeSnapshot,
+            if library.isReady, showsMusicHomeSnapshot, !playerCoversContent,
                showFolders || showListeningRanking {
                 HomeDiscoveryObserver(model: model.discovery)
             }
@@ -1968,6 +1980,15 @@ struct HomeView: View {
             } else {
                 needsHomeRefreshWhenActive = true
                 refreshCoordinator.cancelAll()
+            }
+        }
+        .onChange(of: playerCoversContent) { _, covered in
+            if covered {
+                needsHomeRefreshWhenActive = true
+                refreshCoordinator.cancelAll()
+            } else if isHomeVisible, isSceneActive, needsHomeRefreshWhenActive {
+                needsHomeRefreshWhenActive = false
+                Task { await refreshHomeSnapshotAfterPresentationIfNeeded() }
             }
         }
         .onDisappear {
@@ -3353,7 +3374,7 @@ struct HomeView: View {
     /// snapshot. Recheck the signature after the delay so a foreground event
     /// or returning to this page does not repeat an already completed refresh.
     private func scheduleDebouncedHomeRefresh() {
-        guard isSceneActive, isHomeVisible else {
+        guard isSceneActive, isHomeVisible, !playerCoversContent else {
             needsHomeRefreshWhenActive = true
             refreshCoordinator.cancelAll()
             return
@@ -3392,6 +3413,11 @@ struct HomeView: View {
     /// seconds. Throttle to one short trailing refresh that reads the latest state.
     private func refreshHomeSnapshotForPlaylistChange() {
         guard model.isPrepared else { return }
+        guard isSceneActive, isHomeVisible, !playerCoversContent else {
+            needsHomeRefreshWhenActive = true
+            refreshCoordinator.cancelAll()
+            return
+        }
         // 已经排着一次就不重排: 它醒来时读的是当下的歌单, 一串变化只算一次。
         guard refreshCoordinator.playlistRefreshTask == nil else { return }
         let elapsed = refreshCoordinator.lastRefreshAt.map { Date().timeIntervalSince($0) }
@@ -3435,7 +3461,7 @@ struct HomeView: View {
         guard showsMusicHomeSnapshot else { return }
         await Task.yield()
         guard !Task.isCancelled else { return }
-        guard isSceneActive else {
+        guard isSceneActive, !playerCoversContent else {
             needsHomeRefreshWhenActive = true
             return
         }
@@ -3458,6 +3484,10 @@ struct HomeView: View {
     private func prepareInitialHomeSnapshot() async {
         let persistedSnapshot = await HomeInitialSnapshotCacheStore.shared.load()
         guard !Task.isCancelled, showsMusicHomeSnapshot else { return }
+        guard isSceneActive, isHomeVisible, !playerCoversContent else {
+            needsHomeRefreshWhenActive = true
+            return
+        }
         let signature = homeSnapshotSignature
         if model.heroSeeds == nil {
             // 存下的那一组就是按这个种子挑的,沿用它,首帧画的封面后台重算完不会整组换掉。
@@ -3521,6 +3551,10 @@ struct HomeView: View {
         guard let songs = await library.prepareStartupSongs(
             ids: Self.startupSongIDs(in: persisted), sourceIDs: startupSourceIDs, fallbackToFirstPage: true, musicOnly: true
         ), !Task.isCancelled, !library.isReady else { return }
+        guard isSceneActive, isHomeVisible, !playerCoversContent else {
+            needsHomeRefreshWhenActive = true
+            return
+        }
         let classification = SpokenWordStore.shared.classificationSnapshot
         let music = songs.filter {
             $0.isPlayable && !classification.collectionOnlySongIDs.contains($0.id)
@@ -3915,7 +3949,7 @@ struct HomeView: View {
 
     private func refreshHomeSnapshot() {
         guard library.isReady, showsMusicHomeSnapshot else { return }
-        guard isSceneActive, isHomeVisible else {
+        guard isSceneActive, isHomeVisible, !playerCoversContent else {
             needsHomeRefreshWhenActive = true
             refreshCoordinator.cancelAll()
             return
@@ -3927,7 +3961,6 @@ struct HomeView: View {
         refreshCoordinator.pendingSignature = signature
         refreshCoordinator.lastRefreshAt = Date()
 
-        let visibleAlbumIDs = Set(library.visibleAlbums.map(\.id))
         let retainedRecommendations = model.snapshot.forYouResults.filter {
             library.unobservedVisibleSong(id: $0.song.id) != nil
         }
@@ -3935,7 +3968,7 @@ struct HomeView: View {
             library.unobservedVisibleSong(id: $0.id) != nil
         }
         let retainedRecentlyAddedAlbums = model.snapshot.recentlyAddedAlbums.filter {
-            visibleAlbumIDs.contains($0.id)
+            library.visibleAlbum(id: $0.id) != nil
         }
         let recommendationInput = showForYou
             ? MusicDiscoveryEngine.recommendationSnapshot(in: library)
@@ -4008,7 +4041,7 @@ struct HomeView: View {
         playedAlbumKeys: Set<String>,
         signature: HomeSnapshotSignature
     ) {
-        guard showsMusicHomeSnapshot, isHomeVisible, isSceneActive else { return }
+        guard showsMusicHomeSnapshot, isHomeVisible, isSceneActive, !playerCoversContent else { return }
         refreshCoordinator.libraryHighlightsTask?.cancel()
         let heroSeeds = currentHeroSeeds(for: signature)
         refreshCoordinator.libraryHighlightsTask = Task { @MainActor in
@@ -4091,7 +4124,7 @@ struct HomeView: View {
         input: MusicDiscoveryEngine.RecommendationSnapshot,
         signature: HomeSnapshotSignature
     ) {
-        guard showsMusicHomeSnapshot, isHomeVisible, isSceneActive else { return }
+        guard showsMusicHomeSnapshot, isHomeVisible, isSceneActive, !playerCoversContent else { return }
         refreshCoordinator.recommendationTask?.cancel()
         refreshCoordinator.recommendationTask = Task { @MainActor in
             let worker = Task.detached(priority: .utility) {

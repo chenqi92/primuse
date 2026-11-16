@@ -11853,10 +11853,33 @@ final class MusicLibrary {
         notifyPlaylistsChanged([playlistID])
     }
 
+    @ObservationIgnored private var playerPresentationOwners: Set<UUID> = []
+    @ObservationIgnored private var pendingResolutionDeferredForPlayer = false
+
+    func setPlayerPresentationActive(_ active: Bool, owner: UUID) {
+        if active {
+            playerPresentationOwners.insert(owner)
+            if playlistPendingResolutionTask != nil {
+                pendingResolutionDeferredForPlayer = true
+                playlistPendingResolutionGeneration &+= 1
+                playlistPendingResolutionTask?.cancel()
+                playlistPendingResolutionTask = nil
+            }
+        } else if playerPresentationOwners.remove(owner) != nil,
+                  playerPresentationOwners.isEmpty, pendingResolutionDeferredForPlayer {
+            pendingResolutionDeferredForPlayer = false
+            schedulePlaylistPendingResolution(after: .seconds(1))
+        }
+    }
+
     /// 曲库变了(扫描、回填、启用了一个源)之后, 在后台把占位和曲库重新对一遍:
     /// 把握大的原位点亮, 只够得上「可能是」的记下候选等用户确认。
     private func schedulePlaylistPendingResolution(after delay: Duration = .seconds(3)) {
         guard !playlistPendingEntries.isEmpty, !isPreparing else { return }
+        guard playerPresentationOwners.isEmpty else {
+            pendingResolutionDeferredForPlayer = true
+            return
+        }
         playlistPendingResolutionTask?.cancel()
         playlistPendingResolutionGeneration &+= 1
         let generation = playlistPendingResolutionGeneration

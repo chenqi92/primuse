@@ -7,8 +7,353 @@ import UniformTypeIdentifiers
 import XCTest
 @testable import Primuse
 
+@MainActor @Observable
+private final class CardFlightTestPlacement {
+    var compact = false
+}
+
+@MainActor @Observable
+private final class LyricsCompanionTestState {
+    var visible = false
+    var songID = "first"
+    var revision = 0
+}
+
 @MainActor
 final class PlayerBackdropImagingTests: XCTestCase {
+    func testCoveredPageStopsReceivingNativeHitsAndResumesWithoutRemounting() async throws {
+        @MainActor
+        final class Observations {
+            var mounts = 0
+            let scroll = UIScrollView()
+        }
+        struct NativePage: UIViewRepresentable {
+            let observations: Observations
+
+            func makeUIView(context: Context) -> UIScrollView {
+                observations.mounts += 1
+                observations.scroll.contentSize = CGSize(width: 200, height: 2000)
+                return observations.scroll
+            }
+
+            func updateUIView(_ view: UIScrollView, context: Context) {}
+        }
+        struct Harness: View {
+            let state: CardFlightTestPlacement
+            let observations: Observations
+
+            var body: some View {
+                NativePage(observations: observations)
+                    .modifier(PlayerCoveredContentInteraction(isCovered: state.compact))
+            }
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let state = CardFlightTestPlacement(), observations = Observations()
+        let host = UIHostingController(rootView: Harness(state: state, observations: observations))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previousWindow?.makeKeyAndVisible() }
+        try await Task.sleep(for: .milliseconds(100))
+        host.view.layoutIfNeeded()
+        observations.scroll.contentOffset.y = 500
+
+        func pageReceivesHit() -> Bool {
+            let scroll = observations.scroll
+            let point = scroll.convert(CGPoint(x: scroll.bounds.midX, y: scroll.bounds.midY), to: window)
+            let target = window.hitTest(point, with: nil)
+            return target === scroll || target?.isDescendant(of: scroll) == true
+        }
+
+        XCTAssertTrue(pageReceivesHit())
+        for _ in 0..<4 {
+            state.compact = true
+            try await Task.sleep(for: .milliseconds(80))
+            XCTAssertFalse(pageReceivesHit(), "Covered native controls must not participate in player touches")
+            state.compact = false
+            try await Task.sleep(for: .milliseconds(80))
+            XCTAssertTrue(pageReceivesHit(), "Minimizing the player must restore page interaction")
+            XCTAssertEqual(observations.scroll.contentOffset.y, 500, accuracy: 1)
+            XCTAssertEqual(observations.mounts, 1)
+        }
+    }
+
+    func testHiddenInterludeStopsRefreshingAndResumesAtCurrentPhase() async throws {
+        final class Observations {
+            var reads = 0
+            var secondsUntilNextLine = 0.4
+        }
+        struct Harness: View {
+            let state: CardFlightTestPlacement
+            let observations: Observations
+
+            var body: some View {
+                LyricInterludeDots(
+                    isActive: true,
+                    isPlaying: true,
+                    isSceneActive: state.compact,
+                    phase: {
+                        observations.reads += 1
+                        return .init(progress: 0.9, secondsUntilNextLine: observations.secondsUntilNextLine)
+                    },
+                    tint: .primary,
+                    restingOpacity: 0
+                )
+                .opacity(state.compact ? 1 : 0)
+            }
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let state = CardFlightTestPlacement(), observations = Observations()
+        state.compact = true
+        let host = UIHostingController(rootView: Harness(state: state, observations: observations))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previousWindow?.makeKeyAndVisible() }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertGreaterThan(observations.reads, 1, "Visible anticipation must animate")
+        state.compact = false
+        try await Task.sleep(for: .milliseconds(150))
+        let hiddenReads = observations.reads
+        observations.secondsUntilNextLine = -1
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(observations.reads, hiddenReads, "Hidden lyrics must stop both animation timelines")
+        observations.secondsUntilNextLine = 4
+        state.compact = true
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertGreaterThan(observations.reads, hiddenReads, "Reopening must resume the current phase")
+        state.compact = false
+        try await Task.sleep(for: .milliseconds(150))
+        let secondHiddenReads = observations.reads
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(observations.reads, secondHiddenReads, "The regular interlude timeline must also stop")
+    }
+
+    func testLyricsCompanionTasksSurviveCoverSwitchesAndWaitForNextSongPresentation() async throws {
+        final class Observations {
+            var starts: [String] = []
+            var mounts = 0
+            var unmounts = 0
+        }
+        struct Harness: View {
+            let state: LyricsCompanionTestState
+            let observations: Observations
+
+            var body: some View {
+                let taskID = "\(state.songID)-\(state.revision)"
+                PlayerRetainedLyricsTask(identity: state.songID, isActive: state.visible) {
+                    Color.clear
+                        .onAppear { observations.mounts += 1 }
+                        .onDisappear { observations.unmounts += 1 }
+                        .task(id: taskID) { observations.starts.append(taskID) }
+                }
+            }
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let state = LyricsCompanionTestState(), observations = Observations()
+        let host = UIHostingController(rootView: Harness(state: state, observations: observations))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previousWindow?.makeKeyAndVisible() }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(observations.starts.isEmpty, "Cover-only listening must not activate companion work")
+        for _ in 0..<4 {
+            state.visible = true
+            try await Task.sleep(for: .milliseconds(80))
+            state.visible = false
+            try await Task.sleep(for: .milliseconds(80))
+        }
+        XCTAssertEqual(observations.starts, ["first-0"])
+        XCTAssertEqual(observations.mounts, 1)
+        XCTAssertEqual(observations.unmounts, 0)
+        state.revision = 1
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(observations.starts, ["first-0", "first-1"],
+                       "Changed lyrics must still refresh the retained task")
+        state.songID = "second"
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(observations.unmounts, 1)
+        XCTAssertEqual(observations.starts, ["first-0", "first-1"])
+        state.visible = true
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(observations.starts, ["first-0", "first-1", "second-1"])
+        XCTAssertEqual(observations.mounts, 2)
+    }
+
+    func testPlayerRenderHostPreservesStateAcrossEnvironmentChanges() async throws {
+        final class Observations {
+            var mounts = 0
+            var schemes: [ColorScheme] = []
+            var localChanges: [Int] = []
+        }
+        struct Surface: View {
+            let observations: Observations
+            @Environment(\.colorScheme) private var scheme
+            @Environment(\.playerSurfaceIsAwake) private var awake
+            @State private var localChanges = 0
+
+            var body: some View {
+                Color.clear
+                    .onAppear { observations.mounts += 1 }
+                    .onChange(of: scheme, initial: true) { _, value in observations.schemes.append(value) }
+                    .onChange(of: awake) { _, _ in
+                        localChanges += 1
+                        observations.localChanges.append(localChanges)
+                    }
+            }
+        }
+        struct Harness: View {
+            let state: CardFlightTestPlacement
+            let observations: Observations
+            var body: some View {
+                PlayerRenderHost(content: Surface(observations: observations))
+                    .environment(\.colorScheme, state.compact ? .dark : .light)
+                    .environment(\.playerSurfaceIsAwake, !state.compact)
+            }
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let state = CardFlightTestPlacement(), observations = Observations()
+        let host = UIHostingController(rootView: Harness(state: state, observations: observations))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previousWindow?.makeKeyAndVisible() }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(150))
+        for _ in 0..<4 {
+            state.compact.toggle()
+            try await Task.sleep(for: .milliseconds(80))
+        }
+        XCTAssertEqual(observations.mounts, 1)
+        XCTAssertEqual(observations.localChanges, [1, 2, 3, 4])
+        XCTAssertEqual(observations.schemes, [.light, .dark, .light, .dark, .light])
+        XCTAssertEqual(host.children.count, 1)
+    }
+
+    func testCardFlightDoesNotRebuildArtworkForAnimationFrames() async throws {
+        final class Counter {
+            var builds = 0
+            var mounts = 0
+        }
+        struct Artwork: View {
+            let counter: Counter
+            @Environment(\.artworkContentViewport) private var viewport
+
+            var body: some View {
+                let _ = { counter.builds += 1 }()
+                Color.red
+                    .frame(width: viewport?.width, height: viewport?.height)
+                    .onAppear { counter.mounts += 1 }
+            }
+        }
+        struct Harness: View {
+            let placement: CardFlightTestPlacement
+            let counter: Counter
+
+            var body: some View {
+                Artwork(counter: counter)
+                    .modifier(LyricsArtworkCardFlight(
+                        rect: placement.compact
+                            ? CGRect(x: 20, y: 20, width: 44, height: 44)
+                            : CGRect(x: 20, y: 100, width: 320, height: 320),
+                        cornerRadius: placement.compact ? 6 : 12,
+                        shadow: .init(), renderSize: 512
+                    ))
+            }
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let placement = CardFlightTestPlacement()
+        let counter = Counter()
+        let host = UIHostingController(rootView: Harness(placement: placement, counter: counter))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+        }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(150))
+        let initialBuilds = counter.builds
+        for compact in [true, false, true, false] {
+            withAnimation(.linear(duration: 0.3)) { placement.compact = compact }
+            try await Task.sleep(for: .milliseconds(400))
+        }
+        XCTAssertEqual(counter.mounts, 1)
+        XCTAssertLessThanOrEqual(counter.builds - initialBuilds, 4,
+                                "Moving the card must not invalidate artwork content every animation frame")
+    }
+
+    func testClosedPlayerMenuDoesNotBuildLibraryActionsDuringLayout() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        var builds = 0
+        func menuItems() -> some View {
+            builds += 1
+            return Button("Test action") {}
+        }
+        let host = UIHostingController(rootView: NowPlayingLazyMenu {
+            menuItems()
+        } label: {
+            Image(systemName: "ellipsis")
+        })
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+        }
+        for width: CGFloat in [320, 390, 844, 390] {
+            host.view.frame.size = CGSize(width: width, height: 600)
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(builds, 0, "Closed menu must not materialize library-backed actions during layout")
+        }
+    }
+
+    func testLyricsHandoffNeverDrawsBothTextSurfacesAtOnce() throws {
+        // 采样打开、反向和中途折返的同一条转场，不依赖异步延时任务。
+        let progress = stride(from: 0.0, through: 1.0, by: 0.05).map { $0 }
+        for fraction in progress + progress.reversed() + [0.2, 0.6, 0.4, 0.8] {
+            let content = HStack(spacing: 0) {
+                Color(red: 1, green: 0, blue: 0)
+                    .modifier(PlayerLyricsHandoffOpacity(progress: 1 - fraction, isLyrics: false))
+                Color(red: 0, green: 1, blue: 0)
+                    .modifier(PlayerLyricsHandoffOpacity(progress: fraction))
+            }
+            .frame(width: 40, height: 20)
+            .background(Color.black)
+            let renderer = ImageRenderer(content: content)
+            renderer.scale = 1
+            let image = try XCTUnwrap(renderer.uiImage?.cgImage)
+            let pixels = try rgbaPixels(of: image)
+            let headingOffset: Int = (10 * 40 + 10) * 4
+            let lyricOffset: Int = (10 * 40 + 30) * 4 + 1
+            let heading = pixels[headingOffset]
+            let lyrics = pixels[lyricOffset]
+            XCTAssertTrue(heading < 3 || lyrics < 3, "Text overlaps at progress \(fraction)")
+            if fraction == 0 { XCTAssertGreaterThan(heading, 250) }
+            if fraction == 1 { XCTAssertGreaterThan(lyrics, 250) }
+        }
+    }
+
     func testRadioLongTitlesLayoutAtNarrowAndStandardWidths() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -66,6 +411,22 @@ final class PlayerBackdropImagingTests: XCTestCase {
     }
 
     func testLyricsSurfaceSurvivesRepeatedCoverSwitchesWithoutResettingScroll() async throws {
+        try await assertLyricsSurfaceSurvivesCoverSwitches(wordTimed: false)
+    }
+
+    func testWordLyricsSurfaceSurvivesCoverSwitchesAndHiddenPlaybackAdvance() async throws {
+        try await assertLyricsSurfaceSurvivesCoverSwitches(wordTimed: true)
+    }
+
+    func testShortLyricsSurfaceSurvivesCoverSwitchesAndHiddenPlaybackAdvance() async throws {
+        try await assertLyricsSurfaceSurvivesCoverSwitches(wordTimed: false, lineCount: 24)
+    }
+
+    func testShortWordLyricsSurfaceSurvivesCoverSwitchesAndHiddenPlaybackAdvance() async throws {
+        try await assertLyricsSurfaceSurvivesCoverSwitches(wordTimed: true, lineCount: 24)
+    }
+
+    private func assertLyricsSurfaceSurvivesCoverSwitches(wordTimed: Bool, lineCount: Int = 80) async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
@@ -75,10 +436,15 @@ final class PlayerBackdropImagingTests: XCTestCase {
         defaults.set(false, forKey: PlayerAppearancePreferences.showsLyricsInterludeKey)
         let player = AudioPlayerService(playbackSettings: PlaybackSettingsStore(defaults: defaults),
                                        activateAudioSession: { _ in XCTFail("No audio should start") })
-        player.currentTime = 130
-        let lyrics = (0..<80).map {
-            LyricLine(id: "switch-\($0)", timestamp: Double($0 * 5),
-                      text: "A paper lantern follows the quiet river \($0)", isSynchronized: true)
+        player.currentTime = lineCount < 40 ? 45 : 130
+        let lyrics = (0..<lineCount).map { index in
+            let start = Double(index * 5)
+            return LyricLine(id: "switch-\(index)", timestamp: start,
+                      text: "A paper lantern follows the quiet river \(index)", isSynchronized: true,
+                      syllables: wordTimed ? [
+                        LyricSyllable(text: "A paper lantern ", start: start, end: start + 2),
+                        LyricSyllable(text: "follows the quiet river \(index)", start: start + 2, end: start + 5)
+                      ] : nil)
         }
         let fixture = PlayerCoverLyricsFixture()
         let probe = PlayerLyricsLifecycleProbe.State()
@@ -92,9 +458,16 @@ final class PlayerBackdropImagingTests: XCTestCase {
             previousWindow?.makeKeyAndVisible()
             defaults.removePersistentDomain(forName: suite)
         }
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(probe.mountCount, 0, "Opening the cover must not lay out hidden lyrics")
-        var scrollIdentity: ObjectIdentifier?
+        host.view.layoutIfNeeded()
+        for _ in 0..<20 {
+            if let scroll = playerLyricsScrollView(in: host.view), scroll.contentOffset.y > 500 { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(probe.mountCount, 1, "Settled cover prewarms lyrics before the first transition")
+        let prewarmedScroll = try XCTUnwrap(playerLyricsScrollView(in: host.view))
+        XCTAssertGreaterThan(prewarmedScroll.contentOffset.y, 500,
+                             "Hidden prewarming must position the current lyric before the first transition")
+        var scrollIdentity: ObjectIdentifier? = ObjectIdentifier(prewarmedScroll)
         var settledOffset: CGFloat?
         for _ in 0..<3 {
             fixture.visible = true
@@ -113,6 +486,30 @@ final class PlayerBackdropImagingTests: XCTestCase {
             XCTAssertGreaterThan(scroll.bounds.width, 0)
             XCTAssertGreaterThan(scroll.bounds.height, 0)
         }
+        // 封面停留期间播放位置前进，重新打开应直接落在新句，仍复用同一个列表。
+        player.currentTime = lineCount < 40 ? 95 : 230
+        fixture.visible = true
+        try await Task.sleep(for: .milliseconds(500))
+        let advancedScroll = try XCTUnwrap(playerLyricsScrollView(in: host.view))
+        XCTAssertEqual(ObjectIdentifier(advancedScroll), scrollIdentity)
+        XCTAssertEqual(probe.mountCount, 1)
+        XCTAssertGreaterThan(advancedScroll.contentOffset.y, try XCTUnwrap(settledOffset) + 300)
+        let restoredOffset = advancedScroll.contentOffset.y
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(advancedScroll.contentOffset.y, restoredOffset, accuracy: 2,
+                       "The newly visible lyric must not jump again after restoration")
+
+        let originalHeight = advancedScroll.contentSize.height
+        let originalInkAnchor = try currentLyricInkAnchor(in: advancedScroll)
+        defaults.set(1.5, forKey: "lyricsFontScale")
+        try await Task.sleep(for: .milliseconds(900))
+        XCTAssertTrue(playerLyricsScrollView(in: host.view) === advancedScroll)
+        XCTAssertGreaterThan(advancedScroll.contentSize.height, originalHeight + 20,
+                             "Changing typography must invalidate cached lyric measurements")
+        defaults.set(1.0, forKey: "lyricsFontScale")
+        try await Task.sleep(for: .milliseconds(900))
+        XCTAssertEqual(try currentLyricInkAnchor(in: advancedScroll), originalInkAnchor, accuracy: 2,
+                       "Restoring typography must restore the current lyric anchor")
     }
 
     func testRapidCoverSwitchesDisableHiddenLyricsHitTestingWithoutRemounting() async throws {
@@ -744,15 +1141,21 @@ final class PlayerBackdropImagingTests: XCTestCase {
                 UIColor.yellow.setFill()
                 context.fill(CGRect(x: sourceSize.width - 12, y: 12, width: 12, height: sourceSize.height - 24))
             }
-            for rect in [CGRect(x: 0, y: 0, width: 320, height: 320)] {
+            for compositor in [false, true] {
+                let rect = CGRect(x: 0, y: 0, width: 320, height: 320)
                 let top: CGFloat = 0
                 let bottom: CGFloat = 0
                 let trailing: CGFloat = 0
                 let artwork = UncroppedArtwork(image: source) {
                     Image(uiImage: source).resizable().scaledToFill()
                 }
-                .modifier(LyricsArtworkFlight(rect: rect, cornerRadius: 0, shadow: .init(),
-                    bottomFade: bottom, trailingFade: trailing, renderSize: 512, topContentInset: top))
+                .if(compositor) {
+                    $0.modifier(LyricsArtworkCardFlight(rect: rect, cornerRadius: 0, shadow: .init(), renderSize: 512))
+                }
+                .if(!compositor) {
+                    $0.modifier(LyricsArtworkFlight(rect: rect, cornerRadius: 0, shadow: .init(),
+                        bottomFade: bottom, trailingFade: trailing, renderSize: 512, topContentInset: top))
+                }
                 .frame(width: rect.width, height: rect.height)
                 let renderer = ImageRenderer(content: artwork)
                 renderer.scale = 1
@@ -837,6 +1240,107 @@ final class PlayerBackdropImagingTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testProgressPathPreservesCapsulePixelsAtBothLeadingEdges() throws {
+        for direction in [LayoutDirection.leftToRight, .rightToLeft] {
+            for height in [CGFloat(5), CGFloat(10)] {
+                for progress in [CGFloat(0), 0.003, 0.02, 0.5, 1] {
+                    let reference = ZStack(alignment: .leading) {
+                        Color.clear
+                        Capsule().fill(.white).frame(width: 200 * progress)
+                    }
+                    .frame(width: 200, height: height)
+                    .background(.black)
+                    .environment(\.layoutDirection, direction)
+                    let candidate = ProgressTrackFill(progress: progress)
+                    .fill(.white)
+                    .frame(width: 200, height: height)
+                    .background(.black)
+                    .environment(\.layoutDirection, direction)
+                    let oldRenderer = ImageRenderer(content: reference)
+                    let newRenderer = ImageRenderer(content: candidate)
+                    oldRenderer.scale = 3
+                    newRenderer.scale = 3
+                    let oldImage = try XCTUnwrap(oldRenderer.uiImage?.cgImage)
+                    let newImage = try XCTUnwrap(newRenderer.uiImage?.cgImage)
+                    XCTAssertEqual(oldImage.width, newImage.width)
+                    XCTAssertEqual(oldImage.height, newImage.height)
+                    let oldPixels = try rgbaPixels(of: oldImage)
+                    let newPixels = try rgbaPixels(of: newImage)
+                    let error = zip(oldPixels, newPixels).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }
+                    XCTAssertLessThan(Double(error) / Double(oldPixels.count), 0.5,
+                                      "direction=\(direction), height=\(height), progress=\(progress)")
+                }
+            }
+        }
+    }
+
+    func testNativeProgressFillMatchesCapsuleAtBothLeadingEdges() throws {
+        for direction in [LayoutDirection.leftToRight, .rightToLeft] {
+            for height in [CGFloat(5), CGFloat(10)] {
+                for progress in [CGFloat(0), 0.003, 0.02, 0.5, 1] {
+                    let reference = ZStack(alignment: .leading) {
+                        Color.clear
+                        Capsule().fill(.white).frame(width: 200 * progress)
+                    }
+                    .frame(width: 200, height: height)
+                    .background(.black)
+                    .environment(\.layoutDirection, direction)
+                    let renderer = ImageRenderer(content: reference)
+                    renderer.scale = 3
+                    let oldPixels = try rgbaPixels(of: XCTUnwrap(renderer.uiImage?.cgImage))
+                    let view = PlayerProgressFillView()
+                    view.frame = CGRect(x: 0, y: 0, width: 200, height: height)
+                    view.backgroundColor = .black
+                    view.update(progress: progress, color: .white,
+                                isRightToLeft: direction == .rightToLeft, animationDuration: 0)
+                    view.layoutIfNeeded()
+                    let format = UIGraphicsImageRendererFormat()
+                    format.scale = 3
+                    let image = UIGraphicsImageRenderer(size: view.bounds.size, format: format).image { context in
+                        view.layer.render(in: context.cgContext)
+                    }
+                    let newPixels = try rgbaPixels(of: XCTUnwrap(image.cgImage))
+                    let difference = zip(oldPixels, newPixels).reduce(0.0) { $0 + Double(abs(Int($1.0) - Int($1.1))) }
+                    XCTAssertLessThan(difference / Double(oldPixels.count), 0.5,
+                                      "direction=\(direction), height=\(height), progress=\(progress)")
+                }
+            }
+        }
+    }
+
+    func testNativeProgressRetargetsWithoutJumpAndSeekStopsInterpolation() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let view = PlayerProgressFillView()
+        view.frame = CGRect(x: 20, y: 100, width: 200, height: 10)
+        controller.view.addSubview(view)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previousWindow?.makeKeyAndVisible() }
+        view.layoutIfNeeded()
+        view.update(progress: 0.2, color: .white, isRightToLeft: false, animationDuration: 0)
+        try await Task.sleep(for: .milliseconds(50))
+        view.update(progress: 0.8, color: .white, isRightToLeft: false, animationDuration: 0.5)
+        try await Task.sleep(for: .milliseconds(120))
+        let fill = try XCTUnwrap(view.layer.sublayers?.first)
+        let before = try XCTUnwrap(fill.presentation()).bounds.width
+        XCTAssertGreaterThan(before, 40)
+        XCTAssertLessThan(before, 160)
+        view.update(progress: 0.9, color: .white, isRightToLeft: false, animationDuration: 0.5)
+        let animation = try XCTUnwrap(fill.animation(forKey: "bounds") as? CABasicAnimation)
+        XCTAssertEqual(try XCTUnwrap(animation.fromValue as? NSValue).cgRectValue.width, before, accuracy: 2)
+        try await Task.sleep(for: .milliseconds(550))
+        XCTAssertEqual(fill.bounds.width, 180, accuracy: 0.01)
+        view.update(progress: 0.1, color: .white, isRightToLeft: true, animationDuration: 0)
+        XCTAssertEqual(fill.frame.minX, 180, accuracy: 0.01)
+        XCTAssertEqual(fill.frame.maxX, 200, accuracy: 0.01)
+        XCTAssertTrue(fill.animationKeys()?.isEmpty ?? true)
+        XCTAssertFalse(view.isUserInteractionEnabled)
     }
 
     func testAudiobookProgressMovesTrackWithoutShrinkingScrubArea() async throws {
@@ -1007,9 +1511,14 @@ private final class PlayerRotationProbeController: UIHostingController<PlayerRot
     }
 }
 
+@MainActor
 @Observable
 private final class PlayerCoverLyricsFixture {
-    var visible = false
+    let presentation = NowPlayingLyricsPresentation()
+    var visible: Bool {
+        get { presentation.isVisible }
+        set { presentation.isVisible = newValue }
+    }
 }
 
 private struct PlayerCoverLyricsProbeView: View {
@@ -1029,10 +1538,12 @@ private struct PlayerCoverLyricsProbeView: View {
             }
             Color.cyan.frame(height: 120)
         }
-        .modifier(PlayerLyricsViewportOverlay(isActive: true, isVisible: fixture.visible) { _ in
+        .modifier(PlayerLyricsViewportOverlay(isActive: true, isVisible: fixture.visible,
+                                             prewarmsLyrics: true) { _ in
             LyricsScrollView(lyrics: lyrics, lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
                 isResolvingLyrics: false, player: player, songID: "switch-lyrics",
-                isSceneActive: fixture.visible, isScrapingCurrentSong: false, canTranscribeAudio: false,
+                isSceneActive: true, presentation: fixture.presentation, preparesHiddenPosition: true,
+                isScrapingCurrentSong: false, canTranscribeAudio: false,
                 isScrapeActionUnavailable: true, onAutomaticScrape: {}, onTranscribeAudio: {},
                 onBackgroundTap: {}, onShareLyricLine: { _ in }, translatedTextByLineID: [:],
                 translationActivity: .idle)
@@ -1040,6 +1551,7 @@ private struct PlayerCoverLyricsProbeView: View {
                 .background(PlayerLyricsLifecycleProbe(state: probe))
         })
         .animation(.easeInOut(duration: 0.25), value: fixture.visible)
+        .environment(\.colorScheme, .light)
     }
 }
 

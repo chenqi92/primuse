@@ -293,6 +293,7 @@ final class MetadataBackfillService {
     /// 内嵌封面等露面时读一次首段的歌(见 `DeferredEmbeddedArtworkState.awaitingDisplay`)。
     /// 同时在 `artworkGivenUpIDs` 里, 后台队列不为封面排它们。
     @ObservationIgnored private var deferredArtworkIDs: Set<String> = []
+    @ObservationIgnored private var inspectedArtworkDeferralTask: Task<Void, Never>?
     /// 远端源有界首尾段没看全、内嵌封面可能在窗口外的歌: 只等它整首进了播放缓存再从缓存里取,
     /// 不再为封面发网络请求(见 `DeferredEmbeddedArtworkState.awaitingPlayback`)。也在
     /// `artworkGivenUpIDs` 里。和 `deferredArtworkIDs` 一起存在 peer seed 状态文件里。
@@ -1823,24 +1824,53 @@ final class MetadataBackfillService {
         deferInspectedArtworkOnlyRows()
     }
 
-    func deferInspectedArtworkOnlyRows() {
-        let readable = backfillableSourceIDs()
-        let manuallyReadable = manuallyReadableSourceIDs()
+    @discardableResult
+    func deferInspectedArtworkOnlyRows() -> Task<Void, Never>? {
+        inspectedArtworkDeferralTask?.cancel()
+        inspectedArtworkDeferralTask = nil
+        let readable = backfillableSourceIDs().intersection(manuallyReadableSourceIDs())
+        guard !readable.isEmpty, !titleCheckedIDs.isEmpty else { return nil }
+        let songs = library.songs
+        let inspectedIDs = titleCheckedIDs
+        let peerCovers = peerCoverKeyBySongID
         let workReasons = makeWorkReasonsPredicate()
-        let ids = Set(library.songs.lazy.filter { [self] in
-            readable.contains($0.sourceID)
-                && manuallyReadable.contains($0.sourceID)
-                && !$0.isCueTrack && !$0.isStreamDescriptor
-                && titleCheckedIDs.contains($0.id)
-                && workReasons($0) == .artwork
-                && peerCoverKeyBySongID[$0.id] == nil
-        }.map(\.id))
-        guard !ids.isEmpty else { return }
-        deferredArtworkIDs.formUnion(ids)
-        artworkGivenUpIDs.formUnion(ids)
-        saveArtworkGivenUp()
-        markQueueDirty()
-        plog("Backfill: deferred \(ids.count) inspected artwork-only rows until playback or explicit reread")
+        inspectedArtworkDeferralTask = Task { [weak self] in
+            let scan = Task.detached(priority: .utility) {
+                var ids = Set<String>()
+                for (index, song) in songs.enumerated() {
+                    if index.isMultiple(of: 1024), Task.isCancelled { return Set<String>() }
+                    guard readable.contains(song.sourceID), inspectedIDs.contains(song.id),
+                          !song.isCueTrack, !song.isStreamDescriptor,
+                          peerCovers[song.id] == nil, workReasons(song) == .artwork else { continue }
+                    ids.insert(song.id)
+                }
+                return ids
+            }
+            let candidates = await withTaskCancellationHandler {
+                await scan.value
+            } onCancel: {
+                scan.cancel()
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.inspectedArtworkDeferralTask = nil
+            // 筛选期间可能换源、补好标签或收到同伴封面, 只应用仍满足条件的结果。
+            let currentSources = self.backfillableSourceIDs().intersection(self.manuallyReadableSourceIDs())
+            let currentReasons = self.makeWorkReasonsPredicate()
+            let ids = candidates.filter { id in
+                guard self.titleCheckedIDs.contains(id), self.peerCoverKeyBySongID[id] == nil,
+                      let song = self.library.storedSong(id: id) else { return false }
+                return currentSources.contains(song.sourceID)
+                    && !song.isCueTrack && !song.isStreamDescriptor
+                    && currentReasons(song) == .artwork
+            }
+            guard !ids.isEmpty else { return }
+            self.deferredArtworkIDs.formUnion(ids)
+            self.artworkGivenUpIDs.formUnion(ids)
+            self.saveArtworkGivenUp()
+            self.markQueueDirty()
+            plog("Backfill: deferred \(ids.count) inspected artwork-only rows until playback or explicit reread")
+        }
+        return inspectedArtworkDeferralTask
     }
 
     static func observeReadingConfigurationChanges(
@@ -4467,6 +4497,8 @@ final class MetadataBackfillService {
     /// bounded ranges prove insufficient.
     private static let explicitRereadTimeout: TimeInterval = 180
     private func runWorker() async -> Bool {
+        await inspectedArtworkDeferralTask?.value
+        guard !Task.isCancelled else { return false }
         defer { library.flushDeferredLibraryMaintenance() }
         resetPendingFlushState()
         batchSelectionCursor = BatchSelectionCursor()

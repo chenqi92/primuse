@@ -31,6 +31,11 @@ final class UserScrollActivityMonitor {
         install()
     }
 
+    /// 点按触发的转场不进入 tracking 模式，也需要给整库发布留出动画窗口。
+    func recordInteraction(now: Date = Date()) {
+        lastActivityAt = now
+    }
+
     func activity(now: Date = Date()) -> LibraryPublishTimingPolicy.ScrollActivity {
         #if os(iOS)
         let scrolling = RunLoop.main.currentMode == .tracking

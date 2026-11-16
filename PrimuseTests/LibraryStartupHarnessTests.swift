@@ -56,6 +56,102 @@ final class LibraryStartupHarnessTests: XCTestCase {
         await Self.drainLaunchCacheWrites(library)
     }
 
+    func testPlayerPresentationDefersPendingMatchesUntilLastOwnerCloses() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PlayerPending-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let sourceID = UUID().uuidString
+        let playlistID = ServerPlaylistIdentity.playlistID(sourceID: sourceID, serverPlaylistID: "mirror")
+        let entry = PlaylistPendingEntry(title: "Orbit Window", artists: ["Paper Satellites"], duration: 180,
+                                         origin: "jellyfin", externalID: "target", serverSourceID: sourceID)
+        library.addSongs([Song(id: "existing", title: "Quiet Compass", fileFormat: .flac,
+                               filePath: "/items/existing.flac", sourceID: sourceID)])
+        await library.waitForPendingIndex()
+        library.ensurePlaylist(id: playlistID, name: "Mirror")
+        library.replaceMirrorPlaylistSongs(playlistID: playlistID, songIDs: [entry.id],
+                                           coverArtPath: nil, pendingEntries: [entry])
+        await library.waitForPendingPlaylistResolution()
+        let passes = library.playlistPendingMatchPassCount
+        let first = UUID(), second = UUID()
+        library.setPlayerPresentationActive(true, owner: first)
+        library.setPlayerPresentationActive(true, owner: second)
+        library.addSongs([Song(id: "arrived", title: entry.title, fileFormat: .flac,
+                               filePath: "/items/target.flac", sourceID: sourceID)])
+        await library.waitForPendingIndex()
+        await library.waitForPendingPlaylistResolution()
+        XCTAssertEqual(library.playlistPendingMatchPassCount, passes)
+        XCTAssertEqual(library.songIDs(forPlaylist: playlistID), [entry.id])
+        XCTAssertNotNil(library.pendingEntry(id: entry.id))
+
+        library.setPlayerPresentationActive(false, owner: first)
+        await library.waitForPendingPlaylistResolution()
+        XCTAssertEqual(library.playlistPendingMatchPassCount, passes)
+        library.setPlayerPresentationActive(false, owner: second)
+        await library.waitForPendingPlaylistResolution()
+        XCTAssertEqual(library.playlistPendingMatchPassCount, passes + 1)
+        XCTAssertEqual(library.songIDs(forPlaylist: playlistID), ["arrived"])
+        XCTAssertNil(library.pendingEntry(id: entry.id))
+        await Self.drainLaunchCacheWrites(library)
+    }
+
+    private final class PlayerRefreshFileManager: FileManager, @unchecked Sendable {
+        let root: URL
+        init(root: URL) { self.root = root; super.init() }
+        override func urls(for directory: FileManager.SearchPathDirectory,
+                           in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [root] }
+    }
+
+    func testPlayerPresentationCancelsMirrorRefreshAndResumesWithoutCooldown() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("PlayerMirror-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var configuration = MusicSource(id: UUID().uuidString, name: "Mirror fixture", type: .navidrome,
+                                        host: "https://fixture.invalid")
+        configuration.songCount = 1
+        let source = configuration
+        let connector = LocalFileSource(sourceID: source.id, basePath: root)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("Library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("Sources"))
+        store.add(source)
+        let scanner = ScanService(fileManager: PlayerRefreshFileManager(root: root.appendingPathComponent("Scan")),
+                                  connectorProvider: { _ in connector })
+        var attempts = 0
+        var cancelledFence: Bool?
+        var completedFence: Bool?
+        let coordinator = ServerMirrorRefreshCoordinator(
+            sourcesStore: store, sourceManager: manager, library: library, scanService: scanner,
+            launchDelay: .zero
+        ) { _, fence in
+            attempts += 1
+            if attempts == 1 {
+                try? await Task.sleep(for: .seconds(30))
+                cancelledFence = fence()
+            } else {
+                completedFence = fence()
+            }
+        }
+        coordinator.startColdLaunchRefresh()
+        for _ in 0..<100 where attempts == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(attempts, 1)
+        let first = UUID(), second = UUID()
+        coordinator.setPlayerPresentationActive(true, owner: first)
+        coordinator.setPlayerPresentationActive(true, owner: second)
+        for _ in 0..<100 where cancelledFence == nil { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(cancelledFence, false)
+        coordinator.applicationDidBecomeActive()
+        coordinator.setPlayerPresentationActive(false, owner: first)
+        try await Task.sleep(for: .milliseconds(550))
+        XCTAssertEqual(attempts, 1)
+        coordinator.setPlayerPresentationActive(false, owner: second)
+        for _ in 0..<150 where completedFence == nil { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(completedFence, true)
+        coordinator.applicationDidBecomeActive()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(attempts, 2)
+        await Self.drainLaunchCacheWrites(library)
+    }
+
     private actor ClassificationPreparationGate {
         private var started = false
         private var released = false

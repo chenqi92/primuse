@@ -73,6 +73,7 @@ final class ListeningIntentService {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var refreshPending = false
+    @ObservationIgnored private var playerPresentationOwners: Set<UUID> = []
     @ObservationIgnored private var deferredRefresh: Task<Void, Never>?
     @ObservationIgnored private var smartPlaylistCountsKey: String?
     /// 上次点亮时停用着的音乐源。停用、重新启用是用户自己的操作,不等五分钟的节流,马上重数。
@@ -148,6 +149,22 @@ final class ListeningIntentService {
         #endif
     }
 
+    func setPlayerPresentationActive(_ active: Bool, owner: UUID) {
+        if active {
+            playerPresentationOwners.insert(owner)
+            if refreshTask != nil {
+                refreshPending = true
+                forcesNextRefresh = true
+                refreshTask?.cancel()
+            }
+            deferredRefresh?.cancel()
+            deferredRefresh = nil
+        } else if playerPresentationOwners.remove(owner) != nil,
+                  playerPresentationOwners.isEmpty, let library {
+            refresh(library: library)
+        }
+    }
+
     // MARK: Lighting
 
     /// 每次出现、曲库每次变化都可以调:合并并发、按节奏节流,不该算时什么都不做。
@@ -156,6 +173,10 @@ final class ListeningIntentService {
         musicSongsWatcher.watch(library) { [weak self] in
             guard let self, let library = self.library else { return }
             self.refresh(library: library)
+        }
+        guard playerPresentationOwners.isEmpty else {
+            refreshPending = true
+            return
         }
         guard library.isReady else { return }
         refreshSmartPlaylists(library: library)
@@ -213,13 +234,14 @@ final class ListeningIntentService {
                 ) else { return nil }
                 return LightingResult(availability: availability, profile: profile, local: local, personal: personal)
             }
-            let result = await withTaskCancellationHandler {
+            let computed = await withTaskCancellationHandler {
                 await worker.value
             } onCancel: {
                 worker.cancel()
             }
             guard let self else { return }
             self.refreshTask = nil
+            let result = Task.isCancelled || !self.playerPresentationOwners.isEmpty ? nil : computed
             if let result {
                 self.countedDisabledSourceIDs = disabledSourceIDs
                 self.countedHistoryCount = historyCount

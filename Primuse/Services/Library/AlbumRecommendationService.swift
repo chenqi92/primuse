@@ -68,6 +68,7 @@ final class AlbumRecommendationService {
     @ObservationIgnored private var trackOrder: [String: [String]] = [:]
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var refreshPending = false
+    @ObservationIgnored private var playerPresentationOwners: Set<UUID> = []
     @ObservationIgnored private var forcePicksOnNextRefresh = false
     @ObservationIgnored private var momentTimer: Task<Void, Never>?
     @ObservationIgnored private weak var library: MusicLibrary?
@@ -84,6 +85,22 @@ final class AlbumRecommendationService {
         if locale.language.languageCode?.identifier == "zh" { return true }
         let region = locale.region?.identifier ?? ""
         return ["CN", "HK", "MO", "TW", "SG", "MY"].contains(region)
+    }
+
+    func setPlayerPresentationActive(_ active: Bool, owner: UUID) {
+        if active {
+            playerPresentationOwners.insert(owner)
+            if refreshTask != nil {
+                refreshPending = true
+                forcePicksOnNextRefresh = true
+                refreshTask?.cancel()
+            }
+            momentTimer?.cancel()
+            momentTimer = nil
+        } else if playerPresentationOwners.remove(owner) != nil,
+                  playerPresentationOwners.isEmpty, let library {
+            refresh(library: library)
+        }
     }
 
     // MARK: Refreshing
@@ -106,6 +123,10 @@ final class AlbumRecommendationService {
         let now = currentDate
         let followsClock = true
         #endif
+        guard playerPresentationOwners.isEmpty else {
+            refreshPending = true
+            return
+        }
         guard library.isReady else { return }
         if refreshTask != nil {
             refreshPending = true
@@ -192,13 +213,14 @@ final class AlbumRecommendationService {
                 guard !Task.isCancelled else { return nil }
                 return (index, set, forYou, Self.trackOrder(for: ranked, in: songs))
             }
-            let result = await withTaskCancellationHandler {
+            let computed = await withTaskCancellationHandler {
                 await worker.value
             } onCancel: {
                 worker.cancel()
             }
             guard let self else { return }
             self.refreshTask = nil
+            let result = Task.isCancelled || !self.playerPresentationOwners.isEmpty ? nil : computed
             if let result {
                 let (index, set, forYou, order) = result
                 // 算的这一会儿索引被放掉过(退到后台了): 推荐照常换上, 索引不再留着。

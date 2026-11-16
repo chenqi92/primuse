@@ -72,10 +72,12 @@ enum ServerPlaylistMirror {
         let matchingSongs = library.visibleSongs
         let sourceID = source.id
         let sourceType = source.type
-        return await Task.detached(priority: .utility) {
+        let worker = Task.detached(priority: .utility) {
             ServerPlaylistMirror.prepare(snapshot: snapshot, sourceID: sourceID, sourceType: sourceType,
-                                         songs: songs, matchingSongs: matchingSongs)
-        }.value
+                                         songs: songs, matchingSongs: matchingSongs,
+                                         isCancelled: { Task.isCancelled })
+        }
+        return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
     }
 
     nonisolated private static func prepare(
@@ -83,8 +85,10 @@ enum ServerPlaylistMirror {
         sourceID: String,
         sourceType: MusicSourceType,
         songs: [Song],
-        matchingSongs: [Song]
+        matchingSongs: [Song],
+        isCancelled: () -> Bool = { false }
     ) -> PreparedSnapshot {
+        guard !isCancelled() else { return PreparedSnapshot(entries: [], indexedTrackCount: 0) }
         // 只为歌单引用到的曲目建对照; 一张歌单都没有时连整源都不用走。
         let index = serverItemIndex(
             sourceID: sourceID,
@@ -99,8 +103,9 @@ enum ServerPlaylistMirror {
             }
         }
         let matcher = unresolvedSubjects.isEmpty ? nil : PlaylistEntryMatcher(
-            songs: matchingSongs, matching: unresolvedSubjects
+            songs: matchingSongs, matching: unresolvedSubjects, isCancelled: isCancelled
         )
+        guard !isCancelled() else { return PreparedSnapshot(entries: [], indexedTrackCount: 0) }
         let entries = snapshot.playlists.map { serverPlaylist in
             preparedEntry(
                 serverPlaylist, sourceID: sourceID, sourceType: sourceType,

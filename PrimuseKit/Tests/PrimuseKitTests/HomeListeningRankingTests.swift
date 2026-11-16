@@ -22,6 +22,19 @@ struct HomeListeningRankingTests {
         HomeListeningEvent(songID: song, playedAt: date(day, month: month), listenedSeconds: seconds)
     }
 
+    @Test func cancelledRankingStopsBeforeWalkingLibrary() async {
+        let songs = (0..<1_024).map { song("candidate-\($0)") }
+        let events = [event("missing", day: 1)]
+        let calendar = calendar
+        let now = date(5)
+        let task = Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return HomeListeningRanking.ranks(events: events, librarySongs: songs, folders: nil,
+                period: .all, category: .songs, now: now, calendar: calendar)
+        }
+        #expect(await task.value.isEmpty)
+    }
+
     @Test func collaborationsContributeOnceToEachArtistAndKeepSoloHistoryTogether() {
         let songs = ["duet": song("duet", artist: "North / South / NORTH"),
                      "solo": song("solo", artist: "North")]

@@ -862,7 +862,7 @@ struct CachedArtworkView: View {
             ?? artistName
             ?? song?.artistName
         let localAlbumTrackCount = resolvedAlbumID.flatMap { albumID -> Int? in
-            let album = library.visibleAlbums.first(where: { $0.id == albumID })
+            let album = library.visibleAlbum(id: albumID)
             let count = album?.songCount ?? 0
             return count > 0 ? count : nil
         }

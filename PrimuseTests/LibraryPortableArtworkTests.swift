@@ -13,6 +13,69 @@ import XCTest
 
 @MainActor
 final class LibraryPortableArtworkTests: XCTestCase {
+    func testPlayerPresentationDefersAndResumesLibraryRecommendations() async throws {
+        let root = try directory()
+        let suite = "PlayerPresentationRecommendations.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(false, forKey: ListeningIntentService.aiCurationKey)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let library = MusicLibrary(storageDirectory: root)
+        await library.whenReady()
+        let songs = (0..<8).map { index in
+            Song(id: "presentation-\(index)", title: "Paper Lantern \(index)",
+                 albumTitle: "Quiet Roads", artistName: "North Wind", fileFormat: .flac,
+                 filePath: "/music/\(index).flac", sourceID: "local")
+        }
+        library.addSongs(songs)
+        for _ in 0..<200 where library.musicSongs.count != songs.count {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.musicSongs.count, songs.count)
+        let intents = ListeningIntentService(defaults: defaults)
+        let albums = AlbumRecommendationService(defaults: defaults)
+        let first = UUID(), second = UUID()
+        // Cancel a scheduled computation before it can publish; a second
+        // presentation must keep it suspended after the first one closes.
+        intents.refresh(library: library)
+        albums.refresh(library: library)
+        for owner in [first, second] {
+            intents.setPlayerPresentationActive(true, owner: owner)
+            albums.setPlayerPresentationActive(true, owner: owner)
+        }
+        intents.setPlayerPresentationActive(false, owner: first)
+        albums.setPlayerPresentationActive(false, owner: first)
+        intents.refresh(library: library)
+        albums.refresh(library: library)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(intents.availability)
+        XCTAssertNil(albums.recommendations)
+        intents.setPlayerPresentationActive(false, owner: second)
+        albums.setPlayerPresentationActive(false, owner: second)
+        for _ in 0..<300 where intents.availability == nil || albums.recommendations == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNotNil(intents.availability)
+        XCTAssertNotNil(albums.recommendations)
+        XCTAssertEqual(intents.availability?.libraryGeneration, library.musicSongsRevision)
+        let computedAt = intents.availability?.computedAt
+        let revision = albums.revision
+        intents.setPlayerPresentationActive(true, owner: first)
+        albums.setPlayerPresentationActive(true, owner: first)
+        intents.setPlayerPresentationActive(false, owner: first)
+        albums.setPlayerPresentationActive(false, owner: first)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(intents.availability?.computedAt, computedAt,
+                       "Closing a player reuses a current result instead of rescanning the library")
+        XCTAssertEqual(albums.revision, revision)
+        // Stop only these isolated services' deferred work before the fixture
+        // library and defaults are removed.
+        intents.setPlayerPresentationActive(true, owner: first)
+        albums.setPlayerPresentationActive(true, owner: first)
+    }
+
     private actor ArtistPhotoStub {
         var data: Data?
         private(set) var requests = 0
@@ -2043,13 +2106,17 @@ final class LibraryPortableArtworkTests: XCTestCase {
             let renderer = ImageRenderer(content: hero)
             renderer.scale = 1
             let rendered = try XCTUnwrap(renderer.uiImage?.cgImage)
+            // 长方形封面的四周是暗化背景，首帧检查取封面本身，不混入背景颜色。
+            let center = try XCTUnwrap(rendered.cropping(to: CGRect(
+                x: rendered.width / 2, y: rendered.height / 2, width: 1, height: 1
+            )))
             var pixel = [UInt8](repeating: 0, count: 4)
             let context = try XCTUnwrap(CGContext(
                 data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
                 space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
             ))
-            context.draw(rendered, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            context.draw(center, in: CGRect(x: 0, y: 0, width: 1, height: 1))
             XCTAssertGreaterThan(pixel[0], 230, "First frame must show the red artwork")
             XCTAssertLessThan(pixel[1], 25)
             XCTAssertLessThan(pixel[2], 25)

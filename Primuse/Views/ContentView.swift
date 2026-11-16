@@ -1619,6 +1619,7 @@ struct ContentView: View {
     private var idlePrewarmers: some View {
         NowPlayingPrewarmers(isPlayerPresented: $showNowPlaying)
         SettingsTabPrewarmer(
+            isPlayerPresented: $showNowPlaying,
             isEnabled: prewarmsSettingsTab,
             isShowingSettings: selectedTab == AppNavigationTab.settings.rawValue
         )
@@ -2870,10 +2871,22 @@ private struct AuthoritativeSongRemovalObserver: View {
 
 // MARK: - Player Overlay
 
+struct PlayerCoveredContentInteraction: ViewModifier {
+    var isCovered: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .allowsHitTesting(!isCovered)
+            .accessibilityHidden(isCovered)
+    }
+}
+
 private struct PlayerCoveredContentLayout: ViewModifier {
+    @Environment(MusicLibrary.self) private var library
     @Binding var isPlayerPresented: Bool
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @State private var presentationWorkOwner = UUID()
     @State private var restingSize: CGSize?
     @State private var restingHorizontalClass: UserInterfaceSizeClass?
     @State private var restingVerticalClass: UserInterfaceSizeClass?
@@ -2882,16 +2895,28 @@ private struct PlayerCoveredContentLayout: ViewModifier {
         GeometryReader { geometry in
             let size = isPlayerPresented ? restingSize ?? geometry.size : geometry.size
             content
+                .modifier(PlayerCoveredContentInteraction(isCovered: isPlayerPresented))
+                .environment(\.playerCoversContent, isPlayerPresented)
                 .environment(\.horizontalSizeClass, isPlayerPresented ? restingHorizontalClass : horizontalSizeClass)
                 .environment(\.verticalSizeClass, isPlayerPresented ? restingVerticalClass : verticalSizeClass)
                 .frame(width: size.width, height: size.height)
                 .onChange(of: isPlayerPresented, initial: true) { _, presented in
+                    library.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
+                    AppServices.shared.serverMirrorRefresh.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
+                    ListeningIntentService.shared.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
+                    AlbumRecommendationService.shared.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
                     if !presented {
                         remember(size: geometry.size)
                     }
                 }
                 .onChange(of: geometry.size) { _, size in
                     if !isPlayerPresented { remember(size: size) }
+                }
+                .onDisappear {
+                    library.setPlayerPresentationActive(false, owner: presentationWorkOwner)
+                    AppServices.shared.serverMirrorRefresh.setPlayerPresentationActive(false, owner: presentationWorkOwner)
+                    ListeningIntentService.shared.setPlayerPresentationActive(false, owner: presentationWorkOwner)
+                    AlbumRecommendationService.shared.setPlayerPresentationActive(false, owner: presentationWorkOwner)
                 }
         }
     }
@@ -2956,6 +2981,7 @@ private struct PlayerOverlayMount: View {
 /// 在看不见的地方建一份设置页再拆掉，之后第一次切过去就和其他标签一样一次到位。每个进程只做一次；
 /// 真设置页已经打开过（比如启动就停在设置）就不用再做。
 private struct SettingsTabPrewarmer: View {
+    @Binding var isPlayerPresented: Bool
     let isEnabled: Bool
     let isShowingSettings: Bool
     @State private var mounted = false
@@ -2979,8 +3005,8 @@ private struct SettingsTabPrewarmer: View {
             .onChange(of: isShowingSettings, initial: true) { _, showing in
                 if showing { Self.finished = true }
             }
-            .task(id: isEnabled && !isShowingSettings) {
-                guard isEnabled, !isShowingSettings, !Self.finished else { return }
+            .task(id: isEnabled && !isShowingSettings && !isPlayerPresented) {
+                guard isEnabled, !isShowingSettings, !isPlayerPresented, !Self.finished else { return }
                 // 等启动这一阵（曲库装载、首页首屏）过去再做，不跟它们抢主线程。
                 try? await Task.sleep(for: .seconds(2))
                 guard !Task.isCancelled, !Self.finished else { return }
@@ -3059,7 +3085,7 @@ struct PlayerOverlay: View {
 
     var body: some View {
         GeometryReader { geometry in
-            PlayerOverlayContent(
+            PlayerRenderHost(content: PlayerOverlayContent(
                 // 播放页里用到它的三处都同时要求已落定；落定前固定为 false，展开动画开始那一刻
                 // 这个值不翻转，播放页就不必在动画第一帧上整页重算。开始收起时同样不翻转：
                 // 要停的动画改由 `surfaceMotion` 告诉那几处，不再让整页在收起的第一帧重建（#322）。
@@ -3097,7 +3123,7 @@ struct PlayerOverlay: View {
                     )
                 }
             )
-                .equatable()
+                .equatable())
                 // 「播放页始终用深色」(#313):只给播放页这一层换成深色,底下的 App 不跟着变。
                 // 状态栏的字色另外换(见下面的 `PlayerLightStatusBar`)。
                 .environment(\.colorScheme, usesDarkPlayer ? .dark : systemColorScheme)
@@ -3440,6 +3466,33 @@ private struct LibraryTabPage: View, @MainActor Equatable {
 
     var body: some View {
         LibraryView(deepLink: deepLink, onActiveSectionChange: onActiveSectionChange)
+    }
+}
+
+/// 播放器拥有独立的更新图，动画帧不再传播到下面的资料库、首页和设置页。
+/// 控制器常驻，rootView 更新只传环境与状态，歌词滚动视图仍保留原来的身份。
+struct PlayerRenderHost<Content: View>: UIViewControllerRepresentable {
+    let content: Content
+
+    struct Root: View {
+        let content: Content
+        let environment: EnvironmentValues
+
+        var body: some View {
+            content.environment(\.self, environment)
+        }
+    }
+
+    func makeUIViewController(context: Context) -> UIHostingController<Root> {
+        let controller = UIHostingController(rootView: Root(content: content, environment: context.environment))
+        controller.view.backgroundColor = .clear
+        controller.safeAreaRegions = []
+        controller.sizingOptions = []
+        return controller
+    }
+
+    func updateUIViewController(_ controller: UIHostingController<Root>, context: Context) {
+        controller.rootView = Root(content: content, environment: context.environment)
     }
 }
 

@@ -296,7 +296,9 @@ public enum HomeListeningRanking {
         var remainingIDs = Set(events.map(\.songID))
         var songs: [String: Song] = [:]
         songs.reserveCapacity(min(remainingIDs.count, librarySongs.count))
-        for song in librarySongs where remainingIDs.remove(song.id) != nil {
+        for (position, song) in librarySongs.enumerated() {
+            if position.isMultiple(of: 256), withUnsafeCurrentTask(body: { $0?.isCancelled == true }) { return [] }
+            guard remainingIDs.remove(song.id) != nil else { continue }
             songs[song.id] = song
             if remainingIDs.isEmpty { break }
         }
@@ -613,7 +615,8 @@ public enum ListeningSongIdentity {
         guard !keys.isEmpty else { return [:] }
         let titles = Set(keys.values.map(\.coreTitle))
         var buckets: [String: [(song: Song, key: ExternalTrackMatchPolicy.Key)]] = [:]
-        for song in songs {
+        for (position, song) in songs.enumerated() {
+            if position.isMultiple(of: 256), withUnsafeCurrentTask(body: { $0?.isCancelled == true }) { return [:] }
             let key = NormalizationCache.shared.key(for: Member(
                 songID: song.id, title: song.title,
                 artists: ExternalTrackMatchPolicy.artists(of: song), duration: song.duration

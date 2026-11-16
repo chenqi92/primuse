@@ -6,6 +6,7 @@ struct HomeListeningRankingSection: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.playerCoversContent) private var playerCoversContent
     @Environment(\.pmHeightClass) private var heightClass
     @AppStorage(LibraryReviewPreferences.enabledKey) private var reviewsEnabled = false
     @State private var period: HomeListeningPeriod = .week
@@ -137,7 +138,8 @@ struct HomeListeningRankingSection: View {
                 .font(.caption2).foregroundStyle(.tertiary)
                 .padding(.horizontal, 20)
         }
-        .task(id: currentRequest) {
+        .task(id: playerCoversContent ? nil : currentRequest) {
+            guard !playerCoversContent else { return }
             await refresh()
         }
         .onChange(of: period) { _, _ in showsExpandedRanking = false }

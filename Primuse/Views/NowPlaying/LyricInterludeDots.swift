@@ -11,6 +11,7 @@ struct LyricInterludeDots: View {
     let isActive: Bool
     /// 暂停时进度停在原处,不再每秒重画二十次,也不呼吸。
     var isPlaying = true
+    var isSceneActive = true
     let phase: () -> LyricPlaybackPositionPolicy.InterludePhase
     let tint: Color
     let restingOpacity: Double
@@ -24,9 +25,9 @@ struct LyricInterludeDots: View {
 
     var body: some View {
         let interval: TimeInterval = reduceMotion || !isPlaying ? 0.5 : 1.0 / 20
-        TimelineView(.animation(minimumInterval: interval, paused: !isActive || !isPlaying)) { context in
+        TimelineView(.animation(minimumInterval: interval, paused: !isActive || !isPlaying || !isSceneActive)) { context in
             let current = isActive ? phase() : .idle
-            if isActive, isPlaying, !reduceMotion,
+            if isActive, isSceneActive, isPlaying, !reduceMotion,
                current.secondsUntilNextLine <= anticipationWindow + 0.45 {
                 // 开唱前那不到一秒的心跳按屏幕刷新率画,脉冲才不会一格一格地跳。
                 TimelineView(.animation) { beat in
@@ -43,7 +44,7 @@ struct LyricInterludeDots: View {
         let levels = isActive
             ? LyricPlaybackPositionPolicy.interludeDotLevels(progress: phase.progress)
             : [0, 0, 0]
-        let animates = isActive && isPlaying && !reduceMotion
+        let animates = isActive && isSceneActive && isPlaying && !reduceMotion
         // 呼吸在心跳前 0.4 秒内收掉,两种起伏不叠在一起,换过去也不跳一下。
         let breathAmplitude = animates
             ? 0.06 * min(max((phase.secondsUntilNextLine - anticipationWindow) / 0.4, 0), 1)
