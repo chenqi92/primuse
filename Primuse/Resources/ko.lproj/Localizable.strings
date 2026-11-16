@@ -6820,7 +6820,7 @@
 
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "다른 앱과 동시에 재생";
-"playback_mix_with_others_desc" = "재생 중에 다른 앱의 소리를 끊지 않고, 다른 앱이 소리를 내도 일시 정지하지 않습니다. 게임이나 동영상과 함께 들을 수 있습니다. 켜면 시스템이 Primuse를 재생 중인 앱으로 취급하지 않아 잠금 화면, 제어 센터, 이어폰 버튼으로 조작할 수 없습니다. CarPlay에 연결하면 자동으로 원래 방식으로 돌아갑니다.";
+"playback_mix_with_others_desc" = "재생 중에 다른 앱의 소리를 끊지 않고, 다른 앱이 소리를 내도 일시 정지하지 않습니다. 게임이나 동영상과 함께 들을 수 있습니다. 켜면 시스템이 Primuse를 재생 중인 앱으로 취급하지 않아 잠금 화면, 제어 센터, Dynamic Island에 표시되지 않을 수 있고 조작할 수도 없으며, 이어폰 버튼도 작동하지 않습니다. CarPlay에 연결하면 자동으로 원래 방식으로 돌아갑니다.";
 
 /* 原生全屏的封面 / 歌词两面 */
 "immersive_show_artwork" = "앨범 아트 보기";
@@ -7588,3 +7588,5 @@
 "player_backdrop_cache_clear" = "캐시 지우기";
 "player_backdrop_cache_refresh_all" = "모든 이미지 모음 새로 고침";
 "player_backdrop_cache_empty" = "캐시된 배경 이미지가 없습니다";
+"lock_screen_hidden_by_mixing" = "‘다른 앱과 동시에 재생’이(가) 켜져 있어 잠금 화면, 제어 센터, Dynamic Island에 Primuse가 표시되지 않을 수 있으며 아래 설정도 적용되지 않습니다.";
+"lock_screen_hidden_by_mixing_action" = "끄기";

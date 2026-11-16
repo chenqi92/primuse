@@ -6913,7 +6913,7 @@
 
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "与其他 App 同时播放";
-"playback_mix_with_others_desc" = "播放时不打断其他 App 的声音，其他 App 出声时这里也不暂停，比如边听歌边玩游戏、看视频。打开后系统不再把 Primuse 当作正在播放的 App，锁屏、控制中心和耳机按键都控制不了它；连上 CarPlay 时自动恢复原来的方式。";
+"playback_mix_with_others_desc" = "播放时不打断其他 App 的声音，其他 App 出声时这里也不暂停，比如边听歌边玩游戏、看视频。打开后系统不再把 Primuse 当作正在播放的 App：锁屏、控制中心和灵动岛可能看不到 Primuse 在播放，也控制不了它，耳机按键同样不起作用。连上 CarPlay 时自动恢复原来的方式。";
 
 /* 原生全屏的封面 / 歌词两面 */
 "immersive_show_artwork" = "显示封面";
@@ -7681,3 +7681,5 @@
 "player_backdrop_cache_clear" = "清理缓存";
 "player_backdrop_cache_refresh_all" = "刷新全部图集";
 "player_backdrop_cache_empty" = "暂无已缓存的背景图片";
+"lock_screen_hidden_by_mixing" = "「与其他 App 同时播放」开着，锁屏、控制中心和灵动岛可能看不到 Primuse，下面这些设置也不起作用。";
+"lock_screen_hidden_by_mixing_action" = "关闭";

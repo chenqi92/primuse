@@ -6821,7 +6821,7 @@
 
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "ほかのアプリと同時に再生";
-"playback_mix_with_others_desc" = "再生中もほかのアプリの音を止めず、ほかのアプリが音を出しても一時停止しません。ゲームや動画と一緒に聴けます。オンにすると、システムは Primuse を再生中のアプリとして扱わなくなり、ロック画面、コントロールセンター、イヤホンのボタンでは操作できません。CarPlay に接続すると自動的に通常の方式に戻ります。";
+"playback_mix_with_others_desc" = "再生中もほかのアプリの音を止めず、ほかのアプリが音を出しても一時停止しません。ゲームや動画と一緒に聴けます。オンにすると、システムは Primuse を再生中のアプリとして扱わなくなり、ロック画面、コントロールセンター、Dynamic Island に表示されないことがあり、操作もできません。イヤホンのボタンも効きません。CarPlay に接続すると自動的に通常の方式に戻ります。";
 
 /* 原生全屏的封面 / 歌词两面 */
 "immersive_show_artwork" = "アートワークを表示";
@@ -7589,3 +7589,5 @@
 "player_backdrop_cache_clear" = "キャッシュを削除";
 "player_backdrop_cache_refresh_all" = "すべての画像集を更新";
 "player_backdrop_cache_empty" = "キャッシュされた背景画像はありません";
+"lock_screen_hidden_by_mixing" = "「ほかのアプリと同時に再生」がオンのため、ロック画面、コントロールセンター、Dynamic Island に Primuse が表示されないことがあり、以下の設定も効きません。";
+"lock_screen_hidden_by_mixing_action" = "オフにする";

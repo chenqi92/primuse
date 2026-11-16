@@ -6820,7 +6820,7 @@
 
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "Lire en même temps que d'autres apps";
-"playback_mix_with_others_desc" = "Primuse n'interrompt pas le son des autres apps et ne se met pas en pause quand elles jouent du son : vous pouvez écouter en jouant ou en regardant des vidéos. Tant que c'est activé, le système ne considère plus Primuse comme l'app en cours de lecture : l'écran verrouillé, le centre de contrôle et les boutons des écouteurs ne peuvent pas la contrôler. La connexion à CarPlay rétablit automatiquement le mode habituel.";
+"playback_mix_with_others_desc" = "Primuse n'interrompt pas le son des autres apps et ne se met pas en pause quand elles jouent du son : vous pouvez écouter en jouant ou en regardant des vidéos. Tant que c'est activé, le système ne considère plus Primuse comme l'app en cours de lecture : l'écran verrouillé, le centre de contrôle et la Dynamic Island peuvent ne pas l'afficher ni la contrôler, et les boutons des écouteurs ne fonctionnent pas non plus. La connexion à CarPlay rétablit automatiquement le mode habituel.";
 
 /* 原生全屏的封面 / 歌词两面 */
 "immersive_show_artwork" = "Afficher la pochette";
@@ -7588,3 +7588,5 @@
 "player_backdrop_cache_clear" = "Vider le cache";
 "player_backdrop_cache_refresh_all" = "Actualiser toutes les collections";
 "player_backdrop_cache_empty" = "Aucune image de fond en cache";
+"lock_screen_hidden_by_mixing" = "« Lire en même temps que d'autres apps » est activé : l'écran verrouillé, le centre de contrôle et la Dynamic Island peuvent ne pas afficher Primuse, et les réglages ci-dessous n'ont aucun effet.";
+"lock_screen_hidden_by_mixing_action" = "Désactiver";

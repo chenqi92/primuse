@@ -2950,6 +2950,20 @@ struct PlaybackSettingsView: View {
 
             #if os(iOS)
             Section {
+                // 混音时系统不把 Primuse 当正在播放的 App,锁屏这几项都看不到效果:就地说明并给一键关闭。
+                if settings.mixesWithOtherAudio {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Label("lock_screen_hidden_by_mixing", systemImage: "info.circle")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Button("lock_screen_hidden_by_mixing_action") {
+                            settings.mixesWithOtherAudio = false
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderless)
+                    }
+                }
                 Toggle(isOn: $settings.lockScreenLyricsEnabled) {
                     SettingsInfoLabel("lock_screen_lyrics") {
                         Text("lock_screen_lyrics_desc")

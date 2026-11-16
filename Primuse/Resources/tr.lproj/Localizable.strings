@@ -6726,7 +6726,7 @@
 
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "Diğer uygulamalarla birlikte çal";
-"playback_mix_with_others_desc" = "Primuse diğer uygulamaların sesini kesmez, onlar ses çaldığında da duraklamaz; böylece oyun oynarken ya da video izlerken dinleyebilirsin. Açıkken sistem Primuse'u şu an çalan uygulama olarak görmez: kilit ekranı, Denetim Merkezi ve kulaklık düğmeleri onu kontrol edemez. CarPlay'e bağlanınca otomatik olarak olağan yönteme döner.";
+"playback_mix_with_others_desc" = "Primuse diğer uygulamaların sesini kesmez, onlar ses çaldığında da duraklamaz; böylece oyun oynarken ya da video izlerken dinleyebilirsin. Açıkken sistem Primuse'u şu an çalan uygulama olarak görmez: kilit ekranı, Denetim Merkezi ve Dynamic Island onu göstermeyebilir ve kontrol edemez, kulaklık düğmeleri de çalışmaz. CarPlay'e bağlanınca otomatik olarak olağan yönteme döner.";
 
 /* 原生全屏的封面 / 歌词两面 */
 "immersive_show_artwork" = "Kapağı göster";
@@ -7494,3 +7494,5 @@
 "player_backdrop_cache_clear" = "Önbelleği Temizle";
 "player_backdrop_cache_refresh_all" = "Tüm Koleksiyonları Yenile";
 "player_backdrop_cache_empty" = "Önbelleğe alınmış arka plan görseli yok";
+"lock_screen_hidden_by_mixing" = "“Diğer uygulamalarla birlikte çal” açık; kilit ekranı, Denetim Merkezi ve Dynamic Island Primuse'u göstermeyebilir ve aşağıdaki ayarlar etkisiz kalır.";
+"lock_screen_hidden_by_mixing_action" = "Kapat";

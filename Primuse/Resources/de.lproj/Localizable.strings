@@ -6820,7 +6820,7 @@
 
 /* 与其他 App 同时播放 */
 "playback_mix_with_others" = "Zusammen mit anderen Apps abspielen";
-"playback_mix_with_others_desc" = "Primuse unterbricht den Ton anderer Apps nicht und pausiert nicht, wenn sie etwas abspielen – so hörst du beim Spielen oder Videoschauen weiter. Solange das aktiv ist, behandelt das System Primuse nicht als die App, die gerade spielt: Sperrbildschirm, Kontrollzentrum und Kopfhörertasten steuern sie nicht. Mit CarPlay wird automatisch zurückgeschaltet.";
+"playback_mix_with_others_desc" = "Primuse unterbricht den Ton anderer Apps nicht und pausiert nicht, wenn sie etwas abspielen – so hörst du beim Spielen oder Videoschauen weiter. Solange das aktiv ist, behandelt das System Primuse nicht als die App, die gerade spielt: Sperrbildschirm, Kontrollzentrum und Dynamic Island zeigen sie möglicherweise nicht an und können sie nicht steuern, und auch die Kopfhörertasten funktionieren nicht. Mit CarPlay wird automatisch zurückgeschaltet.";
 
 /* 原生全屏的封面 / 歌词两面 */
 "immersive_show_artwork" = "Cover anzeigen";
@@ -7588,3 +7588,5 @@
 "player_backdrop_cache_clear" = "Cache leeren";
 "player_backdrop_cache_refresh_all" = "Alle Sammlungen aktualisieren";
 "player_backdrop_cache_empty" = "Keine Hintergrundbilder im Cache";
+"lock_screen_hidden_by_mixing" = "„Zusammen mit anderen Apps abspielen“ ist aktiv: Sperrbildschirm, Kontrollzentrum und Dynamic Island zeigen Primuse möglicherweise nicht an, und die Einstellungen unten wirken nicht.";
+"lock_screen_hidden_by_mixing_action" = "Ausschalten";
