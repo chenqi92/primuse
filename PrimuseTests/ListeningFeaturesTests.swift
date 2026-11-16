@@ -1558,8 +1558,25 @@ final class ListeningFeaturesTests: XCTestCase {
 
         restored.setFolderKind(.music, sourceID: source.id, path: "/Podcasts")
         XCTAssertEqual(restored.kind(for: episode), .music)
-        XCTAssertNil(restored.overrideSnapshot[key])
+        XCTAssertEqual(restored.overrideSnapshot[key], .music)
         XCTAssertEqual(restored.kind(for: corrected), .music)
+    }
+
+    func testExplicitMusicFolderKeepsASMRInMusicAfterRestart() throws {
+        let url = makeDirectory().appendingPathComponent("kinds.json")
+        let source = MusicSource(id: "asmr-source", name: "ASMR", type: .smb)
+        let item = Song(id: "asmr", title: "Evening rain", fileFormat: .m4a,
+                        filePath: "/ASMR/Evening rain.m4b", sourceID: source.id, genre: "Audiobook ASMR")
+        let store = SpokenWordStore(storeURL: url)
+        store.updateFolderTagSources([source])
+        XCTAssertEqual(store.kind(for: item), .spokenWord)
+        let state = store.folderTagState(sourceID: source.id, sourceType: .smb, path: "/ASMR")
+        store.setFolderKind(.music, sourceID: source.id, path: "/ASMR", following: state)
+        XCTAssertEqual(store.kind(for: item), .music)
+        store.persistLocally()
+        let restored = SpokenWordStore(storeURL: url)
+        restored.updateFolderTagSources([source])
+        XCTAssertEqual(restored.kind(for: item), .music)
     }
 
     func testCloudPodcastFolderReclassifiesWhenTheScanTopologyArrivesOrChanges() {
@@ -1607,7 +1624,7 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(store.overrideSnapshot[key], .music)
         XCTAssertEqual(store.kind(for: theme), .music)
         XCTAssertEqual(store.kind(for: chapter), .spokenWord)
-        XCTAssertEqual(store.kind(for: song("audiobook-genre", genre: "Audiobook", path: "/Books/OST/x.mp3")), .spokenWord)
+        XCTAssertEqual(store.kind(for: song("audiobook-genre", genre: "Audiobook", path: "/Books/OST/x.mp3")), .music)
         let turnedBack = try XCTUnwrap(DirectoryFolderTag.forFolder(
             path: "/Books/OST", of: source, ancestors: ["/", "/Books"], store: store
         ))

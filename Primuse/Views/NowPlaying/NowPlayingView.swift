@@ -10030,10 +10030,13 @@ struct NowPlayingView: View {
     /// 这一条有没有带时间的文字。还没读出结论时(播放页刚展开,文字稿等入场动画结束才读;或正在问源)
     /// 先按上次的结论,文字稿 / 目录键随页面一起出现,不在页面停稳后才弹出来(#283)。
     private var spokenWordHasText: Bool {
-        if !lyrics.isEmpty { return true }
-        guard let song = player.currentSong,
-              lyricsSongID != song.id || isResolvingLyrics else { return false }
-        return SpokenWordTextPresenceMemo.predictedHasText(for: song)
+        guard let song = player.currentSong else { return false }
+        return SpokenWordNowPlayingPolicy.offersTranscript(
+            hasLoadedText: !lyrics.isEmpty,
+            documentReference: song.lyricsFileName,
+            isResolving: lyricsSongID != song.id || isResolvingLyrics,
+            previouslyHadText: SpokenWordTextPresenceMemo.predictedHasText(for: song)
+        )
     }
 
     /// 有声内容这一条读出结论(有字或确定没有)时记下来,下次展开播放页直接用。

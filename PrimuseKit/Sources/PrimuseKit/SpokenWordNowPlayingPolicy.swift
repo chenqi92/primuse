@@ -54,6 +54,19 @@ public struct SpokenWordPartPosition: Equatable, Sendable {
 }
 
 public enum SpokenWordNowPlayingPolicy {
+    /// 已有关联文件时保留入口,读取中或失败也能进去查看和重试。
+    public static func offersTranscript(
+        hasLoadedText: Bool,
+        documentReference: String?,
+        isResolving: Bool,
+        previouslyHadText: Bool
+    ) -> Bool {
+        if hasLoadedText { return true }
+        if let documentReference,
+           !documentReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        return isResolving && previouslyHadText
+    }
+
     /// - Parameters:
     ///   - book: the book the playing item belongs to, as the shelf builds it
     ///     (stored positions). Nil when it cannot be found; the item is then

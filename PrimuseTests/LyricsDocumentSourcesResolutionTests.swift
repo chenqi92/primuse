@@ -10,6 +10,25 @@ import XCTest
 /// replacement written over another source, and that the raw editor's save
 /// rewrites exactly one file, byte for byte, only while it is unchanged.
 final class LyricsDocumentSourcesResolutionTests: XCTestCase {
+    @MainActor
+    func testASMRLyricsRemainReadableInMusicAndAudiobookClassification() async throws {
+        let lines = Data("[00:01.00]雨停在窗沿\n[00:03.50]灯影落在纸上\n".utf8)
+        for genre in ["ASMR", "Audiobook ASMR"] {
+            var item = song()
+            item.genre = genre
+            item.lyricsFileName = "/Music/Night Changes.lrc"
+            let fixture = connector(["Night Changes.lrc": lines])
+            let source = MusicSource(id: "source", name: "Lyrics fixture", type: .webdav, host: "fixture.invalid")
+            let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in fixture })
+            let loaded = await LyricsLoader.load(for: item, sourceManager: manager, sourceType: .webdav,
+                                                allowsAutomaticOnlineLyrics: false)
+            XCTAssertEqual(loaded.map(\.text), ["雨停在窗沿", "灯影落在纸上"])
+            XCTAssertEqual(loaded.map(\.timestamp), [1, 3.5])
+            let writes = await fixture.writtenPaths
+            XCTAssertTrue(writes.isEmpty)
+        }
+    }
+
     func testSelectedCandidateSurvivesReopenAndRejectsAutomaticReplacement() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

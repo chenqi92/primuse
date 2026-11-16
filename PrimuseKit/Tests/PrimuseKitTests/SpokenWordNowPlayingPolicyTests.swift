@@ -4,6 +4,28 @@ import Testing
 
 @Suite("Spoken word now playing")
 struct SpokenWordNowPlayingPolicyTests {
+    @Test("关联的歌词文件在首次读取、断网失败和重试时都保留文字稿入口")
+    func referencedTranscriptRemainsAccessible() {
+        for pending in [true, false] {
+            #expect(SpokenWordNowPlayingPolicy.offersTranscript(
+                hasLoadedText: false, documentReference: "/ASMR/Evening rain.lrc",
+                isResolving: pending, previouslyHadText: false
+            ))
+        }
+        #expect(SpokenWordNowPlayingPolicy.offersTranscript(
+            hasLoadedText: true, documentReference: nil, isResolving: false, previouslyHadText: false
+        ))
+        #expect(SpokenWordNowPlayingPolicy.offersTranscript(
+            hasLoadedText: false, documentReference: nil, isResolving: true, previouslyHadText: true
+        ))
+        #expect(!SpokenWordNowPlayingPolicy.offersTranscript(
+            hasLoadedText: false, documentReference: "  ", isResolving: false, previouslyHadText: true
+        ))
+        #expect(!SpokenWordNowPlayingPolicy.offersTranscript(
+            hasLoadedText: false, documentReference: nil, isResolving: true, previouslyHadText: false
+        ))
+    }
+
     private func item(
         _ id: String,
         duration: TimeInterval = 600,

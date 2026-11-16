@@ -65,7 +65,7 @@ struct SpokenWordFolderRulesTests {
         }
     }
 
-    @Test("A subfolder tagged music under a spoken-word folder goes back to what its files say")
+    @Test("Explicit music folders override file tags and extensions")
     func musicSubfolderStopsTheParentTag() {
         let tags = SpokenWordFolderTag.folderTags(in: [
             SpokenWordFolderTag.overrideKey(sourceID: "nas", path: "/Books"): .spokenWord,
@@ -74,29 +74,31 @@ struct SpokenWordFolderRulesTests {
         let rules = SpokenWordFolderRules(folderTags: tags, sources: [descriptor("nas", .smb)])
         #expect(rules.kind(sourceID: "nas", filePath: "/Books/01.mp3") == .spokenWord)
         #expect(rules.kind(sourceID: "nas", filePath: "/Books/Three Body/Disc 1/01.mp3") == .spokenWord)
-        #expect(rules.kind(sourceID: "nas", filePath: "/Books/Soundtrack/01.mp3") == nil)
-        #expect(rules.kind(sourceID: "nas", filePath: "/Books/Soundtrack/Deluxe/02.flac") == nil)
+        #expect(rules.kind(sourceID: "nas", filePath: "/Books/Soundtrack/01.mp3") == .music)
+        #expect(rules.kind(sourceID: "nas", filePath: "/Books/Soundtrack/Deluxe/02.flac") == .music)
         #expect(rules.kind(sourceID: "nas", filePath: "/Books/Soundtrack2/01.mp3") == .spokenWord)
 
         let inputs = SpokenWordClassificationInputs(folderRules: rules)
         var verdicts: [String: ListeningContentKind] = [:]
         for (path, genre, expected) in [
             ("/Books/Soundtrack/01.mp3", nil, ListeningContentKind.music),
-            ("/Books/Soundtrack/01.mp3", "Audiobook", .spokenWord),
-            ("/Books/Soundtrack/02.m4b", nil, .spokenWord),
+            ("/Books/Soundtrack/01.mp3", "Audiobook", .music),
+            ("/Books/Soundtrack/02.m4b", nil, .music),
+            ("/Books/Soundtrack/03.m4b", "ASMR", .music),
             ("/Books/Other/01.mp3", nil, .spokenWord),
         ] as [(String, String?, ListeningContentKind)] {
             #expect(inputs.kind(songID: path, sourceID: "nas", filePath: path, genre: genre) == expected)
             #expect(inputs.kind(songID: path, sourceID: "nas", filePath: path, genre: genre, genreVerdicts: &verdicts) == expected)
         }
 
-        // 只有音乐标签的源没有要改的,不算有规则。
+        // 没有有声书父目录时,明确的音乐目录也要覆盖文件标签。
         let musicOnly = SpokenWordFolderRules(folderTags: ["nas": ["/Music": .music]], sources: [descriptor("nas", .smb)])
-        #expect(musicOnly.isEmpty)
+        #expect(!musicOnly.isEmpty)
+        #expect(musicOnly.kind(sourceID: "nas", filePath: "/Music/ASMR.m4b") == .music)
     }
 
-    @Test("Library and whole-source music choices stay out of the folder table")
-    func reservedMusicTagsAreNotFolders() {
+    @Test("Library and whole-source music choices override source defaults")
+    func reservedMusicTagsOverrideSourceDefaults() {
         let tags = SpokenWordFolderTag.folderTags(in: [
             SpokenWordFolderTag.overrideKey(sourceID: "abs", path: SpokenWordFolderTag.libraryPath(libraryID: "songs")): .music,
             SpokenWordFolderTag.overrideKey(sourceID: "nd", path: SpokenWordFolderTag.wholeSourcePath): .music,
@@ -104,14 +106,16 @@ struct SpokenWordFolderRulesTests {
             SpokenWordFolderTag.overrideKey(sourceID: "gd", path: "ost"): .music,
         ])
         #expect(tags == [
-            "abs": [SpokenWordFolderTag.libraryPath(libraryID: "books"): .spokenWord],
+            "abs": [SpokenWordFolderTag.libraryPath(libraryID: "books"): .spokenWord,
+                    SpokenWordFolderTag.libraryPath(libraryID: "songs"): .music],
+            "nd": [SpokenWordFolderTag.wholeSourcePath: .music],
             "gd": ["ost": .music],
         ])
-        // Audiobookshelf 的音乐库仍按来源默认(有声)处理,和改动之前一样。
+        // 显式音乐库覆盖有声书服务器默认值。
         let rules = SpokenWordFolderRules(
             folderTags: tags, sources: [descriptor("abs", .audiobookshelf)], declaredSpokenWordSourceIDs: ["abs"]
         )
-        #expect(rules.kind(sourceID: "abs", filePath: "x", serverLibraryID: "songs") == .spokenWord)
+        #expect(rules.kind(sourceID: "abs", filePath: "x", serverLibraryID: "songs") == .music)
     }
 
     @Test("On an item-id cloud drive a music subfolder stops the parent tag at every depth below it")
@@ -121,8 +125,8 @@ struct SpokenWordFolderRulesTests {
             directoryParents: ["santi": "books", "ost": "books", "bonus": "ost", "books": "root"]
         )
         let kinds = topology.fileKinds(in: ["books": .spokenWord, "ost": .music])
-        #expect(kinds == ["ch1": .spokenWord, "intro": .spokenWord])
-        #expect(topology.fileKinds(in: ["ost": .music]).isEmpty)
+        #expect(kinds == ["ch1": .spokenWord, "intro": .spokenWord, "ost1": .music, "ost2": .music])
+        #expect(topology.fileKinds(in: ["ost": .music]) == ["ost1": .music, "ost2": .music])
     }
 
     @Test("A folder without its own tag shows the nearest tagged parent, by path or by the folders passed")
@@ -140,7 +144,7 @@ struct SpokenWordFolderRulesTests {
         let own = SpokenWordFolderTagState.resolve(path: "/Books", ancestors: [], sourceType: .smb, tags: tags)
         #expect(own == SpokenWordFolderTagState(own: .spokenWord))
         #expect(!own.followsParent)
-        #expect(own.storedTag(choosing: .music) == nil)
+        #expect(own.storedTag(choosing: .music) == .music)
 
         // 最近一级是音乐:看起来和没标签一样,不算「跟随」。
         let underMusic = SpokenWordFolderTagState.resolve(path: "/Books/OST/Disc 1", ancestors: [], sourceType: .smb, tags: tags)

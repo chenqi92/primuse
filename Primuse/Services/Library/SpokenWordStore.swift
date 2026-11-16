@@ -563,9 +563,9 @@ final class SpokenWordStore {
         overrides[SpokenWordFolderTag.overrideKey(sourceID: sourceID, path: path)] ?? .music
     }
 
-    /// Music clears the folder tag and restores the existing file inference.
+    /// 保存明确的目录分类,音乐也覆盖文件扩展名与流派。
     func setFolderKind(_ kind: ListeningContentKind, sourceID: String, path: String) {
-        setFolderTag(kind == .music ? nil : kind, sourceID: sourceID, path: path)
+        setFolderTag(kind, sourceID: sourceID, path: path)
     }
 
     /// 选目录页上这一行的标签:自己的,或最近一级打了标签的上级的。`ancestors` 是浏览经过的
@@ -585,7 +585,7 @@ final class SpokenWordStore {
     }
 
     /// 在选目录页上把一个目录改成 `kind`。和上级一致就去掉自己的标签、继续跟着上级;
-    /// 不一致才存,上级是有声书时子目录选「音乐」会存成显式的音乐。
+    /// 没有上级标签时也保存明确选择,避免音乐目录又被文件标签分走。
     func setFolderKind(
         _ kind: ListeningContentKind,
         sourceID: String,
@@ -645,7 +645,7 @@ final class SpokenWordStore {
     }
 
     func setWholeSourceSpokenWord(_ isSpokenWord: Bool, sourceID: String) {
-        setSpokenWordFolder(isSpokenWord, sourceID: sourceID, path: SpokenWordFolderTag.wholeSourcePath)
+        setFolderTag(isSpokenWord ? .spokenWord : .music, sourceID: sourceID, path: SpokenWordFolderTag.wholeSourcePath)
     }
 
     /// 按库组织的服务器(Jellyfin/Emby/Plex…):这一库归有声。

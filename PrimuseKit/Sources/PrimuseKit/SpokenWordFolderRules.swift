@@ -4,8 +4,8 @@ import Foundation
 ///
 /// A tag is a stronger hint than a file's genre and weaker than a per-song
 /// correction: a folder called "有声书" may still hold one stray song the
-/// listener has put right by hand. Untagged folders keep the usual inference
-/// (`.m4b`, genre), so "music" is simply the absence of a tag.
+/// listener has put right by hand. Only untagged folders fall back to the
+/// file extension and genre; an explicit music tag also takes precedence.
 ///
 /// Tags travel in the same synced table as per-song corrections, under keys no
 /// song id can take. Older versions keep entries they do not understand when
@@ -41,15 +41,11 @@ public enum SpokenWordFolderTag {
         return folders.mapValues { $0.sorted() }
     }
 
-    /// Every tag by source. A folder explicitly tagged music is kept: under a
-    /// tagged parent it stops the parent's kind from reaching its files. A
-    /// library or whole-source "music" is left out — it only records that
-    /// the listener chose against a server's spoken-word default.
+    /// Every explicit choice, including music and server-library tags.
     public static func folderTags(in overrides: [String: ListeningContentKind]) -> [String: [String: ListeningContentKind]] {
         var folders: [String: [String: ListeningContentKind]] = [:]
         for (key, kind) in overrides {
             guard let parsed = parse(overrideKey: key) else { continue }
-            if kind == .music, isReservedPath(parsed.path) { continue }
             folders[parsed.sourceID, default: [:]][parsed.path] = kind
         }
         return folders
@@ -122,10 +118,9 @@ public struct SpokenWordFolderTagState: Equatable, Sendable {
     /// 没自己的标签、显示的是上级的有声/播客。上级本身标的是音乐时不算——那和没标签看起来一样。
     public var followsParent: Bool { own == nil && inheritedFrom != nil && inherited != .music }
 
-    /// 选了 `kind` 之后这一级要存的标签:和上级一致就不存(继续跟着上级走,上级改了也跟着变),
-    /// 不一致才存——包括上级是有声书、这一级改回音乐。
+    /// 有明确上级标签且选择相同时继续继承;没有上级标签时,选音乐也保存为明确选择。
     public func storedTag(choosing kind: ListeningContentKind) -> ListeningContentKind? {
-        kind == inherited ? nil : kind
+        inheritedFrom != nil && kind == inherited ? nil : kind
     }
 
     /// `tags` 是这个源的目录标签(路径 → 类别,含显式的音乐);`ancestors` 是浏览到这一行
@@ -257,12 +252,15 @@ public struct SpokenWordFolderTopology: Equatable, Sendable {
     public func fileKinds(in tags: [String: ListeningContentKind]) -> [String: ListeningContentKind] {
         guard !tags.isEmpty else { return [:] }
         var verdicts: [String: ListeningContentKind] = [:]
+        var untagged = Set<String>()
         var result: [String: ListeningContentKind] = [:]
         for (file, parent) in fileParents {
             var chain: [String] = []
             var current: String? = parent
-            var kind: ListeningContentKind = .music
-            while let id = current, chain.count < 256 {
+            var kind: ListeningContentKind?
+            var visited = Set<String>()
+            while let id = current, chain.count < 256, visited.insert(id).inserted {
+                if untagged.contains(id) { break }
                 if let known = tags[id] ?? verdicts[id] {
                     kind = known
                     break
@@ -270,8 +268,12 @@ public struct SpokenWordFolderTopology: Equatable, Sendable {
                 chain.append(id)
                 current = directoryParents[id]
             }
-            for id in chain { verdicts[id] = kind }
-            if kind != .music { result[file] = kind }
+            if let kind {
+                for id in chain { verdicts[id] = kind }
+                result[file] = kind
+            } else {
+                untagged.formUnion(chain)
+            }
         }
         return result
     }
@@ -349,9 +351,7 @@ public struct SpokenWordFolderRules: Equatable, Sendable {
         var wholeSources = Dictionary(uniqueKeysWithValues: declaredSpokenWordSourceIDs.map { ($0, ListeningContentKind.spokenWord) })
         var libraryKinds: [String: [String: ListeningContentKind]] = [:]
         for source in sources {
-            // 只有「音乐」的源没有可改的:音乐标签只在挡住上级的有声/播客时才有意义。
-            guard let tags = folderTags[source.sourceID],
-                  tags.values.contains(where: { $0 != .music }) else { continue }
+            guard let tags = folderTags[source.sourceID], !tags.isEmpty else { continue }
             if SpokenWordFolderTag.supportsTags(source) {
                 let paths = tags.keys.sorted()
                 policies[source.sourceID] = LibraryFolderPathPolicy(
@@ -367,7 +367,7 @@ public struct SpokenWordFolderRules: Equatable, Sendable {
                     }
                 }
             } else if SpokenWordFolderTag.supportsWholeSourceTag(source) {
-                for (path, kind) in tags where kind != .music {
+                for (path, kind) in tags {
                     if path == SpokenWordFolderTag.wholeSourcePath {
                         wholeSources[source.sourceID] = kind
                     } else if let libraryID = SpokenWordFolderTag.libraryID(fromTagPath: path) {
@@ -393,9 +393,7 @@ public struct SpokenWordFolderRules: Equatable, Sendable {
         if let policy = policies[sourceID] {
             let placement = policy.placement(for: filePath)
             if placement.category == .folder, let root = placement.scanRoot {
-                // 最近一级是标成「音乐」的子目录:上级的标签到此为止,交回文件自己推断。
-                guard let kind = rootKinds[sourceID]?[root.identityPath], kind != .music else { return nil }
-                return kind
+                return rootKinds[sourceID]?[root.identityPath]
             }
         }
         return wholeSources[sourceID]
@@ -492,8 +490,7 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
         return verdict
     }
 
-    /// 目录 / 整源 / 服务器库的标签。关着「单独归类环境音」时,环境音标签像标成「音乐」的目录一样:
-    /// 挡住上级的标签,交回文件自己推断。
+    /// 关闭「单独归类环境音」时,环境音目录挡住上级标签并交回文件推断;明确的音乐标签仍然生效。
     private func folderKind(sourceID: String, filePath: String, serverLibraryID: String?) -> ListeningContentKind? {
         guard let kind = folderRules.kind(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) else {
             return nil
