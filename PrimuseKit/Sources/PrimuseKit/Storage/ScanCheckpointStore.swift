@@ -766,6 +766,33 @@ public actor SourceSyncStateFileStore {
         states
     }
 
+    /// Releases clean, already-persisted `SourceSyncIndex` buffers for idle sources
+    /// when backed by per-source index files on disk.
+    public func evictPersistedIndexes(for sourceIDs: Set<String>) {
+        guard case .directory = destination,
+              persistedRevision == persistenceRevision,
+              persistenceTask == nil else { return }
+        for sourceID in sourceIDs {
+            guard !dirtySourceIDs.contains(sourceID),
+                  records[sourceID]?.index != nil else { continue }
+            states[sourceID]?.index = SourceSyncIndex()
+            persistedIndexes[sourceID] = nil
+        }
+    }
+
+    public func restorePersistedIndex(
+        _ index: SourceSyncIndex,
+        reference: SourceSyncStateDirectory.IndexReference,
+        for sourceID: String
+    ) {
+        guard case .directory = destination,
+              !dirtySourceIDs.contains(sourceID),
+              records[sourceID]?.index == reference,
+              states[sourceID]?.index.isEmpty == true else { return }
+        states[sourceID]?.index = index
+        persistedIndexes[sourceID] = index
+    }
+
     private func markDirty(_ sourceID: String) {
         persistenceRevision &+= 1
         dirtySourceIDs.insert(sourceID)
