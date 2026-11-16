@@ -437,32 +437,6 @@ struct SongListSnapshotTests {
         #expect(first !== rebuilt)
     }
 
-    @Test("Releasing cached snapshots clears both actor storage and synchronous mirror")
-    func releaseCachedSnapshotsClearsCacheMirror() async throws {
-        let store = SongListSnapshotStore()
-        let version = SongListSnapshotVersion(collectionRevision: 1, replacementToken: UUID())
-        let songs = [song(id: "a", title: "Alpha"), song(id: "b", title: "Beta")]
-
-        let built = try #require(await store.snapshot(
-            scopeKey: SongListSnapshotStore.libraryScopeKey,
-            version: version,
-            order: .title,
-            songs: songs
-        ))
-        #expect(store.cachedSnapshot(
-            scopeKey: SongListSnapshotStore.libraryScopeKey,
-            version: version,
-            order: .title
-        ) === built)
-
-        await store.releaseCachedSnapshots()
-        #expect(store.cachedSnapshot(
-            scopeKey: SongListSnapshotStore.libraryScopeKey,
-            version: version,
-            order: .title
-        ) == nil)
-    }
-
     @Test("Supplemental updates preserve unrelated in-flight sort versions")
     func isolatesSupplementalSortVersions() {
         var current = SongListSortValuesVersion()

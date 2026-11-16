@@ -413,7 +413,16 @@ struct CachedArtworkView: View {
             expiryIdentity: animatedArtworkExpiryIdentity,
             onLoad: { await loadAnimatedArtwork(for: $0) },
             onExpire: { await expireAnimatedArtwork(for: $0) },
-            onPolicySignal: { animationPolicyRevision &+= 1 }
+            onPolicySignal: { animationPolicyRevision &+= 1 },
+            onDisable: {
+                motionArtworkVideoURL = nil
+                animatedArtworkData = nil
+                animatedArtworkDescriptor = nil
+                animatedArtworkIdentity = nil
+                animatedArtworkContentKey = nil
+                animatedArtworkExpiresAt = nil
+                animatedArtworkGeneration = nil
+            }
         ))
         .modifier(OptionalAppleMusicArtworkTask(
             isEnabled: sourceID == AppleMusicLibraryService.systemSourceID
@@ -421,7 +430,11 @@ struct CachedArtworkView: View {
             loadIdentity: appleMusicArtworkLoadIdentity,
             identity: appleMusicArtworkIdentity,
             loadsHighResolution: loadsHighResolution,
-            onResolve: { await resolveAppleMusicArtwork(for: $0) }
+            onResolve: { await resolveAppleMusicArtwork(for: $0) },
+            onDisable: {
+                resolvedAppleMusicArtwork = nil
+                resolvedAppleMusicArtworkID = nil
+            }
         ))
         .modifier(OptionalDeferredEmbeddedArtworkTask(songID: deferredEmbeddedArtworkSongID))
         .onChange(of: hasResolvedArtwork) { _, isResolved in
@@ -2816,28 +2829,34 @@ private struct OptionalAnimatedArtworkTasks: ViewModifier {
     let onLoad: (String) async -> Void
     let onExpire: (String) async -> Void
     let onPolicySignal: () -> Void
+    let onDisable: () -> Void
 
     func body(content: Content) -> some View {
-        if isEnabled {
-            content
-                .task(id: loadIdentity) {
-                    await onLoad(loadIdentity)
-                }
-                .task(id: expiryIdentity) {
-                    await onExpire(expiryIdentity)
-                }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: Notification.Name.NSProcessInfoPowerStateDidChange
-                )) { _ in
-                    onPolicySignal()
-                }
-                .onReceive(NotificationCenter.default.publisher(
-                    for: ProcessInfo.thermalStateDidChangeNotification
-                )) { _ in
-                    onPolicySignal()
-                }
-        } else {
-            content
+        Group {
+            if isEnabled {
+                content
+                    .task(id: loadIdentity) {
+                        await onLoad(loadIdentity)
+                    }
+                    .task(id: expiryIdentity) {
+                        await onExpire(expiryIdentity)
+                    }
+                    .onReceive(NotificationCenter.default.publisher(
+                        for: Notification.Name.NSProcessInfoPowerStateDidChange
+                    )) { _ in
+                        onPolicySignal()
+                    }
+                    .onReceive(NotificationCenter.default.publisher(
+                        for: ProcessInfo.thermalStateDidChangeNotification
+                    )) { _ in
+                        onPolicySignal()
+                    }
+            } else {
+                content
+            }
+        }
+        .onChange(of: isEnabled) { _, enabled in
+            if !enabled { onDisable() }
         }
     }
 }
@@ -2848,15 +2867,21 @@ private struct OptionalAppleMusicArtworkTask: ViewModifier {
     let identity: String
     let loadsHighResolution: Bool
     let onResolve: (String) async -> Void
+    let onDisable: () -> Void
 
     func body(content: Content) -> some View {
-        if isEnabled {
-            content.task(id: loadIdentity) {
-                guard loadsHighResolution else { return }
-                await onResolve(identity)
+        Group {
+            if isEnabled {
+                content.task(id: loadIdentity) {
+                    guard loadsHighResolution else { return }
+                    await onResolve(identity)
+                }
+            } else {
+                content
             }
-        } else {
-            content
+        }
+        .onChange(of: isEnabled) { _, enabled in
+            if !enabled { onDisable() }
         }
     }
 }
