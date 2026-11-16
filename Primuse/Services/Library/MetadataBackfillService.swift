@@ -1051,15 +1051,7 @@ final class MetadataBackfillService {
             deferredRetryCountBySourceID = state.deferredRetryCountBySourceID
             statusCountBySourceID = state.statusCountBySourceID
         }
-        loadFailed()
-        loadIncomplete()
-        loadSourceIssues()
-        loadArtworkGivenUp()
-        loadTitleChecked()
-        loadAlbumArtistChecked()
-        loadAlbumArtistRechecked()
-        loadArtistChecked()
-        loadDeferredRetries()
+        loadPersistedIDSetCatalogs()
         loadDiagnostics()
         loadRetryCounts()
         loadSourceRetryCounts()
@@ -1653,7 +1645,7 @@ final class MetadataBackfillService {
         if !UserDefaults.standard.bool(forKey: remoteFLACArtistFixKey) {
             let missingArtistIDs = Set(library.songs.lazy.filter { song in
                 song.fileFormat == .flac
-                    && (song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                    && !Self.hasVisibleContent(song.artistName)
             }.map(\.id))
             let retryIDs = failedSongIDs.intersection(missingArtistIDs)
             if !retryIDs.isEmpty {
@@ -4566,6 +4558,7 @@ final class MetadataBackfillService {
         await publishPendingFlushIfDue(isFinal: true)
         await sweepPeerCoverGroups()
         if processedSongCount > 0 {
+            await MusicLibrary.returnFreedMemoryToSystem()
             readingProgressHandler?(processedSongCount)
         }
         return processedSongCount > 0
@@ -7377,11 +7370,11 @@ final class MetadataBackfillService {
             artworkGivenUp: artworkGivenUpIDs.contains(song.id),
             titleChecked: titleCheckedIDs.contains(song.id),
             durationInspectionComplete: incompleteSongIDs.contains(song.id),
-            hasAlbumTitle: !(song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
-            hasAlbumArtist: !(song.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+            hasAlbumTitle: Self.hasVisibleContent(song.albumTitle),
+            hasAlbumArtist: Self.hasVisibleContent(song.albumArtistName),
             albumArtistChecked: albumArtistCheckedIDs.contains(song.id),
             albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
-            hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+            hasArtist: Self.hasVisibleContent(song.artistName),
             artistChecked: artistCheckedIDs.contains(song.id),
             audioCodecUnread: Self.audioCodecUnread(
                 song,
@@ -7436,11 +7429,11 @@ final class MetadataBackfillService {
             artworkGivenUp: artworkGivenUpIDs.contains(song.id),
             titleChecked: titleCheckedIDs.contains(song.id),
             durationInspectionComplete: incompleteSongIDs.contains(song.id),
-            hasAlbumTitle: !(song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
-            hasAlbumArtist: !(song.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+            hasAlbumTitle: Self.hasVisibleContent(song.albumTitle),
+            hasAlbumArtist: Self.hasVisibleContent(song.albumArtistName),
             albumArtistChecked: albumArtistCheckedIDs.contains(song.id),
             albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
-            hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+            hasArtist: Self.hasVisibleContent(song.artistName),
             artistChecked: artistCheckedIDs.contains(song.id),
             audioCodecUnread: Self.audioCodecUnread(song, containerCodecOnly: containerCodecOnly),
             effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song),
@@ -7601,73 +7594,66 @@ final class MetadataBackfillService {
 
     // MARK: - Failed-set persistence
 
-    private func loadFailed() {
-        guard let data = try? Data(contentsOf: failedURL),
-              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
-        failedSongIDs = Set(decoded)
-    }
-
-    private func loadIncomplete() {
-        guard let data = try? Data(contentsOf: incompleteURL),
-              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
-        incompleteSongIDs = Set(decoded)
-    }
-
-    private func loadSourceIssues() {
-        guard let data = try? Data(contentsOf: sourceIssueURL),
-              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
-        sourceIssueSongIDs = Set(decoded)
-    }
-
-    private func loadArtworkGivenUp() {
-        guard let data = try? Data(contentsOf: artworkGivenUpURL),
-              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
-        artworkGivenUpIDs = Set(decoded)
-    }
-
-    private func loadTitleChecked() {
-        guard let data = try? Data(contentsOf: titleCheckedURL),
-              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
-        titleCheckedIDs = Set(decoded)
-    }
-
-    private func loadAlbumArtistChecked() {
-        guard let data = try? Data(contentsOf: albumArtistCheckedURL),
-              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
-        albumArtistCheckedIDs = Set(decoded)
-    }
-
-    private func loadAlbumArtistRechecked() {
-        guard let data = try? Data(contentsOf: albumArtistRecheckedURL),
-              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
-        albumArtistRecheckedIDs = Set(decoded)
-    }
-
-    private func loadArtistChecked() {
-        guard let data = try? Data(contentsOf: artistCheckedURL),
-              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
-        artistCheckedIDs = Set(decoded)
-    }
-
-    private func loadDeferredRetries() {
-        guard let data = try? Data(contentsOf: deferredRetryURL),
-              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
-        mutateDeferredRetries { $0.replace(with: Set(decoded)) }
+    /// 启动时一口气装入所有持久化的 ID 集合, 让重叠的 64 字符 SHA256 `song.id`
+    /// 共用同一份 `StringStorage`, 避免十万级曲库在 9 套 JSON 集合上重复分配几万份字符串。
+    private func loadPersistedIDSetCatalogs() {
+        var internPool: [String: String] = [:]
+        if library.isReady {
+            internPool.reserveCapacity(library.songs.count)
+            for song in library.songs where song.id.utf8.count > 15 {
+                internPool[song.id] = song.id
+            }
+        }
+        func loadSet(from url: URL) -> Set<String>? {
+            autoreleasepool {
+                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                      let decoded = try? JSONDecoder().decode([String].self, from: data) else { return nil }
+                var result = Set<String>(minimumCapacity: decoded.count)
+                for id in decoded {
+                    if id.utf8.count > 15 {
+                        if let shared = internPool[id] {
+                            result.insert(shared)
+                        } else {
+                            internPool[id] = id
+                            result.insert(id)
+                        }
+                    } else {
+                        result.insert(id)
+                    }
+                }
+                return result
+            }
+        }
+        if let set = loadSet(from: titleCheckedURL) { titleCheckedIDs = set }
+        if let set = loadSet(from: artistCheckedURL) { artistCheckedIDs = set }
+        if let set = loadSet(from: albumArtistCheckedURL) { albumArtistCheckedIDs = set }
+        if let set = loadSet(from: albumArtistRecheckedURL) { albumArtistRecheckedIDs = set }
+        if let set = loadSet(from: artworkGivenUpURL) { artworkGivenUpIDs = set }
+        if let set = loadSet(from: failedURL) { failedSongIDs = set }
+        if let set = loadSet(from: incompleteURL) { incompleteSongIDs = set }
+        if let set = loadSet(from: sourceIssueURL) { sourceIssueSongIDs = set }
+        if let set = loadSet(from: deferredRetryURL) {
+            mutateDeferredRetries { $0.replace(with: set) }
+        }
     }
 
     private func loadDiagnostics() {
-        guard let data = try? Data(contentsOf: diagnosticsURL),
-              let decoded = try? JSONDecoder().decode(
-                [String: MetadataBackfillDiagnosticRecord].self,
-                from: data
-              ) else { return }
-        diagnosticRecords = decoded
+        autoreleasepool {
+            guard let data = try? Data(contentsOf: diagnosticsURL, options: .mappedIfSafe),
+                  let decoded = try? JSONDecoder().decode(
+                    [String: MetadataBackfillDiagnosticRecord].self,
+                    from: data
+                  ) else { return }
+            diagnosticRecords = decoded
+        }
     }
 
     private func loadRetryCounts() {
-        guard let data = try? Data(contentsOf: retryCountsURL),
-              let decoded = try? JSONDecoder().decode([String: Int].self, from: data) else { return }
-        transientFailureCounts = Self.sanitizedRetryCounts(decoded)
+        autoreleasepool {
+            guard let data = try? Data(contentsOf: retryCountsURL, options: .mappedIfSafe),
+                  let decoded = try? JSONDecoder().decode([String: Int].self, from: data) else { return }
+            transientFailureCounts = Self.sanitizedRetryCounts(decoded)
+        }
     }
 
     private func loadSourceRetryCounts() {

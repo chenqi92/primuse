@@ -15085,12 +15085,16 @@ final class MusicLibrary {
             recentPlaybackSongIDs = recentPlaybackSongIDs.filter { songForSynchronization(id: $0) != nil }
         }
         mutating func rebuildVisibleCache() {
+            let canReuseSongIndex = previousVisibleSongs.isEmpty
+                && disabledSourceIDs.isEmpty
+                && songIndexByID.count == songs.count
             visibleCache = MusicLibrary.prepareVisibleCache(
                 songs: songs, albums: albums, artists: artists,
                 artistNameConfiguration: artistNameConfiguration,
                 disabledSourceIDs: disabledSourceIDs,
                 spokenWordClassification: spokenWordClassification,
-                previousVisibleSongs: previousVisibleSongs
+                previousVisibleSongs: canReuseSongIndex ? songs : previousVisibleSongs,
+                reusableIndexByID: canReuseSongIndex ? songIndexByID : nil
             )
         }
         /// `inferredAlbumArtists` 是迁移阶段对同一批歌、同样没有目录时算好的推断。
@@ -15251,7 +15255,7 @@ final class MusicLibrary {
                     readFinishedAt = ProcessInfo.processInfo.systemUptime
                     decodeFinishedAt = readFinishedAt
                 } else {
-                    guard let data = try? Data(contentsOf: snapshotURL) else {
+                    guard let data = try? Data(contentsOf: snapshotURL, options: .mappedIfSafe) else {
                         persistenceBlockedByCorruption = true
                         plog("⛔ Library snapshot exists but cannot be read; persistence disabled to protect it")
                         return
@@ -15267,7 +15271,7 @@ final class MusicLibrary {
                         corruptSnapshotToArchive = snapshotURL.deletingLastPathComponent()
                             .appendingPathComponent("library-cache.corrupt-\(Int(Date().timeIntervalSince1970)).json")
 
-                        guard let backupData = try? Data(contentsOf: backupSnapshotURL),
+                        guard let backupData = try? Data(contentsOf: backupSnapshotURL, options: .mappedIfSafe),
                               let backup = try? decoder.decode(Snapshot.self, from: backupData) else {
                             persistenceBlockedByCorruption = true
                             plog("⛔ Library snapshot is corrupt and no valid backup exists; persistence disabled to prevent an empty overwrite")
@@ -15552,7 +15556,7 @@ final class MusicLibrary {
         }
 
         mutating func loadPlaylistDurabilityLedger() {
-            if let data = try? Data(contentsOf: playlistDurabilityURL),
+            if let data = try? Data(contentsOf: playlistDurabilityURL, options: .mappedIfSafe),
                let ledger = try? decoder.decode(PlaylistDurabilityLedger.self, from: data) {
                 for durable in ledger.playlists {
                     if let index = allPlaylists.firstIndex(where: { $0.id == durable.id }) {
@@ -15618,7 +15622,7 @@ final class MusicLibrary {
             snapshotFingerprint: SnapshotFileFingerprint?
         ) -> StartupCache? {
             autoreleasepool {
-                guard let data = try? Data(contentsOf: startupCacheURL),
+                guard let data = try? Data(contentsOf: startupCacheURL, options: .mappedIfSafe),
                       let cache = try? PropertyListDecoder().decode(StartupCache.self, from: data),
                       cache.formatVersion == MusicLibrary.startupCacheFormatVersion
                         || cache.formatVersion == MusicLibrary.legacyStartupCacheFormatVersion,
@@ -15634,7 +15638,7 @@ final class MusicLibrary {
             reusing startupIndex: DerivedIndexCache? = nil
         ) -> DerivedIndexCache? {
             autoreleasepool {
-                guard let data = try? Data(contentsOf: derivedIndexCacheURL) else { return nil }
+                guard let data = try? Data(contentsOf: derivedIndexCacheURL, options: .mappedIfSafe) else { return nil }
                 let decoder = PropertyListDecoder()
                 decoder.userInfo[DerivedIndexCacheRead.reuseKey] = startupIndex
                 guard let cache = try? decoder.decode(DerivedIndexCacheRead.self, from: data).value,
@@ -15644,7 +15648,7 @@ final class MusicLibrary {
         }
 
         mutating func loadDeviceLocalExclusions() {
-            guard let data = try? Data(contentsOf: deviceLocalExclusionURL) else { return }
+            guard let data = try? Data(contentsOf: deviceLocalExclusionURL, options: .mappedIfSafe) else { return }
             guard let ledger = try? JSONDecoder().decode(DeviceLocalExclusionLedger.self, from: data) else {
                 plog("Device-local song exclusions unreadable; keeping the file untouched")
                 return
@@ -16546,12 +16550,14 @@ final class MusicLibrary {
             let songStoreRevision = await pendingSongStoreWrite?.value ?? capturedStoreRevision
             let wroteBase: Bool
             do {
-                wroteBase = try Self.writeLocalSnapshot(
-                    snapshot, to: url, backupURL: backupURL, state: persistenceState,
-                    deletedIdentities: currentDeletedIdentities, songStoreRevision: songStoreRevision,
-                    materialize: materialize,
-                    existingFileIsKnownValid: existingFileIsKnownValid
-                )
+                wroteBase = try autoreleasepool {
+                    try Self.writeLocalSnapshot(
+                        snapshot, to: url, backupURL: backupURL, state: persistenceState,
+                        deletedIdentities: currentDeletedIdentities, songStoreRevision: songStoreRevision,
+                        materialize: materialize,
+                        existingFileIsKnownValid: existingFileIsKnownValid
+                    )
+                }
             } catch {
                 plog("⛔ Library snapshot persistence failed: \(error.localizedDescription)")
                 return false
@@ -16570,11 +16576,15 @@ final class MusicLibrary {
                     completeSnapshotBase: true
                 )
                 await LibraryCacheEncodingGate.shared.write {
-                    Self.writeStartupCache(cache, to: cacheURL)
+                    autoreleasepool {
+                        Self.writeStartupCache(cache, to: cacheURL)
+                    }
                 }
             }
             if let fallbackSongs {
-                Self.writeSongFallback(fallbackSongs, to: fallbackURL)
+                autoreleasepool {
+                    Self.writeSongFallback(fallbackSongs, to: fallbackURL)
+                }
             }
             return true
         }
@@ -18806,7 +18816,7 @@ final class MusicLibrary {
     ) throws -> Snapshot {
         let deltaURL = SnapshotDelta.url(for: url)
         guard FileManager.default.fileExists(atPath: deltaURL.path) else { return snapshot }
-        let delta = try PropertyListDecoder().decode(SnapshotDelta.self, from: Data(contentsOf: deltaURL))
+        let delta = try PropertyListDecoder().decode(SnapshotDelta.self, from: Data(contentsOf: deltaURL, options: .mappedIfSafe))
         guard delta.base == fingerprint else { return snapshot }
         return try delta.applying(to: snapshot)
     }

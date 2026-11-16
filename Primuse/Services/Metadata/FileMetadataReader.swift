@@ -1128,36 +1128,47 @@ enum FileMetadataReader {
     /// Use it as a local-file fallback while preserving AVFoundation/native
     /// values that were decoded successfully.
     private static func applySFBAudioFallback(to metadata: inout Metadata, url: URL) {
-        guard let audioFile = try? AudioFile(readingPropertiesAndMetadataFrom: url) else {
-            return
-        }
-        let tags = audioFile.metadata
-        let properties = audioFile.properties
-        let frontCover = tags.attachedPictures(ofType: .frontCover).first?.imageData
-        let anyCover = tags.attachedPictures.first?.imageData
+        let needsCoverArt = metadata.coverArtData == nil
+        let parsed: Metadata? = autoreleasepool {
+            guard let audioFile = try? AudioFile(readingPropertiesAndMetadataFrom: url) else {
+                return nil
+            }
+            let tags = audioFile.metadata
+            let properties = audioFile.properties
+            let coverArtData: Data?
+            if needsCoverArt {
+                let rawCover = tags.attachedPictures(ofType: .frontCover).first?.imageData
+                    ?? tags.attachedPictures.first?.imageData
+                coverArtData = rawCover.map { Data($0) }
+            } else {
+                coverArtData = nil
+            }
 
-        var fallback = Metadata(
-            title: tags.title,
-            artist: tags.artist,
-            albumTitle: tags.albumTitle,
-            albumArtist: tags.albumArtist,
-            trackNumber: tags.trackNumber,
-            discNumber: tags.discNumber,
-            year: parsedYear(tags.releaseDate),
-            genre: tags.genre,
-            duration: properties.duration,
-            coverArtData: frontCover ?? anyCover,
-            bitDepth: properties.bitDepth,
-            replayGainTrackGain: tags.replayGainTrackGain,
-            replayGainTrackPeak: tags.replayGainTrackPeak,
-            replayGainAlbumGain: tags.replayGainAlbumGain,
-            replayGainAlbumPeak: tags.replayGainAlbumPeak,
-            lyricsText: tags.lyrics
-        )
-        fallback.applyAudioProperties(
-            sampleRate: properties.sampleRate,
-            bitRateKbps: properties.bitrate
-        )
+            var fallback = Metadata(
+                title: tags.title,
+                artist: tags.artist,
+                albumTitle: tags.albumTitle,
+                albumArtist: tags.albumArtist,
+                trackNumber: tags.trackNumber,
+                discNumber: tags.discNumber,
+                year: parsedYear(tags.releaseDate),
+                genre: tags.genre,
+                duration: properties.duration,
+                coverArtData: coverArtData,
+                bitDepth: properties.bitDepth,
+                replayGainTrackGain: tags.replayGainTrackGain,
+                replayGainTrackPeak: tags.replayGainTrackPeak,
+                replayGainAlbumGain: tags.replayGainAlbumGain,
+                replayGainAlbumPeak: tags.replayGainAlbumPeak,
+                lyricsText: tags.lyrics
+            )
+            fallback.applyAudioProperties(
+                sampleRate: properties.sampleRate,
+                bitRateKbps: properties.bitrate
+            )
+            return fallback
+        }
+        guard let fallback = parsed else { return }
         metadata.fillMissing(from: fallback)
     }
 

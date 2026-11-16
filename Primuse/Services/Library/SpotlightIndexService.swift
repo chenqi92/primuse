@@ -1,6 +1,7 @@
 import AppIntents
 import CoreSpotlight
 import CryptoKit
+import Darwin
 import Foundation
 import ImageIO
 import PrimuseKit
@@ -524,6 +525,10 @@ final class SpotlightIndexService {
         let ranked: SpotlightSearchQueryResult
     }
 
+    private nonisolated static func hasVisibleTitleContent(_ value: String) -> Bool {
+        value.contains { !$0.isWhitespace && !$0.isNewline }
+    }
+
     nonisolated static func searchDiagnosticSamples(
         songs: [Song], prioritySongIDs: [String]
     ) -> [SearchDiagnosticSample] {
@@ -531,7 +536,7 @@ final class SpotlightIndexService {
         var selected: [SearchDiagnosticSample] = []
         var seen: Set<String> = []
         func append(_ song: Song, group: String) {
-            guard !song.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            guard hasVisibleTitleContent(song.title),
                   seen.insert(song.id).inserted else { return }
             selected.append(SearchDiagnosticSample(group: group, identifier: "song:" + song.id, title: song.title))
         }
@@ -541,7 +546,7 @@ final class SpotlightIndexService {
             if selected.count == 6 { break }
         }
         var groups: [String: Song] = [:]
-        for song in songs where !song.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        for song in songs where hasVisibleTitleContent(song.title) {
             let hasHan = song.title.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) }
             let group = hasHan ? "han\(min(4, song.title.count))" : "other"
             if groups[group] == nil || song.id < groups[group]!.id { groups[group] = song }
@@ -997,6 +1002,11 @@ final class SpotlightIndexService {
             return false
         }
 
+        defer {
+            if !plan.identifiersToUpsert.isEmpty || !plan.identifiersToDelete.isEmpty {
+                malloc_zone_pressure_relief(nil, 0)
+            }
+        }
         do {
             if plan.requiresFullRebuild {
                 // Mark the named index dirty before clearing it. If the app is
@@ -1050,35 +1060,42 @@ final class SpotlightIndexService {
                     var confirmed: [String: String] = [:]
                     var thumbnailCacheMissCount = 0
 
-                    while upsertCursor < identifiers.count,
-                          searchableItems.count < maxItemsPerBatch,
-                          thumbnailCacheMissCount < maxThumbnailCacheMissesPerBatch {
-                        let identifier = identifiers[upsertCursor]
-                        guard let payload = prepared.payloadsByIdentifier[identifier],
-                              let signature = signatures[identifier] else {
-                            spotlightDiagnostic("payload missing; sync remains pending")
-                            return false
+                    var missingPayload = false
+                    autoreleasepool {
+                        while upsertCursor < identifiers.count,
+                              searchableItems.count < maxItemsPerBatch,
+                              thumbnailCacheMissCount < maxThumbnailCacheMissesPerBatch {
+                            let identifier = identifiers[upsertCursor]
+                            guard let payload = prepared.payloadsByIdentifier[identifier],
+                                  let signature = signatures[identifier] else {
+                                spotlightDiagnostic("payload missing; sync remains pending")
+                                missingPayload = true
+                                break
+                            }
+                            let item = makeSearchableItem(
+                                payload: payload,
+                                thumbnailPass: pass,
+                                thumbnailDirectoryURL: thumbnailDirectoryURL
+                            )
+                            // The library's explicit deletion plan owns their lifetime.
+                            item.searchableItem.expirationDate = .distantFuture
+                            searchableItems.append(item.searchableItem)
+                            switch item.thumbnail {
+                            case .deferred:
+                                deferredThumbnails.append(identifier)
+                                confirmed[identifier] = signature + textOnlySignatureSuffix
+                            case .generated:
+                                thumbnailCacheMissCount += 1
+                                confirmed[identifier] = signature
+                            case .none, .attached:
+                                confirmed[identifier] = signature
+                            }
+                            item.searchableItem.attributeSet.setValue(confirmed[identifier]! as NSString, forCustomKey: spotlightContentVersionKey())
+                            upsertCursor += 1
                         }
-                        let item = makeSearchableItem(
-                            payload: payload,
-                            thumbnailPass: pass,
-                            thumbnailDirectoryURL: thumbnailDirectoryURL
-                        )
-                        // The library's explicit deletion plan owns their lifetime.
-                        item.searchableItem.expirationDate = .distantFuture
-                        searchableItems.append(item.searchableItem)
-                        switch item.thumbnail {
-                        case .deferred:
-                            deferredThumbnails.append(identifier)
-                            confirmed[identifier] = signature + textOnlySignatureSuffix
-                        case .generated:
-                            thumbnailCacheMissCount += 1
-                            confirmed[identifier] = signature
-                        case .none, .attached:
-                            confirmed[identifier] = signature
-                        }
-                        item.searchableItem.attributeSet.setValue(confirmed[identifier]! as NSString, forCustomKey: spotlightContentVersionKey())
-                        upsertCursor += 1
+                    }
+                    if missingPayload {
+                        return false
                     }
 
                     try await applyBatch(
@@ -1487,12 +1504,11 @@ final class SpotlightIndexService {
     /// Builds decode at most eight new covers per batch; later runs and
     /// metadata-only updates read the cached file.
     private nonisolated static func makeThumbnail(for cover: CoverSource, at url: URL) -> Data? {
-        guard let raw = MetadataAssetStore.shared.readCoverData(named: cover.fileName),
-              !ArtworkImageCompatibility.hasRedundantJPEGSampling(raw) else {
-            return nil
-        }
-
         let encoded: Data? = autoreleasepool {
+            guard let raw = MetadataAssetStore.shared.readCoverData(named: cover.fileName),
+                  !ArtworkImageCompatibility.hasRedundantJPEGSampling(raw) else {
+                return nil
+            }
             let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
             guard let source = CGImageSourceCreateWithData(raw as CFData, sourceOptions) else {
                 return nil
