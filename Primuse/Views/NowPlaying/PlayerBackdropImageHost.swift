@@ -14,6 +14,8 @@ struct PlayerBackdropImageHost: View {
     let isSurfaceVisible: Bool
     /// 入场动画结束前不开始读盘解码。
     let allowsLoading: Bool
+    /// 暂停时不推进背景图定时轮播，避免无播放时周期性解码大图与交叉淡入。
+    var isPlaying: Bool = true
 
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
@@ -59,11 +61,11 @@ struct PlayerBackdropImageHost: View {
             frameIDOnAppear = nil
         }
         .task(id: TimerKey(
-            isActive: isSurfaceVisible && settings.rotation == .timed && source.supportsRotation,
+            isActive: isSurfaceVisible && isPlaying && settings.rotation == .timed && source.supportsRotation,
             interval: settings.intervalSeconds,
             frameID: resolver.frame?.id
         )) {
-            guard isSurfaceVisible, settings.rotation == .timed, source.supportsRotation else { return }
+            guard isSurfaceVisible, isPlaying, settings.rotation == .timed, source.supportsRotation else { return }
             let interval = max(PlayerBackdropSettings.intervalChoices.first ?? 15, settings.intervalSeconds)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(interval))

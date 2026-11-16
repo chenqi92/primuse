@@ -1630,11 +1630,18 @@ struct SpokenWordTranscriptReader: View {
             // 亮错一段再等下一拍纠正。
             updatePlaybackPosition()
         }
-        .task {
+        .task(id: player.isPlaying) {
+            updatePlaybackPosition()
+            guard player.isPlaying else { return }
             // 和歌词页、普通文稿页同一个节奏:每 100 毫秒看一次。只有下标变了才写状态,不会多重画。
             while !Task.isCancelled {
                 updatePlaybackPosition()
                 try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        .onChange(of: player.currentTime) { _, _ in
+            if !player.isPlaying {
+                updatePlaybackPosition()
             }
         }
         .task(id: "\(chromeActivity)|\(chromeVisible)|\(chromeMayHide)") {

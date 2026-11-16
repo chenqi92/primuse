@@ -103,6 +103,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             navigation.select(tab: tab)
         }
         if let win = window {
+            if win.contentViewController == nil {
+                win.contentViewController = makeHost()
+            }
             NSApp.activate(ignoringOtherApps: true)
             win.makeKeyAndOrderFront(nil)
             return
@@ -122,19 +125,28 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         win.center()
         win.setFrameAutosaveName("PrimuseSettings")
         win.isReleasedWhenClosed = false
-        win.contentViewController = NSHostingController(
-            rootView: MacSettingsView(navigation: navigation)
-                .applyPrimuseEnvironments()
-                .environment(AppServices.shared.audioCacheSync)
-        )
+        win.contentViewController = makeHost()
         win.delegate = self
         self.window = win
         NSApp.activate(ignoringOtherApps: true)
         win.makeKeyAndOrderFront(nil)
     }
 
+    private func makeHost() -> NSViewController {
+        NSHostingController(
+            rootView: MacSettingsView(navigation: navigation)
+                .applyPrimuseEnvironments()
+                .environment(AppServices.shared.audioCacheSync)
+        )
+    }
+
+    private func close() {
+        window?.orderOut(nil)
+        window?.contentViewController = nil
+    }
+
     nonisolated func windowShouldClose(_ sender: NSWindow) -> Bool {
-        Task { @MainActor in self.window?.orderOut(nil) }
+        Task { @MainActor in self.close() }
         return false
     }
 }

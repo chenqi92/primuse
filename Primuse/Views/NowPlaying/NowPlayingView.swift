@@ -502,7 +502,8 @@ struct NowPlayingAmbientBackdrop: View {
                 strength: strength,
                 usesIncreasedContrast: colorSchemeContrast == .increased,
                 isSurfaceVisible: isSurfaceVisible && isSceneActive,
-                allowsLoading: allowsImageLoading
+                allowsLoading: allowsImageLoading,
+                isPlaying: isPlaying
             )
         }
         .animation(

@@ -46,13 +46,17 @@ private struct SmartNudgeOverlayModifier: ViewModifier {
                 #endif
                 .pmAnimation(.list, value: center.activeNudge?.id)
             }
-            .task(id: scenePhase == .active) {
-                guard scenePhase == .active else { return }
+            .task(id: scenePhase == .active && player.isPlaying && center.isEnabled) {
+                guard scenePhase == .active, player.isPlaying, center.isEnabled else { return }
                 while !Task.isCancelled {
                     try? await Task.sleep(for: Self.evaluationInterval)
                     guard !Task.isCancelled else { return }
                     center.evaluate(player: player, library: library)
                 }
+            }
+            .onChange(of: player.isPlaying) { _, _ in
+                guard scenePhase == .active else { return }
+                center.evaluate(player: player, library: library)
             }
     }
 }

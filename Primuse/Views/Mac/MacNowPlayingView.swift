@@ -933,7 +933,8 @@ struct MacNowPlayingView: View {
                 usesIncreasedContrast: colorSchemeContrast == .increased,
                 isSurfaceVisible: !isImmersiveStageActive && controlActiveState != .inactive
                     && scenePhase == .active,
-                allowsLoading: true
+                allowsLoading: true,
+                isPlaying: player.isPlaying
             )
         }
         .overlay(alignment: .leading) {
@@ -2424,13 +2425,29 @@ struct MacNowPlayingView: View {
 @MainActor
 private struct MacNowPlayingTimeObserver: View {
     @Environment(AudioPlayerService.self) private var player
+    @State private var isRenderingVisible = true
     let onTimeChange: @MainActor (TimeInterval) -> Void
+
+    private var shouldPoll: Bool {
+        player.isPlaying && player.currentSong != nil && isRenderingVisible
+    }
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            .task {
+            .onRenderingVisibilityChange { isRenderingVisible = $0 }
+            .task(id: shouldPoll) {
+                onTimeChange(player.interpolatedTime())
+                guard shouldPoll else { return }
                 await observePlaybackTime()
+            }
+            .onChange(of: player.currentTime) { _, _ in
+                if !shouldPoll {
+                    onTimeChange(player.interpolatedTime())
+                }
+            }
+            .onChange(of: player.currentSong?.id) { _, _ in
+                onTimeChange(player.interpolatedTime())
             }
     }
 
