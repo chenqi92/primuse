@@ -1484,6 +1484,9 @@ private final class State: @unchecked Sendable {
     /// us from racing two prefetches against the same range when SFB
     /// asks repeatedly while a prefetch is still in flight.
     private var prefetchInFlight: Set<Int64> = []
+    /// The read position the latest prefetch pass looked ahead from. A
+    /// completed prefetch re-runs the pass from here (see `prefetchIfNeeded`).
+    private var prefetchStartOffset: Int64 = 0
     private var prefetchTasks: [Int64: Task<Void, Never>] = [:]
     /// What each running prefetch has received, so a read that joined it and
     /// timed out can tell a slow network from no connection.
@@ -2060,9 +2063,16 @@ private final class State: @unchecked Sendable {
     ///
     /// N 个并发 chunk(`prefetchAhead`)的关键: SFB 顺序读时不止快一个 chunk,
     /// 否则 mp3 全帧扫描场景下每个 chunk fetch 串行累加变成"整下时间"。
+    ///
+    /// 紧挨着读取位置的下一块还没到时只下这一块, 到了再并发下更远的几块:
+    /// 几块同时下会平分带宽, 慢网下最先要用的那块要等其他几块一起到才能读,
+    /// 播放就卡在块边界上(约 500KB/s 时起播后第二块等了 6 秒多)。
     private func prefetchIfNeeded(startOffset: Int64) {
         let aheadCount = prefetchAhead
         guard aheadCount > 0, !isReadAheadSuspended() else { return }
+        lock.lock()
+        prefetchStartOffset = startOffset
+        lock.unlock()
         let chunkSize = chunkBytes
         // Round UP to the next chunk boundary — the chunk *containing*
         // startOffset was just fetched (or hit cache). Prefetch the ones
@@ -2077,7 +2087,18 @@ private final class State: @unchecked Sendable {
             let want = min(chunkSize, totalLength - nextChunkStart)
             let endOffset = nextChunkStart + want
 
-            guard tryClaimPrefetch(offset: nextChunkStart, endOffset: endOffset) else { continue }
+            switch claimPrefetch(offset: nextChunkStart, endOffset: endOffset) {
+            case .unavailable:
+                return
+            case .covered:
+                continue
+            case .inFlight:
+                // The nearest chunk is still on its way: farther ones wait for it.
+                if i == 0 { return }
+                continue
+            case .claimed:
+                break
+            }
 
             let startGate = StreamingTaskStartGate()
             let progress = FetchProgress()
@@ -2105,6 +2126,10 @@ private final class State: @unchecked Sendable {
                     guard !self.isClosed() else { return }
                     CloudPlaybackSource.noteTransferSucceeded(sourceID: self.sourceID)
                     self.writeToCache(offset: nextChunkStart, data: data)
+                    // This chunk is cached now: start the farther ones that
+                    // waited for it, from the latest read position.
+                    guard !Task.isCancelled else { return }
+                    self.prefetchIfNeeded(startOffset: self.latestPrefetchStartOffset())
                 } catch {
                     // Disable the prefetch path until a user-facing serve
                     // succeeds. Retries from a background-Task storm are
@@ -2116,7 +2141,31 @@ private final class State: @unchecked Sendable {
                 task.cancel()
             }
             startGate.open()
+            if i == 0 { return }
         }
+    }
+
+    private enum PrefetchClaim {
+        case unavailable
+        case covered
+        case inFlight
+        case claimed
+    }
+
+    /// Cached ranges are checked before in-flight ones: a prefetch that has
+    /// just written its chunk is still marked in flight until its task ends,
+    /// and the pass it starts from there must see the chunk as cached.
+    private func claimPrefetch(offset: Int64, endOffset: Int64) -> PrefetchClaim {
+        lock.lock()
+        defer { lock.unlock() }
+        // Don't prefetch when the last serve failed — letting prefetch
+        // continue would re-trigger the same failure dozens of times
+        // while the user-facing serve waits on its own retry path.
+        if closed || fetchDisabled { return .unavailable }
+        if isRangeCovered(offset: offset, endOffset: endOffset) { return .covered }
+        if prefetchInFlight.contains(offset) { return .inFlight }
+        prefetchInFlight.insert(offset)
+        return .claimed
     }
 
     /// Lock manipulation is wrapped in sync helpers because `NSLock`
@@ -2124,18 +2173,10 @@ private final class State: @unchecked Sendable {
     /// `lock.lock()` directly inside the prefetch `Task` body fails to
     /// build. The helpers themselves aren't `noasync`, so async callers
     /// can use them freely.
-    private func tryClaimPrefetch(offset: Int64, endOffset: Int64) -> Bool {
+    private func latestPrefetchStartOffset() -> Int64 {
         lock.lock()
         defer { lock.unlock() }
-        // Don't prefetch when the last serve failed — letting prefetch
-        // continue would re-trigger the same failure dozens of times
-        // while the user-facing serve waits on its own retry path.
-        if closed { return false }
-        if fetchDisabled { return false }
-        if prefetchInFlight.contains(offset) { return false }
-        if isRangeCovered(offset: offset, endOffset: endOffset) { return false }
-        prefetchInFlight.insert(offset)
-        return true
+        return prefetchStartOffset
     }
 
     private func releasePrefetch(offset: Int64) {

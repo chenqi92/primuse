@@ -1040,7 +1040,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         )
         XCTAssertTrue(Self.read(input, byteCount: 4096).success)
         let started = await Self.waitUntilAsync(timeout: 2) {
-            await connector.backgroundFetchCount() == 2
+            await connector.backgroundFetchCount() == 1
         }
         XCTAssertTrue(started)
         let finished = expectation(description: "foreground received shared bytes")
@@ -1052,7 +1052,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         }
         try await Task.sleep(for: .milliseconds(350))
         let pendingRequests = await connector.requests()
-        XCTAssertEqual(pendingRequests.count, 3, "A waiting read must reuse the two outstanding chunks")
+        XCTAssertEqual(pendingRequests.count, 2, "A waiting read must reuse the outstanding nearest chunk")
         await gate.release()
         await fulfillment(of: [finished], timeout: 2)
         XCTAssertTrue(result.value.success, result.value.error ?? "shared read failed")
@@ -1063,6 +1063,40 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         let requests = await connector.requests()
         XCTAssertEqual(requests.map(\.offset).sorted(), [0, CloudPlaybackSource.chunkSize, 2 * CloudPlaybackSource.chunkSize])
         XCTAssertEqual(requests.reduce(Int64(0)) { $0 + $1.length }, Int64(payload.count))
+    }
+
+    /// Parallel chunks split the bandwidth, so on a slow link the chunk the
+    /// decoder needs next would arrive only with the others. It goes alone;
+    /// the farther chunks start once it is cached.
+    func testNearestPrefetchChunkDownloadsAloneBeforeFartherChunks() async throws {
+        let sourceID = "cloud-nearest-first-\(UUID().uuidString)"
+        let directory = try makeTemporaryDirectory()
+        let cacheURL = directory.appendingPathComponent("song.bin")
+        let chunk = CloudPlaybackSource.chunkSize
+        let payload = Data(repeating: 0x27, count: Int(chunk) * 5)
+        let gate = BlockingFetchGate()
+        let connector = FixtureRangeConnector(sourceID: sourceID, payload: payload, trailingGate: gate)
+        defer {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            Task { await gate.release() }
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let input = try makeInputSource(
+            sourceID: sourceID, cacheURL: cacheURL, payload: payload,
+            connector: connector, allowsTrailingFill: false, prefetchAhead: 3
+        )
+        XCTAssertTrue(Self.read(input, byteCount: 4096).success)
+        let started = await Self.waitUntilAsync(timeout: 2) { await connector.backgroundFetchCount() == 1 }
+        XCTAssertTrue(started)
+        try await Task.sleep(for: .milliseconds(300))
+        let backgroundWhileWaiting = await connector.backgroundFetchCount()
+        XCTAssertEqual(backgroundWhileWaiting, 1, "Farther chunks must wait for the nearest one")
+
+        await gate.release()
+        let fartherStarted = await Self.waitUntilAsync(timeout: 2) {
+            await connector.requests().map(\.offset).sorted() == [0, chunk, 2 * chunk, 3 * chunk]
+        }
+        XCTAssertTrue(fartherStarted, "Farther chunks start once the nearest one is cached")
     }
 
     func testCancellingSessionReleasesReaderWaitingForPrefetch() async throws {

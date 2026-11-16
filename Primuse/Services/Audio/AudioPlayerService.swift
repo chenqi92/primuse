@@ -8417,7 +8417,9 @@ final class AudioPlayerService {
         }
     }
 
-    func pause() {
+    func pause(caller: String = #fileID, callerLine: Int = #line) {
+        // 诊断:日志里只有 pause-or-stop 时分不清是用户点的、遥控键还是程序自己停的。
+        plog("⏸️ pause() FROM=\((caller as NSString).lastPathComponent):\(callerLine) playing=\(isPlaying) loading=\(isLoading)")
         // A paused audiobook is the most common way to leave one, so the
         // position is written through before any route-specific early return.
         flushSpokenWordPosition()
