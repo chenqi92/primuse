@@ -710,6 +710,7 @@ actor TVPodcastArtworkLoader {
         config.timeoutIntervalForResource = 10 * 60
         config.httpCookieStorage = nil
         config.urlCredentialStorage = nil
+        config.urlCache = nil
         config.httpShouldSetCookies = false
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: config)

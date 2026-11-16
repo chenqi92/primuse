@@ -622,6 +622,7 @@ struct TVAmbientBackdrop: View {
     var meshPalette: [LiquidBackdropColor]? = nil
     var liquidPalette: [LiquidBackdropColor]? = nil
     var isPlaying = false
+    var isCovered = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
@@ -644,7 +645,7 @@ struct TVAmbientBackdrop: View {
                     palette: resolvedLiquidPalette(liquidPalette, primary: primary, secondary: secondary),
                     isLight: colorScheme == .light,
                     strength: s,
-                    isVisible: isVisible,
+                    isVisible: isVisible && !isCovered,
                     isSceneActive: scenePhase == .active,
                     isPlaying: isPlaying
                 )

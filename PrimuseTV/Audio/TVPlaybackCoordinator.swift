@@ -3549,6 +3549,7 @@ final class TVPlaybackCoordinator {
     private static let lyricsSession: URLSession = {
         let cfg = URLSessionConfiguration.default
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        cfg.urlCache = nil
         return URLSession(configuration: cfg, delegate: TVInsecureTLSDelegate(), delegateQueue: nil)
     }()
 

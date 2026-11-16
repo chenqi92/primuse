@@ -10,44 +10,40 @@ import PrimuseKit
 final class TopShelfProvider: TVTopShelfContentProvider {
 
     override func loadTopShelfContent(completionHandler: @escaping (TVTopShelfContent?) -> Void) {
-        guard let payload = TopShelfStore.load() else {
-            completionHandler(nil)
-            return
-        }
+        let content: TVTopShelfContent? = autoreleasepool {
+            guard let payload = TopShelfStore.load() else { return nil }
+            let fm = FileManager.default
+            let sections: [TVTopShelfItemCollection<TVTopShelfSectionedItem>] = payload.sections.compactMap { section in
+                let items: [TVTopShelfSectionedItem] = section.items.map { item in
+                    let shelf = TVTopShelfSectionedItem(identifier: item.id)
+                    shelf.title = item.title
+                    shelf.imageShape = .square
+                    if let progress = item.playbackProgress, progress.isFinite {
+                        shelf.playbackProgress = min(1, max(0, progress))
+                    }
 
-        let sections: [TVTopShelfItemCollection<TVTopShelfSectionedItem>] = payload.sections.compactMap { section in
-            let items: [TVTopShelfSectionedItem] = section.items.map { item in
-                let shelf = TVTopShelfSectionedItem(identifier: item.id)
-                shelf.title = item.title
-                shelf.imageShape = .square
-                if let progress = item.playbackProgress, progress.isFinite {
-                    shelf.playbackProgress = min(1, max(0, progress))
-                }
+                    if let name = item.imageFileName,
+                       let url = TopShelfStore.existingCoverURL(name),
+                       fm.fileExists(atPath: url.path) {
+                        shelf.setImageURL(url, for: .screenScale1x)
+                        shelf.setImageURL(url, for: .screenScale2x)
+                    }
 
-                if let name = item.imageFileName,
-                   let url = TopShelfStore.coverURL(name),
-                   FileManager.default.fileExists(atPath: url.path) {
-                    shelf.setImageURL(url, for: .screenScale1x)
-                    shelf.setImageURL(url, for: .screenScale2x)
+                    if let target = URL(string: item.playURL) {
+                        let action = TVTopShelfAction(url: target)
+                        shelf.displayAction = action
+                        shelf.playAction = action
+                    }
+                    return shelf
                 }
-
-                if let target = URL(string: item.playURL) {
-                    let action = TVTopShelfAction(url: target)
-                    shelf.displayAction = action
-                    shelf.playAction = action
-                }
-                return shelf
+                guard !items.isEmpty else { return nil }
+                let collection = TVTopShelfItemCollection(items: items)
+                collection.title = section.title
+                return collection
             }
-            guard !items.isEmpty else { return nil }
-            let collection = TVTopShelfItemCollection(items: items)
-            collection.title = section.title
-            return collection
+            guard !sections.isEmpty else { return nil }
+            return TVTopShelfSectionedContent(sections: sections)
         }
-
-        guard !sections.isEmpty else {
-            completionHandler(nil)
-            return
-        }
-        completionHandler(TVTopShelfSectionedContent(sections: sections))
+        completionHandler(content)
     }
 }

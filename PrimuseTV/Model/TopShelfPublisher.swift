@@ -1,7 +1,9 @@
 #if os(tvOS)
 import Foundation
 import CryptoKit
+import ImageIO
 import UIKit
+import UniformTypeIdentifiers
 import TVServices
 import PrimuseKit
 
@@ -221,6 +223,7 @@ enum TopShelfPublisher {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
+        format.preferredRange = .standard
         let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { rc in
             UIColor(white: 0.11, alpha: 1).setFill()
             rc.fill(CGRect(x: 0, y: 0, width: side, height: side))
@@ -276,8 +279,42 @@ enum TopShelfPublisher {
         guard !key.isEmpty else { return nil }
         // 把实际图像内容纳入 URL：占位后来被真实封面替换时，tvOS 不会继续命中旧图缓存。
         // 文件名由内容决定，已经写过的同一张图不再重写。
-        let name = sha256Hex(Data("\(key)|topshelf-art-v3|\(sha256Hex(output))".utf8), bytes: 16) + ".jpg"
-        return existingOrRendered(name) { output }
+        let name = sha256Hex(Data("\(key)|topshelf-art-v4|\(sha256Hex(output))".utf8), bytes: 16) + ".jpg"
+        return existingOrRendered(name) { downsampledTopShelfJPEG(output) }
+    }
+
+    private static func downsampledTopShelfJPEG(_ data: Data) -> Data? {
+        let maxPixel = 1_216
+        guard let source = CGImageSourceCreateWithData(
+            data as CFData,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ) else { return data }
+        if let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let width = properties[kCGImagePropertyPixelWidth] as? Int,
+           let height = properties[kCGImagePropertyPixelHeight] as? Int,
+           max(width, height) <= maxPixel,
+           let type = CGImageSourceGetType(source) as String?,
+           UTType(type)?.conforms(to: .jpeg) == true {
+            return data
+        }
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+        ] as CFDictionary) else { return data }
+        let encoded = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            encoded,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else { return data }
+        CGImageDestinationAddImage(
+            destination,
+            thumbnail,
+            [kCGImageDestinationLossyCompressionQuality: 0.88] as CFDictionary
+        )
+        return CGImageDestinationFinalize(destination) ? (encoded as Data) : data
     }
 
     /// 文件名随内容或输入变化，更新后的封面会换新文件。仅清理一周前且不在 `referenced`
@@ -322,6 +359,7 @@ enum TopShelfPublisher {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
+        format.preferredRange = .standard
         let image = UIGraphicsImageRenderer(size: size, format: format).image { rc in
             let ctx = rc.cgContext
             let cs = CGColorSpaceCreateDeviceRGB()

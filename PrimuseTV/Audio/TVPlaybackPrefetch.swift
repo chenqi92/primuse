@@ -205,6 +205,12 @@ final class TVPlaybackPrefetchStore: @unchecked Sendable {
         if let removed { Self.removeManagedFile(removed) }
     }
 
+    func clearSeeds() {
+        lock.lock()
+        seeds.removeAll()
+        lock.unlock()
+    }
+
     private static func removeManagedFile(_ url: URL) {
         _ = try? TVDecodedTemporaryFilePolicy.removeIfManaged(
             url,
@@ -244,6 +250,7 @@ enum TVPrefetchHTTPRangeReader {
     static let session: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 120
         return URLSession(configuration: configuration, delegate: TVInsecureTLSDelegate(), delegateQueue: nil)

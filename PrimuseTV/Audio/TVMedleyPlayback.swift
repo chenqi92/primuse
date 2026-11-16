@@ -70,7 +70,10 @@ final class TVMedleyPlayback {
         monitor = Task { [weak self] in
             var previous = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(50))
+                let interval: Duration = (self?.wantsPlaying == true || self?.outgoing != nil)
+                    ? .milliseconds(50)
+                    : .milliseconds(250)
+                try? await Task.sleep(for: interval)
                 guard !Task.isCancelled, let self, !self.stopped else { return }
                 let now = ProcessInfo.processInfo.systemUptime
                 self.tick(delta: min(0.2, max(0, now - previous)))

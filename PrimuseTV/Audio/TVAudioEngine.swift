@@ -162,7 +162,8 @@ final class TVAudioEngine {
         if let duration, duration.isFinite, duration > 0, duration != self.duration {
             self.duration = duration
         }
-        if currentTime.isFinite, currentTime >= 0 {
+        if currentTime.isFinite, currentTime >= 0,
+           abs(currentTime - self.currentTime) >= 0.02 || (!isPlaying && currentTime != self.currentTime) {
             self.currentTime = currentTime
         }
         if self.isPlaying != isPlaying { self.isPlaying = isPlaying }
@@ -1258,6 +1259,7 @@ final class TVAudioEngine {
                 updateNowPlayingInfo()
                 return false
             }
+            if sfbTimer == nil { startSFBPolling() }
             noteAudibleStart()
         } else {
             guard player.currentItem != nil else {
@@ -1313,6 +1315,7 @@ final class TVAudioEngine {
                 _ = play()
             } else {
                 sfb.pause()
+                stopSFBPolling()
                 isPlaying = false
                 status = .paused
                 updateNowPlayingInfo()
@@ -1392,7 +1395,12 @@ final class TVAudioEngine {
             deactivateAudioSessionAfterPause()
             return
         }
-        if usingSFB { sfb.pause() } else { player.pause() }
+        if usingSFB {
+            sfb.pause()
+            stopSFBPolling()
+        } else {
+            player.pause()
+        }
         selectionRequestedAt = nil
         isPlaying = false
         resetSpectrumLevels()
@@ -1819,6 +1827,9 @@ final class TVAudioEngine {
     private func syncFromSFB(generation: TVSFBEngine.Generation?) {
         guard usingSFB else { return }
         if let generation, generation != activeSFBGeneration { return }
+        let previousSecond = Int(currentTime)
+        let previousPlaying = isPlaying
+        let previousDuration = duration
         if isLiveStream, let liveStartedAt {
             currentTime = max(0, Date().timeIntervalSince(liveStartedAt))
         } else {
@@ -1830,15 +1841,21 @@ final class TVAudioEngine {
                     return
                 }
                 if t.isFinite {
-                    currentTime = playbackSegment.logicalTime(forPhysicalTime: t)
+                    let logical = playbackSegment.logicalTime(forPhysicalTime: t)
+                    if abs(logical - currentTime) >= 0.02 || !sfb.isPlaying && logical != currentTime {
+                        currentTime = logical
+                    }
                 }
             }
             if duration <= 0, sfb.duration > 0 {
                 duration = playbackSegment.logicalTime(forPhysicalTime: sfb.duration)
             }
         }
-        isPlaying = sfb.isPlaying
-        updateNowPlayingInfo()
+        let nextPlaying = sfb.isPlaying
+        if isPlaying != nextPlaying { isPlaying = nextPlaying }
+        if Int(currentTime) != previousSecond || isPlaying != previousPlaying || duration != previousDuration {
+            updateNowPlayingInfo()
+        }
     }
 
     private func handleSFBEnded(generation: TVSFBEngine.Generation?) {

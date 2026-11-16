@@ -64,6 +64,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     private func makeSession() -> URLSession {
         let cfg = sessionConfiguration ?? URLSessionConfiguration.default
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        cfg.urlCache = nil
         cfg.timeoutIntervalForRequest = 60
         cfg.timeoutIntervalForResource = 600
         // delegate 用弱持有 loader 的轻量转发对象,打破 loader ↔ session 强引用环:

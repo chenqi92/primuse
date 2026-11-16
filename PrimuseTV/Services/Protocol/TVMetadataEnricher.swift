@@ -142,6 +142,7 @@ actor TVMetadataReaderPool {
         self.rereadMetadata = rereadMetadata
         self.credential = credential
         let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = 12
         configuration.timeoutIntervalForResource = 20
         configuration.httpMaximumConnectionsPerHost = MetadataReadingDeviceProfile.current

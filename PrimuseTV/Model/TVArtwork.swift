@@ -81,6 +81,11 @@ actor TVArtworkPaletteLoader {
     private var latestSignature: [String: String] = [:]
     private var inFlight: [String: Task<TVArtworkPalette?, Never>] = [:]
 
+    func clearMemoryCache() {
+        memoryCache.removeAll()
+        checkedDiskKeys.removeAll()
+    }
+
     private var cacheDir: URL {
         let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         let dir = base.appendingPathComponent("PrimuseTVArtworkPalettes", isDirectory: true)
@@ -395,6 +400,7 @@ actor TVArtworkLoader {
         config.httpMaximumConnectionsPerHost = 2
         config.httpCookieStorage = nil
         config.urlCredentialStorage = nil
+        config.urlCache = nil
         config.httpShouldSetCookies = false
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(
@@ -403,6 +409,12 @@ actor TVArtworkLoader {
             delegateQueue: nil
         )
     }()
+
+    func clearMemoryCaches() {
+        negativeUntil.removeAll()
+        animationDescriptors.removeAll()
+        animationDescriptorLRU.removeAll()
+    }
 
     private var cacheDir: URL {
         let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)

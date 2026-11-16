@@ -618,6 +618,7 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
             configuration.httpCookieStorage = nil
             configuration.urlCredentialStorage = nil
+            configuration.urlCache = nil
             self.session = URLSession(
                 configuration: configuration,
                 delegate: TVInsecureTLSDelegate(),

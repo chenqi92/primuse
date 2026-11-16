@@ -50,6 +50,7 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
     private var radioVocabularyRefreshTask: Task<Void, Never>?
     /// 内存告警。电视上以前没人发 `.primuseMemoryPressure`,曲库的派生数据告警时也一直留着。
     private var memoryPressureSource: DispatchSourceMemoryPressure?
+    private var memoryWarningObserver: NSObjectProtocol?
     private var lastMemoryPressureHandledAt: Date?
     /// 退到后台放内存的那一轮(见 `BackgroundMemoryTrimPolicy`)。每排一次、取消一次都前进,
     /// 旧的那一轮收尾时不会把新一轮的断言放掉。
@@ -142,6 +143,15 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
         }
         memoryPressureSource = source
         source.activate()
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.handleMemoryPressure()
+            }
+        }
     }
 
     private func handleMemoryPressure() {
@@ -153,8 +163,14 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
         store.library.releaseRebuildableCaches()
         store.releaseSearchCache()
         PlayerBackdropMemoryCache.shared.removeAll()
+        URLCache.shared.removeAllCachedResponses()
+        if !store.isPlaying {
+            TVPlaybackPrefetchStore.shared.clearSeeds()
+        }
         NotificationCenter.default.post(name: .primuseMemoryPressure, object: nil)
         Task {
+            await TVArtworkLoader.shared.clearMemoryCaches()
+            await TVArtworkPaletteLoader.shared.clearMemoryCache()
             await LibrarySearchIndex.shared.releaseReadCaches()
             await MusicLibrary.returnFreedMemoryToSystem()
         }

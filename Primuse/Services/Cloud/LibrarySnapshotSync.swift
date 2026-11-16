@@ -2720,7 +2720,7 @@ final class LibrarySnapshotSync: Sendable {
             let sourcesIdentity = Self.snapshotFileIdentity(at: sourceDestination)
             var sourcesData: Data?
             if localSources == nil, FileManager.default.fileExists(atPath: sourceDestination.path) {
-                sourcesData = try Data(contentsOf: sourceDestination)
+                sourcesData = try Data(contentsOf: sourceDestination, options: .mappedIfSafe)
             }
             var libraryData: Data?
             if FileManager.default.fileExists(atPath: libraryDestination.path) {
@@ -2788,34 +2788,41 @@ final class LibrarySnapshotSync: Sendable {
                       pinnedLocalSourceIDs: Self.deviceSettings(in: root).optedOutSourceIDs
                   ) else { return nil }
             if let existingLibraryData {
-                let originalRows = try JSONSerialization.jsonObject(with: libraryData) as? [String: Any]
-                let incomingIDs = Set((originalRows?["songs"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
+                let incomingIDs: Set<String> = try autoreleasepool {
+                    let originalRows = try JSONSerialization.jsonObject(with: libraryData) as? [String: Any]
+                    return Set((originalRows?["songs"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
+                }
                 libraryData = try MusicLibrary.mergingSnapshotUserState(
                     localData: existingLibraryData, incomingData: libraryData,
                     locallyRetainedSongIDs: Set(preservingSongs.map(\.id)).subtracting(incomingIDs)
                 )
             }
             let sourceIDs = Set(try decoder.decode([MusicSource].self, from: merged.data).map(\.id))
-            guard var object = try JSONSerialization.jsonObject(with: libraryData) as? [String: Any],
-                  let rows = object["songs"] as? [[String: Any]] else { return nil }
-            guard let selection = TVSnapshotRowSelection.select(
-                incomingRows: rows.map {
-                    TVSnapshotIncomingRow(id: $0["id"] as? String, sourceID: $0["sourceID"] as? String)
-                },
-                knownSourceIDs: sourceIDs,
-                retainedSongIDs: preservingSongs.map {
-                    TVSnapshotLocalSong(id: $0.id, sourceID: $0.sourceID)
-                },
-                fromCloud: fromCloud
-            ) else { return nil }
-            if selection.requiresRewrite {
-                let retained = selection.retainedLocalIndices.map { preservingSongs[$0] }
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .iso8601
-                let retainedRows = try JSONSerialization.jsonObject(with: encoder.encode(retained)) as? [[String: Any]] ?? []
-                object["songs"] = selection.keptIncomingIndices.map { rows[$0] } + retainedRows
-                libraryData = try JSONSerialization.data(withJSONObject: object, options: .sortedKeys)
+            let rewrittenLibraryData: Data? = try autoreleasepool {
+                guard var object = try JSONSerialization.jsonObject(with: libraryData) as? [String: Any],
+                      let rows = object["songs"] as? [[String: Any]] else { return nil }
+                guard let selection = TVSnapshotRowSelection.select(
+                    incomingRows: rows.map {
+                        TVSnapshotIncomingRow(id: $0["id"] as? String, sourceID: $0["sourceID"] as? String)
+                    },
+                    knownSourceIDs: sourceIDs,
+                    retainedSongIDs: preservingSongs.map {
+                        TVSnapshotLocalSong(id: $0.id, sourceID: $0.sourceID)
+                    },
+                    fromCloud: fromCloud
+                ) else { return nil }
+                if selection.requiresRewrite {
+                    let retained = selection.retainedLocalIndices.map { preservingSongs[$0] }
+                    let encoder = JSONEncoder()
+                    encoder.dateEncodingStrategy = .iso8601
+                    let retainedRows = try JSONSerialization.jsonObject(with: encoder.encode(retained)) as? [[String: Any]] ?? []
+                    object["songs"] = selection.keptIncomingIndices.map { rows[$0] } + retainedRows
+                    return try JSONSerialization.data(withJSONObject: object, options: .sortedKeys)
+                }
+                return libraryData
             }
+            guard let rewrittenLibraryData else { return nil }
+            libraryData = rewrittenLibraryData
             var files: [URL: Data] = [root.appendingPathComponent("library-cache.json"): libraryData,
                                       sourceDestination: merged.data,
                                       root.appendingPathComponent("tv-pending-library-import.json"): libraryData]

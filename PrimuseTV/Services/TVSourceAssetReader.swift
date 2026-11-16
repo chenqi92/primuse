@@ -13,6 +13,7 @@ actor TVSourceAssetReader {
     init(registry: StreamResolverRegistry = .shared, session: URLSession? = nil) {
         self.registry = registry
         let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = 12
         configuration.timeoutIntervalForResource = 20
         self.session = session ?? URLSession(configuration: configuration, delegate: TVInsecureTLSDelegate(), delegateQueue: nil)

@@ -1,4 +1,5 @@
 #if os(tvOS)
+import ImageIO
 import SwiftUI
 import PrimuseKit
 
@@ -47,7 +48,10 @@ struct TVArtistArtworkView: View {
             image = nil
             let data = await artworkData()
             guard !Task.isCancelled, identity == requestIdentity, let data else { return }
-            let decoded = await Task.detached(priority: .utility) { UIImage(data: data) }.value
+            let maxPixelSize = max(256, Int((size * 2).rounded(.up)))
+            let decoded = await Task.detached(priority: .utility) {
+                Self.decodeThumbnail(data, maxPixelSize: maxPixelSize)
+            }.value
             guard !Task.isCancelled, identity == requestIdentity else { return }
             image = decoded
         }
@@ -135,10 +139,36 @@ struct TVArtistArtworkView: View {
            !SourceArtworkDataValidator.isDefaultArtistPlaceholder(cached) { return cached }
         return nil
     }
+
+    private nonisolated static func decodeThumbnail(_ data: Data, maxPixelSize: Int) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(
+            data as CFData,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ), let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ] as CFDictionary) else {
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: cgImage)
+    }
 }
 
 enum TVArtistArtworkReader {
     private static let maximumBytes = 8 * 1024 * 1024
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 12
+        config.timeoutIntervalForResource = 20
+        config.httpCookieStorage = nil
+        config.urlCredentialStorage = nil
+        config.urlCache = nil
+        config.httpShouldSetCookies = false
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
 
     static func read(reference: String, source: MusicSource?, credential: SourceCredential?) async -> Data? {
         if let source, TVSourceAssetReader.supports(source.type) {
@@ -172,15 +202,8 @@ enum TVArtistArtworkReader {
                     guard let url = URL(string: reference), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
                     request = URLRequest(url: url)
                 }
-                let config = URLSessionConfiguration.ephemeral
-                config.timeoutIntervalForRequest = 12
-                config.timeoutIntervalForResource = 20
-                config.httpCookieStorage = nil
-                config.urlCredentialStorage = nil
-                let session = URLSession(configuration: config)
-                defer { session.invalidateAndCancel() }
                 let response: URLResponse
-                (data, response) = try await StreamResolverHTTPTransport.data(for: request, session: session, maximumBytes: maximumBytes)
+                (data, response) = try await StreamResolverHTTPTransport.data(for: request, session: Self.session, maximumBytes: maximumBytes)
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
             }
             try Task.checkCancellation()

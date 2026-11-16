@@ -311,7 +311,11 @@ final class PlayerBackdropMemoryCache: @unchecked Sendable {
 
     private let cache: NSCache<NSString, Box> = {
         let cache = NSCache<NSString, Box>()
+        #if os(tvOS)
+        cache.totalCostLimit = 32 * 1024 * 1024
+        #else
         cache.totalCostLimit = 96 * 1024 * 1024
+        #endif
         return cache
     }()
 
