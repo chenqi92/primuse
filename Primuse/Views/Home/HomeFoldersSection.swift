@@ -4,7 +4,7 @@ import PrimuseKit
 private extension LibraryFolderNode {
     func displayedChildCount(in index: LibraryFolderIndex?) -> Int {
         guard kind == .source, let index else { return childNodeCount }
-        return LibraryFolderBrowsePolicy.displayedChildren(in: index, of: id).count
+        return LibraryFolderBrowsePolicy.displayedChildCount(in: index, of: id)
     }
 
     @MainActor

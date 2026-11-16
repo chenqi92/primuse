@@ -1037,6 +1037,22 @@ public enum LibraryFolderBrowsePolicy {
         }
     }
 
+    public static func displayedChildCount(
+        in index: LibraryFolderIndex,
+        of nodeID: LibraryFolderNodeID
+    ) -> Int {
+        guard nodeID.kind == .source else {
+            return index.node(withID: nodeID)?.childNodeCount ?? 0
+        }
+        let children = index.children(of: nodeID)
+        let scanRootCount = children.reduce(0) { $0 + ($1.kind == .scanRoot ? 1 : 0) }
+        return children.reduce(0) { count, child in
+            if child.kind == .other || child.kind == .uncategorized { return count }
+            // A collapsed root already stores its immediate folder count; do not materialize its children.
+            return count + (scanRootCount == 1 && child.kind == .scanRoot ? child.childNodeCount : 1)
+        }
+    }
+
     public static func displayedSongIDs(
         in index: LibraryFolderIndex,
         of nodeID: LibraryFolderNodeID

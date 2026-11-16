@@ -456,7 +456,7 @@ final class HomeDiscoveryModel {
                     descendantSongCount: node.descendantSongCount,
                     childNodeCount: node.childNodeCount,
                     displayedChildCount: node.kind == .source
-                        ? LibraryFolderBrowsePolicy.displayedChildren(in: index, of: node.id).count
+                        ? LibraryFolderBrowsePolicy.displayedChildCount(in: index, of: node.id)
                         : node.childNodeCount,
                     sourceDisplayName: index.sourceNode(for: node.sourceID)?.displayName,
                     coverSongIDs: coverSongs(for: node.id).map(\.id)
@@ -682,12 +682,13 @@ struct HomeDiscoveryObserver: View {
                 indexedRoots: source.type.isServerLibrary || source.type == .upnp
             )
         }
-        let task = Task.detached(priority: .utility) { [descriptors, providers, postSleepSpokenWordSongIDs] in
+        let task = Task.detached(priority: .utility) { [descriptors, providers, postSleepSpokenWordSongIDs] () -> LibraryFolderIndex? in
+            guard !Task.isCancelled else { return nil }
             let collections = collectionSnapshot.collections(availableSongs: songs)
             var descriptors = descriptors
             var known = Set(descriptors.map(\.sourceID))
             for index in songs.indices {
-                if index.isMultiple(of: 256), Task.isCancelled { break }
+                if index.isMultiple(of: 256), Task.isCancelled { return nil }
                 let sourceID = songs[index].sourceID
                 if known.insert(sourceID).inserted {
                     descriptors.append(LibraryFolderSourceDescriptor(
@@ -697,10 +698,28 @@ struct HomeDiscoveryObserver: View {
                     ))
                 }
             }
-            let resolved = descriptors.map { descriptor in
-                guard let provider = providers[descriptor.sourceID], !provider.items.isEmpty else { return descriptor }
-                let indexedRoots = provider.items.values.filter { $0.isDirectory && $0.parentPath == nil }
-                    .sorted { $0.path < $1.path }
+            var resolved: [LibraryFolderSourceDescriptor] = []
+            for descriptor in descriptors {
+                guard !Task.isCancelled else { return nil }
+                guard let provider = providers[descriptor.sourceID], !provider.items.isEmpty else {
+                    resolved.append(descriptor)
+                    continue
+                }
+                var items: [LibraryFolderProviderItemDescriptor] = []
+                var indexedRoots: [LibraryFolderProviderRootDescriptor] = []
+                for (position, item) in provider.items.values.enumerated() {
+                    if position.isMultiple(of: 256), Task.isCancelled { return nil }
+                    items.append(LibraryFolderProviderItemDescriptor(
+                        path: item.path, displayName: item.displayName,
+                        parentPath: item.parentPath, isDirectory: item.isDirectory
+                    ))
+                    if item.isDirectory, item.parentPath == nil {
+                        indexedRoots.append(LibraryFolderProviderRootDescriptor(
+                            path: item.path, displayName: item.displayName
+                        ))
+                    }
+                }
+                indexedRoots.sort { $0.path < $1.path }
                 let rootPaths = provider.indexedRoots && !indexedRoots.isEmpty
                     ? indexedRoots.map(\.path) : descriptor.scanRoots
                 let roots = rootPaths.map { path in
@@ -711,16 +730,11 @@ struct HomeDiscoveryObserver: View {
                         path: path, displayName: indexedName ?? provider.rootNames[path] ?? pathName
                     )
                 }
-                return descriptor.withProviderHierarchy(LibraryFolderProviderHierarchy(
-                    roots: roots,
-                    items: provider.items.values.map {
-                        LibraryFolderProviderItemDescriptor(
-                            path: $0.path, displayName: $0.displayName,
-                            parentPath: $0.parentPath, isDirectory: $0.isDirectory
-                        )
-                    }
-                ))
+                resolved.append(descriptor.withProviderHierarchy(LibraryFolderProviderHierarchy(
+                    roots: roots, items: items
+                )))
             }
+            guard !Task.isCancelled else { return nil }
             return LibraryFolderIndexBuilder.build(
                 sources: resolved,
                 songs: songs,
@@ -733,7 +747,7 @@ struct HomeDiscoveryObserver: View {
         } onCancel: {
             task.cancel()
         }
-        guard !Task.isCancelled, self.request == request else { return }
+        guard !Task.isCancelled, self.request == request, let builtIndex else { return }
         if canUseSharedIndex {
             HomeDiscoveryFolderIndexCache.shared.store(
                 builtIndex,
