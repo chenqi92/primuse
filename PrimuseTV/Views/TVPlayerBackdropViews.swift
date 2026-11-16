@@ -7,6 +7,7 @@ import PrimuseKit
 struct TVPlayerBackdrop: View {
     let tint: Color
     let tint2: Color
+    var isCovered = false
 
     @Environment(TVStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
@@ -50,7 +51,8 @@ struct TVPlayerBackdrop: View {
             liquidPalette: source == .liquid
                 ? songID.map { store.artworkAmbientPalette(forSongID: $0) } ?? []
                 : nil,
-            isPlaying: store.isPlaying
+            isPlaying: store.isPlaying,
+            isCovered: isCovered
         )
             .onChange(of: request, initial: true) { _, request in
                 resolver.update(request, store: store)
@@ -62,12 +64,12 @@ struct TVPlayerBackdrop: View {
                 resolver.albumCacheDidChange(request: request, store: store)
             }
             .task(id: CacheTimerKey(
-                active: scenePhase == .active && source == .albumBack,
+                active: scenePhase == .active && !isCovered && source == .albumBack,
                 directory: songID.flatMap { store.library.song(id: $0) }.map(TVAlbumBackArtwork.directoryKey),
                 enabled: cache.isEnabled,
                 automatic: cache.automaticRefresh
             )) {
-                guard scenePhase == .active, source == .albumBack, cache.isEnabled,
+                guard scenePhase == .active, !isCovered, source == .albumBack, cache.isEnabled,
                       let songID, let song = store.library.song(id: songID) else { return }
                 while !Task.isCancelled {
                     await cache.refresh(for: song, store: store)
@@ -78,11 +80,11 @@ struct TVPlayerBackdrop: View {
                 resolver.artworkDidCache(note, request: request, store: store)
             }
             .task(id: TimerKey(
-                isActive: scenePhase == .active && settings.rotation == .timed && source.supportsRotation,
+                isActive: scenePhase == .active && !isCovered && settings.rotation == .timed && source.supportsRotation,
                 interval: settings.intervalSeconds,
                 frameID: frame?.id
             )) {
-                guard scenePhase == .active, settings.rotation == .timed, source.supportsRotation else { return }
+                guard scenePhase == .active, !isCovered, settings.rotation == .timed, source.supportsRotation else { return }
                 let interval = max(PlayerBackdropSettings.intervalChoices.first ?? 15, settings.intervalSeconds)
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(interval))

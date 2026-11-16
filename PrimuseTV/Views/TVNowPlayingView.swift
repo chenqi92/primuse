@@ -301,8 +301,8 @@ struct TVNowPlayingView: View {
         }
         // 换页淡出期间这一页被禁用:换一个 id 停掉空闲检测(任务里读到的环境值停在开始那一刻,
         // 只能靠重启任务换成新值)。
-        .task(id: store.hasNowPlaying && isEnabled) {
-            guard isEnabled else { return }
+        .task(id: store.hasNowPlaying && store.isPlaying && !showImmersive && isEnabled) {
+            guard isEnabled, store.hasNowPlaying, store.isPlaying, !showImmersive else { return }
             // 仅普通歌曲播放态跑空闲检测:直播 / MV 有自己的画面,不进入沉浸展示。
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
@@ -337,7 +337,11 @@ struct TVNowPlayingView: View {
         let colors = store.nowPlayingPresentationColors
         return ZStack {
             // 封面色场;设置里选了模糊封面 / 专辑封底 / 我的图片时图铺在上面。
-            TVPlayerBackdrop(tint: colors.primary, tint2: colors.secondary)
+            TVPlayerBackdrop(
+                tint: colors.primary,
+                tint2: colors.secondary,
+                isCovered: showImmersive || store.isMusicVideoPlaybackActive
+            )
             playerContent
                 // 货架升起时后面的控件不参与焦点,上键不会把焦点带回传输键。
                 .disabled(showShelf && !shelfReleasesFocus)

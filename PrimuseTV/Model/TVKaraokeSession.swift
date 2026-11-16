@@ -181,7 +181,10 @@ final class TVKaraokeSession {
         tick()
         tickTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(50))
+                let delay: Duration = (self?.store.isPlaying == true || self?.isMicConnected == true)
+                    ? .milliseconds(50)
+                    : .milliseconds(250)
+                try? await Task.sleep(for: delay)
                 guard let self, self.isActive else { return }
                 self.tick()
             }
@@ -230,7 +233,10 @@ final class TVKaraokeSession {
         }
         followLoop()
         applySettings()
-        isEffectivelyMono = store.engine.karaokeProcessor.isEffectivelyMono
+        let nextMono = store.engine.karaokeProcessor.isEffectivelyMono
+        if isEffectivelyMono != nextMono {
+            isEffectivelyMono = nextMono
+        }
         tickCount &+= 1
         if isMicConnected, store.isPlaying, !isPlayingInstrumental {
             analyzeReferenceIfIdle()

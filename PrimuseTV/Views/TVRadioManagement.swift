@@ -289,6 +289,7 @@ enum TVRadioLogoLoader {
         config.httpMaximumConnectionsPerHost = 2
         config.httpCookieStorage = nil
         config.urlCredentialStorage = nil
+        config.urlCache = nil
         config.httpShouldSetCookies = false
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: config)

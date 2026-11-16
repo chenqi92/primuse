@@ -88,6 +88,10 @@ public enum TopShelfStore {
         return dir
     }
 
+    public static var existingCoversDirectory: URL? {
+        storageDirectory?.appendingPathComponent("TopShelfCovers", isDirectory: true)
+    }
+
     private static var payloadURL: URL? {
         storageDirectory?.appendingPathComponent("topshelf.json")
     }
@@ -96,8 +100,13 @@ public enum TopShelfStore {
         coversDirectory?.appendingPathComponent(fileName)
     }
 
+    public static func existingCoverURL(_ fileName: String) -> URL? {
+        existingCoversDirectory?.appendingPathComponent(fileName)
+    }
+
     public static func load() -> TopShelfPayload? {
-        guard let url = payloadURL, let data = try? Data(contentsOf: url) else { return nil }
+        guard let url = payloadURL,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
         let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
         return try? dec.decode(TopShelfPayload.self, from: data)
     }

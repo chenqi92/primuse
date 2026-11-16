@@ -1304,7 +1304,7 @@ struct TVImmersivePlayerView: View {
 
         while !Task.isCancelled {
             do {
-                try await Task.sleep(for: .milliseconds(100))
+                try await Task.sleep(for: store.isPlaying ? .milliseconds(100) : .milliseconds(300))
             } catch {
                 return
             }

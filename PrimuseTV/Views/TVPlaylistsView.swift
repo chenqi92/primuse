@@ -1,4 +1,5 @@
 #if os(tvOS)
+import ImageIO
 import SwiftUI
 import PrimuseKit
 
@@ -499,11 +500,12 @@ private struct TVPlaylistArtworkView: View {
         .frame(width: size, height: height)
         .task(id: loadIdentity) {
             let identity = loadIdentity
+            let maxPixelSize = max(320, Int((max(size, height) * 2).rounded(.up)))
             image = nil
             switch overrideResolution {
             case .uploaded(let contentID):
                 if let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID),
-                   let customImage = await Self.decodeImage(data) {
+                   let customImage = await Self.decodeImage(data, maxPixelSize: maxPixelSize) {
                     guard !Task.isCancelled, loadIdentity == identity else { return }
                     image = customImage
                     return
@@ -513,7 +515,7 @@ private struct TVPlaylistArtworkView: View {
                     if let data = await store.songArtworkData(
                         songID: song.id,
                         coverRef: song.coverArtFileName
-                    ), let selectedImage = await Self.decodeImage(data) {
+                    ), let selectedImage = await Self.decodeImage(data, maxPixelSize: maxPixelSize) {
                         guard !Task.isCancelled, loadIdentity == identity else { return }
                         image = selectedImage
                         return
@@ -542,7 +544,7 @@ private struct TVPlaylistArtworkView: View {
                     coverRef: candidate.artworkReference,
                     sourceID: candidate.kind == .dedicated ? dedicatedSourceID : nil
                 ) else { return nil }
-                return await Self.decodeImage(data)
+                return await Self.decodeImage(data, maxPixelSize: maxPixelSize)
             }
             guard !Task.isCancelled, loadIdentity == identity else { return }
             image = resolved?.value
@@ -594,9 +596,20 @@ private struct TVPlaylistArtworkView: View {
         return false
     }
 
-    private static func decodeImage(_ data: Data) async -> UIImage? {
+    private static func decodeImage(_ data: Data, maxPixelSize: Int) async -> UIImage? {
         await Task.detached(priority: .utility) {
-            UIImage(data: data)
+            guard let source = CGImageSourceCreateWithData(
+                data as CFData,
+                [kCGImageSourceShouldCache: false] as CFDictionary
+            ), let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            ] as CFDictionary) else {
+                return UIImage(data: data)
+            }
+            return UIImage(cgImage: cgImage)
         }.value
     }
 }

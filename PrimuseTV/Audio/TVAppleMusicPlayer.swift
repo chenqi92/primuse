@@ -594,7 +594,7 @@ final class TVAppleMusicPlayer {
                     )
                 )
                 if didFinish { return }
-                try? await Task.sleep(for: Self.mirrorInterval)
+                try? await Task.sleep(for: isPlaying ? Self.mirrorInterval : .milliseconds(500))
             }
         }
     }
