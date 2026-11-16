@@ -128,6 +128,25 @@ final class CarPlayEditorCatalog {
     @ObservationIgnored private var observationGeneration = 0
     @ObservationIgnored private var owners: Set<UUID> = []
     @ObservationIgnored private var cachedVersion: String?
+    @ObservationIgnored nonisolated(unsafe) private var memoryPressureObserver: NSObjectProtocol?
+
+    init() {
+        memoryPressureObserver = NotificationCenter.default.addObserver(
+            forName: .primuseMemoryPressure,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reclaimSnapshotIfIdle()
+            }
+        }
+    }
+
+    deinit {
+        if let memoryPressureObserver {
+            NotificationCenter.default.removeObserver(memoryPressureObserver)
+        }
+    }
 
     func acquire(_ owner: UUID) {
         guard owners.insert(owner).inserted, owners.count == 1 else { return }
@@ -145,6 +164,16 @@ final class CarPlayEditorCatalog {
         generation &+= 1
         task?.cancel()
         task = nil
+        isLoading = false
+        reclaimSnapshotIfIdle()
+    }
+
+    private func reclaimSnapshotIfIdle() {
+        guard owners.isEmpty else { return }
+        let displaced = snapshot
+        snapshot = Snapshot()
+        cachedVersion = nil
+        Task.detached(priority: .utility) { withExtendedLifetime(displaced) {} }
     }
 
     private func observe(_ expected: Int) {

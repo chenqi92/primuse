@@ -61,7 +61,8 @@ final class CarPlayFolderLibrary {
     @ObservationIgnored private var owners: Set<UUID> = []
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var buildTask: Task<Void, Never>?
-    @ObservationIgnored private var namesObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var namesObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var memoryPressureObserver: NSObjectProtocol?
     @ObservationIgnored private var namesRevision = 0
     @ObservationIgnored private var cachedInput: InputStamp?
 
@@ -71,6 +72,23 @@ final class CarPlayFolderLibrary {
         let hierarchy: UInt64
         let sources: [LibraryFolderSourceDescriptor]
         let names: Int
+    }
+
+    init() {
+        memoryPressureObserver = NotificationCenter.default.addObserver(
+            forName: .primuseMemoryPressure,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reclaimIndexIfIdle()
+            }
+        }
+    }
+
+    deinit {
+        if let namesObserver { NotificationCenter.default.removeObserver(namesObserver) }
+        if let memoryPressureObserver { NotificationCenter.default.removeObserver(memoryPressureObserver) }
     }
 
     func acquire(_ owner: UUID) {
@@ -95,6 +113,21 @@ final class CarPlayFolderLibrary {
         buildTask?.cancel()
         buildTask = nil
         isLoading = false
+        if let namesObserver {
+            NotificationCenter.default.removeObserver(namesObserver)
+            self.namesObserver = nil
+        }
+        reclaimIndexIfIdle()
+    }
+
+    private func reclaimIndexIfIdle() {
+        guard owners.isEmpty else { return }
+        let displaced = index
+        index = nil
+        cachedInput = nil
+        if let displaced {
+            Task.detached(priority: .utility) { withExtendedLifetime(displaced) {} }
+        }
     }
 
     func songs(in id: LibraryFolderNodeID, scope: LibraryFolderSongScope = .descendants) -> [Song] {
@@ -147,10 +180,32 @@ final class CarPlayFolderLibrary {
             guard !Task.isCancelled else { return }
             let library = AppServices.shared.musicLibrary
             let sources = AppServices.shared.sourcesStore.allSources
-            let songs = library.visibleSongs
             let spokenWordSongIDs = library.spokenWordSongIDs
+            let configuredDescriptors = sources.map(LibraryFolderSourceDescriptor.init(source:))
+            let hasCloudNames = sources.contains {
+                $0.type.isCloudDrive && !CloudDirectoryNameStore.displayNames(for: $0.id).isEmpty
+            }
+            if spokenWordSongIDs.isEmpty, !hasCloudNames {
+                let reuseKey = LibraryFolderIndexReuseKey(
+                    songsRevision: library.musicSongsRevision,
+                    collectionRevision: library.visibleSongCollectionRevision,
+                    replacementToken: library.songReplacementToken,
+                    virtualCollectionRevision: library.playlistCollectionRevision,
+                    hierarchyRevision: AppServices.shared.scanService.folderHierarchyRevision,
+                    sources: configuredDescriptors
+                )
+                if let reused = LibraryFolderIndexReuseCache.shared.index(for: reuseKey) {
+                    self.index = reused
+                    self.cachedInput = stamp
+                    self.revision &+= 1
+                    self.isLoading = false
+                    self.buildTask = nil
+                    return
+                }
+            }
+            let songs = library.visibleSongs
             let collections = library.appleMusicFolderCollections(availableSongs: songs)
-            var descriptors = sources.map(LibraryFolderSourceDescriptor.init(source:))
+            var descriptors = configuredDescriptors
             var known = Set(descriptors.map(\.sourceID))
             for song in songs where known.insert(song.sourceID).inserted {
                 descriptors.append(LibraryFolderSourceDescriptor(

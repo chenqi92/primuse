@@ -1527,9 +1527,12 @@ struct NowPlayingCarouselNowPlayingStrip: View {
 private struct NowPlayingCarouselStripProgress: View {
     let appearance: NowPlayingAppearance
     @Environment(AudioPlayerService.self) private var player
+    @Environment(\.playerSurfaceIsAwake) private var playerSurfaceIsAwake
 
     var body: some View {
-        let fraction = player.duration > 0 ? min(max(player.currentTime / player.duration, 0), 1) : 0
+        let duration = playerSurfaceIsAwake ? player.duration : 0
+        let currentTime = playerSurfaceIsAwake ? player.currentTime : 0
+        let fraction = duration > 0 ? min(max(currentTime / duration, 0), 1) : 0
         GeometryReader { geometry in
             Capsule()
                 .fill(appearance.primary.opacity(0.12))
