@@ -3611,64 +3611,13 @@ struct SongListView: View {
             let descriptors = await Task.detached(priority: .userInitiated) {
                 [baseDescriptors, providerHierarchyInputs] in
                 baseDescriptors.map { descriptor in
-                    guard let input = providerHierarchyInputs[descriptor.sourceID],
-                          !input.syncIndex.isEmpty else {
+                    guard let input = providerHierarchyInputs[descriptor.sourceID] else {
                         return descriptor
                     }
-                    let indexedRoots = input.syncIndex.values
-                        .filter { $0.isDirectory && $0.parentPath == nil }
-                        .sorted { lhs, rhs in
-                            let lhsName = lhs.displayName ?? lhs.path
-                            let rhsName = rhs.displayName ?? rhs.path
-                            if lhsName == rhsName { return lhs.path < rhs.path }
-                            return lhsName.localizedStandardCompare(rhsName) == .orderedAscending
-                        }
-                    let rootPaths = input.usesIndexedRoots && !indexedRoots.isEmpty
-                        ? indexedRoots.map(\.path)
-                        : descriptor.scanRoots
-                    let rootsByPath = Dictionary(
-                        indexedRoots.map { ($0.path, $0) },
-                        uniquingKeysWith: { first, _ in first }
-                    )
-                    let roots = rootPaths.map { path in
-                        let storedName = input.rootDisplayNames[path]?
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        let indexedName = rootsByPath[path]?.displayName?
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        let pathName: String?
-                        if descriptor.pathSemantics == .hierarchical, path != "/" {
-                            let value = (path as NSString).lastPathComponent
-                            pathName = value.isEmpty ? nil : value
-                        } else {
-                            pathName = nil
-                        }
-                        return LibraryFolderProviderRootDescriptor(
-                            path: path,
-                            displayName: indexedName?.isEmpty == false
-                                ? indexedName
-                                : (storedName?.isEmpty == false ? storedName : pathName)
-                        )
-                    }
-                    let items = input.syncIndex.values
-                        .sorted {
-                            if $0.path == $1.path {
-                                return $0.isDirectory && !$1.isDirectory
-                            }
-                            return $0.path < $1.path
-                        }
-                        .map {
-                            LibraryFolderProviderItemDescriptor(
-                                path: $0.path,
-                                displayName: $0.displayName,
-                                parentPath: $0.parentPath,
-                                isDirectory: $0.isDirectory
-                            )
-                        }
-                    return descriptor.withProviderHierarchy(
-                        LibraryFolderProviderHierarchy(
-                            roots: roots,
-                            items: items
-                        )
+                    return descriptor.attachingProviderHierarchy(
+                        syncIndex: input.syncIndex,
+                        rootDisplayNames: input.rootDisplayNames,
+                        usesIndexedRoots: input.usesIndexedRoots
                     )
                 }
             }.value

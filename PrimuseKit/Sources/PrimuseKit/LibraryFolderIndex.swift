@@ -121,6 +121,86 @@ public struct LibraryFolderSourceDescriptor: Hashable, Sendable {
         )
     }
 
+    /// 把扫描记下的服务端 / 网盘目录层级挂到这个源上。歌曲页、首页、车机按同一个
+    /// `LibraryFolderIndexReuseKey` 共用整库目录索引，三处必须照这一套规则挂，
+    /// 同一个键下才建得出同一份索引（根目录按名字排、名字去掉首尾空白、同路径时目录在前）。
+    public func attachingProviderHierarchy(
+        syncIndex: SourceSyncIndex,
+        rootDisplayNames: [String: String],
+        usesIndexedRoots: Bool
+    ) -> LibraryFolderSourceDescriptor {
+        attachingProviderHierarchy(
+            syncIndex: syncIndex,
+            rootDisplayNames: rootDisplayNames,
+            usesIndexedRoots: usesIndexedRoots,
+            isCancelled: { false }
+        ) ?? self
+    }
+
+    /// 同上；`isCancelled` 一返回 true 就中途放弃、返回 nil，后台建索引被取消时不再走完整个源。
+    public func attachingProviderHierarchy(
+        syncIndex: SourceSyncIndex,
+        rootDisplayNames: [String: String],
+        usesIndexedRoots: Bool,
+        isCancelled: () -> Bool
+    ) -> LibraryFolderSourceDescriptor? {
+        guard !syncIndex.isEmpty else { return self }
+        var items: [LibraryFolderProviderItemDescriptor] = []
+        var indexedRoots: [LibraryFolderProviderItemDescriptor] = []
+        for (position, item) in syncIndex.values.enumerated() {
+            if position.isMultiple(of: 256), isCancelled() { return nil }
+            let descriptor = LibraryFolderProviderItemDescriptor(
+                path: item.path,
+                displayName: item.displayName,
+                parentPath: item.parentPath,
+                isDirectory: item.isDirectory
+            )
+            items.append(descriptor)
+            if item.isDirectory, item.parentPath == nil { indexedRoots.append(descriptor) }
+        }
+        indexedRoots.sort { lhs, rhs in
+            let lhsName = lhs.displayName ?? lhs.path
+            let rhsName = rhs.displayName ?? rhs.path
+            if lhsName == rhsName { return lhs.path < rhs.path }
+            return lhsName.localizedStandardCompare(rhsName) == .orderedAscending
+        }
+        guard !isCancelled() else { return nil }
+        items.sort {
+            if $0.path == $1.path {
+                return $0.isDirectory && !$1.isDirectory
+            }
+            return $0.path < $1.path
+        }
+        guard !isCancelled() else { return nil }
+        let rootPaths = usesIndexedRoots && !indexedRoots.isEmpty
+            ? indexedRoots.map(\.path)
+            : scanRoots
+        let rootsByPath = Dictionary(
+            indexedRoots.map { ($0.path, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let roots = rootPaths.map { path in
+            let storedName = rootDisplayNames[path]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let indexedName = rootsByPath[path]?.displayName?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let pathName: String?
+            if pathSemantics == .hierarchical, path != "/" {
+                let value = (path as NSString).lastPathComponent
+                pathName = value.isEmpty ? nil : value
+            } else {
+                pathName = nil
+            }
+            return LibraryFolderProviderRootDescriptor(
+                path: path,
+                displayName: indexedName?.isEmpty == false
+                    ? indexedName
+                    : (storedName?.isEmpty == false ? storedName : pathName)
+            )
+        }
+        return withProviderHierarchy(LibraryFolderProviderHierarchy(roots: roots, items: items))
+    }
+
     private static func safeDisplayName(_ rawValue: String, fallback: String) -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return fallback }
@@ -860,6 +940,36 @@ public final class LibraryFolderIndex: Sendable {
         var pending = [id]
         while let current = pending.popLast() {
             result.append(contentsOf: partition.directSongIDs[current] ?? [])
+            if let children = partition.childIDs[current] {
+                pending.append(contentsOf: children.reversed())
+            }
+        }
+        return result
+    }
+
+    /// 按 `songIDs(in:scope: .descendants)` 的先后找前 `limit` 首满足条件的歌，找够就停。
+    /// 文件夹卡片只要几张封面：不先把整个子树（一个源的根就是整库）的歌曲 ID 建成数组。
+    public func firstSongIDs(
+        in id: LibraryFolderNodeID,
+        limit: Int,
+        where matches: (String) -> Bool,
+        isCancelled: () -> Bool = { false }
+    ) -> [String] {
+        guard limit > 0, let partition = partitions[id.sourceID], partition.nodes[id] != nil else {
+            return []
+        }
+        var result: [String] = []
+        result.reserveCapacity(limit)
+        var visited = 0
+        var pending = [id]
+        while let current = pending.popLast() {
+            for songID in partition.directSongIDs[current] ?? [] {
+                visited &+= 1
+                if visited.isMultiple(of: 512), isCancelled() { return result }
+                guard matches(songID) else { continue }
+                result.append(songID)
+                if result.count == limit { return result }
+            }
             if let children = partition.childIDs[current] {
                 pending.append(contentsOf: children.reversed())
             }

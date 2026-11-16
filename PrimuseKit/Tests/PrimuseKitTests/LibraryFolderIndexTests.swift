@@ -1151,6 +1151,57 @@ struct LibraryFolderIndexTests {
         #expect(folderIndex.nodeCount < 7_000)
         #expect(elapsed < .seconds(15))
     }
+
+    @Test("First matching songs follow the descendant order and stop once enough are found")
+    func firstSongIDsStopsEarly() throws {
+        let source = LibraryFolderSourceDescriptor(sourceID: "local", displayName: "Music", scanRoots: ["/"], pathSemantics: .hierarchical, pathEncoding: .native)
+        let index = LibraryFolderIndexBuilder.build(sources: [source], songs: [
+            testSong(id: "root", path: "/root.flac", sourceID: "local"),
+            testSong(id: "a1", path: "/A/1.flac", sourceID: "local"),
+            testSong(id: "a2", path: "/A/2.flac", sourceID: "local"),
+            testSong(id: "b1", path: "/B/1.flac", sourceID: "local"),
+            testSong(id: "c1", path: "/B/C/1.flac", sourceID: "local"),
+        ])
+        let sourceNode = try #require(index.sourceNode(for: "local"))
+        let all = index.songIDs(in: sourceNode.id, scope: .descendants)
+        let skipped: Set<String> = ["a1"]
+        var asked = 0
+        let first = index.firstSongIDs(in: sourceNode.id, limit: 2, where: { songID in
+            asked += 1
+            return !skipped.contains(songID)
+        })
+        #expect(first == Array(all.filter { !skipped.contains($0) }.prefix(2)))
+        #expect(asked == (all.firstIndex(of: first[1]) ?? -1) + 1)
+        #expect(index.firstSongIDs(in: sourceNode.id, limit: 10, where: { _ in true }) == all)
+        #expect(index.firstSongIDs(in: sourceNode.id, limit: 0, where: { _ in true }).isEmpty)
+        #expect(index.firstSongIDs(in: sourceNode.id, limit: 3, where: { _ in true }, isCancelled: { true }).count <= 3)
+    }
+
+    @Test("Provider hierarchy attaches roots by name with trimmed labels and directory-first items")
+    func attachesProviderHierarchyDeterministically() throws {
+        func item(_ path: String, name: String?, parent: String?, directory: Bool) -> (String, SourceSyncIndexedItem) {
+            (path, SourceSyncIndexedItem(
+                stableKey: path, path: path, displayName: name, parentPath: parent,
+                isDirectory: directory, size: 0, modifiedDate: nil, revision: nil
+            ))
+        }
+        let syncIndex = SourceSyncIndex(Dictionary(uniqueKeysWithValues: [
+            item("id-b", name: "Beta  ", parent: nil, directory: true),
+            item("id-a", name: "Alpha", parent: nil, directory: true),
+            item("f1", name: "song.flac", parent: "id-a", directory: false),
+        ]))
+        let descriptor = LibraryFolderSourceDescriptor(sourceID: "drive", displayName: "Drive", scanRoots: [], pathSemantics: .opaque)
+        let attached = descriptor.attachingProviderHierarchy(
+            syncIndex: syncIndex, rootDisplayNames: [:], usesIndexedRoots: true
+        )
+        let hierarchy = try #require(attached.providerHierarchy)
+        #expect(hierarchy.roots.map(\.path) == ["id-a", "id-b"])
+        #expect(hierarchy.roots.map(\.displayName) == ["Alpha", "Beta"])
+        #expect(hierarchy.items.map(\.path) == ["f1", "id-a", "id-b"])
+        #expect(descriptor.attachingProviderHierarchy(
+            syncIndex: SourceSyncIndex(), rootDisplayNames: [:], usesIndexedRoots: true
+        ) == descriptor)
+    }
 }
 
 @Suite("Song library browse-mode preference")

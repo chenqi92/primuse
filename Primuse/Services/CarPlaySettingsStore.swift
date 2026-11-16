@@ -185,7 +185,8 @@ final class CarPlayFolderLibrary {
             let hasCloudNames = sources.contains {
                 $0.type.isCloudDrive && !CloudDirectoryNameStore.displayNames(for: $0.id).isEmpty
             }
-            if spokenWordSongIDs.isEmpty, !hasCloudNames {
+            // 曲库里有有声书或环境音时歌曲页那份只有音乐，车机这份要全部可见的歌，不能借。
+            if library.nonMusicSongIDs.isEmpty, !hasCloudNames {
                 let reuseKey = LibraryFolderIndexReuseKey(
                     songsRevision: library.musicSongsRevision,
                     collectionRevision: library.visibleSongCollectionRevision,
@@ -224,29 +225,14 @@ final class CarPlayFolderLibrary {
                 )
             }
             let task = Task.detached(priority: .utility) { [descriptors, providers] in
+                // 和歌曲页同一套挂法：借来的索引和自己建的一样。
                 let resolved = descriptors.map { descriptor in
-                    guard let provider = providers[descriptor.sourceID], !provider.items.isEmpty else { return descriptor }
-                    let indexedRoots = provider.items.values.filter { $0.isDirectory && $0.parentPath == nil }
-                        .sorted { $0.path < $1.path }
-                    let paths = provider.indexedRoots && !indexedRoots.isEmpty
-                        ? indexedRoots.map(\.path) : descriptor.scanRoots
-                    let roots = paths.map { path in
-                        let indexedName = indexedRoots.first { $0.path == path }?.displayName
-                        let pathName = descriptor.pathSemantics == .hierarchical && path != "/"
-                            ? (path as NSString).lastPathComponent : nil
-                        return LibraryFolderProviderRootDescriptor(
-                            path: path, displayName: indexedName ?? provider.rootNames[path] ?? pathName
-                        )
-                    }
-                    return descriptor.withProviderHierarchy(LibraryFolderProviderHierarchy(
-                        roots: roots,
-                        items: provider.items.values.map {
-                            LibraryFolderProviderItemDescriptor(
-                                path: $0.path, displayName: $0.displayName,
-                                parentPath: $0.parentPath, isDirectory: $0.isDirectory
-                            )
-                        }
-                    ))
+                    guard let provider = providers[descriptor.sourceID] else { return descriptor }
+                    return descriptor.attachingProviderHierarchy(
+                        syncIndex: provider.items,
+                        rootDisplayNames: provider.rootNames,
+                        usesIndexedRoots: provider.indexedRoots
+                    )
                 }
                 return LibraryFolderIndexBuilder.build(sources: resolved, songs: songs, virtualCollections: collections,
                                                        spokenWordSongIDs: spokenWordSongIDs)

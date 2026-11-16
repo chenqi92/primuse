@@ -635,7 +635,12 @@ extension CarPlaySceneDelegate {
     private func pushSearchResults(for query: String) {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let template = CPListTemplate(title: query, sections: [])
-        template.emptyViewTitleVariants = [String(localized: "carplay_search_no_results")]
+        // 先推一页空表再在后台搜:大曲库第一次搜要几秒,这期间说「搜索中」,搜完是空的才说没有结果。
+        template.emptyViewTitleVariants = [
+            normalized.isEmpty
+                ? String(localized: "carplay_search_no_results")
+                : String(localized: "searching"),
+        ]
         safePush(template, label: "SearchResults")
         guard !normalized.isEmpty else { return }
         let generation = connectionGeneration
@@ -645,6 +650,7 @@ extension CarPlaySceneDelegate {
             guard self.connectionGeneration == generation,
                   self.interfaceController != nil,
                   let template else { return }
+            template.emptyViewTitleVariants = [String(localized: "carplay_search_no_results")]
             let items = matches.enumerated().map { index, song -> CPListItem in
                 self.songItem(
                     song,

@@ -312,7 +312,9 @@ final class KaraokeSeparationService {
     @ObservationIgnored private var onsetCache: [String: [KaraokeOnset]] = [:]
     @ObservationIgnored private var separatorIdleUnloadTask: Task<Void, Never>?
 
-    private static let separatorIdleUnloadDelay: Duration = .seconds(90)
+    /// 连着唱时一首分完到下一首开分，中间隔的就是一首歌的长度；比这个短的话每首都要重新
+    /// 装一遍模型（一两秒）。闲到十分钟才放，内存告警时照旧立刻放。
+    private static let separatorIdleUnloadDelay: Duration = .seconds(600)
 
     /// A separation or the model download is still running (or parked
     /// until the app returns to the foreground).

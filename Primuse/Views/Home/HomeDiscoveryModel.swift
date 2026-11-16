@@ -104,13 +104,16 @@ private actor HomeFolderPreviewStore {
     }
 }
 
+/// 首页的整库目录索引存哪儿。曲库里没有有声书、环境音时，首页、歌曲页、车机照的是同一份歌、
+/// 同一套规则，存进 `LibraryFolderIndexReuseCache` 共用一份；有的话首页按全部可见歌建（有声书的
+/// 文件夹照书架那样读），歌曲页只建音乐，同一个键下两份不一样，首页那份单独放一格。
 private final class HomeDiscoveryFolderIndexCache: @unchecked Sendable {
     static let shared = HomeDiscoveryFolderIndexCache()
 
     private let lock = NSLock()
-    private var spokenWordKey: LibraryFolderIndexReuseKey?
-    private var spokenWordIDs: Set<String> = []
-    private var spokenWordIndex: LibraryFolderIndex?
+    private var privateKey: LibraryFolderIndexReuseKey?
+    private var privateSpokenWordIDs: Set<String> = []
+    private var privateIndex: LibraryFolderIndex?
 
     private init() {
         NotificationCenter.default.addObserver(
@@ -119,10 +122,10 @@ private final class HomeDiscoveryFolderIndexCache: @unchecked Sendable {
             queue: nil
         ) { [weak self] _ in
             let droppedShared = LibraryFolderIndexReuseCache.shared.removeAll()
-            let droppedSpoken = self?.removeAllSpokenWord()
-            if droppedShared != nil || droppedSpoken != nil {
+            let droppedPrivate = self?.removeAllPrivate()
+            if droppedShared != nil || droppedPrivate != nil {
                 Task.detached(priority: .utility) {
-                    withExtendedLifetime((droppedShared, droppedSpoken)) {}
+                    withExtendedLifetime((droppedShared, droppedPrivate)) {}
                 }
             }
         }
@@ -130,30 +133,32 @@ private final class HomeDiscoveryFolderIndexCache: @unchecked Sendable {
 
     func index(
         for key: LibraryFolderIndexReuseKey,
-        spokenWordSongIDs: Set<String>
+        spokenWordSongIDs: Set<String>,
+        sharesLibraryIndex: Bool
     ) -> LibraryFolderIndex? {
-        if spokenWordSongIDs.isEmpty {
+        if sharesLibraryIndex {
             return LibraryFolderIndexReuseCache.shared.index(for: key)
         }
         return lock.withLock {
-            spokenWordKey == key && spokenWordIDs == spokenWordSongIDs ? spokenWordIndex : nil
+            privateKey == key && privateSpokenWordIDs == spokenWordSongIDs ? privateIndex : nil
         }
     }
 
     func store(
         _ index: LibraryFolderIndex,
         for key: LibraryFolderIndexReuseKey,
-        spokenWordSongIDs: Set<String>
+        spokenWordSongIDs: Set<String>,
+        sharesLibraryIndex: Bool
     ) {
         let displaced: LibraryFolderIndex?
-        if spokenWordSongIDs.isEmpty {
+        if sharesLibraryIndex {
             displaced = LibraryFolderIndexReuseCache.shared.store(index, for: key)
         } else {
             displaced = lock.withLock {
-                let previous = spokenWordIndex
-                spokenWordKey = key
-                spokenWordIDs = spokenWordSongIDs
-                spokenWordIndex = index
+                let previous = privateIndex
+                privateKey = key
+                privateSpokenWordIDs = spokenWordSongIDs
+                privateIndex = index
                 return previous === index ? nil : previous
             }
         }
@@ -162,30 +167,25 @@ private final class HomeDiscoveryFolderIndexCache: @unchecked Sendable {
         }
     }
 
+    /// 只认存着的正是 `index` 的那一格，另一格里别人的索引不会被改记。
     func rekey(
         _ index: LibraryFolderIndex,
         from old: LibraryFolderIndexReuseKey,
-        to new: LibraryFolderIndexReuseKey,
-        spokenWordSongIDs: Set<String>
+        to new: LibraryFolderIndexReuseKey
     ) {
-        if spokenWordSongIDs.isEmpty {
-            LibraryFolderIndexReuseCache.shared.rekey(index, from: old, to: new)
-        } else {
-            lock.withLock {
-                guard spokenWordIndex === index,
-                      spokenWordKey == old,
-                      spokenWordIDs == spokenWordSongIDs else { return }
-                spokenWordKey = new
-            }
+        LibraryFolderIndexReuseCache.shared.rekey(index, from: old, to: new)
+        lock.withLock {
+            guard privateIndex === index, privateKey == old else { return }
+            privateKey = new
         }
     }
 
-    private func removeAllSpokenWord() -> LibraryFolderIndex? {
+    private func removeAllPrivate() -> LibraryFolderIndex? {
         lock.withLock {
-            let previous = spokenWordIndex
-            spokenWordKey = nil
-            spokenWordIDs = []
-            spokenWordIndex = nil
+            let previous = privateIndex
+            privateKey = nil
+            privateSpokenWordIDs = []
+            privateIndex = nil
             return previous
         }
     }
@@ -304,14 +304,10 @@ final class HomeDiscoveryModel {
             return cachedIDs.compactMap { songsByID[$0] ?? boundLibrary?.unobservedVisibleSong(id: $0) }
         }
         guard let index, let library = boundLibrary else { return [] }
-        var resolvedSongs: [Song] = []
-        resolvedSongs.reserveCapacity(4)
-        for songID in index.songIDs(in: nodeID, scope: .descendants) {
-            guard let song = library.unobservedVisibleSong(id: songID),
-                  song.coverArtFileName != nil else { continue }
-            resolvedSongs.append(song)
-            if resolvedSongs.count == 4 { break }
-        }
+        // 没预挑过的文件夹（不在根目录前几个、也没钉住）在这里补：挑满四张就停。
+        let resolvedSongs = index.firstSongIDs(in: nodeID, limit: 4) { songID in
+            library.unobservedVisibleSong(id: songID)?.coverArtFileName != nil
+        }.compactMap { library.unobservedVisibleSong(id: $0) }
         if folderCoverSongIDs.count >= Self.maximumCachedCoverFolders {
             trimCoverCacheToPinnedNodes()
         }
@@ -559,8 +555,7 @@ struct HomeDiscoveryObserver: View {
                     HomeDiscoveryFolderIndexCache.shared.rekey(
                         currentIndex,
                         from: currentKey.replacingToken(previousToken),
-                        to: currentKey,
-                        spokenWordSongIDs: model.spokenWordSongIDs
+                        to: currentKey
                     )
                 }
             }
@@ -604,71 +599,25 @@ struct HomeDiscoveryObserver: View {
             model.refreshHistory()
             return
         }
-        let metadataToken = library.songReplacementToken
-        let spokenWordSongIDs = library.spokenWordSongIDs
-        let reuseKey = LibraryFolderIndexReuseKey(
-            songsRevision: library.musicSongsRevision,
-            collectionRevision: library.visibleSongCollectionRevision,
-            replacementToken: metadataToken,
-            virtualCollectionRevision: library.playlistCollectionRevision,
-            hierarchyRevision: scanService.folderHierarchyRevision,
-            sources: request.sources
-        )
-        let canUseSharedIndex = directoryNames.values.allSatisfy(\.isEmpty)
-        if canUseSharedIndex,
-           let cachedIndex = HomeDiscoveryFolderIndexCache.shared.index(
-               for: reuseKey,
-               spokenWordSongIDs: spokenWordSongIDs
-           ) {
-            pendingMetadataIDs.removeAll()
-            let prewarmed = Self.prewarmedCovers(for: cachedIndex, library: library)
-            model.publish(
-                index: cachedIndex,
-                songs: prewarmed.songsByID,
-                covers: prewarmed.covers,
-                pinnedNodeIDs: prewarmed.pinnedNodeIDs,
-                request: request,
-                metadataToken: metadataToken,
-                directoryNames: directoryNames,
-                spokenWordSongIDs: spokenWordSongIDs
-            )
+        let canUseCachedIndex = directoryNames.values.allSatisfy(\.isEmpty)
+        if canUseCachedIndex, await publishCachedIndexIfAvailable(request: request, directoryNames: directoryNames) {
             return
         }
         if model.index != nil {
             do { try await Task.sleep(for: .seconds(3)) } catch { return }
         }
         guard !Task.isCancelled else { return }
-        let postSleepMetadataToken = library.songReplacementToken
-        let postSleepSpokenWordSongIDs = library.spokenWordSongIDs
-        let postSleepReuseKey = LibraryFolderIndexReuseKey(
-            songsRevision: library.musicSongsRevision,
-            collectionRevision: library.visibleSongCollectionRevision,
-            replacementToken: postSleepMetadataToken,
-            virtualCollectionRevision: library.playlistCollectionRevision,
-            hierarchyRevision: scanService.folderHierarchyRevision,
-            sources: request.sources
-        )
-        if canUseSharedIndex,
-           let cachedIndex = HomeDiscoveryFolderIndexCache.shared.index(
-               for: postSleepReuseKey,
-               spokenWordSongIDs: postSleepSpokenWordSongIDs
-           ) {
-            pendingMetadataIDs.removeAll()
-            let prewarmed = Self.prewarmedCovers(for: cachedIndex, library: library)
-            model.publish(
-                index: cachedIndex,
-                songs: prewarmed.songsByID,
-                covers: prewarmed.covers,
-                pinnedNodeIDs: prewarmed.pinnedNodeIDs,
-                request: request,
-                metadataToken: postSleepMetadataToken,
-                directoryNames: directoryNames,
-                spokenWordSongIDs: postSleepSpokenWordSongIDs
-            )
+        if canUseCachedIndex, await publishCachedIndexIfAvailable(request: request, directoryNames: directoryNames) {
             return
         }
         pendingMetadataIDs.removeAll()
+        let metadataToken = library.songReplacementToken
+        let spokenWordSongIDs = library.spokenWordSongIDs
+        let sharesLibraryIndex = library.nonMusicSongIDs.isEmpty
+        let reuseKey = folderIndexReuseKey(replacementToken: metadataToken, request: request)
         let songs = library.visibleSongs
+        let lookup = library.visibleSongLookup()
+        let pins = Self.coverPins()
         let collectionSnapshot = library.appleMusicFolderSnapshot()
         let descriptors = request.sources
         let appleMusicName = String(localized: "apple_music_library_section")
@@ -682,7 +631,8 @@ struct HomeDiscoveryObserver: View {
                 indexedRoots: source.type.isServerLibrary || source.type == .upnp
             )
         }
-        let task = Task.detached(priority: .utility) { [descriptors, providers, postSleepSpokenWordSongIDs] () -> LibraryFolderIndex? in
+        let task = Task.detached(priority: .utility) {
+            [descriptors, providers, spokenWordSongIDs] () -> (LibraryFolderIndex, PrewarmedCovers)? in
             guard !Task.isCancelled else { return nil }
             let collections = collectionSnapshot.collections(availableSongs: songs)
             var descriptors = descriptors
@@ -698,74 +648,126 @@ struct HomeDiscoveryObserver: View {
                     ))
                 }
             }
+            // 和歌曲页同一套挂法：共用一份索引时两边建出来的必须一样。被取消就中途放弃，不再走完整个曲库。
             var resolved: [LibraryFolderSourceDescriptor] = []
             for descriptor in descriptors {
-                guard !Task.isCancelled else { return nil }
-                guard let provider = providers[descriptor.sourceID], !provider.items.isEmpty else {
+                guard let provider = providers[descriptor.sourceID] else {
                     resolved.append(descriptor)
                     continue
                 }
-                var items: [LibraryFolderProviderItemDescriptor] = []
-                var indexedRoots: [LibraryFolderProviderRootDescriptor] = []
-                for (position, item) in provider.items.values.enumerated() {
-                    if position.isMultiple(of: 256), Task.isCancelled { return nil }
-                    items.append(LibraryFolderProviderItemDescriptor(
-                        path: item.path, displayName: item.displayName,
-                        parentPath: item.parentPath, isDirectory: item.isDirectory
-                    ))
-                    if item.isDirectory, item.parentPath == nil {
-                        indexedRoots.append(LibraryFolderProviderRootDescriptor(
-                            path: item.path, displayName: item.displayName
-                        ))
-                    }
-                }
-                indexedRoots.sort { $0.path < $1.path }
-                let rootPaths = provider.indexedRoots && !indexedRoots.isEmpty
-                    ? indexedRoots.map(\.path) : descriptor.scanRoots
-                let roots = rootPaths.map { path in
-                    let indexedName = indexedRoots.first { $0.path == path }?.displayName
-                    let pathName = descriptor.pathSemantics == .hierarchical && path != "/"
-                        ? (path as NSString).lastPathComponent : nil
-                    return LibraryFolderProviderRootDescriptor(
-                        path: path, displayName: indexedName ?? provider.rootNames[path] ?? pathName
-                    )
-                }
-                resolved.append(descriptor.withProviderHierarchy(LibraryFolderProviderHierarchy(
-                    roots: roots, items: items
-                )))
+                guard let attached = descriptor.attachingProviderHierarchy(
+                    syncIndex: provider.items,
+                    rootDisplayNames: provider.rootNames,
+                    usesIndexedRoots: provider.indexedRoots,
+                    isCancelled: { Task.isCancelled }
+                ) else { return nil }
+                resolved.append(attached)
             }
             guard !Task.isCancelled else { return nil }
-            return LibraryFolderIndexBuilder.build(
+            let index = LibraryFolderIndexBuilder.build(
                 sources: resolved,
                 songs: songs,
                 virtualCollections: collections,
-                spokenWordSongIDs: postSleepSpokenWordSongIDs
+                spokenWordSongIDs: spokenWordSongIDs
             )
+            guard !Task.isCancelled else { return nil }
+            let prewarmed = Self.prewarmedCovers(for: index, lookup: lookup, pins: pins) { Task.isCancelled }
+            return (index, prewarmed)
         }
-        let builtIndex = await withTaskCancellationHandler {
+        let built = await withTaskCancellationHandler {
             await task.value
         } onCancel: {
             task.cancel()
         }
-        guard !Task.isCancelled, self.request == request, let builtIndex else { return }
-        if canUseSharedIndex {
+        guard !Task.isCancelled, self.request == request,
+              case let (builtIndex, prewarmed)? = built else { return }
+        if canUseCachedIndex {
             HomeDiscoveryFolderIndexCache.shared.store(
                 builtIndex,
-                for: postSleepReuseKey,
-                spokenWordSongIDs: postSleepSpokenWordSongIDs
+                for: reuseKey,
+                spokenWordSongIDs: spokenWordSongIDs,
+                sharesLibraryIndex: sharesLibraryIndex
             )
         }
-        let prewarmed = Self.prewarmedCovers(for: builtIndex, library: library)
-        let patchedMetadataToken = pendingMetadataIDs.isEmpty ? postSleepMetadataToken : model.handledMetadataToken
+        publish(
+            builtIndex,
+            prewarmed: prewarmed,
+            request: request,
+            metadataToken: metadataToken,
+            directoryNames: directoryNames,
+            spokenWordSongIDs: spokenWordSongIDs
+        )
+    }
+
+    /// 存着照眼下这份输入建好的索引时直接用它，只在后台挑一遍卡片封面。
+    private func publishCachedIndexIfAvailable(
+        request: HomeDiscoveryModel.Request,
+        directoryNames: [String: [String: String]]
+    ) async -> Bool {
+        let metadataToken = library.songReplacementToken
+        let spokenWordSongIDs = library.spokenWordSongIDs
+        guard let cachedIndex = HomeDiscoveryFolderIndexCache.shared.index(
+            for: folderIndexReuseKey(replacementToken: metadataToken, request: request),
+            spokenWordSongIDs: spokenWordSongIDs,
+            sharesLibraryIndex: library.nonMusicSongIDs.isEmpty
+        ) else { return false }
+        pendingMetadataIDs.removeAll()
+        let lookup = library.visibleSongLookup()
+        let pins = Self.coverPins()
+        let task = Task.detached(priority: .utility) {
+            Self.prewarmedCovers(for: cachedIndex, lookup: lookup, pins: pins) { Task.isCancelled }
+        }
+        let prewarmed = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        // 取消或请求换了也算处理过：调用方别再拿过期的输入去建一份。
+        guard !Task.isCancelled, self.request == request else { return true }
+        publish(
+            cachedIndex,
+            prewarmed: prewarmed,
+            request: request,
+            metadataToken: metadataToken,
+            directoryNames: directoryNames,
+            spokenWordSongIDs: spokenWordSongIDs
+        )
+        return true
+    }
+
+    private func folderIndexReuseKey(
+        replacementToken: UUID,
+        request: HomeDiscoveryModel.Request
+    ) -> LibraryFolderIndexReuseKey {
+        LibraryFolderIndexReuseKey(
+            songsRevision: library.musicSongsRevision,
+            collectionRevision: library.visibleSongCollectionRevision,
+            replacementToken: replacementToken,
+            virtualCollectionRevision: library.playlistCollectionRevision,
+            hierarchyRevision: scanService.folderHierarchyRevision,
+            sources: request.sources
+        )
+    }
+
+    /// 发布之后把等待期间到的标签替换补上。
+    private func publish(
+        _ index: LibraryFolderIndex,
+        prewarmed: PrewarmedCovers,
+        request: HomeDiscoveryModel.Request,
+        metadataToken: UUID,
+        directoryNames: [String: [String: String]],
+        spokenWordSongIDs: Set<String>
+    ) {
+        let patchedMetadataToken = pendingMetadataIDs.isEmpty ? metadataToken : model.handledMetadataToken
         model.publish(
-            index: builtIndex,
+            index: index,
             songs: prewarmed.songsByID,
             covers: prewarmed.covers,
             pinnedNodeIDs: prewarmed.pinnedNodeIDs,
             request: request,
-            metadataToken: postSleepMetadataToken,
+            metadataToken: metadataToken,
             directoryNames: directoryNames,
-            spokenWordSongIDs: postSleepSpokenWordSongIDs
+            spokenWordSongIDs: spokenWordSongIDs
         )
         for id in pendingMetadataIDs {
             if let song = library.unobservedVisibleSong(id: id) { model.updateMetadata(song: song) }
@@ -774,20 +776,35 @@ struct HomeDiscoveryObserver: View {
         pendingMetadataIDs.removeAll()
     }
 
-    @MainActor
-    private static func prewarmedCovers(
+    private struct CoverPins: Sendable {
+        let raw: String
+        let displayCount: Int
+    }
+
+    private struct PrewarmedCovers: Sendable {
+        let songsByID: [String: Song]
+        let covers: [LibraryFolderNodeID: [String]]
+        let pinnedNodeIDs: Set<LibraryFolderNodeID>
+    }
+
+    private static func coverPins() -> CoverPins {
+        CoverPins(
+            raw: UserDefaults.standard.string(forKey: HomeFolderPinStorage.key) ?? "",
+            displayCount: UserDefaults.standard.object(forKey: HomeFolderPinStorage.displayCountKey) as? Int
+                ?? HomeFolderPinStorage.defaultDisplayCount
+        )
+    }
+
+    /// 首页会摆出来的那几个文件夹（钉住的、各源根目录和它们前几个子目录）先挑好封面。
+    /// 在主线程外做：源的根目录就是整个源，挑满四张就停，不先展开整棵子树。
+    private nonisolated static func prewarmedCovers(
         for index: LibraryFolderIndex,
-        library: MusicLibrary
-    ) -> (
-        songsByID: [String: Song],
-        covers: [LibraryFolderNodeID: [String]],
-        pinnedNodeIDs: Set<LibraryFolderNodeID>
-    ) {
-        let pinsRaw = UserDefaults.standard.string(forKey: HomeFolderPinStorage.key) ?? ""
-        let count = UserDefaults.standard.object(forKey: HomeFolderPinStorage.displayCountKey) as? Int
-            ?? HomeFolderPinStorage.defaultDisplayCount
+        lookup: VisibleSongLookup,
+        pins: CoverPins,
+        isCancelled: () -> Bool
+    ) -> PrewarmedCovers {
         var candidateNodeIDs = Set(
-            HomeFolderPinStorage.resolvedPins(pinsRaw, index: index, defaultCount: count)
+            HomeFolderPinStorage.resolvedPins(pins.raw, index: index, defaultCount: pins.displayCount)
         )
         for rootNode in LibraryFolderBrowsePolicy.rootNodes(in: index, sourceID: nil) {
             candidateNodeIDs.insert(rootNode.id)
@@ -798,17 +815,18 @@ struct HomeDiscoveryObserver: View {
         var songsByID: [String: Song] = [:]
         var covers: [LibraryFolderNodeID: [String]] = [:]
         for nodeID in candidateNodeIDs {
-            var ids: [String] = []
-            ids.reserveCapacity(4)
-            for songID in index.songIDs(in: nodeID, scope: .descendants) {
-                guard let song = library.unobservedVisibleSong(id: songID),
-                      song.coverArtFileName != nil else { continue }
-                ids.append(songID)
-                songsByID[songID] = song
-                if ids.count == 4 { break }
+            if isCancelled() { break }
+            let ids = index.firstSongIDs(
+                in: nodeID,
+                limit: 4,
+                where: { lookup.song(id: $0)?.coverArtFileName != nil },
+                isCancelled: isCancelled
+            )
+            for songID in ids where songsByID[songID] == nil {
+                songsByID[songID] = lookup.song(id: songID)
             }
             covers[nodeID] = ids
         }
-        return (songsByID, covers, candidateNodeIDs)
+        return PrewarmedCovers(songsByID: songsByID, covers: covers, pinnedNodeIDs: candidateNodeIDs)
     }
 }
