@@ -612,6 +612,10 @@ public actor SongListSnapshotStore {
         cancelPending(in: scopeKey, except: nil)
     }
 
+    public func releaseCachedSnapshots() {
+        cachedByKey.removeAll()
+    }
+
     private func prepareScope(
         _ scopeKey: String,
         for version: SongListSnapshotVersion

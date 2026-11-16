@@ -270,6 +270,8 @@ struct CachedArtworkView: View {
     private static let sharedArtworkSession: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
     }()
 
@@ -405,35 +407,23 @@ struct CachedArtworkView: View {
                 taskIdentity: loadTaskIdentity
             )
         }
-        .task(id: loadTaskIdentity) {
-            // 不在这里先看 placeholderRevealed：两个 task 谁先跑不确定，读到的
-            // 可能是换身份前的旧值。revealPlaceholder 自己会去重。首帧就有图（内存
-            // 命中）或根本没有封面来源时不用等：列表滚动时每个格子都会挂一次，
-            // 白挂一个睡 180ms 的任务不值得。
-            // 滚出可视区或消失时身份里的 #visible 一变，这个任务也会重挂；那时卡片已经看不见，
-            // 再去带动画揭开占位，就是每张滑出去的卡在滚动中途补跑一段淡入。
-            guard isArtworkVisible, !hasNoArtworkSource, !hasResolvedArtwork else { return }
-            try? await Task.sleep(for: Self.placeholderGracePeriod)
-            guard !Task.isCancelled, isArtworkVisible, !hasResolvedArtwork else { return }
-            revealPlaceholder(animated: true)
-        }
-        .task(id: animationLoadIdentity) {
-            await loadAnimatedArtwork(for: animationLoadIdentity)
-        }
-        .task(id: animatedArtworkExpiryIdentity) {
-            await expireAnimatedArtwork(for: animatedArtworkExpiryIdentity)
-        }
-        .task(id: appleMusicArtworkLoadIdentity) {
-            guard loadsHighResolution else { return }
-            await resolveAppleMusicArtwork(for: appleMusicArtworkIdentity)
-        }
-        .task(id: deferredEmbeddedArtworkSongID) {
-            // 远端文件源上内嵌封面延后读取的歌: 露面时读一次首段(见
-            // `MetadataBackfillService.loadDeferredEmbeddedArtworkForDisplay`)。读到后歌曲行
-            // 换上封面引用, 这里随 coverRef 变化重新加载。格子消失时任务取消, 读取跟着停。
-            guard let songID = deferredEmbeddedArtworkSongID else { return }
-            await AppServices.shared.metadataBackfill.loadDeferredEmbeddedArtworkForDisplay(songID: songID)
-        }
+        .modifier(OptionalAnimatedArtworkTasks(
+            isEnabled: presentationRole == .animatedHero,
+            loadIdentity: animationLoadIdentity,
+            expiryIdentity: animatedArtworkExpiryIdentity,
+            onLoad: { await loadAnimatedArtwork(for: $0) },
+            onExpire: { await expireAnimatedArtwork(for: $0) },
+            onPolicySignal: { animationPolicyRevision &+= 1 }
+        ))
+        .modifier(OptionalAppleMusicArtworkTask(
+            isEnabled: sourceID == AppleMusicLibraryService.systemSourceID
+                && !StoredArtworkOrigin.preservesLocalChoice(coverRef),
+            loadIdentity: appleMusicArtworkLoadIdentity,
+            identity: appleMusicArtworkIdentity,
+            loadsHighResolution: loadsHighResolution,
+            onResolve: { await resolveAppleMusicArtwork(for: $0) }
+        ))
+        .modifier(OptionalDeferredEmbeddedArtworkTask(songID: deferredEmbeddedArtworkSongID))
         .onChange(of: hasResolvedArtwork) { _, isResolved in
             if isResolved { onResolutionChange(true) }
         }
@@ -473,16 +463,6 @@ struct CachedArtworkView: View {
                 keys: diskKeys,
                 removesOnlyNegativeEntries: true
             )
-        }
-        .onReceive(NotificationCenter.default.publisher(
-            for: Notification.Name.NSProcessInfoPowerStateDidChange
-        )) { _ in
-            animationPolicyRevision &+= 1
-        }
-        .onReceive(NotificationCenter.default.publisher(
-            for: ProcessInfo.thermalStateDidChangeNotification
-        )) { _ in
-            animationPolicyRevision &+= 1
         }
         .onAppear { isArtworkVisible = true }
         #if os(macOS)
@@ -1667,6 +1647,17 @@ struct CachedArtworkView: View {
             return
         }
 
+        if appleMusicArtwork != nil, !reportsArtworkImage {
+            if holdsPreviousArtwork {
+                dropHeldArtwork()
+            } else if image != nil {
+                image = nil
+            }
+            loadedIdentity = identity
+            onResolutionChange(true)
+            return
+        }
+
         guard loadedIdentity != identity || image == nil else { return }
 
         let cacheNSKey = key as NSString
@@ -1692,6 +1683,16 @@ struct CachedArtworkView: View {
             revealPlaceholder(animated: false)
             return
         }
+
+        var placeholderTask: Task<Void, Never>?
+        if showsPlaceholder, !placeholderRevealed, !hasResolvedArtwork {
+            placeholderTask = Task { @MainActor in
+                try? await Task.sleep(for: Self.placeholderGracePeriod)
+                guard !Task.isCancelled, isArtworkVisible, !hasResolvedArtwork else { return }
+                revealPlaceholder(animated: true)
+            }
+        }
+        defer { placeholderTask?.cancel() }
 
         // Publish the disk thumbnail before waiting for a source slot or TLS.
         // It stays provisional so the same mount can still upgrade to full size.
@@ -2805,5 +2806,71 @@ private final class ArtworkMemoryRevisions: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return "#memory\(revisions[songID ?? ""] ?? 0):\(revisions[reference ?? ""] ?? 0)"
+    }
+}
+
+private struct OptionalAnimatedArtworkTasks: ViewModifier {
+    let isEnabled: Bool
+    let loadIdentity: String
+    let expiryIdentity: String
+    let onLoad: (String) async -> Void
+    let onExpire: (String) async -> Void
+    let onPolicySignal: () -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content
+                .task(id: loadIdentity) {
+                    await onLoad(loadIdentity)
+                }
+                .task(id: expiryIdentity) {
+                    await onExpire(expiryIdentity)
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: Notification.Name.NSProcessInfoPowerStateDidChange
+                )) { _ in
+                    onPolicySignal()
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: ProcessInfo.thermalStateDidChangeNotification
+                )) { _ in
+                    onPolicySignal()
+                }
+        } else {
+            content
+        }
+    }
+}
+
+private struct OptionalAppleMusicArtworkTask: ViewModifier {
+    let isEnabled: Bool
+    let loadIdentity: String
+    let identity: String
+    let loadsHighResolution: Bool
+    let onResolve: (String) async -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.task(id: loadIdentity) {
+                guard loadsHighResolution else { return }
+                await onResolve(identity)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+private struct OptionalDeferredEmbeddedArtworkTask: ViewModifier {
+    let songID: String?
+
+    func body(content: Content) -> some View {
+        if let songID {
+            content.task(id: songID) {
+                await AppServices.shared.metadataBackfill.loadDeferredEmbeddedArtworkForDisplay(songID: songID)
+            }
+        } else {
+            content
+        }
     }
 }

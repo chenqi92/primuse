@@ -31,17 +31,17 @@ actor ImageCache {
 
         // Check disk cache
         let fileURL = cacheDirectory.appendingPathComponent(key)
-        guard let data = try? Data(contentsOf: fileURL),
+        guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe),
               let image = PlatformImage(data: data) else {
             return nil
         }
 
-        memoryCache.setObject(image, forKey: key as NSString)
+        memoryCache.setObject(image, forKey: key as NSString, cost: Self.pixelByteCost(of: image))
         return image
     }
 
     func store(_ image: PlatformImage, forKey key: String) {
-        memoryCache.setObject(image, forKey: key as NSString)
+        memoryCache.setObject(image, forKey: key as NSString, cost: Self.pixelByteCost(of: image))
 
         let fileURL = cacheDirectory.appendingPathComponent(key)
         #if os(iOS)
@@ -61,6 +61,29 @@ actor ImageCache {
         if let image = PlatformImage(data: data) {
             store(image, forKey: key)
         }
+    }
+
+    func clearMemoryCache() {
+        memoryCache.removeAllObjects()
+    }
+
+    private nonisolated static func pixelByteCost(of image: PlatformImage) -> Int {
+        #if os(iOS)
+        if let cgImage = image.cgImage {
+            return max(1, cgImage.bytesPerRow * cgImage.height)
+        }
+        let scale = max(1, image.scale)
+        let width = Int(ceil(image.size.width * scale))
+        let height = Int(ceil(image.size.height * scale))
+        return max(1, width * height * 4)
+        #else
+        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            return max(1, cgImage.bytesPerRow * cgImage.height)
+        }
+        let width = Int(ceil(image.size.width * 2))
+        let height = Int(ceil(image.size.height * 2))
+        return max(1, width * height * 4)
+        #endif
     }
 
     func clearDiskCache() throws {

@@ -148,6 +148,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 8
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         let trust = SmartSSLDelegate(
             httpUsername: username,
             httpPassword: password,

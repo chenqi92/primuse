@@ -1,4 +1,5 @@
 import CloudKit
+import Darwin
 import SwiftUI
 import PrimuseKit
 
@@ -1308,6 +1309,13 @@ final class RebuildableMemoryReliefCoordinator {
     /// 每排一次、取消一次都前进: 旧的那一轮收尾时不会把新一轮的断言放掉。
     private var trimGeneration = 0
     private var rewarmTask: Task<Void, Never>?
+    #elseif os(macOS)
+    private var macLifecycleObservers: [NSObjectProtocol] = []
+    private var macIdleTrimTask: Task<Void, Never>?
+    /// 单进程物理占用超过 1.4 GB 时主动释放可重建缓存, 远早于 macOS 约 4 GB 的单进程 Jetsam 上限。
+    private static let macProactiveReliefFootprintBytes: UInt64 = 1_400 * 1_024 * 1_024
+    /// 无可见窗口且未播放时若仍高于 900 MB, 顺手把整库派生缓存也一并释放。
+    private static let macHiddenDeepTrimFootprintBytes: UInt64 = 900 * 1_024 * 1_024
     #endif
 
     func install(library: MusicLibrary, player: AudioPlayerService) {
@@ -1323,18 +1331,144 @@ final class RebuildableMemoryReliefCoordinator {
                 RebuildableMemoryReliefCoordinator.shared.relieveMemoryPressure()
             }
         }
+        #if os(macOS)
+        installMacLifecycleObservers()
+        #endif
     }
 
     private func relieveMemoryPressure() {
         // 曲库自己的观察者也会放一遍(放空了再放很便宜); 这里先放, 保证还页之前已经放完。
         library?.releaseRebuildableCaches()
+        CachedArtworkView.purgeDecodedImageCache()
+        PlayerBackdropMemoryCache.shared.removeAll()
+        AppServices.shared.coverTintProvider.clearCache(releasingKnownSongs: true)
+        URLCache.shared.removeAllCachedResponses()
         player?.trimNowPlayingArtworkCacheToCurrentItem()
         Task {
+            await ImageCache.shared.clearMemoryCache()
+            await ArtworkFetchService.shared.clearMemoryCache()
+            await SongListSnapshotStore.shared.releaseCachedSnapshots()
             // 搜索投影在搜索 actor 上, 等它放完再还页。
             await LibrarySearchIndex.shared.releaseReadCaches()
             await MusicLibrary.returnFreedMemoryToSystem()
         }
     }
+
+    #if os(macOS)
+    private func installMacLifecycleObservers() {
+        guard macLifecycleObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        let inactiveNames: [Notification.Name] = [
+            NSApplication.didHideNotification,
+            NSApplication.didResignActiveNotification,
+            NSWindow.willCloseNotification,
+        ]
+        for name in inactiveNames {
+            let observer = center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    RebuildableMemoryReliefCoordinator.shared.evaluateMacMemoryFootprintAndScheduleIdleTrim()
+                }
+            }
+            macLifecycleObservers.append(observer)
+        }
+        let activeObserver = center.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                RebuildableMemoryReliefCoordinator.shared.macDidBecomeActive()
+            }
+        }
+        macLifecycleObservers.append(activeObserver)
+    }
+
+    private func macDidBecomeActive() {
+        macIdleTrimTask?.cancel()
+        macIdleTrimTask = nil
+        if let footprint = Self.currentPhysicalFootprintBytes(),
+           footprint >= Self.macProactiveReliefFootprintBytes {
+            plog("🧠 macOS memory watermark exceeded (\(footprint / (1_024 * 1_024)) MB); trimming rebuildable caches")
+            NotificationCenter.default.post(name: .primuseMemoryPressure, object: nil)
+        } else {
+            library?.rewarmReleasedCaches()
+        }
+    }
+
+    private func evaluateMacMemoryFootprintAndScheduleIdleTrim() {
+        if let footprint = Self.currentPhysicalFootprintBytes(),
+           footprint >= Self.macProactiveReliefFootprintBytes {
+            plog("🧠 macOS memory watermark exceeded (\(footprint / (1_024 * 1_024)) MB); trimming rebuildable caches")
+            NotificationCenter.default.post(name: .primuseMemoryPressure, object: nil)
+            return
+        }
+        macIdleTrimTask?.cancel()
+        macIdleTrimTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(20))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.performMacIdleTrimIfEligible()
+        }
+    }
+
+    private func performMacIdleTrimIfEligible() {
+        guard let player, !player.isPlaybackActive else { return }
+        guard !NSApp.isActive || !Self.hasVisibleContentWindow() else { return }
+        let services = AppServices.shared
+        guard !services.scanService.hasActiveScans,
+              !services.metadataBackfill.isRunning,
+              !LocalImportService.hasPendingScan,
+              services.sourceManager.activeOfflineBatchOwnerIDs.isEmpty,
+              services.audioCacheSync.operation == .idle,
+              services.audioCacheSync.incomingTransferCount == 0,
+              !KaraokeSeparationService.shared.hasWorkInFlight else { return }
+
+        let hasNoVisibleWindow = NSApp.isHidden || !Self.hasVisibleContentWindow()
+        let footprint = Self.currentPhysicalFootprintBytes() ?? 0
+        if hasNoVisibleWindow {
+            CachedArtworkView.purgeDecodedImageCache()
+            PlayerBackdropMemoryCache.shared.removeAll()
+        }
+        services.coverTintProvider.clearCache(releasingKnownSongs: hasNoVisibleWindow)
+        URLCache.shared.removeAllCachedResponses()
+        player.trimNowPlayingArtworkCacheToCurrentItem()
+        if hasNoVisibleWindow, footprint >= Self.macHiddenDeepTrimFootprintBytes {
+            library?.releaseRebuildableCachesForBackground()
+        }
+        Task {
+            await ImageCache.shared.clearMemoryCache()
+            await ArtworkFetchService.shared.clearMemoryCache()
+            if hasNoVisibleWindow {
+                await SongListSnapshotStore.shared.releaseCachedSnapshots()
+            }
+            await LibrarySearchIndex.shared.releaseReadCaches()
+            await MusicLibrary.returnFreedMemoryToSystem()
+        }
+    }
+
+    private static func hasVisibleContentWindow() -> Bool {
+        NSApp.windows.contains { window in
+            window.isVisible && !window.isMiniaturized && !(window is NSPanel) && window.canBecomeMain
+        }
+    }
+
+    private nonisolated static func currentPhysicalFootprintBytes() -> UInt64? {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size
+        )
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+        return UInt64(info.phys_footprint)
+    }
+    #endif
 
     #if os(iOS)
     /// `.background` 时调用。`activity` 在排期时和真正动手前各看一次。
@@ -2211,8 +2345,10 @@ struct PrimuseApp: App {
                 .onChange(of: scenePhase) { _, newPhase in
                     metadataBackfill.readingConfigurationChanged()
                     serverCatalogAutoRefresh.setApplicationActive(newPhase == .active)
-                    #if os(iOS) || os(macOS)
+                    #if os(iOS)
                     audioCacheSync.setApplicationActive(newPhase != .background)
+                    #elseif os(macOS)
+                    audioCacheSync.setApplicationActive(newPhase == .active)
                     #endif
                     switch newPhase {
                     case .inactive:

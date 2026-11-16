@@ -387,7 +387,7 @@ struct MacContentView: View {
                     onToggleRecommendations: toggleRecommendationsPanel,
                     onOpenListeningStats: openListeningStats
                 ))
-                .modifier(MacSongListPrewarm())
+                .modifier(MacSongListPrewarm(routeSwitch: routeSwitch))
                 #if DEBUG
                 .task {
                     // `PRIMUSE_DEBUG_MAC_PANEL`: 锁屏的编译机上点不了标题栏, 由这里打开。
@@ -1430,9 +1430,18 @@ private struct MacListeningStatsSheet: View {
 /// iPhone 在资料库首页做同样的事 (`LibraryView`), Mac 没有那一页。
 private struct MacSongListPrewarm: ViewModifier {
     @Environment(MusicLibrary.self) private var library
+    var routeSwitch: MacRouteSwitch
+
+    /// 超过两万首时整库本地化排序并常驻一份 `SongListSnapshot` 约占十余 MB;
+    /// 用户还没打开「歌曲」页之前不提前排, 等进到「歌曲」页再建与保活。
+    private static let eagerPrewarmSongLimit = 20_000
+
+    private var isShowingSongsRoute: Bool {
+        routeSwitch.shown == .section(.songs) || routeSwitch.requested == .section(.songs)
+    }
 
     func body(content: Content) -> some View {
-        content.task(id: "\(library.visibleSongCollectionRevision)-\(library.songReplacementToken)") {
+        content.task(id: "\(library.visibleSongCollectionRevision)-\(library.songReplacementToken)-\(isShowingSongsRoute)") {
             let order = LibrarySongSortOrderPreference.load()
             // 播放次数、来源、是否已下载这几种排序用的是页面上现算的值, 预热对不上缓存。
             switch order.criterion {
@@ -1441,6 +1450,9 @@ private struct MacSongListPrewarm: ViewModifier {
             default:
                 break
             }
+            let currentCount = library.musicSongs.count
+            guard currentCount > 0,
+                  currentCount <= Self.eagerPrewarmSongLimit || isShowingSongsRoute else { return }
             do {
                 // 扫描时曲库一阵一阵地变, 等它停一下再排。
                 try await Task.sleep(for: .milliseconds(1500))
@@ -1453,7 +1465,9 @@ private struct MacSongListPrewarm: ViewModifier {
             )
             // 和歌曲页同一份歌: 有声内容不在里面, 两边共用一个缓存键。
             let songs = library.musicSongs
-            guard !songs.isEmpty, !Task.isCancelled else { return }
+            guard !songs.isEmpty,
+                  songs.count <= Self.eagerPrewarmSongLimit || isShowingSongsRoute,
+                  !Task.isCancelled else { return }
             _ = await SongListSnapshotStore.shared.snapshot(
                 scopeKey: SongListSnapshotStore.libraryScopeKey,
                 version: version,
