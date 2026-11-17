@@ -302,16 +302,42 @@ struct PreviewPlayerBackdrop: View {
     }
 }
 
-/// 进度条与两端的时间,用播放页那根 `ProgressSlider`,按设置里的画法与发光。
+/// 进度条与两端的时间,用播放页那根 `ProgressSlider`,按设置里的画法、发光与动效。
+/// 给了 `trackStyle` 的是有声书版式,保留它自己的颜色;别的页照「封面取色」画,没在放歌时用一组示例色。
 struct PreviewProgressBar: View {
     let fillTint: Color
     let timeTint: Color
     var trackStyle: ProgressSlider.TrackStyle?
 
+    @Environment(ThemeService.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.progressMotionKey)
+    private var progressMotionRawValue = NowPlayingProgressMotion.none.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressArtworkColorsKey)
+    private var progressUsesArtworkColors = PlayerAppearancePreferences.progressArtworkColorsByDefault
+
+    private var resolvedTrackStyle: ProgressSlider.TrackStyle {
+        let motion = PlayerAppearancePreferences.progressMotion(rawValue: progressMotionRawValue)
+        guard var trackStyle else {
+            return .forProgressStyle(
+                PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
+                glows: progressGlows,
+                motion: motion
+            )
+        }
+        trackStyle.motion = motion
+        return trackStyle
+    }
+
+    private var fillGradient: [Color] {
+        guard trackStyle == nil, progressUsesArtworkColors else { return [] }
+        let gradient = theme.progressArtworkGradient.isEmpty ? .preview : theme.progressArtworkGradient
+        return gradient.colors(isLight: colorScheme == .light)
+    }
 
     /// 示例进度:总长 3:38,播到三成多。
     static let sampleDuration: TimeInterval = 218
@@ -323,10 +349,8 @@ struct PreviewProgressBar: View {
                 value: Self.sampleElapsed,
                 total: Self.sampleDuration,
                 fillTint: fillTint,
-                trackStyle: trackStyle ?? .forProgressStyle(
-                    PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
-                    glows: progressGlows
-                ),
+                fillGradient: fillGradient,
+                trackStyle: resolvedTrackStyle,
                 isPlaying: true,
                 onSeek: { _ in }
             )
@@ -362,6 +386,17 @@ struct PreviewVolumeRow: View {
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.progressArtworkColorsKey)
+    private var progressUsesArtworkColors = PlayerAppearancePreferences.progressArtworkColorsByDefault
+    @Environment(ThemeService.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// 有声书版式(给了 `matchedTrack`)保留自己的颜色;别的页照进度条的封面取色画。
+    private var fillGradient: [Color] {
+        guard matchedTrack == nil, progressUsesArtworkColors else { return [] }
+        let gradient = theme.progressArtworkGradient.isEmpty ? .preview : theme.progressArtworkGradient
+        return gradient.colors(isLight: colorScheme == .light)
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -375,7 +410,8 @@ struct PreviewVolumeRow: View {
                         PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
                         glows: progressGlows
                     )),
-                    fillTint: fillTint
+                    fillTint: fillTint,
+                    fillGradient: fillGradient
                 )
                 .allowsHitTesting(false)
                 .frame(height: NowPlayingView.portraitVolumeRowHeight)

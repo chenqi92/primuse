@@ -6584,6 +6584,13 @@
 "player_progress_glow" = "Barra de progresso brilhante";
 "player_progress_glow_description" = "Adiciona um brilho suave da mesma cor ao redor da parte já tocada da barra de progresso. Fica mais fraco quando pausado. Funciona com os três estilos e se destaca mais na aparência escura.";
 "player_progress_audiobooks_hint" = "Quando ativado, o player vertical de audiolivros desenha a barra de progresso no estilo escolhido acima. Quando desativado, mantém sua linha fina com ponto e só adota a onda.";
+"player_progress_artwork_colors" = "Cores da capa";
+"player_progress_artwork_colors_description" = "Mostra a parte reproduzida da barra de progresso como um degradê com as cores da capa, com a cor principal no indicador de reprodução, ajustadas para ficar visíveis na aparência clara e escura. Um controle de volume em Igual à barra de progresso também acompanha. Capas em preto e branco, ou cujas cores ainda não estão prontas, mantêm a cor única. O layout vertical de audiolivros mantém as próprias cores.";
+"player_progress_motion_title" = "Animação da barra de progresso";
+"player_progress_motion_description" = "Fluxo: brilhos suaves correm pela parte reproduzida em direção ao indicador de reprodução. Respiração: a barra de progresso e um brilho ao redor clareiam e esmaecem devagar. Só se move durante a reprodução e para quando pausado, ao arrastar, com Reduzir Movimento ou no Modo Pouca Energia. Funciona com os três estilos e junto com o brilho e as cores da capa.";
+"player_progress_motion_none" = "Nenhuma";
+"player_progress_motion_flow" = "Fluxo";
+"player_progress_motion_breathe" = "Respiração";
 "theme_color_player_backdrop_moved_hint" = "O estilo e a intensidade das cores do fundo do player agora ficam em Ajustes › Player.";
 "theme_color_player_backdrop_moved_link" = "Abrir ajustes do player";
 

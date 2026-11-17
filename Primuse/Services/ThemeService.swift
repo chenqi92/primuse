@@ -33,6 +33,9 @@ final class ThemeService {
     /// 「封面取色」的歌词用的封面代表色。没有封面、封面没有彩色、还在取的时候为空，歌词用默认颜色。
     /// 主题色和播放背景都不跟封面时，歌词选了封面取色也照样取，只是不动主题色。
     private(set) var lyricsArtworkTint: PlayerLyricsArtworkTint?
+    /// 进度条「封面取色」的渐变(深色、浅色播放页各一套),从封面代表色算好(和上面同一次读图)。
+    /// 主题色、背景都不跟封面时也照取;没有封面、封面没有彩色、还在取的时候为空,进度条照旧用单色。
+    private(set) var progressArtworkGradient = ProgressArtworkGradient()
 
     private(set) var colorMode = AppThemePreferences.defaultColorMode
     private(set) var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
@@ -122,8 +125,9 @@ final class ThemeService {
         // 电台、有声书、播客里有一类选了「跟随封面」时,主题色固定、背景也不取色照样要取。
         let themeFollowsArtwork = colorMode == .automatic || coverDrivenAmbient
             || tintSettings.followsArtwork
-        // 歌词选了「封面取色」也要取;主题色不跟封面时只给歌词用,主题色、背景照旧是固定色。
+        // 歌词或进度条选了「封面取色」也要取;主题色不跟封面时只给它们用,主题色、背景照旧是固定色。
         let lyricsFollowArtwork = PlayerLyricsColorMode.stored() == .artwork
+            || PlayerAppearancePreferences.progressUsesArtworkColors()
         guard themeFollowsArtwork || lyricsFollowArtwork else {
             applyFallbackTheme()
             return
@@ -226,6 +230,7 @@ final class ThemeService {
                         for: space
                     )
                     self.applyFallbackTheme()
+                    // 黑白封面没有彩色,进度条用单色。
                     // 黑白封面没有主题色,流动色彩照样用它自己的灰阶。只给歌词取色时背景不跟封面,不用记。
                     if themeFollowsArtwork {
                         self.artworkLiquidPalette = liquidPalette
@@ -239,14 +244,21 @@ final class ThemeService {
                     },
                     for: space
                 )
+                let progressGradient = ProgressArtworkGradient(
+                    palette: Self.progressPalette(liquidPalette, fallback: result)
+                )
                 guard themeFollowsArtwork else {
-                    // 只有歌词要封面色:主题色、背景、小组件都不动。
+                    // 只有歌词、进度条要封面色:主题色、背景、小组件都不动。
                     self.lyricsArtworkTint = Self.lyricsTint(from: result.accent)
+                    if self.progressArtworkGradient != progressGradient {
+                        self.progressArtworkGradient = progressGradient
+                    }
                     return
                 }
                 self.applyArtworkTheme(
                     result,
                     liquidPalette: liquidPalette,
+                    progressGradient: progressGradient,
                     identity: capturedSongID ?? capturedFileName ?? "default"
                 )
             }
@@ -387,6 +399,22 @@ final class ThemeService {
     }
     #endif
 
+    /// 进度条「封面取色」的代表色:读到像素时用和流动色彩同一组;只有 MusicKit 语义色时用主色、副色。
+    private nonisolated static func progressPalette(
+        _ liquidPalette: [LiquidBackdropColor],
+        fallback result: ColorResult
+    ) -> [LiquidBackdropColor] {
+        guard liquidPalette.isEmpty else { return liquidPalette }
+        var colors: [LiquidBackdropColor] = []
+        for color in [result.accent, result.secondary] {
+            if let rgb = widgetRGB(color).map({ LiquidBackdropColor(red: $0.red, green: $0.green, blue: $0.blue) }),
+               !colors.contains(rgb) {
+                colors.append(rgb)
+            }
+        }
+        return colors
+    }
+
     /// 取出来的封面主色换算成 sRGB 分量,给歌词按深浅底再调明暗。
     private nonisolated static func lyricsTint(from accent: Color) -> PlayerLyricsArtworkTint? {
         widgetRGB(accent).map { PlayerLyricsArtworkTint(red: $0.red, green: $0.green, blue: $0.blue) }
@@ -429,10 +457,13 @@ final class ThemeService {
         }
     }
 
-    /// `keepsLyricsTint`:只是主题色回到固定色,正在播的封面没变时,歌词的封面色留着。
+    /// `keepsLyricsTint`:只是主题色回到固定色,正在播的封面没变时,歌词、进度条的封面色留着。
     private func applyFallbackTheme(animated: Bool = true, keepsLyricsTint: Bool = false) {
         if !keepsLyricsTint, lyricsArtworkTint != nil {
             lyricsArtworkTint = nil
+        }
+        if !keepsLyricsTint, !progressArtworkGradient.isEmpty {
+            progressArtworkGradient = ProgressArtworkGradient()
         }
         applyThemeChange(animated: animated) {
             artworkAccentColor = baseAccent
@@ -456,12 +487,14 @@ final class ThemeService {
     private func applyArtworkTheme(
         _ result: ColorResult,
         liquidPalette: [LiquidBackdropColor] = [],
+        progressGradient: ProgressArtworkGradient = ProgressArtworkGradient(),
         identity: String
     ) {
         let legibleAccent = Self.legibleAccent(result.accent)
         lyricsArtworkTint = Self.lyricsTint(from: result.accent)
         withAnimation(.easeInOut(duration: 0.6)) {
             artworkLiquidPalette = liquidPalette
+            progressArtworkGradient = progressGradient
             artworkAccentColor = result.accent
             artworkLegibleAccent = legibleAccent
             artworkSecondaryAccent = result.secondary
@@ -1015,4 +1048,35 @@ extension View {
     func prominentLabelOnAccent() -> some View {
         modifier(ProminentLabelOnAccent())
     }
+}
+
+/// 进度条「封面取色」的两套渐变,从起点到播放头,播放头那头是封面主色。换歌时算一次,
+/// 播放时钟每半秒重画进度条时直接取用。
+struct ProgressArtworkGradient: Equatable {
+    private(set) var onDark: [Color] = []
+    private(set) var onLight: [Color] = []
+
+    init() {}
+
+    init(palette: [LiquidBackdropColor]) {
+        func colors(_ dark: Bool) -> [Color] {
+            ProgressArtworkGradientPolicy.stops(from: palette, onDarkBackdrop: dark)
+                .map { Color(.sRGB, red: $0.red, green: $0.green, blue: $0.blue) }
+        }
+        onDark = colors(true)
+        onLight = colors(false)
+    }
+
+    var isEmpty: Bool { onDark.isEmpty }
+
+    func colors(isLight: Bool) -> [Color] {
+        isLight ? onLight : onDark
+    }
+
+    /// 设置里的预览没在放歌时拿这一组演示:靛蓝、洋红、橙。
+    static let preview = ProgressArtworkGradient(palette: [
+        LiquidBackdropColor(red: 0.95, green: 0.45, blue: 0.15),
+        LiquidBackdropColor(red: 0.85, green: 0.2, blue: 0.55),
+        LiquidBackdropColor(red: 0.3, green: 0.3, blue: 0.85),
+    ])
 }

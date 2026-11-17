@@ -1598,6 +1598,8 @@ private struct PlaybackArtworkThemeObserver: View {
     let theme: ThemeService
     @AppStorage(PlayerAppearancePreferences.lyricsColorModeKey)
     private var lyricsColorModeRawValue = PlayerLyricsColorMode.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressArtworkColorsKey)
+    private var progressUsesArtworkColors = PlayerAppearancePreferences.progressArtworkColorsByDefault
 
     var body: some View {
         Color.clear
@@ -1610,6 +1612,13 @@ private struct PlaybackArtworkThemeObserver: View {
             .onChange(of: lyricsColorModeRawValue) { _, rawValue in
                 guard PlayerLyricsColorMode(rawValue: rawValue) == .artwork,
                       theme.lyricsArtworkTint == nil,
+                      player.currentSong != nil else { return }
+                updateTheme()
+            }
+            // 进度条刚打开「封面取色」:同理,这首还没取过代表色时现取一次。
+            .onChange(of: progressUsesArtworkColors) { _, enabled in
+                guard enabled,
+                      theme.progressArtworkGradient.isEmpty,
                       player.currentSong != nil else { return }
                 updateTheme()
             }

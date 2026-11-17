@@ -1458,7 +1458,7 @@ final class PlayerBackdropImagingTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(50))
         view.update(progress: 0.8, color: .white, isRightToLeft: false, animationDuration: 0.5)
         try await Task.sleep(for: .milliseconds(120))
-        let fill = try XCTUnwrap(view.layer.sublayers?.first)
+        let fill = view.fillLayer
         let before = try XCTUnwrap(fill.presentation()).bounds.width
         XCTAssertGreaterThan(before, 40)
         XCTAssertLessThan(before, 160)
@@ -1468,8 +1468,9 @@ final class PlayerBackdropImagingTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(550))
         XCTAssertEqual(fill.bounds.width, 180, accuracy: 0.01)
         view.update(progress: 0.1, color: .white, isRightToLeft: true, animationDuration: 0)
-        XCTAssertEqual(fill.frame.minX, 180, accuracy: 0.01)
-        XCTAssertEqual(fill.frame.maxX, 200, accuracy: 0.01)
+        let mirrored = view.layer.convert(fill.frame, from: fill.superlayer)
+        XCTAssertEqual(mirrored.minX, 180, accuracy: 0.01)
+        XCTAssertEqual(mirrored.maxX, 200, accuracy: 0.01)
         XCTAssertTrue(fill.animationKeys()?.isEmpty ?? true)
         XCTAssertFalse(view.isUserInteractionEnabled)
     }

@@ -6584,6 +6584,13 @@
 "player_progress_glow" = "Świecący pasek postępu";
 "player_progress_glow_description" = "Dodaje delikatną poświatę w tym samym kolorze wokół odtworzonej części paska postępu. Podczas pauzy przygasa. Działa ze wszystkimi trzema stylami i najlepiej widać ją w ciemnym wyglądzie.";
 "player_progress_audiobooks_hint" = "Po włączeniu pionowy odtwarzacz audiobooków rysuje pasek postępu w stylu wybranym powyżej. Po wyłączeniu zachowuje własną cienką linię z kropką i przejmuje tylko falę.";
+"player_progress_artwork_colors" = "Kolory okładki";
+"player_progress_artwork_colors_description" = "Odtworzona część paska postępu jest rysowana jako gradient z kolorów okładki, z głównym kolorem okładki przy wskaźniku odtwarzania, dobranych tak, by były dobrze widoczne w jasnym i ciemnym wyglądzie. Suwak głośności ustawiony na „Jak pasek postępu” też się zmienia. Czarno-białe okładki lub takie, których kolory nie są jeszcze gotowe, zostają jednokolorowe. Pionowy układ audiobooków zachowuje własne kolory.";
+"player_progress_motion_title" = "Animacja paska postępu";
+"player_progress_motion_description" = "Przepływ: miękkie odblaski płyną przez odtworzoną część w stronę wskaźnika odtwarzania. Oddech: pasek postępu i poświata wokół niego powoli jaśnieją i przygasają. Animacja działa tylko podczas odtwarzania i zatrzymuje się po wstrzymaniu, podczas przeciągania, przy włączonym „Ogranicz ruch” lub w trybie niskiego zużycia energii. Działa ze wszystkimi trzema stylami oraz z poświatą i kolorami okładki.";
+"player_progress_motion_none" = "Brak";
+"player_progress_motion_flow" = "Przepływ";
+"player_progress_motion_breathe" = "Oddech";
 "theme_color_player_backdrop_moved_hint" = "Styl i intensywność kolorów tła odtwarzacza ustawisz teraz w Ustawienia › Odtwarzacz.";
 "theme_color_player_backdrop_moved_link" = "Otwórz ustawienia odtwarzacza";
 

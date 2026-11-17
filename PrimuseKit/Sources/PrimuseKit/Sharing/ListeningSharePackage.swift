@@ -337,6 +337,8 @@ public enum ListeningShareSettingsPolicy {
         "primuse.player.progressStyle",
         "playerProgressThickness",
         "primuse.player.progressGlow",
+        "playerProgressMotion",
+        "playerProgressArtworkColors",
         "primuse.player.progressStyleAudiobooks",
         "primuse.player.alwaysDark",
         "primuse.player.artworkStyle",

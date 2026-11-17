@@ -6678,6 +6678,13 @@
 "player_progress_glow" = "진행 막대 빛 효과";
 "player_progress_glow_description" = "진행 막대에서 재생된 부분 주위에 같은 색의 은은한 빛을 더합니다. 일시정지 중에는 흐려집니다. 세 가지 스타일 모두에서 쓸 수 있으며 다크 모드에서 가장 잘 보입니다.";
 "player_progress_audiobooks_hint" = "켜면 오디오북 세로 재생 화면의 진행 막대도 위에서 고른 스타일로 그립니다. 끄면 자체의 가는 선과 점을 유지하고, 물결만 따라 바뀝니다.";
+"player_progress_artwork_colors" = "앨범 아트 색상";
+"player_progress_artwork_colors_description" = "진행 막대의 재생된 부분을 앨범 아트의 여러 색상으로 그라데이션 처리합니다. 재생 위치 쪽에는 앨범 아트의 주 색상이 오며, 라이트 모드와 다크 모드에서 모두 잘 보이도록 밝기를 조정합니다. 음량 막대를 '진행 막대와 동일'로 설정한 경우에도 함께 바뀝니다. 흑백 앨범 아트이거나 아직 색상을 가져오지 못한 경우에는 단색을 유지합니다. 오디오북 세로 레이아웃은 자체 색상을 유지합니다.";
+"player_progress_motion_title" = "진행 막대 애니메이션";
+"player_progress_motion_description" = "흐름: 재생된 부분에서 부드러운 빛이 재생 위치를 향해 흘러갑니다. 숨쉬기: 진행 막대와 주변의 빛이 천천히 밝아졌다 흐려집니다. 재생 중에만 움직이며, 일시 정지 중이거나 드래그 중이거나 '동작 줄이기' 또는 저전력 모드에서는 멈춥니다. 세 가지 스타일 모두에서 사용할 수 있고 빛나는 효과, 앨범 아트 색상과 함께 켤 수 있습니다.";
+"player_progress_motion_none" = "없음";
+"player_progress_motion_flow" = "흐름";
+"player_progress_motion_breathe" = "숨쉬기";
 "theme_color_player_backdrop_moved_hint" = "플레이어 배경 스타일과 색 농도는 이제 설정 › 플레이어에서 조절합니다.";
 "theme_color_player_backdrop_moved_link" = "플레이어 설정 열기";
 

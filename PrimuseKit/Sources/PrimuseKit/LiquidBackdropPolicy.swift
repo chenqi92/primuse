@@ -365,3 +365,190 @@ public enum LiquidBackdropMotion {
         }
     }
 }
+
+/// 播放页进度条的「封面取色」:从封面代表色里挑两三种色相分得开的,按播放页的深浅底调到看得清,
+/// 从起点到播放头排成渐变,播放头那头是封面主色。只在换歌、改设置、换深浅外观时算一次。
+public enum ProgressArtworkGradientPolicy {
+    /// 最多用几种颜色。一条几点粗的线上再多就看不出层次,只显得花。
+    public static let maximumStops = 3
+    /// 饱和度、色度低于这个的封面色当作黑白灰,不拿来上色。
+    public static let minimumSaturation = 0.2
+    public static let minimumChroma = 0.08
+    /// 两种颜色的色相至少差这么多(一圈为 1)才算两种。
+    public static let minimumHueDistance = 0.06
+    /// 封面只有一种彩色时,配一个色相挨着的颜色,渐变照样看得出走向。
+    public static let companionHueShift = 0.08
+    /// 深色底上每种颜色的相对亮度下限:细线对播放页的深色背景约 3:1 以上。
+    public static let minimumLuminanceOnDarkBackdrop = 0.2
+    /// 浅色底上每种颜色的相对亮度上限:细线对浅色背景约 3:1 以上。
+    public static let maximumLuminanceOnLightBackdrop = 0.22
+
+    /// - Parameter palette: 封面代表色,主色在最前(`LiquidBackdropPalettePolicy.palette` 的结果)。
+    /// - Returns: 从起点到播放头的颜色,最后一个是主色;封面没有彩色时为空,调用方照旧用单色。
+    public static func stops(from palette: [LiquidBackdropColor], onDarkBackdrop: Bool) -> [LiquidBackdropColor] {
+        var selected: [LiquidBackdropColor] = []
+        for color in palette where isChromatic(color) {
+            let hue = color.hsl.hue
+            guard selected.allSatisfy({ hueDistance($0.hsl.hue, hue) >= minimumHueDistance }) else { continue }
+            selected.append(color)
+            if selected.count == maximumStops { break }
+        }
+        guard let primary = selected.first else { return [] }
+        if selected.count == 1 {
+            let hsl = primary.hsl
+            selected.append(LiquidBackdropColor(
+                hue: hsl.hue + companionHueShift,
+                saturation: hsl.saturation,
+                lightness: hsl.lightness
+            ))
+        }
+        return selected.map { toned($0, onDarkBackdrop: onDarkBackdrop) }.reversed()
+    }
+
+    static func isChromatic(_ color: LiquidBackdropColor) -> Bool {
+        let chroma = max(color.red, color.green, color.blue) - min(color.red, color.green, color.blue)
+        return color.hsl.saturation >= minimumSaturation && chroma >= minimumChroma
+    }
+
+    /// 色相跟封面,明暗按底色调:深色底提亮到够亮,浅色底压暗到够深,饱和度保底,免得发灰。
+    static func toned(_ color: LiquidBackdropColor, onDarkBackdrop: Bool) -> LiquidBackdropColor {
+        let hsl = color.hsl
+        if onDarkBackdrop {
+            let start = LiquidBackdropColor(
+                hue: hsl.hue,
+                saturation: min(max(hsl.saturation, 0.55), 0.95),
+                lightness: min(max(hsl.lightness, 0.55), 0.72)
+            )
+            return lightened(start, toLuminance: minimumLuminanceOnDarkBackdrop)
+        }
+        let start = LiquidBackdropColor(
+            hue: hsl.hue,
+            saturation: max(hsl.saturation, 0.6),
+            lightness: min(max(hsl.lightness, 0.3), 0.48)
+        )
+        return darkened(start, toLuminance: maximumLuminanceOnLightBackdrop)
+    }
+
+    public static func relativeLuminance(_ color: LiquidBackdropColor) -> Double {
+        func linear(_ value: Double) -> Double {
+            value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(color.red) + 0.7152 * linear(color.green) + 0.0722 * linear(color.blue)
+    }
+
+    private static func hueDistance(_ lhs: Double, _ rhs: Double) -> Double {
+        let distance = abs(lhs - rhs).truncatingRemainder(dividingBy: 1)
+        return min(distance, 1 - distance)
+    }
+
+    /// 往白色混到相对亮度刚好够下限;已经够了原样返回。
+    private static func lightened(_ color: LiquidBackdropColor, toLuminance floor: Double) -> LiquidBackdropColor {
+        guard relativeLuminance(color) < floor else { return color }
+        let white = LiquidBackdropColor(red: 1, green: 1, blue: 1)
+        var low = 0.0
+        var high = 1.0
+        for _ in 0..<24 {
+            let mid = (low + high) / 2
+            if relativeLuminance(color.mixed(with: white, amount: mid)) >= floor { high = mid } else { low = mid }
+        }
+        return color.mixed(with: white, amount: high)
+    }
+
+    /// 等比压暗(色相、饱和度不变)到相对亮度刚好不超过上限;已经够暗原样返回。
+    private static func darkened(_ color: LiquidBackdropColor, toLuminance ceiling: Double) -> LiquidBackdropColor {
+        guard relativeLuminance(color) > ceiling else { return color }
+        var low = 0.0
+        var high = 1.0
+        func scaled(_ factor: Double) -> LiquidBackdropColor {
+            LiquidBackdropColor(red: color.red * factor, green: color.green * factor, blue: color.blue * factor)
+        }
+        for _ in 0..<24 {
+            let mid = (low + high) / 2
+            if relativeLuminance(scaled(mid)) <= ceiling { low = mid } else { high = mid }
+        }
+        return scaled(low)
+    }
+}
+
+/// 进度条「水流」动效的柔光:播放过的那段里一串等距的亮带朝播放头平移,像管子里流动的水面反光。
+/// 两层间距、速度不同的亮带叠在一起,看着不像一格一格的传送带。整串平移一个周期后和开头接得上,
+/// 动画只是一条无限重复的平移,交给合成层去跑。
+public enum ProgressFlowPattern {
+    public struct Layer: Equatable, Sendable {
+        /// 相邻两道亮带隔多少点。
+        public var period: Double
+        /// 每秒往播放头走多少点。
+        public var speed: Double
+        /// 亮带最亮处的不透明度。
+        public var peakOpacity: Double
+
+        /// 走完一个周期要的秒数。
+        public var duration: Double { period / speed }
+    }
+
+    public struct Stop: Equatable, Sendable {
+        /// 0…1,整串亮带从头到尾。
+        public var location: Double
+        /// 0…1,乘到这一层的 `peakOpacity` 上。
+        public var opacity: Double
+    }
+
+    public static let layers: [Layer] = [
+        Layer(period: 96, speed: 60, peakOpacity: 0.42),
+        Layer(period: 58, speed: 34, peakOpacity: 0.22),
+    ]
+
+    /// 一个周期里亮带的样子:两头透明,中间一道柔和的亮峰。
+    public static let band: [Stop] = [
+        Stop(location: 0, opacity: 0),
+        Stop(location: 0.28, opacity: 0),
+        Stop(location: 0.42, opacity: 0.55),
+        Stop(location: 0.5, opacity: 1),
+        Stop(location: 0.58, opacity: 0.55),
+        Stop(location: 0.72, opacity: 0),
+        Stop(location: 1, opacity: 0),
+    ]
+
+    /// 盖住整条轨道、平移时还不露底要排几个周期:轨道宽度向上取整再多一个。
+    public static func periodCount(trackWidth: Double, period: Double) -> Int {
+        guard period > 0, trackWidth.isFinite, trackWidth > 0 else { return 1 }
+        return Int((trackWidth / period).rounded(.up)) + 1
+    }
+
+    /// 排 `count` 个周期时的全部色标。相邻周期首尾那两个透明色标位置相同,只留一个。
+    public static func stops(periodCount count: Int) -> [Stop] {
+        let count = max(1, count)
+        var result: [Stop] = []
+        result.reserveCapacity(count * (band.count - 1) + 1)
+        for index in 0..<count {
+            for (offset, stop) in band.enumerated() where offset < band.count - 1 || index == count - 1 {
+                result.append(Stop(location: (Double(index) + stop.location) / Double(count), opacity: stop.opacity))
+            }
+        }
+        return result
+    }
+}
+
+/// 进度条「呼吸」动效:播放过的那段连同外面一圈光慢慢亮起、收淡。合成层用一条往返的缓入缓出动画,
+/// 逐帧画的波浪用 `level(at:)` 取同样的起伏。
+public enum ProgressBreathPolicy {
+    /// 一呼一吸的秒数,约每分钟 16 次,和人放松时的呼吸差不多。
+    public static let cycle: Double = 3.6
+    /// 光晕不透明度的低点与高点(深色外观);浅色外观整体乘 `lightAppearanceScale`,免得像一道脏阴影。
+    public static let haloOpacity: ClosedRange<Double> = 0.12...0.9
+    public static let lightAppearanceScale = 0.5
+    public static let haloRadius: ClosedRange<Double> = 3...10
+    /// 进度条本身跟着轻轻明暗。
+    public static let fillOpacity: ClosedRange<Double> = 0.75...1
+
+    /// 某一时刻在一呼一吸里的位置:0 最暗,1 最亮,两头缓。
+    public static func level(at time: Double) -> Double {
+        guard time.isFinite else { return 0 }
+        let phase = time.truncatingRemainder(dividingBy: cycle) / cycle
+        return 0.5 - 0.5 * cos(phase * 2 * Double.pi)
+    }
+
+    public static func interpolate(_ range: ClosedRange<Double>, _ level: Double) -> Double {
+        range.lowerBound + (range.upperBound - range.lowerBound) * min(max(level, 0), 1)
+    }
+}

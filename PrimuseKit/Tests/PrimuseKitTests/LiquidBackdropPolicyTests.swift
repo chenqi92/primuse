@@ -271,4 +271,86 @@ import Testing
         #expect(a.mixed(with: b, amount: 2) == b)
     }
 
+
+    // MARK: - 进度条
+
+    @Test("Progress artwork gradient keeps the dominant hue at the play head and skips grey covers")
+    func progressGradientOrder() throws {
+        let red = LiquidBackdropColor(red: 0.85, green: 0.12, blue: 0.1)
+        let blue = LiquidBackdropColor(red: 0.1, green: 0.2, blue: 0.9)
+        let green = LiquidBackdropColor(red: 0.1, green: 0.7, blue: 0.25)
+        let yellow = LiquidBackdropColor(red: 0.95, green: 0.85, blue: 0.1)
+        let grey = LiquidBackdropColor(red: 0.5, green: 0.5, blue: 0.52)
+        for dark in [true, false] {
+            let stops = ProgressArtworkGradientPolicy.stops(from: [red, grey, blue, green, yellow], onDarkBackdrop: dark)
+            #expect(stops.count == ProgressArtworkGradientPolicy.maximumStops)
+            let head = try #require(stops.last).hsl.hue
+            #expect(min(head, 1 - head) < 0.03)
+            #expect(ProgressArtworkGradientPolicy.stops(from: [grey, LiquidBackdropColor(red: 0.1, green: 0.1, blue: 0.1)],
+                                                         onDarkBackdrop: dark).isEmpty)
+        }
+        #expect(ProgressArtworkGradientPolicy.stops(from: [], onDarkBackdrop: true).isEmpty)
+    }
+
+    @Test("A single-colour cover still gets a two-stop gradient with a neighbouring hue")
+    func progressGradientCompanion() {
+        let teal = LiquidBackdropColor(red: 0.1, green: 0.6, blue: 0.6)
+        let near = LiquidBackdropColor(red: 0.12, green: 0.62, blue: 0.58)
+        let stops = ProgressArtworkGradientPolicy.stops(from: [teal, near], onDarkBackdrop: true)
+        #expect(stops.count == 2)
+        let shift = stops[0].hsl.hue - stops[1].hsl.hue
+        #expect(abs(shift - ProgressArtworkGradientPolicy.companionHueShift) < 0.02)
+    }
+
+    @Test("Progress gradient colours stay legible on the player backdrop")
+    func progressGradientLegibility() {
+        let palette = [
+            LiquidBackdropColor(red: 0.05, green: 0.05, blue: 0.4),
+            LiquidBackdropColor(red: 0.98, green: 0.95, blue: 0.3),
+            LiquidBackdropColor(red: 0.4, green: 0.05, blue: 0.1),
+        ]
+        for color in ProgressArtworkGradientPolicy.stops(from: palette, onDarkBackdrop: true) {
+            #expect(ProgressArtworkGradientPolicy.relativeLuminance(color)
+                    >= ProgressArtworkGradientPolicy.minimumLuminanceOnDarkBackdrop - 0.001)
+        }
+        for color in ProgressArtworkGradientPolicy.stops(from: palette, onDarkBackdrop: false) {
+            #expect(ProgressArtworkGradientPolicy.relativeLuminance(color)
+                    <= ProgressArtworkGradientPolicy.maximumLuminanceOnLightBackdrop + 0.001)
+            #expect(color.hsl.saturation >= 0.5)
+        }
+    }
+
+    @Test("Flow bands cover the track plus one period and repeat seamlessly")
+    func progressFlowPattern() {
+        for layer in ProgressFlowPattern.layers {
+            for width in [0.0, 1, 95, 96, 97, 350, 1024] {
+                let count = ProgressFlowPattern.periodCount(trackWidth: width, period: layer.period)
+                #expect(Double(count) * layer.period >= width + layer.period)
+                let stops = ProgressFlowPattern.stops(periodCount: count)
+                #expect(stops.count == count * (ProgressFlowPattern.band.count - 1) + 1)
+                #expect(stops.first?.location == 0 && stops.last?.location == 1)
+                #expect(zip(stops, stops.dropFirst()).allSatisfy { $0.location < $1.location })
+                #expect(stops.first?.opacity == stops.last?.opacity)
+                #expect(stops.filter { $0.opacity == 1 }.count == count)
+            }
+            #expect(layer.duration > 1 && layer.duration < 3)
+        }
+        #expect(ProgressFlowPattern.periodCount(trackWidth: .infinity, period: 96) == 1)
+    }
+
+    @Test("Breath level eases between dim and bright once per cycle")
+    func progressBreathLevel() {
+        let cycle = ProgressBreathPolicy.cycle
+        #expect(abs(ProgressBreathPolicy.level(at: 0)) < 1e-9)
+        #expect(abs(ProgressBreathPolicy.level(at: cycle / 2) - 1) < 1e-9)
+        #expect(ProgressBreathPolicy.level(at: cycle * 7) < 1e-6)
+        #expect(ProgressBreathPolicy.level(at: .nan) == 0)
+        for step in 0...100 {
+            let level = ProgressBreathPolicy.level(at: Double(step) * 0.137)
+            #expect(level >= 0 && level <= 1)
+        }
+        #expect(abs(ProgressBreathPolicy.interpolate(0.2...0.8, 0.5) - 0.5) < 1e-12)
+        #expect(ProgressBreathPolicy.interpolate(0.2...0.8, 3) == 0.8)
+    }
+
 }

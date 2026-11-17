@@ -6439,6 +6439,13 @@
 "player_progress_glow" = "Progress Bar Glow";
 "player_progress_glow_description" = "Adds a soft glow in the same color around the played part of the progress bar. It dims while paused. Works with all three styles and shows best in dark appearance.";
 "player_progress_audiobooks_hint" = "When on, the portrait audiobook player draws its progress bar in the style above. When off, it keeps its own thin line and dot, and only Wave carries over.";
+"player_progress_artwork_colors" = "Artwork Colors";
+"player_progress_artwork_colors_description" = "Draws the played part of the progress bar as a gradient of colors from the artwork, with the main artwork color at the playhead, toned to stay visible in light and dark appearance. A volume slider set to Match Progress Bar follows it. Black-and-white artwork, or artwork whose colors are not ready yet, keeps the single color. The portrait audiobook layout keeps its own colors.";
+"player_progress_motion_title" = "Progress Bar Animation";
+"player_progress_motion_description" = "Flow: soft highlights stream through the played part toward the playhead. Breathe: the progress bar and a glow around it slowly brighten and fade. It only moves while playing and stops when paused, while dragging, with Reduce Motion or in Low Power Mode. Works with all three styles, and with glow and artwork colors.";
+"player_progress_motion_none" = "None";
+"player_progress_motion_flow" = "Flow";
+"player_progress_motion_breathe" = "Breathe";
 "theme_color_player_backdrop_moved_hint" = "The player background style and color intensity are now in Settings › Player.";
 "theme_color_player_backdrop_moved_link" = "Open Player Settings";
 

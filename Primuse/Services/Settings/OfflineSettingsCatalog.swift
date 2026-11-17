@@ -78,6 +78,8 @@ enum OfflineSettingsCatalog {
         "lyricsInterludeAlwaysVisible",
         "motionArtworkServiceSource",
         "playerLyricsWeight",
+        "playerProgressArtworkColors",
+        "playerProgressMotion",
         "playerProgressThickness",
         "playerShowsLyricsSource",
         "playerSimulatesWordLyrics",

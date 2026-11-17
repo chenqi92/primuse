@@ -169,6 +169,7 @@ struct NowPlayingControlsEditorView: View {
     private static let globalAnchors: Set<String> = [
         "appearance.playerOrientationButton", "appearance.playerFollowsDeviceOrientation",
         "appearance.playerProgressStyle", "appearance.playerProgressThickness", "appearance.playerProgressGlow",
+        "appearance.playerProgressArtworkColors", "appearance.playerProgressMotion",
         "appearance.volumeBar", "appearance.playerVolumeStyle", "appearance.playerVolumeThickness",
         "appearance.playerControlTint", "appearance.playerAlwaysDark", "appearance.vividMesh",
         "appearance.playerBackdrop", "appearance.ambientStrength",
@@ -724,6 +725,10 @@ private struct PlayerSharedLookSettingsSections: View {
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.progressMotionKey)
+    private var progressMotionRawValue = NowPlayingProgressMotion.none.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressArtworkColorsKey)
+    private var progressUsesArtworkColors = PlayerAppearancePreferences.progressArtworkColorsByDefault
     @AppStorage(PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey)
     private var progressStyleAppliesToAudiobooks = PlayerAppearancePreferences.progressStyleAppliesToAudiobooksByDefault
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
@@ -760,6 +765,25 @@ private struct PlayerSharedLookSettingsSections: View {
             Toggle("player_progress_glow", isOn: $progressGlows)
                 .settingsAnchor("appearance.playerProgressGlow")
                 .accessibilityHint(Text("player_progress_glow_description"))
+            Toggle(isOn: $progressUsesArtworkColors) {
+                SettingsInfoLabel("player_progress_artwork_colors") {
+                    Text("player_progress_artwork_colors_description")
+                }
+            }
+            .settingsAnchor("appearance.playerProgressArtworkColors")
+            Picker(selection: Binding(
+                get: { PlayerAppearancePreferences.progressMotion(rawValue: progressMotionRawValue) },
+                set: { progressMotionRawValue = $0.rawValue }
+            )) {
+                ForEach(NowPlayingProgressMotion.allCases, id: \.self) { motion in
+                    Text(LocalizedStringKey(motion.titleKey)).tag(motion)
+                }
+            } label: {
+                SettingsInfoLabel("player_progress_motion_title") {
+                    Text("player_progress_motion_description")
+                }
+            }
+            .settingsAnchor("appearance.playerProgressMotion")
             // 有声书竖屏专版默认只跟着换成波浪,打开后三种都跟(#320)。
             PlayerAudiobookToggleRow(isOn: $progressStyleAppliesToAudiobooks) {
                 Text("player_progress_audiobooks_hint")
@@ -2680,6 +2704,8 @@ enum NowPlayingStylePreset: String, CaseIterable, Identifiable {
                 PlayerAppearancePreferences.volumeBarStyleKey: .string(NowPlayingVolumeBarStyle.matchesProgress.rawValue),
                 PlayerAppearancePreferences.progressStyleKey: .string(NowPlayingProgressStyle.standard.rawValue),
                 PlayerAppearancePreferences.progressGlowKey: .bool(false),
+                PlayerAppearancePreferences.progressMotionKey: .string(NowPlayingProgressMotion.none.rawValue),
+                PlayerAppearancePreferences.progressArtworkColorsKey: .bool(false),
                 PlayerAppearancePreferences.controlTintKey: .string(NowPlayingControlTint.monochrome.rawValue),
                 PlayerAppearancePreferences.artworkStyleKey: .string(NowPlayingArtworkStyle.card.rawValue),
                 PlayerAppearancePreferences.showsArtworkLyricsKey: .bool(false),
@@ -2698,6 +2724,8 @@ enum NowPlayingStylePreset: String, CaseIterable, Identifiable {
         PlayerAppearancePreferences.volumeBarStyleKey: .string(NowPlayingVolumeBarStyle.system.rawValue),
         PlayerAppearancePreferences.progressStyleKey: .string(NowPlayingProgressStyle.standard.rawValue),
         PlayerAppearancePreferences.progressGlowKey: .bool(PlayerAppearancePreferences.progressGlowByDefault),
+        PlayerAppearancePreferences.progressMotionKey: .string(NowPlayingProgressMotion.none.rawValue),
+        PlayerAppearancePreferences.progressArtworkColorsKey: .bool(PlayerAppearancePreferences.progressArtworkColorsByDefault),
         PlayerAppearancePreferences.controlTintKey: .string(NowPlayingControlTint.theme.rawValue),
         PlayerAppearancePreferences.artworkStyleKey: .string(NowPlayingArtworkStyle.card.rawValue),
         PlayerAppearancePreferences.showsArtworkLyricsKey: .bool(PlayerAppearancePreferences.showsArtworkLyricsByDefault),
@@ -2833,6 +2861,9 @@ private struct NowPlayingStylePresetSection: View {
     @AppStorage(PlayerAppearancePreferences.progressStyleKey) private var progressStyle = ""
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.progressMotionKey) private var progressMotion = ""
+    @AppStorage(PlayerAppearancePreferences.progressArtworkColorsKey)
+    private var progressArtworkColors = PlayerAppearancePreferences.progressArtworkColorsByDefault
     @AppStorage(PlayerAppearancePreferences.controlTintKey) private var controlTint = ""
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey) private var artworkStyle = ""
     @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
@@ -2844,7 +2875,8 @@ private struct NowPlayingStylePresetSection: View {
     var body: some View {
         // 只为让上面这些值参与这一次重画。
         let _ = (storage, playStyle, skipStyle, showsAlbum, showsVolumeBar, volumeStyle,
-                 progressStyle, progressGlows, controlTint, artworkStyle, showsArtworkLyrics)
+                 progressStyle, progressGlows, progressMotion, progressArtworkColors,
+                 controlTint, artworkStyle, showsArtworkLyrics)
         let source = backdrop.settings.source
         Section {
             presetRow(.concise, backdropSource: source)

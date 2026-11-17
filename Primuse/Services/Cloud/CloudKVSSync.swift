@@ -788,6 +788,8 @@ final class InterfaceLayoutSync {
         PlayerAppearancePreferences.progressStyleKey,
         PlayerAppearancePreferences.progressThicknessKey,
         PlayerAppearancePreferences.progressGlowKey,
+        PlayerAppearancePreferences.progressMotionKey,
+        PlayerAppearancePreferences.progressArtworkColorsKey,
         PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey,
         PlayerAppearancePreferences.artworkStyleKey,
         PlayerAppearancePreferences.podcastArtworkStyleKey,

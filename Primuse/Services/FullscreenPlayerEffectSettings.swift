@@ -379,6 +379,20 @@ enum PlayerAppearancePreferences {
     /// 只跟着换成波浪(#313)——默认画法是胶囊条,不能悄悄把所有人的书刊版式换掉。
     static let progressStyleAppliesToAudiobooksKey = "primuse.player.progressStyleAudiobooks"
     static let progressStyleAppliesToAudiobooksByDefault = false
+    /// 进度条播放时的动效(`NowPlayingProgressMotion` 的原始值)。键名不带点号(见 #344 的教训)。
+    static let progressMotionKey = "playerProgressMotion"
+    /// 进度条播放过的那段用封面的几种颜色画成渐变,播放头那头是封面主色;「跟进度条一致」的音量条也跟着。
+    /// 有声书墨黑 / 暖白版式保留自己的配色。键名不带点号。
+    static let progressArtworkColorsKey = "playerProgressArtworkColors"
+    static let progressArtworkColorsByDefault = false
+
+    static func progressMotion(rawValue: String) -> NowPlayingProgressMotion {
+        NowPlayingProgressMotion(rawValue: rawValue) ?? .none
+    }
+
+    static func progressUsesArtworkColors(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: progressArtworkColorsKey) as? Bool ?? progressArtworkColorsByDefault
+    }
 
     /// 系统是浅色时播放页也用深色(像 Apple Music、播客那样),有声书走墨黑版式(#313)。默认跟随系统。
     static let alwaysDarkKey = "primuse.player.alwaysDark"
@@ -760,6 +774,24 @@ enum NowPlayingProgressStyle: String, CaseIterable, Sendable {
         case .standard: "player_progress_style_standard"
         case .wave: "player_progress_style_wave"
         case .dot: "player_progress_style_dot"
+        }
+    }
+}
+
+/// 播放页进度条播放时的动效。三种画法都能叠,也能和发光、封面取色一起开;暂停、拖动、
+/// 「减弱动态效果」、低电量模式时停住。动画交给合成层跑,不逐帧重画播放页。
+enum NowPlayingProgressMotion: String, CaseIterable, Sendable {
+    case none
+    /// 水流:播放过的那段里一道道柔光朝播放头流过去,像管子里流动的水面反光。
+    case flow
+    /// 呼吸:播放过的那段连同外面一圈光慢慢亮起、收淡。
+    case breathe
+
+    var titleKey: String {
+        switch self {
+        case .none: "player_progress_motion_none"
+        case .flow: "player_progress_motion_flow"
+        case .breathe: "player_progress_motion_breathe"
         }
     }
 }

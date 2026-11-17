@@ -29,6 +29,7 @@ struct SettingsActionService {
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
         "lyrics.exploreWordTiming", "appearance.activityStatus", "lyrics.translationEnabled", "lyrics.bundledTranslation", "lyrics.simulatedWordTiming", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
         "appearance.volumeBar", "appearance.playerAlbumInSubtitle", "appearance.artworkLyrics", "appearance.playerProgressGlow",
+        "appearance.playerProgressArtworkColors",
         "appearance.replayGainBadge",
         "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "player.pinMiniPlayer", "playback.spokenWordSmartRewind"
     ]
@@ -163,6 +164,7 @@ struct SettingsActionService {
         case "appearance.playerAlbumInSubtitle": preference(PlayerAppearancePreferences.showsAlbumInSubtitleKey, fallback: PlayerAppearancePreferences.showsAlbumInSubtitleByDefault)
         case "appearance.artworkLyrics": preference(PlayerAppearancePreferences.showsArtworkLyricsKey, fallback: PlayerAppearancePreferences.showsArtworkLyricsByDefault)
         case "appearance.playerProgressGlow": preference(PlayerAppearancePreferences.progressGlowKey, fallback: PlayerAppearancePreferences.progressGlowByDefault)
+        case "appearance.playerProgressArtworkColors": preference(PlayerAppearancePreferences.progressArtworkColorsKey, fallback: PlayerAppearancePreferences.progressArtworkColorsByDefault)
         case "player.pinMiniPlayer": preference(PlayerAppearancePreferences.pinsMiniPlayerKey, fallback: PlayerAppearancePreferences.pinsMiniPlayerByDefault)
         case "player.keepScreenAwake": ScreenIdleHoldMode(storedValue: defaults.string(forKey: ScreenIdleHoldMode.storageKey)).holdsWhilePlaying
         case "player.tapArtworkOpensLyrics": preference(PlayerAppearancePreferences.tapArtworkOpensLyricsKey, fallback: PlayerAppearancePreferences.tapArtworkOpensLyricsByDefault)
@@ -212,6 +214,7 @@ struct SettingsActionService {
         case "appearance.playerAlbumInSubtitle": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsAlbumInSubtitleKey)
         case "appearance.artworkLyrics": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsArtworkLyricsKey)
         case "appearance.playerProgressGlow": defaults.set(enabled, forKey: PlayerAppearancePreferences.progressGlowKey)
+        case "appearance.playerProgressArtworkColors": defaults.set(enabled, forKey: PlayerAppearancePreferences.progressArtworkColorsKey)
         case "player.pinMiniPlayer": defaults.set(enabled, forKey: PlayerAppearancePreferences.pinsMiniPlayerKey)
         case "player.keepScreenAwake":
             // 打开：已经是延长几分钟的就照旧，跟随系统的改成一直常亮；关掉：回到跟随系统。

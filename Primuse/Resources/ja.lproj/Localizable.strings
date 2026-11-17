@@ -6679,6 +6679,13 @@
 "player_progress_glow" = "プログレスバーを光らせる";
 "player_progress_glow_description" = "プログレスバーの再生済みの部分のまわりに同じ色のやわらかな光を加えます。一時停止中は弱くなります。3 つのスタイルすべてで使え、ダークモードで最もよく映えます。";
 "player_progress_audiobooks_hint" = "オンにすると、オーディオブックの縦向き再生画面のプログレスバーも上で選んだスタイルで表示します。オフのときは独自の細い線と点のままで、波だけが反映されます。";
+"player_progress_artwork_colors" = "アートワークの色";
+"player_progress_artwork_colors_description" = "プログレスバーの再生済みの部分を、アートワークの色を使ったグラデーションで表示します。再生位置の側はアートワークのメインカラーになり、ライトモードでもダークモードでも見やすい明るさに調整します。音量バーを「再生バーと同じ」にしている場合も同じ色になります。白黒のアートワークや、色をまだ取得していないときは単色のままです。オーディオブックの縦向きレイアウトは独自の配色のままです。";
+"player_progress_motion_title" = "プログレスバーのアニメーション";
+"player_progress_motion_description" = "流れ：再生済みの部分をやわらかな光が再生位置に向かって流れます。呼吸：プログレスバーとまわりの光がゆっくり明るくなったり暗くなったりします。再生中だけ動き、一時停止中、ドラッグ中、「視差効果を減らす」や低電力モードのときは止まります。3 つのスタイルすべてで使え、光る設定やアートワークの色とも組み合わせられます。";
+"player_progress_motion_none" = "なし";
+"player_progress_motion_flow" = "流れ";
+"player_progress_motion_breathe" = "呼吸";
 "theme_color_player_backdrop_moved_hint" = "プレーヤーの背景のスタイルと色の濃さは「設定 › プレーヤー」で調整できるようになりました。";
 "theme_color_player_backdrop_moved_link" = "プレーヤー設定を開く";
 

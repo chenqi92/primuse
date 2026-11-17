@@ -1065,7 +1065,7 @@ final class SystemVolumeSliderTests: XCTestCase {
     ) -> SystemVolumeSlider.StyleKey {
         SystemVolumeSlider.StyleKey(
             isLight: false, usesIncreasedContrast: false, trackStyle: style,
-            fillTint: .white, reduceMotion: reduceMotion
+            fillTint: .white, fillGradient: [], reduceMotion: reduceMotion
         )
     }
 

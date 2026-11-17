@@ -6771,6 +6771,13 @@
 "player_progress_glow" = "进度条发光";
 "player_progress_glow_description" = "进度条播放过的那段外面亮起一圈同色的光晕，暂停时变淡。三种进度条都能用，深色外观下最明显。";
 "player_progress_audiobooks_hint" = "打开后有声书竖屏播放页的进度条也按上面选的样式画。关着时那套版式保留自己的细线加圆点，只有「波浪」跟着换。";
+"player_progress_artwork_colors" = "封面取色";
+"player_progress_artwork_colors_description" = "进度条播放过的那段用封面里的几种颜色画成渐变，播放头那头是封面主色，深色、浅色外观下各自调到看得清。音量条选了「跟进度条一致」时也跟着换。封面是黑白的或还没取到颜色时照旧用单色；有声书的竖屏版式保留自己的配色。";
+"player_progress_motion_title" = "进度条动效";
+"player_progress_motion_description" = "水流：播放过的那段里一道道柔光朝播放头流过去。呼吸：进度条连同外面一圈光慢慢亮起、收淡。只在播放时动，暂停、拖动、打开「减弱动态效果」或低电量模式时停住。三种进度条都能用，也能和发光、封面取色一起开。";
+"player_progress_motion_none" = "无";
+"player_progress_motion_flow" = "水流";
+"player_progress_motion_breathe" = "呼吸";
 "theme_color_player_backdrop_moved_hint" = "播放页背景的样式和颜色浓淡，现在在「设置 › 播放器」里调。";
 "theme_color_player_backdrop_moved_link" = "前往播放器设置";
 

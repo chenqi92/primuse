@@ -7787,6 +7787,10 @@ private struct MacSTThemeView: View {
     private var volumeThickness = PlayerTrackThickness.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.progressMotionKey)
+    private var progressMotionRawValue = NowPlayingProgressMotion.none.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressArtworkColorsKey)
+    private var progressUsesArtworkColors = PlayerAppearancePreferences.progressArtworkColorsByDefault
     @AppStorage(MissingArtworkStyle.storageKey) private var missingArtworkStyle = MissingArtworkStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
@@ -8220,6 +8224,27 @@ private struct MacSTThemeView: View {
                     MacSTToggle(isOn: $progressGlows)
                 }
                 .settingsAnchor("appearance.playerProgressGlow")
+                MacSTRow(
+                    String(localized: "player_progress_artwork_colors"),
+                    hint: String(localized: "player_progress_artwork_colors_description")
+                ) {
+                    MacSTToggle(isOn: $progressUsesArtworkColors)
+                }
+                .settingsAnchor("appearance.playerProgressArtworkColors")
+                MacSTRow(
+                    String(localized: "player_progress_motion_title"),
+                    hint: String(localized: "player_progress_motion_description")
+                ) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { PlayerAppearancePreferences.progressMotion(rawValue: progressMotionRawValue) },
+                            set: { progressMotionRawValue = $0.rawValue }
+                        ),
+                        options: NowPlayingProgressMotion.allCases.map { ($0, $0.titleKey) },
+                        width: 180
+                    )
+                }
+                .settingsAnchor("appearance.playerProgressMotion")
             }
         }
 

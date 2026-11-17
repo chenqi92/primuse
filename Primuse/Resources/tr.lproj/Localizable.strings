@@ -6584,6 +6584,13 @@
 "player_progress_glow" = "Parlayan ilerleme çubuğu";
 "player_progress_glow_description" = "İlerleme çubuğunun çalınmış kısmının çevresine aynı renkte yumuşak bir parıltı ekler. Duraklatıldığında soluklaşır. Üç stilin hepsiyle çalışır ve en çok koyu görünümde belirgindir.";
 "player_progress_audiobooks_hint" = "Açıkken dikey sesli kitap oynatıcısı ilerleme çubuğunu yukarıda seçilen stilde çizer. Kapalıyken kendi ince çizgisini ve noktasını korur, yalnızca dalga uygulanır.";
+"player_progress_artwork_colors" = "Kapak renkleri";
+"player_progress_artwork_colors_description" = "İlerleme çubuğunun çalınan kısmını kapaktaki renklerden oluşan bir geçişle çizer; oynatma noktası tarafında kapağın ana rengi bulunur ve renkler açık ve koyu görünümde seçilebilecek şekilde ayarlanır. Ses çubuğu “İlerleme çubuğuyla aynı” olarak ayarlıysa o da değişir. Siyah beyaz kapaklar veya renkleri henüz alınmamış kapaklar tek renk kalır. Sesli kitapların dikey düzeni kendi renklerini korur.";
+"player_progress_motion_title" = "İlerleme çubuğu animasyonu";
+"player_progress_motion_description" = "Akış: çalınan kısımda yumuşak ışıltılar oynatma noktasına doğru akar. Nefes: ilerleme çubuğu ve çevresindeki ışık yavaşça parlayıp söner. Yalnızca çalarken hareket eder; duraklatıldığında, sürüklerken, Hareketi Azalt açıkken veya Düşük Güç Modu’nda durur. Üç stille de çalışır; parlama ve kapak renkleriyle birlikte açılabilir.";
+"player_progress_motion_none" = "Yok";
+"player_progress_motion_flow" = "Akış";
+"player_progress_motion_breathe" = "Nefes";
 "theme_color_player_backdrop_moved_hint" = "Çalar arka planının stili ve renk yoğunluğu artık Ayarlar › Çalar bölümünde.";
 "theme_color_player_backdrop_moved_link" = "Çalar ayarlarını aç";
 

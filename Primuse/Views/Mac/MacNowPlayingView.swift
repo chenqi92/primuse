@@ -2469,12 +2469,18 @@ private struct MacNowPlayingTimeObserver: View {
 /// not reevaluated for every playback tick.
 private struct MacNowPlayingProgressRow: View {
     @Environment(AudioPlayerService.self) private var player
+    @Environment(ThemeService.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     let width: CGFloat
     let accent: Color
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.progressMotionKey)
+    private var progressMotionRawValue = NowPlayingProgressMotion.none.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressArtworkColorsKey)
+    private var progressUsesArtworkColors = PlayerAppearancePreferences.progressArtworkColorsByDefault
     @State private var preview: TimeInterval?
 
     var body: some View {
@@ -2486,9 +2492,13 @@ private struct MacNowPlayingProgressRow: View {
                 total: player.duration,
                 interactionID: player.currentSong?.id,
                 fillTint: accent,
+                fillGradient: progressUsesArtworkColors
+                    ? theme.progressArtworkGradient.colors(isLight: colorScheme == .light)
+                    : [],
                 trackStyle: .forProgressStyle(
                     PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
-                    glows: progressGlows
+                    glows: progressGlows,
+                    motion: PlayerAppearancePreferences.progressMotion(rawValue: progressMotionRawValue)
                 ),
                 isPlaying: player.isPlaying,
                 onPreview: { preview = $0 },

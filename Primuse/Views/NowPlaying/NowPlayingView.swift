@@ -2032,6 +2032,9 @@ struct NowPlayingView: View {
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
     @AppStorage(PlayerAppearancePreferences.progressStyleAppliesToAudiobooksKey)
     private var progressStyleAppliesToAudiobooks = PlayerAppearancePreferences.progressStyleAppliesToAudiobooksByDefault
+    /// 「跟进度条一致」的音量条也照进度条的封面取色画。
+    @AppStorage(PlayerAppearancePreferences.progressArtworkColorsKey)
+    private var progressUsesArtworkColors = PlayerAppearancePreferences.progressArtworkColorsByDefault
     /// 封面下的歌词几行;字号只在 `NowPlayingArtworkLyricPreview` 里读。
     @AppStorage(PlayerAppearancePreferences.artworkLyricsLinesKey)
     private var artworkLyricsLinesRawValue = NowPlayingArtworkLyricsLines.one.rawValue
@@ -3828,7 +3831,7 @@ struct NowPlayingView: View {
                         .matchedLayoutElement(.songHeading, in: layoutNamespace)
                         .padding(.horizontal, controlsPadding)
                         .padding(.top, 18)
-                    PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: false) }
+                    PlaybackProgressBar(fillTint: themedControlAccent, usesArtworkColors: !usesAudiobookPlayerDesign) { progressAudioTags(showsSource: false) }
                         .matchedLayoutElement(.progress, in: layoutNamespace)
                         .padding(.horizontal, controlsPadding)
                         .padding(.top, 10)
@@ -6116,7 +6119,9 @@ struct NowPlayingView: View {
         playerVolumeRow(matching: .forProgressStyle(
             PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
             glows: progressGlows
-        ), fillTint: themedControlAccent)
+        ), fillTint: themedControlAccent, fillGradient: progressUsesArtworkColors && !usesAudiobookPlayerDesign
+            ? theme.progressArtworkGradient.colors(isLight: appearance.isLight)
+            : [])
     }
 
     /// 有声书墨黑 / 暖白那套版式的音量条:「跟进度条一致」时照这套版式自己的进度条画。
@@ -6134,17 +6139,19 @@ struct NowPlayingView: View {
     ///   - fillTint: 那时填充段的颜色,和进度条一样。系统样式仍是前景色。
     private func playerVolumeRow(
         matching progressTrack: ProgressSlider.TrackStyle,
-        fillTint: Color
+        fillTint: Color,
+        fillGradient: [Color] = []
     ) -> some View {
         let matches = PlayerAppearancePreferences.volumeBarStyle(rawValue: volumeBarStyleRawValue) == .matchesProgress
         let trackStyle: PlayerVolumeTrackStyle = matches ? .matching(progressTrack) : .system
         let volumeTint: Color? = matches ? fillTint : nil
+        let volumeGradient: [Color] = matches ? fillGradient : []
         return HStack(spacing: 8) {
             Image(systemName: "speaker.fill")
                 .font(.caption2)
                 .foregroundStyle(appearance.tertiary)
             #if os(iOS) && !targetEnvironment(simulator)
-            SystemVolumeSlider(trackStyle: trackStyle, fillTint: volumeTint)
+            SystemVolumeSlider(trackStyle: trackStyle, fillTint: volumeTint, fillGradient: volumeGradient)
                 .frame(maxWidth: .infinity)
                 .frame(height: SystemVolumeSlider.compactHeight)
             #elseif os(macOS)
@@ -6159,7 +6166,8 @@ struct NowPlayingView: View {
                     set: { player.setPlaybackVolume(Float($0)) }
                 ),
                 trackStyle: trackStyle,
-                fillTint: volumeTint
+                fillTint: volumeTint,
+                fillGradient: volumeGradient
             )
             #endif
             Image(systemName: "speaker.wave.3.fill")
@@ -6575,7 +6583,7 @@ struct NowPlayingView: View {
             }
 
             // 手机横屏底下没有状态行,来源仍挂在进度条下的标签里。
-            PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: true) }
+            PlaybackProgressBar(fillTint: themedControlAccent, usesArtworkColors: !usesAudiobookPlayerDesign) { progressAudioTags(showsSource: true) }
                 .matchedLayoutElement(.progress, in: layoutNamespace)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
 
@@ -7413,7 +7421,7 @@ struct NowPlayingView: View {
             nowPlayingReviewSection
                 .padding(.horizontal, 36)
 
-            PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: false) }
+            PlaybackProgressBar(fillTint: themedControlAccent, usesArtworkColors: !usesAudiobookPlayerDesign) { progressAudioTags(showsSource: false) }
                 .padding(.horizontal, 36).padding(.top, 10)
 
             // 有声内容两头再各一格,按「播放页按钮」摆。默认有文字稿时最左边文字稿(和竖屏同一件事,
@@ -7895,7 +7903,7 @@ struct NowPlayingView: View {
                     // 被强制关闭)。SwiftUI Observation 是 per-body 追踪——子 view
                     // 自己读 player.currentTime,父 view body 完全不读高频属性。
                     if !hidesBottomChrome {
-                        PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: false) }
+                        PlaybackProgressBar(fillTint: themedControlAccent, usesArtworkColors: !usesAudiobookPlayerDesign) { progressAudioTags(showsSource: false) }
                             .matchedLayoutElement(.progress, in: layoutNamespace)
                             .padding(.horizontal, 26).padding(.top, 8)
                             .padding(.horizontal, insets.rows)
@@ -9134,7 +9142,7 @@ struct NowPlayingView: View {
     /// 上一首、下一首只有图标。
     private func playbackDock(floats: Bool) -> some View {
         VStack(spacing: floats ? 8 : Self.plainDockRowSpacing) {
-            PlaybackProgressBar(fillTint: themedControlAccent)
+            PlaybackProgressBar(fillTint: themedControlAccent, usesArtworkColors: !usesAudiobookPlayerDesign)
                 .padding(.horizontal, floats ? 0 : 6)
 
             HStack(spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportSpacing)) {
@@ -13401,22 +13409,34 @@ struct ProgressTrackFill: Shape {
     }
 }
 
-#if os(iOS)
-struct PlayerProgressLayerFill: UIViewRepresentable {
+#if os(iOS) || os(macOS)
+/// 进度条播放过的那段:颜色(单色或封面取色的渐变)、「水流」的柔光、「呼吸」的光晕都放在合成层里,
+/// 填充长度的推进和两种动效都是 Core Animation 自己跑的动画,播放期间不逐帧驱动 SwiftUI 的布局与更新图。
+struct PlayerProgressLayerFill {
     var progress: CGFloat
-    var color: Color
+    /// 一种颜色时整段同色;两种以上时从起点到播放头画渐变,最后一种在播放头那头。
+    var colors: [Color]
+    var motion: NowPlayingProgressMotion = .none
+    /// 正在播、没在拖、没开减弱动态效果、没进低电量、播放页醒着:动效才动。
+    var isMotionActive = false
+    /// 「呼吸」停住时光晕留多少:开着发光时和发光暂停时一样淡,关着时不留。
+    var glows = false
+    var isLight = false
+    /// 「呼吸」时圆点也一起亮;nil 时只有线。
+    var knobDiameter: CGFloat?
     var animationDuration: TimeInterval
     var maximumAnimatedFraction: CGFloat
     @Environment(\.layoutDirection) private var layoutDirection
 
-    func makeUIView(context: Context) -> PlayerProgressFillView {
-        PlayerProgressFillView()
-    }
-
-    func updateUIView(_ view: PlayerProgressFillView, context: Context) {
-        view.update(
+    fileprivate func configuration(in environment: EnvironmentValues) -> PlayerProgressFillView.Configuration {
+        PlayerProgressFillView.Configuration(
             progress: progress,
-            color: UIColor(color),
+            colors: (colors.isEmpty ? [Color.primary] : colors).map { $0.resolve(in: environment).cgColor },
+            motion: motion,
+            isMotionActive: isMotionActive,
+            glows: glows,
+            isLight: isLight,
+            knobDiameter: knobDiameter ?? 0,
             isRightToLeft: layoutDirection == .rightToLeft,
             animationDuration: animationDuration,
             maximumAnimatedFraction: maximumAnimatedFraction
@@ -13424,44 +13444,249 @@ struct PlayerProgressLayerFill: UIViewRepresentable {
     }
 }
 
-final class PlayerProgressFillView: UIView {
-    private let fill = CALayer()
+#if os(iOS)
+extension PlayerProgressLayerFill: UIViewRepresentable {
+    func makeUIView(context: Context) -> PlayerProgressFillView {
+        PlayerProgressFillView()
+    }
+
+    func updateUIView(_ view: PlayerProgressFillView, context: Context) {
+        view.update(configuration(in: context.environment))
+    }
+}
+
+typealias PlayerProgressFillHostView = UIView
+#else
+extension PlayerProgressLayerFill: NSViewRepresentable {
+    func makeNSView(context: Context) -> PlayerProgressFillView {
+        PlayerProgressFillView()
+    }
+
+    func updateNSView(_ view: PlayerProgressFillView, context: Context) {
+        view.update(configuration(in: context.environment))
+    }
+}
+
+typealias PlayerProgressFillHostView = NSView
+#endif
+
+final class PlayerProgressFillView: PlayerProgressFillHostView {
+    struct Configuration {
+        var progress: CGFloat
+        var colors: [CGColor]
+        var motion: NowPlayingProgressMotion
+        var isMotionActive: Bool
+        var glows: Bool
+        var isLight: Bool
+        var knobDiameter: CGFloat
+        var isRightToLeft: Bool
+        var animationDuration: TimeInterval
+        var maximumAnimatedFraction: CGFloat
+    }
+
+    /// 从右往左的语言整块镜像过来,里面一律按从左往右排。
+    private let content = CALayer()
+    /// 「呼吸」的光晕:只画阴影,形状跟着填充段和圆点。
+    private let halo = CALayer()
+    private let fill = CAGradientLayer()
+    /// 「水流」的两层柔光,装在填充段里、被它的圆角裁掉。
+    private let flowLayers: [CAGradientLayer] = ProgressFlowPattern.layers.map { _ in CAGradientLayer() }
+    private var flowPeriodCounts: [Int]
+    private var flowTint: CGColor?
+
     private var progress: CGFloat = 0
+    private var colors: [CGColor] = []
+    private var motion: NowPlayingProgressMotion = .none
+    private var isMotionActive = false
+    private var glows = false
+    private var isLight = false
+    private var knobDiameter: CGFloat = 0
     private var isRightToLeft = false
     private var laidOutBounds = CGRect.zero
 
+    private static let flowKey = "primuse.progressFlow"
+    private static let breathKeys = ["primuse.breath.opacity", "primuse.breath.radius", "primuse.breath.fill"]
+
     init() {
+        flowPeriodCounts = ProgressFlowPattern.layers.map { _ in 0 }
         super.init(frame: .zero)
+        #if os(iOS)
         isUserInteractionEnabled = false
         isAccessibilityElement = false
-        layer.addSublayer(fill)
+        let host = layer
+        #else
+        let host = CALayer()
+        layer = host
+        wantsLayer = true
+        setAccessibilityElement(false)
+        #endif
+        content.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        host.addSublayer(content)
+        halo.shadowOffset = .zero
+        halo.shadowOpacity = 0
+        content.addSublayer(halo)
+        fill.startPoint = CGPoint(x: 0, y: 0.5)
+        fill.endPoint = CGPoint(x: 1, y: 0.5)
+        fill.anchorPoint = CGPoint(x: 0, y: 0.5)
+        fill.masksToBounds = true
+        content.addSublayer(fill)
+        for layer in flowLayers {
+            layer.startPoint = CGPoint(x: 0, y: 0.5)
+            layer.endPoint = CGPoint(x: 1, y: 0.5)
+            layer.anchorPoint = CGPoint(x: 0, y: 0.5)
+            layer.opacity = 0
+            fill.addSublayer(layer)
+        }
     }
 
-    required init?(coder: NSCoder) { return nil }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
 
-    func update(progress: CGFloat, color: UIColor, isRightToLeft: Bool, animationDuration: TimeInterval,
-                maximumAnimatedFraction: CGFloat = 1) {
-        let next = progress.isFinite ? min(1, max(0, progress)) : 0
-        let changesDirection = self.isRightToLeft != isRightToLeft
-        let changesProgress = self.progress != next
-        let advance = next - self.progress
-        self.progress = next
-        self.isRightToLeft = isRightToLeft
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        fill.backgroundColor = color.resolvedColor(with: traitCollection).cgColor
-        CATransaction.commit()
-        guard changesProgress || changesDirection || animationDuration == 0 else { return }
-        applyGeometry(duration: !changesDirection && advance > 0 && advance <= maximumAnimatedFraction
-                      ? animationDuration : 0)
+    #if os(macOS)
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        relayoutIfNeeded()
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        relayoutIfNeeded()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateContentsScale(window?.backingScaleFactor)
+        applyMotion()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateContentsScale(window?.backingScaleFactor)
+    }
+    #else
     override func layoutSubviews() {
         super.layoutSubviews()
+        relayoutIfNeeded()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateContentsScale(window == nil ? nil : traitCollection.displayScale)
+        // 回到窗口里时补上动效(从后台回来、播放页重新挂上)。
+        applyMotion()
+    }
+    #endif
+
+    func update(_ configuration: Configuration) {
+        let next = configuration.progress.isFinite ? min(1, max(0, configuration.progress)) : 0
+        let changesDirection = isRightToLeft != configuration.isRightToLeft
+        let changesProgress = progress != next
+        let changesKnob = knobDiameter != configuration.knobDiameter
+        let advance = next - progress
+        progress = next
+        isRightToLeft = configuration.isRightToLeft
+        knobDiameter = configuration.knobDiameter
+        applyColors(configuration.colors, isLight: configuration.isLight)
+        if changesDirection {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            content.transform = isRightToLeft ? CATransform3DMakeScale(-1, 1, 1) : CATransform3DIdentity
+            CATransaction.commit()
+        }
+        if changesProgress || changesDirection || configuration.animationDuration == 0 {
+            applyGeometry(duration: !changesDirection && advance > 0 && advance <= configuration.maximumAnimatedFraction
+                          ? configuration.animationDuration : 0)
+        } else if changesKnob {
+            updateHaloPath()
+        }
+        let changesMotion = motion != configuration.motion
+            || isMotionActive != configuration.isMotionActive
+            || glows != configuration.glows
+        motion = configuration.motion
+        isMotionActive = configuration.isMotionActive
+        glows = configuration.glows
+        if changesMotion { applyMotion() }
+    }
+
+    #if os(iOS)
+    /// 单色、不带动效时的简写。
+    func update(progress: CGFloat, color: UIColor, isRightToLeft: Bool, animationDuration: TimeInterval,
+                maximumAnimatedFraction: CGFloat = 1) {
+        update(Configuration(
+            progress: progress,
+            colors: [color.resolvedColor(with: traitCollection).cgColor],
+            motion: .none,
+            isMotionActive: false,
+            glows: false,
+            isLight: false,
+            knobDiameter: 0,
+            isRightToLeft: isRightToLeft,
+            animationDuration: animationDuration,
+            maximumAnimatedFraction: maximumAnimatedFraction
+        ))
+    }
+    #endif
+
+    /// 播放过的那段(单测核对位置与插值用)。
+    var fillLayer: CALayer { fill }
+
+    private func relayoutIfNeeded() {
         guard bounds != laidOutBounds else { return }
         laidOutBounds = bounds
         applyGeometry(duration: 0)
     }
+
+    private func updateContentsScale(_ scale: CGFloat?) {
+        guard let scale, scale > 0 else { return }
+        for layer in [content, halo, fill] + flowLayers {
+            layer.contentsScale = scale
+        }
+    }
+
+    // MARK: 颜色
+
+    private func applyColors(_ next: [CGColor], isLight: Bool) {
+        let changesAppearance = self.isLight != isLight
+        self.isLight = isLight
+        guard next != colors || changesAppearance else { return }
+        let isFirstColor = colors.isEmpty
+        colors = next
+        let stops = next.count == 1 ? [next[0], next[0]] : next
+        let head = next.last ?? fill.backgroundColor
+        CATransaction.begin()
+        // 换歌时封面色跟着背景一起慢慢换过去;第一次上色不动画。
+        if isFirstColor {
+            CATransaction.setDisableActions(true)
+        } else {
+            CATransaction.setAnimationDuration(0.6)
+        }
+        fill.colors = stops
+        halo.shadowColor = head
+        CATransaction.commit()
+        updateFlowTint(head: head)
+    }
+
+    /// 亮的填充色上用深色的柔光(白色流光在白色进度条上看不见),别的用白色。
+    private func updateFlowTint(head: CGColor?) {
+        let tint = Self.isBright(head) ? CGColor(gray: 0, alpha: 1) : CGColor(gray: 1, alpha: 1)
+        guard tint != flowTint else { return }
+        flowTint = tint
+        flowPeriodCounts = flowPeriodCounts.map { _ in 0 }
+        layoutFlowLayers()
+    }
+
+    private static func isBright(_ color: CGColor?) -> Bool {
+        guard let color,
+              let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+              let components = color.converted(to: sRGB, intent: .defaultIntent, options: nil)?.components,
+              components.count >= 3 else { return false }
+        let rgb = LiquidBackdropColor(red: Double(components[0]), green: Double(components[1]), blue: Double(components[2]))
+        return ProgressArtworkGradientPolicy.relativeLuminance(rgb) > 0.6
+    }
+
+    // MARK: 形状
 
     private func applyGeometry(duration: TimeInterval) {
         let width = bounds.width * progress
@@ -13472,18 +13697,23 @@ final class PlayerProgressFillView: UIView {
         let fromRadius = current.cornerRadius
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        fill.removeAllAnimations()
-        fill.anchorPoint = CGPoint(x: isRightToLeft ? 1 : 0, y: 0.5)
-        fill.position = CGPoint(x: isRightToLeft ? bounds.maxX : bounds.minX, y: bounds.midY)
+        content.bounds = CGRect(origin: .zero, size: bounds.size)
+        content.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        halo.frame = content.bounds
+        fill.removeAnimation(forKey: "bounds")
+        fill.removeAnimation(forKey: "cornerRadius")
+        fill.position = CGPoint(x: 0, y: bounds.height / 2)
         fill.bounds = targetBounds
         fill.cornerRadius = radius
         CATransaction.commit()
+        layoutFlowLayers()
+        updateHaloPath()
         guard duration > 0, bounds.width > 0, fromBounds != targetBounds else { return }
         // 时钟插值留在合成层，避免播放期间逐帧驱动 SwiftUI 的布局与更新图。
         for (key, from, to) in [
-            ("bounds", NSValue(cgRect: fromBounds), NSValue(cgRect: targetBounds)),
+            ("bounds", Self.value(fromBounds), Self.value(targetBounds)),
             ("cornerRadius", NSNumber(value: Double(fromRadius)), NSNumber(value: Double(radius)))
-        ] {
+        ] as [(String, Any, Any)] {
             let animation = CABasicAnimation(keyPath: key)
             animation.fromValue = from
             animation.toValue = to
@@ -13491,6 +13721,162 @@ final class PlayerProgressFillView: UIView {
             animation.timingFunction = CAMediaTimingFunction(name: .linear)
             fill.add(animation, forKey: key)
         }
+    }
+
+    private static func value(_ rect: CGRect) -> NSValue {
+        #if os(iOS)
+        NSValue(cgRect: rect)
+        #else
+        NSValue(rect: rect)
+        #endif
+    }
+
+    /// 柔光层从轨道起点排到终点再多一个周期,宽度只在轨道变宽、换色时重排色标。
+    private func layoutFlowLayers() {
+        let height = bounds.height
+        let tint = flowTint ?? CGColor(gray: 1, alpha: 1)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (index, layer) in flowLayers.enumerated() {
+            let spec = ProgressFlowPattern.layers[index]
+            let count = ProgressFlowPattern.periodCount(trackWidth: Double(bounds.width), period: spec.period)
+            if count != flowPeriodCounts[index] {
+                flowPeriodCounts[index] = count
+                let stops = ProgressFlowPattern.stops(periodCount: count)
+                layer.colors = stops.map { tint.copy(alpha: CGFloat(spec.peakOpacity * $0.opacity)) ?? tint }
+                layer.locations = stops.map { NSNumber(value: $0.location) }
+            }
+            layer.position = CGPoint(x: 0, y: height / 2)
+            layer.bounds = CGRect(x: 0, y: 0, width: CGFloat(Double(count) * spec.period), height: height)
+        }
+        CATransaction.commit()
+    }
+
+    /// 光晕的形状:填充段的胶囊,「细线圆点」再加播放头上的圆点。0.5 秒一跳的推进只差零点几点,
+    /// 光晕本来就是糊的,不跟着填充段做插值。
+    private func updateHaloPath() {
+        guard motion == .breathe || halo.shadowOpacity > 0 else { return }
+        let width = bounds.width * progress
+        let height = bounds.height
+        let path = CGMutablePath()
+        if width > 0 {
+            let radius = min(width, height) / 2
+            path.addRoundedRect(in: CGRect(x: 0, y: 0, width: width, height: height),
+                                cornerWidth: radius, cornerHeight: radius)
+        }
+        if knobDiameter > 0 {
+            path.addEllipse(in: CGRect(x: width - knobDiameter / 2, y: (height - knobDiameter) / 2,
+                                       width: knobDiameter, height: knobDiameter))
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        halo.shadowPath = path
+        CATransaction.commit()
+    }
+
+    // MARK: 动效
+
+    private var restingHaloOpacity: Float {
+        guard motion == .breathe, glows else { return 0 }
+        // 和发光暂停时一样淡(见 `ProgressGlow`)。
+        return Float((isLight ? 0.4 : 0.85) * 0.45)
+    }
+
+    private func applyMotion() {
+        let attached = window != nil
+        let flows = motion == .flow && isMotionActive && attached
+        let breathes = motion == .breathe && isMotionActive && attached
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.35)
+        for (index, layer) in flowLayers.enumerated() {
+            let spec = ProgressFlowPattern.layers[index]
+            if flows, layer.animation(forKey: Self.flowKey) == nil {
+                let animation = CABasicAnimation(keyPath: "transform.translation.x")
+                animation.fromValue = -spec.period
+                animation.toValue = 0
+                animation.duration = spec.duration
+                animation.repeatCount = .infinity
+                animation.timingFunction = CAMediaTimingFunction(name: .linear)
+                // 切到后台再回来、播放页暂时移出窗口时不被摘掉。
+                animation.isRemovedOnCompletion = false
+                layer.add(animation, forKey: Self.flowKey)
+            }
+            layer.opacity = flows ? 1 : 0
+        }
+        CATransaction.commit()
+        if !flows, flowLayers.contains(where: { $0.animation(forKey: Self.flowKey) != nil }) {
+            // 淡出以后再停,停在半路的柔光不会一下跳回原位。
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(400))
+                guard let self, !(self.motion == .flow && self.isMotionActive && self.window != nil) else { return }
+                for layer in self.flowLayers { layer.removeAnimation(forKey: Self.flowKey) }
+            }
+        }
+        applyBreath(breathes)
+    }
+
+    private func applyBreath(_ breathes: Bool) {
+        let isBreathing = halo.animation(forKey: Self.breathKeys[0]) != nil
+        if breathes {
+            updateHaloPath()
+            guard !isBreathing else { return }
+            let scale = isLight ? ProgressBreathPolicy.lightAppearanceScale : 1
+            let opacity = ProgressBreathPolicy.haloOpacity
+            let half = ProgressBreathPolicy.cycle / 2
+            func breath(_ key: String, _ from: Double, _ to: Double) -> CABasicAnimation {
+                let animation = CABasicAnimation(keyPath: key)
+                animation.fromValue = from
+                animation.toValue = to
+                animation.duration = half
+                animation.autoreverses = true
+                animation.repeatCount = .infinity
+                animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                animation.isRemovedOnCompletion = false
+                return animation
+            }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            halo.shadowOpacity = Float(opacity.lowerBound * scale)
+            halo.shadowRadius = CGFloat(ProgressBreathPolicy.haloRadius.lowerBound)
+            halo.add(breath("shadowOpacity", opacity.lowerBound * scale, opacity.upperBound * scale),
+                     forKey: Self.breathKeys[0])
+            halo.add(breath("shadowRadius", ProgressBreathPolicy.haloRadius.lowerBound,
+                            ProgressBreathPolicy.haloRadius.upperBound), forKey: Self.breathKeys[1])
+            fill.add(breath("opacity", ProgressBreathPolicy.fillOpacity.lowerBound,
+                            ProgressBreathPolicy.fillOpacity.upperBound), forKey: Self.breathKeys[2])
+            CATransaction.commit()
+            return
+        }
+        // 停下时从当下的明暗慢慢回到静止的样子,不一下跳过去。
+        let haloNow = (halo.presentation() ?? halo).shadowOpacity
+        let radiusNow = (halo.presentation() ?? halo).shadowRadius
+        let fillNow = (fill.presentation() ?? fill).opacity
+        let rest = restingHaloOpacity
+        let restRadius: CGFloat = 6
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        halo.removeAnimation(forKey: Self.breathKeys[0])
+        halo.removeAnimation(forKey: Self.breathKeys[1])
+        fill.removeAnimation(forKey: Self.breathKeys[2])
+        halo.shadowOpacity = rest
+        halo.shadowRadius = restRadius
+        fill.opacity = 1
+        if isBreathing {
+            for (layer, key, from, to) in [
+                (halo, "shadowOpacity", Double(haloNow), Double(rest)),
+                (halo, "shadowRadius", Double(radiusNow), Double(restRadius)),
+                (fill as CALayer, "opacity", Double(fillNow), 1)
+            ] {
+                let settle = CABasicAnimation(keyPath: key)
+                settle.fromValue = from
+                settle.toValue = to
+                settle.duration = 0.35
+                settle.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                layer.add(settle, forKey: key + ".settle")
+            }
+        }
+        CATransaction.commit()
+        updateHaloPath()
     }
 }
 #endif
@@ -13514,6 +13900,8 @@ struct ProgressSlider: View {
         var glows = false
         /// 轨道在固定命中区内上移，让章节标题贴近进度条而不缩小拖动区域。
         var verticalOffset: CGFloat = 0
+        /// 播放时的动效(水流、呼吸),设置里选的。
+        var motion: NowPlayingProgressMotion = .none
 
         func applyingThickness(_ thickness: PlayerTrackThickness) -> Self {
             var result = self
@@ -13525,7 +13913,11 @@ struct ProgressSlider: View {
         static let standard = TrackStyle()
 
         /// 设置 › 播放器 › 进度条 选的画法。圆点和有声书版式那颗一样大(9 点),按住大 4 点。
-        static func forProgressStyle(_ style: NowPlayingProgressStyle, glows: Bool = false) -> TrackStyle {
+        static func forProgressStyle(
+            _ style: NowPlayingProgressStyle,
+            glows: Bool = false,
+            motion: NowPlayingProgressMotion = .none
+        ) -> TrackStyle {
             var track: TrackStyle
             switch style {
             case .standard: track = .standard
@@ -13533,6 +13925,7 @@ struct ProgressSlider: View {
             case .dot: track = TrackStyle(restingHeight: 3, draggingHeight: 6, knobDiameter: 9, knobGrowth: 4)
             }
             track.glows = glows
+            track.motion = motion
             return track
         }
     }
@@ -13541,6 +13934,8 @@ struct ProgressSlider: View {
     let total: TimeInterval
     let interactionID: String?
     let fillTint: Color?
+    /// 「封面取色」的渐变,从起点到播放头;不到两种颜色时用 `fillTint`。
+    let fillGradient: [Color]
     private let baseTrackStyle: TrackStyle
     @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
     private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
@@ -13557,6 +13952,7 @@ struct ProgressSlider: View {
         total: TimeInterval,
         interactionID: String? = nil,
         fillTint: Color? = nil,
+        fillGradient: [Color] = [],
         trackStyle: TrackStyle = .standard,
         isPlaying: Bool = false,
         onPreview: @escaping (TimeInterval?) -> Void = { _ in },
@@ -13566,6 +13962,7 @@ struct ProgressSlider: View {
         self.total = total
         self.interactionID = interactionID
         self.fillTint = fillTint
+        self.fillGradient = fillGradient
         self.baseTrackStyle = trackStyle
         self.isPlaying = isPlaying
         self.onPreview = onPreview
@@ -13575,6 +13972,7 @@ struct ProgressSlider: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.playerSurfaceIsAwake) private var surfaceIsAwake
     @Environment(ThemeService.self) private var theme
 
     @State private var scrubSession: ProgressScrubSession?
@@ -13614,13 +14012,37 @@ struct ProgressSlider: View {
         return appearance.isLight ? theme.darkAccent : theme.accentColor
     }
 
+    /// 填充段从起点到播放头的颜色:封面取色时是渐变,否则一种。
+    private var fillColors: [Color] {
+        fillGradient.count >= 2 ? fillGradient : [fillColor]
+    }
+
+    /// 播放头那头的颜色:圆点、波浪的竖条、光晕都用它。
+    private var headColor: Color { fillColors.last ?? fillColor }
+
     private var progressGlow: ProgressGlow {
         ProgressGlow(
-            color: fillColor,
-            isEnabled: trackStyle.glows,
+            color: headColor,
+            // 「呼吸」的光晕由填充层自己画(iPhone、iPad、Mac),这里不再叠一层。
+            isEnabled: trackStyle.glows && !breathesInLayer,
             isLit: isPlaying,
             isLight: appearance.isLight
         )
+    }
+
+    /// 动效这会儿该不该动:正在播、没在拖、播放页醒着,没开减弱动态效果和低电量模式。
+    private var isMotionActive: Bool {
+        isPlaying && !isDragging && surfaceIsAwake && !reduceMotion
+            && !ProcessInfo.processInfo.isLowPowerModeEnabled
+    }
+
+    /// 胶囊条和细线圆点的「呼吸」画在合成层里;波浪自己逐帧画。
+    private var breathesInLayer: Bool {
+        #if os(iOS) || os(macOS)
+        trackStyle.motion == .breathe && !trackStyle.isWave
+        #else
+        false
+        #endif
     }
 
     /// 播放时钟 0.5 秒推进一次, 填充条不接一条同长的线性动画就会一格一格地跳。
@@ -13673,15 +14095,25 @@ struct ProgressSlider: View {
 
             ProgressWaveFill(
                 lineWidth: trackHeight,
-                color: fillColor,
-                isFlowing: isPlaying && !isDragging
+                colors: fillColors,
+                isFlowing: isPlaying && !isDragging,
+                motion: trackStyle.motion,
+                glows: trackStyle.glows,
+                isLight: appearance.isLight,
+                width: filledWidth
             )
             .frame(width: filledWidth)
             .animation(fillAnimation, value: progress)
-            .modifier(progressGlow)
+            .modifier(ProgressGlow(
+                color: headColor,
+                // 「呼吸」时波浪自己画一圈起伏的光,这里不再叠一层。
+                isEnabled: trackStyle.glows && trackStyle.motion != .breathe,
+                isLit: isPlaying,
+                isLight: appearance.isLight
+            ))
 
             Capsule()
-                .fill(fillColor)
+                .fill(headColor)
                 .frame(width: trackHeight, height: ProgressWaveShape.amplitude * 2 + trackHeight)
                 .offset(x: filledWidth - trackHeight / 2)
                 .animation(fillAnimation, value: progress)
@@ -13724,12 +14156,20 @@ struct ProgressSlider: View {
                         .fill(trackStyle.trackColor ?? appearance.track)
                         .frame(height: trackHeight)
 
-                    #if os(iOS)
+                    #if os(iOS) || os(macOS)
                     PlayerProgressLayerFill(
                         progress: progress,
-                        color: fillColor,
+                        colors: fillColors,
+                        motion: trackStyle.motion,
+                        isMotionActive: isMotionActive,
+                        glows: trackStyle.glows,
+                        isLight: appearance.isLight,
+                        knobDiameter: trackStyle.knobDiameter.map {
+                            isActive ? $0 + (reduceMotion ? min(trackStyle.knobGrowth, 2) : trackStyle.knobGrowth) : $0
+                        },
                         animationDuration: isPlaying && !reduceMotion && !isDragging ? Self.clockTickInterval : 0,
-                        maximumAnimatedFraction: CGFloat(Self.maximumAnimatedAdvance / safeTotal)
+                        maximumAnimatedFraction: safeTotal > 0
+                            ? CGFloat(Self.maximumAnimatedAdvance / safeTotal) : 0
                     )
                         .frame(height: trackHeight)
                         .modifier(progressGlow)
@@ -13748,7 +14188,7 @@ struct ProgressSlider: View {
                     let growth = reduceMotion ? min(trackStyle.knobGrowth, 2) : trackStyle.knobGrowth
                     let diameter = isActive ? knob + growth : knob
                     Circle()
-                        .fill(fillColor)
+                        .fill(headColor)
                         .frame(width: diameter, height: diameter)
                         .offset(x: filledWidth - diameter / 2)
                         .animation(fillAnimation, value: progress)
@@ -13876,10 +14316,17 @@ private struct ProgressGlow: ViewModifier {
 
 /// 波浪进度条播放过的那一段:一条向播放头缓缓流动的正弦线。暂停、拖动时抚平成直线;
 /// 「减弱动态效果」、低电量时停住不流动,形状照旧。只在播放页看得见时走钟。
+/// 封面取色时整条线是渐变;「水流」在线上叠一串往播放头走的柔光,「呼吸」让线和外面一圈光一起明暗,
+/// 都在波浪本来就要走的这一个钟里算,不另开动画。
 private struct ProgressWaveFill: View {
     let lineWidth: CGFloat
-    let color: Color
+    let colors: [Color]
     let isFlowing: Bool
+    var motion: NowPlayingProgressMotion = .none
+    var glows = false
+    var isLight = false
+    /// 这一段的宽度,柔光按点数排。
+    var width: CGFloat = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.playerSurfaceIsAwake) private var surfaceIsAwake
@@ -13898,17 +14345,111 @@ private struct ProgressWaveFill: View {
         #endif
     }
 
+    private var stroke: AnyShapeStyle {
+        guard colors.count >= 2 else { return AnyShapeStyle(colors.first ?? .primary) }
+        return AnyShapeStyle(LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing))
+    }
+
     var body: some View {
+        let flowTint = motion == .flow ? Self.flowTint(for: colors.last) : .white
         TimelineView(.animation(minimumInterval: Self.frameInterval, paused: !animatesPhase)) { context in
-            ProgressWaveShape(
+            let time = context.date.timeIntervalSinceReferenceDate
+            let shape = ProgressWaveShape(
                 phase: animatesPhase ? ProgressWaveShape.phase(at: context.date) : 0,
                 amplitude: isFlowing ? ProgressWaveShape.amplitude : 0
             )
-            .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+            let style = StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+            let breath = motion == .breathe && animatesPhase ? ProgressBreathPolicy.level(at: time) : nil
+            shape
+                .stroke(stroke, style: style)
+                .overlay {
+                    if motion == .flow, animatesPhase, width > 0 {
+                        ForEach(ProgressFlowPattern.layers.indices, id: \.self) { index in
+                            shape.stroke(Self.flowGradient(
+                                ProgressFlowPattern.layers[index],
+                                time: time,
+                                width: width,
+                                tint: flowTint
+                            ), style: style)
+                        }
+                    }
+                }
+                .modifier(WaveBreathHalo(
+                    isEnabled: motion == .breathe,
+                    fillOpacity: breath.map { ProgressBreathPolicy.interpolate(ProgressBreathPolicy.fillOpacity, $0) } ?? 1,
+                    color: haloColor(breath),
+                    radius: haloRadius(breath)
+                ))
         }
         .animation(.easeInOut(duration: 0.35), value: isFlowing)
         .onAppear { isVisible = true }
         .onDisappear { isVisible = false }
+    }
+
+    /// 只在选了「呼吸」时挂阴影,别的时候不多一层逐帧的离屏渲染。
+    private struct WaveBreathHalo: ViewModifier {
+        let isEnabled: Bool
+        let fillOpacity: Double
+        let color: Color
+        let radius: CGFloat
+
+        @ViewBuilder
+        func body(content: Content) -> some View {
+            if isEnabled {
+                content
+                    .opacity(fillOpacity)
+                    .shadow(color: color, radius: radius)
+            } else {
+                content
+            }
+        }
+    }
+
+    /// 「呼吸」的光:动着时随起伏,停住时开着发光就和发光暂停时一样淡,不开就没有。
+    private func haloColor(_ breath: Double?) -> Color {
+        guard motion == .breathe else { return .clear }
+        let head = colors.last ?? .primary
+        if let breath {
+            let scale = isLight ? ProgressBreathPolicy.lightAppearanceScale : 1
+            return head.opacity(ProgressBreathPolicy.interpolate(ProgressBreathPolicy.haloOpacity, breath) * scale)
+        }
+        return glows ? head.opacity((isLight ? 0.4 : 0.85) * 0.45) : .clear
+    }
+
+    private func haloRadius(_ breath: Double?) -> CGFloat {
+        guard motion == .breathe else { return 0 }
+        return CGFloat(breath.map { ProgressBreathPolicy.interpolate(ProgressBreathPolicy.haloRadius, $0) } ?? 6)
+    }
+
+    /// 白色流光在白色进度条上看不见,亮色上改用深色。
+    private static func flowTint(for head: Color?) -> Color {
+        guard let head,
+              let rgb = PlayerLyricsArtworkTint(head) else { return .white }
+        let luminance = ProgressArtworkGradientPolicy.relativeLuminance(
+            LiquidBackdropColor(red: rgb.red, green: rgb.green, blue: rgb.blue)
+        )
+        return luminance > 0.6 ? .black : .white
+    }
+
+    /// 一层柔光:整串亮带按时间往播放头平移,超出 0…1 的部分落在线外面,不画。
+    private static func flowGradient(
+        _ layer: ProgressFlowPattern.Layer,
+        time: TimeInterval,
+        width: CGFloat,
+        tint: Color
+    ) -> LinearGradient {
+        let span = Double(width)
+        let count = ProgressFlowPattern.periodCount(trackWidth: span, period: layer.period)
+        let shift = (time * layer.speed).truncatingRemainder(dividingBy: layer.period) - layer.period
+        let length = Double(count) * layer.period
+        let stops = ProgressFlowPattern.stops(periodCount: count).map {
+            Gradient.Stop(color: tint.opacity(layer.peakOpacity * $0.opacity), location: CGFloat($0.location))
+        }
+        return LinearGradient(
+            stops: stops,
+            startPoint: UnitPoint(x: shift / span, y: 0.5),
+            endPoint: UnitPoint(x: (shift + length) / span, y: 0.5)
+        )
     }
 }
 
@@ -14017,6 +14558,8 @@ struct SystemVolumeSlider: UIViewRepresentable {
     private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
     var trackStyle: PlayerVolumeTrackStyle = .system
     var fillTint: Color? = nil
+    /// 「跟进度条一致」且进度条用封面取色时的渐变;不到两种颜色时用 `fillTint`。
+    var fillGradient: [Color] = []
 
     @MainActor
     final class Coordinator: NSObject {
@@ -14051,7 +14594,10 @@ struct SystemVolumeSlider: UIViewRepresentable {
                     contrast: styleKey.usesIncreasedContrast ? .increased : .standard
                 )
                 volumeView.trackView.style = styleKey.trackStyle
-                volumeView.trackView.fill = UIColor(styleKey.fillTint ?? appearance.primary)
+                volumeView.trackView.fill = UIColor(styleKey.fillGradient.last ?? styleKey.fillTint ?? appearance.primary)
+                volumeView.trackView.gradient = styleKey.fillGradient.count >= 2
+                    ? styleKey.fillGradient.map { UIColor($0).cgColor }
+                    : []
                 volumeView.trackView.track = UIColor(styleKey.trackStyle.trackColor ?? appearance.track)
                 volumeView.trackView.reduceMotion = styleKey.reduceMotion
             }
@@ -14197,6 +14743,7 @@ struct SystemVolumeSlider: UIViewRepresentable {
         let usesIncreasedContrast: Bool
         let trackStyle: PlayerVolumeTrackStyle
         let fillTint: Color?
+        let fillGradient: [Color]
         let reduceMotion: Bool
     }
 
@@ -14239,6 +14786,7 @@ struct SystemVolumeSlider: UIViewRepresentable {
             usesIncreasedContrast: colorSchemeContrast == .increased,
             trackStyle: trackStyle.applyingThickness(.resolved(thicknessRawValue)),
             fillTint: fillTint,
+            fillGradient: fillGradient,
             reduceMotion: reduceMotion
         )
     }
@@ -14344,7 +14892,10 @@ final class PlayerVolumeTouchView: UIView, UIGestureRecognizerDelegate {
 /// 与进度条使用相同的完整 Capsule 路径，不在滑块中点截断后拼一个圆头。
 final class SystemVolumeTrackView: UIView {
     var style: PlayerVolumeTrackStyle = .system
+    /// 单色时的填充色;有渐变时是播放头那头的颜色(圆钮、发光用)。
     var fill: UIColor = .white
+    /// 两种以上颜色时填充段从起点到圆钮画渐变。
+    var gradient: [CGColor] = []
     var track: UIColor = .white.withAlphaComponent(0.18)
     var reduceMotion = false
     private(set) var isActive = false
@@ -14412,9 +14963,12 @@ final class SystemVolumeTrackView: UIView {
         if style.glows {
             context.setShadow(offset: .zero, blur: 6, color: fill.withAlphaComponent(0.85).cgColor)
         }
-        if style.isWave, filledWidth > 0 {
-            let wave = ProgressWaveShape(phase: 0, amplitude: ProgressWaveShape.amplitude)
-            context.addPath(wave.path(in: CGRect(x: 0, y: -height / 2, width: filledWidth, height: height)).cgPath)
+        let wavePath: CGPath? = style.isWave && filledWidth > 0
+            ? ProgressWaveShape(phase: 0, amplitude: ProgressWaveShape.amplitude)
+                .path(in: CGRect(x: 0, y: -height / 2, width: filledWidth, height: height)).cgPath
+            : nil
+        if let wavePath {
+            context.addPath(wavePath)
             context.setStrokeColor(fill.cgColor)
             context.setLineWidth(height)
             context.setLineCap(.round)
@@ -14422,6 +14976,25 @@ final class SystemVolumeTrackView: UIView {
             context.strokePath()
         } else {
             capsule(x: 0, width: filledWidth, color: fill)
+        }
+        // 渐变盖在上面那层单色(连同它的光晕)之上,光晕仍是播放头那头的颜色。
+        if gradient.count >= 2, filledWidth > 0,
+           let shading = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: gradient as CFArray, locations: nil) {
+            context.saveGState()
+            context.setShadow(offset: .zero, blur: 0, color: nil)
+            if let wavePath {
+                context.addPath(wavePath)
+                context.setLineWidth(height)
+                context.setLineCap(.round)
+                context.setLineJoin(.round)
+                context.replacePathWithStrokedPath()
+            } else {
+                context.addPath(Capsule().path(in: alignedRect(CGRect(x: 0, y: -height / 2, width: filledWidth, height: height))).cgPath)
+            }
+            context.clip()
+            context.drawLinearGradient(shading, start: CGPoint(x: 0, y: 0), end: CGPoint(x: filledWidth, y: 0),
+                                       options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            context.restoreGState()
         }
         if let knob = style.knob(isActive: isActive, reduceMotion: reduceMotion) {
             context.setFillColor(fill.cgColor)
@@ -14438,6 +15011,8 @@ struct VolumeSlider: View {
     var trackStyle: PlayerVolumeTrackStyle = .system
     /// 填充与圆钮的颜色;nil 时用前景色。
     var fillTint: Color? = nil
+    /// 「封面取色」的渐变,从起点到圆钮;不到两种颜色时用 `fillTint`。
+    var fillGradient: [Color] = []
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -14465,7 +15040,10 @@ struct VolumeSlider: View {
             let progress = CGFloat(max(0, min(1, displayValue)))
             let trackHeight = trackStyle.height(isActive: isDragging, reduceMotion: reduceMotion)
             let filledWidth = max(0, min(width, width * progress))
-            let fill = fillTint ?? appearance.primary
+            let fill = fillGradient.last ?? fillTint ?? appearance.primary
+            let fillStyle = fillGradient.count >= 2
+                ? AnyShapeStyle(LinearGradient(colors: fillGradient, startPoint: .leading, endPoint: .trailing))
+                : AnyShapeStyle(fill)
             let glow = ProgressGlow(color: fill, isEnabled: trackStyle.glows, isLit: true, isLight: appearance.isLight)
 
             ZStack(alignment: .leading) {
@@ -14475,7 +15053,7 @@ struct VolumeSlider: View {
                         .frame(width: max(0, width - filledWidth), height: trackHeight)
                         .offset(x: filledWidth)
                     ProgressWaveShape(phase: 0, amplitude: ProgressWaveShape.amplitude)
-                        .stroke(fill, style: StrokeStyle(lineWidth: trackHeight, lineCap: .round, lineJoin: .round))
+                        .stroke(fillStyle, style: StrokeStyle(lineWidth: trackHeight, lineCap: .round, lineJoin: .round))
                         .frame(width: filledWidth)
                         .modifier(glow)
                 } else {
@@ -14484,7 +15062,7 @@ struct VolumeSlider: View {
                         .frame(height: trackHeight)
 
                     Capsule()
-                        .fill(fill)
+                        .fill(fillStyle)
                         .frame(width: filledWidth, height: trackHeight)
                         .modifier(glow)
                 }
@@ -19820,8 +20398,11 @@ fileprivate struct TransportHoldScrubGesture: ViewModifier {
 
 fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
     var fillTint: Color?
+    /// 有声书墨黑 / 暖白版式保留自己的配色,不跟「封面取色」。
+    var usesArtworkColors = true
     let centerAccessory: CenterAccessory
     @Environment(AudioPlayerService.self) private var player
+    @Environment(ThemeService.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     /// 可选读法:播放页以外单独用到这条进度条时没有注入,也不会崩。
@@ -19830,6 +20411,10 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
+    @AppStorage(PlayerAppearancePreferences.progressMotionKey)
+    private var progressMotionRawValue = NowPlayingProgressMotion.none.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressArtworkColorsKey)
+    private var progressUsesArtworkColors = PlayerAppearancePreferences.progressArtworkColorsByDefault
     @Environment(\.playerSurfaceIsAwake) private var surfaceIsAwake
     @State private var previewTime: TimeInterval?
     @State private var clock = PlayerClockSnapshot()
@@ -19839,9 +20424,19 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
     /// 两端时间各留这么宽,中间的标签不会压到「-1:02:34」这种长时间上。
     private static var timeLabelReserve: CGFloat { 50 }
 
-    init(fillTint: Color? = nil, @ViewBuilder centerAccessory: () -> CenterAccessory) {
+    init(
+        fillTint: Color? = nil,
+        usesArtworkColors: Bool = true,
+        @ViewBuilder centerAccessory: () -> CenterAccessory
+    ) {
         self.fillTint = fillTint
+        self.usesArtworkColors = usesArtworkColors
         self.centerAccessory = centerAccessory()
+    }
+
+    private var fillGradient: [Color] {
+        guard usesArtworkColors, progressUsesArtworkColors else { return [] }
+        return theme.progressArtworkGradient.colors(isLight: appearance.isLight)
     }
 
     private var appearance: NowPlayingAppearance {
@@ -19879,9 +20474,11 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
                         total: player.duration,
                         interactionID: player.currentSong?.id,
                         fillTint: fillTint,
+                        fillGradient: fillGradient,
                         trackStyle: .forProgressStyle(
                             PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue),
-                            glows: progressGlows
+                            glows: progressGlows,
+                            motion: PlayerAppearancePreferences.progressMotion(rawValue: progressMotionRawValue)
                         ),
                         isPlaying: player.isPlaying,
                         onPreview: { previewTime = $0 },
@@ -19929,8 +20526,8 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
 }
 
 extension PlaybackProgressBar where CenterAccessory == EmptyView {
-    init(fillTint: Color? = nil) {
-        self.init(fillTint: fillTint) { EmptyView() }
+    init(fillTint: Color? = nil, usesArtworkColors: Bool = true) {
+        self.init(fillTint: fillTint, usesArtworkColors: usesArtworkColors) { EmptyView() }
     }
 }
 
