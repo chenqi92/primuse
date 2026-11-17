@@ -4366,7 +4366,8 @@ private struct IOSSongAlphabetIndex: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .frame(width: 48, height: metrics.railHeight)
-                    .gesture(indexGesture(metrics: metrics))
+                    // 被系统接走时没有结束回调,放大的字母泡泡会一直挂着。
+                    .pmGesture(indexGesture(metrics: metrics), onCancel: clearFocus)
                     .offset(y: metrics.topInset)
 
                 if let focusedIndex, entries.indices.contains(focusedIndex) {

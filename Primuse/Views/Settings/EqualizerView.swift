@@ -630,7 +630,7 @@ struct VerticalSlider: View {
                     .shadow(radius: 2)
                     .position(x: geometry.size.width / 2, y: yPosition)
             }
-            .gesture(
+            .pmGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
                         isDragging = true
@@ -640,7 +640,9 @@ struct VerticalSlider: View {
                     }
                     .onEnded { _ in
                         isDragging = false
-                    }
+                    },
+                // 被系统接走时没有结束回调,圆钮会一直停在按住的大小。
+                onCancel: { isDragging = false }
             )
         }
     }

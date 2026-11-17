@@ -4046,6 +4046,21 @@ struct NowPlayingView: View {
             }
     }
 
+    /// 下拉、侧滑收起被系统接走(从状态栏拉通知中心、控制中心、回主屏)时没有结束回调:
+    /// 整页位移和顶上柔化会停在半路。照「松手、没收起」交给外层弹回原位。
+    private func cancelPlayerMinimizeDrag() {
+        let activity = minimizeDragActivity
+        let axis = activity.axis
+        activity.axis = nil
+        activity.startLocation = nil
+        if surfaceMotion.isDragging { surfaceMotion.isDragging = false }
+        switch axis {
+        case .vertical?: onTopMinimizeDragEnded?(false)
+        case .horizontal?: onLeadingMinimizeDragEnded?(false)
+        case nil: break
+        }
+    }
+
     /// 播放页按构图选的那一套布局,外加 iPhone Duo 竖栏里那一列。转轮打开与否都用这同一份。
     @ViewBuilder
     private func playerLayoutContent(
@@ -4802,12 +4817,15 @@ struct NowPlayingView: View {
                     .contentShape(Rectangle())
                     // 横屏锁上、或者效果抽屉开着的时候，整页不再响应最小化手势：
                     // 前者是锁的语义，后者是抽屉之外的一切都只该用来收起抽屉。
-                    .simultaneousGesture(
+                    // 拉到一半碰到状态栏、被通知中心接走时手势没有结束回调,照松手没收起弹回去。
+                    .pmGesture(
                         playerMinimizeDragGesture(
                             containerWidth: geo.size.width,
                             containerHeight: geo.size.height
                         ),
-                        including: suppressesPlayerMinimizeGesture ? .subviews : .all
+                        attachment: .simultaneous,
+                        including: suppressesPlayerMinimizeGesture ? .subviews : .all,
+                        onCancel: cancelPlayerMinimizeDrag
                     )
                     .transition(.opacity)
                 }

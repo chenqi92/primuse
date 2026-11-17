@@ -238,7 +238,11 @@ struct ImmersivePlayerView: View {
                                     }
                             )
                     )
-                    .simultaneousGesture(surfaceDrag(in: geometry.size, metrics: metrics))
+                    .pmGesture(
+                        surfaceDrag(in: geometry.size, metrics: metrics),
+                        attachment: .simultaneous,
+                        onCancel: cancelSurfaceDrag
+                    )
                     .simultaneousGesture(modeMagnification)
 
                 if isAmbientRest {
@@ -1562,6 +1566,20 @@ struct ImmersivePlayerView: View {
             hasBefore: !flowNeighbors.before.isEmpty,
             hasAfter: !flowNeighbors.after.isEmpty
         )
+    }
+
+    /// 舞台上的拖动被系统接走(顶上拉通知中心、底边回主屏)时没有结束回调:唱片停在拖到的位置并记下,
+    /// 封面流弹回当前这首,不停在两张之间。
+    private func cancelSurfaceDrag() {
+        if discPosition.isDragging {
+            discPosition.endDrag()
+            return
+        }
+        let wasDraggingFlow = isDraggingFlow == true
+        isDraggingFlow = nil
+        if wasDraggingFlow, flowShift != 0 {
+            withAnimation(.smooth(duration: 0.35)) { flowShift = 0 }
+        }
     }
 
     /// 松手：拖过三分之一格或甩得够快就换到那一边，否则弹回。

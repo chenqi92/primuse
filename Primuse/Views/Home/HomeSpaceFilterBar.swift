@@ -352,7 +352,8 @@ struct HomeSpaceFilterBar: View {
                 .overlay { Capsule().strokeBorder(.white.opacity(colorScheme == .dark ? 0.15 : 0.8), lineWidth: 1) }
                 .shadow(color: .brown.opacity(colorScheme == .dark ? 0.07 : 0.14), radius: 10, y: 7)
         }
-        .gesture(DragGesture(minimumDistance: 12)
+        // 被系统接走(回主屏、通知中心)时没有结束回调:旋钮回到选中的那一格,不换空间。
+        .pmGesture(DragGesture(minimumDistance: 12)
             .onChanged { value in
                 guard abs(value.translation.width) > abs(value.translation.height) * 1.6 else { return }
                 let x = layoutDirection == .rightToLeft ? width - value.location.x : value.location.x
@@ -363,7 +364,7 @@ struct HomeSpaceFilterBar: View {
                 let index = Int(tuningIndex.rounded())
                 self.tuningIndex = nil
                 if spaces.indices.contains(index), spaces[index] != selection { onSelect(spaces[index]) }
-            })
+            }, onCancel: { tuningIndex = nil })
         .saturation(monochrome ? 0 : 1)
     }
 

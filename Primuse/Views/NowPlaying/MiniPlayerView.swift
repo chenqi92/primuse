@@ -260,7 +260,8 @@ struct MiniPlayerSwipeContent: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
-        .simultaneousGesture(swipeGesture(containerWidth: contentWidth))
+        // 贴着底边横滑时上滑回主屏会接走手势,没有结束回调:提示与位移照松手收回。
+        .pmGesture(swipeGesture(containerWidth: contentWidth), attachment: .simultaneous, onCancel: resetFeedback)
         // 长按:不点开播放页也能喜欢 / 不喜欢这首、去它的专辑或艺人、设睡眠定时。
         .contextMenu { MiniPlayerMenuItems(libraryActions: libraryActions) }
         .nowPlayingLibraryActionAlert(libraryActions)

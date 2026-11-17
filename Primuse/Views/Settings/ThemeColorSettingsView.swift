@@ -684,7 +684,7 @@ struct ThemeHSBSliders: View {
                 }
                 .frame(height: 28)
                 .contentShape(Rectangle())
-                .gesture(
+                .pmGesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { drag in
                             guard width > 0 else { return }
@@ -692,7 +692,9 @@ struct ThemeHSBSliders: View {
                             value.wrappedValue = range.lowerBound + ratio * span
                             onChange(false)
                         }
-                        .onEnded { _ in onChange(true) }
+                        .onEnded { _ in onChange(true) },
+                    // 被系统接走时没有结束回调:停在哪就照松手把这个颜色定下来。
+                    onCancel: { onChange(true) }
                 )
             }
             .frame(height: 28)

@@ -631,3 +631,72 @@ private enum PMMotionAccessibility {
         #endif
     }
 }
+
+// MARK: - 被系统接走的手势
+
+#if os(iOS) || os(macOS)
+/// 手势挂在视图上的方式,和 `gesture(_:including:)`、`simultaneousGesture(_:including:)` 一一对应。
+enum PMGestureAttachment {
+    case exclusive
+    case simultaneous
+}
+
+/// 这次手势有没有正常结束。不可观察:手势每一帧都写。
+@MainActor
+private final class PMGestureEndFlag {
+    /// 没有手势在进行时也是 true,出现时不会误报一次取消。
+    var ended = true
+}
+
+/// 手势被系统接走时(从屏幕顶端拉通知中心、控制中心,从底边上滑回主屏,来电横幅,别的手指按下)
+/// SwiftUI 不调 `onEnded`:跟手写进状态的位移、高亮、放大就停在半路,要等下一次拖动才复位。
+/// 这里在手势状态复位而结束回调没来时调一次 `onCancel`,由调用处复位或照松手收尾。
+private struct PMCancellableGestureModifier<G: Gesture>: ViewModifier {
+    let gesture: G
+    let attachment: PMGestureAttachment
+    let mask: GestureMask
+    let onCancel: () -> Void
+
+    @GestureState private var isActive = false
+    @State private var flag = PMGestureEndFlag()
+
+    func body(content: Content) -> some View {
+        let flag = self.flag
+        let tracked = gesture
+            .updating($isActive) { _, active, _ in
+                active = true
+                flag.ended = false
+            }
+            .onEnded { _ in flag.ended = true }
+        Group {
+            switch attachment {
+            case .exclusive:
+                content.gesture(tracked, including: mask)
+            case .simultaneous:
+                content.simultaneousGesture(tracked, including: mask)
+            }
+        }
+        // 手势状态只在开始、结束时各变一次;只有这个修饰符跟着重算,挂它的页面不重建。
+        .task(id: isActive) {
+            guard !isActive else { return }
+            // 正常松手时 onEnded 与状态复位前后脚到;让出一轮,等 onEnded 跑完再看它来没来。
+            await Task.yield()
+            guard !Task.isCancelled, !isActive, !flag.ended else { return }
+            flag.ended = true
+            onCancel()
+        }
+    }
+}
+
+extension View {
+    /// 挂一个被系统接走时会通知的手势,见 `PMCancellableGestureModifier`。
+    func pmGesture<G: Gesture>(
+        _ gesture: G,
+        attachment: PMGestureAttachment = .exclusive,
+        including mask: GestureMask = .all,
+        onCancel: @escaping () -> Void
+    ) -> some View {
+        modifier(PMCancellableGestureModifier(gesture: gesture, attachment: attachment, mask: mask, onCancel: onCancel))
+    }
+}
+#endif

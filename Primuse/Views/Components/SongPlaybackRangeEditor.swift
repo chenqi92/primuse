@@ -883,7 +883,7 @@ struct SongPlaybackRangeTrack: View {
             .frame(width: hitSize, height: hitSize)
             .contentShape(Rectangle())
             .offset(x: position(value, usable) - hitSize / 2)
-            .gesture(
+            .pmGesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpace))
                     .onChanged { drag in
                         let fraction = Double((drag.location.x - handleSize / 2) / usable)
@@ -896,7 +896,9 @@ struct SongPlaybackRangeTrack: View {
                             songDuration: songDuration
                         )
                     }
-                    .onEnded { _ in onCommit() }
+                    .onEnded { _ in onCommit() },
+                // 被系统接走时没有结束回调:界面上已经挪到的位置照松手存下来,免得看到的和存的不一样。
+                onCancel: { onCommit() }
             )
             .accessibilityElement()
             .accessibilityLabel(Text(verbatim: title))
