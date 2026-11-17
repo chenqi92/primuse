@@ -6,6 +6,76 @@ import XCTest
 
 @MainActor
 final class SubsonicFavoriteWritebackTests: XCTestCase {
+    func testZSpaceStandardSubsonicCatalogAndPlaylistsDoNotRequireOpenSubsonic() async throws {
+        let host = "zspace-legacy.invalid"
+        SubsonicFavoriteURLProtocol.configure(host: host, mode: .legacyCatalogue)
+        let (source, session) = makeSource(host: host, type: .zspace)
+        defer { session.invalidateAndCancel() }
+        var songs: [Song] = []
+        for try await scanned in try await source.scanSongs(from: "/") {
+            songs.append(scanned.song)
+        }
+        XCTAssertEqual(songs.map(\.filePath), ["/songs/track.a-42.flac"])
+        XCTAssertEqual(songs.first?.title, "纸灯")
+        XCTAssertEqual(songs.first?.albumTitle, "夜航")
+        let playlists = try await source.fetchServerPlaylists()
+        XCTAssertTrue(playlists.failedPlaylistIDs.isEmpty)
+        XCTAssertEqual(playlists.playlists.first?.trackIDs, ["track.a-42"])
+        let methods = SubsonicFavoriteURLProtocol.requests(host: host).compactMap(\.url?.lastPathComponent)
+        XCTAssertTrue(methods.contains("getAlbumList2.view"))
+        XCTAssertTrue(methods.contains("getAlbum.view"))
+        XCTAssertFalse(methods.contains("search3.view"))
+        await source.disconnect()
+    }
+
+    func testZSpacePlaybackRangeArtworkAndLyricsUseAuthenticatedMusicAPI() async throws {
+        let host = "zspace-media.invalid"
+        SubsonicFavoriteURLProtocol.configure(host: host, mode: .success)
+        let (source, session) = makeSource(host: host, type: .zspace)
+        defer { session.invalidateAndCancel() }
+        let path = "/songs/track.a-42.flac"
+        let streamValue = try await source.streamingURL(for: path)
+        let stream = try XCTUnwrap(streamValue)
+        let query = URLComponents(url: stream, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(stream.host, host)
+        XCTAssertEqual(stream.path, "/rest/stream.view")
+        XCTAssertEqual(query.first { $0.name == "id" }?.value, "track.a-42")
+        XCTAssertEqual(query.first { $0.name == "format" }?.value, "raw")
+        XCTAssertNotNil(query.first { $0.name == "t" }?.value)
+        XCTAssertNil(query.first { $0.name == "p" })
+
+        let bytes = try await source.fetchRange(path: path, offset: 0, length: 4)
+        XCTAssertEqual(bytes, Data("fLaC".utf8))
+        let rangeRequest = SubsonicFavoriteURLProtocol.requests(host: host).first { $0.url?.path == "/rest/stream.view" }
+        XCTAssertEqual(rangeRequest?.value(forHTTPHeaderField: "Range"), "bytes=0-3")
+
+        let artworkValue = try await source.imageURL(for: "subsonic-cover/cover-42")
+        let artwork = try XCTUnwrap(artworkValue)
+        XCTAssertEqual(artwork.host, host)
+        XCTAssertEqual(artwork.path, "/rest/getCoverArt.view")
+        let artworkQuery = URLComponents(url: artwork, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(artworkQuery.first { $0.name == "id" }?.value, "cover-42")
+        XCTAssertNotNil(artworkQuery.first { $0.name == "t" }?.value)
+        let lyrics = await source.fetchServerLyrics(for: path)
+        XCTAssertTrue(lyrics?.contains("纸灯照过长街") == true)
+        await source.disconnect()
+    }
+
+    func testZSpaceFavoritesRoundTripThroughMusicService() async throws {
+        let host = "zspace-favorites.invalid"
+        SubsonicFavoriteURLProtocol.configure(host: host, mode: .success)
+        let (source, session) = makeSource(host: host, type: .zspace)
+        defer { session.invalidateAndCancel() }
+        let starred = try await source.setServerFavorite(itemID: "song.a-42", isFavorite: true)
+        XCTAssertTrue(starred.itemIDs.contains("song.a-42"))
+        let cleared = try await source.setServerFavorite(itemID: "song.a-42", isFavorite: false)
+        XCTAssertFalse(cleared.itemIDs.contains("song.a-42"))
+        let requests = SubsonicFavoriteURLProtocol.requests(host: host)
+        XCTAssertEqual(requests.first?.url?.lastPathComponent, "ping.view")
+        XCTAssertTrue(requests.contains { $0.url?.lastPathComponent == "star.view" })
+        XCTAssertTrue(requests.contains { $0.url?.lastPathComponent == "unstar.view" })
+    }
+
     func testFavoritesIncludePlayableSongsBeforeTheCatalogHasBeenScanned() async throws {
         let host = "favorite-unscanned.invalid"
         SubsonicFavoriteURLProtocol.configure(host: host, mode: .unscannedStarred)
@@ -185,14 +255,14 @@ final class SubsonicFavoriteWritebackTests: XCTestCase {
         }
     }
 
-    private func makeSource(host: String) -> (SubsonicSource, URLSession) {
+    private func makeSource(host: String, type: MusicSourceType = .navidrome) -> (SubsonicSource, URLSession) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [SubsonicFavoriteURLProtocol.self]
         let session = URLSession(configuration: configuration)
         return (
             SubsonicSource(
                 sourceID: host,
-                sourceType: .navidrome,
+                sourceType: type,
                 host: host,
                 port: nil,
                 useSsl: true,
@@ -203,6 +273,272 @@ final class SubsonicFavoriteWritebackTests: XCTestCase {
             ),
             session
         )
+    }
+}
+
+@MainActor
+final class SubsonicTransportPromptIsolationTests: XCTestCase {
+    func testHTTPTrustRequestsFailWithoutShowingOrSavingAPrompt() async throws {
+        guard !SSLTrustStore.allowsInteractiveTrustPrompts else {
+            return XCTFail("The test host must not allow interactive trust prompts")
+        }
+        let store = SSLTrustStore.shared
+        let previousAlert = AppAlertCoordinator.shared.activeRequest
+        let previousTrust = store.insecureHTTPDomains
+        for _ in 0..<4 {
+            let endpoint = "http://\(UUID().uuidString.lowercased()).invalid:8025"
+            let approved = await store.requestInsecureHTTPTrust(domain: endpoint)
+            XCTAssertFalse(approved)
+            XCTAssertFalse(store.allowsInsecureHTTP(domain: endpoint))
+        }
+        XCTAssertEqual(AppAlertCoordinator.shared.activeRequest, previousAlert)
+        XCTAssertEqual(store.insecureHTTPDomains, previousTrust)
+        XCTAssertFalse(store.isAwaitingTransportDecision)
+    }
+
+    func testCertificateTrustRequestsAlsoFailWithoutShowingAPrompt() async throws {
+        guard !SSLTrustStore.allowsInteractiveTrustPrompts else {
+            return XCTFail("The test host must not allow interactive trust prompts")
+        }
+        let store = SSLTrustStore.shared
+        let domain = UUID().uuidString.lowercased() + ".invalid"
+        let previousAlert = AppAlertCoordinator.shared.activeRequest
+        let firstUse = await store.requestTrust(domain: domain)
+        let presented = await store.requestTrustForPresentedCertificate(domain: domain, certificateInfo: nil)
+        let changed = await store.requestTrustForChangedCertificate(domain: domain, certificateInfo: nil)
+        XCTAssertFalse(firstUse)
+        XCTAssertFalse(presented)
+        XCTAssertFalse(changed)
+        XCTAssertFalse(store.isTrusted(domain: domain))
+        XCTAssertEqual(AppAlertCoordinator.shared.activeRequest, previousAlert)
+        XCTAssertFalse(store.isAwaitingTransportDecision)
+    }
+
+    func testAccidentalPublicHTTPFixtureFailsBeforeReachingTheNetwork() async throws {
+        guard !SSLTrustStore.allowsInteractiveTrustPrompts else {
+            return XCTFail("The test host must not allow interactive trust prompts")
+        }
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        let url = try XCTUnwrap(URL(string: "http://\(host):8025/rest/ping.view"))
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await TrustedHTTPTransport.data(from: url, session: session)
+            XCTFail("Unapproved HTTP must fail before opening a socket")
+        } catch let error as TrustedHTTPTransportError {
+            XCTAssertEqual(error, .permissionRequired(host: "http://\(host):8025"))
+        }
+        XCTAssertFalse(SSLTrustStore.shared.isAwaitingTransportDecision)
+    }
+}
+
+@MainActor
+final class SubsonicLegacyCatalogSafetyTests: XCTestCase {
+    func testServerCappedAlbumPagesStillScanTheWholeLibrary() async throws {
+        let (source, session, host) = makeSource(.cappedPages)
+        defer { session.invalidateAndCancel() }
+        var paths: [String] = []
+        for try await scanned in try await source.scanSongs(from: "/") {
+            paths.append(scanned.song.filePath)
+        }
+        XCTAssertEqual(paths, (0..<3).map { "/songs/song-\($0).flac" })
+        XCTAssertEqual(SubsonicLegacyCatalogURLProtocol.offsets(host: host), [0, 2, 3])
+        await source.disconnect()
+    }
+
+    func testServerCappedAlbumPagesStillProduceCompleteListeningStatistics() async throws {
+        let (source, session, host) = makeSource(.cappedPages)
+        defer { session.invalidateAndCancel() }
+        let payload = try await source.fetchServerListeningStats()
+        XCTAssertEqual(payload.tracks.count, 3)
+        XCTAssertEqual(SubsonicLegacyCatalogURLProtocol.offsets(host: host), [0, 2, 3])
+        await source.disconnect()
+    }
+
+    func testRepeatedFullAlbumPageStopsBeforeAnotherRequest() async throws {
+        let (source, session, host) = makeSource(.repeatedFullPage)
+        defer { session.invalidateAndCancel() }
+        do {
+            for try await _ in try await source.scanSongs(from: "/") {}
+            XCTFail("Repeated pages must not complete a catalogue snapshot")
+        } catch let SourceError.connectionFailed(message) {
+            XCTAssertTrue(message.contains("no progress"))
+        }
+        XCTAssertEqual(SubsonicLegacyCatalogURLProtocol.offsets(host: host), [0, 500])
+        await source.disconnect()
+    }
+
+    func testRepeatedShortAlbumPageCannotCompleteScanOrStatistics() async throws {
+        for statistics in [false, true] {
+            let (source, session, host) = makeSource(.repeatedShortPage)
+            defer { session.invalidateAndCancel() }
+            do {
+                if statistics {
+                    _ = try await source.fetchServerListeningStats()
+                } else {
+                    for try await _ in try await source.scanSongs(from: "/") {}
+                }
+                XCTFail("Repeated pages must not publish a complete snapshot")
+            } catch {
+                XCTAssertEqual(SubsonicLegacyCatalogURLProtocol.offsets(host: host), [0, 2])
+            }
+            await source.disconnect()
+        }
+    }
+
+    func testIncompleteAlbumsCannotCompleteScanOrStatistics() async throws {
+        for mode: SubsonicLegacyCatalogURLProtocol.Mode in [
+            .missingSongs, .truncatedSongs, .wrongAlbum, .duplicateSongs, .missingPayload,
+        ] {
+            for statistics in [false, true] {
+                let (source, session, _) = makeSource(mode)
+                defer { session.invalidateAndCancel() }
+                do {
+                    if statistics {
+                        _ = try await source.fetchServerListeningStats()
+                    } else {
+                        for try await _ in try await source.scanSongs(from: "/") {}
+                    }
+                    XCTFail("Invalid album must fail: \(mode), statistics: \(statistics)")
+                } catch let SourceError.connectionFailed(message) {
+                    XCTAssertTrue(message.contains("getAlbum"))
+                }
+                await source.disconnect()
+            }
+        }
+    }
+
+    func testExplicitlyEmptyAlbumsRemainValid() async throws {
+        let (source, session, host) = makeSource(.emptyAlbum)
+        defer { session.invalidateAndCancel() }
+        var count = 0
+        for try await _ in try await source.scanSongs(from: "/") { count += 1 }
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(SubsonicLegacyCatalogURLProtocol.offsets(host: host), [0, 1])
+        await source.disconnect()
+    }
+
+    func testLaterAlbumPageFailureDoesNotCompleteAPartialScan() async throws {
+        let (source, session, host) = makeSource(.laterPageFailure)
+        defer { session.invalidateAndCancel() }
+        var count = 0
+        do {
+            for try await _ in try await source.scanSongs(from: "/") { count += 1 }
+            XCTFail("A failed page must not complete a partial scan")
+        } catch let SourceError.connectionFailed(message) {
+            XCTAssertTrue(message.contains("catalogue unavailable"))
+        }
+        XCTAssertEqual(count, 2)
+        XCTAssertEqual(SubsonicLegacyCatalogURLProtocol.offsets(host: host), [0, 2])
+        await source.disconnect()
+    }
+
+    private func makeSource(_ mode: SubsonicLegacyCatalogURLProtocol.Mode) -> (SubsonicSource, URLSession, String) {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        SubsonicLegacyCatalogURLProtocol.configure(host: host, mode: mode)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [SubsonicLegacyCatalogURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        return (SubsonicSource(
+            sourceID: host, sourceType: .zspace, host: host, port: 8025,
+            useSsl: true, basePath: "/music", username: "qa-user",
+            password: "qa-password", session: session
+        ), session, host)
+    }
+}
+
+private final class SubsonicLegacyCatalogURLProtocol: URLProtocol, @unchecked Sendable {
+    enum Mode {
+        case cappedPages, repeatedFullPage, repeatedShortPage, laterPageFailure
+        case missingSongs, truncatedSongs, wrongAlbum, duplicateSongs, missingPayload, emptyAlbum
+    }
+    private struct State {
+        let mode: Mode
+        var offsets: [Int] = []
+    }
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var states: [String: State] = [:]
+
+    static func configure(host: String, mode: Mode) {
+        lock.lock()
+        defer { lock.unlock() }
+        states[host] = State(mode: mode)
+    }
+
+    static func offsets(host: String) -> [Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        return states[host]?.offsets ?? []
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        guard let url = request.url, let host = url.host,
+              url.path.hasPrefix("/music/rest/") else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let offset = Int(query.first { $0.name == "offset" }?.value ?? "0") ?? 0
+        Self.lock.lock()
+        guard var state = Self.states[host] else {
+            Self.lock.unlock()
+            client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
+            return
+        }
+        if url.lastPathComponent == "getAlbumList2.view" { state.offsets.append(offset) }
+        Self.states[host] = state
+        Self.lock.unlock()
+
+        var payload: [String: Any] = ["status": "ok", "version": "1.16.1"]
+        switch url.lastPathComponent {
+        case "ping.view": break
+        case "getAlbumList2.view":
+            // The request ceiling keeps a broken no-progress loop bounded in
+            // the test; a correct client rejects the second repeated page.
+            if state.offsets.count > 3 || (state.mode == .laterPageFailure && offset > 0) {
+                payload = ["status": "failed", "error": ["code": 0, "message": "catalogue unavailable"]]
+                break
+            }
+            let indices: [Int]
+            switch state.mode {
+            case .cappedPages:
+                indices = Array(min(offset, 3)..<min(offset + 2, 3))
+            case .repeatedFullPage: indices = Array(0..<500)
+            case .repeatedShortPage, .laterPageFailure: indices = [0, 1]
+            default: indices = offset == 0 ? [0] : []
+            }
+            payload["albumList2"] = ["album": indices.map { ["id": "album-\($0)", "name": "纸灯 \($0)"] }]
+        case "getAlbum.view":
+            let id = query.first { $0.name == "id" }?.value ?? ""
+            let songID = id.replacingOccurrences(of: "album-", with: "song-")
+            let song: [String: Any] = [
+                "id": songID, "title": "纸灯", "suffix": "flac", "playCount": 2,
+                "duration": 180, "albumId": id,
+            ]
+            var album: [String: Any] = ["id": id, "songCount": 1, "song": [song]]
+            switch state.mode {
+            case .missingSongs: album.removeValue(forKey: "song")
+            case .truncatedSongs: album["songCount"] = 2
+            case .wrongAlbum: album["id"] = "another-album"
+            case .duplicateSongs: album["songCount"] = 2; album["song"] = [song, song]
+            case .missingPayload: album = [:]
+            case .emptyAlbum, .repeatedFullPage: album = ["id": id, "songCount": 0]
+            default: break
+            }
+            payload["album"] = album
+        default:
+            payload = ["status": "failed", "error": ["code": 0, "message": "Unknown method"]]
+        }
+        let data = try! JSONSerialization.data(withJSONObject: ["subsonic-response": payload])
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
     }
 }
 
@@ -219,6 +555,7 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
         case confirmationMismatch
         case irregularStarred
         case unscannedStarred
+        case legacyCatalogue
     }
 
     private struct State {
@@ -262,10 +599,36 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
         Self.lock.unlock()
 
         switch url.path {
+        case "/rest/getAlbumList2.view":
+            let offset = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .first { $0.name == "offset" }?.value ?? "0"
+            respond(json: offset == "0"
+                ? #"{"subsonic-response":{"status":"ok","albumList2":{"album":[{"id":"album-42","name":"夜航","artist":"微光"}]}}}"#
+                : #"{"subsonic-response":{"status":"ok","albumList2":{}}}"#)
+        case "/rest/getAlbum.view":
+            respond(json: #"{"subsonic-response":{"status":"ok","album":{"id":"album-42","name":"夜航","song":[{"id":"track.a-42","title":"纸灯","album":"夜航","artist":"微光","suffix":"flac","duration":180,"size":100,"coverArt":"cover-42"}]}}}"#)
+        case "/rest/getPlaylists.view":
+            respond(json: #"{"subsonic-response":{"status":"ok","playlists":{"playlist":[{"id":"list-42","name":"夜航歌单","owner":"qa-user","songCount":1}]}}}"#)
+        case "/rest/getPlaylist.view":
+            respond(json: #"{"subsonic-response":{"status":"ok","playlist":{"id":"list-42","name":"夜航歌单","owner":"qa-user","entry":[{"id":"track.a-42","title":"纸灯","suffix":"flac"}]}}}"#)
+        case "/rest/stream.view":
+            let data = Data("fLaC".utf8)
+            let response = HTTPURLResponse(url: url, statusCode: 206, httpVersion: "HTTP/1.1", headerFields: [
+                "Content-Type": "audio/flac", "Content-Range": "bytes 0-3/100", "Content-Length": "4"
+            ])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        case "/rest/getLyricsBySongId.view":
+            respond(json: #"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[{"lang":"zho","synced":true,"line":[{"start":1000,"value":"纸灯照过长街"}]}]}}}"#)
         case "/rest/getInternetRadioStations.view":
             respond(statusCode: 404, json: "{}")
         case "/rest/ping.view":
-            respond(json: #"{"subsonic-response":{"status":"ok","type":"navidrome","openSubsonic":true}}"#)
+            if state.mode == .legacyCatalogue {
+                respond(json: #"{"subsonic-response":{"status":"ok","version":"1.16.1"}}"#)
+            } else {
+                respond(json: #"{"subsonic-response":{"status":"ok","type":"navidrome","openSubsonic":true}}"#)
+            }
         case "/rest/star.view", "/rest/unstar.view":
             handleMutation(host: host, url: url, state: state)
         case "/rest/getStarred2.view" where state.mode == .irregularStarred:
@@ -298,7 +661,7 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
             fail(.timedOut)
         case .offline:
             fail(.notConnectedToInternet)
-        case .success, .confirmationMismatch, .irregularStarred, .unscannedStarred:
+        case .success, .confirmationMismatch, .irregularStarred, .unscannedStarred, .legacyCatalogue:
             if state.mode == .success,
                let itemID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "id" })?.value {
@@ -619,6 +982,30 @@ final class SubsonicServerScanTests: XCTestCase {
         XCTAssertEqual(sizes.filter { $0 != "0" }, ["2000", "2000", "2000"])
     }
 
+    func testZSpacePaginatesWithStandardSubsonicPageSize() async throws {
+        let host = "zspace-paged.invalid"
+        SubsonicServerScanURLProtocol.configure(host: host, mode: .pagedCatalog, serverType: "contract-fixture")
+        let (source, session) = makeSource(host: host, type: .zspace)
+        defer { session.invalidateAndCancel() }
+        _ = try await source.stableSongCatalogRevision()
+        let first = try await source.songCatalogPage(from: "/", offset: 0)
+        let last = try await source.songCatalogPage(from: "/", offset: 500)
+        let end = try await source.songCatalogPage(from: "/", offset: 501)
+        XCTAssertEqual(first.itemIDs.count, 500)
+        XCTAssertEqual(first.nextOffset, 500)
+        XCTAssertEqual(last.itemIDs, ["song-500"])
+        XCTAssertEqual(last.songs.first?.song.filePath, "/songs/song-500.mp3")
+        XCTAssertTrue(end.itemIDs.isEmpty)
+        XCTAssertNil(end.nextOffset)
+        let sizes = SubsonicServerScanURLProtocol.requests(host: host).compactMap { request -> String? in
+            guard request.url?.lastPathComponent == "search3.view" else { return nil }
+            return URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?
+                .first { $0.name == "songCount" }?.value
+        }
+        XCTAssertEqual(sizes.filter { $0 != "0" }, ["500", "500", "500"])
+        await source.disconnect()
+    }
+
     func testPagedCatalogHonorsLegacyCheckpointWidth() async throws {
         let host = "server-paged-resume.invalid"
         SubsonicServerScanURLProtocol.configure(host: host, mode: .pagedCatalog)
@@ -738,14 +1125,14 @@ final class SubsonicServerScanTests: XCTestCase {
         }
     }
 
-    private func makeSource(host: String) -> (SubsonicSource, URLSession) {
+    private func makeSource(host: String, type: MusicSourceType = .navidrome) -> (SubsonicSource, URLSession) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [SubsonicServerScanURLProtocol.self]
         let session = URLSession(configuration: configuration)
         return (
             SubsonicSource(
                 sourceID: host,
-                sourceType: .navidrome,
+                sourceType: type,
                 host: host,
                 port: nil,
                 useSsl: true,
@@ -777,15 +1164,16 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
 
     private struct State {
         var mode: Mode
+        var serverType: String
         var requests: [URLRequest] = []
     }
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var states: [String: State] = [:]
 
-    static func configure(host: String, mode: Mode) {
+    static func configure(host: String, mode: Mode, serverType: String = "navidrome") {
         lock.lock()
-        states[host] = State(mode: mode)
+        states[host] = State(mode: mode, serverType: serverType)
         lock.unlock()
     }
 
@@ -814,7 +1202,7 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
         Self.lock.unlock()
 
         if url.path == "/rest/ping.view" {
-            respond(json: #"{"subsonic-response":{"status":"ok","type":"navidrome","openSubsonic":true}}"#)
+            respond(json: #"{"subsonic-response":{"status":"ok","type":"\#(state.serverType)","openSubsonic":true}}"#)
             return
         }
         if url.path == "/rest/getMusicFolders.view" {

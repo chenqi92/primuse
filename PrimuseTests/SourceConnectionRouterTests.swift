@@ -19,7 +19,7 @@ final class SourceConnectionRouterTests: XCTestCase {
         for format in StreamTranscodeFormat.allCases {
             settings.streamTranscodeFormat = format
             settings.save()
-            for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .plex] {
+            for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic, .zspace, .emby, .jellyfin, .plex] {
                 var source = MusicSource(id: UUID().uuidString, name: "Transcode", type: type, host: "server.invalid")
                 source.useSsl = true
                 let snapshot = source
@@ -33,7 +33,7 @@ final class SourceConnectionRouterTests: XCTestCase {
     }
 
     func testDualAddressSubsonicSourcesRetainAdaptiveTranscoding() throws {
-        for type in [MusicSourceType.navidrome, .subsonic, .airsonic, .gonic] {
+        for type in [MusicSourceType.navidrome, .subsonic, .airsonic, .gonic, .zspace] {
             var source = MusicSource(id: UUID().uuidString, name: "Dual", type: type)
             source.connectionConfiguration = SourceConnectionConfiguration(
                 localEndpoint: .init(host: "lan.invalid", port: 4533, useSsl: false),

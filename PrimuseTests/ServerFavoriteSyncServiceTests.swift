@@ -315,7 +315,7 @@ final class ServerFavoriteSyncServiceTests: XCTestCase {
             service.localLikedStateDidChange(song: song, previous: false, desired: true)
             await service.waitForPendingMutations(sourceID: source.id)
 
-            let shouldWrite = [MusicSourceType.emby, .jellyfin, .plex, .subsonic, .navidrome, .fnMusic, .songloft]
+            let shouldWrite = [MusicSourceType.emby, .jellyfin, .plex, .subsonic, .navidrome, .zspace, .fnMusic, .songloft]
                 .contains(sourceType)
             XCTAssertEqual(manager.setCalls.count, shouldWrite ? 1 : 0, "Unexpected call for \(sourceType)")
             XCTAssertTrue(library.isLiked(songID: song.id))

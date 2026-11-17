@@ -291,7 +291,7 @@ import Testing
 
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
-        .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .daoliyu, .songloft,
+        .upnp, .subsonic, .navidrome, .airsonic, .gonic, .zspace, .fnos, .daoliyu, .songloft,
         .synologyAudioStation, .tingReader,
         // 光鸭开放平台未提供删除已落盘文件的接口。
         .guangya, .appleMusic, .appleMusicLibrary,
@@ -703,7 +703,7 @@ import Testing
     let entireLibraryTypes: Set<MusicSourceType> = [
         .local, .appleMusicLibrary,
         .jellyfin, .emby, .plex,
-        .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
+        .subsonic, .navidrome, .airsonic, .gonic, .zspace, .fnMusic, .daoliyu, .songloft,
         .audiobookshelf, .synologyAudioStation, .tingReader,
     ]
 

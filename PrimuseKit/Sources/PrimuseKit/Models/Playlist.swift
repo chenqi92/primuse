@@ -505,7 +505,7 @@ public enum PlaylistDatabaseMigration {
 public enum PlaylistDescriptionPolicy {
     public static func supportsServerWriteback(_ type: MusicSourceType) -> Bool {
         switch type {
-        case .subsonic, .navidrome, .airsonic, .gonic, .jellyfin, .emby, .plex: true
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace, .jellyfin, .emby, .plex: true
         default: false
         }
     }

@@ -1086,3 +1086,6 @@
 "scraper.rule.error.tooLarge" = "Response too large";
 "scraper.rule.error.invalidPlaylist" = "Unsupported artwork playlist";
 "scraper.rule.error.apiStatus" = "Scraper API error %lld";
+
+"src.displayName.zspace" = "ZSpace";
+"zspace_account_hint" = "Enable Media Library Service in ZMusic settings, then use its address and separate username and password.";

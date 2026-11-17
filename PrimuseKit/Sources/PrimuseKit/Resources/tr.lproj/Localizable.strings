@@ -1035,3 +1035,6 @@
 "scraper.rule.error.tooLarge" = "Yanıt çok büyük";
 "scraper.rule.error.invalidPlaylist" = "Desteklenmeyen kapak çalma listesi";
 "scraper.rule.error.apiStatus" = "Meta veri toplama API hatası: %lld";
+
+"src.displayName.zspace" = "ZSpace";
+"zspace_account_hint" = "ZMusic ayarlarında medya kitaplığı hizmetini etkinleştirin, ardından hizmetin adresini ve ayrı kullanıcı adı ile parolasını kullanın.";

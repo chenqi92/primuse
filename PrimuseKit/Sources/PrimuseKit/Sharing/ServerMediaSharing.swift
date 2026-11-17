@@ -196,7 +196,7 @@ public enum ServerMediaSharingError: Error, Equatable, LocalizedError, Sendable 
 public enum ServerMediaShareTargetPolicy {
     public static func supports(_ sourceType: MusicSourceType) -> Bool {
         switch sourceType {
-        case .subsonic, .navidrome, .airsonic, .gonic:
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace:
             return true
         default:
             return false

@@ -50,13 +50,14 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     case plex
 
     // Server-side music libraries (Subsonic / OpenSubsonic 协议)。
-    // 三个常用实现单列, 方便预填各自默认端口/图标; .subsonic 作通用兜底
+    // 常用实现单列, 方便预填各自默认端口/图标; .subsonic 作通用兜底
     // (Ampache / Funkwhale / LMS / Astiga 等其它兼容服务)。底层共用同一个
     // SubsonicSource connector(按服务端 ping 上报的能力自适应)。
     case subsonic
     case navidrome
     case airsonic
     case gonic
+    case zspace
 
     /// Feiniu Music server catalogue (`trim.music`). This is a music-service
     /// source, kept distinct from the legacy `.fnos` NAS placeholder so synced
@@ -144,6 +145,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .navidrome: return "Navidrome"
         case .airsonic: return "Airsonic"
         case .gonic: return "gonic"
+        case .zspace:
+            return String(localized: "src.displayName.zspace", bundle: Bundle.primuseKit)
         case .s3: return "S3"
         case .baiduPan:
             return String(localized: "src.displayName.baiduPan", bundle: Bundle.primuseKit)
@@ -190,7 +193,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .jellyfin: return "play.rectangle.on.rectangle"
         case .emby: return "play.rectangle.on.rectangle"
         case .plex: return "play.rectangle.on.rectangle"
-        case .subsonic, .navidrome, .airsonic, .gonic: return "server.rack"
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace: return "server.rack"
         case .s3: return "cloud"
         case .baiduPan: return "cloud.fill"
         case .aliyunDrive: return "cloud.fill"
@@ -223,7 +226,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// 共用同一个 SubsonicSource connector。
     public var isSubsonicFamily: Bool {
         switch self {
-        case .subsonic, .navidrome, .airsonic, .gonic: return true
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace: return true
         default: return false
         }
     }
@@ -280,7 +283,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// 没有布尔型收藏，不接。
     public var supportsServerCollectionFavorites: Bool {
         switch self {
-        case .navidrome, .subsonic, .jellyfin, .emby: return true
+        case .navidrome, .subsonic, .zspace, .jellyfin, .emby: return true
         default: return false
         }
     }
@@ -339,7 +342,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// 听书（Ting Reader）、光鸭开放平台、Apple Music。旧的 `.fnos` 占位类型没有连接器。
     public var supportsFileDeletion: Bool {
         switch self {
-        case .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .daoliyu, .songloft,
+        case .upnp, .subsonic, .navidrome, .airsonic, .gonic, .zspace, .fnos, .daoliyu, .songloft,
              .synologyAudioStation, .tingReader, .guangya, .appleMusic, .appleMusicLibrary:
             return false
         default:
@@ -372,7 +375,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// directly instead of a "connect & pick directories" flow.
     public var scansEntireLibrary: Bool {
         switch self {
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .zspace, .fnMusic, .daoliyu, .songloft,
              .audiobookshelf, .synologyAudioStation, .tingReader: return true   // server-side library
         case .local, .appleMusicLibrary: return true // already scoped by basePath / library
         default: return false
@@ -405,7 +408,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .synology, .qnap, .ugreen, .fnos: return .nas
         case .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3: return .protocol
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .zspace, .fnMusic, .daoliyu, .songloft,
              .audiobookshelf, .synologyAudioStation, .tingReader:
             return .mediaServer
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
@@ -440,6 +443,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .navidrome: return 4533
         case .airsonic: return 4040
         case .gonic: return 4747
+        case .zspace: return 8025
         case .s3: return 443
         case .baiduPan: return 0
         case .aliyunDrive: return 0
@@ -508,7 +512,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var supportsAdaptiveConnections: Bool {
         switch self {
         case .synology, .qnap, .ugreen, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
-             .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic,
+             .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .zspace,
              .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader:
             return true
         default:
@@ -522,7 +526,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var supportsEndpointSpecificPath: Bool {
         switch self {
         case .synology, .qnap, .ugreen, .webdav, .jellyfin, .emby, .plex,
-             .subsonic, .navidrome, .airsonic, .gonic,
+             .subsonic, .navidrome, .airsonic, .gonic, .zspace,
              .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader:
             return true
         default:
@@ -557,7 +561,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .synology, .qnap, .ugreen, .fnos, .webdav, .s3,
              .jellyfin, .emby, .plex,
-             .subsonic, .navidrome, .airsonic, .gonic,
+             .subsonic, .navidrome, .airsonic, .gonic, .zspace,
              .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader:
             return true
         default:
@@ -710,6 +714,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .navidrome: return "Navidrome"
         case .airsonic: return "Airsonic / Airsonic-Advanced"
         case .gonic: return "gonic"
+        case .zspace: return "Subsonic"
         case .s3: return "AWS S3 / MinIO / R2"
         case .baiduPan:
             return String(localized: "src.subtitle.baiduPan", bundle: Bundle.primuseKit)

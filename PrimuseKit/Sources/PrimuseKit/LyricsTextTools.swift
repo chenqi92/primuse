@@ -328,7 +328,7 @@ public actor LyricsSourceRefreshCoordinator {
 public enum LyricsAuthoritativeSourcePolicy {
     public static func supportsServerDocument(_ sourceType: MusicSourceType?) -> Bool {
         switch sourceType {
-        case .jellyfin, .emby, .subsonic, .navidrome, .airsonic, .gonic,
+        case .jellyfin, .emby, .subsonic, .navidrome, .airsonic, .gonic, .zspace,
              .fnMusic, .daoliyu, .songloft, .synologyAudioStation:
             true
         default:

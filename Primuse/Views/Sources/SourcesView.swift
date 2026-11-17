@@ -2104,7 +2104,7 @@ struct SourcesContentView: View {
                 usesHTTP = routedSource.effectiveSynologyConnectionMode == .address
             case .qnap, .ugreen, .fnos, .webdav, .s3,
                  .jellyfin, .emby, .plex,
-                 .subsonic, .navidrome, .airsonic, .gonic,
+                 .subsonic, .navidrome, .airsonic, .gonic, .zspace,
                  .daoliyu, .audiobookshelf, .tingReader:
                 usesHTTP = true
             case .fnMusic:

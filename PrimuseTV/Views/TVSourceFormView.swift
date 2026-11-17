@@ -147,7 +147,7 @@ struct TVSourceTypePicker: View {
         case .jellyfin: return "Jellyfin"
         case .emby: return "Emby"
         case .plex: return "Plex"
-        case .subsonic, .navidrome, .airsonic, .gonic: return "Subsonic"
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace: return "Subsonic"
         case .upnp: return "UPnP"
         case .s3: return "S3"
         // 云盘的角标写「云盘」类别,原始枚举名大写(ALIYUNDRIVE)既难读又超宽。
@@ -166,7 +166,7 @@ struct TVSourceTypePicker: View {
         case .sftp: return PMString("ext.tv.sources.hint.sftp")
         case .nfs: return PMString("ext.tv.sources.hint.nfs")
         case .jellyfin, .emby, .plex: return PMString("ext.tv.sources.hint.mediaServer")
-        case .subsonic, .navidrome, .airsonic, .gonic:
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace:
             return PMString("ext.tv.sources.hint.subsonic")
         case .fnMusic: return PMString("ext.tv.sources.hint.fnMusic")
         case .daoliyu: return PMString("ext.tv.sources.hint.daoliyu")
@@ -627,6 +627,11 @@ struct TVSourceFormView: View {
                             text: $password,
                             secure: true
                         )
+                    }
+                    if type == .zspace {
+                        Text(PMString("zspace_account_hint"))
+                            .tvFont(.meta)
+                            .foregroundStyle(TVColor.textFaint)
                     }
                     if type == .fnMusic {
                         Text(PMString("fnmusic_account_hint"))

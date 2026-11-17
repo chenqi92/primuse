@@ -259,7 +259,7 @@ enum LibraryInsightWriteback {
 
     /// 只能读回简介、不能写的 Subsonic 一族。
     static func isSubsonicServer(_ type: MusicSourceType) -> Bool {
-        type == .subsonic || type == .navidrome || type == .airsonic || type == .gonic
+        type.isSubsonicFamily
     }
 
     /// 只看真的文件:流地址与 CUE 分轨的虚拟路径不算。

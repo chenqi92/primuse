@@ -8,7 +8,7 @@ import ImageIO
 
 final class SubsonicRatingTests: XCTestCase {
     func testAdaptiveStreamURLsPreserveFormatAndBitrateOverHTTPAndHTTPS() async throws {
-        for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic] {
+        for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic, .zspace] {
             for useSSL in [false, true] {
                 let (source, session) = makeSource(RatingHTTPFixture(), useSSL: useSSL, type: type)
                 defer { session.invalidateAndCancel() }
@@ -904,7 +904,7 @@ final class ServerPlaylistDescriptionTests: XCTestCase {
     }
 
     func testSubsonicFamilyImportsUpdatesAndClearsOnlyComment() async throws {
-        for type: MusicSourceType in [.navidrome, .subsonic, .airsonic, .gonic] {
+        for type: MusicSourceType in [.navidrome, .subsonic, .airsonic, .gonic, .zspace] {
             let fixture = PlaylistDescriptionHTTPFixture()
             let (source, session) = makeSource(fixture, type: type)
             defer { session.invalidateAndCancel() }

@@ -1807,6 +1807,7 @@ final class AllSourcePlaylistPendingTests: XCTestCase {
     func testSubsonicPlaylistPendingLifecycle() async throws { try await subsonic(.subsonic) }
     func testAirsonicPlaylistPendingLifecycle() async throws { try await subsonic(.airsonic) }
     func testGonicPlaylistPendingLifecycle() async throws { try await subsonic(.gonic) }
+    func testZSpacePlaylistPendingLifecycle() async throws { try await subsonic(.zspace) }
     func testJellyfinPlaylistPendingLifecycle() async throws { try await media(.jellyfin, type: .jellyfin) }
     func testEmbyPlaylistPendingLifecycle() async throws { try await media(.emby, type: .emby) }
     func testPlexPlaylistPendingLifecycle() async throws { try await media(.plex, type: .plex) }

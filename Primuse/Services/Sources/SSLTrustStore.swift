@@ -230,6 +230,18 @@ final class SSLTrustStore {
 
     private static let defaultDomains: [String] = []
 
+    static var allowsInteractiveTrustPrompts: Bool {
+        #if DEBUG
+        // Hosted unit tests must fail closed instead of asking the person
+        // using the Mac to authorize a synthetic endpoint.
+        return NSClassFromString("XCTestCase") == nil
+            && ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+            && ProcessInfo.processInfo.environment["XCTestBundlePath"] == nil
+        #else
+        return true
+        #endif
+    }
+
     private init() {
         loadFromDefaults()
         seedDefaultsIfNeeded()
@@ -355,6 +367,7 @@ final class SSLTrustStore {
     func requestInsecureHTTPTrust(domain: String) async -> Bool {
         guard let normalized = Self.normalizeHTTPTrustTarget(domain) else { return false }
         if allowsInsecureHTTP(domain: normalized) { return true }
+        guard Self.allowsInteractiveTrustPrompts else { return false }
 
         let waiterID = UUID()
         return await withTaskCancellationHandler {
@@ -544,6 +557,7 @@ final class SSLTrustStore {
         previousCertificateInfo: TrustedCertificateInfo?,
         reason: CertificateTrustReason
     ) async -> Bool {
+        guard Self.allowsInteractiveTrustPrompts else { return false }
         let waiterID = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in

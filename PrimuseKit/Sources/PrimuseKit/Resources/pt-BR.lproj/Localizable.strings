@@ -1035,3 +1035,6 @@
 "scraper.rule.error.tooLarge" = "Resposta muito grande";
 "scraper.rule.error.invalidPlaylist" = "Lista de reprodução de capas não compatível";
 "scraper.rule.error.apiStatus" = "Erro da API de coleta %lld";
+
+"src.displayName.zspace" = "ZSpace";
+"zspace_account_hint" = "Ative o serviço de biblioteca de mídia nas configurações do ZMusic e use o endereço, o nome de usuário e a senha próprios do serviço.";

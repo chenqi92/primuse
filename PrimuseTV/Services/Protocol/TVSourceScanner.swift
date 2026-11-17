@@ -720,7 +720,7 @@ enum TVServerCatalogConnectorFactory {
                 alternateTLSValidationHostname: source.alternateTLSValidationHostname,
                 excludedLibraryIDs: Set(source.excludedServerLibraryIDs)
             )
-        case .subsonic, .navidrome, .airsonic, .gonic:
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace:
             return SubsonicSource(
                 sourceID: source.id,
                 sourceType: source.type,
@@ -1223,7 +1223,7 @@ final class TVSourceScanner {
     static let serverCatalogTypes: Set<MusicSourceType> = [
         .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
         .jellyfin, .emby, .plex,
-        .subsonic, .navidrome, .airsonic, .gonic,
+        .subsonic, .navidrome, .airsonic, .gonic, .zspace,
     ]
 
     private static let daoLiYuPageSize = 100
@@ -1334,7 +1334,7 @@ final class TVSourceScanner {
             return TVWebDAVDirectoryLister(source: source, credential: credential)
         case .ftp:
             return TVFTPLister(source: source, credential: credential)
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .zspace:
             return TVServerCatalogLister(source: source, credential: credential)
         case .nfs:
             return TVNFSLister(source: source)
@@ -1589,8 +1589,7 @@ final class TVSourceScanner {
                         onSong: accept
                     )
                 }
-            } else if source.type == .subsonic || source.type == .navidrome
-                || source.type == .airsonic || source.type == .gonic {
+            } else if source.type.isSubsonicFamily {
                 _ = try await withRoutedSource(source) { routedSource in
                     try await self.scanSubsonic(
                         source: routedSource,
@@ -2438,7 +2437,7 @@ final class TVSourceScanner {
     /// 道理鱼与群晖一样直接用 Kit 客户端,镜像规则和 iPhone、Mac 是同一份。
     static let serverPlaylistTypes: Set<MusicSourceType> = [
         .jellyfin, .emby, .plex,
-        .subsonic, .navidrome, .airsonic, .gonic,
+        .subsonic, .navidrome, .airsonic, .gonic, .zspace,
         .songloft, .synologyAudioStation, .daoliyu,
     ]
 

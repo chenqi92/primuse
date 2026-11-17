@@ -1088,3 +1088,6 @@
 "scraper.rule.error.tooLarge" = "Antwort zu groß";
 "scraper.rule.error.invalidPlaylist" = "Nicht unterstützte Cover-Wiedergabeliste";
 "scraper.rule.error.apiStatus" = "Scraper-API-Fehler %lld";
+
+"src.displayName.zspace" = "ZSpace";
+"zspace_account_hint" = "Aktiviere den Medienbibliotheksdienst in den ZMusic-Einstellungen und verwende dessen Adresse sowie den separaten Benutzernamen und das Passwort.";

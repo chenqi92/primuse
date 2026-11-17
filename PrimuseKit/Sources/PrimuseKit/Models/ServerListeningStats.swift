@@ -14,7 +14,7 @@ public enum ServerListeningStatsCapability: String, Codable, Equatable, Sendable
 public extension MusicSourceType {
     var serverListeningStatsCapability: ServerListeningStatsCapability {
         switch self {
-        case .airsonic, .gonic,
+        case .airsonic, .gonic, .zspace,
              .jellyfin, .emby:
             return .aggregate
         case .subsonic, .navidrome, .plex:

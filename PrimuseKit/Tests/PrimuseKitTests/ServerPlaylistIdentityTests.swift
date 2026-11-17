@@ -153,11 +153,12 @@ struct ServerFavoriteWritebackPolicyTests {
         #expect(ServerFavoriteWritebackPolicy.supports(.plex))
         #expect(ServerFavoriteWritebackPolicy.supports(.navidrome))
         #expect(ServerFavoriteWritebackPolicy.supports(.subsonic))
+        #expect(ServerFavoriteWritebackPolicy.supports(.zspace))
         #expect(ServerFavoriteWritebackPolicy.supports(.songloft))
         #expect(ServerFavoriteWritebackPolicy.supports(.fnMusic))
 
         let supported: Set<MusicSourceType> = [
-            .emby, .jellyfin, .plex, .navidrome, .subsonic, .songloft, .fnMusic,
+            .emby, .jellyfin, .plex, .navidrome, .subsonic, .zspace, .songloft, .fnMusic,
         ]
         for sourceType in MusicSourceType.allCases where !supported.contains(sourceType) {
             #expect(!ServerFavoriteWritebackPolicy.supports(sourceType))

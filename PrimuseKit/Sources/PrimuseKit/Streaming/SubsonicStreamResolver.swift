@@ -119,7 +119,7 @@ public actor SubsonicStreamResolver: StreamResolver {
         let token = Self.md5Hex(password + salt)
         let apiVersion = source.type == .airsonic ? Self.airsonicAPIVersion : Self.apiVersion
         let usesEncodedPassword: Bool
-        if source.type == .subsonic {
+        if source.type == .subsonic || source.type == .zspace {
             usesEncodedPassword = try await negotiatedAuthentication(
                 sourceID: source.id, base: base, username: username, password: password
             )

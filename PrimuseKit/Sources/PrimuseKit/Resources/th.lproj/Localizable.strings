@@ -1035,3 +1035,6 @@
 "scraper.rule.error.tooLarge" = "การตอบกลับมีขนาดใหญ่เกินไป";
 "scraper.rule.error.invalidPlaylist" = "ไม่รองรับเพลย์ลิสต์ภาพปกนี้";
 "scraper.rule.error.apiStatus" = "ข้อผิดพลาด API ดึงข้อมูลเมตา %lld";
+
+"src.displayName.zspace" = "ZSpace";
+"zspace_account_hint" = "เปิดบริการคลังสื่อในการตั้งค่า ZMusic แล้วใช้ที่อยู่และชื่อผู้ใช้กับรหัสผ่านแยกต่างหากของบริการนั้น";

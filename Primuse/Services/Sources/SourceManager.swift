@@ -3999,7 +3999,7 @@ final class SourceManager {
                 routedPreferredDeleteBatchSize: preferredDeleteBatchSize,
                 serverLyricsCapabilities: mediaServerLyricsCapabilities
             )
-        case .subsonic, .navidrome, .airsonic, .gonic:
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace:
             connector = RoutedSubsonicConnector(
                 sourceID: source.id,
                 routing: routing,
@@ -4165,7 +4165,7 @@ final class SourceManager {
                     excludedLibraryIDs: Set(source.excludedServerLibraryIDs)
                 )
             }
-        case .subsonic, .navidrome, .airsonic, .gonic:
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace:
             connector = credentialProtectedConnector(for: source) { password in
                 SubsonicSource(
                     sourceID: source.id,

@@ -94,8 +94,9 @@ import Testing
     #expect(pingQuery["t"] == SubsonicStreamResolver.md5Hex("p" + (pingQuery["s"] ?? "")))
 }
 
-@Test func subsonicStreamFallsBackOnlyAfterTokenUnsupported() async throws {
-    let host = "legacy-subsonic-stream.example.com"
+@Test(arguments: [MusicSourceType.subsonic, .zspace])
+func subsonicStreamFallsBackOnlyAfterTokenUnsupported(type: MusicSourceType) async throws {
+    let host = "legacy-\(type.rawValue)-stream.example.com"
     let session = subsonicLyricsTestSession(host: host) { request in
         let query = subsonicTestQuery(request.url!)
         if query["p"] == nil {
@@ -104,7 +105,7 @@ import Testing
         return (200, Data(#"{"subsonic-response":{"status":"ok"}}"#.utf8))
     }
     defer { SubsonicLyricsURLProtocol.reset(host: host) }
-    let source = MusicSource(name: "Legacy", type: .subsonic, host: host, useSsl: true, username: "u")
+    let source = MusicSource(name: "Legacy", type: type, host: host, useSsl: true, username: "u")
     let song = Song(id: "s", title: "Track", fileFormat: .flac, filePath: "/songs/track.flac", sourceID: source.id)
     let resolver = SubsonicStreamResolver(session: session)
     let credential = SourceCredential(password: "测试+&口令")
@@ -127,16 +128,16 @@ import Testing
     #expect(SubsonicLyricsURLProtocol.requests(host: host).count == 2)
 }
 
-@Test(arguments: [40, 50, 0, 401, 403, -1])
-func subsonicStreamDoesNotDowngradeOnOtherFailures(code: Int) async throws {
-    let host = "failed-subsonic-\(code).example.com"
+@Test(arguments: [40, 50, 0, 401, 403, -1], [MusicSourceType.subsonic, .zspace])
+func subsonicStreamDoesNotDowngradeOnOtherFailures(code: Int, type: MusicSourceType) async throws {
+    let host = "failed-\(type.rawValue)-\(code).example.com"
     let session = subsonicLyricsTestSession(host: host) { _ in
         if code == -1 { return (200, Data("invalid response".utf8)) }
         if code >= 400 { return (code, Data()) }
         return (200, Data("{\"subsonic-response\":{\"status\":\"failed\",\"error\":{\"code\":\(code)}}}".utf8))
     }
     defer { SubsonicLyricsURLProtocol.reset(host: host) }
-    let source = MusicSource(name: "Failure", type: .subsonic, host: host, useSsl: true, username: "u")
+    let source = MusicSource(name: "Failure", type: type, host: host, useSsl: true, username: "u")
     let song = Song(id: "s", title: "Track", fileFormat: .flac, filePath: "/songs/track.flac", sourceID: source.id)
     let resolver = SubsonicStreamResolver(session: session)
     for _ in 0..<2 {
@@ -149,8 +150,9 @@ func subsonicStreamDoesNotDowngradeOnOtherFailures(code: Int) async throws {
     #expect(requests.allSatisfy { subsonicTestQuery($0.url!)["p"] == nil })
 }
 
-@Test func subsonicStreamRechecksAuthenticationWhenSourceChanges() async throws {
-    let host = "changed-subsonic-stream.example.com"
+@Test(arguments: [MusicSourceType.subsonic, .zspace])
+func subsonicStreamRechecksAuthenticationWhenSourceChanges(type: MusicSourceType) async throws {
+    let host = "changed-\(type.rawValue)-stream.example.com"
     let session = subsonicLyricsTestSession(host: host) { request in
         if request.url!.path.hasPrefix("/legacy/"), subsonicTestQuery(request.url!)["p"] == nil {
             return (200, Data(#"{"subsonic-response":{"status":"failed","error":{"code":41}}}"#.utf8))
@@ -158,7 +160,7 @@ func subsonicStreamDoesNotDowngradeOnOtherFailures(code: Int) async throws {
         return (200, Data(#"{"subsonic-response":{"status":"ok"}}"#.utf8))
     }
     defer { SubsonicLyricsURLProtocol.reset(host: host) }
-    var source = MusicSource(name: "Changed", type: .subsonic, host: host, useSsl: true, username: "u", basePath: "/legacy")
+    var source = MusicSource(name: "Changed", type: type, host: host, useSsl: true, username: "u", basePath: "/legacy")
     let song = Song(id: "s", title: "Track", fileFormat: .flac, filePath: "/songs/track.flac", sourceID: source.id)
     let resolver = SubsonicStreamResolver(session: session)
     let legacy = try await resolver.streamURL(for: song, source: source, credential: SourceCredential(password: "p"))
@@ -252,7 +254,7 @@ func subsonicStreamInvalidationCancelsAuthenticationInProgress() async throws {
     }
 }
 
-@Test(arguments: [MusicSourceType.navidrome, .subsonic])
+@Test(arguments: [MusicSourceType.navidrome, .subsonic, .zspace])
 func subsonicLyricsClientLoadsOpenSubsonicLyrics(sourceType: MusicSourceType) async throws {
     let host = "\(sourceType.rawValue)-lyrics.example.com"
     let session = subsonicLyricsTestSession(host: host) { request in
@@ -378,7 +380,7 @@ func subsonicLyricsClientDoesNotRestartHTTPBudgetForBasicLyrics(status: Int) asy
     #expect(SubsonicLyricsURLProtocol.requests(host: host).filter { $0.url?.lastPathComponent == "getLyricsBySongId.view" }.count == (status == 500 ? 3 : 1))
 }
 
-@Test(arguments: [MusicSourceType.navidrome, .subsonic])
+@Test(arguments: [MusicSourceType.navidrome, .subsonic, .zspace])
 func subsonicLyricsClientRetriesCompatibleAuthenticationAndBasicLyrics(sourceType: MusicSourceType) async throws {
     let host = "\(sourceType.rawValue)-fallback-lyrics.example.com"
     let session = subsonicLyricsTestSession(host: host) { request in

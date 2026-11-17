@@ -1819,7 +1819,7 @@ public enum ServerPlaylistWritebackPolicy {
 
     public static func supports(_ sourceType: MusicSourceType) -> Bool {
         switch sourceType {
-        case .subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .plex, .songloft, .synologyAudioStation, .fnMusic,
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace, .emby, .jellyfin, .plex, .songloft, .synologyAudioStation, .fnMusic,
              .daoliyu:
             return true
         default:
@@ -1834,7 +1834,7 @@ public enum ServerPlaylistWritebackPolicy {
     /// into a playlist that already exists on the server.
     public static func supportsCreating(_ sourceType: MusicSourceType) -> Bool {
         switch sourceType {
-        case .subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .synologyAudioStation:
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace, .emby, .jellyfin, .synologyAudioStation:
             return true
         default:
             return false
@@ -1889,7 +1889,7 @@ public enum ServerPlaylistWritebackPolicy {
 public enum ServerFavoriteWritebackPolicy {
     public static func supports(_ sourceType: MusicSourceType) -> Bool {
         switch sourceType {
-        case .emby, .jellyfin, .plex, .navidrome, .subsonic, .songloft, .fnMusic:
+        case .emby, .jellyfin, .plex, .navidrome, .subsonic, .zspace, .songloft, .fnMusic:
             return true
         default:
             return false
@@ -1911,7 +1911,7 @@ public enum ServerFavoriteWritebackPolicy {
             // 三者的曲目路径都是 /items/<id>.<ext>(见 MediaServerSource 的条目构造);
             // Plex 的 <id> 就是 ratingKey,评分端点认的也是它。
             directory = "items"
-        case .navidrome, .subsonic:
+        case .navidrome, .subsonic, .zspace:
             directory = "songs"
         default:
             return nil

@@ -497,6 +497,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                         if albums.isEmpty { break }
 
                         let newAlbums = albums.filter { seenAlbumIDs.insert($0.id).inserted }
+                        guard !newAlbums.isEmpty else {
+                            throw SourceError.connectionFailed("Subsonic album pagination made no progress")
+                        }
                         if newAlbums.count != albums.count {
                             // An album added ahead of the cursor pushed one
                             // already read into this page.
@@ -542,7 +545,6 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                         }
 
                         offset += albums.count
-                        if albums.count < Self.pageSize { break }
                     }
                     continuation.finish()
                 } catch {
@@ -830,7 +832,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             let albums = albumList.album ?? []
             if albums.isEmpty { break }
             let newAlbums = albums.filter { seenAlbumIDs.insert($0.id).inserted }
-            if albums.count >= Self.pageSize, newAlbums.isEmpty {
+            if newAlbums.count != albums.count {
                 throw ServerListeningStatsConnectorError.historyChangedDuringPagination
             }
             guard SubsonicCatalogPagingPolicy.isWithinAlbumLimit(seenAlbumIDs.count) else {
@@ -852,7 +854,6 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 try onPage(pageSongs)
             }
             offset += albums.count
-            if albums.count < Self.pageSize { break }
         }
     }
 
@@ -944,7 +945,19 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         guard let albumWithSongs = container.album else {
             throw SourceError.connectionFailed("Subsonic getAlbum response is missing album")
         }
-        return LegacyAlbumResult(index: index, album: album, songs: albumWithSongs.song ?? [])
+        if let returnedID = albumWithSongs.id, returnedID != album.id {
+            throw SourceError.connectionFailed("Subsonic getAlbum returned a different album")
+        }
+        // A partial album must not complete a scan and authorize removal of
+        // the missing songs. An omitted song array is valid only for an
+        // explicitly empty album.
+        guard let songs = albumWithSongs.song ?? (albumWithSongs.songCount == 0 ? [] : nil),
+              songs.allSatisfy({ !$0.id.isEmpty }),
+              Set(songs.map(\.id)).count == songs.count,
+              albumWithSongs.songCount.map({ $0 == songs.count }) ?? true else {
+            throw SourceError.connectionFailed("Subsonic getAlbum returned an incomplete song list")
+        }
+        return LegacyAlbumResult(index: index, album: album, songs: songs)
     }
 
     /// `toleratesDriftOnLastAttempt` lets a scan finish on a server that keeps
@@ -3363,6 +3376,8 @@ private struct ArtistContainer: SubsonicResponseContainer {
 }
 
 private struct AlbumWithSongs: Decodable, Sendable {
+    let id: String?
+    let songCount: Int?
     let song: [SubsonicChild]?
     let artistId: String?
     let isCompilation: Bool?

@@ -259,12 +259,12 @@ struct ServerMediaSharingTests {
     @Test("Only Subsonic-family sources can enter the sharing flow")
     func enforcesSourceBoundary() {
         for sourceType in [
-            MusicSourceType.subsonic, .navidrome, .airsonic, .gonic,
+            MusicSourceType.subsonic, .navidrome, .airsonic, .gonic, .zspace,
         ] {
             #expect(ServerMediaShareTargetPolicy.supports(sourceType))
         }
         for sourceType in MusicSourceType.allCases where ![
-            .subsonic, .navidrome, .airsonic, .gonic,
+            .subsonic, .navidrome, .airsonic, .gonic, .zspace,
         ].contains(sourceType) {
             #expect(!ServerMediaShareTargetPolicy.supports(sourceType))
         }

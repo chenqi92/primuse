@@ -107,7 +107,7 @@ public enum SourceServiceFingerprint {
             return ProbeRequest(path: "/System/Info/Public")
         case .plex:
             return ProbeRequest(path: "/identity")
-        case .subsonic, .navidrome, .airsonic, .gonic:
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace:
             return ProbeRequest(
                 path: "/rest/ping.view",
                 queryItems: [
@@ -164,7 +164,7 @@ public enum SourceServiceFingerprint {
     public static func canConfirmIdentity(of sourceType: MusicSourceType) -> Bool {
         guard probeRequest(for: sourceType) != nil else { return false }
         switch sourceType {
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic,
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .zspace,
              .synology, .synologyAudioStation, .webdav, .audiobookshelf, .tingReader:
             return true
         default:
@@ -195,7 +195,7 @@ public enum SourceServiceFingerprint {
             if response.statusCode == 200, body.contains("machineIdentifier") {
                 return .confirmed
             }
-        case .subsonic, .navidrome, .airsonic, .gonic:
+        case .subsonic, .navidrome, .airsonic, .gonic, .zspace:
             // 不带凭据时 status 一定是 failed(实测 demo.navidrome.org 回
             // {"subsonic-response":{"status":"failed",…,"error":{"code":10,
             // "message":"missing parameter: 'u'"}}}),但信封在就说明对方讲

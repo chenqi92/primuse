@@ -1467,6 +1467,7 @@ extension MusicSourceType {
         case .navidrome: sourceBrandColor(0x0097A7)
         case .airsonic: sourceBrandColor(0xC2185B)
         case .gonic: sourceBrandColor(0x6D4C41)
+        case .zspace: sourceBrandColor(0x2467C9)
         case .fnMusic: sourceBrandColor(0xF4511E)
         case .daoliyu: sourceBrandColor(0x8E24AA)
         case .songloft: sourceBrandColor(0x7E7E1C)

@@ -270,7 +270,7 @@ extension MusicSourceType {
         switch self {
         case .upnp,
              .jellyfin, .emby, .plex,
-             .subsonic, .navidrome, .airsonic, .gonic,
+             .subsonic, .navidrome, .airsonic, .gonic, .zspace,
              .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
              .aliyunDrive, .googleDrive, .oneDrive,
              .drime, .pan115, .pan123, .guangya, .pcloud,

@@ -1085,3 +1085,6 @@
 "scraper.rule.error.tooLarge" = "回應資料過大";
 "scraper.rule.error.invalidPlaylist" = "不支援此封面播放列表";
 "scraper.rule.error.apiStatus" = "刮削介面錯誤 %lld";
+
+"src.displayName.zspace" = "極空間";
+"zspace_account_hint" = "在極音樂設定中開啟「媒體庫服務」，使用該服務的位址及獨立帳號密碼。";

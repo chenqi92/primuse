@@ -70,7 +70,7 @@ public actor StreamResolverRegistry {
         let daoLiYu = DaoLiYuStreamResolver()
         let ugreen = UgreenStreamResolver()
         var map: [MusicSourceType: StreamResolver] = [:]
-        for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic] {
+        for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic, .zspace] {
             map[type] = subsonic
         }
         map[.synology] = synology
@@ -413,7 +413,7 @@ public actor StreamResolverRegistry {
         switch type {
         case .synology, .qnap, .ugreen, .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation,
              .tingReader, .webdav, .s3, .jellyfin, .emby, .plex,
-             .subsonic, .navidrome, .airsonic, .gonic:
+             .subsonic, .navidrome, .airsonic, .gonic, .zspace:
             return true
         default:
             return false

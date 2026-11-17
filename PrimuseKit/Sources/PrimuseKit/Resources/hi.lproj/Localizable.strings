@@ -1035,3 +1035,6 @@
 "scraper.rule.error.tooLarge" = "प्रतिक्रिया बहुत बड़ी है";
 "scraper.rule.error.invalidPlaylist" = "कवर की प्लेलिस्ट समर्थित नहीं है";
 "scraper.rule.error.apiStatus" = "मेटाडेटा प्राप्त करने वाले API में त्रुटि: %lld";
+
+"src.displayName.zspace" = "ZSpace";
+"zspace_account_hint" = "ZMusic सेटिंग में मीडिया लाइब्रेरी सेवा चालू करें, फिर उसके पते और अलग उपयोगकर्ता नाम व पासवर्ड का इस्तेमाल करें।";

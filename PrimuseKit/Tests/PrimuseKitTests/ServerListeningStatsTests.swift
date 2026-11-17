@@ -4,7 +4,7 @@ import Testing
 
 struct ServerListeningStatsTests {
     @Test func capabilityMatrixOnlyEnablesSourcesWithReliableReadEndpoints() {
-        for type in [MusicSourceType.airsonic, .gonic, .jellyfin, .emby] {
+        for type in [MusicSourceType.airsonic, .gonic, .zspace, .jellyfin, .emby] {
             #expect(type.serverListeningStatsCapability == .aggregate)
         }
         for type in [MusicSourceType.subsonic, .navidrome, .plex] {
@@ -12,7 +12,7 @@ struct ServerListeningStatsTests {
         }
 
         for type in MusicSourceType.allCases where ![
-            .subsonic, .navidrome, .airsonic, .gonic, .jellyfin, .emby, .plex,
+            .subsonic, .navidrome, .airsonic, .gonic, .zspace, .jellyfin, .emby, .plex,
         ].contains(type) {
             #expect(type.serverListeningStatsCapability == .unavailable)
         }

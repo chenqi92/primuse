@@ -230,7 +230,7 @@ struct YearlyReportData: Sendable, Identifiable {
                     self = .device
                 case .synology, .qnap, .ugreen, .fnos, .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
                      .audiobookshelf, .tingReader, .smb, .webdav, .ftp, .sftp, .nfs, .upnp,
-                     .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
+                     .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .zspace:
                     self = .server
                 case .baiduPan, .aliyunDrive, .oneDrive, .dropbox, .googleDrive, .drime, .pan115, .pan123,
                      .guangya, .pcloud, .infiniCloud, .s3, .appleMusic:

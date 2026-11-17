@@ -617,6 +617,9 @@ struct AddSourceView: View {
                     }
                 }
 
+                if sourceType == .zspace {
+                    macInfoRow(LocalizedStringKey(PMString("zspace_account_hint")))
+                }
                 if sourceType == .fnMusic {
                     macInfoRow("fnmusic_account_hint")
                     // 访问码只在地址被认成 FN ID 时才有意义 —— 不再靠分段选择器。
@@ -703,7 +706,7 @@ struct AddSourceView: View {
                     macTextRow("base_path_hint", text: $basePath, focus: .basePath)
                 }
             }
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .zspace:
             EmptyView()
         case .ftp:
             macSection("ftp_config") {
@@ -1291,6 +1294,11 @@ struct AddSourceView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if sourceType == .zspace {
+                    Text(PMString("zspace_account_hint"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if sourceType == .fnMusic {
                     Text("fnmusic_account_hint")
                         .font(.caption)
@@ -1450,7 +1458,7 @@ struct AddSourceView: View {
                         .onSubmit { focusedField = .username }
                 }
             }
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .zspace:
             EmptyView()
         case .ftp:
             Section("ftp_config") {

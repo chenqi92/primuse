@@ -185,7 +185,7 @@ enum TVSourceLocalLibraryPolicy {
     static let directScanTypes: Set<MusicSourceType> = [
         .smb, .synology, .qnap, .ugreen, .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
         .jellyfin, .emby, .plex,
-        .subsonic, .navidrome, .airsonic, .gonic,
+        .subsonic, .navidrome, .airsonic, .gonic, .zspace,
         .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
         .oneDrive, .dropbox, .aliyunDrive, .googleDrive,
         .baiduPan, .pan115, .pan123, .drime, .guangya, .pcloud, .infiniCloud,
@@ -2637,7 +2637,7 @@ final class TVStore {
     /// 用「服务端账号 + 密码」登录、且能在 TV 直连的源类型 —— 适合在 TV 上手动输入凭据。
     /// 云盘(OAuth)、relay 类(凭据在 iPhone 侧)、原生库源不在此列。
     private static let manualCredentialTypes: Set<MusicSourceType> = [
-        .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft, .audiobookshelf, .tingReader,
+        .subsonic, .navidrome, .airsonic, .gonic, .zspace, .fnMusic, .daoliyu, .songloft, .audiobookshelf, .tingReader,
         .synology, .synologyAudioStation, .qnap, .ugreen,
         .jellyfin, .emby, .plex,
     ]
@@ -4857,7 +4857,7 @@ final class TVStore {
         .smb, .synology, .qnap, .ugreen,
         .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
         .jellyfin, .emby, .plex,
-        .subsonic, .navidrome, .airsonic, .gonic,
+        .subsonic, .navidrome, .airsonic, .gonic, .zspace,
         .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
         .aliyunDrive, .baiduPan, .oneDrive, .dropbox,
         .googleDrive, .pan115, .pan123, .drime, .guangya, .pcloud, .infiniCloud,
