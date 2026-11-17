@@ -355,20 +355,20 @@ struct WatchNowPlayingBackdrop: View {
         // ZStack 当底, 容器背景只铺到底部安全区上沿, 下面露出一截黑边。
         Color.black
             .overlay {
-                if let cover, !isLuminanceReduced {
+                if let cover {
                     Image(uiImage: cover)
                         .resizable()
                         .scaledToFill()
                         .blur(radius: 26, opaque: true)
                         .saturation(1.2)
-                        .opacity(0.7)
+                        .opacity(isLuminanceReduced ? 0.3 : 0.7)
                 }
             }
             .overlay {
                 LinearGradient(
                     colors: [
-                        accent.opacity(cover == nil || isLuminanceReduced ? 0.45 : 0.2),
-                        .black.opacity(isLuminanceReduced ? 0.78 : 0.6),
+                        accent.opacity(cover == nil ? 0.5 : 0.2),
+                        .black.opacity(0.6),
                     ],
                     startPoint: .top,
                     endPoint: .bottom

@@ -1100,6 +1100,9 @@ private enum CoverPlayerBleed {
 }
 
 private enum CoverPlayerBleedMetrics {
+    /// 铺满样式 App 写的是 600 像素封面(见 `AudioPlayerService.updatePlaybackState`), 按原尺寸读, 贴边铺满才不糊。
+    static let coverPixelSize = 600
+
     /// 中号比整高略宽, 右栏的字照卡片样式的位置排, 正好压在渐隐的尾巴上。
     static func leadingWidth(in size: CGSize) -> CGFloat {
         min(size.height * 1.15, size.width * 0.6)
@@ -1168,7 +1171,8 @@ private struct CoverPlayerBackdrop: View {
                     WidgetDesign.canvasBase
                     if let coverImageName, !coverImageName.isEmpty {
                         if bleed == .whole {
-                            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0, outlined: false)
+                            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0, outlined: false,
+                                                 maxPixelSize: CoverPlayerBleedMetrics.coverPixelSize)
                                 .frame(width: size.width, height: size.height)
                             // 整块就是封面: 下半截压暗, 字和按钮压在上面。
                             LinearGradient(
@@ -1221,7 +1225,8 @@ private struct CoverPlayerBackdrop: View {
     private func sharpBleed(_ coverImageName: String, in size: CGSize) -> some View {
         switch bleed {
         case .leading:
-            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0, outlined: false)
+            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0, outlined: false,
+                                 maxPixelSize: CoverPlayerBleedMetrics.coverPixelSize)
                 .frame(width: CoverPlayerBleedMetrics.leadingWidth(in: size), height: size.height)
                 .clipped()
                 .mask {
@@ -1234,7 +1239,8 @@ private struct CoverPlayerBackdrop: View {
         case .top:
             let height = CoverPlayerBleedMetrics.topHeight(in: size)
             // 方封面按整宽画、贴着顶边, 多出来的下半截落在渐隐段里裁掉。
-            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0, outlined: false)
+            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0, outlined: false,
+                                 maxPixelSize: CoverPlayerBleedMetrics.coverPixelSize)
                 .frame(width: size.width, height: max(size.width, height))
                 .frame(width: size.width, height: height, alignment: .top)
                 .clipped()

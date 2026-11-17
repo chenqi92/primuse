@@ -126,6 +126,10 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     private var phoneQueueTotal = 0
     private var phoneQueueTruncated = false
     private var tickerTask: Task<Void, Never>?
+    /// 正在跑的那个计时任务的间隔(纳秒)。前台↔落腕常亮切换时按新间隔重排。
+    @ObservationIgnored private var tickerTaskInterval: UInt64?
+    /// 落腕常亮: 场景 inactive 但表盘上还亮着这一页。
+    @ObservationIgnored private var isSceneDimmed = false
     private var lastOfflineCoverIdentity: ObjectIdentifier?
     private var hasDeliveredInitialOfflineCover = false
 
@@ -164,18 +168,27 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         refreshTicker()
     }
 
-    private var shouldRunTicker: Bool {
+    /// 抬腕在前台每 100ms 外推一次; 落腕常亮时每秒一次, 进度圈和离线歌词照常走(系统常亮本来
+    /// 就按秒刷新); 退到后台、暂停、加载中或没歌时停。
+    private var desiredTickerInterval: UInt64? {
         let uiActive: Bool
         #if DEBUG
         uiActive = connectionPresentation.isActive || isDemo
         #else
         uiActive = connectionPresentation.isActive
         #endif
-        guard uiActive else { return false }
-        if isOfflinePlayback {
-            return offlinePlayer.isPlaying
+        let interval: UInt64
+        if uiActive {
+            interval = 100_000_000
+        } else if isSceneDimmed {
+            interval = 1_000_000_000
+        } else {
+            return nil
         }
-        return isPlaying && !isLoading && hasSong
+        if isOfflinePlayback {
+            return offlinePlayer.isPlaying ? interval : nil
+        }
+        return isPlaying && !isLoading && hasSong ? interval : nil
     }
 
     private func extrapolateCurrentTimeOnce() {
@@ -201,20 +214,25 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         }
     }
 
-    /// 100ms 外推 currentTime ── 仅在前台活跃且正在播放时运行，暂停、空态或息屏时挂起。
+    /// 按 `desiredTickerInterval` 外推 currentTime: 间隔变了就换一个任务, 不需要了就停。
     private func refreshTicker() {
-        guard shouldRunTicker else {
+        guard let interval = desiredTickerInterval else {
             tickerTask?.cancel()
             tickerTask = nil
+            tickerTaskInterval = nil
             return
         }
-        guard tickerTask == nil else { return }
+        guard tickerTask == nil || tickerTaskInterval != interval else { return }
+        tickerTask?.cancel()
+        tickerTaskInterval = interval
         tickerTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 100_000_000)
+                try? await Task.sleep(nanoseconds: interval)
                 guard !Task.isCancelled, let self else { return }
-                guard self.shouldRunTicker else {
+                guard self.desiredTickerInterval == interval else {
                     self.tickerTask = nil
+                    self.tickerTaskInterval = nil
+                    self.refreshTicker()
                     return
                 }
                 self.extrapolateCurrentTimeOnce()
@@ -384,10 +402,12 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         }
     }
 
-    func setActive(_ active: Bool) {
+    /// `dimmed`: 场景 inactive(落腕常亮)。这时不算活跃, 但计时器按秒继续走。
+    func setActive(_ active: Bool, dimmed: Bool = false) {
         #if DEBUG
         if isDemo { return }
         #endif
+        isSceneDimmed = !active && dimmed
         connectionPresentation.setActive(active, reachable: canSendRealtimeCommand, now: Date())
         refreshConnectionPresentation()
         if active {

@@ -21,7 +21,7 @@ struct PrimuseWatchApp: App {
                 Button(WatchString("ext.watch.offline.ok")) { store.offlineError = nil; store.offlinePlayer.clearError() }
             } message: { Text(store.offlineError ?? store.offlinePlayer.error ?? "") }
             .onChange(of: scenePhase, initial: true) { _, phase in
-                store.setActive(phase == .active)
+                store.setActive(phase == .active, dimmed: phase == .inactive)
             }
         }
     }

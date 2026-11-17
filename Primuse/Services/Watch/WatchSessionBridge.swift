@@ -711,7 +711,7 @@ final class WatchSessionBridge: NSObject {
         }
     }
 
-    /// 同步读封面 + 缩到 ~160×160 JPEG。
+    /// 同步读封面 + 缩到 240×240 像素 JPEG。
     ///
     /// 查找顺序:
     /// 1. songID-hashed 名 (新架构 cache 都存在这里, 命中率高)
@@ -738,7 +738,7 @@ final class WatchSessionBridge: NSObject {
                     kCGImageSourceCreateThumbnailFromImageAlways: true,
                     kCGImageSourceCreateThumbnailWithTransform: true,
                     kCGImageSourceShouldCacheImmediately: true,
-                    kCGImageSourceThumbnailMaxPixelSize: 180,
+                    kCGImageSourceThumbnailMaxPixelSize: Self.watchCoverPixelSize,
                 ] as CFDictionary) else {
                     return UIImage(data: data)
                 }
@@ -747,12 +747,13 @@ final class WatchSessionBridge: NSObject {
         }
         if image == nil, song.sourceID == AppleMusicLibraryIdentity.sourceID {
             image = await AppleMusicSongArtwork.image(
-                for: song, pixelSize: 200, mirrorsIntoSongCache: false
+                for: song, pixelSize: 300, mirrorsIntoSongCache: false
             )
         }
         guard let img = image else { return nil }
 
-        let target = CGSize(width: 160, height: 160)
+        let side = CGFloat(Self.watchCoverPixelSize)
+        let target = CGSize(width: side, height: side)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -779,6 +780,9 @@ final class WatchSessionBridge: NSObject {
         }
         return scaled.jpegData(compressionQuality: 0.4)
     }
+
+    /// 手表播放页封面放大后约 115pt，46/49mm 上约 230 像素；低于这个会被拉大发糊。
+    nonisolated private static let watchCoverPixelSize = 240
 }
 
 /// Sendable 命令载体 ── 把 WCSession 来的 `[String: Any]` 在 nonisolated
