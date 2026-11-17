@@ -557,7 +557,12 @@ final class PlayerBackdropImagingTests: XCTestCase {
         try await assertLyricsSurfaceSurvivesCoverSwitches(wordTimed: true, lineCount: 24)
     }
 
-    private func assertLyricsSurfaceSurvivesCoverSwitches(wordTimed: Bool, lineCount: Int = 80) async throws {
+    func testCompanionLyricsSurfaceSurvivesCoverSwitchesAndHiddenPlaybackAdvance() async throws {
+        try await assertLyricsSurfaceSurvivesCoverSwitches(wordTimed: false, lineCount: 24, hasCompanions: true)
+    }
+
+    private func assertLyricsSurfaceSurvivesCoverSwitches(wordTimed: Bool, lineCount: Int = 80,
+                                                        hasCompanions: Bool = false) async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
@@ -575,7 +580,8 @@ final class PlayerBackdropImagingTests: XCTestCase {
                       syllables: wordTimed ? [
                         LyricSyllable(text: "A paper lantern ", start: start, end: start + 2),
                         LyricSyllable(text: "follows the quiet river \(index)", start: start + 2, end: start + 5)
-                      ] : nil)
+                      ] : nil, background: [],
+                      romanization: hasCompanions ? "纸灯沿着静静的河流 \(index)" : nil)
         }
         let fixture = PlayerCoverLyricsFixture()
         let probe = PlayerLyricsLifecycleProbe.State()

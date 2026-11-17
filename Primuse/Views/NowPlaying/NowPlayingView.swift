@@ -19589,28 +19589,30 @@ struct LyricsScrollView: View, @MainActor Equatable {
                 // 歌词翻译 — 在原文下面以略小的字号显示。字号默认取原文的 0.65 +
                 // medium weight, 视觉上是 secondary; 设置里可以单独调(#320)。注音和译文
                 // 共用一个时间戳时两条都属于这一句, 按文件里的先后顺序依次排在原文下面。
-                ForEach(companions.indices, id: \.self) { slot in
-                    lyricsTypeface.text(companions[slot], size: companionFontSize, weight: .medium)
-                        .foregroundStyle(
-                            dimmedByAmbient
-                                ? appearance.secondary
-                                : isActive ? appearance.secondary
-                                : (index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
-                                    ? appearance.primary.opacity(appearance.pastLyricOpacity * 0.72)
-                                    : appearance.primary.opacity(appearance.futureLyricOpacity * 0.72)
-                        )
-                        .multilineTextAlignment(rowAlignment.textAlignment)
-                        // 长翻译在窄屏 / 大字号下要 wrap 多行。不加 fixedSize 时 SwiftUI
-                        // 会优先单行 + 截断显示省略号。
-                        .fixedSize(horizontal: false, vertical: true)
-                        .contentShape(Rectangle())
-                        .if(canSeekToLyricLine(line)) { view in
-                            view
-                                .onTapGesture { seekToLyricLine(line) }
-                                .accessibilityAddTraits(.isButton)
-                                .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
-                        }
-                        .frame(width: availableWidth, alignment: frameAlignment)
+                if !companions.isEmpty {
+                    ForEach(companions.indices, id: \.self) { slot in
+                        lyricsTypeface.text(companions[slot], size: companionFontSize, weight: .medium)
+                            .foregroundStyle(
+                                dimmedByAmbient
+                                    ? appearance.secondary
+                                    : isActive ? appearance.secondary
+                                    : (index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
+                                        ? appearance.primary.opacity(appearance.pastLyricOpacity * 0.72)
+                                        : appearance.primary.opacity(appearance.futureLyricOpacity * 0.72)
+                            )
+                            .multilineTextAlignment(rowAlignment.textAlignment)
+                            // 长翻译在窄屏 / 大字号下要 wrap 多行。不加 fixedSize 时 SwiftUI
+                            // 会优先单行 + 截断显示省略号。
+                            .fixedSize(horizontal: false, vertical: true)
+                            .contentShape(Rectangle())
+                            .if(canSeekToLyricLine(line)) { view in
+                                view
+                                    .onTapGesture { seekToLyricLine(line) }
+                                    .accessibilityAddTraits(.isButton)
+                                    .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                            }
+                            .frame(width: availableWidth, alignment: frameAlignment)
+                    }
                 }
             }
             .modifier(LyricLineCommentModifier(
@@ -19619,7 +19621,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
                 share: { onShareLyricLine(line.id) }, present: presentComment
             ))
 
-            if let bgs = line.background {
+            if let bgs = line.background, !bgs.isEmpty {
                 // 只有带和声的行才读播放进度:放在每行开头读,逐行歌词整列每 0.5s 重建一次。
                 let playbackTime = timelineTime ?? player.currentTime
                 ForEach(bgs) { bg in
@@ -19651,20 +19653,22 @@ struct LyricsScrollView: View, @MainActor Equatable {
                             .frame(width: availableWidth, alignment: frameAlignment)
 
                         let backgroundCompanions = Self.companionTexts(for: bg, translatedTextByLineID: translatedTextByLineID)
-                        ForEach(backgroundCompanions.indices, id: \.self) { slot in
-                            lyricsTypeface.text(backgroundCompanions[slot], size: companionFontSize * 0.7, weight: .medium)
-                                .foregroundStyle(appearance.secondary)
-                                .multilineTextAlignment(rowAlignment.textAlignment)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .contentShape(Rectangle())
-                                .if(canSeekToLyricLine(bg)) { view in
-                                    view
-                                        .onTapGesture { seekToLyricLine(bg) }
-                                        .accessibilityAddTraits(.isButton)
-                                        .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
-                                }
-                                .frame(width: availableWidth, alignment: frameAlignment)
-                                .opacity(0.7)
+                        if !backgroundCompanions.isEmpty {
+                            ForEach(backgroundCompanions.indices, id: \.self) { slot in
+                                lyricsTypeface.text(backgroundCompanions[slot], size: companionFontSize * 0.7, weight: .medium)
+                                    .foregroundStyle(appearance.secondary)
+                                    .multilineTextAlignment(rowAlignment.textAlignment)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .contentShape(Rectangle())
+                                    .if(canSeekToLyricLine(bg)) { view in
+                                        view
+                                            .onTapGesture { seekToLyricLine(bg) }
+                                            .accessibilityAddTraits(.isButton)
+                                            .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                                    }
+                                    .frame(width: availableWidth, alignment: frameAlignment)
+                                    .opacity(0.7)
+                            }
                         }
                     }
                     .modifier(LyricLineCommentModifier(
