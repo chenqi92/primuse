@@ -135,11 +135,11 @@ def build_marks() -> dict[str, tuple[Layer, Layer | None]]:
         alpha = luma_alpha(load(f"{stem}-tinted"), 1, 10, 40)
         marks[name] = ((glyph_colour(load(f"{stem}-dark"), alpha), alpha), None)
 
-    # The dark pearl plate provides a high-contrast contour for both appearances.
-    alpha = luma_alpha(load("22-kai-dark"), 1, 10, 70)
+    light_alpha = luma_alpha(load("22-kai"), -1, 10, 70)
+    dark_alpha = luma_alpha(load("22-kai-dark"), 1, 10, 70)
     marks["AppIcon22"] = (
-        (glyph_colour(load("22-kai"), alpha), alpha),
-        (glyph_colour(load("22-kai-dark"), alpha), alpha),
+        (glyph_colour(load("22-kai"), light_alpha), light_alpha),
+        (glyph_colour(load("22-kai-dark"), dark_alpha), dark_alpha),
     )
 
     alpha = luma_alpha(load("15-folded-note-tinted"), 1, 10, 40)
