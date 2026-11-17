@@ -280,23 +280,47 @@ public struct LatestOnlyLibraryIndexWorkState: Equatable, Sendable {
 public struct IndexedSongSnapshot: Sendable {
     private let songs: [Song]
     private let offsets: [String: Int]
+    private let originalPathOffsets: [String: Int]
     private var updates: [String: Song] = [:]
 
-    public init(_ songs: [Song], sourceID: String? = nil) {
+    public init(
+        _ songs: [Song],
+        sourceID: String? = nil,
+        matchingOriginalPathsForSourceID pathSourceID: String? = nil
+    ) {
         self.songs = songs
         var offsets: [String: Int] = [:]
         offsets.reserveCapacity(sourceID == nil ? songs.count : min(songs.count, 4096))
-        for (index, song) in songs.enumerated()
-            where (sourceID == nil || song.sourceID == sourceID) && offsets[song.id] == nil {
-            offsets[song.id] = index
+        var pathOffsets: [String: Int] = [:]
+        if pathSourceID != nil { pathOffsets.reserveCapacity(songs.count) }
+        for (index, song) in songs.enumerated() {
+            if (sourceID == nil || song.sourceID == sourceID) && offsets[song.id] == nil {
+                offsets[song.id] = index
+            }
+            if let pathSourceID, song.sourceID == pathSourceID, !song.isCueTrack {
+                // Ambiguous paths must stay ambiguous even after a third match.
+                pathOffsets[song.filePath] = pathOffsets[song.filePath] == nil ? index : -1
+            }
         }
         self.offsets = offsets
+        self.originalPathOffsets = pathOffsets
     }
 
     public subscript(_ id: String) -> Song? {
         if let updated = updates[id] { return updated }
         guard let offset = offsets[id] else { return nil }
         return songs[offset]
+    }
+
+    /// Identity reconciliation uses the original locations, even after an overlay update.
+    public func originalFilePath(forID id: String) -> String? {
+        guard let offset = offsets[id] else { return nil }
+        return songs[offset].filePath
+    }
+
+    public func songID(forOriginalPath path: String) -> String? {
+        guard let offset = originalPathOffsets[path], offset >= 0 else { return nil }
+        return songs[offset].id
     }
 
     public var keys: Set<String> { Set(offsets.keys).union(updates.keys) }

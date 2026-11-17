@@ -38,9 +38,19 @@ enum PathSongIdentityPolicy {
         existingPathsByID: [String: String],
         collisionID: (Int) -> String
     ) -> String {
+        unoccupiedID(generatedID: generatedID, path: path,
+                     existingPath: { existingPathsByID[$0] }, collisionID: collisionID)
+    }
+
+    static func unoccupiedID(
+        generatedID: String,
+        path: String,
+        existingPath: (String) -> String?,
+        collisionID: (Int) -> String
+    ) -> String {
         var candidate = generatedID
         var ordinal = 0
-        while let occupiedPath = existingPathsByID[candidate], occupiedPath != path {
+        while let occupiedPath = existingPath(candidate), occupiedPath != path {
             ordinal += 1
             candidate = collisionID(ordinal)
         }

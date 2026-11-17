@@ -172,6 +172,34 @@ enum MusicIDs {
 
 @Suite("Compact source sync index")
 struct SourceSyncIndexTests {
+    @Test("Empty and single-song indexes remain safe during concurrent decoding")
+    func concurrentEmptyAndSingleSongDecoding() async throws {
+        let emptyData = try SourceSyncIndex().binaryData().data
+        let key = "path:/Music/纸灯.flac"
+        let item = SourceSyncIndexedItem(
+            stableKey: key, path: "/Music/纸灯.flac", parentPath: "/Music",
+            isDirectory: false, songIDs: ["paper-lantern"], size: 100,
+            modifiedDate: nil, revision: nil
+        )
+        let songData = try SourceSyncIndex([key: item]).binaryData().data
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<4 {
+                group.addTask {
+                    for _ in 0..<128 {
+                        let empty = try SourceSyncIndex.decodeBinary(emptyData)
+                        let populated = try SourceSyncIndex.decodeBinary(songData)
+                        #expect(empty.isEmpty && empty[key] == nil)
+                        #expect(populated[key] == item)
+                        let walk = SourceScanWalkLog()
+                        #expect(!walk.containsKey(key) && !walk.hasSongIDs)
+                        await Task.yield()
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+    }
+
     @Test("Every real source shape reads back exactly what was stored")
     func roundTripsEveryShape() throws {
         for (name, dictionary) in SourceSyncIndexFixtures.allShapes {
@@ -254,6 +282,40 @@ struct SourceSyncIndexTests {
         #expect(snapshot != index)
     }
 
+    @Test("Joining indexes drops payloads belonging to replaced and removed rows")
+    func concatenationReclaimsDeadPayloads() throws {
+        var first = SourceSyncIndex(SourceSyncIndexFixtures.cue())
+        let snapshot = first
+        let key = "path:/live/concert.flac"
+        var updated = try #require(first[key])
+        updated.revision = String(repeating: "obsolete-", count: 2_048)
+        first[key] = updated
+        updated.revision = "current"
+        first[key] = updated
+        first.removeValue(forKey: "path:/live/concert.cue")
+        let second = SourceSyncIndex(SourceSyncIndexFixtures.spokenWord())
+        let joined = SourceSyncIndex.concatenating([first, second])
+        let expected = first.dictionary.merging(second.dictionary) { _, new in new }
+        let encoded = try joined.binaryData().data
+        let fresh = try SourceSyncIndex(expected).binaryData().data
+        #expect(encoded.count < fresh.count * 2)
+        #expect(joined.dictionary == expected)
+        #expect(try SourceSyncIndex.decodeBinary(encoded) == joined)
+        #expect(snapshot.dictionary == SourceSyncIndexFixtures.cue())
+    }
+
+    @Test("Loading a valid legacy index releases unreachable payloads and preserves its entries")
+    func loadingLegacyIndexReclaimsUnreferencedBytes() throws {
+        let expected = SourceSyncIndexFixtures.cue().merging(SourceSyncIndexFixtures.spokenWord()) { _, new in new }
+        let legacy = SourceSyncIndex(expected)
+        legacy.storage.arena.append(contentsOf: repeatElement(UInt8(0xA5), count: 256 * 1024))
+        let encoded = try legacy.binaryData()
+        let restored = try SourceSyncIndex.decodeBinary(encoded.data, expectedSHA256: encoded.summary.sha256)
+        #expect(restored.dictionary == expected)
+        #expect(try restored.binaryData().data.count < encoded.data.count / 8)
+        #expect(legacy.storage.arena.count > 256 * 1024)
+    }
+
     @Test("Heavy churn compacts without losing or resurrecting entries")
     func churnCompacts() {
         var dictionary: [String: SourceSyncIndexedItem] = [:]
@@ -320,6 +382,41 @@ struct SourceSyncIndexTests {
             let decoded = try decoder.decode(SourceSyncIndex.self, from: fromDictionary)
             #expect(decoded.dictionary == dictionary, "\(name)")
         }
+    }
+
+    @Test("Large binary writes stay bounded and remain retryable after a partial write")
+    func boundedBinaryWrites() throws {
+        let index = SourceSyncIndex(SourceSyncIndexFixtures.server(songs: 5_000))
+        let expected = try index.binaryData()
+        var streamed = Data()
+        var calls = 0
+        let summary = try index.writeBinary { bytes in
+            #expect(bytes.count <= 256 * 1024)
+            streamed.append(contentsOf: bytes)
+            calls += 1
+        }
+        #expect(calls > 5)
+        #expect(streamed == expected.data)
+        #expect(summary == expected.summary)
+
+        enum WriteFailure: Error { case interrupted }
+        var written = 0
+        #expect(throws: WriteFailure.self) {
+            try index.writeBinary { bytes in
+                written += bytes.count
+                if written > 256 * 1024 { throw WriteFailure.interrupted }
+            }
+        }
+        #expect(try index.binaryData().data == expected.data)
+
+        var container = Data(repeating: 0xAA, count: 17)
+        container.append(streamed)
+        container.append(contentsOf: [0xBB, 0xCC])
+        let decoded = try SourceSyncIndex.decodeBinary(
+            container[17..<17 + streamed.count], expectedSHA256: summary.sha256
+        )
+        container.removeAll()
+        #expect(decoded == index)
     }
 
     @Test("The binary form round-trips and rejects any damage")

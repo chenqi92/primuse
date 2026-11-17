@@ -8,6 +8,28 @@ import UIKit
 @testable import Primuse
 
 final class SongFileRenameTests: XCTestCase {
+    func testRenamedIdentityRemainsReservedAcrossSnapshotUpdatesAndRepeatedCollisions() {
+        let songs = [
+            Song(id: "original", title: "First", fileFormat: .flac, filePath: "/renamed.flac", sourceID: "source"),
+            Song(id: "collision-1", title: "Second", fileFormat: .flac, filePath: "/another.flac", sourceID: "source")
+        ]
+        var snapshot = IndexedSongSnapshot(songs, matchingOriginalPathsForSourceID: "source")
+        var updated = songs[0]
+        updated.filePath = "/old.flac"
+        snapshot.update(updated)
+        let replacementID = PathSongIdentityPolicy.unoccupiedID(
+            generatedID: "original", path: "/old.flac",
+            existingPath: { snapshot.originalFilePath(forID: $0) },
+            collisionID: { "collision-\($0)" }
+        )
+        XCTAssertEqual(replacementID, "collision-2")
+        XCTAssertEqual(PathSongIdentityPolicy.unoccupiedID(
+            generatedID: "original", path: "/renamed.flac",
+            existingPath: { snapshot.originalFilePath(forID: $0) },
+            collisionID: { "collision-\($0)" }
+        ), "original")
+    }
+
     func testLocalCueRescanKeepsImageMembershipOrderAndInvalidatesChangedSheets() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CueRescan-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -179,6 +201,13 @@ final class SongFileRenameTests: XCTestCase {
         }
         XCTAssertEqual(Set(reusedName.map(\.id)).count, 2)
         XCTAssertEqual(reusedName.first { $0.filePath == result.song.filePath }?.id, original.id)
+        let scanner = ConnectorScanner(connector: connector, sourceID: sourceID)
+        var scanned: [Song] = []
+        for try await update in await scanner.scan(directories: ["/"], existingSongs: [result.song]) {
+            scanned = update.songs
+        }
+        XCTAssertEqual(Set(scanned.map(\.id)), Set(reusedName.map(\.id)))
+        XCTAssertEqual(scanned.first { $0.id == original.id }?.title, "Edited title")
         await connector.disconnect()
     }
 

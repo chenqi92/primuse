@@ -65,6 +65,93 @@ enum WalkTestFixtures {
 
 @Suite("Directory walk log")
 struct SourceScanWalkLogTests {
+    @Test("Replacing sealed entries does not retain obsolete payloads in later checkpoints")
+    func replacedSegmentsDiscardObsoleteBytes() throws {
+        var log = SourceScanWalkLog()
+        var firstSnapshot: SourceScanWalkLog?
+        var latest: [String: SourceSyncIndexedItem] = [:]
+        for round in 0..<32 {
+            for value in 0..<64 {
+                let key = "path:/Music/纸灯/\(value).flac"
+                let item = SourceSyncIndexedItem(
+                    stableKey: key, path: "/Music/纸灯/\(value).flac",
+                    displayName: "夜航-\(value)", parentPath: "/Music/纸灯",
+                    isDirectory: false, songIDs: ["song-\(value)", "chapter-\(value)"],
+                    size: Int64(round), modifiedDate: nil,
+                    revision: String(repeating: "\(round % 10)", count: 256)
+                )
+                log.updateValue(item, forKey: key)
+                latest[key] = item
+            }
+            log.seal()
+            if round == 0 { firstSnapshot = log }
+        }
+        log.consolidate()
+        let index = log.materializedIndex()
+        let encoded = try index.binaryData().data
+        let fresh = try SourceSyncIndex(latest).binaryData().data
+        #expect(encoded.count < fresh.count * 2)
+        #expect(index.dictionary == latest)
+        #expect(try SourceSyncIndex.decodeBinary(encoded) == index)
+        #expect(firstSnapshot?.indexCount == latest.count)
+        #expect(firstSnapshot?.materializedIndex().values.allSatisfy { $0.size == 0 } == true)
+    }
+
+    @Test("Released directory snapshots remain safe while later segments merge")
+    func releasedSnapshotsDoNotInvalidateMergedSegments() async throws {
+        let directoryCount = 512
+        let tracksPerDirectory = 8
+        let (stream, continuation) = AsyncStream<(SourceScanResumeState, Int)>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let producer = Task.detached {
+            var log = SourceScanWalkLog()
+            for directory in 0..<directoryCount {
+                for track in 0..<tracksPerDirectory {
+                    let path = "/Music/夜航-\(directory)/纸灯-\(track).flac"
+                    let key = "path:\(path)"
+                    log.updateValue(SourceSyncIndexedItem(
+                        stableKey: key, path: path, parentPath: "/Music/夜航-\(directory)",
+                        isDirectory: false, songIDs: [key], size: 100,
+                        modifiedDate: nil, revision: nil
+                    ), forKey: key)
+                    log.insertSongID(key)
+                }
+                log.seal()
+                continuation.yield((
+                    SourceScanResumeState(pendingDirectories: ["next"], walkLog: log),
+                    (directory + 1) * tracksPerDirectory
+                ))
+                if directory.isMultiple(of: 8) { await Task.yield() }
+            }
+            continuation.finish()
+        }
+        var checkpoint: SourceScanResumeState?
+        var received = 0
+        for await (state, count) in stream {
+            let log = state.walkLog
+            #expect(log.indexCount == count)
+            #expect(log.allSongIDs.count == count)
+            let index = log.materializedIndex()
+            #expect(index.count == count)
+            if received.isMultiple(of: 17) {
+                let data = try index.binaryData().data
+                #expect(try SourceSyncIndex.decodeBinary(data) == index)
+            }
+            // Retain only the latest checkpoint, as the scan service does.
+            checkpoint = state
+            received += 1
+            await Task.yield()
+        }
+        await producer.value
+        #expect(received > 0)
+        #expect(checkpoint?.walkLog.indexCount == directoryCount * tracksPerDirectory)
+        let expected = (0..<directoryCount).flatMap { directory in
+            (0..<tracksPerDirectory).map { "path:/Music/夜航-\(directory)/纸灯-\($0).flac" }
+        }
+        #expect(checkpoint?.walkLog.allSongIDs == expected)
+    }
+
     @Test("Reads exactly like a dictionary plus a set under random writes, seals and merges")
     func matchesDictionaryModel() {
         for seed in 1...6 {

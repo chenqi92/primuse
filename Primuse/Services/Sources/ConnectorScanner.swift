@@ -215,7 +215,6 @@ actor ConnectorScanner {
         )
         var songsByID = existingByID
         let existingIDsByPath = uniqueSongIDsByPath(existingSongs)
-        let existingPathsByID = Dictionary(existingSongs.map { ($0.id, $0.filePath) }, uniquingKeysWith: { first, _ in first })
         // 紧凑索引直接改:第一次改动时才拷一份(与 `reconciliationBaseline` 分开),
         // 不展开成字典。
         var index = existingIndex
@@ -343,7 +342,7 @@ actor ConnectorScanner {
                     let preferredID = oldEntry?.songIDs.count == 1
                         ? oldEntry?.songIDs.first
                         : nil
-                    let songID = preferredID ?? generatedSongID(for: item, existingPathsByID: existingPathsByID)
+                    let songID = preferredID ?? generatedSongID(for: item, existingPath: { existingByID[$0]?.filePath })
                     if let oldEntry,
                        let old = preferredID.flatMap({ existingByID[$0] }),
                        Self.wrapperFingerprintMatches(oldEntry, item),
@@ -417,7 +416,7 @@ actor ConnectorScanner {
 
                 let preferredID = (oldEntry?.songIDs.count == 1 ? oldEntry?.songIDs.first : nil)
                     ?? existingIDsByPath[item.path]
-                let songID = preferredID ?? generatedSongID(for: item, existingPathsByID: existingPathsByID)
+                let songID = preferredID ?? generatedSongID(for: item, existingPath: { existingByID[$0]?.filePath })
                 let incoming = buildBareSong(from: item, songID: songID)
                 if var old = preferredID.flatMap({ existingByID[$0] }) {
                     // `incoming` is a bare row named after the file; the stored
@@ -552,9 +551,10 @@ actor ConnectorScanner {
                     // on large cloud trees).
                     let totalCount = 0
                     var allSongs = existingSongs
-                    let existingIDsByPath = uniqueSongIDsByPath(existingSongs)
-                    let existingPathsByID = Dictionary(existingSongs.map { ($0.id, $0.filePath) }, uniquingKeysWith: { first, _ in first })
-                    var existingByID = IndexedSongSnapshot(existingSongs)
+                    var existingByID = IndexedSongSnapshot(
+                        existingSongs,
+                        matchingOriginalPathsForSourceID: connector is any SongScanningConnector ? nil : sourceID
+                    )
                     var allSongIndexByID: [String: Int] = [:]
                     allSongIndexByID.reserveCapacity(existingSongs.count)
                     for (i, song) in allSongs.enumerated() { allSongIndexByID[song.id] = i }
@@ -991,10 +991,14 @@ actor ConnectorScanner {
                                     let preferredSongID: String? = {
                                         guard priorEntry?.songIDs.count == 1,
                                               let candidate = priorEntry?.songIDs.first,
-                                              existingByID[candidate] != nil else { return existingIDsByPath[item.path] }
+                                              existingByID[candidate] != nil else {
+                                            return existingByID.songID(forOriginalPath: item.path)
+                                        }
                                         return candidate
                                     }()
-                                    let songID = preferredSongID ?? generatedSongID(for: item, existingPathsByID: existingPathsByID)
+                                    let songID = preferredSongID ?? generatedSongID(
+                                        for: item, existingPath: { existingByID.originalFilePath(forID: $0) }
+                                    )
 
                                     if PrimuseConstants.supportedStreamDescriptorExtensions.contains(
                                         Self.lowercasedExtension(item.name)
@@ -2314,7 +2318,7 @@ actor ConnectorScanner {
         return prefix + component
     }
 
-    private func generatedSongID(for item: RemoteFileItem, existingPathsByID: [String: String]) -> String {
+    private func generatedSongID(for item: RemoteFileItem, existingPath: (String) -> String?) -> String {
         let material = SourceSongIdentityMaterialPolicy.itemIdentity(
             path: item.path,
             providerID: item.providerID,
@@ -2324,7 +2328,7 @@ actor ConnectorScanner {
         let generated = hash("\(sourceID):\(material)")
         guard !(connector is any StableProviderSongIdentityConnector) else { return generated }
         return PathSongIdentityPolicy.unoccupiedID(generatedID: generated, path: item.path,
-            existingPathsByID: existingPathsByID,
+            existingPath: existingPath,
             collisionID: { hash("\(sourceID):\(material):file-rename:\($0)") })
     }
 

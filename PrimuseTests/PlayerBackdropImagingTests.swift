@@ -888,6 +888,73 @@ final class PlayerBackdropImagingTests: XCTestCase {
         XCTAssertTrue(songs.indices.contains(carousel.centeredItemIndex))
     }
 
+    func testCoveredNavigationListFollowsWindowRotationWithoutRemounting() async throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            throw XCTSkip("Manual player orientation is only available on iPhone")
+        }
+        struct Harness: View {
+            @Bindable var state: CardFlightTestPlacement
+
+            var body: some View {
+                NavigationStack {
+                    List(0..<80, id: \.self) { index in
+                        Text("纸灯沿着夜航的河岸缓缓前行，长短不同的歌名需要随屏幕宽度换行 \(index)")
+                    }
+                    .navigationTitle("夜航")
+                }
+                .modifier(PlayerCoveredContentLayout(isPlayerPresented: $state.compact))
+            }
+        }
+        func collectionView(in view: UIView) -> UICollectionView? {
+            if let collection = view as? UICollectionView { return collection }
+            return view.subviews.lazy.compactMap { collectionView(in: $0) }.first
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let preference = InterfaceOrientationPreference(
+            storedValue: UserDefaults.standard.string(forKey: InterfaceOrientationPreference.storageKey)
+        )
+        let originalLandscape = scene.interfaceOrientation.isLandscape
+        let state = CardFlightTestPlacement()
+        let controller = UIHostingController(rootView: Harness(state: state))
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        PlayerOrientationControl.preferenceChanged(.automatic)
+        defer {
+            PlayerOrientationControl.playerBecameInactive()
+            PlayerOrientationControl.preferenceChanged(preference)
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        let list = try XCTUnwrap(collectionView(in: controller.view))
+        state.compact = true
+        try await Task.sleep(for: .milliseconds(100))
+        for _ in 0..<4 {
+            let wasLandscape = scene.interfaceOrientation.isLandscape
+            PlayerOrientationControl.toggle(fromLandscape: wasLandscape, followsDevice: false)
+            let deadline = Date.now.addingTimeInterval(3)
+            while Date.now < deadline {
+                if scene.interfaceOrientation.isLandscape != wasLandscape,
+                   (controller.view.bounds.width > controller.view.bounds.height) != wasLandscape { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            try await Task.sleep(for: .milliseconds(150))
+            XCTAssertNotEqual(scene.interfaceOrientation.isLandscape, wasLandscape)
+            XCTAssertTrue(collectionView(in: controller.view) === list)
+            XCTAssertEqual(list.bounds.width > list.bounds.height, scene.interfaceOrientation.isLandscape,
+                           "The covered navigation list must receive the window's rotated geometry")
+            XCTAssertFalse(list.visibleCells.isEmpty)
+        }
+        state.compact = false
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(collectionView(in: controller.view) === list)
+        XCTAssertEqual(scene.interfaceOrientation.isLandscape, originalLandscape)
+    }
+
     func testManualOrientationCompletesTheSystemRotationTransition() async throws {
         guard UIDevice.current.userInterfaceIdiom == .phone else {
             throw XCTSkip("Manual player orientation is only available on iPhone")

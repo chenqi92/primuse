@@ -2887,54 +2887,33 @@ struct PlayerCoveredContentInteraction: ViewModifier {
     }
 }
 
-private struct PlayerCoveredContentLayout: ViewModifier {
+struct PlayerCoveredContentLayout: ViewModifier {
     /// 播放页展开、收起的弹簧时长（`PlayerOverlay` 的 entrance / dismissal 都是 0.42 秒）再留一点余量。
     static let presentationTransitionDuration: TimeInterval = 0.5
 
     @Binding var isPlayerPresented: Bool
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var presentationWorkOwner = UUID()
-    @State private var restingSize: CGSize?
-    @State private var restingHorizontalClass: UserInterfaceSizeClass?
-    @State private var restingVerticalClass: UserInterfaceSizeClass?
 
     func body(content: Content) -> some View {
-        GeometryReader { geometry in
-            let size = isPlayerPresented ? restingSize ?? geometry.size : geometry.size
-            content
-                .modifier(PlayerCoveredContentInteraction(isCovered: isPlayerPresented))
-                .environment(\.playerCoversContent, isPlayerPresented)
-                .environment(\.horizontalSizeClass, isPlayerPresented ? restingHorizontalClass : horizontalSizeClass)
-                .environment(\.verticalSizeClass, isPlayerPresented ? restingVerticalClass : verticalSizeClass)
-                .frame(width: size.width, height: size.height)
-                .onChange(of: isPlayerPresented, initial: true) { oldValue, presented in
-                    // 展开、收起的这一段算交互：曲库交付、歌单匹配、服务端歌单刷新都等它停稳。
-                    // 只是开着播放页不算——维护工作照常做，不会因为一直开着就一直推后。
-                    if oldValue != presented {
-                        UserScrollActivityMonitor.shared.recordInteraction(lasting: Self.presentationTransitionDuration)
-                    }
-                    // 只给首页看的推算（推荐、「为你」）盖住时不算，收起后补。
-                    ListeningIntentService.shared.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
-                    AlbumRecommendationService.shared.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
-                    if !presented {
-                        remember(size: geometry.size)
-                    }
+        // 导航容器仍参与 UIWindow 的转屏，尺寸和 size class 必须一起跟随窗口，
+        // 否则 UIKit 的列表自适应布局会与被固定的竖屏画布反复争用尺寸。
+        content
+            .modifier(PlayerCoveredContentInteraction(isCovered: isPlayerPresented))
+            .environment(\.playerCoversContent, isPlayerPresented)
+            .onChange(of: isPlayerPresented, initial: true) { oldValue, presented in
+                // 展开、收起的这一段算交互：曲库交付、歌单匹配、服务端歌单刷新都等它停稳。
+                // 只是开着播放页不算——维护工作照常做，不会因为一直开着就一直推后。
+                if oldValue != presented {
+                    UserScrollActivityMonitor.shared.recordInteraction(lasting: Self.presentationTransitionDuration)
                 }
-                .onChange(of: geometry.size) { _, size in
-                    if !isPlayerPresented { remember(size: size) }
-                }
-                .onDisappear {
-                    ListeningIntentService.shared.setPlayerPresentationActive(false, owner: presentationWorkOwner)
-                    AlbumRecommendationService.shared.setPlayerPresentationActive(false, owner: presentationWorkOwner)
-                }
-        }
-    }
-
-    private func remember(size: CGSize) {
-        restingSize = size
-        restingHorizontalClass = horizontalSizeClass
-        restingVerticalClass = verticalSizeClass
+                // 只给首页看的推算（推荐、「为你」）盖住时不算，收起后补。
+                ListeningIntentService.shared.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
+                AlbumRecommendationService.shared.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
+            }
+            .onDisappear {
+                ListeningIntentService.shared.setPlayerPresentationActive(false, owner: presentationWorkOwner)
+                AlbumRecommendationService.shared.setPlayerPresentationActive(false, owner: presentationWorkOwner)
+            }
     }
 }
 

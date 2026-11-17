@@ -483,18 +483,36 @@ extension SourceSyncIndex {
         var rowCapacity = 0
         var arenaCapacity = 0
         var spanCapacity = 0
-        for part in parts {
-            rowCapacity += part.storage.liveCount
+        var skippedRows: [[Bool]?] = []
+        var needsCompaction = false
+        for (partIndex, part) in parts.enumerated() {
+            let source = part.storage
+            let skipped = skipping.map { shouldSkip in
+                source.rows.indices.map { source.isLive($0) && shouldSkip(partIndex, $0) }
+            }
+            let skippedCount = skipped?.reduce(0) { $0 + ($1 ? 1 : 0) } ?? 0
+            skippedRows.append(skippedCount > 0 ? skipped : nil)
+            needsCompaction = needsCompaction || source.deadCount > 0 || skippedCount > 0
+            rowCapacity += source.liveCount - skippedCount
             arenaCapacity += part.storage.arena.count
             spanCapacity += part.storage.songIDSpans.count
         }
-        precondition(arenaCapacity < Int(UInt32.max), "Source sync index arena exceeds 4 GB")
         result.rows.reserveCapacity(rowCapacity)
         result.hashes.reserveCapacity(rowCapacity)
-        result.arena.reserveCapacity(arenaCapacity)
-        result.songIDSpans.reserveCapacity(spanCapacity)
+        if !needsCompaction {
+            precondition(arenaCapacity < Int(UInt32.max), "Source sync index arena exceeds 4 GB")
+            result.arena.reserveCapacity(arenaCapacity)
+            result.songIDSpans.reserveCapacity(spanCapacity)
+        }
         for (partIndex, part) in parts.enumerated() {
             let source = part.storage
+            if source.deadCount > 0 || skippedRows[partIndex] != nil {
+                // 被覆盖的行连同字节一起丢掉，不能让每轮合并继续携带旧版本的内容。
+                source.appendCompactedRows(to: result) { skippedRows[partIndex]?[$0] ?? false }
+                continue
+            }
+            precondition(result.arena.count + source.arena.count < Int(UInt32.max),
+                         "Source sync index arena exceeds 4 GB")
             let base = UInt32(result.arena.count)
             let spanBase = UInt32(result.songIDSpans.count)
             result.arena.append(contentsOf: source.arena)
@@ -502,7 +520,6 @@ extension SourceSyncIndex {
                 result.songIDSpans.append(Span(offset: span.offset + base, length: span.length))
             }
             for index in source.rows.indices where source.isLive(index) {
-                if let skipping, skipping(partIndex, index) { continue }
                 var row = source.rows[index]
                 let flags = row.flags
                 row.keyOffset += base
@@ -1139,6 +1156,7 @@ extension SourceSyncIndex {
         func shrinkToFit() {
             func trimmed<Element>(_ array: [Element]) -> [Element]? {
                 guard array.capacity > array.count + array.count / 8 + 64 else { return nil }
+                guard !array.isEmpty else { return [] }
                 return [Element](unsafeUninitializedCapacity: array.count) { buffer, initialized in
                     _ = buffer.initialize(from: array)
                     initialized = array.count
@@ -1164,6 +1182,34 @@ extension SourceSyncIndex {
             tombstoneCount = 0
         }
 
+        // 旧分段合并可能留下没有任何行引用的字节，行数和校验和仍然合法。
+        // 字段长度之和是存活字节的上界；只有明显超过它时才重建，避免为普通索引多拷一份。
+        func hasExcessUnreferencedBytes(arenaByteCount: Int) -> Bool {
+            guard arenaByteCount > 64 * 1024 else { return false }
+            let threshold = arenaByteCount / 2
+            var referenced = 0
+            for row in rows {
+                let flags = row.flags
+                referenced += Int(row.pathLength) + Int(row.keyLength)
+                if flags & RowFlag.stableKeyIsKey == 0 { referenced += Int(row.stableKeyLength) }
+                if flags & RowFlag.hasDisplayName != 0 { referenced += Int(row.displayNameLength) }
+                if flags & RowFlag.hasParent != 0 { referenced += Int(row.parentLength) }
+                if flags & RowFlag.hasRevision != 0 { referenced += Int(row.revisionLength) }
+                if flags & RowFlag.hasSidecar != 0 { referenced += Int(row.sidecarLength) }
+                if referenced >= threshold { return false }
+                if flags & RowFlag.singleSongID != 0 {
+                    referenced += Int(row.songIDsSecond)
+                } else {
+                    for index in Int(row.songIDsFirst)..<Int(row.songIDsFirst) + Int(row.songIDsSecond) {
+                        referenced += Int(songIDSpans[index].length)
+                        if referenced >= threshold { return false }
+                    }
+                }
+                if referenced >= threshold { return false }
+            }
+            return true
+        }
+
         /// 只留存活行的一份拷贝。同一段字节(共用的目录路径、键与歌曲 ID 共用的字节)
         /// 拷过去仍是同一段。
         ///
@@ -1174,11 +1220,28 @@ extension SourceSyncIndex {
             let result = Storage(minimumCapacity: 0)
             result.rows.reserveCapacity(liveCount)
             result.hashes.reserveCapacity(liveCount)
+            appendCompactedRows(to: result)
+            result.liveCount = result.rows.count
+            result.rebuildSlots(slotCount: Self.slotCount(for: result.liveCount))
+            result.shrinkToFit()
+            return result
+        }
+
+        func appendCompactedRows(
+            to result: Storage,
+            arenaBytes: UnsafeBufferPointer<UInt8>? = nil,
+            copyingHashes: Bool = true,
+            skipping: (Int) -> Bool = { _ in false }
+        ) {
             var shared: [UInt64: Span] = [:]
             var local: [(tag: UInt64, span: Span)] = []
             local.reserveCapacity(8)
             func copyBytes(_ offset: UInt32, _ length: UInt32) -> Span {
-                arena.withUnsafeBufferPointer { buffer in
+                if let arenaBytes {
+                    return result.append(UnsafeBufferPointer(rebasing:
+                        arenaBytes[Int(offset)..<Int(offset) + Int(length)]))
+                }
+                return arena.withUnsafeBufferPointer { buffer in
                     result.append(UnsafeBufferPointer(rebasing: buffer[Int(offset)..<Int(offset) + Int(length)]))
                 }
             }
@@ -1205,6 +1268,7 @@ extension SourceSyncIndex {
                 return span
             }
             for index in rows.indices where isLive(index) {
+                if skipping(index) { continue }
                 var row = rows[index]
                 let flags = row.flags
                 local.removeAll(keepingCapacity: true)
@@ -1248,12 +1312,8 @@ extension SourceSyncIndex {
                     (row.sidecarOffset, row.sidecarLength) = (span.offset, span.length)
                 }
                 result.rows.append(row)
-                result.hashes.append(hashes[index])
+                if copyingHashes { result.hashes.append(hashes[index]) }
             }
-            result.liveCount = result.rows.count
-            result.rebuildSlots(slotCount: Self.slotCount(for: result.liveCount))
-            result.shrinkToFit()
-            return result
         }
     }
 }
@@ -1298,10 +1358,15 @@ extension SourceSyncIndex {
         var hasher = SHA256()
         var byteCount = 0
         func emit(_ buffer: UnsafeRawBufferPointer) throws {
-            guard buffer.count > 0 else { return }
-            hasher.update(bufferPointer: buffer)
-            try write(buffer)
-            byteCount += buffer.count
+            // 写入方可能需要 Data；限制每次交出的大小，避免复制整块索引。
+            let chunkSize = 256 * 1024
+            for start in stride(from: 0, to: buffer.count, by: chunkSize) {
+                let end = Swift.min(start + chunkSize, buffer.count)
+                let chunk = UnsafeRawBufferPointer(rebasing: buffer[start..<end])
+                hasher.update(bufferPointer: chunk)
+                try write(chunk)
+                byteCount += chunk.count
+            }
         }
         var header = [UInt8](repeating: 0, count: Self.headerSize)
         header.replaceSubrange(0..<8, with: Self.fileMagic)
@@ -1368,23 +1433,38 @@ extension SourceSyncIndex {
                 throw SourceSyncIndexFileError.digestMismatch
             }
 
-            let storage = Storage(minimumCapacity: 0)
+            var storage = Storage(minimumCapacity: 0)
             var offset = headerSize
-            storage.rows = [Row](unsafeUninitializedCapacity: Int(rowCount)) { buffer, initialized in
-                let bytes = UnsafeMutableRawBufferPointer(buffer)
-                bytes.copyMemory(from: UnsafeRawBufferPointer(rebasing: raw[offset..<offset + rowsBytes]))
-                initialized = Int(rowCount)
+            // 零长度沿用默认空数组，避免 unsafe 初始化器写共享空数组的计数。
+            if rowCount > 0 {
+                storage.rows = [Row](unsafeUninitializedCapacity: Int(rowCount)) { buffer, initialized in
+                    let bytes = UnsafeMutableRawBufferPointer(buffer)
+                    bytes.copyMemory(from: UnsafeRawBufferPointer(rebasing: raw[offset..<offset + rowsBytes]))
+                    initialized = Int(rowCount)
+                }
             }
             offset += rowsBytes
-            storage.songIDSpans = [Span](unsafeUninitializedCapacity: Int(spanCount)) { buffer, initialized in
-                let bytes = UnsafeMutableRawBufferPointer(buffer)
-                bytes.copyMemory(from: UnsafeRawBufferPointer(rebasing: raw[offset..<offset + spansBytes]))
-                initialized = Int(spanCount)
+            if spanCount > 0 {
+                storage.songIDSpans = [Span](unsafeUninitializedCapacity: Int(spanCount)) { buffer, initialized in
+                    let bytes = UnsafeMutableRawBufferPointer(buffer)
+                    bytes.copyMemory(from: UnsafeRawBufferPointer(rebasing: raw[offset..<offset + spansBytes]))
+                    initialized = Int(spanCount)
+                }
             }
             offset += spansBytes
-            storage.arena = [UInt8](UnsafeRawBufferPointer(rebasing: raw[offset..<offset + Int(arenaCount)]))
-
-            try storage.validateLoadedRows()
+            let arenaBytes = UnsafeBufferPointer(rebasing:
+                raw.bindMemory(to: UInt8.self)[offset..<offset + Int(arenaCount)])
+            try storage.validateLoadedRows(arenaByteCount: arenaBytes.count)
+            if storage.hasExcessUnreferencedBytes(arenaByteCount: arenaBytes.count) {
+                let compacted = Storage(minimumCapacity: 0)
+                compacted.rows.reserveCapacity(storage.rows.count)
+                // 从已校验的输入直接拷存活字节，不先分配整块旧的冗余数据。
+                storage.appendCompactedRows(to: compacted, arenaBytes: arenaBytes, copyingHashes: false)
+                compacted.shrinkToFit()
+                storage = compacted
+            } else {
+                storage.arena = Array(arenaBytes)
+            }
             storage.liveCount = storage.rows.count
             storage.hashes.reserveCapacity(storage.rows.count)
             for row in storage.rows.indices {
@@ -1405,8 +1485,8 @@ extension SourceSyncIndex {
 extension SourceSyncIndex.Storage {
     /// 每行引用的字节都在缓冲之内、标志都是认识的。校验和已经排除了磁盘损坏,
     /// 这里挡的是写入方的错误,免得越界读。
-    func validateLoadedRows() throws {
-        let arenaCount = UInt64(arena.count)
+    func validateLoadedRows(arenaByteCount: Int) throws {
+        let arenaCount = UInt64(arenaByteCount)
         func valid(_ offset: UInt32, _ length: UInt32) -> Bool {
             UInt64(offset) + UInt64(length) <= arenaCount
         }

@@ -1108,10 +1108,7 @@ final class MusicScraperService {
         guard allowBackgroundExecution || !isPausedForSceneTransition,
               !isScraping,
               let checkpoint = scrapeCheckpoint else { return }
-        let songsByID = Dictionary(
-            library.visibleSongs.map { ($0.id, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
+        let songsByID = IndexedSongSnapshot(library.visibleSongs)
         // Checkpoints written before result counters were introduced cannot be
         // resumed with an accurate aggregate. Replaying them from the beginning
         // is idempotent and avoids reporting only the tail as the whole result.
@@ -1188,12 +1185,17 @@ final class MusicScraperService {
             result.ordered.append(library.unobservedVisibleSong(id: song.id) ?? song)
         }.ordered
         guard !songs.isEmpty else { return .empty }
-        let pendingSongs = (requestedPendingSongs ?? songs).reduce(
-            into: (ordered: [Song](), seen: Set<String>())
-        ) { result, song in
-            guard result.seen.insert(song.id).inserted else { return }
-            result.ordered.append(library.unobservedVisibleSong(id: song.id) ?? song)
-        }.ordered
+        let pendingSongs: [Song]
+        if let requestedPendingSongs {
+            pendingSongs = requestedPendingSongs.reduce(
+                into: (ordered: [Song](), seen: Set<String>())
+            ) { result, song in
+                guard result.seen.insert(song.id).inserted else { return }
+                result.ordered.append(library.unobservedVisibleSong(id: song.id) ?? song)
+            }.ordered
+        } else {
+            pendingSongs = songs
+        }
         let runID = resumeCheckpoint?.runID ?? UUID()
         let runOriginPlaylistID = resumeCheckpoint?.originPlaylistID ?? originPlaylistID
         let parts = resumeCheckpoint.map { $0.parts ?? .all } ?? requestedParts

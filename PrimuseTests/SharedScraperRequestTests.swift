@@ -1994,6 +1994,41 @@ final class BuiltInScraperRegressionTests: XCTestCase {
 
 @MainActor
 final class BatchScraperRecoveryTests: XCTestCase {
+    func testNewBatchDeduplicatesSongsAndResumesOnlyRemainingIDs() async throws {
+        try await withFixture(failures: .max) { service, _, song, root, source, library in
+            var second = song
+            second.id = UUID().uuidString
+            library.addSongs([song, second])
+            _ = service.scrapeMissingMetadata(songs: [song, song, second], in: library, parts: .lyrics)
+            XCTAssertEqual(service.totalCount, 2)
+            let checkpointURL = root.appendingPathComponent("checkpoint/scrape-checkpoint.json")
+            let initialCheckpoint = try XCTUnwrap(JSONSerialization.jsonObject(
+                with: Data(contentsOf: checkpointURL)
+            ) as? [String: Any])
+            XCTAssertEqual(initialCheckpoint["songIDs"] as? [String], [song.id, second.id])
+            await service.waitUntilScrapeIdle()
+            var checkpoint = try XCTUnwrap(JSONSerialization.jsonObject(
+                with: Data(contentsOf: checkpointURL)
+            ) as? [String: Any])
+            XCTAssertEqual(checkpoint["songIDs"] as? [String], [second.id, song.id])
+            checkpoint["nextSongIndex"] = 1
+            checkpoint["skippedCount"] = 1
+            try JSONSerialization.data(withJSONObject: checkpoint).write(to: checkpointURL)
+
+            let healthy = RecoveryLyricsProbe(failures: 0, returnsLyrics: false)
+            let resumed = MusicScraperService(sourceManager: SourceManager(sourcesProvider: { [source] }),
+                metadataService: MetadataService(scraperManager: ScraperManager(scraperFactory: { _ in healthy })),
+                checkpointDirectory: root.appendingPathComponent("checkpoint"), scrapeRetrySleep: { _ in })
+            resumed.resumePendingScrape(in: library)
+            await resumed.waitUntilScrapeIdle()
+            XCTAssertEqual(resumed.lastCompletion?.processedSongCount, 2)
+            XCTAssertEqual(resumed.lastCompletion?.skippedCount, 2)
+            let requestCount = await healthy.requests
+            XCTAssertEqual(requestCount, 1)
+            XCTAssertFalse(resumed.hasPendingScrape)
+        }
+    }
+
     func testTransientFailureRetriesCurrentSongAndReturnsLyrics() async throws {
         try await withFixture(failures: 1) { service, _, song, _, _, _ in
             var delays: [TimeInterval] = []

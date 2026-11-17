@@ -211,7 +211,10 @@ public struct SourceScanWalkLog: Sendable {
     /// 并成一段(走查结束时用):之后 `materializedIndex()` 不必再拷。
     public mutating func consolidate() {
         seal()
-        guard segments.count > 1 else { return }
+        guard segments.count > 1 else {
+            shadowedKeys = []
+            return
+        }
         let index = Self.concatenating(segments.map(\.index), shadowedKeys: shadowedKeys)
         var songIDs: [String] = []
         songIDs.reserveCapacity(segments.reduce(0) { $0 + $1.songIDs.count })
@@ -228,8 +231,10 @@ public struct SourceScanWalkLog: Sendable {
             let newer = segments[segments.count - 1]
             guard older.weight <= 2 * newer.weight else { break }
             let index = Self.concatenating([older.index, newer.index], shadowedKeys: shadowedKeys)
+            // 先消费旧段的所有字段，避免优化构建中的元素借用跨过 removeLast 的释放。
+            let merged = Segment(index: index, songIDs: older.songIDs + newer.songIDs)
             segments.removeLast(2)
-            segments.append(Segment(index: index, songIDs: older.songIDs + newer.songIDs))
+            segments.append(merged)
         }
     }
 
@@ -545,7 +550,7 @@ public final class ScanResumeSegmentStore: @unchecked Sendable {
             byteCount += bytes.count
             if bytes.count >= 64 * 1024 {
                 try flush()
-                try handle.write(contentsOf: Data(bytes))
+                try handle.write(contentsOf: bytes)
             } else {
                 buffer.append(contentsOf: bytes)
                 if buffer.count >= 256 * 1024 { try flush() }
@@ -625,7 +630,7 @@ public final class ScanResumeSegmentStore: @unchecked Sendable {
                 offset += length
             }
             guard offset == idEnd else { throw ScanResumeSegmentFileError.malformed }
-            let indexData = data.subdata(in: data.startIndex + idEnd..<data.startIndex + payloadCount)
+            let indexData = data[data.startIndex + idEnd..<data.startIndex + payloadCount]
             let index: SourceSyncIndex
             do {
                 index = try SourceSyncIndex.decodeBinary(indexData)
