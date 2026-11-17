@@ -621,7 +621,13 @@ actor SynologyScanner {
                 guard let parsed = try await ISOAudioReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [api] offset, length in
                     try await api.downloadFileRange(path: cueItem.path, offset: offset, length: Int(length))
                 }) else { continue }
-                cue = ISOAlbumMetadataPolicy.merging(parsed, imageFileName: cueItem.name, sidecars: externalSheets)
+                let tagged = try await SACDMetadataXML.loading(
+                    into: parsed, imageFileName: cueItem.name,
+                    files: items.filter { !$0.isDirectory }.map { .init(name: $0.name, path: $0.path, size: $0.size) }
+                ) { file, offset, length in
+                    try await api.downloadFileRange(path: file.path, offset: offset, length: Int(length))
+                }
+                cue = ISOAlbumMetadataPolicy.merging(tagged, imageFileName: cueItem.name, sidecars: externalSheets)
             } else {
                 guard let data = await cueSheetData(for: cueItem),
                       let parsed = CueSheetParser.parse(data: data) else { continue }
@@ -645,14 +651,15 @@ actor SynologyScanner {
                 }
 
                 for track in cueFile.tracks where track.type == "AUDIO" && track.startTime != nil {
+                    let identity = CueTrackIdentity(sheet: cue, track: track)
                     result[audioItem.path, default: []].append(
                         CueTrackDescriptor(
                             cuePath: cueItem.path,
                             cueName: cueItem.name,
-                            albumTitle: track.isoAudioTrack?.albumTitle ?? cue.title,
-                            albumPerformer: track.isoAudioTrack?.albumArtist ?? cue.performer,
-                            genre: cue.genre,
-                            year: cue.year,
+                            albumTitle: identity.albumTitle,
+                            albumPerformer: identity.albumArtist,
+                            genre: identity.genre,
+                            year: identity.year,
                             format: track.isoAudioTrack?.format ?? format,
                             track: track
                         )
@@ -795,6 +802,7 @@ actor SynologyScanner {
             song.cueSheetPath = descriptor.cuePath
             song.cueStartTime = start
             song.cueEndTime = end
+            song.applySACDMetadata(from: descriptor.track)
             song.applyReplayGain(from: descriptor.track)
             song.sacdTrackNumber = descriptor.format == .sacdISO ? descriptor.track.number : nil
             song.isoAudioTrack = descriptor.track.isoAudioTrack

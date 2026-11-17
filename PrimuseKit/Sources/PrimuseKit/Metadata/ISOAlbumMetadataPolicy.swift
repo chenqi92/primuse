@@ -47,6 +47,18 @@ public enum ISOAlbumMetadataPolicy {
                     track.title = text(override.title) ?? track.title
                     track.performer = text(override.performer) ?? text(external?.sheet.performer) ?? track.performer
                     track.songwriter = text(override.songwriter) ?? track.songwriter
+                    if text(override.performer) ?? text(external?.sheet.performer) != nil {
+                        track.sacdMetadata?.artists = nil
+                    }
+                }
+                if var metadata = track.sacdMetadata {
+                    metadata.albumTitle = addingEditionMarkers(
+                        to: text(external?.sheet.title) ?? text(metadata.albumTitle) ?? text(result.title), fileNames: names
+                    )
+                    metadata.albumArtist = text(external?.sheet.performer) ?? metadata.albumArtist
+                    metadata.genre = text(external?.sheet.genre) ?? metadata.genre
+                    metadata.year = external?.sheet.year ?? metadata.year
+                    track.sacdMetadata = metadata
                 }
                 if var selector = track.isoAudioTrack {
                     let album = isSingleAlbum
@@ -92,6 +104,13 @@ public enum ISOAlbumMetadataPolicy {
         result.trackNumber = candidate.trackNumber
         result.genre = candidate.genre
         result.year = candidate.year
+        if candidate.isSACDTrack {
+            result.discNumber = candidate.discNumber
+            result.replayGainTrackGain = candidate.replayGainTrackGain
+            result.replayGainTrackPeak = candidate.replayGainTrackPeak
+            result.replayGainAlbumGain = candidate.replayGainAlbumGain
+            result.replayGainAlbumPeak = candidate.replayGainAlbumPeak
+        }
         if result.title != existing.title { result.titlePinyin = nil }
         if result.artistName != existing.artistName { result.artistPinyin = nil }
         if result.albumTitle != existing.albumTitle { result.albumPinyin = nil }

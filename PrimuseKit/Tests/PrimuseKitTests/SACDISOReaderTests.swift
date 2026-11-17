@@ -5,6 +5,32 @@ import Testing
 @Suite("SACD ISO bounded reads and track extraction")
 struct SACDISOReaderTests {
     @Test(arguments: [false, true])
+    func localISOEntryLoadsSameNameXMLAndFallsBackWhenRemoved(rawSectors: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("Album.iso")
+        try fixture(rawSectors: rawSectors).write(to: url)
+        let original = try #require(try await ISOAudioReader.localSheet(url: url))
+        let xmlURL = directory.appendingPathComponent("Album.XML")
+        try Data("""
+        <root><store type="SACD" version="1.2"><track id="2">
+        <meta name="TRACKNUMBER" value="1"/><meta name="TITLE" value="完整标题"/>
+        <meta name="ALBUM" value="完整专辑"/><meta name="DISCNUMBER" value="2"/>
+        </track></store></root>
+        """.utf8).write(to: xmlURL)
+        let tagged = try #require(try await ISOAudioReader.localSheet(url: url))
+        #expect(tagged.files[0].tracks[0].title == "完整标题")
+        #expect(CueTrackIdentity(sheet: tagged, track: tagged.files[0].tracks[0]).albumTitle == "完整专辑")
+        #expect(tagged.files[0].tracks.map(\.endTime) == original.files[0].tracks.map(\.endTime))
+        #expect(tagged.files[0].tracks[1] == original.files[0].tracks[1])
+        try Data("<invalid>".utf8).write(to: xmlURL)
+        #expect(try await ISOAudioReader.localSheet(url: url) == original)
+        try FileManager.default.removeItem(at: xmlURL)
+        #expect(try await ISOAudioReader.localSheet(url: url) == original)
+    }
+
+    @Test(arguments: [false, true])
     func readsDiscAndTracks(rawSectors: Bool) async throws {
         let image = fixture(rawSectors: rawSectors)
         let reader = Reads(image)

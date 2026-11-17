@@ -1325,7 +1325,17 @@ enum LyricsSidecarTargetPolicy {
                         external.append(.init(name: item.name, sheet: parsed))
                     }
                 }
-                cue = embedded.map { ISOAlbumMetadataPolicy.merging($0, imageFileName: sheet.name, sidecars: external) }
+                if let embedded {
+                    let tagged = try await SACDMetadataXML.loading(
+                        into: embedded, imageFileName: sheet.name,
+                        files: items.filter { !$0.isDirectory }.map { .init(name: $0.name, path: $0.path, size: $0.size) }
+                    ) { file, offset, length in
+                        try await connector.fetchMetadataRange(path: file.path, offset: offset, length: length)
+                    }
+                    cue = ISOAlbumMetadataPolicy.merging(tagged, imageFileName: sheet.name, sidecars: external)
+                } else {
+                    cue = nil
+                }
             } else {
                 let data = try await connector.fetchMetadataRange(
                     path: sheet.path, offset: 0,

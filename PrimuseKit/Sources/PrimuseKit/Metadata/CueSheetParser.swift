@@ -47,6 +47,7 @@ public struct CueTrack: Equatable, Sendable {
     public var startTime: TimeInterval?
     public var endTime: TimeInterval?
     public var isoAudioTrack: ISOAudioTrack?
+    public var sacdMetadata: EmbeddedTagMetadata?
     /// CUE 里用 REM 记的回放增益(foobar2000 等扫完增益后写进去的)。整轨文件的标签只有一份,
     /// 说不了每一轨各是多少,分轨的增益只有这里有。专辑那两项是整张的值,每一轨都带一份。
     public var replayGainTrackGain: Double?
@@ -119,15 +120,19 @@ public struct CueTrackIdentity: Equatable, Sendable {
     public var trackNumber: Int
     public var genre: String?
     public var year: Int?
+    public var discNumber: Int?
 
     public init(sheet: CueSheet, track: CueTrack) {
         title = Self.trimmedNonEmpty(track.title)
         artist = Self.trimmedNonEmpty(track.performer) ?? Self.trimmedNonEmpty(sheet.performer)
-        albumTitle = Self.trimmedNonEmpty(track.isoAudioTrack?.albumTitle) ?? Self.trimmedNonEmpty(sheet.title)
-        albumArtist = Self.trimmedNonEmpty(track.isoAudioTrack?.albumArtist) ?? Self.trimmedNonEmpty(sheet.performer) ?? artist
+        albumTitle = Self.trimmedNonEmpty(track.sacdMetadata?.albumTitle)
+            ?? Self.trimmedNonEmpty(track.isoAudioTrack?.albumTitle) ?? Self.trimmedNonEmpty(sheet.title)
+        albumArtist = Self.trimmedNonEmpty(track.sacdMetadata?.albumArtist)
+            ?? Self.trimmedNonEmpty(track.isoAudioTrack?.albumArtist) ?? Self.trimmedNonEmpty(sheet.performer) ?? artist
         trackNumber = track.number
-        genre = Self.trimmedNonEmpty(sheet.genre)
-        year = sheet.year
+        genre = Self.trimmedNonEmpty(track.sacdMetadata?.genre) ?? Self.trimmedNonEmpty(sheet.genre)
+        year = track.sacdMetadata?.year ?? sheet.year
+        discNumber = track.sacdMetadata?.discNumber
     }
 
     private static func trimmedNonEmpty(_ value: String?) -> String? {
@@ -342,6 +347,12 @@ public enum CueSheetParser {
 }
 
 public extension Song {
+    mutating func applySACDMetadata(from track: CueTrack) {
+        guard let metadata = track.sacdMetadata else { return }
+        discNumber = metadata.discNumber
+        sourceArtistNames = metadata.artists
+    }
+
     /// 把 CUE 里记的回放增益放到这一轨上。CUE 没写的项不动。
     mutating func applyReplayGain(from track: CueTrack) {
         if let value = track.replayGainTrackGain { replayGainTrackGain = value }

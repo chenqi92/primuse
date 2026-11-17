@@ -3195,6 +3195,7 @@ final class TVSourceScanner {
                 isoAudioTrack: descriptor.track.isoAudioTrack,
                 revision: Self.revision(for: entry, source: source)
             )
+            song.applySACDMetadata(from: descriptor.track)
             song.applyReplayGain(from: descriptor.track)
             return song
         }
@@ -3234,7 +3235,13 @@ final class TVSourceScanner {
                     guard let parsed = try await ISOAudioReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { offset, length in
                         try await readerPool.read(path: cueItem.path, size: cueItem.size, offset: offset, length: length)
                     }) else { continue }
-                    cue = ISOAlbumMetadataPolicy.merging(parsed, imageFileName: cueItem.name, sidecars: externalSheets)
+                    let tagged = try await SACDMetadataXML.loading(
+                        into: parsed, imageFileName: cueItem.name,
+                        files: siblings.filter { !$0.isDir }.map { .init(name: $0.name, path: $0.path, size: $0.size) }
+                    ) { file, offset, length in
+                        try await readerPool.read(path: file.path, size: file.size, offset: offset, length: length)
+                    }
+                    cue = ISOAlbumMetadataPolicy.merging(tagged, imageFileName: cueItem.name, sidecars: externalSheets)
                 } else {
                     guard cueItem.size <= 0 || cueItem.size <= 1024 * 1024 else {
                         throw CocoaError(.fileReadTooLarge)
@@ -3290,14 +3297,15 @@ final class TVSourceScanner {
                     }
                     for track in cueFile.tracks
                         where track.type == "AUDIO" && track.startTime != nil {
+                        let identity = CueTrackIdentity(sheet: cue, track: track)
                         result[audioItem.path, default: []].append(
                             CueTrackDescriptor(
                                 cuePath: cueItem.path,
                                 cueName: cueItem.name,
-                                albumTitle: track.isoAudioTrack?.albumTitle ?? cue.title,
-                                albumPerformer: track.isoAudioTrack?.albumArtist ?? cue.performer,
-                                genre: cue.genre,
-                                year: cue.year,
+                                albumTitle: identity.albumTitle,
+                                albumPerformer: identity.albumArtist,
+                                genre: identity.genre,
+                                year: identity.year,
                                 format: track.isoAudioTrack?.format ?? format,
                                 track: track
                             )

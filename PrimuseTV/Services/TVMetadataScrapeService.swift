@@ -741,7 +741,13 @@ final class TVMetadataScrapeService {
                     external.append(.init(name: entry.name, sheet: cue))
                 }
             }
-            sheet = ISOAlbumMetadataPolicy.merging(parsed, imageFileName: imageName, sidecars: external)
+            let tagged = (try? await SACDMetadataXML.loading(
+                into: parsed, imageFileName: imageName,
+                files: entries.filter { !$0.isDir }.map { .init(name: $0.name, path: $0.path, size: $0.size) }
+            ) { file, offset, length in
+                try await readerPool.read(path: file.path, size: file.size, offset: offset, length: length)
+            }) ?? parsed
+            sheet = ISOAlbumMetadataPolicy.merging(tagged, imageFileName: imageName, sidecars: external)
             sheets[cuePath] = sheet
         } else {
             // 与扫描时一样最多读 1MB。按 ID 寻址的网盘列不了目录,不知道大小时先读 64KB。
@@ -771,9 +777,16 @@ final class TVMetadataScrapeService {
         restored.albumTitle = identity.albumTitle
         restored.albumArtistName = identity.albumArtist
         restored.trackNumber = identity.trackNumber
-        restored.discNumber = nil
+        restored.discNumber = identity.discNumber
         restored.genre = identity.genre ?? song.genre
         restored.year = identity.year ?? song.year
+        if song.isSACDTrack {
+            restored.applySACDMetadata(from: track)
+            restored.replayGainTrackGain = track.replayGainTrackGain
+            restored.replayGainTrackPeak = track.replayGainTrackPeak
+            restored.replayGainAlbumGain = track.replayGainAlbumGain
+            restored.replayGainAlbumPeak = track.replayGainAlbumPeak
+        }
         return restored
     }
 

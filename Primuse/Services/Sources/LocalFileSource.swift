@@ -1006,15 +1006,16 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                     modifiedDate: values.contentModificationDate
                 )
                 for track in cueFile.tracks where track.type == "AUDIO" && track.startTime != nil {
+                    let identity = CueTrackIdentity(sheet: cue, track: track)
                     result[audioPath, default: []].append(
                         CueTrackDescriptor(
                             cuePath: relativePath(for: cueURL),
                             cueName: cueURL.lastPathComponent,
                             cueRevision: cueRevision,
-                            albumTitle: track.isoAudioTrack?.albumTitle ?? cue.title,
-                            albumPerformer: track.isoAudioTrack?.albumArtist ?? cue.performer,
-                            genre: cue.genre,
-                            year: cue.year,
+                            albumTitle: identity.albumTitle,
+                            albumPerformer: identity.albumArtist,
+                            genre: identity.genre,
+                            year: identity.year,
                             format: track.isoAudioTrack?.format ?? format,
                             track: track
                         )
@@ -1147,6 +1148,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 contentMetadata: metadata.contentMetadata
             )
             // 整轨文件的增益标签是整张的;CUE 里逐轨记的才是这一轨的。
+            song.applySACDMetadata(from: descriptor.track)
             song.applyReplayGain(from: descriptor.track)
             return ConnectorScannedSong(
                 song: song,

@@ -34,10 +34,11 @@ public enum ISOAudioReader {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         let size = try handle.seekToEnd()
-        return try await sheet(fileName: url.lastPathComponent, size: Int64(size)) { offset, length in
+        guard let embedded = try await sheet(fileName: url.lastPathComponent, size: Int64(size), read: { offset, length in
             try handle.seek(toOffset: UInt64(offset))
             return try handle.read(upToCount: Int(length)) ?? Data()
-        }
+        }) else { return nil }
+        return try await SACDMetadataXML.loadingLocal(into: embedded, imageURL: url)
     }
 
     public static func sheet(fileName: String, size: Int64, read: @escaping Read) async throws -> CueSheet? {

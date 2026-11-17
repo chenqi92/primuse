@@ -5905,7 +5905,7 @@ final class MetadataBackfillService {
             }
             var metadata = MetadataService.SongMetadata(
                 title: track.title ?? song.title, artist: track.performer ?? disc.performer,
-                albumTitle: disc.title, albumArtist: disc.performer, trackNumber: number, year: disc.year,
+                albumTitle: disc.title, albumArtist: disc.performer, trackNumber: number, year: song.year ?? disc.year,
                 duration: track.duration, sampleRate: 2_822_400, bitDepth: 1
             )
             metadata.hasTechnicalProperties = true
