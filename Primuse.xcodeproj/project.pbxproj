@@ -1145,6 +1145,7 @@
 		77F52F217A57328E7FC3E19B /* PlaylistExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 285C1472009479A6CC7B2177 /* PlaylistExporter.swift */; };
 		7814030E97D0D88E7252DC4D /* SpokenWordPlayerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */; };
 		7817038FB96764E70301F8AA /* PlayerBackdropImagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8454552C91A726FE2314337 /* PlayerBackdropImagingTests.swift */; };
+		A5294B124AA64718B2BEF291 /* UncroppedArtworkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5294B124AA64718B2BEF292 /* UncroppedArtworkRenderingTests.swift */; };
 		7838A8CFB758F37EE9CAB726 /* LibrarySongBrowseMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B89002BB9DE5179461BC5B7 /* LibrarySongBrowseMode.swift */; };
 		7844064256F6C1E00E38F9AB /* FloatingLyricsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A690C914166FA21E7F6C9662 /* FloatingLyricsService.swift */; };
 		A2763AE09B12004AE6C10012 /* LyricsCacheObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2763AE09B12004AE6C10013 /* LyricsCacheObserver.swift */; };
@@ -3989,6 +3990,7 @@
 		C80834BBDEE38A8B8A31CB73 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/PlayMedia.strings; sourceTree = "<group>"; };
 		C82A71C603F4383D65481F69 /* AppleMusicLocalFileReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicLocalFileReader.swift; sourceTree = "<group>"; };
 		C8454552C91A726FE2314337 /* PlayerBackdropImagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdropImagingTests.swift; sourceTree = "<group>"; };
+		A5294B124AA64718B2BEF292 /* UncroppedArtworkRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UncroppedArtworkRenderingTests.swift; sourceTree = "<group>"; };
 		C8507442CF0DB8F8518111B0 /* SongloftAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongloftAPIProtocol.swift; sourceTree = "<group>"; };
 		C886146364848C1D5139C0CD /* KeyedRunRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyedRunRegistry.swift; sourceTree = "<group>"; };
 		C891ECCBAEB4EF0ED63759C7 /* TVAudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAudioEngine.swift; sourceTree = "<group>"; };
@@ -6449,6 +6451,7 @@
 				0EB9BD8B836299C30B3A1296 /* OpenAICompatibleProviderTests.swift */,
 				28344C4A76C56EC6BE57ED3B /* PlaybackSourceAvailabilityTests.swift */,
 				C8454552C91A726FE2314337 /* PlayerBackdropImagingTests.swift */,
+				A5294B124AA64718B2BEF292 /* UncroppedArtworkRenderingTests.swift */,
 				4DF4C2C2431FCAFEEBF27ABE /* PlayerLyricsColorPreferencesTests.swift */,
 				228E8BF03AF87D66B5D11FC1 /* PlaylistPartialImportNoticeTests.swift */,
 				EFC98C4E381BB319949FD4CF /* PlaylistSongOrderDraftTests.swift */,
@@ -7353,6 +7356,7 @@
 				E0F81CCC4D4D80C022C98A59 /* OpenAICompatibleProviderTests.swift in Sources */,
 				BC6A73FEEDED6D358AA5CFE7 /* PlaybackSourceAvailabilityTests.swift in Sources */,
 				7817038FB96764E70301F8AA /* PlayerBackdropImagingTests.swift in Sources */,
+				A5294B124AA64718B2BEF291 /* UncroppedArtworkRenderingTests.swift in Sources */,
 				D49A69585083A36B4261ED1D /* PlayerLyricsColorPreferencesTests.swift in Sources */,
 				80302F192F3A0E0F4061EF23 /* PlaylistPartialImportNoticeTests.swift in Sources */,
 				8263182BD9D107552C52A104 /* PlaylistSongOrderDraftTests.swift in Sources */,

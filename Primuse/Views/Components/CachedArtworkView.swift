@@ -2690,7 +2690,8 @@ struct UncroppedArtwork<Content: View>: View {
                 .clipped()
                 .blur(radius: max(6, min(geometry.size.width, geometry.size.height) * 0.08), opaque: true)
                 .overlay(Color.black.opacity(0.16))
-                .drawingGroup()
+                // drawingGroup 的离屏纹理在 UIKit 宿主缩放时会缺块，合成分组能保留完整补边。
+                .compositingGroup()
                 .overlay(alignment: .topLeading) {
                     content()
                         .frame(width: fitted.width, height: fitted.height)
