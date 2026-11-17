@@ -124,6 +124,11 @@ actor ArtworkFetchService {
         }
     }
 
+    func clearMemoryCache() {
+        artistPhotos.removeAll(keepingCapacity: false)
+        artistPhotoOrder.removeAll(keepingCapacity: false)
+    }
+
     // MARK: - Online Search
 
     private func searchAlbumCoverOnline(albumTitle: String, artistName: String?) async -> Data? {

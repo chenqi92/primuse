@@ -1293,8 +1293,9 @@ final class BackgroundLibraryMaintenanceCoordinator {
 /// 的页还给系统。iOS 退到后台、不在放歌、后台也没别的活儿时(`BackgroundMemoryTrimPolicy`):
 /// 等场景切换做完, 把曲库派生数据、已解码的封面、播放页背景位图一起放掉 —— 挂起时的占用从一点几
 /// GB 降下来, 系统回收挂起进程时就不总先挑中它。回到前台时, 放之前建着的那几份整库数据先在主线程外
-/// 补回来(`MusicLibrary.rewarmReleasedCaches()`), 其余的用到时按需重建。
-/// macOS 不放: 隐藏的 Mac App 不会被挂起回收, 常在后台放歌, 回来还要重建反而吃亏。
+/// 回到前台时, 放之前建着的那几份整库数据先在主线程外补回来(`MusicLibrary.rewarmReleasedCaches()`),
+/// 其余的用到时按需重建。macOS 在隐藏或长时失焦且空闲时走同一套后台释放与激活预热, 不触发
+/// `.primuseMemoryPressure` 以免拆掉已排序列表和暂停中的播放管线。
 @MainActor
 final class RebuildableMemoryReliefCoordinator {
     static let shared = RebuildableMemoryReliefCoordinator()
@@ -1308,6 +1309,11 @@ final class RebuildableMemoryReliefCoordinator {
     /// 每排一次、取消一次都前进: 旧的那一轮收尾时不会把新一轮的断言放掉。
     private var trimGeneration = 0
     private var rewarmTask: Task<Void, Never>?
+    #elseif os(macOS)
+    private var macLifecycleObservers: [NSObjectProtocol] = []
+    private var macIdleTrimTask: Task<Void, Never>?
+    private var macRewarmTask: Task<Void, Never>?
+    private var macTrimGeneration = 0
     #endif
 
     func install(library: MusicLibrary, player: AudioPlayerService) {
@@ -1323,18 +1329,141 @@ final class RebuildableMemoryReliefCoordinator {
                 RebuildableMemoryReliefCoordinator.shared.relieveMemoryPressure()
             }
         }
+        #if os(macOS)
+        installMacLifecycleObservers()
+        #endif
     }
 
     private func relieveMemoryPressure() {
         // 曲库自己的观察者也会放一遍(放空了再放很便宜); 这里先放, 保证还页之前已经放完。
         library?.releaseRebuildableCaches()
+        CachedArtworkView.purgeDecodedImageCache()
+        PlayerBackdropMemoryCache.shared.removeAll()
+        AppServices.shared.coverTintProvider.clearCache(releasingKnownSongs: true)
+        URLCache.shared.removeAllCachedResponses()
         player?.trimNowPlayingArtworkCacheToCurrentItem()
         Task {
+            await ImageCache.shared.clearMemoryCache()
+            await ArtworkFetchService.shared.clearMemoryCache()
             // 搜索投影在搜索 actor 上, 等它放完再还页。
             await LibrarySearchIndex.shared.releaseReadCaches()
             await MusicLibrary.returnFreedMemoryToSystem()
         }
     }
+
+    #if os(macOS)
+    private func installMacLifecycleObservers() {
+        guard macLifecycleObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        let inactiveNames: [Notification.Name] = [
+            NSApplication.didHideNotification,
+            NSApplication.didResignActiveNotification,
+        ]
+        for name in inactiveNames {
+            let observer = center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    RebuildableMemoryReliefCoordinator.shared.scheduleMacBackgroundTrim()
+                }
+            }
+            macLifecycleObservers.append(observer)
+        }
+        let activeNames: [Notification.Name] = [
+            NSApplication.didBecomeActiveNotification,
+            NSApplication.didUnhideNotification,
+        ]
+        for name in activeNames {
+            let observer = center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    RebuildableMemoryReliefCoordinator.shared.macDidBecomeActive()
+                }
+            }
+            macLifecycleObservers.append(observer)
+        }
+    }
+
+    private func macBackgroundTrimActivity() -> BackgroundMemoryTrimPolicy.Activity {
+        let services = AppServices.shared
+        return BackgroundMemoryTrimPolicy.Activity(
+            isPlaybackActive: player?.isPlaybackActive ?? false,
+            isScanning: services.scanService.hasActiveScans
+                || services.scanService.hasResumableScanWork
+                || services.scraperService.isScraping
+                || services.metadataBackfill.isRunning,
+            isImporting: LocalImportService.hasPendingScan,
+            isTransferring: services.audioCacheSync.operation != .idle
+                || services.audioCacheSync.incomingTransferCount > 0,
+            isDownloadingForOffline: !services.sourceManager.activeOfflineBatchOwnerIDs.isEmpty,
+            isSeparatingKaraoke: KaraokeSeparationService.shared.hasWorkInFlight,
+            isCarPlayActive: false
+        )
+    }
+
+    private func cancelMacPendingTrim() {
+        macTrimGeneration &+= 1
+        macIdleTrimTask?.cancel()
+        macIdleTrimTask = nil
+    }
+
+    private func macDidBecomeActive() {
+        cancelMacPendingTrim()
+        macRewarmTask?.cancel()
+        macRewarmTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, let self, NSApp.isActive, !NSApp.isHidden else { return }
+            self.library?.rewarmReleasedCaches()
+            self.macRewarmTask = nil
+        }
+    }
+
+    private func scheduleMacBackgroundTrim() {
+        cancelMacPendingTrim()
+        macRewarmTask?.cancel()
+        macRewarmTask = nil
+        guard BackgroundMemoryTrimPolicy.shouldTrim(
+            phase: .background,
+            activity: macBackgroundTrimActivity()
+        ) else { return }
+        let generation = macTrimGeneration
+        macIdleTrimTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(20))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  self.macTrimGeneration == generation,
+                  !NSApp.isActive || NSApp.isHidden,
+                  BackgroundMemoryTrimPolicy.shouldTrim(
+                      phase: .background,
+                      activity: self.macBackgroundTrimActivity()
+                  ),
+                  let library = self.library else { return }
+
+            let hasNoVisibleWindow = NSApp.isHidden || !Self.hasVisibleContentWindow()
+            library.releaseRebuildableCachesForBackground()
+            if hasNoVisibleWindow {
+                CachedArtworkView.purgeDecodedImageCache()
+                PlayerBackdropMemoryCache.shared.removeAll()
+            }
+            AppServices.shared.coverTintProvider.clearCache(releasingKnownSongs: hasNoVisibleWindow)
+            URLCache.shared.removeAllCachedResponses()
+            self.player?.trimNowPlayingArtworkCacheToCurrentItem()
+            await MusicLibrary.returnFreedMemoryToSystem()
+            await ImageCache.shared.clearMemoryCache()
+            await ArtworkFetchService.shared.clearMemoryCache()
+            await LibrarySearchIndex.shared.releaseReadCaches()
+            await MusicLibrary.returnFreedMemoryToSystem()
+            plog("Memory trim: released macOS rebuildable caches while inactive")
+        }
+    }
+
+    private static func hasVisibleContentWindow() -> Bool {
+        NSApp.windows.contains { window in
+            window.isVisible && !window.isMiniaturized && !(window is NSPanel) && window.canBecomeMain
+        }
+    }
+    #endif
 
     #if os(iOS)
     /// `.background` 时调用。`activity` 在排期时和真正动手前各看一次。

@@ -2224,6 +2224,7 @@ final class AppleMusicLibraryService {
             }
 
             var urlRequest = URLRequest(url: pageURL)
+            urlRequest.cachePolicy = .reloadIgnoringLocalCacheData
             urlRequest.timeoutInterval = Self.syncStallTimeout
             let response = try await MusicDataRequest(urlRequest: urlRequest).response()
             if let page = try? JSONDecoder().decode(LossyCloudLibraryPage<Item>.self, from: response.data) {

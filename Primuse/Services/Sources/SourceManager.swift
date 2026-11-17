@@ -10616,6 +10616,8 @@ final class SourceManager {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 60 * 60
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         let songID = song.id
         let expectedTotal = expectedSize > 0 ? expectedSize : nil
         let delegate = OfflineDirectDownloadDelegate(
@@ -10682,6 +10684,8 @@ final class SourceManager {
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         let session = TrustedHTTPTransport.makeMediaSession(configuration: config)
         defer { session.finishTasksAndInvalidate() }
         var request = URLRequest(url: url)

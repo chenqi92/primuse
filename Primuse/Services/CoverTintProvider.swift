@@ -103,10 +103,13 @@ final class CoverTintProvider {
         }
     }
 
-    func clearCache() {
+    func clearCache(releasingKnownSongs: Bool = false) {
         cache.removeAll(keepingCapacity: false)
         noColorCache.removeAll(keepingCapacity: false)
         invalidatedWhileInFlight.formUnion(inFlight)
+        if releasingKnownSongs {
+            knownSongs.removeAll(keepingCapacity: false)
+        }
     }
 
     /// Artwork writes and replacements invalidate both positive and negative
