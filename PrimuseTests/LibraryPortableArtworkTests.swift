@@ -1353,7 +1353,18 @@ final class LibraryPortableArtworkTests: XCTestCase {
         }
         let headerRect = CGRect(x: 20, y: 120, width: 350, height: 160)
         let tileCenter = CGRect(x: 190, y: 655, width: 10, height: 10)
-        let originalHeader = try await pixels(in: headerRect)
+        var originalHeader: [UInt8] = []
+        func headerContainsBothCovers(_ pixels: [UInt8]) -> Bool {
+            let offsets = stride(from: 0, to: pixels.count, by: 4)
+            let hasRed = offsets.contains { pixels[$0] > 200 && pixels[$0 + 2] < 30 }
+            let hasBlue = offsets.contains { pixels[$0 + 2] > 200 && pixels[$0] < 30 }
+            return hasRed && hasBlue
+        }
+        for _ in 0..<10 {
+            originalHeader = try await pixels(in: headerRect)
+            if headerContainsBothCovers(originalHeader) { break }
+        }
+        XCTAssertTrue(headerContainsBothCovers(originalHeader), "Both cover-wall images must load before comparing overrides")
         let automaticTile = try await pixels(in: tileCenter)
         let automaticIsRed = automaticTile[0] > 200 && automaticTile[2] < 30
         let automaticIsBlue = automaticTile[2] > 200 && automaticTile[0] < 30
