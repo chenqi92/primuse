@@ -16,7 +16,6 @@ struct PMTitleBar: View {
     var onOpenListeningStats: () -> Void = {}
     var onOpenTool: (MacTool) -> Void = { _ in }
 
-    @Environment(\.pmAppearance) private var mode
     @Environment(MusicLibrary.self) private var library
     @AppStorage(AppleMusicFeatureSettings.catalogSearchEnabledKey)
     private var appleMusicCatalogSearchEnabled = true
@@ -50,10 +49,7 @@ struct PMTitleBar: View {
         }
         .padding(.horizontal, 14)
         .frame(height: PMSize.titlebar)
-        .background(titlebarBackground.ignoresSafeArea(edges: .top))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-        }
+        .background(MacTitleBarBackdrop().ignoresSafeArea(edges: .top))
     }
 
     /// Use concrete AppKit views for the flexible title-bar gaps. Keeping the
@@ -223,22 +219,6 @@ struct PMTitleBar: View {
         return false
     }
 
-    @ViewBuilder
-    private var titlebarBackground: some View {
-        // 设计稿: TitleBar 背景 = var(--pm-bg) (浅色: #F3F4F6 冷中性灰, 深色: #161719) +
-        // rgba(255,255,255,.04) 微亮覆盖, 跟整窗 bg 同色调。之前用 .headerView material
-        // 会去 blend 窗外内容, 在浅色系统上偏纯白, 跟整窗中性灰 bg 不一致, 顶部看着像「贴
-        // 了块白条」。直接用 PMColor.bg 实色就跟下面 detail 区无缝接上。
-        if mode == .glass {
-            ZStack {
-                Rectangle().fill(PMColor.bg)
-                Rectangle().fill(Color.white.opacity(0.04))
-            }
-        } else {
-            Rectangle().fill(PMColor.bg)
-        }
-    }
-
     private func showSearchResults(for query: String) {
         if MacTitleBarSearchPolicy.shouldActivateSearch(for: query, isOnSearch: isOnSearch) {
             selectSearchRoute()
@@ -300,6 +280,55 @@ struct PMTitleBar: View {
         let frameInWindow = field.convert(field.bounds, to: nil)
         let titleBarFloor = contentView.convert(contentView.bounds, to: nil).maxY - PMSize.titlebar - 12
         return frameInWindow.midY >= titleBarFloor
+    }
+}
+
+/// 标题栏的底色与下沿分隔线。平时是实色:设计稿 TitleBar 背景 = var(--pm-bg) (浅色 #F3F4F6
+/// 冷中性灰, 深色 #161719) + rgba(255,255,255,.04) 微亮覆盖, 跟下面 detail 区无缝接上。之前用
+/// .headerView material 会去 blend 窗外内容, 浅色系统上偏纯白, 顶部看着像「贴了块白条」。
+///
+/// 播放页开着时(`macSidebarFollowsPlayer`)两样都褪掉, 露出从下面接上来的侧栏染色底、播放页色场
+/// 和右侧面板(`macExtendsUnderTitleBar`): 窗口顶上不再横着一条跟封面色接不上的深色带 ——
+/// 侧栏染色之后, 它上方那一块最显眼。褪掉时照样接点按, 空白处不点穿到下面的侧栏、播放页。
+/// 只有这一层读开合状态, 标题栏上的按钮和搜索框不跟着重算。
+private struct MacTitleBarBackdrop: View {
+    @Environment(\.pmAppearance) private var mode
+    @Environment(\.macSidebarFollowsPlayer) private var followsPlayer
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            if mode == .glass {
+                Rectangle().fill(PMColor.bg)
+                Rectangle().fill(Color.white.opacity(0.04))
+            } else {
+                Rectangle().fill(PMColor.bg)
+            }
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+        .opacity(followsPlayer ? 0 : 1)
+        .contentShape(Rectangle())
+    }
+}
+
+extension EnvironmentValues {
+    /// 自绘标题栏压在下面这一排(侧栏、正文、右侧面板)上方的高度; 标题栏不显示时(全屏播放)为 0。
+    @Entry var macTitleBarUnderlap: CGFloat = 0
+}
+
+extension View {
+    /// 把一列的底色往上接到窗口顶, 垫在标题栏下面。平时标题栏是实色、盖着看不见; 播放页开着时
+    /// 标题栏褪成透明(`MacTitleBarBackdrop`), 侧栏、播放页、右侧面板的底色就从窗口顶一直铺下来。
+    /// 只给底色用: 内容照旧排在标题栏下面。
+    func macExtendsUnderTitleBar() -> some View {
+        modifier(MacTitleBarUnderlapModifier())
+    }
+}
+
+private struct MacTitleBarUnderlapModifier: ViewModifier {
+    @Environment(\.macTitleBarUnderlap) private var underlap
+
+    func body(content: Content) -> some View {
+        content.padding(.top, -underlap)
     }
 }
 

@@ -90,7 +90,8 @@ struct MacSidebar: View {
             .pmAnimation(.list, value: hasSources)
         }
         .frame(maxHeight: .infinity)
-        .background(MacSidebarBackdrop().ignoresSafeArea())
+        // 底色接到窗口顶: 播放页开着时标题栏褪透明, 侧栏的封面色从红绿灯那一角就开始。
+        .background(MacSidebarBackdrop().macExtendsUnderTitleBar().ignoresSafeArea())
         .sheet(item: $copyToServerPlaylist) { playlist in
             PlaylistCopyToServerSheet(playlistIDs: [playlist.id])
         }
@@ -686,8 +687,8 @@ struct MacSidebarBackdrop: View {
 }
 
 extension EnvironmentValues {
-    /// 播放页开着、侧栏挨着它:侧栏底色跟着染上封面颜色(`MacSidebarPlayerTint`)。
-    /// 只有 `MacSidebarBackdrop` 读它,开合播放页时侧栏的各行不跟着重算。
+    /// 播放页开着、侧栏挨着它:侧栏底色跟着染上封面颜色(`MacSidebarPlayerTint`),标题栏底色褪掉。
+    /// 只有 `MacSidebarBackdrop` 和标题栏的底色层读它,开合播放页时侧栏的各行、标题栏的按钮不跟着重算。
     @Entry var macSidebarFollowsPlayer = false
 }
 

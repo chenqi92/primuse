@@ -951,6 +951,8 @@ struct MacNowPlayingView: View {
             }
         }
         .animation(.easeInOut(duration: 0.5), value: theme.colorID)
+        // 色场接到窗口顶: 播放页开着时标题栏褪透明, 和侧栏一起从顶上铺下来(`MacTitleBarBackdrop`)。
+        .macExtendsUnderTitleBar()
         .ignoresSafeArea()
     }
 

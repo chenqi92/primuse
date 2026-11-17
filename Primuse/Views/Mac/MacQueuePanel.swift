@@ -34,10 +34,14 @@ struct MacQueuePanel: View {
                 NSVisualEffectBackdrop(material: .sidebar, blending: .behindWindow)
                 Rectangle().fill(PMColor.sidebarGlass.opacity(0.6))
             }
+            // 播放页开着时标题栏褪透明, 面板的底和分隔线一直接到窗口顶。
+            .macExtendsUnderTitleBar()
             .ignoresSafeArea()
         }
         .overlay(alignment: .leading) {
-            Rectangle().fill(PMColor.divider).frame(width: 0.5).ignoresSafeArea(edges: .vertical)
+            Rectangle().fill(PMColor.divider).frame(width: 0.5)
+                .macExtendsUnderTitleBar()
+                .ignoresSafeArea(edges: .vertical)
         }
     }
 

@@ -270,6 +270,10 @@ struct MacContentView: View {
                     onOpenListeningStats: openListeningStats,
                     onOpenTool: { activeTool = $0 }
                 )
+                // 播放页开着时标题栏底色褪掉, 露出下面接上来的侧栏、播放页底色(`macExtendsUnderTitleBar`)。
+                .modifier(MacSidebarFollowsPlayerScope(isNowPlayingPresented: $nowPlayingPresented))
+                // 下面那一排的底色往上伸到窗口顶, 标题栏要画在它们上面。
+                .zIndex(1)
             }
 
             HStack(spacing: 0) {
@@ -418,6 +422,8 @@ struct MacContentView: View {
                         .transition(.move(edge: .trailing))
                 }
             }
+            // 侧栏、播放页、右侧面板的底色照这个高度垫到标题栏下面(`macExtendsUnderTitleBar`)。
+            .environment(\.macTitleBarUnderlap, titleBarUnderlap)
             // 手柄放在整个 HStack 的顶层 overlay,保证跨进正文的右半边不会被
             // MacDetailContainer 里的 NSScrollView / NSClipView 抢走鼠标事件。
             .overlay(alignment: .leading) {
@@ -648,6 +654,11 @@ struct MacContentView: View {
 
     private var isFullScreenNowPlaying: Bool {
         isWindowFullScreen && nowPlayingPresented
+    }
+
+    /// 标题栏压在内容那一排上方的高度; 全屏播放时标题栏让给播放页, 没有可垫的。
+    private var titleBarUnderlap: CGFloat {
+        isFullScreenNowPlaying ? 0 : PMSize.titlebar
     }
 
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
@@ -1215,7 +1226,7 @@ private struct MacWindowFullScreenObserver: ViewModifier {
     }
 }
 
-/// 把「播放页开着」交给侧栏底色(`macSidebarFollowsPlayer`)。开合状态只在这个修饰器里读,
+/// 把「播放页开着」交给侧栏底色与标题栏底色(`macSidebarFollowsPlayer`)。开合状态只在这个修饰器里读,
 /// 道理同 `MacStateSlot`: 主容器的 body 不读它, 开合播放页时不把整个主窗口连同侧栏各行重算一遍。
 private struct MacSidebarFollowsPlayerScope: ViewModifier {
     @Binding var isNowPlayingPresented: Bool
@@ -1387,10 +1398,13 @@ private struct MacRecommendationsPanel: View {
                     NSVisualEffectBackdrop(material: .sidebar, blending: .behindWindow)
                     Rectangle().fill(PMColor.sidebarGlass.opacity(0.6))
                 }
+                .macExtendsUnderTitleBar()
                 .ignoresSafeArea()
             }
             .overlay(alignment: .leading) {
-                Rectangle().fill(PMColor.divider).frame(width: 0.5).ignoresSafeArea(edges: .vertical)
+                Rectangle().fill(PMColor.divider).frame(width: 0.5)
+                    .macExtendsUnderTitleBar()
+                    .ignoresSafeArea(edges: .vertical)
             }
     }
 }
