@@ -109,6 +109,7 @@ enum OfflineSettingsCatalog {
         "primuse.player.immersiveShowsArtwork",
         "primuse.player.keepsScreenAwakeForLyrics",
         "primuse.player.lockScreenAnimatedArtwork",
+        "primuse.player.lockScreenFullScreenArtwork",
         "primuse.player.lyricsAlignment",
         "primuse.player.lyricsColorMode",
         "primuse.player.lyricsFont",

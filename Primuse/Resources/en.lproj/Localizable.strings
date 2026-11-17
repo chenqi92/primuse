@@ -3166,6 +3166,8 @@
 "player_animated_artwork_unmetered_only_description" = "Download animated artwork only over Wi-Fi or Ethernet. Cached animations can play offline.";
 "player_lock_screen_animated_artwork" = "Motion Artwork on Lock Screen";
 "player_lock_screen_animated_artwork_description" = "When the current song has motion artwork, the Lock Screen and other system playback views animate too. Only videos and GIFs already on this device are used, and nothing extra is downloaded. The system shows static artwork in Low Power Mode or when Reduce Motion is on.";
+"player_lock_screen_full_screen_artwork" = "Full-Screen Lock Screen Artwork";
+"player_lock_screen_full_screen_artwork_description" = "Artwork fills the whole Lock Screen like a wallpaper. Square artwork is enlarged and cropped at the sides, keeping the main subject in view; when the song has motion artwork, the motion version fills the screen. When off, square artwork appears as a square on the Lock Screen.";
 "motion_artwork_service_enabled" = "Online Animated Artwork";
 "motion_artwork_service_endpoint" = "Service Endpoint";
 "motion_artwork_service_description" = "Send album information, including the title, artist and available album identifiers, to the selected service to find animated artwork.";

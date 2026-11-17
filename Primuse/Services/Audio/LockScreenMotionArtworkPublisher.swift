@@ -6,6 +6,7 @@ import Foundation
 import ImageIO
 import MediaPlayer
 import PrimuseKit
+import Vision
 #if os(iOS)
 import UIKit
 #else
@@ -19,9 +20,10 @@ import AppKit
 /// 再补发一次带动态封面的。动图要等系统真来要视频时才转码并缓存。系统只在有人看着时才要预览和视频，
 /// 低电量、低数据、发热、减少动态效果时它自己退回预览图；App 不做任何持续的解码。
 ///
-/// 锁屏只把 3:4 那份铺成全屏背景，1:1 只显示成方块。所以 iPhone、iPad 上方形素材除了原样放 1:1 位，
-/// 还合成一份 3:4（模糊铺底 + 完整方形，见 `LockScreenSquareInTallLayout`）放 3:4 位，同样等系统
-/// 真来要视频时才合成并缓存。Mac 上没有锁屏全屏封面，方形素材照旧只放 1:1 位。
+/// 锁屏只把 3:4 那份铺成全屏背景，1:1 只显示成方块。所以 iPhone、iPad 上开着「锁屏全屏封面」时，
+/// 方形素材除了原样放 1:1 位，还按壁纸铺法合成一份 3:4（放大铺满、对准画面主体，见
+/// `LockScreenWallpaperLayout`）放 3:4 位；没有动态素材的歌拿静态封面合成一段静止的 3:4 画面。
+/// 都等系统真来要视频时才合成并缓存。Mac 上没有锁屏全屏封面，方形素材照旧只放 1:1 位。
 @MainActor
 final class LockScreenMotionArtworkPublisher {
     static let shared = LockScreenMotionArtworkPublisher()
@@ -29,6 +31,16 @@ final class LockScreenMotionArtworkPublisher {
     /// 系统版本够、而且这台设备至少有一个动态封面位置。设置项和设置搜索按它决定显不显示。
     nonisolated static var isSupportedBySystem: Bool {
         !supportedAspects().isEmpty
+    }
+
+    /// 锁屏能把封面铺满全屏：设备有 3:4 位，而且是真的 iPhone / iPad（Mac 和在 Mac 上跑的 iPhone 版
+    /// 没有锁屏全屏封面）。「锁屏全屏封面」设置项和设置搜索按它决定显不显示。
+    nonisolated static var supportsFullScreenArtwork: Bool {
+        #if os(iOS)
+        !ProcessInfo.processInfo.isiOSAppOnMac && supportedAspects().contains(.tall)
+        #else
+        false
+        #endif
     }
 
     private struct Candidate: Sendable {
@@ -39,6 +51,9 @@ final class LockScreenMotionArtworkPublisher {
             case videoFile(URL)
             /// GIF 等动图文件，交给系统前要转成视频。
             case animationFile(URL)
+            /// 歌曲的静态封面：只读本机已有的那份，合成静止的壁纸画面。`revision` 是封面引用和新鲜度，
+            /// 换了封面就是另一个候选。
+            case coverImage(songID: String, reference: String?, sourceID: String?, filePath: String?, revision: String)
         }
 
         let kind: MotionArtworkMaterialKind
@@ -48,6 +63,7 @@ final class LockScreenMotionArtworkPublisher {
             switch source {
             case .storedVideo(_, _, _, let contentID, _): "\(kind.rawValue):\(contentID)"
             case .videoFile(let url), .animationFile(let url): "\(kind.rawValue):\(url.path)"
+            case .coverImage(let songID, _, _, _, let revision): "\(kind.rawValue):\(songID)|\(revision)"
             }
         }
     }
@@ -90,7 +106,12 @@ final class LockScreenMotionArtworkPublisher {
         }
         publishedKey = nil
         guard failedKey != key, preparingKey != key else { return }
-        startPreparation(candidates(for: song, player: player), key: key)
+        let context = Self.context(for: song, player: player)
+        startPreparation(
+            candidates(for: song, player: player, context: context),
+            key: key,
+            composesWallpaper: context.fullScreenArtworkEnabled
+        )
     }
 
     /// 停止播放、清空「正在播放」时调用。
@@ -113,19 +134,25 @@ final class LockScreenMotionArtworkPublisher {
     /// nil 表示这首不发动态封面（系统不支持、开关关着、不是曲库音乐或没有素材）。
     private func desiredMaterialKey(song: Song, player: AudioPlayerService) -> String? {
         guard Self.isSupportedBySystem else { return nil }
-        let context = LockScreenMotionArtworkContext(
+        let context = Self.context(for: song, player: player)
+        let candidates = candidates(for: song, player: player, context: context)
+        guard !candidates.isEmpty else { return nil }
+        // 「锁屏全屏封面」决定方形素材要不要合成 3:4：同一组素材，开关不同也是两份。
+        return (candidates.map(\.identity) + ["full:\(context.fullScreenArtworkEnabled)"])
+            .joined(separator: "|")
+    }
+
+    private static func context(for song: Song, player: AudioPlayerService) -> LockScreenMotionArtworkContext {
+        LockScreenMotionArtworkContext(
             systemSupportsAnimatedArtwork: true,
-            animatedArtworkEnabled: Self.animatedArtworkEnabled,
-            lockScreenEnabled: Self.lockScreenEnabled,
-            content: Self.content(of: song, player: player),
+            animatedArtworkEnabled: animatedArtworkEnabled,
+            lockScreenEnabled: lockScreenEnabled,
+            fullScreenArtworkEnabled: supportsFullScreenArtwork && fullScreenArtworkEnabled,
+            content: content(of: song, player: player),
             materialIsLocal: true,
             unmeteredOnly: AnimatedArtworkPreferences.shared.animatedArtworkUnmeteredOnly,
             isOnUnmeteredNetwork: NetworkMonitor.shared.isOnUnmeteredNetwork
         )
-        guard LockScreenMotionArtworkPolicy.permitsPublishing(context) else { return nil }
-        let candidates = candidates(for: song, player: player)
-        guard !candidates.isEmpty else { return nil }
-        return candidates.map(\.identity).joined(separator: "|")
     }
 
     private static func content(of song: Song, player: AudioPlayerService) -> LockScreenMotionArtworkContent {
@@ -140,7 +167,35 @@ final class LockScreenMotionArtworkPublisher {
     }
 
     /// 主线程上只做字典查找和字符串解析；文件核对、读画幅、取首帧都在后台准备时做。
-    private func candidates(for song: Song, player: AudioPlayerService) -> [Candidate] {
+    private func candidates(
+        for song: Song,
+        player: AudioPlayerService,
+        context: LockScreenMotionArtworkContext
+    ) -> [Candidate] {
+        var result = LockScreenMotionArtworkPolicy.permitsPublishing(context)
+            ? motionCandidates(for: song, player: player)
+            : []
+        // 静态封面只在这首没有动态素材时顶上：有动态素材时加进来会让素材键在方块封面到达时变一次，
+        // 同一段动态素材白白再准备一遍。也只在这首的方块封面已经发出去以后才加——那时封面已经在本机；
+        // 还没取到就加，会因为读不到而记成失败，取到以后也不再重试。
+        if result.isEmpty,
+           LockScreenMotionArtworkPolicy.permitsStillWallpaper(context),
+           player.publishedArtworkSongID == song.id {
+            let revision = (song.coverArtFileName ?? "") + "|" + MetadataAssetStore.shared.artworkFreshnessToken(
+                sourceID: song.sourceID, reference: song.coverArtFileName
+            )
+            result.append(Candidate(kind: .coverImage, source: .coverImage(
+                songID: song.id,
+                reference: song.coverArtFileName,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                revision: revision
+            )))
+        }
+        return result
+    }
+
+    private func motionCandidates(for song: Song, player: AudioPlayerService) -> [Candidate] {
         var result: [Candidate] = []
         let store = MotionCoverStore.shared
         let albumID = song.albumID.flatMap { $0.isEmpty ? nil : $0 }
@@ -190,12 +245,13 @@ final class LockScreenMotionArtworkPublisher {
 
     // MARK: - Preparation
 
-    private func startPreparation(_ candidates: [Candidate], key: String) {
+    private func startPreparation(_ candidates: [Candidate], key: String, composesWallpaper: Bool) {
         preparation?.cancel()
         preparingKey = key
         let supported = Self.supportedAspects()
-        let composition = Self.tallComposition()
-        preparation = Task { [weak self] in
+        let composition = composesWallpaper ? Self.tallComposition() : nil
+        // 读图、找主体、合成都不急：切歌那一刻让给起播。
+        preparation = Task(priority: .utility) { [weak self] in
             let material = await Self.prepareMaterial(
                 from: candidates,
                 supported: supported,
@@ -300,7 +356,12 @@ final class LockScreenMotionArtworkPublisher {
     }
 
     private static func preferenceValues() -> [Bool] {
-        [animatedArtworkEnabled, lockScreenEnabled]
+        [animatedArtworkEnabled, lockScreenEnabled, fullScreenArtworkEnabled]
+    }
+
+    private static var fullScreenArtworkEnabled: Bool {
+        UserDefaults.standard.object(forKey: PlayerAppearancePreferences.lockScreenFullScreenArtworkKey) as? Bool
+            ?? PlayerAppearancePreferences.lockScreenFullScreenArtworkByDefault
     }
 
     private static var animatedArtworkEnabled: Bool {
@@ -327,7 +388,7 @@ final class LockScreenMotionArtworkPublisher {
         return aspects
     }()
 
-    /// 方形素材要不要合成 3:4、按多宽的可见区域合成。只有 iPhone、iPad 的锁屏会把 3:4 铺成全屏；
+    /// 合成 3:4 壁纸画面时按多宽的可见区域取景。只有 iPhone、iPad 的锁屏会把 3:4 铺成全屏；
     /// Mac（以及在 Mac 上跑的 iPhone 版）没有这个场景，返回 nil，方形素材照旧只放 1:1 位。
     private static func tallComposition() -> LockScreenTallComposition? {
         #if os(iOS)
@@ -352,7 +413,7 @@ final class LockScreenMotionArtworkPublisher {
     }
 }
 
-/// 方形素材合成 3:4 时用的屏幕信息；nil 比例按 `LockScreenSquareInTallLayout.fallbackVisibleWidthRatio`。
+/// 合成 3:4 壁纸画面时用的屏幕信息；nil 比例按 `LockScreenWallpaperLayout.fallbackVisibleWidthRatio`。
 private struct LockScreenTallComposition: Sendable {
     let visibleWidthRatio: Double?
 }
@@ -391,13 +452,16 @@ private struct LockScreenMotionConversionJob: Sendable {
     enum Output: Sendable {
         /// 动图按原画幅转成 `width`×`height` 的视频。
         case animation(width: Int, height: Int)
-        /// 方形视频合成 3:4。
-        case videoInTall(LockScreenSquareInTallLayout)
-        /// 方形动图合成 3:4。
-        case animationInTall(LockScreenSquareInTallLayout)
+        /// 方形视频按壁纸铺法合成 3:4。
+        case videoWallpaper(LockScreenWallpaperLayout)
+        /// 方形动图按壁纸铺法合成 3:4。
+        case animationWallpaper(LockScreenWallpaperLayout)
+        /// 静态封面：已经合成好的那一帧（JPEG）写成一段静止视频，不读 `sourceURL`。
+        case stillWallpaper(frame: Data, layout: LockScreenWallpaperLayout)
     }
 
-    let sourceURL: URL
+    /// 要转的素材文件；静态封面合成时为 nil。
+    let sourceURL: URL?
     let cacheName: String
     let output: Output
 }
@@ -405,6 +469,9 @@ private struct LockScreenMotionConversionJob: Sendable {
 extension LockScreenMotionArtworkPublisher {
     /// 预览图上限：锁屏全屏 3:4 位在这个尺寸下已经够清楚，内存也只多一张图。
     nonisolated private static let previewLongEdge = MotionCoverImportLimits.maximumLongEdge
+    /// 静态封面合成锁屏壁纸的长边上限。方形封面铺满时只看得见中间不到一半宽，原图多清楚就用多清楚；
+    /// 本机缓存的封面最大 1536，本地原图更大时也收在这里。合成好的画面存成 JPEG，内存里不留整张位图。
+    nonisolated private static let stillWallpaperLongEdge = 1_920
 
     nonisolated private static func prepareMaterial(
         from candidates: [Candidate],
@@ -448,7 +515,7 @@ extension LockScreenMotionArtworkPublisher {
                 sourceSide: side > 0 ? side : min(frame.width, frame.height),
                 sourceURL: video,
                 composition: composition,
-                composedOutput: LockScreenMotionConversionJob.Output.videoInTall
+                composedOutput: LockScreenMotionConversionJob.Output.videoWallpaper
             )
 
         case .videoFile(let url):
@@ -476,7 +543,7 @@ extension LockScreenMotionArtworkPublisher {
                 sourceSide: Int(min(displayWidth, displayHeight)),
                 sourceURL: url,
                 composition: composition,
-                composedOutput: LockScreenMotionConversionJob.Output.videoInTall
+                composedOutput: LockScreenMotionConversionJob.Output.videoWallpaper
             )
 
         case .animationFile(let url):
@@ -514,12 +581,47 @@ extension LockScreenMotionArtworkPublisher {
                 sourceSide: min(descriptor.pixelWidth, descriptor.pixelHeight),
                 sourceURL: url,
                 composition: composition,
-                composedOutput: LockScreenMotionConversionJob.Output.animationInTall
+                composedOutput: LockScreenMotionConversionJob.Output.animationWallpaper
             )
+
+        case .coverImage(let songID, let reference, let sourceID, let filePath, _):
+            // 只放 3:4 位：1:1 位和别的系统界面照旧用方块静态封面。
+            guard let composition, supported.contains(.tall),
+                  let data = CachedArtworkView.largestLocalCoverData(
+                    songID: songID, coverRef: reference, sourceID: sourceID, filePath: filePath
+                  ),
+                  !Task.isCancelled,
+                  let image = decodeImage(data: data, maximumPixelSize: stillWallpaperLongEdge),
+                  let layout = LockScreenWallpaperLayout(
+                    sourceWidth: Double(image.width),
+                    sourceHeight: Double(image.height),
+                    visibleWidthRatio: composition.visibleWidthRatio,
+                    focus: wallpaperFocus(of: image),
+                    maximumLongEdge: stillWallpaperLongEdge
+                  ),
+                  let composed = LockScreenWallpaperComposer.previewImage(from: image, layout: layout),
+                  let frame = jpegData(composed),
+                  let preview = PlatformImage(data: frame) else { return nil }
+            // 同一张专辑的歌封面内容一样：按内容认身份，系统不必每首重新要，缓存的视频也共用。
+            let contentKey = SHA256.hash(data: data).prefix(16).map { String(format: "%02x", $0) }.joined()
+            return PreparedMaterial(renditions: [PreparedRendition(
+                slot: .tall,
+                artworkID: LockScreenMotionArtworkPolicy.artworkID(
+                    kind: candidate.kind, contentKey: contentKey, wallpaper: layout
+                ),
+                preview: preview,
+                video: .convert(LockScreenMotionConversionJob(
+                    sourceURL: nil,
+                    cacheName: LockScreenMotionArtworkPolicy.stillWallpaperCacheName(
+                        contentKey: contentKey, layout: layout
+                    ),
+                    output: .stillWallpaper(frame: frame, layout: layout)
+                ))
+            )])
         }
     }
 
-    /// 同一段素材按要放的位置装成一到两份：原样的一份，和方形合成 3:4 的一份。合成那份的预览图
+    /// 同一段素材按要放的位置装成一到两份：原样的一份，和方形合成 3:4 壁纸的一份。合成那份的预览图
     /// 用和视频完全相同的合成从首帧画出来，系统先显示的预览和视频第一帧对得上。
     nonisolated private static func makeMaterial(
         kind: MotionArtworkMaterialKind,
@@ -531,7 +633,7 @@ extension LockScreenMotionArtworkPublisher {
         sourceSide: Int,
         sourceURL: URL,
         composition: LockScreenTallComposition?,
-        composedOutput: (LockScreenSquareInTallLayout) -> LockScreenMotionConversionJob.Output
+        composedOutput: (LockScreenWallpaperLayout) -> LockScreenMotionConversionJob.Output
     ) -> PreparedMaterial? {
         var prepared: [PreparedRendition] = []
         for rendition in renditions {
@@ -547,17 +649,20 @@ extension LockScreenMotionArtworkPublisher {
                     video: originalVideo
                 ))
             case .squareInTall:
+                // 只有方形素材会走到这里，宽高都按短边算；取景点按首帧找画面主体。
                 guard let composition,
-                      let layout = LockScreenSquareInTallLayout(
-                        sourceSide: Double(sourceSide),
-                        visibleWidthRatio: composition.visibleWidthRatio
+                      let layout = LockScreenWallpaperLayout(
+                        sourceWidth: Double(sourceSide),
+                        sourceHeight: Double(sourceSide),
+                        visibleWidthRatio: composition.visibleWidthRatio,
+                        focus: wallpaperFocus(of: firstFrame)
                       ),
-                      let preview = LockScreenSquareInTallComposer.previewImage(from: firstFrame, layout: layout)
+                      let preview = LockScreenWallpaperComposer.previewImage(from: firstFrame, layout: layout)
                 else { continue }
                 prepared.append(PreparedRendition(
                     slot: .tall,
                     artworkID: LockScreenMotionArtworkPolicy.artworkID(
-                        kind: kind, contentKey: contentKey, squareInTall: layout
+                        kind: kind, contentKey: contentKey, wallpaper: layout
                     ),
                     preview: PlatformImage.fromCGImage(preview),
                     video: .convert(LockScreenMotionConversionJob(
@@ -591,20 +696,56 @@ extension LockScreenMotionArtworkPublisher {
         return thumbnail(from: source)
     }
 
-    nonisolated private static func decodeImage(data: Data) -> CGImage? {
+    nonisolated private static func decodeImage(data: Data, maximumPixelSize: Int = previewLongEdge) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, [
             kCGImageSourceShouldCache: false,
         ] as CFDictionary) else { return nil }
-        return thumbnail(from: source)
+        return thumbnail(from: source, maximumPixelSize: maximumPixelSize)
     }
 
-    nonisolated private static func thumbnail(from source: CGImageSource) -> CGImage? {
+    nonisolated private static func thumbnail(
+        from source: CGImageSource,
+        maximumPixelSize: Int = previewLongEdge
+    ) -> CGImage? {
         CGImageSourceCreateThumbnailAtIndex(source, 0, [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: previewLongEdge,
+            kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
         ] as CFDictionary)
+    }
+
+    /// 铺满锁屏时对准哪里：系统的注意力显著性检测找出人脸、主要物体所在的区域；找不出来取正中。
+    nonisolated private static func wallpaperFocus(of image: CGImage) -> LockScreenWallpaperFocus {
+        let request = VNGenerateAttentionBasedSaliencyImageRequest()
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+        guard (try? handler.perform([request])) != nil,
+              let objects = request.results?.first?.salientObjects,
+              !objects.isEmpty else { return .center }
+        return LockScreenWallpaperFocus(regions: objects.map { object in
+            // Vision 的框是归一化坐标、原点在左下；取景按原点在左上算。
+            let box = object.boundingBox
+            return LockScreenWallpaperRegion(
+                x: Double(box.minX),
+                y: Double(1 - box.maxY),
+                width: Double(box.width),
+                height: Double(box.height),
+                confidence: Double(object.confidence)
+            )
+        })
+    }
+
+    /// 合成好的静态壁纸存成 JPEG：交给系统的预览图和之后写视频都从它来，内存里不留整张位图。
+    nonisolated private static func jpegData(_ image: CGImage) -> Data? {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, image, [
+            kCGImageDestinationLossyCompressionQuality: 0.9,
+        ] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
     }
 
     nonisolated private static func firstVideoFrame(_ url: URL) async -> CGImage? {
@@ -649,7 +790,7 @@ extension LockScreenMotionArtworkPublisher {
 
 // MARK: - Conversion cache
 
-/// 按需转出来的视频（动图转码、方形素材合成 3:4）的缓存。只在系统真来要视频时才转，同一份同时只转一次；
+/// 按需转出来的视频（动图转码、方形素材和静态封面合成 3:4）的缓存。只在系统真来要视频时才转，同一份同时只转一次；
 /// 缓存放在 Caches，保留最近用过的一小批。
 private actor LockScreenMotionArtworkConverter {
     static let shared = LockScreenMotionArtworkConverter()
@@ -676,8 +817,8 @@ private actor LockScreenMotionArtworkConverter {
     nonisolated private static func convert(_ job: LockScreenMotionConversionJob, to destination: URL) async -> URL? {
         let fileManager = FileManager.default
         let directory = destination.deletingLastPathComponent()
-        guard fileManager.fileExists(atPath: job.sourceURL.path),
-              (try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)) != nil else {
+        if let source = job.sourceURL, !fileManager.fileExists(atPath: source.path) { return nil }
+        guard (try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)) != nil else {
             return nil
         }
         let temporary = directory.appendingPathComponent("converting-\(UUID().uuidString).mp4")
@@ -692,17 +833,24 @@ private actor LockScreenMotionArtworkConverter {
                     height: height,
                     to: temporary
                 )
-            case .animationInTall(let layout):
+            case .animationWallpaper(let layout):
                 let (data, descriptor) = try animationSource(job.sourceURL)
-                try await LockScreenSquareInTallComposer.encodeAnimation(
+                try await LockScreenWallpaperComposer.encodeAnimation(
                     data: data,
                     frameDurations: descriptor.frameDurations,
                     layout: layout,
                     to: temporary
                 )
-            case .videoInTall(let layout):
-                try await LockScreenSquareInTallComposer.encodeVideo(
-                    at: job.sourceURL,
+            case .videoWallpaper(let layout):
+                guard let source = job.sourceURL else { throw MotionCoverImportError.rejected(.unreadable) }
+                try await LockScreenWallpaperComposer.encodeVideo(
+                    at: source,
+                    layout: layout,
+                    to: temporary
+                )
+            case .stillWallpaper(let frame, let layout):
+                try await LockScreenWallpaperComposer.encodeStill(
+                    frame: frame,
                     layout: layout,
                     to: temporary
                 )
@@ -720,8 +868,9 @@ private actor LockScreenMotionArtworkConverter {
         }
     }
 
-    nonisolated private static func animationSource(_ url: URL) throws -> (Data, ArtworkDescriptor) {
-        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+    nonisolated private static func animationSource(_ url: URL?) throws -> (Data, ArtworkDescriptor) {
+        guard let url,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
               let descriptor = ArtworkImageCompatibility.inspect(data),
               descriptor.isAnimated else { throw MotionCoverImportError.rejected(.unreadable) }
         return (data, descriptor)
@@ -750,59 +899,61 @@ private actor LockScreenMotionArtworkConverter {
     }
 }
 
-// MARK: - Square-in-tall composition
+// MARK: - Wallpaper composition
 
-/// 方形素材合成锁屏用的 3:4 画面（构图见 `LockScreenSquareInTallLayout`）：底层是同一画面放大铺满、
-/// 模糊并压暗，上层是完整的方形。预览图和视频每一帧走同一个 `compose`，预览和视频第一帧一致。
-/// 只在系统来要视频时合成一次、写进缓存：逐帧在 GPU 上合成，内存里只有当前一帧，编码用 HEVC。
-enum LockScreenSquareInTallComposer {
+/// 合成锁屏用的 3:4 壁纸画面（构图见 `LockScreenWallpaperLayout`）：素材放大铺满、对准画面主体，
+/// 锁屏看不见的边角盖不到时垫一层同一素材的模糊底。预览图和视频每一帧走同一个 `compose`，
+/// 预览和视频第一帧一致。只在系统来要视频时合成一次、写进缓存：逐帧在 GPU 上合成，
+/// 内存里只有当前一帧，编码用 HEVC。
+enum LockScreenWallpaperComposer {
     /// 合成后的视频帧率上限：循环封面 30 帧足够顺，和导入时重新编码的标准一致。
     nonisolated private static let maximumFrameRate = MotionCoverImportLimits.transcodedFrameRate
 
-    nonisolated static func compose(_ frame: CIImage, layout: LockScreenSquareInTallLayout) -> CIImage {
+    nonisolated static func compose(_ frame: CIImage, layout: LockScreenWallpaperLayout) -> CIImage {
         let canvas = CGRect(x: 0, y: 0, width: layout.width, height: layout.height)
         let extent = frame.extent
         guard extent.width >= 1, extent.height >= 1, extent.width.isFinite, extent.height.isFinite else {
             return CIImage(color: .black).cropped(to: canvas)
         }
-        // 接近方形（2% 以内）的素材先居中裁成正方形，原点挪到 0。
-        let side = min(extent.width, extent.height)
-        let origin = CGPoint(x: extent.midX - side / 2, y: extent.midY - side / 2)
-        let square = frame
-            .cropped(to: CGRect(origin: origin, size: CGSize(width: side, height: side)))
-            .transformed(by: CGAffineTransform(translationX: -origin.x, y: -origin.y))
+        let source = frame.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
 
-        // 底层：等比放大到盖满整个画面、居中，模糊成色块再压暗。先裁回画面再向外延边，模糊到边上不会发黑。
-        let fillScale = max(canvas.width, canvas.height) / side
-        let background = square
+        // 素材等比缩放到盖满布局给的那一块、居中对齐，再裁到那一块。CoreImage 原点在左下，布局给的是离上沿的距离。
+        let imageRect = CGRect(
+            x: CGFloat(layout.imageX),
+            y: canvas.height - CGFloat(layout.imageY) - CGFloat(layout.imageHeight),
+            width: CGFloat(layout.imageWidth),
+            height: CGFloat(layout.imageHeight)
+        )
+        let scale = max(imageRect.width / extent.width, imageRect.height / extent.height)
+        let image = source
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale), highQualityDownsample: scale < 1)
+            .transformed(by: CGAffineTransform(
+                translationX: imageRect.midX - extent.width * scale / 2,
+                y: imageRect.midY - extent.height * scale / 2
+            ))
+            .cropped(to: imageRect)
+        guard !layout.coversCanvas else { return image.cropped(to: canvas) }
+
+        // 盖不到的边角垫底：同一素材放大盖满画面，模糊成色块再压暗。先裁回画面再向外延边，模糊到边上不会发黑。
+        let fillScale = max(canvas.width / extent.width, canvas.height / extent.height)
+        let background = source
             .transformed(by: CGAffineTransform(scaleX: fillScale, y: fillScale))
             .transformed(by: CGAffineTransform(
-                translationX: (canvas.width - side * fillScale) / 2,
-                y: (canvas.height - side * fillScale) / 2
+                translationX: (canvas.width - extent.width * fillScale) / 2,
+                y: (canvas.height - extent.height * fillScale) / 2
             ))
             .cropped(to: canvas)
             .clampedToExtent()
-            .applyingGaussianBlur(sigma: Double(canvas.width) * LockScreenSquareInTallLayout.backgroundBlurFraction)
+            .applyingGaussianBlur(sigma: Double(canvas.width) * LockScreenWallpaperLayout.backgroundBlurFraction)
             .applyingFilter("CIColorMatrix", parameters: brightnessMatrix(
-                LockScreenSquareInTallLayout.backgroundBrightness
+                LockScreenWallpaperLayout.backgroundBrightness
             ))
             .cropped(to: canvas)
-
-        // 上层：完整方形缩到可见宽度。CoreImage 原点在左下，布局给的是离上沿的距离。
-        let foregroundSide = CGFloat(layout.foregroundSide)
-        let scale = foregroundSide / side
-        let foreground = square
-            .transformed(by: CGAffineTransform(scaleX: scale, y: scale), highQualityDownsample: scale < 1)
-            .cropped(to: CGRect(x: 0, y: 0, width: foregroundSide, height: foregroundSide))
-            .transformed(by: CGAffineTransform(
-                translationX: CGFloat(layout.foregroundX),
-                y: canvas.height - CGFloat(layout.foregroundY) - foregroundSide
-            ))
-        return foreground.composited(over: background).cropped(to: canvas)
+        return image.composited(over: background).cropped(to: canvas)
     }
 
     /// 预览图：和视频第一帧同一套合成。
-    nonisolated static func previewImage(from frame: CGImage, layout: LockScreenSquareInTallLayout) -> CGImage? {
+    nonisolated static func previewImage(from frame: CGImage, layout: LockScreenWallpaperLayout) -> CGImage? {
         let context = makeContext()
         let image = compose(CIImage(cgImage: frame), layout: layout)
         return context.createCGImage(
@@ -816,7 +967,7 @@ enum LockScreenSquareInTallComposer {
     /// 方形视频（时长沿用素材自己的，最多 60 秒）逐帧合成。帧率超过 30 的按 30 抽帧。
     nonisolated static func encodeVideo(
         at url: URL,
-        layout: LockScreenSquareInTallLayout,
+        layout: LockScreenWallpaperLayout,
         to outputURL: URL
     ) async throws {
         let asset = AVURLAsset(url: url)
@@ -879,7 +1030,7 @@ enum LockScreenSquareInTallComposer {
     nonisolated static func encodeAnimation(
         data: Data,
         frameDurations: [TimeInterval],
-        layout: LockScreenSquareInTallLayout,
+        layout: LockScreenWallpaperLayout,
         to outputURL: URL
     ) async throws {
         guard let source = CGImageSourceCreateWithData(data as CFData, [
@@ -887,12 +1038,12 @@ enum LockScreenSquareInTallComposer {
         ] as CFDictionary) else { throw MotionCoverImportError.rejected(.unreadable) }
         let frameCount = CGImageSourceGetCount(source)
         guard frameCount > 1 else { throw MotionCoverImportError.rejected(.unreadable) }
-        // 解码尺寸够画面高度就行：底层铺满要的最大，上层方形比它小，再大也是白占内存。
+        // 解码尺寸够铺满时的素材大小就行，再大也是白占内存。
         let decodeOptions = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: layout.height,
+            kCGImageSourceThumbnailMaxPixelSize: max(layout.imageWidth, layout.imageHeight),
         ] as CFDictionary
         let writer = try TallFrameWriter(outputURL: outputURL, layout: layout)
         let limit = CMTime(seconds: MotionCoverImportLimits.maximumDuration, preferredTimescale: 600)
@@ -913,6 +1064,31 @@ enum LockScreenSquareInTallComposer {
             }
             guard appended > 1 else { throw MotionCoverImportError.rejected(.unreadable) }
             try await writer.finish(at: presentation)
+        } catch {
+            writer.cancel()
+            throw error
+        }
+    }
+
+    /// 静态封面合成好的那一帧写成一段两秒的静止视频（同一画面两帧）：系统的锁屏全屏只收视频，
+    /// 画面不动，循环播放也看不出接缝。
+    nonisolated static func encodeStill(
+        frame: Data,
+        layout: LockScreenWallpaperLayout,
+        to outputURL: URL
+    ) async throws {
+        guard let source = CGImageSourceCreateWithData(frame as CFData, [
+            kCGImageSourceShouldCache: false,
+        ] as CFDictionary),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw MotionCoverImportError.rejected(.unreadable)
+        }
+        let canvas = CIImage(cgImage: image)
+        let writer = try TallFrameWriter(outputURL: outputURL, layout: layout)
+        do {
+            try await writer.append(canvas, at: .zero, composing: false)
+            try await writer.append(canvas, at: CMTime(seconds: 1, preferredTimescale: 600), composing: false)
+            try await writer.finish(at: CMTime(seconds: 2, preferredTimescale: 600))
         } catch {
             writer.cancel()
             throw error
@@ -958,16 +1134,16 @@ private final class TallFrameWriter {
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private let adaptor: AVAssetWriterInputPixelBufferAdaptor
-    private let context = LockScreenSquareInTallComposer.makeContext()
-    private let layout: LockScreenSquareInTallLayout
+    private let context = LockScreenWallpaperComposer.makeContext()
+    private let layout: LockScreenWallpaperLayout
     private let canvas: CGRect
 
-    init(outputURL: URL, layout: LockScreenSquareInTallLayout) throws {
+    init(outputURL: URL, layout: LockScreenWallpaperLayout) throws {
         try? FileManager.default.removeItem(at: outputURL)
         self.layout = layout
         canvas = CGRect(x: 0, y: 0, width: layout.width, height: layout.height)
         writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
-        // 底层是大片模糊色块，很好压：HEVC 每像素 2.5 bit/s 已经看不出块，缓存文件也只有 H.264 的一半左右。
+        // HEVC 每像素 2.5 bit/s：封面铺满整个画面也看不出块，缓存文件只有 H.264 的一半左右；静止画面压出来更小。
         input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.hevc,
             AVVideoWidthKey: layout.width,
@@ -997,7 +1173,8 @@ private final class TallFrameWriter {
         writer.startSession(atSourceTime: .zero)
     }
 
-    func append(_ frame: CIImage, at time: CMTime) async throws {
+    /// - Parameter composing: false 表示 `frame` 已经是合成好的整幅画面，直接写。
+    func append(_ frame: CIImage, at time: CMTime, composing: Bool = true) async throws {
         while !input.isReadyForMoreMediaData {
             guard writer.status == .writing else { throw writer.error ?? MotionCoverImportError.failed }
             try await Task.sleep(for: .milliseconds(5))
@@ -1008,10 +1185,10 @@ private final class TallFrameWriter {
             guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &created) == kCVReturnSuccess,
                   let buffer = created else { throw MotionCoverImportError.failed }
             context.render(
-                LockScreenSquareInTallComposer.compose(frame, layout: layout),
+                composing ? LockScreenWallpaperComposer.compose(frame, layout: layout) : frame.cropped(to: canvas),
                 to: buffer,
                 bounds: canvas,
-                colorSpace: LockScreenSquareInTallComposer.outputColorSpace
+                colorSpace: LockScreenWallpaperComposer.outputColorSpace
             )
             guard adaptor.append(buffer, withPresentationTime: time) else {
                 throw writer.error ?? MotionCoverImportError.failed

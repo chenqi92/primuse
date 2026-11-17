@@ -2653,6 +2653,8 @@
 "player_animated_artwork_unmetered_only_description" = "Pobieraj animowane okładki tylko przez Wi-Fi lub Ethernet. Zapisane animacje można odtwarzać offline.";
 "player_lock_screen_animated_artwork" = "Ruchoma okładka na ekranie blokady";
 "player_lock_screen_animated_artwork_description" = "Gdy bieżący utwór ma ruchomą okładkę, porusza się ona także na ekranie blokady i w innych systemowych widokach odtwarzania. Używane są tylko filmy i GIF-y, które już są na tym urządzeniu, nic nie jest dodatkowo pobierane. W trybie niskiego zużycia energii lub przy ograniczonym ruchu system pokazuje statyczną okładkę.";
+"player_lock_screen_full_screen_artwork" = "Okładka na cały ekran blokady";
+"player_lock_screen_full_screen_artwork_description" = "Okładka wypełnia cały ekran blokady jak tapeta. Kwadratowe okładki są powiększane i przycinane po bokach tak, by główny motyw pozostał widoczny; jeśli utwór ma ruchomą okładkę, ekran wypełnia właśnie ona. Po wyłączeniu kwadratowe okładki są na ekranie blokady pokazywane jako kwadrat.";
 "player_appearance_title" = "Odtwarzacz";
 "player_blur_inactive_lyrics" = "Rozmywaj nieaktywne wersy";
 "player_blur_inactive_lyrics_description" = "Nieznacznie rozmyj zsynchronizowany tekst inny niż bieżący wiersz, aby podkreślić to, co jest odtwarzane.";

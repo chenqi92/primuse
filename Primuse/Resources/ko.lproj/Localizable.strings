@@ -3395,6 +3395,8 @@
 "player_animated_artwork_unmetered_only_description" = "Wi-Fi 또는 이더넷에서만 다운로드합니다. 캐시된 애니메이션은 오프라인으로 재생할 수 있습니다.";
 "player_lock_screen_animated_artwork" = "잠금 화면에 움직이는 커버 표시";
 "player_lock_screen_animated_artwork_description" = "재생 중인 곡에 움직이는 커버가 있으면 잠금 화면 등 시스템 재생 화면에서도 움직입니다. 이 기기에 이미 있는 동영상과 GIF만 사용하며 추가로 다운로드하지 않습니다. 저전력 모드이거나 동작 줄이기가 켜져 있으면 시스템이 정지 커버를 표시합니다.";
+"player_lock_screen_full_screen_artwork" = "잠금 화면 전체 화면 커버";
+"player_lock_screen_full_screen_artwork_description" = "커버가 배경화면처럼 잠금 화면 전체를 채웁니다. 정사각형 커버는 확대한 뒤 양옆을 잘라 내며, 주요 피사체가 보이도록 맞춥니다. 움직이는 커버가 있으면 움직이는 버전이 화면을 채웁니다. 끄면 정사각형 커버가 잠금 화면에 사각형으로 표시됩니다.";
 "motion_artwork_service_enabled" = "온라인 움직이는 앨범 아트";
 "motion_artwork_service_endpoint" = "서비스 엔드포인트";
 "motion_artwork_service_description" = "움직이는 앨범 아트를 찾기 위해 제목, 아티스트, 사용 가능한 앨범 식별자 등의 정보를 선택한 서비스로 보냅니다.";

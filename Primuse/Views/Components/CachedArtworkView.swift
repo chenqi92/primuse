@@ -1954,6 +1954,27 @@ struct CachedArtworkView: View {
         )
     }
 
+    /// 本机已经有的这首歌封面里最清楚的一份原始数据，只读磁盘、不去音乐源取：锁屏全屏封面拿它合成壁纸，
+    /// 方形封面铺满时只看得见中间不到一半宽，越清楚越好。服务器封面按 1536 / 480 两档缓存，先找大档；
+    /// 本地选图、内嵌封面读原图。泛用文件夹里的 cover.jpg 和界面一样不认。
+    nonisolated static func largestLocalCoverData(
+        songID: String,
+        coverRef: String?,
+        sourceID: String?,
+        filePath: String?
+    ) -> Data? {
+        let ignoresFolderCover = shouldIgnoreGenericFolderCover(ref: coverRef, filePath: filePath)
+        let ref = ignoresFolderCover ? nil : coverRef
+        let store = MetadataAssetStore.shared
+        let smallestSourceBucket = Bucket.smallCard.maximumPixels
+        if SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: ref, maximumPixels: smallestSourceBucket) != nil {
+            return store.cachedSourceCover(
+                sourceID: sourceID, reference: ref, maximumPixels: smallestSourceBucket, allowsStale: true
+            )
+        }
+        return store.displayCoverData(songID: ignoresFolderCover ? nil : songID, reference: ref, allowsStale: true)
+    }
+
     /// 按某个显示尺寸把一首歌的封面先解码进内存缓存，键与同尺寸的 `CachedArtworkView` 完全一致。
     /// 播放页大封面入场期间只认内存缓存（不读盘），没命中就拿小图放大顶着、等入场结束才解码 ——
     /// 第一次展开一首歌总是先糊后清。播放页没展开时提前在这里备好，展开那一下就是清楚的图。

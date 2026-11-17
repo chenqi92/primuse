@@ -682,6 +682,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
     @AppStorage(PlayerAppearancePreferences.lockScreenAnimatedArtworkKey)
     private var lockScreenAnimatedArtwork = PlayerAppearancePreferences.lockScreenAnimatedArtworkByDefault
+    @AppStorage(PlayerAppearancePreferences.lockScreenFullScreenArtworkKey)
+    private var lockScreenFullScreenArtwork = PlayerAppearancePreferences.lockScreenFullScreenArtworkByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
     private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceSourceKey)
@@ -793,6 +795,14 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                     .settingsAnchor("appearance.lockScreenAnimatedArtwork")
                     .disabled(!animatedArtworkEnabled)
+                }
+                if LockScreenMotionArtworkPublisher.supportsFullScreenArtwork {
+                    Toggle(isOn: $lockScreenFullScreenArtwork) {
+                        SettingsInfoLabel("player_lock_screen_full_screen_artwork") {
+                            Text("player_lock_screen_full_screen_artwork_description")
+                        }
+                    }
+                    .settingsAnchor("appearance.lockScreenFullScreenArtwork")
                 }
             }
 

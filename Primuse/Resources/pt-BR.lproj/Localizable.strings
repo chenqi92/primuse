@@ -2653,6 +2653,8 @@
 "player_animated_artwork_unmetered_only_description" = "Baixe capas animadas apenas por Wi-Fi ou Ethernet. Animações em cache podem ser reproduzidas offline.";
 "player_lock_screen_animated_artwork" = "Capa em movimento na tela bloqueada";
 "player_lock_screen_animated_artwork_description" = "Quando a música atual tem capa em movimento, a tela bloqueada e outras telas de reprodução do sistema também se animam. Só são usados vídeos e GIFs que já estão neste dispositivo; nada é baixado a mais. No Modo de Pouca Energia ou com Reduzir Movimento, o sistema mostra a capa estática.";
+"player_lock_screen_full_screen_artwork" = "Capa em tela cheia na tela bloqueada";
+"player_lock_screen_full_screen_artwork_description" = "A capa preenche toda a tela bloqueada como um papel de parede. Capas quadradas são ampliadas e cortadas nas laterais, mantendo o assunto principal à vista; se a música tiver capa em movimento, é essa versão que preenche a tela. Desativado, as capas quadradas aparecem como um quadrado na tela bloqueada.";
 "player_appearance_title" = "Reprodutor";
 "player_blur_inactive_lyrics" = "Desfocar linhas inativas";
 "player_blur_inactive_lyrics_description" = "Desfoque levemente as letras sincronizadas além da linha atual para enfatizar o que está tocando.";

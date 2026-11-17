@@ -3396,6 +3396,8 @@
 "player_animated_artwork_unmetered_only_description" = "Wi-Fi または有線ネットワークでのみダウンロードします。キャッシュ済みのアニメーションはオフラインで再生できます。";
 "player_lock_screen_animated_artwork" = "ロック画面でモーションアートワーク";
 "player_lock_screen_animated_artwork_description" = "再生中の曲にモーションアートワークがあるとき、ロック画面などシステムの再生画面でも動きます。このデバイスにすでにある動画と GIF だけを使い、追加のダウンロードはしません。低電力モードや「視差効果を減らす」がオンのときは静止画が表示されます。";
+"player_lock_screen_full_screen_artwork" = "ロック画面でフルスクリーンのアートワーク";
+"player_lock_screen_full_screen_artwork_description" = "アートワークを壁紙のようにロック画面全体に表示します。正方形のアートワークは拡大して左右を切り取り、なるべく被写体が見えるように配置します。モーションアートワークがある曲では動くほうが全体に表示されます。オフにすると、正方形のアートワークはロック画面に四角く表示されます。";
 "motion_artwork_service_enabled" = "オンラインのアニメーションアートワーク";
 "motion_artwork_service_endpoint" = "サービスエンドポイント";
 "motion_artwork_service_description" = "アニメーションアートワークを検索するため、アルバム名、アーティスト、利用可能なアルバム識別子などを選択したサービスに送信します。";

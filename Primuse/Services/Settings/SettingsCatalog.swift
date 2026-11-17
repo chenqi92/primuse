@@ -195,6 +195,8 @@ struct SettingDefinition: Identifiable, Hashable, Sendable {
     var requiresDiagnosticBuild = false
     /// 只有系统能放动态封面（iOS / macOS 26 起）时才有的行。
     var requiresAnimatedNowPlayingArtwork = false
+    /// 只有锁屏能把封面铺满全屏（iPhone、iPad，iOS 26 起）时才有的行。
+    var requiresFullScreenLockScreenArtwork = false
 
     var page: SettingsPage? {
         #if os(macOS)
@@ -248,6 +250,7 @@ enum SettingsCatalog {
     static let available: [SettingDefinition] = definitions.filter {
         guard $0.page?.available == true else { return false }
         if $0.requiresAnimatedNowPlayingArtwork, !LockScreenMotionArtworkPublisher.isSupportedBySystem { return false }
+        if $0.requiresFullScreenLockScreenArtwork, !LockScreenMotionArtworkPublisher.supportsFullScreenArtwork { return false }
         guard $0.requiresDiagnosticBuild else { return true }
         return DiagnosticLogExportPolicy.exposesExportEntry(
             channel: Bundle.main.distributionChannel

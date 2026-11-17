@@ -260,6 +260,10 @@ enum PlayerAppearancePreferences {
     /// 「锁屏显示动态封面」：跟随「动态专辑封面」总开关，系统（iOS / macOS 26 起）支持时才显示。
     static let lockScreenAnimatedArtworkKey = "primuse.player.lockScreenAnimatedArtwork"
     static let lockScreenAnimatedArtworkByDefault = true
+    /// 「锁屏全屏封面」：封面像壁纸一样铺满锁屏（方形动态封面合成 3:4、静态封面合成静止画面）。
+    /// 不跟「动态专辑封面」总开关走；只有 iPhone、iPad（iOS 26 起）锁屏能铺满时才显示。
+    static let lockScreenFullScreenArtworkKey = "primuse.player.lockScreenFullScreenArtwork"
+    static let lockScreenFullScreenArtworkByDefault = true
     static let motionArtworkServiceEnabledKey = "primuse.player.motionArtworkServiceEnabled"
     static let motionArtworkServiceEnabledByDefault = true
     static let motionArtworkServiceSourceKey = "motionArtworkServiceSource"
