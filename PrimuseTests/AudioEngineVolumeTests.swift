@@ -8,6 +8,92 @@ import XCTest
 
 final class AudioEngineVolumeTests: XCTestCase {
     @MainActor
+    func testRejectedDSDStartupRebuildsPCMWithoutKeepingCarrierState() throws {
+        try withDefaults { defaults in
+            var attempts = 0
+            let engine = AudioEngine(volumeDefaults: defaults, outputDefaults: defaults, startGraph: { _ in
+                attempts += 1
+                if attempts == 1 {
+                    throw NSError(domain: NSOSStatusErrorDomain, code: -10868)
+                }
+            })
+            defer { engine.stop() }
+            let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
+
+            XCTAssertFalse(try engine.prepareDSDCarrier(format))
+            XCTAssertEqual(attempts, 1)
+            XCTAssertFalse(engine.usesDSDCarrier)
+            XCTAssertFalse(engine.isSetUp)
+            XCTAssertNil(engine.outputFormat)
+
+            try engine.configure(outputMode: .highFidelity, directSourceFormat: format)
+            try engine.start()
+            XCTAssertEqual(attempts, 2)
+            XCTAssertFalse(engine.usesDSDCarrier)
+            XCTAssertEqual(engine.outputFormat, format)
+            XCTAssertNil(engine.effectsMainMixer)
+
+            XCTAssertTrue(try engine.prepareDSDCarrier(format))
+            XCTAssertEqual(attempts, 3, "A later usable route must still be able to prepare DoP")
+            XCTAssertTrue(engine.usesDSDCarrier)
+        }
+    }
+
+    @MainActor
+    func testCancelledDSDStartupDoesNotBecomePCMFallback() throws {
+        try withDefaults { defaults in
+            let engine = AudioEngine(volumeDefaults: defaults, outputDefaults: defaults, startGraph: { _ in
+                throw CancellationError()
+            })
+            defer { engine.stop() }
+            let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
+            XCTAssertThrowsError(try engine.prepareDSDCarrier(format)) { error in
+                XCTAssertTrue(error is CancellationError)
+            }
+            XCTAssertFalse(engine.usesDSDCarrier)
+            XCTAssertFalse(engine.isSetUp)
+            XCTAssertNil(engine.outputFormat)
+        }
+    }
+
+    #if os(iOS)
+    @MainActor
+    func testRejectedDoPConnectionLeavesPCMUsable() throws {
+        try withDefaults { defaults in
+            var starts = 0
+            let engine = AudioEngine(volumeDefaults: defaults, outputDefaults: defaults, startGraph: { _ in
+                starts += 1
+            }, connectDirectOutput: { graph, player, format in
+                if format.commonFormat == .otherFormat {
+                    throw NSError(domain: NSOSStatusErrorDomain, code: -10868)
+                }
+                try AudioEngine.connect(player, to: graph.outputNode, format: format, in: graph)
+            })
+            defer { engine.stop() }
+            var description = AudioStreamBasicDescription(
+                mSampleRate: 176_400,
+                mFormatID: kAudioFormatLinearPCM,
+                mFormatFlags: kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked
+                    | kAudioFormatFlagIsNonInterleaved | kAudioFormatFlagIsBigEndian,
+                mBytesPerPacket: 3, mFramesPerPacket: 1, mBytesPerFrame: 3,
+                mChannelsPerFrame: 2, mBitsPerChannel: 24, mReserved: 0
+            )
+            let carrier = try XCTUnwrap(AVAudioFormat(streamDescription: &description))
+            XCTAssertFalse(try engine.prepareDSDCarrier(carrier))
+            XCTAssertEqual(starts, 0, "Rejected connections must not reach startup")
+            XCTAssertFalse(engine.usesDSDCarrier)
+            XCTAssertNil(engine.outputFormat)
+            let pcm = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
+            try engine.configure(outputMode: .highFidelity, directSourceFormat: pcm)
+            try engine.start()
+            XCTAssertEqual(starts, 1)
+            XCTAssertEqual(engine.outputFormat, pcm)
+            XCTAssertFalse(engine.usesDSDCarrier)
+        }
+    }
+    #endif
+
+    @MainActor
     func testVolumeChangesBeforePlaybackPreparesAnAudioGraph() throws {
         try withDefaults { defaults in
             let engine = AudioEngine(volumeDefaults: defaults)

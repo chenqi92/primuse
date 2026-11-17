@@ -390,8 +390,21 @@ final class AudioEngine {
     /// origin when the nodes swap.
     var crossfadeTimelineOrigin: TimeInterval = 0
 
-    init(volumeDefaults: UserDefaults = .standard, outputDefaults: UserDefaults = .standard) {
+    @ObservationIgnored private let startGraph: (AVAudioEngine) throws -> Void
+    @ObservationIgnored private let connectDirectOutput: @MainActor (AVAudioEngine, AVAudioPlayerNode, AVAudioFormat) throws -> Void
+
+    init(
+        volumeDefaults: UserDefaults = .standard,
+        outputDefaults: UserDefaults = .standard,
+        startGraph: @escaping (AVAudioEngine) throws -> Void = { try $0.start() },
+        connectDirectOutput: @escaping @MainActor (AVAudioEngine, AVAudioPlayerNode, AVAudioFormat) throws -> Void = {
+            engine, player, format in
+            try AudioEngine.connect(player, to: engine.outputNode, format: format, in: engine)
+        }
+    ) {
         self.volumeDefaults = volumeDefaults
+        self.startGraph = startGraph
+        self.connectDirectOutput = connectDirectOutput
         #if os(macOS)
         self.outputDefaults = outputDefaults
         let savedOutputUID = outputDefaults.string(forKey: Self.outputDeviceUIDKey)
@@ -508,6 +521,25 @@ final class AudioEngine {
         refreshObservedOutputSampleRate()
     }
 
+    /// Matching the carrier rate does not guarantee that the output accepts
+    /// its integer layout. Validate both connection and startup before any
+    /// DoP buffers are decoded or scheduled.
+    func prepareDSDCarrier(_ format: AVAudioFormat) throws -> Bool {
+        try Task.checkCancellation()
+        do {
+            try configure(outputMode: .highFidelity, directSourceFormat: format, isDSDCarrier: true)
+            try start()
+            return true
+        } catch {
+            tearDownGraph()
+            usesDSDCarrier = false
+            directSourceFormat = nil
+            if error is CancellationError { throw error }
+            plog("DoP output rejected at \(format.sampleRate) Hz; rebuilding as PCM: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// Called from the player after AVAudioEngine reports a hardware change.
     /// The actual teardown happens later in `configure`, never on the engine's
     /// internal notification queue.
@@ -608,7 +640,7 @@ final class AudioEngine {
 
             // No mixer and no audio unit in this graph. Integer DoP buffers can
             // also use this path when the hardware sample rate is compatible.
-            try Self.connect(playerA, to: eng.outputNode, format: format, in: eng)
+            try connectDirectOutput(eng, playerA, format)
             playerA.volume = 1
             playerB.volume = 0
 
@@ -780,7 +812,7 @@ final class AudioEngine {
         applySpatialAudioConfiguration()
         guard let engine, !engine.isRunning else { return }
         flushEffectChain()
-        try engine.start()
+        try startGraph(engine)
         applyRequestedVolumeToGraph()
     }
 

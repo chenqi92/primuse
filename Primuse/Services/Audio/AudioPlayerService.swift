@@ -2367,12 +2367,8 @@ final class AudioPlayerService {
                 carriesDSD: true,
                 expectedPlayID: expectedPlayID
             )
-            if audioEngine.hardwareSupportsDirectFormat(dopFormat) {
-                try audioEngine.configure(
-                    outputMode: .highFidelity,
-                    directSourceFormat: dopFormat,
-                    isDSDCarrier: true
-                )
+            if audioEngine.hardwareSupportsDirectFormat(dopFormat),
+               try audioEngine.prepareDSDCarrier(dopFormat) {
                 plog("🎧 DSD output: DoP \(dopFormat.sampleRate) Hz direct")
                 return .dop
             }
