@@ -389,25 +389,13 @@ enum LyricsLoader {
             return await PodcastTranscriptLoader.lines(for: song)
         }
 
-        // Apple Music: 只有用户导入 Music.app 的本机文件读得到歌词 (内嵌标签)。
         if song.sourceID == AppleMusicLibraryIdentity.sourceID {
-            if let embedded = await AppServices.shared.appleMusicLibrary.fetchLyrics(for: song),
-               !embedded.isEmpty {
-                guard !Task.isCancelled else { return [] }
-                let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
-                    embedded,
-                    forSongID: song.id,
-                    expectedFingerprint: nil,
-                    force: false
-                )
-                guard !Task.isCancelled else { return [] }
-                let resolved = wrote
-                    ? embedded
-                    : await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? embedded
-                logLoaded(resolved, song: song, tier: "AppleMusic-embedded")
-                return resolved
-            }
-            guard !Task.isCancelled else { return [] }
+            return await resolveAppleMusicLyrics(
+                for: song,
+                allowsAutomaticOnlineLyrics: allowsAutomaticOnlineLyrics,
+                fetchEmbedded: { await AppServices.shared.appleMusicLibrary.fetchLyrics(for: song) },
+                fetchOnline: { await automaticOnlineLyrics(for: song, expectedFingerprint: nil) }
+            )
         }
 
         if !isPinned,
@@ -584,6 +572,31 @@ enum LyricsLoader {
         }
         plog("📜 LyricsLoader '\(song.title)' empty")
         return []
+    }
+
+    static func resolveAppleMusicLyrics(
+        for song: Song,
+        allowsAutomaticOnlineLyrics: Bool,
+        fetchEmbedded: () async -> [LyricLine]?,
+        fetchOnline: () async -> [LyricLine]?
+    ) async -> [LyricLine] {
+        guard !Task.isCancelled else { return [] }
+        if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !cached.isEmpty {
+            return cached
+        }
+        if let embedded = await fetchEmbedded(), !embedded.isEmpty {
+            guard !Task.isCancelled else { return [] }
+            let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                embedded, forSongID: song.id, expectedFingerprint: nil, force: false
+            )
+            guard !Task.isCancelled else { return [] }
+            return wrote ? embedded : await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? []
+        }
+        guard allowsAutomaticOnlineLyrics, !Task.isCancelled else { return [] }
+        let online = await fetchOnline()
+        guard !Task.isCancelled else { return [] }
+        // 手动编辑或另一处加载可能在请求期间写入歌词，以最新缓存为准。
+        return await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? online ?? []
     }
 
     /// 普通源确实没有歌词时的最后一站：Tier4 在线兜底，拿不到就按原样返回空。
@@ -1213,7 +1226,7 @@ extension LyricsLoader {
 
     /// 服务端源确认没有歌词后的在线兜底。播放页、锁屏、小组件、手表各自加载同一首歌,
     /// 以前每处各问一轮在线歌词源(没有歌词的歌半分钟里打四五轮); 现在同一首歌同时只问
-    /// 一轮、问过 6 小时内不再自动问(`AutomaticOnlineLyricsLedger`)。
+    /// 一轮；成功后冷却 6 小时，未取到时 60 秒后允许再试。
     static func serverFallbackOnlineLyrics(for song: Song) async -> [LyricLine]? {
         // 没网、或者用户不让这个 App 联网时不问，也不记进台账：网络回来后这首照常能问。
         await NetworkMonitor.shared.waitForInitialPath()
@@ -1246,15 +1259,16 @@ extension LyricsLoader {
         // 没网、或者用户不让这个 App 联网时不问，也不记进台账：网络回来后这首照常能问。
         await NetworkMonitor.shared.waitForInitialPath()
         guard NetworkMonitor.shared.allowsAutomaticInternetRequests else { return nil }
-        guard await AutomaticOnlineLyricsLedger.shared.shouldAttempt(songID: song.id) else { return nil }
         guard !Task.isCancelled else { return nil }
 
-        guard let online = await AppServices.shared.scraperService.fetchOnlineLyrics(
-            title: song.title,
-            artist: song.artistName,
-            album: song.albumTitle,
-            duration: song.duration > 0 ? song.duration : nil
-        ), !online.isEmpty else { return nil }
+        guard let online = await AutomaticOnlineLyricsLedger.shared.serverFallbackLyrics(songID: song.id, fetch: {
+            await AppServices.shared.scraperService.fetchOnlineLyrics(
+                title: song.title,
+                artist: song.artistName,
+                album: song.albumTitle,
+                duration: song.duration > 0 ? song.duration : nil
+            )
+        }), !online.isEmpty else { return nil }
         guard !Task.isCancelled else { return nil }
 
         let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(

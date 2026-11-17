@@ -6,36 +6,42 @@ import PrimuseKit
 // iOS / macOS 的 LyricsLoader(Tier4)与 Apple TV 播放时的在线歌词兜底共用这两样:
 // 什么时候允许自动去问(开关 + 有能用的歌词源),以及同一首歌多久问一次。
 
-/// 同一进程内，每首歌 6 小时只自动问一次在线歌词，避免没歌词的歌每次播放都打一轮网络请求。手动刮削不经过这里。
+/// 合并同一首歌的并发查询；取得歌词后冷却 6 小时，失败后允许短暂等待再试。手动刮削不经过这里。
 actor AutomaticOnlineLyricsLedger {
     static let shared = AutomaticOnlineLyricsLedger()
 
     private static let cooldown: TimeInterval = 6 * 60 * 60
+    private static let unsuccessfulCooldown: TimeInterval = 60
     private static let pruneThreshold = 2048
 
     private var lastAttempt: [String: Date] = [:]
     private var inFlight: [String: (token: UUID, task: Task<[LyricLine]?, Never>)] = [:]
 
     /// 服务端源确认没有歌词后的在线兜底：播放页、锁屏、小组件、手表各自加载同一首歌时，
-    /// 同一时间只问一轮，后到的等着用同一份结果；问过的 6 小时内不再自动问。
+    /// 同一时间只问一轮，后到的等着用同一份结果；空结果不锁住后续 6 小时的查询。
     /// 问到的歌词由调用方写进缓存，之后的加载在缓存那一层就命中了。
     func serverFallbackLyrics(
         songID: String,
+        now: Date = Date(),
         fetch: @escaping @Sendable () async -> [LyricLine]?
     ) async -> [LyricLine]? {
         if let running = inFlight[songID] { return await running.task.value }
-        guard shouldAttempt(songID: songID) else { return nil }
+        guard shouldAttempt(songID: songID, now: now) else { return nil }
         let token = UUID()
         let task = Task { await fetch() }
         inFlight[songID] = (token, task)
         let result = await task.value
-        if inFlight[songID]?.token == token { inFlight[songID] = nil }
+        if inFlight[songID]?.token == token {
+            inFlight[songID] = nil
+            if result?.isEmpty != false {
+                lastAttempt[songID] = now.addingTimeInterval(Self.unsuccessfulCooldown - Self.cooldown)
+            }
+        }
         return result
     }
 
     /// 最近 6 小时没问过就登记并返回 true；问过返回 false。
-    func shouldAttempt(songID: String) -> Bool {
-        let now = Date()
+    func shouldAttempt(songID: String, now: Date = Date()) -> Bool {
         if let previous = lastAttempt[songID],
            now.timeIntervalSince(previous) < Self.cooldown {
             return false

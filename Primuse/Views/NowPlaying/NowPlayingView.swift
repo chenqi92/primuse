@@ -12212,46 +12212,9 @@ struct NowPlayingView: View {
         guard let song = player.currentSong else { setLyrics([]); return }
         let loadStart = Date()
 
-        // Apple Music 先查 MetadataAssetStore songID cache (在线刮削或上次读到
-        // 的歌词); miss 再读用户导入 Music.app 的本机文件里内嵌的歌词, 读到后
-        // 写回 cache。流媒体曲目 Apple 不公开歌词正文。
-        // 全失败 → setLyrics([])，emptyLyricsView 仍允许用户走和 macOS 相同的
-        // 在线歌词刮削链路，而不是只能跳转 Apple Music。
         if song.sourceID == AppleMusicLibraryService.systemSourceID {
-            let cacheSnapshot = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
-            if let cached = cacheSnapshot,
-               !cached.isEmpty {
-                plog(String(format: "📜 Apple Music lyrics cache hit '%@' (%d lines)",
-                            song.title, cached.count))
-                setLyricsIfCurrent(cached, for: song, loadRevision: loadRevision)
-                return
-            }
-            if let lyrics = await AppServices.shared.appleMusicLibrary.fetchLyrics(for: song),
-               !lyrics.isEmpty {
-                guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
-                let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
-                    lyrics,
-                    forSongID: song.id,
-                    expectedFingerprint: cacheSnapshot.map(LyricsDocumentFingerprint.init(lines:)),
-                    force: false
-                )
-                guard wrote else {
-                    if let latest = await MetadataAssetStore.shared
-                        .cachedLyrics(forSongID: song.id),
-                       !latest.isEmpty {
-                        setLyricsIfCurrent(latest, for: song, loadRevision: loadRevision)
-                    }
-                    // 这条分支可能一行歌词都没写出去, 但这次查询已经结束。
-                    endLyricsResolution(loadRevision)
-                    return
-                }
-                plog(String(format: "📜 Apple Music embedded lyrics '%@' in %.0fms (%d lines)",
-                            song.title, Date().timeIntervalSince(loadStart) * 1000, lyrics.count))
-                setLyricsIfCurrent(lyrics, for: song, loadRevision: loadRevision)
-                return
-            }
-            plog("📜 Apple Music lyrics: none readable for '\(song.title)'")
-            setLyricsIfCurrent([], for: song, loadRevision: loadRevision)
+            let lyrics = await LyricsLoader.load(for: song, sourceManager: sourceManager)
+            setLyricsIfCurrent(lyrics, for: song, loadRevision: loadRevision)
             return
         }
 

@@ -7,6 +7,25 @@ import XCTest
 
 final class SharedScraperRequestTests: XCTestCase {
 
+    func testAutomaticLyricsFailureCanRetryWithoutWaitingSixHours() async {
+        let ledger = AutomaticOnlineLyricsLedger()
+        let now = Date()
+        let missing = await ledger.serverFallbackLyrics(songID: "fixture", now: now) { nil }
+        XCTAssertNil(missing)
+        let immediate = await ledger.serverFallbackLyrics(songID: "fixture", now: now.addingTimeInterval(59)) {
+            XCTFail("Retry storm"); return nil
+        }
+        XCTAssertNil(immediate)
+        let found = await ledger.serverFallbackLyrics(songID: "fixture", now: now.addingTimeInterval(61)) {
+            [LyricLine(timestamp: 1, text: "Lanterns return with the tide")]
+        }
+        XCTAssertEqual(found?.count, 1)
+        let cooledDown = await ledger.serverFallbackLyrics(songID: "fixture", now: now.addingTimeInterval(120)) {
+            XCTFail("Successful lookup should remain cached"); return nil
+        }
+        XCTAssertNil(cooledDown)
+    }
+
     func testSearchUsesSupportedPageSizeAndKeepsRequestedResultCount() async throws {
         let body = try JSONSerialization.data(withJSONObject: (0..<20).map { ["id": String($0), "title": "Paper Lanterns", "artist": "North Bay"] })
         let fixture = ScraperHTTPFixture { request in

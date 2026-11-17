@@ -5,6 +5,30 @@ import PrimuseKit
 @testable import Primuse
 
 final class NativeScraperHTTPTests: XCTestCase {
+    func testLiveLyricsWithImportedJSONBundle() async throws {
+        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_LIVE_LYRICS_BUNDLE"] else {
+            throw XCTSkip("Live source verification is opt-in")
+        }
+        struct Bundle: Decodable { let sources: [ScraperConfig] }
+        let configs = try JSONDecoder().decode(Bundle.self, from: Data(contentsOf: URL(fileURLWithPath: path))).sources
+        let config = try XCTUnwrap(configs.first { $0.id == "kugou" })
+        XCTAssertEqual(URL(string: try XCTUnwrap(config.lyrics?.url))?.scheme, "https")
+        XCTAssertEqual(URL(string: try XCTUnwrap(config.secrets?["lyricsFetchUrl"]))?.scheme, "https")
+        let scraper = ConfigurableScraper(config: config, requestPool: .init())
+        for (title, artist) in [("外面的世界", "莫文蔚"), ("一直很安静", "阿桑")] {
+            let matches = try await scraper.search(query: title, artist: artist, album: nil, limit: 5)
+            let selected = try XCTUnwrap(ScraperManager.bestMatch(in: matches.items, title: title, artist: artist, durationMs: nil))
+            let lyrics = try await scraper.getLyrics(externalId: selected.externalId)
+            let text = try XCTUnwrap(lyrics?.lrcContent)
+            let lines = LyricsContentParser.parseText(text)
+            XCTAssertGreaterThan(lines.count, 10)
+            XCTAssertTrue(lines.contains { $0.isWordLevel })
+            let validation = LyricsContentParser.validateEditableText(LyricsContentParser.serialize(lines))
+            XCTAssertTrue(validation.isValid, "Fetched lyrics must be writable; invalid rows: \(validation.issues.map(\.lineNumber))")
+            print("LIVE_LYRICS_RESULT source=\(config.id) lines=\(lines.count) wordLines=\(lines.filter { $0.isWordLevel }.count)")
+        }
+    }
+
     func testLiveJSONSourcesAndPrepareVersionedFeed() async throws {
         guard ProcessInfo.processInfo.environment["PRIMUSE_RUN_LIVE_SCRAPERS"] == "1" else {
             throw XCTSkip("Live source verification is opt-in")

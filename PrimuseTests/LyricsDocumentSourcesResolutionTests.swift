@@ -11,6 +11,47 @@ import XCTest
 /// rewrites exactly one file, byte for byte, only while it is unchanged.
 final class LyricsDocumentSourcesResolutionTests: XCTestCase {
     @MainActor
+    func testAppleMusicWithoutEmbeddedLyricsFallsBackOnline() async {
+        let item = song()
+        let expected = [LyricLine(timestamp: 1, text: "Lanterns drift across the bay")]
+        var calls = 0
+        let result = await LyricsLoader.resolveAppleMusicLyrics(
+            for: item, allowsAutomaticOnlineLyrics: true,
+            fetchEmbedded: { nil }, fetchOnline: { calls += 1; return expected }
+        )
+        XCTAssertEqual(result.map(\.text), expected.map(\.text))
+        XCTAssertEqual(calls, 1)
+    }
+
+    @MainActor
+    func testAppleMusicEmbeddedLyricsAndExplicitEditorLoadDoNotSearchOnline() async {
+        for embedded in [nil, [LyricLine(timestamp: 1, text: "A paper moon above the tide")]] as [[LyricLine]?] {
+            let item = song()
+            let result = await LyricsLoader.resolveAppleMusicLyrics(
+                for: item, allowsAutomaticOnlineLyrics: embedded != nil,
+                fetchEmbedded: { embedded }, fetchOnline: { XCTFail("Unexpected online request"); return nil }
+            )
+            XCTAssertEqual(result.map(\.text), (embedded ?? []).map(\.text))
+            _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: item.id)
+        }
+    }
+
+    @MainActor
+    func testAppleMusicKeepsManualLyricsSavedDuringOnlineLookup() async {
+        let item = song()
+        let manual = [LyricLine(timestamp: 1, text: "I marked the harbour on a map")]
+        let result = await LyricsLoader.resolveAppleMusicLyrics(
+            for: item, allowsAutomaticOnlineLyrics: true,
+            fetchEmbedded: { nil }, fetchOnline: {
+                _ = await MetadataAssetStore.shared.cacheLyrics(manual, forSongID: item.id, force: true)
+                return [LyricLine(timestamp: 1, text: "A different lantern")]
+            }
+        )
+        XCTAssertEqual(result.map(\.text), manual.map(\.text))
+        _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: item.id)
+    }
+
+    @MainActor
     func testASMRLyricsRemainReadableInMusicAndAudiobookClassification() async throws {
         let lines = Data("[00:01.00]雨停在窗沿\n[00:03.50]灯影落在纸上\n".utf8)
         for genre in ["ASMR", "Audiobook ASMR"] {
