@@ -431,7 +431,7 @@ struct TVSettingsView: View {
                                 set: { artistNameSettings.setMergesCollaborativeAlbums($0) }
                             ))
                             settingDivider
-                            toggleRow("square.stack", PMString("artist_name_settings_merge_same_named_albums"), isOn: Binding(
+                            toggleRow("square.stack", String(localized: "artist_name_settings_merge_same_named_albums"), isOn: Binding(
                                 get: { artistNameSettings.configuration.mergesSameNamedAlbums },
                                 set: { artistNameSettings.setMergesSameNamedAlbums($0) }
                             ))
