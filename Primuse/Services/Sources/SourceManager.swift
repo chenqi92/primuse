@@ -8903,7 +8903,9 @@ final class SourceManager {
         let prepared = await Task.detached(priority: .utility) {
             Self.prepareAutomaticOfflinePinReconciliation(desiredSongs)
         }.value
-        guard generation == automaticOfflineReconciliationGeneration else { return nil }
+        // 被新一轮顶掉的核对不再进缓存管理器做整库检查。
+        guard !Task.isCancelled,
+              generation == automaticOfflineReconciliationGeneration else { return nil }
         guard let missingPaths = await AudioCacheManager.shared.reconcileAutomaticPlaylistPins(
             prepared.requests,
             generation: generation,

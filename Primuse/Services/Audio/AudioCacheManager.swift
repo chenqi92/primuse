@@ -732,6 +732,9 @@ actor AudioCacheManager {
         excludedPaths: Set<String> = [],
         preservedPaths: Set<String> = []
     ) -> Set<String>? {
+        // 排队轮到时这一轮可能已经被新一轮顶掉了。整库检查要在这里连续占好几秒，
+        // 期间起播、下载拿缓存租约都得等，被取消的就直接让出来。
+        guard !Task.isCancelled else { return nil }
         ensureInitialized()
         guard generation >= automaticPlaylistReconciliationGeneration else { return nil }
         automaticPlaylistReconciliationGeneration = generation
@@ -780,17 +783,21 @@ actor AudioCacheManager {
                 missingPaths.insert(request.path)
                 continue
             }
-            let fileURL = downloadStore.fileURL(for: request.path, kind: .original)
-                ?? basePath.appendingPathComponent(request.path)
+            let storedOriginal = downloadStore.fileURL(for: request.path, kind: .original)
+            let fileURL = storedOriginal ?? basePath.appendingPathComponent(request.path)
             var byteCount = logicalFileSize(at: fileURL)
             var isUsable = byteCount.map { size in
                 if preservedPaths.contains(request.path) { return size > 0 }
                 return request.expectedByteCount <= 0
                     || size >= Int64(Double(request.expectedByteCount) * 0.95)
             } ?? false
+            // 能用的那份已经在下载目录里时，记录没变就不用每轮重新对齐入口：
+            // 缓存入口的修复在回到前台、下载目录变化和发布新文件时都会做。
+            var usableFileIsStored = isUsable && storedOriginal != nil
             if !isUsable {
                 // 按离线缓存音质转过的歌只剩精简副本。
-                let compactURL = downloadStore.fileURL(for: request.path, kind: .compact)
+                let storedCompact = downloadStore.fileURL(for: request.path, kind: .compact)
+                let compactURL = storedCompact
                     ?? OfflineCompactArtifact.url(forCanonical: basePath.appendingPathComponent(request.path))
                 if OfflineCompactArtifact.isUsable(
                     at: compactURL,
@@ -799,6 +806,7 @@ actor AudioCacheManager {
                 ) {
                     isUsable = true
                     byteCount = logicalFileSize(at: compactURL)
+                    usableFileIsStored = storedCompact != nil
                 }
             }
             guard isUsable else {
@@ -820,7 +828,7 @@ actor AudioCacheManager {
             entry.pinnedAt = entry.isPinned ? (entry.pinnedAt ?? Date()) : nil
             entry.downloadedAt = entry.downloadedAt ?? Date()
             offlineManifest[request.path] = entry
-            changedPaths.insert(request.path)
+            if !usableFileIsStored { changedPaths.insert(request.path) }
             if !entryExisted
                 || previous.isManuallyPinned != entry.isManuallyPinned
                 || previous.playlistIDs != entry.playlistIDs
@@ -3426,7 +3434,8 @@ final class AlwaysDownloadCoordinator {
                 playbackIsBuffering: self.player.isLoading,
                 resourceConditionsAllowTransfers: self.resourceConditionsAllowTransfers()
             )
-            await self.reconcileNow(reasons: "start")
+            // 和其他触发走同一条线，后面的轮次会等它结束，不会叠在一起跑。
+            self.scheduleReconciliation(delay: .zero, reason: "start")
         }
     }
 
@@ -3535,9 +3544,14 @@ final class AlwaysDownloadCoordinator {
     private func scheduleReconciliation(delay: Duration = .milliseconds(500), reason: String) {
         guard didStart else { return }
         pendingReconciliationReasons.insert(reason)
-        reconciliationTask?.cancel()
+        // 取消只能让上一轮在下一个检查点退出，它可能正在缓存管理器上做整库检查。
+        // 新一轮等它真正结束再开工，否则几轮的整库检查排成一串，起播、下载要拿
+        // 缓存租约都得等全部跑完；排在中间又被取消的轮次也就不再进去。
+        let superseded = reconciliationTask
+        superseded?.cancel()
         reconciliationTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
+            await superseded?.value
             guard !Task.isCancelled, let self else { return }
             let reasons = self.pendingReconciliationReasons.sorted().joined(separator: ",")
             self.pendingReconciliationReasons.removeAll()

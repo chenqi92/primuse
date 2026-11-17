@@ -52,6 +52,44 @@ final class OfflineDownloadStoreTests: XCTestCase {
         await maintenance.value
     }
 
+    func testSupersededPinReconciliationSkipsTheLibraryWideCheck() async throws {
+        let fixture = try makeFixture()
+        let manager = fixture.manager
+        let request = AutomaticOfflinePinRequest(
+            path: fixture.relativePath, playlistIDs: ["playlist"], expectedByteCount: 65_536
+        )
+        let superseded = Task { () -> Set<String>? in
+            try? await Task.sleep(for: .seconds(30))
+            return await manager.reconcileAutomaticPlaylistPins([request], generation: 1)
+        }
+        superseded.cancel()
+        let skipped = await superseded.value
+        XCTAssertNil(skipped)
+        let entriesAfterSkip = await manager.offlineDownloadEntries()
+        XCTAssertTrue(entriesAfterSkip.isEmpty)
+
+        let missing = await manager.reconcileAutomaticPlaylistPins([request], generation: 1)
+        XCTAssertEqual(missing, Set<String>())
+        let entries = await manager.offlineDownloadEntries()
+        XCTAssertEqual(entries.count, 1)
+    }
+
+    func testStoredDownloadStaysAvailableAcrossPinPassesWithoutItsCacheAlias() async throws {
+        let fixture = try makeFixture()
+        let request = AutomaticOfflinePinRequest(
+            path: fixture.relativePath, playlistIDs: ["playlist"], expectedByteCount: 65_536
+        )
+        let firstMissing = await fixture.manager.reconcileAutomaticPlaylistPins([request], generation: 1)
+        XCTAssertEqual(firstMissing, Set<String>())
+        let download = try XCTUnwrap(
+            fixture.manager.downloadStore.fileURL(for: fixture.relativePath, kind: .original)
+        )
+        try FileManager.default.removeItem(at: fixture.cacheURL)
+        let laterMissing = await fixture.manager.reconcileAutomaticPlaylistPins([request], generation: 2)
+        XCTAssertEqual(laterMissing, Set<String>())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: download.path))
+    }
+
     func testReadLeaseProtectsOriginalAndCompactFilesUntilEveryReaderStops() async throws {
         let fixture = try makeFixture()
         let one = try XCTUnwrap(fixture.manager.acquirePlaybackReadLease(path: fixture.relativePath))
