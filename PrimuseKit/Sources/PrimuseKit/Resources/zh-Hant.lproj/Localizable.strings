@@ -1079,3 +1079,9 @@
 /* Apple TV source form: per-source iCloud sync */
 "source_syncs_via_icloud" = "透過 iCloud 同步";
 "source_syncs_via_icloud_tv_info" = "關閉後，這台 Apple TV 不再把這個音樂來源的設定同步到 iCloud，也不再接收其他裝置對它的修改和刪除；iCloud 裡的那份和其他裝置上的這個音樂來源保持原樣。重新開啟時以較新的修改為準。";
+
+"scraper.rule.error.invalidRule" = "資料規則無效";
+"scraper.rule.error.invalidResponse" = "回應資料無效";
+"scraper.rule.error.tooLarge" = "回應資料過大";
+"scraper.rule.error.invalidPlaylist" = "不支援此封面播放列表";
+"scraper.rule.error.apiStatus" = "刮削介面錯誤 %lld";

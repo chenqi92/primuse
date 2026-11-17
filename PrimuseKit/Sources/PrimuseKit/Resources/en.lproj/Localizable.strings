@@ -1080,3 +1080,9 @@
 /* Apple TV source form: per-source iCloud sync */
 "source_syncs_via_icloud" = "Sync via iCloud";
 "source_syncs_via_icloud_tv_info" = "When off, this Apple TV stops sending this source's settings to iCloud and stops applying changes or deletions made on your other devices. The copy in iCloud and this source on your other devices stay as they are. When you turn it back on, the newer change wins.";
+
+"scraper.rule.error.invalidRule" = "Invalid data rule";
+"scraper.rule.error.invalidResponse" = "Invalid response data";
+"scraper.rule.error.tooLarge" = "Response too large";
+"scraper.rule.error.invalidPlaylist" = "Unsupported artwork playlist";
+"scraper.rule.error.apiStatus" = "Scraper API error %lld";

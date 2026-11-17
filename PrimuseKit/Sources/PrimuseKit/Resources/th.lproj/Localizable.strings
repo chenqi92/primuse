@@ -1029,3 +1029,9 @@
 /* Apple TV source form: per-source iCloud sync */
 "source_syncs_via_icloud" = "ซิงค์ผ่าน iCloud";
 "source_syncs_via_icloud_tv_info" = "เมื่อปิด Apple TV เครื่องนี้จะไม่ส่งการตั้งค่าของแหล่งเพลงนี้ไปยัง iCloud และจะไม่นำการแก้ไขหรือการลบจากอุปกรณ์อื่นของคุณมาใช้ สำเนาใน iCloud และแหล่งเพลงนี้ในอุปกรณ์อื่นจะยังคงเหมือนเดิม เมื่อเปิดอีกครั้ง การแก้ไขที่ใหม่กว่าจะมีผล";
+
+"scraper.rule.error.invalidRule" = "กฎข้อมูลไม่ถูกต้อง";
+"scraper.rule.error.invalidResponse" = "ข้อมูลการตอบกลับไม่ถูกต้อง";
+"scraper.rule.error.tooLarge" = "การตอบกลับมีขนาดใหญ่เกินไป";
+"scraper.rule.error.invalidPlaylist" = "ไม่รองรับเพลย์ลิสต์ภาพปกนี้";
+"scraper.rule.error.apiStatus" = "ข้อผิดพลาด API ดึงข้อมูลเมตา %lld";

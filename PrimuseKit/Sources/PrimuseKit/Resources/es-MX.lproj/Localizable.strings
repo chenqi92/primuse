@@ -1029,3 +1029,9 @@
 /* Apple TV source form: per-source iCloud sync */
 "source_syncs_via_icloud" = "Sincronizar con iCloud";
 "source_syncs_via_icloud_tv_info" = "Si la desactivas, este Apple TV deja de enviar a iCloud la configuración de esta fuente y deja de aplicar los cambios o eliminaciones hechos en tus otros dispositivos. La copia en iCloud y esta fuente en tus otros dispositivos se quedan como están. Al volver a activarla, gana el cambio más reciente.";
+
+"scraper.rule.error.invalidRule" = "Regla de datos no válida";
+"scraper.rule.error.invalidResponse" = "Datos de respuesta no válidos";
+"scraper.rule.error.tooLarge" = "La respuesta es demasiado grande";
+"scraper.rule.error.invalidPlaylist" = "Lista de reproducción de portadas no compatible";
+"scraper.rule.error.apiStatus" = "Error de la API de extracción %lld";

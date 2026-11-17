@@ -1029,3 +1029,9 @@
 /* Apple TV source form: per-source iCloud sync */
 "source_syncs_via_icloud" = "المزامنة عبر iCloud";
 "source_syncs_via_icloud_tv_info" = "عند الإيقاف، يتوقف جهاز Apple TV هذا عن إرسال إعدادات هذا المصدر إلى iCloud، ولا يطبّق التغييرات أو عمليات الحذف التي تتم على أجهزتك الأخرى. تبقى النسخة في iCloud وهذا المصدر على أجهزتك الأخرى كما هي. عند إعادة التشغيل يُعتمد التغيير الأحدث.";
+
+"scraper.rule.error.invalidRule" = "قاعدة معالجة البيانات غير صالحة";
+"scraper.rule.error.invalidResponse" = "بيانات استجابة غير صالحة";
+"scraper.rule.error.tooLarge" = "حجم الاستجابة كبير جدًا";
+"scraper.rule.error.invalidPlaylist" = "قائمة تشغيل أغلفة غير مدعومة";
+"scraper.rule.error.apiStatus" = "خطأ في واجهة برمجة تطبيقات جلب البيانات: %lld";

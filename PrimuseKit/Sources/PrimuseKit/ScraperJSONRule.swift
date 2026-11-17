@@ -40,11 +40,11 @@ public struct ScraperJSONRule: Codable, Equatable, Sendable {
         case invalidRule, invalidResponse, tooLarge, invalidPlaylist, apiStatus(Int)
         public var errorDescription: String? {
             switch self {
-            case .invalidRule: "Invalid data rule"
-            case .invalidResponse: "Invalid response data"
-            case .tooLarge: "Response too large"
-            case .invalidPlaylist: "Unsupported artwork playlist"
-            case .apiStatus(let code): "Scraper API error \(code)"
+            case .invalidRule: PMString("scraper.rule.error.invalidRule")
+            case .invalidResponse: PMString("scraper.rule.error.invalidResponse")
+            case .tooLarge: PMString("scraper.rule.error.tooLarge")
+            case .invalidPlaylist: PMString("scraper.rule.error.invalidPlaylist")
+            case .apiStatus(let code): PMString("scraper.rule.error.apiStatus", Int64(code))
             }
         }
     }

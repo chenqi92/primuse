@@ -1082,3 +1082,9 @@
 /* Apple TV source form: per-source iCloud sync */
 "source_syncs_via_icloud" = "iCloud で同期";
 "source_syncs_via_icloud_tv_info" = "オフにすると、この Apple TV はこの音楽ソースの設定を iCloud に送らなくなり、ほかのデバイスでの変更や削除も反映しなくなります。iCloud にあるデータとほかのデバイスのこの音楽ソースはそのまま残ります。再びオンにすると新しいほうの変更が優先されます。";
+
+"scraper.rule.error.invalidRule" = "データルールが無効です";
+"scraper.rule.error.invalidResponse" = "応答データが無効です";
+"scraper.rule.error.tooLarge" = "応答データが大きすぎます";
+"scraper.rule.error.invalidPlaylist" = "このアートワークのプレイリストには対応していません";
+"scraper.rule.error.apiStatus" = "スクレイパー API エラー %lld";

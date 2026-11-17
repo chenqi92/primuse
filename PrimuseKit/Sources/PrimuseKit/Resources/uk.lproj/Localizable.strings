@@ -1029,3 +1029,9 @@
 /* Apple TV source form: per-source iCloud sync */
 "source_syncs_via_icloud" = "Синхронізувати через iCloud";
 "source_syncs_via_icloud_tv_info" = "Якщо вимкнути, ця Apple TV перестане надсилати в iCloud налаштування цього джерела й не застосовуватиме зміни чи видалення з інших ваших пристроїв. Копія в iCloud і це джерело на інших пристроях залишаться без змін. Після повторного ввімкнення перевагу має новіша зміна.";
+
+"scraper.rule.error.invalidRule" = "Недійсне правило обробки даних";
+"scraper.rule.error.invalidResponse" = "Недійсні дані відповіді";
+"scraper.rule.error.tooLarge" = "Завелика відповідь";
+"scraper.rule.error.invalidPlaylist" = "Непідтримуваний список відтворення обкладинок";
+"scraper.rule.error.apiStatus" = "Помилка API завантаження метаданих: %lld";

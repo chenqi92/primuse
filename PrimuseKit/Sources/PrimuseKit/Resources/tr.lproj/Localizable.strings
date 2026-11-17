@@ -1029,3 +1029,9 @@
 /* Apple TV source form: per-source iCloud sync */
 "source_syncs_via_icloud" = "iCloud ile eşzamanla";
 "source_syncs_via_icloud_tv_info" = "Kapatıldığında bu Apple TV, bu kaynağın ayarlarını iCloud'a göndermez ve diğer cihazlarınızda yapılan değişiklikleri veya silmeleri uygulamaz. iCloud'daki kopya ve diğer cihazlarınızdaki bu kaynak olduğu gibi kalır. Yeniden açtığınızda daha yeni değişiklik geçerli olur.";
+
+"scraper.rule.error.invalidRule" = "Geçersiz veri kuralı";
+"scraper.rule.error.invalidResponse" = "Geçersiz yanıt verileri";
+"scraper.rule.error.tooLarge" = "Yanıt çok büyük";
+"scraper.rule.error.invalidPlaylist" = "Desteklenmeyen kapak çalma listesi";
+"scraper.rule.error.apiStatus" = "Meta veri toplama API hatası: %lld";
