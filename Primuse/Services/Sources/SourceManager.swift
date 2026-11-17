@@ -7729,7 +7729,7 @@ final class SourceManager {
 
         // 拖动要的是原文件, 这次临时下载不转精简副本。
         let result = await downloadForOfflineBatch(songs: [song], compactsAfterPin: false)
-        guard result.succeeded, let cached = cachedURL(for: song) else { return nil }
+        guard result.succeeded else { return nil }
 
         // Seeking is normal playback cache behavior, not an explicit offline
         // pin. Preserve a user's pre-existing pin, otherwise return the file
@@ -7739,7 +7739,8 @@ final class SourceManager {
             await AudioCacheManager.shared.unpin(path: relativePath)
             await refreshOfflineAudioSnapshot(for: song)
         }
-        return cached
+        // 取消临时固定会移除 Downloads 路径，必须重新解析普通缓存中的文件。
+        return cachedURL(for: song)
     }
 
     func cacheURL(for song: Song) -> URL {

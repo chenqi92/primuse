@@ -8,6 +8,61 @@ import XCTest
 
 final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     @MainActor
+    func testMaterializationReturnsReadableCacheAfterTemporaryDownloadIsUnpinned() async throws {
+        let source = MusicSource(id: UUID().uuidString, name: "Materialization fixture", type: .baiduPan)
+        let payload = Data(repeating: 0x42, count: 65_536)
+        let connector = FixtureRangeConnector(sourceID: source.id, payload: payload)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let song = Song(id: UUID().uuidString, title: "Recovered download", fileFormat: .wav,
+                        filePath: "/recovered.wav", sourceID: source.id, fileSize: Int64(payload.count))
+        defer { manager.deleteSourceCaches(sourceID: source.id) }
+        let prepared = await manager.prepareAutomaticOfflineDownload(song: song, forceRedownload: false)
+        XCTAssertTrue(prepared)
+        XCTAssertNil(manager.cachedURL(for: song))
+
+        let materialized = await manager.materializeCachedURLForSeeking(for: song)
+        let playback = try XCTUnwrap(materialized)
+        let canonical = manager.cacheURL(for: song)
+        let relativePath = source.id + "/" + canonical.lastPathComponent
+
+        XCTAssertEqual(playback.standardizedFileURL, canonical.standardizedFileURL)
+        XCTAssertEqual(try Data(contentsOf: playback), payload)
+        XCTAssertNil(AudioCacheManager.shared.downloadStore.fileURL(for: relativePath, kind: .original))
+        let pinned = await AudioCacheManager.shared.isPinned(path: relativePath)
+        XCTAssertFalse(pinned)
+        XCTAssertEqual(manager.offlineAudioSnapshot(for: song).state, .cached)
+        let requests = await connector.requests()
+        XCTAssertEqual(requests.count, 1)
+    }
+
+    @MainActor
+    func testMaterializationPreservesExistingPinnedDownload() async throws {
+        let source = MusicSource(id: UUID().uuidString, name: "Pinned fixture", type: .baiduPan)
+        let payload = Data(repeating: 0x43, count: 65_536)
+        let connector = FixtureRangeConnector(sourceID: source.id, payload: payload)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let song = Song(id: UUID().uuidString, title: "Retained download", fileFormat: .wav,
+                        filePath: "/retained.wav", sourceID: source.id, fileSize: Int64(payload.count))
+        defer { manager.deleteSourceCaches(sourceID: source.id) }
+        let result = await manager.downloadForOfflineBatch(songs: [song], compactsAfterPin: false)
+        XCTAssertTrue(result.succeeded)
+        let relativePath = source.id + "/" + manager.cacheURL(for: song).lastPathComponent
+        let download = try XCTUnwrap(
+            AudioCacheManager.shared.downloadStore.fileURL(for: relativePath, kind: .original)
+        )
+
+        let playback = await manager.materializeCachedURLForSeeking(for: song)
+
+        XCTAssertEqual(playback, download)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(playback)), payload)
+        let pinned = await AudioCacheManager.shared.isPinned(path: relativePath)
+        XCTAssertTrue(pinned)
+        XCTAssertEqual(manager.offlineAudioSnapshot(for: song).state, .pinned)
+        let requests = await connector.requests()
+        XCTAssertEqual(requests.count, 1)
+    }
+
+    @MainActor
     func testRejectedAdaptiveTranscodeRecoversOrStopsWithoutAdvancing() async throws {
         guard let path = ProcessInfo.processInfo.environment["PRIMUSE_TRANSCODE_MUSIC_FIXTURE"] else {
             throw XCTSkip("Requires an ordinary MP3 music fixture for muted playback")
