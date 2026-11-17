@@ -986,6 +986,12 @@ public enum DuplicateSameFilePolicy {
 /// - 在一组里还要不和别的来源的副本是同一个文件（`DuplicateSameFilePolicy`）：那种不是重复，
 ///   只给「仅在本设备隐藏这一份」。
 public struct DuplicateCleanupDeletionScope: Hashable, Sendable {
+    public enum IndividualAction: Equatable, Sendable {
+        case deleteSourceFile
+        case removeFromDevice
+        case keep
+    }
+
     public let sourceTypesByID: [String: MusicSourceType]
     /// 仅歌单的歌（`CollectionOnlySongStore`）。界面只传落在重复分组里的那些，免得每次重算都哈希一整份。
     public let collectionOnlySongIDs: Set<String>
@@ -1023,6 +1029,21 @@ public struct DuplicateCleanupDeletionScope: Hashable, Sendable {
     public func writableSongs(in songs: [Song]) -> [Song] {
         let shared = sameFileCopies(in: songs)
         return songs.filter { canDeleteCopy($0) && shared[$0.id] == nil }
+    }
+
+    /// Manual choices may replace the recommended copy. Automatic cleanup
+    /// still retains a writable copy, even alongside read-only catalogues.
+    public func individualAction(for song: Song, in songs: [Song]) -> IndividualAction {
+        guard songs.contains(where: { $0.id == song.id }),
+              songs.contains(where: { $0.id != song.id }) else { return .keep }
+        // Local exclusions are keyed by source path. A CUE track must not
+        // exclude every other track that reads the same audio file.
+        guard song.cueSheetPath == nil, song.cueStartTime == nil,
+              !songs.contains(where: {
+                  $0.id != song.id && $0.sourceID == song.sourceID && $0.filePath == song.filePath
+              }) else { return .keep }
+        return writableSongs(in: songs).contains(where: { $0.id == song.id })
+            ? .deleteSourceFile : .removeFromDevice
     }
 }
 

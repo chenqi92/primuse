@@ -21,6 +21,11 @@ enum DuplicateDetector {
     /// 带来的漏报。桶边界仍可能产生漏报，但不会扩大单个桶的匹配跨度。
     fileprivate static let durationBucketSec: Int = 2
 
+    static func copies(of song: Song, in songs: [Song]) -> [Song] {
+        guard let key = DuplicateKey(song) else { return [] }
+        return songs.filter { DuplicateKey($0) == key }
+    }
+
     /// 扫描 library 找重复歌曲分组。
     /// - Parameter songs: 整个 library 的 songs
     /// - Returns: 重复分组数组 (每组 size >= 2), 按标题字母序。

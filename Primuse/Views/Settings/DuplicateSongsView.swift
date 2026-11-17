@@ -61,6 +61,7 @@ struct DuplicateSongsView: View {
     @State private var serverDeletionRequest: ServerSongDeletionRequest?
     /// 点了「同一个文件」的那一份：说明为什么不删，给「仅从本设备移除这一份」。
     @State private var pendingSameFileCopy: SameFileCopy?
+    @State private var pendingLocalRemoval: Song?
     /// 落在重复分组里的仅歌单的歌（`CollectionOnlySongStore`），随分组一起刷新。
     @State private var groupCollectionOnlySongIDs: Set<String> = []
     #if os(macOS)
@@ -116,6 +117,21 @@ struct DuplicateSongsView: View {
             Text(String(format: String(localized: "dup_delete_source_warning_format"), pendingDeletion.count))
         }
         .serverSongDeletionConfirmation($serverDeletionRequest)
+        .alert(
+            "song_remove_from_device",
+            isPresented: Binding(
+                get: { pendingLocalRemoval != nil },
+                set: { if !$0 { pendingLocalRemoval = nil } }
+            ),
+            presenting: pendingLocalRemoval
+        ) { song in
+            Button("song_remove_from_device", role: .destructive) {
+                removeCopyFromThisDevice(song)
+            }
+            Button("cancel", role: .cancel) {}
+        } message: { _ in
+            Text("song_remove_from_device_message")
+        }
         .alert(
             Text("dup_same_file_title"),
             isPresented: Binding(
@@ -650,6 +666,7 @@ struct DuplicateSongsView: View {
                 group: group,
                 isKept: keptSongIDs.contains(song.id),
                 isReadOnly: !writableSongIDs.contains(song.id),
+                individualAction: scope.individualAction(for: song, in: group.songs),
                 sameFileCopy: sameFileCopy(song, in: group, copies: sameFileCopies)
             )
             .frame(width: cardWidth, height: 104)
@@ -662,10 +679,13 @@ struct DuplicateSongsView: View {
         group: DuplicateGroup,
         isKept: Bool,
         isReadOnly: Bool,
+        individualAction: DuplicateCleanupDeletionScope.IndividualAction,
         sameFileCopy: SameFileCopy?
     ) -> some View {
         let action = sameFileCopy != nil
             ? String(localized: "dup_same_file_badge")
+            : individualAction == .removeFromDevice
+            ? String(localized: "song_remove_from_device")
             : isReadOnly
             ? String(localized: "dup_mac_keep_read_only")
             : String(localized: isKept ? "dup_mac_keep" : "dup_mac_delete")
@@ -685,17 +705,22 @@ struct DuplicateSongsView: View {
                 )
             }
             .buttonStyle(.plain)
-            .disabled(cleaner.progress != nil)
+            .disabled(individualAction == .keep || cleaner.progress != nil)
             .accessibilityLabel(accessibilityLabel)
         } else if isReadOnly {
-            macSongCardContent(
-                song: song,
-                action: action,
-                isKept: true,
-                isReadOnly: true,
-                isSameFile: false
-            )
-            .accessibilityElement(children: .combine)
+            Button {
+                pendingLocalRemoval = song
+            } label: {
+                macSongCardContent(
+                    song: song,
+                    action: action,
+                    isKept: true,
+                    isReadOnly: true,
+                    isSameFile: false
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(individualAction == .keep || cleaner.progress != nil)
             .accessibilityLabel(accessibilityLabel)
         } else {
             Button {
@@ -873,7 +898,6 @@ struct DuplicateSongsView: View {
             in: group,
             scope: scope
         )
-        let removableSongIDs = Set(groupRemovableSongs.map(\.id))
         let sameFileCopies = scope.sameFileCopies(in: group.songs)
         Section {
             DisclosureGroup(
@@ -887,7 +911,7 @@ struct DuplicateSongsView: View {
                         song: song,
                         isBest: song.id == group.bestSong.id,
                         group: group,
-                        canDelete: removableSongIDs.contains(song.id),
+                        action: scope.individualAction(for: song, in: group.songs),
                         sameFileCopy: sameFileCopy(song, in: group, copies: sameFileCopies)
                     )
                 }
@@ -926,7 +950,7 @@ struct DuplicateSongsView: View {
         song: Song,
         isBest: Bool,
         group: DuplicateGroup,
-        canDelete: Bool,
+        action: DuplicateCleanupDeletionScope.IndividualAction,
         sameFileCopy: SameFileCopy?
     ) -> some View {
         HStack(spacing: 12) {
@@ -975,8 +999,18 @@ struct DuplicateSongsView: View {
                         .font(.subheadline)
                 }
                 .buttonStyle(.borderless)
-                .disabled(cleaner.progress != nil)
+                .disabled(action == .keep || cleaner.progress != nil)
                 .accessibilityLabel(Text("dup_same_file_remove_action"))
+            } else if action == .removeFromDevice {
+                Button {
+                    pendingLocalRemoval = song
+                } label: {
+                    Image(systemName: "eye.slash")
+                        .font(.subheadline)
+                }
+                .buttonStyle(.borderless)
+                .disabled(cleaner.progress != nil)
+                .accessibilityLabel(Text("song_remove_from_device"))
             } else {
                 Button(role: .destructive) {
                     deleteSingle(song: song, in: group)
@@ -985,7 +1019,7 @@ struct DuplicateSongsView: View {
                         .font(.subheadline)
                 }
                 .buttonStyle(.borderless)
-                .disabled(group.songs.count <= 1 || !canDelete || cleaner.progress != nil)
+                .disabled(action == .keep || cleaner.progress != nil)
             }
         }
         .padding(.vertical, 2)
@@ -1047,11 +1081,7 @@ struct DuplicateSongsView: View {
     }
 
     private func deleteSingle(song: Song, in group: DuplicateGroup) {
-        let removableSongIDs = Set(removableSongs(
-            in: group,
-            scope: deletionScopeSnapshot
-        ).map(\.id))
-        guard removableSongIDs.contains(song.id) else { return }
+        guard deletionScopeSnapshot.individualAction(for: song, in: group.songs) == .deleteSourceFile else { return }
         pendingDeletion = [song]
         showSelectionConfirm = true
     }
@@ -1087,8 +1117,13 @@ struct DuplicateSongsView: View {
             format: String(localized: "dup_same_file_ledger_detail_format"),
             ListFormatter.localizedString(byJoining: copy.otherSourceNames)
         )
+        removeCopyFromThisDevice(copy.song, detail: detail)
+    }
+
+    private func removeCopyFromThisDevice(_ song: Song, detail: String? = nil) {
         do {
-            try cleaner.removeSameFileCopyFromThisDevice(copy.song, detail: detail)
+            try cleaner.removeCopyFromThisDevice(song, detail: detail)
+            Task { await rescan() }
         } catch {
             flashAction(error.localizedDescription)
         }
@@ -1121,7 +1156,10 @@ struct DuplicateSongsView: View {
     /// groups on screen until the user navigates away and back even though the
     /// files and library rows were deleted successfully.
     private func startCleanup(_ songs: [Song]) {
-        guard let cleanupTask = cleaner.cleanup(songs) else { return }
+        guard let cleanupTask = cleaner.cleanupCopies(songs) else {
+            Task { await rescan() }
+            return
+        }
         Task {
             await cleanupTask.value
             await rescan()

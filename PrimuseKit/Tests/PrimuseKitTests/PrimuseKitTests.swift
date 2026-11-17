@@ -428,6 +428,29 @@ import Testing
     #expect(!scope.canDeleteCopy(online))
     #expect(scope.canDeleteCopy(track))
     #expect(scope.fileDeletingSourceIDs == ["smb", "fn"])
+    #expect(scope.individualAction(for: cue, in: [cue, track]) == .keep)
+    #expect(scope.individualAction(for: online, in: [online, track]) == .removeFromDevice)
+    #expect(scope.individualAction(for: track, in: [online, track]) == .deleteSourceFile)
+    #expect(scope.individualAction(for: track, in: [track]) == .keep)
+}
+
+@Test func duplicateManualRemovalDoesNotDependOnQualityRanking() {
+    let scope = DuplicateCleanupDeletionScope(sources: [
+        MusicSource(id: "local", name: "Local", type: .local),
+        MusicSource(id: "catalogue", name: "Catalogue", type: .subsonic),
+    ])
+    let best = Song(id: "best", title: "A Song", fileFormat: .flac,
+                    filePath: "/best.flac", sourceID: "local", fileSize: 2_000)
+    let other = Song(id: "other", title: "A Song", fileFormat: .mp3,
+                     filePath: "/other.mp3", sourceID: "local")
+    let catalogue = Song(id: "catalogue", title: "A Song", fileFormat: .mp3,
+                         filePath: "/catalogue.mp3", sourceID: "catalogue", fileSize: 1_000)
+    #expect(scope.individualAction(for: best, in: [best, other]) == .deleteSourceFile)
+    #expect(scope.individualAction(for: other, in: [best, other]) == .deleteSourceFile)
+    #expect(scope.individualAction(for: catalogue, in: [best, catalogue]) == .removeFromDevice)
+    #expect(scope.individualAction(for: catalogue, in: [catalogue]) == .keep)
+    #expect(scope.individualAction(for: catalogue, in: [best, other]) == .keep)
+    #expect(scope.writableSongs(in: [best, catalogue]).map(\.id) == [best.id])
 }
 
 @Test func sidecarWritingCapabilityExcludesReadOnlyCatalogues() {

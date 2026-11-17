@@ -640,6 +640,108 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertEqual(otherFailedAttempts, 1)
     }
 
+    func testReadOnlyDuplicateRemovalPersistsWithoutDeletingSourceOrReturningOnScan() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ReadOnlyDuplicates-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let catalogue = MusicSource(id: UUID().uuidString, name: "Catalogue", type: .subsonic)
+        let writable = MusicSource(id: UUID().uuidString, name: "Files", type: .fnMusic)
+        let sources = [catalogue, writable]
+        let songs = ["春光乍泄", "消愁-LIVE"].enumerated().flatMap { index, title in
+            sources.enumerated().map { sourceIndex, source in
+                Song(id: "\(index)-\(sourceIndex)", title: title, artistName: "Fixture Artist", duration: 240,
+                     fileFormat: sourceIndex == 0 ? .m4a : .flac,
+                     filePath: "/track-\(index).\(sourceIndex == 0 ? "m4a" : "flac")", sourceID: source.id,
+                     fileSize: Int64((sourceIndex + 1) * 1_000))
+            }
+        }
+        let directory = root.appendingPathComponent("library")
+        let library = MusicLibrary(storageDirectory: directory)
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        for source in sources { store.add(source) }
+        library.addSongs(songs, affectedSourceIDs: Set(sources.map(\.id)))
+        await library.waitForPendingIndex()
+        let connector = try DuplicateDeletionFixtureConnector(
+            sourceID: catalogue.id, root: root.appendingPathComponent("audio"), paths: []
+        )
+        let manager = SourceManager(sourcesProvider: { sources }, connectorFactory: { _ in
+            XCTFail("Device-local duplicate removal must never contact the source")
+            return connector
+        })
+        let cleaner = DuplicateCleanupService(library: library, sourceManager: manager, sourcesStore: store)
+
+        let hidden = songs.filter { $0.sourceID == catalogue.id }
+        let retainedIDs = Set(songs.filter { $0.sourceID == writable.id }.map(\.id))
+        for song in hidden {
+            XCTAssertEqual(try cleaner.removeCopyFromThisDevice(song), 1)
+            XCTAssertNil(library.song(id: song.id))
+            XCTAssertEqual(library.songForSynchronization(id: song.id)?.id, song.id)
+        }
+        XCTAssertEqual(cleaner.deviceLocalRemovalRevision, 2)
+        XCTAssertEqual(cleaner.lastCompletedCount, 0, "Hiding must not claim to delete source files")
+        XCTAssertEqual(store.source(id: catalogue.id)?.songCount, 0)
+        XCTAssertEqual(Set(library.locallyRemovedEntries().map(\.reason)), [.sourceDoesNotSupportDeletion])
+
+        library.addSongs(songs, affectedSourceIDs: Set(sources.map(\.id)))
+        await library.waitForPendingIndex()
+        XCTAssertEqual(Set(library.songs.map(\.id)), retainedIDs)
+        try await library.persistNowAndWait().get()
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.waitForPendingIndex()
+        XCTAssertEqual(Set(reopened.songs.map(\.id)), retainedIDs)
+        XCTAssertEqual(Set(reopened.locallyRemovedEntries().map(\.id)), Set(hidden.map(\.id)))
+    }
+
+    func testStaleDuplicateRemovalCannotHideTheLastRemainingCopy() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("StaleDuplicate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: UUID().uuidString, name: "Catalogue", type: .subsonic)
+        let songs = ["first", "second"].map {
+            Song(id: $0, title: "Fixture Song", artistName: "Fixture Artist", duration: 180,
+                 fileFormat: .flac, filePath: "/\($0).flac", sourceID: source.id)
+        }
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        library.addSongs(songs, affectedSourceIDs: [source.id])
+        await library.waitForPendingIndex()
+        let cleaner = DuplicateCleanupService(
+            library: library, sourceManager: SourceManager(sourcesProvider: { [source] }), sourcesStore: store
+        )
+        XCTAssertEqual(try cleaner.removeCopyFromThisDevice(songs[0]), 1)
+        XCTAssertEqual(try cleaner.removeCopyFromThisDevice(songs[1]), 0)
+        XCTAssertEqual(try cleaner.removeCopyFromThisDevice(songs[0]), 0)
+        XCTAssertEqual(library.songs.map(\.id), [songs[1].id])
+        XCTAssertFalse(library.isExcludedOnThisDevice(songs[1]))
+    }
+
+    func testManualDuplicateFileDeletionRechecksRemainingCopiesBeforeWriting() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ManualDuplicate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: UUID().uuidString, name: "Files", type: .webdav)
+        let songs = ["first", "second"].map {
+            Song(id: $0, title: "Fixture Song", artistName: "Fixture Artist", duration: 180,
+                 fileFormat: .flac, filePath: "/\($0).flac", sourceID: source.id)
+        }
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        library.addSongs(songs, affectedSourceIDs: [source.id])
+        await library.waitForPendingIndex()
+        let connector = try DuplicateDeletionFixtureConnector(
+            sourceID: source.id, root: root.appendingPathComponent("audio"), paths: songs.map(\.filePath)
+        )
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let cleaner = DuplicateCleanupService(library: library, sourceManager: manager, sourcesStore: store)
+
+        try await XCTUnwrap(cleaner.cleanupCopies([songs[0]])).value
+        XCTAssertFalse(FileManager.default.fileExists(atPath: connector.fileURL(songs[0].filePath).path))
+        XCTAssertEqual(library.songs.map(\.id), [songs[1].id])
+        XCTAssertNil(cleaner.cleanupCopies(songs), "An old confirmation must not delete the only remaining file")
+        XCTAssertEqual(try Data(contentsOf: connector.fileURL(songs[1].filePath)), Data([1, 2, 3]))
+        let attempts = await connector.attempts(for: songs[1].filePath)
+        XCTAssertEqual(attempts, 0)
+    }
+
     func testDuplicateCleanupRetainsInaccessibleNFSExportAndContinuesWritableSource() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("NFSDeletion-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

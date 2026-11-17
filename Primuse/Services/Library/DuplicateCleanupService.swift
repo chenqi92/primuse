@@ -138,17 +138,30 @@ final class DuplicateCleanupService {
     /// 来源页的恢复界面里能找回（原因记作「保留了源文件」，说明里写着另一份在哪个来源）。
     @discardableResult
     func removeSameFileCopyFromThisDevice(_ song: Song, detail: String) throws -> Int {
+        try removeCopyFromThisDevice(song, detail: detail)
+    }
+
+    @discardableResult
+    func removeCopyFromThisDevice(_ song: Song, detail: String? = nil) throws -> Int {
         guard activeTask == nil, let current = library.song(id: song.id) else { return 0 }
+        let scope = DuplicateCleanupDeletionScope(
+            sources: sourcesStore.sources,
+            collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs
+        )
+        let copies = DuplicateDetector.copies(of: current, in: library.songs)
+        guard scope.individualAction(for: current, in: copies) == .removeFromDevice else { return 0 }
         let remainingCounts = try library.removeSongsFromThisDevice(
             [current],
-            reason: .userKeptRemoteFile,
-            detailsBySongID: [current.id: detail]
+            reason: SongLocalRemovalPolicy.reasonWithoutRemoteDeletion(
+                for: scope.sourceTypesByID[current.sourceID]
+            ),
+            detailsBySongID: detail.map { [current.id: $0] } ?? [:]
         )
         for (id, remaining) in remainingCounts {
             sourcesStore.updateLocal(id) { $0.songCount = remaining }
         }
         deviceLocalRemovalRevision &+= 1
-        plog("Duplicate cleanup removed a same-file copy from this device only (source \(current.sourceID))")
+        plog("Duplicate cleanup removed a copy from this device only (source \(current.sourceID))")
         return 1
     }
 
@@ -159,6 +172,25 @@ final class DuplicateCleanupService {
             return [:]
         }
         return failure.messagesBySongID
+    }
+
+    @discardableResult
+    func cleanupCopies(_ requestedSongs: [Song]) -> Task<Void, Never>? {
+        guard activeTask == nil else { return activeTask }
+        let requestedIDs = Set(requestedSongs.map(\.id))
+        let scope = DuplicateCleanupDeletionScope(
+            sources: sourcesStore.sources,
+            collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs
+        )
+        // Confirmation may outlive a scan or another removal. Re-resolve the
+        // copies now, and never delete the last member of a current group.
+        let verified = DuplicateDetector.detect(in: library.songs).flatMap { group in
+            let candidates = scope.writableSongs(in: group.songs).filter { requestedIDs.contains($0.id) }
+            return candidates.count == group.songs.count
+                ? candidates.filter { $0.id != group.bestSong.id }
+                : candidates
+        }
+        return cleanup(verified)
     }
 
     /// 串行删除 songs (按源端逐首)。已有任务进行中时忽略再次触发。
