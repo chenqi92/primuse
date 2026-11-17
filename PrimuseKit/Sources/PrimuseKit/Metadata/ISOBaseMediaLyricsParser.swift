@@ -15,6 +15,8 @@ public enum ISOBaseMediaLyricsParser {
         public var translatedLyricsLanguageCode: String?
         public var languageTaggedLyrics: [String: String]
         public var languageTaggedTranslations: [String: String]
+        /// `©lyr` 和不带语言（或同一种语言）的原文字段按先后都记下，`lyrics` 按设置从里面挑。
+        public var lyricsVariants: [EmbeddedLyricsVariant]
 
         public init(
             lyrics: String? = nil,
@@ -22,7 +24,8 @@ public enum ISOBaseMediaLyricsParser {
             translatedLyrics: String? = nil,
             translatedLyricsLanguageCode: String? = nil,
             languageTaggedLyrics: [String: String] = [:],
-            languageTaggedTranslations: [String: String] = [:]
+            languageTaggedTranslations: [String: String] = [:],
+            lyricsVariants: [EmbeddedLyricsVariant] = []
         ) {
             self.lyrics = lyrics
             self.lyricsLanguageCode = lyricsLanguageCode
@@ -30,6 +33,7 @@ public enum ISOBaseMediaLyricsParser {
             self.translatedLyricsLanguageCode = translatedLyricsLanguageCode
             self.languageTaggedLyrics = languageTaggedLyrics
             self.languageTaggedTranslations = languageTaggedTranslations
+            self.lyricsVariants = lyricsVariants
         }
 
         public var isEmpty: Bool {
@@ -43,6 +47,7 @@ public enum ISOBaseMediaLyricsParser {
             if lyrics == nil {
                 lyrics = fallback.lyrics
                 lyricsLanguageCode = fallback.lyricsLanguageCode
+                lyricsVariants = fallback.lyricsVariants
             } else if lyrics == fallback.lyrics, lyricsLanguageCode == nil {
                 lyricsLanguageCode = fallback.lyricsLanguageCode
             }
@@ -328,6 +333,7 @@ public enum ISOBaseMediaLyricsParser {
             for item in items where item.type == AtomType.iTunesLyrics {
                 if let text = decodedItem(in: data, item: item) {
                     result.lyrics = result.lyrics ?? text
+                    EmbeddedLyricsVariantPolicy.append(text, languageCode: nil, to: &result.lyricsVariants)
                 }
             }
 
@@ -343,6 +349,14 @@ public enum ISOBaseMediaLyricsParser {
                       let text = decodedItem(in: data, item: item) else { continue }
                 apply(text: text, role: role, to: &result)
             }
+        }
+        // 原文不止一份时按设置挑（默认时间轴最细的），见 `EmbeddedLyricsVariantPolicy`。
+        if let chosen = EmbeddedLyricsVariantPolicy.preferred(
+            in: result.lyricsVariants,
+            priority: EmbeddedLyricsVariantPriority.current()
+        ) {
+            result.lyrics = chosen.text
+            result.lyricsLanguageCode = chosen.languageCode ?? result.lyricsLanguageCode
         }
         return result.isEmpty ? nil : result
     }
@@ -449,6 +463,11 @@ public enum ISOBaseMediaLyricsParser {
         case .original(let languageCode):
             if let languageCode {
                 payload.languageTaggedLyrics[languageCode] = text
+            }
+            // 不带语言、或和第一份同一种语言的是同一首歌原文的又一份；另一种语言的留作译文候选。
+            let primaryLanguage = payload.lyricsVariants.first?.languageCode ?? payload.lyricsLanguageCode
+            if languageCode == nil || payload.lyricsVariants.isEmpty || languageCode == primaryLanguage {
+                EmbeddedLyricsVariantPolicy.append(text, languageCode: languageCode, to: &payload.lyricsVariants)
             }
             if payload.lyrics == nil {
                 payload.lyrics = text

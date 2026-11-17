@@ -28,6 +28,7 @@ enum OfflineSettingsCatalog {
         LibrarySongBrowseModePreference.storageKey, SongListAppearance.storageKey, LibraryReviewPreferences.enabledKey,
         LibraryInsightWritebackPolicy.embedCommentEnabledKey, LibraryInsightWritebackPolicy.fileWriteEnabledKey,
         EmbeddedCoverPolicy.modeDefaultsKey, EmbeddedLyricsCopyPolicy.modeDefaultsKey,
+        EmbeddedLyricsVariantPriority.storageKey,
         ArtworkStoreLimitSetting.key, MissingArtworkStyle.storageKey,
         GenreSplitPreference.storageKey, LibrarySectionPagingPolicy.storageKey,
         AmbientSoundPreferences.enabledKey, AmbientQuickTimerRow.storageKey,

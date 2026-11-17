@@ -7248,6 +7248,10 @@
 
 "explore_word_lyrics" = "Wortsynchrone Liedtexte suchen";
 "explore_word_lyrics_footer" = "Standardmäßig deaktiviert. Wenn aktiviert, werden während der Wiedergabe die eingeschalteten Liedtextquellen automatisch nach wortsynchronen Liedtexten durchsucht. Gefundene Texte werden bevorzugt angezeigt, auch wenn bereits normale Liedtexte vorhanden sind. Diese Funktion ist unabhängig von „Fehlende Songtexte online abrufen“. Deaktiviere diese Option, um die automatische Suche nach wortsynchronen Liedtexten zu beenden.";
+"embedded_lyrics_variant_priority" = "Mehrere eingebettete Songtexte";
+"embedded_lyrics_variant_finest" = "Feinstes Timing";
+"embedded_lyrics_variant_first" = "Zuerst in der Datei";
+"embedded_lyrics_variant_priority_footer" = "Wenn eine Audiodatei mehr als eine Fassung des Songtexts enthält (etwa reinen Text und eine synchronisierte Fassung oder sowohl LYRICS als auch SYNCEDLYRICS), legst du hier fest, welche angezeigt wird. „Feinstes Timing“ bevorzugt wortgenau synchronisierte, dann zeilenweise synchronisierte und zuletzt reine Texte; bei Gleichstand gilt die frühere Fassung. Als Übersetzung gekennzeichnete Felder bleiben Übersetzungen, und eine Liedtextdatei neben dem Titel hat weiterhin Vorrang.";
 "player_activity_status" = "Aufgabenstatus";
 "word_lyrics_searching" = "Wortsynchrone Liedtexte werden gesucht";
 "word_lyrics_source_format" = "Wortsynchrone Liedtexte von %@ werden geladen";

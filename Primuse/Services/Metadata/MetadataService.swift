@@ -40,6 +40,8 @@ actor MetadataService {
         var lyricsFileName: String? = nil
         var mvPath: String? = nil
         var lyrics: [LyricLine]? = nil
+        /// 文件里同一首歌的原文歌词不止一份时的全貌，跟内嵌歌词一起存，改了设置按它重挑。
+        var embeddedLyricsAlternatives: EmbeddedLyricsAlternatives? = nil
         var replayGainTrackGain: Double? = nil
         var replayGainTrackPeak: Double? = nil
         var replayGainAlbumGain: Double? = nil
@@ -196,6 +198,7 @@ actor MetadataService {
         }
 
         // 2.5 Parse embedded lyrics when present.
+        result.embeddedLyricsAlternatives = embedded.embeddedLyricsAlternatives
         if result.lyrics == nil {
             result.lyrics = FileMetadataReader.parsedEmbeddedLyrics(from: embedded)
         }
@@ -245,10 +248,14 @@ actor MetadataService {
                let embeddedLyrics = FileMetadataReader.parsedEmbeddedLyrics(from: embedded) {
                 // 歌词文件不在了再用。
                 await assetStore.storeEmbeddedFallbackLyrics(embeddedLyrics, forSongID: cacheKey)
+                await assetStore.storeEmbeddedLyricsAlternatives(result.embeddedLyricsAlternatives, forSongID: cacheKey)
             }
             if storesLyrics, let lyrics = result.lyrics {
                 if trustedSource {
                     result.lyricsFileName = await assetStore.storeLyrics(lyrics, for: cacheKey)
+                    if LyricsDocumentSource.of(lyrics)?.kind == .embedded {
+                        await assetStore.storeEmbeddedLyricsAlternatives(result.embeddedLyricsAlternatives, forSongID: cacheKey)
+                    }
                 } else {
                     result.lyricsFileName = assetStore.expectedLyricsFileName(for: cacheKey)
                 }
@@ -342,6 +349,7 @@ actor MetadataService {
 
         if let lyrics = FileMetadataReader.parsedEmbeddedLyrics(from: embedded) {
             result.lyrics = lyrics
+            result.embeddedLyricsAlternatives = embedded.embeddedLyricsAlternatives
         }
 
         if let cacheKey {
@@ -364,6 +372,9 @@ actor MetadataService {
         }
         if storesLyrics, result.lyricsFileName == nil, let lyrics = result.lyrics {
             result.lyricsFileName = await assetStore.storeLyrics(lyrics, for: cacheKey)
+            if LyricsDocumentSource.of(lyrics)?.kind == .embedded {
+                await assetStore.storeEmbeddedLyricsAlternatives(result.embeddedLyricsAlternatives, forSongID: cacheKey)
+            }
         }
         return result
     }

@@ -6940,6 +6940,10 @@ final class MetadataBackfillService {
               let lyrics = metadata.lyrics,
               !lyrics.isEmpty else { return }
         await MetadataAssetStore.shared.storeEmbeddedFallbackLyrics(lyrics, forSongID: song.id)
+        await MetadataAssetStore.shared.storeEmbeddedLyricsAlternatives(
+            metadata.embeddedLyricsAlternatives,
+            forSongID: song.id
+        )
     }
 
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {

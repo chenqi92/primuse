@@ -328,11 +328,14 @@ enum LyricsLoader {
         sourceType: MusicSourceType? = nil,
         allowsAutomaticOnlineLyrics: Bool = true
     ) async -> [LyricLine] {
-        if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+        if var cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
             guard !Task.isCancelled else { return [] }
             logLoaded(cached, song: song, tier: "Tier1a")
             if await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id).selected != nil {
                 return cached
+            }
+            if let reselected = await reselectedEmbeddedVariant(for: song, cached: cached) {
+                cached = reselected
             }
             scheduleAutomaticSourceRefresh(
                 for: song,
@@ -359,9 +362,12 @@ enum LyricsLoader {
                 force: false
             )
             guard !Task.isCancelled else { return [] }
-            let resolved = wrote
+            var resolved = wrote
                 ? cached
                 : await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? cached
+            if let reselected = await reselectedEmbeddedVariant(for: song, cached: resolved) {
+                resolved = reselected
+            }
             logLoaded(resolved, song: song, tier: "Tier1b")
             scheduleAutomaticSourceRefresh(
                 for: song,
@@ -770,11 +776,61 @@ enum LyricsLoader {
         }
     }
 
+    /// 缓存里是读标签存下的内嵌歌词、文件里同一首歌的原文又不止一份时，按设置里现在那一档重挑
+    /// （`EmbeddedLyricsVariantPriority`），改了设置不用重读文件。本机改过的、在歌词来源页选定过的、
+    /// 在 App 里配过译文的不动。换了就写回缓存并返回新的那份。
+    static func reselectedEmbeddedVariant(for song: Song, cached: [LyricLine]) async -> [LyricLine]? {
+        guard !cached.isEmpty,
+              cached.first?.documentIsLocalOverride != true,
+              LyricsDocumentSource.of(cached)?.kind == .embedded,
+              !cached.contains(where: { line in
+                  ([line.manualTranslation].compactMap { $0 } + line.alternateManualTranslations)
+                      .contains { $0.source == .localEditor }
+              }),
+              let alternatives = await MetadataAssetStore.shared.embeddedLyricsAlternatives(forSongID: song.id),
+              let preferred = embeddedVariant(from: alternatives),
+              !EmbeddedLyricsPrecedencePolicy.sameDocument(cached, preferred) else { return nil }
+        let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+            preferred,
+            forSongID: song.id,
+            expectedFingerprint: LyricsDocumentFingerprint(lines: cached),
+            force: true,
+            preservingSelection: true
+        )
+        guard wrote, !Task.isCancelled else { return nil }
+        logLoaded(preferred, song: song, tier: "embedded-variant")
+        return preferred
+    }
+
+    /// 设置里改了内嵌多份歌词挑哪一份：正在放的这首马上换，别的歌下次放时换。
+    static func applyEmbeddedVariantPriorityChange() {
+        guard let song = AppServices.shared.playerService.currentSong else { return }
+        Task { @MainActor in
+            guard let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
+                  await reselectedEmbeddedVariant(for: song, cached: cached) != nil else { return }
+            NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
+        }
+    }
+
+    /// 按设置里现在那一档从记下的几份里挑出一份，连同文件里的译文拼成歌词。
+    private static func embeddedVariant(from alternatives: EmbeddedLyricsAlternatives) -> [LyricLine]? {
+        guard let metadata = FileMetadataReader.Metadata.embeddedLyrics(
+            from: alternatives,
+            priority: EmbeddedLyricsVariantPriority.current()
+        ) else { return nil }
+        return FileMetadataReader.parsedEmbeddedLyrics(from: metadata)
+    }
+
     /// 读标签时因为歌旁边有歌词文件而没进缓存的内嵌歌词。源里读不到歌词文件时先用它,
     /// 再去在线找; 用上了就写进缓存, 下次直接命中。
     static func embeddedFallbackLyrics(for song: Song) async -> [LyricLine]? {
-        guard let embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id),
+        guard var embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id),
               !Task.isCancelled else { return nil }
+        // 文件里原文不止一份时按设置里现在那一档挑。
+        if let alternatives = await MetadataAssetStore.shared.embeddedLyricsAlternatives(forSongID: song.id),
+           let preferred = embeddedVariant(from: alternatives) {
+            embedded = preferred
+        }
         let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
             embedded,
             forSongID: song.id,

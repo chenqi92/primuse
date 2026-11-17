@@ -7248,6 +7248,10 @@
 
 "explore_word_lyrics" = "Rechercher des paroles synchronisées mot à mot";
 "explore_word_lyrics_footer" = "Désactivé par défaut. Une fois activé, recherche automatiquement des paroles synchronisées mot à mot dans les sources de paroles activées pendant la lecture et les affiche en priorité, même si le morceau possède déjà des paroles classiques. Ce réglage est indépendant de « Chercher les paroles en ligne si absentes ». Désactivez cette option pour arrêter la recherche automatique de paroles synchronisées mot à mot.";
+"embedded_lyrics_variant_priority" = "Plusieurs paroles intégrées";
+"embedded_lyrics_variant_finest" = "Synchronisation la plus fine";
+"embedded_lyrics_variant_first" = "Première dans le fichier";
+"embedded_lyrics_variant_priority_footer" = "Quand un fichier audio contient plusieurs versions des paroles du morceau (par exemple du texte simple et une version synchronisée, ou à la fois LYRICS et SYNCEDLYRICS), choisissez laquelle afficher. « Synchronisation la plus fine » préfère les paroles synchronisées mot à mot, puis ligne par ligne, puis le texte simple, et garde la première version en cas d’égalité. Les champs marqués comme traductions restent des traductions, et un fichier de paroles à côté du morceau reste prioritaire.";
 "player_activity_status" = "État des tâches";
 "word_lyrics_searching" = "Recherche de paroles synchronisées mot à mot";
 "word_lyrics_source_format" = "Récupération des paroles synchronisées depuis %@";

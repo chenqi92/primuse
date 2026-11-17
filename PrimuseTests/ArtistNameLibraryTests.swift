@@ -270,6 +270,36 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
         XCTAssertGreaterThan(metadata.duration ?? 0, 0)
     }
 
+    /// 同一种语言写了两帧 USLT（先纯文本、后 LRC）：默认挑带时间轴的那帧，几帧都记下；
+    /// 改成「文件里排在前面的」时按记下的重挑，不用重读文件。原来第二帧直接丢掉。
+    func testNativeMP3ReadPicksTheTimedCopyAmongSameLanguageLyricFrames() async throws {
+        func uint32(_ value: Int) -> Data { Data([24, 16, 8, 0].map { UInt8((value >> $0) & 0xFF) }) }
+        func frame(_ id: String, _ payload: Data) -> Data {
+            Data(id.utf8) + uint32(payload.count) + Data([0, 0]) + payload
+        }
+        func uslt(_ text: String) -> Data {
+            frame("USLT", Data([3]) + Data("eng".utf8) + Data([0]) + Data(text.utf8))
+        }
+        let plain = "First line\nSecond line"
+        let timed = "[00:01.00]First line\n[00:03.00]Second line"
+        var body = frame("TIT2", Data([3]) + Data("Track".utf8))
+        body += uslt(plain) + uslt(timed)
+        let size = Data([21, 14, 7, 0].map { UInt8((body.count >> $0) & 0x7F) })
+        var file = Data([0x49, 0x44, 0x33, 3, 0, 0]) + size + body
+        for _ in 0..<8 { file += Data([0xFF, 0xFB, 0x90, 0x64]) + Data(repeating: 0, count: 413) }
+
+        let metadata = await FileMetadataReader.RangeReadSession().read(from: file, fileExtension: "mp3")
+        XCTAssertEqual(metadata.lyricsText, timed)
+        XCTAssertEqual(metadata.lyricsVariants.map(\.text), [plain, timed])
+        let alternatives = try XCTUnwrap(metadata.embeddedLyricsAlternatives)
+        XCTAssertEqual(
+            FileMetadataReader.Metadata.embeddedLyrics(from: alternatives, priority: .firstInFile)?.lyricsText,
+            plain
+        )
+        let lines = try XCTUnwrap(FileMetadataReader.parsedEmbeddedLyrics(from: metadata))
+        XCTAssertTrue(lines.contains(where: \.isSynchronized))
+    }
+
     func testRangeSessionReusesPrefixWithoutLosingTailOrExpandedTags() async {
         let session = FileMetadataReader.RangeReadSession()
         let head = tagFixture(format: "mp3", key: "TPE2", singer: "Head Artist")

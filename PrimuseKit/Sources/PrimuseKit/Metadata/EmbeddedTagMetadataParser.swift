@@ -20,6 +20,8 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
     public var translatedLyricsLanguageCode: String?
     public var languageTaggedLyrics: [String: String]
     public var languageTaggedTranslations: [String: String]
+    /// 不止一份原文歌词时按在文件里的先后都记下（`lyrics` 是按设置挑出来的那份），见 `EmbeddedLyricsVariantPolicy`。
+    public var lyricsVariants: [EmbeddedLyricsVariant]
     public var coverArtData: Data?
     public var replayGainTrackGain: Double?
     public var replayGainTrackPeak: Double?
@@ -43,6 +45,7 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
         translatedLyricsLanguageCode: String? = nil,
         languageTaggedLyrics: [String: String] = [:],
         languageTaggedTranslations: [String: String] = [:],
+        lyricsVariants: [EmbeddedLyricsVariant] = [],
         coverArtData: Data? = nil,
         replayGainTrackGain: Double? = nil,
         replayGainTrackPeak: Double? = nil,
@@ -65,6 +68,7 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
         self.translatedLyricsLanguageCode = translatedLyricsLanguageCode
         self.languageTaggedLyrics = languageTaggedLyrics
         self.languageTaggedTranslations = languageTaggedTranslations
+        self.lyricsVariants = lyricsVariants
         self.coverArtData = coverArtData
         self.replayGainTrackGain = replayGainTrackGain
         self.replayGainTrackPeak = replayGainTrackPeak
@@ -107,6 +111,7 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
         if lyrics == nil {
             lyrics = fallback.lyrics
             lyricsLanguageCode = fallback.lyricsLanguageCode
+            lyricsVariants = fallback.lyricsVariants
         } else if lyrics == fallback.lyrics, lyricsLanguageCode == nil {
             lyricsLanguageCode = fallback.lyricsLanguageCode
         }
@@ -994,6 +999,7 @@ public enum EmbeddedTagMetadataParser {
             translatedLyricsLanguageCode: lyricFields.translatedLyricsLanguageCode,
             languageTaggedLyrics: lyricFields.languageTaggedLyrics,
             languageTaggedTranslations: lyricFields.languageTaggedTranslations,
+            lyricsVariants: lyricFields.lyricsVariants,
             replayGainTrackGain: first("REPLAYGAIN_TRACK_GAIN").flatMap(replayGain),
             replayGainTrackPeak: first("REPLAYGAIN_TRACK_PEAK").flatMap(Double.init),
             replayGainAlbumGain: first("REPLAYGAIN_ALBUM_GAIN").flatMap(replayGain),
@@ -1019,6 +1025,7 @@ public enum EmbeddedTagMetadataParser {
         var translatedLyricsLanguageCode: String?
         var languageTaggedLyrics: [String: String] = [:]
         var languageTaggedTranslations: [String: String] = [:]
+        var lyricsVariants: [EmbeddedLyricsVariant] = []
     }
 
     /// Keeps explicitly translated fields separate from the canonical lyric
@@ -1068,13 +1075,26 @@ public enum EmbeddedTagMetadataParser {
             ])
         )
 
+        // 不带语言后缀的几个原文字段（LYRICS、SYNCEDLYRICS、UNSYNCEDLYRICS……，同名字段写了几遍的也算）
+        // 都是同一首歌的原文，按设置挑一份：默认时间轴最细的，LYRICS 是纯文本、SYNCEDLYRICS 是 LRC 时
+        // 不再显示纯文本。字段之间的先后按上面这个顺序。
+        var variants: [EmbeddedLyricsVariant] = []
+        for key in originalRoots {
+            for value in values[normalizedKey(key)] ?? [] {
+                EmbeddedLyricsVariantPolicy.append(value, languageCode: declaredLyricsLanguage, to: &variants)
+            }
+        }
         var result = ResolvedLyricFields(
-            lyrics: first(originalRoots),
+            lyrics: EmbeddedLyricsVariantPolicy.preferred(
+                in: variants,
+                priority: EmbeddedLyricsVariantPriority.current()
+            )?.text,
             lyricsLanguageCode: declaredLyricsLanguage,
             translatedLyrics: first(translationRoots),
             translatedLyricsLanguageCode: declaredTranslationLanguage,
             languageTaggedLyrics: taggedLyrics,
-            languageTaggedTranslations: taggedTranslations
+            languageTaggedTranslations: taggedTranslations,
+            lyricsVariants: variants
         )
 
         if result.lyrics == nil {

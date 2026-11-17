@@ -7154,6 +7154,10 @@
 
 "explore_word_lyrics" = "Szukaj tekstów synchronizowanych słowo po słowie";
 "explore_word_lyrics_footer" = "Domyślnie wyłączone. Po włączeniu podczas odtwarzania automatycznie wyszukuje w aktywnych źródłach teksty synchronizowane słowo po słowie i wyświetla je w pierwszej kolejności, nawet jeśli utwór ma już zwykły tekst. Ta funkcja działa niezależnie od ustawienia „Pobieraj brakujące teksty z sieci”. Aby zatrzymać automatyczne wyszukiwanie tekstów synchronizowanych słowo po słowie, wyłącz tę opcję.";
+"embedded_lyrics_variant_priority" = "Kilka osadzonych tekstów";
+"embedded_lyrics_variant_finest" = "Najdokładniejsza synchronizacja";
+"embedded_lyrics_variant_first" = "Pierwszy w pliku";
+"embedded_lyrics_variant_priority_footer" = "Gdy plik audio zawiera więcej niż jedną wersję tekstu utworu (na przykład zwykły tekst i wersję zsynchronizowaną albo jednocześnie LYRICS i SYNCEDLYRICS), wybierz, którą pokazywać. „Najdokładniejsza synchronizacja” wybiera tekst synchronizowany słowo po słowie, potem wiersz po wierszu, a na końcu zwykły; przy remisie bierze wcześniejszą wersję. Pola oznaczone jako tłumaczenie nadal służą jako tłumaczenie, a plik z tekstem obok utworu nadal ma pierwszeństwo.";
 "player_activity_status" = "Stan zadań";
 "word_lyrics_searching" = "Wyszukiwanie tekstów synchronizowanych słowo po słowie";
 "word_lyrics_source_format" = "Pobieranie tekstów synchronizowanych z %@";

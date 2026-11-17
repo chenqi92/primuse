@@ -7154,6 +7154,10 @@
 
 "explore_word_lyrics" = "Explorar letras sincronizadas por palavra";
 "explore_word_lyrics_footer" = "Desativado por padrão. Quando ativado, busca automaticamente letras sincronizadas por palavra nas fontes habilitadas durante a reprodução e as exibe com prioridade, mesmo que a música já tenha letras comuns. Esta função é independente de “Buscar letras online quando faltarem”. Para interromper a busca automática de letras sincronizadas por palavra, desative esta opção.";
+"embedded_lyrics_variant_priority" = "Várias letras incorporadas";
+"embedded_lyrics_variant_finest" = "Sincronização mais precisa";
+"embedded_lyrics_variant_first" = "A primeira do arquivo";
+"embedded_lyrics_variant_priority_footer" = "Quando um arquivo de áudio traz mais de uma versão da letra da música (por exemplo, texto simples e uma versão sincronizada, ou LYRICS e SYNCEDLYRICS juntos), escolha qual mostrar. “Sincronização mais precisa” prefere a letra sincronizada por palavra, depois por linha e por último o texto simples, ficando com a que vem primeiro em caso de empate. Campos marcados como tradução continuam sendo usados como tradução, e um arquivo de letra ao lado da música continua tendo prioridade.";
 "player_activity_status" = "Status das tarefas";
 "word_lyrics_searching" = "Buscando letras sincronizadas por palavra";
 "word_lyrics_source_format" = "Obtendo letras sincronizadas de %@";

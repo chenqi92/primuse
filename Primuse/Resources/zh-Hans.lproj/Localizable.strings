@@ -7341,6 +7341,10 @@
 
 "explore_word_lyrics" = "探索逐字歌词";
 "explore_word_lyrics_footer" = "默认关闭。开启后，播放时会自动从已启用的歌词来源查找逐字歌词，并优先显示找到的逐字歌词，即使歌曲已有普通歌词。此功能独立于“找不到歌词时自动在线获取”开关；如需停止自动查找逐字歌词，请关闭本开关。";
+"embedded_lyrics_variant_priority" = "内嵌多份歌词时优先";
+"embedded_lyrics_variant_finest" = "时间轴最细的";
+"embedded_lyrics_variant_first" = "文件里排在前面的";
+"embedded_lyrics_variant_priority_footer" = "一个音频文件里写了不止一份同一首歌的歌词时（比如一份纯文本、一份带时间轴，或 LYRICS 和 SYNCEDLYRICS 都有），显示哪一份。「时间轴最细的」按逐字、逐行、纯文本的顺序挑，一样细的取排在前面的。标明是译文的歌词照旧当译文；歌旁边有歌词文件时仍先用歌词文件。";
 "player_activity_status" = "任务状态";
 "word_lyrics_searching" = "正在探索逐字歌词";
 "word_lyrics_source_format" = "正在从 %@ 获取逐字歌词";

@@ -11,6 +11,8 @@ struct LyricsSettingsView: View {
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
     @AppStorage(WordLyricsDiscoveryPreferences.enabledKey)
     private var exploresWordLyrics = WordLyricsDiscoveryPreferences.enabledByDefault
+    @AppStorage(EmbeddedLyricsVariantPriority.storageKey)
+    private var embeddedVariantPriority = EmbeddedLyricsVariantPriority.defaultValue.rawValue
     @State private var cacheCount: Int = 0
     @State private var showClearConfirm = false
 
@@ -23,6 +25,22 @@ struct LyricsSettingsView: View {
                     }
                 }
                 .settingsAnchor("lyrics.exploreWordTiming")
+
+                // 一个文件里写了不止一份同一首歌的歌词时显示哪一份。
+                Picker(selection: $embeddedVariantPriority) {
+                    Text("embedded_lyrics_variant_finest")
+                        .tag(EmbeddedLyricsVariantPriority.finestTiming.rawValue)
+                    Text("embedded_lyrics_variant_first")
+                        .tag(EmbeddedLyricsVariantPriority.firstInFile.rawValue)
+                } label: {
+                    SettingsInfoLabel("embedded_lyrics_variant_priority") {
+                        Text("embedded_lyrics_variant_priority_footer")
+                    }
+                }
+                .settingsAnchor("lyrics.embeddedVariantPriority")
+                .onChange(of: embeddedVariantPriority) { _, _ in
+                    LyricsLoader.applyEmbeddedVariantPriorityChange()
+                }
             }
             Section {
                 Toggle(isOn: $settings.isEnabled) {

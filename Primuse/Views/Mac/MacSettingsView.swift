@@ -6001,6 +6001,8 @@ struct MacLyricsColorSettings: View {
 private struct MacSTLyricsView: View {
     @AppStorage(WordLyricsDiscoveryPreferences.enabledKey)
     private var exploresWordLyrics = WordLyricsDiscoveryPreferences.enabledByDefault
+    @AppStorage(EmbeddedLyricsVariantPriority.storageKey)
+    private var embeddedVariantPriority = EmbeddedLyricsVariantPriority.defaultValue.rawValue
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var settings = LyricsTranslationSettingsStore.shared
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
@@ -6041,6 +6043,25 @@ private struct MacSTLyricsView: View {
                         MacSTToggle(isOn: $exploresWordLyrics)
                     }
                     .settingsAnchor("lyrics.exploreWordTiming")
+                    MacSTRow(
+                        String(localized: "embedded_lyrics_variant_priority"),
+                        hint: String(localized: "embedded_lyrics_variant_priority_footer"),
+                        hintLineLimit: 3
+                    ) {
+                        MacSTPicker(
+                            selection: $embeddedVariantPriority,
+                            options: [
+                                (EmbeddedLyricsVariantPriority.finestTiming.rawValue,
+                                 String(localized: "embedded_lyrics_variant_finest")),
+                                (EmbeddedLyricsVariantPriority.firstInFile.rawValue,
+                                 String(localized: "embedded_lyrics_variant_first")),
+                            ]
+                        )
+                    }
+                    .settingsAnchor("lyrics.embeddedVariantPriority")
+                    .onChange(of: embeddedVariantPriority) { _, _ in
+                        LyricsLoader.applyEmbeddedVariantPriorityChange()
+                    }
                 }
             }
             MacSTSection(String(localized: "lyrics_translation_section")) {

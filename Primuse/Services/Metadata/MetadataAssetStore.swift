@@ -916,6 +916,30 @@ actor MetadataAssetStore {
         try? data.write(to: fileURL, options: .atomic)
     }
 
+    /// 文件里同一首歌的原文歌词不止一份时读标签记下的全貌（见 `EmbeddedLyricsAlternatives`）：
+    /// 设置里改了挑哪一份，放歌时按它重挑，不用重读文件。只有一份时删掉旧的记录。
+    func storeEmbeddedLyricsAlternatives(_ alternatives: EmbeddedLyricsAlternatives?, forSongID songID: String) {
+        let fileURL = lyricsDirectory.appendingPathComponent(
+            hashedFileName(for: songID, pathExtension: "embedded-variants.json")
+        )
+        guard let alternatives, alternatives.offersChoice,
+              let data = try? encoder.encode(alternatives) else {
+            try? FileManager.default.removeItem(at: fileURL)
+            return
+        }
+        try? data.write(to: fileURL, options: .atomic)
+    }
+
+    func embeddedLyricsAlternatives(forSongID songID: String) -> EmbeddedLyricsAlternatives? {
+        let fileURL = lyricsDirectory.appendingPathComponent(
+            hashedFileName(for: songID, pathExtension: "embedded-variants.json")
+        )
+        guard let data = try? Data(contentsOf: fileURL),
+              let alternatives = try? decoder.decode(EmbeddedLyricsAlternatives.self, from: data),
+              alternatives.offersChoice else { return nil }
+        return alternatives
+    }
+
     func embeddedFallbackLyrics(forSongID songID: String) -> [LyricLine]? {
         let fileURL = lyricsDirectory.appendingPathComponent(
             hashedFileName(for: songID, pathExtension: "embedded.json")
@@ -1195,7 +1219,7 @@ actor MetadataAssetStore {
                         removeCacheAsset(artworkDirectory.appendingPathComponent(cover, isDirectory: false),
                                          lastWrittenBefore: cleanupStartedAt)
                     }
-                    for suffix in [".json", ".sources.json", ".embedded.json", ".recheck"] {
+                    for suffix in [".json", ".sources.json", ".embedded.json", ".embedded-variants.json", ".recheck"] {
                         let name = base + suffix
                         guard lyricsNames.remove(name) != nil, !preservingLyricsNames.contains(name) else { continue }
                         if (suffix == ".json" || suffix == ".sources.json"), lyricsMutationReservations[songID] != nil { continue }
