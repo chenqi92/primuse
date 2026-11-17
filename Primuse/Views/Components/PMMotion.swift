@@ -255,18 +255,28 @@ struct PMScrollingButton<Label: View>: View {
 #if os(macOS)
 enum PMScrollingControls {
     /// 滚动内容里的卡片用不用系统按钮。调试时 `PRIMUSE_DEBUG_LEGACY_POINTER_REGIONS=1` 在新系统上也走点按那条路。
-    static let usesButtons: Bool = {
-        var forcesLegacy = false
+    static let usesButtons: Bool = ScrollingControlSurfacePolicy.surface(
+        macOSMajorVersion: macOSMajorVersion,
+        forcesLegacy: forcesLegacy
+    ) == .button
+
+    /// 滚动期间暂停滚动内容的点按判定，停下后恢复。只在老系统上开，原因见 `ScrollingControlSurfacePolicy`。
+    static let pausesHitTestingWhileScrolling: Bool = ScrollingControlSurfacePolicy.pausesHitTestingWhileScrolling(
+        macOSMajorVersion: macOSMajorVersion,
+        forcesLegacy: forcesLegacy
+    )
+
+    private static var macOSMajorVersion: Int {
+        ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+    }
+
+    private static var forcesLegacy: Bool {
         #if DEBUG
-        forcesLegacy = ProcessInfo.processInfo.environment[
-            ScrollingControlSurfacePolicy.legacyOverrideEnvironmentKey
-        ] == "1"
+        ProcessInfo.processInfo.environment[ScrollingControlSurfacePolicy.legacyOverrideEnvironmentKey] == "1"
+        #else
+        false
         #endif
-        return ScrollingControlSurfacePolicy.surface(
-            macOSMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
-            forcesLegacy: forcesLegacy
-        ) == .button
-    }()
+    }
 }
 
 extension View {

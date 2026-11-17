@@ -182,7 +182,8 @@ final class MacHomePerformanceDiagnostics {
             navigationStartedAt = nil
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
             let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
-            mark("appear", "version=\(version) build=\(build) navigation_ms=\(navigationMS)")
+            let pointerPause = PMScrollingControls.pausesHitTestingWhileScrolling ? 1 : 0
+            mark("appear", "version=\(version) build=\(build) navigation_ms=\(navigationMS) pointer_pause=\(pointerPause)")
         } else {
             mark("disappear", "visible_ms=\(Self.ms(now() - appearedAt)) busy_turns=\(busyTurns) worst_busy_ms=\(Self.ms(longestBusyTurn)) suppressed=\(suppressedBusyTurns)")
             self.context = nil

@@ -5,6 +5,9 @@ import PrimuseKit
 
 struct MacHomeDashboardScroll<Content: View>: View {
     @ViewBuilder let content: Content
+    /// macOS 15 上滚动期间不让卡片响应悬停、提示与点按，停下后恢复（原因见 `ScrollingControlSurfacePolicy`）。
+    /// 状态只放在这一层，切换时不重算各区块。
+    @State private var pausesPointerInteraction = false
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -16,6 +19,13 @@ struct MacHomeDashboardScroll<Content: View>: View {
             .padding(.horizontal, PMSpace.xxxl)
             .padding(.top, PMSpace.l24)
             .padding(.bottom, 104 - PMSpace.xxl)
+            .allowsHitTesting(!pausesPointerInteraction)
+        }
+        .onScrollPhaseChange { _, phase in
+            guard PMScrollingControls.pausesHitTestingWhileScrolling else { return }
+            // 只认真正在滚(拖动、惯性、程序滚动);手指刚搭上触控板的 tracking 不算,双指轻点的右键菜单照常。
+            let paused = phase.isScrolling
+            if pausesPointerInteraction != paused { pausesPointerInteraction = paused }
         }
     }
 }

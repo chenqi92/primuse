@@ -28,4 +28,15 @@ struct ScrollingControlSurfacePolicyTests {
         #expect(ScrollingControlSurfacePolicy.surface(macOSMajorVersion: 27, forcesLegacy: true) == .tapGesture)
         #expect(ScrollingControlSurfacePolicy.legacyOverrideEnvironmentKey == "PRIMUSE_DEBUG_LEGACY_POINTER_REGIONS")
     }
+
+    @Test("只有老系统在滚动期间暂停滚动内容的点按判定")
+    func pausesHitTestingOnlyOnLegacyMac() {
+        for major in [13, 14, 15, 16] {
+            #expect(ScrollingControlSurfacePolicy.pausesHitTestingWhileScrolling(macOSMajorVersion: major), "\(major)")
+        }
+        for major in [26, 27, 28] {
+            #expect(!ScrollingControlSurfacePolicy.pausesHitTestingWhileScrolling(macOSMajorVersion: major), "\(major)")
+        }
+        #expect(ScrollingControlSurfacePolicy.pausesHitTestingWhileScrolling(macOSMajorVersion: 27, forcesLegacy: true))
+    }
 }
