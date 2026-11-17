@@ -272,7 +272,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         let dot = PlayerVolumeTrackStyle.matching(.forProgressStyle(.dot, glows: true))
         XCTAssertEqual(dot.restingHeight, 3)
         XCTAssertEqual(dot.activeHeight, 6)
-        XCTAssertEqual(dot.knobDiameter, 12)
+        XCTAssertEqual(dot.knobDiameter, 9)
         XCTAssertTrue(dot.glows)
         XCTAssertTrue(PlayerVolumeTrackStyle.matching(.forProgressStyle(.wave)).isWave)
         XCTAssertNil(PlayerVolumeTrackStyle.matching(.forProgressStyle(.standard)).knobDiameter)

@@ -13524,13 +13524,13 @@ struct ProgressSlider: View {
 
         static let standard = TrackStyle()
 
-        /// 设置 › 播放器 › 进度条 选的画法。
+        /// 设置 › 播放器 › 进度条 选的画法。圆点和有声书版式那颗一样大(9 点),按住大 4 点。
         static func forProgressStyle(_ style: NowPlayingProgressStyle, glows: Bool = false) -> TrackStyle {
             var track: TrackStyle
             switch style {
             case .standard: track = .standard
             case .wave: track = TrackStyle(restingHeight: 4, draggingHeight: 8, isWave: true)
-            case .dot: track = TrackStyle(restingHeight: 3, draggingHeight: 6, knobDiameter: 12)
+            case .dot: track = TrackStyle(restingHeight: 3, draggingHeight: 6, knobDiameter: 9, knobGrowth: 4)
             }
             track.glows = glows
             return track
@@ -13969,8 +13969,8 @@ struct PlayerVolumeTrackStyle: Equatable {
     /// 没填充那一段的颜色;nil 时按明暗外观取(有声书那套版式用自己的)。
     var trackColor: Color? = nil
 
-    /// 一直以来的系统样式:4 点的细轨道、12 点的圆钮。
-    static let system = PlayerVolumeTrackStyle(restingHeight: 4, activeHeight: 7, knobDiameter: 12)
+    /// 一直以来的系统样式:4 点的细轨道、9 点的圆钮(按住大 4 点)。
+    static let system = PlayerVolumeTrackStyle(restingHeight: 4, activeHeight: 7, knobDiameter: 9, knobGrowth: 4)
 
     /// 和这条进度条同一种画法:粗细、圆点、波浪、发光、底色都照抄。
     static func matching(_ track: ProgressSlider.TrackStyle) -> PlayerVolumeTrackStyle {

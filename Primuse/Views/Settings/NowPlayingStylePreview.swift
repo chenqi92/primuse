@@ -344,7 +344,7 @@ struct PreviewProgressBar: View {
     }
 }
 
-/// 音量条的样子:系统样式是细轨道、前景色填充、12 点的圆钮;选了「跟进度条一致」时照这一页的进度条画(#338)。
+/// 音量条的样子:系统样式是细轨道、前景色填充、9 点的圆钮;选了「跟进度条一致」时照这一页的进度条画(#338)。
 struct PreviewVolumeRow: View {
     let primary: Color
     let iconTint: Color
@@ -399,10 +399,11 @@ struct PreviewVolumeRow: View {
                 Capsule()
                     .fill(primary)
                     .frame(width: filled, height: 4 * PlayerTrackThickness.resolved(thicknessRawValue).scale)
+                let knob = PlayerVolumeTrackStyle.system.knobDiameter ?? 9
                 Circle()
                     .fill(primary)
-                    .frame(width: 12, height: 12)
-                    .offset(x: filled - 6)
+                    .frame(width: knob, height: knob)
+                    .offset(x: filled - knob / 2)
             }
             .frame(maxHeight: .infinity)
         }
