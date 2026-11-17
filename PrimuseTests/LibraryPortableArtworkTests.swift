@@ -985,7 +985,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
         try await verifyArtistPageTint(portrait: .black, synopsisLayout: .regular)
     }
 
-    func testIntroEditorOffersAppleMusicOnlyForArtists() async throws {
+    func testIntroEditorOffersAppleMusicForArtistsAndAlbums() async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }
         let library = MusicLibrary(storageDirectory: root)
@@ -1008,7 +1008,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
             request.recognitionLanguages = ["zh-Hans", "en-US"]
             try VNImageRequestHandler(cgImage: snapshot).perform([request])
             let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
-            XCTAssertEqual(text.contains("Apple Music"), subject.kind == .artist, text)
+            XCTAssertTrue(text.contains("Apple Music"), text)
             XCTAssertTrue(text.contains("Last.fm"), text)
             let attachment = XCTAttachment(image: UIImage(cgImage: snapshot))
             attachment.name = "intro-editor-\(subject.kind.rawValue)-sources"
@@ -2505,7 +2505,7 @@ extension LibraryPortableArtworkTests {
         try await verifyArtistArtworkCrop(source: .artistCache)
     }
 
-    func testFallbackSongArtworkFillsTheRectangularHero() async throws {
+    func testFallbackSongArtworkKeepsRectangularCoverAndBackdrop() async throws {
         try await verifyArtistArtworkCrop(source: .songCache)
     }
 
@@ -2564,18 +2564,39 @@ extension LibraryPortableArtworkTests {
             .environment(\.scenePhase, .inactive)
             let (window, host, original) = try hostHeroTestView(view, size: size)
             defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
+            let fractions: [CGFloat]
+            if case .songCache = source {
+                fractions = [0.28, 0.5, 0.72]
+            } else {
+                fractions = [0.1875, 0.5, 0.8125]
+            }
             var rendered: CGImage?
             for _ in 0..<40 {
                 try await Task.sleep(for: .milliseconds(100))
                 let snapshot = try heroTestSnapshot(host.view)
-                let left = try rgb(snapshot, x: Int(size.width * 0.1875), y: 20)
-                let right = try rgb(snapshot, x: Int(size.width * 0.8125), y: Int(size.height) - 20)
+                let left = try rgb(snapshot, x: Int(size.width * fractions[0]), y: 20)
+                let right = try rgb(snapshot, x: Int(size.width * fractions[2]), y: Int(size.height) - 20)
                 if left.0 > 220, left.2 < 35, right.1 > 220, right.2 < 35 {
                     rendered = snapshot
                     break
                 }
             }
             let actual = try XCTUnwrap(rendered, "Artwork must fill the top and bottom of the \(size) frame")
+            if case .songCache = source {
+                let center = try rgb(actual, x: Int(size.width / 2), y: 20)
+                XCTAssertGreaterThan(center.2, 220)
+                XCTAssertLessThan(center.0 + center.1, 35)
+                if size.width > size.height {
+                    let backdrop = try rgb(actual, x: 20, y: 20)
+                    XCTAssertGreaterThan(backdrop.0, 100, "The backdrop must fill the unused space")
+                    XCTAssertLessThan(backdrop.0, 220, "The sharp cover must retain its rectangular proportions")
+                }
+                let attachment = XCTAttachment(image: UIImage(cgImage: actual))
+                attachment.name = "fallback-cover-\(Int(size.width))x\(Int(size.height))"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                continue
+            }
             let source = try XCTUnwrap(displayed?.cgImage)
             let geometry = try XCTUnwrap(ArtistHeroArtworkGeometry(width: size.width, photoHeight: size.height))
             let field = try XCTUnwrap(ArtistHeroArtworkField.render(image: source, geometry: geometry))
