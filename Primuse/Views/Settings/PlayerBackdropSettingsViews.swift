@@ -224,7 +224,7 @@ struct PlayerAudiobookToggleRow<Hint: View>: View {
 
 /// iPhone / iPad 设置里的「播放页背景」，和封面取色放在同一页。
 struct PlayerBackdropSettingsSections: View {
-    @AppStorage(PlayerAppearancePreferences.vividMeshKey) private var vividMesh = false
+    var mode: PlayerBackdropMode? = nil
     @State private var store = PlayerBackdropSettingsStore.shared
     @Environment(ThemeService.self) private var themeService
     @State private var pickerItems: [PhotosPickerItem] = []
@@ -232,99 +232,16 @@ struct PlayerBackdropSettingsSections: View {
     @State private var importFailed = false
 
     var body: some View {
-        let settings = store.settings
-
         Section {
-            ForEach(PlayerBackdropSource.allCases, id: \.self) { source in
-                sourceRow(source, isSelected: settings.source == source)
+            if let mode {
+                Toggle("player_backdrop_use_global", isOn: Binding(
+                    get: { !store.hasOverride(for: mode) },
+                    set: { store.setUsesGlobal($0, for: mode) }
+                ))
+                .accessibilityIdentifier("playerBackdrop.useGlobal")
             }
-
-            if settings.source == .coverAmbient {
-                Picker("player_backdrop_ambient_style", selection: Binding(
-                    get: { store.settings.ambientStyle },
-                    set: { value in store.update { $0.ambientStyle = value } }
-                )) {
-                    ForEach(PlayerAmbientStyle.allCases, id: \.self) { style in
-                        Text(verbatim: PlayerBackdropSettingsText.title(style)).tag(style)
-                    }
-                }
-                .accessibilityIdentifier("playerBackdrop.ambientStyle")
-                if settings.ambientStyle == .mesh {
-                    Toggle("player_vivid_mesh", isOn: $vividMesh)
-                        .settingsAnchor("appearance.vividMesh")
-                        .accessibilityIdentifier("playerBackdrop.vividMesh")
-                }
-            }
-
-            if settings.source == .customImages {
-                VStack(alignment: .leading, spacing: 6) {
-                    PlayerBackdropImageStrip(
-                        ids: store.customImageIDs,
-                        isImporting: isImporting,
-                        onRemove: { id in
-                            withAnimation(PMMotion.list.animation) { store.removeCustomImage(id) }
-                        }
-                    ) {
-                        PhotosPicker(
-                            selection: $pickerItems,
-                            maxSelectionCount: max(1, PlayerBackdropSettings.maximumCustomImages - store.customImageIDs.count),
-                            matching: .images,
-                            preferredItemEncoding: .compatible
-                        ) {
-                            PlayerBackdropAddTile()
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    if !store.hasCustomImages && !isImporting {
-                        Text("player_backdrop_no_images")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if importFailed {
-                        Text("player_backdrop_import_failed")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
-                }
-                .pmAppearFade(.contentAppear)
-            }
-
-            if settings.source == .visualizer {
-                Picker(selection: visualizerStyleBinding) {
-                    ForEach(PlayerVisualizerStyle.allCases, id: \.self) { style in
-                        Text(verbatim: PlayerBackdropSettingsText.title(style)).tag(style)
-                    }
-                } label: {
-                    Label("player_backdrop_visualizer_style", systemImage: "waveform.path")
-                }
-                .pmAppearFade(.contentAppear)
-            }
-
-            if settings.source.supportsRotation {
-                Picker(selection: rotationBinding) {
-                    ForEach(PlayerBackdropRotation.allCases, id: \.self) { rotation in
-                        Text(verbatim: PlayerBackdropSettingsText.title(rotation)).tag(rotation)
-                    }
-                } label: {
-                    Label("player_backdrop_rotation", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .pmAppearFade(.contentAppear)
-
-                if settings.rotation == .timed {
-                    Picker(selection: intervalBinding) {
-                        ForEach(PlayerBackdropSettings.intervalChoices, id: \.self) { seconds in
-                            Text(verbatim: PlayerBackdropSettingsText.interval(seconds)).tag(seconds)
-                        }
-                    } label: {
-                        Label("player_backdrop_interval", systemImage: "timer")
-                    }
-                    .pmAppearFade(.contentAppear)
-                }
-            }
-
-            // 有声书默认用自己的纯色底;打开后深色外观下也铺这里选的背景(#283)。
-            PlayerAudiobookToggleRow(isOn: audiobooksBinding) {
-                Text("player_backdrop_audiobooks_hint")
+            if mode == nil || mode.map({ store.hasOverride(for: $0) }) == true {
+                backgroundOptions
             }
         } header: {
             // 每种背景是什么样收进标题旁的圈问号,选项行只留名字。
@@ -349,16 +266,143 @@ struct PlayerBackdropSettingsSections: View {
         .onAppear { store.pruneMissingCustomImages() }
     }
 
+    @ViewBuilder
+    private var backgroundOptions: some View {
+        let settings = store.settings(for: mode)
+        ForEach(PlayerBackdropSource.allCases, id: \.self) { source in
+            sourceRow(source, isSelected: settings.source == source)
+        }
+
+        if settings.source == .coverAmbient {
+            Picker("player_backdrop_ambient_style", selection: Binding(
+                get: { store.settings(for: mode).ambientStyle },
+                set: { value in store.update(for: mode) { $0.ambientStyle = value } }
+            )) {
+                ForEach(PlayerAmbientStyle.allCases, id: \.self) { style in
+                    Text(verbatim: PlayerBackdropSettingsText.title(style)).tag(style)
+                }
+            }
+            .accessibilityIdentifier("playerBackdrop.ambientStyle")
+        }
+
+        if PlayerAppearancePreferences.usesVividMesh(
+            enabled: true, source: settings.source, style: settings.ambientStyle
+        ) {
+            Toggle("player_vivid_mesh", isOn: Binding(
+                get: { settings.vividMesh ?? false },
+                set: { value in store.update(for: mode) { $0.vividMesh = value } }
+            ))
+                .settingsAnchor("appearance.vividMesh")
+                .accessibilityIdentifier("playerBackdrop.vividMesh")
+        }
+
+        if settings.source == .coverAmbient || settings.source == .liquid {
+            Picker("player_backdrop_motion", selection: Binding(
+                get: { settings.motion },
+                set: { value in store.update(for: mode) { $0.motion = value } }
+            )) {
+                ForEach(PlayerBackdropMotion.allCases, id: \.self) { motion in
+                    Text(LocalizedStringKey(motion.titleKey)).tag(motion)
+                }
+            }
+            .accessibilityIdentifier("playerBackdrop.motion")
+            if settings.motion.pulses {
+                VStack(alignment: .leading) {
+                    Text("player_backdrop_bass_sensitivity")
+                    Slider(value: Binding(
+                        get: { settings.bassSensitivity },
+                        set: { value in store.update(for: mode) { $0.bassSensitivity = value } }
+                    ), in: 0...1)
+                    .accessibilityLabel(Text("player_backdrop_bass_sensitivity"))
+                    .accessibilityIdentifier("playerBackdrop.bassSensitivity")
+                }
+            }
+        }
+
+        if settings.source == .customImages {
+            VStack(alignment: .leading, spacing: 6) {
+                PlayerBackdropImageStrip(
+                    ids: store.customImageIDs,
+                    isImporting: isImporting,
+                    onRemove: { id in
+                        withAnimation(PMMotion.list.animation) { store.removeCustomImage(id) }
+                    }
+                ) {
+                    PhotosPicker(
+                        selection: $pickerItems,
+                        maxSelectionCount: max(1, PlayerBackdropSettings.maximumCustomImages - store.customImageIDs.count),
+                        matching: .images,
+                        preferredItemEncoding: .compatible
+                    ) {
+                        PlayerBackdropAddTile()
+                    }
+                    .buttonStyle(.plain)
+                }
+                if !store.hasCustomImages && !isImporting {
+                    Text("player_backdrop_no_images")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if importFailed {
+                    Text("player_backdrop_import_failed")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+            .pmAppearFade(.contentAppear)
+        }
+
+        if settings.source == .visualizer {
+            Picker(selection: visualizerStyleBinding) {
+                ForEach(PlayerVisualizerStyle.allCases, id: \.self) { style in
+                    Text(verbatim: PlayerBackdropSettingsText.title(style)).tag(style)
+                }
+            } label: {
+                Label("player_backdrop_visualizer_style", systemImage: "waveform.path")
+            }
+            .pmAppearFade(.contentAppear)
+        }
+
+        if settings.source.supportsRotation {
+            Picker(selection: rotationBinding) {
+                ForEach(PlayerBackdropRotation.allCases, id: \.self) { rotation in
+                    Text(verbatim: PlayerBackdropSettingsText.title(rotation)).tag(rotation)
+                }
+            } label: {
+                Label("player_backdrop_rotation", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .pmAppearFade(.contentAppear)
+
+            if settings.rotation == .timed {
+                Picker(selection: intervalBinding) {
+                    ForEach(PlayerBackdropSettings.intervalChoices, id: \.self) { seconds in
+                        Text(verbatim: PlayerBackdropSettingsText.interval(seconds)).tag(seconds)
+                    }
+                } label: {
+                    Label("player_backdrop_interval", systemImage: "timer")
+                }
+                .pmAppearFade(.contentAppear)
+            }
+        }
+
+        // 有声书默认用自己的纯色底;打开后深色外观下也铺这里选的背景(#283)。
+        if mode == nil {
+            PlayerAudiobookToggleRow(isOn: audiobooksBinding) {
+                Text("player_backdrop_audiobooks_hint")
+            }
+        }
+    }
+
     private var audiobooksBinding: Binding<Bool> {
         Binding(
-            get: { store.settings.appliesToAudiobooks },
-            set: { enabled in store.update { $0.appliesToAudiobooks = enabled } }
+            get: { store.settings(for: mode).appliesToAudiobooks },
+            set: { enabled in store.update(for: mode) { $0.appliesToAudiobooks = enabled } }
         )
     }
 
     private func sourceRow(_ source: PlayerBackdropSource, isSelected: Bool) -> some View {
         Button {
-            store.update { $0.source = source }
+            store.update(for: mode) { $0.source = source }
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: PlayerBackdropSettingsText.symbol(source))
@@ -384,22 +428,22 @@ struct PlayerBackdropSettingsSections: View {
 
     private var rotationBinding: Binding<PlayerBackdropRotation> {
         Binding(
-            get: { store.settings.rotation },
-            set: { value in store.update { $0.rotation = value } }
+            get: { store.settings(for: mode).rotation },
+            set: { value in store.update(for: mode) { $0.rotation = value } }
         )
     }
 
     private var visualizerStyleBinding: Binding<PlayerVisualizerStyle> {
         Binding(
-            get: { store.settings.visualizerStyle },
-            set: { value in store.update { $0.visualizerStyle = value } }
+            get: { store.settings(for: mode).visualizerStyle },
+            set: { value in store.update(for: mode) { $0.visualizerStyle = value } }
         )
     }
 
     private var intervalBinding: Binding<Int> {
         Binding(
-            get: { store.settings.intervalSeconds },
-            set: { value in store.update { $0.intervalSeconds = value } }
+            get: { store.settings(for: mode).intervalSeconds },
+            set: { value in store.update(for: mode) { $0.intervalSeconds = value } }
         )
     }
 

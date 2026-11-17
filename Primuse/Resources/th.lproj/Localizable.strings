@@ -7511,3 +7511,11 @@
 "scraper_legacy_update_required" = "แหล่งนี้ต้องได้รับการอัปเดต โปรดนำเข้าเวอร์ชันกฎ JSON";
 
 "scraper_update_review_required" = "ต้องยืนยันการอัปเดต โปรดนำเข้าแหล่งอีกครั้ง";
+
+"player_backdrop_motion" = "การเคลื่อนไหวของพื้นหลัง";
+"player_backdrop_motion_flowing" = "ไหลลื่น";
+"player_backdrop_motion_bassPulse" = "เต้นตามเสียงเบส";
+"player_backdrop_motion_flowingAndBass" = "ไหลลื่นและเต้นตามเสียงเบส";
+"player_backdrop_motion_still" = "ภาพนิ่ง";
+"player_backdrop_bass_sensitivity" = "ความไวต่อเสียงเบส";
+"player_backdrop_use_global" = "ใช้พื้นหลังส่วนกลาง";

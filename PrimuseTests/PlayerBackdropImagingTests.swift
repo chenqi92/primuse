@@ -7,6 +7,45 @@ import UniformTypeIdentifiers
 import XCTest
 @testable import Primuse
 
+@MainActor
+final class PlayerBackdropModeSettingsTests: XCTestCase {
+    func testModesInheritThenPersistIndependentBackgroundsAndCanReset() throws {
+        let name = "BackdropModes.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(true, forKey: PlayerAppearancePreferences.vividMeshKey)
+        let store = PlayerBackdropSettingsStore(defaults: defaults, registersWithCloud: false)
+        for mode in PlayerBackdropMode.allCases {
+            XCTAssertEqual(store.settings(for: mode).vividMesh, true)
+            XCTAssertFalse(store.hasOverride(for: mode))
+        }
+        store.update(for: nil) { $0.source = .liquid }
+        store.setUsesGlobal(false, for: .audiobook)
+        store.update(for: .audiobook) {
+            $0.source = .coverAmbient
+            $0.motion = .bassPulse
+            $0.bassSensitivity = 0.8
+        }
+        store.update(for: .podcast) { $0.source = .coverBlur; $0.vividMesh = false }
+        store.update(for: nil) { $0.source = .albumBack }
+        let loaded = PlayerBackdropSettingsStore(defaults: defaults, registersWithCloud: false)
+        XCTAssertEqual(loaded.settings(for: .music).source, .albumBack)
+        XCTAssertEqual(loaded.settings(for: .radio).source, .albumBack)
+        XCTAssertEqual(loaded.settings(for: .audiobook).source, .coverAmbient)
+        XCTAssertEqual(loaded.settings(for: .audiobook).motion, .bassPulse)
+        XCTAssertEqual(loaded.settings(for: .audiobook).bassSensitivity, 0.8)
+        XCTAssertEqual(loaded.settings(for: .audiobook).vividMesh, true)
+        XCTAssertEqual(loaded.settings(for: .podcast).source, .coverBlur)
+        XCTAssertEqual(loaded.settings(for: .podcast).vividMesh, false)
+        loaded.setUsesGlobal(true, for: .audiobook)
+        XCTAssertEqual(loaded.settings(for: .audiobook).source, .albumBack)
+        XCTAssertEqual(loaded.settings(for: .podcast).source, .coverBlur)
+        loaded.update(for: .radio) { $0.source = .customImages }
+        XCTAssertEqual(loaded.effectiveSource(for: .radio), .coverAmbient)
+        XCTAssertEqual(loaded.effectiveSource(for: .music), .albumBack)
+    }
+}
+
 @MainActor @Observable
 private final class CardFlightTestPlacement {
     var compact = false

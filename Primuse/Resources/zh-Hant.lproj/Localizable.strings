@@ -7582,3 +7582,11 @@
 "scraper_legacy_update_required" = "此刮削來源需要更新，請匯入 JSON 規則版。";
 
 "scraper_update_review_required" = "更新需確認，請重新匯入刮削來源。";
+
+"player_backdrop_motion" = "背景動效";
+"player_backdrop_motion_flowing" = "流動";
+"player_backdrop_motion_bassPulse" = "低音脈動";
+"player_backdrop_motion_flowingAndBass" = "流動與低音脈動";
+"player_backdrop_motion_still" = "靜態";
+"player_backdrop_bass_sensitivity" = "低音靈敏度";
+"player_backdrop_use_global" = "使用全域背景";

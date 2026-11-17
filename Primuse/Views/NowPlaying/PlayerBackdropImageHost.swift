@@ -1,6 +1,10 @@
 import SwiftUI
 import PrimuseKit
 
+extension EnvironmentValues {
+    @Entry var playerBackdropMode: PlayerBackdropMode? = nil
+}
+
 /// 原生播放页背景上的那张图（封面模糊 / 专辑封底 / 自选图片），叠在封面取色的色场之上。
 /// 选的是封面取色、或者图还没准备好时什么也不画，色场照旧露出来。
 ///
@@ -33,9 +37,11 @@ struct PlayerBackdropImageHost: View {
         let frameID: String?
     }
 
+    @Environment(\.playerBackdropMode) private var backdropMode
+
     var body: some View {
-        let settings = store.settings
-        let source = store.effectiveSource
+        let settings = store.settings(for: backdropMode)
+        let source = settings.effectiveSource(hasCustomImages: store.hasCustomImages)
 
         GeometryReader { geometry in
             let longSide = Double(max(geometry.size.width, geometry.size.height) * displayScale)
@@ -820,8 +826,9 @@ struct PlayerBackdropPrewarmer: View {
     }
 
     var body: some View {
-        let settings = store.settings
-        let source = store.effectiveSource
+        let mode = PlayerBackdropSettingsStore.mode(for: player.currentSong, isLiveRadio: player.isLiveRadio)
+        let settings = store.settings(for: mode)
+        let source = settings.effectiveSource(hasCustomImages: store.hasCustomImages)
         let song = player.isLiveRadio ? nil : player.currentSong
 
         // 和播放页一样铺满整个窗口，算出的像素档位才对得上。

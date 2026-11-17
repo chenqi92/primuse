@@ -3049,6 +3049,7 @@ struct PlayerOverlay: View {
         case vertical
     }
 
+    @Environment(AudioPlayerService.self) private var player
     @Binding var isPresented: Bool
     /// 第一次入场停稳后置上:从此收起时留下休眠,不再拿掉(#322)。
     @Binding var isResident: Bool
@@ -3063,11 +3064,13 @@ struct PlayerOverlay: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
     private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
-    @AppStorage(PlayerAppearancePreferences.vividMeshKey) private var vividMesh = false
     private var usesDarkPlayer: Bool {
         let backdrop = PlayerBackdropSettingsStore.shared
+        let mode = PlayerBackdropSettingsStore.mode(for: player.currentSong, isLiveRadio: player.isLiveRadio)
+        let settings = backdrop.settings(for: mode)
         return playerAlwaysDark || PlayerAppearancePreferences.usesVividMesh(
-            enabled: vividMesh, source: backdrop.effectiveSource, style: backdrop.settings.ambientStyle
+            enabled: settings.vividMesh ?? false,
+            source: backdrop.effectiveSource(for: mode), style: settings.ambientStyle
         )
     }
     @State private var presentationPhase = PresentationPhase.staging

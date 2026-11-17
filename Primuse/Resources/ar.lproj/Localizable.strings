@@ -7511,3 +7511,11 @@
 "scraper_legacy_update_required" = "يحتاج هذا المصدر إلى تحديث. استورد النسخة التي تستخدم قواعد JSON.";
 
 "scraper_update_review_required" = "يتطلب التحديث تأكيدًا. أعد استيراد المصدر.";
+
+"player_backdrop_motion" = "حركة الخلفية";
+"player_backdrop_motion_flowing" = "انسيابية";
+"player_backdrop_motion_bassPulse" = "نبض الجهير";
+"player_backdrop_motion_flowingAndBass" = "انسيابية ونبض الجهير";
+"player_backdrop_motion_still" = "ثابتة";
+"player_backdrop_bass_sensitivity" = "حساسية الجهير";
+"player_backdrop_use_global" = "استخدام الخلفية العامة";

@@ -7698,3 +7698,11 @@
 "scraper_legacy_update_required" = "此刮削源需要更新，请导入 JSON 规则版。";
 
 "scraper_update_review_required" = "更新需确认，请重新导入刮削源。";
+
+"player_backdrop_motion" = "背景动效";
+"player_backdrop_motion_flowing" = "流动";
+"player_backdrop_motion_bassPulse" = "低音脉动";
+"player_backdrop_motion_flowingAndBass" = "流动与低音脉动";
+"player_backdrop_motion_still" = "静态";
+"player_backdrop_bass_sensitivity" = "低音灵敏度";
+"player_backdrop_use_global" = "使用全局背景";

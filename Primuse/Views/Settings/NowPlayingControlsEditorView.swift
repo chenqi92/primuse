@@ -290,6 +290,10 @@ struct NowPlayingControlsEditorView: View {
             case .radio:
                 RadioControlsSections(storage: $radioStorage)
             }
+            if page != .global {
+                PlayerBackdropSettingsSections(mode: previewSurface.backdropMode)
+                    .id(page)
+            }
         }
         .environment(\.editMode, .constant(.inactive))
     }

@@ -7511,3 +7511,11 @@
 "scraper_legacy_update_required" = "Bu kaynağın güncellenmesi gerekiyor. JSON kuralları sürümünü içe aktarın.";
 
 "scraper_update_review_required" = "Güncelleme onay gerektiriyor. Kaynağı yeniden içe aktarın.";
+
+"player_backdrop_motion" = "Arka Plan Hareketi";
+"player_backdrop_motion_flowing" = "Akışkan";
+"player_backdrop_motion_bassPulse" = "Bas Nabzı";
+"player_backdrop_motion_flowingAndBass" = "Akışkan ve Bas Nabzı";
+"player_backdrop_motion_still" = "Sabit";
+"player_backdrop_bass_sensitivity" = "Bas Hassasiyeti";
+"player_backdrop_use_global" = "Genel Arka Planı Kullan";

@@ -22,6 +22,7 @@ struct PlayerVisualizerBackdrop: View {
     let strength: Double
     let isVisible: Bool
     let isSceneActive: Bool
+    var bassPulseSensitivity: Double? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioVisualizerService.self) private var visualizer
@@ -34,6 +35,12 @@ struct PlayerVisualizerBackdrop: View {
     @State private var runtimeRevision: UInt = 0
     @State private var activeElapsed: TimeInterval = 0
     @State private var startedAt: Date?
+    @State private var bassPulse = PlayerBackdropBassPulse()
+    private struct BassPulseTaskID: Hashable {
+        let isListening: Bool
+        let songID: String?
+        let sensitivity: Double?
+    }
 
     #if os(macOS)
     private static let pacing = ImmersiveFrameRateMode.fps60
@@ -48,8 +55,12 @@ struct PlayerVisualizerBackdrop: View {
         TimelineView(.animation(minimumInterval: frameInterval, paused: !moves || style == .spectrum)) { context in
             let levels = isHoldingLease ? visualizer.bandLevels.map(Double.init) : []
             let time = elapsed(at: context.date)
-            Canvas(rendersAsynchronously: true) { canvas, size in
-                draw(in: &canvas, size: size, levels: levels, time: time)
+            if bassPulseSensitivity != nil {
+                PlayerBassPulseFrame(pulse: bassPulse.value, isLight: isLight, strength: strength)
+            } else {
+                Canvas(rendersAsynchronously: true) { canvas, size in
+                    draw(in: &canvas, size: size, levels: levels, time: time)
+                }
             }
         }
         .opacity(hasFeed ? 1 : 0)
@@ -65,6 +76,21 @@ struct PlayerVisualizerBackdrop: View {
         .onChange(of: player.currentSong?.id) { _, _ in
             // 换歌可能重建音频图(采样率变了、切到直通),tap 要挂到新的节点上。
             synchronizeLease()
+            bassPulse = PlayerBackdropBassPulse()
+        }
+        .task(id: BassPulseTaskID(isListening: moves && isHoldingLease,
+                                  songID: player.currentSong?.id, sensitivity: bassPulseSensitivity)) {
+            guard moves, isHoldingLease, let sensitivity = bassPulseSensitivity else { return }
+            var previous = ProcessInfo.processInfo.systemUptime
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(frameInterval)) }
+                catch { return }
+                guard !Task.isCancelled else { return }
+                let now = ProcessInfo.processInfo.systemUptime
+                bassPulse.update(levels: visualizer.bandLevels.map(Double.init), sensitivity: sensitivity,
+                                 elapsed: now - previous)
+                previous = now
+            }
         }
         .onDisappear {
             updateClock(running: false, at: .now)

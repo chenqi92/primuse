@@ -227,7 +227,7 @@ enum PlayerAppearancePreferences {
     static let vividMeshKey = "primuse.player.vividMesh"
 
     static func usesVividMesh(enabled: Bool, source: PlayerBackdropSource, style: PlayerAmbientStyle) -> Bool {
-        enabled && source == .coverAmbient && style == .mesh
+        enabled && (source == .liquid || (source == .coverAmbient && style == .mesh))
     }
 
     static let pinsMiniPlayerKey = "primuse.player.pinsMiniPlayer"

@@ -50,6 +50,15 @@ enum NowPlayingPreviewSurface: String, CaseIterable, Identifiable {
     case podcast
     case radio
 
+    var backdropMode: PlayerBackdropMode {
+        switch self {
+        case .audiobook: .audiobook
+        case .podcast: .podcast
+        case .radio: .radio
+        default: .music
+        }
+    }
+
     var id: String { rawValue }
 
     var titleKey: LocalizedStringKey {
@@ -157,11 +166,12 @@ struct NowPlayingStylePreview: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
     private var alwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
-    @AppStorage(PlayerAppearancePreferences.vividMeshKey) private var vividMesh = false
     private var usesVividMesh: Bool {
         let backdrop = PlayerBackdropSettingsStore.shared
+        let settings = backdrop.settings(for: surface.backdropMode)
         return PlayerAppearancePreferences.usesVividMesh(
-            enabled: vividMesh, source: backdrop.effectiveSource, style: backdrop.settings.ambientStyle
+            enabled: settings.vividMesh ?? false,
+            source: backdrop.effectiveSource(for: surface.backdropMode), style: settings.ambientStyle
         )
     }
 
@@ -180,6 +190,7 @@ struct NowPlayingStylePreview: View {
                 onSelect: onSelect
             )
             screen(context)
+                .environment(\.playerBackdropMode, surface.backdropMode)
                 .frame(width: canvas.size.width, height: canvas.size.height)
                 .clipShape(RoundedRectangle(cornerRadius: canvas.cornerRadius, style: .continuous))
                 // 全屏效果页本来就固定深色;其余按「播放页始终用深色」。
@@ -779,7 +790,7 @@ private struct MusicPortraitPreviewScreen: View {
             // 铺满封面下面那一截垫在歌名和控件底下,和播放页一样只在背景是封面取色时铺。
             .backgroundPreferenceValue(PreviewFullBleedRegionKey.self) { region in
                 if let region, usesFullBleedArtwork,
-                   PlayerBackdropSettingsStore.shared.effectiveSource == .coverAmbient {
+                   PlayerBackdropSettingsStore.shared.effectiveSource(for: .music) == .coverAmbient {
                     GeometryReader { proxy in
                         FullBleedArtworkExtension(
                             song: song,

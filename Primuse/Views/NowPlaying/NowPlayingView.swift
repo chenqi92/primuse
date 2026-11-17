@@ -312,7 +312,7 @@ private struct NowPlayingBarColumnIcon: View {
 /// (封面模糊 / 专辑封底 / 自选图片)。播放页和设置里「播放页样式与按钮」那张预览共用,
 /// 预览里看到的就是播放页的背景。
 struct NowPlayingAmbientBackdrop: View {
-    @AppStorage(PlayerAppearancePreferences.vividMeshKey) private var vividMesh = false
+    @Environment(\.playerBackdropMode) private var previewBackdropMode
     private enum AmbientBackdropTuning {
         static let transitionDuration = 0.5
     }
@@ -326,6 +326,7 @@ struct NowPlayingAmbientBackdrop: View {
     let allowsImageLoading: Bool
     /// 拖动整页、收进迷你条途中先停下动画。在这一层里读，开始拖、开始收起时只重算背景。
     var motion: NowPlayingSurfaceMotion? = nil
+    var mode: PlayerBackdropMode = .music
 
     @Environment(ThemeService.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -340,11 +341,17 @@ struct NowPlayingAmbientBackdrop: View {
     var body: some View {
         let isSurfaceVisible = isSurfaceVisible && !(motion?.isHeld ?? false)
         let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
-        let backdropSource = PlayerBackdropSettingsStore.shared.effectiveSource
+        let mode = previewBackdropMode ?? mode
+        let store = PlayerBackdropSettingsStore.shared
+        let settings = store.settings(for: mode)
+        let backdropSource = settings.effectiveSource(hasCustomImages: store.hasCustomImages)
         let usesLiquid = backdropSource == .liquid
         let usesMesh = backdropSource == .coverAmbient
-            && PlayerBackdropSettingsStore.shared.settings.ambientStyle == .mesh
-        let usesVividMesh = usesMesh && vividMesh && !appearance.isLight
+            && settings.ambientStyle == .mesh
+        let usesVividMesh = PlayerAppearancePreferences.usesVividMesh(
+            enabled: settings.vividMesh ?? false, source: backdropSource,
+            style: settings.ambientStyle
+        ) && !appearance.isLight
         let meshPalette = usesVividMesh
             ? MeshBackdropPalettePolicy.vividPalette(from: theme.liquidPalette,
                 usesIncreasedContrast: colorSchemeContrast == .increased)
@@ -412,20 +419,22 @@ struct NowPlayingAmbientBackdrop: View {
 
         return ZStack {
             if usesLiquid {
-                // 流动色彩整个画在 Canvas 里，没有纯色层，转屏时露出来的那块靠垫在下面的这层；颜色和播放页底色一样。
+                // 转屏时露出的区域沿用播放页底色。
                 NowPlayingRotationTintedBase(
                     base: appearance.backgroundBase,
                     rotationFill: appearance.backgroundBase.mix(with: theme.accentColor, by: min(accentOpacity * 0.5, 1))
                 )
-                // 设置里选了「流动色彩」:换成几团跟着封面颜色缓缓流动的光(#189)。上面两层遮罩照旧。
                 LiquidArtworkBackdrop(
-                    palette: theme.liquidPalette,
+                    palette: meshPalette,
                     isLight: appearance.isLight,
                     strength: strength,
                     isVisible: isSurfaceVisible,
                     isSceneActive: isSceneActive,
-                    isPlaying: isPlaying
+                    isPlaying: isPlaying && settings.motion.flows,
+                    usesVividPalette: usesVividMesh
                 )
+                // 开关切换时不把普通调色板的高亮颜色带进无深色遮罩的 Mesh。
+                .id(usesVividMesh)
             } else {
                 AdaptiveNowPlayingBackdrop(
                     baseColor: appearance.backgroundBase,
@@ -438,7 +447,7 @@ struct NowPlayingAmbientBackdrop: View {
                     // 背景图铺满时色场被盖住，停掉它的动画时钟。
                     isVisible: isSurfaceVisible && !PlayerBackdropResolver.shared.isShowingImage,
                     isSceneActive: isSceneActive,
-                    isPlaying: isPlaying,
+                    isPlaying: isPlaying && settings.motion.flows,
                     paletteVibrancy: theme.artworkVibrancy,
                     paletteLuminance: theme.artworkLuminance,
                     meshPalette: usesMesh ? meshPalette : [],
@@ -446,11 +455,21 @@ struct NowPlayingAmbientBackdrop: View {
                 )
             }
 
+            if settings.motion.pulses && (usesLiquid || backdropSource == .coverAmbient) {
+                PlayerVisualizerBackdrop(
+                    style: .spectrum,
+                    primary: theme.accentColor, secondary: theme.secondaryAccent, deep: theme.darkAccent,
+                    isLight: appearance.isLight, strength: strength,
+                    isVisible: isSurfaceVisible, isSceneActive: isSceneActive,
+                    bassPulseSensitivity: settings.bassSensitivity
+                )
+            }
+
             if backdropSource == .visualizer {
                 // 设置里选了「声音律动」:色场上再画一层跟着声音动的频谱、波形或星尘(#312)。
                 // 压在下面两层遮罩底下,字的对比度照旧由遮罩保证。
                 PlayerVisualizerBackdrop(
-                    style: PlayerBackdropSettingsStore.shared.settings.visualizerStyle,
+                    style: settings.visualizerStyle,
                     primary: theme.accentColor,
                     secondary: theme.secondaryAccent,
                     deep: theme.darkAccent,
@@ -505,6 +524,7 @@ struct NowPlayingAmbientBackdrop: View {
                 allowsLoading: allowsImageLoading,
                 isPlaying: isPlaying
             )
+            .environment(\.playerBackdropMode, mode)
         }
         .animation(
             .easeInOut(duration: AmbientBackdropTuning.transitionDuration),
@@ -8140,7 +8160,7 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func fullBleedArtworkTrailingExtension(anchor: LyricsArtworkAnchor?) -> some View {
         if let anchor, anchor.trailingFade > 0,
-           PlayerBackdropSettingsStore.shared.effectiveSource == .coverAmbient {
+           PlayerBackdropSettingsStore.shared.effectiveSource(for: currentBackdropMode) == .coverAmbient {
             GeometryReader { proxy in
                 FullBleedArtworkExtension(
                     song: player.currentSong,
@@ -8164,7 +8184,7 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func fullBleedArtworkExtension(anchor: LyricsArtworkAnchor?) -> some View {
         if let anchor, anchor.bottomFade > 0,
-           PlayerBackdropSettingsStore.shared.effectiveSource == .coverAmbient {
+           PlayerBackdropSettingsStore.shared.effectiveSource(for: currentBackdropMode) == .coverAmbient {
             GeometryReader { proxy in
                 FullBleedArtworkExtension(
                     song: player.currentSong,
@@ -8207,8 +8227,9 @@ struct NowPlayingView: View {
     /// 有声书的墨黑版面铺播放页背景(封面取色、流动色彩、模糊封面、自选图):播放页背景设置里
     /// 打开了「有声书也使用」。浅色的暖白照旧是纸面底,墨黑的字和控件本来就是白的,压得住。
     private var audiobookUsesPlayerBackdrop: Bool {
-        usesAudiobookPlayerDesign && colorScheme == .dark
-            && PlayerBackdropSettingsStore.shared.settings.appliesToAudiobooks
+        usesAudiobookPlayerDesign
+            && (PlayerBackdropSettingsStore.shared.hasOverride(for: .audiobook)
+                || (colorScheme == .dark && PlayerBackdropSettingsStore.shared.settings(for: .audiobook).appliesToAudiobooks))
     }
 
     /// 设置里「控件颜色」选了单色,或主题色是「白色」。
@@ -10431,6 +10452,10 @@ struct NowPlayingView: View {
 
     // MARK: - Ambient background from cover dominant color
 
+    private var currentBackdropMode: PlayerBackdropMode {
+        PlayerBackdropSettingsStore.mode(for: player.currentSong, isLiveRadio: player.isLiveRadio)
+    }
+
     private var backgroundGradient: some View {
         NowPlayingAmbientBackdrop(
             song: player.isLiveRadio ? nil : player.currentSong,
@@ -10438,7 +10463,8 @@ struct NowPlayingView: View {
             isSurfaceVisible: isNowPlayingSurfaceExposed,
             isSceneActive: isVisualSceneActive,
             allowsImageLoading: isPresentationSettled,
-            motion: surfaceMotion
+            motion: surfaceMotion,
+            mode: currentBackdropMode
         )
     }
 

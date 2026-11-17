@@ -7511,3 +7511,11 @@
 "scraper_legacy_update_required" = "Esta fuente necesita una actualización. Importa su versión con reglas JSON.";
 
 "scraper_update_review_required" = "La actualización requiere confirmación. Vuelve a importar la fuente.";
+
+"player_backdrop_motion" = "Movimiento del fondo";
+"player_backdrop_motion_flowing" = "Fluido";
+"player_backdrop_motion_bassPulse" = "Pulsos de graves";
+"player_backdrop_motion_flowingAndBass" = "Fluido y pulsos de graves";
+"player_backdrop_motion_still" = "Estático";
+"player_backdrop_bass_sensitivity" = "Sensibilidad a los graves";
+"player_backdrop_use_global" = "Usar fondo global";

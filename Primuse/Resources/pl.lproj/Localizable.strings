@@ -7511,3 +7511,11 @@
 "scraper_legacy_update_required" = "To źródło wymaga aktualizacji. Zaimportuj wersję z regułami JSON.";
 
 "scraper_update_review_required" = "Aktualizacja wymaga potwierdzenia. Zaimportuj źródło ponownie.";
+
+"player_backdrop_motion" = "Ruch tła";
+"player_backdrop_motion_flowing" = "Płynny";
+"player_backdrop_motion_bassPulse" = "Pulsowanie basu";
+"player_backdrop_motion_flowingAndBass" = "Płynny i pulsowanie";
+"player_backdrop_motion_still" = "Statyczne";
+"player_backdrop_bass_sensitivity" = "Czułość basu";
+"player_backdrop_use_global" = "Używaj wspólnego tła";

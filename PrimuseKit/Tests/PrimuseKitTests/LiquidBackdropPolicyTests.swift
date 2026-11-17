@@ -4,6 +4,29 @@ import Testing
 
 @Suite struct LiquidBackdropPolicyTests {
 
+    @Test("Bass light responds to low-frequency attacks, sensitivity, and decay, not treble or silence")
+    func bassPulseEnvelope() {
+        var quiet = PlayerBackdropBassPulse()
+        var treble = PlayerBackdropBassPulse()
+        var sensitive = PlayerBackdropBassPulse()
+        var restrained = PlayerBackdropBassPulse()
+        for _ in 0..<3 {
+            quiet.update(levels: Array(repeating: 0, count: 32), sensitivity: 1, elapsed: 1.0 / 30)
+            treble.update(levels: (0..<32).map { $0 < 5 ? 0 : 1 }, sensitivity: 1, elapsed: 1.0 / 30)
+            sensitive.update(levels: Array(repeating: 0.4, count: 32), sensitivity: 1, elapsed: 1.0 / 30)
+            restrained.update(levels: Array(repeating: 0.4, count: 32), sensitivity: 0, elapsed: 1.0 / 30)
+        }
+        #expect(quiet.value == 0 && treble.value == 0)
+        #expect(sensitive.value > 0.7)
+        #expect(sensitive.value > restrained.value + 0.3)
+        for _ in 0..<120 {
+            sensitive.update(levels: Array(repeating: 0.4, count: 32), sensitivity: 1, elapsed: 1.0 / 30)
+        }
+        #expect(sensitive.value < 0.01)
+        sensitive.update(levels: [.nan, .infinity], sensitivity: .nan, elapsed: .nan)
+        #expect(sensitive.value.isFinite)
+    }
+
     @Test("Mesh preserves every representative color, including sparse palettes")
     func meshPaletteCoverage() {
         let palette = (0..<7).map { LiquidBackdropColor(red: Double($0) / 6, green: 0.3, blue: 0.8) }
@@ -36,6 +59,34 @@ import Testing
         }
         #expect(MeshBackdropPalettePolicy.points(phase: 0, amplitude: 0)
             == MeshBackdropPalettePolicy.points(phase: 42, amplitude: 0))
+    }
+
+    @Test("Liquid mesh moves visibly and smoothly without opening gaps at the edges")
+    func liquidMeshMotion() {
+        let first = MeshBackdropPalettePolicy.liquidPoints(at: 0)
+        let later = MeshBackdropPalettePolicy.liquidPoints(at: 12)
+        #expect(abs(first[4].x - later[4].x) > 0.15)
+        var previous = first
+        for frame in 1...2880 {
+            let points = MeshBackdropPalettePolicy.liquidPoints(at: Double(frame) / 24)
+            #expect(points[0] == [0, 0] && points[2] == [1, 0])
+            #expect(points[6] == [0, 1] && points[8] == [1, 1])
+            #expect(points[1].y == 0 && points[7].y == 1)
+            #expect(points[3].x == 0 && points[5].x == 1)
+            for row in 0..<3 {
+                #expect(points[row * 3].x < points[row * 3 + 1].x)
+                #expect(points[row * 3 + 1].x < points[row * 3 + 2].x)
+            }
+            for column in 0..<3 {
+                #expect(points[column].y < points[column + 3].y)
+                #expect(points[column + 3].y < points[column + 6].y)
+            }
+            for (point, before) in zip(points, previous) {
+                #expect(abs(point.x - before.x) < 0.003)
+                #expect(abs(point.y - before.y) < 0.003)
+            }
+            previous = points
+        }
     }
 
     @Test("Contrast bounds include bright and dark secondary palette colors")

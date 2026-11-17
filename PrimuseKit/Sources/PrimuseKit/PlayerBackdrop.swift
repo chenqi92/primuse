@@ -67,6 +67,18 @@ public enum PlayerAmbientStyle: String, CaseIterable, Codable, Sendable {
     public static let defaultValue = PlayerAmbientStyle.mesh
 }
 
+public enum PlayerBackdropMode: String, CaseIterable, Codable, Sendable {
+    case music, audiobook, podcast, radio
+}
+
+public enum PlayerBackdropMotion: String, CaseIterable, Codable, Sendable {
+    case flowing, bassPulse, flowingAndBass, still
+
+    public var flows: Bool { self == .flowing || self == .flowingAndBass }
+    public var pulses: Bool { self == .bassPulse || self == .flowingAndBass }
+    public var titleKey: String { "player_backdrop_motion_" + rawValue }
+}
+
 /// 三端同步的那部分播放背景设置：来源、取色样式、轮播方式与间隔。自选图片本身和它们的列表
 /// 都只留在本机（`customImagesStorageKey`），不同设备各选各的；没有图片的设备选了
 /// 「我的图片」就照旧显示封面取色。
@@ -90,6 +102,11 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
     /// 「声音律动」画哪一种。只在选了这一档时起作用,换回别的来源也记着。
     public var visualizerStyle: PlayerVisualizerStyle
     public var ambientStyle: PlayerAmbientStyle
+    /// nil 时沿用旧版单独保存的鲜明 Mesh 开关。
+    public var vividMesh: Bool?
+    public var motion: PlayerBackdropMotion
+    public var bassSensitivity: Double
+    public var modeOverrides: [String: PlayerBackdropSettings]
 
     public init(
         source: PlayerBackdropSource = .defaultValue,
@@ -97,7 +114,11 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
         intervalSeconds: Int = PlayerBackdropSettings.defaultIntervalSeconds,
         appliesToAudiobooks: Bool = false,
         visualizerStyle: PlayerVisualizerStyle = .defaultValue,
-        ambientStyle: PlayerAmbientStyle = .defaultValue
+        ambientStyle: PlayerAmbientStyle = .defaultValue,
+        vividMesh: Bool? = nil,
+        motion: PlayerBackdropMotion = .flowing,
+        bassSensitivity: Double = 0.5,
+        modeOverrides: [String: PlayerBackdropSettings] = [:]
     ) {
         self.source = source
         self.rotation = rotation
@@ -105,10 +126,20 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
         self.appliesToAudiobooks = appliesToAudiobooks
         self.visualizerStyle = visualizerStyle
         self.ambientStyle = ambientStyle
+        self.vividMesh = vividMesh
+        self.motion = motion
+        self.bassSensitivity = Self.normalizedBassSensitivity(bassSensitivity)
+        self.modeOverrides = modeOverrides.filter { PlayerBackdropMode(rawValue: $0.key) != nil }
+            .mapValues { value in
+                var value = value
+                value.modeOverrides = [:]
+                return value
+            }
     }
 
     private enum CodingKeys: String, CodingKey {
         case source, rotation, intervalSeconds, appliesToAudiobooks, visualizerStyle, ambientStyle
+        case vividMesh, motion, bassSensitivity, modeOverrides
     }
 
     /// 解码从不失败：不认识的取值（更新版本多出来的来源等）按默认处理，免得一台旧设备
@@ -127,7 +158,12 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
             intervalSeconds: interval ?? Self.defaultIntervalSeconds,
             appliesToAudiobooks: audiobooks ?? false,
             visualizerStyle: rawVisualizerStyle.flatMap(PlayerVisualizerStyle.init(rawValue:)) ?? .defaultValue,
-            ambientStyle: rawAmbientStyle.flatMap(PlayerAmbientStyle.init(rawValue:)) ?? .defaultValue
+            ambientStyle: rawAmbientStyle.flatMap(PlayerAmbientStyle.init(rawValue:)) ?? .defaultValue,
+            vividMesh: (try? container?.decodeIfPresent(Bool.self, forKey: .vividMesh)) ?? nil,
+            motion: ((try? container?.decodeIfPresent(String.self, forKey: .motion)) ?? nil)
+                .flatMap(PlayerBackdropMotion.init(rawValue:)) ?? .flowing,
+            bassSensitivity: (try? container?.decodeIfPresent(Double.self, forKey: .bassSensitivity)) ?? 0.5,
+            modeOverrides: (try? container?.decodeIfPresent([String: PlayerBackdropSettings].self, forKey: .modeOverrides)) ?? [:]
         )
     }
 
@@ -142,6 +178,28 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
             try container.encode(visualizerStyle.rawValue, forKey: .visualizerStyle)
         }
         try container.encode(ambientStyle.rawValue, forKey: .ambientStyle)
+        try container.encodeIfPresent(vividMesh, forKey: .vividMesh)
+        if motion != .flowing { try container.encode(motion.rawValue, forKey: .motion) }
+        if bassSensitivity != 0.5 { try container.encode(bassSensitivity, forKey: .bassSensitivity) }
+        if !modeOverrides.isEmpty { try container.encode(modeOverrides, forKey: .modeOverrides) }
+    }
+
+    public func resolved(for mode: PlayerBackdropMode?) -> PlayerBackdropSettings {
+        var value = mode.flatMap { modeOverrides[$0.rawValue] } ?? self
+        value.modeOverrides = [:]
+        return value
+    }
+
+    public mutating func update(for mode: PlayerBackdropMode?, _ change: (inout PlayerBackdropSettings) -> Void) {
+        guard let mode else { change(&self); return }
+        var value = resolved(for: mode)
+        change(&value)
+        value.modeOverrides = [:]
+        modeOverrides[mode.rawValue] = value
+    }
+
+    public static func normalizedBassSensitivity(_ value: Double) -> Double {
+        value.isFinite ? min(max(value, 0), 1) : 0.5
     }
 
     public static func decode(_ data: Data?) -> PlayerBackdropSettings {

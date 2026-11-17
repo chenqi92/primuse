@@ -7605,3 +7605,11 @@
 "scraper_legacy_update_required" = "Cette source doit être mise à jour. Importez sa version avec règles JSON.";
 
 "scraper_update_review_required" = "La mise à jour doit être confirmée. Importez à nouveau la source.";
+
+"player_backdrop_motion" = "Animation du fond";
+"player_backdrop_motion_flowing" = "Fluide";
+"player_backdrop_motion_bassPulse" = "Pulsations des basses";
+"player_backdrop_motion_flowingAndBass" = "Fluide et pulsations";
+"player_backdrop_motion_still" = "Statique";
+"player_backdrop_bass_sensitivity" = "Sensibilité aux basses";
+"player_backdrop_use_global" = "Utiliser le fond global";

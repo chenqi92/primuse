@@ -7605,3 +7605,11 @@
 "scraper_legacy_update_required" = "이 소스를 업데이트해야 합니다. JSON 규칙 버전을 가져오세요.";
 
 "scraper_update_review_required" = "업데이트를 확인해야 합니다. 소스를 다시 가져오세요.";
+
+"player_backdrop_motion" = "배경 움직임";
+"player_backdrop_motion_flowing" = "흐름";
+"player_backdrop_motion_bassPulse" = "베이스 맥동";
+"player_backdrop_motion_flowingAndBass" = "흐름 및 베이스 맥동";
+"player_backdrop_motion_still" = "정적";
+"player_backdrop_bass_sensitivity" = "베이스 감도";
+"player_backdrop_use_global" = "공통 배경 사용";

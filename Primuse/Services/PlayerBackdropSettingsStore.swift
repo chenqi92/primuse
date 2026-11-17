@@ -37,6 +37,50 @@ final class PlayerBackdropSettingsStore {
         settings.effectiveSource(hasCustomImages: hasCustomImages)
     }
 
+    func settings(for mode: PlayerBackdropMode?) -> PlayerBackdropSettings {
+        var value = settings.resolved(for: mode)
+        value.vividMesh = value.vividMesh ?? defaults.bool(forKey: PlayerAppearancePreferences.vividMeshKey)
+        return value
+    }
+
+    func effectiveSource(for mode: PlayerBackdropMode) -> PlayerBackdropSource {
+        settings(for: mode).effectiveSource(hasCustomImages: hasCustomImages)
+    }
+
+    func hasOverride(for mode: PlayerBackdropMode) -> Bool {
+        settings.modeOverrides[mode.rawValue] != nil
+    }
+
+    func setUsesGlobal(_ usesGlobal: Bool, for mode: PlayerBackdropMode) {
+        let inherited = settings(for: nil)
+        update {
+            if usesGlobal { $0.modeOverrides.removeValue(forKey: mode.rawValue) }
+            else if $0.modeOverrides[mode.rawValue] == nil {
+                $0.modeOverrides[mode.rawValue] = inherited
+            }
+        }
+    }
+
+    func update(for mode: PlayerBackdropMode?, _ change: (inout PlayerBackdropSettings) -> Void) {
+        var value = settings(for: mode)
+        change(&value)
+        value.bassSensitivity = PlayerBackdropSettings.normalizedBassSensitivity(value.bassSensitivity)
+        update { settings in
+            if let mode { settings.modeOverrides[mode.rawValue] = value }
+            else {
+                value.modeOverrides = settings.modeOverrides
+                settings = value
+            }
+        }
+    }
+
+    static func mode(for song: Song?, isLiveRadio: Bool = false) -> PlayerBackdropMode {
+        if isLiveRadio || song?.sourceID == RadioStation.playbackSourceID { return .radio }
+        guard let song else { return .music }
+        if PodcastPlaybackSong.isEpisode(song) || SpokenWordStore.shared.isPodcast(song) { return .podcast }
+        return SpokenWordStore.shared.isSpokenWord(song) ? .audiobook : .music
+    }
+
     func update(_ change: (inout PlayerBackdropSettings) -> Void) {
         var next = settings
         change(&next)

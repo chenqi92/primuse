@@ -7606,3 +7606,11 @@
 "scraper_legacy_update_required" = "このソースは更新が必要です。JSON ルール版を読み込んでください。";
 
 "scraper_update_review_required" = "更新には確認が必要です。ソースを再度読み込んでください。";
+
+"player_backdrop_motion" = "背景の動き";
+"player_backdrop_motion_flowing" = "流動";
+"player_backdrop_motion_bassPulse" = "低音の脈動";
+"player_backdrop_motion_flowingAndBass" = "流動と低音の脈動";
+"player_backdrop_motion_still" = "静止";
+"player_backdrop_bass_sensitivity" = "低音の感度";
+"player_backdrop_use_global" = "共通の背景を使用";

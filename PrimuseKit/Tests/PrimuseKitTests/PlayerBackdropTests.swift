@@ -4,6 +4,26 @@ import Testing
 
 @Suite("Player backdrop")
 struct PlayerBackdropTests {
+    @Test("Backdrop motion and mode overrides survive sync while old settings retain their defaults")
+    func modeOverridesAndMotionRoundTrip() {
+        var settings = PlayerBackdropSettings(source: .liquid, vividMesh: true)
+        settings.update(for: .audiobook) { $0.source = .coverAmbient; $0.motion = .bassPulse }
+        settings.update(for: .podcast) { $0.source = .coverBlur; $0.vividMesh = false }
+        let restored = PlayerBackdropSettings.decode(settings.encodedData())
+        #expect(restored == settings)
+        #expect(restored.resolved(for: .music).source == .liquid)
+        #expect(restored.resolved(for: .radio).vividMesh == true)
+        #expect(restored.resolved(for: .audiobook).motion == .bassPulse)
+        #expect(restored.resolved(for: .podcast).vividMesh == false)
+        #expect(restored.resolved(for: .podcast).modeOverrides.isEmpty)
+        let future = PlayerBackdropSettings.decode(Data("{\"source\":\"liquid\",\"motion\":\"future\",\"bassSensitivity\":9}".utf8))
+        #expect(future.motion == .flowing)
+        #expect(future.bassSensitivity == 1)
+        #expect(future.vividMesh == nil)
+        #expect(PlayerBackdropSettings.normalizedBassSensitivity(.nan) == 0.5)
+        #expect(PlayerBackdropSettings.normalizedBassSensitivity(-1) == 0)
+    }
+
     private let idA = String(repeating: "a", count: 64)
     private let idB = String(repeating: "b", count: 64)
 

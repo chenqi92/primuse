@@ -521,7 +521,8 @@ struct AudiobookPreviewScreen: View {
         let controls = self.controls
 
         ZStack {
-            if style.isNocturne && PlayerBackdropSettingsStore.shared.settings.appliesToAudiobooks {
+            if PlayerBackdropSettingsStore.shared.hasOverride(for: .audiobook)
+                || (style.isNocturne && PlayerBackdropSettingsStore.shared.settings(for: .audiobook).appliesToAudiobooks) {
                 PreviewPlayerBackdrop(song: nil)
             } else {
                 style.background

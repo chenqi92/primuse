@@ -9,7 +9,8 @@ import PrimuseKit
 /// - 不做整屏高斯模糊:每团是从中心往外淡到透明的径向渐变,软边本身就够,重叠处自然融成一片。
 ///   每团半径约为长边的一半(Linx 是 55%),七团都盖满整屏时颜色会被平均成一片浑色。
 /// - 减弱动态效果、低电量模式、机身过热时停住不动;最多每秒 24 帧(偏热时 12 帧),Mac 与 Apple TV 上 60 帧(偏热时 30 帧)。
-/// - 上面照旧压着播放页那两层浅色 / 深色遮罩,字的可读性不靠这一层。
+/// - 鲜明 Mesh 使用已限制亮度的封面色绘制流动网格，与光团共用动画时钟和换色过渡。
+/// - 普通光团由播放页的明暗遮罩保护文字；鲜明 Mesh 由传入调色板的亮度上限保护。
 struct LiquidArtworkBackdrop: View {
     let palette: [LiquidBackdropColor]
     let isLight: Bool
@@ -18,6 +19,7 @@ struct LiquidArtworkBackdrop: View {
     let isVisible: Bool
     let isSceneActive: Bool
     let isPlaying: Bool
+    var usesVividPalette = false
 
     static let colorTransitionDuration: TimeInterval = 1.8
 
@@ -36,8 +38,16 @@ struct LiquidArtworkBackdrop: View {
             minimumInterval: frameInterval,
             paused: !canAnimate || !(moves || transitionStart != nil)
         )) { context in
-            Canvas(rendersAsynchronously: true) { canvas, size in
-                draw(in: &canvas, size: size, date: context.date)
+            if #available(tvOS 18.0, *), usesVividPalette, !isLight {
+                LiquidVividMeshFrame(
+                    palette: currentColors(at: context.date),
+                    strength: strength,
+                    elapsed: elapsed(at: context.date)
+                )
+            } else {
+                Canvas(rendersAsynchronously: true) { canvas, size in
+                    draw(in: &canvas, size: size, date: context.date)
+                }
             }
         }
         .onAppear {
@@ -193,6 +203,50 @@ struct LiquidArtworkBackdrop: View {
                 )),
                 with: .radialGradient(gradient, center: center, startRadius: 0, endRadius: radius)
             )
+        }
+    }
+}
+
+struct PlayerBassPulseFrame: View {
+    let pulse: Double
+    let isLight: Bool
+    let strength: Double
+
+    var body: some View {
+        let value = min(max(pulse, 0), 1)
+        // 深色背景只减暗后恢复原色，浅色只提亮，守住各自的文字对比度边界。
+        let opacity = (isLight ? value * 0.2 : (1 - value) * 0.34) * min(max(strength, 0), 1)
+        let tint: Color = isLight ? .white : .black
+        GeometryReader { geometry in
+            let radius = max(geometry.size.width, geometry.size.height) * 0.85
+            ZStack {
+                RadialGradient(colors: [tint.opacity(opacity), .clear],
+                               center: UnitPoint(x: 0.18, y: 0.25), startRadius: 0, endRadius: radius)
+                RadialGradient(colors: [tint.opacity(opacity), .clear],
+                               center: UnitPoint(x: 0.82, y: 0.8), startRadius: 0, endRadius: radius)
+            }
+        }
+    }
+}
+
+@available(tvOS 18.0, *)
+struct LiquidVividMeshFrame: View {
+    let palette: [LiquidBackdropColor]
+    let strength: Double
+    let elapsed: TimeInterval
+
+    var body: some View {
+        ZStack {
+            LiquidBackdropPalettePolicy.baseColor(for: palette, isLight: false).swiftUIColor
+            if !palette.isEmpty {
+                MeshGradient(
+                    width: 3, height: 3,
+                    points: MeshBackdropPalettePolicy.liquidPoints(at: elapsed),
+                    colors: MeshBackdropPalettePolicy.colors(for: palette).map(\.swiftUIColor),
+                    smoothsColors: false
+                )
+                .opacity(min(max(strength, 0), 1))
+            }
         }
     }
 }

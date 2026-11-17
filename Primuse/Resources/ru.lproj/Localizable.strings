@@ -7511,3 +7511,11 @@
 "scraper_legacy_update_required" = "Источник требует обновления. Импортируйте версию с правилами JSON.";
 
 "scraper_update_review_required" = "Обновление требует подтверждения. Импортируйте источник заново.";
+
+"player_backdrop_motion" = "Движение фона";
+"player_backdrop_motion_flowing" = "Плавное";
+"player_backdrop_motion_bassPulse" = "Пульсация басов";
+"player_backdrop_motion_flowingAndBass" = "Плавное и пульсация";
+"player_backdrop_motion_still" = "Статичный";
+"player_backdrop_bass_sensitivity" = "Чувствительность к басам";
+"player_backdrop_use_global" = "Использовать общий фон";

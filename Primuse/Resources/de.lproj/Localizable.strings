@@ -7605,3 +7605,11 @@
 "scraper_legacy_update_required" = "Diese Quelle benötigt ein Update. Importiere die Version mit JSON-Regeln.";
 
 "scraper_update_review_required" = "Das Update muss bestätigt werden. Importiere die Quelle erneut.";
+
+"player_backdrop_motion" = "Hintergrundbewegung";
+"player_backdrop_motion_flowing" = "Fließend";
+"player_backdrop_motion_bassPulse" = "Bassimpulse";
+"player_backdrop_motion_flowingAndBass" = "Fließend und Bassimpulse";
+"player_backdrop_motion_still" = "Statisch";
+"player_backdrop_bass_sensitivity" = "Bassempfindlichkeit";
+"player_backdrop_use_global" = "Globalen Hintergrund verwenden";

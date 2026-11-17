@@ -211,11 +211,11 @@ final class FloatingLyricsTests: XCTestCase {
         add(attachment)
     }
 
-    func testVividAppearanceOnlyAppliesToMeshCoverBackgrounds() {
+    func testVividAppearanceAppliesToLiquidAndMeshCoverBackgrounds() {
         for source in PlayerBackdropSource.allCases {
             for style in PlayerAmbientStyle.allCases {
                 XCTAssertEqual(PlayerAppearancePreferences.usesVividMesh(enabled: true, source: source, style: style),
-                               source == .coverAmbient && style == .mesh)
+                               source == .liquid || (source == .coverAmbient && style == .mesh))
                 XCTAssertFalse(PlayerAppearancePreferences.usesVividMesh(enabled: false, source: source, style: style))
             }
         }
@@ -294,6 +294,79 @@ final class FloatingLyricsTests: XCTestCase {
         attachment.name = "Vivid Mesh rendering"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+}
+
+@MainActor
+final class LiquidVividMeshTests: XCTestCase {
+    private let palette = MeshBackdropPalettePolicy.vividPalette(from: [
+        .init(red: 0.08, green: 0.22, blue: 0.57),
+        .init(red: 0.12, green: 0.59, blue: 0.75),
+        .init(red: 0.59, green: 0.43, blue: 0.75)
+    ])
+
+    func testBassPulsePreservesDarkAndLightTextContrast() throws {
+        let base = Color(red: 0.25, green: 0.4, blue: 0.55)
+        let original = try pixels(base)
+        for isLight in [false, true] {
+            let resting = try pixels(base.overlay(PlayerBassPulseFrame(pulse: 0, isLight: isLight, strength: 1)))
+            let beat = try pixels(base.overlay(PlayerBassPulseFrame(pulse: 1, isLight: isLight, strength: 1)))
+            for offset in stride(from: 0, to: original.count, by: 4) {
+                for channel in 0..<3 {
+                    let index = offset + channel
+                    XCTAssertGreaterThanOrEqual(beat[index], resting[index])
+                    if isLight { XCTAssertGreaterThanOrEqual(resting[index], original[index]) }
+                    else { XCTAssertLessThanOrEqual(beat[index], original[index]) }
+                }
+            }
+            let middle = (150 * 195 + 97) * 4
+            XCTAssertGreaterThan(Int(beat[middle]) - Int(resting[middle]), 10)
+        }
+    }
+
+    func testVividLiquidMovesAndKeepsCoverColors() throws {
+        let first = try pixels(LiquidVividMeshFrame(palette: palette, strength: 0.9, elapsed: 0))
+        let later = try pixels(LiquidVividMeshFrame(palette: palette, strength: 0.9, elapsed: 12))
+        let changed = stride(from: 0, to: first.count, by: 4).filter {
+            abs(Int(first[$0]) - Int(later[$0]))
+                + abs(Int(first[$0 + 1]) - Int(later[$0 + 1]))
+                + abs(Int(first[$0 + 2]) - Int(later[$0 + 2])) > 12
+        }.count
+        XCTAssertGreaterThan(changed, 195 * 300 / 10)
+        for frame in [first, later] {
+            let bluePixels = stride(from: 0, to: frame.count, by: 4).filter {
+                Int(frame[$0 + 2]) - Int(frame[$0]) > 35
+            }.count
+            XCTAssertGreaterThan(bluePixels, 195 * 300 / 3)
+            XCTAssertTrue(stride(from: 3, to: frame.count, by: 4).allSatisfy { frame[$0] == 255 })
+        }
+    }
+
+    func testPausedHiddenVividLiquidAlreadyHasItsMeshOnTheFirstFrame() throws {
+        let expected = try pixels(LiquidVividMeshFrame(
+            palette: LiquidBackdropPalettePolicy.blobColors(for: palette), strength: 0.9, elapsed: 0
+        ))
+        let actual = try pixels(LiquidArtworkBackdrop(
+            palette: palette, isLight: false, strength: 0.9,
+            isVisible: false, isSceneActive: false, isPlaying: false, usesVividPalette: true
+        ))
+        XCTAssertEqual(actual, expected)
+    }
+
+    private func pixels(_ view: some View) throws -> [UInt8] {
+        let renderer = ImageRenderer(content: view.frame(width: 195, height: 300))
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.cgImage)
+        var bytes = [UInt8](repeating: 0, count: 195 * 300 * 4)
+        try bytes.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(
+                data: buffer.baseAddress, width: 195, height: 300, bitsPerComponent: 8,
+                bytesPerRow: 195 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 195, height: 300))
+        }
+        return bytes
     }
 }
 

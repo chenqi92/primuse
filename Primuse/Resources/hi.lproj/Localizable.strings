@@ -7511,3 +7511,11 @@
 "scraper_legacy_update_required" = "इस स्रोत को अपडेट करना होगा। इसके JSON नियम वाले संस्करण को आयात करें।";
 
 "scraper_update_review_required" = "अपडेट की पुष्टि ज़रूरी है। स्रोत को फिर से आयात करें।";
+
+"player_backdrop_motion" = "पृष्ठभूमि की गति";
+"player_backdrop_motion_flowing" = "प्रवाहित";
+"player_backdrop_motion_bassPulse" = "बास स्पंदन";
+"player_backdrop_motion_flowingAndBass" = "प्रवाह और बास स्पंदन";
+"player_backdrop_motion_still" = "स्थिर";
+"player_backdrop_bass_sensitivity" = "बास संवेदनशीलता";
+"player_backdrop_use_global" = "वैश्विक पृष्ठभूमि इस्तेमाल करें";

@@ -1,5 +1,28 @@
 import Foundation
 
+/// 从现有对数频谱的低频段提取起伏，快亮慢暗，持续低音不会不断重触发。
+public struct PlayerBackdropBassPulse: Sendable {
+    public private(set) var value = 0.0
+    private var baseline = 0.0
+
+    public init() {}
+
+    public mutating func update(levels: [Double], sensitivity: Double, elapsed: TimeInterval) {
+        let dt = elapsed.isFinite ? min(max(elapsed, 0), 0.2) : 0
+        let sensitivity = sensitivity.isFinite ? min(max(sensitivity, 0), 1) : 0.5
+        // 32 档频谱从约 94 Hz 开始；前五档覆盖低音鼓的主要可用频段。
+        let low = levels.prefix(5).map { $0.isFinite ? min(max($0, 0), 1) : 0 }
+        let bass = low.isEmpty ? 0 : low.reduce(0, +) / Double(low.count)
+        let threshold = 0.28 - sensitivity * 0.20
+        let transient = max(0, bass - baseline - threshold)
+        let target = min(transient * (2.0 + sensitivity * 4), 1)
+        let duration = target > value ? 0.035 : 0.32
+        value += (target - value) * (1 - exp(-dt / duration))
+        baseline += (bass - baseline) * (1 - exp(-dt / 0.65))
+        if value < 0.001 { value = 0 }
+    }
+}
+
 /// 「流动色彩」背景用的一个颜色(sRGB,0…1)。
 public struct LiquidBackdropColor: Equatable, Hashable, Sendable {
     public var red: Double
@@ -105,7 +128,11 @@ public enum MeshBackdropPalettePolicy {
     }
 
     public static func points(phase: Double, amplitude: Double) -> [SIMD2<Float>] {
-        let a = Float(min(max(amplitude, 0), 0.08))
+        meshPoints(phase: phase, amplitude: min(max(amplitude, 0), 0.08))
+    }
+
+    private static func meshPoints(phase: Double, amplitude: Double) -> [SIMD2<Float>] {
+        let a = Float(amplitude)
         return [
             [0, 0], [0.5 + Float(sin(phase * 0.83)) * a, 0], [1, 0],
             [0, 0.5 + Float(cos(phase * 0.71)) * a],
@@ -113,6 +140,11 @@ public enum MeshBackdropPalettePolicy {
             [1, 0.5 + Float(sin(phase * 0.63)) * a],
             [0, 1], [0.5 + Float(cos(phase * 0.57)) * a, 1], [1, 1]
         ]
+    }
+
+    /// 流动色彩保留网格的封面色块，用更大的位移缓慢流动；边缘仍固定在画布上。
+    public static func liquidPoints(at elapsed: TimeInterval) -> [SIMD2<Float>] {
+        meshPoints(phase: elapsed * 0.18, amplitude: 0.22)
     }
 
     public static func minimumLuma(in palette: [LiquidBackdropColor]) -> Double {
