@@ -154,7 +154,10 @@ public enum TextEncodingRepair {
         var artifactRunMarkerCount = 0
         var hasArtifactRun = false
         var han = 0
-        var rareHan = 0
+        /// 哪套正式字库都不收的字:乱码的铁证。
+        var hardRareHan = 0
+        /// 只有港台、日韩的标准字库才收的字(眞、羣、嘅、犲):本身可能是正经写法,要找到读坏的证据。
+        var regionalRareHan = 0
         var hasPrivateUse = false
 
         for scalar in text.unicodeScalars {
@@ -185,10 +188,11 @@ public enum TextEncodingRepair {
             if isHan(value) {
                 han += 1
                 // 日文新字体(説、気、駅、桜、図)与「啓」这类写法不在 GB2312、Big5 里,却是正经的常用字;
-                // 只按两岸字库算会把三四成日文歌名判成乱码。只放宽到 JIS 第一水准:第二水准多是生僻字,
-                // UTF-8 被当 GBK 读出的残片(「寮犲畤」的「犲」)正落在那里。打分照旧只认两岸字库,
+                // 只按两岸字库算会把三四成日文歌名判成乱码,所以 JIS 第一水准也算常用。打分照旧只认两岸字库,
                 // 免得 Shift_JIS 候选在 GBK 标签上分数变高。
-                if !isCommonHan(scalar) && !isJapaneseStandardHan(scalar) { rareHan += 1 }
+                if !isCommonHan(scalar) && !isJapaneseStandardHan(scalar) {
+                    if isRegionalStandardHan(scalar) { regionalRareHan += 1 } else { hardRareHan += 1 }
+                }
             } else if (0xE000...0xF8FF).contains(value) {
                 hasPrivateUse = true
             }
@@ -205,7 +209,83 @@ public enum TextEncodingRepair {
         // 会让每个正常中文标题都跑满整个候选矩阵 —— 而扫描时每首歌要判 4 个
         // 字段, 这条快速路径因此值得。代价是全为常用字的乱码会被漏掉, 但漏修
         // 远好过误改。
-        return han >= 2 && rareHan >= 1
+        guard han >= 2 else { return false }
+        if hardRareHan >= 1 { return true }
+        // 港台、日韩字库里的字(眞的愛你、羣星、佢哋、能不能勇敢説愛)只凭字表分不出真假:
+        // 读坏的「寮犲畤」和它们一样。要找得到当初是怎么读坏的才算。
+        return regionalRareHan >= 1 && hasMisreadEvidence(text)
+    }
+
+    /// 找当初读坏的证据:编回读错时用的编码,再按真编码读,读得通、而且更像正常文字。
+    /// 正经写法找不到这种还原;乱码几乎总找得到。只在出现港台、日韩字库的字时才跑,整库装载不受影响。
+    private static func hasMisreadEvidence(_ text: String) -> Bool {
+        // UTF-8 读到一半被截断(标签被截短)。
+        if hasTruncatedUTF8RewritePrefix(text) { return true }
+        let hasHalfwidthKana = text.unicodeScalars.contains { isHalfwidthKana($0.value) }
+        // Shift_JIS 那条单个字太容易撞上,前缀至少两个字;半角假名夹汉字本身就可疑,一个字也算。
+        if let bytes = losslessEncodedData(text, using: .shiftJIS),
+           bytes.count >= 4,
+           String(data: bytes, encoding: .utf8) == nil,
+           let prefix = truncatedUTF8Prefix(in: bytes),
+           prefix.unicodeScalars.filter({ isCJKScript($0.value) }).count >= (hasHalfwidthKana ? 1 : 2) {
+            return true
+        }
+        let scalarCount = text.unicodeScalars.count
+        // UTF-8 自带结构校验:读得通、读出中日韩文字、字变少(三个字节一个字,当成双字节读会多出来)、
+        // 读出来的字都在某套正式字库里。
+        for source in [gb18030, big5, String.Encoding.shiftJIS] {
+            guard let bytes = losslessEncodedData(text, using: source),
+                  bytes.count >= 2,
+                  let decoded = String(data: bytes, encoding: .utf8),
+                  decoded != text,
+                  isCleanMisreadCandidate(decoded),
+                  decoded.unicodeScalars.contains(where: { isCJKScript($0.value) }),
+                  decoded.unicodeScalars.count < scalarCount,
+                  !decoded.unicodeScalars.contains(where: isHardRareHan) else { continue }
+            return true
+        }
+        // 双字节编码互串没有结构校验:读出来一个生僻字都不剩,还要明显更像正常文字。
+        let originalScore = plausibility(text)
+        let textHasKana = text.unicodeScalars.contains { isFullwidthKana($0.value) }
+        for (source, target) in [(gb18030, big5), (big5, gb18030), (gb18030, String.Encoding.shiftJIS)] {
+            guard let bytes = losslessEncodedData(text, using: source),
+                  let decoded = String(data: bytes, encoding: target),
+                  decoded != text,
+                  isCleanMisreadCandidate(decoded),
+                  !decoded.unicodeScalars.contains(where: isLooseRareHan) else { continue }
+            let score = plausibility(decoded)
+            // 日文被当 GBK 读时假名全变成了汉字:原文一个假名没有,还原后冒出好几个假名,是很强的信号。
+            if target == .shiftJIS, !textHasKana,
+               decoded.unicodeScalars.filter({ isFullwidthKana($0.value) }).count >= 2,
+               score > originalScore {
+                return true
+            }
+            if decoded.unicodeScalars.contains(where: { isHan($0.value) }),
+               score >= originalScore + ambiguousMargin {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func isCleanMisreadCandidate(_ text: String) -> Bool {
+        !text.unicodeScalars.contains {
+            $0.value == 0 || $0.value == 0xFFFD || isHalfwidthKana($0.value) || isDisallowedControl($0.value)
+        }
+    }
+
+    /// 不在两岸字库、也不在 JIS 第一水准的汉字。
+    private static func isLooseRareHan(_ scalar: Unicode.Scalar) -> Bool {
+        isHan(scalar.value) && !isCommonHan(scalar) && !isJapaneseStandardHan(scalar)
+    }
+
+    /// 哪套正式字库都不收的汉字。
+    private static func isHardRareHan(_ scalar: Unicode.Scalar) -> Bool {
+        isLooseRareHan(scalar) && !isRegionalStandardHan(scalar)
+    }
+
+    private static func isFullwidthKana(_ value: UInt32) -> Bool {
+        (0x3040...0x30FF).contains(value) || (0x31F0...0x31FF).contains(value)
     }
 
     private static func byteSwappedUTF16Candidate(for text: String) -> String? {
@@ -830,6 +910,36 @@ public enum TextEncodingRepair {
     static func isJapaneseStandardHan(_ scalar: Unicode.Scalar) -> Bool {
         japaneseStandardHanScalars.contains(scalar.value)
     }
+
+    /// 港台、日韩的标准字库收的汉字:JIS X 0208 第二水准、Big5-HKSCS(含港字)、KS X 1001 汉字。
+    /// 只给 `looksCorrupted` 分「哪都不收」和「别处是正经字」用;第一次遇到这类字时才建表。
+    static func isRegionalStandardHan(_ scalar: Unicode.Scalar) -> Bool {
+        regionalStandardHanScalars.contains(scalar.value)
+    }
+
+    private static let regionalStandardHanScalars: Set<UInt32> = {
+        var scalars = Set<UInt32>()
+        scalars.reserveCapacity(26000)
+        func insert(leads: ClosedRange<Int>, trails: [Int], encoding: String.Encoding) {
+            for lead in leads {
+                for trail in trails {
+                    guard let text = String(data: Data([UInt8(lead), UInt8(trail)]), encoding: encoding),
+                          text.unicodeScalars.count == 1,
+                          let scalar = text.unicodeScalars.first,
+                          isHan(scalar.value) else { continue }
+                    scalars.insert(scalar.value)
+                }
+            }
+        }
+        let euc = Array(0xA1...0xFE)
+        // EUC-JP 第二水准 D0A1...F4A6
+        insert(leads: 0xD0...0xF4, trails: euc, encoding: .japaneseEUC)
+        // Big5-HKSCS 8740...FEFE(kCFStringEncodingBig5_HKSCS_1999)
+        insert(leads: 0x87...0xFE, trails: Array(0x40...0x7E) + euc, encoding: cfEncoding(0x0A06))
+        // EUC-KR 汉字区 CAA1...FDFE
+        insert(leads: 0xCA...0xFD, trails: euc, encoding: eucKR)
+        return scalars
+    }()
 
     private static let japaneseStandardHanScalars: Set<UInt32> = {
         var scalars = Set<UInt32>()

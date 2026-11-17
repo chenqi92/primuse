@@ -125,8 +125,10 @@ private func mojibake(
 }
 
 @Test func japaneseAndHongKongStandardKanjiAreNotTreatedAsMojibake() {
-    // 説、駆、気、桜、図、鉄是日文新字体,啓是港台常见写法,都不在 GB2312、Big5 里,但都在 JIS 第一水准。
-    for text in ["能不能勇敢説愛", "夜に駆ける", "天気の子", "千本桜", "図書館", "鉄道", "啓示"] {
+    // 説、駆、気、桜、図、鉄是日文新字体,啓、眞、羣、綫是港台写法,嘅、佢、啱、揾是粤语用字,
+    // 髑髏、躑躅是日文生僻字:都不在 GB2312、Big5 里,但都是正经字,也找不到「读坏」的还原。
+    for text in ["能不能勇敢説愛", "夜に駆ける", "天気の子", "千本桜", "図書館", "鉄道", "啓示",
+                 "眞的愛你", "羣星", "綫上", "佢哋", "啱啱", "揾到", "嘅歌", "髑髏", "躑躅"] {
         #expect(TextEncodingRepair.looksCorrupted(text) == false, "误判了 \(text)")
         #expect(TextEncodingRepair.requiresRawByteVerification(text) == false, "误判了 \(text)")
         #expect(ServerCatalogMetadataInspectionPolicy.hasUsableTitle(text), "误判了 \(text)")
@@ -137,6 +139,19 @@ private func mojibake(
 @Test func gbkReadingOfUTF8StaysCorruptedWhenItsOddCharacterIsRareJapaneseKanji() {
     // 「张宇」的 UTF-8 字节当 GBK 读成「寮犲畤」:「犲」在 JIS 第二水准,不能因为日文里有就放过。
     #expect(TextEncodingRepair.looksCorrupted("寮犲畤"))
+}
+
+@Test func misreadsWhoseOddCharactersAreRegionalStandardKanjiStillLookCorrupted() throws {
+    // 读坏后冒出的字恰好也是港台、日韩字库里的字:靠「编回去再读得通」认出来。
+    for (original, wrote, read) in [
+        ("揾到", String.Encoding.utf8, TextEncodingRepair.gb18030),
+        ("说散就散", .utf8, TextEncodingRepair.gb18030),
+        ("世界に一つだけの花", .shiftJIS, TextEncodingRepair.gb18030),
+    ] {
+        let broken = try #require(mojibake(original, wrote: wrote, read: read))
+        #expect(broken != original)
+        #expect(TextEncodingRepair.looksCorrupted(broken), "漏判了 \(broken)(\(original))")
+    }
 }
 
 @Test func privateUseLeftoversNextToHanStillLookCorrupted() {
