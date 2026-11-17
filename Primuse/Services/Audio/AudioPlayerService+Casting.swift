@@ -603,6 +603,7 @@ extension AudioPlayerService {
 
     func stop() {
         flushSpokenWordPosition()
+        rememberCurrentMusicQueue()
         registerPauseOrStopIntent()
         // 拖动进度触发的整文件物化会一直下到底, 切歌 / 停止时必须一并取消,
         // 否则被放弃的传输继续占用带宽和缓存配额。直播电台 / Apple Music
@@ -2264,6 +2265,13 @@ extension AudioPlayerService {
         keepsContinuation: Bool = false,
         preparedContinuation: QueueContinuation? = nil
     ) {
+        if !keepsContinuation {
+            rememberCurrentMusicQueue()
+            remembersMusicQueue = !isInstallingMedleyQueue && requestedSongs.count > 1
+                && requestedSongs.indices.contains(requestedIndex)
+                && listeningSpace(of: requestedSongs[requestedIndex]) == .music
+            musicMemoryNeedsPersistence = remembersMusicQueue
+        }
         queueRequestToken &+= 1
         if !keepsContinuation { resetAutoContinuation() }
         // Any other queue replaces the medley.
@@ -2287,13 +2295,6 @@ extension AudioPlayerService {
             } else {
                 setQueueContinuation(nil)
             }
-        }
-        // Music, radio and books each keep their own "where was I": a book
-        // replacing a music queue leaves that queue remembered, and a new
-        // music queue makes the remembered one moot.
-        if !isInstallingMedleyQueue, songs.indices.contains(index) {
-            rememberMusicSessionIfLeaving(from: currentSong, to: songs[index])
-            forgetMusicSessionIfMusicStarts(songs[index])
         }
         guard !songs.isEmpty else {
             plog("🎶 setQueue empty — clearing queue")
@@ -2366,6 +2367,10 @@ extension AudioPlayerService {
     func appendToQueue(_ songs: [Song]) {
         let playable = songs.filteredPlayable()
         guard !playable.isEmpty else { return }
+        if currentListeningSpace == .music, !isMedleyActive, queueEntries.count + playable.count > 1 {
+            remembersMusicQueue = true
+            musicMemoryNeedsPersistence = true
+        }
         let firstNewIndex = queueEntries.count
         let traversal = usesManagedShuffleOrder ? shuffledIndices : Array(queueEntries.indices)
         let anchor = usesManagedShuffleOrder ? (shuffleAnchorPosition ?? shufflePosition) : currentIndex
@@ -2453,6 +2458,10 @@ extension AudioPlayerService {
             return insertionIndex
         }
 
+        if currentListeningSpace == .music, !isMedleyActive {
+            remembersMusicQueue = true
+            musicMemoryNeedsPersistence = true
+        }
         invalidatePreparedQueueSuccessor()
         queueEntries = entries
         currentIndex = insertionIndex - 1
@@ -2537,6 +2546,8 @@ extension AudioPlayerService {
     /// Wipe the queue. Replaces the legacy `player.queue = []` setter,
     /// which is no longer accessible since `queue` is now computed.
     func clearQueue() {
+        rememberCurrentMusicQueue()
+        remembersMusicQueue = false
         endMedleyIfNeeded()
         discardPreparedStart(reason: "queue cleared")
         let retainedAppleMusicTransport = isAppleMusicMode && isPrimuseManagingAppleMusicQueue

@@ -2377,7 +2377,7 @@ private final class WindowSafeNSButton: NSButton {
 
 // MARK: - Continue listening (inside the hero card)
 
-/// 主卡里的「接着听」: 有声书、播客、电台各最多一张, 最新的在前, 正在播的那类不出现。
+/// 主卡里的「接着听」: 音乐队列、有声书、播客、电台各最多一张, 最新的在前。
 /// 单独成一个视图: 它要盯播放器、电台库和听书位置, 这些都比首页其余部分变得勤,
 /// 放在这里只重算这一小块。
 ///
@@ -2394,12 +2394,14 @@ private struct MacHomeResumeShelf: View {
     @Environment(RadioStationsStore.self) private var radioStationsStore
 
     private enum Card: Identifiable {
+        case music(MusicSessionMemoryStore.Memory)
         case radio(RadioStation, lastPlayedAt: Date)
         case book(SpokenWordBook, songs: [Song])
         case podcast(PodcastEpisode, PodcastShow)
 
         var id: ListeningSpace {
             switch self {
+            case .music: return .music
             case .radio: return .radio
             case .book: return .spokenWord
             case .podcast: return .podcast
@@ -2461,6 +2463,12 @@ private struct MacHomeResumeShelf: View {
         var candidates: [ListeningResumeCandidate] = []
         var cardsBySpace: [ListeningSpace: Card] = [:]
 
+        if let memory = player.musicSessionMemoryStore.memory,
+           player.hasPlayableRememberedMusicSession {
+            candidates.append(ListeningResumeCandidate(space: .music, lastListenedAt: memory.savedAt))
+            cardsBySpace[.music] = .music(memory)
+        }
+
         // 电台: 最后收听的那个台。
         if let station = radioStationsStore.stations
             .filter({ $0.lastPlayedAt != nil })
@@ -2484,9 +2492,10 @@ private struct MacHomeResumeShelf: View {
             cardsBySpace[.podcast] = .podcast(recent.episode, recent.show)
         }
 
+        let playingSpace = MacListeningSpaceStyle.playingSpace(of: player)
         return ListeningResumePolicy.cards(
             from: candidates,
-            playingSpace: MacListeningSpaceStyle.playingSpace(of: player),
+            playingSpace: playingSpace == .music ? nil : playingSpace,
             now: Date()
         )
         .compactMap { cardsBySpace[$0.space] }
@@ -2532,6 +2541,19 @@ private struct MacHomeResumeShelf: View {
     private func tile(for card: Card) -> some View {
         let size = MacHomeResumeTileMetrics.artworkSize
         switch card {
+        case .music(let memory):
+            MacHomeResumeTile(
+                space: .music,
+                title: memory.title,
+                subtitle: String(localized: "home_continue_music_queue"),
+                progress: nil,
+                action: { Task { await player.resumeMusicSession() } }
+            ) {
+                CachedArtworkView(
+                    coverRef: memory.coverRef, songID: memory.songID,
+                    size: size, cornerRadius: PMRadius.m, sourceID: memory.sourceID
+                )
+            }
         case .radio(let station, let lastPlayedAt):
             MacHomeResumeTile(
                 space: .radio,

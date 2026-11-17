@@ -1,18 +1,16 @@
 import Foundation
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#endif
 
-/// The music queue someone left to listen to a book or a station.
-///
-/// Music, radio and spoken word each keep their own "where was I". Radio has
-/// no position and a book remembers itself per item (`SpokenWordStore`), so
-/// only music needs a separate memory: opening a book installs the book as
-/// the queue, and without this the album someone was halfway through would
-/// be gone. It is a plain snapshot of the queue, persisted so the home page
-/// can offer "back to music" after a relaunch too.
+/// One recent music queue. The UI keeps its lightweight snapshot in memory;
+/// encoding and atomic file replacement run off the main actor only at queue
+/// boundaries and lifecycle saves, not on every playback-clock update.
 @MainActor
 @Observable
 final class MusicSessionMemoryStore {
-    struct Memory: Codable, Equatable {
+    struct Memory: Codable, Equatable, Sendable {
         var snapshot: PlaybackSessionSnapshot
         var title: String
         var subtitle: String?
@@ -20,32 +18,105 @@ final class MusicSessionMemoryStore {
         var songID: String
         var sourceID: String
         var savedAt: Date
+        var continuation: QueueContinuation? = nil
     }
 
     static let shared = MusicSessionMemoryStore()
-
     private(set) var memory: Memory?
-
-    private let defaults: UserDefaults
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let url: URL
+    @ObservationIgnored private var revision = 0
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var writeTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingWrite: Memory?
+    @ObservationIgnored private var hasPendingWrite = false
     private static let key = "primuse.listeningSpaces.musicMemory.v1"
+    #if os(iOS)
+    @ObservationIgnored private var backgroundWrite: UIBackgroundTaskIdentifier = .invalid
+    #endif
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, url: URL? = nil) {
         self.defaults = defaults
-        memory = defaults.data(forKey: Self.key)
-            .flatMap { try? JSONDecoder().decode(Memory.self, from: $0) }
-    }
-
-    func save(_ memory: Memory) {
-        self.memory = memory
-        if let data = try? JSONEncoder().encode(memory) {
-            defaults.set(data, forKey: Self.key)
+        let url = url ?? PlaybackSessionStore().url.deletingLastPathComponent()
+            .appendingPathComponent("recent-music-queue.json")
+        self.url = url
+        let legacy = defaults.data(forKey: Self.key)
+        loadTask = Task { [weak self] in
+            let loaded = await Task.detached(priority: .utility) {
+                let data = (try? Data(contentsOf: url)) ?? legacy
+                return data.flatMap { try? JSONDecoder().decode(Memory.self, from: $0) }
+            }.value
+            guard let self, self.revision == 0 else { return }
+            self.memory = loaded
+            if legacy != nil, let loaded { self.save(loaded) }
         }
     }
 
+    func save(_ memory: Memory, persist: Bool = true) {
+        revision &+= 1
+        self.memory = memory
+        if persist { enqueueWrite(memory) }
+    }
+
     func clear() {
-        guard memory != nil else { return }
+        revision &+= 1
         memory = nil
-        defaults.removeObject(forKey: Self.key)
+        enqueueWrite(nil)
+    }
+
+    private func enqueueWrite(_ memory: Memory?) {
+        pendingWrite = memory
+        hasPendingWrite = true
+        guard writeTask == nil else { return }
+        #if os(iOS)
+        backgroundWrite = UIApplication.shared.beginBackgroundTask(withName: "Recent music queue") { [weak self] in
+            Task { @MainActor in self?.endBackgroundWrite() }
+        }
+        #endif
+        // There is at most one in-flight write and one latest pending value.
+        writeTask = Task { [weak self] in
+            guard let self else { return }
+            while self.hasPendingWrite {
+                let value = self.pendingWrite
+                self.pendingWrite = nil
+                self.hasPendingWrite = false
+                let url = self.url
+                let succeeded = await Task.detached(priority: .utility) {
+                    do {
+                        if let value {
+                            try FileManager.default.createDirectory(
+                                at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+                            )
+                            try JSONEncoder().encode(value).write(to: url, options: .atomic)
+                        } else if FileManager.default.fileExists(atPath: url.path) {
+                            try FileManager.default.removeItem(at: url)
+                        }
+                        return true
+                    } catch {
+                        plog("Music queue memory save failed: \(error.localizedDescription)")
+                        return false
+                    }
+                }.value
+                if succeeded { self.defaults.removeObject(forKey: Self.key) }
+            }
+            self.writeTask = nil
+            #if os(iOS)
+            self.endBackgroundWrite()
+            #endif
+        }
+    }
+
+    #if os(iOS)
+    private func endBackgroundWrite() {
+        guard backgroundWrite != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundWrite)
+        backgroundWrite = .invalid
+    }
+    #endif
+
+    func waitForPendingPersistence() async {
+        await loadTask?.value
+        while let writeTask { await writeTask.value }
     }
 }
 
@@ -122,77 +193,68 @@ extension AudioPlayerService {
         song.id.hasPrefix(RadioStation.playbackSongIDPrefix)
     }
 
-    /// Called just before the current music item gives way to a book or a
-    /// station: keeps the music queue so "back to music" can restore it.
-    /// A medley is not a queue anyone wants back, and a music-to-music
-    /// change needs no memory (the new queue simply is the music now).
+    func updateRecentMusicQueue(snapshot: PlaybackSessionSnapshot, song: Song, persist: Bool = false) {
+        guard remembersMusicQueue, !isMedleyActive,
+              listeningSpace(of: song) == .music,
+              queueEntries.indices.contains(currentIndex),
+              queueEntries[currentIndex].song.id == song.id else { return }
+        musicSessionMemoryStore.save(.init(
+            snapshot: snapshot, title: song.title, subtitle: song.artistName,
+            coverRef: song.coverArtFileName, songID: song.id, sourceID: song.sourceID,
+            savedAt: Date(), continuation: queueContinuation
+        ), persist: persist || musicMemoryNeedsPersistence)
+        musicMemoryNeedsPersistence = false
+    }
+
+    /// Capture before replacing either the window or its continuation. A
+    /// single-song request and its automatic recommendations never own this slot.
+    func rememberCurrentMusicQueue(outgoing: Song? = nil) {
+        guard remembersMusicQueue, let song = outgoing ?? currentSong,
+              queueEntries.indices.contains(currentIndex),
+              queueEntries[currentIndex].song.id == song.id else { return }
+        let time = isPlaying ? interpolatedTime() : currentTime
+        let snapshot = PlaybackSessionSnapshot(
+            queueSongIDs: queueEntries.map(\.song.id), currentSongID: song.id,
+            currentIndex: currentIndex, currentTime: max(0, time.isFinite ? time : 0),
+            duration: song.duration, wasPlaying: false, shuffleEnabled: shuffleEnabled,
+            shuffledIndices: shuffleEnabled ? shuffledIndices : [],
+            shufflePosition: shuffleEnabled ? (shuffleAnchorPosition ?? shufflePosition) : 0,
+            pendingNextShuffleIndices: pendingNextShuffleIndices, repeatMode: repeatMode,
+            isAtTrackEnd: isAtTrackEnd, queueContinuationToken: queueContinuation?.token,
+            eachTrackStop: eachTrackStop, remembersMusicQueue: true
+        )
+        updateRecentMusicQueue(snapshot: snapshot, song: song, persist: true)
+    }
+
+    func prepareRecentMusicQueueForDirectPlayback(_ song: Song) {
+        guard remembersMusicQueue,
+              !queueEntries.indices.contains(currentIndex)
+                || queueEntries[currentIndex].song.id != song.id else { return }
+        rememberCurrentMusicQueue()
+        remembersMusicQueue = false
+    }
+
     func rememberMusicSessionIfLeaving(from outgoing: Song?, to incoming: Song?) {
         guard let outgoing, let incoming,
-              outgoing.id != incoming.id,
               listeningSpace(of: outgoing) == .music,
-              listeningSpace(of: incoming) != .music,
-              !isMedleyActive,
-              outgoing.sourceID != AppleMusicLibraryService.systemSourceID else { return }
-        // Installing a book's queue saves first, with the whole music queue;
-        // the item change right after sees only the outgoing song and must
-        // not overwrite that with a one-song queue.
-        if let existing = MusicSessionMemoryStore.shared.memory,
-           existing.songID == outgoing.id,
-           Date().timeIntervalSince(existing.savedAt) < 10 {
-            return
-        }
-
-        let queueIDs: [String]
-        let index: Int
-        if let position = queueEntries.firstIndex(where: { $0.song.id == outgoing.id }) {
-            queueIDs = queueEntries.map(\.song.id)
-            index = position
-        } else {
-            queueIDs = [outgoing.id]
-            index = 0
-        }
-        let time = currentSong?.id == outgoing.id
-            ? (isPlaying ? interpolatedTime() : currentTime)
-            : currentTime
-        let snapshot = PlaybackSessionSnapshot(
-            queueSongIDs: queueIDs,
-            currentSongID: outgoing.id,
-            currentIndex: index,
-            currentTime: max(0, time.isFinite ? time : 0),
-            duration: outgoing.duration,
-            wasPlaying: false,
-            shuffleEnabled: shuffleEnabled,
-            shuffledIndices: shuffleEnabled ? shuffledIndices : [],
-            shufflePosition: shuffleEnabled ? shufflePosition : 0,
-            pendingNextShuffleIndices: nil,
-            repeatMode: repeatMode,
-            isAtTrackEnd: false,
-            eachTrackStop: eachTrackStop
-        )
-        MusicSessionMemoryStore.shared.save(.init(
-            snapshot: snapshot,
-            title: outgoing.title,
-            subtitle: outgoing.artistName,
-            coverRef: outgoing.coverArtFileName,
-            songID: outgoing.id,
-            sourceID: outgoing.sourceID,
-            savedAt: Date()
-        ))
-        plog("🎚️ Music memory kept: '\(outgoing.title)' queue=\(queueIDs.count) at \(Int(snapshot.currentTime))s")
+              listeningSpace(of: incoming) != .music else { return }
+        rememberCurrentMusicQueue(outgoing: outgoing)
+        remembersMusicQueue = false
     }
 
-    /// A new music queue replaces whatever music was remembered.
-    func forgetMusicSessionIfMusicStarts(_ incoming: Song?) {
-        guard let incoming, listeningSpace(of: incoming) == .music else { return }
-        MusicSessionMemoryStore.shared.clear()
-    }
-
-    /// 记下的音乐队列里现在能起播的曲数:停用的源里的、已经不在曲库里的不算。
-    /// 读的是可见集合,停用或重新启用一个源,读它的界面会跟着刷新。
+    /// Only the installed window is resolved for a card; a large request's
+    /// remaining IDs are resolved when playback actually needs another window.
     var rememberedMusicSessionPlayableCount: Int {
-        guard let memory = MusicSessionMemoryStore.shared.memory, let library else { return 0 }
+        guard let memory = musicSessionMemoryStore.memory, let library else { return 0 }
         return memory.snapshot.queueSongIDs.reduce(0) { count, songID in
             library.visibleSong(id: songID)?.isPlayable == true ? count + 1 : count
+        }
+    }
+
+    var hasPlayableRememberedMusicSession: Bool {
+        guard let memory = musicSessionMemoryStore.memory, let library else { return false }
+        return memory.snapshot.queueSongIDs.contains {
+            library.visibleSong(id: $0)?.isPlayable == true
         }
     }
 
@@ -220,53 +282,69 @@ extension AudioPlayerService {
         return true
     }
 
-    /// Puts the remembered music queue back and plays it from where it was.
-    /// - Returns: false when nothing is remembered or none of it is playable.
+    /// Restores the saved occurrences and shuffle traversal without rebuilding
+    /// their order. Preparation cannot overwrite a newer transport request.
     @discardableResult
-    func resumeMusicSession() async -> Bool {
-        guard let memory = MusicSessionMemoryStore.shared.memory, let library else { return false }
-        let snapshot = memory.snapshot
-        var songs: [Song] = []
-        var index = 0
-        for (position, songID) in snapshot.queueSongIDs.enumerated() {
-            guard let song = library.song(id: songID), song.isPlayable else { continue }
-            if position == snapshot.currentIndex { index = songs.count }
-            songs.append(song)
+    func resumeMusicSession(startPlayback: Bool = true) async -> Bool {
+        guard let memory = musicSessionMemoryStore.memory, let library else { return false }
+        if remembersMusicQueue, currentListeningSpace == .music,
+           queueEntries.indices.contains(currentIndex),
+           queueEntries[currentIndex].song.id == currentSong?.id {
+            if startPlayback, !isPlaying { return await resumeStoppedMusicQueue() }
+            return true
         }
-        guard !songs.isEmpty else {
-            MusicSessionMemoryStore.shared.clear()
-            return false
-        }
-        // 停用的源里的歌留在队列里(源重新启用后照常能放),只是不从它们起播:
-        // 从记下的那首起往后找第一首源还开着的。一首都没有就留着记忆,等源重新启用。
-        let rememberedIndex = min(index, songs.count - 1)
-        let startIndex: Int
-        if isSourceEnabledForPlayback(songs[rememberedIndex].sourceID) {
-            startIndex = rememberedIndex
-        } else if let enabledIndex = QueueTraversalPolicy.nextAvailableIndex(
-            queueCount: songs.count,
-            after: rememberedIndex,
-            wraps: true,
-            isAvailable: { isSourceEnabledForPlayback(songs[$0].sourceID) }
-        ) {
-            startIndex = enabledIndex
-        } else {
+        let requestToken = queueRequestToken
+        let advanceGeneration = playbackAdvancePolicy.generation
+        let lookup = library.historySongLookup()
+        let disabledSourceIDs = library.disabledSourceIDs
+        let prepared = await Task.detached(priority: .userInitiated) { () -> (PlaybackSessionRestorationPlan, [Song], QueueContinuation?)? in
+            let restored = QueueWindowPolicy.restoring(memory.snapshot, savedContinuation: memory.continuation)
+            var snapshot = restored.snapshot
+            let byID = Dictionary(snapshot.queueSongIDs.compactMap { id -> (String, Song)? in
+                guard let song = lookup.song(id: id), song.isPlayable else { return nil }
+                return (id, song)
+            }, uniquingKeysWith: { first, _ in first })
+            let canStart: (Int) -> Bool = { index in
+                guard snapshot.queueSongIDs.indices.contains(index),
+                      let song = byID[snapshot.queueSongIDs[index]] else { return false }
+                return !disabledSourceIDs.contains(song.sourceID)
+            }
+            if !canStart(snapshot.currentIndex) {
+                guard let index = QueueTraversalPolicy.nextAvailableIndex(
+                    queueCount: snapshot.queueSongIDs.count, after: snapshot.currentIndex,
+                    wraps: true, isAvailable: canStart
+                ) else { return nil }
+                snapshot.currentIndex = index
+                snapshot.currentSongID = snapshot.queueSongIDs[index]
+                snapshot.currentTime = 0
+                snapshot.shufflePosition = snapshot.shuffledIndices.firstIndex(of: index) ?? 0
+            }
+            guard let plan = PlaybackSessionRestorationPolicy.plan(
+                snapshot: snapshot, availableSongIDs: Set(byID.keys)
+            ) else { return nil }
+            return (plan, plan.queueSongIDs.compactMap { byID[$0] }, restored.continuation)
+        }.value
+        guard queueRequestToken == requestToken,
+              playbackAdvancePolicy.generation == advanceGeneration else { return false }
+        guard let (plan, songs, continuation) = prepared else {
             showPlaybackError(String(localized: "playback_error_source_disabled"))
             return false
         }
-        let resumeAt = startIndex == rememberedIndex && songs[startIndex].id == snapshot.currentSongID
-            ? snapshot.currentTime
-            : 0
-        repeatBehavior = RepeatBehavior(
-            repeatMode: snapshot.repeatMode,
-            eachTrackStop: snapshot.eachTrackStop
-        )
-        shuffleEnabled = snapshot.shuffleEnabled
-        await play(queue: songs, startingAt: startIndex)
-        MusicSessionMemoryStore.shared.clear()
-        if resumeAt > 3 {
-            seek(to: resumeAt, startPlaying: true)
-        }
+        stop()
+        isRestoringPlaybackSession = true
+        setQueue(songs, startAt: plan.currentIndex, keepsContinuation: true)
+        setQueueContinuation(continuation)
+        repeatBehavior = RepeatBehavior(repeatMode: plan.repeatMode, eachTrackStop: plan.eachTrackStop)
+        shuffleEnabled = plan.shuffleEnabled
+        shuffledIndices = plan.shuffledIndices
+        shufflePosition = plan.shufflePosition
+        pendingNextShuffleIndices = plan.pendingNextShuffleIndices
+        remembersMusicQueue = true
+        musicMemoryNeedsPersistence = true
+        stagePausedHandoff(song: songs[plan.currentIndex], at: plan.currentTime)
+        isRestoringPlaybackSession = false
+        persistPlaybackSession()
+        if startPlayback { resume() }
         return true
     }
 }
@@ -339,13 +417,12 @@ extension AudioPlayerService {
     /// - Returns: false when nothing is remembered or none of it is playable.
     @discardableResult
     func queueRememberedMusicAfterCurrent() -> Bool {
-        guard let memory = MusicSessionMemoryStore.shared.memory, let library else { return false }
+        guard let memory = musicSessionMemoryStore.memory, let library else { return false }
         let snapshot = memory.snapshot
         let songs = snapshot.queueSongIDs
             .dropFirst(max(0, snapshot.currentIndex))
             .compactMap { library.song(id: $0) }
             .filter(\.isPlayable)
-        MusicSessionMemoryStore.shared.clear()
         guard !songs.isEmpty else { return false }
         appendToQueue(songs)
         plog("🎚️ Music memory queued after the book: \(songs.count) songs")

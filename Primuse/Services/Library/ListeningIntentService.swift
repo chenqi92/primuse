@@ -688,6 +688,8 @@ extension ListeningIntentService {
     /// 停用的源里的歌不算,一首都放不了就不出这张卡;源重新启用后又算回来。
     /// 正在放音乐时没有「接着」可言。
     func resumeSongCount(player: AudioPlayerService) -> Int? {
+        if player.remembersMusicQueue, player.currentListeningSpace == .music,
+           player.isPlaying || player.isLoading { return nil }
         if MusicSessionMemoryStore.shared.memory != nil {
             let count = player.rememberedMusicSessionPlayableCount
             if count > 0 { return count }

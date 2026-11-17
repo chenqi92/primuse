@@ -730,6 +730,9 @@ final class AudioPlayerService {
     @ObservationIgnored private var playbackMetadataFailureCounts: [PlaybackMetadataIdentity: Int] = [:]
     @ObservationIgnored var artistNameConfiguration: ArtistNameConfiguration
     let playbackSessionStore: PlaybackSessionStore
+    let musicSessionMemoryStore: MusicSessionMemoryStore
+    var remembersMusicQueue = false
+    @ObservationIgnored var musicMemoryNeedsPersistence = false
     /// 快照仍然在主 actor 上采集, 但 JSON 编码与原子写交给这个协调器在后台
     /// 完成。它用递增的 generation 合并请求: 只有最新的状态会落盘, 更新的
     /// 请求会顶掉还没写出去的旧请求, 最终状态永远不会丢。
@@ -1878,6 +1881,7 @@ final class AudioPlayerService {
         library: MusicLibrary? = nil,
         playbackSettings: PlaybackSettingsStore = PlaybackSettingsStore(),
         playbackSessionStore: PlaybackSessionStore = PlaybackSessionStore(),
+        musicSessionMemoryStore: MusicSessionMemoryStore = .shared,
         activateAudioSession: @escaping @MainActor (Bool) throws -> Void = {
             try AudioSessionManager.shared.requirePlaybackSession(reacquiringLocalRouteFocus: $0)
         }
@@ -1888,6 +1892,7 @@ final class AudioPlayerService {
             ?? ArtistNameConfiguration.load(from: .standard)
         self.playbackSettings = playbackSettings
         self.playbackSessionStore = playbackSessionStore
+        self.musicSessionMemoryStore = musicSessionMemoryStore
         self.playbackSessionPersistence = PlaybackSessionPersistenceCoordinator(
             store: playbackSessionStore
         )
@@ -4724,6 +4729,7 @@ final class AudioPlayerService {
             showPlaybackError(String(localized: "playback_error_source_disabled"))
             return
         }
+        prepareRecentMusicQueueForDirectPlayback(song)
         // The song after the previous one may already be open, decoded up to
         // its first seconds; this start then only hands that audio to the
         // output. Whatever path leaves without using it releases it.
@@ -5638,6 +5644,7 @@ final class AudioPlayerService {
         shouldRecordPlaybackStart: Bool = true
     ) async {
         let song = songApplyingPlaybackRange(song)
+        prepareRecentMusicQueueForDirectPlayback(song)
         retainReplayGainSnapshot(for: nil)
         registerPlayIntent()
         let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(

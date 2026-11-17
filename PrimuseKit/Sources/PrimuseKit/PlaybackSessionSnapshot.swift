@@ -31,6 +31,8 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
     public var podcastQueue: [Song]?
     /// 「单曲播一遍」「逐首播放」。Optional so older session files decode unchanged.
     public var eachTrackStop: EachTrackStop?
+    /// False for single-song requests, even after autoplay adds more songs.
+    public var remembersMusicQueue: Bool?
 
     public init(
         version: Int = PlaybackSessionSnapshot.currentVersion,
@@ -51,7 +53,8 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
         radioStation: RadioStation? = nil,
         radioStationOrderIDs: [String]? = nil,
         podcastQueue: [Song]? = nil,
-        eachTrackStop: EachTrackStop? = nil
+        eachTrackStop: EachTrackStop? = nil,
+        remembersMusicQueue: Bool? = nil
     ) {
         self.version = version
         self.queueSongIDs = queueSongIDs
@@ -72,6 +75,7 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
         self.radioStationOrderIDs = radioStationOrderIDs
         self.podcastQueue = podcastQueue
         self.eachTrackStop = eachTrackStop
+        self.remembersMusicQueue = remembersMusicQueue
     }
 }
 
@@ -175,6 +179,7 @@ public struct PlaybackSessionRestorationPlan: Equatable, Sendable {
     public var isAtTrackEnd: Bool
     public var shouldStartPlayback: Bool
     public var eachTrackStop: EachTrackStop? = nil
+    public var remembersMusicQueue: Bool? = nil
 }
 
 public enum PlaybackSessionRestorationPolicy {
@@ -261,7 +266,8 @@ public enum PlaybackSessionRestorationPolicy {
             repeatMode: snapshot.repeatMode,
             isAtTrackEnd: snapshot.isAtTrackEnd,
             shouldStartPlayback: false,
-            eachTrackStop: snapshot.repeatMode == .off ? snapshot.eachTrackStop : nil
+            eachTrackStop: snapshot.repeatMode == .off ? snapshot.eachTrackStop : nil,
+            remembersMusicQueue: snapshot.remembersMusicQueue
         )
     }
 

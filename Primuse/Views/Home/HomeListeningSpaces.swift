@@ -4,8 +4,8 @@ import SwiftUI
 /// Home's first row: "continue" for each way of listening, one card each,
 /// newest first. Each card resumes by its own space's rules — the music queue
 /// someone left, the last station, the book where it was left — and the
-/// space playing right now gets no card: the player bar already is its
-/// "continue".
+/// non-music space playing right now gets no card. The music queue stays
+/// reachable even while an unrelated single song is playing.
 struct HomeContinueSpacesRow: View {
     let books: [(SpokenWordBook, [Song])]
     var openSpace: (ListeningSpace) -> Void
@@ -51,7 +51,7 @@ struct HomeContinueSpacesRow: View {
         var contents: [ListeningSpace: Card.Content] = [:]
 
         // 记下的队列整个落在停用的源里时不出卡片,源重新启用后再出来。
-        if let memory = MusicSessionMemoryStore.shared.memory, player.rememberedMusicSessionPlayableCount > 0 {
+        if let memory = player.musicSessionMemoryStore.memory, player.hasPlayableRememberedMusicSession {
             candidates.append(.init(space: .music, lastListenedAt: memory.savedAt))
             contents[.music] = .music(memory)
         }
@@ -73,7 +73,7 @@ struct HomeContinueSpacesRow: View {
         }
 
         let playing = player.isPlaying ? player.currentListeningSpace : nil
-        return ListeningResumePolicy.cards(from: candidates, playingSpace: playing, now: Date())
+        return ListeningResumePolicy.cards(from: candidates, playingSpace: playing == .music ? nil : playing, now: Date())
             .compactMap { candidate in
                 contents[candidate.space].map { Card(space: candidate.space, content: $0) }
             }
@@ -146,8 +146,8 @@ struct HomeContinueSpacesRow: View {
 
     private func subtitle(_ card: Card) -> String {
         switch card.content {
-        case .music(let memory):
-            return memory.subtitle ?? String(localized: "home_continue_music_queue")
+        case .music:
+            return String(localized: "home_continue_music_queue")
         case .radio:
             return String(localized: "home_continue_radio_live")
         case .book(let book, _):
