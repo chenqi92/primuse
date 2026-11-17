@@ -1372,7 +1372,13 @@ final class LibraryPortableArtworkTests: XCTestCase {
 
         XCTAssertTrue(library.setArtwork(for: owner, to: songs[automaticIsRed ? 1 : 0]))
         let selectedHeader = try await pixels(in: headerRect)
-        XCTAssertTrue(selectedHeader == originalHeader, "Selecting the home cover must preserve the dynamic header")
+        func matchesOriginalHeader(_ pixels: [UInt8]) -> Bool {
+            // Window compositing can round an antialiased edge channel by one level.
+            pixels.count == originalHeader.count && zip(pixels, originalHeader).allSatisfy {
+                abs(Int($0.0) - Int($0.1)) <= 1
+            }
+        }
+        XCTAssertTrue(matchesOriginalHeader(selectedHeader), "Selecting the home cover must preserve the dynamic header")
         let selectedTile = try await pixels(in: tileCenter)
         XCTAssertGreaterThan(selectedTile[automaticIsRed ? 2 : 0], 200)
         XCTAssertLessThan(selectedTile[automaticIsRed ? 0 : 2], 30)
@@ -1387,14 +1393,14 @@ final class LibraryPortableArtworkTests: XCTestCase {
         }
         XCTAssertTrue(library.setUploadedArtwork(contentID: contentID, for: owner))
         let uploadedHeader = try await pixels(in: headerRect)
-        XCTAssertTrue(uploadedHeader == originalHeader, "Uploading the home cover must preserve the dynamic header")
+        XCTAssertTrue(matchesOriginalHeader(uploadedHeader), "Uploading the home cover must preserve the dynamic header")
         let uploadedTile = try await pixels(in: tileCenter)
         XCTAssertGreaterThan(uploadedTile[1], 200)
         XCTAssertLessThan(uploadedTile[0], 30)
 
         defaults.set(false, forKey: CollectionCoverWall.preferenceKey)
         let staticHeader = try await pixels(in: headerRect)
-        XCTAssertTrue(staticHeader != originalHeader, "Disabling the wall must still restore the single cover")
+        XCTAssertFalse(matchesOriginalHeader(staticHeader), "Disabling the wall must still restore the single cover")
         let staticTile = try await pixels(in: tileCenter)
         XCTAssertEqual(staticTile, uploadedTile)
     }
