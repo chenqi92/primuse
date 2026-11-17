@@ -314,8 +314,10 @@ private struct HomeSingleColumnSectionsLayout: Layout {
     }
 }
 
-/// 首页区块的两栏排布(iPhone Duo 内屏横握):有内容的区块按顺序交替放进左右两栏
-/// (`WideCanvasColumnsPolicy.homeColumns`),两栏各占一半宽度、各自从上往下排,区块贴各栏的前沿。
+/// 首页区块的两栏排布(iPhone Duo 内屏横握):有内容的区块按量出来的高度分进左右两栏,
+/// 头两块一左一右,之后尽量让两栏底部齐平(`WideCanvasColumnsPolicy.homeColumns`),
+/// 不会因为一栏全是矮的横排、另一栏有大网格而在底下空出半屏。两栏各占一半宽度、各自从上往下排,
+/// 区块贴各栏的前沿。
 /// 单栏时首页用的是同间距的 `HomeSingleColumnSectionsLayout`,两者经 `AnyLayout` 互换,区块的视图身份不变。
 private struct HomeTwoColumnSectionsLayout: Layout {
     var spacing: CGFloat
@@ -366,7 +368,10 @@ private struct HomeTwoColumnSectionsLayout: Layout {
             let size = subviews[index].sizeThatFits(proposal)
             return size.height > 0 ? (index, size) : nil
         }
-        let columns = WideCanvasColumnsPolicy.homeColumns(sectionCount: visible.count)
+        let columns = WideCanvasColumnsPolicy.homeColumns(
+            heights: visible.map { Double($0.size.height) },
+            spacing: Double(spacing)
+        )
         var result: [Placement] = []
         for (column, members) in [columns.leading, columns.trailing].enumerated() {
             var y: CGFloat = 0
@@ -2395,7 +2400,7 @@ struct HomeView: View {
         }
     }
 
-    /// 首页各区块。宽画布(Duo 内屏横握)上排成两栏:按顺序交替放进左右两栏,各栏按紧凑宽度(手机)排版。
+    /// 首页各区块。宽画布(Duo 内屏横握)上排成两栏:按高度分进左右两栏、底部尽量齐平,各栏按紧凑宽度(手机)排版。
     ///
     /// 单栏与两栏用 `AnyLayout` 互换而不是换一棵视图树:开合、转屏时区块保持原来的身份,
     /// 从原位置滑到新位置,横滑区块滚到的位置、长按菜单的宿主都留着。
