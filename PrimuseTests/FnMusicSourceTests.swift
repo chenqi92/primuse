@@ -2082,6 +2082,143 @@ private actor DuplicateDeletionFixtureConnector: MusicSourceConnector {
 }
 
 final class FnMusicMetadataWritebackTests: XCTestCase {
+    @MainActor
+    func testSourceManagerEnablesScrapingAndRetainsWriterWithTwoAddresses() async {
+        let fixture = FnMusicTagHTTPFixture()
+        let connector = makeSource(fixture)
+        defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+        var source = MusicSource(id: fixture.host, name: "Music", type: .fnMusic)
+        source.connectionConfiguration = SourceConnectionConfiguration(
+            localEndpoint: .init(host: "local.invalid", port: 443, useSsl: true),
+            publicEndpoint: .init(host: "public.invalid", port: 443, useSsl: true)
+        )
+        let snapshot = source
+        let manager = SourceManager(sourcesProvider: { [snapshot] }, connectorFactory: { _ in connector })
+        let supportsScraping = await manager.supportsMediaServerWriteback(for: song(fixture))
+        XCTAssertTrue(supportsScraping)
+        let routed = manager.connector(for: source)
+        XCTAssertFalse(routed is FnMusicSource)
+        XCTAssertTrue(routed is any MediaServerWritebackConnector)
+    }
+
+    @MainActor
+    func testScrapingWritesMetadataAndCoverAndInvalidatesOldAudio() async throws {
+        for routed in [false, true] {
+            let fixture = FnMusicTagHTTPFixture()
+            let manager = makeManager(fixture, routed: routed)
+            defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+            let original = song(fixture)
+            var updated = original
+            updated.title = "雨后的灯塔"
+            updated.albumTitle = "New album"
+            let cover = Data([0xFF, 0xD8, 0xFF, 0xE0, 1])
+            _ = try await manager.connectorForSong(original)
+            _ = await manager.cachedURLForBackgroundRead(for: original)
+            let cache = manager.cacheURL(for: original)
+            try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("old audio tags".utf8).write(to: cache)
+            defer { try? FileManager.default.removeItem(at: cache) }
+
+            let result = await manager.writeScrapedMetadataToMediaServer(
+                original: original, updated: updated, coverData: cover, lyricsLines: nil
+            )
+            XCTAssertTrue(result.metadataWritten, result.errors.description)
+            XCTAssertTrue(result.coverWritten, result.errors.description)
+            XCTAssertEqual(fixture.written["title"] as? String, updated.title)
+            XCTAssertEqual(fixture.written["album"] as? String, updated.albumTitle)
+            XCTAssertEqual(fixture.uploadedCover, cover)
+            XCTAssertEqual(fixture.writeCount, 1)
+            XCTAssertEqual(fixture.readCount, 2)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: cache.path))
+            XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
+        }
+    }
+
+    @MainActor
+    func testRoutedManualTagSaveUsesNativeWriter() async throws {
+        let fixture = FnMusicTagHTTPFixture()
+        let manager = makeManager(fixture, routed: true)
+        defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+        let original = song(fixture)
+        var updated = original
+        updated.title = "窗边的星光"
+        let report = try await manager.writeTagMetadata(original: original, updated: updated, coverData: nil)
+        XCTAssertEqual(report.fields.first { $0.field == .title }?.disposition, .written)
+        XCTAssertEqual(fixture.written["title"] as? String, updated.title)
+        XCTAssertEqual(fixture.writeCount, 1)
+    }
+
+    @MainActor
+    func testRoutedScrapeDoesNotReplayLostWriteResponseOrKeepStaleAudio() async throws {
+        let fixture = FnMusicTagHTTPFixture(mode: .lostWriteResponse)
+        let manager = makeManager(fixture, routed: true)
+        defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+        let original = song(fixture)
+        var updated = original
+        updated.title = "雨后的灯塔"
+        _ = try await manager.connectorForSong(original)
+        _ = await manager.cachedURLForBackgroundRead(for: original)
+        let cache = manager.cacheURL(for: original)
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("old audio tags".utf8).write(to: cache)
+        defer { try? FileManager.default.removeItem(at: cache) }
+
+        let result = await manager.writeScrapedMetadataToMediaServer(
+            original: original, updated: updated, coverData: nil, lyricsLines: nil
+        )
+        XCTAssertFalse(result.errors.isEmpty)
+        XCTAssertFalse(result.metadataWritten)
+        XCTAssertEqual(fixture.writeCount, 1, "A failed response must not replay the write on the other route")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cache.path))
+    }
+
+    @MainActor
+    func testUnsupportedLyricsAndAlbumArtistDoNotWriteOrInvalidateAudio() async throws {
+        let fixture = FnMusicTagHTTPFixture()
+        let manager = makeManager(fixture, routed: true)
+        defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+        let original = song(fixture)
+        var updated = original
+        updated.albumArtistName = "纸船乐队"
+        _ = try await manager.connectorForSong(original)
+        _ = await manager.cachedURLForBackgroundRead(for: original)
+        let cache = manager.cacheURL(for: original)
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("unchanged audio".utf8).write(to: cache)
+        defer { try? FileManager.default.removeItem(at: cache) }
+
+        let result = await manager.writeScrapedMetadataToMediaServer(
+            original: original, updated: updated, coverData: nil, lyricsLines: nil,
+            lyricsContent: "[00:01.00]晚风托起纸船"
+        )
+        let removal = await manager.removeLyricsFromMediaServer(for: original)
+        XCTAssertFalse(result.unsupported.isEmpty)
+        XCTAssertFalse(removal.unsupported.isEmpty)
+        XCTAssertTrue(result.errors.isEmpty)
+        XCTAssertFalse(result.metadataWritten)
+        XCTAssertFalse(result.lyricsWritten)
+        XCTAssertEqual(fixture.writeCount, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path))
+    }
+
+    @MainActor
+    private func makeManager(_ fixture: FnMusicTagHTTPFixture, routed: Bool) -> SourceManager {
+        let native = makeSource(fixture)
+        let source = MusicSource(id: fixture.host, name: "Music", type: .fnMusic, host: fixture.host, useSsl: true)
+        let connector: any MusicSourceConnector
+        if routed {
+            let router = SourceConnectionRouter(sourceID: source.id, candidates: [
+                .init(kind: .localAddress, endpoint: nil, connector: native),
+                .init(kind: .publicAddress, endpoint: nil, connector: native)
+            ], runtime: SourceConnectionRuntime(), endpointProbe: { _ in }) { _ in }
+            connector = RoutedFnMusicConnector(sourceID: source.id, routing: router,
+                routedSupportsSidecarWriting: false, routedPreferredDeleteBatchSize: 1)
+        } else {
+            connector = native
+        }
+        return SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+    }
+
     func testNativeMetadataWritePreservesRemoteArraysAlbumAndCover() async {
         XCTAssertEqual(AudioMetadataWritebackPolicy.capability(sourceType: .fnMusic, format: .mp3), .serverAPI)
         let fixture = FnMusicTagHTTPFixture()
@@ -2268,7 +2405,7 @@ final class FnMusicMetadataWritebackTests: XCTestCase {
 }
 
 private final class FnMusicTagHTTPFixture: @unchecked Sendable {
-    enum Mode { case success, existingEntities, missingIDs, wrongTrack, permissionDenied, businessError, mismatchedReadback, ambiguousEntities, coverUploadFails }
+    enum Mode { case success, existingEntities, missingIDs, wrongTrack, permissionDenied, businessError, mismatchedReadback, ambiguousEntities, coverUploadFails, lostWriteResponse }
     let host = "fnmusic-tags-\(UUID().uuidString.lowercased()).invalid"
     let mode: Mode
     private let lock = NSLock()
@@ -2340,6 +2477,7 @@ private final class FnMusicTagHTTPFixture: @unchecked Sendable {
                     if mode == .businessError { return try response([String: String](), code: 50001) }
                     body = try JSONSerialization.jsonObject(with: Self.requestBody(request)) as! [String: Any]
                     if body["guid"] as? String != "track-guid" { failures.append("Wrong mutation identity") }
+                    if mode == .lostWriteResponse { throw URLError(.networkConnectionLost) }
                     return try response(NSNull())
                 }
                 reads += 1

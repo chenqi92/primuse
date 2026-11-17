@@ -2011,13 +2011,13 @@ enum SourceTransportFailure {
     }
 }
 
-private protocol RoutedConnectorProxy: MusicSourceConnector {
+protocol RoutedConnectorProxy: MusicSourceConnector {
     var routing: SourceConnectionRouter { get }
     var routedSupportsSidecarWriting: Bool { get }
     var routedPreferredDeleteBatchSize: Int { get }
 }
 
-private extension RoutedConnectorProxy {
+extension RoutedConnectorProxy {
     var supportsSidecarWriting: Bool { routedSupportsSidecarWriting }
     var directoryListingConcurrency: Int { routing.directoryListingConcurrency }
     var preferredDeleteBatchSize: Int { routedPreferredDeleteBatchSize }
@@ -2666,14 +2666,52 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTra
 
 }
 
-private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
+struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistAppendingConnector,
-    ServerFavoriteConnector,
+    ServerFavoriteConnector, MediaServerWritebackConnector,
     ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func writeScrapedMetadata(
+        original: Song,
+        updated: Song,
+        coverData: Data?,
+        lyricsLines: [LyricLine]?,
+        lyricsContent: String?
+    ) async -> MediaServerWritebackResult {
+        do {
+            return try await routing.withMutation { connector in
+                guard let writer = connector as? any MediaServerWritebackConnector else {
+                    throw SourceError.connectionFailed("Metadata writer unavailable")
+                }
+                return await writer.writeScrapedMetadata(
+                    original: original,
+                    updated: updated,
+                    coverData: coverData,
+                    lyricsLines: lyricsLines,
+                    lyricsContent: lyricsContent
+                )
+            }
+        } catch {
+            return MediaServerWritebackResult(errors: [error.localizedDescription])
+        }
+    }
+
+    func removeLyrics(for song: Song) async -> MediaServerWritebackResult {
+        do {
+            return try await routing.withMutation { connector in
+                guard let writer = connector as? any MediaServerWritebackConnector else {
+                    throw SourceError.connectionFailed("Metadata writer unavailable")
+                }
+                return await writer.removeLyrics(for: song)
+            }
+        } catch {
+            return MediaServerWritebackResult(errors: [error.localizedDescription])
+        }
+    }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
         try await fetchServerPlaylists(progress: { _ in })
@@ -16144,11 +16182,10 @@ final class SourceManager {
             return false
         }
         switch source.type {
-        case .jellyfin, .emby, .plex:
+        case .jellyfin, .emby, .plex, .fnMusic:
             return true
         default:
-            // Airsonic's native editor changes audio files. Keep it on the
-            // manual tag-save path; bulk scraping never embeds tags.
+            // Keep Airsonic's native web editor on the manual tag-save path.
             return false
         }
     }
@@ -16166,6 +16203,16 @@ final class SourceManager {
                 return MediaServerWritebackResult(
                     unsupported: ["This media server connector does not support metadata writeback"]
                 )
+            }
+            let sourceType = (try? await sourcesProvider())?.first(where: { $0.id == updated.sourceID })?.type
+            let changedFields = TagMetadataWritebackField.changedFields(
+                from: original, to: updated, includesCover: coverData?.isEmpty == false
+            )
+            let writesFnMusicFile = sourceType == .fnMusic
+                && !changedFields.intersection(TagMetadataWritebackField.metadataFields.union([.cover])).isEmpty
+            defer {
+                // A lost response can follow a successful server-side tag edit.
+                if writesFnMusicFile { deleteAudioCache(for: original) }
             }
             return await writer.writeScrapedMetadata(
                 original: original,
