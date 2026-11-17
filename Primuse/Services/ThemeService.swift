@@ -1031,11 +1031,27 @@ extension ShapeStyle where Self == TextOnFillShapeStyle {
 
 /// `.borderedProminent` 按钮系统固定画白字,主题色太浅时换黑字。只在需要时才设前景色,
 /// 平时整个交给系统(停用时变灰也照旧)。
+///
+/// 底色跟随封面的详情页(专辑、艺人、歌单)把 tint 换成了白色,按钮成了白底:字改用这一页的底色,
+/// 和那几页自绘的主按钮(`LibraryDetailActionButton`)一个样子,不再白底白字。
 private struct ProminentLabelOnAccent: ViewModifier {
     @Environment(\.self) private var environment
+    #if os(iOS)
+    @Environment(\.libraryDetailTint) private var detailTint
+    #endif
+
+    private var pageColor: Color? {
+        #if os(iOS)
+        detailTint?.bottom
+        #else
+        nil
+        #endif
+    }
 
     func body(content: Content) -> some View {
-        if ThemeService.isTooLightForWhiteText(.accentColor, in: environment) {
+        if let pageColor {
+            content.foregroundStyle(pageColor)
+        } else if ThemeService.isTooLightForWhiteText(.accentColor, in: environment) {
             content.foregroundStyle(.black)
         } else {
             content
