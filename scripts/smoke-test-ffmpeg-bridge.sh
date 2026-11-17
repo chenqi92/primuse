@@ -23,6 +23,50 @@ trap cleanup EXIT
 "$FFMPEG_BIN" -hide_banner -loglevel error \
   -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=44100" \
   -ac 2 -c:a pcm_s16le "$SMOKE_DIR/tone-pcm.wav"
+
+python3 - "$SMOKE_DIR" <<'PY'
+import struct
+import sys
+import wave
+from pathlib import Path
+
+root = Path(sys.argv[1])
+with wave.open(str(root / "tone-pcm.wav"), "rb") as source:
+    pcm = source.readframes(source.getnframes())
+
+def write_carrier(name, payload):
+    with wave.open(str(root / name), "wb") as output:
+        output.setparams((2, 2, 44100, 0, "NONE", "not compressed"))
+        output.writeframes(payload)
+
+# Repeated sync words in ordinary samples must not force the DTS demuxer.
+for index, marker in enumerate(("7ffe8001", "fe7f0180", "1fffe800", "ff1f00e8")):
+    payload = bytearray(pcm)
+    for offset in (128, 684, 4097, 4653):
+        payload[offset:offset + 32] = bytes.fromhex(marker) + bytes(28)
+    write_carrier(f"pcm-false-dts-{index}.wav", payload)
+
+# DTS-CD can disguise either byte order and 16- or 14-bit packing as PCM.
+raw = (root / "tone.dts").read_bytes()
+packed = bytearray()
+offset = 0
+while offset < len(raw):
+    assert raw[offset:offset + 4] == bytes.fromhex("7ffe8001")
+    size = (((raw[offset + 5] & 3) << 12) | (raw[offset + 6] << 4) | (raw[offset + 7] >> 4)) + 1
+    assert size >= 96 and offset + size <= len(raw)
+    bits = ''.join(f'{byte:08b}' for byte in raw[offset:offset + size])
+    for start in range(0, len(bits), 14):
+        word = int(bits[start:start + 14].ljust(14, '0'), 2)
+        packed.extend(struct.pack('>H', word | (0xC000 if word & 0x2000 else 0)))
+    offset += size
+
+for packing, payload in (("16", raw), ("14", bytes(packed))):
+    write_carrier(f"dts-carrier-{packing}-be.wav", payload)
+    swapped = bytearray(payload)
+    swapped[0::2], swapped[1::2] = payload[1::2], payload[0::2]
+    write_carrier(f"dts-carrier-{packing}-le.wav", swapped)
+PY
+
 "$FFMPEG_BIN" -hide_banner -loglevel error \
   -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=44100" \
   -ac 2 -c:a wmav2 "$SMOKE_DIR/tone.wma"
@@ -118,6 +162,8 @@ mkfifo "$SMOKE_DIR/queued-b.dts"
   "$SMOKE_DIR/tone-5.1-center-only.dts" \
   "$SMOKE_DIR/tone-dts.wav" \
   "$SMOKE_DIR/tone-pcm.wav" \
+  "$SMOKE_DIR"/pcm-false-dts-*.wav \
+  "$SMOKE_DIR"/dts-carrier-*.wav \
   "$SMOKE_DIR/tone.wma" \
   "$SMOKE_DIR/tone.flac" \
   "$SMOKE_DIR/tone.aac" \

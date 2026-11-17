@@ -10,6 +10,7 @@
 #include <libswresample/swresample.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 #include <strings.h>
@@ -286,10 +287,47 @@ static uint32_t FFmpegReadLittleEndian32(const uint8_t *bytes) {
         | ((uint32_t)bytes[3] << 24);
 }
 
-/// DTS frames repeat the same four-byte sync word at frame boundaries. Requiring
-/// two nearby instances of the same byte order avoids treating arbitrary image
-/// or PCM bytes as a DTS stream merely because two unrelated variants happen to
-/// appear somewhere in a large metadata prefix.
+/// PCM samples can contain repeated DTS sync words. The parser also validates
+/// the frame headers, including sample rate, block count and reserved bits.
+static BOOL FFmpegPayloadHasValidDTSFrames(const uint8_t *bytes, NSUInteger length) {
+    if (length > INT_MAX - AV_INPUT_BUFFER_PADDING_SIZE) return NO;
+    AVCodecParserContext *parser = av_parser_init(AV_CODEC_ID_DTS);
+    AVCodecContext *context = avcodec_alloc_context3(NULL);
+    uint8_t *padded = av_mallocz(length + AV_INPUT_BUFFER_PADDING_SIZE);
+    BOOL found = NO;
+    if (parser && context && padded) {
+        memcpy(padded, bytes, length);
+        context->codec_type = AVMEDIA_TYPE_AUDIO;
+        context->codec_id = AV_CODEC_ID_DTS;
+        NSUInteger offset = 0;
+        NSUInteger validFrames = 0;
+        while (offset <= length) {
+            uint8_t *packet = NULL;
+            int packetSize = 0;
+            BOOL flushing = offset == length;
+            int consumed = av_parser_parse2(parser, context, &packet, &packetSize,
+                flushing ? NULL : padded + offset, (int)(length - offset),
+                AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
+            if (consumed < 0) break;
+            if (packetSize > 0) {
+                validFrames = parser->duration > 0 && context->sample_rate > 0
+                    ? validFrames + 1 : 0;
+                if (validFrames >= 2) {
+                    found = YES;
+                    break;
+                }
+            }
+            if (flushing || consumed == 0) break;
+            offset += (NSUInteger)consumed;
+        }
+    }
+    av_free(padded);
+    avcodec_free_context(&context);
+    if (parser) av_parser_close(parser);
+    return found;
+}
+
+/// Require repeated sync words before invoking the bounded header parser.
 static BOOL FFmpegPayloadContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
     if (!bytes || length < 8) return NO;
     static const uint8_t syncWords[][4] = {
@@ -312,7 +350,7 @@ static BOOL FFmpegPayloadContainsDTSSync(const uint8_t *bytes, NSUInteger length
             if (previous != NSNotFound) {
                 NSUInteger distance = offset - previous;
                 if (distance >= minimumFrameSpacing && distance <= maximumFrameSpacing) {
-                    return YES;
+                    return FFmpegPayloadHasValidDTSFrames(bytes, length);
                 }
             }
             previousOffsets[word] = offset;
