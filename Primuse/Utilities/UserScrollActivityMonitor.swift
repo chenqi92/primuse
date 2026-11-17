@@ -70,7 +70,8 @@ final class UserScrollActivityMonitor {
 
     /// 只往后推：正在进行的转场记下的结束时刻，不会被它期间的一次滑动或点按提前。
     private func note(_ moment: Date) {
-        if let lastActivityAt, lastActivityAt >= moment { return }
+        if let lastActivityAt,
+           lastActivityAt.timeIntervalSinceReferenceDate >= moment.timeIntervalSinceReferenceDate { return }
         lastActivityAt = moment
     }
 
