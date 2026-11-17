@@ -2255,6 +2255,12 @@ struct ContentView: View {
                     openLibraryDeepLink(.artist(artist))
                 }
             )
+                .environment(\.playerNavigationAction) { destination in
+                    if destination == .search, !searchTabHostsSearchField {
+                        searchFieldActivationRequested = true
+                    }
+                    selectMinimalPage(destination == .search ? .search : .settings)
+                }
                 .zIndex(2)
         }
         // iPhone Duo 合上、展开时整屏做一次归位（模糊、沿开合方向拉伸后回到原样），播放页也在里面。

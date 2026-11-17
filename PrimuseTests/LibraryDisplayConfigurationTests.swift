@@ -7,6 +7,83 @@ import XCTest
 import SwiftUI
 @testable import Primuse
 
+@MainActor
+final class PlayerSidebarNavigationTests: XCTestCase {
+    func testDuoPlayerSidebarOpensSearchAndAppSettings() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"]?.contains("iPhone Duo") == true,
+                          "Requires the iPhone Duo vertical player sidebar")
+        let player = AppServices.shared.playerService
+        let originalSong = player.currentSong
+        let defaults = UserDefaults.standard
+        let keys = [AppNavigationMode.storageKey, "primuse.navigation.selectedTab.v1", AppTabConfiguration.storageKey]
+        let originalValues = keys.map { defaults.object(forKey: $0) }
+        let window = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).first(where: \.isKeyWindow))
+        defer {
+            window.endEditing(true)
+            NotificationCenter.default.post(name: .primuseDebugMinimizeNowPlaying, object: nil)
+            player.currentSong = originalSong
+            for (key, value) in zip(keys, originalValues) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        defaults.set(0, forKey: AppTabConfiguration.storageKey)
+        player.currentSong = Song(id: "sidebar-navigation-fixture", title: "Paper Lanterns", artistName: "Fixture",
+                                  duration: 180, fileFormat: .mp3, filePath: "/sidebar-fixture.mp3", sourceID: "fixture")
+        try await Task.sleep(for: .seconds(1))
+        for mode in [AppNavigationMode.standard, .minimal] {
+            defaults.set(mode.rawValue, forKey: AppNavigationMode.storageKey)
+            defaults.set(0, forKey: "primuse.navigation.selectedTab.v1")
+            try await Task.sleep(for: .milliseconds(500))
+            for (identifier, tab) in [("player.sidebar.search", 2), ("player.sidebar.settings", 3)] {
+                NotificationCenter.default.post(name: .primuseRequestShowNowPlaying, object: nil)
+                try await Task.sleep(for: .seconds(2))
+                window.layoutIfNeeded()
+                let elements = accessibilityObjects(in: window)
+                let button = try XCTUnwrap(elements.first {
+                    $0.responds(to: NSSelectorFromString("accessibilityIdentifier"))
+                        && ($0.value(forKey: "accessibilityIdentifier") as? String) == identifier
+                }, "Missing \(identifier); elements: \(elements.compactMap { $0.accessibilityLabel })")
+                XCTAssertTrue(window.convert(window.bounds, to: nil).contains(button.accessibilityFrame),
+                              "The player sidebar button must remain inside the display")
+                if tab == 2 {
+                    let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                        window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                    })
+                    attachment.name = "Duo player sidebar \(mode.rawValue)"
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+                XCTAssertTrue(button.accessibilityActivate())
+                try await Task.sleep(for: .seconds(1))
+                XCTAssertEqual(defaults.integer(forKey: "primuse.navigation.selectedTab.v1"), tab,
+                               "The player shortcut must select the App's destination")
+                window.endEditing(true)
+            }
+        }
+    }
+
+    private func accessibilityObjects(in root: NSObject) -> [NSObject] {
+        var result: [NSObject] = []
+        var seen = Set<ObjectIdentifier>()
+        func visit(_ object: NSObject) {
+            guard seen.insert(ObjectIdentifier(object)).inserted else { return }
+            result.append(object)
+            let count = object.accessibilityElementCount()
+            if count > 0, count < 500 {
+                for index in 0..<count {
+                    if let child = object.accessibilityElement(at: index) as? NSObject { visit(child) }
+                }
+            }
+            if let view = object as? UIView {
+                for child in view.subviews where !child.isHidden && child.alpha > 0 { visit(child) }
+            }
+        }
+        visit(root)
+        return result
+    }
+}
+
 final class LibraryDisplayConfigurationTests: XCTestCase {
     @MainActor
     func testRescanPreservesInferredAlbumIdentityUntilGroupingInputsChange() async throws {

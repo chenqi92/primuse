@@ -4,6 +4,22 @@ import PrimuseKit
 #if os(iOS)
 import UIKit
 import MediaPlayer
+
+enum PlayerNavigationDestination {
+    case search
+    case settings
+}
+
+private struct PlayerNavigationActionKey: EnvironmentKey {
+    static let defaultValue: (@MainActor (PlayerNavigationDestination) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var playerNavigationAction: (@MainActor (PlayerNavigationDestination) -> Void)? {
+        get { self[PlayerNavigationActionKey.self] }
+        set { self[PlayerNavigationActionKey.self] = newValue }
+    }
+}
 #elseif os(macOS)
 import AppKit
 #endif
@@ -2230,6 +2246,7 @@ struct NowPlayingView: View {
     @State private var windowSafeAreaInsets = UIEdgeInsets.zero
     /// 系统竖栏在哪一侧(iPhone Duo 等);没有竖栏的设备与 Xcode 27.0 构建为 nil。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    @Environment(\.playerNavigationAction) private var openAppPage
     /// 播放页转轮(默认关):左右滑动转到调音、发现、接下来、舞台几面(见 `NowPlayingCarouselContainer`)。
     @AppStorage(NowPlayingCarouselConfiguration.enabledStorageKey)
     private var carouselEnabled = NowPlayingCarouselConfiguration.enabledByDefault
@@ -3604,11 +3621,12 @@ struct NowPlayingView: View {
         let showsTextToggle = spokenWordHasText && spokenWordControlLayout.showsTranscriptToggle
         let spacing = 12.0
         let capsulePadding = 4.0
+        let navigationCount = openAppPage == nil ? 1 : 3
         // 中间一组:音乐按「播放页按钮」底栏那一串(去掉 AirPlay,默认歌词与队列);有声内容是文字稿与目录。
         // 那一串长到整列按最小的键(34,同 `columnFit`)也排不下时只摆前几颗,其余进「更多」:
-        // 上面一组一颗,下面一组至少留投放与更多两颗。
+        // 上面一组是收起、搜索与设置,下面一组至少留投放与更多两颗。
         let middleLimit = music
-            ? max(0, Int(((segment.length - spacing * 2 - capsulePadding * 6) / 34).rounded(.down)) - 3)
+            ? max(0, Int(((segment.length - spacing * 2 - capsulePadding * 6) / 34).rounded(.down)) - navigationCount - 2)
             : Int.max
         let columnGroups = musicControlLayout.toolColumnGroups(middleLimit: middleLimit)
         let middleCount = music ? columnGroups.middle.count : (showsTextToggle ? 2 : 1)
@@ -3620,7 +3638,7 @@ struct NowPlayingView: View {
         let droppable = (offersLock ? 1 : 0) + (music ? 1 : 0) + (headerAction != nil ? 1 : 0)
         let fit = OcclusionAvoidancePolicy.columnFit(
             length: segment.length,
-            groups: [1]
+            groups: [navigationCount]
                 + (middleCount > 0 ? [middleCount] : [])
                 + [(music ? 1 : 0) + (headerAction != nil ? 1 : 0) + 2 + (offersLock ? 1 : 0)],
             droppable: droppable,
@@ -3657,6 +3675,22 @@ struct NowPlayingView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text("mini_player"))
+
+                    if let openAppPage {
+                        Button { openAppPage(.search) } label: {
+                            NowPlayingBarColumnIcon(symbol: "magnifyingglass", appearance: appearance, size: itemSize)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text("search_title"))
+                        .accessibilityIdentifier("player.sidebar.search")
+
+                        Button { openAppPage(.settings) } label: {
+                            NowPlayingBarColumnIcon(symbol: "gearshape", appearance: appearance, size: itemSize)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text("settings_title"))
+                        .accessibilityIdentifier("player.sidebar.settings")
+                    }
                 }
 
                 if music {
