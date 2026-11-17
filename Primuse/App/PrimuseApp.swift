@@ -1293,7 +1293,7 @@ final class BackgroundLibraryMaintenanceCoordinator {
 /// 的页还给系统。iOS 退到后台、不在放歌、后台也没别的活儿时(`BackgroundMemoryTrimPolicy`):
 /// 等场景切换做完, 把曲库派生数据、已解码的封面、播放页背景位图一起放掉 —— 挂起时的占用从一点几
 /// GB 降下来, 系统回收挂起进程时就不总先挑中它。回到前台时, 放之前建着的那几份整库数据先在主线程外
-/// 回到前台时, 放之前建着的那几份整库数据先在主线程外补回来(`MusicLibrary.rewarmReleasedCaches()`),
+/// 补回来(`MusicLibrary.rewarmReleasedCaches()`),
 /// 其余的用到时按需重建。macOS 在隐藏或长时失焦且空闲时走同一套后台释放与激活预热, 不触发
 /// `.primuseMemoryPressure` 以免拆掉已排序列表和暂停中的播放管线。
 @MainActor
@@ -1339,7 +1339,6 @@ final class RebuildableMemoryReliefCoordinator {
         library?.releaseRebuildableCaches()
         CachedArtworkView.purgeDecodedImageCache()
         PlayerBackdropMemoryCache.shared.removeAll()
-        AppServices.shared.coverTintProvider.clearCache(releasingKnownSongs: true)
         URLCache.shared.removeAllCachedResponses()
         player?.trimNowPlayingArtworkCacheToCurrentItem()
         Task {
@@ -1446,7 +1445,8 @@ final class RebuildableMemoryReliefCoordinator {
                 CachedArtworkView.purgeDecodedImageCache()
                 PlayerBackdropMemoryCache.shared.removeAll()
             }
-            AppServices.shared.coverTintProvider.clearCache(releasingKnownSongs: hasNoVisibleWindow)
+            // 封面取色不放: 专辑/歌单页只在出现时取一次色, 放掉后窗口回到前台
+            // (含取消隐藏、从程序坞还原)页底色会退回默认, 要重进页面才恢复; 整份只有几百个色值。
             URLCache.shared.removeAllCachedResponses()
             self.player?.trimNowPlayingArtworkCacheToCurrentItem()
             await MusicLibrary.returnFreedMemoryToSystem()
