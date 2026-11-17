@@ -104,6 +104,17 @@ struct RecentAlbumsStoreTests {
         }
     }
 
+    @Test("Recording identical front entry and repeated clear report no-op")
+    func skipsRedundantWrites() throws {
+        try withDefaults { defaults, _ in
+            #expect(RecentAlbumsStore.clear(in: defaults) == false)
+            #expect(RecentAlbumsStore.record(entry("same"), in: defaults) == true)
+            #expect(RecentAlbumsStore.record(entry("same"), in: defaults) == false)
+            #expect(RecentAlbumsStore.clear(in: defaults) == true)
+            #expect(RecentAlbumsStore.clear(in: defaults) == false)
+        }
+    }
+
     private func entry(_ id: String) -> RecentAlbumEntry {
         RecentAlbumEntry(id: id, title: "Album \(id)", artistName: "Artist", coverImageName: nil)
     }

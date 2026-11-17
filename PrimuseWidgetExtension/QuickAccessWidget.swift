@@ -18,8 +18,8 @@ struct QuickAccessProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<QuickAccessEntry>) -> Void) {
         let entry = QuickAccessEntry(date: Date(), recentAlbums: RecentAlbumsStore.load())
-        let nextUpdate = Calendar.current.date(byAdding: .hour, value: 1, to: Date())!
-        completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
+        let next = WidgetSettings.nextRefreshDate(from: entry.date)
+        completion(Timeline(entries: [entry], policy: next.map(TimelineReloadPolicy.after) ?? .never))
     }
 
     /// 画廊预览用的假专辑列表 —— 5 张,覆盖 medium (头图 + 3 缩略) 和

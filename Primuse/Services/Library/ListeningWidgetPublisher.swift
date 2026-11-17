@@ -13,6 +13,7 @@ final class ListeningWidgetPublisher {
     private var observers: [NSObjectProtocol] = []
     private var pending: Task<Void, Never>?
     private var settingsSignature = ""
+    private var watchedArtworkTokens: Set<String>?
     private enum ArtworkIdentity: Equatable {
         case podcast(String)
         case radio(RadioStationArtworkResolutionIdentity)
@@ -32,12 +33,22 @@ final class ListeningWidgetPublisher {
         // 听完一集记进播放历史时「最近播放的播客」要跟着变。
         for name in [Notification.Name.primusePodcastsDidChange, .primuseRadioStationsDidChange,
                      .primuseSpokenWordDidChange, .primuseArtworkDidCache, .primuseListeningStatsDidChange] {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let token = note.object as? String
                 MainActor.assumeIsolated {
-                    if name == .primuseArtworkDidCache || name == .primusePodcastsDidChange {
-                        self?.artwork.invalidate()
+                    guard let self else { return }
+                    if name == .primuseArtworkDidCache {
+                        if let token,
+                           let watched = self.watchedArtworkTokens,
+                           !watched.contains(token) {
+                            return
+                        }
+                        self.artwork.invalidate()
+                    } else if name == .primusePodcastsDidChange {
+                        self.watchedArtworkTokens = nil
+                        self.artwork.invalidate()
                     }
-                    self?.schedule()
+                    self.schedule()
                 }
             })
         }
@@ -66,6 +77,7 @@ final class ListeningWidgetPublisher {
             _ = radioStations()
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
+                self?.watchedArtworkTokens = nil
                 self?.artwork.invalidate()
                 self?.schedule()
                 self?.observeLibrary()
@@ -160,6 +172,17 @@ final class ListeningWidgetPublisher {
             return ($0.sortOrder ?? Int.max, $0.id) < ($1.sortOrder ?? Int.max, $1.id)
         }.prefix(4))
         var radios = stations.map { ListeningWidgetSnapshot.Item(id: $0.id, title: $0.name, subtitle: $0.folderName ?? "") }
+        var watchedTokens = Set(artworkIDs.keys).union(artworkIDs.values)
+        for station in stations {
+            let plan = RadioStationArtworkResolutionPolicy.makePlan(for: station)
+            for candidate in plan.candidates {
+                if case .cachedOrSource(let request) = candidate {
+                    watchedTokens.insert(request.songID)
+                    watchedTokens.insert(request.coverReference)
+                }
+            }
+        }
+        watchedArtworkTokens = watchedTokens
         if scope.includesCover {
             for index in podcasts.indices {
                 let key = artworkIDs[podcasts[index].id] ?? podcasts[index].id

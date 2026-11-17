@@ -17,8 +17,10 @@ struct OfflineLibraryWatchView: View {
                 Text(WatchString("ext.watch.offline.empty"))
                     .font(.footnote).foregroundStyle(.secondary)
             } else {
+                let audioFiles = store.offlineFiles.filter(\.isAudio)
+                let companionFiles = store.offlineFiles.filter { !$0.isAudio }
                 Section {
-                    ForEach(Array(store.offlineFiles.filter(\.isAudio).enumerated()), id: \.element.id) { index, file in
+                    ForEach(Array(audioFiles.enumerated()), id: \.element.id) { index, file in
                         Button {
                             store.playOffline(file)
                             dismiss()
@@ -39,9 +41,9 @@ struct OfflineLibraryWatchView: View {
                 } footer: {
                     Text(ByteCountFormatter.string(fromByteCount: store.offlineFiles.reduce(0) { $0 + $1.size }, countStyle: .file))
                 }
-                if store.offlineFiles.contains(where: { !$0.isAudio }) {
+                if !companionFiles.isEmpty {
                     Section(WatchString("ext.watch.offline.companions")) {
-                        ForEach(store.offlineFiles.filter { !$0.isAudio }) { file in
+                        ForEach(companionFiles) { file in
                             NavigationLink {
                                 OfflineFilePreview(file: file)
                             } label: {
@@ -94,7 +96,7 @@ private struct OfflineFilePreview: View {
         .task {
             guard let url = try? store.offlineStorage?.resolve(file.path) else { return }
             if file.path.hasSuffix(".watchlyrics") {
-                if let data = try? Data(contentsOf: url), data.count <= 8 * 1024 * 1024 {
+                if let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count <= 8 * 1024 * 1024 {
                     lyrics = (try? JSONDecoder().decode([WatchOfflineLyric].self, from: data)) ?? []
                 }
             } else { image = WatchOfflinePlayer.thumbnail(at: url) }

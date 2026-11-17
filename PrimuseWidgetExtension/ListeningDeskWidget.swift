@@ -58,21 +58,42 @@ struct ListeningDeskProvider: AppIntentTimelineProvider {
         if !scope.includesProgress { state?.duration = 0; state?.currentTime = 0 }
         let albums = (WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey) ? RecentAlbumsStore.load() : [])
             .map { scope.includesCover ? $0 : $0.withoutCover() }
-        return .init(date: Date(), state: state, albums: albums,
-                     leading: tile(leading, index: 0, albums: albums, scope: scope, state: state),
-                     trailing: tile(trailing, index: leading == trailing ? 1 : 0, albums: albums, scope: scope, state: state),
-                     canSwitchStation: (ListeningWidgetKind.radio.load()?.items.count ?? 0) > 1)
+        let radioItems = ListeningWidgetKind.radio.load()?.items
+        let podcastItems = (leading == .podcast || trailing == .podcast)
+            ? ListeningWidgetKind.podcast.load()?.items
+            : nil
+        let spokenWordBooks = (leading == .audiobook || trailing == .audiobook)
+            ? SpokenWordShelfSnapshot.load()?.books
+            : nil
+        return .init(
+            date: Date(),
+            state: state,
+            albums: albums,
+            leading: tile(
+                leading, index: 0, albums: albums, scope: scope, state: state,
+                podcastItems: podcastItems, radioItems: radioItems, spokenWordBooks: spokenWordBooks
+            ),
+            trailing: tile(
+                trailing, index: leading == trailing ? 1 : 0, albums: albums, scope: scope, state: state,
+                podcastItems: podcastItems, radioItems: radioItems, spokenWordBooks: spokenWordBooks
+            ),
+            canSwitchStation: (radioItems?.count ?? 0) > 1
+        )
     }
 
     /// The `index`-th item of a kind. Both tiles set to the same kind show its
     /// first two items rather than the same one twice.
     private static func tile(_ content: PrimuseListeningDeskTileContent, index: Int,
                              albums: [RecentAlbumEntry], scope: WidgetSharedDataScope,
-                             state: PlaybackState?) -> ListeningDeskTile {
+                             state: PlaybackState?,
+                             podcastItems: [ListeningWidgetSnapshot.Item]?,
+                             radioItems: [ListeningWidgetSnapshot.Item]?,
+                             spokenWordBooks: [SpokenWordShelfSnapshot.Book]?) -> ListeningDeskTile {
         switch content {
         case .podcast, .radio:
             let kind: ListeningWidgetKind = content == .podcast ? .podcast : .radio
-            guard let items = kind.load()?.items, items.indices.contains(index) else { return .init(content: content) }
+            let items = content == .podcast ? podcastItems : radioItems
+            guard let items, items.indices.contains(index) else { return .init(content: content) }
             let item = items[index]
             return .init(content: content, title: item.title, coverImageName: item.coverImageName,
                          action: .listening(id: item.id, kind: kind),
@@ -85,7 +106,7 @@ struct ListeningDeskProvider: AppIntentTimelineProvider {
             return .init(content: content, title: album.title, coverImageName: album.coverImageName,
                          action: .album(key: album.id))
         case .audiobook:
-            guard let books = SpokenWordShelfSnapshot.load()?.books, books.indices.contains(index) else {
+            guard let books = spokenWordBooks, books.indices.contains(index) else {
                 return .init(content: content)
             }
             let book = books[index]

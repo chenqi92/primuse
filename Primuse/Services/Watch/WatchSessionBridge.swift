@@ -3,6 +3,7 @@
 #if os(iOS)
 import AVFoundation
 import Foundation
+import ImageIO
 import Observation
 import UIKit
 import SwiftUI
@@ -84,6 +85,7 @@ final class WatchSessionBridge: NSObject {
     /// 所以预读到 bridge 自己的内存里。
     private var cachedLyricsForSongID: String?
     private var cachedLyrics: [LyricLine] = []
+    private var cachedLyricsHasBackground = false
     private var lyricsLoadTask: Task<Void, Never>?
     private var stateTickerTask: Task<Void, Never>?
 
@@ -143,6 +145,7 @@ final class WatchSessionBridge: NSObject {
             guard !lines.isEmpty else { self.refreshLyricsCache(for: song); return }
             self.cachedLyricsForSongID = songID
             self.cachedLyrics = lines
+            self.cachedLyricsHasBackground = lines.contains { !($0.background?.isEmpty ?? true) }
             self.pushIfMeaningfulChange()
         }
     }
@@ -674,6 +677,7 @@ final class WatchSessionBridge: NSObject {
         }
         guard lower > 0 else { return "" }
         let line = cachedLyrics[lower - 1]
+        guard cachedLyricsHasBackground else { return line.text }
         let activeBackground = cachedLyrics
             .flatMap { $0.background ?? [] }
             .filter { LyricVoiceTimelinePolicy.isActive($0, at: time) }
@@ -686,11 +690,13 @@ final class WatchSessionBridge: NSObject {
         lyricsLoadTask = nil
         if song?.id != cachedLyricsForSongID {
             cachedLyrics = []
+            cachedLyricsHasBackground = false
             cachedLyricsForSongID = nil
         }
         guard let song else {
             cachedLyricsForSongID = nil
             cachedLyrics = []
+            cachedLyricsHasBackground = false
             return
         }
         let songID = song.id
@@ -699,6 +705,7 @@ final class WatchSessionBridge: NSObject {
             guard !Task.isCancelled, let self, self.player?.currentSong?.id == songID else { return }
             self.cachedLyricsForSongID = songID
             self.cachedLyrics = lines
+            self.cachedLyricsHasBackground = lines.contains { !($0.background?.isEmpty ?? true) }
             self.lyricsLoadTask = nil
             self.pushIfMeaningfulChange()
         }
@@ -722,18 +729,49 @@ final class WatchSessionBridge: NSObject {
         if raw == nil, let ref = song.coverArtFileName {
             raw = store.readCoverData(named: ref)
         }
-        var image = raw.flatMap { UIImage(data: $0) }
+        var image: UIImage? = raw.flatMap { data in
+            autoreleasepool {
+                guard let source = CGImageSourceCreateWithData(
+                    data as CFData,
+                    [kCGImageSourceShouldCache: false] as CFDictionary
+                ), let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 180,
+                ] as CFDictionary) else {
+                    return UIImage(data: data)
+                }
+                return UIImage(cgImage: cgImage)
+            }
+        }
         if image == nil, song.sourceID == AppleMusicLibraryIdentity.sourceID {
             image = await AppleMusicSongArtwork.image(
-                for: song, pixelSize: 300, mirrorsIntoSongCache: false
+                for: song, pixelSize: 200, mirrorsIntoSongCache: false
             )
         }
         guard let img = image else { return nil }
 
         let target = CGSize(width: 160, height: 160)
-        let renderer = UIGraphicsImageRenderer(size: target)
-        let scaled = renderer.image { _ in
-            img.draw(in: CGRect(origin: .zero, size: target))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        format.preferredRange = .standard
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
+        let scaled = renderer.image { ctx in
+            UIColor.black.setFill()
+            ctx.fill(CGRect(origin: .zero, size: target))
+            let size = img.size
+            if size.width > 0, size.height > 0 {
+                let scale = max(target.width / size.width, target.height / size.height)
+                let drawSize = CGSize(width: size.width * scale, height: size.height * scale)
+                img.draw(in: CGRect(
+                    x: (target.width - drawSize.width) / 2,
+                    y: (target.height - drawSize.height) / 2,
+                    width: drawSize.width,
+                    height: drawSize.height
+                ))
+            }
         }
         // 先试 0.6, 超 45KB 降到 0.4。watch 屏幕小, 0.4 视觉差异极小。
         if let d = scaled.jpegData(compressionQuality: 0.6), d.count <= 45_000 {

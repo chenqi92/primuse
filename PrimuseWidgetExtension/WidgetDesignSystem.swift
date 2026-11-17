@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import WidgetKit
 import PrimuseKit
@@ -8,6 +9,59 @@ typealias WidgetImage = UIImage
 import AppKit
 typealias WidgetImage = NSImage
 #endif
+
+enum WidgetCoverLoader {
+    private final class Box {
+        let image: WidgetImage
+        init(_ image: WidgetImage) { self.image = image }
+    }
+
+    nonisolated(unsafe) private static let cache: NSCache<NSString, Box> = {
+        let cache = NSCache<NSString, Box>()
+        cache.countLimit = 24
+        cache.totalCostLimit = 4 * 1024 * 1024
+        return cache
+    }()
+
+    static func thumbnail(named coverImageName: String?, maxPixelSize: Int) -> WidgetImage? {
+        guard let coverImageName, !coverImageName.isEmpty, maxPixelSize > 0,
+              let containerURL = FileManager.default.containerURL(
+                  forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+              ) else { return nil }
+        let fileURL = containerURL.appendingPathComponent(coverImageName)
+        guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]),
+              values.isRegularFile == true else { return nil }
+        let stamp = values.contentModificationDate?.timeIntervalSince1970 ?? 0
+        let size = values.fileSize ?? 0
+        let cacheKey = "\(coverImageName)|\(maxPixelSize)|\(stamp)|\(size)" as NSString
+        if let cached = cache.object(forKey: cacheKey)?.image {
+            return cached
+        }
+        return autoreleasepool {
+            guard let source = CGImageSourceCreateWithURL(
+                fileURL as CFURL,
+                [kCGImageSourceShouldCache: false] as CFDictionary
+            ), let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            ] as CFDictionary) else {
+                guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe),
+                      let fallback = WidgetImage(data: data) else { return nil }
+                return fallback
+            }
+            #if canImport(UIKit)
+            let image = UIImage(cgImage: cgImage)
+            #elseif canImport(AppKit)
+            let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            #endif
+            let cost = max(1, cgImage.bytesPerRow * cgImage.height)
+            cache.setObject(Box(image), forKey: cacheKey, cost: cost)
+            return image
+        }
+    }
+}
 
 extension Image {
     /// Cross-platform image init — `Image(uiImage:)` on iOS, `Image(nsImage:)`
@@ -179,7 +233,7 @@ struct WidgetCanvasBackground: View {
                         RadialGradient(colors: [tint.opacity(colorScheme == .dark ? 0.24 : 0.16), .clear],
                                        center: .topTrailing, startRadius: 0, endRadius: geometry.size.width)
                         if let coverImageName {
-                            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0)
+                            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0, maxPixelSize: 96)
                                 .frame(width: geometry.size.width, height: geometry.size.height)
                                 .clipped().blur(radius: 24)
                                 .opacity(colorScheme == .dark ? 0.16 : 0.10)
@@ -189,11 +243,12 @@ struct WidgetCanvasBackground: View {
                 .clipped()
             }
             if showsContours {
+                let ringStroke = WidgetDesign.brandTint.opacity(colorScheme == .dark ? 0.055 : 0.035)
                 GeometryReader { geometry in
                     let side = geometry.size.width * 0.85
                     ZStack {
                         ForEach(0..<5) { ring in
-                            Circle().strokeBorder(WidgetDesign.brandTint.opacity(colorScheme == .dark ? 0.055 : 0.035), lineWidth: 1)
+                            Circle().strokeBorder(ringStroke, lineWidth: 1)
                                 .padding(CGFloat(ring) * 13)
                         }
                     }
@@ -449,6 +504,7 @@ struct WidgetCoverImageView: View {
     var placeholderIndex: Int = 0
     /// 一圈细白边; 贴着小组件边铺满的封面不要, 不然边上会多出一道框。
     var outlined = true
+    var maxPixelSize: Int = 360
 
     var body: some View {
         if let image = loadImage() {
@@ -478,18 +534,7 @@ struct WidgetCoverImageView: View {
     }
 
     private func loadImage() -> WidgetImage? {
-        guard let coverImageName, !coverImageName.isEmpty else { return nil }
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
-        ) else { return nil }
-
-        let fileURL = containerURL.appendingPathComponent(coverImageName)
-        guard FileManager.default.fileExists(atPath: fileURL.path),
-              let data = try? Data(contentsOf: fileURL),
-              let image = WidgetImage(data: data) else {
-            return nil
-        }
-        return image
+        WidgetCoverLoader.thumbnail(named: coverImageName, maxPixelSize: maxPixelSize)
     }
 }
 
@@ -497,6 +542,7 @@ struct RecentAlbumCoverView: View {
     let entry: RecentAlbumEntry
     var cornerRadius: CGFloat = 8
     var placeholderIndex: Int = 0
+    var maxPixelSize: Int = 200
 
     var body: some View {
         if let image = loadImage() {
@@ -523,18 +569,7 @@ struct RecentAlbumCoverView: View {
     }
 
     private func loadImage() -> WidgetImage? {
-        guard let coverName = entry.coverImageName, !coverName.isEmpty else { return nil }
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
-        ) else { return nil }
-
-        let fileURL = containerURL.appendingPathComponent(coverName)
-        guard FileManager.default.fileExists(atPath: fileURL.path),
-              let data = try? Data(contentsOf: fileURL),
-              let image = WidgetImage(data: data) else {
-            return nil
-        }
-        return image
+        WidgetCoverLoader.thumbnail(named: entry.coverImageName, maxPixelSize: maxPixelSize)
     }
 }
 

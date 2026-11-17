@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import UIKit
 import WidgetKit
@@ -51,12 +52,14 @@ struct NowPlayingProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (NowPlayingEntry) -> Void) {
-        completion(NowPlayingEntry(date: Date(), snapshot: SharedNowPlayingState.read()))
+        let includeCover = context.family == .accessoryRectangular
+        completion(NowPlayingEntry(date: Date(), snapshot: SharedNowPlayingState.read(includeCover: includeCover)))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<NowPlayingEntry>) -> Void) {
         let now = Date()
-        let snapshot = SharedNowPlayingState.read()
+        let includeCover = context.family == .accessoryRectangular
+        let snapshot = SharedNowPlayingState.read(includeCover: includeCover)
         let staleDate = snapshot.staleDate
         if snapshot.hasSong, now < staleDate {
             let expiry = max(now.addingTimeInterval(1), staleDate)
@@ -64,11 +67,11 @@ struct NowPlayingProvider: TimelineProvider {
                 NowPlayingEntry(date: now, snapshot: snapshot),
                 NowPlayingEntry(date: expiry, snapshot: .empty)
             ]
-            completion(Timeline(entries: entries, policy: .after(expiry)))
+            completion(Timeline(entries: entries, policy: .never))
         } else {
             completion(Timeline(
                 entries: [NowPlayingEntry(date: now, snapshot: .empty)],
-                policy: .after(now.addingTimeInterval(SharedNowPlayingState.Snapshot.staleInterval))
+                policy: .never
             ))
         }
     }
@@ -180,7 +183,7 @@ struct NowPlayingComplicationView: View {
     /// 有封面放封面, 没有就放状态图标。
     @ViewBuilder
     private var artwork: some View {
-        if let data = snapshot.coverJPEG, let image = UIImage(data: data) {
+        if let data = snapshot.coverJPEG, let image = Self.complicationThumbnail(from: data) {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
@@ -197,6 +200,23 @@ struct NowPlayingComplicationView: View {
             Image(systemName: iconName)
                 .font(.headline)
                 .widgetAccentable()
+        }
+    }
+
+    private static func complicationThumbnail(from data: Data) -> UIImage? {
+        autoreleasepool {
+            guard let source = CGImageSourceCreateWithData(
+                data as CFData,
+                [kCGImageSourceShouldCache: false] as CFDictionary
+            ), let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: 96,
+            ] as CFDictionary) else {
+                return UIImage(data: data)
+            }
+            return UIImage(cgImage: cgImage)
         }
     }
 

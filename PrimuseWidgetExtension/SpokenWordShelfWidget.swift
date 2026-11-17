@@ -495,13 +495,8 @@ struct WidgetBookCover: View {
     }
 
     private func loadImage() -> WidgetImage? {
-        guard let coverImageName, !coverImageName.isEmpty,
-              let containerURL = FileManager.default.containerURL(
-                  forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
-              ),
-              let data = try? Data(contentsOf: containerURL.appendingPathComponent(coverImageName)) else {
-            return nil
-        }
-        return WidgetImage(data: data)
+        let height = SpokenWordCoverLayout.height(forWidth: width)
+        let maxPixel = max(120, Int((max(width, height) * 3).rounded(.up)))
+        return WidgetCoverLoader.thumbnail(named: coverImageName, maxPixelSize: maxPixel)
     }
 }
