@@ -4110,6 +4110,7 @@
 "minimal_mode_title" = "미니멀 모드";
 "minimal_mode_description" = "하단 탐색 막대를 숨기고 상단에서 홈, 음악, 라디오, 오디오를 전환합니다. 재생 막대는 하단에 고정됩니다.";
 "minimal_section_swipe" = "좌우로 스와이프해 카테고리 전환";
+"minimal_section_swipe_info" = "‘음악’에서 좌우로 스와이프해 즐겨찾기, 곡, 장르 등 카테고리를 전환합니다. 켜져 있는 동안 곡을 스와이프해도 ‘다음에 재생’과 ‘재생 대기열에 추가’가 나오지 않으며, 곡을 길게 누르면 사용할 수 있습니다.";
 "minimal_tab_spoken" = "오디오";
 "minimal_top_tabs_title" = "상단 탭";
 "minimal_top_tabs_edit" = "상단 탭 편집";

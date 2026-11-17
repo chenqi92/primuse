@@ -974,6 +974,7 @@ struct LibraryView: View {
         return LibrarySectionSwipeContainer(
             sectionID: section.rawValue,
             enabled: !sections.isEmpty,
+            excludesTrailingEdge: section == .songs,
             motion: sectionPagingMotion,
             neighbor: { forward in
                 LibrarySectionPagingPolicy.neighbor(in: sections, of: section, forward: forward)?.rawValue
@@ -990,10 +991,16 @@ struct LibraryView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
         }
+        // 导航栈原地换页时会沿用栈里这一格的视图：不按分类分开，新页接着用旧页滑出去的位移，也不触发
+        // 出现，进场轮不到，过了兜底时限才从旧页离开的那一侧拉回来——往哪边翻都像是反的，前面还空着一截。
+        .id(section)
     }
 
     /// 横滑翻到相邻分类：和点顶上的分类一样换掉导航栈里这一页，只是不要导航栈自己的推入动画
-    /// （旧页已经滑出去、新页自己从另一侧进来）；顶上的分类行照常把下划线和滚动位置挪过去。
+    /// （旧页已经滑出去、新页自己从另一侧进来）。顶上的分类行是新页自己的那一份，下划线由外壳从上一格滑过去。
+    ///
+    /// 报当前分类也放在这个不带动画的事务里，不另包 `withAnimation`：同一拍里的导航栈换页不能被带上动画，
+    /// 进场方向只由横滑自己定。
     private func pageToSection(_ next: LibrarySection) {
         #if DEBUG
         LibrarySectionSwitchTrace.begin(next.rawValue)
@@ -1006,8 +1013,6 @@ struct LibraryView: View {
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             navigationPath = path
-        }
-        withAnimation(reduceMotion ? nil : PMMotion.selection.animation) {
             onActiveSectionChange(next)
         }
     }

@@ -38,17 +38,22 @@ public enum LibrarySectionPagingPolicy {
     }
 
     /// 起手点在不接的边缘条里。`startX` 是在容器里的横坐标。
+    ///
+    /// 后沿那一条只有带字母索引的页（歌曲页）才让：别的页往后翻时手指常从右边缘附近起手，
+    /// 流派、收藏的卡片一直排到边上，让出这一条就成了「只有中间能划」。
     public static func startsInEdgeExclusion(
         startX: Double,
         containerWidth: Double,
-        isRightToLeft: Bool
+        isRightToLeft: Bool,
+        excludesTrailingEdge: Bool = true
     ) -> Bool {
         guard containerWidth > 0, startX.isFinite else { return true }
         let fromLeft = startX
         let fromRight = containerWidth - startX
         let leading = isRightToLeft ? fromRight : fromLeft
         let trailing = isRightToLeft ? fromLeft : fromRight
-        return leading < leadingEdgeExclusion || trailing < trailingEdgeExclusion
+        return leading < leadingEdgeExclusion
+            || (excludesTrailingEdge && trailing < trailingEdgeExclusion)
     }
 
     /// 新的一页从哪一侧进来：+1 从右侧（往后翻、LTR），-1 从左侧。和手指方向一致，与语言方向无关。

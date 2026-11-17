@@ -4111,6 +4111,7 @@
 "minimal_mode_title" = "ミニマルモード";
 "minimal_mode_description" = "下部のナビゲーションバーを隠し、上部でホーム・ミュージック・ラジオ・音声を切り替えます。再生バーは下部に固定されます。";
 "minimal_section_swipe" = "左右スワイプでカテゴリを切り替え";
+"minimal_section_swipe_info" = "「ミュージック」でお気に入り・曲・ジャンルなどのカテゴリを左右スワイプで切り替えます。オンの間は曲をスワイプしても「次に再生」「再生キューに追加」は出ません。曲を長押しすると使えます。";
 "minimal_tab_spoken" = "音声";
 "minimal_top_tabs_title" = "上部のタブ";
 "minimal_top_tabs_edit" = "上部のタブを編集";

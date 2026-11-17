@@ -4212,6 +4212,7 @@
 "minimal_mode_title" = "极简模式";
 "minimal_mode_description" = "隐藏底部导航栏：在顶部切换首页、音乐、电台与有声，播放条停靠在底部。";
 "minimal_section_swipe" = "左右滑动切换分类";
+"minimal_section_swipe_info" = "在「音乐」里左右滑动，在收藏、歌曲、流派等分类之间切换。开着时在歌曲上左右滑不再出现「下一首播放」「加入播放队列」，长按歌曲可以找到这两项。";
 "minimal_tab_spoken" = "有声";
 "minimal_top_tabs_title" = "顶部切换";
 "minimal_top_tabs_edit" = "调整顶部切换";

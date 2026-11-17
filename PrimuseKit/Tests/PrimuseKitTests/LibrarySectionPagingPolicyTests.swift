@@ -41,6 +41,18 @@ struct LibrarySectionPagingPolicyTests {
         #expect(!LibrarySectionPagingPolicy.startsInEdgeExclusion(startX: 200, containerWidth: 390, isRightToLeft: true))
         #expect(LibrarySectionPagingPolicy.startsInEdgeExclusion(startX: 200, containerWidth: 0, isRightToLeft: false))
     }
+
+    @Test("没有字母索引的页后沿也能起手，前沿照样让给系统返回")
+    func trailingEdgeOnlyForAlphabetIndex() {
+        #expect(!LibrarySectionPagingPolicy.startsInEdgeExclusion(
+            startX: 360, containerWidth: 390, isRightToLeft: false, excludesTrailingEdge: false))
+        #expect(!LibrarySectionPagingPolicy.startsInEdgeExclusion(
+            startX: 30, containerWidth: 390, isRightToLeft: true, excludesTrailingEdge: false))
+        #expect(LibrarySectionPagingPolicy.startsInEdgeExclusion(
+            startX: 10, containerWidth: 390, isRightToLeft: false, excludesTrailingEdge: false))
+        #expect(LibrarySectionPagingPolicy.startsInEdgeExclusion(
+            startX: 380, containerWidth: 390, isRightToLeft: true, excludesTrailingEdge: false))
+    }
 }
 
 @Suite("Minimal page switch")

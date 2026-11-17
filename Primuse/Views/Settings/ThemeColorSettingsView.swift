@@ -115,7 +115,13 @@ struct AppearanceSettingsView: View {
                     // 「音乐」下面的分类（收藏、歌曲、流派……）在内容区左右滑动切换，只在 iPhone 上。
                     if UIDevice.current.userInterfaceIdiom == .phone {
                         Toggle(isOn: $sectionSwipeEnabled) {
-                            Label("minimal_section_swipe", systemImage: "arrow.left.and.right")
+                            Label {
+                                SettingsInfoLabel("minimal_section_swipe") {
+                                    Text("minimal_section_swipe_info")
+                                }
+                            } icon: {
+                                Image(systemName: "arrow.left.and.right")
+                            }
                         }
                         .id(ThemeColorSettings.shared.isWhiteTheme)
                         .settingsAnchor("appearance.sectionSwipe")

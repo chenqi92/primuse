@@ -50,12 +50,15 @@ enum LibrarySectionSwitchTrace {
 
 /// 分类页的横滑翻页：内容跟手走，松手够远或够快就翻到相邻的分类，到两端有阻尼。
 ///
-/// 只接「这一页没有别人要」的横滑：歌曲行自己的左右滑（入队、下一首）、列表行的系统滑动操作、
-/// 系统的边缘返回都先认，认不了才轮到翻页；在横着滚的一排里、贴着左右边缘起手的不接；
+/// 页里横着划归翻页：起手落在卡片、歌曲行上也翻。歌曲行因此不再左右滑出入队（见
+/// `songRowSwipeYieldsToSectionPaging`，两项留在长按菜单里）；列表行的系统滑动操作（歌单左滑删除）
+/// 和系统的边缘返回先认，认不了才轮到翻页；在横着滚的一排里、贴着左右边缘起手的不接；
 /// 批量选择时整个停用。换页走导航栈换掉这一页，和点顶上的分类是同一条路，不会更慢。
 struct LibrarySectionSwipeContainer<Content: View>: View {
     let sectionID: String
     let enabled: Bool
+    /// 这一页右缘有字母索引（歌曲页）：贴着后沿起手的留给索引。
+    var excludesTrailingEdge = false
     let motion: LibrarySectionPagingMotion
     /// 往后（`true`）或往前翻到的分类；那一侧没有分类时返回 nil。
     let neighbor: (Bool) -> String?
@@ -74,6 +77,7 @@ struct LibrarySectionSwipeContainer<Content: View>: View {
 
     var body: some View {
         content
+            .environment(\.songRowSwipeYieldsToSectionPaging, enabled)
             .offset(x: offset)
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width
@@ -86,6 +90,7 @@ struct LibrarySectionSwipeContainer<Content: View>: View {
             .gesture(LibrarySectionSwipeGesture(
                 enabled: enabled && !batchSelecting,
                 isRightToLeft: isRightToLeft,
+                excludesTrailingEdge: excludesTrailingEdge,
                 onEvent: handle
             ))
             .onAppear {
@@ -205,10 +210,11 @@ private struct LibrarySectionSwipeGesture: UIGestureRecognizerRepresentable {
 
     var enabled: Bool
     var isRightToLeft: Bool
+    var excludesTrailingEdge: Bool
     let onEvent: (Event) -> Void
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
-        Coordinator(isRightToLeft: isRightToLeft)
+        Coordinator(isRightToLeft: isRightToLeft, excludesTrailingEdge: excludesTrailingEdge)
     }
 
     func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
@@ -225,6 +231,7 @@ private struct LibrarySectionSwipeGesture: UIGestureRecognizerRepresentable {
 
     func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
         context.coordinator.isRightToLeft = isRightToLeft
+        context.coordinator.excludesTrailingEdge = excludesTrailingEdge
         recognizer.isEnabled = enabled
     }
 
@@ -246,11 +253,13 @@ private struct LibrarySectionSwipeGesture: UIGestureRecognizerRepresentable {
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var isRightToLeft: Bool
+        var excludesTrailingEdge: Bool
         /// 这一次按下的时刻：按住一会儿才动的是长按菜单或拖动排序。
         private var touchDownTime: TimeInterval = 0
 
-        init(isRightToLeft: Bool) {
+        init(isRightToLeft: Bool, excludesTrailingEdge: Bool) {
             self.isRightToLeft = isRightToLeft
+            self.excludesTrailingEdge = excludesTrailingEdge
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
@@ -260,7 +269,8 @@ private struct LibrarySectionSwipeGesture: UIGestureRecognizerRepresentable {
                LibrarySectionPagingPolicy.startsInEdgeExclusion(
                    startX: Double(touch.location(in: window).x),
                    containerWidth: Double(window.bounds.width),
-                   isRightToLeft: isRightToLeft
+                   isRightToLeft: isRightToLeft,
+                   excludesTrailingEdge: excludesTrailingEdge
                ) {
                 return false
             }
@@ -298,24 +308,47 @@ private struct LibrarySectionSwipeGesture: UIGestureRecognizerRepresentable {
             return otherGestureRecognizer === scrollView.panGestureRecognizer
         }
 
-        /// 行内自己的横滑（歌曲行的入队、下一首，列表行的系统滑动操作、字母索引）和系统边缘返回优先：
-        /// 它们认不了这一下，才轮到翻页。想入队的一划绝不会切了分类。
+        /// 只等这几样先认：系统边缘返回、列表行的系统滑动操作（歌单左滑删除）、还开着横滑的歌曲行。
+        ///
+        /// 原先页里所有拖动类的手势都要先失败才轮到翻页，按住卡片、歌曲行时总有一个一直等到松手才算失败，
+        /// 结果只有空白处能翻。字母索引、横着滚的一排在 `shouldReceive` 里按起手位置让开了。
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
             if otherGestureRecognizer is UIScreenEdgePanGestureRecognizer { return true }
-            guard otherGestureRecognizer is UIPanGestureRecognizer,
-                  otherGestureRecognizer !== gestureRecognizer,
+            if otherGestureRecognizer is SongRowPanRecognizer { return true }
+            guard otherGestureRecognizer !== gestureRecognizer,
                   let ownView = gestureRecognizer.view,
                   let otherView = otherGestureRecognizer.view,
-                  otherView !== ownView,
                   otherView.isDescendant(of: ownView) else { return false }
-            if let scrollView = otherView as? UIScrollView,
-               otherGestureRecognizer === scrollView.panGestureRecognizer {
-                return false
+            return Self.isListSwipeAction(otherGestureRecognizer)
+        }
+
+        /// 系统 26 起导航栈在内容上也能右划返回：分类页上的横划先归翻页，到头了也不会把这一页拉回总览。
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            guard #available(iOS 26, *) else { return false }
+            var responder: UIResponder? = gestureRecognizer.view
+            while let current = responder {
+                if let controller = current as? UIViewController,
+                   let navigation = (controller as? UINavigationController) ?? controller.navigationController {
+                    return otherGestureRecognizer === navigation.interactiveContentPopGestureRecognizer
+                }
+                responder = current.next
             }
-            return true
+            return false
+        }
+
+        /// 列表（表格、集合视图）行的系统滑动操作用的拖动手势，挂在列表本身上，不是它滚动用的那一个。
+        private static func isListSwipeAction(_ recognizer: UIGestureRecognizer) -> Bool {
+            guard recognizer is UIPanGestureRecognizer,
+                  let list = recognizer.view as? UIScrollView,
+                  list is UICollectionView || list is UITableView,
+                  recognizer !== list.panGestureRecognizer else { return false }
+            return NSStringFromClass(type(of: recognizer)).contains("SwipeAction")
         }
     }
 }

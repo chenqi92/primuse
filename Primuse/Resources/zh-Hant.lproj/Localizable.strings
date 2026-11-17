@@ -4096,6 +4096,7 @@
 "minimal_mode_title" = "極簡模式";
 "minimal_mode_description" = "隱藏底部導覽列：在頂部切換首頁、音樂、電台與有聲，播放條停靠在底部。";
 "minimal_section_swipe" = "左右滑動切換分類";
+"minimal_section_swipe_info" = "在「音樂」裡左右滑動，在收藏、歌曲、曲風等分類之間切換。開著時在歌曲上左右滑不再出現「下一首播放」「加入播放佇列」，長按歌曲可以找到這兩項。";
 "minimal_tab_spoken" = "有聲";
 "minimal_top_tabs_title" = "頂部切換";
 "minimal_top_tabs_edit" = "調整頂部切換";

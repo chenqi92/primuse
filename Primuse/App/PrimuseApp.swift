@@ -1878,6 +1878,8 @@ struct PrimuseApp: App {
                 .modifier(DebugEvidenceOrientation())
         } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "songLocation" {
             SongLocationEvidenceHost()
+        } else if LibrarySectionSwipeEvidenceHost.isRequested {
+            LibrarySectionSwipeEvidenceHost()
         } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "libraryDetail" {
             LibraryDetailEvidenceHost()
                 .modifier(DebugEvidenceOrientation())

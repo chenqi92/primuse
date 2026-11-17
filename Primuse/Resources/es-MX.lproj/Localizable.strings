@@ -2403,6 +2403,7 @@
 "mini_player" = "Mini reproductor";
 "minimal_mode_description" = "Oculta la barra de navegación inferior: cambia entre Inicio, Música, Radio y Audio en la parte superior; el reproductor queda fijo abajo.";
 "minimal_section_swipe" = "Deslizar entre categorías";
+"minimal_section_swipe_info" = "Desliza a la izquierda o a la derecha en Música para pasar entre Favoritos, Canciones, Géneros y las demás categorías. Mientras esté activado, deslizar una canción ya no muestra Reproducir siguiente ni Agregar a la cola; mantén presionada la canción para encontrarlos.";
 "minimal_tab_spoken" = "Audio";
 "minimal_top_tabs_title" = "Pestañas superiores";
 "minimal_top_tabs_edit" = "Editar pestañas superiores";

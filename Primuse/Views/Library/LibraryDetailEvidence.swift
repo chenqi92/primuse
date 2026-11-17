@@ -523,6 +523,13 @@ private final class SongLocationEvidenceFixture {
                 }
             }
         }
+        if LibrarySectionSwipeEvidenceHost.isRequested {
+            let genres = ["Rock", "Pop", "Jazz", "Classical", "Electronic", "Folk",
+                          "Hip-Hop", "Blues", "Metal", "Soul", "Ambient", "Country"]
+            for index in songs.indices {
+                songs[index].genre = genres[index % genres.count]
+            }
+        }
         if testsOfflineFailure {
             // 让点歌名后的播放停留在选中曲目，避免缺失的占位文件触发自动跳歌。
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("offline-hint-fixture.wav")
@@ -566,6 +573,46 @@ private final class SongLocationEvidenceFixture {
                     playlists: library.playlistCollectionRevision, hierarchy: 0, names: 0, sources: descriptors),
                 metadataToken: library.songReplacementToken, directoryNames: [:]
             )
+        }
+    }
+}
+
+/// 极简导航「音乐」各分类之间横滑翻页的取证页，`PRIMUSE_VISUAL_EVIDENCE=sectionSwipe`：
+/// 真实的资料库（收藏、歌曲、流派这些页和换页逻辑），曲库是 4000 首带流派的假歌。当前停在哪个分类
+/// 写在右上角 `sectionSwipe.active` 里，界面测试从卡片、歌曲行上起手横滑，看分类换没换。
+struct LibrarySectionSwipeEvidenceHost: View {
+    static var isRequested: Bool {
+        ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "sectionSwipe"
+    }
+
+    @State private var fixture = SongLocationEvidenceFixture()
+    @State private var isReady = false
+    @State private var active = ""
+
+    var body: some View {
+        Group {
+            if isReady {
+                LibraryView(onActiveSectionChange: { active = $0?.rawValue ?? "" })
+                    .environment(\.appNavigationMode, .minimal)
+                    .overlay(alignment: .topTrailing) {
+                        Text(verbatim: active.isEmpty ? "-" : active)
+                            .font(.caption2.monospaced())
+                            .padding(.horizontal, 6)
+                            .background(.yellow.opacity(0.6))
+                            .accessibilityIdentifier("sectionSwipe.active")
+                    }
+            } else {
+                ProgressView()
+            }
+        }
+        .environment(fixture.library)
+        .environment(fixture.player)
+        .environment(fixture.sources)
+        .environment(fixture.folderModel)
+        .task {
+            guard !isReady else { return }
+            await fixture.prepare()
+            isReady = true
         }
     }
 }

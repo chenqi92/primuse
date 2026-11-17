@@ -35,6 +35,8 @@ struct SongRowView: View {
     /// 封面多大、字多大。极简模式的列表行封面更大，副标题前带音质标。
     @Environment(\.songRowStyle) private var rowStyle
     @Environment(\.locale) private var locale
+    /// 所在的分类页左右滑动翻页（极简导航「音乐」下面）：横划归翻页，这一行不再左右滑出入队。
+    @Environment(\.songRowSwipeYieldsToSectionPaging) private var swipeYieldsToSectionPaging
 
     let song: Song
     var actionRequest: SongRowActionRequest? = nil
@@ -619,12 +621,12 @@ struct SongRowView: View {
         // 外层 ForEach / LazyVStack 上绝不能挂。
         .pmAnimation(.control, value: isPlaying)
         // 时间线与封面左右交替，横滑露出的按钮会落在中轴另一侧的空白里，大封面还伸进邻居的槽位：
-        // 这两种外观不横滑，入队留在长按菜单里，辅助功能的两个入队动作照旧。
+        // 这两种外观不横滑；分类页能左右翻页时横划也归翻页。入队留在长按菜单里，辅助功能的两个入队动作照旧。
         .songRowSwipeActions(
             songID: song.id,
             isEnabled: allowsQueueActions,
             clipsContent: listAppearance == .list,
-            allowsSwipe: listAppearance == .list,
+            allowsSwipe: listAppearance == .list && !swipeYieldsToSectionPaging,
             onInsertNext: { insertNextInQueue() },
             onAppendToQueue: { player.appendToQueue([song]) }
         )
@@ -818,8 +820,8 @@ struct SongRowView: View {
             }
         }
 
-        // 时间线与封面外观没有横滑，横滑里的「加入队列」放进菜单。
-        if listAppearance != .list, canQueueSong {
+        // 时间线与封面外观没有横滑、分类页横划归翻页时也不横滑，横滑里的「加入队列」放进菜单。
+        if listAppearance != .list || swipeYieldsToSectionPaging, canQueueSong {
             Button {
                 player.appendToQueue([song])
             } label: {
@@ -1189,6 +1191,12 @@ struct SongRowView: View {
     private func formatDuration(_ duration: TimeInterval) -> String {
         duration.formattedDuration
     }
+}
+
+extension EnvironmentValues {
+    /// 歌曲行所在的页左右滑动换分类（极简导航「音乐」下的收藏、歌曲、流派……，设置里可关）：横划交给翻页，
+    /// 行不再左右滑出「下一首播放」「加入播放队列」，两项留在长按菜单里。翻页关掉、别的页面照旧横滑。
+    @Entry var songRowSwipeYieldsToSectionPaging = false
 }
 
 #if os(iOS)

@@ -2403,6 +2403,7 @@
 "mini_player" = "Miniodtwarzacz";
 "minimal_mode_description" = "Ukrywa dolny pasek nawigacyjny: u góry przełączasz Główna, Muzyka, Radia i Audio, a odtwarzacz jest przypięty na dole.";
 "minimal_section_swipe" = "Przesuwaj, aby zmieniać kategorie";
+"minimal_section_swipe_info" = "Przesuwaj w lewo lub w prawo w sekcji Muzyka, aby przechodzić między Ulubionymi, Utworami, Gatunkami i innymi kategoriami. Gdy ta opcja jest włączona, przesunięcie utworu nie pokazuje już „Odtwórz następny” ani „Dodaj do kolejki” – znajdziesz je po przytrzymaniu utworu.";
 "minimal_tab_spoken" = "Audio";
 "minimal_top_tabs_title" = "Karty u góry";
 "minimal_top_tabs_edit" = "Edytuj karty u góry";

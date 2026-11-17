@@ -4110,6 +4110,7 @@
 "minimal_mode_title" = "Minimalmodus";
 "minimal_mode_description" = "Blendet die untere Navigation aus: Oben wechselst du zwischen Start, Musik, Radio und Audio, der Player sitzt unten.";
 "minimal_section_swipe" = "Zwischen Kategorien wischen";
+"minimal_section_swipe_info" = "Wische im Bereich „Musik“ nach links oder rechts, um zwischen Favoriten, Titeln, Genres und weiteren Kategorien zu wechseln. Solange das aktiv ist, zeigt ein Wischen über einen Titel nicht „Als Nächstes abspielen“ und „Zur Warteschlange hinzufügen“ – beides findest du, wenn du den Titel gedrückt hältst.";
 "minimal_tab_spoken" = "Audio";
 "minimal_top_tabs_title" = "Tabs oben";
 "minimal_top_tabs_edit" = "Tabs oben bearbeiten";

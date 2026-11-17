@@ -77,11 +77,12 @@ final class HomeTopSwitchingUITests: XCTestCase {
         try verifyInstalledSongRowGestures(mode: "standard", tabPrefix: "library.sectionTab")
     }
 
-    func testMinimalSongRowsKeepQueueSwipesAndVerticalScrolling() throws {
-        try verifyInstalledSongRowGestures(mode: "minimal", tabPrefix: "minimal.section")
+    /// 极简导航的分类页横划归翻页，歌曲行不再左右滑出入队（`LibrarySectionSwipeUITests` 用假曲库测翻页）。
+    func testMinimalSongRowsKeepSelectionAndVerticalScrolling() throws {
+        try verifyInstalledSongRowGestures(mode: "minimal", tabPrefix: "minimal.section", rowsOwnSwipes: false)
     }
 
-    private func verifyInstalledSongRowGestures(mode: String, tabPrefix: String) throws {
+    private func verifyInstalledSongRowGestures(mode: String, tabPrefix: String, rowsOwnSwipes: Bool = true) throws {
         continueAfterFailure = false
         let app = configuredHomeRegressionApp()
         restoreHomeAfterTest(app, arguments: app.launchArguments)
@@ -131,7 +132,8 @@ final class HomeTopSwitchingUITests: XCTestCase {
         XCTAssertTrue(cancel.isHittable, "A swipe while selecting songs must keep selection mode active")
         cancel.tap()
         assertSelected(songs)
-        for (row, distance, title) in [(visibleRows[0], CGFloat(105), "下一首播放"), (visibleRows[1], CGFloat(-105), "加入播放队列")] {
+        for (row, distance, title) in [(visibleRows[0], CGFloat(105), "下一首播放"), (visibleRows[1], CGFloat(-105), "加入播放队列")]
+            where rowsOwnSwipes {
             let frame = row.frame
             let start = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: screen.midX, dy: frame.midY))
             start.press(forDuration: 0.04, thenDragTo: start.withOffset(CGVector(dx: distance, dy: 0)), withVelocity: .slow, thenHoldForDuration: 0)
@@ -196,7 +198,14 @@ final class HomeTopSwitchingUITests: XCTestCase {
         let trailing = app.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.65))
             .withOffset(CGVector(dx: -36, dy: 0))
         trailing.press(forDuration: 0.05, thenDragTo: left)
-        XCTAssertTrue(favorites.isSelected, "A drag starting in the alphabet index area must keep the current page")
+        if mode == "minimal" {
+            // 极简导航只在有字母索引的歌曲页让出右缘那一条；收藏页贴着右缘起手也翻页。
+            assertSelected(genres)
+            left.press(forDuration: 0.05, thenDragTo: right)
+            assertSelected(favorites)
+        } else {
+            XCTAssertTrue(favorites.isSelected, "A drag starting in the alphabet index area must keep the current page")
+        }
         right.press(forDuration: 0.05, thenDragTo: left)
         assertSelected(genres)
         left.press(forDuration: 0.05, thenDragTo: right)
@@ -945,5 +954,109 @@ final class HomeTopSwitchingUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+}
+
+/// 极简导航「音乐」分类横滑翻页：起手落在卡片、歌曲行上也要能翻（取证页 `sectionSwipe` 是 4000 首带流派的假曲库）。
+@MainActor
+final class LibrarySectionSwipeUITests: XCTestCase {
+    func testDragStartingOnGenreCardSwitchesSection() {
+        let app = launch(page: "genres")
+        // 流派按名字排，第一排是 Ambient、Blues：取屏幕上看得见的卡片，往回从左边那张起手，往后从右边那张起手。
+        let left = app.buttons["Ambient"].firstMatch
+        XCTAssertTrue(left.waitForExistence(timeout: 30))
+        drag(app, from: app.buttons["Blues"].firstMatch, by: -230)
+        XCTAssertTrue(app.staticTexts["sectionSwipe.active"].label == "genres", "Genres is the last category")
+        drag(app, from: left, by: 230)
+        assertActive(app, "songs", "A drag that starts on a genre card must page to the previous category")
+    }
+
+    func testDragStartingOnSongRowSwitchesSection() {
+        let app = launch(page: "songs")
+        let row = middleSongRow(app)
+        drag(app, from: row, by: -230)
+        assertActive(app, "genres", "A drag that starts on a song row must page to the next category")
+        let card = app.buttons["Ambient"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        drag(app, from: card, by: 230)
+        assertActive(app, "songs")
+        drag(app, from: middleSongRow(app), by: 230)
+        assertActive(app, "favorites", "A rightward drag on a song row must page back as well")
+    }
+
+    func testRowLongPressStillOffersQueueActions() {
+        let app = launch(page: "songs")
+        middleSongRow(app).press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["加入播放队列"].firstMatch.waitForExistence(timeout: 5),
+                      "Queue actions stay in the row menu when swipes page between categories")
+    }
+
+    private func launch(page: String) -> XCUIApplication {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "sectionSwipe"
+        app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
+        app.launchEnvironment["PRIMUSE_NO_NOTIFICATION_PROMPT"] = "1"
+        let hidden = ["recommendations", "playlists", "artists", "albums", "folders", "releaseDate", "statistics"]
+        app.launchArguments = [
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+            "-primuse.hasSeenOnboarding", "YES", "-primuse.iCloudSyncEnabled", "NO",
+            "-primuse.notifyLongTasks", "NO", "-primuse.launch.consecutiveAborts", "0",
+            "-primuse.launch.safeModeLatched", "NO", "-primuse.launch.backgroundLaunchRepairDone", "NO",
+            "-primuse.library.sectionSwipe.v1", "YES",
+            "-primuse.navigation.libraryPage.v1", "section:\(page)",
+            "-primuse.library.sectionOrder.v1", "",
+            "-primuse.library.hiddenSections.v1",
+            String(decoding: try! JSONEncoder().encode(String(decoding: try! JSONEncoder().encode(hidden), as: UTF8.self)), as: UTF8.self),
+            "-songListAppearance", "list", "-library.songBrowseMode", "flat", "-library.songFilter.v1", "all"
+        ]
+        addTeardownBlock { @MainActor in
+            if self.testRun?.hasSucceeded == false {
+                let shot = XCTAttachment(screenshot: app.screenshot())
+                shot.name = "section-swipe-failure"
+                shot.lifetime = .keepAlways
+                self.add(shot)
+            }
+            app.terminate()
+        }
+        app.launch()
+        assertActive(app, page, timeout: 90)
+        return app
+    }
+
+    private func middleSongRow(_ app: XCUIApplication) -> XCUIElement {
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "songRow."))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 60))
+        let screen = app.frame
+        for index in 0..<min(20, rows.count) {
+            let row = rows.element(boundBy: index)
+            let frame = row.frame
+            if frame.width > screen.width / 2, frame.minY > screen.height * 0.4,
+               frame.maxY < screen.height * 0.75, row.isHittable {
+                return rows.matching(identifier: row.identifier).firstMatch
+            }
+        }
+        XCTFail("No song row in the middle of the screen")
+        return rows.firstMatch
+    }
+
+    private func drag(_ app: XCUIElement, from element: XCUIElement, by distance: CGFloat) {
+        let frame = element.frame
+        let screen = app.frame
+        let startX = distance > 0 ? max(screen.minX + 60, frame.midX - distance / 2) : min(screen.maxX - 80, frame.midX - distance / 2)
+        let start = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: startX - screen.minX, dy: frame.midY - screen.minY))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: distance, dy: 0)),
+                    withVelocity: .default, thenHoldForDuration: 0)
+    }
+
+    private func assertActive(_ app: XCUIApplication, _ section: String, _ message: String = "",
+                              timeout: TimeInterval = 5, file: StaticString = #filePath, line: UInt = #line) {
+        let label = app.staticTexts["sectionSwipe.active"]
+        let matched = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            label.exists && label.label == section
+        }, object: nil)
+        let result = XCTWaiter.wait(for: [matched], timeout: timeout)
+        XCTAssertEqual(result, .completed, "\(message) (now: \(label.exists ? label.label : "missing"))", file: file, line: line)
     }
 }

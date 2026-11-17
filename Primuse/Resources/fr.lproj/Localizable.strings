@@ -4110,6 +4110,7 @@
 "minimal_mode_title" = "Mode minimal";
 "minimal_mode_description" = "Masque la navigation inférieure : passez d’Accueil à Musique, Radio et Audio en haut, le lecteur reste ancré en bas.";
 "minimal_section_swipe" = "Balayer entre les catégories";
+"minimal_section_swipe_info" = "Balayez vers la gauche ou la droite dans Musique pour passer d’une catégorie à l’autre : favoris, morceaux, genres, etc. Tant que cette option est activée, balayer un morceau n’affiche plus « Lire ensuite » ni « Ajouter à la file de lecture » ; maintenez le doigt sur le morceau pour les retrouver.";
 "minimal_tab_spoken" = "Audio";
 "minimal_top_tabs_title" = "Onglets du haut";
 "minimal_top_tabs_edit" = "Modifier les onglets du haut";

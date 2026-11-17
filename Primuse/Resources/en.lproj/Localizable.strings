@@ -3882,6 +3882,7 @@
 "minimal_mode_title" = "Minimal Mode";
 "minimal_mode_description" = "Hides the bottom navigation bar: switch between Home, Music, Radio and Audio at the top, with the player docked at the bottom.";
 "minimal_section_swipe" = "Swipe Between Categories";
+"minimal_section_swipe_info" = "Swipe left or right in Music to move between Favorites, Songs, Genres and the other categories. While this is on, swiping a song no longer reveals Play Next and Add to Queue; touch and hold the song to find them.";
 "minimal_tab_spoken" = "Audio";
 "minimal_top_tabs_title" = "Top Tabs";
 "minimal_top_tabs_edit" = "Edit Top Tabs";
