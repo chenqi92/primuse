@@ -125,6 +125,19 @@ struct RecentlyAddedAlbumPolicyTests {
         #expect(queue.map(\.id) == ["n1", "n2", "r2", "o1", "o2"])
     }
 
+    @Test func playbackQueueIncludesTheExactBatchBoundary() {
+        let cutoff: TimeInterval = 500_000
+        let window: TimeInterval = 86_400
+        let songs = [
+            song("before", albumID: "album", added: cutoff - 0.001),
+            song("boundary", albumID: "album", added: cutoff),
+            song("after", albumID: "album", added: cutoff + 0.001),
+            song("latest", albumID: "album", added: cutoff + window)
+        ]
+        let queue = RecentlyAddedAlbumPolicy.playbackQueue(albumSongs: [songs], batchWindow: window)
+        #expect(queue.map(\.id) == ["boundary", "after", "latest"])
+    }
+
     @Test func playbackQueueStopsAtTheLimitWithoutReadingLaterAlbums() {
         let first = (1...3).map { song("a\($0)", albumID: "a", added: 100) }
         let second = (1...3).map { song("b\($0)", albumID: "b", added: 50) }

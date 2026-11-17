@@ -331,8 +331,8 @@ extension RecentlyAddedAlbumPolicy {
         var queue: [Song] = []
         for songs in albumSongs {
             guard let latest = songs.lazy.map(date(for:)).max() else { continue }
-            let threshold = latest.addingTimeInterval(-batchWindow)
-            for song in songs where date(for: song) >= threshold {
+            let threshold = latest.addingTimeInterval(-batchWindow).timeIntervalSinceReferenceDate
+            for song in songs where date(for: song).timeIntervalSinceReferenceDate >= threshold {
                 queue.append(song)
                 if queue.count >= limit { return queue }
             }
