@@ -1868,13 +1868,11 @@ struct MacNowPlayingView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// 这首歌所在音乐源的名字。Apple Music、播客、电台不在音乐源列表里,它们的路径是曲目 id 或地址,
+    /// 不拿路径末段顶上(和 iPhone 播放页一样,找不到源就不写)。
     private var sourceLabel: String? {
         guard let song = player.currentSong else { return nil }
-        if let source = sourcesStore.source(id: song.sourceID) {
-            return source.name
-        }
-        let fallback = URL(fileURLWithPath: song.filePath).lastPathComponent
-        return fallback.isEmpty ? nil : fallback
+        return sourcesStore.source(id: song.sourceID)?.name
     }
 
     // MARK: - Floating controls (top-right of the window)

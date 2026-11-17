@@ -1510,9 +1510,12 @@ struct MacImmersivePlayerView: View {
         if usesDemoEvidenceContent { return ImmersiveDemoContent.title }
         #endif
         guard let song = player.currentSong else { return ImmersiveDemoContent.title }
-        let value = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !ServerCatalogMetadataInspectionPolicy.hasUsableTitle(value) else { return value }
-        return MediaMetadataTextRepair.fileNameTitle(from: song.filePath) ?? value
+        // 标签缺歌名时才拿文件名顶上;服务器源、Apple Music 的路径是条目 ID,不拿来当歌名(见 `PlayerDisplayTitlePolicy`)。
+        return PlayerDisplayTitlePolicy.title(
+            stored: song.title,
+            filePath: song.filePath,
+            sourceType: AppServices.shared.sourcesStore.source(id: song.sourceID)?.type
+        )
     }
 
     private var artistName: String {

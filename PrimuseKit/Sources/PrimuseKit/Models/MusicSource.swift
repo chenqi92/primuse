@@ -569,6 +569,13 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         category == .cloudDrive
     }
 
+    /// 条目路径的最后一段是不是用户认得的文件名。曲库型服务器按条目 id 合成路径(`/songs/<id>.flac`),
+    /// ID 寻址的网盘存文件 id,UPnP 是服务端的资源编号,Apple Music 是曲目 id:这些都不能当歌名显示。
+    public var itemPathsCarryFileNames: Bool {
+        !isServerLibrary && !usesOpaqueDirectoryIdentifiers
+            && self != .upnp && self != .appleMusic && self != .appleMusicLibrary
+    }
+
     /// Providers whose directory selection value is an opaque item identifier
     /// rather than a user-facing path. UI must never render these values as a
     /// fallback label when the provider name is unavailable.

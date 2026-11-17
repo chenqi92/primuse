@@ -155,6 +155,7 @@ public enum TextEncodingRepair {
         var hasArtifactRun = false
         var han = 0
         var rareHan = 0
+        var hasPrivateUse = false
 
         for scalar in text.unicodeScalars {
             let value = scalar.value
@@ -183,7 +184,13 @@ public enum TextEncodingRepair {
             }
             if isHan(value) {
                 han += 1
-                if !isCommonHan(scalar) { rareHan += 1 }
+                // 日文新字体(説、気、駅、桜、図)与「啓」这类写法不在 GB2312、Big5 里,却是正经的常用字;
+                // 只按两岸字库算会把三四成日文歌名判成乱码。只放宽到 JIS 第一水准:第二水准多是生僻字,
+                // UTF-8 被当 GBK 读出的残片(「寮犲畤」的「犲」)正落在那里。打分照旧只认两岸字库,
+                // 免得 Shift_JIS 候选在 GBK 标签上分数变高。
+                if !isCommonHan(scalar) && !isJapaneseStandardHan(scalar) { rareHan += 1 }
+            } else if (0xE000...0xF8FF).contains(value) {
+                hasPrivateUse = true
             }
         }
 
@@ -191,6 +198,8 @@ public enum TextEncodingRepair {
         // é / ð / ö 通常被 ASCII 分开。按连续簇判断可保留多重音符号人名, 同时
         // 仍覆盖 C1 字节和 CP1252 映射到 € ™ “ ” 等码位的典型乱码。
         if hasArtifactRun { return true }
+        // 私用区码位不会出现在正经歌名里,和汉字夹在一起多半是 UTF-8 被当 GBK 读出来的残片。
+        if hasPrivateUse && han >= 1 { return true }
 
         // 汉字被当成另一套汉字解出来时, 结果几乎必然夹带生僻字。只看"有汉字"
         // 会让每个正常中文标题都跑满整个候选矩阵 —— 而扫描时每首歌要判 4 个
@@ -816,6 +825,27 @@ public enum TextEncodingRepair {
     private static func isCommonHan(_ scalar: Unicode.Scalar) -> Bool {
         commonHanScalars.contains(scalar.value)
     }
+
+    /// JIS X 0208 第一水准汉字(2965 个常用字)。只给 `looksCorrupted` 用,见那里的说明。
+    static func isJapaneseStandardHan(_ scalar: Unicode.Scalar) -> Bool {
+        japaneseStandardHanScalars.contains(scalar.value)
+    }
+
+    private static let japaneseStandardHanScalars: Set<UInt32> = {
+        var scalars = Set<UInt32>()
+        scalars.reserveCapacity(3000)
+        // EUC-JP 第一水准 B0A1...CFD3;第二水准 D0A1...F4A6 不收。
+        for lead in 0xB0...0xCF {
+            for trail in 0xA1...0xFE {
+                guard let text = String(data: Data([UInt8(lead), UInt8(trail)]), encoding: .japaneseEUC),
+                      text.unicodeScalars.count == 1,
+                      let scalar = text.unicodeScalars.first,
+                      isHan(scalar.value) else { continue }
+                scalars.insert(scalar.value)
+            }
+        }
+        return scalars
+    }()
 
     /// 扫描大库时 `isSuspicious` 会对每个标题跑一遍打分, 所以常用字判定不能
     /// 每个字符都去编码一次。这里一次性把两个字库展开成集合, 之后全是查表。

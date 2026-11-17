@@ -124,6 +124,27 @@ private func mojibake(
     }
 }
 
+@Test func japaneseAndHongKongStandardKanjiAreNotTreatedAsMojibake() {
+    // 説、駆、気、桜、図、鉄是日文新字体,啓是港台常见写法,都不在 GB2312、Big5 里,但都在 JIS 第一水准。
+    for text in ["能不能勇敢説愛", "夜に駆ける", "天気の子", "千本桜", "図書館", "鉄道", "啓示"] {
+        #expect(TextEncodingRepair.looksCorrupted(text) == false, "误判了 \(text)")
+        #expect(TextEncodingRepair.requiresRawByteVerification(text) == false, "误判了 \(text)")
+        #expect(ServerCatalogMetadataInspectionPolicy.hasUsableTitle(text), "误判了 \(text)")
+        #expect(TextEncodingRepair.repaired(text) == nil, "误改了 \(text)")
+    }
+}
+
+@Test func gbkReadingOfUTF8StaysCorruptedWhenItsOddCharacterIsRareJapaneseKanji() {
+    // 「张宇」的 UTF-8 字节当 GBK 读成「寮犲畤」:「犲」在 JIS 第二水准,不能因为日文里有就放过。
+    #expect(TextEncodingRepair.looksCorrupted("寮犲畤"))
+}
+
+@Test func privateUseLeftoversNextToHanStillLookCorrupted() {
+    // UTF-8 的「光年之外」被当 GB18030 读出来时,末尾残片落在私用区。
+    #expect(TextEncodingRepair.looksCorrupted("鍏夊勾涔嬪\u{E63B}"))
+    #expect(TextEncodingRepair.looksCorrupted("Track \u{E000}") == false)
+}
+
 // MARK: - UTF-16 字节序颠倒
 
 @Test func repairsByteSwappedUTF16WithReversedBOM() {

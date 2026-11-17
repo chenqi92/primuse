@@ -645,6 +645,43 @@ struct PlaybackMetadataBackfillPolicyTests {
     }
 }
 
+@Suite("Player display title")
+struct PlayerDisplayTitlePolicyTests {
+    @Test("A stored title is shown as is, even when its characters look unusual")
+    func storedTitleWins() {
+        for type in [MusicSourceType.navidrome, .smb, .jellyfin] {
+            #expect(PlayerDisplayTitlePolicy.title(
+                stored: " 能不能勇敢説愛 ", filePath: "/songs/7ks3qIZVGziFdMHAAWyaHa.flac", sourceType: type
+            ) == "能不能勇敢説愛")
+        }
+    }
+
+    @Test("A missing title falls back to a real file name only")
+    func fileNameFallback() {
+        #expect(PlayerDisplayTitlePolicy.title(
+            stored: "Unknown", filePath: "/Music/周杰伦 - 晴天.flac", sourceType: .smb
+        ) == "晴天")
+        #expect(PlayerDisplayTitlePolicy.title(stored: "", filePath: "/Music/晴天.flac", sourceType: .webdav) == "晴天")
+        // 曲库型服务器、ID 寻址网盘、Apple Music / 播客(不在音乐源列表里)的路径是条目 ID。
+        #expect(PlayerDisplayTitlePolicy.title(
+            stored: "Unknown", filePath: "/songs/7ks3qIZVGziFdMHAAWyaHa.flac", sourceType: .navidrome
+        ) == "Unknown")
+        #expect(PlayerDisplayTitlePolicy.title(stored: "", filePath: "/1AbCdEf.mp3", sourceType: .googleDrive) == "")
+        #expect(PlayerDisplayTitlePolicy.title(stored: "未知", filePath: "1440857781", sourceType: nil) == "未知")
+    }
+
+    @Test("Only sources whose item paths end in real file names may name a song after them")
+    func fileNameBearingSources() {
+        for type in [MusicSourceType.local, .smb, .webdav, .ftp, .sftp, .nfs, .s3, .synology] {
+            #expect(type.itemPathsCarryFileNames, "\(type)")
+        }
+        for type in [MusicSourceType.navidrome, .subsonic, .jellyfin, .emby, .plex, .fnMusic, .songloft,
+                     .synologyAudioStation, .daoliyu, .upnp, .googleDrive, .pan115, .appleMusic, .appleMusicLibrary] {
+            #expect(!type.itemPathsCarryFileNames, "\(type)")
+        }
+    }
+}
+
 @Suite("Server catalog metadata inspection")
 struct ServerCatalogMetadataInspectionPolicyTests {
     @Test("A real server title completes title inspection")
