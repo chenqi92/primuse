@@ -11,6 +11,14 @@ struct ArtworkLayoutSmoke {
         var failures: [String] = []
         var cases = 0
 
+        try checkFlightShadows(output: output, failures: &failures, cases: &cases)
+        if CommandLine.arguments.contains("--flight-shadow-only") {
+            for failure in failures { print("FAIL: \(failure)") }
+            print("\(failures.isEmpty ? "PASS" : "FAIL"): \(cases) artwork shadow cases; \(failures.count) failures")
+            if !failures.isEmpty { exit(1) }
+            return
+        }
+
         for dimensions in [(600, 400), (400, 600), (400, 400), (1600, 200), (200, 1600), (300, 400)] {
             let image = makeImage(width: dimensions.0, height: dimensions.1)
             let layer = Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
@@ -67,6 +75,72 @@ struct ArtworkLayoutSmoke {
         for failure in failures { print("FAIL: \(failure)") }
         print("\(failures.isEmpty ? "PASS" : "FAIL"): \(cases) artwork layout cases; \(failures.count) failures")
         if !failures.isEmpty { exit(1) }
+    }
+
+    @MainActor private static func checkFlightShadows(
+        output: URL, failures: inout [String], cases: inout Int
+    ) throws {
+        let renderSize: CGFloat = 512
+        for side: CGFloat in [225, 300, 375] {
+            for playbackScale: CGFloat in [1, 0.96] {
+                let size = side * playbackScale
+                let radius = 18 * playbackScale
+                let padding: CGFloat = 50
+                let rect = CGRect(x: padding, y: padding, width: size, height: size)
+                let canvas = size + 2 * padding
+                let scale = size / renderSize
+                // Prime both shapes so a missing asynchronous sprite cannot make the test pass.
+                warmArtworkShadow(side: renderSize, cornerRadius: 12 * (renderSize / 320))
+                warmArtworkShadow(side: renderSize, cornerRadius: radius / scale)
+                let actual = Color.white
+                    .modifier(LyricsArtworkFlight(
+                        rect: rect, cornerRadius: radius,
+                        shadow: .init(opacity: 0.28, radius: 20, y: 10),
+                        bottomFade: 0, trailingFade: 0, renderSize: renderSize,
+                        usesShadowSprite: true
+                    ))
+                    .frame(width: canvas, height: canvas)
+                    .environment(\.displayScale, 2)
+                let expected = RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(Color.white)
+                    .frame(width: size, height: size)
+                    .shadow(color: .black.opacity(0.28), radius: 20 * size / 320, y: 8 * size / 320)
+                    .position(x: rect.midX, y: rect.midY)
+                    .frame(width: canvas, height: canvas)
+                let actualRenderer = ImageRenderer(content: actual)
+                let expectedRenderer = ImageRenderer(content: expected)
+                actualRenderer.scale = 2
+                expectedRenderer.scale = 2
+                guard let image = actualRenderer.cgImage, let reference = expectedRenderer.cgImage else {
+                    throw Failure.cannotRender
+                }
+                let pixels = rgba(image), expectedPixels = rgba(reference)
+                let name = "landscape-shadow-\(Int(side))-\(playbackScale)"
+                try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!
+                    .write(to: output.appendingPathComponent(name + ".png"))
+                var excessiveCornerPixels = 0
+                for y in 0..<image.height {
+                    for x in 0..<image.width {
+                        let point = CGPoint(x: (CGFloat(x) + 0.5) / 2, y: (CGFloat(y) + 0.5) / 2)
+                        let dx = min(abs(point.x - rect.minX), abs(point.x - rect.maxX))
+                        let dy = min(abs(point.y - rect.minY), abs(point.y - rect.maxY))
+                        guard dx < radius, dy < radius else { continue }
+                        let offset = (y * image.width + x) * 4
+                        // A soft shadow is translucent here; the old square sprite exposes its solid rim.
+                        if expectedPixels[offset + 3] < 55,
+                           Int(pixels[offset + 3]) - Int(expectedPixels[offset + 3]) > 18 {
+                            excessiveCornerPixels += 1
+                        }
+                    }
+                }
+                if excessiveCornerPixels > 0 {
+                    failures.append("\(name): \(excessiveCornerPixels) corner pixels expose the shadow plate")
+                }
+                let shadowOffset = (Int((rect.maxY + 4) * 2) * image.width + Int(rect.midX * 2)) * 4 + 3
+                if pixels[shadowOffset] < 8 { failures.append("\(name): shadow is missing") }
+                cases += 1
+            }
+        }
     }
 
     @MainActor private static func check<Content: View>(

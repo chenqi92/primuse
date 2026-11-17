@@ -860,30 +860,41 @@ private struct LyricsCoverShadowSprite: ViewModifier {
     let cornerRadius: CGFloat
     let shadow: LyricsArtworkShadow
 
-    private typealias Sprite = (image: CGImage, side: CGFloat)
+    private struct Geometry: Hashable {
+        let side: CGFloat
+        let cornerRadius: CGFloat
+
+        func matchesShape(of other: Self) -> Bool {
+            abs(cornerRadius / max(side, 1) - other.cornerRadius / max(other.side, 1)) < 0.0001
+        }
+    }
+
+    private typealias Sprite = (image: CGImage, geometry: Geometry)
 
     @Environment(\.displayScale) private var displayScale
     /// 正在用的贴图和它按多大的边长画的。
     @State private var sprite: Sprite?
 
     private var renderScale: CGFloat { LyricsCoverShadowSpriteCache.renderScale(for: displayScale) }
+    private var geometry: Geometry { Geometry(side: side, cornerRadius: cornerRadius) }
 
     func body(content: Content) -> some View {
         // 封面重新出现(从文字稿回来)时是新的一层,先拿画过的那张,不用等一拍才有阴影。
-        let shown = sprite ?? LyricsCoverShadowSpriteCache.cachedImage(
+        let matchingSprite = sprite.flatMap { $0.geometry.matchesShape(of: geometry) ? $0 : nil }
+        let shown = matchingSprite ?? LyricsCoverShadowSpriteCache.cachedImage(
             side: side, cornerRadius: cornerRadius, shadow: shadow, scale: renderScale
-        ).map { (image: $0, side: side) }
+        ).map { (image: $0, geometry: geometry) }
         content
             .background {
                 if let shown { spriteView(shown) }
             }
-            .task(id: side) { await refresh() }
+            .task(id: geometry) { await refresh() }
     }
 
     private func spriteView(_ sprite: Sprite) -> some View {
         GeometryReader { geometry in
-            let scale = geometry.size.width / sprite.side
-            let extent = (sprite.side + 2 * LyricsCoverShadowSpriteCache.padding(for: shadow)) * scale
+            let scale = geometry.size.width / sprite.geometry.side
+            let extent = (sprite.geometry.side + 2 * LyricsCoverShadowSpriteCache.padding(for: shadow)) * scale
             Image(decorative: sprite.image, scale: renderScale)
                 .resizable()
                 .frame(width: extent, height: extent)
@@ -898,7 +909,8 @@ private struct LyricsCoverShadowSprite: ViewModifier {
     /// 画一张要做一次大半径模糊,在主线程上要几十毫秒:封面刚出现(展开播放页、从文字稿飞回来)
     /// 又没有画过的时,等飞行停下再画,画好淡入,不在动画中途卡一下(#361)。
     private func refresh() async {
-        if let sprite, abs(side / sprite.side - 1) < 0.15 { return }
+        if let sprite, sprite.geometry.matchesShape(of: geometry),
+           abs(side / sprite.geometry.side - 1) < 0.15 { return }
         let cached = LyricsCoverShadowSpriteCache.cachedImage(
             side: side, cornerRadius: cornerRadius, shadow: shadow, scale: renderScale
         )
@@ -910,9 +922,9 @@ private struct LyricsCoverShadowSprite: ViewModifier {
             side: side, cornerRadius: cornerRadius, shadow: shadow, scale: renderScale
         ) else { return }
         if sprite == nil, cached == nil {
-            withAnimation(.easeOut(duration: 0.25)) { sprite = (image, side) }
+            withAnimation(.easeOut(duration: 0.25)) { sprite = (image, geometry) }
         } else {
-            sprite = (image, side)
+            sprite = (image, geometry)
         }
     }
 }
@@ -1041,6 +1053,8 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
     var trailingFade: CGFloat
     let renderSize: CGFloat
     var usesShadowSprite = false
+    /// 目标槽位的圆角比例不随飞行插值，阴影只在换布局时重画。
+    var shadowCornerRadius: CGFloat? = nil
     var topContentInset: CGFloat = 0
     /// 长方形封面盖满槽位的程度：铺满的封面位是 1，卡片与歌词小封面是 0，飞行途中跟着插值。
     var contentFill: CGFloat = 0
@@ -1112,7 +1126,7 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
                         .frame(width: renderSize, height: renderSize)
                         .modifier(LyricsCoverShadowSprite(
                             side: renderSize,
-                            cornerRadius: 12 * shadowScale,
+                            cornerRadius: shadowCornerRadius ?? max(0, cornerRadius) / scale,
                             shadow: .init(opacity: 1, radius: 20 * shadowScale, y: 8 * shadowScale)
                         ))
                         .opacity(max(0, shadow.opacity))
@@ -9506,6 +9520,7 @@ struct NowPlayingView: View {
                             trailingFade: fullBleedMiddleSoftening ? anchor.trailingFade : 0,
                             renderSize: renderSize,
                             usesShadowSprite: currentItemIsPodcast || !usesSpokenWordTransport,
+                            shadowCornerRadius: anchor.cornerRadius * renderSize / max(rect.width, rect.height, 1),
                             topContentInset: anchor.coversTopChrome ? FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea) : 0,
                             contentFill: anchor.fillsSlot ? 1 : 0
                         ), usesCompositorTransform: false))
@@ -9535,6 +9550,7 @@ struct NowPlayingView: View {
                         trailingFade: fullBleedMiddleSoftening ? anchor.trailingFade : 0,
                         renderSize: renderSize,
                         usesShadowSprite: currentItemIsPodcast || !usesSpokenWordTransport,
+                        shadowCornerRadius: anchor.cornerRadius * renderSize / max(rect.width, rect.height, 1),
                         topContentInset: anchor.coversTopChrome ? FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea) : 0,
                         contentFill: anchor.fillsSlot ? 1 : 0
                     ), usesCompositorTransform: usesCompositorTransform))

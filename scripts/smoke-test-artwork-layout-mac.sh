@@ -4,18 +4,19 @@ set -euo pipefail
 ARTWORK_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ARTWORK_OUTPUT="${ARTWORK_OUTPUT:-$ARTWORK_ROOT/build/DeveloperWorkflow/ArtworkLayoutSmoke}"
 ARTWORK_SOURCE="${ARTWORK_SOURCE:-$ARTWORK_ROOT/Primuse/Views/Components/CachedArtworkView.swift}"
+ARTWORK_PLAYER_SOURCE="${ARTWORK_PLAYER_SOURCE:-$ARTWORK_ROOT/Primuse/Views/NowPlaying/NowPlayingView.swift}"
 mkdir -p "$ARTWORK_OUTPUT"
 
 # Exercise the production SwiftUI layout without launching app services or
 # reading the user's library. Only the loaded cover layer is supplied by the test.
-python3 - "$ARTWORK_SOURCE" "$ARTWORK_OUTPUT" <<'PY'
+python3 - "$ARTWORK_SOURCE" "$ARTWORK_OUTPUT" "$ARTWORK_PLAYER_SOURCE" <<'PY'
 import sys
 from pathlib import Path
 
-source_path, output = map(Path, sys.argv[1:])
+source_path, output, player_path = map(Path, sys.argv[1:])
 source = source_path.read_text()
 body_start = source.index('    var body: some View {')
-body_end = source.index('        .task(id: loadTaskIdentity)', body_start)
+body_end = source.index('        .if(reportsArtworkImage)', body_start)
 content_start = source.index('    private var coverContent: some View {')
 content_end = source.index('\n    /// body 拆出来', content_start)
 whole_start = source.index('    @ViewBuilder\n    private func wholeArtwork(')
@@ -50,18 +51,37 @@ struct WholeArtworkFixture: View {
 fixture += source[whole_start:whole_end] + '\n}\n'
 fixture += source[conditional_start:conditional_end]
 (output / 'CachedArtworkLayoutFixture.swift').write_text(fixture)
+
+player = player_path.read_text()
+shadow = player[player.index('struct LyricsArtworkShadow {'):player.index('private struct LyricsArtworkAnchor {')]
+flight = player[player.index('struct LyricsArtworkFlight:'):player.index('/// 方形卡片的内容尺寸不变')]
+clip = player[player.index('private struct LyricsArtworkClipShape:'):player.index('/// 顶栏文字和按钮淡入淡出')]
+environment = source[source.index('private struct ArtworkContentViewportKey:'):source.index('/// Keep rectangular covers intact')]
+fixture = 'import SwiftUI\n' + shadow + flight + clip + environment
+fixture += '''
+@MainActor
+func warmArtworkShadow(side: CGFloat, cornerRadius: CGFloat) {
+    _ = LyricsCoverShadowSpriteCache.image(
+        side: side, cornerRadius: cornerRadius,
+        shadow: .init(opacity: 1, radius: 20 * side / 320, y: 8 * side / 320), scale: 2
+    )
+}
+'''
+(output / 'LyricsArtworkFlightFixture.swift').write_text(fixture)
 PY
 
 {
     git -C "$ARTWORK_ROOT" rev-parse HEAD
-    shasum -a 256 "$ARTWORK_SOURCE"
+    shasum -a 256 "$ARTWORK_SOURCE" "$ARTWORK_PLAYER_SOURCE"
     xcrun swiftc --version
     sw_vers
 } > "$ARTWORK_OUTPUT/environment.txt"
 
 xcrun swiftc -swift-version 6 \
     "$ARTWORK_OUTPUT/CachedArtworkLayoutFixture.swift" \
+    "$ARTWORK_OUTPUT/LyricsArtworkFlightFixture.swift" \
+    "$ARTWORK_ROOT/PrimuseKit/Sources/PrimuseKit/ArtworkContentLayout.swift" \
     "$ARTWORK_ROOT/PrimuseKit/Sources/PrimuseKit/SpokenWordCoverLayout.swift" \
     "$ARTWORK_ROOT/scripts/ArtworkLayoutSmoke.swift" \
     -o "$ARTWORK_OUTPUT/artwork-layout-smoke"
-"$ARTWORK_OUTPUT/artwork-layout-smoke" "$ARTWORK_OUTPUT"
+"$ARTWORK_OUTPUT/artwork-layout-smoke" "$ARTWORK_OUTPUT" "$@"
