@@ -37,6 +37,15 @@ struct MacLibraryHeader: View {
     var subtitleContent: AnyView? = nil
 
     @State private var showMoreMenu = false
+    /// 设置里详情页底色选了自定义颜色时,封面底图换成这个颜色的渐变(压暗层照旧,白字照样读得清)。
+    @AppStorage(AppThemePreferences.detailTintSourceKey)
+    private var detailTintSourceRawValue = BackdropColorSource.defaultValue.rawValue
+    @AppStorage(AppThemePreferences.detailCustomColorHexKey)
+    private var detailCustomColorHex = AppThemePreferences.defaultCustomBackdropHex
+
+    private var customDetailColor: Color? {
+        AppThemePreferences.detailCustomColor(source: detailTintSourceRawValue, hex: detailCustomColorHex)
+    }
 
     private var coverSide: CGFloat { artworkBackdrop ? 196 : 160 }
 
@@ -200,12 +209,20 @@ struct MacLibraryHeader: View {
     /// 最底下一小段化进页面底色，头部不再是一刀切的边。
     private var artworkBackdropLayer: some View {
         GeometryReader { geometry in
-            let side: CGFloat = 240
-            let scale = max(geometry.size.width, geometry.size.height) / side * 1.3
-            backdropArtwork(side: side)
-                .blur(radius: 14, opaque: true)
-                .scaleEffect(scale)
-                .frame(width: geometry.size.width, height: geometry.size.height)
+            if let customDetailColor {
+                LinearGradient(
+                    colors: [customDetailColor, customDetailColor.mix(with: .black, by: 0.45)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            } else {
+                let side: CGFloat = 240
+                let scale = max(geometry.size.width, geometry.size.height) / side * 1.3
+                backdropArtwork(side: side)
+                    .blur(radius: 14, opaque: true)
+                    .scaleEffect(scale)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+            }
         }
         .background(PMColor.ambientDarkBase)
         .overlay {

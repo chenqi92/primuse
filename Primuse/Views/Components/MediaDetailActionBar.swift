@@ -151,9 +151,18 @@ private struct LibraryDetailTintModifier: ViewModifier {
 
     @Environment(CoverTintProvider.self) private var coverTints
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(AppThemePreferences.detailTintSourceKey)
+    private var tintSourceRawValue = BackdropColorSource.defaultValue.rawValue
+    @AppStorage(AppThemePreferences.detailCustomColorHexKey)
+    private var customColorHex = AppThemePreferences.defaultCustomBackdropHex
+
+    /// 设置里选了自定义颜色时用它,压深、对比度保护照取封面色的规则。
+    private var customColor: Color? {
+        AppThemePreferences.detailCustomColor(source: tintSourceRawValue, hex: customColorHex)
+    }
 
     private var style: LibraryDetailTintStyle {
-        .artwork(song.flatMap { coverTints.tint(forSongID: $0.id) }, colorScheme: colorScheme)
+        .artwork(customColor ?? song.flatMap { coverTints.tint(forSongID: $0.id) }, colorScheme: colorScheme)
     }
 
     func body(content: Content) -> some View {
@@ -161,8 +170,8 @@ private struct LibraryDetailTintModifier: ViewModifier {
         content
             .environment(\.libraryDetailTint, resolved)
             .pmAnimation(.ambient, value: resolved)
-            .task(id: song?.id) {
-                guard let song else { return }
+            .task(id: customColor == nil ? song?.id : nil) {
+                guard customColor == nil, let song else { return }
                 coverTints.prepare([song])
             }
             // 这两页都能就地换封面，换完要立刻改底色，不能等下次进页面。
@@ -176,7 +185,7 @@ private struct LibraryDetailTintModifier: ViewModifier {
 }
 
 extension View {
-    /// 详情页整页底色，取自这首歌的封面。
+    /// 详情页整页底色，取自这首歌的封面；设置里选了自定义颜色时用那个颜色。
     func libraryDetailTint(from song: Song?) -> some View {
         modifier(LibraryDetailTintModifier(song: song))
     }

@@ -552,3 +552,34 @@ public enum ProgressBreathPolicy {
         range.lowerBound + (range.upperBound - range.lowerBound) * min(max(level, 0), 1)
     }
 }
+
+/// 背景选了「自定义颜色」时，用这一个颜色排出的代表色，排法和从封面挑出来的一样：主色在最前，
+/// 后面几种明暗、相邻色相各不相同。这样流动色彩和 Mesh 还有层次，不会糊成一整块纯色。
+public enum CustomBackdropPalettePolicy {
+    /// 相邻色相离主色多远(一圈为 1)。小到看着还是同一种颜色，大到几团光分得出来。
+    public static let companionHueShift = 0.05
+
+    public static func palette(for color: LiquidBackdropColor) -> [LiquidBackdropColor] {
+        let hsl = color.hsl
+        func tone(hueShift: Double, saturationScale: Double, lightnessShift: Double) -> LiquidBackdropColor {
+            LiquidBackdropColor(
+                hue: hsl.hue + hueShift,
+                saturation: min(max(hsl.saturation * saturationScale, 0), 1),
+                lightness: min(
+                    max(hsl.lightness + lightnessShift, LiquidBackdropPalettePolicy.minimumLightness),
+                    LiquidBackdropPalettePolicy.maximumLightness
+                )
+            )
+        }
+        let candidates = [
+            tone(hueShift: 0, saturationScale: 1, lightnessShift: 0),
+            tone(hueShift: companionHueShift, saturationScale: 1, lightnessShift: 0.12),
+            tone(hueShift: -companionHueShift, saturationScale: 1, lightnessShift: -0.14),
+            tone(hueShift: 0, saturationScale: 0.6, lightnessShift: 0.22),
+            tone(hueShift: companionHueShift * 2, saturationScale: 0.85, lightnessShift: -0.04),
+        ]
+        var palette: [LiquidBackdropColor] = []
+        for candidate in candidates where !palette.contains(candidate) { palette.append(candidate) }
+        return palette
+    }
+}

@@ -356,6 +356,10 @@ public enum ListeningShareSettingsPolicy {
         "primuse.theme.colorMode",
         "primuse.theme.coverDrivenAmbient",
         "primuse.theme.ambientStrength",
+        "playerBackdropUsesCustomColor",
+        "playerBackdropCustomColorHex",
+        "libraryDetailTintSource",
+        "libraryDetailCustomColorHex",
         "primuse.appearance",
     ]
 

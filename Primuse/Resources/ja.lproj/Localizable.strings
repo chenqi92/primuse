@@ -6686,6 +6686,14 @@
 "player_progress_motion_none" = "なし";
 "player_progress_motion_flow" = "流れ";
 "player_progress_motion_breathe" = "呼吸";
+"backdrop_color_source_artwork" = "アートワークの色";
+"backdrop_color_source_theme" = "テーマカラー";
+"backdrop_color_source_custom" = "カスタムカラー";
+"backdrop_color_player_title" = "プレーヤー背景の色";
+"backdrop_color_player_description" = "プレーヤーの背景（カラーフィールド、流れる色、メッシュ、サウンドに反応する背景の下地）と、それに合わせるカラオケステージやデスクトップ歌詞の色です。「アートワークの色」は再生中のアートワークに合わせ、「テーマカラー」は選んだテーマカラーを使い、「カスタムカラー」は選んだ色を使います。ボタンや文字の色は変わりません。ぼかしたアートワーク、裏ジャケット、自分の画像は画像を表示するため影響を受けません。";
+"backdrop_color_detail_title" = "詳細ページの背景";
+"backdrop_color_detail_description" = "アルバム、ジャンル、アーティストのページと、「プレイリストの背景色をジャケットに合わせる」をオンにしたプレイリストページの背景色です。「アートワークの色」では各ページが自分のアートワーク（アーティストは写真）を使い、「カスタムカラー」ではすべてのページが選んだ色を使います。文字が読みやすいよう濃さは調整されます。";
+"backdrop_color_custom_picker" = "色";
 "theme_color_player_backdrop_moved_hint" = "プレーヤーの背景のスタイルと色の濃さは「設定 › プレーヤー」で調整できるようになりました。";
 "theme_color_player_backdrop_moved_link" = "プレーヤー設定を開く";
 

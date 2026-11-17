@@ -7710,6 +7710,41 @@ private struct MacSTSharePickerAnchor: NSViewRepresentable {
 private struct MacSTThemeView: View {
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
+    @AppStorage(AppThemePreferences.customAmbientEnabledKey)
+    private var usesCustomAmbientColor = false
+    @AppStorage(AppThemePreferences.customAmbientHexKey)
+    private var customAmbientHex = AppThemePreferences.defaultCustomBackdropHex
+    @AppStorage(AppThemePreferences.detailTintSourceKey)
+    private var detailTintSourceRawValue = BackdropColorSource.defaultValue.rawValue
+    @AppStorage(AppThemePreferences.detailCustomColorHexKey)
+    private var detailCustomColorHex = AppThemePreferences.defaultCustomBackdropHex
+
+    private var ambientColorChoice: AmbientColorChoice {
+        if usesCustomAmbientColor { return .custom }
+        return preferences.coverDrivenAmbient ? .artwork : .theme
+    }
+
+    /// 「主题色」就是原来关掉「封面氛围」;「自定义颜色」另存,开着时盖过前两种。
+    private func setAmbientColorChoice(_ choice: AmbientColorChoice) {
+        usesCustomAmbientColor = choice == .custom
+        if choice != .custom {
+            let followsCover = choice == .artwork
+            preferences.coverDrivenAmbient = followsCover
+            themeService.setCoverDrivenAmbient(followsCover)
+            if followsCover, let song = player.currentSong {
+                themeService.updateFromCoverArt(
+                    fileName: song.coverArtFileName,
+                    songID: song.id,
+                    appleMusicID: song.sourceID == AppleMusicLibraryService.systemSourceID
+                        ? song.filePath
+                        : nil
+                )
+            } else if !followsCover, preferences.themeColorMode == .fixed {
+                themeService.resetToDefault()
+            }
+        }
+        themeService.reloadCustomBackdrop()
+    }
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
     @AppStorage(LibraryRowNumberPreferences.storageKey)
     private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
@@ -8381,27 +8416,60 @@ private struct MacSTThemeView: View {
 
         MacSTSection(PMString("ext.tv.settings.coverColor")) {
             MacSTGroup {
-                MacSTRow(PMString("ext.tv.settings.coverColor"), hint: Lz("Use artwork palette for NowPlaying / Mini / Desktop Lyrics"), divider: false) {
-                    MacSTToggle(isOn: Binding(
-                        get: { preferences.coverDrivenAmbient },
-                        set: {
-                            preferences.coverDrivenAmbient = $0
-                            themeService.setCoverDrivenAmbient($0)
-                            if $0, let song = player.currentSong {
-                                themeService.updateFromCoverArt(
-                                    fileName: song.coverArtFileName,
-                                    songID: song.id,
-                                    appleMusicID: song.sourceID == AppleMusicLibraryService.systemSourceID
-                                        ? song.filePath
-                                        : nil
-                                )
-                            } else if !$0, preferences.themeColorMode == .fixed {
-                                themeService.resetToDefault()
-                            }
-                        }
-                    ))
+                // 播放页、迷你播放器、桌面歌词的背景:取封面、用主题色,或者自己挑的颜色。
+                MacSTRow(
+                    String(localized: "backdrop_color_player_title"),
+                    hint: String(localized: "backdrop_color_player_description"),
+                    divider: false
+                ) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { ambientColorChoice },
+                            set: { setAmbientColorChoice($0) }
+                        ),
+                        options: AmbientColorChoice.allCases.map { ($0, $0.titleKey) },
+                        width: 180
+                    )
                 }
                 .settingsAnchor("appearance.coverAmbient")
+                if usesCustomAmbientColor {
+                    MacSTRow(String(localized: "backdrop_color_custom_picker")) {
+                        ColorPicker("", selection: Binding(
+                            get: { Color(hex: AppThemePreferences.normalizedHex(customAmbientHex, fallback: AppThemePreferences.defaultCustomBackdropHex)) },
+                            set: {
+                                customAmbientHex = AppThemePreferences.hex(from: $0)
+                                themeService.reloadCustomBackdrop(animated: false)
+                            }
+                        ), supportsOpacity: false)
+                        .labelsHidden()
+                    }
+                    .settingsAnchor("appearance.customAmbientColor")
+                }
+                // 专辑、艺人、风格页头部的底图:封面虚化,或者自己挑的颜色。
+                MacSTRow(
+                    String(localized: "backdrop_color_detail_title"),
+                    hint: String(localized: "backdrop_color_detail_description")
+                ) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { BackdropColorSource(rawValue: detailTintSourceRawValue) ?? .defaultValue },
+                            set: { detailTintSourceRawValue = $0.rawValue }
+                        ),
+                        options: BackdropColorSource.allCases.map { ($0, $0.titleKey) },
+                        width: 180
+                    )
+                }
+                .settingsAnchor("library.detailBackdropColor")
+                if BackdropColorSource(rawValue: detailTintSourceRawValue) == .custom {
+                    MacSTRow(String(localized: "backdrop_color_custom_picker")) {
+                        ColorPicker("", selection: Binding(
+                            get: { Color(hex: AppThemePreferences.normalizedHex(detailCustomColorHex, fallback: AppThemePreferences.defaultCustomBackdropHex)) },
+                            set: { detailCustomColorHex = AppThemePreferences.hex(from: $0) }
+                        ), supportsOpacity: false)
+                        .labelsHidden()
+                    }
+                    .settingsAnchor("library.detailBackdropCustomColor")
+                }
                 MacSTRow(PMString("ext.tv.settings.ambientIntensity"), divider: true) {
                     MacSTSlider(
                         value: Binding(

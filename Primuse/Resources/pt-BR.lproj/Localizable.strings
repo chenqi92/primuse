@@ -6591,6 +6591,14 @@
 "player_progress_motion_none" = "Nenhuma";
 "player_progress_motion_flow" = "Fluxo";
 "player_progress_motion_breathe" = "Respiração";
+"backdrop_color_source_artwork" = "Cor da capa";
+"backdrop_color_source_theme" = "Cor do tema";
+"backdrop_color_source_custom" = "Cor personalizada";
+"backdrop_color_player_title" = "Cor de fundo do player";
+"backdrop_color_player_description" = "A cor atrás do player (campo de cor, cores fluidas, malha e base dos fundos que reagem ao som) e do palco de karaokê e da letra na mesa que o acompanham. “Cor da capa” segue a capa que está tocando, “Cor do tema” usa sua cor de tema e “Cor personalizada” usa uma cor que você escolhe, sem mudar a cor dos botões e do texto. Capa desfocada, contracapa e suas próprias imagens mostram imagens e não são afetadas.";
+"backdrop_color_detail_title" = "Fundo das páginas de detalhes";
+"backdrop_color_detail_description" = "A cor atrás das páginas de álbum, gênero e artista, e das playlists quando “Fundo das playlists pela capa” está ativado. Com “Cor da capa”, cada página usa a própria capa (a foto para artistas). Com “Cor personalizada”, todas usam a cor escolhida, ainda ajustada para o texto continuar legível.";
+"backdrop_color_custom_picker" = "Cor";
 "theme_color_player_backdrop_moved_hint" = "O estilo e a intensidade das cores do fundo do player agora ficam em Ajustes › Player.";
 "theme_color_player_backdrop_moved_link" = "Abrir ajustes do player";
 

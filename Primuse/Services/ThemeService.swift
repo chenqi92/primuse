@@ -22,14 +22,30 @@ final class ThemeService {
     private(set) var artworkSecondaryAccent: Color = ThemeService.defaultDarkAccent
     private(set) var artworkSecondaryDarkAccent: Color = ThemeService.defaultDarkAccent
     private(set) var artworkDarkAccent: Color = ThemeService.defaultDarkAccent
-    private(set) var artworkVibrancy: Double = 0
-    private(set) var artworkLuminance: Double = 0.18
+    private var coverVibrancy: Double = 0
+    private var coverLuminance: Double = 0.18
     /// 主色、副色在 sRGB 编码下的亮度。浅色播放页把背景调浓时,按它们判断还压不压得住深色字。
-    private(set) var artworkAccentLuma: Double = 0.5
-    private(set) var artworkSecondaryLuma: Double = 0.5
+    private var coverAccentLuma: Double = 0.5
+    private var coverSecondaryLuma: Double = 0.5
     /// Mesh 与「流动色彩」共用的代表色,从当前封面的小图里挑(和上面几个颜色同一次读图)。
     /// 没有可读封面时为空,播放页改用下面几个主题色。
-    private(set) var artworkLiquidPalette: [LiquidBackdropColor] = []
+    private var coverLiquidPalette: [LiquidBackdropColor] = []
+    /// 播放页背景选了「自定义颜色」时那个颜色(RRGGBB)和由它排出的一整套背景色;没选时为空。
+    /// 只换背景这一族(下面的 accentColor、liquidPalette、artwork 开头的几项),控件与文字用的主题色、
+    /// 歌词与进度条的封面取色、小组件照旧。
+    private(set) var customBackdropHex: String?
+    private var customBackdropResult: ColorResult?
+    private var customBackdropPalette: [LiquidBackdropColor] = []
+
+    /// 背景用的几项封面数值;选了自定义背景色时是那个颜色的。
+    var artworkVibrancy: Double { customBackdropHex == nil ? coverVibrancy : (customBackdropResult?.vibrancy ?? coverVibrancy) }
+    var artworkLuminance: Double { customBackdropHex == nil ? coverLuminance : (customBackdropResult?.luminance ?? coverLuminance) }
+    var artworkAccentLuma: Double { customBackdropHex == nil ? coverAccentLuma : (customBackdropResult?.accentLuma ?? coverAccentLuma) }
+    var artworkSecondaryLuma: Double { customBackdropHex == nil ? coverSecondaryLuma : (customBackdropResult?.secondaryLuma ?? coverSecondaryLuma) }
+    var artworkLiquidPalette: [LiquidBackdropColor] {
+        customBackdropHex == nil ? coverLiquidPalette : customBackdropPalette
+    }
+    var usesCustomBackdrop: Bool { customBackdropHex != nil }
     /// 「封面取色」的歌词用的封面代表色。没有封面、封面没有彩色、还在取的时候为空，歌词用默认颜色。
     /// 主题色和播放背景都不跟封面时，歌词选了封面取色也照样取，只是不动主题色。
     private(set) var lyricsArtworkTint: PlayerLyricsArtworkTint?
@@ -65,16 +81,28 @@ final class ThemeService {
 
     /// 播放页的氛围色与全局控件主题色分别计算。这样固定主题仍可保留封面背景，
     /// 自动主题也能在关闭背景氛围时只改变按钮与选择态。
-    var accentColor: Color { coverDrivenAmbient ? artworkAccentColor : baseAccent }
-    var secondaryAccent: Color { coverDrivenAmbient ? artworkSecondaryAccent : baseDarkAccent }
-    var secondaryDarkAccent: Color {
-        coverDrivenAmbient ? artworkSecondaryDarkAccent : baseDarkAccent
+    var accentColor: Color {
+        if customBackdropHex != nil, let customBackdropResult { return customBackdropResult.accent }
+        return coverDrivenAmbient ? artworkAccentColor : baseAccent
     }
-    var darkAccent: Color { coverDrivenAmbient ? artworkDarkAccent : baseDarkAccent }
-    var hasArtworkAmbient: Bool { coverDrivenAmbient && colorID != "default" }
+    var secondaryAccent: Color {
+        if customBackdropHex != nil, let customBackdropResult { return customBackdropResult.secondary }
+        return coverDrivenAmbient ? artworkSecondaryAccent : baseDarkAccent
+    }
+    var secondaryDarkAccent: Color {
+        if customBackdropHex != nil, let customBackdropResult { return customBackdropResult.secondaryDark }
+        return coverDrivenAmbient ? artworkSecondaryDarkAccent : baseDarkAccent
+    }
+    var darkAccent: Color {
+        if customBackdropHex != nil, let customBackdropResult { return customBackdropResult.dark }
+        return coverDrivenAmbient ? artworkDarkAccent : baseDarkAccent
+    }
+    /// 背景画不画成「有颜色的」那一套:封面氛围开着且取到了封面色,或者选了自定义背景色。
+    var hasArtworkAmbient: Bool { customBackdropHex != nil || (coverDrivenAmbient && colorID != "default") }
     /// Mesh 与「流动色彩」实际用的颜色:封面代表色;没有(或关了封面氛围)时用主题色凑一组。
     var liquidPalette: [LiquidBackdropColor] {
-        if coverDrivenAmbient, !artworkLiquidPalette.isEmpty { return artworkLiquidPalette }
+        if customBackdropHex != nil { return customBackdropPalette }
+        if coverDrivenAmbient, !coverLiquidPalette.isEmpty { return coverLiquidPalette }
         var colors: [LiquidBackdropColor] = []
         for color in [accentColor, secondaryAccent, secondaryDarkAccent, darkAccent] {
             if let rgb = Self.liquidColor(from: color), !colors.contains(rgb) { colors.append(rgb) }
@@ -233,7 +261,7 @@ final class ThemeService {
                     // 黑白封面没有彩色,进度条用单色。
                     // 黑白封面没有主题色,流动色彩照样用它自己的灰阶。只给歌词取色时背景不跟封面,不用记。
                     if themeFollowsArtwork {
-                        self.artworkLiquidPalette = liquidPalette
+                        self.coverLiquidPalette = liquidPalette
                     }
                     return
                 }
@@ -434,6 +462,62 @@ final class ThemeService {
         )
     }
 
+    /// 从偏好里读播放页背景的自定义颜色(启动、设置里改了、iCloud 拉下来时调)。返回有没有变。
+    @discardableResult
+    func reloadCustomBackdrop(animated: Bool = true) -> Bool {
+        let hex = AppThemePreferences.customAmbientHex()
+        guard hex != customBackdropHex else { return false }
+        let derived = hex.map { Self.customBackdropColors(hex: $0) }
+        applyThemeChange(animated: animated) {
+            customBackdropResult = derived?.result
+            customBackdropPalette = derived?.palette ?? []
+            customBackdropHex = hex
+        }
+        return true
+    }
+
+    /// 把一个颜色当成一张只有这种颜色的封面:主色、副色、深色和背景代表色都照取封面色的规则推出来,
+    /// 背景的浓淡、压暗、对比度保护照旧适用。
+    nonisolated static func customBackdropColors(hex: String) -> (result: ColorResult, palette: [LiquidBackdropColor]) {
+        let color = Color(hex: AppThemePreferences.normalizedHex(hex, fallback: AppThemePreferences.defaultCustomBackdropHex))
+        var environment = EnvironmentValues()
+        environment.colorScheme = .light
+        let resolved = color.resolve(in: environment)
+        let rgb = LiquidBackdropColor(red: Double(resolved.red), green: Double(resolved.green), blue: Double(resolved.blue))
+        let hsb = hsbComponents(red: CGFloat(rgb.red), green: CGFloat(rgb.green), blue: CGFloat(rgb.blue))
+        let primary = PaletteSample(hue: hsb.hue, saturation: hsb.saturation, brightness: hsb.brightness, score: 1)
+        let neighbour = PaletteSample(
+            hue: (hsb.hue + CGFloat(CustomBackdropPalettePolicy.companionHueShift)).truncatingRemainder(dividingBy: 1),
+            saturation: hsb.saturation * 0.9,
+            brightness: hsb.brightness * 0.85,
+            score: 1
+        )
+        let result = makeColorResult(
+            primary: primary,
+            secondary: neighbour,
+            luminance: relativeLuminance(hue: hsb.hue, saturation: hsb.saturation, brightness: hsb.brightness)
+        )
+        return (result, CustomBackdropPalettePolicy.palette(for: rgb))
+    }
+
+    private nonisolated static func hsbComponents(
+        red: CGFloat, green: CGFloat, blue: CGFloat
+    ) -> (hue: CGFloat, saturation: CGFloat, brightness: CGFloat) {
+        let maximum = max(red, green, blue)
+        let minimum = min(red, green, blue)
+        let delta = maximum - minimum
+        guard delta > 0.000_1 else { return (0, 0, maximum) }
+        var hue: CGFloat
+        switch maximum {
+        case red: hue = ((green - blue) / delta).truncatingRemainder(dividingBy: 6)
+        case green: hue = (blue - red) / delta + 2
+        default: hue = (red - green) / delta + 4
+        }
+        hue /= 6
+        if hue < 0 { hue += 1 }
+        return (hue, maximum > 0 ? delta / maximum : 0, maximum)
+    }
+
     func setCoverDrivenAmbient(_ enabled: Bool, animated: Bool = true) {
         guard coverDrivenAmbient != enabled else { return }
         applyThemeChange(animated: animated) {
@@ -471,11 +555,11 @@ final class ThemeService {
             artworkSecondaryAccent = baseDarkAccent
             artworkSecondaryDarkAccent = baseDarkAccent
             artworkDarkAccent = baseDarkAccent
-            artworkVibrancy = 0
-            artworkLuminance = 0.18
-            artworkAccentLuma = 0.5
-            artworkSecondaryLuma = 0.5
-            artworkLiquidPalette = []
+            coverVibrancy = 0
+            coverLuminance = 0.18
+            coverAccentLuma = 0.5
+            coverSecondaryLuma = 0.5
+            coverLiquidPalette = []
             colorID = "default"
         }
         #if os(macOS)
@@ -493,17 +577,17 @@ final class ThemeService {
         let legibleAccent = Self.legibleAccent(result.accent)
         lyricsArtworkTint = Self.lyricsTint(from: result.accent)
         withAnimation(.easeInOut(duration: 0.6)) {
-            artworkLiquidPalette = liquidPalette
+            coverLiquidPalette = liquidPalette
             progressArtworkGradient = progressGradient
             artworkAccentColor = result.accent
             artworkLegibleAccent = legibleAccent
             artworkSecondaryAccent = result.secondary
             artworkSecondaryDarkAccent = result.secondaryDark
             artworkDarkAccent = result.dark
-            artworkVibrancy = result.vibrancy
-            artworkLuminance = result.luminance
-            artworkAccentLuma = result.accentLuma
-            artworkSecondaryLuma = result.secondaryLuma
+            coverVibrancy = result.vibrancy
+            coverLuminance = result.luminance
+            coverAccentLuma = result.accentLuma
+            coverSecondaryLuma = result.secondaryLuma
             colorID = identity
         }
         #if os(macOS)

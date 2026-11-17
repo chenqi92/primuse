@@ -943,6 +943,48 @@ private struct PlayerAppearanceSettingsView: View {
 
 #endif
 
+#if os(iOS)
+/// 专辑、流派、艺人页(和打开了染色的歌单页)整页底色:取封面,还是用自己挑的颜色。
+private struct LibraryDetailBackdropColorSection: View {
+    @AppStorage(AppThemePreferences.detailTintSourceKey)
+    private var sourceRawValue = BackdropColorSource.defaultValue.rawValue
+    @AppStorage(AppThemePreferences.detailCustomColorHexKey)
+    private var customHex = AppThemePreferences.defaultCustomBackdropHex
+
+    private var source: BackdropColorSource {
+        BackdropColorSource(rawValue: sourceRawValue) ?? .defaultValue
+    }
+
+    var body: some View {
+        Section {
+            Picker(selection: Binding(
+                get: { source },
+                set: { sourceRawValue = $0.rawValue }
+            )) {
+                ForEach(BackdropColorSource.allCases, id: \.self) { source in
+                    Text(LocalizedStringKey(source.titleKey)).tag(source)
+                }
+            } label: {
+                SettingsInfoLabel("backdrop_color_detail_title") {
+                    Text("backdrop_color_detail_description")
+                }
+            }
+            .pickerStyle(.menu)
+            .settingsAnchor("library.detailBackdropColor")
+            if source == .custom {
+                ColorPicker(selection: Binding(
+                    get: { Color(hex: AppThemePreferences.normalizedHex(customHex, fallback: AppThemePreferences.defaultCustomBackdropHex)) },
+                    set: { customHex = AppThemePreferences.hex(from: $0) }
+                ), supportsOpacity: false) {
+                    Label("backdrop_color_custom_picker", systemImage: "eyedropper")
+                }
+                .settingsAnchor("library.detailBackdropCustomColor")
+            }
+        }
+    }
+}
+#endif
+
 private struct LibraryDisplaySettingsView: View {
     @AppStorage(LibraryRowNumberPreferences.storageKey)
     private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
@@ -1045,6 +1087,8 @@ private struct LibraryDisplaySettingsView: View {
             }
 
             #if os(iOS)
+            LibraryDetailBackdropColorSection()
+
             Section {
                 Picker("library_artist_color_style", selection: $artistColorStyle) {
                     ForEach(PlayerAmbientStyle.allCases, id: \.self) { style in

@@ -750,6 +750,9 @@ final class InterfaceLayoutSync {
         "primuse.playlist.rowShowsAlbum.v1",
         "primuse.playlist.rowShowsDuration.v1",
         "primuse.playlist.coverTint.v1",
+        // 详情页整页底色取封面还是用自己挑的颜色(`AppThemePreferences.detailTintSourceKey` 那两项)。
+        "libraryDetailTintSource",
+        "libraryDetailCustomColorHex",
         // 资料库分类图标彩色 / 简洁(`LibraryIconStyle`,同样只有 iPhone / iPad 画)。
         "primuse.library.iconStyle.v1",
         ArtistAppearancePreferences.colorStyleKey,
@@ -840,6 +843,8 @@ final class InterfaceLayoutSync {
         AppThemePreferences.accentHexKey,
         AppThemePreferences.coverDrivenAmbientKey,
         AppThemePreferences.ambientStrengthKey,
+        AppThemePreferences.customAmbientEnabledKey,
+        AppThemePreferences.customAmbientHexKey,
     ] + ListeningSpaceTintPreferences.customizableSpaces.map(ListeningSpaceTintPreferences.key(for:))
 
     private let keys: [String]

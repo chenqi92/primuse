@@ -919,6 +919,37 @@ enum NowPlayingSkipButtonStyle: String, CaseIterable, Sendable {
     }
 }
 
+/// 封面能给底色上色的地方用什么颜色:取封面,或者自己挑的一个颜色。
+enum BackdropColorSource: String, CaseIterable, Sendable {
+    case artwork
+    case custom
+
+    static let defaultValue = BackdropColorSource.artwork
+
+    var titleKey: String {
+        switch self {
+        case .artwork: "backdrop_color_source_artwork"
+        case .custom: "backdrop_color_source_custom"
+        }
+    }
+}
+
+/// 播放页背景的颜色三选一。「主题色」就是原来关掉「封面氛围」的样子,存储照旧是那个开关,
+/// 「自定义颜色」另存一个开关和色值,开着时盖过前两种。
+enum AmbientColorChoice: String, CaseIterable, Sendable {
+    case artwork
+    case theme
+    case custom
+
+    var titleKey: String {
+        switch self {
+        case .artwork: "backdrop_color_source_artwork"
+        case .theme: "backdrop_color_source_theme"
+        case .custom: "backdrop_color_source_custom"
+        }
+    }
+}
+
 enum AppThemeColorMode: String, CaseIterable, Sendable {
     case automatic = "auto"
     case fixed
@@ -948,6 +979,53 @@ enum AppThemePreferences {
     static let defaultColorMode = AppThemeColorMode.automatic
     static let defaultCoverDrivenAmbient = true
     static let defaultAmbientStrength = 0.70
+
+    /// 播放页背景(色场、流动色彩、Mesh、律动的底色)改用自己挑的颜色。开着时盖过「封面氛围」;
+    /// 色值是大写、无 `#` 的 RRGGBB。键名不带点号(见 #344 的教训)。
+    static let customAmbientEnabledKey = "playerBackdropUsesCustomColor"
+    static let customAmbientHexKey = "playerBackdropCustomColorHex"
+    /// 资料库详情页(专辑、流派、艺人,打开了染色的歌单)整页底色的来源(`BackdropColorSource` 的原始值)与自定义色值。
+    static let detailTintSourceKey = "libraryDetailTintSource"
+    static let detailCustomColorHexKey = "libraryDetailCustomColorHex"
+    /// 第一次切到「自定义颜色」时的颜色:色板里的靛蓝,深底上压白字也清楚。
+    static let defaultCustomBackdropHex = "5E5CE6"
+
+    /// 播放页背景用的颜色:取封面、用主题色(原来关掉「封面氛围」时的样子)、或者自己挑的颜色。
+    static func ambientColorChoice(in defaults: UserDefaults = .standard) -> AmbientColorChoice {
+        if defaults.bool(forKey: customAmbientEnabledKey) { return .custom }
+        let followsCover = defaults.object(forKey: coverDrivenAmbientKey) as? Bool ?? defaultCoverDrivenAmbient
+        return followsCover ? .artwork : .theme
+    }
+
+    /// 选了自定义背景色时的那个颜色;没选时为 nil。
+    static func customAmbientHex(in defaults: UserDefaults = .standard) -> String? {
+        guard defaults.bool(forKey: customAmbientEnabledKey) else { return nil }
+        return normalizedHex(defaults.string(forKey: customAmbientHexKey) ?? "", fallback: defaultCustomBackdropHex)
+    }
+
+    /// 详情页底色:取封面时为 nil,选了自定义颜色时是那个颜色。
+    static func detailCustomColor(source rawValue: String, hex: String) -> Color? {
+        guard BackdropColorSource(rawValue: rawValue) == .custom else { return nil }
+        return Color(hex: normalizedHex(hex, fallback: defaultCustomBackdropHex))
+    }
+
+    /// 存下来的自定义色值换成背景代表色用的 sRGB 分量。
+    static func liquidColor(hex: String) -> LiquidBackdropColor {
+        let digits = normalizedHex(hex, fallback: defaultCustomBackdropHex)
+        let value = UInt32(digits, radix: 16) ?? 0
+        return LiquidBackdropColor(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
+    }
+
+    /// 取色器选出来的颜色存成 RRGGBB。
+    static func hex(from color: Color) -> String {
+        let resolved = color.resolve(in: EnvironmentValues())
+        func channel(_ value: Float) -> Int { Int((min(max(Double(value), 0), 1) * 255).rounded()) }
+        return String(format: "%02X%02X%02X", channel(resolved.red), channel(resolved.green), channel(resolved.blue))
+    }
 
     static let swatches: [Swatch] = [
         Swatch(id: brandHex, localizationKey: "theme_color_magenta"),

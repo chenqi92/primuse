@@ -6778,6 +6778,14 @@
 "player_progress_motion_none" = "无";
 "player_progress_motion_flow" = "水流";
 "player_progress_motion_breathe" = "呼吸";
+"backdrop_color_source_artwork" = "封面取色";
+"backdrop_color_source_theme" = "主题色";
+"backdrop_color_source_custom" = "自定义颜色";
+"backdrop_color_player_title" = "播放页背景颜色";
+"backdrop_color_player_description" = "播放页背景（色场、流动色彩、Mesh、声音律动的底色）和跟着它的卡拉OK舞台、桌面歌词用什么颜色。封面取色跟着正在播的封面变；主题色用你选的主题色；自定义颜色用你挑的颜色，按钮和文字的颜色不受影响。模糊封面、封底、自选图片这几种背景铺的是图片，不受这一项影响。";
+"backdrop_color_detail_title" = "详情页底色";
+"backdrop_color_detail_description" = "专辑、风格、艺人页，以及打开了「歌单页底色跟随封面」的歌单页，整页铺什么颜色。封面取色时每一页按自己的封面（艺人页按照片）；自定义颜色时所有页都用你挑的颜色，深浅照样调到文字看得清。";
+"backdrop_color_custom_picker" = "颜色";
 "theme_color_player_backdrop_moved_hint" = "播放页背景的样式和颜色浓淡，现在在「设置 › 播放器」里调。";
 "theme_color_player_backdrop_moved_link" = "前往播放器设置";
 

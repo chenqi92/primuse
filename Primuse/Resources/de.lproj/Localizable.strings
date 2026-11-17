@@ -6685,6 +6685,14 @@
 "player_progress_motion_none" = "Keine";
 "player_progress_motion_flow" = "Fließen";
 "player_progress_motion_breathe" = "Atmen";
+"backdrop_color_source_artwork" = "Cover-Farbe";
+"backdrop_color_source_theme" = "Designfarbe";
+"backdrop_color_source_custom" = "Eigene Farbe";
+"backdrop_color_player_title" = "Hintergrundfarbe der Wiedergabe";
+"backdrop_color_player_description" = "Die Farbe hinter der Wiedergabe (Farbfeld, fließende Farben, Mesh und Grundfarbe klangreaktiver Hintergründe) sowie der Karaoke-Bühne und der Desktop-Liedtexte, die ihr folgen. „Cover-Farbe“ folgt dem gerade gespielten Cover, „Designfarbe“ nutzt deine Designfarbe und „Eigene Farbe“ eine selbst gewählte Farbe, ohne die Farbe von Tasten und Text zu ändern. Verschwommenes Cover, Rückseiten und eigene Bilder zeigen Bilder und sind nicht betroffen.";
+"backdrop_color_detail_title" = "Hintergrund der Detailseiten";
+"backdrop_color_detail_description" = "Die Farbe hinter Album-, Genre- und Künstlerseiten sowie Playlist-Seiten, wenn „Playlist-Hintergrund aus dem Cover“ eingeschaltet ist. Mit „Cover-Farbe“ nutzt jede Seite ihr eigenes Cover (Künstlerseiten das Foto). Mit „Eigene Farbe“ nutzen alle Seiten die gewählte Farbe, weiterhin so abgestimmt, dass der Text lesbar bleibt.";
+"backdrop_color_custom_picker" = "Farbe";
 "theme_color_player_backdrop_moved_hint" = "Stil und Farbintensität des Player-Hintergrunds findest du jetzt unter Einstellungen › Player.";
 "theme_color_player_backdrop_moved_link" = "Player-Einstellungen öffnen";
 

@@ -70,7 +70,7 @@ struct DesktopLyricsView: View {
 
     private var lyricsColor: Color {
         if usesArtworkColor {
-            return preferences.coverDrivenAmbient ? theme.accentColor : theme.uiAccentColor
+            return preferences.coverDrivenAmbient || theme.usesCustomBackdrop ? theme.accentColor : theme.uiAccentColor
         }
         return Color.fromHexString(colorHex) ?? .white
     }

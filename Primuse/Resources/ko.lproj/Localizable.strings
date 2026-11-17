@@ -6685,6 +6685,14 @@
 "player_progress_motion_none" = "없음";
 "player_progress_motion_flow" = "흐름";
 "player_progress_motion_breathe" = "숨쉬기";
+"backdrop_color_source_artwork" = "앨범 아트 색상";
+"backdrop_color_source_theme" = "테마 색상";
+"backdrop_color_source_custom" = "사용자 지정 색상";
+"backdrop_color_player_title" = "재생 화면 배경 색상";
+"backdrop_color_player_description" = "재생 화면 배경(색상 필드, 흐르는 색상, 메시, 소리에 반응하는 배경의 바탕)과 이를 따르는 노래방 무대, 데스크톱 가사의 색상입니다. '앨범 아트 색상'은 재생 중인 앨범 아트를 따르고, '테마 색상'은 선택한 테마 색상을, '사용자 지정 색상'은 직접 고른 색상을 사용합니다. 버튼과 글자 색상은 바뀌지 않습니다. 흐린 앨범 아트, 뒷면 커버, 직접 고른 이미지는 이미지를 깔기 때문에 영향을 받지 않습니다.";
+"backdrop_color_detail_title" = "상세 페이지 배경";
+"backdrop_color_detail_description" = "앨범, 장르, 아티스트 페이지와 '재생목록 배경색을 커버에 맞춤'을 켠 재생목록 페이지의 배경 색상입니다. '앨범 아트 색상'에서는 각 페이지가 자신의 앨범 아트(아티스트는 사진)를 따르고, '사용자 지정 색상'에서는 모든 페이지가 고른 색상을 사용합니다. 글자가 잘 보이도록 밝기는 조정됩니다.";
+"backdrop_color_custom_picker" = "색상";
 "theme_color_player_backdrop_moved_hint" = "플레이어 배경 스타일과 색 농도는 이제 설정 › 플레이어에서 조절합니다.";
 "theme_color_player_backdrop_moved_link" = "플레이어 설정 열기";
 

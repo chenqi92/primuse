@@ -6446,6 +6446,14 @@
 "player_progress_motion_none" = "None";
 "player_progress_motion_flow" = "Flow";
 "player_progress_motion_breathe" = "Breathe";
+"backdrop_color_source_artwork" = "Artwork Color";
+"backdrop_color_source_theme" = "Theme Color";
+"backdrop_color_source_custom" = "Custom Color";
+"backdrop_color_player_title" = "Player Background Color";
+"backdrop_color_player_description" = "The color behind the player (color field, liquid colors, mesh and the base of sound-reactive backgrounds), and the karaoke stage and desktop lyrics that follow it. Artwork Color follows the cover that is playing, Theme Color uses your theme color, and Custom Color uses a color you pick without changing the color of buttons and text. Blurred artwork, back covers and your own images are pictures and are not affected.";
+"backdrop_color_detail_title" = "Detail Page Background";
+"backdrop_color_detail_description" = "The color behind album, genre and artist pages, and playlist pages when Playlist Background from Cover is on. With Artwork Color each page uses its own cover (artist pages use the photo). With Custom Color every page uses the color you pick, still toned so the text stays readable.";
+"backdrop_color_custom_picker" = "Color";
 "theme_color_player_backdrop_moved_hint" = "The player background style and color intensity are now in Settings › Player.";
 "theme_color_player_backdrop_moved_link" = "Open Player Settings";
 

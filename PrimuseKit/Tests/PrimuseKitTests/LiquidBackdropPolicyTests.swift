@@ -353,4 +353,24 @@ import Testing
         #expect(ProgressBreathPolicy.interpolate(0.2...0.8, 3) == 0.8)
     }
 
+
+    @Test("A custom backdrop colour leads its palette and spreads into lighter, darker and neighbouring tones")
+    func customBackdropPalette() {
+        let indigo = LiquidBackdropColor(red: 0.37, green: 0.36, blue: 0.9)
+        let palette = CustomBackdropPalettePolicy.palette(for: indigo)
+        #expect(palette.count == 5)
+        let lead = palette[0].hsl
+        #expect(abs(lead.hue - indigo.hsl.hue) < 0.01)
+        #expect(Set(palette).count == palette.count)
+        #expect(palette.contains { $0.hsl.lightness > lead.lightness + 0.05 })
+        #expect(palette.contains { $0.hsl.lightness < lead.lightness - 0.05 })
+        for color in palette {
+            #expect(color.hsl.lightness <= LiquidBackdropPalettePolicy.maximumLightness + 0.001)
+            #expect(color.hsl.lightness >= LiquidBackdropPalettePolicy.minimumLightness - 0.001)
+        }
+        // 纯黑、纯白也排得出一组(灰阶),不会是空的。
+        #expect(!CustomBackdropPalettePolicy.palette(for: LiquidBackdropColor(red: 0, green: 0, blue: 0)).isEmpty)
+        #expect(!CustomBackdropPalettePolicy.palette(for: LiquidBackdropColor(red: 1, green: 1, blue: 1)).isEmpty)
+    }
+
 }

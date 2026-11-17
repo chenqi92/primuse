@@ -6591,6 +6591,14 @@
 "player_progress_motion_none" = "Brak";
 "player_progress_motion_flow" = "Przepływ";
 "player_progress_motion_breathe" = "Oddech";
+"backdrop_color_source_artwork" = "Kolor okładki";
+"backdrop_color_source_theme" = "Kolor motywu";
+"backdrop_color_source_custom" = "Własny kolor";
+"backdrop_color_player_title" = "Kolor tła odtwarzacza";
+"backdrop_color_player_description" = "Kolor za odtwarzaczem (pole koloru, płynne kolory, siatka i podstawa teł reagujących na dźwięk) oraz za sceną karaoke i tekstem na pulpicie, które za nim idą. „Kolor okładki” podąża za odtwarzaną okładką, „Kolor motywu” używa wybranego koloru motywu, a „Własny kolor” — koloru, który wybierzesz, bez zmiany koloru przycisków i tekstu. Rozmyta okładka, tył okładki i własne obrazy pokazują obrazy i nie są objęte tym ustawieniem.";
+"backdrop_color_detail_title" = "Tło stron szczegółów";
+"backdrop_color_detail_description" = "Kolor za stronami albumów, gatunków i wykonawców oraz playlist, gdy włączone jest „Tło playlisty z okładki”. Przy „Kolorze okładki” każda strona używa własnej okładki (wykonawcy — zdjęcia). Przy „Własnym kolorze” wszystkie strony używają wybranego koloru, dalej dobranego tak, by tekst był czytelny.";
+"backdrop_color_custom_picker" = "Kolor";
 "theme_color_player_backdrop_moved_hint" = "Styl i intensywność kolorów tła odtwarzacza ustawisz teraz w Ustawienia › Odtwarzacz.";
 "theme_color_player_backdrop_moved_link" = "Otwórz ustawienia odtwarzacza";
 

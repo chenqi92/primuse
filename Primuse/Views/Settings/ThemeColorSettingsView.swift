@@ -308,17 +308,27 @@ struct ThemeColorSections: View {
             .settingsAnchor("appearance.hue")
 
             Section {
-                Toggle(isOn: coverDrivenAmbientBinding) {
+                // 播放页背景取封面颜色、用主题色,还是自己挑一个颜色(原来的「封面氛围」开关是前两种)。
+                Picker(selection: ambientColorChoiceBinding) {
+                    ForEach(AmbientColorChoice.allCases, id: \.self) { choice in
+                        Text(LocalizedStringKey(choice.titleKey)).tag(choice)
+                    }
+                } label: {
                     Label {
-                        Text(PMString("ext.tv.settings.coverColor"))
+                        SettingsInfoLabel("backdrop_color_player_title") {
+                            Text("backdrop_color_player_description")
+                        }
                     } icon: {
                         Image(systemName: "photo.on.rectangle.angled")
                     }
                 }
-                // 上面选了「白色」时开关圆钮要换色,外观代理只作用于新建的开关。
-                .id(settings.isWhiteTheme)
-            } header: {
-                Text(PMString("ext.tv.settings.coverColor"))
+                .pickerStyle(.menu)
+                if ambientColorChoice == .custom {
+                    ColorPicker(selection: customAmbientColorBinding, supportsOpacity: false) {
+                        Label("backdrop_color_custom_picker", systemImage: "eyedropper")
+                    }
+                    .settingsAnchor("appearance.customAmbientColor")
+                }
             } footer: {
                 // 背景的样式和浓淡挪到了「设置 › 播放器」,和播放页的其它外观放在一起(#69)。
                 Button {
@@ -403,6 +413,39 @@ struct ThemeColorSections: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(settings.mode == mode ? [.isButton, .isSelected] : .isButton)
+    }
+
+    @AppStorage(AppThemePreferences.customAmbientEnabledKey)
+    private var usesCustomAmbientColor = false
+    @AppStorage(AppThemePreferences.customAmbientHexKey)
+    private var customAmbientHex = AppThemePreferences.defaultCustomBackdropHex
+
+    private var ambientColorChoice: AmbientColorChoice {
+        if usesCustomAmbientColor { return .custom }
+        return settings.coverDrivenAmbient ? .artwork : .theme
+    }
+
+    private var ambientColorChoiceBinding: Binding<AmbientColorChoice> {
+        Binding(
+            get: { ambientColorChoice },
+            set: { choice in
+                usesCustomAmbientColor = choice == .custom
+                if choice != .custom {
+                    coverDrivenAmbientBinding.wrappedValue = choice == .artwork
+                }
+                themeService.reloadCustomBackdrop()
+            }
+        )
+    }
+
+    private var customAmbientColorBinding: Binding<Color> {
+        Binding(
+            get: { Color(hex: AppThemePreferences.normalizedHex(customAmbientHex, fallback: AppThemePreferences.defaultCustomBackdropHex)) },
+            set: { color in
+                customAmbientHex = AppThemePreferences.hex(from: color)
+                themeService.reloadCustomBackdrop(animated: false)
+            }
+        )
     }
 
     private var coverDrivenAmbientBinding: Binding<Bool> {

@@ -6591,6 +6591,14 @@
 "player_progress_motion_none" = "Ninguna";
 "player_progress_motion_flow" = "Flujo";
 "player_progress_motion_breathe" = "Respiración";
+"backdrop_color_source_artwork" = "Color de la portada";
+"backdrop_color_source_theme" = "Color del tema";
+"backdrop_color_source_custom" = "Color personalizado";
+"backdrop_color_player_title" = "Color de fondo del reproductor";
+"backdrop_color_player_description" = "El color detrás del reproductor (campo de color, colores fluidos, malla y base de los fondos que reaccionan al sonido) y del escenario de karaoke y la letra en el escritorio que lo siguen. «Color de la portada» sigue la portada que suena, «Color del tema» usa tu color de tema y «Color personalizado» usa un color que eliges, sin cambiar el color de los botones ni del texto. La portada desenfocada, la contraportada y tus propias imágenes muestran imágenes y no se ven afectadas.";
+"backdrop_color_detail_title" = "Fondo de las páginas de detalle";
+"backdrop_color_detail_description" = "El color detrás de las páginas de álbum, género y artista, y de las listas cuando «Fondo de listas según la portada» está activado. Con «Color de la portada», cada página usa su propia portada (la foto en artistas). Con «Color personalizado», todas usan el color que eliges, ajustado para que el texto se siga leyendo.";
+"backdrop_color_custom_picker" = "Color";
 "theme_color_player_backdrop_moved_hint" = "El estilo y la intensidad de color del fondo del reproductor ahora están en Configuración › Reproductor.";
 "theme_color_player_backdrop_moved_link" = "Abrir ajustes del reproductor";
 

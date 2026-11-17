@@ -1383,6 +1383,8 @@ final class AppServices {
         theme.setColorMode(MacUIPreferences.shared.themeColorMode, animated: false)
         theme.setCoverDrivenAmbient(MacUIPreferences.shared.coverDrivenAmbient, animated: false)
         #endif
+        // 播放页背景选了自定义颜色时,背景那一族颜色换成它(两端同一份偏好)。
+        theme.reloadCustomBackdrop(animated: false)
         self.themeService = theme
         let metadataBackfill = MetadataBackfillService(
             library: library,
@@ -2552,6 +2554,8 @@ final class AppServices {
         }
         let themeFollowsCover = preferences.themeColorMode == .automatic || preferences.coverDrivenAmbient
         #endif
+        // 自定义背景色只换背景那一族颜色,不用重新取封面色。
+        theme.reloadCustomBackdrop()
         let spaceTints = ListeningSpaceTintSettings.shared
         let tintsChanged = spaceTints.reloadFromDefaults()
         guard themeChanged || tintsChanged else { return }

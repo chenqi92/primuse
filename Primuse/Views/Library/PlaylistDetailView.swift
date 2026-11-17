@@ -3046,6 +3046,15 @@ private struct PlaylistCoverTintModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.libraryDetailUnderlyingColorScheme) private var outerUnderlyingColorScheme
     @State private var source = PlaylistCoverTintSource.none
+    /// 设置里详情页底色选了自定义颜色时,打开了染色的歌单也用它,不再取封面。
+    @AppStorage(AppThemePreferences.detailTintSourceKey)
+    private var detailTintSourceRawValue = BackdropColorSource.defaultValue.rawValue
+    @AppStorage(AppThemePreferences.detailCustomColorHexKey)
+    private var detailCustomColorHex = AppThemePreferences.defaultCustomBackdropHex
+
+    private var customColor: Color? {
+        AppThemePreferences.detailCustomColor(source: detailTintSourceRawValue, hex: detailCustomColorHex)
+    }
 
     func body(content: Content) -> some View {
         let tint = tintsFromCover ? resolvedTint : nil
@@ -3065,8 +3074,8 @@ private struct PlaylistCoverTintModifier: ViewModifier {
             }
             .pmAnimation(.ambient, value: tint)
             .navigationBarTitleDisplayMode(.inline)
-            .task(id: tintsFromCover ? sourceIdentity : nil) {
-                guard tintsFromCover else { return }
+            .task(id: tintsFromCover && customColor == nil ? sourceIdentity : nil) {
+                guard tintsFromCover, customColor == nil else { return }
                 await resolveSource()
             }
             // 就地换了封面要马上改底色,不等下次进页面。
@@ -3077,6 +3086,7 @@ private struct PlaylistCoverTintModifier: ViewModifier {
     }
 
     private var resolvedTint: LibraryDetailTintStyle {
+        if let customColor { return .artwork(customColor, colorScheme: colorScheme) }
         let color: Color?
         switch source {
         case .none: color = nil

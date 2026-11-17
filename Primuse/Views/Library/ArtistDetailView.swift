@@ -95,6 +95,11 @@ struct ArtistDetailView: View {
     private var colorStyle = ArtistAppearancePreferences.defaultColorStyle
     @AppStorage(ArtistAppearancePreferences.softensEdgesKey)
     private var softensEdges = ArtistAppearancePreferences.defaultSoftensEdges
+    /// 设置里详情页底色选了自定义颜色时,这一页也用它(照片取色不用了)。
+    @AppStorage(AppThemePreferences.detailTintSourceKey)
+    private var detailTintSourceRawValue = BackdropColorSource.defaultValue.rawValue
+    @AppStorage(AppThemePreferences.detailCustomColorHexKey)
+    private var detailCustomColorHex = AppThemePreferences.defaultCustomBackdropHex
     #endif
 
     let artist: Artist
@@ -144,7 +149,15 @@ struct ArtistDetailView: View {
 
     #if os(iOS)
     private var tint: LibraryDetailTintStyle {
-        .artworkBackground(
+        if let custom = AppThemePreferences.detailCustomColor(source: detailTintSourceRawValue, hex: detailCustomColorHex) {
+            return .artworkBackground(
+                custom,
+                palette: CustomBackdropPalettePolicy.palette(for: AppThemePreferences.liquidColor(hex: detailCustomColorHex)),
+                ambientStyle: colorStyle,
+                colorScheme: colorScheme
+            )
+        }
+        return .artworkBackground(
             artworkTint,
             palette: artworkPalette,
             ambientStyle: colorStyle,
