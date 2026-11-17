@@ -834,7 +834,7 @@ private struct NowPlayingAlbumTransitionSourceModifier: ViewModifier {
 #endif
 
 /// 大封面与歌词小封面之间交接时所在的位置。
-private enum LyricsArtworkPlacement: Hashable {
+enum LyricsArtworkPlacement: Hashable {
     case cover
     case compactLyrics
     case immersiveLyrics
@@ -1198,6 +1198,435 @@ private struct LyricsArtworkMotion: ViewModifier {
     }
 }
 
+#if os(iOS)
+/// iPhone 竖屏卡片封面的原生合成器飞行宿主：
+/// 位移、缩放、连续圆角与阴影透明度交给 UIKit 动画，
+/// 避免转场途中按 120Hz 唤醒主线程重跑圆角遮罩与 RenderBox 同步。
+struct NowPlayingCardArtworkCompositor<Artwork: View>: UIViewControllerRepresentable {
+    struct ArtworkKey: Equatable {
+        var songID: String
+        var coverRef: String?
+        var sourceID: String?
+        var filePath: String?
+        var fileFormat: AudioFormat?
+        var placeholderIcon: String
+        var presentationRole: ArtworkPresentationRole
+        var isPlaying: Bool
+        var isAnimationVisible: Bool
+        var loadsHighResolution: Bool
+        var revisionToken: Int
+        var renderSize: CGFloat
+    }
+
+    var key: ArtworkKey
+    var rect: CGRect
+    var cornerRadius: CGFloat
+    var shadow: LyricsArtworkShadow
+    var placement: LyricsArtworkPlacement
+    var artworkAppearsPlaying: Bool
+    var containerSize: CGSize
+    @ViewBuilder var artwork: () -> Artwork
+
+    func makeUIViewController(context: Context) -> NowPlayingCardArtworkStageController<Artwork> {
+        NowPlayingCardArtworkStageController(
+            key: key,
+            environment: context.environment,
+            artwork: artwork(),
+            rect: rect,
+            cornerRadius: cornerRadius,
+            shadow: shadow,
+            placement: placement,
+            artworkAppearsPlaying: artworkAppearsPlaying,
+            containerSize: containerSize
+        )
+    }
+
+    func updateUIViewController(_ controller: NowPlayingCardArtworkStageController<Artwork>, context: Context) {
+        controller.update(
+            key: key,
+            environment: context.environment,
+            artwork: artwork,
+            rect: rect,
+            cornerRadius: cornerRadius,
+            shadow: shadow,
+            placement: placement,
+            artworkAppearsPlaying: artworkAppearsPlaying,
+            containerSize: containerSize
+        )
+    }
+}
+
+@MainActor
+final class NowPlayingCardArtworkStageController<Artwork: View>: UIViewController {
+    private struct EnvironmentSnapshot: Equatable {
+        var colorScheme: ColorScheme
+        var displayScale: CGFloat
+        var scenePhase: ScenePhase
+        var reduceMotion: Bool
+        var playAnimatedImages: Bool
+        var motionCoverLookupEnabled: Bool
+
+        init(_ environment: EnvironmentValues) {
+            colorScheme = environment.colorScheme
+            displayScale = environment.displayScale
+            scenePhase = environment.scenePhase
+            reduceMotion = environment.accessibilityReduceMotion
+            playAnimatedImages = environment.accessibilityPlayAnimatedImages
+            motionCoverLookupEnabled = environment.motionCoverLookupEnabled
+        }
+    }
+
+    private struct HostedArtwork: View {
+        let artwork: Artwork
+        let renderSize: CGFloat
+        let environment: EnvironmentValues
+
+        var body: some View {
+            artwork
+                .environment(\.self, environment)
+                .environment(\.artworkContentViewport, CGRect(x: 0, y: 0, width: renderSize, height: renderSize))
+                .environment(\.artworkContentFill, nil)
+                .frame(width: renderSize, height: renderSize)
+        }
+    }
+
+    let stageView = NowPlayingCardArtworkStageView()
+    private let artworkHost: UIHostingController<HostedArtwork>
+    private var lastKey: NowPlayingCardArtworkCompositor<Artwork>.ArtworkKey
+    private var lastEnvSnapshot: EnvironmentSnapshot
+
+    init(
+        key: NowPlayingCardArtworkCompositor<Artwork>.ArtworkKey,
+        environment: EnvironmentValues,
+        artwork: Artwork,
+        rect: CGRect,
+        cornerRadius: CGFloat,
+        shadow: LyricsArtworkShadow,
+        placement: LyricsArtworkPlacement,
+        artworkAppearsPlaying: Bool,
+        containerSize: CGSize
+    ) {
+        self.lastKey = key
+        self.lastEnvSnapshot = EnvironmentSnapshot(environment)
+        self.artworkHost = UIHostingController(
+            rootView: HostedArtwork(artwork: artwork, renderSize: key.renderSize, environment: environment)
+        )
+        super.init(nibName: nil, bundle: nil)
+        artworkHost.view.backgroundColor = .clear
+        artworkHost.safeAreaRegions = []
+        artworkHost.sizingOptions = []
+        addChild(artworkHost)
+        stageView.installContentView(artworkHost.view, renderSize: key.renderSize)
+        artworkHost.didMove(toParent: self)
+        stageView.updateShadowSpriteIfNeeded(renderSize: key.renderSize, displayScale: environment.displayScale)
+        stageView.updatePose(
+            rect: rect,
+            cornerRadius: cornerRadius,
+            shadow: shadow,
+            renderSize: key.renderSize,
+            placement: placement,
+            artworkAppearsPlaying: artworkAppearsPlaying,
+            containerSize: containerSize,
+            reduceMotion: environment.accessibilityReduceMotion
+        )
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        view = stageView
+    }
+
+    func update(
+        key: NowPlayingCardArtworkCompositor<Artwork>.ArtworkKey,
+        environment: EnvironmentValues,
+        artwork: () -> Artwork,
+        rect: CGRect,
+        cornerRadius: CGFloat,
+        shadow: LyricsArtworkShadow,
+        placement: LyricsArtworkPlacement,
+        artworkAppearsPlaying: Bool,
+        containerSize: CGSize
+    ) {
+        let envSnapshot = EnvironmentSnapshot(environment)
+        if key != lastKey || envSnapshot != lastEnvSnapshot {
+            lastKey = key
+            lastEnvSnapshot = envSnapshot
+            artworkHost.rootView = HostedArtwork(
+                artwork: artwork(),
+                renderSize: key.renderSize,
+                environment: environment
+            )
+            stageView.updateShadowSpriteIfNeeded(renderSize: key.renderSize, displayScale: environment.displayScale)
+        }
+        stageView.updatePose(
+            rect: rect,
+            cornerRadius: cornerRadius,
+            shadow: shadow,
+            renderSize: key.renderSize,
+            placement: placement,
+            artworkAppearsPlaying: artworkAppearsPlaying,
+            containerSize: containerSize,
+            reduceMotion: envSnapshot.reduceMotion
+        )
+    }
+}
+
+@MainActor
+final class NowPlayingCardArtworkStageView: UIView {
+    struct Pose: Equatable {
+        var rect: CGRect
+        var cornerRadius: CGFloat
+        var shadowOpacity: Double
+        var renderSize: CGFloat
+    }
+
+    let moverView = UIView()
+    let shadowContainerView = UIView()
+    let shadowImageView = UIImageView()
+    let clipView = UIView()
+    private weak var hostedContentView: UIView?
+    private var hasLaidOutOnce = false
+    private var lastPose: Pose?
+    private var lastPlacement: LyricsArtworkPlacement?
+    private var lastAppearsPlaying: Bool?
+    private var lastContainerSize: CGSize?
+    private var shadowKey: (renderSize: CGFloat, scale: CGFloat)?
+    private var shadowTask: Task<Void, Never>?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+        clipsToBounds = false
+
+        moverView.isUserInteractionEnabled = false
+        moverView.backgroundColor = .clear
+        moverView.clipsToBounds = false
+        addSubview(moverView)
+
+        shadowContainerView.isUserInteractionEnabled = false
+        shadowContainerView.backgroundColor = .clear
+        moverView.addSubview(shadowContainerView)
+
+        shadowImageView.isUserInteractionEnabled = false
+        shadowImageView.contentMode = .scaleToFill
+        shadowContainerView.addSubview(shadowImageView)
+
+        clipView.isUserInteractionEnabled = false
+        clipView.backgroundColor = .clear
+        clipView.clipsToBounds = true
+        clipView.layer.cornerCurve = .continuous
+        moverView.addSubview(clipView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        shadowTask?.cancel()
+    }
+
+    func installContentView(_ contentView: UIView, renderSize: CGFloat) {
+        hostedContentView = contentView
+        contentView.isUserInteractionEnabled = false
+        clipView.addSubview(contentView)
+        configureRenderBounds(renderSize: max(renderSize, 1))
+    }
+
+    func updateShadowSpriteIfNeeded(renderSize: CGFloat, displayScale: CGFloat) {
+        let safeSize = max(renderSize, 1)
+        let renderScale = LyricsCoverShadowSpriteCache.renderScale(for: displayScale)
+        if let shadowKey, shadowKey.renderSize == safeSize, shadowKey.scale == renderScale,
+           shadowImageView.image != nil {
+            return
+        }
+        shadowKey = (safeSize, renderScale)
+        shadowTask?.cancel()
+        let shadowScale = safeSize / 320
+        let cornerRadius = 12 * shadowScale
+        let spec = LyricsArtworkShadow(opacity: 1, radius: 20 * shadowScale, y: 8 * shadowScale)
+        if let cached = LyricsCoverShadowSpriteCache.cachedImage(
+            side: safeSize, cornerRadius: cornerRadius, shadow: spec, scale: renderScale
+        ) {
+            UIView.performWithoutAnimation {
+                shadowImageView.image = UIImage(cgImage: cached, scale: renderScale, orientation: .up)
+                shadowImageView.alpha = 1
+            }
+            return
+        }
+        UIView.performWithoutAnimation {
+            shadowImageView.alpha = 0
+        }
+        shadowTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled, let self else { return }
+            guard let image = LyricsCoverShadowSpriteCache.image(
+                side: safeSize, cornerRadius: cornerRadius, shadow: spec, scale: renderScale
+            ) else { return }
+            UIView.performWithoutAnimation {
+                self.shadowImageView.image = UIImage(cgImage: image, scale: renderScale, orientation: .up)
+            }
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+                self.shadowImageView.alpha = 1
+            }
+        }
+    }
+
+    func updatePose(
+        rect: CGRect,
+        cornerRadius: CGFloat,
+        shadow: LyricsArtworkShadow,
+        renderSize: CGFloat,
+        placement: LyricsArtworkPlacement,
+        artworkAppearsPlaying: Bool,
+        containerSize: CGSize,
+        reduceMotion: Bool
+    ) {
+        guard containerSize.width > 0, containerSize.height > 0,
+              rect.width > 0, rect.height > 0 else { return }
+        let pose = Pose(
+            rect: rect,
+            cornerRadius: cornerRadius,
+            shadowOpacity: shadow.opacity,
+            renderSize: max(renderSize, 1)
+        )
+        let speedScale = Self.animationDurationScale
+
+        if !hasLaidOutOnce || lastContainerSize != containerSize {
+            if hasLaidOutOnce, lastContainerSize != containerSize {
+                moverView.layer.removeAllAnimations()
+                clipView.layer.removeAllAnimations()
+                shadowContainerView.layer.removeAllAnimations()
+            }
+            UIView.performWithoutAnimation {
+                applyPose(pose)
+            }
+            hasLaidOutOnce = true
+        } else if lastPlacement != placement {
+            if pose != lastPose {
+                if reduceMotion {
+                    UIView.animate(
+                        withDuration: 0.16 * speedScale,
+                        delay: 0,
+                        options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+                    ) {
+                        self.applyPose(pose)
+                    }
+                } else {
+                    UIView.animate(
+                        springDuration: 0.46 * speedScale,
+                        bounce: 0,
+                        initialSpringVelocity: 0,
+                        delay: 0,
+                        options: [.allowUserInteraction]
+                    ) {
+                        self.applyPose(pose)
+                    }
+                }
+            }
+        } else if lastAppearsPlaying != artworkAppearsPlaying {
+            if pose != lastPose {
+                if reduceMotion {
+                    UIView.animate(
+                        withDuration: 0.16 * speedScale,
+                        delay: 0,
+                        options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+                    ) {
+                        self.applyPose(pose)
+                    }
+                } else {
+                    UIView.animate(
+                        springDuration: 0.5 * speedScale,
+                        bounce: 0.3,
+                        initialSpringVelocity: 0,
+                        delay: 0,
+                        options: [.allowUserInteraction]
+                    ) {
+                        self.applyPose(pose)
+                    }
+                }
+            }
+        } else if pose != lastPose {
+            UIView.performWithoutAnimation {
+                applyPose(pose)
+            }
+        }
+
+        lastPose = pose
+        lastPlacement = placement
+        lastAppearsPlaying = artworkAppearsPlaying
+        lastContainerSize = containerSize
+    }
+
+    private func configureRenderBounds(renderSize: CGFloat) {
+        let contentBounds = CGRect(x: 0, y: 0, width: renderSize, height: renderSize)
+        moverView.bounds = contentBounds
+        clipView.frame = contentBounds
+        hostedContentView?.frame = contentBounds
+
+        let shadowScale = renderSize / 320
+        let spec = LyricsArtworkShadow(opacity: 1, radius: 20 * shadowScale, y: 8 * shadowScale)
+        let padding = LyricsCoverShadowSpriteCache.padding(for: spec)
+        let extent = renderSize + 2 * padding
+        let shadowFrame = CGRect(x: -padding, y: -padding, width: extent, height: extent)
+        shadowContainerView.frame = shadowFrame
+        shadowImageView.frame = CGRect(x: 0, y: 0, width: extent, height: extent)
+    }
+
+    private func applyPose(_ pose: Pose) {
+        if moverView.bounds.width != pose.renderSize || moverView.bounds.height != pose.renderSize {
+            configureRenderBounds(renderSize: pose.renderSize)
+        }
+        let scale = max(pose.rect.width, 1) / pose.renderSize
+        let unscaledCornerRadius = max(0, pose.cornerRadius) / max(scale, 0.0001)
+        moverView.center = CGPoint(x: pose.rect.midX, y: pose.rect.midY)
+        moverView.transform = CGAffineTransform(scaleX: scale, y: scale)
+        clipView.layer.cornerRadius = unscaledCornerRadius
+        shadowContainerView.alpha = max(0, min(1, pose.shadowOpacity))
+    }
+
+    private static var animationDurationScale: TimeInterval {
+        #if DEBUG
+        if let speed = NowPlayingView.debugLyricsAnimationSpeed, speed > 0 {
+            return 1.0 / speed
+        }
+        #endif
+        return 1.0
+    }
+}
+#endif
+
+/// 封面与歌词文字交接的合成器透明度动画：先在 0.13s 内退掉旧文字，0.15s 后再淡入新文字，
+/// 两侧错开淡出与淡入，反向切换时沿用当前透明度。
+@MainActor
+enum NowPlayingLyricsHandoffAnimation {
+    static let fadeOutDuration: Double = 0.13
+    static let fadeInDelay: Double = 0.15
+    static let fadeInDuration: Double = 0.24
+
+    static func opacity(appearing: Bool, reduceMotion: Bool) -> Animation {
+        let base: Animation = if reduceMotion {
+            .easeInOut(duration: 0.16)
+        } else if appearing {
+            .easeOut(duration: fadeInDuration).delay(fadeInDelay)
+        } else {
+            .easeIn(duration: fadeOutDuration)
+        }
+        #if DEBUG
+        if let speed = NowPlayingView.debugLyricsAnimationSpeed {
+            return base.speed(speed)
+        }
+        #endif
+        return base
+    }
+}
+
 /// 绘制尺寸那张方图里居中留下 `size` 那么大的圆角矩形。
 private struct LyricsArtworkClipShape: Shape {
     var size: CGSize
@@ -1332,14 +1761,21 @@ private struct NowPlayingEdgeAlignedColumn: Layout {
 /// 电台、MV 等每一套布局的类型元数据都实例化一遍（采样里首次展开那一卡的大头），
 /// 而竖屏 iPhone 只会用到其中一套。擦掉之后只有真正走到的那一支才实例化。
 private struct NowPlayingDeferredContent: View {
+    private let debugLabel: String?
     private let content: () -> AnyView
 
-    init<Content: View>(@ViewBuilder content: @escaping () -> Content) {
+    init<Content: View>(debugLabel: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.debugLabel = debugLabel
         self.content = { AnyView(content()) }
     }
 
     var body: AnyView {
-        content()
+        #if DEBUG && os(iOS)
+        if let debugLabel {
+            DebugLyricRowBuildCounter.noteDeferredBody(debugLabel)
+        }
+        #endif
+        return content()
     }
 }
 
@@ -1368,15 +1804,72 @@ final class NowPlayingLyricsPresentation {
     fileprivate var settledArtworkPlacement: LyricsArtworkPlacement = .cover
 }
 
+/// 播放页对歌词开关的后续处理(收起沉浸歌词、记下封面落定的位置)。开关只在这层零尺寸视图的
+/// body 里读：整页那一层若读了它，每次切换都要整页重算、所有推迟构造的内容跟着重建。
+private struct NowPlayingLyricsVisibilityObserver: View {
+    let presentation: NowPlayingLyricsPresentation
+    let isImmersive: Bool
+    let onVisibilityChange: (Bool) -> Void
+    let onPlacementChange: (LyricsArtworkPlacement) -> Void
+
+    var body: some View {
+        let isVisible = presentation.isVisible
+        let placement: LyricsArtworkPlacement = isVisible ? (isImmersive ? .immersiveLyrics : .compactLyrics) : .cover
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: isVisible) { _, visible in onVisibilityChange(visible) }
+            .onChange(of: placement) { _, placement in onPlacementChange(placement) }
+    }
+}
+
+/// 换歌观察和加载任务共用独立的生命周期，不依赖播放页布局重算。
+struct PlayerLyricsLoadingTask: View {
+    let player: AudioPlayerService
+    let isPresentationSettled: Bool
+    let isDormant: Bool
+    let load: () async -> Void
+
+    private struct Identity: Equatable {
+        let songID: String?
+        let settled: Bool
+        let dormant: Bool
+    }
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .task(id: Identity(songID: player.currentSong?.id,
+                               settled: isPresentationSettled, dormant: isDormant)) {
+                await load()
+            }
+    }
+}
+
 /// 同一首歌第一次打开歌词后保留辅助任务，回封面不清空译文或重新准备翻译。
 /// 在封面页换歌时不激活新歌的任务。
 struct PlayerRetainedLyricsTask<Identity: Equatable, Content: View>: View {
     let identity: Identity
-    let isActive: Bool
-    @ViewBuilder var content: () -> Content
+    /// 在自己的 body 里求值：歌词开关读在这里，切换时只有这一层重算，不牵动整页。
+    private let activeState: () -> Bool
+    private let content: () -> Content
     @State private var activatedIdentity: Identity?
 
+    init(identity: Identity, isActive: Bool, @ViewBuilder content: @escaping () -> Content) {
+        self.init(identity: identity, isActive: { isActive }, content: content)
+    }
+
+    init(identity: Identity, isActive: @escaping () -> Bool, @ViewBuilder content: @escaping () -> Content) {
+        self.identity = identity
+        self.activeState = isActive
+        self.content = content
+    }
+
     var body: some View {
+        let isActive = activeState()
         Group {
             if isActive || activatedIdentity == identity {
                 content()
@@ -1556,7 +2049,10 @@ struct NowPlayingView: View {
     @State private var lyricsPresentation = NowPlayingLyricsPresentation()
     private var showLyrics: Bool {
         get { lyricsPresentation.isVisible }
-        nonmutating set { lyricsPresentation.isVisible = newValue }
+        nonmutating set {
+            guard lyricsPresentation.isVisible != newValue else { return }
+            lyricsPresentation.isVisible = newValue
+        }
     }
     /// 有声内容的文稿全屏读(`SpokenWordTranscriptReader`)。
     @State private var showsTranscriptReader = false
@@ -1782,10 +2278,6 @@ struct NowPlayingView: View {
     /// 都要重建一遍，正好落在下拉的第一帧上（#322）。
     private var surfaceMotion: NowPlayingSurfaceMotion {
         surfaceMotionFromHost ?? ownSurfaceMotion
-    }
-
-    private var initialLyricsLoadIdentity: String {
-        "\(player.currentSong?.id ?? "")|settled:\(isPresentationSettled)|dormant:\(isPlayerDormant)"
     }
 
     /// 翻译、罗马音按哪一首算。休眠时停在收起前那一首:换了歌它们的输入不变、不会去算新的一首
@@ -2014,7 +2506,7 @@ struct NowPlayingView: View {
 
     #if DEBUG
     /// `PRIMUSE_DEBUG_LYRICS_ANIMATION_SPEED=0.125`：封面 ⇄ 歌词转场放慢，逐帧截图看封面怎么走。
-    private static let debugLyricsAnimationSpeed: Double? = ProcessInfo.processInfo
+    fileprivate static let debugLyricsAnimationSpeed: Double? = ProcessInfo.processInfo
         .environment["PRIMUSE_DEBUG_LYRICS_ANIMATION_SPEED"]
         .flatMap(Double.init)
         .flatMap { $0 > 0 ? $0 : nil }
@@ -2433,9 +2925,10 @@ struct NowPlayingView: View {
         if showLyrics != isVisible { UserScrollActivityMonitor.shared.recordInteraction(lasting: 0.6) }
         withAnimation(standardLyricsAnimation) {
             showLyrics = isVisible
-            isLyricsImmersive = false
-            isLyricsChromeCollapsed = false
-            immersiveControlsState = immersiveControlsState.applying(.dismiss)
+            if isLyricsImmersive { isLyricsImmersive = false }
+            if isLyricsChromeCollapsed { isLyricsChromeCollapsed = false }
+            let dismissed = immersiveControlsState.applying(.dismiss)
+            if immersiveControlsState != dismissed { immersiveControlsState = dismissed }
         }
     }
 
@@ -3018,7 +3511,7 @@ struct NowPlayingView: View {
         guard let verticalBarEdge,
               !player.isLiveRadio,
               !isFullscreenPlayerPresented,
-              !(showLyrics && isLyricsImmersive)
+              !(isLyricsImmersive && showLyrics)
         else { return nil }
         if let arrangement {
             if case .split = arrangement { return verticalBarEdge }
@@ -3407,11 +3900,24 @@ struct NowPlayingView: View {
 
     private func playerMinimizeDragGesture(
         containerWidth: CGFloat,
-        verticalStartMaximumY: CGFloat
+        containerHeight: CGFloat
     ) -> some Gesture {
+        let maximumVerticalStartY = { () -> Double in
+            // 歌词页下拉收起只认顶上那一截。歌词开没开在这里才读：放进页面的 body，
+            // 每次切歌词整页都要跟着重算，正压在封面转场的第一帧上。
+            let verticalStartMaximumY = showLyrics
+                ? CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY)
+                : max(CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY), containerHeight * 0.62)
+            // 转轮停在两侧的页上时,那几页大多是能上下滚的列表,下拉收起只认顶上那一截(和歌词页一样)。
+            // 停在哪一页在这里才读,不进页面的 body。
+            let resolved = isCarouselAwayFromPlayer
+                ? min(verticalStartMaximumY, CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY))
+                : verticalStartMaximumY
+            return Double(resolved)
+        }
         // The player moves with this gesture, so a local coordinate space would
         // also move under the finger and feed the offset back into translation.
-        DragGesture(minimumDistance: NowPlayingControlDragCancellation.minimumDistance, coordinateSpace: .global)
+        return DragGesture(minimumDistance: NowPlayingControlDragCancellation.minimumDistance, coordinateSpace: .global)
             .onChanged { value in
                 let activity = minimizeDragActivity
                 let isRTL = layoutDirection == .rightToLeft
@@ -3429,19 +3935,14 @@ struct NowPlayingView: View {
                     translationX: Double(value.translation.width),
                     layoutIsRightToLeft: isRTL
                 )
-                // 转轮停在两侧的页上时,那几页大多是能上下滚的列表,下拉收起只认顶上那一截(和歌词页一样)。
-                // 停在哪一页在这里才读,不进页面的 body。
                 let isAwayFromPlayer = isCarouselAwayFromPlayer
-                let startMaximumY = isAwayFromPlayer
-                    ? min(verticalStartMaximumY, CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY))
-                    : verticalStartMaximumY
                 let axis = activity.axis
                     ?? NowPlayingDismissGesturePolicy.recognizedAxis(
                         startY: Double(value.startLocation.y),
                         startDistanceFromLeadingEdge: startDistance,
                         translationTowardCenter: towardCenter,
                         translationY: Double(value.translation.height),
-                        verticalStartMaximumY: Double(startMaximumY)
+                        verticalStartMaximumY: maximumVerticalStartY()
                     )
                 guard let axis else { return }
                 // 转轮停在两侧的页上时,从左边沿横滑是转回播放器,不是侧滑收起。
@@ -3497,9 +3998,7 @@ struct NowPlayingView: View {
                         translationX: Double(value.translation.width),
                         translationY: Double(value.translation.height),
                         predictedEndTranslationY: Double(value.predictedEndTranslation.height),
-                        maximumStartY: Double(isCarouselAwayFromPlayer
-                            ? min(verticalStartMaximumY, CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY))
-                            : verticalStartMaximumY)
+                        maximumStartY: maximumVerticalStartY()
                     )
                     if let onTopMinimizeDragEnded {
                         onTopMinimizeDragEnded(shouldDismiss)
@@ -3605,7 +4104,7 @@ struct NowPlayingView: View {
             case .none:
                 switch playerLayoutMode {
                 case .portrait:
-                    NowPlayingDeferredContent {
+                    NowPlayingDeferredContent(debugLabel: "portrait") {
                         portraitLayout(
                             geo: geo,
                             artSize: artSize,
@@ -3706,6 +4205,7 @@ struct NowPlayingView: View {
 
     /// 这一刻能不能转:只在竖屏的音乐封面页上。歌词、全屏歌词、横屏骨架、iPad 双栏、Duo 分栏、
     /// 电台与有声内容各有自己的左右手势或版面,一律不转(结构不变,只是不认横滑)。
+    /// `showLyrics` 由 `NowPlayingCarouselContainer` 内部按引用读取，避免切歌词时重建外层容器与整个播放版面。
     private func carouselIsActive(
         playerLayoutMode: NowPlayingPlayerLayoutMode,
         landscapeMode: NowPlayingLandscapeMode,
@@ -3718,7 +4218,6 @@ struct NowPlayingView: View {
             && arrangement == nil
             && !usesCompactLandscapeSkeleton
             && toolColumnEdge == nil
-            && !showLyrics
             && !isLyricsImmersive
             && !player.isLiveRadio
             && !usesSpokenWordTransport
@@ -3952,27 +4451,50 @@ struct NowPlayingView: View {
     }
     #endif
 
+    private func loadPresentationLyrics() async {
+        guard isPresentationSettled else { return }
+        if isPlayerDormant {
+            // 收着时换了歌:旧歌词清掉、先按「正在读」显示占位,展开停稳后才读这一首。
+            if let lyricsSongID, lyricsSongID != player.currentSong?.id {
+                clearLyricsForDormantSongChange()
+            }
+            return
+        }
+        // 再展开时还是这一首:歌词与译文都在,不重读。
+        if let lyricsSongID, lyricsSongID == player.currentSong?.id, !isResolvingLyrics {
+            consumeAutomaticScrapeCompletion()
+            return
+        }
+        consumeAutomaticScrapeCompletion()
+        // 换歌就丢掉上一首的译文: 翻译任务没挂着时(封面模式)它不会自己清空,
+        // 从"更多"菜单做海报会带上一首的翻译。
+        lyricTranslationsByLineID = [:]
+        if player.isLiveRadio {
+            clearLyricsResolution()
+            lyrics = []
+            presentBundledTranslationVisibility()
+        } else {
+            await loadLyrics()
+        }
+        consumeAutomaticScrapeCompletion()
+    }
+
     var body: some View {
         GeometryReader { geo in
             let safeInsets = resolvedSafeAreaInsets(for: geo)
             #if DEBUG && os(iOS)
             let _ = PlayerUIUpdateDiagnostics.body("player")
+            let _ = { DebugLyricRowBuildCounter.pageBodies += 1 }()
             #endif
             // 系统竖栏的设备(iPhone Duo)上播放页整屏居中,只让开遮挡区;其它设备这里恒为空。
             let occlusions = playerOcclusions(in: geo)
-            // 歌词页下拉收起只认顶上那一截。转轮停在两侧的页上时同样(在手势里看,见 `playerMinimizeDragGesture`):
-            // 这里读了停在哪一页,每翻一页整页播放器都要重算一遍,正压在翻页动画的第一帧上。
-            let verticalDismissStartMaximumY = showLyrics
-                ? CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY)
-                : max(
-                    CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY),
-                    geo.size.height * 0.62
-                )
+            // 歌词开关不在这一层读(下拉收起的起点在手势里按当时的状态算)：这一层每重算一次，
+            // 整页的推迟构造内容都会拿到新的闭包跟着重建。竖屏不论歌词开没开都是 .none，只在横屏才看。
             let landscapeMode = NowPlayingLandscapePolicy.mode(
                 viewportWidth: Double(geo.size.width),
                 viewportHeight: Double(geo.size.height),
                 isMusicVideoActive: player.isMusicVideoPlaybackActive,
-                areLyricsVisible: showLyrics,
+                areLyricsVisible: geo.size.width > geo.size.height && showLyrics,
                 areLyricsImmersive: isLyricsImmersive
             )
             let playerLayoutMode = NowPlayingPlayerLayoutPolicy.mode(
@@ -4007,6 +4529,10 @@ struct NowPlayingView: View {
             let canvasKey = NowPlayingCanvasKey(layoutMode: playerLayoutMode, arrangement: arrangement)
 
             ZStack {
+                PlayerLyricsLoadingTask(player: player,
+                                        isPresentationSettled: isPresentationSettled,
+                                        isDormant: isPlayerDormant,
+                                        load: loadPresentationLyrics)
                 #if os(iOS)
                 WindowSafeAreaInsetsReader { insets in
                     var insets = insets
@@ -4063,7 +4589,9 @@ struct NowPlayingView: View {
                 // 就会被取消，全屏里切歌也没有人再算新一首的译文，只能退出再进。
                 // 首次展示才激活；同一首歌切回封面时保留任务及译文。
                 PlayerRetainedLyricsTask(identity: lyricTaskSubject,
-                                         isActive: showLyrics || isFullscreenPlayerPresented) {
+                                         isActive: { [lyricsPresentation, isFullscreenPlayerPresented] in
+                                             lyricsPresentation.isVisible || isFullscreenPlayerPresented
+                                         }) {
                     Color.clear
                         .frame(width: 0, height: 0)
                         .allowsHitTesting(false)
@@ -4086,9 +4614,12 @@ struct NowPlayingView: View {
 
                 // 罗马音同理;另外选了「只显示罗马音」时封面模式那一行歌词也要换成罗马音,
                 // 所以封面模式也挂着(本机生成很快,结果有缓存)。
+                let keepsRomanizationActive = isFullscreenPlayerPresented
+                    || LyricsRomanizationSettingsStore.shared.displayMode == .romanizationOnly
                 PlayerRetainedLyricsTask(identity: lyricTaskSubject,
-                    isActive: showLyrics || isFullscreenPlayerPresented
-                        || LyricsRomanizationSettingsStore.shared.displayMode == .romanizationOnly) {
+                    isActive: { [lyricsPresentation] in
+                        lyricsPresentation.isVisible || keepsRomanizationActive
+                    }) {
                     Color.clear
                         .frame(width: 0, height: 0)
                         .allowsHitTesting(false)
@@ -4134,6 +4665,7 @@ struct NowPlayingView: View {
                                     usesCompactLandscapeSkeleton: usesCompactLandscapeSkeleton,
                                     toolColumnEdge: toolColumnEdge
                                 ),
+                                lyricsPresentation: lyricsPresentation,
                                 configuration: carouselConfiguration,
                                 cardSettings: carouselCardSettings,
                                 cardContext: carouselCardContext,
@@ -4236,7 +4768,7 @@ struct NowPlayingView: View {
                     .simultaneousGesture(
                         playerMinimizeDragGesture(
                             containerWidth: geo.size.width,
-                            verticalStartMaximumY: verticalDismissStartMaximumY
+                            containerHeight: geo.size.height
                         ),
                         including: suppressesPlayerMinimizeGesture ? .subviews : .all
                     )
@@ -4314,15 +4846,31 @@ struct NowPlayingView: View {
                     .zIndex(63)
                 }
                 #endif
-            }
-            .onChange(of: showLyrics) { _, isVisible in
-                if !isVisible, isLyricsImmersive {
-                    dismissImmersiveLyrics()
-                }
-                if !isVisible { isLyricsChromeCollapsed = false }
-            }
-            .onChange(of: lyricsArtworkPlacement) { _, placement in
-                settledLyricsArtworkPlacement = placement
+
+                // 歌词开关的后续处理挂在这层零尺寸视图上：开关只在它自己的 body 里读，
+                // 不让整页这一层在转场第一帧上重算。
+                NowPlayingLyricsVisibilityObserver(
+                    presentation: lyricsPresentation,
+                    isImmersive: isLyricsImmersive,
+                    onVisibilityChange: { isVisible in
+                        if !isVisible, isLyricsImmersive {
+                            dismissImmersiveLyrics()
+                        }
+                        if !isVisible, isLyricsChromeCollapsed {
+                            isLyricsChromeCollapsed = false
+                        }
+                        #if os(iOS)
+                        if isVisible, usesPlayerCarousel, carouselState.isAwayFromPlayer {
+                            carouselState.returnToPlayer(animated: false)
+                        }
+                        #endif
+                    },
+                    onPlacementChange: { placement in
+                        if settledLyricsArtworkPlacement != placement {
+                            settledLyricsArtworkPlacement = placement
+                        }
+                    }
+                )
             }
         }
         // 进度条从这里读按住快退 / 快进的预览位置；只有进度条观察它，按住期间整页不跟着重画。
@@ -4365,15 +4913,21 @@ struct NowPlayingView: View {
                     let opens = !showLyrics
                     let probe = DebugFrameGapProbe()
                     let rowsBefore = DebugLyricRowBuildCounter.count
+                    let pagesBefore = DebugLyricRowBuildCounter.pageBodies
+                    let portraitsBefore = DebugLyricRowBuildCounter.portraitBodies
                     probe.start()
-                    toggleStandardLyrics()
+                    if environment["PRIMUSE_DEBUG_LYRICS_TOGGLE_DRY"] != "1" {
+                        toggleStandardLyrics()
+                    }
                     count += 1
                     let index = count
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(600))
-                        let frames = probe.finish()
+                        let frames = probe.finishDetailed()
                         let rows = DebugLyricRowBuildCounter.count - rowsBefore
-                        plog("🧪 lyrics toggle \(index) \(opens ? "open" : "close") worst=\(frames.worst)ms over=\(frames.over)ms rows=\(rows) total=\(DebugLyricRowBuildCounter.count)")
+                        let pages = DebugLyricRowBuildCounter.pageBodies - pagesBefore
+                        let portraits = DebugLyricRowBuildCounter.portraitBodies - portraitsBefore
+                        plog("🧪 lyrics toggle \(index) \(opens ? "open" : "close") playing=\(player.isPlaying) worst=\(frames.worst)ms over=\(frames.over)ms first=\(frames.first)ms cpu=\(frames.mainCPU)ms rows=\(rows) pages=\(pages) portraits=\(portraits) total=\(DebugLyricRowBuildCounter.count)")
                     }
                 }
             case "immersive":
@@ -4444,33 +4998,6 @@ struct NowPlayingView: View {
         .onChange(of: fullscreenPlayerEffectRawValue) { _, rawValue in
             guard let effect = FullscreenPlayerEffect(rawValue: rawValue) else { return }
             applyFullscreenEffectPresentation(effect)
-        }
-        .task(id: initialLyricsLoadIdentity) {
-            guard isPresentationSettled else { return }
-            if isPlayerDormant {
-                // 收着时换了歌:旧歌词清掉、先按「正在读」显示占位,展开停稳后才读这一首。
-                if let lyricsSongID, lyricsSongID != player.currentSong?.id {
-                    clearLyricsForDormantSongChange()
-                }
-                return
-            }
-            // 再展开时还是这一首:歌词与译文都在,不重读。
-            if let lyricsSongID, lyricsSongID == player.currentSong?.id, !isResolvingLyrics {
-                consumeAutomaticScrapeCompletion()
-                return
-            }
-            consumeAutomaticScrapeCompletion()
-            // 换歌就丢掉上一首的译文: 翻译任务没挂着时(封面模式)它不会自己清空,
-            // 从"更多"菜单做海报会带上一首的翻译。
-            lyricTranslationsByLineID = [:]
-            if player.isLiveRadio {
-                clearLyricsResolution()
-                lyrics = []
-                presentBundledTranslationVisibility()
-            } else {
-                await loadLyrics()
-            }
-            consumeAutomaticScrapeCompletion()
         }
         // 换上新歌词,或问源结束(没问到也算结论):记下这一条有没有文字。
         .onChange(of: lyricsRevision) { _, _ in rememberSpokenWordTextPresence() }
@@ -6186,6 +6713,7 @@ struct NowPlayingView: View {
             songID: player.currentSong?.id,
             lyricsRevision: lyricsRevision,
             isSceneActive: isVisualSceneActive,
+            lyricsPresentation: lyricsPresentation,
             appearance: appearance,
             lineCount: fillsHeight
                 ? nil
@@ -7132,8 +7660,13 @@ struct NowPlayingView: View {
         lyricsInline: Bool? = nil,
         usesToolColumn: Bool = false
     ) -> some View {
+        // 手机音乐竖版常驻保持封面中段与紧凑歌词顶栏同时挂载，切换时只走修饰符显隐，零视图拆建与文字重栅格化。
+        let retainsCompactLyricsMiddle = usesPersistentPhoneLyrics
+            && lyricsInline == nil
+            && !player.isMusicVideoPlaybackActive
         // 分栏时歌词在右栏,这一栏始终是封面模式;其它时候跟着歌词开关走。
-        let showLyrics = lyricsInline ?? self.showLyrics
+        let showLyrics = retainsCompactLyricsMiddle ? false : (lyricsInline ?? self.showLyrics)
+        let hidesBottomChrome = (isLyricsImmersive || isLyricsChromeCollapsed) && (lyricsInline ?? self.showLyrics)
         // 高画布(见 `portraitArtworkFillsTallCanvas`):封面上限放宽到屏宽减 44,实际边长由版面按
         // 「其余几行 + 歌名下那段空白」之外剩下的高度定;碰到宽度上限时多出来的高度在封面上下平分。
         let fillsTallCanvas = portraitArtworkFillsTallCanvas(height: geo.size.height)
@@ -7152,7 +7685,7 @@ struct NowPlayingView: View {
         // 不够时封面按剩下的高度缩小。不跟歌词页开关走, 进出歌词页时下面几行不挪位置。
         // 分栏时右栏正在放整页歌词(这一栏于是不跟歌词开关走), 这里不再重复。
         let artworkLyricsEnabled = showsArtworkLyrics
-            && showLyrics == self.showLyrics
+            && (lyricsInline == nil || lyricsInline == self.showLyrics)
             && !usesSpokenWordTransport
             && !player.isMusicVideoPlaybackActive
             && !player.isLiveRadio
@@ -7170,7 +7703,9 @@ struct NowPlayingView: View {
             ? spokenWordControlLayout.resolved(in: spokenWordPortraitControlContext(usesToolColumn: usesToolColumn))
             : nil
         // 封面模式下大封面铺满(设置里的「封面样式」)。歌词模式不铺,小封面照旧。
-        let fullBleedArtwork = !showLyrics && usesFullBleedArtwork
+        let fullBleedArtwork = retainsCompactLyricsMiddle
+            ? usesFullBleedArtwork
+            : (!showLyrics && usesFullBleedArtwork)
 
         if usesAudiobookPlayerDesign, !isLyricsImmersive {
             // 包一层壳子,别在这个分支里现场构造整套版面(见 `NowPlayingDeferredContent`)。
@@ -7185,7 +7720,7 @@ struct NowPlayingView: View {
         } else {
         VStack(spacing: 0) {
                     // Grabber handle (system-matching dimensions)
-                    if !showLyrics || !isLyricsImmersive {
+                    if retainsCompactLyricsMiddle || !showLyrics || !isLyricsImmersive {
                         Capsule()
                             .fill(appearance.tertiary)
                             .frame(width: 48, height: 5)
@@ -7206,92 +7741,69 @@ struct NowPlayingView: View {
                     }
 
                     // Playback error toast
-                    if (!showLyrics || !isLyricsImmersive), !fullBleedArtwork,
+                    if (retainsCompactLyricsMiddle || !showLyrics || !isLyricsImmersive), !fullBleedArtwork,
                        let error = player.lastPlaybackError {
                         playbackErrorToast(error)
                     }
                     // 文字稿那一页空着时进度就画在那一页上,这里不再重复。
-                    if !showLyrics || (!isLyricsImmersive && !lyrics.isEmpty) {
+                    if !retainsCompactLyricsMiddle, !showLyrics || (!isLyricsImmersive && !lyrics.isEmpty) {
                         transcriptGenerationStatus
                     }
 
-                    if showLyrics {
+                    if retainsCompactLyricsMiddle {
+                        ZStack(alignment: .top) {
+                            portraitCoverMiddleContent(
+                                geo: geo,
+                                mediaWidth: mediaWidth,
+                                artworkRegionHeight: artworkRegionHeight,
+                                fillsTallCanvas: fillsTallCanvas,
+                                volumeSlack: volumeSlack,
+                                artworkLyricsEnabled: artworkLyricsEnabled,
+                                artworkLyricsFill: artworkLyricsFill,
+                                fullBleedArtwork: usesFullBleedArtwork,
+                                insets: insets,
+                                usesToolColumn: usesToolColumn,
+                                appliesEntryTransitions: false
+                            )
+                            .modifier(NowPlayingMiddlePaneVisibility(
+                                presentation: lyricsPresentation,
+                                showsWhenLyricsVisible: false,
+                                reduceMotion: reduceMotion
+                            ))
+
+                            VStack(spacing: 0) {
+                                if usesFullBleedArtwork, let error = player.lastPlaybackError {
+                                    playbackErrorToast(error)
+                                }
+                                portraitCompactLyricsHeader(
+                                    insets: insets,
+                                    usesToolColumn: usesToolColumn,
+                                    explicitThumbnailPlacement: .compactLyrics,
+                                    usesTransitionReveal: false
+                                )
+                                PlayerLyricsViewportSlot(collapsesChromeOnScroll: textCollapsesOnScroll)
+                                    .padding(.leading, insets.lyricsLeading)
+                                    .padding(.trailing, insets.lyricsTrailing)
+                                    .onDisappear { isLyricsChromeCollapsed = false }
+                            }
+                            .modifier(NowPlayingMiddlePaneVisibility(
+                                presentation: lyricsPresentation,
+                                showsWhenLyricsVisible: true,
+                                reduceMotion: reduceMotion
+                            ))
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .layoutPriority(1)
+                        .zIndex(1)
+                    } else if showLyrics {
                         // LYRICS MODE: compact header at top
                         if !isLyricsImmersive {
-                            HStack(spacing: 10) {
-                            // Explicit button rather than a hidden tap gesture:
-                            // the artwork itself is now a discoverable way back.
-                            Button { returnToArtworkFromLyricsHeader() } label: {
-                                HStack(spacing: 10) {
-                                    lyricsThumbnailArtwork(
-                                        size: 44,
-                                        cornerRadius: 6,
-                                        receivesFullBleedArtwork: usesFullBleedArtwork
-                                    )
-                                    .lyricsHeaderReveal(isArtwork: true)
-
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(player.currentSong?.title ?? "")
-                                            .font(.subheadline).fontWeight(.semibold).lineLimit(1)
-                                            .foregroundStyle(appearance.primary)
-                                        Text(currentArtistDisplayName)
-                                            .font(.caption).foregroundStyle(appearance.secondary).lineLimit(1)
-                                    }
-                                    .lyricsHeaderReveal()
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .contentShape(Rectangle())
-                            .accessibilityLabel(Text("a11y_close_lyrics"))
-
-                            Spacer()
-
-                            musicVideoToggleButton(font: .title3, trailing: 4)
-                                .lyricsHeaderReveal()
-
-                            // 歌词页顶上多出来那一格(默认卡拉OK);页面上已经摆着同一颗键时不再多放。
-                            let headerExtra = lyricsHeaderExtraAction(
-                                onSurface: usesToolColumn
-                                    ? .toolColumn(showsTransportEdges: true, headerOverflows: false)
-                                    : .portrait
+                            portraitCompactLyricsHeader(
+                                insets: insets,
+                                usesToolColumn: usesToolColumn,
+                                explicitThumbnailPlacement: nil,
+                                usesTransitionReveal: true
                             )
-                            if let headerExtra {
-                                lyricsHeaderExtraButton(headerExtra)
-                                    .lyricsHeaderReveal()
-                            }
-
-                            // 竖栏里排着那一列按钮时(iPhone Duo),喜欢与更多在那一列里。
-                            if !usesToolColumn {
-                                // 播客文字稿也走这个标题栏:心形跟播客页的「喜欢」开关,不用音乐歌名旁那一格。
-                                // 喜欢、更多摆进了下面传输键两侧时,那一行收起之前这里不重复。
-                                let spokenControls = usesSpokenWordTransport
-                                    ? spokenWordControlLayout.resolved(in: spokenWordPortraitControlContext())
-                                    : nil
-                                if let spokenControls {
-                                    spokenWordLikeButton(
-                                        shows: spokenControls.headerShowsLike,
-                                        idleTint: appearance.routePickerTint
-                                    )
-                                    .lyricsHeaderReveal()
-                                } else if let action = musicControlLayout.action(in: .header) {
-                                    controlButton(action, style: .header)
-                                        .lyricsHeaderReveal()
-                                }
-
-                                // More menu
-                                if spokenControls?.headerShowsMore ?? true {
-                                    makeMoreMenu(
-                                        controlSurface: .portraitLyrics(headerExtra: headerExtra),
-                                        plainLabel: spokenWordMoreMenuLabel
-                                    )
-                                    .lyricsHeaderReveal()
-                                }
-                            }
-                            }
-                            .modifier(NowPlayingControlDragCancellation())
-                            .padding(.horizontal, 20).padding(.bottom, 6)
-                            .padding(.leading, insets.lyricsLeading)
-                            .padding(.trailing, insets.lyricsTrailing)
                             .transition(lyricsHeaderHandoffTransition)
                             // 大封面缩进来的途中压在正在淡入的歌词上面, 而不是被歌词盖住。
                             .zIndex(1)
@@ -7328,135 +7840,27 @@ struct NowPlayingView: View {
                                 // 转去横屏等别的版面时收起状态不带过去，回来是完整的播放页。
                                 .onDisappear { isLyricsChromeCollapsed = false }
                         }
-                    } else if fullBleedArtwork {
-                        // 铺满封面(见 `fullBleedArtworkRegion`):这一块只占把手以下的高度,封面往上伸到屏幕顶端。
-                        // 矮屏照样按剩下的高度压扁,封面居中裁掉上下;高屏往下多伸一截,左右裁掉一点(#329)。
-                        // iPhone Duo 竖栏那一条(和分栏时左栏外让出的竖栏)底下也是封面,一直画到屏幕边。
-                        fullBleedArtworkRegion(
-                            bleedLeading: insets.containerLeading + insets.artworkOuterLeading,
-                            bleedTrailing: insets.containerTrailing + insets.artworkOuterTrailing
-                        )
-                            .frame(maxHeight: Self.fullBleedArtworkRegionLimit(
-                                width: geo.size.width + insets.artworkOuterLeading + insets.artworkOuterTrailing,
-                                topSafeArea: topSafeArea,
-                                extendsBelowSquare: !artworkLyricsFill
-                            ))
-                            .layoutPriority(1)
-                            .transition(lyricsHandoffArtworkTransition)
-                            .zIndex(1)
-
-                        // 顶上那一截被封面盖着,出错提示挪到封面下面。
-                        if let error = player.lastPlaybackError {
-                            playbackErrorToast(error)
-                                .padding(.top, 8)
-                        }
                     } else {
-                        if fillsTallCanvas {
-                            // 固定的这一截不让封面挤掉;封面到了宽度上限还有富余时,富余的一半落在这里。
-                            Color.clear
-                                .frame(height: 16 + volumeSlack * 0.4)
-                            Spacer(minLength: 0)
-                        } else {
-                            // 把手与封面之间:高屏多空一点,矮屏先压这里。
-                            Spacer(minLength: 0)
-                                .frame(maxHeight: 16 + volumeSlack * 0.4)
-                        }
-                        GeometryReader { artworkGeometry in
-                            // Text and controls retain their height; artwork uses the remaining space.
-                            let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
-                            let fittedWidth = min(mediaWidth, max(1, artworkGeometry.size.height - 24) * ratio)
-                            artworkOrMusicVideo(
-                                size: fittedWidth,
-                                cornerRadius: 12,
-                                playbackScale: player.isMusicVideoPlaybackActive
-                                    ? 1.0
-                                    : (artworkAppearsPlaying ? 1.0 : 0.9),
-                                drawsCoverShadow: true
-                            )
-                                .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
-                                .onTapGesture {
-                                    guard !player.isMusicVideoPlaybackActive else { return }
-                                    openTextFromArtwork()
-                                }
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                        // 封面先拿高度(不超过它自己那一块),上下的空白只分剩下的;矮屏照旧按剩下的高度缩封面。
-                        .frame(maxHeight: artworkRegionHeight)
-                        .layoutPriority(1)
-                        // 进出场的是这一层 GeometryReader, 转场要挂在它身上才生效 (挂在里面的封面上时
-                        // 这一层按默认淡入, 回封面页时大封面仍是半透明的)。移动的封面始终压在淡入淡出的歌词上面。
-                        .transition(lyricsHandoffArtworkTransition)
-                        .zIndex(1)
-                    }
-
-                    // Song info (player mode only — in lyrics mode it's in the top bar)
-                    if !showLyrics {
-                        // 铺满封面时歌名贴着进度条(中间只剩进度条上边距和它命中区的上半截),剩下的高度落在
-                        // 封面与歌名之间,和封面下沿那截延伸连成一片(#329)。
-                        // 封面下的歌词选了「自动」时这段高度归歌词,照旧排。
-                        let headingHugsProgress = fullBleedArtwork && !artworkLyricsFill
-                        if headingHugsProgress {
-                            Spacer(minLength: 0)
-                        } else {
-                            // 高画布上封面会把可压的空白都吃掉,这一截要定住。
-                            Spacer(minLength: fillsTallCanvas ? 16 : 0)
-                                .frame(maxHeight: 16)
-                        }
-
-                        nowPlayingSongHeader(titleFont: .title3, metadataFont: .body, inlineActions: !usesToolColumn)
-                            .matchedLayoutElement(.songHeading, in: layoutNamespace)
-                            .padding(.horizontal, 26)
-                            .padding(.horizontal, insets.rows)
-                            .padding(.top, 12)
-                            .transition(playerSongHeadingTransition)
-
-                        nowPlayingReviewSection
-                            .padding(.horizontal, 26)
-                            .padding(.horizontal, insets.rows)
-                            .pmLayoutSwitchFade()
-
-                        // 高画布上这段空白是定长的,封面先拿走其余高度(见上面封面那一块)。
-                        if fillsTallCanvas {
-                            Color.clear
-                                .frame(height: Self.portraitTallCanvasHeadingGap)
-                        }
-
-                        // 歌名紧跟封面,剩下的高度都在这里:进度条以下几行贴着底部,和歌词模式同一位置。
-                        // 歌词选了「自动」时这段高度归歌词: 它先于封面上下的留白分到高度(优先级介于封面与留白之间),
-                        // 下面仍是「一行」时那个定高的格子, 多出来的行从那一格往上排进这段空白。歌词不做成
-                        // 「至少一行、可以一直长高」的一整块: VStack 先排伸缩范围小的留白, 轮到它时不够一行就
-                        // 撑出屏幕, 底排被挤出去。
-                        if artworkLyricsFill {
-                            Color.clear
-                                .overlay { artworkLyricPreview(fillsHeight: true) }
-                                .padding(.horizontal, 26)
-                                .padding(.horizontal, insets.rows)
-                                .layoutPriority(0.5)
-                                .pmLayoutSwitchFade()
-                        } else if !headingHugsProgress {
-                            Spacer(minLength: 0)
-                        }
-
-                        // 正在唱的那一句贴在进度条上面(设置里打开),和歌名之间是上面那段空白。
-                        if artworkLyricsFill {
-                            NowPlayingArtworkLyricSlot()
-                                .padding(.top, Self.artworkLyricHeadingGap)
-                                .padding(.bottom, 4)
-                        } else if artworkLyricsEnabled {
-                            artworkLyricPreview(fillsHeight: false)
-                                .padding(.horizontal, 26)
-                                .padding(.horizontal, insets.rows)
-                                .padding(.top, Self.artworkLyricHeadingGap)
-                                .padding(.bottom, 4)
-                                .pmLayoutSwitchFade()
-                        }
+                        portraitCoverMiddleContent(
+                            geo: geo,
+                            mediaWidth: mediaWidth,
+                            artworkRegionHeight: artworkRegionHeight,
+                            fillsTallCanvas: fillsTallCanvas,
+                            volumeSlack: volumeSlack,
+                            artworkLyricsEnabled: artworkLyricsEnabled,
+                            artworkLyricsFill: artworkLyricsFill,
+                            fullBleedArtwork: fullBleedArtwork,
+                            insets: insets,
+                            usesToolColumn: usesToolColumn,
+                            appliesEntryTransitions: true
+                        )
                     }
 
                     // Progress — 抽成独立子 view 隔离 player.currentTime 的高频
                     // 重算,避免触发父 body re-render(进而让 toolbar Menu 的 submenu
                     // 被强制关闭)。SwiftUI Observation 是 per-body 追踪——子 view
                     // 自己读 player.currentTime,父 view body 完全不读高频属性。
-                    if !showLyrics || !(isLyricsImmersive || isLyricsChromeCollapsed) {
+                    if !hidesBottomChrome {
                         PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: false) }
                             .matchedLayoutElement(.progress, in: layoutNamespace)
                             .padding(.horizontal, 26).padding(.top, 8)
@@ -7511,7 +7915,210 @@ struct NowPlayingView: View {
                 // 铺满封面下面那一截垫在歌名和控件底下，盖住色场的下半(见 `FullBleedArtworkExtension`)。
                 .backgroundPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
                     fullBleedArtworkExtension(anchor: fullBleedArtwork ? anchors[.cover] : nil)
+                        .modifier(NowPlayingCoverExtensionVisibility(
+                            presentation: retainsCompactLyricsMiddle && usesFullBleedArtwork ? lyricsPresentation : nil,
+                            reduceMotion: reduceMotion
+                        ))
                 }
+        }
+    }
+
+    @ViewBuilder
+    private func portraitCompactLyricsHeader(
+        insets: NowPlayingPortraitInsets,
+        usesToolColumn: Bool,
+        explicitThumbnailPlacement: LyricsArtworkPlacement?,
+        usesTransitionReveal: Bool
+    ) -> some View {
+        let headerLayout = explicitThumbnailPlacement != nil ? lyricsModeControlLayout : musicControlLayout
+        let headerExtra = lyricsHeaderExtraAction(
+            onSurface: usesToolColumn
+                ? .toolColumn(showsTransportEdges: true, headerOverflows: false)
+                : .portrait,
+            controlLayout: headerLayout
+        )
+        HStack(spacing: 10) {
+            Button { returnToArtworkFromLyricsHeader() } label: {
+                HStack(spacing: 10) {
+                    lyricsThumbnailArtwork(
+                        size: 44,
+                        cornerRadius: 6,
+                        shadow: .init(),
+                        receivesFullBleedArtwork: usesFullBleedArtwork,
+                        placement: explicitThumbnailPlacement
+                    )
+                    .if(usesTransitionReveal) { $0.lyricsHeaderReveal(isArtwork: true) }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(player.currentSong?.title ?? "")
+                            .font(.subheadline).fontWeight(.semibold).lineLimit(1)
+                            .foregroundStyle(appearance.primary)
+                        Text(currentArtistDisplayName)
+                            .font(.caption).foregroundStyle(appearance.secondary).lineLimit(1)
+                    }
+                    .if(usesTransitionReveal) { $0.lyricsHeaderReveal() }
+                }
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .accessibilityLabel(Text("a11y_close_lyrics"))
+
+            Spacer()
+
+            musicVideoToggleButton(font: .title3, trailing: 4)
+                .if(usesTransitionReveal) { $0.lyricsHeaderReveal() }
+
+            if let headerExtra {
+                lyricsHeaderExtraButton(headerExtra)
+                    .if(usesTransitionReveal) { $0.lyricsHeaderReveal() }
+            }
+
+            if !usesToolColumn {
+                let spokenControls = usesSpokenWordTransport
+                    ? spokenWordControlLayout.resolved(in: spokenWordPortraitControlContext())
+                    : nil
+                if let spokenControls {
+                    spokenWordLikeButton(
+                        shows: spokenControls.headerShowsLike,
+                        idleTint: appearance.routePickerTint
+                    )
+                    .if(usesTransitionReveal) { $0.lyricsHeaderReveal() }
+                } else if let action = headerLayout.action(in: .header) {
+                    controlButton(action, style: .header)
+                        .if(usesTransitionReveal) { $0.lyricsHeaderReveal() }
+                }
+
+                if spokenControls?.headerShowsMore ?? true {
+                    makeMoreMenu(
+                        controlSurface: .portraitLyrics(headerExtra: headerExtra),
+                        plainLabel: spokenWordMoreMenuLabel
+                    )
+                    .if(usesTransitionReveal) { $0.lyricsHeaderReveal() }
+                }
+            }
+        }
+        .modifier(NowPlayingControlDragCancellation())
+        .padding(.horizontal, 20).padding(.bottom, 6)
+        .padding(.leading, insets.lyricsLeading)
+        .padding(.trailing, insets.lyricsTrailing)
+    }
+
+    @ViewBuilder
+    private func portraitCoverMiddleContent(
+        geo: GeometryProxy,
+        mediaWidth: CGFloat,
+        artworkRegionHeight: CGFloat,
+        fillsTallCanvas: Bool,
+        volumeSlack: CGFloat,
+        artworkLyricsEnabled: Bool,
+        artworkLyricsFill: Bool,
+        fullBleedArtwork: Bool,
+        insets: NowPlayingPortraitInsets,
+        usesToolColumn: Bool,
+        appliesEntryTransitions: Bool
+    ) -> some View {
+        VStack(spacing: 0) {
+            if fullBleedArtwork {
+                fullBleedArtworkRegion(
+                    bleedLeading: insets.containerLeading + insets.artworkOuterLeading,
+                    bleedTrailing: insets.containerTrailing + insets.artworkOuterTrailing
+                )
+                    .frame(maxHeight: Self.fullBleedArtworkRegionLimit(
+                        width: geo.size.width + insets.artworkOuterLeading + insets.artworkOuterTrailing,
+                        topSafeArea: topSafeArea,
+                        extendsBelowSquare: !artworkLyricsFill
+                    ))
+                    .layoutPriority(1)
+                    .if(appliesEntryTransitions) { $0.transition(lyricsHandoffArtworkTransition) }
+                    .zIndex(1)
+
+                if let error = player.lastPlaybackError {
+                    playbackErrorToast(error)
+                        .padding(.top, 8)
+                }
+            } else {
+                if fillsTallCanvas {
+                    Color.clear
+                        .frame(height: 16 + volumeSlack * 0.4)
+                    Spacer(minLength: 0)
+                } else {
+                    Spacer(minLength: 0)
+                        .frame(maxHeight: 16 + volumeSlack * 0.4)
+                }
+                GeometryReader { artworkGeometry in
+                    let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
+                    let fittedWidth = min(mediaWidth, max(1, artworkGeometry.size.height - 24) * ratio)
+                    artworkOrMusicVideo(
+                        size: fittedWidth,
+                        cornerRadius: 12,
+                        playbackScale: player.isMusicVideoPlaybackActive
+                            ? 1.0
+                            : (artworkAppearsPlaying ? 1.0 : 0.9),
+                        drawsCoverShadow: true
+                    )
+                        .if(appliesEntryTransitions) {
+                            $0.animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
+                        }
+                        .onTapGesture {
+                            guard !player.isMusicVideoPlaybackActive else { return }
+                            openTextFromArtwork()
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .frame(maxHeight: artworkRegionHeight)
+                .layoutPriority(1)
+                .if(appliesEntryTransitions) { $0.transition(lyricsHandoffArtworkTransition) }
+                .zIndex(1)
+            }
+
+            let headingHugsProgress = fullBleedArtwork && !artworkLyricsFill
+            if headingHugsProgress {
+                Spacer(minLength: 0)
+            } else {
+                Spacer(minLength: fillsTallCanvas ? 16 : 0)
+                    .frame(maxHeight: 16)
+            }
+
+            nowPlayingSongHeader(titleFont: .title3, metadataFont: .body, inlineActions: !usesToolColumn)
+                .matchedLayoutElement(.songHeading, in: layoutNamespace)
+                .padding(.horizontal, 26)
+                .padding(.horizontal, insets.rows)
+                .padding(.top, 12)
+                .if(appliesEntryTransitions) { $0.transition(playerSongHeadingTransition) }
+
+            nowPlayingReviewSection
+                .padding(.horizontal, 26)
+                .padding(.horizontal, insets.rows)
+                .pmLayoutSwitchFade()
+
+            if fillsTallCanvas {
+                Color.clear
+                    .frame(height: Self.portraitTallCanvasHeadingGap)
+            }
+
+            if artworkLyricsFill {
+                Color.clear
+                    .overlay { artworkLyricPreview(fillsHeight: true) }
+                    .padding(.horizontal, 26)
+                    .padding(.horizontal, insets.rows)
+                    .layoutPriority(0.5)
+                    .pmLayoutSwitchFade()
+            } else if !headingHugsProgress {
+                Spacer(minLength: 0)
+            }
+
+            if artworkLyricsFill {
+                NowPlayingArtworkLyricSlot()
+                    .padding(.top, Self.artworkLyricHeadingGap)
+                    .padding(.bottom, 4)
+            } else if artworkLyricsEnabled {
+                artworkLyricPreview(fillsHeight: false)
+                    .padding(.horizontal, 26)
+                    .padding(.horizontal, insets.rows)
+                    .padding(.top, Self.artworkLyricHeadingGap)
+                    .padding(.bottom, 4)
+                    .pmLayoutSwitchFade()
+            }
         }
     }
 
@@ -8750,7 +9357,8 @@ struct NowPlayingView: View {
         size: CGFloat,
         cornerRadius: CGFloat,
         shadow: LyricsArtworkShadow = .init(),
-        receivesFullBleedArtwork: Bool = false
+        receivesFullBleedArtwork: Bool = false,
+        placement: LyricsArtworkPlacement? = nil
     ) -> some View {
         if (usesSpokenWordTransport && !currentItemIsPodcast && !receivesFullBleedArtwork)
             || player.isMusicVideoPlaybackActive {
@@ -8775,7 +9383,12 @@ struct NowPlayingView: View {
             )
             .frame(width: size, height: size)
         } else {
-            lyricsArtworkSlot(size: size, cornerRadius: cornerRadius, placement: lyricsArtworkPlacement, shadow: shadow)
+            lyricsArtworkSlot(
+                size: size,
+                cornerRadius: cornerRadius,
+                placement: placement ?? lyricsArtworkPlacement,
+                shadow: shadow
+            )
         }
     }
 
@@ -8796,8 +9409,22 @@ struct NowPlayingView: View {
         return GeometryReader { geometry in
             if let anchor = anchors[placement] {
                 let rect = geometry[anchor.bounds]
-                // 封面按固定尺寸画一次，外框、圆角、图片和占位音符都在同一层里一起缩放。
                 let renderSize = Self.artworkRenderSize
+                let usesCompositorTransform = isPhoneCanvas
+                    && !usesSpokenWordTransport
+                    && !player.isMusicVideoPlaybackActive
+                    && geometry.size.height > geometry.size.width
+                    && PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .card
+                let usesNativeCardCompositor: Bool = {
+                    #if os(iOS)
+                    return usesCompositorTransform
+                    #else
+                    return false
+                    #endif
+                }()
+                let placeholderIcon = currentItemIsPodcast ? "antenna.radiowaves.left.and.right" : "music.note"
+                let presentationRole: ArtworkPresentationRole = usesSpokenWordTransport ? .staticFirstFrame : .animatedHero
+                let isAnimVisible = isNowPlayingSurfaceExposed && !surfaceMotion.isHeld
                 // 换歌时按方向换(下一首从右边进、上一首从左边进,自己播完的更柔):只在大封面位、
                 // 封面⇄歌词没在飞、播放页露着时;其余时候照旧一层、原地交叉淡入。
                 NowPlayingArtworkSwapHost(
@@ -8813,7 +9440,77 @@ struct NowPlayingView: View {
                     artworkRect: rect,
                     containerSize: geometry.size
                 ) { subject in
-                    // 播客铺满时也画在这一层:占位换成播客的图标,不去找动态封面。
+                    #if os(iOS)
+                    if usesCompositorTransform {
+                        NowPlayingCardArtworkCompositor(
+                            key: .init(
+                                songID: subject.song?.id ?? "",
+                                coverRef: subject.song?.coverArtFileName,
+                                sourceID: subject.song?.sourceID,
+                                filePath: subject.song?.filePath,
+                                fileFormat: subject.song?.fileFormat,
+                                placeholderIcon: placeholderIcon,
+                                presentationRole: presentationRole,
+                                isPlaying: player.isPlaying,
+                                isAnimationVisible: isAnimVisible,
+                                loadsHighResolution: isPresentationSettled,
+                                revisionToken: subject.coverRevision,
+                                renderSize: renderSize
+                            ),
+                            rect: rect,
+                            cornerRadius: anchor.cornerRadius,
+                            shadow: anchor.shadow,
+                            placement: placement,
+                            artworkAppearsPlaying: artworkAppearsPlaying,
+                            containerSize: geometry.size
+                        ) {
+                            CachedArtworkView(
+                                coverRef: subject.song?.coverArtFileName,
+                                songID: subject.song?.id ?? "",
+                                size: renderSize, cornerRadius: 0,
+                                sourceID: subject.song?.sourceID,
+                                filePath: subject.song?.filePath,
+                                fileFormat: subject.song?.fileFormat,
+                                placeholderIcon: placeholderIcon,
+                                presentationRole: presentationRole,
+                                animationRequiresPlayback: true,
+                                isPlaying: player.isPlaying,
+                                isAnimationVisible: isAnimVisible,
+                                loadsHighResolution: isPresentationSettled,
+                                revisionToken: subject.coverRevision
+                            )
+                            .artworkCrossfade()
+                        }
+                    } else {
+                        CachedArtworkView(
+                            coverRef: subject.song?.coverArtFileName,
+                            songID: subject.song?.id ?? "",
+                            size: renderSize, cornerRadius: 0,
+                            sourceID: subject.song?.sourceID,
+                            filePath: subject.song?.filePath,
+                            fileFormat: subject.song?.fileFormat,
+                            placeholderIcon: placeholderIcon,
+                            presentationRole: presentationRole,
+                            animationRequiresPlayback: true,
+                            isPlaying: player.isPlaying,
+                            isAnimationVisible: isAnimVisible,
+                            loadsHighResolution: isPresentationSettled,
+                            revisionToken: subject.coverRevision
+                        )
+                        .artworkCrossfade()
+                        .modifier(LyricsArtworkMotion(flight: LyricsArtworkFlight(
+                            rect: rect,
+                            cornerRadius: anchor.cornerRadius,
+                            shadow: anchor.shadow,
+                            bottomFade: fullBleedMiddleSoftening ? anchor.bottomFade : 0,
+                            trailingFade: fullBleedMiddleSoftening ? anchor.trailingFade : 0,
+                            renderSize: renderSize,
+                            usesShadowSprite: currentItemIsPodcast || !usesSpokenWordTransport,
+                            topContentInset: anchor.coversTopChrome ? FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea) : 0,
+                            contentFill: anchor.fillsSlot ? 1 : 0
+                        ), usesCompositorTransform: false))
+                    }
+                    #else
                     CachedArtworkView(
                         coverRef: subject.song?.coverArtFileName,
                         songID: subject.song?.id ?? "",
@@ -8821,11 +9518,11 @@ struct NowPlayingView: View {
                         sourceID: subject.song?.sourceID,
                         filePath: subject.song?.filePath,
                         fileFormat: subject.song?.fileFormat,
-                        placeholderIcon: currentItemIsPodcast ? "antenna.radiowaves.left.and.right" : "music.note",
-                        presentationRole: usesSpokenWordTransport ? .staticFirstFrame : .animatedHero,
+                        placeholderIcon: placeholderIcon,
+                        presentationRole: presentationRole,
                         animationRequiresPlayback: true,
                         isPlaying: player.isPlaying,
-                        isAnimationVisible: isNowPlayingSurfaceExposed && !surfaceMotion.isHeld,
+                        isAnimationVisible: isAnimVisible,
                         loadsHighResolution: isPresentationSettled,
                         revisionToken: subject.coverRevision
                     )
@@ -8840,15 +9537,15 @@ struct NowPlayingView: View {
                         usesShadowSprite: currentItemIsPodcast || !usesSpokenWordTransport,
                         topContentInset: anchor.coversTopChrome ? FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea) : 0,
                         contentFill: anchor.fillsSlot ? 1 : 0
-                    ), usesCompositorTransform: isPhoneCanvas
-                        && !usesSpokenWordTransport
-                        && !player.isMusicVideoPlaybackActive
-                        && geometry.size.height > geometry.size.width
-                        && PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .card))
+                    ), usesCompositorTransform: usesCompositorTransform))
+                    #endif
                 }
-                .animation(standardLyricsAnimation, value: placement)
-                .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
-                .animation(nil, value: geometry.size)
+                .if(!usesNativeCardCompositor) { view in
+                    view
+                        .animation(standardLyricsAnimation, value: placement)
+                        .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
+                        .animation(nil, value: geometry.size)
+                }
 
                 // 铺满封面压住了状态栏与下拉把手：顶上那一截换成模糊的封面(设置里可关)、垫一道淡底，
                 // 把手画在封面上面。版面里那根把手还在原位，被封面盖着；切到歌词时这几样淡出，露出的正是它。
@@ -8887,17 +9584,16 @@ struct NowPlayingView: View {
                 }
 
                 #if os(iOS)
-                // 「前往专辑」放大转场只需要知道从哪里放大：放一个和封面同位置的透明框当源，
-                // 移动的封面本身只是上面这一层，不再叠系统转场的修饰。
-                if placement == .cover, let albumID = currentAlbum?.id {
-                    Color.clear
-                        .frame(width: rect.width, height: rect.height)
-                        .modifier(NowPlayingAlbumTransitionSourceModifier(
-                            albumID: albumID,
-                            namespace: albumPresentationNamespace,
-                            cornerRadius: anchor.cornerRadius
-                        ))
-                        .position(x: rect.midX, y: rect.midY)
+                // 「前往专辑」放大转场源常驻停在大封面槽位，不在封面 ⇄ 歌词切换时拆建或跟随飞行。
+                if let coverAnchor = anchors[.cover] {
+                    let coverRect = geometry[coverAnchor.bounds]
+                    NowPlayingAlbumTransitionSourceHost(
+                        song: player.currentSong,
+                        rect: coverRect,
+                        cornerRadius: coverAnchor.cornerRadius,
+                        namespace: albumPresentationNamespace
+                    )
+                    .equatable()
                 }
                 #endif
             }
@@ -9738,10 +10434,12 @@ struct NowPlayingView: View {
     }
 
     private func persistentPhoneLyricsOverlay(isActive: Bool) -> some ViewModifier {
-        PlayerLyricsViewportOverlay(
+        let readyToPrewarm = isPresentationSettled && !lyrics.isEmpty
+        return PlayerLyricsViewportOverlay(
             isActive: isActive,
-            isVisible: showLyrics,
-            prewarmsLyrics: isPresentationSettled && !lyrics.isEmpty,
+            presentation: lyricsPresentation,
+            mountsHiddenViewport: readyToPrewarm,
+            prewarmsLyrics: readyToPrewarm,
             prewarmCollapsesChrome: textCollapsesOnScroll
         ) { collapsesChrome in
             lyricsScrollView(collapsesChromeOnScroll: collapsesChrome,
@@ -9815,6 +10513,9 @@ struct NowPlayingView: View {
                 ? 12 + 34 + 8 : 12,
             hidesMissingLyricsNotice: isLyricsImmersive && !usesSpokenWordTransport
         )
+        // 歌词列表的输入没变就不重算(切封面 ⇄ 歌词时外层每次都会构造新的回调闭包)：
+        // 否则每次切换都要把整份歌词的每一行重新求值一遍，压在转场第一帧上。
+        .equatable()
         .overlay(alignment: .topTrailing) {
             if showsReaderButton {
                 transcriptReaderButton
@@ -10653,11 +11354,22 @@ struct NowPlayingView: View {
 
     /// 音乐播放页的按钮摆法。有声内容(书、播客)读默认那份,它们有自己的 `spokenWordControlLayout`。
     /// 看歌词时(歌词顶替封面,或横屏、分栏里歌词那一栏开着)用「歌词界面」那组,没单独摆就是同一组。
+    /// 只有真单独改了歌词页按钮时才读 `showLyrics`，避免默认配置下切歌词引起底栏与传输键整排重算。
     private var musicControlLayout: NowPlayingControlLayout {
         guard !usesSpokenWordTransport else { return .default }
         return NowPlayingControlLayoutCache.layout(
             for: controlLayoutStorage,
-            lyricsPageStorage: showLyrics ? lyricsPageControlStorage : nil
+            lyricsPageStorage: lyricsPageControlStorage,
+            isLyricsVisible: { showLyrics }
+        )
+    }
+
+    private var lyricsModeControlLayout: NowPlayingControlLayout {
+        guard !usesSpokenWordTransport else { return .default }
+        return NowPlayingControlLayoutCache.layout(
+            for: controlLayoutStorage,
+            lyricsPageStorage: lyricsPageControlStorage,
+            isLyricsVisible: { true }
         )
     }
 
@@ -10680,10 +11392,14 @@ struct NowPlayingView: View {
 
     /// 歌词页顶上多出来那一格此刻放什么:按「歌词界面」的配置;页面上已经摆着同一颗键、
     /// 或者这首歌用不了(卡拉OK要有歌词、不是 Apple Music)时不放。
-    private func lyricsHeaderExtraAction(onSurface surface: NowPlayingControlSurface) -> NowPlayingControlAction? {
+    private func lyricsHeaderExtraAction(
+        onSurface surface: NowPlayingControlSurface,
+        controlLayout: NowPlayingControlLayout? = nil
+    ) -> NowPlayingControlAction? {
         guard !usesSpokenWordTransport, let extra = lyricsPageControls.headerExtra else { return nil }
         if extra == .karaoke, !offersLyricsKaraokeAction { return nil }
-        guard !musicControlLayout.visibleActions(on: surface).contains(extra) else { return nil }
+        let resolvedLayout = controlLayout ?? musicControlLayout
+        guard !resolvedLayout.visibleActions(on: surface).contains(extra) else { return nil }
         return extra
     }
 
@@ -10770,9 +11486,13 @@ struct NowPlayingView: View {
         if action == .airPlay {
             return AnyView(airPlayControl(style: style))
         } else if case .column(let itemSize) = style, action == .lyrics {
-            return AnyView(barColumnLyricsButton(symbol: "quote.bubble", itemSize: itemSize))
+            return AnyView(NowPlayingDeferredContent {
+                barColumnLyricsButton(symbol: "quote.bubble", itemSize: itemSize)
+            })
         } else if case .column(let itemSize) = style, action == .queue {
-            return AnyView(barColumnQueueButton(itemSize: itemSize))
+            return AnyView(NowPlayingDeferredContent {
+                barColumnQueueButton(itemSize: itemSize)
+            })
         } else if action == .shuffle, unavailableNotice(for: .shuffle) == nil {
             return AnyView(shuffleControl(style: style))
         } else if action == .repeatMode {
@@ -10783,6 +11503,11 @@ struct NowPlayingView: View {
             return AnyView(abRepeatControl(style: style))
         } else if action == .playbackSpeed, unavailableNotice(for: .playbackSpeed) == nil {
             return AnyView(playbackSpeedControl(style: style))
+        } else if action == .lyrics {
+            // 歌词键读 `showLyrics` 切换图标，单独包进叶子作用域，避免切换时底栏整排重算。
+            return AnyView(NowPlayingDeferredContent {
+                standardControl(.lyrics, style: style)
+            })
         } else {
             return AnyView(standardControl(action, style: style))
         }
@@ -14916,15 +15641,20 @@ private enum NowPlayingControlLayoutCache {
     private static var lyricsLayoutKey: (cover: String, lyrics: String)?
     private static var lyricsLayout = NowPlayingControlLayout.default
 
-    /// `lyricsPageStorage` 不为 nil 时是看歌词那一页:单独摆了按钮就换上那一组。
-    static func layout(for storage: String, lyricsPageStorage: String?) -> NowPlayingControlLayout {
+    /// 只有单独配置了不同的歌词页按钮时才调用 `isLyricsVisible()`，避免无差异配置在切歌词时建立观察。
+    static func layout(
+        for storage: String,
+        lyricsPageStorage: String,
+        isLyricsVisible: () -> Bool
+    ) -> NowPlayingControlLayout {
         let cover = layout(for: storage)
-        guard let lyricsPageStorage else { return cover }
+        guard !lyricsPageStorage.isEmpty else { return cover }
         if lyricsLayoutKey?.cover != storage || lyricsLayoutKey?.lyrics != lyricsPageStorage {
             lyricsLayoutKey = (storage, lyricsPageStorage)
             lyricsLayout = lyricsPageControls(for: lyricsPageStorage).resolvedLayout(cover: cover)
         }
-        return lyricsLayout
+        guard lyricsLayout != cover else { return cover }
+        return isLyricsVisible() ? lyricsLayout : cover
     }
 
     private static var lyricsPage: (storage: String, controls: NowPlayingLyricsPageControls)?
@@ -15926,6 +16656,15 @@ private struct DeferredLyricRowCell<Content: View>: View {
 @MainActor
 enum DebugLyricRowBuildCounter {
     static var count = 0
+    /// 播放页整页那一层(GeometryReader 闭包)重算了几次。
+    static var pageBodies = 0
+    static var portraitBodies = 0
+
+    static func noteDeferredBody(_ label: String) {
+        if label == "portrait" {
+            portraitBodies += 1
+        }
+    }
 }
 #endif
 
@@ -16166,6 +16905,7 @@ private struct NowPlayingArtworkLyricPreview: View {
     let songID: String?
     let lyricsRevision: UInt
     let isSceneActive: Bool
+    var lyricsPresentation: NowPlayingLyricsPresentation? = nil
     let appearance: NowPlayingAppearance
     /// 定好的行数; nil 时是「自动」: 这一层铺在歌名下那段空白上, 下面紧接着 `NowPlayingArtworkLyricSlot`
     /// 那一格。歌词从那一格的底边往上排, 顶上和歌名之间至少留 `artworkLyricHeadingGap`, 能放几行放几行。
@@ -16205,7 +16945,7 @@ private struct NowPlayingArtworkLyricPreview: View {
             player: player,
             songID: songID,
             lyricsRevision: lyricsRevision,
-            isSceneActive: isSceneActive,
+            isSceneActive: isSceneActive && !(lyricsPresentation?.isVisible ?? false),
             tint: appearance.primary,
             statusTint: appearance.tertiary,
             font: lyricsTypeface.font(size: fontSize),
@@ -16686,7 +17426,36 @@ private final class LyricsVisualPlaybackSnapshot {
     var time: TimeInterval = 0
 }
 
-struct LyricsScrollView: View {
+struct LyricsScrollView: View, @MainActor Equatable {
+    /// 只比较会影响画面的数据。回调闭包每次都是新造的，比较不出「没变」；它们调用的是播放页的方法、
+    /// 读的是调用时的状态，唯一按构造时取值的「收起底部控件」由 `onUserScroll` 有无表示，一并比较。
+    /// 有声内容的空页内容带闭包、没法比较，带着它时一律按变了处理。
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.player === rhs.player
+            && lhs.presentation === rhs.presentation
+            && lhs.spokenWordEmptyState == nil && rhs.spokenWordEmptyState == nil
+            && (lhs.onUserScroll == nil) == (rhs.onUserScroll == nil)
+            && lhs.lyricsRevision == rhs.lyricsRevision
+            && lhs.songID == rhs.songID
+            && lhs.isSceneActive == rhs.isSceneActive
+            && lhs.preparesHiddenPosition == rhs.preparesHiddenPosition
+            && lhs.isResolvingLyrics == rhs.isResolvingLyrics
+            && lhs.offersLyricsRecoveryActions == rhs.offersLyricsRecoveryActions
+            && lhs.showsSimulatedWordTiming == rhs.showsSimulatedWordTiming
+            && lhs.lyricsWritingDirection == rhs.lyricsWritingDirection
+            && lhs.commentSongID == rhs.commentSongID
+            && lhs.isScrapingCurrentSong == rhs.isScrapingCurrentSong
+            && lhs.canTranscribeAudio == rhs.canTranscribeAudio
+            && lhs.isScrapeActionUnavailable == rhs.isScrapeActionUnavailable
+            && lhs.translationActivity == rhs.translationActivity
+            && lhs.isSpokenWordTranscript == rhs.isSpokenWordTranscript
+            && lhs.translationStatusTrailingInset == rhs.translationStatusTrailingInset
+            && lhs.hidesMissingLyricsNotice == rhs.hidesMissingLyricsNotice
+            && lhs.commentAnchors == rhs.commentAnchors
+            && lhs.translatedTextByLineID == rhs.translatedTextByLineID
+            && lhs.lyrics == rhs.lyrics
+    }
+
     let lyrics: [LyricLine]
     var showsSimulatedWordTiming = false
     let lyricsWritingDirection: LyricWritingDirection
@@ -16801,6 +17570,7 @@ struct LyricsScrollView: View {
     /// 各行定位点在滚动内容里的纵坐标。只随排版变化，放在引用盒子里，
     /// 写入不触发重绘；滚动时按它找出定位线上的那一句。
     @State private var rowAnchorYs = LyricRowAnchorYs()
+    @State private var scrollRestoreState = LyricScrollRestoreState()
     /// 惰性排版的文稿从这一行往下才建真的行,往上的格子只占空位;为空时全是空位。打开那一帧列表
     /// 还停在最上面,开头十来格建出来后惰性列表会一直留着,当场换成真的行就白建一遍(滚走之后
     /// 再换也一样)。滚到当前句时把下限定在它往上 `lazyRowFloorMargin` 行;往回跳过下限时跟着
@@ -16945,27 +17715,6 @@ struct LyricsScrollView: View {
                 lineLevelLyricsView
             }
         }
-        .task(id: playbackFollowTaskIdentity) {
-            guard hasSynchronizedLyrics else {
-                currentLineIndex = -1
-                activeInterlude = nil
-                return
-            }
-            guard visualActivityPolicy.shouldPollLyrics else {
-                updateCurrentLine(disableAnimations: true)
-                return
-            }
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .milliseconds(100))
-                } catch {
-                    return
-                }
-                guard !Task.isCancelled,
-                      visualActivityPolicy.shouldPollLyrics else { break }
-                updateCurrentLine()
-            }
-        }
         .sheet(item: $commentPresentation) { presentation in
             LyricLineCommentsSheet(presentation: presentation,
                 song: player.library?.storedSong(id: presentation.songID)
@@ -16973,19 +17722,28 @@ struct LyricsScrollView: View {
                 .playerPresentationColorScheme()
         }
         .background {
-            // 只有这个零尺寸子视图跟随播放时间，整棵歌词树不再随 currentTime 失效。
-            LyricsPausedTimeObserver(
+            // 将歌词显隐观察与轮询隔离在零尺寸子视图中，避免封面 ⇄ 歌词切换触发整棵歌词列表树重算。
+            LyricsPlaybackActivityHost(
                 player: player,
-                isEnabled: hasSynchronizedLyrics && isLyricsSceneActive
-            ) {
-                updateCurrentLine(disableAnimations: true)
-            }
-        }
-        .onChange(of: isLyricsSceneActive) { _, isActive in
-            if !isActive {
-                resetLyricsInteraction()
-                updateCurrentLine(disableAnimations: true)
-            }
+                presentation: presentation,
+                isSceneActive: isSceneActive,
+                hasSynchronizedLyrics: hasSynchronizedLyrics,
+                showsSimulatedWordTiming: showsSimulatedWordTiming,
+                songID: songID,
+                lyricsRevision: lyricsRevision,
+                reduceMotion: reduceMotion,
+                onClearSynchronizedState: {
+                    if currentLineIndex != -1 { currentLineIndex = -1 }
+                    if activeInterlude != nil { activeInterlude = nil }
+                },
+                onPollTick: { disableAnimations in
+                    _ = updateCurrentLine(disableAnimations: disableAnimations)
+                },
+                onSceneDeactivated: {
+                    resetLyricsInteraction()
+                    _ = updateCurrentLine(disableAnimations: true)
+                }
+            )
         }
         .onChange(of: currentLineIndex) { _, index in
             // 往回跳到下限以上:那一段的格子要建出真的行,滚过去才看得见字。
@@ -16999,6 +17757,7 @@ struct LyricsScrollView: View {
             lastSurfaceLongPressAt = .distantPast
             resetLyricsInteraction()
             rowAnchorYs.values.removeAll()
+            scrollRestoreState.invalidate()
             cascadeOffset = 0
             cascadeTracker.lastCascadeAt = .distantPast
         }
@@ -17257,6 +18016,7 @@ struct LyricsScrollView: View {
                     guard Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod
                     else { return }
                     scroll(to: target, proxy: proxy, animated: true, following: previous)
+                    recordAlignedScrollState(target: target, viewportSize: geo.size)
                 }
                 .task(id: geo.size) {
                     guard geo.size.width > 0, geo.size.height > 0 else { return }
@@ -17265,23 +18025,26 @@ struct LyricsScrollView: View {
                           !isRestoringVisualPosition, !isManuallyBrowsingLyrics,
                           !isPinchingLyrics, let target = playbackScrollTarget else { return }
                     scroll(to: target, proxy: proxy, animated: false)
+                    recordAlignedScrollState(target: target, viewportSize: geo.size)
                 }
                 .onChange(of: lyricsTypography) { _, _ in
+                    scrollRestoreState.invalidate()
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
                 .onChange(of: lyricsTranslationFontScale) { _, _ in
+                    scrollRestoreState.invalidate()
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
-                .task(id: lineLevelScrollIdentity) {
-                    guard isLyricsSceneActive || preparesHiddenPosition else { return }
-                    isRestoringVisualPosition = true
-                    defer { isRestoringVisualPosition = false }
-                    let target = updateCurrentLine(disableAnimations: true)
-                    // Publish the active row first, then allow SwiftUI to lay
-                    // out that state before issuing the initial scroll request.
-                    await Task.yield()
-                    guard !Task.isCancelled else { return }
-                    restoreInitialPosition(to: target, proxy: proxy)
+                .background {
+                    LyricsScrollRestoreHost(
+                        songID: songID,
+                        lyricsRevision: lyricsRevision,
+                        isSceneActive: isSceneActive,
+                        preparesHiddenPosition: preparesHiddenPosition,
+                        presentation: presentation
+                    ) {
+                        await restoreScrollPositionIfNeeded(proxy: proxy, viewportSize: geo.size)
+                    }
                 }
                 .onDisappear {
                     resetLyricsInteraction()
@@ -17363,6 +18126,7 @@ struct LyricsScrollView: View {
                           Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod
                     else { return }
                     scroll(to: target, proxy: proxy, animated: true, following: previous)
+                    recordAlignedScrollState(target: target, viewportSize: geo.size)
                 }
                 .task(id: geo.size) {
                     guard geo.size.width > 0, geo.size.height > 0 else { return }
@@ -17371,21 +18135,26 @@ struct LyricsScrollView: View {
                           !isRestoringVisualPosition, !isManuallyBrowsingLyrics,
                           !isPinchingLyrics, let target = playbackScrollTarget else { return }
                     scroll(to: target, proxy: proxy, animated: false)
+                    recordAlignedScrollState(target: target, viewportSize: geo.size)
                 }
                 .onChange(of: lyricsTypography) { _, _ in
+                    scrollRestoreState.invalidate()
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
                 .onChange(of: lyricsTranslationFontScale) { _, _ in
+                    scrollRestoreState.invalidate()
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
-                .task(id: lyricsPresentationIdentity) {
-                    guard isLyricsSceneActive || preparesHiddenPosition else { return }
-                    isRestoringVisualPosition = true
-                    defer { isRestoringVisualPosition = false }
-                    let target = updateCurrentLine(disableAnimations: true)
-                    await Task.yield()
-                    guard !Task.isCancelled else { return }
-                    restoreInitialPosition(to: target, proxy: proxy)
+                .background {
+                    LyricsScrollRestoreHost(
+                        songID: songID,
+                        lyricsRevision: lyricsRevision,
+                        isSceneActive: isSceneActive,
+                        preparesHiddenPosition: preparesHiddenPosition,
+                        presentation: presentation
+                    ) {
+                        await restoreScrollPositionIfNeeded(proxy: proxy, viewportSize: geo.size)
+                    }
                 }
                 .onDisappear {
                     resetLyricsInteraction()
@@ -17409,8 +18178,40 @@ struct LyricsScrollView: View {
         )
     }
 
-    private var lineLevelScrollIdentity: String {
-        lyricsPresentationIdentity
+    private func restoreScrollPositionIfNeeded(proxy: ScrollViewProxy, viewportSize: CGSize) async {
+        let target = updateCurrentLine(disableAnimations: true)
+        if viewportSize.width > 0, viewportSize.height > 0,
+           scrollRestoreState.isAligned(
+               songID: songID,
+               lyricsRevision: lyricsRevision,
+               target: target,
+               viewportSize: viewportSize,
+               typography: lyricsTypography,
+               translationScale: lyricsTranslationFontScale
+           ) {
+            lowerLazyRowFloor(toCover: currentLineIndex)
+            return
+        }
+        isRestoringVisualPosition = true
+        defer { isRestoringVisualPosition = false }
+        await Task.yield()
+        guard !Task.isCancelled else { return }
+        restoreInitialPosition(to: target, proxy: proxy)
+        if viewportSize.width > 0, viewportSize.height > 0 {
+            recordAlignedScrollState(target: target, viewportSize: viewportSize)
+        }
+    }
+
+    private func recordAlignedScrollState(target: LyricsScrollTarget?, viewportSize: CGSize) {
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return }
+        scrollRestoreState.markAligned(
+            songID: songID,
+            lyricsRevision: lyricsRevision,
+            target: target,
+            viewportSize: viewportSize,
+            typography: lyricsTypography,
+            translationScale: lyricsTranslationFontScale
+        )
     }
 
     /// 打开歌词、换歌、回到前台时对准当前句。惰性排版时同一个事务里定下真的行从哪一行起:
@@ -17438,8 +18239,148 @@ struct LyricsScrollView: View {
         Self.lyricsLayoutBaseSize * CGFloat(effectiveLyricsScale) * 1.3 + 10
     }
 
-    private var lyricsPresentationIdentity: String {
-        "\(songID ?? "")|\(lyricsRevision)|\(isLyricsSceneActive)"
+    @MainActor
+    private final class LyricScrollRestoreState {
+        private struct Key: Equatable {
+            let songID: String?
+            let lyricsRevision: UInt
+            let target: LyricsScrollTarget?
+            let viewportSize: CGSize
+            let typography: LyricsTypography
+            let translationScale: Double
+        }
+
+        private var alignedKey: Key?
+
+        func isAligned(
+            songID: String?,
+            lyricsRevision: UInt,
+            target: LyricsScrollTarget?,
+            viewportSize: CGSize,
+            typography: LyricsTypography,
+            translationScale: Double
+        ) -> Bool {
+            alignedKey == Key(
+                songID: songID,
+                lyricsRevision: lyricsRevision,
+                target: target,
+                viewportSize: viewportSize,
+                typography: typography,
+                translationScale: translationScale
+            )
+        }
+
+        func markAligned(
+            songID: String?,
+            lyricsRevision: UInt,
+            target: LyricsScrollTarget?,
+            viewportSize: CGSize,
+            typography: LyricsTypography,
+            translationScale: Double
+        ) {
+            alignedKey = Key(
+                songID: songID,
+                lyricsRevision: lyricsRevision,
+                target: target,
+                viewportSize: viewportSize,
+                typography: typography,
+                translationScale: translationScale
+            )
+        }
+
+        func invalidate() {
+            alignedKey = nil
+        }
+    }
+
+    private struct LyricsPlaybackActivityHost: View {
+        let player: AudioPlayerService
+        let presentation: NowPlayingLyricsPresentation?
+        let isSceneActive: Bool
+        let hasSynchronizedLyrics: Bool
+        let showsSimulatedWordTiming: Bool
+        let songID: String?
+        let lyricsRevision: UInt
+        let reduceMotion: Bool
+        let onClearSynchronizedState: () -> Void
+        let onPollTick: (Bool) -> Void
+        let onSceneDeactivated: () -> Void
+
+        var body: some View {
+            let active = isSceneActive && (presentation?.isVisible ?? true)
+            let policy = NowPlayingVisualActivityPolicy(
+                isSceneActive: active,
+                isPlaying: player.isPlaying,
+                usesRealtimeSpectrum: false,
+                reduceMotion: reduceMotion
+            )
+            let taskID = PlaybackFollowTaskIdentity(
+                showsSimulatedWordTiming: showsSimulatedWordTiming,
+                songID: songID,
+                lyricsRevision: lyricsRevision,
+                isPlaying: player.isPlaying,
+                isSceneActive: active,
+                reduceMotion: reduceMotion
+            )
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .background {
+                    LyricsPausedTimeObserver(
+                        player: player,
+                        isEnabled: hasSynchronizedLyrics && active
+                    ) {
+                        onPollTick(true)
+                    }
+                }
+                .task(id: taskID) {
+                    guard hasSynchronizedLyrics else {
+                        onClearSynchronizedState()
+                        return
+                    }
+                    guard policy.shouldPollLyrics else {
+                        onPollTick(true)
+                        return
+                    }
+                    while !Task.isCancelled {
+                        do {
+                            try await Task.sleep(for: .milliseconds(100))
+                        } catch {
+                            return
+                        }
+                        guard !Task.isCancelled, policy.shouldPollLyrics else { break }
+                        onPollTick(false)
+                    }
+                }
+                .onChange(of: active) { _, isActive in
+                    if !isActive {
+                        onSceneDeactivated()
+                    }
+                }
+        }
+    }
+
+    private struct LyricsScrollRestoreHost: View {
+        let songID: String?
+        let lyricsRevision: UInt
+        let isSceneActive: Bool
+        let preparesHiddenPosition: Bool
+        let presentation: NowPlayingLyricsPresentation?
+        let onRestore: () async -> Void
+
+        var body: some View {
+            let active = isSceneActive && (presentation?.isVisible ?? true)
+            let identity = "\(songID ?? "")|\(lyricsRevision)|\(active)"
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .task(id: identity) {
+                    guard active || preparesHiddenPosition else { return }
+                    await onRestore()
+                }
+        }
     }
 
     private enum LyricsScrollTarget: Hashable {
@@ -17507,17 +18448,20 @@ struct LyricsScrollView: View {
     /// 恢复任务被生命周期切换取消后，不再有松手回调来清理浏览或捏合状态。
     /// 一并清掉临时状态，避免自动跟随已恢复、歌词却仍被当作正在浏览而保持清晰。
     private func resetLyricsInteraction() {
-        lineAutoFollowResumeTask?.cancel()
-        lineAutoFollowResumeTask = nil
-        isManuallyBrowsingLyrics = false
-        browsedLineIndex = nil
-        lastUserScrollTime = .distantPast
-        lyricsPinchScale = 1
-        isPinchingLyrics = false
-        userScrollStartOffsetY = nil
+        if lineAutoFollowResumeTask != nil {
+            lineAutoFollowResumeTask?.cancel()
+            lineAutoFollowResumeTask = nil
+        }
+        if isManuallyBrowsingLyrics { isManuallyBrowsingLyrics = false }
+        if browsedLineIndex != nil { browsedLineIndex = nil }
+        if lastUserScrollTime != .distantPast { lastUserScrollTime = .distantPast }
+        if lyricsPinchScale != 1 { lyricsPinchScale = 1 }
+        if isPinchingLyrics { isPinchingLyrics = false }
+        if userScrollStartOffsetY != nil { userScrollStartOffsetY = nil }
     }
 
     private func beginLineManualBrowsing() {
+        scrollRestoreState.invalidate()
         // 拖动可能一路拖到下限以上,整个放开。
         if lazyRowFloor != nil { lowerLazyRowFloor(toCover: 0) }
         lineAutoFollowResumeTask?.cancel()
@@ -17774,7 +18718,10 @@ struct LyricsScrollView: View {
         return LyricInterludeDots(
             isActive: isActive,
             isPlaying: player.isPlaying,
-            isSceneActive: !isActive || isLyricsSceneActive,
+            isSceneActive: isSceneActive,
+            isSceneActiveProvider: isActive
+                ? { [presentation, isSceneActive] in isSceneActive && (presentation?.isVisible ?? true) }
+                : nil,
             phase: {
                 LyricPlaybackPositionPolicy.phase(
                     of: window,
@@ -19536,6 +20483,11 @@ struct PlayerLyricsViewportSlot: View {
 struct PlayerLyricsViewportOverlay<Lyrics: View>: ViewModifier {
     var isActive: Bool
     var isVisible = true
+    /// 给了就按它的 `isVisible` 显隐(只在显隐那一层读)，`isVisible` 不再起作用：
+    /// 播放页切歌词时不用为传这个值整页重算。
+    var presentation: NowPlayingLyricsPresentation? = nil
+    /// 常驻槽位还在封面页后面隐藏时是否允许提前挂载歌词列表；迷你条展开途中置假，停稳后再置真。
+    var mountsHiddenViewport = true
     var prewarmsLyrics = false
     var prewarmCollapsesChrome = false
     @ViewBuilder var lyrics: (Bool) -> Lyrics
@@ -19550,6 +20502,8 @@ struct PlayerLyricsViewportOverlay<Lyrics: View>: ViewModifier {
                                   allowsInteraction: $0.allowsInteraction)
                         },
                         isVisible: isVisible,
+                        presentation: presentation,
+                        mountsHiddenViewport: mountsHiddenViewport,
                         prewarmViewport: prewarmsLyrics ? .init(
                             rect: CGRect(origin: .zero, size: geometry.size),
                             collapsesChrome: prewarmCollapsesChrome,
@@ -19563,6 +20517,117 @@ struct PlayerLyricsViewportOverlay<Lyrics: View>: ViewModifier {
     }
 }
 
+/// 保持封面中段与紧凑歌词顶栏常驻，切换透明度、点击命中与无障碍可见性。
+private struct NowPlayingMiddlePaneVisibility: ViewModifier {
+    let presentation: NowPlayingLyricsPresentation
+    let showsWhenLyricsVisible: Bool
+    let reduceMotion: Bool
+
+    func body(content: Content) -> some View {
+        let isShown = presentation.isVisible == showsWhenLyricsVisible
+        content
+            .allowsHitTesting(isShown)
+            .accessibilityHidden(!isShown)
+            .transaction { $0.animation = nil }
+            .opacity(isShown ? 1 : 0)
+            .animation(
+                NowPlayingLyricsHandoffAnimation.opacity(
+                    appearing: isShown,
+                    reduceMotion: reduceMotion
+                ),
+                value: isShown
+            )
+    }
+}
+
+/// 铺满封面下沿延伸色场的显隐修饰符：切歌词时直接在合成器淡出，不随整页重算拆建底图。
+private struct NowPlayingCoverExtensionVisibility: ViewModifier {
+    let presentation: NowPlayingLyricsPresentation?
+    let reduceMotion: Bool
+
+    func body(content: Content) -> some View {
+        if let presentation {
+            let showsCover = !presentation.isVisible
+            content
+                .transaction { $0.animation = nil }
+                .opacity(showsCover ? 1 : 0)
+                .animation(
+                    reduceMotion
+                        ? .easeInOut(duration: 0.16)
+                        : .spring(response: 0.46, dampingFraction: 1, blendDuration: 0.08),
+                    value: showsCover
+                )
+        } else {
+            content
+        }
+    }
+}
+
+#if os(iOS)
+private struct NowPlayingAlbumTransitionSourceHost: View, @MainActor Equatable {
+    let song: Song?
+    let rect: CGRect
+    let cornerRadius: CGFloat
+    let namespace: Namespace.ID
+
+    @Environment(MusicLibrary.self) private var library
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.song?.id == rhs.song?.id
+            && lhs.song?.albumID == rhs.song?.albumID
+            && lhs.song?.albumTitle == rhs.song?.albumTitle
+            && lhs.rect == rhs.rect
+            && lhs.cornerRadius == rhs.cornerRadius
+            && lhs.namespace == rhs.namespace
+    }
+
+    var body: some View {
+        let albumID = song.flatMap { track in
+            library.linkedAlbum(for: track)?.id
+                ?? AppServices.shared.appleMusicLibrary.catalogAlbum(forCatalogOnlySong: track)?.id
+        }
+        if let albumID {
+            Color.clear
+                .frame(width: rect.width, height: rect.height)
+                .modifier(NowPlayingAlbumTransitionSourceModifier(
+                    albumID: albumID,
+                    namespace: namespace,
+                    cornerRadius: cornerRadius
+                ))
+                .position(x: rect.midX, y: rect.midY)
+                .transaction { $0.animation = nil }
+        }
+    }
+}
+#endif
+
+/// 常驻歌词的显隐。做成修饰符：显隐变化只重算这一层，里面的歌词列表不跟着重建。
+private struct PlayerLyricsSurfaceVisibility: ViewModifier {
+    let presentation: NowPlayingLyricsPresentation?
+    let isVisible: Bool
+    let hasViewport: Bool
+    let allowsInteraction: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let isVisible = presentation?.isVisible ?? isVisible
+        let showsContent = isVisible && hasViewport
+        content
+            .allowsHitTesting(showsContent && allowsInteraction)
+            .accessibilityHidden(!showsContent || !allowsInteraction)
+            // 显隐事务不传进列表的布局和当前句恢复；换句本身仍使用原有动画。
+            .transaction { $0.animation = nil }
+            .opacity(showsContent ? 1 : 0)
+            .animation(
+                NowPlayingLyricsHandoffAnimation.opacity(
+                    appearing: showsContent,
+                    reduceMotion: reduceMotion
+                ),
+                value: showsContent
+            )
+    }
+}
+
 private struct PlayerLyricsRetainedSurface<Lyrics: View>: View {
     struct Viewport: Equatable {
         var rect: CGRect
@@ -19572,33 +20637,40 @@ private struct PlayerLyricsRetainedSurface<Lyrics: View>: View {
 
     var viewport: Viewport?
     var isVisible: Bool
+    var presentation: NowPlayingLyricsPresentation?
+    var mountsHiddenViewport = true
     var prewarmViewport: Viewport?
     @ViewBuilder var lyrics: (Bool) -> Lyrics
     @State private var retainedViewport: Viewport?
+    @State private var hasMountedContent = false
 
     var body: some View {
-        // 播放页停稳后先建立隐藏列表；第一次点击只更新真实槽位和显隐，不再现场建立全部歌词行。
-        let resolved = viewport ?? retainedViewport ?? prewarmViewport
-        let showsContent = isVisible && viewport != nil
+        // 播放页停稳后直接按真实槽位建立隐藏列表；第一次点击只切换合成器显隐，不再改槽位尺寸或现场建行。
+        let shouldMount = mountsHiddenViewport || hasMountedContent || (presentation?.isVisible ?? isVisible)
+        let resolved = shouldMount ? (viewport ?? retainedViewport ?? prewarmViewport) : nil
         ZStack {
             if let resolved {
                 lyrics(resolved.collapsesChrome)
                     .frame(width: max(0, resolved.rect.width), height: max(0, resolved.rect.height))
                     .clipped()
                     .position(x: resolved.rect.midX, y: resolved.rect.midY)
-                    // 显隐事务不传进列表的布局和当前句恢复；换句本身仍使用原有动画。
-                    .animation(nil, value: isVisible)
-                    .modifier(PlayerLyricsHandoffOpacity(progress: showsContent ? 1 : 0))
+                    .modifier(PlayerLyricsSurfaceVisibility(
+                        presentation: presentation,
+                        isVisible: isVisible,
+                        hasViewport: viewport != nil,
+                        allowsInteraction: resolved.allowsInteraction
+                    ))
                     .transition(.modifier(
                         active: PlayerLyricsHandoffOpacity(progress: 0),
                         identity: PlayerLyricsHandoffOpacity(progress: 1)
                     ))
-                    .allowsHitTesting(showsContent && resolved.allowsInteraction)
-                    .accessibilityHidden(!showsContent || !resolved.allowsInteraction)
+                    .onAppear {
+                        if !hasMountedContent { hasMountedContent = true }
+                    }
             }
         }
         .onChange(of: viewport, initial: true) { _, viewport in
-            // 封面页没有歌词槽位，保留最后的尺寸和原生滚动视图，淡出时不压成零尺寸。
+            // 封面页没有歌词槽位时保留最后的尺寸和原生滚动视图，淡出时不压成零尺寸。
             if let viewport, viewport.rect.width > 0, viewport.rect.height > 0 {
                 retainedViewport = viewport
             }

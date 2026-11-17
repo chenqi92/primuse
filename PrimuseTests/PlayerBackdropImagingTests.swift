@@ -21,6 +21,60 @@ private final class LyricsCompanionTestState {
 
 @MainActor
 final class PlayerBackdropImagingTests: XCTestCase {
+    func testLyricsLoadingFollowsSongChangesAndCancelsStaleWorkWithoutReplacingRoot() async throws {
+        @MainActor
+        final class Observations {
+            var started: [String] = []
+            var completed: [String] = []
+            var cancelled: [String] = []
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let suite = "LyricsLoading.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let player = AudioPlayerService(playbackSettings: PlaybackSettingsStore(defaults: defaults),
+                                       activateAudioSession: { _ in XCTFail("No audio should start") })
+        let first = Song(id: "load-first", title: "First", fileFormat: .mp3, filePath: "", sourceID: suite)
+        let second = Song(id: "load-second", title: "Second", fileFormat: .mp3, filePath: "", sourceID: suite)
+        player.currentSong = first
+        let observations = Observations()
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: PlayerLyricsLoadingTask(
+            player: player, isPresentationSettled: true, isDormant: false
+        ) {
+            guard let id = player.currentSong?.id else { return }
+            observations.started.append(id)
+            do {
+                try await Task.sleep(for: .milliseconds(id == first.id ? 800 : 20))
+                observations.completed.append(id)
+            } catch {
+                observations.cancelled.append(id)
+            }
+        })
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+            defaults.removePersistentDomain(forName: suite)
+        }
+        for _ in 0..<20 where observations.started.isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(observations.started, [first.id])
+        player.currentSong = second
+        for _ in 0..<30 where observations.completed.isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(observations.started, [first.id, second.id])
+        XCTAssertEqual(observations.completed, [second.id])
+        XCTAssertEqual(observations.cancelled, [first.id])
+        player.currentTime = 37
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(observations.started, [first.id, second.id], "Playback ticks must not restart lyric loading")
+    }
+
     func testCoveredPageStopsReceivingNativeHitsAndResumesWithoutRemounting() async throws {
         @MainActor
         final class Observations {
@@ -407,6 +461,44 @@ final class PlayerBackdropImagingTests: XCTestCase {
             host.willMove(toParent: nil)
             host.view.removeFromSuperview()
             host.removeFromParent()
+        }
+    }
+
+    func testNativeArtworkFlightReversesWithoutJumpAndSettlesAtCover() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let controller = UIViewController()
+        let stage = NowPlayingCardArtworkStageView()
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previousWindow?.makeKeyAndVisible() }
+        stage.frame = controller.view.bounds
+        controller.view.addSubview(stage)
+        stage.installContentView(UIView(), renderSize: 512)
+        let cover = CGRect(x: 32, y: 100, width: 300, height: 300)
+        let compact = CGRect(x: 24, y: 60, width: 48, height: 48)
+        func move(_ rect: CGRect, _ placement: LyricsArtworkPlacement) {
+            stage.updatePose(rect: rect, cornerRadius: 12, shadow: .init(), renderSize: 512,
+                             placement: placement, artworkAppearsPlaying: true,
+                             containerSize: stage.bounds.size, reduceMotion: false)
+        }
+        move(cover, .cover)
+        try await Task.sleep(for: .milliseconds(50))
+        for _ in 0..<3 {
+            move(compact, .compactLyrics)
+            try await Task.sleep(for: .milliseconds(100))
+            let before = try XCTUnwrap(stage.moverView.layer.presentation()).frame
+            move(cover, .cover)
+            let after = try XCTUnwrap(stage.moverView.layer.presentation()).frame
+            XCTAssertEqual(before.midX, after.midX, accuracy: 2)
+            XCTAssertEqual(before.midY, after.midY, accuracy: 2)
+            XCTAssertEqual(before.width, after.width, accuracy: 2)
+            try await Task.sleep(for: .milliseconds(650))
+            XCTAssertEqual(stage.moverView.frame.minX, cover.minX, accuracy: 0.5)
+            XCTAssertEqual(stage.moverView.frame.minY, cover.minY, accuracy: 0.5)
+            XCTAssertEqual(stage.moverView.frame.width, cover.width, accuracy: 0.5)
         }
     }
 

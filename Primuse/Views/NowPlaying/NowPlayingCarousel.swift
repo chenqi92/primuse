@@ -591,6 +591,19 @@ struct NowPlayingCarouselFaceContext: Hashable {
 
 // MARK: - 容器
 
+private struct NowPlayingCarouselDialVisibility<Content: View>: View {
+    let lyricsPresentation: NowPlayingLyricsPresentation?
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        let isHidden = lyricsPresentation?.isVisible ?? false
+        content()
+            .opacity(isHidden ? 0 : 1)
+            .allowsHitTesting(!isHidden)
+            .accessibilityHidden(isHidden)
+    }
+}
+
 /// 播放页的转轮:播放器居中,两侧按设置排几面,左右滑动整页翻过去(页与页并排,上一页整页移走,
 /// 不留边角;减弱动态效果时两页交叉淡入淡出)。
 ///
@@ -599,6 +612,7 @@ struct NowPlayingCarouselFaceContext: Hashable {
 /// 不认横滑,结构不变;停着的那一面先记下,能转了再转回去。
 struct NowPlayingCarouselContainer<Center: View>: View {
     let isActive: Bool
+    let lyricsPresentation: NowPlayingLyricsPresentation?
     let configuration: NowPlayingCarouselConfiguration
     let cardSettings: NowPlayingCarouselCardSettings
     let cardContext: NowPlayingCarouselCardContext
@@ -622,6 +636,7 @@ struct NowPlayingCarouselContainer<Center: View>: View {
 
     init(
         isActive: Bool,
+        lyricsPresentation: NowPlayingLyricsPresentation? = nil,
         configuration: NowPlayingCarouselConfiguration,
         cardSettings: NowPlayingCarouselCardSettings,
         cardContext: NowPlayingCarouselCardContext,
@@ -636,6 +651,7 @@ struct NowPlayingCarouselContainer<Center: View>: View {
         @ViewBuilder center: () -> Center
     ) {
         self.isActive = isActive
+        self.lyricsPresentation = lyricsPresentation
         self.configuration = configuration
         self.cardSettings = cardSettings
         self.cardContext = cardContext
@@ -728,22 +744,24 @@ struct NowPlayingCarouselContainer<Center: View>: View {
         }
         .overlay(alignment: .top) {
             if isActive, pages.count > 1 {
-                NowPlayingCarouselDialHost(
-                    state: state,
-                    pages: pages,
-                    playerIndex: playerIndex,
-                    settledIndex: settledIndex,
-                    departingIndex: departingIndex,
-                    darkPageIndices: darkPageIndices(pages),
-                    appearance: appearance,
-                    width: width,
-                    safeInsets: safeInsets,
-                    onSelect: { index in
-                        // 横滑从转盘的格子上起手时，松手那一下不算点了这一格。
-                        guard pages.indices.contains(index), !state.isFinishingDrag() else { return }
-                        state.settle(on: pages[index])
-                    }
-                )
+                NowPlayingCarouselDialVisibility(lyricsPresentation: lyricsPresentation) {
+                    NowPlayingCarouselDialHost(
+                        state: state,
+                        pages: pages,
+                        playerIndex: playerIndex,
+                        settledIndex: settledIndex,
+                        departingIndex: departingIndex,
+                        darkPageIndices: darkPageIndices(pages),
+                        appearance: appearance,
+                        width: width,
+                        safeInsets: safeInsets,
+                        onSelect: { index in
+                            // 横滑从转盘的格子上起手时，松手那一下不算点了这一格。
+                            guard pages.indices.contains(index), !state.isFinishingDrag() else { return }
+                            state.settle(on: pages[index])
+                        }
+                    )
+                }
             }
         }
         .contentShape(Rectangle())
@@ -834,7 +852,8 @@ struct NowPlayingCarouselContainer<Center: View>: View {
                 if state.gestureStart != value.startLocation {
                     state.gestureStart = value.startLocation
                     state.gestureAxis = nil
-                    state.gestureAllowed = (settledIndex != playerIndex || playerSwipeRegion(value.startLocation))
+                    state.gestureAllowed = !(lyricsPresentation?.isVisible ?? false)
+                        && (settledIndex != playerIndex || playerSwipeRegion(value.startLocation))
                         && !state.gestureRegions.contains(value.startLocation)
                 }
                 guard state.gestureAllowed, !state.isControlEditing else { return }
@@ -896,6 +915,10 @@ struct NowPlayingCarouselContainer<Center: View>: View {
         isActive && isSurfaceExposed && !hintShown && state.settledPage == .player
     }
 
+    private var isLyricsHiddenForHint: Bool {
+        !(lyricsPresentation?.isVisible ?? false)
+    }
+
     /// 轻轻往右边、再往左边各露一点,让人知道两边有东西。只做一次;减弱动态效果时不动,只记下做过了。
     /// 做完才记下:记下那一刻 `hintTrigger` 变了,这个任务随之取消,不能先记再做。
     private func playHintIfNeeded(
@@ -903,13 +926,13 @@ struct NowPlayingCarouselContainer<Center: View>: View {
         pages: [NowPlayingCarouselPage],
         settledIndex: Int
     ) async {
-        guard hintTrigger else { return }
+        guard hintTrigger, isLyricsHiddenForHint else { return }
         do {
             try await Task.sleep(for: .seconds(1.2))
         } catch {
             return
         }
-        guard hintTrigger, !state.isDragging else { return }
+        guard hintTrigger, isLyricsHiddenForHint, !state.isDragging else { return }
         guard !reduceMotion else {
             hintShown = true
             return

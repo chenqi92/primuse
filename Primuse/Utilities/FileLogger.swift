@@ -690,12 +690,17 @@ final class FrameHitchMonitor: NSObject {
 @MainActor
 final class DebugFrameGapProbe: NSObject {
     private var link: CADisplayLink?
+    private var startedAt = CACurrentMediaTime()
     private var lastTimestamp = CACurrentMediaTime()
     private var worstGap: CFTimeInterval = 0
     private var overBudget: CFTimeInterval = 0
+    private var firstFrame: CFTimeInterval?
+    private var startCPU: UInt64 = 0
 
     func start() {
-        lastTimestamp = CACurrentMediaTime()
+        startedAt = CACurrentMediaTime()
+        lastTimestamp = startedAt
+        startCPU = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
@@ -703,12 +708,22 @@ final class DebugFrameGapProbe: NSObject {
 
     /// 最长一帧与超出预算的总和，单位毫秒。
     func finish() -> (worst: Int, over: Int) {
+        let result = finishDetailed()
+        return (result.worst, result.over)
+    }
+
+    /// 另带上主线程在这段时间里实际占用的 CPU 毫秒数与开始到第一帧的毫秒数；
+    /// 模拟器帧间隔受宿主机调度影响，主线程 CPU 才能横向比较改动前后。
+    func finishDetailed() -> (worst: Int, over: Int, mainCPU: Double, first: Int) {
+        let cpu = Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) &- startCPU) / 1_000_000
         link?.invalidate()
         link = nil
-        return (Int((worstGap * 1000).rounded()), Int((overBudget * 1000).rounded()))
+        return (Int((worstGap * 1000).rounded()), Int((overBudget * 1000).rounded()),
+                (cpu * 10).rounded() / 10, Int(((firstFrame ?? 0) * 1000).rounded()))
     }
 
     @objc private func tick(_ link: CADisplayLink) {
+        if firstFrame == nil { firstFrame = CACurrentMediaTime() - startedAt }
         let gap = link.timestamp - lastTimestamp
         lastTimestamp = link.timestamp
         let budget = max(link.targetTimestamp - link.timestamp, 1.0 / 120)

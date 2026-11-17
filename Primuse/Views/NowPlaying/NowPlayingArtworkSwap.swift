@@ -58,8 +58,20 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
     @State private var displayed: NowPlayingArtworkSwapSubject?
 
     private final class Neighbours {
+        struct RecordKey: Equatable {
+            let songID: String?
+            let queueGeneration: Int
+            let shuffleEnabled: Bool
+            let repeatMode: RepeatMode
+        }
+
+        var recordedKey: RecordKey?
+        var nextSong: Song?
         var nextID: String?
         var previousID: String?
+        var prewarmedSongID: String?
+        var prewarmedRevision: Int?
+        var prewarmGeneration = 0
         var prewarmTask: Task<Void, Never>?
     }
 
@@ -201,10 +213,22 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
 
     /// 记下这一首之后、之前是哪一首。只在换歌时读一次队列,不在绘制里读,不建立观察。
     private func recordNeighbours() {
+        let key = Neighbours.RecordKey(
+            songID: subject.song?.id,
+            queueGeneration: player.queueGeneration,
+            shuffleEnabled: player.shuffleEnabled,
+            repeatMode: player.repeatMode
+        )
+        if neighbours.recordedKey == key {
+            prewarm(neighbours.nextSong)
+            return
+        }
         let entries = player.queueEntries
         let next = player.upcomingQueueTraversalTargets(maximumCount: 1, respectsRepeatOne: false)
             .first
             .flatMap { entries.indices.contains($0.queueIndex) ? entries[$0.queueIndex].song : nil }
+        neighbours.recordedKey = key
+        neighbours.nextSong = next
         neighbours.nextID = next?.id
         neighbours.previousID = player.previousQueueTraversalTarget()
             .flatMap { entries.indices.contains($0.queueIndex) ? entries[$0.queueIndex].song.id : nil }
@@ -214,15 +238,37 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
     /// 播放页露着时把下一首的大封面先解码进内存:按下一首时新封面从第一帧就在,不是滑到一半才冒出来。
     /// 上一首刚刚画过,本来就在内存里。只读本机已存的封面,稍等一会儿再做,不跟起播抢资源。
     private func prewarm(_ song: Song?) {
-        neighbours.prewarmTask?.cancel()
         guard allowsDirectionalSwap, !reduceMotion, let song,
-              song.sourceID != AppleMusicLibraryService.systemSourceID else { return }
+              song.sourceID != AppleMusicLibraryService.systemSourceID else {
+            neighbours.prewarmTask?.cancel()
+            neighbours.prewarmTask = nil
+            neighbours.prewarmGeneration &+= 1
+            neighbours.prewarmedSongID = nil
+            neighbours.prewarmedRevision = nil
+            return
+        }
         let revision = subject.coverRevision
+        if neighbours.prewarmedSongID == song.id, neighbours.prewarmedRevision == revision {
+            return
+        }
+        neighbours.prewarmTask?.cancel()
+        neighbours.prewarmGeneration &+= 1
+        let generation = neighbours.prewarmGeneration
+        neighbours.prewarmedSongID = song.id
+        neighbours.prewarmedRevision = revision
         let scale = displayScale
         neighbours.prewarmTask = Task {
             try? await Task.sleep(for: .milliseconds(800))
-            guard !Task.isCancelled else { return }
-            _ = await CachedArtworkView.prewarm(
+            guard !Task.isCancelled else {
+                await MainActor.run {
+                    if neighbours.prewarmGeneration == generation {
+                        neighbours.prewarmedSongID = nil
+                        neighbours.prewarmedRevision = nil
+                    }
+                }
+                return
+            }
+            let succeeded = await CachedArtworkView.prewarm(
                 songID: song.id,
                 coverRef: song.coverArtFileName,
                 sourceID: song.sourceID,
@@ -232,6 +278,12 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
                 size: NowPlayingView.artworkRenderSize,
                 displayScale: scale
             )
+            guard neighbours.prewarmGeneration == generation else { return }
+            neighbours.prewarmTask = nil
+            if !succeeded || Task.isCancelled {
+                neighbours.prewarmedSongID = nil
+                neighbours.prewarmedRevision = nil
+            }
         }
     }
 }
@@ -255,8 +307,9 @@ private struct NowPlayingArtworkSwapMotion: ViewModifier, Animatable {
 
     func body(content: Content) -> some View {
         let pose = pose
+        // 停在原位时 scale 恒为 1，锚点固定为 .center，避免封面 ⇄ 歌词转场因 artworkRect 变化触发逐帧缩放锚点插值。
         content
-            .scaleEffect(pose.scale, anchor: anchor)
+            .scaleEffect(pose.scale, anchor: pose.scale == 1 ? .center : anchor)
             .offset(x: pose.offset)
             .opacity(pose.opacity)
     }

@@ -3638,14 +3638,36 @@ private struct NowPlayingTransitionEvidenceHost: View {
                 }
                 cover = await MetadataAssetStore.shared.storeCover(image.pngData()!, for: songID)
             }
-            let text = "[00:00.00]The cover follows a single path\n[00:04.00]Every edge remains in place\n[00:08.00]A quiet pause between the lines\n[00:12.00]Return again to the artwork"
-            let lines = LyricsParser.parse(text)
+            // `PRIMUSE_EVIDENCE_LYRIC_LINES=<n>` 换成 n 句（每句 4 秒）的长歌词，`PRIMUSE_EVIDENCE_WORD_LYRICS=1`
+            // 再给每句拆出逐字时间；`lyricsToggle` 量封面 ⇄ 歌词切换开销时用接近真歌的篇幅。
+            let environment = ProcessInfo.processInfo.environment
+            let lineCount = Int(environment["PRIMUSE_EVIDENCE_LYRIC_LINES"] ?? "").map { max(4, $0) }
+            let wordTimed = environment["PRIMUSE_EVIDENCE_WORD_LYRICS"] == "1"
+            var text = "[00:00.00]The cover follows a single path\n[00:04.00]Every edge remains in place\n[00:08.00]A quiet pause between the lines\n[00:12.00]Return again to the artwork"
+            var lines = LyricsParser.parse(text)
+            var duration: TimeInterval = 180
+            if let lineCount {
+                lines = (0..<lineCount).map { index in
+                    let start = Double(index * 4)
+                    let words = "A paper lantern follows the quiet river \(index)"
+                    return LyricLine(
+                        id: "evidence-\(index)", timestamp: start, text: words, isSynchronized: true,
+                        syllables: wordTimed ? words.split(separator: " ").enumerated().map { offset, word in
+                            LyricSyllable(text: String(word) + " ", start: start + Double(offset) * 0.45,
+                                          end: start + Double(offset + 1) * 0.45)
+                        } : nil
+                    )
+                }
+                text = lines.map { String(format: "[%02d:%02d.00]%@", Int($0.timestamp) / 60, Int($0.timestamp) % 60, $0.text) }
+                    .joined(separator: "\n")
+                duration = Double(lineCount * 4 + 30)
+            }
             _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: songID, force: true)
-            let song = Song(id: songID, title: "Transition Evidence", albumTitle: "Geometry", artistName: "Fixture", duration: 180, fileFormat: .wav, filePath: root.appendingPathComponent("synthetic.wav").path, sourceID: "now-playing-transition-fixture", coverArtFileName: cover, lyricsText: text)
+            let song = Song(id: songID, title: "Transition Evidence", albumTitle: "Geometry", artistName: "Fixture", duration: duration, fileFormat: .wav, filePath: root.appendingPathComponent("synthetic.wav").path, sourceID: "now-playing-transition-fixture", coverArtFileName: cover, lyricsText: wordTimed ? nil : text)
             library.addSongs([song])
             player.currentSong = library.songs.first ?? song
-            player.duration = 180
-            player.currentTime = 8
+            player.duration = duration
+            player.currentTime = lineCount.map { Double($0 / 2 * 4) } ?? 8
             player.isPlaying = ProcessInfo.processInfo.environment["PRIMUSE_EVIDENCE_PLAYING"] == "1"
             plog("🧪 transition evidence albums=\(library.visibleAlbums.count) song=\(player.currentSong?.id ?? "none") playing=\(player.isPlaying)")
             fixtureLibrary = library
