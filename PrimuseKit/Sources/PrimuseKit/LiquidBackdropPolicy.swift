@@ -1,25 +1,27 @@
 import Foundation
 
-/// 从现有对数频谱的低频段提取起伏，快亮慢暗，持续低音不会不断重触发。
+/// Tracks bass attacks in linear FFT power, before display compression and smoothing.
 public struct PlayerBackdropBassPulse: Sendable {
-    public private(set) var value = 0.0
-    private var baseline = 0.0
+    private var baselineDB = -60.0
+    private var riseDB = 0.0
 
     public init() {}
 
-    public mutating func update(levels: [Double], sensitivity: Double, elapsed: TimeInterval) {
-        let dt = elapsed.isFinite ? min(max(elapsed, 0), 0.2) : 0
-        let sensitivity = sensitivity.isFinite ? min(max(sensitivity, 0), 1) : 0.5
-        // 32 档频谱从约 94 Hz 开始；前五档覆盖低音鼓的主要可用频段。
-        let low = levels.prefix(5).map { $0.isFinite ? min(max($0, 0), 1) : 0 }
-        let bass = low.isEmpty ? 0 : low.reduce(0, +) / Double(low.count)
-        let threshold = 0.28 - sensitivity * 0.20
-        let transient = max(0, bass - baseline - threshold)
-        let target = min(transient * (2.0 + sensitivity * 4), 1)
-        let duration = target > value ? 0.035 : 0.32
-        value += (target - value) * (1 - exp(-dt / duration))
-        baseline += (bass - baseline) * (1 - exp(-dt / 0.65))
-        if value < 0.001 { value = 0 }
+    public mutating func update(power: Double, elapsed: TimeInterval) {
+        guard elapsed.isFinite, elapsed > 0 else { return }
+        let dt = min(elapsed, 1)
+        let db = 10 * log10(max(power.isFinite ? power : 0, 1e-6))
+        let aboveNoise = min(max((db + 54) / 12, 0), 1)
+        let attack = min(max(db - baselineDB, 0), 14) * aboveNoise
+        riseDB = max(attack, riseDB * exp(-dt / 0.13))
+        // Follow the valleys between kicks and settle back to rest on a held note.
+        let duration = db > baselineDB ? 0.16 : 0.09
+        baselineDB += (db - baselineDB) * (1 - exp(-dt / duration))
+    }
+
+    public func intensity(sensitivity: Double) -> Double {
+        let s = sensitivity.isFinite ? min(max(sensitivity, 0), 1) : 0.5
+        return min(max((riseDB - (3.5 - 2.5 * s)) / (10 - 6 * s), 0), 1)
     }
 }
 

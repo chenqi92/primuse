@@ -4,27 +4,34 @@ import Testing
 
 @Suite struct LiquidBackdropPolicyTests {
 
-    @Test("Bass light responds to low-frequency attacks, sensitivity, and decay, not treble or silence")
+    @Test("Repeated bass attacks rise above a sustained bassline at different frame rates and gains")
     func bassPulseEnvelope() {
-        var quiet = PlayerBackdropBassPulse()
-        var treble = PlayerBackdropBassPulse()
-        var sensitive = PlayerBackdropBassPulse()
-        var restrained = PlayerBackdropBassPulse()
-        for _ in 0..<3 {
-            quiet.update(levels: Array(repeating: 0, count: 32), sensitivity: 1, elapsed: 1.0 / 30)
-            treble.update(levels: (0..<32).map { $0 < 5 ? 0 : 1 }, sensitivity: 1, elapsed: 1.0 / 30)
-            sensitive.update(levels: Array(repeating: 0.4, count: 32), sensitivity: 1, elapsed: 1.0 / 30)
-            restrained.update(levels: Array(repeating: 0.4, count: 32), sensitivity: 0, elapsed: 1.0 / 30)
+        for fps in [15, 30, 60] {
+            for gain in [0.01, 0.5] {
+                var pulse = PlayerBackdropBassPulse()
+                let dt = 1.0 / Double(fps)
+                for _ in 0..<fps { pulse.update(power: gain, elapsed: dt) }
+                for _ in 0..<8 {
+                    pulse.update(power: 4 * gain, elapsed: dt)
+                    #expect(pulse.intensity(sensitivity: 0.5) > 0.45)
+                    #expect(pulse.intensity(sensitivity: 1) > pulse.intensity(sensitivity: 0))
+                    for _ in 1..<fps / 2 { pulse.update(power: gain, elapsed: dt) }
+                    #expect(pulse.intensity(sensitivity: 0.5) < 0.05)
+                }
+            }
         }
-        #expect(quiet.value == 0 && treble.value == 0)
-        #expect(sensitive.value > 0.7)
-        #expect(sensitive.value > restrained.value + 0.3)
-        for _ in 0..<120 {
-            sensitive.update(levels: Array(repeating: 0.4, count: 32), sensitivity: 1, elapsed: 1.0 / 30)
+    }
+
+    @Test("Silence, low-level noise and a sustained bass note settle at rest")
+    func bassPulseNoiseFloor() {
+        var pulse = PlayerBackdropBassPulse()
+        for power in [0.0, 1e-7, 2e-6, .nan, .infinity] {
+            pulse.update(power: power, elapsed: 1.0 / 30)
+            #expect(pulse.intensity(sensitivity: 1) == 0)
         }
-        #expect(sensitive.value < 0.01)
-        sensitive.update(levels: [.nan, .infinity], sensitivity: .nan, elapsed: .nan)
-        #expect(sensitive.value.isFinite)
+        for _ in 0..<90 { pulse.update(power: 0.16, elapsed: 1.0 / 30) }
+        pulse.update(power: .nan, elapsed: .nan)
+        #expect(pulse.intensity(sensitivity: .nan) == 0)
     }
 
     @Test("Mesh preserves every representative color, including sparse palettes")

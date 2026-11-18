@@ -35,12 +35,7 @@ struct PlayerVisualizerBackdrop: View {
     @State private var runtimeRevision: UInt = 0
     @State private var activeElapsed: TimeInterval = 0
     @State private var startedAt: Date?
-    @State private var bassPulse = PlayerBackdropBassPulse()
-    private struct BassPulseTaskID: Hashable {
-        let isListening: Bool
-        let songID: String?
-        let sensitivity: Double?
-    }
+    @State private var pausedPulse = PlayerBackdropBassPulse()
 
     #if os(macOS)
     private static let pacing = ImmersiveFrameRateMode.fps60
@@ -51,15 +46,18 @@ struct PlayerVisualizerBackdrop: View {
     var body: some View {
         let _ = runtimeRevision
         let moves = shouldListen
-        // 频谱柱子每发布一次频谱就重画一次,用不着时间表;波形与星尘要连续走时间。
-        TimelineView(.animation(minimumInterval: frameInterval, paused: !moves || style == .spectrum)) { context in
-            let levels = isHoldingLease ? visualizer.bandLevels.map(Double.init) : []
-            let time = elapsed(at: context.date)
-            if bassPulseSensitivity != nil {
-                PlayerBassPulseFrame(pulse: bassPulse.value, isLight: isLight, strength: strength)
+        Group {
+            if let sensitivity = bassPulseSensitivity {
+                let pulse = isHoldingLease ? visualizer.bassPulse : pausedPulse
+                PlayerBassPulseFrame(pulse: pulse.intensity(sensitivity: sensitivity),
+                                     isLight: isLight, strength: strength)
             } else {
-                Canvas(rendersAsynchronously: true) { canvas, size in
-                    draw(in: &canvas, size: size, levels: levels, time: time)
+                TimelineView(.animation(minimumInterval: frameInterval, paused: !moves || style == .spectrum)) { context in
+                    let levels = isHoldingLease ? visualizer.bandLevels.map(Double.init) : []
+                    let time = elapsed(at: context.date)
+                    Canvas(rendersAsynchronously: true) { canvas, size in
+                        draw(in: &canvas, size: size, levels: levels, time: time)
+                    }
                 }
             }
         }
@@ -76,23 +74,14 @@ struct PlayerVisualizerBackdrop: View {
         .onChange(of: player.currentSong?.id) { _, _ in
             // 换歌可能重建音频图(采样率变了、切到直通),tap 要挂到新的节点上。
             synchronizeLease()
-            bassPulse = PlayerBackdropBassPulse()
+            pausedPulse = PlayerBackdropBassPulse()
         }
-        .task(id: BassPulseTaskID(isListening: moves && isHoldingLease,
-                                  songID: player.currentSong?.id, sensitivity: bassPulseSensitivity)) {
-            guard moves, isHoldingLease, let sensitivity = bassPulseSensitivity else { return }
-            var previous = ProcessInfo.processInfo.systemUptime
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(frameInterval)) }
-                catch { return }
-                guard !Task.isCancelled else { return }
-                let now = ProcessInfo.processInfo.systemUptime
-                bassPulse.update(levels: visualizer.bandLevels.map(Double.init), sensitivity: sensitivity,
-                                 elapsed: now - previous)
-                previous = now
-            }
+        .onChange(of: frameInterval) { _, _ in
+            if isHoldingLease, bassPulseSensitivity != nil { synchronizeLease() }
         }
         .onDisappear {
+            retryTask?.cancel()
+            retryTask = nil
             updateClock(running: false, at: .now)
             releaseLease()
         }
@@ -151,10 +140,12 @@ struct PlayerVisualizerBackdrop: View {
             scheduleRetry(allowRetry: allowRetry)
             return
         }
-        visualizer.setPacing(Self.pacing.spectrumPacing(
+        let pacing = Self.pacing.spectrumPacing(
             displayMaximumFramesPerSecond: ImmersiveDisplayRefresh.maximumFramesPerSecond
-        ))
-        if visualizer.acquire(owner: ownerID, engine: engine, on: tapNode) {
+        )
+        visualizer.setPacing(bassPulseSensitivity == nil ? pacing : pacing.limited(toFramesPerSecond: 1 / frameInterval))
+        if visualizer.acquire(owner: ownerID, engine: engine, on: tapNode,
+                              feed: bassPulseSensitivity == nil ? .spectrum : .bassPulse) {
             isHoldingLease = true
         } else {
             releaseLease()
@@ -183,6 +174,7 @@ struct PlayerVisualizerBackdrop: View {
 
     private func releaseLease() {
         guard isHoldingLease else { return }
+        if bassPulseSensitivity != nil { pausedPulse = visualizer.bassPulse }
         isHoldingLease = false
         visualizer.release(owner: ownerID)
     }

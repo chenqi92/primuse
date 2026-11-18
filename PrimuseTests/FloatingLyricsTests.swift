@@ -305,6 +305,26 @@ final class LiquidVividMeshTests: XCTestCase {
         .init(red: 0.59, green: 0.43, blue: 0.75)
     ])
 
+    func testBassDetectorSeparatesSubBassFromTrebleAtDifferentOutputRates() {
+        for rate in [44_100.0, 96_000.0, 192_000.0] {
+            let analyzer = FFTAnalyzer.forBass(sampleRate: rate)
+            let ring = SpectrumSampleRing()
+            func power(of frequency: Double) -> Double {
+                let samples = (0..<analyzer.size).map { index in
+                    Float(0.3 * sin(2 * .pi * frequency * Double(index) / rate))
+                }
+                samples.withUnsafeBufferPointer { buffer in
+                    _ = ring.write(buffer.baseAddress!, frameCount: buffer.count)
+                }
+                analyzer.readWindow(from: ring, endingAt: ring.state().written)
+                return analyzer.bassPower(sampleRate: rate)
+            }
+            XCTAssertGreaterThan(power(of: 45), 0.01)
+            XCTAssertGreaterThan(power(of: 100), 0.01)
+            XCTAssertLessThan(power(of: 2_000), 1e-6)
+        }
+    }
+
     func testBassPulsePreservesDarkAndLightTextContrast() throws {
         let base = Color(red: 0.25, green: 0.4, blue: 0.55)
         let original = try pixels(base)

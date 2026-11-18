@@ -26,13 +26,16 @@ import PrimuseKit
 final class AudioVisualizerService {
     // nonisolated 让 detached Task 和 SwiftUI 视图都能直接读, 不用 hop main actor。
     nonisolated static let bandCount = 32
-    nonisolated static let fftSize = 1024
+    nonisolated static let spectrumFFTExponent = 10
     /// 时间平滑系数是按「每 100 ms 分析一次」调出来的, 分析更勤时按真实间隔折算。
     nonisolated static let smoothingReferenceInterval: TimeInterval = 0.1
 
     /// 0...1 归一化的频段强度。bandLevels.count == bandCount 永远成立。
     /// UI 用 .animation(.linear(duration: 0.07), value: bandLevels) 即可平滑过渡。
     private(set) var bandLevels: [Float] = Array(repeating: 0, count: bandCount)
+
+    enum Feed: Hashable { case spectrum, bassPulse }
+    private(set) var bassPulse = PlayerBackdropBassPulse()
 
     private weak var engine: AVAudioEngine?
     private var tappedNode: AVAudioNode?
@@ -41,7 +44,7 @@ final class AudioVisualizerService {
     private var pacing = ImmersiveFrameRateMode.defaultValue
         .spectrumPacing(displayMaximumFramesPerSecond: 60)
     private var pollTask: Task<Void, Never>?
-    private var ownerIDs: Set<UUID> = []
+    private var owners: [UUID: Feed] = [:]
     private let compatibilityOwnerID = UUID()
     private var pollGeneration: UInt64 = 0
 
@@ -62,14 +65,18 @@ final class AudioVisualizerService {
     }
 
     @discardableResult
-    func acquire(owner: UUID, engine: AVAudioEngine, on node: AVAudioNode) -> Bool {
+    func acquire(owner: UUID, engine: AVAudioEngine, on node: AVAudioNode, feed: Feed = .spectrum) -> Bool {
         guard engine.isRunning else { return false }
 
         if let currentEngine = self.engine,
            currentEngine === engine,
            tappedNode === node,
            pollTask != nil {
-            ownerIDs.insert(owner)
+            if owners[owner] != feed {
+                let previous = Set(owners.values)
+                owners[owner] = feed
+                if Set(owners.values) != previous { startPolling() }
+            }
             return true
         }
 
@@ -81,19 +88,16 @@ final class AudioVisualizerService {
             return false
         }
 
-        ownerIDs.insert(owner)
+        owners[owner] = feed
         stopPipeline()
         self.engine = engine
-        let activeRing = ring ?? {
-            let created = SpectrumSampleRing()
-            self.ring = created
-            return created
-        }()
+        let activeRing = SpectrumSampleRing()
+        ring = activeRing
 
         // tap 闭包只 memcpy + trylock, 完全不 alloc 不 hop actor。
         AudioVisualizerTap.install(
             on: node,
-            bufferSize: AVAudioFrameCount(Self.fftSize),
+            bufferSize: AVAudioFrameCount(1 << Self.spectrumFFTExponent),
             format: format,
             ring: activeRing
         )
@@ -104,9 +108,12 @@ final class AudioVisualizerService {
     }
 
     func release(owner: UUID) {
-        guard ownerIDs.remove(owner) != nil,
-              ownerIDs.isEmpty else { return }
-        stopPipeline()
+        guard let removed = owners.removeValue(forKey: owner) else { return }
+        if owners.isEmpty {
+            stopPipeline()
+        } else if !owners.values.contains(removed) {
+            startPolling()
+        }
     }
 
     /// 用 detached Task 周期性取窗做 FFT, 跟音频线程完全解耦；落到 main actor
@@ -119,12 +126,14 @@ final class AudioVisualizerService {
         let generation = pollGeneration
         let sampleRate = self.sampleRate
         let pacing = self.pacing
-        let analyzer = FFTAnalyzer(
-            log2n: Int(log2(Double(Self.fftSize))),
-            bandCount: Self.bandCount
-        )
-        pollTask = Task.detached(priority: .userInitiated) { [weak self, ring, analyzer] in
-            var samples = [Float](repeating: 0, count: Self.fftSize)
+        let spectrum = owners.values.contains(.spectrum)
+            ? FFTAnalyzer(log2n: Self.spectrumFFTExponent, bandCount: Self.bandCount) : nil
+        let bass = owners.values.contains(.bassPulse) ? FFTAnalyzer.forBass(sampleRate: sampleRate) : nil
+        if bass == nil { bassPulse = PlayerBackdropBassPulse() }
+        let initialPulse = bassPulse
+        pollTask = Task.detached(priority: .userInitiated) { [weak self, ring] in
+            var pulse = initialPulse
+            var previousBassEnd: Int64?
             var cursor = SpectrumPlayoutCursor()
             var analyzedWritten: Int64 = 0
             let interval = Duration.seconds(pacing.pollInterval)
@@ -150,19 +159,21 @@ final class AudioVisualizerService {
                         elapsed = Double(step.advancedFrames) / sampleRate
                     }
                 }
-                samples.withUnsafeMutableBufferPointer { buffer in
-                    guard let base = buffer.baseAddress else { return }
-                    ring.copyWindow(endingAt: windowEnd, count: Self.fftSize, into: base)
+                let levels = spectrum.map {
+                    $0.readWindow(from: ring, endingAt: windowEnd)
+                    return $0.bandLevels(bandCount: Self.bandCount, sampleRate: sampleRate, elapsed: elapsed)
                 }
-                let levels = analyzer.bandLevels(
-                    samples: samples,
-                    bandCount: Self.bandCount,
-                    sampleRate: sampleRate,
-                    elapsed: elapsed
-                )
+                if let bass {
+                    bass.readWindow(from: ring, endingAt: windowEnd)
+                    let frames = previousBassEnd.map { windowEnd - $0 } ?? Int64(bass.size)
+                    pulse.update(power: bass.bassPower(sampleRate: sampleRate), elapsed: Double(frames) / sampleRate)
+                    previousBassEnd = windowEnd
+                }
+                let currentPulse = bass == nil ? nil : pulse
                 await MainActor.run { [weak self] in
                     guard let self, self.pollGeneration == generation else { return }
-                    self.bandLevels = levels
+                    if let levels { self.bandLevels = levels }
+                    if let currentPulse { self.bassPulse = currentPulse }
                 }
             }
         }
@@ -178,6 +189,7 @@ final class AudioVisualizerService {
         tappedNode = nil
         engine = nil
         ring = nil
+        bassPulse = PlayerBackdropBassPulse()
         bandLevels = Array(repeating: 0, count: Self.bandCount)
     }
 }
@@ -196,16 +208,16 @@ private enum AudioVisualizerTap {
         node.installTap(onBus: 0, bufferSize: bufferSize, format: format) { audioBuffer, _ in
             // 第 0 声道整批写进采样环；锁忙就丢这一批, 不在音频线程上等。
             guard let channels = audioBuffer.floatChannelData else { return }
-            ring.write(channels[0], frameCount: Int(audioBuffer.frameLength))
+            ring.write(channels[0], frameCount: Int(audioBuffer.frameLength), stride: audioBuffer.stride)
         }
     }
 }
 
 // MARK: - FFT analyzer (跑在 background Task, 不在音频线程)
 
-private final class FFTAnalyzer: @unchecked Sendable {
-    private let log2n: vDSP_Length
-    private let n: Int
+final class FFTAnalyzer: @unchecked Sendable {
+    let size: Int
+    private var samples: [Float]
     private var window: [Float]
     private let fft: vDSP.FFT<DSPSplitComplex>?
     private var windowed: [Float]
@@ -218,8 +230,8 @@ private final class FFTAnalyzer: @unchecked Sendable {
     private var temporallySmoothed: [Float]
 
     init(log2n: Int, bandCount: Int) {
-        self.log2n = vDSP_Length(log2n)
-        self.n = 1 << log2n
+        self.size = 1 << log2n
+        self.samples = Array(repeating: 0, count: 1 << log2n)
         var w = [Float](repeating: 0, count: 1 << log2n)
         vDSP_hann_window(&w, vDSP_Length(1 << log2n), Int32(vDSP_HANN_NORM))
         self.window = w
@@ -234,19 +246,17 @@ private final class FFTAnalyzer: @unchecked Sendable {
         self.temporallySmoothed = Array(repeating: 0, count: bandCount)
     }
 
-    func bandLevels(
-        samples: [Float],
-        bandCount: Int,
-        sampleRate: Double = 0,
-        elapsed: TimeInterval? = nil
-    ) -> [Float] {
-        guard samples.count >= n, fft != nil else {
-            return Array(repeating: 0, count: bandCount)
-        }
-        if bands.count != bandCount {
-            bands = Array(repeating: 0, count: bandCount)
-            spectrallySmoothed = Array(repeating: 0, count: bandCount)
-            temporallySmoothed = Array(repeating: 0, count: bandCount)
+    static func forBass(sampleRate: Double) -> FFTAnalyzer {
+        // About 45 ms at every output rate resolves sub-bass as well as the kick.
+        let exponent = Int(log2(min(max(sampleRate, 8_000), 768_000) * 0.045).rounded())
+        return FFTAnalyzer(log2n: exponent, bandCount: 0)
+    }
+
+    func readWindow(from ring: SpectrumSampleRing, endingAt end: Int64) {
+        guard fft != nil else { return }
+        let n = size
+        samples.withUnsafeMutableBufferPointer {
+            ring.copyWindow(endingAt: end, count: n, into: $0.baseAddress!)
         }
         vDSP_vmul(samples, 1, window, 1, &windowed, 1, vDSP_Length(n))
 
@@ -274,6 +284,32 @@ private final class FFTAnalyzer: @unchecked Sendable {
                 vDSP_zvmags(&split, 1, &magnitudes, 1, vDSP_Length(n / 2))
             }
         }
+    }
+
+    func bassPower(sampleRate: Double) -> Double {
+        let binWidth = sampleRate / Double(size)
+        // Index zero packs DC and Nyquist in vDSP's real FFT.
+        let lower = max(1, Int((30 / binWidth).rounded()))
+        let upper = min(magnitudes.count - 1, Int((160 / binWidth).rounded()))
+        guard lower <= upper else { return 0 }
+        let sum = magnitudes[lower...upper].reduce(0, +)
+        return Double(sum) * 4 / Double(size * size)
+    }
+
+    func bandLevels(
+        bandCount: Int,
+        sampleRate: Double = 0,
+        elapsed: TimeInterval? = nil
+    ) -> [Float] {
+        guard fft != nil else {
+            return Array(repeating: 0, count: bandCount)
+        }
+        if bands.count != bandCount {
+            bands = Array(repeating: 0, count: bandCount)
+            spectrallySmoothed = Array(repeating: 0, count: bandCount)
+            temporallySmoothed = Array(repeating: 0, count: bandCount)
+        }
+        let n = size
         var count = Int32(n / 2)
         vvsqrtf(&roots, magnitudes, &count)
         // vDSP 的正向 FFT 不会替我们按 N 归一化。少这一步时大部分音乐内容
