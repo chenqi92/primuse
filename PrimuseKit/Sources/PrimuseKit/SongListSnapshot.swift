@@ -231,12 +231,15 @@ public enum PlaylistSongSortOrderPreference {
 public struct SongListSectionIndexEntry: Identifiable, Equatable, Hashable, Sendable {
     public let label: String
     public let rowOffset: Int
+    /// 这个字母下有歌。没有歌的字母也占一格（跳到相邻一段），字母条上画暗。
+    public let isAvailable: Bool
 
     public var id: String { label }
 
-    public init(label: String, rowOffset: Int) {
+    public init(label: String, rowOffset: Int, isAvailable: Bool = true) {
         self.label = label
         self.rowOffset = rowOffset
+        self.isAvailable = isAvailable
     }
 }
 
@@ -924,7 +927,9 @@ public enum SongListSnapshotBuilder {
                 continue
             }
             if let rowOffset = sectionOffsets[targetLabel] {
-                entries.append(SongListSectionIndexEntry(label: label, rowOffset: rowOffset))
+                entries.append(SongListSectionIndexEntry(
+                    label: label, rowOffset: rowOffset, isAvailable: targetLabel == label
+                ))
             }
         }
 

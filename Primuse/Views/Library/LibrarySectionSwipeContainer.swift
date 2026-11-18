@@ -57,7 +57,7 @@ enum LibrarySectionSwitchTrace {
 struct LibrarySectionSwipeContainer<Content: View>: View {
     let sectionID: String
     let enabled: Bool
-    /// 这一页右缘有字母索引（歌曲页）：贴着后沿起手的留给索引。
+    /// 这一页右缘有字母索引（歌曲、专辑、艺人页）：贴着后沿起手的留给索引。
     var excludesTrailingEdge = false
     let motion: LibrarySectionPagingMotion
     /// 往后（`true`）或往前翻到的分类；那一侧没有分类时返回 nil。
@@ -264,7 +264,7 @@ private struct LibrarySectionSwipeGesture: UIGestureRecognizerRepresentable {
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             touchDownTime = touch.timestamp
-            // 贴着屏幕左右边缘起手的不接：左边是系统返回，右边是歌曲页的字母索引。
+            // 贴着屏幕左右边缘起手的不接：左边是系统返回，右边是字母索引。
             if let window = touch.window,
                LibrarySectionPagingPolicy.startsInEdgeExclusion(
                    startX: Double(touch.location(in: window).x),

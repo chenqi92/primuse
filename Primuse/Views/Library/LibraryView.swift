@@ -974,7 +974,8 @@ struct LibraryView: View {
         return LibrarySectionSwipeContainer(
             sectionID: section.rawValue,
             enabled: !sections.isEmpty,
-            excludesTrailingEdge: section == .songs,
+            // 歌曲、专辑、艺人页右缘有字母条。
+            excludesTrailingEdge: section == .songs || section == .albums || section == .artists,
             motion: sectionPagingMotion,
             neighbor: { forward in
                 LibrarySectionPagingPolicy.neighbor(in: sections, of: section, forward: forward)?.rawValue

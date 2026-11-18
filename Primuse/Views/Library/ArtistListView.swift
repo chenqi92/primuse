@@ -98,7 +98,60 @@ struct ArtistListView: View {
 
     private var artists: [Artist] {
         _ = hidesSingleOnlyAlbumArtists
+        #if os(iOS)
+        if browsesLibrary { return currentOrder?.items ?? [] }
+        #endif
         return suppliedArtists ?? library.browsableArtists(browseMode)
+    }
+
+    #if os(iOS)
+    /// 资料库艺人页按读音排好的顺序（后台排，和专辑页、电视艺人墙同一套：「Beyond」和「北京」挨着）。
+    /// 换了列法或曲库变了，新的排好之前先显示上一份。
+    @State private var orderedArtists: ArtistBrowseOrdered?
+
+    private var orderRequest: ArtistBrowseOrderRequest? {
+        guard browsesLibrary else { return nil }
+        return ArtistBrowseOrderRequest(mode: browseMode, artists: library.browsableArtists(browseMode))
+    }
+
+    private var currentOrder: ArtistBrowseOrdered? {
+        guard let orderRequest else { return nil }
+        return ArtistBrowseOrderCache.shared.entry(for: orderRequest) ?? orderedArtists
+    }
+
+    /// 右缘字母条。搜索和只看喜欢（按喜欢的先后排）时收起。
+    private var railModel: LibraryIndexRailModel? {
+        guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !showsLikedOnly else { return nil }
+        return currentOrder?.railModel
+    }
+
+    private func prepareOrder(_ request: ArtistBrowseOrderRequest) async {
+        if let cached = ArtistBrowseOrderCache.shared.entry(for: request) {
+            orderedArtists = cached
+            return
+        }
+        let source = library.browsableArtists(request.mode)
+        guard request.matches(source) else { return }
+        let unknownArtistName = String(localized: "unknown_artist")
+        let worker = Task.detached(priority: .userInitiated) { () -> ArtistBrowseOrdered? in
+            ArtistBrowseOrdered.prepare(request: request, source: source, unknownArtistName: unknownArtistName)
+        }
+        let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+        guard let result, !Task.isCancelled, orderRequest == request else { return }
+        ArtistBrowseOrderCache.shared.store(result)
+        let previous = orderedArtists
+        orderedArtists = result
+        Task.detached(priority: .utility) { withExtendedLifetime(previous) {} }
+    }
+    #endif
+
+    /// 资料库艺人页第一次排序还没排好。
+    private var isPreparingOrder: Bool {
+        #if os(iOS)
+        return browsesLibrary && currentOrder == nil
+        #else
+        return false
+        #endif
     }
 
     /// 一个艺人都没有才给整页的空状态。资料库切到「专辑艺术家」后列表可能是空的
@@ -109,7 +162,7 @@ struct ArtistListView: View {
 
     /// 列表空了而且不是搜索 / 只看喜欢造成的。
     private var showsEmptyBrowseList: Bool {
-        browsesLibrary && artists.isEmpty
+        browsesLibrary && !isPreparingOrder && artists.isEmpty
     }
 
     /// 只看喜欢的艺人。有喜欢的艺人时才给这个开关。
@@ -176,6 +229,10 @@ struct ArtistListView: View {
                 .libraryInsightBatchFill(kind: .artist, request: $requestsIntroFill) {
                     filteredArtists.map(LibraryInsightBatchItem.artist)
                 }
+                .task(id: orderRequest) {
+                    guard let orderRequest else { return }
+                    await prepareOrder(orderRequest)
+                }
             #endif
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -238,6 +295,7 @@ struct ArtistListView: View {
         )
     }
 
+    #if os(iOS)
     @ViewBuilder
     private var iosBody: some View {
         if hasNoArtists {
@@ -262,7 +320,9 @@ struct ArtistListView: View {
                 }
             }
             .overlay {
-                if showsEmptyBrowseList {
+                if isPreparingOrder {
+                    ProgressView()
+                } else if showsEmptyBrowseList {
                     emptyBrowseList
                 } else if filteredArtists.isEmpty {
                     ContentUnavailableView.search(text: searchText)
@@ -309,35 +369,54 @@ struct ArtistListView: View {
         }
     }
 
-    /// 圆形头像网格。`.adaptive` 让 iPhone 落到两列、iPad 自然摊开更多列,
-    /// 和专辑网格用的是同一套断点 —— 手机横屏下的下限也一起收到 100。
-    private var gridColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: heightClass.value(150, compact: 100)), spacing: 16)]
+    private static func artistCountText(_ count: Int) -> String {
+        "\(count.formatted()) \(String(localized: "artists_count"))"
     }
 
+    /// 圆形头像网格：和专辑网格同一套断点（iPhone 两列、iPad 摊开更多列，手机横屏下限收到 100），
+    /// 按行摆成懒加载栈。资料库里的艺人页右缘有字母条：拖动跳到那个字母，卡片里是这一段的前几位头像。
     private var artistGrid: some View {
-        ScrollView {
-            LazyVGrid(columns: gridColumns, spacing: heightClass.value(24, compact: 16)) {
-                ForEach(filteredArtists) { @Sendable artist in
+        let artists = filteredArtists
+        let minimumWidth = heightClass.value(150, compact: 100)
+        return LibraryIndexedScrollView(
+            model: railModel,
+            columns: { LibraryIndexedGridColumns.count(rowWidth: $0, minimumWidth: minimumWidth, spacing: 16) },
+            extendsUnderVerticalBar: true,
+            countText: Self.artistCountText,
+            preview: { entry in
+                LibraryIndexArtistStack(artists: entry.previewItems(in: artists))
+            }
+        ) { layout in
+            LazyVStack(alignment: .leading, spacing: heightClass.value(24, compact: 16)) {
+                ForEach(0..<layout.rowCount(itemCount: artists.count), id: \.self) { @Sendable row in
                     LazyItemCell {
-                        NavigationLink(value: artist) {
-                            artistGridCell(artist)
+                        HStack(alignment: .top, spacing: layout.columnSpacing) {
+                            ForEach(artists[layout.items(inRow: row, itemCount: artists.count)]) { artist in
+                                artistGridItem(artist)
+                                    .frame(width: layout.cellWidth)
+                            }
                         }
-                        .buttonStyle(.pmPressable)
-                        .contextMenu { artistMenu(artist) }
-                        .accessibilityAction(named: Text(favorites.isLiked(artist) ? "library_favorite_unlike" : "library_favorite_like")) {
-                            favorites.toggle(artistNamed: artist.name)
-                        }
-                        .mediaZoomSource(.artist, id: artist.id)
                     }
                 }
             }
-            .padding(.horizontal, 16)
+            .scrollTargetLayout()
+            .padding(.leading, layout.leadingPadding)
+            .padding(.trailing, layout.trailingPadding)
             .padding(.vertical, 18)
-            // iPhone Duo 竖栏：最右一列头像伸进竖栏，系统的玻璃胶囊浮在上面。
-            .pmCoversExtendUnderVerticalBar()
         }
         .pmExtendsUnderVerticalBar()
+    }
+
+    private func artistGridItem(_ artist: Artist) -> some View {
+        NavigationLink(value: artist) {
+            artistGridCell(artist)
+        }
+        .buttonStyle(.pmPressable)
+        .contextMenu { artistMenu(artist) }
+        .accessibilityAction(named: Text(favorites.isLiked(artist) ? "library_favorite_unlike" : "library_favorite_like")) {
+            favorites.toggle(artistNamed: artist.name)
+        }
+        .mediaZoomSource(.artist, id: artist.id)
     }
 
     private func artistGridCell(_ artist: Artist) -> some View {
@@ -359,37 +438,77 @@ struct ArtistListView: View {
         }
     }
 
+    /// 列表版式也是懒加载栈（系统 List 没法按行跳转、也报不出露出了哪几行），右缘同样有字母条。
     private var artistList: some View {
-        List(filteredArtists) { @Sendable artist in
-            LazyItemCell {
-                // 固定每位歌手对应一行，避免条件式转场修饰符让 List 展开整表来探测行数。
-                HStack(spacing: 0) {
-                    NavigationLink(value: artist) {
-                        HStack(spacing: 12) {
-                            ArtistArtworkView(
-                                artist: artist,
-                                size: 44,
-                                cornerRadius: 22
-                            )
-                            .searchRecommendationOverlay(isRecommended: intelligentRecommendationIDs.contains(artist.id), iconOnly: true, inset: 3)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(displayName(for: artist))
-                                    .font(.body)
-
-                                Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+        let artists = filteredArtists
+        return LibraryIndexedScrollView(
+            model: railModel,
+            countText: Self.artistCountText,
+            preview: { entry in
+                LibraryIndexArtistStack(artists: entry.previewItems(in: artists))
+            }
+        ) { layout in
+            LazyVStack(spacing: 0) {
+                // 一位歌手一格（分隔线在格子里）：懒加载栈按行号直接找到远处的目标。
+                ForEach(0..<artists.count, id: \.self) { @Sendable row in
+                    LazyItemCell {
+                        artistListRow(artists[row], trailingPadding: layout.trailingPadding)
                     }
-                    .contextMenu { artistMenu(artist) }
-                    .mediaZoomSource(.artist, id: artist.id)
                 }
             }
+            .scrollTargetLayout()
+            .padding(.vertical, 4)
         }
-        .listStyle(.plain)
     }
+
+    private func artistListRow(_ artist: Artist, trailingPadding: CGFloat) -> some View {
+        NavigationLink(value: artist) {
+            HStack(spacing: 12) {
+                ArtistArtworkView(
+                    artist: artist,
+                    size: 44,
+                    cornerRadius: 22
+                )
+                .searchRecommendationOverlay(isRecommended: intelligentRecommendationIDs.contains(artist.id), iconOnly: true, inset: 3)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayName(for: artist))
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.leading, 16)
+            .padding(.trailing, trailingPadding)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(ArtistListRowButtonStyle())
+        .overlay(alignment: .bottom) {
+            Divider()
+                .padding(.leading, 16 + 44 + 12)
+                .accessibilityHidden(true)
+        }
+        .contextMenu { artistMenu(artist) }
+        .accessibilityAction(named: Text(favorites.isLiked(artist) ? "library_favorite_unlike" : "library_favorite_like")) {
+            favorites.toggle(artistNamed: artist.name)
+        }
+        .mediaZoomSource(.artist, id: artist.id)
+    }
+
+    #endif
 
     #if os(macOS)
     /// 当前选中的艺术家 (nil → 取过滤后列表第一个), 驱动右侧详情。
@@ -662,6 +781,76 @@ private struct ArtistDisplayMenu: View {
         }
         .accessibilityLabel(Text("songs_display_mode"))
         .accessibilityIdentifier("artistBrowseMode.menu")
+    }
+}
+#endif
+
+#if os(iOS)
+/// 列表版式的一行按下时整行垫一层淡底，和系统列表一样。
+private struct ArtistListRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Color.primary.opacity(configuration.isPressed ? 0.08 : 0))
+    }
+}
+
+/// 资料库艺人页一次排序的输入：列法 + 曲库给的那份数组。曲库每次发布都换一份新数组，
+/// 所以数组按存储地址与个数认（同 `AlbumGridOrderRequest`）；排好的结果留着那份数组，
+/// 它的地址在被留着期间不会分给别的数组。
+struct ArtistBrowseOrderRequest: Hashable, Sendable {
+    let mode: ArtistBrowseMode
+    private let sourceAddress: Int
+    private let sourceCount: Int
+
+    init(mode: ArtistBrowseMode, artists: [Artist]) {
+        self.mode = mode
+        sourceCount = artists.count
+        sourceAddress = artists.withUnsafeBufferPointer { buffer in
+            buffer.baseAddress.map { Int(bitPattern: $0) } ?? 0
+        }
+    }
+
+    func matches(_ artists: [Artist]) -> Bool {
+        self == ArtistBrowseOrderRequest(mode: mode, artists: artists)
+    }
+}
+
+/// 按读音排好的艺人，连同字母条。
+struct ArtistBrowseOrdered: Sendable {
+    let request: ArtistBrowseOrderRequest
+    let source: [Artist]
+    let items: [Artist]
+    let railModel: LibraryIndexRailModel?
+
+    /// 在后台调用。「未知艺术家」排最后。
+    static func prepare(
+        request: ArtistBrowseOrderRequest, source: [Artist], unknownArtistName: String
+    ) -> ArtistBrowseOrdered? {
+        let layout = LibraryArtistBrowseLayoutBuilder.layout(artists: source, unknownArtistName: unknownArtistName)
+        guard !Task.isCancelled else { return nil }
+        let model = LibraryIndexRailModel(sections: layout.sections)
+        return ArtistBrowseOrdered(
+            request: request, source: source, items: layout.items,
+            railModel: layout.items.count >= 24 && model.isUseful ? model : nil
+        )
+    }
+}
+
+/// 最近一次排好的结果：换页回来、iPad 侧栏和资料库里同时开着都不必重排。
+/// 不是 Observable：结果由各页自己的 @State 交付。
+@MainActor
+final class ArtistBrowseOrderCache {
+    static let shared = ArtistBrowseOrderCache()
+    private var latest: ArtistBrowseOrdered?
+
+    func entry(for request: ArtistBrowseOrderRequest) -> ArtistBrowseOrdered? {
+        latest?.request == request ? latest : nil
+    }
+
+    func store(_ entry: ArtistBrowseOrdered) {
+        let previous = latest
+        latest = entry
+        Task.detached(priority: .utility) { withExtendedLifetime(previous) {} }
     }
 }
 #endif

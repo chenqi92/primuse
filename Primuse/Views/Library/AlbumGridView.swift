@@ -60,8 +60,12 @@ struct AlbumGridView: View {
         )
     }
 
+    private var displayedResult: AlbumGridFilteredAlbums? {
+        AlbumGridFilterCache.shared.entry(for: filterRequest) ?? displayedAlbums
+    }
+
     private var filteredAlbums: [Album] {
-        AlbumGridFilterCache.shared.entry(for: filterRequest)?.albums ?? displayedAlbums?.albums ?? []
+        displayedResult?.albums ?? []
     }
 
     private var isPreparing: Bool {
@@ -94,7 +98,14 @@ struct AlbumGridView: View {
                 ordered.albums, categories: categories, overrides: overrides,
                 favorites: favoritesSnapshot, unknownArtistName: unknownArtistName,
                 isCancelled: { Task.isCancelled }
-            ).map { AlbumGridFilteredAlbums(request: request, source: source, albums: $0) }
+            ).map { albums in
+                AlbumGridFilteredAlbums(
+                    request: request, source: source, albums: albums,
+                    railModel: request.offersIndexRail(albumCount: albums.count)
+                        ? AlbumGridFilteredAlbums.railModel(albums: albums, ordered: ordered)
+                        : nil
+                )
+            }
         }
         let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
         guard let result, !Task.isCancelled, filterRequest == request else { return }
@@ -107,11 +118,6 @@ struct AlbumGridView: View {
     #if !os(macOS)
     @Environment(\.pmHeightClass) private var heightClass
 
-    /// 手机横屏只剩两百多点高, 150 的下限会排成四列大卡片、一屏只看得到一行多。
-    /// 下限降到 100 就能排到六列, 首屏露出一行半以上。
-    private var columns: [GridItem] {
-        [GridItem(.adaptive(minimum: heightClass.value(150, compact: 100)), spacing: 16)]
-    }
     #endif
 
     var body: some View {
@@ -135,7 +141,7 @@ struct AlbumGridView: View {
                     filteredAlbums.map(LibraryInsightBatchItem.album)
                 }
             #else
-            iosGrid(filteredAlbums, isPreparing: isPreparing)
+            iosGrid(displayedResult, isPreparing: isPreparing)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     LibraryInsightBatchStatusCard(
                         kind: .album,
@@ -189,31 +195,59 @@ struct AlbumGridView: View {
     }
 
     #if !os(macOS)
-    private func iosGrid(_ albums: [Album], isPreparing: Bool) -> some View {
-        ScrollView {
+    /// 按标题、艺术家排时右缘有字母条（搜索时收起）：拖动跳到那个字母，卡片里是这一段的前几张封面。
+    /// 网格按行摆：一行一个滚动目标，字母条按行号跳过去。
+    private func iosGrid(_ result: AlbumGridFilteredAlbums?, isPreparing: Bool) -> some View {
+        let albums = result?.albums ?? []
+        // 手机横屏只剩两百多点高, 150 的下限会排成四列大卡片、一屏只看得到一行多。
+        // 下限降到 100 就能排到六列, 首屏露出一行半以上。
+        let minimumWidth = heightClass.value(150, compact: 100)
+        let rowSpacing = heightClass.value(20, compact: 14)
+        return LibraryIndexedScrollView(
+            model: result?.railModel,
+            columns: { LibraryIndexedGridColumns.count(rowWidth: $0, minimumWidth: minimumWidth, spacing: 16) },
+            extendsUnderVerticalBar: true,
+            countText: { "\($0.formatted()) \(String(localized: "albums_count"))" },
+            preview: { entry in
+                LibraryIndexAlbumStack(albums: entry.previewItems(in: albums))
+            }
+        ) { layout in
             if isPreparing {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 240)
             } else if albums.isEmpty {
                 ContentUnavailableView.search(text: albumFilter)
             }
-            LazyVGrid(columns: columns, spacing: heightClass.value(20, compact: 14)) {
-                ForEach(albums) { album in
-                    NavigationLink(value: album) {
-                        AlbumCardView(album: album)
+            LazyVStack(alignment: .leading, spacing: rowSpacing) {
+                // 一行一格、每格包一层：远距离跳转时前面的行不会被逐个建出来。
+                ForEach(0..<layout.rowCount(itemCount: albums.count), id: \.self) { @Sendable row in
+                    LazyItemCell {
+                        HStack(alignment: .top, spacing: layout.columnSpacing) {
+                            ForEach(albums[layout.items(inRow: row, itemCount: albums.count)]) { album in
+                                albumCell(album)
+                                    .frame(width: layout.cellWidth)
+                            }
+                        }
                     }
-                    .buttonStyle(.pmPressable)
-                    .contextMenu { albumMenu(album) }
-                    .accessibilityAction(named: Text(favorites.isLiked(album) ? "library_favorite_unlike" : "library_favorite_like")) {
-                        favorites.toggle(album)
-                    }
-                    .mediaZoomSource(.album, id: album.id)
                 }
             }
-            .padding()
-            // iPhone Duo 竖栏：最右一列封面伸进竖栏，系统的玻璃胶囊浮在上面。
-            .pmCoversExtendUnderVerticalBar()
+            .scrollTargetLayout()
+            .padding(.vertical, 16)
+            .padding(.leading, layout.leadingPadding)
+            .padding(.trailing, layout.trailingPadding)
         }
+    }
+
+    private func albumCell(_ album: Album) -> some View {
+        NavigationLink(value: album) {
+            AlbumCardView(album: album)
+        }
+        .buttonStyle(.pmPressable)
+        .contextMenu { albumMenu(album) }
+        .accessibilityAction(named: Text(favorites.isLiked(album) ? "library_favorite_unlike" : "library_favorite_like")) {
+            favorites.toggle(album)
+        }
+        .mediaZoomSource(.album, id: album.id)
     }
     #endif
 
@@ -580,19 +614,30 @@ enum AlbumGridOrder: String, Hashable, Sendable {
         songs: [Song],
         unknownArtistName: String
     ) -> [Album] {
+        layout(albums, order: order, songs: songs, unknownArtistName: unknownArtistName).items
+    }
+
+    /// 排好的专辑连同分段（按标题、艺术家排时是首字母，按年份排时是年代，其余没有）。
+    static func layout(
+        _ albums: [Album],
+        order: AlbumGridOrder,
+        songs: [Song],
+        unknownArtistName: String
+    ) -> LibraryBrowseLayout<Album> {
         guard let browseOrder = order.browseOrder else {
             let byTitle = LibraryAlbumBrowseLayoutBuilder.layout(
                 albums: albums, order: .title, unknownArtistName: unknownArtistName
             ).items
-            return byTitle.indices.sorted { lhs, rhs in
+            let items = byTitle.indices.sorted { lhs, rhs in
                 let lhsCount = byTitle[lhs].songCount
                 let rhsCount = byTitle[rhs].songCount
                 return lhsCount != rhsCount ? lhsCount > rhsCount : lhs < rhs
             }.map { byTitle[$0] }
+            return LibraryBrowseLayout(items: items, sections: [])
         }
         return LibraryAlbumBrowseLayoutBuilder.layout(
             albums: albums, order: browseOrder, songs: songs, unknownArtistName: unknownArtistName
-        ).items
+        )
     }
 }
 
@@ -622,6 +667,8 @@ struct AlbumGridOrderedAlbums: Sendable {
     let request: AlbumGridOrderRequest
     let source: [Album]
     let albums: [Album]
+    /// 排序给的分段（字母或年代），和 `albums` 一一对应。
+    var sections: [LibraryBrowseSection] = []
 }
 
 /// 最近一次排好的结果，各专辑页共用：换页回来、iPad 侧栏和资料库里同时开着都不必重排。
@@ -647,9 +694,9 @@ final class AlbumGridOrderCache {
             // Sorting is shared by filter requests; typing must not start another whole-library sort.
             _ = await previous?.value
             guard !Task.isCancelled else { return AlbumGridOrderedAlbums(request: request, source: source, albums: []) }
+            let layout = AlbumGridOrder.layout(source, order: request.order, songs: songs, unknownArtistName: unknownArtistName)
             return AlbumGridOrderedAlbums(
-                request: request, source: source,
-                albums: AlbumGridOrder.sorted(source, order: request.order, songs: songs, unknownArtistName: unknownArtistName)
+                request: request, source: source, albums: layout.items, sections: layout.sections
             )
         }
         pending = (generation, request, task)
@@ -683,6 +730,15 @@ struct AlbumGridFilterRequest: Hashable, Sendable {
     let membershipRevision: UInt64
     let overrideRevision: Int
 
+    /// 字母条只在按标题、艺术家排，而且不在搜索时出；专辑少于一屏半也不出。
+    func offersIndexRail(albumCount: Int) -> Bool {
+        #if os(iOS)
+        return query.isEmpty && order.order.browseOrder?.hasLetterIndex == true && albumCount >= 24
+        #else
+        return false
+        #endif
+    }
+
     func filter(
         _ albums: [Album], categories: AlbumReleaseMetadataIndex?,
         overrides: [String: Set<AlbumReleaseCategory>], favorites: LibraryFavoriteLedger,
@@ -714,6 +770,29 @@ struct AlbumGridFilteredAlbums: Sendable {
     let request: AlbumGridFilterRequest
     let source: [Album]
     let albums: [Album]
+    /// 右缘字母条（只在 iPhone、iPad 上建）。
+    var railModel: LibraryIndexRailModel? = nil
+
+    /// 在后台调用。`albums` 是 `ordered.albums` 筛掉一部分、顺序不变的结果，按 id 对回原位置重新切段。
+    static func railModel(albums: [Album], ordered: AlbumGridOrderedAlbums) -> LibraryIndexRailModel? {
+        let sections: [LibraryBrowseSection]
+        if albums.count == ordered.albums.count {
+            sections = ordered.sections
+        } else {
+            var kept: [Int] = []
+            kept.reserveCapacity(albums.count)
+            var cursor = 0
+            for album in albums {
+                while cursor < ordered.albums.count, ordered.albums[cursor].id != album.id { cursor += 1 }
+                guard cursor < ordered.albums.count else { return nil }
+                kept.append(cursor)
+                cursor += 1
+            }
+            sections = LibraryBrowseLayout<Album>.sections(ordered.sections, keeping: kept)
+        }
+        let model = LibraryIndexRailModel(sections: sections)
+        return model.isUseful ? model : nil
+    }
 }
 
 @MainActor

@@ -271,3 +271,128 @@ struct LibraryBrowseWindowTests {
         #expect(LibraryBrowseWindow.start(revealing: 5, sections: [], columns: 4, pageSize: 60) == nil)
     }
 }
+
+@Suite("Library index rail")
+struct LibraryIndexRailModelTests {
+    @Test("Every letter gets a cell; empty letters jump to the next section and # follows Z")
+    func entriesCoverTheWholeAlphabet() {
+        let artists = [
+            Artist(id: "adele", name: "Adele"),
+            Artist(id: "abba", name: "ABBA"),
+            Artist(id: "beijing", name: "北京乐队"),
+            Artist(id: "beyond", name: "Beyond"),
+            Artist(id: "jay", name: "周杰伦"),
+            Artist(id: "1989", name: "1989"),
+        ]
+        let layout = LibraryArtistBrowseLayoutBuilder.layout(artists: artists)
+        let model = LibraryIndexRailModel(sections: layout.sections)
+
+        #expect(model.entries.map(\.label) == LibraryCollationPolicy.letterBuckets + ["#"])
+        #expect(model.isUseful)
+        let byLabel = Dictionary(uniqueKeysWithValues: model.entries.map { ($0.label, $0) })
+        #expect(byLabel["A"] == LibraryIndexRailEntry(label: "A", target: 0, count: 2))
+        #expect(byLabel["B"] == LibraryIndexRailEntry(label: "B", target: 2, count: 2))
+        #expect(byLabel["C"] == LibraryIndexRailEntry(label: "C", target: 4, count: 0))
+        #expect(byLabel["Z"] == LibraryIndexRailEntry(label: "Z", target: 4, count: 1))
+        #expect(byLabel["#"] == LibraryIndexRailEntry(label: "#", target: 5, count: 1))
+        #expect(layout.items[4].id == "jay")
+    }
+
+    @Test("Letters after the last section fall back to it")
+    func trailingEmptyLettersJumpBack() {
+        let layout = LibraryArtistBrowseLayoutBuilder.layout(artists: [
+            Artist(id: "a", name: "Adele"),
+            Artist(id: "m", name: "Muse"),
+        ])
+        let model = LibraryIndexRailModel(sections: layout.sections)
+        #expect(model.entries.count == 26)
+        #expect(model.entries.last == LibraryIndexRailEntry(label: "Z", target: 1, count: 0))
+    }
+
+    @Test("A list position maps back to its letter")
+    func currentLetterFollowsTheTopRow() {
+        let layout = LibraryArtistBrowseLayoutBuilder.layout(artists: [
+            Artist(id: "a1", name: "Adele"),
+            Artist(id: "a2", name: "Air"),
+            Artist(id: "b1", name: "Blur"),
+            Artist(id: "d1", name: "Daft Punk"),
+            Artist(id: "d2", name: "Doves"),
+        ])
+        let model = LibraryIndexRailModel(sections: layout.sections)
+        #expect(model.label(containing: 0) == "A")
+        #expect(model.label(containing: 2) == "B")
+        #expect(model.label(containing: 4) == "D")
+        #expect(model.label(containing: 3) == "D")
+        #expect(model.label(containing: -1) == "A")
+    }
+
+    @Test("A single letter or a year layout is not worth a rail")
+    func railNeedsTwoLetters() {
+        let single = LibraryArtistBrowseLayoutBuilder.layout(artists: [
+            Artist(id: "a1", name: "Adele"),
+            Artist(id: "a2", name: "Air"),
+        ])
+        #expect(!LibraryIndexRailModel(sections: single.sections).isUseful)
+
+        let albums = [
+            Album(id: "old", title: "Old", artistName: "A", year: 1975),
+            Album(id: "new", title: "New", artistName: "B", year: 2021),
+        ]
+        let byYear = LibraryAlbumBrowseLayoutBuilder.layout(albums: albums, order: .year, currentYear: 2026)
+        let model = LibraryIndexRailModel(sections: byYear.sections)
+        #expect(model.entries.isEmpty)
+        #expect(!model.isUseful)
+    }
+
+    @Test("Filtering keeps letters contiguous and drops emptied ones")
+    func filteredSectionsFollowKeptRows() {
+        let sections = [
+            LibraryBrowseSection(bucket: "A", range: 0..<3),
+            LibraryBrowseSection(bucket: "B", range: 3..<5),
+            LibraryBrowseSection(bucket: "C", range: 5..<8),
+        ]
+        let kept = LibraryBrowseLayout<String>.sections(sections, keeping: [1, 2, 6, 7])
+        #expect(kept == [
+            LibraryBrowseSection(bucket: "A", range: 0..<2),
+            LibraryBrowseSection(bucket: "C", range: 2..<4),
+        ])
+        #expect(LibraryBrowseLayout<String>.sections(sections, keeping: []).isEmpty)
+        #expect(LibraryBrowseLayout<String>.sections(sections, keeping: [2, 1]).isEmpty)
+        #expect(LibraryBrowseLayout<String>.sections(sections, keeping: [9]).isEmpty)
+    }
+
+    @Test("Song entries carry counts and dim letters without songs")
+    func songEntriesCarryCounts() {
+        let snapshot = SongListSnapshotBuilder.build(
+            songs: [
+                Song(id: "a1", title: "Atlas", fileFormat: .mp3, filePath: "/a1.mp3", sourceID: "s"),
+                Song(id: "a2", title: "Aurora", fileFormat: .mp3, filePath: "/a2.mp3", sourceID: "s"),
+                Song(id: "d1", title: "Drift", fileFormat: .mp3, filePath: "/d1.mp3", sourceID: "s"),
+            ],
+            order: .title
+        )
+        #expect(snapshot.sectionIndexEntries.first { $0.label == "B" }?.isAvailable == false)
+        #expect(snapshot.sectionIndexEntries.first { $0.label == "D" }?.isAvailable == true)
+
+        let model = LibraryIndexRailModel(songEntries: snapshot.sectionIndexEntries, rowCount: 3)
+        let byLabel = Dictionary(uniqueKeysWithValues: model.entries.map { ($0.label, $0) })
+        #expect(byLabel["A"]?.count == 2)
+        #expect(byLabel["B"]?.count == 0)
+        #expect(byLabel["B"]?.target == 2)
+        #expect(byLabel["D"]?.count == 1)
+        #expect(model.label(containing: 1) == "A")
+        #expect(model.label(containing: 2) == "D")
+
+        let descending = SongListSnapshotBuilder.build(
+            songs: [
+                Song(id: "a1", title: "Atlas", fileFormat: .mp3, filePath: "/a1.mp3", sourceID: "s"),
+                Song(id: "d1", title: "Drift", fileFormat: .mp3, filePath: "/d1.mp3", sourceID: "s"),
+            ],
+            order: .titleDescending
+        )
+        let reversed = LibraryIndexRailModel(songEntries: descending.sectionIndexEntries, rowCount: 2)
+        #expect(reversed.entries.first?.label == "Z")
+        #expect(reversed.label(containing: 0) == "D")
+        #expect(reversed.label(containing: 1) == "A")
+    }
+}

@@ -4146,6 +4146,11 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
 
     @State private var indexScrollRequest: IOSSongIndexScrollRequest?
     @State private var scrollPosition = ScrollPosition(idType: Int.self)
+    /// 按位置跳转时的对齐方式。系统只认挂在 `scrollPosition` 修饰符上的锚点，`scrollTo(id:anchor:)`
+    /// 自己带的锚点不起作用（按「滚到刚好露出」处理，目标停在底部）；每次跳之前先换好。
+    @State private var scrollAnchor: UnitPoint = .top
+    /// 滚到哪个字母：只有字母条读它。
+    @State private var indexTracker = LibraryIndexRailTracker()
     /// 系统把工具栏竖排到右侧时(iPhone Duo 等),字母索引紧挨着那一列系统按钮:
     /// 往里让一段,拖着索引快速定位时手指不会滑到返回、更多这些键上。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -4166,7 +4171,8 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
     }
 
     var body: some View {
-        ZStack(alignment: .trailing) {
+        let railModel = LibraryIndexRailModel(songEntries: sectionIndexEntries, rowCount: cache.positionCount)
+        return ZStack(alignment: .trailing) {
             ScrollView {
                 if showsListeningIntents {
                     // 不放进下面的懒加载栈:它带导航目标,而且只有这一份。
@@ -4176,7 +4182,13 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                 }
                 positionStack
             }
-            .scrollPosition($scrollPosition)
+            .scrollPosition($scrollPosition, anchor: scrollAnchor)
+            .onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.5) { positions in
+                guard let top = positions.min() else { return }
+                indexTracker.lastTopPosition = top
+                guard showsSectionIndex else { return }
+                indexTracker.update(railModel.label(containing: top))
+            }
             // iPhone Duo 竖栏：行和字母索引都停在竖栏左侧，「开始听」的横滑一排铺到屏幕右缘。
             .pmExtendsUnderVerticalBar()
             .background(songListBackground)
@@ -4186,15 +4198,21 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
             .songRowColumnsContainer()
 
             if showsSectionIndex {
-                IOSSongAlphabetIndex(entries: sectionIndexEntries) { entry in
-                    guard (0..<cache.positionCount).contains(entry.rowOffset) else { return }
+                // 和专辑、艺人页同一条字母条；行尾让出 40，可按的宽度照旧 48。
+                LibraryIndexRail(
+                    entries: railModel.entries,
+                    tracker: indexTracker,
+                    hitWidth: 48,
+                    countText: { "\($0.formatted()) \(String(localized: "songs_count"))" },
+                    preview: { _ in EmptyView() }
+                ) { entry in
+                    guard (0..<cache.positionCount).contains(entry.target) else { return }
                     indexScrollRequest = IOSSongIndexScrollRequest(
-                        rowOffset: entry.rowOffset,
+                        rowOffset: entry.target,
                         rowOrderRevision: rowOrderRevision
                     )
                 }
                 .accessibilityIdentifier("songList.alphabetIndex")
-                .frame(width: 112)
                 .padding(.trailing, sectionIndexTrailingInset)
                 // 「开始听」那一行的标题右端有「全部」，索引从它下面开始，两者不叠在一起。
                 .padding(.top, showsListeningIntents ? 48 : 0)
@@ -4203,6 +4221,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         }
         .task(id: indexScrollRequest) {
             guard let request = indexScrollRequest else { return }
+            scrollAnchor = .top
             await Task.yield()
             guard !Task.isCancelled,
                   request.rowOrderRevision == rowOrderRevision,
@@ -4218,6 +4237,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         )) {
             guard location?.needsScroll != false, let locatedSongID,
                   let rowOffset = cache.position(of: locatedSongID) else { return }
+            scrollAnchor = .center
             await Task.yield()
             guard !Task.isCancelled,
                   self.locatedSongID == locatedSongID,
@@ -4226,6 +4246,8 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         }
         .onChange(of: rowOrderRevision) { _, _ in
             indexScrollRequest = nil
+            // 换了排序：露出的还是那几个位置，系统不会再报，按刚才的位置重新认。
+            indexTracker.update(indexTracker.lastTopPosition.flatMap(railModel.label(containing:)))
         }
         .pmAnimation(.control, value: showsSectionIndex)
         #if DEBUG
@@ -4274,10 +4296,11 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         let environment = ProcessInfo.processInfo.environment
         guard let raw = environment["PRIMUSE_DEBUG_SONG_LIST_POSITION"], let position = Int(raw),
               (0..<cache.positionCount).contains(position) else { return }
-        let anchor = environment["PRIMUSE_DEBUG_SONG_LIST_ANCHOR"].flatMap(Double.init) ?? 0
+        let anchor = UnitPoint(x: 0.5, y: environment["PRIMUSE_DEBUG_SONG_LIST_ANCHOR"].flatMap(Double.init) ?? 0)
+        scrollAnchor = anchor
         try? await Task.sleep(for: .seconds(1.5))
         guard !Task.isCancelled else { return }
-        scrollPosition.scrollTo(id: position, anchor: UnitPoint(x: 0.5, y: anchor))
+        scrollPosition.scrollTo(id: position, anchor: anchor)
     }
     #endif
 
@@ -4288,7 +4311,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
         appearance == .list
             && !selection.isActive
             && cache.positionCount >= 24
-            && sectionIndexEntries.count > 1
+            && sectionIndexEntries.lazy.filter(\.isAvailable).count > 1
     }
 
     private var songListBackground: Color {
@@ -4335,185 +4358,6 @@ private struct IOSSongListPositionSlot: View {
                     .accessibilityHidden(true)
             }
         }
-    }
-}
-
-private struct IOSSongAlphabetIndex: View {
-    let entries: [SongListSectionIndexEntry]
-    let onSelect: (SongListSectionIndexEntry) -> Void
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var focusedIndex: Int?
-    @State private var touchLocationY: CGFloat?
-    @State private var hapticTrigger = 0
-
-    private struct Metrics {
-        let railHeight: CGFloat
-        let itemHeight: CGFloat
-        let fontSize: CGFloat
-        let topInset: CGFloat
-    }
-
-    var body: some View {
-        GeometryReader { geometry in
-            let metrics = metrics(for: geometry.size)
-            ZStack(alignment: .topTrailing) {
-                rail(itemHeight: metrics.itemHeight, fontSize: metrics.fontSize)
-                    .frame(width: 28, height: metrics.railHeight)
-                    .allowsHitTesting(false)
-                    .offset(y: metrics.topInset)
-
-                Color.clear
-                    .contentShape(Rectangle())
-                    .frame(width: 48, height: metrics.railHeight)
-                    // 被系统接走时没有结束回调,放大的字母泡泡会一直挂着。
-                    .pmGesture(indexGesture(metrics: metrics), onCancel: clearFocus)
-                    .offset(y: metrics.topInset)
-
-                if let focusedIndex, entries.indices.contains(focusedIndex) {
-                    focusBubble(label: entries[focusedIndex].label)
-                        .position(
-                            x: 36,
-                            y: bubbleY(
-                                touchLocationY: touchLocationY,
-                                topInset: metrics.topInset,
-                                availableHeight: geometry.size.height
-                            )
-                        )
-                        .transition(.scale(scale: 0.72).combined(with: .opacity))
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        }
-        .sensoryFeedback(.selection, trigger: hapticTrigger)
-        .accessibilityRepresentation {
-            VStack(spacing: 0) {
-                ForEach(entries) { entry in
-                    Button {
-                        onSelect(entry)
-                    } label: {
-                        Text(verbatim: entry.label)
-                    }
-                }
-            }
-        }
-        .onChange(of: entries) { _, _ in
-            clearFocus()
-        }
-    }
-
-    private func rail(itemHeight: CGFloat, fontSize: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            ForEach(entries.indices, id: \.self) { index in
-                Text(verbatim: entries[index].label)
-                    .font(.system(size: fontSize, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .scaleEffect(
-                        scale(for: index, itemHeight: itemHeight),
-                        anchor: .trailing
-                    )
-                    .offset(x: horizontalOffset(for: index, itemHeight: itemHeight))
-                    .frame(height: itemHeight)
-            }
-        }
-    }
-
-    private func focusBubble(label: String) -> some View {
-        Text(verbatim: label)
-            .font(.system(size: 23, weight: .bold, design: .rounded))
-            .foregroundStyle(.textOnAccent)
-            .frame(width: 50, height: 50)
-            .background {
-                Circle()
-                    .fill(Color.accentColor.gradient)
-            }
-            .shadow(color: Color.accentColor.opacity(0.28), radius: 12, y: 5)
-            .accessibilityHidden(true)
-            .allowsHitTesting(false)
-    }
-
-    private func indexGesture(metrics: Metrics) -> some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .local)
-            .onChanged { value in
-                guard let index = SongListSectionIndexHitTesting.index(
-                    at: Double(value.location.y),
-                    railOriginY: 0,
-                    railHeight: Double(metrics.railHeight),
-                    entryCount: entries.count
-                ) else {
-                    return
-                }
-                touchLocationY = min(max(value.location.y, 0), metrics.railHeight)
-                focus(on: index)
-            }
-            .onEnded { _ in
-                clearFocus()
-            }
-    }
-
-    private func focus(on index: Int) {
-        guard entries.indices.contains(index) else { return }
-        if focusedIndex != index {
-            // 泡泡出现的这一次补上与 clearFocus 相同的曲线；拖动中换字母要跟手，
-            // 那些帧仍旧裸赋值。
-            if focusedIndex == nil {
-                withAnimation(focusAnimation) { focusedIndex = index }
-            } else {
-                focusedIndex = index
-            }
-            hapticTrigger &+= 1
-            onSelect(entries[index])
-        }
-    }
-
-    private func clearFocus() {
-        withAnimation(focusAnimation) {
-            focusedIndex = nil
-            touchLocationY = nil
-        }
-    }
-
-    private var focusAnimation: Animation? {
-        reduceMotion ? nil : .snappy(duration: 0.18, extraBounce: 0.08)
-    }
-
-    private func scale(for index: Int, itemHeight: CGFloat) -> CGFloat {
-        1 + 0.8 * focusInfluence(for: index, itemHeight: itemHeight)
-    }
-
-    private func horizontalOffset(for index: Int, itemHeight: CGFloat) -> CGFloat {
-        -18 * focusInfluence(for: index, itemHeight: itemHeight)
-    }
-
-    private func focusInfluence(for index: Int, itemHeight: CGFloat) -> CGFloat {
-        guard let touchLocationY, itemHeight > 0 else { return 0 }
-        let itemCenter = (CGFloat(index) + 0.5) * itemHeight
-        let distance = abs(itemCenter - touchLocationY) / itemHeight
-        let proximity = max(0, 1 - distance / 2.75)
-        return proximity * proximity
-    }
-
-    private func bubbleY(
-        touchLocationY: CGFloat?,
-        topInset: CGFloat,
-        availableHeight: CGFloat
-    ) -> CGFloat {
-        let target = topInset + (touchLocationY ?? 0)
-        return min(max(target, 30), max(30, availableHeight - 30))
-    }
-
-    private func metrics(for size: CGSize) -> Metrics {
-        let verticalInset: CGFloat = size.height >= 480 ? 10 : 6
-        let railHeight = max(0, size.height - verticalInset * 2)
-        let itemHeight = railHeight / CGFloat(max(entries.count, 1))
-        let fontSize = min(11, max(7.5, itemHeight * 0.68))
-        return Metrics(
-            railHeight: railHeight,
-            itemHeight: itemHeight,
-            fontSize: fontSize,
-            topInset: verticalInset
-        )
     }
 }
 

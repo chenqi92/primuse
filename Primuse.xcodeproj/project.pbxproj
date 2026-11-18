@@ -597,6 +597,7 @@
 		3D564C4F029EAEE087B638FE /* RadioStationStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57DE7B8C5035D8C74F2E397 /* RadioStationStrip.swift */; };
 		3D5B0D110E921643707BA1A8 /* PMHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92290B82B054C09E84F16173 /* PMHaptics.swift */; };
 		4FB28CF2570D9C26812C958C /* PMToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B3BBE8BD610B8ADA0623707 /* PMToast.swift */; };
+		EFA80469145BEF9045431806 /* LibraryIndexRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8290C45368B55DF5A2DD27C1 /* LibraryIndexRail.swift */; };
 		3DB2D944BC6083DFCF50FC79 /* SFTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */; };
 		3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92713492CA49F4357602CCA3 /* ImageCache.swift */; };
 		3DB73508E1F2F7398C73DEC1 /* S3ListParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DFCA331E6F42B56BA7100F2 /* S3ListParserTests.swift */; };
@@ -2021,6 +2022,7 @@
 		D807361D6DE3891296DFDF58 /* MusicDiscoveryEngineEquivalenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 738CA001A4119151DECB6874 /* MusicDiscoveryEngineEquivalenceTests.swift */; };
 		D8161B76AC51C255531C63E8 /* PMHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92290B82B054C09E84F16173 /* PMHaptics.swift */; };
 		7BB9F0692603D81B20CE496A /* PMToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B3BBE8BD610B8ADA0623707 /* PMToast.swift */; };
+		ACBF131135626619D910EF54 /* LibraryIndexRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8290C45368B55DF5A2DD27C1 /* LibraryIndexRail.swift */; };
 		D84918920C71DB851E51AE09 /* SSLTrustStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AD7C0A9B431AEBEC047E320 /* SSLTrustStore.swift */; };
 		D879C90A8DE7AB1E46EF12C5 /* PlexServerLinkRefresher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040CD8D85207480295C5334F /* PlexServerLinkRefresher.swift */; };
 		D883087F146BDACAD8F342CB /* TVDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FB6B97CD43A0EB834C00F58 /* TVDiagnosticsView.swift */; };
@@ -3685,6 +3687,7 @@
 		91F2E1034751F2A381A4B435 /* TVReplayGainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVReplayGainTests.swift; sourceTree = "<group>"; };
 		92290B82B054C09E84F16173 /* PMHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMHaptics.swift; sourceTree = "<group>"; };
 		8B3BBE8BD610B8ADA0623707 /* PMToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMToast.swift; sourceTree = "<group>"; };
+		8290C45368B55DF5A2DD27C1 /* LibraryIndexRail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryIndexRail.swift; sourceTree = "<group>"; };
 		9237FA090363711D3EC61458 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
 		9261E365FCA7CA1AF09E36F8 /* ExternalPlaylistImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPlaylistImport.swift; sourceTree = "<group>"; };
 		92713492CA49F4357602CCA3 /* ImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCache.swift; sourceTree = "<group>"; };
@@ -6290,6 +6293,7 @@
 				E70ED09A58D609AB344A780B /* PlayerStatusBarAppearance.swift */,
 				92290B82B054C09E84F16173 /* PMHaptics.swift */,
 				8B3BBE8BD610B8ADA0623707 /* PMToast.swift */,
+				8290C45368B55DF5A2DD27C1 /* LibraryIndexRail.swift */,
 				56EFA2B79F3B52F97EEC1E85 /* PMHeightClass.swift */,
 				82DE90F4A0194B1571C2E0A2 /* PMLayoutChangeFade.swift */,
 				8355C8D0FBADBC25AF310BF4 /* PMMenuLayout.swift */,
@@ -8553,6 +8557,7 @@
 				A208BF0550CF38EA88C45BC1 /* PCloudSource.swift in Sources */,
 				3D5B0D110E921643707BA1A8 /* PMHaptics.swift in Sources */,
 				4FB28CF2570D9C26812C958C /* PMToast.swift in Sources */,
+				EFA80469145BEF9045431806 /* LibraryIndexRail.swift in Sources */,
 				7A3273F295FFDDCC05C65206 /* PMHeightClass.swift in Sources */,
 				C29C30F584C1E5C9F4158F4C /* PMLayoutChangeFade.swift in Sources */,
 				DAA94A7E4E994B6DF5DE2460 /* PMMenuLayout.swift in Sources */,
@@ -9426,6 +9431,7 @@
 				4D13C4499A17E5CA00486F07 /* PCloudSource.swift in Sources */,
 				D8161B76AC51C255531C63E8 /* PMHaptics.swift in Sources */,
 				7BB9F0692603D81B20CE496A /* PMToast.swift in Sources */,
+				ACBF131135626619D910EF54 /* LibraryIndexRail.swift in Sources */,
 				75B8FDAEDD57548B9A9EBA8F /* PMHeightClass.swift in Sources */,
 				FAF140A3DF3A94839742166A /* PMLayoutChangeFade.swift in Sources */,
 				85596F93306BD339283AB936 /* PMMenuLayout.swift in Sources */,

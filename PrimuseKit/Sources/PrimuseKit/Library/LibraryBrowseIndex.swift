@@ -195,6 +195,39 @@ public struct LibraryBrowseLayout<Element: Sendable>: Sendable {
         sections.first { $0.bucket == bucket }
     }
 
+    /// 从排好的列表里筛掉一部分（顺序不变）之后重新切段。`keptPositions` 是留下的条目在原列表里的位置，
+    /// 从小到大；不是升序或越界时返回空，界面就不出字母条。
+    public static func sections(
+        _ sections: [LibraryBrowseSection],
+        keeping keptPositions: [Int]
+    ) -> [LibraryBrowseSection] {
+        var result: [LibraryBrowseSection] = []
+        var sectionIndex = 0
+        var previous = -1
+        var runBucket: String?
+        var runStart = 0
+        for (offset, position) in keptPositions.enumerated() {
+            guard position > previous else { return [] }
+            previous = position
+            while sectionIndex < sections.count, sections[sectionIndex].range.upperBound <= position {
+                sectionIndex += 1
+            }
+            guard sectionIndex < sections.count, sections[sectionIndex].range.contains(position) else { return [] }
+            let bucket = sections[sectionIndex].bucket
+            if bucket != runBucket {
+                if let runBucket {
+                    result.append(LibraryBrowseSection(bucket: runBucket, range: runStart..<offset))
+                }
+                runBucket = bucket
+                runStart = offset
+            }
+        }
+        if let runBucket {
+            result.append(LibraryBrowseSection(bucket: runBucket, range: runStart..<keptPositions.count))
+        }
+        return result
+    }
+
     /// 按已排好的键切出连续分段。
     static func sections(bucketIndices: [Int]) -> [LibraryBrowseSection] {
         var sections: [LibraryBrowseSection] = []
@@ -596,5 +629,119 @@ public enum LibraryArtistBrowseLayoutBuilder {
             items: sortedIndices.map { artists[$0] },
             sections: LibraryBrowseLayout<Artist>.sections(bucketIndices: sortedIndices.map { keys[$0].bucketIndex })
         )
+    }
+}
+
+// MARK: - 手机、iPad 资料库页右缘的字母条
+
+/// 字母条上的一格。A–Z 每个字母都占一格，"#" 只在有这类名字时出现。
+/// 这个字母下没有条目时 `count` 为 0：界面上画暗，点它跳到后面最近的一段（后面没有了往前找）。
+public struct LibraryIndexRailEntry: Identifiable, Hashable, Sendable {
+    public let label: String
+    /// 点这一格滚到的位置：排好的列表里的第几项。
+    public let target: Int
+    /// 这个字母下有几项。
+    public let count: Int
+
+    public var id: String { label }
+    public var hasItems: Bool { count > 0 }
+
+    public init(label: String, target: Int, count: Int) {
+        self.label = label
+        self.target = target
+        self.count = count
+    }
+}
+
+/// 一页按名字排好的列表配的字母条：每格跳到第几项，列表滚到第几项时该亮哪一格。
+/// 引用类型：界面按身份比较，不逐项比。
+public final class LibraryIndexRailModel: Sendable {
+    public let entries: [LibraryIndexRailEntry]
+    /// 有条目的格子，按位置先后排；`label(containing:)` 在里面二分。
+    private let populated: [LibraryIndexRailEntry]
+
+    /// 专辑、艺人页：`sections` 是按首字母连续切好的分段（`LibraryBrowseLayout.sections`）。
+    /// 按年代切的分段不出字母条。
+    public init(sections: [LibraryBrowseSection]) {
+        let entries = Self.entries(sections: sections)
+        self.entries = entries
+        populated = entries.filter(\.hasItems).sorted { $0.target < $1.target }
+    }
+
+    /// 歌曲页：快照给的各字母（没有歌的字母跳到相邻一段）连同列表的总行数。
+    public init(songEntries: [SongListSectionIndexEntry], rowCount: Int) {
+        let starts = songEntries.filter(\.isAvailable).map(\.rowOffset).sorted()
+        var counts: [Int: Int] = [:]
+        for (index, start) in starts.enumerated() {
+            let end = index + 1 < starts.count ? starts[index + 1] : max(rowCount, start)
+            counts[start] = max(0, end - start)
+        }
+        let entries = songEntries.map { entry in
+            LibraryIndexRailEntry(
+                label: entry.label,
+                target: entry.rowOffset,
+                count: entry.isAvailable ? counts[entry.rowOffset] ?? 0 : 0
+            )
+        }
+        self.entries = entries
+        populated = entries.filter(\.hasItems).sorted { $0.target < $1.target }
+    }
+
+    /// 有条目的字母至少两个才值得出字母条。
+    public var isUseful: Bool { populated.count >= 2 }
+
+    /// 第 `position` 项所在的那个字母；在第一段之前算第一段。
+    public func label(containing position: Int) -> String? {
+        guard !populated.isEmpty else { return nil }
+        var low = 0
+        var high = populated.count - 1
+        var found = 0
+        while low <= high {
+            let mid = (low + high) / 2
+            if populated[mid].target <= position {
+                found = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return populated[found].label
+    }
+
+    static func entries(sections: [LibraryBrowseSection]) -> [LibraryIndexRailEntry] {
+        var byBucket: [String: (target: Int, count: Int)] = [:]
+        for section in sections {
+            guard LibraryCollationPolicy.buckets.contains(section.bucket) else { return [] }
+            if let existing = byBucket[section.bucket] {
+                byBucket[section.bucket] = (
+                    min(existing.target, section.range.lowerBound), existing.count + section.range.count
+                )
+            } else {
+                byBucket[section.bucket] = (section.range.lowerBound, section.range.count)
+            }
+        }
+        guard !byBucket.isEmpty else { return [] }
+
+        let letters = LibraryCollationPolicy.letterBuckets
+        let other = byBucket[LibraryCollationPolicy.otherBucket]
+        var entries: [LibraryIndexRailEntry] = []
+        entries.reserveCapacity(letters.count + 1)
+        for (index, letter) in letters.enumerated() {
+            if let own = byBucket[letter] {
+                entries.append(LibraryIndexRailEntry(label: letter, target: own.target, count: own.count))
+                continue
+            }
+            let following = letters[(index + 1)...].lazy.compactMap { byBucket[$0] }.first ?? other
+            let fallback = following ?? letters[..<index].reversed().lazy.compactMap { byBucket[$0] }.first
+            if let fallback {
+                entries.append(LibraryIndexRailEntry(label: letter, target: fallback.target, count: 0))
+            }
+        }
+        if let other {
+            entries.append(LibraryIndexRailEntry(
+                label: LibraryCollationPolicy.otherBucket, target: other.target, count: other.count
+            ))
+        }
+        return entries
     }
 }
