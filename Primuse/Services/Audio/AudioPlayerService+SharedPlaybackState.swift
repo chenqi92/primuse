@@ -363,7 +363,9 @@ extension AudioPlayerService {
         interruptionResumePolicy = PlaybackInterruptionResumePolicy()
         playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
         localPipelineAdvanceTicket = nil
-        rememberCurrentMusicQueue()
+        if remembersMusicQueue {
+            musicSessionMemoryStore.excludeActiveQueue(prepared.continuation?.requestedIDs ?? plan.queueSongIDs)
+        }
         updateNowPlayingInfo()
         updateNowPlayingArtworkIfNeeded()
         // The restored queue is paused even if the last process published a
@@ -531,7 +533,6 @@ extension AudioPlayerService {
             eachTrackStop: eachTrackStop,
             remembersMusicQueue: remembersMusicQueue
         )
-        updateRecentMusicQueue(snapshot: snapshot, song: song, persist: flushImmediately)
         // 只有在协调器确认这一代(或更顶掉它的更新一代)真的落盘之后, 才允许
         // 后续的空状态清空旧快照: 写失败时上一次启动留下的有效快照必须保留。
         submitPlaybackSessionPersistence(

@@ -175,6 +175,8 @@ extension AudioPlayerService {
         plog("🎛️ Medley: \(slices.count) slices, "
             + (settings.medleyAutomaticLength ? "highlight length" : "\(settings.medleySegmentSeconds)s")
             + (settings.medleyPrefersPlaybackRange ? ", own ranges first" : ""))
+        rememberCurrentMusicQueue()
+        remembersMusicQueue = false
         isInstallingMedleyQueue = true
         endMedleyIfNeeded()
         medleySongIDs = Set(slices.map(\.id))

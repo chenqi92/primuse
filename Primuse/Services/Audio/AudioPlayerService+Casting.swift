@@ -2271,12 +2271,17 @@ extension AudioPlayerService {
         keepsContinuation: Bool = false,
         preparedContinuation: QueueContinuation? = nil
     ) {
+        let requestedIDs = preparedContinuation?.requestedIDs ?? requestedSongs.map(\.id)
         if !keepsContinuation {
-            rememberCurrentMusicQueue()
-            remembersMusicQueue = !isInstallingMedleyQueue && requestedSongs.count > 1
+            let isMusicQueue = !isInstallingMedleyQueue && requestedIDs.count > 1
                 && requestedSongs.indices.contains(requestedIndex)
                 && listeningSpace(of: requestedSongs[requestedIndex]) == .music
-            musicMemoryNeedsPersistence = remembersMusicQueue
+            if remembersMusicQueue,
+               !isMusicQueue || (queueContinuation?.requestedIDs ?? queueEntries.map(\.song.id)) != requestedIDs {
+                rememberCurrentMusicQueue()
+            }
+            remembersMusicQueue = isMusicQueue
+            if isMusicQueue { musicSessionMemoryStore.excludeActiveQueue(requestedIDs) }
         }
         queueRequestToken &+= 1
         if !keepsContinuation { resetAutoContinuation() }
@@ -2292,7 +2297,7 @@ extension AudioPlayerService {
             if !isInstallingMedleyQueue,
                let window = QueueWindowPolicy.window(count: requestedSongs.count, selectedIndex: requestedIndex) {
                 setQueueContinuation(QueueContinuation(
-                    requestedIDs: requestedSongs.map(\.id),
+                    requestedIDs: requestedIDs,
                     window: window
                 ))
                 songs = Array(requestedSongs[window])
@@ -2375,7 +2380,6 @@ extension AudioPlayerService {
         guard !playable.isEmpty else { return }
         if currentListeningSpace == .music, !isMedleyActive, queueEntries.count + playable.count > 1 {
             remembersMusicQueue = true
-            musicMemoryNeedsPersistence = true
         }
         let firstNewIndex = queueEntries.count
         let traversal = usesManagedShuffleOrder ? shuffledIndices : Array(queueEntries.indices)
@@ -2466,7 +2470,6 @@ extension AudioPlayerService {
 
         if currentListeningSpace == .music, !isMedleyActive {
             remembersMusicQueue = true
-            musicMemoryNeedsPersistence = true
         }
         invalidatePreparedQueueSuccessor()
         queueEntries = entries

@@ -732,7 +732,6 @@ final class AudioPlayerService {
     let playbackSessionStore: PlaybackSessionStore
     let musicSessionMemoryStore: MusicSessionMemoryStore
     var remembersMusicQueue = false
-    @ObservationIgnored var musicMemoryNeedsPersistence = false
     /// 快照仍然在主 actor 上采集, 但 JSON 编码与原子写交给这个协调器在后台
     /// 完成。它用递增的 generation 合并请求: 只有最新的状态会落盘, 更新的
     /// 请求会顶掉还没写出去的旧请求, 最终状态永远不会丢。

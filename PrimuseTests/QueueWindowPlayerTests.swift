@@ -24,7 +24,8 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
-    private func makePlayer(librarySongs: [Song], startsPreparing: Bool = false, includesLibrary: Bool = true) async throws -> AudioPlayerService {
+    private func makePlayer(librarySongs: [Song], startsPreparing: Bool = false, includesLibrary: Bool = true,
+                            sessionDirectory: URL? = nil) async throws -> AudioPlayerService {
         let suite = "queue-window-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
@@ -51,14 +52,15 @@ final class QueueWindowPlayerTests: XCTestCase {
             }
             XCTAssertNotNil(library.unobservedVisibleSong(id: librarySongs.last!.id))
         }
+        let sessionDirectory = sessionDirectory ?? directory
         let musicMemory = MusicSessionMemoryStore(
-            defaults: defaults, url: directory.appendingPathComponent("music-memory.json")
+            defaults: defaults, url: sessionDirectory.appendingPathComponent("music-memory.json")
         )
         addTeardownBlock { @MainActor in await musicMemory.waitForPendingPersistence() }
         return AudioPlayerService(
             library: includesLibrary ? library : nil,
             playbackSettings: PlaybackSettingsStore(defaults: defaults),
-            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            playbackSessionStore: PlaybackSessionStore(url: sessionDirectory.appendingPathComponent("session.json")),
             musicSessionMemoryStore: musicMemory,
             activateAudioSession: { _ in XCTFail("Queue tests must not start audio") }
         )
@@ -98,6 +100,7 @@ final class QueueWindowPlayerTests: XCTestCase {
         XCTAssertEqual(player.currentSong?.id, catalog[1].id)
         XCTAssertEqual(player.currentTime, 47)
         XCTAssertFalse(player.isPlaying)
+        XCTAssertNil(player.musicSessionMemoryStore.memory)
     }
 
     @MainActor
@@ -128,21 +131,44 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
-    func testRecentMusicQueueReplacesOnlyOnAnotherMultiSongRequest() async throws {
+    func testSwitchingAndResumingMusicQueuesSwapsTheirOwnProgress() async throws {
         let catalog = songs(6)
         let player = try await makePlayer(librarySongs: catalog)
-        player.setQueue(Array(catalog.prefix(3)), startAt: 0)
-        player.currentSong = catalog[0]
-        player.persistPlaybackSession()
-        player.setQueue([catalog[4]], startAt: 0)
-        player.currentSong = catalog[4]
-        player.persistPlaybackSession()
-        XCTAssertEqual(player.musicSessionMemoryStore.memory?.snapshot.queueSongIDs, Array(catalog.prefix(3)).map(\.id))
-        player.setQueue([catalog[3], catalog[5]], startAt: 0)
-        player.currentSong = catalog[3]
-        player.persistPlaybackSession()
-        XCTAssertEqual(player.musicSessionMemoryStore.memory?.snapshot.queueSongIDs, [catalog[3].id, catalog[5].id])
-        await player.musicSessionMemoryStore.waitForPendingPersistence()
+        let first = Array(catalog.prefix(3))
+        let second = [catalog[1], catalog[3], catalog[5]]
+        player.setQueue(first, startAt: 1)
+        player.currentSong = catalog[1]
+        player.currentTime = 47
+        player.persistPlaybackSession(flushImmediately: true)
+        XCTAssertNil(player.musicSessionMemoryStore.memory)
+
+        // Switching lists can keep the same song and transport.
+        player.setQueue(second, startAt: 0)
+        let left = try XCTUnwrap(player.musicSessionMemoryStore.memory)
+        XCTAssertEqual(left.snapshot.queueSongIDs, first.map(\.id))
+        XCTAssertEqual(left.snapshot.currentIndex, 1)
+        XCTAssertEqual(left.snapshot.currentTime, 47)
+        player.setQueue(second, startAt: 2)
+        player.currentSong = catalog[5]
+        player.currentTime = 83
+        player.persistPlaybackSession(flushImmediately: true)
+        XCTAssertEqual(player.musicSessionMemoryStore.memory, left)
+        XCTAssertEqual(try player.playbackSessionStore.load()?.currentTime, 83)
+
+        let restoredFirst = await player.resumeMusicSession(startPlayback: false)
+        XCTAssertTrue(restoredFirst)
+        XCTAssertEqual(player.queue.map(\.id), first.map(\.id))
+        XCTAssertEqual(player.currentIndex, 1)
+        XCTAssertEqual(player.currentTime, 47)
+        let previous = try XCTUnwrap(player.musicSessionMemoryStore.memory)
+        XCTAssertEqual(previous.snapshot.queueSongIDs, second.map(\.id))
+        XCTAssertEqual(previous.snapshot.currentIndex, 2)
+        XCTAssertEqual(previous.snapshot.currentTime, 83)
+        let restoredSecond = await player.resumeMusicSession(startPlayback: false)
+        XCTAssertTrue(restoredSecond)
+        XCTAssertEqual(player.queue.map(\.id), second.map(\.id))
+        XCTAssertEqual(player.currentIndex, 2)
+        XCTAssertEqual(player.currentTime, 83)
     }
 
     @MainActor
@@ -226,13 +252,14 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
-    func testRecentMusicQueueDoesNotWriteOnClockUpdates() async throws {
+    func testRelaunchKeepsPreviousQueueSeparateFromActiveSession() async throws {
         let catalog = songs(3)
         let player = try await makePlayer(librarySongs: catalog)
-        player.setQueue(catalog, startAt: 0)
+        player.setQueue(Array(catalog.prefix(2)), startAt: 0)
         player.currentSong = catalog[0]
         player.currentTime = 10
-        player.persistPlaybackSession()
+        player.setQueue(Array(catalog.suffix(2)), startAt: 1)
+        player.currentSong = catalog[2]
         await player.musicSessionMemoryStore.waitForPendingPersistence()
         let url = player.playbackSessionStore.url.deletingLastPathComponent().appendingPathComponent("music-memory.json")
         let before = try Data(contentsOf: url)
@@ -242,11 +269,40 @@ final class QueueWindowPlayerTests: XCTestCase {
         }
         await player.musicSessionMemoryStore.waitForPendingPersistence()
         XCTAssertEqual(try Data(contentsOf: url), before)
-        XCTAssertEqual(player.musicSessionMemoryStore.memory?.snapshot.currentTime, 30)
-        player.setQueue([catalog[2]], startAt: 0)
-        await player.musicSessionMemoryStore.waitForPendingPersistence()
-        let saved = try JSONDecoder().decode(MusicSessionMemoryStore.Memory.self, from: Data(contentsOf: url))
-        XCTAssertEqual(saved.snapshot.currentTime, 30)
+        player.persistPlaybackSession(flushImmediately: true)
+        let saved = try XCTUnwrap(player.musicSessionMemoryStore.memory)
+        XCTAssertEqual(saved.snapshot.currentTime, 10)
+        let restored = try await makePlayer(librarySongs: catalog, sessionDirectory: url.deletingLastPathComponent())
+        await restored.restorePlaybackSessionIfAvailable(startupSourceIDs: ["local-source"])
+        await restored.musicSessionMemoryStore.waitForPendingPersistence()
+        XCTAssertEqual(restored.queue.map(\.id), catalog.suffix(2).map(\.id))
+        XCTAssertEqual(restored.currentTime, 30)
+        XCTAssertEqual(restored.musicSessionMemoryStore.memory, saved)
+    }
+
+    @MainActor
+    func testLegacyActiveQueueIsDiscardedInEitherLoadOrder() async throws {
+        let catalog = songs(3)
+        let player = try await makePlayer(librarySongs: catalog)
+        player.setQueue(catalog, startAt: 1)
+        player.currentSong = catalog[1]
+        player.currentTime = 21
+        player.persistPlaybackSession(flushImmediately: true)
+        let snapshot = try XCTUnwrap(player.playbackSessionStore.load())
+        let memory = MusicSessionMemoryStore.Memory(snapshot: snapshot, title: catalog[1].title,
+            songID: catalog[1].id, sourceID: catalog[1].sourceID, savedAt: Date())
+        let directory = player.playbackSessionStore.url.deletingLastPathComponent()
+        for loadFirst in [false, true] {
+            let url = directory.appendingPathComponent("legacy-memory.json")
+            try JSONEncoder().encode(memory).write(to: url)
+            let store = MusicSessionMemoryStore(defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)),
+                                                url: url)
+            if loadFirst { await store.waitForPendingPersistence() }
+            store.excludeActiveQueue(catalog.map(\.id))
+            await store.waitForPendingPersistence()
+            XCTAssertNil(store.memory)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        }
     }
 
     @MainActor
