@@ -25,7 +25,7 @@ Primuse 是面向 Apple 生态的原生多源音乐播放器。它把本地文�
 
 <p align="center">
   <a href="https://g2.al/palveni">
-    <img src="https://g2.al/palveni?v=b67ed6254039a1b4e1236eadd5180154203f24425dcc82147a5d8c66fb59275f" width="320" alt="Palveni 微信群聊二维码"/>
+    <img src="https://g2.al/palveni?v=cc4f3835cd523e649bad7fd02a6f866257e5f9720f491eeb6be2b7a50315377a" width="320" alt="Palveni 微信群聊二维码"/>
   </a>
 </p>
 
