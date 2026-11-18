@@ -2600,7 +2600,8 @@ struct SpokenWordChapterList<Header: View, Row: View>: View {
             }
             .scrollTargetLayout()
         }
-        .scrollPosition($position)
+        // 锚点要挂在修饰符上，章节速滚条按 id 跳过去才会顶到最上面（只给 `scrollTo` 的锚点不起作用）。
+        .scrollPosition($position, anchor: .top)
         .scrollIndicators(showsScrubber ? .hidden : .automatic)
         .onScrollGeometryChange(for: Double.self) { geometry in
             SpokenWordChapterScrubber.scrollFraction(
