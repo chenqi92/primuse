@@ -342,6 +342,29 @@ import Testing
     #expect(!SourceFileDeletionPolicy.canDeleteSourceFile(of: plain, sourceType: nil, isCollectionOnly: false))
 }
 
+@Test func cueDeletionConfirmsTheBackingFileOfTheSelectedSegments() {
+    let plain = Song(id: "disc", title: "Disc", fileFormat: .flac, filePath: "/music/disc.flac", sourceID: "nas")
+    var first = plain
+    first.id = "track-1"
+    first.cueSheetPath = "/music/album.cue"
+    first.cueStartTime = 0
+    var second = first
+    second.id = "track-2"
+    second.cueStartTime = 180
+    var otherFile = second
+    otherFile.id = "track-3"
+    otherFile.filePath = "/music/disc-two.flac"
+    var otherSource = second
+    otherSource.id = "local-track"
+    otherSource.sourceID = "local"
+
+    #expect(SourceFileDeletionPolicy.wholeFileWarning(for: [plain]) == nil)
+    #expect(SourceFileDeletionPolicy.wholeFileWarning(for: [second]) == .file(named: "disc.flac"))
+    #expect(SourceFileDeletionPolicy.wholeFileWarning(for: [first, second]) == .file(named: "disc.flac"))
+    #expect(SourceFileDeletionPolicy.wholeFileWarning(for: [plain, otherFile]) == .selectionIncludesSegments)
+    #expect(SourceFileDeletionPolicy.wholeFileWarning(for: [first, otherSource]) == .selectionIncludesSegments)
+}
+
 @Test func sameFileThroughANasShareAndItsMusicServerIsNotADuplicateToDelete() {
     let sources = [
         MusicSource(id: "syno", name: "群晖", type: .synology),

@@ -578,6 +578,9 @@
 "enable" = "Aktivieren";
 "disabled" = "Deaktiviert";
 "delete_song_message" = "Wenn die Quelle das Löschen unterstützt, wird die Titeldatei in der Quelle entfernt. Gleichnamige Cover-/Liedtextdateien werden nur entfernt, wenn kein anderer Titel sie verwendet, und lokale Caches werden geleert.";
+"delete_entire_file" = "Ganze Datei löschen";
+"delete_segment_file_message_format" = "Die gesamte Quelldatei „%@“ wird dauerhaft gelöscht. Alle Titel, die diese Datei verwenden, lassen sich aus dieser Quelle nicht mehr abspielen.";
+"batch_delete_segment_files_warning" = "Beim Löschen eines ausgewählten Abschnitts wird die gesamte zugehörige Quelldatei gelöscht. Auch nicht ausgewählte Titel, die diese Datei verwenden, lassen sich aus dieser Quelle nicht mehr abspielen.";
 "delete_song_failed_title" = "Löschen fehlgeschlagen";
 "delete_song_failed_message" = "Die Quelldatei konnte nicht gelöscht werden. Der Titel bleibt in der Mediathek. Prüfe Schreibschutz und Kontoberechtigungen und versuche es erneut.";
 "scan" = "Scannen";

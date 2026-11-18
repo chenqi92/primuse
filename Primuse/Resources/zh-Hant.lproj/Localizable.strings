@@ -324,6 +324,9 @@
 "disabled" = "已停用";
 "delete_song" = "從資料庫刪除";
 "delete_song_message" = "支援刪除的音樂來源會同步刪除來源歌曲；同名封面/歌詞沒有其他歌曲使用時才會刪除，並清除本機快取。";
+"delete_entire_file" = "刪除整個檔案";
+"delete_segment_file_message_format" = "將永久刪除整個來源檔案「%@」。所有使用此檔案的分軌都將無法從此來源播放。";
+"batch_delete_segment_files_warning" = "選取分軌會刪除它使用的整個來源檔案。共用該檔案的其他曲目即使未選取，也將無法從此來源播放。";
 "delete_song_failed_title" = "刪除失敗";
 "delete_song_failed_message" = "無法刪除來源檔案，歌曲已保留在資料庫。請檢查音樂來源是否唯讀及帳號權限後再試一次。";
 "scan" = "掃描";

@@ -1155,6 +1155,9 @@
 "delete_song_failed_message" = "No se pudo eliminar el archivo original, por lo que la canción se conservó en la biblioteca. Comprueba si el origen es de solo lectura y revisa los permisos de la cuenta; después, inténtalo de nuevo.";
 "delete_song_failed_title" = "Error al eliminar";
 "delete_song_message" = "Cuando la fuente admita la eliminación, el archivo de la canción fuente se eliminará. Los archivos de portada/letras del mismo nombre se eliminan solo cuando ninguna otra canción los usa y se borran los cachés locales.";
+"delete_entire_file" = "Eliminar el archivo completo";
+"delete_segment_file_message_format" = "Se eliminará de forma permanente el archivo de origen completo «%@». Ninguna pista que use ese archivo podrá reproducirse desde este origen.";
+"batch_delete_segment_files_warning" = "Al eliminar un segmento seleccionado, se elimina todo su archivo de origen. Las demás pistas que usen ese archivo tampoco podrán reproducirse desde este origen, aunque no estén seleccionadas.";
 "deleted_at_format" = "Eliminado %@";
 "desktop_lyrics_locked" = "Letras del escritorio bloqueadas";
 "desktop_lyrics_locked_hint" = "Bloqueado · ⌘⇧L para desbloquear";

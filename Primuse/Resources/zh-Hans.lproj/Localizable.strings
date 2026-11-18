@@ -336,6 +336,9 @@
 "disabled" = "已禁用";
 "delete_song" = "从资料库删除";
 "delete_song_message" = "支持删除的音乐源会同步删除源歌曲；同名封面/歌词没有其他歌曲使用时才会删除，并清除本地缓存。";
+"delete_entire_file" = "删除整个文件";
+"delete_segment_file_message_format" = "将永久删除整个源文件“%@”。所有使用该文件的分轨都将无法从此来源播放。";
+"batch_delete_segment_files_warning" = "选中分轨会删除它引用的整个源文件。共用该文件的其他曲目即使未选中，也将无法从此来源播放。";
 "delete_song_failed_title" = "删除失败";
 "delete_song_failed_message" = "未能删除源文件，歌曲已保留在资料库。请检查音乐源是否只读及账号权限后重试。";
 "scan" = "扫描";

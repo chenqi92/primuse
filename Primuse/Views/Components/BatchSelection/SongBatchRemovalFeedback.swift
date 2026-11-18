@@ -112,6 +112,40 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
     }
 }
 
+extension SourceFileDeletionPolicy.WholeFileWarning {
+    var message: String {
+        switch self {
+        case .file(let name):
+            return String(format: String(localized: "delete_segment_file_message_format"), name)
+        case .selectionIncludesSegments:
+            return String(localized: "batch_delete_segment_files_warning")
+        }
+    }
+}
+
+extension View {
+    func songFileDeletionConfirmation(
+        _ target: Binding<Song?>,
+        perform: @escaping (Song) -> Void
+    ) -> some View {
+        let warning = target.wrappedValue.flatMap { SourceFileDeletionPolicy.wholeFileWarning(for: [$0]) }
+        return alert(
+            warning == nil ? Text("delete_song") : Text("delete_entire_file"),
+            isPresented: Binding(
+                get: { target.wrappedValue != nil },
+                set: { if !$0 { target.wrappedValue = nil } }
+            ),
+            presenting: target.wrappedValue
+        ) { song in
+            Button("cancel", role: .cancel) {}
+            Button(warning == nil ? String(localized: "delete") : String(localized: "delete_entire_file"),
+                   role: .destructive) { perform(song) }
+        } message: { _ in
+            Text(verbatim: warning?.message ?? String(localized: "delete_song_message"))
+        }
+    }
+}
+
 // MARK: - 从音乐服务器删歌的第二次确认
 
 /// 从音乐服务器删歌（`ServerSongDeletionPolicy`）在各入口原有的删除确认之后再确认一次：

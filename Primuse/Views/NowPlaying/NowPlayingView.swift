@@ -2232,7 +2232,7 @@ struct NowPlayingView: View {
     /// 电台的「刚播过」:这个台上听到过的曲目标题。
     @State private var radioDetailStationID: String?
     @State private var showKaraoke = false
-    @State private var showDeleteConfirm = false
+    @State private var deletionTarget: Song?
     /// 从音乐服务器删歌的第二次确认。
     @State private var serverDeletionRequest: ServerSongDeletionRequest?
     @State private var deleteErrorMessage: String?
@@ -2309,7 +2309,7 @@ struct NowPlayingView: View {
             || showEqualizer
             || showEqualizerBypassNotice
             || controlNotice != nil
-            || showDeleteConfirm
+            || deletionTarget != nil
             || serverDeletionRequest != nil
             || scrapeAlertMessage != nil
             || sourceLyricsReloadAlertMessage != nil
@@ -2949,7 +2949,7 @@ struct NowPlayingView: View {
             scrapeAlertMessage = nil
             sourceLyricsReloadAlertMessage = nil
             showNoScraperSourceAlert = false
-            showDeleteConfirm = false
+            deletionTarget = nil
             serverDeletionRequest = nil
             deleteErrorMessage = nil
             showSimilarSongs = false
@@ -5410,14 +5410,7 @@ struct NowPlayingView: View {
         } message: {
             Text(sourceLyricsReloadAlertMessage ?? "")
         }
-        .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
-            Button(String(localized: "cancel"), role: .cancel) {}
-            Button(String(localized: "delete"), role: .destructive) {
-                confirmDeleteCurrentSong()
-            }
-        } message: {
-            Text(String(localized: "delete_song_message"))
-        }
+        .songFileDeletionConfirmation($deletionTarget, perform: confirmDeleteCurrentSong)
         .serverSongDeletionConfirmation($serverDeletionRequest)
         .alert(
             String(localized: "delete_song_failed_title"),
@@ -9854,18 +9847,14 @@ struct NowPlayingView: View {
     }
 
     /// 音乐服务器上的歌再确认一次（服务器上的所有用户和客户端都会失去它），文件来源直接删。
-    private func confirmDeleteCurrentSong() {
-        guard let song = player.currentSong else { return }
+    private func confirmDeleteCurrentSong(_ song: Song) {
+        guard player.currentSong?.id == song.id else { return }
         guard let request = ServerSongDeletionRequest.make(
             deleting: [song],
             sources: sourcesStore.allSources,
-            perform: {
-                // 确认框说的是那一首；等确认的这会儿换了歌就不删。
-                guard player.currentSong?.id == song.id else { return }
-                deleteCurrentSong()
-            }
+            perform: { deleteCurrentSong(song) }
         ) else {
-            deleteCurrentSong()
+            deleteCurrentSong(song)
             return
         }
         Task { @MainActor in
@@ -9874,8 +9863,8 @@ struct NowPlayingView: View {
         }
     }
 
-    private func deleteCurrentSong() {
-        guard let song = player.currentSong,
+    private func deleteCurrentSong(_ song: Song) {
+        guard player.currentSong?.id == song.id,
               SourceFileDeletionPolicy.shouldShowDeleteAction(
                   for: song,
                   sourceType: sourcesStore.source(id: song.sourceID)?.type
@@ -10443,7 +10432,7 @@ struct NowPlayingView: View {
                 Task { await player.continueCurrentMedleySongInFull() }
             },
             onStartKaraoke: { showKaraoke = true },
-            onDelete: { showDeleteConfirm = true }
+            onDelete: { deletionTarget = player.currentSong }
         )
         .equatable()
     }

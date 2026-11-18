@@ -47,7 +47,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showSleepTimer = false
     @State private var showChapterList = false
     @State private var showKaraoke = false
-    @State private var showDeleteConfirm = false
+    @State private var deletionTarget: Song?
     /// 从音乐服务器删歌的第二次确认。
     @State private var serverDeletionRequest: ServerSongDeletionRequest?
     @State private var deleteErrorMessage: String?
@@ -181,12 +181,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             Text(sourceLyricsReloadAlertMessage ?? "")
         }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
-        .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
-            Button(String(localized: "cancel"), role: .cancel) {}
-            Button(String(localized: "delete"), role: .destructive) { confirmDeleteCurrentSong() }
-        } message: {
-            Text(String(localized: "delete_song_message"))
-        }
+        .songFileDeletionConfirmation($deletionTarget, perform: confirmDeleteCurrentSong)
         .serverSongDeletionConfirmation($serverDeletionRequest)
         .alert(
             String(localized: "delete_song_failed_title"),
@@ -665,7 +660,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             divider()
             if canDeleteCurrentSong {
                 menuRow(title: "delete_song", symbol: "trash", role: .destructive) {
-                    showDeleteConfirm = true
+                    deletionTarget = player.currentSong
                 }
             }
         }
@@ -1340,18 +1335,14 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     }
 
     /// 音乐服务器上的歌再确认一次（服务器上的所有用户和客户端都会失去它），文件来源直接删。
-    private func confirmDeleteCurrentSong() {
-        guard let song = player.currentSong else { return }
+    private func confirmDeleteCurrentSong(_ song: Song) {
+        guard player.currentSong?.id == song.id else { return }
         guard let request = ServerSongDeletionRequest.make(
             deleting: [song],
             sources: sourcesStore.allSources,
-            perform: {
-                // 确认框说的是那一首；等确认的这会儿换了歌就不删。
-                guard player.currentSong?.id == song.id else { return }
-                deleteCurrentSong()
-            }
+            perform: { deleteCurrentSong(song) }
         ) else {
-            deleteCurrentSong()
+            deleteCurrentSong(song)
             return
         }
         Task { @MainActor in
@@ -1360,8 +1351,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
     }
 
-    private func deleteCurrentSong() {
-        guard let song = player.currentSong, canDeleteCurrentSong else { return }
+    private func deleteCurrentSong(_ song: Song) {
+        guard player.currentSong?.id == song.id, canDeleteCurrentSong else { return }
         let songID = song.id
         // 先切歌、等 next() 内部 play(song:) 完成,再删缓存/库记录 ——
         // 否则正在播放/预载的音频文件会被抽走 (异步 next() 与同步删除竞态)。

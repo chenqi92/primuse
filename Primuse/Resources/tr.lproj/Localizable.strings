@@ -1664,6 +1664,9 @@
 "song_details_parse_failed_message" = "Dosya baytları okundu, ancak mevcut ayrıştırıcı tüm ayrıntıları doğrulayamadı. Mevcut herhangi bir oynatma yolu etkin durumda kalır.";
 "Sleep Timer" = "Uyku Zamanlayıcısı";
 "delete_song_message" = "Kaynak silmeyi desteklediğinde kaynak şarkı dosyası kaldırılacaktır. Aynı isimli cover/şarkı sözü dosyaları yalnızca başka hiçbir şarkı bunları kullanmadığında kaldırılır ve yerel önbellekler temizlenir.";
+"delete_entire_file" = "Dosyanın Tamamını Sil";
+"delete_segment_file_message_format" = "“%@” adlı kaynak dosyanın tamamı kalıcı olarak silinecek. Bu dosyayı kullanan hiçbir parça artık bu kaynaktan çalınamayacak.";
+"batch_delete_segment_files_warning" = "Seçili bir bölüm silindiğinde kaynak dosyasının tamamı silinir. Aynı dosyayı kullanan diğer parçalar seçilmemiş olsalar bile artık bu kaynaktan çalınamaz.";
 "library_quick_access_selected" = "Favorilerde";
 "Target Language" = "Hedef Dil";
 "smart_mac_match_satisfy" = "Maç";

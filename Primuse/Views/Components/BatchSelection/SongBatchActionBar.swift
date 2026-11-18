@@ -289,9 +289,18 @@ private struct SongBatchActionsModifier: ViewModifier {
         let mode: SongBatchRemovalService.Mode
         let songs: [Song]
         let skipped: Int
+        var wholeFileWarning: SourceFileDeletionPolicy.WholeFileWarning?
         /// 非 nil 时覆盖按源类型推导的原因 —— 用于「删除被拒后改为本机移除」。
         var localRemovalReason: SongLocalRemovalReason?
         var localRemovalDetails: [String: String] = [:]
+
+        var confirmButtonTitle: LocalizedStringKey {
+            switch wholeFileWarning {
+            case .file: "delete_entire_file"
+            case .selectionIncludesSegments: "batch_delete_source_files"
+            case nil: "delete"
+            }
+        }
     }
 
     func body(content: Content) -> some View {
@@ -333,7 +342,7 @@ private struct SongBatchActionsModifier: ViewModifier {
                 presenting: pendingDeletion
             ) { pending in
                 Button("cancel", role: .cancel) {}
-                Button("delete", role: .destructive) { confirmDeletion(pending) }
+                Button(pending.confirmButtonTitle, role: .destructive) { confirmDeletion(pending) }
             } message: { pending in
                 Text(verbatim: deletionMessage(pending))
             }
@@ -852,7 +861,8 @@ private struct SongBatchActionsModifier: ViewModifier {
             pendingDeletion = PendingDeletion(
                 mode: mode,
                 songs: partition.deletable,
-                skipped: partition.skipped.count
+                skipped: partition.skipped.count,
+                wholeFileWarning: SourceFileDeletionPolicy.wholeFileWarning(for: partition.deletable)
             )
         }
     }
@@ -916,6 +926,9 @@ private struct SongBatchActionsModifier: ViewModifier {
                 format: String(localized: "batch_delete_source_files_message_format"),
                 pending.songs.count
             )
+            if let warning = pending.wholeFileWarning {
+                message += "\n" + warning.message
+            }
         }
         if pending.skipped > 0 {
             message += "\n" + String(

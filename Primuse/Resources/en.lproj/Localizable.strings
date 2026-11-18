@@ -336,6 +336,9 @@
 "disabled" = "Disabled";
 "delete_song" = "Delete from Library";
 "delete_song_message" = "When the source supports deletion, the source song file will be removed. Same-name cover/lyrics files are removed only when no other song uses them, and local caches are cleared.";
+"delete_entire_file" = "Delete Entire File";
+"delete_segment_file_message_format" = "This will permanently delete the entire source file “%@”. Every track that uses this file will lose access to it.";
+"batch_delete_segment_files_warning" = "Deleting a selected segment deletes its entire source file. Other tracks that use that file will lose access to it, even if they are not selected.";
 "delete_song_failed_title" = "Deletion Failed";
 "delete_song_failed_message" = "The source file could not be deleted, so the song was kept in the library. Check whether the source is read-only and verify account permissions, then try again.";
 "scan" = "Scan";

@@ -82,7 +82,7 @@ struct SongRowView: View {
     @State private var showAddToPlaylist = false
     @State private var showSongInfo = false
     @State private var playbackRangeEditorRequest: SongPlaybackRangeEditor.Request?
-    @State private var showDeleteConfirm = false
+    @State private var deletionTarget: Song?
     /// 从音乐服务器删歌的第二次确认。
     @State private var serverDeletionRequest: ServerSongDeletionRequest?
     @State private var showBareAlert = false
@@ -197,7 +197,7 @@ struct SongRowView: View {
 
     private var hasPresentationRequest: Bool {
         showScrapeOptions || showNoScraperSourceAlert || showAddToPlaylist
-            || showSongInfo || playbackRangeEditorRequest != nil || showDeleteConfirm || showBareAlert || showTagEditor
+            || showSongInfo || playbackRangeEditorRequest != nil || deletionTarget != nil || showBareAlert || showTagEditor
             || serverDeletionRequest != nil
             || showLyricsEditor || showSimilarSongs || deleteErrorMessage != nil
             || showLocalRemovalConfirm || localRemovalErrorMessage != nil
@@ -269,14 +269,7 @@ struct SongRowView: View {
         .sheet(item: $playbackRangeEditorRequest) { request in
             SongPlaybackRangeEditor(song: library.song(id: request.song.id) ?? request.song, purpose: request.purpose)
         }
-        .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
-            Button(String(localized: "cancel"), role: .cancel) {}
-            Button(String(localized: "delete"), role: .destructive) {
-                confirmDeleteSong()
-            }
-        } message: {
-            Text(String(localized: "delete_song_message"))
-        }
+        .songFileDeletionConfirmation($deletionTarget, perform: confirmDeleteSong)
         .serverSongDeletionConfirmation($serverDeletionRequest)
         .alert(
             String(localized: "delete_song_failed_title"),
@@ -913,7 +906,7 @@ struct SongRowView: View {
             removeFromPlaylistMenuButton
             if canDeleteSourceFile {
                 Button(role: .destructive) {
-                    showDeleteConfirm = true
+                    deletionTarget = song
                 } label: {
                     Label(String(localized: "delete_song"), systemImage: "trash")
                 }
@@ -1088,13 +1081,13 @@ struct SongRowView: View {
 
 
     /// 音乐服务器上的歌再确认一次（服务器上的所有用户和客户端都会失去它），文件来源直接删。
-    private func confirmDeleteSong() {
+    private func confirmDeleteSong(_ song: Song) {
         guard let request = ServerSongDeletionRequest.make(
             deleting: [song],
             sources: sourcesStore.allSources,
-            perform: { deleteSong() }
+            perform: { deleteSong(song) }
         ) else {
-            deleteSong()
+            deleteSong(song)
             return
         }
         Task { @MainActor in
@@ -1103,8 +1096,10 @@ struct SongRowView: View {
         }
     }
 
-    private func deleteSong() {
-        guard canDeleteSourceFile else { return }
+    private func deleteSong(_ song: Song) {
+        guard SourceFileDeletionPolicy.shouldShowDeleteAction(
+            for: song, sourceType: sourcesStore.source(id: song.sourceID)?.type
+        ) else { return }
         Task {
             // Stop if currently playing
             if player.currentSong?.id == song.id {

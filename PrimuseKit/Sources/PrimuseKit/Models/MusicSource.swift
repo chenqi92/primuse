@@ -816,6 +816,23 @@ public enum SourceAudioDeletionStatus: Equatable, Sendable {
 /// points. Keeping the decision here makes it impossible for a view to treat a
 /// transport error as a successful library deletion.
 public enum SourceFileDeletionPolicy {
+    public enum WholeFileWarning: Equatable {
+        case file(named: String)
+        case selectionIncludesSegments
+    }
+
+    public static func wholeFileWarning(for songs: [Song]) -> WholeFileWarning? {
+        guard let segment = songs.first(where: isFileSegment) else { return nil }
+        if songs.allSatisfy({ $0.sourceID == segment.sourceID && $0.filePath == segment.filePath }) {
+            return .file(named: (segment.filePath as NSString).lastPathComponent)
+        }
+        return .selectionIncludesSegments
+    }
+
+    fileprivate static func isFileSegment(_ song: Song) -> Bool {
+        song.cueSheetPath != nil || song.cueStartTime != nil
+    }
+
     public static func shouldShowDeleteAction(for sourceType: MusicSourceType?) -> Bool {
         sourceType?.supportsFileDeletion == true
     }
@@ -834,8 +851,7 @@ public enum SourceFileDeletionPolicy {
         isCollectionOnly: Bool
     ) -> Bool {
         guard let sourceType, sourceType.supportsFileDeletion, !isCollectionOnly else { return false }
-        if sourceType.deletesThroughMusicServer,
-           song.cueSheetPath != nil || song.cueStartTime != nil {
+        if sourceType.deletesThroughMusicServer, isFileSegment(song) {
             return false
         }
         return true
@@ -1017,7 +1033,7 @@ public struct DuplicateCleanupDeletionScope: Hashable, Sendable {
 
     /// 这一份副本本身删不删得了，不看同组的其它副本。
     public func canDeleteCopy(_ song: Song) -> Bool {
-        guard song.cueSheetPath == nil, song.cueStartTime == nil else { return false }
+        guard !SourceFileDeletionPolicy.isFileSegment(song) else { return false }
         return SourceFileDeletionPolicy.canDeleteSourceFile(
             of: song,
             sourceType: sourceTypesByID[song.sourceID],
@@ -1043,7 +1059,7 @@ public struct DuplicateCleanupDeletionScope: Hashable, Sendable {
               songs.contains(where: { $0.id != song.id }) else { return .keep }
         // Local exclusions are keyed by source path. A CUE track must not
         // exclude every other track that reads the same audio file.
-        guard song.cueSheetPath == nil, song.cueStartTime == nil,
+        guard !SourceFileDeletionPolicy.isFileSegment(song),
               !songs.contains(where: {
                   $0.id != song.id && $0.sourceID == song.sourceID && $0.filePath == song.filePath
               }) else { return .keep }
