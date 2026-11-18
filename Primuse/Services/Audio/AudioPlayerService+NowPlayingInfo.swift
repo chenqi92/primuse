@@ -96,6 +96,9 @@ extension AudioPlayerService {
             return
         }
         let nowPlayingCenter = MPNowPlayingInfoCenter.default()
+        defer {
+            synchronizeSystemPlaybackState(projection.playbackRate > 0 ? .playing : .paused, with: nowPlayingCenter)
+        }
 
         #if os(iOS)
         // 歌词行推进只改标题/副标题与进度。复用上一份快照与其中同一个
@@ -173,7 +176,7 @@ extension AudioPlayerService {
         } else if NowPlayingArtworkPublicationPolicy.shouldReuseArtwork(
             ownedBy: publishedArtworkSongID,
             for: currentSong?.id
-        ), let existingArtwork = nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] {
+        ), let existingArtwork = cachedNowPlayingArtwork ?? (nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork) {
             info[MPMediaItemPropertyArtwork] = existingArtwork
         } else if let songID = currentSong?.id,
                   let cachedArtwork = nowPlayingArtworkCache.object(forKey: Self.systemArtworkCacheKey(for: currentSong) as NSString) {
@@ -182,11 +185,6 @@ extension AudioPlayerService {
             info[MPMediaItemPropertyArtwork] = cachedArtwork
             publishedArtworkSongID = songID
         }
-        // 锁屏动态封面跟着整份快照走：素材还没准备好时这里什么也不加，准备好后补发一次。
-        LockScreenMotionArtworkPublisher.shared.decorate(&info, song: song, player: self)
-
-        nowPlayingCenter.nowPlayingInfo = info
-        logNowPlayingPublishIfNeeded(info, songID: song.id, songTitle: song.title)
         // 记住这份完整快照与它携带的封面对象: 下一次歌词行推进直接在它上面
         // 改两个字符串和进度, 不再重建字典, 也不再换封面。
         let publishedArtwork = info[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork
@@ -194,13 +192,25 @@ extension AudioPlayerService {
             cachedNowPlayingArtwork = publishedArtwork
             nowPlayingArtworkRevision &+= 1
         }
+        lockScreenMotionArtworkPublisher.decorate(&info, song: song, player: self)
+        nowPlayingCenter.nowPlayingInfo = info
+        logNowPlayingPublishIfNeeded(info, songID: song.id, songTitle: song.title)
         cachedNowPlayingInfo = info
         cachedNowPlayingInfoKey = currentNowPlayingInfoSnapshotKey()
         #if os(iOS)
         noteLockScreenLyricsPublished()
         #endif
-        #if os(macOS)
-        nowPlayingCenter.playbackState = actualPlaybackIsActive && !isLoading ? .playing : .paused
+    }
+
+    private func synchronizeSystemPlaybackState(_ state: MPNowPlayingPlaybackState, with center: MPNowPlayingInfoCenter) {
+        #if os(iOS) && targetEnvironment(simulator)
+        // Duo 模拟器的 Core Audio 输出运行时，MediaRemote 仍可能把播放会话记为暂停。
+        guard #available(iOS 27, *) else { return }
+        let mixesWithOthers = AVAudioSession.sharedInstance().categoryOptions.contains(.mixWithOthers)
+        let desired: MPNowPlayingPlaybackState = mixesWithOthers ? .stopped : state
+        if center.playbackState != desired { center.playbackState = desired }
+        #elseif os(macOS)
+        center.playbackState = state
         #endif
     }
 
@@ -246,12 +256,10 @@ extension AudioPlayerService {
         lastArtworkSongID = nil
         publishedArtworkSongID = nil
         invalidateCachedNowPlayingInfo()
-        LockScreenMotionArtworkPublisher.shared.reset()
+        lockScreenMotionArtworkPublisher.reset()
         let nowPlayingCenter = MPNowPlayingInfoCenter.default()
         nowPlayingCenter.nowPlayingInfo = nil
-        #if os(macOS)
-        nowPlayingCenter.playbackState = .stopped
-        #endif
+        synchronizeSystemPlaybackState(.stopped, with: nowPlayingCenter)
     }
 
     /// 远程控制中心各命令的可用性投影。每个属性写入都是一次 MediaRemote

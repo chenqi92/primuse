@@ -9526,6 +9526,7 @@ final class AudioPlayerService {
     /// system. It must match `currentSong` before metadata refreshes can carry
     /// that image forward.
     var publishedArtworkSongID: String?
+    let lockScreenMotionArtworkPublisher = LockScreenMotionArtworkPublisher()
 
     /// 解码并降采样后的系统封面内存缓存(songID → artwork)。蓝牙 AVRCP
     /// 车机只在曲目元数据变化的那一刻采样一次封面, 异步补发的图不会被

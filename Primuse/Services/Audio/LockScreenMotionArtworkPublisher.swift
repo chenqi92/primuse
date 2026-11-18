@@ -26,8 +26,6 @@ import AppKit
 /// 都等系统真来要视频时才合成并缓存。Mac 上没有锁屏全屏封面，方形素材照旧只放 1:1 位。
 @MainActor
 final class LockScreenMotionArtworkPublisher {
-    static let shared = LockScreenMotionArtworkPublisher()
-
     /// 系统版本够、而且这台设备至少有一个动态封面位置。设置项和设置搜索按它决定显不显示。
     nonisolated static var isSupportedBySystem: Bool {
         !supportedAspects().isEmpty
@@ -77,13 +75,17 @@ final class LockScreenMotionArtworkPublisher {
     private var prepared: Prepared?
     private var preparingKey: String?
     private var failedKey: String?
+    private var failedMotionKey: String?
     /// 上一次真的放进「正在播放」的素材；设置或素材变了时拿它判断要不要补发。
     private var publishedKey: String?
     private var preparation: Task<Void, Never>?
     private var observers: [NSObjectProtocol] = []
     private var preferenceSnapshot: [Bool] = []
 
-    private init() {}
+    isolated deinit {
+        preparation?.cancel()
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+    }
 
     // MARK: - Now Playing integration
 
@@ -93,12 +95,13 @@ final class LockScreenMotionArtworkPublisher {
         guard Self.isSupportedBySystem else { return }
         self.player = player
         installObserversIfNeeded()
-        guard let key = desiredMaterialKey(song: song, player: player) else {
+        guard let request = materialRequest(song: song, player: player) else {
             cancelPreparation()
             prepared = nil
             publishedKey = nil
             return
         }
+        let key = request.key
         if let prepared, prepared.materialKey == key {
             for (entryKey, value) in prepared.entries { info[entryKey] = value }
             publishedKey = key
@@ -106,18 +109,19 @@ final class LockScreenMotionArtworkPublisher {
         }
         publishedKey = nil
         guard failedKey != key, preparingKey != key else { return }
-        let context = Self.context(for: song, player: player)
-        startPreparation(
-            candidates(for: song, player: player, context: context),
-            key: key,
-            composesWallpaper: context.fullScreenArtworkEnabled
-        )
+        var publishedImage: CGImage?
+        if request.candidates.first?.kind == .coverImage,
+           player.publishedArtworkSongID == song.id, let artwork = player.cachedNowPlayingArtwork {
+            publishedImage = artwork.image(at: artwork.bounds.size)?.platformCGImage
+        }
+        startPreparation(request, publishedImage: publishedImage)
     }
 
     /// 停止播放、清空「正在播放」时调用。
     func reset() {
         cancelPreparation()
         prepared = nil
+        failedMotionKey = nil
         failedKey = nil
         publishedKey = nil
     }
@@ -131,15 +135,16 @@ final class LockScreenMotionArtworkPublisher {
 
     // MARK: - Material choice
 
-    /// nil 表示这首不发动态封面（系统不支持、开关关着、不是曲库音乐或没有素材）。
-    private func desiredMaterialKey(song: Song, player: AudioPlayerService) -> String? {
-        guard Self.isSupportedBySystem else { return nil }
-        let context = Self.context(for: song, player: player)
-        let candidates = candidates(for: song, player: player, context: context)
-        guard !candidates.isEmpty else { return nil }
-        // 「锁屏全屏封面」决定方形素材要不要合成 3:4：同一组素材，开关不同也是两份。
-        return (candidates.map(\.identity) + ["full:\(context.fullScreenArtworkEnabled)"])
-            .joined(separator: "|")
+    private struct MaterialRequest {
+        let candidates: [Candidate]
+        let key: String
+        let composesWallpaper: Bool
+
+        init(_ candidates: [Candidate], composesWallpaper: Bool) {
+            self.candidates = candidates
+            self.composesWallpaper = composesWallpaper
+            key = (candidates.map(\.identity) + ["full:\(composesWallpaper)"]).joined(separator: "|")
+        }
     }
 
     private static func context(for song: Song, player: AudioPlayerService) -> LockScreenMotionArtworkContext {
@@ -167,32 +172,33 @@ final class LockScreenMotionArtworkPublisher {
     }
 
     /// 主线程上只做字典查找和字符串解析；文件核对、读画幅、取首帧都在后台准备时做。
-    private func candidates(
-        for song: Song,
-        player: AudioPlayerService,
-        context: LockScreenMotionArtworkContext
-    ) -> [Candidate] {
-        var result = LockScreenMotionArtworkPolicy.permitsPublishing(context)
-            ? motionCandidates(for: song, player: player)
-            : []
-        // 静态封面只在这首没有动态素材时顶上：有动态素材时加进来会让素材键在方块封面到达时变一次，
-        // 同一段动态素材白白再准备一遍。也只在这首的方块封面已经发出去以后才加——那时封面已经在本机；
-        // 还没取到就加，会因为读不到而记成失败，取到以后也不再重试。
-        if result.isEmpty,
-           LockScreenMotionArtworkPolicy.permitsStillWallpaper(context),
-           player.publishedArtworkSongID == song.id {
-            let revision = (song.coverArtFileName ?? "") + "|" + MetadataAssetStore.shared.artworkFreshnessToken(
-                sourceID: song.sourceID, reference: song.coverArtFileName
-            )
-            result.append(Candidate(kind: .coverImage, source: .coverImage(
-                songID: song.id,
-                reference: song.coverArtFileName,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                revision: revision
-            )))
+    private func materialRequest(song: Song, player: AudioPlayerService) -> MaterialRequest? {
+        let context = Self.context(for: song, player: player)
+        if LockScreenMotionArtworkPolicy.permitsPublishing(context) {
+            let motion = motionCandidates(for: song, player: player)
+            if !motion.isEmpty {
+                let request = MaterialRequest(motion, composesWallpaper: context.fullScreenArtworkEnabled)
+                if request.key != failedMotionKey { return request }
+            }
         }
-        return result
+        guard LockScreenMotionArtworkPolicy.permitsStillWallpaper(context) else { return nil }
+        var reference = song.coverArtFileName
+        // 专辑自选图可能是静态照片；就算歌曲本身没有内嵌封面，也能用这张原图。
+        if StoredArtworkOrigin.resolve(reference) != .selected,
+           let albumID = song.albumID,
+           let override = player.library?.artworkOverride(for: LibraryArtworkOwner(kind: .album, id: albumID)),
+           override.mode == .uploaded, let id = override.uploadedContentID, LibraryArtworkContentIDPolicy.isValid(id) {
+            reference = "selected-\(id).jpg"
+        }
+        let published = player.publishedArtworkSongID == song.id ? player.cachedNowPlayingArtwork : nil
+        guard published != nil || StoredArtworkOrigin.resolve(reference) == .selected else { return nil }
+        let freshness = MetadataAssetStore.shared.artworkFreshnessToken(sourceID: song.sourceID, reference: reference)
+        let revision = [reference ?? "", freshness, published.map { String(describing: ObjectIdentifier($0)) } ?? ""]
+            .joined(separator: "|")
+        let still = Candidate(kind: .coverImage, source: .coverImage(
+            songID: song.id, reference: reference, sourceID: song.sourceID, filePath: song.filePath, revision: revision
+        ))
+        return MaterialRequest([still], composesWallpaper: true)
     }
 
     private func motionCandidates(for song: Song, player: AudioPlayerService) -> [Candidate] {
@@ -245,20 +251,21 @@ final class LockScreenMotionArtworkPublisher {
 
     // MARK: - Preparation
 
-    private func startPreparation(_ candidates: [Candidate], key: String, composesWallpaper: Bool) {
+    private func startPreparation(_ request: MaterialRequest, publishedImage: CGImage?) {
+        let key = request.key
         preparation?.cancel()
         preparingKey = key
         let supported = Self.supportedAspects()
-        let composition = composesWallpaper ? Self.tallComposition() : nil
+        let composition = request.composesWallpaper ? Self.tallComposition() : nil
         // 读图、找主体、合成都不急：切歌那一刻让给起播。
         preparation = Task(priority: .utility) { [weak self] in
             let material = await Self.prepareMaterial(
-                from: candidates,
+                from: request.candidates, publishedImage: publishedImage,
                 supported: supported,
                 composition: composition
             )
             guard !Task.isCancelled else { return }
-            self?.finishPreparation(material, key: key)
+            self?.finishPreparation(material, request: request)
         }
     }
 
@@ -268,13 +275,18 @@ final class LockScreenMotionArtworkPublisher {
         preparingKey = nil
     }
 
-    private func finishPreparation(_ material: PreparedMaterial?, key: String) {
+    private func finishPreparation(_ material: PreparedMaterial?, request: MaterialRequest) {
+        let key = request.key
         guard preparingKey == key else { return }
         preparingKey = nil
         preparation = nil
         guard let material else {
-            // 这一组素材都用不了：同一组不再反复尝试，素材或设置变了才重来。
-            failedKey = key
+            if request.candidates.first?.kind == .coverImage {
+                failedKey = key
+            } else {
+                failedMotionKey = key
+                republish()
+            }
             return
         }
         guard #available(iOS 26.0, macOS 26.0, *) else { return }
@@ -312,7 +324,7 @@ final class LockScreenMotionArtworkPublisher {
     /// 设置或素材变了：这首歌该发的和已经发出去的不一样时才补发。
     private func refreshIfNeeded() {
         guard let player, let song = player.currentSong else { return }
-        let desired = desiredMaterialKey(song: song, player: player)
+        let desired = materialRequest(song: song, player: player)?.key
         if desired != nil, desired == preparingKey { return }
         guard desired != publishedKey else { return }
         failedKey = nil
@@ -329,14 +341,20 @@ final class LockScreenMotionArtworkPublisher {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshIfNeeded() }
+            MainActor.assumeIsolated {
+                self?.failedMotionKey = nil
+                self?.refreshIfNeeded()
+            }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: .primuseMotionCoverServiceMaterialDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshIfNeeded() }
+            MainActor.assumeIsolated {
+                self?.failedMotionKey = nil
+                self?.refreshIfNeeded()
+            }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -474,13 +492,13 @@ extension LockScreenMotionArtworkPublisher {
     nonisolated private static let stillWallpaperLongEdge = 1_920
 
     nonisolated private static func prepareMaterial(
-        from candidates: [Candidate],
+        from candidates: [Candidate], publishedImage: CGImage?,
         supported: Set<MotionCoverAspect>,
         composition: LockScreenTallComposition?
     ) async -> PreparedMaterial? {
         for candidate in candidates {
             guard !Task.isCancelled else { return nil }
-            if let material = await prepare(candidate, supported: supported, composition: composition) {
+            if let material = await prepare(candidate, publishedImage: publishedImage, supported: supported, composition: composition) {
                 return material
             }
         }
@@ -488,7 +506,7 @@ extension LockScreenMotionArtworkPublisher {
     }
 
     nonisolated private static func prepare(
-        _ candidate: Candidate,
+        _ candidate: Candidate, publishedImage: CGImage?,
         supported: Set<MotionCoverAspect>,
         composition: LockScreenTallComposition?
     ) async -> PreparedMaterial? {
@@ -586,12 +604,12 @@ extension LockScreenMotionArtworkPublisher {
 
         case .coverImage(let songID, let reference, let sourceID, let filePath, _):
             // 只放 3:4 位：1:1 位和别的系统界面照旧用方块静态封面。
-            guard let composition, supported.contains(.tall),
-                  let data = CachedArtworkView.largestLocalCoverData(
-                    songID: songID, coverRef: reference, sourceID: sourceID, filePath: filePath
-                  ),
-                  !Task.isCancelled,
-                  let image = decodeImage(data: data, maximumPixelSize: stillWallpaperLongEdge),
+            guard let composition, supported.contains(.tall) else { return nil }
+            let data = CachedArtworkView.largestLocalCoverData(
+                songID: songID, coverRef: reference, sourceID: sourceID, filePath: filePath
+            )
+            guard !Task.isCancelled,
+                  let image = data.flatMap({ decodeImage(data: $0, maximumPixelSize: stillWallpaperLongEdge) }) ?? publishedImage,
                   let layout = LockScreenWallpaperLayout(
                     sourceWidth: Double(image.width),
                     sourceHeight: Double(image.height),
@@ -603,7 +621,7 @@ extension LockScreenMotionArtworkPublisher {
                   let frame = jpegData(composed),
                   let preview = PlatformImage(data: frame) else { return nil }
             // 同一张专辑的歌封面内容一样：按内容认身份，系统不必每首重新要，缓存的视频也共用。
-            let contentKey = SHA256.hash(data: data).prefix(16).map { String(format: "%02x", $0) }.joined()
+            let contentKey = SHA256.hash(data: frame).prefix(16).map { String(format: "%02x", $0) }.joined()
             return PreparedMaterial(renditions: [PreparedRendition(
                 slot: .tall,
                 artworkID: LockScreenMotionArtworkPolicy.artworkID(

@@ -1,11 +1,151 @@
 #if os(iOS)
 import Foundation
 import AVFoundation
+import ImageIO
+import MediaPlayer
+import UniformTypeIdentifiers
 import UIKit
 import SwiftUI
 import PrimuseKit
 import XCTest
 @testable import Primuse
+
+@MainActor
+final class LockScreenArtworkFallbackTests: XCTestCase {
+    private func playerForWallpaper() throws -> AudioPlayerService {
+        guard LockScreenMotionArtworkPublisher.supportsFullScreenArtwork else {
+            throw XCTSkip("Device has no 3:4 Now Playing artwork slot")
+        }
+        let keys = [PlayerAppearancePreferences.animatedArtworkEnabledKey,
+                    PlayerAppearancePreferences.lockScreenAnimatedArtworkKey,
+                    PlayerAppearancePreferences.lockScreenFullScreenArtworkKey]
+        let previous = keys.map { UserDefaults.standard.object(forKey: $0) }
+        for key in keys { UserDefaults.standard.set(true, forKey: key) }
+        let suite = "LockScreenArtworkTests-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            musicSessionMemoryStore: MusicSessionMemoryStore(defaults: defaults, url: directory.appendingPathComponent("music.json")),
+            activateAudioSession: { _ in }
+        )
+        addTeardownBlock { @MainActor in
+            player.clearNowPlayingInfo()
+            for (key, value) in zip(keys, previous) { UserDefaults.standard.set(value, forKey: key) }
+            defaults.removePersistentDomain(forName: suite)
+            try FileManager.default.removeItem(at: directory)
+        }
+        return player
+    }
+
+    private func image(_ color: UIColor) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 128, height: 128)).image { context in
+            color.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 128, height: 128))
+        }
+    }
+
+    private func song(reference: String) -> Song {
+        Song(id: UUID().uuidString, title: "Wallpaper test", fileFormat: .flac,
+             filePath: "/album/track.flac", sourceID: "wallpaper-test", coverArtFileName: reference)
+    }
+
+    private func installSelected(_ data: Data) throws -> String {
+        let store = MetadataAssetStore.shared
+        let filename = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+            + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let directory = store.customArtworkDirectoryURL
+        let url = directory.appendingPathComponent(filename + ".jpg")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try data.write(to: url, options: .withoutOverwriting)
+        addTeardownBlock { try FileManager.default.removeItem(at: url) }
+        return "selected-" + filename + ".jpg"
+    }
+
+    @available(iOS 26.0, *)
+    private func expectArtwork(_ player: AudioPlayerService, squareMotion: Bool) async throws {
+        for _ in 0..<150 {
+            if let info = player.cachedNowPlayingInfo, info[MPNowPlayingInfoProperty3x4AnimatedArtwork] != nil {
+                let supportsSquare = MPNowPlayingInfoCenter.supportedAnimatedArtworkKeys.contains(MPNowPlayingInfoProperty1x1AnimatedArtwork)
+                XCTAssertEqual(info[MPNowPlayingInfoProperty1x1AnimatedArtwork] != nil, squareMotion && supportsSquare)
+                return
+            }
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        XCTFail("The current song never published a 3:4 rendition")
+    }
+
+    #if targetEnvironment(simulator)
+    func testSimulatorPublishesPlaybackStateEvenWhenTheAudioSessionCannotInferIt() throws {
+        guard #available(iOS 27, *) else { throw XCTSkip() }
+        let player = try playerForWallpaper()
+        let center = MPNowPlayingInfoCenter.default()
+        player.currentSong = song(reference: "")
+        player.playbackKind = .liveRadio
+
+        player.isPlaying = true
+        player.updateNowPlayingInfo()
+        XCTAssertEqual(center.playbackState, .playing)
+        player.isPlaying = false
+        player.updateNowPlayingInfo(lyricsLineOnly: true)
+        XCTAssertEqual(center.playbackState, .paused)
+        player.currentSong = nil
+        player.updateNowPlayingInfo()
+        XCTAssertEqual(center.playbackState, .stopped)
+    }
+    #endif
+
+    func testSelectedJPEGFallsBackAfterAnimationInspection() async throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip() }
+        let player = try playerForWallpaper()
+        let previousPlayer = try playerForWallpaper()
+        let picture = image(.orange)
+        player.currentSong = song(reference: try installSelected(XCTUnwrap(picture.jpegData(compressionQuality: 0.9))))
+        player.updateNowPlayingArtwork(picture)
+        previousPlayer.clearNowPlayingInfo()
+        try await expectArtwork(player, squareMotion: false)
+    }
+
+    func testServerCoverAvailableOnlyInPublishedImage() async throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip() }
+        let player = try playerForWallpaper()
+        let track = song(reference: "https://art.example.invalid/" + UUID().uuidString)
+        player.currentSong = track
+        XCTAssertNil(CachedArtworkView.largestLocalCoverData(
+            songID: track.id, coverRef: track.coverArtFileName, sourceID: track.sourceID, filePath: track.filePath
+        ))
+        player.updateNowPlayingArtwork(image(.blue))
+        try await expectArtwork(player, squareMotion: false)
+        let first = try XCTUnwrap(player.cachedNowPlayingInfo?[MPNowPlayingInfoProperty3x4AnimatedArtwork] as? MPMediaItemAnimatedArtwork)
+        player.updateNowPlayingArtwork(image(.red))
+        try await expectArtwork(player, squareMotion: false)
+        let second = try XCTUnwrap(player.cachedNowPlayingInfo?[MPNowPlayingInfoProperty3x4AnimatedArtwork] as? MPMediaItemAnimatedArtwork)
+        XCTAssertFalse(first === second)
+    }
+
+    func testValidSelectedGIFKeepsMotionAheadOfStillWallpaper() async throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip() }
+        let player = try playerForWallpaper()
+        let gif = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(gif, UTType.gif.identifier as CFString, 2, nil))
+        for color in [UIColor.orange, .blue] {
+            let frame = try XCTUnwrap(image(color).cgImage)
+            CGImageDestinationAddImage(destination, frame, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.5]] as CFDictionary)
+        }
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        XCTAssertTrue(try XCTUnwrap(ArtworkImageCompatibility.inspect(gif as Data)).isAnimated)
+        player.currentSong = song(reference: try installSelected(gif as Data))
+        player.updateNowPlayingArtwork(image(.gray))
+        try await expectArtwork(player, squareMotion: true)
+        let motion = try XCTUnwrap(player.cachedNowPlayingInfo?[MPNowPlayingInfoProperty3x4AnimatedArtwork] as? MPMediaItemAnimatedArtwork)
+        player.updateNowPlayingArtwork(image(.red))
+        // 可用动图继续沿用同一份系统素材，替换静态小封面不会触发壁纸重做。
+        let afterReplacement = player.cachedNowPlayingInfo?[MPNowPlayingInfoProperty3x4AnimatedArtwork] as? MPMediaItemAnimatedArtwork
+        XCTAssertTrue(motion === afterReplacement)
+    }
+}
 
 final class MotionArtworkEndpointClientTests: XCTestCase {
     private let fixedNow = Date(timeIntervalSince1970: 2_000_000_000)
