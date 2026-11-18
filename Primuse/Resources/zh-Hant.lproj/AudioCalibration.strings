@@ -31,3 +31,5 @@
 "pasteParameters" = "貼上 Equalizer APO 參數";
 "showSources" = "展開 %@ 的測量來源";
 "hideSources" = "收合 %@ 的測量來源";
+"headphonePresets" = "耳機預設";
+"saveHeadphoneCurve" = "儲存目前的等化器設定";

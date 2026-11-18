@@ -31,3 +31,5 @@
 "pasteParameters" = "Equalizer APO 매개변수 붙여넣기";
 "showSources" = "%@ 측정 출처 펼치기";
 "hideSources" = "%@ 측정 출처 접기";
+"headphonePresets" = "헤드폰 프리셋";
+"saveHeadphoneCurve" = "현재 이퀄라이저 설정 저장";

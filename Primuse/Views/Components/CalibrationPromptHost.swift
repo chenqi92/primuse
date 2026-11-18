@@ -24,7 +24,7 @@ private struct CalibrationPromptHost: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .top) {
-                if let suggestion = eq.deviceSuggestion, scenePhase == .active {
+                if eq.calibrationAvailable, let suggestion = eq.deviceSuggestion, scenePhase == .active {
                     let layout = typeSize.isAccessibilitySize
                         ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
                         : AnyLayout(HStackLayout(spacing: 12))
@@ -49,9 +49,12 @@ private struct CalibrationPromptHost: ViewModifier {
                                     .buttonStyle(.borderless)
                                     .accessibilityIdentifier("eq.calibration.confirm")
                             }
-                            Button(EQText(suggestion.presetID == nil ? "choose" : "change")) { choosing = suggestion }
-                                .buttonStyle(.bordered)
-                                .accessibilityIdentifier("eq.calibration.change")
+                            Button(EQText(suggestion.presetID == nil ? "choose" : "change")) {
+                                plog("EQ calibration picker opened kind=\(suggestion.device.kind.rawValue)")
+                                choosing = suggestion
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("eq.calibration.change")
                             if suggestion.presetID == nil {
                                 Button { close(suggestion.id) } label: { Image(systemName: "xmark") }
                                     .buttonStyle(.borderless)
@@ -67,6 +70,7 @@ private struct CalibrationPromptHost: ViewModifier {
                     .padding(.top, 8)
                     .transition(.opacity)
                     .onHover { hovering = $0 }
+                    .onDisappear { unobscured = false; hovering = false }
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("eq.calibration.prompt")
                     .background(CalibrationVisibilityProbe(isVisible: $unobscured).allowsHitTesting(false))
@@ -81,10 +85,13 @@ private struct CalibrationPromptHost: ViewModifier {
                 close(id)
             }
             .sheet(item: $choosing) { suggestion in
-                AudioCalibrationLibraryView(deviceID: suggestion.device.id).environment(eq)
+                AudioCalibrationLibraryView(purpose: .output(suggestion.device.id)).environment(eq)
             }
             .onChange(of: eq.currentOutputDevice?.id) { _, current in
                 if let choosing, choosing.device.id != current { self.choosing = nil }
+            }
+            .onChange(of: eq.calibrationAvailable) { _, available in
+                if !available { choosing = nil }
             }
     }
 
@@ -109,7 +116,8 @@ private struct CalibrationVisibilityProbe: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             timer?.invalidate()
-            guard window != nil else { changed(false); return }
+            previous = nil
+            guard window != nil else { return }
             timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refresh() }
             }
@@ -118,7 +126,7 @@ private struct CalibrationVisibilityProbe: UIViewRepresentable {
             var top = window?.rootViewController
             while let presented = top?.presentedViewController { top = presented }
             let visible = window?.windowScene?.activationState == .foregroundActive
-                && top.map { isDescendant(of: $0.view) } == true
+                && top?.viewIfLoaded.map { isDescendant(of: $0) } == true
             guard previous != visible else { return }
             previous = visible
             changed(visible)
@@ -141,7 +149,8 @@ private struct CalibrationVisibilityProbe: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             timer?.invalidate()
-            guard window != nil else { changed(false); return }
+            previous = nil
+            guard window != nil else { return }
             timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refresh() }
             }

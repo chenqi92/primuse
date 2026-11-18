@@ -63,6 +63,21 @@ struct ParametricEQTests {
         #expect(filtered.first?.alternatives.isEmpty == true)
     }
 
+    @Test func pagesPreserveModelOrderAndSelectedMeasurementWithoutLoadingAllRows() throws {
+        let results = EQCalibrationCatalog.matchingModels("")
+        #expect(results.count == 6033)
+        let first = results.models(in: 0..<64)
+        let next = results.models(in: 64..<128)
+        #expect(first.count == 64 && next.count == 64)
+        #expect(Set((first + next).map(\.id)).count == 128)
+        #expect(results.models(in: 63..<65).map(\.id) == [first.last?.id, next.first?.id])
+        #expect(results.models(in: 6032..<6096).count == 1)
+        #expect(results.models(in: 6096..<6100).isEmpty)
+        let filtered = EQCalibrationCatalog.matchingModels("EA500LM black nozzle Harpo")
+        #expect(filtered.models(in: 0..<64).first?.primary.measurementSource == "Harpo")
+        #expect(EQCalibrationCatalog.automaticPreset(for: EQOutputDevice(id: "usb", name: "DTC480", kind: .usb)) == nil)
+    }
+
     @Test func fullCatalogSearchKeepsSourcesVariantsAndExistingBindings() throws {
         let hd800 = EQCalibrationCatalog.search("HD800S oratory1990")
         #expect(hd800.contains { $0.name == "Sennheiser HD 800 S" && $0.recommended })

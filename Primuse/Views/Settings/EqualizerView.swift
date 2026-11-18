@@ -39,7 +39,7 @@ struct EqualizerView: View {
         ForEach(EQPreset.builtInPresets) { preset in
             presetCard(preset)
         }
-        ForEach(eq.userPresets) { preset in
+        ForEach(eq.userPresets.filter { eq.library.headphonePresetIDs?.contains($0.id) != true }) { preset in
             presetCard(preset)
                 .contextMenu { userPresetMenu(preset) }
         }
@@ -150,6 +150,8 @@ struct EqualizerView: View {
             }
             .settingsAnchor("equalizer.preset")
 
+            Section { HeadphonePresetRow(userPresetMenu: userPresetMenu) }
+
             Section {
                 EQDeviceBindingList(eq: eq)
             } header: {
@@ -214,6 +216,10 @@ struct EqualizerView: View {
                 .padding(.bottom, 8)
                 .settingsAnchor("equalizer.preset")
 
+                HeadphonePresetRow(userPresetMenu: userPresetMenu)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
                         Text("eq_device_section_title")
@@ -235,6 +241,7 @@ struct EqualizerView: View {
                 .padding(.bottom, 16)
                 .settingsAnchor("equalizer.devices")
             }
+            .accessibilityIdentifier("eq.presets.scroll")
             .frame(maxHeight: .infinity)
         }
         // 只留顶部间距:预设区的滚动视图要贴到底边,才能像其它设置页一样滚到标签栏、

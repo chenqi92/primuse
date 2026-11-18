@@ -31,3 +31,5 @@
 "pasteParameters" = "Equalizer APO पैरामीटर पेस्ट करें";
 "showSources" = "%@ के मापन स्रोत दिखाएँ";
 "hideSources" = "%@ के मापन स्रोत छिपाएँ";
+"headphonePresets" = "हेडफ़ोन प्रीसेट";
+"saveHeadphoneCurve" = "मौजूदा इक्वलाइज़र सेटिंग सहेजें";

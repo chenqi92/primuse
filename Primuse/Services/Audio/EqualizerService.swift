@@ -10,12 +10,16 @@ final class EqualizerService {
     @ObservationIgnored private var suppressPersist = false
 
     var currentPreset: EQPreset = .flat
-    var isEnabled: Bool = true {
+    var isEnabled = false {
         didSet {
-            if !isEnabled { deviceSuggestion = nil }
-            updateBypass(); persist()
+            guard !suppressPersist else { return }
+            if oldValue != isEnabled { reconcileCalibration() }
+            updateBypass()
+            persist()
         }
     }
+    private var outputMode: AudioOutputMode
+    var calibrationAvailable: Bool { isEnabled && outputMode == .effects }
     var bands: [Float] = Array(repeating: 0, count: PrimuseConstants.eqBandCount)
 
     /// 有频段提升时整体压低的量(dB,≤ 0),关着时为 0。
@@ -47,9 +51,11 @@ final class EqualizerService {
     }
     private(set) var deviceSuggestion: DeviceSuggestion?
 
-    init(audioEngine: AudioEngine, defaults: UserDefaults = .standard, tracksOutputDevices: Bool = true) {
+    init(audioEngine: AudioEngine, defaults: UserDefaults = .standard, tracksOutputDevices: Bool = true,
+         outputMode: AudioOutputMode = .effects) {
         self.audioEngine = audioEngine
         self.defaults = defaults
+        self.outputMode = outputMode
         load()
         updatePreampDB()
         if tracksOutputDevices { startOutputDeviceTracking() }
@@ -87,6 +93,7 @@ final class EqualizerService {
 
     func preset(withID id: String) -> EQPreset? {
         if id == EQPreset.customID { return customPreset }
+        if id == currentPreset.id { return currentPreset }
         return EQPreset.builtInPreset(withID: id) ?? library.userPreset(id: id)
     }
 
@@ -140,15 +147,39 @@ final class EqualizerService {
         library.userPresets.count < EQPresetLibrary.maximumUserPresets
     }
 
+    private func storeCurve(_ curve: EQPreset, named name: String) -> EQPreset? {
+        if let peq = curve.parametric { return library.addPreset(named: name, parametric: peq) }
+        return library.addPreset(named: name, bands: curve.bands)
+    }
+
     /// 把当前曲线存成一个命名预设并选中它。
     @discardableResult
     func saveCurrentCurve(named name: String) -> EQPreset? {
-        let saved: EQPreset?
-        if let peq = currentPreset.parametric { saved = library.addPreset(named: name, parametric: peq) }
-        else { saved = library.addPreset(named: name, bands: bands) }
-        guard let preset = saved else { return nil }
+        guard let preset = storeCurve(currentPreset, named: name) else { return nil }
         applyPreset(preset)
         return preset
+    }
+
+    func saveHeadphoneCurve(_ curve: EQPreset, named name: String) -> EQPreset? {
+        guard let preset = storeCurve(curve, named: name) else { return nil }
+        addHeadphonePreset(preset.id)
+        return preset
+    }
+
+    func addHeadphonePreset(_ id: String) {
+        library.addHeadphonePreset(id: id)
+        persist()
+    }
+
+    func removeHeadphonePreset(_ id: String) {
+        library.removeHeadphonePreset(id: id)
+        persist()
+    }
+
+    func selectHeadphonePreset(_ id: String) {
+        guard calibrationAvailable, library.headphonePresetIDs?.contains(id) == true,
+              let preset = preset(withID: id) else { return }
+        chooseCalibration(preset, for: currentOutputDevice?.id)
     }
 
     func renamePreset(id: String, to name: String) {
@@ -226,9 +257,19 @@ final class EqualizerService {
     func outputDeviceDidChange(_ device: EQOutputDevice?) {
         let changed = device?.id != currentOutputDevice?.id
         currentOutputDevice = device
-        guard let device else { deviceSuggestion = nil; return }
-        library.refreshName(of: device)
-        guard changed else { persist(); return }
+        if let device, library.refreshName(of: device) { persist() }
+        if changed { reconcileCalibration() }
+    }
+
+    func setCalibrationOutputMode(_ mode: AudioOutputMode) {
+        guard mode != outputMode else { return }
+        outputMode = mode
+        reconcileCalibration()
+    }
+
+    private func reconcileCalibration() {
+        deviceSuggestion = nil
+        guard calibrationAvailable, let device = currentOutputDevice else { return }
         let next = EQDevicePresetSwitchPolicy.presetIDAfterRouteChange(
             to: device,
             currentPresetID: currentPreset.id,
@@ -240,10 +281,12 @@ final class EqualizerService {
         } else {
             persist()
         }
-        deviceSuggestion = nil
         guard device.kind != .builtInSpeaker,
               library.automaticSwitchDisabledDeviceIDs?.contains(device.id) != true else { return }
-        let suggested = library.binding(for: device.id).flatMap { preset(withID: $0.presetID) }
+        let binding = library.binding(for: device.id)
+        // The old “no calibration” action saved a flat binding. Keep its sound without prompting.
+        guard binding?.presetID != EQPreset.flat.id else { return }
+        let suggested = binding.flatMap { preset(withID: $0.presetID) }
             ?? EQCalibrationCatalog.automaticPreset(for: device)
         if let suggested {
             // An unconfirmed recommendation is transient; route-away still restores the previous curve.
@@ -256,20 +299,34 @@ final class EqualizerService {
             setCurve(.flat)
         }
         deviceSuggestion = DeviceSuggestion(device: device, presetID: suggested?.id)
+        plog("EQ calibration prompt kind=\(device.kind.rawValue) matched=\(suggested != nil)")
     }
 
     func acceptDeviceSuggestion(_ id: UUID) {
-        guard let suggestion = deviceSuggestion, suggestion.id == id,
+        guard calibrationAvailable, let suggestion = deviceSuggestion, suggestion.id == id,
               currentOutputDevice?.id == suggestion.device.id else { return }
         if let presetID = suggestion.presetID { bindCurrentDevice(to: presetID) }
         deviceSuggestion = nil
     }
 
     func chooseCalibration(_ preset: EQPreset, for deviceID: String?) {
-        guard preset.isValid, deviceID == nil || currentOutputDevice?.id == deviceID else { return }
+        guard calibrationAvailable, preset.isValid, deviceID == currentOutputDevice?.id else { return }
         if deviceID != nil { bindCurrentDevice(to: preset.id) }
         else { applyPreset(preset) }
-        if !isEnabled { setEnabled(true) }
+    }
+
+    func declineCalibration(for deviceID: String?) {
+        guard calibrationAvailable, deviceID == currentOutputDevice?.id else { return }
+        var manualPreset = currentPreset
+        if manualPreset.parametric != nil {
+            manualPreset = .flat
+            if library.currentBelongsToBoundDevice, let id = library.unboundPresetID,
+               let previous = preset(withID: id), previous.parametric == nil {
+                manualPreset = previous
+            }
+        }
+        if let device = currentOutputDevice { library.setBinding(device: device, presetID: nil) }
+        applyPreset(manualPreset)
     }
 
     @discardableResult
@@ -316,11 +373,10 @@ final class EqualizerService {
             return
         }
         guard let preset = preset(withID: id) else { return }
-        if currentPreset.id != id {
+        let wasDisabled = !isEnabled
+        if wasDisabled { setEnabled(true) }
+        if currentPreset.id != id || wasDisabled {
             applyPreset(preset)
-        }
-        if !isEnabled {
-            setEnabled(true)
         }
     }
 
@@ -399,18 +455,18 @@ final class EqualizerService {
     }
 
     func reloadAfterOfflineImport() {
-        suppressPersist = true
         deviceSuggestion = nil
         currentPreset = .flat
         bands = Array(repeating: 0, count: PrimuseConstants.eqBandCount)
         customBands = bands
-        isEnabled = true
         load()
-        suppressPersist = false
+        reconcileCalibration()
         applySettings()
     }
 
     private func load() {
+        suppressPersist = true
+        defer { suppressPersist = false }
         let count = PrimuseConstants.eqBandCount
         library = EQPresetLibrary.decode(defaults.data(forKey: EQPresetLibrary.storageKey))
 
@@ -436,8 +492,11 @@ final class EqualizerService {
             bands = preset.parametric == nil ? preset.bands : Array(repeating: 0, count: count)
         }
 
-        if defaults.object(forKey: Keys.enabled) != nil {
-            isEnabled = defaults.bool(forKey: Keys.enabled)
-        }
+        let legacyDefault = library.hasMigratedEnabledPreference != true && presetId == EQPreset.flat.id
+            && library.userPresets.isEmpty && library.customParametric == nil && !customBands.contains { $0 != 0 }
+            && !library.bindings.contains { $0.presetID != EQPreset.flat.id }
+            && (library.unboundPresetID == nil || library.unboundPresetID == EQPreset.flat.id)
+        isEnabled = defaults.bool(forKey: Keys.enabled) && !legacyDefault
+        library.hasMigratedEnabledPreference = true
     }
 }

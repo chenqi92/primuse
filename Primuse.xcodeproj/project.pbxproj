@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		2F1BD27F5DD3B6A456109A6E /* ScraperJSONRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB638275B078E9C44B152E91 /* ScraperJSONRule.swift */; };
+		4E946A6C8B1A4D400853404A /* AutoEqCatalog.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = B1182B82F376B068C60AEA5F /* AutoEqCatalog.sqlite */; };
 		54BA135767A4998E95D1E958 /* NowPlayingCarouselUpNextFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = F584CC469247A34048416F9E /* NowPlayingCarouselUpNextFace.swift */; };
 		967513E316CADFC13E8D1FE1 /* NowPlayingCarouselExploreFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09C0B9A17A59CE43F6EAB17 /* NowPlayingCarouselExploreFace.swift */; };
 		AAEE8C361E5F15F21A9D0BD1 /* NowPlayingCarouselSoundFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A95D907798CF463EF1BB5516 /* NowPlayingCarouselSoundFace.swift */; };
@@ -2385,7 +2386,6 @@
 		FEDD50036FC72BD682E0C6F7 /* AudioCalibration.strings in Resources */ = {isa = PBXBuildFile; fileRef = C164108F7677C76A2C0A9A8D /* AudioCalibration.strings */; };
 		7B284FAEA9BAEFD75391DFFE /* AudioCalibrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E8FE90B3241939ADD3F1BE7 /* AudioCalibrationTests.swift */; };
 		C6ACEB8CD58B7801D209940B /* AudioCalibrationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1016950E8276E7A22C84C85 /* AudioCalibrationUITests.swift */; };
-		7B5B30BE4EFD9ADE829F2A14 /* AutoEqCatalog.json in Resources */ = {isa = PBXBuildFile; fileRef = 062501A320B0E0A5C9F6A703 /* AutoEqCatalog.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2653,6 +2653,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		B1182B82F376B068C60AEA5F /* AutoEqCatalog.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = AutoEqCatalog.sqlite; sourceTree = "<group>"; };
 		DB638275B078E9C44B152E91 /* ScraperJSONRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperJSONRule.swift; sourceTree = "<group>"; };
 		6904511379BB45DCF7239315 /* RemoteTransferProgressPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTransferProgressPolicy.swift; sourceTree = "<group>"; };
 		A95D907798CF463EF1BB5516 /* NowPlayingCarouselSoundFace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingCarouselSoundFace.swift; sourceTree = "<group>"; };
@@ -4377,7 +4378,6 @@
 		A92004628677C368FB317485 /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = hi.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
 		B212862DF0F11E2B47DE0862 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
 		F506CBEBD38204410E8C19D4 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
-		062501A320B0E0A5C9F6A703 /* AutoEqCatalog.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = AutoEqCatalog.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -6345,7 +6345,7 @@
 		D7B9A30E7467B10B25922382 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				062501A320B0E0A5C9F6A703 /* AutoEqCatalog.json */,
+				B1182B82F376B068C60AEA5F /* AutoEqCatalog.sqlite */,
 				449E8C72C7990DCAAE0C289F /* Localizable.strings */,
 				2A0B9580F79C6A0819C1E72B /* FlyAuditoryCircuit.bin */,
 			);
@@ -7263,7 +7263,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7B5B30BE4EFD9ADE829F2A14 /* AutoEqCatalog.json in Resources */,
+				4E946A6C8B1A4D400853404A /* AutoEqCatalog.sqlite in Resources */,
 				693DB3661F6A80B96FC38E8D /* FlyAuditoryCircuit.bin in Resources */,
 				193463D65D5D8855FB50984D /* Localizable.strings in Resources */,
 			);

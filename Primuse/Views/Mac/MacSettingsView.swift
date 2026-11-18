@@ -3674,7 +3674,7 @@ private struct MacSTEqualizerView: View {
                         alignment: .leading,
                         spacing: 6
                     ) {
-                        ForEach(presets) { preset in
+                        ForEach(presets.filter { eq.library.headphonePresetIDs?.contains($0.id) != true }) { preset in
                             Button {
                                 pmWithAnimation(.selection) { eq.applyPreset(preset) }
                             } label: {
@@ -3700,6 +3700,7 @@ private struct MacSTEqualizerView: View {
                     }
                 }
                 .settingsAnchor("equalizer.reset")
+                HeadphonePresetRow(userPresetMenu: userPresetMenu).padding(12)
             }
         }
 

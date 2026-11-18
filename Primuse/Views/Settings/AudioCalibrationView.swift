@@ -21,6 +21,7 @@ struct AudioCalibrationControls: View {
                 Label(EQText("library"), systemImage: "headphones")
             }
             .accessibilityIdentifier("eq.calibration.library")
+            .disabled(!eq.calibrationAvailable)
             if let peq = eq.currentPreset.parametric {
                 Text(eq.currentPreset.localizedName).font(.headline)
                 CalibrationResponseView(preset: eq.currentPreset, showsAxes: true).frame(height: 120)
@@ -40,7 +41,13 @@ struct AudioCalibrationControls: View {
             CalibrationAvailabilityView()
         }
         .sheet(item: $selection) { request in
-            AudioCalibrationLibraryView(deviceID: request.deviceID).environment(eq)
+            AudioCalibrationLibraryView(purpose: .output(request.deviceID)).environment(eq)
+        }
+        .onChange(of: eq.currentOutputDevice?.id) { _, current in
+            if let selection, selection.deviceID != current { self.selection = nil }
+        }
+        .onChange(of: eq.calibrationAvailable) { _, available in
+            if !available { selection = nil }
         }
     }
 }
@@ -63,10 +70,117 @@ struct CalibrationAvailabilityView: View {
     }
 }
 
+private actor CalibrationModelSearch {
+    static let shared = CalibrationModelSearch()
+
+    func entries(for ids: [String]) -> [String: EQCalibrationCatalog.Entry] {
+        var entries: [String: EQCalibrationCatalog.Entry] = [:]
+        for id in ids {
+            if Task.isCancelled { break }
+            entries[id] = EQCalibrationCatalog.entry(withID: id)
+        }
+        return entries
+    }
+
+    func results(for query: String) -> EQCalibrationCatalog.SearchResults? {
+        guard !Task.isCancelled else { return nil }
+        return EQCalibrationCatalog.matchingModels(query)
+    }
+
+    func page(_ range: Range<Int>, in results: EQCalibrationCatalog.SearchResults) -> [EQCalibrationCatalog.ModelResult] {
+        guard !Task.isCancelled else { return [] }
+        return results.models(in: range)
+    }
+}
+
+struct HeadphonePresetRow<UserPresetMenu: View>: View {
+    @Environment(EqualizerService.self) private var eq
+    @ViewBuilder let userPresetMenu: (EQPreset) -> UserPresetMenu
+    @State private var showingLibrary = false
+    @State private var catalog: [String: EQCalibrationCatalog.Entry] = [:]
+
+    var body: some View {
+        let ids = eq.library.headphonePresetIDs ?? []
+        let catalogIDs = ids.filter { $0.hasPrefix("autoeq.") }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(EQText("headphonePresets")).font(.headline)
+                Spacer()
+                Button { showingLibrary = true } label: {
+                    Label("add", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier("eq.headphones.add")
+            }
+            if !ids.isEmpty {
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 8) {
+                        ForEach(ids, id: \.self) { id in
+                            if let preset = eq.library.userPreset(id: id) {
+                                chip(id: id, name: preset.name, source: preset.parametric?.source)
+                            } else if let entry = catalog[id] {
+                                chip(id: id, name: entry.name, source: entry.measurement)
+                            }
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+        .task(id: catalogIDs) {
+            let entries = await CalibrationModelSearch.shared.entries(for: catalogIDs)
+            if !Task.isCancelled { catalog = entries }
+        }
+        .sheet(isPresented: $showingLibrary) {
+            AudioCalibrationLibraryView(purpose: .addHeadphone).environment(eq)
+        }
+    }
+
+    private func chip(id: String, name: String, source: String?) -> some View {
+        let selected = eq.calibrationAvailable && eq.currentPreset.id == id
+        return HStack(spacing: 0) {
+            Button { eq.selectHeadphonePreset(id) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "headphones")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: name).font(.subheadline).lineLimit(2)
+                        if let source, !source.isEmpty {
+                            Text(verbatim: source).font(.caption2).lineLimit(1).foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: 240, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+                }
+                .padding(.horizontal, 10)
+                .frame(minHeight: 44)
+                .background(.tint.opacity(selected ? 0.15 : 0.05), in: RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+            .disabled(!eq.calibrationAvailable)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityIdentifier("eq.headphones." + id)
+        }
+        .contextMenu {
+            Button("remove", systemImage: "minus.circle") { eq.removeHeadphonePreset(id) }
+            if let preset = eq.library.userPreset(id: id) {
+                Divider()
+                userPresetMenu(preset)
+            }
+        }
+    }
+}
+
 struct AudioCalibrationLibraryView: View {
     @Environment(EqualizerService.self) private var eq
     @Environment(\.dismiss) private var dismiss
-    let deviceID: String?
+    enum Purpose {
+        case output(String?)
+        case addHeadphone
+    }
+    let purpose: Purpose
+    private var addingHeadphone: Bool { if case .addHeadphone = purpose { true } else { false } }
+    @State private var curveToSave: EQPreset?
+    @State private var headphoneName = ""
     @State private var query = ""
     @State private var showingFile = false
     @State private var showingImport = false
@@ -75,47 +189,79 @@ struct AudioCalibrationLibraryView: View {
     @State private var error: String?
     @State private var showingLicense = false
 
+    private static let pageSize = 64
+    @State private var builtIn: [EQCalibrationCatalog.ModelResult] = []
+    @State private var loadedQuery: String?
+    @State private var results: EQCalibrationCatalog.SearchResults?
     @State private var expandedModels = Set<String>()
-    private var imported: [EQPreset] { eq.userPresets.filter { $0.parametric != nil && matches($0) } }
+    private var imported: [EQPreset] { eq.userPresets.filter { (addingHeadphone || $0.parametric != nil) && matches($0) } }
     private func matches(_ preset: EQPreset) -> Bool {
         query.isEmpty || preset.name.localizedStandardContains(query)
             || (preset.parametric?.source?.localizedStandardContains(query) ?? false)
     }
 
     var body: some View {
-        let builtIn = EQCalibrationCatalog.searchModels(query)
         NavigationStack {
             List {
                 Section {
-                    Button(EQText("none")) { select(.flat) }
+                    switch purpose {
+                    case .output(let deviceID):
+                        Button(EQText("none")) {
+                            eq.declineCalibration(for: deviceID)
+                            dismiss()
+                        }
+                        .accessibilityIdentifier("eq.calibration.none")
+                    case .addHeadphone:
+                        Button(EQText("saveHeadphoneCurve")) {
+                            headphoneName = ""
+                            curveToSave = eq.currentPreset
+                        }
+                        .disabled(!eq.canAddPreset)
+                        .accessibilityIdentifier("eq.headphones.saveCurrent")
+                    }
                 }
                 if !imported.isEmpty {
-                    Section(EQText("imported")) {
+                    Section(addingHeadphone ? String(localized: "eq_preset") : EQText("imported")) {
                         ForEach(imported) { preset in
                             row(preset, source: preset.parametric?.source)
                         }
-                        .onDelete { offsets in
+                        .onDelete(perform: addingHeadphone ? nil : { offsets in
                             let ids = offsets.map { imported[$0].id }
                             for id in ids { eq.deletePreset(id: id) }
+                        })
+                    }
+                }
+                if loadedQuery == query, let results {
+                    Section("\(EQText("builtIn")) · \(results.count.formatted())") {
+                        ForEach(builtIn) { model in
+                            VStack(alignment: .leading, spacing: 8) { modelRow(model) }
+                        }
+                        if builtIn.count < results.count {
+                            ProgressView().task(id: builtIn.count) { [query] in
+                                let offset = builtIn.count
+                                let page = await CalibrationModelSearch.shared.page(offset..<(offset + Self.pageSize), in: results)
+                                guard !Task.isCancelled, self.query == query, loadedQuery == query, builtIn.count == offset else { return }
+                                builtIn.append(contentsOf: page)
+                            }
                         }
                     }
-                }
-                Section("\(EQText("builtIn")) · \(builtIn.count.formatted())") {
-                    ForEach(builtIn) { model in
-                        modelRow(model)
+                    if imported.isEmpty && builtIn.isEmpty {
+                        ContentUnavailableView.search(text: query)
                     }
-                }
-                if imported.isEmpty && builtIn.isEmpty {
-                    ContentUnavailableView.search(text: query)
+                } else {
+                    ProgressView()
                 }
                 Section {
                     Button("AutoEq · MIT") { showingLicense = true }
                 }
             }
             .searchable(text: $query, prompt: EQText("search"))
-            .navigationTitle(EQText("library"))
+            .navigationTitle(EQText(addingHeadphone ? "headphonePresets" : "library"))
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(EQText("done")) { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(EQText("done")) { dismiss() }
+                        .accessibilityIdentifier("eq.calibration.library.done")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button(EQText("importFile")) { showingFile = true }
@@ -157,10 +303,26 @@ struct AudioCalibrationLibraryView: View {
             .alert(EQText("importFailed"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                 Button(EQText("done"), role: .cancel) { error = nil }
             } message: { Text(error ?? "") }
+            .alert(EQText("saveHeadphoneCurve"), isPresented: Binding(
+                get: { curveToSave != nil }, set: { if !$0 { curveToSave = nil } }
+            ), presenting: curveToSave) { curve in
+                TextField("eq_preset_name_placeholder", text: $headphoneName)
+                Button("save") {
+                    _ = eq.saveHeadphoneCurve(curve, named: headphoneName)
+                }
+                .disabled(EQPresetLibrary.normalizedName(headphoneName) == nil || !eq.canAddPreset)
+                Button("cancel", role: .cancel) {}
+            }
         }
         .frame(minWidth: 300, minHeight: 400)
-        .onChange(of: eq.currentOutputDevice?.id) { _, current in
-            if let deviceID, current != deviceID { dismiss() }
+        .task(id: query) { [query] in
+            guard let matches = await CalibrationModelSearch.shared.results(for: query), !Task.isCancelled else { return }
+            let first = await CalibrationModelSearch.shared.page(0..<Self.pageSize, in: matches)
+            guard !Task.isCancelled else { return }
+            if loadedQuery == nil { plog("EQ calibration picker ready models=\(matches.count) rows=\(first.count)") }
+            results = matches
+            builtIn = first
+            loadedQuery = query
         }
     }
 
@@ -198,35 +360,45 @@ struct AudioCalibrationLibraryView: View {
     }
 
     private func catalogRow(_ entry: EQCalibrationCatalog.Entry, title: String, showsSource: Bool = true) -> some View {
-        row(id: entry.id, name: title, source: showsSource ? entry.measurement : nil) { select(entry.preset) }
+        row(id: entry.id, name: title, source: showsSource ? entry.measurement : nil) { select(entry.id, preset: entry.preset) }
             .contextMenu {
                 if let url = URL(string: entry.url) { Link(EQText("source"), destination: url) }
             }
     }
 
     private func row(_ preset: EQPreset, source: String?) -> some View {
-        row(id: preset.id, name: preset.name, source: source) { select(preset) }
+        row(id: preset.id, name: preset.name, source: source) { select(preset.id, preset: preset) }
     }
 
     private func row(id: String, name: String, source: String?, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        let selected = addingHeadphone ? eq.library.headphonePresetIDs?.contains(id) == true : eq.currentPreset.id == id
+        return Button(action: action) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(name).foregroundStyle(.primary)
                     if let source { Text(source).font(.caption).foregroundStyle(.secondary) }
                 }
                 Spacer()
-                if eq.currentPreset.id == id { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
+                if selected {
+                    Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
+                }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("eq.calibration.preset.\(id)")
     }
 
-    private func select(_ preset: EQPreset) {
-        eq.chooseCalibration(preset, for: deviceID)
-        dismiss()
+    private func select(_ id: String, preset: @autoclosure () -> EQPreset) {
+        switch purpose {
+        case .output(let deviceID):
+            eq.chooseCalibration(preset(), for: deviceID)
+            dismiss()
+        case .addHeadphone:
+            if eq.library.headphonePresetIDs?.contains(id) == true { eq.removeHeadphonePreset(id) }
+            else { eq.addHeadphonePreset(id) }
+        }
     }
 
     private var importSheet: some View {
@@ -250,11 +422,11 @@ struct AudioCalibrationLibraryView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(EQText("cancel")) { showingImport = false } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(EQText("apply")) {
+                    Button(addingHeadphone ? String(localized: "add") : EQText("apply")) {
                         do {
                             let preset = try eq.importCalibration(name: name, text: text)
                             showingImport = false
-                            select(preset)
+                            select(preset.id, preset: preset)
                         } catch { self.error = importMessage(error); showingImport = false }
                     }
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.isEmpty)
@@ -290,10 +462,13 @@ struct CalibrationTestHost: View {
 
     init() {
         let defaults = UserDefaults(suiteName: "primuse.calibration.ui-tests")!
-        defaults.removePersistentDomain(forName: "primuse.calibration.ui-tests")
+        let restoring = ProcessInfo.processInfo.environment["PRIMUSE_EQ_TEST_RELAUNCH"] == "1"
+        if !restoring { defaults.removePersistentDomain(forName: "primuse.calibration.ui-tests") }
         let engine = AudioEngine(volumeDefaults: defaults, outputDefaults: defaults)
         _engine = State(initialValue: engine)
-        _eq = State(initialValue: EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false))
+        let service = EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false)
+        if !restoring { service.setEnabled(true) }
+        _eq = State(initialValue: service)
     }
 
     var body: some View {

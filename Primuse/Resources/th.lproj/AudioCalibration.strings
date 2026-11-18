@@ -31,3 +31,5 @@
 "pasteParameters" = "วางพารามิเตอร์ Equalizer APO";
 "showSources" = "แสดงแหล่งการวัดของ %@";
 "hideSources" = "ซ่อนแหล่งการวัดของ %@";
+"headphonePresets" = "พรีเซ็ตหูฟัง";
+"saveHeadphoneCurve" = "บันทึกการตั้งค่าอีควอไลเซอร์ปัจจุบัน";

@@ -31,3 +31,5 @@
 "pasteParameters" = "Equalizer APO parametrelerini yapıştırın";
 "showSources" = "%@ için ölçüm kaynaklarını göster";
 "hideSources" = "%@ için ölçüm kaynaklarını gizle";
+"headphonePresets" = "Kulaklık ön ayarları";
+"saveHeadphoneCurve" = "Geçerli ekolayzer ayarlarını kaydet";

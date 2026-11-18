@@ -79,9 +79,9 @@ final class EQOutputDeviceMonitor {
         observers.append(NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: AVAudioSession.sharedInstance(),
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            queue: nil
+        ) { @Sendable [weak self] _ in
+            Task { @MainActor [weak self] in self?.refresh() }
         })
         #elseif os(macOS)
         observers.append(NotificationCenter.default.addObserver(
@@ -116,6 +116,11 @@ final class EQOutputDeviceMonitor {
 
     #if os(iOS)
     private static func readDevice() -> EQOutputDevice? {
+        #if DEBUG
+        if let name = ProcessInfo.processInfo.environment["PRIMUSE_EQ_TEST_USB_OUTPUT"] {
+            return EQOutputDevice(id: "test.usb." + name, name: name, kind: .usb)
+        }
+        #endif
         guard let port = AVAudioSession.sharedInstance().currentRoute.outputs.first else { return nil }
         let kind = kind(of: port.portType)
         if kind == .builtInSpeaker {

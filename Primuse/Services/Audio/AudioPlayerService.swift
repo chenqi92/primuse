@@ -1897,7 +1897,7 @@ final class AudioPlayerService {
         )
         self.activateAudioSession = activateAudioSession
         audioEngine = AudioEngine()
-        equalizerService = EqualizerService(audioEngine: audioEngine)
+        equalizerService = EqualizerService(audioEngine: audioEngine, outputMode: playbackSettings.outputMode)
         audioEffectsService = AudioEffectsService(audioEngine: audioEngine, settingsStore: playbackSettings)
         applySpatialAudioSettings()
         applyPlaybackRate()
@@ -2567,6 +2567,7 @@ final class AudioPlayerService {
                 #if os(macOS)
                 self.audioEngine.exclusiveOutputRequested = self.playbackSettings.exclusiveOutputEnabled
                 #endif
+                self.equalizerService.setCalibrationOutputMode(self.playbackSettings.outputMode)
                 if self.canRebuildOutputPipelineForSettingsChange {
                     self.seek(to: self.currentTime, startPlaying: self.isPlaying)
                 } else {

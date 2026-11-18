@@ -45,7 +45,10 @@ public struct EQDevicePresetBinding: Codable, Hashable, Sendable, Identifiable {
 public struct EQPresetLibrary: Codable, Equatable, Sendable {
     public var userPresets: [EQPreset]
     public var customParametric: ParametricEQ?
+    /// Older versions saved the default enabled switch even when the user never configured EQ.
+    public var hasMigratedEnabledPreference: Bool?
     public var automaticSwitchDisabledDeviceIDs: Set<String>?
+    public private(set) var headphonePresetIDs: [String]?
     public var bindings: [EQDevicePresetBinding]
     /// 当前曲线是在一台绑定了预设的设备上换上(或选中)的:离开这台设备时要换回 `unboundPresetID`。
     public var currentBelongsToBoundDevice: Bool
@@ -83,6 +86,10 @@ public struct EQPresetLibrary: Codable, Equatable, Sendable {
         if library.customParametric?.isValid == false { library.customParametric = nil }
         let ids = Set(library.userPresets.map(\.id))
         library.bindings = library.bindings.filter { isBindable($0.presetID, userPresetIDs: ids) }
+        var seen = Set<String>()
+        library.headphonePresetIDs = library.headphonePresetIDs?.filter {
+            (ids.contains($0) || $0.hasPrefix("autoeq.")) && seen.insert($0).inserted
+        }
         return library
     }
 
@@ -128,6 +135,16 @@ public struct EQPresetLibrary: Codable, Equatable, Sendable {
 
     // MARK: - Editing
 
+    public mutating func addHeadphonePreset(id: String) {
+        guard headphonePresetIDs?.contains(id) != true,
+              id.hasPrefix("autoeq.") || userPreset(id: id) != nil else { return }
+        headphonePresetIDs = (headphonePresetIDs ?? []) + [id]
+    }
+
+    public mutating func removeHeadphonePreset(id: String) {
+        headphonePresetIDs?.removeAll { $0 == id }
+    }
+
     public mutating func addPreset(named rawName: String, parametric: ParametricEQ, id: String = UUID().uuidString) -> EQPreset? {
         guard parametric.isValid, let name = Self.normalizedName(rawName),
               userPresets.count < Self.maximumUserPresets else { return nil }
@@ -172,6 +189,7 @@ public struct EQPresetLibrary: Codable, Equatable, Sendable {
 
     /// 删掉预设,连同绑到它上的设备和对它的记忆。
     public mutating func removePreset(id: String) {
+        removeHeadphonePreset(id: id)
         userPresets.removeAll { $0.id == id }
         bindings.removeAll { $0.presetID == id }
         if unboundPresetID == id { unboundPresetID = nil }

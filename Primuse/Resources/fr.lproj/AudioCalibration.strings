@@ -31,3 +31,5 @@
 "pasteParameters" = "Coller les paramètres Equalizer APO";
 "showSources" = "Afficher les sources de mesure pour %@";
 "hideSources" = "Masquer les sources de mesure pour %@";
+"headphonePresets" = "Préréglages de casque";
+"saveHeadphoneCurve" = "Enregistrer les réglages d’égalisation actuels";

@@ -31,3 +31,5 @@
 "pasteParameters" = "الصق معلمات Equalizer APO";
 "showSources" = "عرض مصادر القياس لـ %@";
 "hideSources" = "إخفاء مصادر القياس لـ %@";
+"headphonePresets" = "إعدادات سماعات الرأس المسبقة";
+"saveHeadphoneCurve" = "حفظ إعدادات المعادل الحالية";

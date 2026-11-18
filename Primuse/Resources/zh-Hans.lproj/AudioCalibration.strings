@@ -31,3 +31,5 @@
 "pasteParameters" = "粘贴 Equalizer APO 参数";
 "showSources" = "展开 %@ 的测量来源";
 "hideSources" = "收起 %@ 的测量来源";
+"headphonePresets" = "耳机预设";
+"saveHeadphoneCurve" = "保存当前均衡器设置";

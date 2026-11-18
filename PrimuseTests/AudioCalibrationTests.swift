@@ -4,13 +4,117 @@ import PrimuseKit
 @testable import Primuse
 
 final class AudioCalibrationTests: XCTestCase {
-    @MainActor private func withService(_ body: (EqualizerService, UserDefaults, AudioEngine) throws -> Void) throws {
+    @MainActor private func withService(enabled: Bool = true, _ body: (EqualizerService, UserDefaults, AudioEngine) throws -> Void) throws {
         let suite = "eq-tests-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let engine = AudioEngine(volumeDefaults: defaults, outputDefaults: defaults)
         let service = EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false)
+        if enabled { service.setEnabled(true) }
         try body(service, defaults, engine)
+    }
+
+    @MainActor func testEQOffSkipsRoutesAndStaleChoicesUntilExplicitlyEnabled() throws {
+        try withService(enabled: false) { service, defaults, engine in
+            let dac = EQOutputDevice(id: "dac", name: "DTC480", kind: .usb)
+            let headphones = EQOutputDevice(id: "sony", name: "WH-1000XM5", kind: .bluetooth)
+            XCTAssertFalse(service.isEnabled)
+            service.outputDeviceDidChange(dac)
+            XCTAssertNil(service.deviceSuggestion)
+            service.chooseCalibration(.bass, for: dac.id)
+            XCTAssertFalse(service.isEnabled)
+            XCTAssertNil(service.currentDeviceBinding)
+            service.setEnabled(true)
+            let prompt = try XCTUnwrap(service.deviceSuggestion)
+            service.chooseCalibration(.jazz, for: dac.id)
+            service.setEnabled(false)
+            service.acceptDeviceSuggestion(prompt.id)
+            service.outputDeviceDidChange(headphones)
+            XCTAssertEqual(service.currentOutputDevice, headphones)
+            XCTAssertNil(service.deviceSuggestion)
+            XCTAssertEqual(service.currentPreset.id, EQPreset.jazz.id)
+            let restored = EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false)
+            restored.outputDeviceDidChange(dac)
+            XCTAssertFalse(restored.isEnabled)
+            XCTAssertNil(restored.deviceSuggestion)
+            restored.setEnabled(true)
+            XCTAssertEqual(restored.currentDeviceBinding?.presetID, EQPreset.jazz.id)
+            XCTAssertEqual(restored.currentPreset.id, EQPreset.jazz.id)
+        }
+    }
+
+    @MainActor func testDecliningARecommendationRestoresManualEQAndPersistsByDevice() throws {
+        try withService { service, defaults, engine in
+            let sony = EQOutputDevice(id: "sony", name: "WH-1000XM5", kind: .bluetooth)
+            let dac = EQOutputDevice(id: "dac", name: "DTC480", kind: .usb)
+            service.applyPreset(.jazz)
+            service.outputDeviceDidChange(sony)
+            let prompt = try XCTUnwrap(service.deviceSuggestion)
+            service.declineCalibration(for: sony.id)
+            service.acceptDeviceSuggestion(prompt.id)
+            XCTAssertTrue(service.isEnabled)
+            XCTAssertEqual(service.currentPreset.id, EQPreset.jazz.id)
+            XCTAssertNil(service.currentDeviceBinding)
+            let restored = EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false)
+            restored.outputDeviceDidChange(sony)
+            XCTAssertNil(restored.deviceSuggestion)
+            XCTAssertEqual(restored.currentPreset.id, EQPreset.jazz.id)
+            restored.outputDeviceDidChange(dac)
+            restored.declineCalibration(for: sony.id)
+            XCTAssertEqual(restored.deviceSuggestion?.device.id, dac.id)
+            restored.outputDeviceDidChange(sony)
+            XCTAssertNil(restored.deviceSuggestion)
+            let preset = try XCTUnwrap(EQCalibrationCatalog.automaticPreset(for: sony))
+            restored.chooseCalibration(preset, for: sony.id)
+            XCTAssertEqual(restored.currentDeviceBinding?.presetID, preset.id)
+        }
+    }
+
+    @MainActor func testHighFidelitySkipsCalibrationWhilePausedAndAfterRestart() throws {
+        try withService { service, defaults, engine in
+            let sony = EQOutputDevice(id: "sony", name: "WH-1000XM5", kind: .bluetooth)
+            service.setCalibrationOutputMode(.highFidelity)
+            service.outputDeviceDidChange(sony)
+            XCTAssertNil(service.deviceSuggestion)
+            XCTAssertEqual(service.currentPreset.id, EQPreset.flat.id)
+            let restored = EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false, outputMode: .highFidelity)
+            restored.outputDeviceDidChange(sony)
+            XCTAssertNil(restored.deviceSuggestion)
+            restored.setCalibrationOutputMode(.effects)
+            let prompt = try XCTUnwrap(restored.deviceSuggestion)
+            restored.setCalibrationOutputMode(.highFidelity)
+            restored.acceptDeviceSuggestion(prompt.id)
+            restored.chooseCalibration(.jazz, for: sony.id)
+            XCTAssertNil(restored.deviceSuggestion)
+            XCTAssertNil(restored.currentDeviceBinding)
+        }
+    }
+
+    @MainActor func testLegacyDefaultAndNoCalibrationBindingStayQuietAfterUpgrade() throws {
+        try withService(enabled: false) { _, defaults, engine in
+            let dac = EQOutputDevice(id: "dac", name: "DTC480", kind: .usb)
+            var old = EQPresetLibrary()
+            old.setBinding(device: dac, presetID: EQPreset.flat.id)
+            defaults.set(old.encoded(), forKey: EQPresetLibrary.storageKey)
+            defaults.set(true, forKey: "eq.enabled")
+            defaults.set(EQPreset.flat.id, forKey: "eq.presetId")
+            let upgraded = EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false)
+            upgraded.outputDeviceDidChange(dac)
+            XCTAssertFalse(upgraded.isEnabled)
+            XCTAssertNil(upgraded.deviceSuggestion)
+            upgraded.setEnabled(true)
+            XCTAssertNil(upgraded.deviceSuggestion)
+            let reopened = EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false)
+            reopened.outputDeviceDidChange(dac)
+            XCTAssertTrue(reopened.isEnabled)
+            XCTAssertEqual(reopened.currentDeviceBinding?.presetID, EQPreset.flat.id)
+            XCTAssertNil(reopened.deviceSuggestion)
+            defaults.set(old.encoded(), forKey: EQPresetLibrary.storageKey)
+            defaults.set(EQPreset.jazz.id, forKey: "eq.presetId")
+            let customized = EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false)
+            XCTAssertTrue(customized.isEnabled)
+            XCTAssertEqual(customized.currentPreset.id, EQPreset.jazz.id)
+        }
     }
 
     @MainActor func testRecommendationAcceptsOnlyCurrentRouteAndRestoresPreviousCurve() throws {
@@ -103,6 +207,41 @@ final class AudioCalibrationTests: XCTestCase {
             restored.outputDeviceDidChange(dac)
             XCTAssertEqual(restored.currentPreset.id, profile.id)
             XCTAssertEqual(restored.currentDeviceBinding?.presetID, profile.id)
+        }
+    }
+
+    @MainActor func testHeadphonePresetsSwitchOnOneDACAndKeepIndependentCurves() throws {
+        try withService { service, defaults, engine in
+            let dac = EQOutputDevice(id: "dac", name: "DTC480", kind: .usb)
+            service.outputDeviceDidChange(dac)
+            service.setBand(2, gain: 3)
+            let curveToSave = service.currentPreset
+            service.setBand(2, gain: -5)
+            let manual = try XCTUnwrap(service.saveHeadphoneCurve(curveToSave, named: "Studio headphones"))
+            let model = try XCTUnwrap(EQCalibrationCatalog.entry(withID: "autoeq.catalog.1b67e5d54423f50cae480b56"))
+            service.addHeadphonePreset(model.id)
+            service.addHeadphonePreset(model.id)
+            XCTAssertEqual(service.library.headphonePresetIDs, [manual.id, model.id])
+            XCTAssertNil(service.currentDeviceBinding)
+            XCTAssertEqual(service.currentPreset.id, EQPreset.customID)
+            service.selectHeadphonePreset(manual.id)
+            XCTAssertEqual(service.bands[2], 3)
+            XCTAssertEqual(service.currentDeviceBinding?.presetID, manual.id)
+            service.selectHeadphonePreset(model.id)
+            XCTAssertEqual(service.currentDeviceBinding?.presetID, model.id)
+            XCTAssertEqual(service.currentPreset.parametric, model.preset.parametric)
+            let reopened = EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false)
+            reopened.outputDeviceDidChange(dac)
+            XCTAssertEqual(reopened.library.headphonePresetIDs, [manual.id, model.id])
+            XCTAssertEqual(reopened.currentPreset.id, model.id)
+            reopened.setEnabled(false)
+            reopened.selectHeadphonePreset(manual.id)
+            XCTAssertEqual(reopened.currentDeviceBinding?.presetID, model.id)
+            XCTAssertFalse(reopened.isEnabled)
+            reopened.removeHeadphonePreset(model.id)
+            XCTAssertEqual(reopened.currentDeviceBinding?.presetID, model.id)
+            reopened.deletePreset(id: manual.id)
+            XCTAssertEqual(reopened.library.headphonePresetIDs, [])
         }
     }
 

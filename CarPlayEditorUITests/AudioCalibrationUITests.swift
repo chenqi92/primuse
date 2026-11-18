@@ -1,6 +1,144 @@
 import XCTest
 
 final class AudioCalibrationUITests: XCTestCase {
+    @MainActor func testHeadphonePresetRowSavesTwoHeadphonesAndSwitchesAfterRelaunch() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["PRIMUSE_EQ_UI_TESTS"] = "1"
+        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        defer { app.terminate() }
+        let add = app.buttons["eq.headphones.add"]
+        let scroll = app.scrollViews["eq.presets.scroll"].firstMatch
+        func reveal(_ element: XCUIElement) {
+            for _ in 0..<4 where !element.isHittable { scroll.swipeUp() }
+            XCTAssertTrue(element.isHittable)
+        }
+        XCTAssertTrue(scroll.waitForExistence(timeout: 15))
+        reveal(add)
+        add.tap()
+        app.buttons["eq.headphones.saveCurrent"].tap()
+        let name = app.alerts.textFields.firstMatch
+        name.tap()
+        name.typeText("Studio A")
+        app.alerts.buttons["保存"].tap()
+        let manual = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                                                      "eq.headphones.user.", "Studio A")).firstMatch
+        let modelID = "autoeq.catalog.1b67e5d54423f50cae480b56"
+        let search = app.searchFields.firstMatch
+        search.tap()
+        search.typeText("HD800S oratory1990")
+        let model = app.buttons["eq.calibration.preset." + modelID]
+        XCTAssertTrue(model.waitForExistence(timeout: 5))
+        model.tap()
+        XCTAssertTrue(model.isSelected)
+        let done = app.buttons["eq.calibration.library.done"]
+        if !done.isHittable { app.toolbars.buttons["关闭"].tap() }
+        done.tap()
+        let headphones = app.buttons["eq.headphones." + modelID]
+        XCTAssertTrue(headphones.waitForExistence(timeout: 5))
+        reveal(manual)
+        manual.tap()
+        XCTAssertTrue(manual.isSelected)
+        headphones.tap()
+        XCTAssertTrue(headphones.isSelected)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "headphone-preset-row"
+        attachment.lifetime = .keepAlways
+        self.add(attachment)
+        app.terminate()
+        app.launchEnvironment["PRIMUSE_EQ_TEST_RELAUNCH"] = "1"
+        app.launch()
+        XCTAssertTrue(scroll.waitForExistence(timeout: 15))
+        reveal(manual)
+        XCTAssertTrue(headphones.exists)
+        manual.tap()
+        XCTAssertTrue(manual.isSelected)
+    }
+
+    @MainActor func testUnknownUSBOutputInMinimalNavigation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["PRIMUSE_EQ_TEST_USB_OUTPUT"] = "DTC480"
+        app.launchArguments += ["-eq.enabled", "YES", "-eq.presetId", "jazz",
+                                "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+                                "-primuse.navigation.mode.v1", "minimal", "-primuse.hasSeenOnboarding", "YES",
+                                "-primuse.iCloudSyncEnabled", "NO",
+                                "-primuse.launch.consecutiveAborts", "0", "-primuse.launch.safeModeLatched", "NO"]
+        app.launch()
+        defer { app.terminate() }
+        let choose = app.buttons["eq.calibration.change"]
+        XCTAssertTrue(choose.waitForExistence(timeout: 12))
+        XCTAssertTrue(app.staticTexts["DTC480"].exists)
+        choose.tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        let firstModel = app.buttons["eq.calibration.preset.autoeq.catalog.1b0c739262215bd30fc03d71"]
+        XCTAssertTrue(firstModel.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("HD800S oratory1990")
+        XCTAssertTrue(app.buttons["eq.calibration.preset.autoeq.catalog.1b67e5d54423f50cae480b56"].waitForExistence(timeout: 5))
+        let done = app.buttons["eq.calibration.library.done"]
+        if !done.isHittable { app.buttons["关闭"].tap() }
+        XCTAssertTrue(done.isHittable)
+        done.tap()
+        XCTAssertTrue(search.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(choose.waitForNonExistence(timeout: 10))
+        let cancelSearch = app.buttons["minimal.search.cancel"]
+        if cancelSearch.exists { cancelSearch.tap() }
+        let homeSearch = app.buttons["minimal.search"]
+        XCTAssertTrue(homeSearch.waitForExistence(timeout: 10))
+        homeSearch.tap()
+        XCTAssertTrue(app.textFields["minimal.search.field"].waitForExistence(timeout: 3))
+        cancelSearch.tap()
+        XCTAssertTrue(homeSearch.waitForExistence(timeout: 5))
+    }
+
+    @MainActor func testMinimalNavigationWithEQOffSkipsCalibrationAfterRelaunch() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["PRIMUSE_EQ_TEST_USB_OUTPUT"] = "DTC480"
+        app.launchArguments += ["-eq.enabled", "NO", "-primuse.navigation.mode.v1", "minimal",
+                                "-primuse.hasSeenOnboarding", "YES", "-primuse.iCloudSyncEnabled", "NO",
+                                "-primuse.launch.consecutiveAborts", "0", "-primuse.launch.safeModeLatched", "NO"]
+        defer { app.terminate() }
+        for _ in 0..<2 {
+            app.launch()
+            XCTAssertTrue(app.buttons["minimal.search"].waitForExistence(timeout: 12))
+            XCTAssertFalse(app.buttons["eq.calibration.change"].exists)
+            XCTAssertFalse(app.buttons["eq.calibration.confirm"].exists)
+            app.terminate()
+        }
+    }
+
+    @MainActor func testDecliningCalibrationInPickerSilencesReconnectAndRelaunch() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["PRIMUSE_EQ_UI_TESTS"] = "1"
+        app.launch()
+        defer { app.terminate() }
+        let dac = app.buttons["eq.test.dac"]
+        XCTAssertTrue(dac.waitForExistence(timeout: 15))
+        dac.tap()
+        let choose = app.buttons["eq.calibration.change"]
+        choose.tap()
+        app.buttons["eq.calibration.none"].tap()
+        XCTAssertTrue(choose.waitForNonExistence(timeout: 3))
+        app.buttons["eq.test.disconnect"].tap()
+        dac.tap()
+        XCTAssertFalse(choose.exists)
+        XCTAssertFalse(app.buttons["eq.calibration.confirm"].exists)
+        app.buttons["eq.test.disconnect"].tap()
+        app.terminate()
+        app.launchEnvironment["PRIMUSE_EQ_TEST_RELAUNCH"] = "1"
+        app.launch()
+        XCTAssertTrue(dac.waitForExistence(timeout: 15))
+        dac.tap()
+        XCTAssertFalse(choose.exists)
+        XCTAssertFalse(app.buttons["eq.calibration.confirm"].exists)
+        app.buttons["eq.test.disconnect"].tap()
+    }
+
     @MainActor func testConfirmationAtAccessibilityTextSize() {
         let app = XCUIApplication()
         app.launchEnvironment["PRIMUSE_EQ_UI_TESTS"] = "1"

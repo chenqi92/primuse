@@ -31,3 +31,5 @@
 "pasteParameters" = "Paste Equalizer APO parameters";
 "showSources" = "Show measurement sources for %@";
 "hideSources" = "Hide measurement sources for %@";
+"headphonePresets" = "Headphone Presets";
+"saveHeadphoneCurve" = "Save Current EQ";

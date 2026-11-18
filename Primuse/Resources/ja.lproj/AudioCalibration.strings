@@ -31,3 +31,5 @@
 "pasteParameters" = "Equalizer APO のパラメータをペースト";
 "showSources" = "%@ の測定元を表示";
 "hideSources" = "%@ の測定元を非表示";
+"headphonePresets" = "ヘッドフォンプリセット";
+"saveHeadphoneCurve" = "現在のイコライザ設定を保存";

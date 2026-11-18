@@ -31,3 +31,5 @@
 "pasteParameters" = "Вставте параметри Equalizer APO";
 "showSources" = "Показати джерела вимірювань для %@";
 "hideSources" = "Приховати джерела вимірювань для %@";
+"headphonePresets" = "Пресети навушників";
+"saveHeadphoneCurve" = "Зберегти поточні налаштування еквалайзера";
