@@ -30,6 +30,8 @@ struct MacSourcesView: View {
     @State private var directorySelectionSession: SourceDirectorySelectionSession?
     @State private var sourceToDelete: MusicSource?
     @State private var cloudDirectoryNameRefreshID = UUID()
+    /// 点了「文件」:和手机同一套文件页,在弹框里打开。
+    @State private var browsingFilesSource: MusicSource?
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -111,6 +113,17 @@ struct MacSourcesView: View {
         }
         .sheet(item: $diagnosingSource) { source in
             SourceDiagnosticsView(source: source)
+        }
+        .sheet(item: $browsingFilesSource) { source in
+            NavigationStack {
+                SourceDetailPage(source: source, actions: detailActions)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("done") { browsingFilesSource = nil }
+                        }
+                    }
+            }
+            .frame(minWidth: 720, idealWidth: 820, minHeight: 560, idealHeight: 680)
         }
         .sheet(item: $inspectingHiddenPlaylistsSource) { source in
             SourceHiddenPlaylistsView(source: source)
@@ -397,6 +410,12 @@ struct MacSourcesView: View {
             }
             Button { editingSource = source } label: {
                 Label("edit", systemImage: "pencil")
+            }
+            // 卡片上的「浏览」换成了文件页,选目录挪到这里和文件页的「更多」里。
+            if !source.type.scansEntireLibrary, !dirs.isEmpty {
+                Button { connectingSource = source } label: {
+                    Label("manage_dirs", systemImage: "folder.badge.gear")
+                }
             }
             if source.type == .synologyAudioStation {
                 Button { connectingSource = source } label: {
@@ -749,6 +768,9 @@ struct MacSourcesView: View {
                 .disabled(isAppleMusicSyncing || !source.isEnabled)
             } else if source.type.scansEntireLibrary {
                 scanPill(source, scanning: scanning)
+                if SourceFileBrowserPolicy.browsesFiles(source.type) {
+                    pill("source_card_open_files", systemImage: "folder") { browsingFilesSource = source }
+                }
                 if source.type == .synologyAudioStation {
                     // 设备令牌失效后后台登录会卡在两步验证上,从这里再输一次验证码。
                     pill("audio_station_sign_in", systemImage: "person.badge.key") { connectingSource = source }
@@ -759,7 +781,7 @@ struct MacSourcesView: View {
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else {
                 scanPill(source, scanning: scanning)
-                pill("browse", systemImage: "folder") { connectingSource = source }
+                pill("source_card_open_files", systemImage: "folder") { browsingFilesSource = source }
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             }
 
@@ -1168,6 +1190,34 @@ struct MacSourcesView: View {
     private func pauseBackgroundWork(for sourceID: String) {
         scanService.cancelScan(for: sourceID)
         sourceManager.sourceAvailabilityDidChange(sourceID: sourceID, isEnabled: false)
+    }
+
+    /// 文件页借用的几件事:扫描、连接与选目录、编辑。表单由这里搭、文件页的弹框自己弹。
+    private var detailActions: SourceDetailActions {
+        SourceDetailActions(
+            scan: { source, mode in
+                if mode == .deep { runDeepScan(currentSource(for: source)) } else { runScan(currentSource(for: source)) }
+            },
+            connectionSheet: { source, onEditAddress in
+                let current = currentSource(for: source)
+                return AnyView(
+                    connectionSheet(for: current, onEditAddress: onEditAddress)
+                        .environment(\.directoryRescanAction, directoryRescanAction(for: current))
+                        .frame(minWidth: 880, idealWidth: 940, minHeight: 600, idealHeight: 680)
+                        .onAppear { beginDirectorySelectionSession(for: current) }
+                )
+            },
+            connectionSheetDidClose: { finishDirectorySelectionSession() },
+            editSheet: { source in
+                AnyView(
+                    AddSourceView(sourceType: source.type, editingSource: currentSource(for: source)) { updated in
+                        updateSource(updated.id) { $0 = updated }
+                        scanService.removeSynologyAPI(for: updated.id)
+                        Task { await sourceManager.refreshConnector(for: updated.id) }
+                    }
+                )
+            }
+        )
     }
 
     private func runScan(_ source: MusicSource) {
