@@ -404,11 +404,15 @@ struct SourceOverviewPage: View {
     let source: MusicSource
     let actions: SourceDetailActions
 
-    @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
     @State private var sheet: SourceDetailSheet?
     @State private var showsMetadata = false
     @State private var showsLocalRemovals = false
     @State private var showsHiddenPlaylists = false
+    /// 管理员账号才有「服务器管理」(现在只有 Navidrome)。
+    @State private var adminAccess: NavidromeAdminAccess?
+    @State private var adminUserCount: Int?
+    @State private var showsUsers = false
 
     var body: some View {
         List {
@@ -428,6 +432,15 @@ struct SourceOverviewPage: View {
                 SourceScanButtonRow(source: source) { mode in actions.scan(source, mode) }
             } header: {
                 Text("source_overview_scan_section")
+            }
+
+            if let adminAccess, adminAccess.isAdmin {
+                ServerAdminSection(
+                    source: source,
+                    access: adminAccess,
+                    userCount: adminUserCount,
+                    onOpenUsers: { showsUsers = true }
+                )
             }
 
             if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
@@ -482,7 +495,19 @@ struct SourceOverviewPage: View {
         .sourceDetailSheets(source: source, actions: actions, presented: $sheet)
         .navigationDestination(isPresented: $showsMetadata) { SourceMetadataStatusView(source: source) }
         .navigationDestination(isPresented: $showsLocalRemovals) { SourceLocalRemovalsView(source: source) }
+        .navigationDestination(isPresented: $showsUsers) {
+            if let adminAccess { ServerUsersPage(source: source, access: adminAccess) }
+        }
         .sheet(isPresented: $showsHiddenPlaylists) { SourceHiddenPlaylistsView(source: source) }
+        .task(id: "\(source.id)-\(showsUsers)") {
+            // 从用户页回来时再数一次人数。
+            guard !showsUsers, source.isEnabled,
+                  let admin = sourceManager.connector(for: source) as? any NavidromeAdminConnector,
+                  let access = try? await admin.navidromeAdminAccess() else { return }
+            adminAccess = access
+            guard access.isAdmin else { return }
+            adminUserCount = (try? await admin.navidromeUsers())?.count
+        }
     }
 }
 

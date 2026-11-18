@@ -2361,6 +2361,50 @@ private actor RoutedCatalogEnrichmentContext {
     }
 }
 
+extension RoutedSubsonicConnector: NavidromeAdminConnector {
+    func navidromeAdminAccess() async throws -> NavidromeAdminAccess? {
+        try await routing.withRead { connector in
+            guard let admin = connector as? any NavidromeAdminConnector else { return nil }
+            return try await admin.navidromeAdminAccess()
+        }
+    }
+
+    func navidromeUsers() async throws -> [NavidromeAdmin.User] {
+        try await routing.withRead { connector in
+            guard let admin = connector as? any NavidromeAdminConnector else { throw NavidromeAdmin.Failure.unavailable }
+            return try await admin.navidromeUsers()
+        }
+    }
+
+    func navidromeLibraries() async throws -> [NavidromeAdmin.Library]? {
+        try await routing.withRead { connector in
+            guard let admin = connector as? any NavidromeAdminConnector else { throw NavidromeAdmin.Failure.unavailable }
+            return try await admin.navidromeLibraries()
+        }
+    }
+
+    func createNavidromeUser(_ user: NavidromeAdmin.NewUser, libraryIDs: [Int]?) async throws -> NavidromeAdmin.User {
+        try await routing.withMutation { connector in
+            guard let admin = connector as? any NavidromeAdminConnector else { throw NavidromeAdmin.Failure.unavailable }
+            return try await admin.createNavidromeUser(user, libraryIDs: libraryIDs)
+        }
+    }
+
+    func updateNavidromeUser(_ user: NavidromeAdmin.User, newPassword: String?, libraryIDs: [Int]?) async throws {
+        try await routing.withMutation { connector in
+            guard let admin = connector as? any NavidromeAdminConnector else { throw NavidromeAdmin.Failure.unavailable }
+            try await admin.updateNavidromeUser(user, newPassword: newPassword, libraryIDs: libraryIDs)
+        }
+    }
+
+    func deleteNavidromeUser(id: String) async throws {
+        try await routing.withMutation { connector in
+            guard let admin = connector as? any NavidromeAdminConnector else { throw NavidromeAdmin.Failure.unavailable }
+            try await admin.deleteNavidromeUser(id: id)
+        }
+    }
+}
+
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTranscodingConnector,
     RefreshingMetadataSongConnector, TemporaryAudioProcessingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
