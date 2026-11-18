@@ -1,7 +1,7 @@
 import Foundation
 import PrimuseKit
 
-actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
+actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFileRenameConnector {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true
     nonisolated let directoryListingConcurrency = 4
@@ -721,6 +721,47 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     func deleteFile(at path: String) async throws {
         try await connect()
         try await api.deleteFile(path: path)
+    }
+
+    /// File Station 的改名在同名已存在时报 414,不会覆盖。
+    private static let fileStationNameExistsCode = 414
+
+    func moveFileWithoutReplacing(from: String, to: String, expected: EmbeddedMetadataRemoteFileState) async throws {
+        guard (from as NSString).deletingLastPathComponent == (to as NSString).deletingLastPathComponent else {
+            throw SongFileRenameError.unsupported
+        }
+        try await connect()
+        guard expected.matches(try await metadataWritebackState(for: from)) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        do {
+            try await api.rename(path: from, to: (to as NSString).lastPathComponent)
+        } catch SynologyError.fileOperationError(let code, _) where code == Self.fileStationNameExistsCode {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        await invalidateMetadataWritebackCache(for: from)
+    }
+
+    func canMutateDirectories() async -> Bool { true }
+
+    func renameDirectory(at path: String, to newPath: String) async throws {
+        // 共享文件夹本身(第一层)不在这里改。
+        guard (path as NSString).deletingLastPathComponent == (newPath as NSString).deletingLastPathComponent,
+              path.split(separator: "/").count >= 2 else {
+            throw SourceFolderMutationError.unsupported
+        }
+        try await connect()
+        do {
+            try await api.rename(path: path, to: (newPath as NSString).lastPathComponent)
+        } catch SynologyError.fileOperationError(let code, _) where code == Self.fileStationNameExistsCode {
+            throw SourceFolderMutationError.destinationExists
+        }
+    }
+
+    func deleteDirectory(at path: String) async throws {
+        guard path.split(separator: "/").count >= 2 else { throw SourceFolderMutationError.unsupported }
+        try await connect()
+        try await api.deleteDirectory(path: path)
     }
 
     /// 在 HTTP 200 的 Range 响应里识别 Synology JSON 错误包。仅当确信是

@@ -577,6 +577,25 @@ actor SynologyAPI {
         try await deleteFile(path: path, recursive: true)
     }
 
+    /// 连同里面的东西一起删掉一个目录。
+    func deleteDirectory(path: String) async throws {
+        try await deleteFile(path: path, recursive: true)
+    }
+
+    /// 同一层里改名(文件或目录)。目标已经存在时 File Station 回 414,不会覆盖。
+    func rename(path: String, to newName: String) async throws {
+        guard let sid else { throw SynologyError.notLoggedIn }
+        let data = try await request(path: "/webapi/entry.cgi", params: [
+            "api": "SYNO.FileStation.Rename",
+            "version": "2",
+            "method": "rename",
+            "path": try jsonString([path]),
+            "name": try jsonString([try validatedUploadFileName(newName)]),
+            "_sid": sid,
+        ], usePost: true)
+        try confirmedResponse(data, operation: "Rename")
+    }
+
     func deleteFile(path: String) async throws {
         try await deleteFile(path: path, recursive: false)
     }

@@ -5,7 +5,7 @@ import NIOCore
 @preconcurrency import NIOSSH
 import PrimuseKit
 
-actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
+actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFileRenameConnector {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true
 
@@ -504,6 +504,62 @@ actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     private nonisolated static func fileRevision(size: Int64, modifiedDate: Date?) -> String? {
         guard let modifiedDate else { return nil }
         return "sftp:\(size):\(Int64(modifiedDate.timeIntervalSince1970))"
+    }
+
+    func moveFileWithoutReplacing(from: String, to: String, expected: EmbeddedMetadataRemoteFileState) async throws {
+        guard (from as NSString).deletingLastPathComponent == (to as NSString).deletingLastPathComponent else {
+            throw SongFileRenameError.unsupported
+        }
+        try await connect()
+        guard let sftp else { throw SourceError.connectionFailed("Not connected") }
+        guard expected.matches(try await metadataWritebackState(for: from)) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        // 不带覆盖标志的 RENAME 在目标已存在时失败(OpenSSH 用 link + unlink 实现)。
+        try await sftp.rename(at: resolvedRemotePath(for: from), to: resolvedRemotePath(for: to), flags: 0)
+        await invalidateMetadataWritebackCache(for: from)
+    }
+
+    func canMutateDirectories() async -> Bool { true }
+
+    func renameDirectory(at path: String, to newPath: String) async throws {
+        guard (path as NSString).deletingLastPathComponent == (newPath as NSString).deletingLastPathComponent else {
+            throw SourceFolderMutationError.unsupported
+        }
+        try await connect()
+        guard let sftp else { throw SourceError.connectionFailed("Not connected") }
+        let source = try resolvedRemotePath(for: path)
+        let destination = try resolvedRemotePath(for: newPath)
+        guard source != rootPath, source != "/" else { throw SourceFolderMutationError.unsupported }
+        if (try? await sftp.getAttributes(at: destination)) != nil {
+            throw SourceFolderMutationError.destinationExists
+        }
+        try await sftp.rename(at: source, to: destination, flags: 0)
+    }
+
+    func deleteDirectory(at path: String) async throws {
+        try await connect()
+        guard let sftp else { throw SourceError.connectionFailed("Not connected") }
+        let remote = try resolvedRemotePath(for: path)
+        guard remote != rootPath, remote != "/" else { throw SourceFolderMutationError.unsupported }
+        try await removeTree(at: remote, using: sftp, depth: 0)
+    }
+
+    /// SFTP 只能删空目录:先删里面的文件、再一层层往上删。符号链接只删链接本身。
+    /// 列目录读坏时 Citadel 会给空结果,那样最后的 rmdir 会因为目录不空而失败,不会误删。
+    private func removeTree(at remotePath: String, using sftp: SFTPClient, depth: Int) async throws {
+        guard depth < 64 else { throw SourceFolderMutationError.partiallyDeleted }
+        let listings = try await sftp.listDirectory(atPath: remotePath)
+        for item in listings.flatMap(\.components) where item.filename != "." && item.filename != ".." {
+            let child = joinedPath(parent: remotePath, child: item.filename)
+            let isDirectory = item.attributes.permissions.map { $0 & 0o170000 == 0o40000 } ?? false
+            if isDirectory {
+                try await removeTree(at: child, using: sftp, depth: depth + 1)
+            } else {
+                try await sftp.remove(at: child)
+            }
+        }
+        try await sftp.rmdir(at: remotePath)
     }
 
     func deleteFile(at path: String) async throws {
