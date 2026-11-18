@@ -7674,7 +7674,7 @@
 "server_admin_copy_password" = "पासवर्ड कॉपी करें";
 "server_admin_saved_format" = "“%@” सहेजा गया";
 "server_admin_created_format" = "उपयोगकर्ता “%@” बनाया गया";
-"server_admin_error_unavailable" = "यह सर्वर Primuse से उपयोगकर्ता प्रबंधन नहीं देता। अभी सिर्फ़ Navidrome समर्थित है।";
+"server_admin_error_unavailable" = "यह सर्वर Primuse से उपयोगकर्ता प्रबंधन नहीं देता। Navidrome, Jellyfin और Emby समर्थित हैं।";
 "server_admin_error_not_admin" = "यह खाता सर्वर पर व्यवस्थापक नहीं है।";
 "server_admin_error_auth" = "लॉग इन नहीं हो सका। इस स्रोत की सेटिंग्स में उपयोगकर्ता नाम और पासवर्ड जाँचें।";
 "server_admin_error_account_mismatch" = "सर्वर ने इस स्रोत वाले खाते के बजाय किसी दूसरे खाते से लॉग इन किया।";
@@ -7689,3 +7689,4 @@
 "source_move_no_subfolders" = "यहाँ कोई फ़ोल्डर नहीं";
 "source_move_error_destination" = "इसे अपने ही अंदर या उसी जगह नहीं ले जा सकते।";
 "source_moved_format" = "“%@” में ले जाया गया";
+"server_admin_disabled" = "अक्षम";

@@ -7674,7 +7674,7 @@
 "server_admin_copy_password" = "نسخ كلمة المرور";
 "server_admin_saved_format" = "تم حفظ «%@»";
 "server_admin_created_format" = "تم إنشاء المستخدم «%@»";
-"server_admin_error_unavailable" = "لا يتيح هذا الخادم إدارة المستخدمين من Primuse. المدعوم حاليًا هو Navidrome فقط.";
+"server_admin_error_unavailable" = "لا يتيح هذا الخادم إدارة المستخدمين من Primuse. المدعوم: Navidrome وJellyfin وEmby.";
 "server_admin_error_not_admin" = "هذا الحساب ليس مسؤولًا على الخادم.";
 "server_admin_error_auth" = "فشل تسجيل الدخول. تحقّق من اسم المستخدم وكلمة المرور في إعدادات هذا المصدر.";
 "server_admin_error_account_mismatch" = "سجّل الخادم الدخول بحساب غير المحدد في هذا المصدر.";
@@ -7689,3 +7689,4 @@
 "source_move_no_subfolders" = "لا توجد مجلدات هنا";
 "source_move_error_destination" = "لا يمكن نقله إلى داخله أو إلى المكان الموجود فيه أصلًا.";
 "source_moved_format" = "نُقل إلى «%@»";
+"server_admin_disabled" = "معطّل";

@@ -7768,7 +7768,7 @@
 "server_admin_copy_password" = "Passwort kopieren";
 "server_admin_saved_format" = "„%@“ gespeichert";
 "server_admin_created_format" = "Benutzer „%@“ angelegt";
-"server_admin_error_unavailable" = "Dieser Server bietet Primuse keine Benutzerverwaltung an. Derzeit wird nur Navidrome unterstützt.";
+"server_admin_error_unavailable" = "Dieser Server bietet Primuse keine Benutzerverwaltung an. Unterstützt werden Navidrome, Jellyfin und Emby.";
 "server_admin_error_not_admin" = "Dieses Konto ist auf dem Server kein Administrator.";
 "server_admin_error_auth" = "Anmeldung fehlgeschlagen. Prüfe Benutzername und Passwort in den Einstellungen dieser Quelle.";
 "server_admin_error_account_mismatch" = "Der Server hat ein anderes Konto angemeldet als das dieser Quelle.";
@@ -7783,3 +7783,4 @@
 "source_move_no_subfolders" = "Hier gibt es keine Ordner";
 "source_move_error_destination" = "Ein Element kann nicht in sich selbst oder an denselben Ort verschoben werden.";
 "source_moved_format" = "Nach „%@“ verschoben";
+"server_admin_disabled" = "Deaktiviert";

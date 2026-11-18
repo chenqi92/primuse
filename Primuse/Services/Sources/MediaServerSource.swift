@@ -6048,3 +6048,88 @@ extension MediaServerSource: ServerScrobblingConnector {
         }
     }
 }
+
+// MARK: - 服务器管理(Jellyfin、Emby)
+
+extension MediaServerSource: ServerAdminConnector {
+    private var supportsUserAdmin: Bool { kind == .jellyfin || kind == .emby }
+
+    /// 管理接口一律保留 HTTP 状态:403 是「不是管理员」,400 带着服务器给的原因。
+    private func adminRequest(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
+        guard supportsUserAdmin else { throw ServerAdmin.Failure.unavailable }
+        try await connect()
+        do {
+            return try await performUnscheduledRequest(
+                path: path, method: method, body: body, preservesHTTPFailure: true
+            )
+        } catch let failure as HTTPResponseFailure {
+            throw MediaServerUserAdminPayloads.failure(status: failure.statusCode, body: failure.body)
+        }
+    }
+
+    func serverAdminAccess() async throws -> ServerAdmin.Access? {
+        guard supportsUserAdmin else { return nil }
+        try await connect()
+        guard let userID else { return nil }
+        let data = try await adminRequest("/Users/\(userID)")
+        return ServerAdmin.Access(
+            userID: userID,
+            username: username,
+            isAdmin: try MediaServerUserAdminPayloads.isAdministrator(userData: data),
+            editsDisplayName: false,
+            editsEmail: false
+        )
+    }
+
+    func serverAdminUsers() async throws -> [ServerAdmin.User] {
+        try MediaServerUserAdminPayloads.users(from: try await adminRequest("/Users"))
+    }
+
+    func serverAdminLibraries() async throws -> [ServerAdmin.Library]? {
+        try MediaServerUserAdminPayloads.libraries(from: try await adminRequest("/Library/MediaFolders"))
+    }
+
+    func createServerAdminUser(_ draft: ServerAdmin.Draft) async throws {
+        let password = draft.password ?? ""
+        let created = try await adminRequest(
+            "/Users/New", method: "POST",
+            body: try MediaServerUserAdminPayloads.newUserBody(name: draft.userName, password: password)
+        )
+        guard let json = try? JSONSerialization.jsonObject(with: created) as? [String: Any],
+              let id = json["Id"] as? String, !id.isEmpty else {
+            throw ServerAdmin.Failure.invalidResponse
+        }
+        // Emby 新建时不收密码,建完再设一次;Jellyfin 设两次也一样。
+        if !password.isEmpty {
+            _ = try await adminRequest(
+                "/Users/\(id)/Password", method: "POST",
+                body: try MediaServerUserAdminPayloads.passwordBody(userID: id, newPassword: password)
+            )
+        }
+        if draft.isAdmin || draft.libraryIDs != nil {
+            try await applyAdminPolicy(userID: id, isAdmin: draft.isAdmin, libraryIDs: draft.libraryIDs)
+        }
+    }
+
+    func updateServerAdminUser(id: String, _ draft: ServerAdmin.Draft) async throws {
+        if let password = draft.password, !password.isEmpty {
+            _ = try await adminRequest(
+                "/Users/\(id)/Password", method: "POST",
+                body: try MediaServerUserAdminPayloads.passwordBody(userID: id, newPassword: password)
+            )
+        }
+        try await applyAdminPolicy(userID: id, isAdmin: draft.isAdmin, libraryIDs: draft.libraryIDs)
+    }
+
+    func deleteServerAdminUser(id: String) async throws {
+        guard id != userID else { throw ServerAdmin.Failure.rejected(nil) }
+        _ = try await adminRequest("/Users/\(id)", method: "DELETE")
+    }
+
+    /// 策略要整份发回去,所以先读这个用户现在的策略,只改管理员与库这两项。
+    private func applyAdminPolicy(userID id: String, isAdmin: Bool, libraryIDs: [String]?) async throws {
+        let current = try await adminRequest("/Users/\(id)")
+        let body = try MediaServerUserAdminPayloads.policyUpdate(userData: current, isAdmin: isAdmin, libraryIDs: libraryIDs)
+        _ = try await adminRequest("/Users/\(id)/Policy", method: "POST", body: body)
+    }
+}

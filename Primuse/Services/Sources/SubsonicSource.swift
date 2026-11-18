@@ -4049,71 +4049,105 @@ extension SubsonicSource: ServerAlbumRatingConnector {}
 
 // MARK: - Navidrome 管理员(#148)
 
-/// 这个 Navidrome 账号能不能在 Primuse 里管服务器。
-struct NavidromeAdminAccess: Sendable, Equatable {
-    let userID: String
-    let username: String
-    let isAdmin: Bool
-}
-
-/// Navidrome 管理员接口:列用户、建用户、改用户、删用户、分配媒体库。
-/// 不是 Navidrome、或者网页接口不可用时 `navidromeAdminAccess()` 返回 nil。
-protocol NavidromeAdminConnector: MusicSourceConnector {
-    func navidromeAdminAccess() async throws -> NavidromeAdminAccess?
-    func navidromeUsers() async throws -> [NavidromeAdmin.User]
-    /// 老版本(多媒体库之前)返回 nil。
-    func navidromeLibraries() async throws -> [NavidromeAdmin.Library]?
-    func createNavidromeUser(_ user: NavidromeAdmin.NewUser, libraryIDs: [Int]?) async throws -> NavidromeAdmin.User
-    func updateNavidromeUser(_ user: NavidromeAdmin.User, newPassword: String?, libraryIDs: [Int]?) async throws
-    func deleteNavidromeUser(id: String) async throws
-}
-
-extension SubsonicSource: NavidromeAdminConnector {
-    func navidromeAdminAccess() async throws -> NavidromeAdminAccess? {
+extension SubsonicSource: ServerAdminConnector {
+    private func mapNavidromeFailure<T>(_ body: () async throws -> T) async throws -> T {
         do {
-            return try await withNavidromeAdmin { session, _, _ in
-                NavidromeAdminAccess(userID: session.userID, username: session.username, isAdmin: session.isAdmin)
+            return try await body()
+        } catch let failure as NavidromeAdmin.Failure {
+            switch failure {
+            case .unavailable: throw ServerAdmin.Failure.unavailable
+            case .notAdmin: throw ServerAdmin.Failure.notAdmin
+            case .authenticationFailed: throw ServerAdmin.Failure.authenticationFailed
+            case .accountMismatch: throw ServerAdmin.Failure.accountMismatch
+            case .invalidResponse: throw ServerAdmin.Failure.invalidResponse
+            case .rejected(_, let message):
+                if message?.contains("unique") == true { throw ServerAdmin.Failure.duplicateName }
+                throw ServerAdmin.Failure.rejected(message)
             }
-        } catch NavidromeAdmin.Failure.unavailable {
+        }
+    }
+
+    func serverAdminAccess() async throws -> ServerAdmin.Access? {
+        do {
+            return try await mapNavidromeFailure {
+                try await withNavidromeAdmin { session, _, _ in
+                    ServerAdmin.Access(
+                        userID: session.userID, username: session.username, isAdmin: session.isAdmin,
+                        editsDisplayName: true, editsEmail: true
+                    )
+                }
+            }
+        } catch ServerAdmin.Failure.unavailable {
             return nil
         }
     }
 
-    func navidromeUsers() async throws -> [NavidromeAdmin.User] {
-        try await withNavidromeAdmin { session, url, load in
-            try await NavidromeAdmin.users(baseURL: url, session: &session, load: load)
-        }
-    }
-
-    func navidromeLibraries() async throws -> [NavidromeAdmin.Library]? {
-        try await withNavidromeAdmin { session, url, load in
-            try await NavidromeAdmin.libraries(baseURL: url, session: &session, load: load)
-        }
-    }
-
-    func createNavidromeUser(_ user: NavidromeAdmin.NewUser, libraryIDs: [Int]?) async throws -> NavidromeAdmin.User {
-        try await withNavidromeAdmin { session, url, load in
-            let created = try await NavidromeAdmin.createUser(user, baseURL: url, session: &session, load: load)
-            // 管理员能看全部媒体库,不用分配。
-            if let libraryIDs, !user.isAdmin {
-                try await NavidromeAdmin.setLibraries(libraryIDs, forUser: created.id, baseURL: url, session: &session, load: load)
-            }
-            return created
-        }
-    }
-
-    func updateNavidromeUser(_ user: NavidromeAdmin.User, newPassword: String?, libraryIDs: [Int]?) async throws {
-        try await withNavidromeAdmin { session, url, load in
-            try await NavidromeAdmin.updateUser(user, newPassword: newPassword, baseURL: url, session: &session, load: load)
-            if let libraryIDs, !user.isAdmin {
-                try await NavidromeAdmin.setLibraries(libraryIDs, forUser: user.id, baseURL: url, session: &session, load: load)
+    func serverAdminUsers() async throws -> [ServerAdmin.User] {
+        try await mapNavidromeFailure {
+            try await withNavidromeAdmin { session, url, load in
+                try await NavidromeAdmin.users(baseURL: url, session: &session, load: load).map { user in
+                    ServerAdmin.User(
+                        id: user.id, userName: user.userName,
+                        displayName: user.name, email: user.email,
+                        isAdmin: user.isAdmin,
+                        lastSeenAt: user.lastAccessAt ?? user.lastLoginAt,
+                        libraryIDs: user.libraries.map { $0.map { String($0.id) } }
+                    )
+                }
             }
         }
     }
 
-    func deleteNavidromeUser(id: String) async throws {
-        try await withNavidromeAdmin { session, url, load in
-            try await NavidromeAdmin.deleteUser(id: id, baseURL: url, session: &session, load: load)
+    func serverAdminLibraries() async throws -> [ServerAdmin.Library]? {
+        try await mapNavidromeFailure {
+            try await withNavidromeAdmin { session, url, load in
+                try await NavidromeAdmin.libraries(baseURL: url, session: &session, load: load)?.map {
+                    ServerAdmin.Library(id: String($0.id), name: $0.name, songCount: $0.totalSongs)
+                }
+            }
+        }
+    }
+
+    func createServerAdminUser(_ draft: ServerAdmin.Draft) async throws {
+        try await mapNavidromeFailure {
+            try await withNavidromeAdmin { session, url, load in
+                let created = try await NavidromeAdmin.createUser(
+                    NavidromeAdmin.NewUser(
+                        userName: draft.userName,
+                        name: draft.displayName.isEmpty ? draft.userName : draft.displayName,
+                        email: draft.email, password: draft.password ?? "", isAdmin: draft.isAdmin
+                    ),
+                    baseURL: url, session: &session, load: load
+                )
+                // 管理员能看全部媒体库,不用分配。
+                if let ids = draft.libraryIDs?.compactMap(Int.init), !draft.isAdmin {
+                    try await NavidromeAdmin.setLibraries(ids, forUser: created.id, baseURL: url, session: &session, load: load)
+                }
+            }
+        }
+    }
+
+    func updateServerAdminUser(id: String, _ draft: ServerAdmin.Draft) async throws {
+        try await mapNavidromeFailure {
+            try await withNavidromeAdmin { session, url, load in
+                let user = NavidromeAdmin.User(
+                    id: id, userName: draft.userName,
+                    name: draft.displayName.isEmpty ? draft.userName : draft.displayName,
+                    email: draft.email, isAdmin: draft.isAdmin
+                )
+                try await NavidromeAdmin.updateUser(user, newPassword: draft.password, baseURL: url, session: &session, load: load)
+                if let ids = draft.libraryIDs?.compactMap(Int.init), !draft.isAdmin {
+                    try await NavidromeAdmin.setLibraries(ids, forUser: id, baseURL: url, session: &session, load: load)
+                }
+            }
+        }
+    }
+
+    func deleteServerAdminUser(id: String) async throws {
+        try await mapNavidromeFailure {
+            try await withNavidromeAdmin { session, url, load in
+                try await NavidromeAdmin.deleteUser(id: id, baseURL: url, session: &session, load: load)
+            }
         }
     }
 }

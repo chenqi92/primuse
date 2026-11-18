@@ -173,6 +173,7 @@
 		10EBE27956C433C1DD89A664 /* SearchResultLayoutEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234C5E25758071CA1B4DEE7D /* SearchResultLayoutEditor.swift */; };
 		111AAA31B19C1FD2C0FEFE3D /* NavidromeListeningHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F579AEDA6EF32BED675916 /* NavidromeListeningHistory.swift */; };
 		9126BC3EFB5C5AC427C9EFB9 /* NavidromeAdmin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38063A465101C8E9308CF32B /* NavidromeAdmin.swift */; };
+		3C8CE89977CA9A2F94A17704 /* ServerAdmin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26D953A339564517DA056177 /* ServerAdmin.swift */; };
 		1141061BF586FC2205B66528 /* TVReplayGain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DFD94BA503D2BFA17E88EC9 /* TVReplayGain.swift */; };
 		1145534C778D8681097C1BE3 /* SynologyAudioStationStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 418DF069725BBCFDBEABA12A /* SynologyAudioStationStreamResolver.swift */; };
 		119422FAF5B94A180980C790 /* ArtistNameSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D20E7F75F96F9D732690062 /* ArtistNameSettingsStore.swift */; };
@@ -4090,6 +4091,7 @@
 		D1D3B5EC3C19D67E0A1BFD66 /* SourceFileCachePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceFileCachePolicy.swift; sourceTree = "<group>"; };
 		D1F579AEDA6EF32BED675916 /* NavidromeListeningHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavidromeListeningHistory.swift; sourceTree = "<group>"; };
 		38063A465101C8E9308CF32B /* NavidromeAdmin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavidromeAdmin.swift; sourceTree = "<group>"; };
+		26D953A339564517DA056177 /* ServerAdmin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAdmin.swift; sourceTree = "<group>"; };
 		D20345197F0912E9D2DB2082 /* TVScanPipelinePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVScanPipelinePolicy.swift; sourceTree = "<group>"; };
 		D214552F9BF70CB5F6000423 /* PathKeyedCacheReconciliationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathKeyedCacheReconciliationPolicy.swift; sourceTree = "<group>"; };
 		D222BDEED4421F58F8D1C957 /* LyricsTextBackfillService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsTextBackfillService.swift; sourceTree = "<group>"; };
@@ -5106,6 +5108,7 @@
 				567220C185786318966C5C79 /* MusicSourceSecurityScopeFingerprint.swift */,
 				D1F579AEDA6EF32BED675916 /* NavidromeListeningHistory.swift */,
 				38063A465101C8E9308CF32B /* NavidromeAdmin.swift */,
+				26D953A339564517DA056177 /* ServerAdmin.swift */,
 				0B85029D847CFF25E36188DD /* NetworkEndpointIdentity.swift */,
 				09B9293AFE6E82ABC6C9C896 /* NetworkHostAuthority.swift */,
 				B1C684D0CFF19C7FD22D1FC2 /* NowPlayingCarousel.swift */,
@@ -7834,6 +7837,7 @@
 				8212296C00137741AFC8C091 /* NasHttpStreamResolver.swift in Sources */,
 				111AAA31B19C1FD2C0FEFE3D /* NavidromeListeningHistory.swift in Sources */,
 				9126BC3EFB5C5AC427C9EFB9 /* NavidromeAdmin.swift in Sources */,
+				3C8CE89977CA9A2F94A17704 /* ServerAdmin.swift in Sources */,
 				3B8A46458483111466EF9E8D /* NetworkEndpointIdentity.swift in Sources */,
 				62AA0AE701E12FC9F5F269D8 /* NetworkHostAuthority.swift in Sources */,
 				522A6D628C04E0334D46F12F /* NowPlayingCarousel.swift in Sources */,

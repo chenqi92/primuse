@@ -7529,7 +7529,7 @@
 "server_admin_copy_password" = "Copy Password";
 "server_admin_saved_format" = "Saved “%@”";
 "server_admin_created_format" = "Created user “%@”";
-"server_admin_error_unavailable" = "This server doesn’t offer user management to Primuse. Only Navidrome is supported for now.";
+"server_admin_error_unavailable" = "This server doesn’t offer user management to Primuse. Navidrome, Jellyfin and Emby are supported.";
 "server_admin_error_not_admin" = "This account isn’t an administrator on the server.";
 "server_admin_error_auth" = "Sign-in failed. Check the username and password in this source’s settings.";
 "server_admin_error_account_mismatch" = "The server signed in to a different account than the one in this source.";
@@ -7544,3 +7544,4 @@
 "source_move_no_subfolders" = "No folders here";
 "source_move_error_destination" = "It can’t move into itself or back where it already is.";
 "source_moved_format" = "Moved to “%@”";
+"server_admin_disabled" = "Disabled";

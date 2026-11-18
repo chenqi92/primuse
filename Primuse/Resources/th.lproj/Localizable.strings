@@ -7674,7 +7674,7 @@
 "server_admin_copy_password" = "คัดลอกรหัสผ่าน";
 "server_admin_saved_format" = "บันทึก “%@” แล้ว";
 "server_admin_created_format" = "สร้างผู้ใช้ “%@” แล้ว";
-"server_admin_error_unavailable" = "เซิร์ฟเวอร์นี้จัดการผู้ใช้จาก Primuse ไม่ได้ ตอนนี้รองรับเฉพาะ Navidrome";
+"server_admin_error_unavailable" = "เซิร์ฟเวอร์นี้จัดการผู้ใช้จาก Primuse ไม่ได้ รองรับ Navidrome, Jellyfin และ Emby";
 "server_admin_error_not_admin" = "บัญชีนี้ไม่ใช่ผู้ดูแลบนเซิร์ฟเวอร์";
 "server_admin_error_auth" = "ลงชื่อเข้าใช้ไม่สำเร็จ ตรวจชื่อผู้ใช้และรหัสผ่านในการตั้งค่าของแหล่งนี้";
 "server_admin_error_account_mismatch" = "เซิร์ฟเวอร์ลงชื่อเข้าใช้ด้วยบัญชีอื่นที่ไม่ใช่ของแหล่งนี้";
@@ -7689,3 +7689,4 @@
 "source_move_no_subfolders" = "ไม่มีโฟลเดอร์ที่นี่";
 "source_move_error_destination" = "ย้ายเข้าไปในตัวเองหรือไปที่เดิมไม่ได้";
 "source_moved_format" = "ย้ายไปที่ “%@” แล้ว";
+"server_admin_disabled" = "ปิดใช้งาน";

@@ -8,10 +8,10 @@ import AppKit
 
 // MARK: - 概览页里的「服务器管理」
 
-/// 音乐服务器概览页里只有管理员账号才看得到的一段:用户、网页后台。现在只有 Navidrome(#148)。
+/// 音乐服务器概览页里只有管理员账号才看得到的一段:用户、网页后台(#148)。
 struct ServerAdminSection: View {
     let source: MusicSource
-    let access: NavidromeAdminAccess
+    let access: ServerAdmin.Access
     let userCount: Int?
     let onOpenUsers: () -> Void
 
@@ -58,15 +58,15 @@ struct ServerAdminSection: View {
 
 struct ServerUsersPage: View {
     let source: MusicSource
-    let access: NavidromeAdminAccess
+    let access: ServerAdmin.Access
 
     @Environment(SourceManager.self) private var sourceManager
-    @State private var users: [NavidromeAdmin.User] = []
-    @State private var libraries: [NavidromeAdmin.Library]?
+    @State private var users: [ServerAdmin.User] = []
+    @State private var libraries: [ServerAdmin.Library]?
     @State private var isLoading = true
     @State private var loadError: String?
     @State private var editing: ServerUserEditorTarget?
-    @State private var pendingDelete: NavidromeAdmin.User?
+    @State private var pendingDelete: ServerAdmin.User?
     @State private var errorMessage: String?
     @State private var toasts = PMToastPresenter()
 
@@ -172,20 +172,20 @@ struct ServerUsersPage: View {
         .pmToastHost(toasts)
     }
 
-    private var admin: (any NavidromeAdminConnector)? {
-        sourceManager.connector(for: source) as? any NavidromeAdminConnector
+    private var admin: (any ServerAdminConnector)? {
+        sourceManager.connector(for: source) as? any ServerAdminConnector
     }
 
     private func reload() async {
         guard let admin else {
-            loadError = ServerAdminErrorText.message(for: NavidromeAdmin.Failure.unavailable)
+            loadError = ServerAdminErrorText.message(for: ServerAdmin.Failure.unavailable)
             isLoading = false
             return
         }
         isLoading = true
         do {
-            async let loadedUsers = admin.navidromeUsers()
-            async let loadedLibraries = admin.navidromeLibraries()
+            async let loadedUsers = admin.serverAdminUsers()
+            async let loadedLibraries = admin.serverAdminLibraries()
             let (fetchedUsers, fetchedLibraries) = try await (loadedUsers, loadedLibraries)
             users = fetchedUsers
             libraries = fetchedLibraries
@@ -196,12 +196,12 @@ struct ServerUsersPage: View {
         isLoading = false
     }
 
-    private func delete(_ user: NavidromeAdmin.User) {
+    private func delete(_ user: ServerAdmin.User) {
         pendingDelete = nil
         guard let admin else { return }
         Task { @MainActor in
             do {
-                try await admin.deleteNavidromeUser(id: user.id)
+                try await admin.deleteServerAdminUser(id: user.id)
                 users.removeAll { $0.id == user.id }
                 toasts.show(PMToastItem(
                     key: "server-users",
@@ -216,9 +216,9 @@ struct ServerUsersPage: View {
 }
 
 private struct ServerUserRow: View {
-    let user: NavidromeAdmin.User
+    let user: ServerAdmin.User
     let isCurrent: Bool
-    let libraries: [NavidromeAdmin.Library]?
+    let libraries: [ServerAdmin.Library]?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -254,16 +254,18 @@ private struct ServerUserRow: View {
 
     private var subtitle: String {
         var parts: [String] = []
-        if !user.name.isEmpty, user.name != user.userName { parts.append(user.name) }
-        if let seen = user.lastAccessAt ?? user.lastLoginAt {
+        if let name = user.displayName, !name.isEmpty, name != user.userName { parts.append(name) }
+        if user.isDisabled { parts.append(String(localized: "server_admin_disabled")) }
+        if let seen = user.lastSeenAt {
             parts.append(String(format: String(localized: "server_admin_last_seen_format"), SourceDateText.relative(seen)))
         } else {
             parts.append(String(localized: "server_admin_never_used"))
         }
         if user.isAdmin || libraries == nil {
             // 管理员看全部;老版本没有多媒体库,不提。
-        } else if let assigned = user.libraries, !assigned.isEmpty {
-            parts.append(assigned.map(\.name).joined(separator: "、"))
+        } else if let assigned = user.libraryIDs, let libraries {
+            let names = libraries.filter { assigned.contains($0.id) }.map(\.name)
+            if !names.isEmpty { parts.append(names.joined(separator: "、")) }
         }
         return parts.joined(separator: " · ")
     }
@@ -293,7 +295,7 @@ private struct ServerUserBadge: View {
 
 enum ServerUserEditorTarget: Identifiable {
     case create
-    case edit(NavidromeAdmin.User)
+    case edit(ServerAdmin.User)
 
     var id: String {
         switch self {
@@ -305,9 +307,9 @@ enum ServerUserEditorTarget: Identifiable {
 
 private struct ServerUserEditor: View {
     let source: MusicSource
-    let access: NavidromeAdminAccess
+    let access: ServerAdmin.Access
     let target: ServerUserEditorTarget
-    let libraries: [NavidromeAdmin.Library]?
+    let libraries: [ServerAdmin.Library]?
     let onSaved: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -318,15 +320,15 @@ private struct ServerUserEditor: View {
     @State private var resetsPassword = false
     @State private var password = ServerUserPassword.generate()
     @State private var isAdmin = false
-    @State private var selectedLibraries: Set<Int> = []
+    @State private var selectedLibraries: Set<String> = []
     @State private var isSaving = false
     @State private var errorMessage: String?
     /// 新建或重置之后给管理员看一次的密码。
     @State private var issuedPassword: String?
 
     init(
-        source: MusicSource, access: NavidromeAdminAccess, target: ServerUserEditorTarget,
-        libraries: [NavidromeAdmin.Library]?, onSaved: @escaping (String) -> Void
+        source: MusicSource, access: ServerAdmin.Access, target: ServerUserEditorTarget,
+        libraries: [ServerAdmin.Library]?, onSaved: @escaping (String) -> Void
     ) {
         self.source = source
         self.access = access
@@ -335,16 +337,17 @@ private struct ServerUserEditor: View {
         self.onSaved = onSaved
         if case .edit(let user) = target {
             _userName = State(initialValue: user.userName)
-            _displayName = State(initialValue: user.name)
-            _email = State(initialValue: user.email)
+            _displayName = State(initialValue: user.displayName ?? "")
+            _email = State(initialValue: user.email ?? "")
             _isAdmin = State(initialValue: user.isAdmin)
-            _selectedLibraries = State(initialValue: Set((user.libraries ?? []).map(\.id)))
+            // nil 是「全部媒体库」:编辑时全选。
+            _selectedLibraries = State(initialValue: Set(user.libraryIDs ?? (libraries ?? []).map(\.id)))
         } else {
             _selectedLibraries = State(initialValue: Set((libraries ?? []).map(\.id)))
         }
     }
 
-    private var editingUser: NavidromeAdmin.User? {
+    private var editingUser: ServerAdmin.User? {
         if case .edit(let user) = target { return user }
         return nil
     }
@@ -367,23 +370,27 @@ private struct ServerUserEditor: View {
                             Text(userName).foregroundStyle(.secondary)
                         }
                     }
-                    LabeledContent("server_admin_field_name") {
-                        TextField("server_admin_field_name", text: $displayName)
-                            .multilineTextAlignment(.trailing)
+                    if access.editsDisplayName {
+                        LabeledContent("server_admin_field_name") {
+                            TextField("server_admin_field_name", text: $displayName)
+                                .multilineTextAlignment(.trailing)
+                        }
                     }
-                    LabeledContent("server_admin_field_email") {
-                        TextField("server_admin_field_email_placeholder", text: $email)
-                            .autocorrectionDisabled()
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            .keyboardType(.emailAddress)
-                            #endif
-                            .multilineTextAlignment(.trailing)
+                    if access.editsEmail {
+                        LabeledContent("server_admin_field_email") {
+                            TextField("server_admin_field_email_placeholder", text: $email)
+                                .autocorrectionDisabled()
+                                #if os(iOS)
+                                .textInputAutocapitalization(.never)
+                                .keyboardType(.emailAddress)
+                                #endif
+                                .multilineTextAlignment(.trailing)
+                        }
                     }
                 }
 
                 Section {
-                    // 改自己的密码 Navidrome 要先给旧密码,这里不做,留给网页后台。
+                    // 改自己的密码服务器要先验旧密码,这里不做,留给网页后台。
                     if editingUser != nil, !isSelf {
                         Toggle("server_admin_reset_password", isOn: $resetsPassword)
                     }
@@ -438,7 +445,7 @@ private struct ServerUserEditor: View {
                                         .foregroundStyle(selectedLibraries.contains(library.id) ? Color.accentColor : Color.secondary)
                                     Text(library.name).foregroundStyle(.primary)
                                     Spacer()
-                                    if let total = library.totalSongs {
+                                    if let total = library.songCount {
                                         Text(String(format: String(localized: "server_admin_library_songs_format"), total))
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
@@ -511,23 +518,26 @@ private struct ServerUserEditor: View {
 
     private func save() {
         guard canSave,
-              let admin = sourceManager.connector(for: source) as? any NavidromeAdminConnector else { return }
+              let admin = sourceManager.connector(for: source) as? any ServerAdminConnector else { return }
         isSaving = true
         errorMessage = nil
         let name = userName.trimmingCharacters(in: .whitespacesAndNewlines)
         let shownName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let mail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let newPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
-        let libraryIDs: [Int]? = (libraries?.isEmpty == false && !isAdmin) ? selectedLibraries.sorted() : nil
+        let libraryIDs: [String]? = (libraries?.isEmpty == false && !isAdmin) ? selectedLibraries.sorted() : nil
         Task { @MainActor in
             do {
-                if var user = editingUser {
-                    user.name = shownName.isEmpty ? name : shownName
-                    user.email = mail
-                    user.isAdmin = isSelf ? user.isAdmin : isAdmin
-                    try await admin.updateNavidromeUser(
-                        user, newPassword: resetsPassword ? newPassword : nil, libraryIDs: libraryIDs
+                if let user = editingUser {
+                    let draft = ServerAdmin.Draft(
+                        userName: user.userName,
+                        displayName: shownName.isEmpty ? user.userName : shownName,
+                        email: mail,
+                        password: resetsPassword ? newPassword : nil,
+                        isAdmin: isSelf ? user.isAdmin : isAdmin,
+                        libraryIDs: libraryIDs
                     )
+                    try await admin.updateServerAdminUser(id: user.id, draft)
                     onSaved(String(format: String(localized: "server_admin_saved_format"), name))
                     if resetsPassword && !isSelf {
                         issuedPassword = newPassword
@@ -535,13 +545,14 @@ private struct ServerUserEditor: View {
                         dismiss()
                     }
                 } else {
-                    _ = try await admin.createNavidromeUser(
-                        NavidromeAdmin.NewUser(
-                            userName: name, name: shownName.isEmpty ? name : shownName,
-                            email: mail, password: newPassword, isAdmin: isAdmin
-                        ),
+                    try await admin.createServerAdminUser(ServerAdmin.Draft(
+                        userName: name,
+                        displayName: shownName.isEmpty ? name : shownName,
+                        email: mail,
+                        password: newPassword,
+                        isAdmin: isAdmin,
                         libraryIDs: libraryIDs
-                    )
+                    ))
                     onSaved(String(format: String(localized: "server_admin_created_format"), name))
                     issuedPassword = newPassword
                 }
@@ -575,17 +586,15 @@ enum ServerUserPassword {
 
 enum ServerAdminErrorText {
     static func message(for error: Error) -> String {
-        guard let failure = error as? NavidromeAdmin.Failure else { return error.localizedDescription }
+        guard let failure = error as? ServerAdmin.Failure else { return error.localizedDescription }
         switch failure {
         case .unavailable: return String(localized: "server_admin_error_unavailable")
         case .notAdmin: return String(localized: "server_admin_error_not_admin")
         case .authenticationFailed: return String(localized: "server_admin_error_auth")
         case .accountMismatch: return String(localized: "server_admin_error_account_mismatch")
         case .invalidResponse: return String(localized: "server_admin_error_invalid_response")
-        case .rejected(_, let message):
-            if let message, message.contains("unique") {
-                return String(localized: "server_admin_error_duplicate")
-            }
+        case .duplicateName: return String(localized: "server_admin_error_duplicate")
+        case .rejected(let message):
             return [String(localized: "server_admin_error_rejected"), message]
                 .compactMap { $0 }.joined(separator: "\n")
         }

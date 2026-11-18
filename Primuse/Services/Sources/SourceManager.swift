@@ -2365,49 +2365,55 @@ private actor RoutedCatalogEnrichmentContext {
     }
 }
 
-extension RoutedSubsonicConnector: NavidromeAdminConnector {
-    func navidromeAdminAccess() async throws -> NavidromeAdminAccess? {
+/// 服务器管理在带线路的连接器上转发给真正的那一个。
+protocol RoutedServerAdminForwarding: RoutedConnectorProxy, ServerAdminConnector {}
+
+extension RoutedServerAdminForwarding {
+    func serverAdminAccess() async throws -> ServerAdmin.Access? {
         try await routing.withRead { connector in
-            guard let admin = connector as? any NavidromeAdminConnector else { return nil }
-            return try await admin.navidromeAdminAccess()
+            guard let admin = connector as? any ServerAdminConnector else { return nil }
+            return try await admin.serverAdminAccess()
         }
     }
 
-    func navidromeUsers() async throws -> [NavidromeAdmin.User] {
+    func serverAdminUsers() async throws -> [ServerAdmin.User] {
         try await routing.withRead { connector in
-            guard let admin = connector as? any NavidromeAdminConnector else { throw NavidromeAdmin.Failure.unavailable }
-            return try await admin.navidromeUsers()
+            guard let admin = connector as? any ServerAdminConnector else { throw ServerAdmin.Failure.unavailable }
+            return try await admin.serverAdminUsers()
         }
     }
 
-    func navidromeLibraries() async throws -> [NavidromeAdmin.Library]? {
+    func serverAdminLibraries() async throws -> [ServerAdmin.Library]? {
         try await routing.withRead { connector in
-            guard let admin = connector as? any NavidromeAdminConnector else { throw NavidromeAdmin.Failure.unavailable }
-            return try await admin.navidromeLibraries()
+            guard let admin = connector as? any ServerAdminConnector else { throw ServerAdmin.Failure.unavailable }
+            return try await admin.serverAdminLibraries()
         }
     }
 
-    func createNavidromeUser(_ user: NavidromeAdmin.NewUser, libraryIDs: [Int]?) async throws -> NavidromeAdmin.User {
+    func createServerAdminUser(_ draft: ServerAdmin.Draft) async throws {
         try await routing.withMutation { connector in
-            guard let admin = connector as? any NavidromeAdminConnector else { throw NavidromeAdmin.Failure.unavailable }
-            return try await admin.createNavidromeUser(user, libraryIDs: libraryIDs)
+            guard let admin = connector as? any ServerAdminConnector else { throw ServerAdmin.Failure.unavailable }
+            try await admin.createServerAdminUser(draft)
         }
     }
 
-    func updateNavidromeUser(_ user: NavidromeAdmin.User, newPassword: String?, libraryIDs: [Int]?) async throws {
+    func updateServerAdminUser(id: String, _ draft: ServerAdmin.Draft) async throws {
         try await routing.withMutation { connector in
-            guard let admin = connector as? any NavidromeAdminConnector else { throw NavidromeAdmin.Failure.unavailable }
-            try await admin.updateNavidromeUser(user, newPassword: newPassword, libraryIDs: libraryIDs)
+            guard let admin = connector as? any ServerAdminConnector else { throw ServerAdmin.Failure.unavailable }
+            try await admin.updateServerAdminUser(id: id, draft)
         }
     }
 
-    func deleteNavidromeUser(id: String) async throws {
+    func deleteServerAdminUser(id: String) async throws {
         try await routing.withMutation { connector in
-            guard let admin = connector as? any NavidromeAdminConnector else { throw NavidromeAdmin.Failure.unavailable }
-            try await admin.deleteNavidromeUser(id: id)
+            guard let admin = connector as? any ServerAdminConnector else { throw ServerAdmin.Failure.unavailable }
+            try await admin.deleteServerAdminUser(id: id)
         }
     }
 }
+
+extension RoutedSubsonicConnector: RoutedServerAdminForwarding {}
+extension RoutedMediaServerConnector: RoutedServerAdminForwarding {}
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTranscodingConnector,
     RefreshingMetadataSongConnector, TemporaryAudioProcessingConnector,

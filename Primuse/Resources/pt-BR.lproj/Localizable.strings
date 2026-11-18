@@ -7674,7 +7674,7 @@
 "server_admin_copy_password" = "Copiar senha";
 "server_admin_saved_format" = "“%@” salvo";
 "server_admin_created_format" = "Usuário “%@” criado";
-"server_admin_error_unavailable" = "Este servidor não permite gerenciar usuários pelo Primuse. Por enquanto só o Navidrome é compatível.";
+"server_admin_error_unavailable" = "Este servidor não permite gerenciar usuários pelo Primuse. São compatíveis Navidrome, Jellyfin e Emby.";
 "server_admin_error_not_admin" = "Esta conta não é administradora no servidor.";
 "server_admin_error_auth" = "Falha ao entrar. Confira usuário e senha nos ajustes desta fonte.";
 "server_admin_error_account_mismatch" = "O servidor entrou em outra conta, diferente da desta fonte.";
@@ -7689,3 +7689,4 @@
 "source_move_no_subfolders" = "Não há pastas aqui";
 "source_move_error_destination" = "Não dá para mover para dentro dele mesmo nem para onde já está.";
 "source_moved_format" = "Movido para “%@”";
+"server_admin_disabled" = "Desativado";

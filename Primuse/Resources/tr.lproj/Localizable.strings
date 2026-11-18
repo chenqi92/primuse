@@ -7674,7 +7674,7 @@
 "server_admin_copy_password" = "Parolayı kopyala";
 "server_admin_saved_format" = "“%@” kaydedildi";
 "server_admin_created_format" = "“%@” kullanıcısı oluşturuldu";
-"server_admin_error_unavailable" = "Bu sunucu Primuse’tan kullanıcı yönetimine izin vermiyor. Şimdilik yalnızca Navidrome destekleniyor.";
+"server_admin_error_unavailable" = "Bu sunucu Primuse’tan kullanıcı yönetimine izin vermiyor. Navidrome, Jellyfin ve Emby destekleniyor.";
 "server_admin_error_not_admin" = "Bu hesap sunucuda yönetici değil.";
 "server_admin_error_auth" = "Oturum açılamadı. Bu kaynağın ayarlarındaki kullanıcı adını ve parolayı kontrol et.";
 "server_admin_error_account_mismatch" = "Sunucu bu kaynaktakinden farklı bir hesapla oturum açtı.";
@@ -7689,3 +7689,4 @@
 "source_move_no_subfolders" = "Burada klasör yok";
 "source_move_error_destination" = "Kendi içine ya da zaten bulunduğu yere taşınamaz.";
 "source_moved_format" = "“%@” klasörüne taşındı";
+"server_admin_disabled" = "Devre dışı";

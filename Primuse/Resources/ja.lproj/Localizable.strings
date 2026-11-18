@@ -7769,7 +7769,7 @@
 "server_admin_copy_password" = "パスワードをコピー";
 "server_admin_saved_format" = "「%@」を保存しました";
 "server_admin_created_format" = "ユーザー「%@」を作成しました";
-"server_admin_error_unavailable" = "このサーバーでは Primuse からユーザーを管理できません。現在は Navidrome のみ対応しています。";
+"server_admin_error_unavailable" = "このサーバーでは Primuse からユーザーを管理できません。対応しているのは Navidrome、Jellyfin、Emby です。";
 "server_admin_error_not_admin" = "このアカウントはサーバーの管理者ではありません。";
 "server_admin_error_auth" = "ログインできませんでした。このソースの設定でユーザー名とパスワードを確認してください。";
 "server_admin_error_account_mismatch" = "サーバーがこのソースとは別のアカウントでログインしました。";
@@ -7784,3 +7784,4 @@
 "source_move_no_subfolders" = "ここにフォルダはありません";
 "source_move_error_destination" = "自分自身の中や、今と同じ場所には移動できません。";
 "source_moved_format" = "「%@」に移動しました";
+"server_admin_disabled" = "無効";

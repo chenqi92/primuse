@@ -7674,7 +7674,7 @@
 "server_admin_copy_password" = "Скопіювати пароль";
 "server_admin_saved_format" = "«%@» збережено";
 "server_admin_created_format" = "Користувача «%@» створено";
-"server_admin_error_unavailable" = "Цей сервер не дає Primuse керувати користувачами. Поки підтримується лише Navidrome.";
+"server_admin_error_unavailable" = "Цей сервер не дає Primuse керувати користувачами. Підтримуються Navidrome, Jellyfin і Emby.";
 "server_admin_error_not_admin" = "Цей обліковий запис не адміністратор на сервері.";
 "server_admin_error_auth" = "Не вдалося увійти. Перевірте ім’я користувача й пароль у налаштуваннях джерела.";
 "server_admin_error_account_mismatch" = "Сервер увійшов в інший обліковий запис, ніж указано в джерелі.";
@@ -7689,3 +7689,4 @@
 "source_move_no_subfolders" = "Тут немає папок";
 "source_move_error_destination" = "Не можна перемістити об’єкт у нього самого чи туди, де він уже є.";
 "source_moved_format" = "Переміщено до «%@»";
+"server_admin_disabled" = "Вимкнено";

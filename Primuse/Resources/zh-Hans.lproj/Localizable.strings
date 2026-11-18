@@ -7861,7 +7861,7 @@
 "server_admin_copy_password" = "拷贝密码";
 "server_admin_saved_format" = "已保存“%@”";
 "server_admin_created_format" = "已新建用户“%@”";
-"server_admin_error_unavailable" = "这台服务器不能在 Primuse 里管用户，目前只支持 Navidrome。";
+"server_admin_error_unavailable" = "这台服务器不能在 Primuse 里管用户，目前支持 Navidrome、Jellyfin、Emby。";
 "server_admin_error_not_admin" = "这个账号在服务器上不是管理员。";
 "server_admin_error_auth" = "登录失败，请检查这个源设置里的用户名和密码。";
 "server_admin_error_account_mismatch" = "服务器登录的不是这个源里填的账号。";
@@ -7876,3 +7876,4 @@
 "source_move_no_subfolders" = "这里没有子文件夹";
 "source_move_error_destination" = "不能挪到它自己里面，也不能挪回原来的位置。";
 "source_moved_format" = "已移到“%@”";
+"server_admin_disabled" = "已停用";

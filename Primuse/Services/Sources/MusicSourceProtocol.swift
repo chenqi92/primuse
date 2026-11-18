@@ -2944,3 +2944,17 @@ extension MusicSourceConnector {
         throw SourceFolderMutationError.unsupported
     }
 }
+
+/// 音乐服务器的「服务器管理」(#148):管理员账号在 Primuse 里管用户、分配媒体库。
+/// 现在有 Navidrome(Subsonic 连接器认出它之后)、Jellyfin、Emby。服务器不支持时
+/// `serverAdminAccess()` 返回 nil;错误一律是 `ServerAdmin.Failure`。
+protocol ServerAdminConnector: MusicSourceConnector {
+    func serverAdminAccess() async throws -> ServerAdmin.Access?
+    func serverAdminUsers() async throws -> [ServerAdmin.User]
+    /// 服务器不分库(Navidrome 0.58 之前)时返回 nil。
+    func serverAdminLibraries() async throws -> [ServerAdmin.Library]?
+    func createServerAdminUser(_ draft: ServerAdmin.Draft) async throws
+    func updateServerAdminUser(id: String, _ draft: ServerAdmin.Draft) async throws
+    func deleteServerAdminUser(id: String) async throws
+}
+

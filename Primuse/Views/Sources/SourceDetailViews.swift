@@ -409,8 +409,8 @@ struct SourceOverviewPage: View {
     @State private var showsMetadata = false
     @State private var showsLocalRemovals = false
     @State private var showsHiddenPlaylists = false
-    /// 管理员账号才有「服务器管理」(现在只有 Navidrome)。
-    @State private var adminAccess: NavidromeAdminAccess?
+    /// 管理员账号才有「服务器管理」(Navidrome、Jellyfin、Emby)。
+    @State private var adminAccess: ServerAdmin.Access?
     @State private var adminUserCount: Int?
     @State private var showsUsers = false
 
@@ -502,11 +502,11 @@ struct SourceOverviewPage: View {
         .task(id: "\(source.id)-\(showsUsers)") {
             // 从用户页回来时再数一次人数。
             guard !showsUsers, source.isEnabled,
-                  let admin = sourceManager.connector(for: source) as? any NavidromeAdminConnector,
-                  let access = try? await admin.navidromeAdminAccess() else { return }
+                  let admin = sourceManager.connector(for: source) as? any ServerAdminConnector,
+                  let access = try? await admin.serverAdminAccess() else { return }
             adminAccess = access
             guard access.isAdmin else { return }
-            adminUserCount = (try? await admin.navidromeUsers())?.count
+            adminUserCount = (try? await admin.serverAdminUsers())?.count
         }
     }
 }
