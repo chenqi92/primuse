@@ -4,19 +4,28 @@ import GRDB
 public struct EQPreset: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
-    public var bands: [Float] // 10 gain values, -12 to +12 dB
+    public var bands: [Float] // Graphic EQ: 10 gains, -12...12 dB. Parametric presets use `parametric`.
     public var isBuiltIn: Bool
+    public var parametric: ParametricEQ?
 
     public init(
         id: String = UUID().uuidString,
         name: String,
         bands: [Float],
-        isBuiltIn: Bool = false
+        isBuiltIn: Bool = false,
+        parametric: ParametricEQ? = nil
     ) {
         self.id = id
         self.name = name
         self.bands = bands
         self.isBuiltIn = isBuiltIn
+        self.parametric = parametric
+    }
+
+    public var isValid: Bool {
+        if let parametric { return parametric.isValid }
+        return bands.count == PrimuseConstants.eqBandCount
+            && bands.allSatisfy { $0.isFinite && (PrimuseConstants.eqMinGain...PrimuseConstants.eqMaxGain).contains($0) }
     }
 
     public var localizedName: String {

@@ -2370,6 +2370,22 @@
 		FFB6F3076CD8D107E17A9C33 /* ServerCatalogIncrementalSyncPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BADBBDCE4D75C75C46571A8 /* ServerCatalogIncrementalSyncPolicy.swift */; };
 		FFD2B29D7B89BDA769B2D069 /* AudioDecoderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF62F5046D29F993786AE489 /* AudioDecoderProtocol.swift */; };
 		01B6F2B3999C32DE93DC4189 /* AlbumBackdropCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A573EAE16B090B35AC776382 /* AlbumBackdropCache.swift */; };
+		03DFF0934A21C2F21AC830BD /* EQCalibrationCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F1145A9EDF4067382D70945 /* EQCalibrationCatalog.swift */; };
+		104E628BA5138E61EFECBCD4 /* EQRealtimeProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8AFA1066ACA84347625E4E /* EQRealtimeProcessor.swift */; };
+		14033D632B3A2FCE09EE4E6E /* ParametricEqualizerUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E29AA1A6283A60FD0B2BA640 /* ParametricEqualizerUnit.swift */; };
+		1EABF0C2ADB4EFBBA54A6BC9 /* AudioCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12604AB34F9E270AB4A330C2 /* AudioCalibrationView.swift */; };
+		3C1E909BE5A89EB274DBED2F /* ParametricEQ.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19DEF8032E8EE89913779A5 /* ParametricEQ.swift */; };
+		3D1DA00DD7C175B998EB06AB /* AutoEq-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = A7F771F08417B362E09CB48E /* AutoEq-LICENSE.txt */; };
+		5BF16B49884E4B2AD1CB14C1 /* AudioCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12604AB34F9E270AB4A330C2 /* AudioCalibrationView.swift */; };
+		6C3DE57BB575688B26C35495 /* CalibrationPromptHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C74B86E90D1B12924FCF7B5 /* CalibrationPromptHost.swift */; };
+		6E985E1E2D4A28922437416A /* CalibrationPromptHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C74B86E90D1B12924FCF7B5 /* CalibrationPromptHost.swift */; };
+		9D290ED81CEB3DBE5B4B89F1 /* AutoEq-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = A7F771F08417B362E09CB48E /* AutoEq-LICENSE.txt */; };
+		B261BB62D19335080DF6E342 /* AudioCalibration.strings in Resources */ = {isa = PBXBuildFile; fileRef = C164108F7677C76A2C0A9A8D /* AudioCalibration.strings */; };
+		CE40D8BDEF11398B40964F4A /* ParametricEqualizerUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E29AA1A6283A60FD0B2BA640 /* ParametricEqualizerUnit.swift */; };
+		FEDD50036FC72BD682E0C6F7 /* AudioCalibration.strings in Resources */ = {isa = PBXBuildFile; fileRef = C164108F7677C76A2C0A9A8D /* AudioCalibration.strings */; };
+		7B284FAEA9BAEFD75391DFFE /* AudioCalibrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E8FE90B3241939ADD3F1BE7 /* AudioCalibrationTests.swift */; };
+		C6ACEB8CD58B7801D209940B /* AudioCalibrationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1016950E8276E7A22C84C85 /* AudioCalibrationUITests.swift */; };
+		7B5B30BE4EFD9ADE829F2A14 /* AutoEqCatalog.json in Resources */ = {isa = PBXBuildFile; fileRef = 062501A320B0E0A5C9F6A703 /* AutoEqCatalog.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -4336,6 +4352,32 @@
 		FFCB474474519BE89590D828 /* MacRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRoute.swift; sourceTree = "<group>"; };
 		1F3B835686D950BCAA410EF8 /* MacSheetChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSheetChrome.swift; sourceTree = "<group>"; };
 		A573EAE16B090B35AC776382 /* AlbumBackdropCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumBackdropCache.swift; sourceTree = "<group>"; };
+		0C74B86E90D1B12924FCF7B5 /* CalibrationPromptHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationPromptHost.swift; sourceTree = "<group>"; };
+		12604AB34F9E270AB4A330C2 /* AudioCalibrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCalibrationView.swift; sourceTree = "<group>"; };
+		81A1C4F85DBD4E215F865B5C /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/AudioCalibration.strings"; sourceTree = "<group>"; };
+		8B8AFA1066ACA84347625E4E /* EQRealtimeProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EQRealtimeProcessor.swift; sourceTree = "<group>"; };
+		8F1145A9EDF4067382D70945 /* EQCalibrationCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EQCalibrationCatalog.swift; sourceTree = "<group>"; };
+		A7F771F08417B362E09CB48E /* AutoEq-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "AutoEq-LICENSE.txt"; sourceTree = "<group>"; };
+		B473B82978867B9334875D1B /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		D19DEF8032E8EE89913779A5 /* ParametricEQ.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParametricEQ.swift; sourceTree = "<group>"; };
+		E29AA1A6283A60FD0B2BA640 /* ParametricEqualizerUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParametricEqualizerUnit.swift; sourceTree = "<group>"; };
+		F12F7EBB56022169179CC13F /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/AudioCalibration.strings"; sourceTree = "<group>"; };
+		8E8FE90B3241939ADD3F1BE7 /* AudioCalibrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCalibrationTests.swift; sourceTree = "<group>"; };
+		C1016950E8276E7A22C84C85 /* AudioCalibrationUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCalibrationUITests.swift; sourceTree = "<group>"; };
+		09C61E6122D7D162D615F3CB /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/AudioCalibration.strings"; sourceTree = "<group>"; };
+		23A6A4D15A3732CDDA4F60AB /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		46C5C019C73B5CFBA4CDA203 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		48C2D569D9601A8B99FCABAE /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		5E4986FC4E0F3656414BA31E /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		691F7D8637EC3788B920CB75 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		6E70D1BFEB3718C9E238BBCA /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		7DC4B1408C0A919858A4CDE3 /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		8852D31137149A5761C1F503 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		920864E4FB6DEC6F5558EB2B /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/AudioCalibration.strings"; sourceTree = "<group>"; };
+		A92004628677C368FB317485 /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = hi.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		B212862DF0F11E2B47DE0862 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		F506CBEBD38204410E8C19D4 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/AudioCalibration.strings; sourceTree = "<group>"; };
+		062501A320B0E0A5C9F6A703 /* AutoEqCatalog.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = AutoEqCatalog.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4451,6 +4493,7 @@
 		01BF9B943AEB387D0F805301 /* Audio */ = {
 			isa = PBXGroup;
 			children = (
+				E29AA1A6283A60FD0B2BA640 /* ParametricEqualizerUnit.swift */,
 				23F224C180F61FD6AD00DD7B /* AssetReaderDecoder.swift */,
 				0E0E5D6E03C437F8A3D75067 /* AudioCacheManager.swift */,
 				79455C5F0C8A112D600E4423 /* AudioCacheSyncService.swift */,
@@ -4814,6 +4857,9 @@
 		414F61F3A9ADE8E8099A5662 /* PrimuseKit */ = {
 			isa = PBXGroup;
 			children = (
+				8F1145A9EDF4067382D70945 /* EQCalibrationCatalog.swift */,
+				8B8AFA1066ACA84347625E4E /* EQRealtimeProcessor.swift */,
+				D19DEF8032E8EE89913779A5 /* ParametricEQ.swift */,
 				B8201B4D10F3B60D364411E9 /* AI */,
 				BCB6BB061EEC67A448D0CAC1 /* AutomaticOfflineRunningJobPolicy.swift */,
 				C161382065B391D1C54B9209 /* Import */,
@@ -5262,6 +5308,7 @@
 		4F2578A28388F7F7B56DAA6E /* CarPlayEditorUITests */ = {
 			isa = PBXGroup;
 			children = (
+				C1016950E8276E7A22C84C85 /* AudioCalibrationUITests.swift */,
 				CC751DB281538ACD1BD13986 /* CarPlayEditorUITests.swift */,
 				7B0EA569598443D45FB5BCED /* HomeTopSwitchingUITests.swift */,
 				8B4495EA2FA7EF8F2DBE4290 /* SearchExperienceUITests.swift */,
@@ -6182,6 +6229,7 @@
 		D266C9107D16C6BF97A76480 /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				0C74B86E90D1B12924FCF7B5 /* CalibrationPromptHost.swift */,
 				273E1123F2B1AD5C028A47F7 /* BatchSelection */,
 				A82FE12BD255B40B05629442 /* AlbumCardView.swift */,
 				F44E04BAF67DF37C98C9FDAF /* AnimatedArtworkDataView.swift */,
@@ -6297,6 +6345,7 @@
 		D7B9A30E7467B10B25922382 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				062501A320B0E0A5C9F6A703 /* AutoEqCatalog.json */,
 				449E8C72C7990DCAAE0C289F /* Localizable.strings */,
 				2A0B9580F79C6A0819C1E72B /* FlyAuditoryCircuit.bin */,
 			);
@@ -6385,6 +6434,7 @@
 		E02A6280EA74816DDAAA95F9 /* PrimuseTests */ = {
 			isa = PBXGroup;
 			children = (
+				8E8FE90B3241939ADD3F1BE7 /* AudioCalibrationTests.swift */,
 				059B8717F4BD77194FDB5F80 /* AIRequestQuotaTests.swift */,
 				3EC5C57A1C23EDA835C82C97 /* AISmartPlaylistEngineTests.swift */,
 				41755983E9DC7312DACA2DDA /* AlbumMetadataTests.swift */,
@@ -6557,6 +6607,7 @@
 		EF9B6B648279FE3A65F285EA /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				12604AB34F9E270AB4A330C2 /* AudioCalibrationView.swift */,
 				767016AFD74B46B9E0E7AE80 /* AISettingsView.swift */,
 				F52CBE601DF2ED6B33A3FD92 /* AppIconSettingsView.swift */,
 				780AC3E761A5E47669455B60 /* ArtistNameSettingsView.swift */,
@@ -6700,6 +6751,8 @@
 		FEAF04550B50BF324578C523 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				C164108F7677C76A2C0A9A8D /* AudioCalibration.strings */,
+				A7F771F08417B362E09CB48E /* AutoEq-LICENSE.txt */,
 				39A4D0ED31C0B72DF438476C /* CacheSync.strings */,
 				37B6EF903623F1A187DD21B2 /* HomeDiscovery.strings */,
 				60849A3BA068DBB563EFA62E /* InfoPlist.strings */,
@@ -7135,6 +7188,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FEDD50036FC72BD682E0C6F7 /* AudioCalibration.strings in Resources */,
+				3D1DA00DD7C175B998EB06AB /* AutoEq-LICENSE.txt in Resources */,
 				BF99C076E88EABE0665A9F6B /* AppIcon12.icon in Resources */,
 				9995CF68B723A19C2C24CABB /* AppIcon15.icon in Resources */,
 				323E13FB471ADE331E3F501E /* AppIcon22.icon in Resources */,
@@ -7163,6 +7218,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B261BB62D19335080DF6E342 /* AudioCalibration.strings in Resources */,
+				9D290ED81CEB3DBE5B4B89F1 /* AutoEq-LICENSE.txt in Resources */,
 				3CC3AC224BCD7B4E099DC198 /* AppShortcuts.xcstrings in Resources */,
 				5B6CB118CEB161FBC2A9C0CF /* Assets.xcassets in Resources */,
 				4654C1707DDE9C0213BBF316 /* CacheSync.strings in Resources */,
@@ -7206,6 +7263,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7B5B30BE4EFD9ADE829F2A14 /* AutoEqCatalog.json in Resources */,
 				693DB3661F6A80B96FC38E8D /* FlyAuditoryCircuit.bin in Resources */,
 				193463D65D5D8855FB50984D /* Localizable.strings in Resources */,
 			);
@@ -7290,6 +7348,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7B284FAEA9BAEFD75391DFFE /* AudioCalibrationTests.swift in Sources */,
 				86AA26C64AE2790C752F4645 /* AIRequestQuotaTests.swift in Sources */,
 				CD606731E71E796A7C3D0593 /* AISmartPlaylistEngineTests.swift in Sources */,
 				5F193CB416043B051E3D3B6C /* AlbumMetadataTests.swift in Sources */,
@@ -7400,6 +7459,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C6ACEB8CD58B7801D209940B /* AudioCalibrationUITests.swift in Sources */,
 				DE548F712D4D5F4D04A332BD /* CarPlayEditorUITests.swift in Sources */,
 				88BD619F1B7D69E77B643F58 /* HomeTopSwitchingUITests.swift in Sources */,
 				953F0A17E59BDE10CD67684E /* SearchExperienceUITests.swift in Sources */,
@@ -7431,6 +7491,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				03DFF0934A21C2F21AC830BD /* EQCalibrationCatalog.swift in Sources */,
+				104E628BA5138E61EFECBCD4 /* EQRealtimeProcessor.swift in Sources */,
+				3C1E909BE5A89EB274DBED2F /* ParametricEQ.swift in Sources */,
 				F8D572F8EC30A3A3490030B8 /* ABRepeatPolicy.swift in Sources */,
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
 				A7815B97AB23C3B0112CF13D /* AIIntelligenceModels.swift in Sources */,
@@ -8070,6 +8133,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1EABF0C2ADB4EFBBA54A6BC9 /* AudioCalibrationView.swift in Sources */,
+				6E985E1E2D4A28922437416A /* CalibrationPromptHost.swift in Sources */,
+				14033D632B3A2FCE09EE4E6E /* ParametricEqualizerUnit.swift in Sources */,
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
 				FD44254364FA0DB15420FBA1 /* AIPlaylistEditorView.swift in Sources */,
 				B418E40C20D78B4D573CFB4D /* AIRecommendationLibraryView.swift in Sources */,
@@ -8934,6 +9000,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5BF16B49884E4B2AD1CB14C1 /* AudioCalibrationView.swift in Sources */,
+				6C3DE57BB575688B26C35495 /* CalibrationPromptHost.swift in Sources */,
+				CE40D8BDEF11398B40964F4A /* ParametricEqualizerUnit.swift in Sources */,
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
 				BEDC249FC1AF38BC9516765B /* AIPlaylistEditorView.swift in Sources */,
 				FB0911208AD3966703462CC2 /* AIRecommendationLibraryView.swift in Sources */,
@@ -9972,6 +10041,29 @@
 				49B4FE6BD37CDF7D186CF09F /* zh-Hant */,
 			);
 			name = SettingsSearch.strings;
+			sourceTree = "<group>";
+		};
+		C164108F7677C76A2C0A9A8D /* AudioCalibration.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				8852D31137149A5761C1F503 /* ar */,
+				6E70D1BFEB3718C9E238BBCA /* de */,
+				920864E4FB6DEC6F5558EB2B /* es-MX */,
+				B212862DF0F11E2B47DE0862 /* fr */,
+				A92004628677C368FB317485 /* hi */,
+				23A6A4D15A3732CDDA4F60AB /* ja */,
+				48C2D569D9601A8B99FCABAE /* ko */,
+				7DC4B1408C0A919858A4CDE3 /* pl */,
+				09C61E6122D7D162D615F3CB /* pt-BR */,
+				46C5C019C73B5CFBA4CDA203 /* ru */,
+				5E4986FC4E0F3656414BA31E /* th */,
+				F506CBEBD38204410E8C19D4 /* tr */,
+				691F7D8637EC3788B920CB75 /* uk */,
+				B473B82978867B9334875D1B /* en */,
+				F12F7EBB56022169179CC13F /* zh-Hans */,
+				81A1C4F85DBD4E215F865B5C /* zh-Hant */,
+			);
+			name = AudioCalibration.strings;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */

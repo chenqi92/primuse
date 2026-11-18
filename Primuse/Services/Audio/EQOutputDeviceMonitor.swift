@@ -21,7 +21,8 @@ final class EQOutputDeviceMonitor {
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
     #if os(macOS)
     private let resolveDeviceID: @MainActor () -> AudioDeviceID?
-    nonisolated(unsafe) private var hardwareListeners: [(block: AudioObjectPropertyListenerBlock, address: AudioObjectPropertyAddress)] = []
+    nonisolated(unsafe) private var hardwareListeners: [(objectID: AudioObjectID, block: AudioObjectPropertyListenerBlock, address: AudioObjectPropertyAddress)] = []
+    private var observedDeviceID: AudioDeviceID?
     #endif
 
     #if os(macOS)
@@ -50,7 +51,7 @@ final class EQOutputDeviceMonitor {
         for listener in hardwareListeners {
             var address = listener.address
             AudioObjectRemovePropertyListenerBlock(
-                AudioObjectID(kAudioObjectSystemObject),
+                listener.objectID,
                 &address,
                 DispatchQueue.main,
                 listener.block
@@ -62,7 +63,9 @@ final class EQOutputDeviceMonitor {
     /// 重新读一次输出设备;身份没变(只是同一台设备的路由抖动)就不回调。
     func refresh() {
         #if os(macOS)
-        let device = Self.readDevice(resolveDeviceID())
+        let deviceID = resolveDeviceID()
+        observeDevice(deviceID)
+        let device = Self.readDevice(deviceID)
         #else
         let device = Self.readDevice()
         #endif
@@ -104,9 +107,10 @@ final class EQOutputDeviceMonitor {
                 block
             )
             if status == noErr {
-                hardwareListeners.append((block: block, address: address))
+                hardwareListeners.append((objectID: AudioObjectID(kAudioObjectSystemObject), block: block, address: address))
             }
         }
+        observeDevice(resolveDeviceID())
         #endif
     }
 
@@ -141,7 +145,58 @@ final class EQOutputDeviceMonitor {
         // 设备 UID 跨重启不变;AudioDeviceID 每次插拔都可能换。
         guard let uid = readString(deviceID, selector: kAudioDevicePropertyDeviceUID),
               !uid.isEmpty else { return nil }
-        return EQOutputDevice(id: uid, name: name, kind: kind(transport: readTransport(deviceID)))
+        var kind = kind(transport: readTransport(deviceID))
+        if kind == .builtInSpeaker, hasHeadphoneOutput(deviceID) { kind = .headphones }
+        // Some Macs share a device UID between the internal speakers and the analog jack.
+        return EQOutputDevice(id: kind == .headphones ? uid + "|headphones" : uid, name: name, kind: kind)
+    }
+
+    private func observeDevice(_ deviceID: AudioDeviceID?) {
+        guard deviceID != observedDeviceID else { return }
+        for listener in hardwareListeners where listener.objectID != AudioObjectID(kAudioObjectSystemObject) {
+            var address = listener.address
+            AudioObjectRemovePropertyListenerBlock(listener.objectID, &address, .main, listener.block)
+        }
+        hardwareListeners.removeAll { $0.objectID != AudioObjectID(kAudioObjectSystemObject) }
+        observedDeviceID = deviceID
+        guard let deviceID, deviceID != kAudioObjectUnknown else { return }
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.refresh() }
+        }
+        for selector in [kAudioDevicePropertyJackIsConnected, kAudioDevicePropertyDataSource, kAudioDevicePropertyStreams] {
+            var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeOutput,
+                                                     mElement: kAudioObjectPropertyElementMain)
+            guard AudioObjectHasProperty(deviceID, &address) else { continue }
+            if AudioObjectAddPropertyListenerBlock(deviceID, &address, .main, block) == noErr {
+                hardwareListeners.append((objectID: deviceID, block: block, address: address))
+            }
+        }
+    }
+
+    private static func hasHeadphoneOutput(_ deviceID: AudioDeviceID) -> Bool {
+        if readUInt32(deviceID, selector: kAudioDevicePropertyJackIsConnected, scope: kAudioObjectPropertyScopeOutput) == 1 {
+            return true
+        }
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams,
+                                                 mScope: kAudioObjectPropertyScopeOutput,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr, size > 0 else { return false }
+        var streams = [AudioStreamID](repeating: 0, count: Int(size) / MemoryLayout<AudioStreamID>.size)
+        let status = streams.withUnsafeMutableBytes {
+            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, $0.baseAddress!)
+        }
+        return status == noErr && streams.contains {
+            readUInt32($0, selector: kAudioStreamPropertyTerminalType) == kAudioStreamTerminalTypeHeadphones
+        }
+    }
+
+    private static func readUInt32(_ id: AudioObjectID, selector: AudioObjectPropertySelector,
+                                   scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> UInt32? {
+        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        return AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr ? value : nil
     }
 
     private static func kind(transport: UInt32) -> EQOutputDevice.Kind {

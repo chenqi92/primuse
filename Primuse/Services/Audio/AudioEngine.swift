@@ -290,7 +290,7 @@ final class AudioEngine {
     private var crossfadePlayerNode: AVAudioPlayerNode?
     private var playerMixer: AVAudioMixerNode?  // Mixes the spatial output before EQ
     private var environmentNode: AVAudioEnvironmentNode?
-    private(set) var eqNode: AVAudioUnitEQ?
+    private(set) var eqNode: AVAudioUnitEffect?
     private(set) var compressorNode: AVAudioUnitEffect?
     private(set) var reverbNode: AVAudioUnitReverb?
     /// 混响并联在压缩器后面:干声、混响(固定 100% 湿)各走一个混音节点,再汇进
@@ -313,7 +313,11 @@ final class AudioEngine {
     /// 节点上写的是两者之和(`PlaybackPitchPolicy.combinedCents`), 谁也不覆盖谁。
     private var userPitchCents: Float = 0
 
-    private(set) var isPlaying = false
+    private(set) var isPlaying = false {
+        didSet {
+            if isPlaying != oldValue, spatialHeadTrackingEnabled { updateSpatialHeadTracking() }
+        }
+    }
     var isActuallyPlaying: Bool {
         engine?.isRunning == true && playerNode?.isPlaying == true
     }
@@ -345,7 +349,8 @@ final class AudioEngine {
     private var pendingGraphOutputDeviceID: AudioDeviceID?
     private var configuredHardwareOutput: (deviceID: AudioDeviceID, format: AVAudioFormat, sampleRate: Double)?
     #endif
-    private var headphoneMotionManager: CMHeadphoneMotionManager?
+    // A retained manager owns a request, including the interval before Core Motion reports it active.
+    @ObservationIgnored private var headphoneMotionManager: CMHeadphoneMotionManager?
     private var transportFadeTask: Task<Void, Never>?
     private var transportFadeRestoreVolume: Float?
     /// The primary node's steady-state volume: unity, or the ReplayGain volume
@@ -391,12 +396,18 @@ final class AudioEngine {
     var crossfadeTimelineOrigin: TimeInterval = 0
 
     @ObservationIgnored private let startGraph: (AVAudioEngine) throws -> Void
+    @ObservationIgnored private let makeHeadphoneMotionManager: () -> CMHeadphoneMotionManager?
     @ObservationIgnored private let connectDirectOutput: @MainActor (AVAudioEngine, AVAudioPlayerNode, AVAudioFormat) throws -> Void
 
     init(
         volumeDefaults: UserDefaults = .standard,
         outputDefaults: UserDefaults = .standard,
         startGraph: @escaping (AVAudioEngine) throws -> Void = { try $0.start() },
+        makeHeadphoneMotionManager: @escaping () -> CMHeadphoneMotionManager? = {
+            let status = CMHeadphoneMotionManager.authorizationStatus()
+            guard status == .authorized || status == .notDetermined else { return nil }
+            return CMHeadphoneMotionManager()
+        },
         connectDirectOutput: @escaping @MainActor (AVAudioEngine, AVAudioPlayerNode, AVAudioFormat) throws -> Void = {
             engine, player, format in
             try AudioEngine.connect(player, to: engine.outputNode, format: format, in: engine)
@@ -404,6 +415,7 @@ final class AudioEngine {
     ) {
         self.volumeDefaults = volumeDefaults
         self.startGraph = startGraph
+        self.makeHeadphoneMotionManager = makeHeadphoneMotionManager
         self.connectDirectOutput = connectDirectOutput
         #if os(macOS)
         self.outputDefaults = outputDefaults
@@ -434,9 +446,11 @@ final class AudioEngine {
     #if os(iOS)
     private func outputRouteDidChange() {
         refreshObservedOutputSampleRate()
+        updateSpatialHeadTracking()
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(600))
             self?.refreshObservedOutputSampleRate()
+            self?.updateSpatialHeadTracking()
         }
     }
     #endif
@@ -659,7 +673,7 @@ final class AudioEngine {
 
         let mixer = AVAudioMixerNode()
         let environment = AVAudioEnvironmentNode()
-        let eq = AVAudioUnitEQ(numberOfBands: PrimuseConstants.eqBandCount)
+        let eq = ParametricEqualizerUnit.makeNode()
         let compressorDesc = AudioComponentDescription(
             componentType: kAudioUnitType_Effect,
             componentSubType: kAudioUnitSubType_DynamicsProcessor,
@@ -674,15 +688,6 @@ final class AudioEngine {
         let reverbOutput = AVAudioMixerNode()
         let timePitch = PlaybackTimePitchProcessor(spectralOverlap: 16)
         timePitch.apply(rate: playbackRate, pitchCents: combinedPitchCents, isSpokenWord: playbackIsSpokenWord)
-
-        for (index, frequency) in PrimuseConstants.eqBandFrequencies.enumerated() {
-            let band = eq.bands[index]
-            band.filterType = .parametric
-            band.frequency = frequency
-            band.bandwidth = PrimuseConstants.eqDefaultBandwidth
-            band.gain = 0
-            band.bypass = false
-        }
 
         // 压缩器一直接在链路里:关着时由 AudioEffectsService 设成不压缩的参数(逐样本透明,
         // 只多 5.3 ms 预读延迟)。旁通是硬切,开关时会咔哒。
@@ -2145,8 +2150,11 @@ final class AudioEngine {
     func configureSpatialAudio(enabled: Bool, headTrackingEnabled: Bool) {
         let allowEffects = outputMode == .effects
         spatialAudioEnabled = allowEffects && enabled
-        spatialHeadTrackingEnabled = allowEffects && enabled && headTrackingEnabled
+        let shouldTrack = spatialAudioEnabled && headTrackingEnabled
+        let trackingChanged = spatialHeadTrackingEnabled != shouldTrack
+        spatialHeadTrackingEnabled = shouldTrack
         applySpatialAudioConfiguration()
+        if trackingChanged { updateSpatialHeadTracking() }
     }
 
     private func applySpatialAudioConfiguration() {
@@ -2161,13 +2169,6 @@ final class AudioEngine {
 
         configureSpatialSource(playerNode)
         configureSpatialSource(crossfadePlayerNode)
-
-        if spatialAudioEnabled, spatialHeadTrackingEnabled {
-            startSpatialHeadTracking()
-        } else {
-            stopSpatialHeadTracking()
-            resetSpatialListenerOrientation()
-        }
     }
 
     private func configureSpatialSource(_ node: AVAudioPlayerNode?) {
@@ -2178,30 +2179,33 @@ final class AudioEngine {
         node.renderingAlgorithm = spatialAudioEnabled ? .HRTFHQ : .stereoPassThrough
     }
 
-    private func startSpatialHeadTracking() {
-        let manager = headphoneMotionManager ?? CMHeadphoneMotionManager()
-        guard manager.isDeviceMotionAvailable else {
-            spatialHeadTrackingEnabled = false
-            resetSpatialListenerOrientation()
+    private func updateSpatialHeadTracking() {
+        guard isPlaying, spatialHeadTrackingEnabled else {
+            stopSpatialHeadTracking()
             return
         }
-
+        if let manager = headphoneMotionManager {
+            if !manager.isDeviceMotionAvailable { stopSpatialHeadTracking() }
+            return
+        }
+        guard let manager = makeHeadphoneMotionManager(), manager.isDeviceMotionAvailable else { return }
         headphoneMotionManager = manager
-        guard !manager.isDeviceMotionActive else { return }
-
-        manager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
-            guard let motion else { return }
-            Task { @MainActor [weak self] in
-                self?.applyHeadphoneMotion(motion)
+        manager.startDeviceMotionUpdates(to: .main) { [weak self, weak manager] motion, error in
+            MainActor.assumeIsolated {
+                guard let self, let manager, self.headphoneMotionManager === manager else { return }
+                if let motion {
+                    self.applyHeadphoneMotion(motion)
+                } else if error != nil, !manager.isDeviceMotionActive {
+                    self.stopSpatialHeadTracking()
+                }
             }
         }
     }
 
     private func stopSpatialHeadTracking() {
-        headphoneMotionManager?.stopDeviceMotionUpdates()
-    }
-
-    private func resetSpatialListenerOrientation() {
+        guard let manager = headphoneMotionManager else { return }
+        headphoneMotionManager = nil
+        manager.stopDeviceMotionUpdates()
         environmentNode?.listenerAngularOrientation = AVAudio3DAngularOrientation(yaw: 0, pitch: 0, roll: 0)
     }
 
@@ -2465,14 +2469,6 @@ final class AudioEngine {
         if requestedVolume != clamped { requestedVolume = clamped }
         applyRequestedVolumeToGraph()
         if persist { persistVolume() }
-    }
-
-    /// 均衡器的整体增益(线性),挂在均衡器前面那个混音节点上,高保真直通图里没有这一级。
-    /// 不用 AVAudioUnitEQ 的 globalGain:它大幅跳变时高频会冲出很大的瞬态(0 → -19 dB
-    /// 时 12 kHz 冲到 +38 dBFS),混音节点音量是纯乘法,改动在约一个渲染周期里平滑到位。
-    var equalizerPreampGain: Float {
-        get { playerMixer?.outputVolume ?? 1 }
-        set { playerMixer?.outputVolume = newValue }
     }
 
     /// 混响并联两路的音量(线性):干声 √(1−w)、湿声 √w,和 AVAudioUnitReverb 的

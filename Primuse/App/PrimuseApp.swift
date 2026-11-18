@@ -2008,7 +2008,9 @@ struct PrimuseApp: App {
     #if os(iOS)
     @ViewBuilder private var standardIOSRootContent: some View {
         #if DEBUG
-        if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "nowPlayingTransition" {
+        if ProcessInfo.processInfo.environment["PRIMUSE_EQ_UI_TESTS"] == "1" {
+            CalibrationTestHost()
+        } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "nowPlayingTransition" {
             NowPlayingTransitionEvidenceHost()
                 .modifier(DebugEvidenceOrientation())
         } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "immersiveStage" {
@@ -2094,6 +2096,7 @@ struct PrimuseApp: App {
         macAwareMainGroup {
             injectServices {
                 platformRootContent
+                .calibrationPromptHost()
                 // Keep one scene-level presenter alive on every platform so
                 // background scans and playback never wait for a sheet-local
                 // certificate prompt that has already disappeared.

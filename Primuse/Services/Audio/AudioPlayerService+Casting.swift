@@ -2147,7 +2147,13 @@ extension AudioPlayerService {
                 includes: { id in lookup.contains(id: id, playableOnly: playableOnly) },
                 resolve: { lookup.song(id: $0) },
                 linkGraph: linkGraph,
-                shuffle: { weighting?.shuffled(ids: $0, lookup: lookup) ?? $0.shuffled() }
+                shuffleInPlace: { ids in
+                    if let weighting {
+                        ids = weighting.shuffled(ids: ids, lookup: lookup)
+                    } else {
+                        ids.shuffle()
+                    }
+                }
             )
         }.value
         guard queueRequestToken == token else {

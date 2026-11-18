@@ -443,6 +443,23 @@ struct QueueContinuationTests {
         #expect(fromMiddle?.items == ["c", "d", "b", "a"])
     }
 
+    @Test("Uniform library shuffle keeps the chosen song once and preserves other repeats across windows")
+    func uniformShuffleWithRepeatedIDs() throws {
+        var ids = (0..<(QueueWindowPolicy.windowLimit + 50)).map { "song-\($0)" }
+        let chosen = ids[17]
+        let repeated = ids[21]
+        ids.append(contentsOf: [chosen, repeated])
+        let request = try #require(LargeQueueRequestPlanner.plan(
+            ids: ids, startIndex: 17, order: .shuffledAfterStart,
+            includes: { _ in true }, resolve: { $0 }
+        ))
+        var continuation = try #require(request.continuation)
+        let all = request.items + continuation.takeNext(maxCount: ids.count, repeatsAll: false)
+        #expect(request.selectedIndex == 0 && all.first == chosen)
+        #expect(all.count == ids.count - 1 && Set(all) == Set(ids))
+        #expect(all.filter { $0 == repeated }.count == 2)
+    }
+
     @Test("Songs that no longer resolve drop out of the window without moving the start")
     func unresolvedSongsInWindow() {
         let ids = (0..<10).map { "s\($0)" }

@@ -606,58 +606,61 @@ public enum LargeQueueRequestPlanner {
         includes: (String) -> Bool,
         resolve: (String) -> Item?,
         linkGraph: ShuffleLinkGraph = .empty,
-        shuffle: ([String]) -> [String] = { $0.shuffled() }
+        shuffle: ([String]) -> [String]
     ) -> PreparedQueueRequest<Item>? {
-        var kept: [String] = []
-        kept.reserveCapacity(ids.count)
-        var startPosition: Int?
-        var keptRequestedStart = false
-        for (index, id) in ids.enumerated() where includes(id) {
-            if startPosition == nil, index >= startIndex { startPosition = kept.count }
-            if index == startIndex { keptRequestedStart = true }
-            kept.append(id)
-        }
-        guard !kept.isEmpty else { return nil }
+        plan(ids: ids, startIndex: startIndex, order: order, includes: includes, resolve: resolve,
+             linkGraph: linkGraph, shuffleInPlace: { $0 = shuffle($0) })
+    }
 
-        var sequence: [String]
-        var selected: Int
+    public static func plan<Item: Sendable>(
+        ids: [String],
+        startIndex: Int,
+        order: LargeQueueRequestOrder,
+        includes: (String) -> Bool,
+        resolve: (String) -> Item?,
+        linkGraph: ShuffleLinkGraph = .empty,
+        shuffleInPlace: (inout [String]) -> Void = { $0.shuffle() }
+    ) -> PreparedQueueRequest<Item>? {
+        var sequence: [String] = []
+        sequence.reserveCapacity(ids.count)
+        var startPosition: Int?
+        var requestedStartID: String?
+        for (index, id) in ids.enumerated() where includes(id) {
+            if startPosition == nil, index >= startIndex { startPosition = sequence.count }
+            if index == startIndex { requestedStartID = id }
+            sequence.append(id)
+        }
+        guard !sequence.isEmpty else { return nil }
+
+        let selected: Int
         switch order {
         case .asGiven:
-            sequence = kept
             selected = startPosition ?? 0
         case .rotatedToStart:
             let start = startPosition ?? 0
-            if start == 0 {
-                sequence = kept
-            } else {
-                sequence = Array(kept[start...])
-                sequence.append(contentsOf: kept[..<start])
+            if start > 0 {
+                var rotated = Array(sequence[start...])
+                rotated.append(contentsOf: sequence[..<start])
+                sequence = rotated
             }
             selected = 0
-        case .shuffled:
-            sequence = linkedShuffle(kept, leading: nil, graph: linkGraph, includes: includes, shuffle: shuffle)
-            selected = 0
-        case .shuffledAfterStart:
-            if keptRequestedStart, let start = startPosition {
-                let first = kept[start]
-                var rest: [String] = []
-                rest.reserveCapacity(kept.count - 1)
-                for (position, id) in kept.enumerated() where position != start && id != first {
-                    rest.append(id)
-                }
-                if linkGraph.isEmpty {
-                    sequence = [first]
-                    sequence.append(contentsOf: shuffle(rest))
-                } else {
-                    sequence = linkedShuffle([first] + rest, leading: first, graph: linkGraph,
-                                             includes: includes, shuffle: shuffle)
-                }
+        case .shuffled, .shuffledAfterStart:
+            let first = order == .shuffledAfterStart ? requestedStartID : nil
+            if let first { sequence.removeAll { $0 == first } }
+            if linkGraph.isEmpty {
+                shuffleInPlace(&sequence)
+                if let first { sequence.insert(first, at: 0) }
             } else {
-                sequence = linkedShuffle(kept, leading: nil, graph: linkGraph, includes: includes, shuffle: shuffle)
+                if let first { sequence.insert(first, at: 0) }
+                let brought = ShuffleLinkPolicy.bringingLinkedSongs(sequence, graph: linkGraph, includes: includes)
+                sequence = ShuffleLinkPolicy.shuffled(brought, graph: linkGraph, id: { $0 }, leading: first) { groups in
+                    var order = groups
+                    shuffleInPlace(&order)
+                    return order
+                }
             }
             selected = 0
         }
-        kept = []
 
         let window = QueueWindowPolicy.window(count: sequence.count, selectedIndex: selected)
         let range = window ?? sequence.indices
@@ -676,19 +679,6 @@ public enum LargeQueueRequestPlanner {
             selectedIndex: itemSelected ?? items.count - 1,
             continuation: continuation
         )
-    }
-
-    /// 没有连着放的歌时就是 `shuffle(ids)`; `lead` 是点名先放的那首, 它和接在它后面的歌打头。
-    private static func linkedShuffle(
-        _ ids: [String],
-        leading lead: String?,
-        graph: ShuffleLinkGraph,
-        includes: (String) -> Bool,
-        shuffle: ([String]) -> [String]
-    ) -> [String] {
-        guard !graph.isEmpty else { return shuffle(ids) }
-        let brought = ShuffleLinkPolicy.bringingLinkedSongs(ids, graph: graph, includes: includes)
-        return ShuffleLinkPolicy.shuffled(brought, graph: graph, id: { $0 }, leading: lead, shuffle: shuffle)
     }
 }
 

@@ -19,6 +19,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/FlyAuditoryCircuit.bin"),
+                .copy("Resources/AutoEqCatalog.json"),
             ]
         ),
         .testTarget(

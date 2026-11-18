@@ -44,6 +44,8 @@ public struct EQDevicePresetBinding: Codable, Hashable, Sendable, Identifiable {
 /// 用户自己存的命名预设、按设备的绑定,以及自动切换要记住的状态,整份存成一个 JSON。
 public struct EQPresetLibrary: Codable, Equatable, Sendable {
     public var userPresets: [EQPreset]
+    public var customParametric: ParametricEQ?
+    public var automaticSwitchDisabledDeviceIDs: Set<String>?
     public var bindings: [EQDevicePresetBinding]
     /// 当前曲线是在一台绑定了预设的设备上换上(或选中)的:离开这台设备时要换回 `unboundPresetID`。
     public var currentBelongsToBoundDevice: Bool
@@ -58,6 +60,8 @@ public struct EQPresetLibrary: Codable, Equatable, Sendable {
         unboundPresetID: String? = nil
     ) {
         self.userPresets = userPresets
+        self.customParametric = nil
+        self.automaticSwitchDisabledDeviceIDs = nil
         self.bindings = bindings
         self.currentBelongsToBoundDevice = currentBelongsToBoundDevice
         self.unboundPresetID = unboundPresetID
@@ -74,8 +78,9 @@ public struct EQPresetLibrary: Codable, Equatable, Sendable {
             return EQPresetLibrary()
         }
         library.userPresets = library.userPresets.filter {
-            $0.id.hasPrefix(userPresetIDPrefix) && $0.bands.count == PrimuseConstants.eqBandCount
+            $0.id.hasPrefix(userPresetIDPrefix) && $0.isValid
         }
+        if library.customParametric?.isValid == false { library.customParametric = nil }
         let ids = Set(library.userPresets.map(\.id))
         library.bindings = library.bindings.filter { isBindable($0.presetID, userPresetIDs: ids) }
         return library
@@ -96,7 +101,7 @@ public struct EQPresetLibrary: Codable, Equatable, Sendable {
 
     /// 能绑到设备上的预设:内置的和用户存的。「自定义」会随拖动变,不能绑。
     public static func isBindable(_ presetID: String, userPresetIDs: Set<String>) -> Bool {
-        EQPreset.builtInPresets.contains { $0.id == presetID } || userPresetIDs.contains(presetID)
+        userPresetIDs.contains(presetID) || EQPreset.builtInPreset(withID: presetID) != nil
     }
 
     // MARK: - Names
@@ -123,6 +128,21 @@ public struct EQPresetLibrary: Codable, Equatable, Sendable {
 
     // MARK: - Editing
 
+    public mutating func addPreset(named rawName: String, parametric: ParametricEQ, id: String = UUID().uuidString) -> EQPreset? {
+        guard parametric.isValid, let name = Self.normalizedName(rawName),
+              userPresets.count < Self.maximumUserPresets else { return nil }
+        let preset = EQPreset(id: Self.userPresetIDPrefix + id, name: name, bands: [], parametric: parametric)
+        userPresets.append(preset)
+        return preset
+    }
+
+    public mutating func updatePreset(id: String, curve: EQPreset) -> Bool {
+        guard curve.isValid, let index = userPresets.firstIndex(where: { $0.id == id }) else { return false }
+        userPresets[index].bands = curve.bands
+        userPresets[index].parametric = curve.parametric
+        return true
+    }
+
     /// 用 `bands` 存一个新的命名预设,返回它;名字为空或数量到上限时返回 nil。
     public mutating func addPreset(named rawName: String, bands: [Float], id: String = UUID().uuidString) -> EQPreset? {
         guard let name = Self.normalizedName(rawName),
@@ -146,6 +166,7 @@ public struct EQPresetLibrary: Codable, Equatable, Sendable {
         guard bands.count == PrimuseConstants.eqBandCount,
               let index = userPresets.firstIndex(where: { $0.id == id }) else { return false }
         userPresets[index].bands = bands
+        userPresets[index].parametric = nil
         return true
     }
 
@@ -159,8 +180,15 @@ public struct EQPresetLibrary: Codable, Equatable, Sendable {
     /// 绑定(或改绑)一台设备;`presetID` 为 nil 时取消绑定。
     public mutating func setBinding(device: EQOutputDevice, presetID: String?) {
         bindings.removeAll { $0.device.id == device.id }
-        guard let presetID,
-              Self.isBindable(presetID, userPresetIDs: Set(userPresets.map(\.id))) else { return }
+        guard let presetID else {
+            var disabled = automaticSwitchDisabledDeviceIDs ?? []
+            disabled.insert(device.id)
+            automaticSwitchDisabledDeviceIDs = disabled
+            return
+        }
+        guard Self.isBindable(presetID, userPresetIDs: Set(userPresets.map(\.id))) else { return }
+        automaticSwitchDisabledDeviceIDs?.remove(device.id)
+        if automaticSwitchDisabledDeviceIDs?.isEmpty == true { automaticSwitchDisabledDeviceIDs = nil }
         bindings.append(EQDevicePresetBinding(device: device, presetID: presetID))
     }
 

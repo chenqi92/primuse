@@ -3627,6 +3627,7 @@ private struct MacSTEqualizerView: View {
 
     private var presets: [EQPreset] {
         EQPreset.builtInPresets + eq.userPresets + [eq.customPreset]
+            + (eq.currentPreset.id.hasPrefix("autoeq.") ? [eq.currentPreset] : [])
     }
 
     var body: some View {
@@ -3646,7 +3647,7 @@ private struct MacSTEqualizerView: View {
     private var content: some View {
         @Bindable var eq = eq
 
-        MacSTSection(Lz("10-Band Equalizer")) {
+        MacSTSection(String(localized: "equalizer")) {
             MacSTGroup {
                 MacSTRow(Lz("Enable EQ"), divider: false) {
                     MacSTToggle(isOn: $eq.isEnabled)
@@ -3705,7 +3706,7 @@ private struct MacSTEqualizerView: View {
         MacSTSection(String(localized: "eq_device_section_title"), hint: String(localized: "eq_device_section_hint")) {
             MacSTGroup {
                 if let device = eq.currentOutputDevice {
-                    deviceRow(device, presetID: eq.currentDeviceBinding?.presetID, isCurrent: true, divider: false)
+                    deviceRow(device, presetID: eq.currentDeviceDisplayPresetID, isCurrent: true, divider: false)
                 } else if eq.bindingRows.isEmpty {
                     MacSTRow(String(localized: "eq_device_unavailable"), divider: false) { EmptyView() }
                 }
@@ -3721,7 +3722,10 @@ private struct MacSTEqualizerView: View {
         }
         .settingsAnchor("equalizer.devices")
 
-        MacEQFaderCard(
+        AudioCalibrationControls().padding(.vertical, 12)
+
+        if eq.currentPreset.parametric == nil {
+          MacEQFaderCard(
             bands: eq.bandFrequencyLabels,
             headroomLoweredDB: eq.headroomLoweredDB,
             gains: Binding(
@@ -3734,6 +3738,7 @@ private struct MacSTEqualizerView: View {
             )
         )
         .settingsAnchor("equalizer.bands")
+        }
     }
 
     @ViewBuilder
@@ -3742,7 +3747,7 @@ private struct MacSTEqualizerView: View {
             presetNameDraft = preset.name
             renamingPreset = preset
         }
-        if preset.bands != eq.bands {
+        if preset.bands != eq.currentPreset.bands || preset.parametric != eq.currentPreset.parametric {
             Button(String(localized: "eq_overwrite_preset")) {
                 eq.overwritePreset(id: preset.id)
             }

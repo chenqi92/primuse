@@ -56,7 +56,7 @@ struct EqualizerView: View {
         } label: {
             Label("eq_rename_preset", systemImage: "pencil")
         }
-        if preset.bands != eq.bands {
+        if preset.bands != eq.currentPreset.bands || preset.parametric != eq.currentPreset.parametric {
             Button {
                 eq.overwritePreset(id: preset.id)
             } label: {
@@ -113,7 +113,9 @@ struct EqualizerView: View {
             }
 
             Section {
-                HStack(spacing: 4) {
+                AudioCalibrationControls()
+                if eq.currentPreset.parametric == nil {
+                  HStack(spacing: 4) {
                     ForEach(0..<PrimuseConstants.eqBandCount, id: \.self) { index in
                         bandSlider(index: index, height: 160)
                     }
@@ -123,6 +125,7 @@ struct EqualizerView: View {
                 // 只跟总开关走；拖动频段时 isEnabled 不变,滑块仍是逐帧跟手的。
                 .pmAnimation(.control, value: eq.isEnabled)
                 .padding(.vertical, 6)
+                }
 
                 HStack {
                     if let lowered = eq.headroomLoweredDB {
@@ -169,7 +172,10 @@ struct EqualizerView: View {
             .settingsAnchor("equalizer.enabled")
             .padding(.horizontal)
 
+            AudioCalibrationControls().padding(.horizontal)
+
             // 频段滑块:占上半部分,固定高度
+            if eq.currentPreset.parametric == nil {
             HStack(spacing: 4) {
                 ForEach(0..<PrimuseConstants.eqBandCount, id: \.self) { index in
                     bandSlider(index: index, height: 200)
@@ -181,6 +187,7 @@ struct EqualizerView: View {
             .disabled(!eq.isEnabled)
             // 只跟总开关走；拖动频段时 isEnabled 不变,滑块仍是逐帧跟手的。
             .pmAnimation(.control, value: eq.isEnabled)
+            }
 
             Button("eq_reset") { eq.reset() }
                 .settingsAnchor("equalizer.reset")
@@ -244,13 +251,17 @@ struct EqualizerView: View {
             eq.applyPreset(preset)
         } label: {
             VStack(spacing: 5) {
-                EQCurveThumbnail(
+                if preset.parametric != nil {
+                    CalibrationResponseView(preset: preset).frame(height: 34)
+                } else {
+                  EQCurveThumbnail(
                     bands: preset.bands,
                     range: PrimuseConstants.eqMinGain...PrimuseConstants.eqMaxGain,
                     highlighted: selected
                 )
                 .frame(height: 34)
                 .frame(maxWidth: .infinity)
+                }
 
                 Text(preset.localizedName)
                     .font(.caption2)
@@ -308,7 +319,7 @@ struct EQDeviceBindingList: View {
     var body: some View {
         VStack(spacing: 0) {
             if let device = eq.currentOutputDevice {
-                row(device: device, presetID: eq.currentDeviceBinding?.presetID, isCurrent: true)
+                row(device: device, presetID: eq.currentDeviceDisplayPresetID, isCurrent: true)
             } else if eq.bindingRows.isEmpty {
                 Text("eq_device_unavailable")
                     .font(.subheadline)
