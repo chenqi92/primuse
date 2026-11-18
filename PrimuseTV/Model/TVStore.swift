@@ -5591,7 +5591,8 @@ final class TVStore {
             lister: lister,
             dirs: dirs,
             credential: cred,
-            existingSongs: library.songs.filter { $0.sourceID == source.id },
+            existingSongs: library.songs.filter { $0.sourceID == source.id }
+                + library.locallyRemovedEntries(forSourceID: source.id).map(\.song).filter(SourceFileDeletionPolicy.isFileSegment),
             rereadMetadata: rereadMetadata,
             defersMetadata: !rereadMetadata,
             resumeState: rereadMetadata ? nil : resumeState,

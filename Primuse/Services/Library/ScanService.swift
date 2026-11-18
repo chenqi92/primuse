@@ -2615,8 +2615,10 @@ final class ScanService {
         // flush sets complete; genuine deletions are still reconciled at the
         // scanner's terminal yield after a full walk.
         let librarySongsSnapshot = library.songs
+        let hiddenTracks = library.locallyRemovedEntries(forSourceID: source.id)
+            .map(\.song).filter(SourceFileDeletionPolicy.isFileSegment)
         let knownExisting = await Task.detached(priority: .utility) {
-            librarySongsSnapshot.filter { $0.sourceID == source.id }
+            librarySongsSnapshot.filter { $0.sourceID == source.id } + hiddenTracks
         }.value
         do {
             try checkScanCommitFence(
@@ -3028,9 +3030,11 @@ final class ScanService {
         // into the library above), not just the checkpoint slice — otherwise
         // the first intermediate flush below drops every not-yet-rewalked song
         // and cleanPlaylistEntries() permanently un-playlists them.
+        let hiddenTracks = library.locallyRemovedEntries(forSourceID: source.id)
+            .map(\.song).filter { SourceFileDeletionPolicy.isFileSegment($0) && !collectionOnlySongIDs.contains($0.id) }
         let knownExisting = library.songs.filter {
             $0.sourceID == source.id && !collectionOnlySongIDs.contains($0.id)
-        }
+        } + hiddenTracks
         let existingForScan: [Song]
         let genericResumeSongs = activeCheckpoint?.subsonicCatalogState == nil
             ? (activeCheckpoint?.songs ?? [])

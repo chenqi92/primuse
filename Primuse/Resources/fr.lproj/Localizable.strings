@@ -579,8 +579,10 @@
 "disabled" = "Désactivé";
 "delete_song_message" = "Lorsque la source prend en charge la suppression, le fichier du morceau source sera supprimé. Les fichiers de pochette/paroles du même nom ne sont supprimés que si aucun autre morceau ne les utilise, et les caches locaux sont effacés.";
 "delete_entire_file" = "Supprimer le fichier entier";
-"delete_segment_file_message_format" = "Le fichier source « %@ » sera définitivement supprimé dans son intégralité. Toutes les pistes qui l’utilisent deviendront illisibles depuis cette source.";
-"batch_delete_segment_files_warning" = "Supprimer un segment sélectionné supprime tout son fichier source. Les autres pistes qui utilisent ce fichier deviendront illisibles depuis cette source, même si elles ne sont pas sélectionnées.";
+"cue_remove_track_from_device" = "Retirer cette piste de cet appareil";
+"cue_remove_track_message" = "Seule la piste sélectionnée sera retirée. Vous pourrez la restaurer depuis la page de la source. Le fichier audio, la feuille CUE et les autres pistes seront conservés.";
+"delete_segment_file_count_message_format" = "Supprimer définitivement le fichier source « %@ » en entier ? Nombre de pistes de la bibliothèque qui utilisent ce fichier : %lld. Elles ne pourront plus être lues depuis cette source.";
+"batch_delete_segment_files_count_format" = "Supprimer définitivement ces fichiers sources ? Nombre de pistes de la bibliothèque qui les utilisent : %lld. Elles ne pourront plus être lues depuis cette source, même si elles ne sont pas sélectionnées.";
 "delete_song_failed_title" = "Échec de la suppression";
 "delete_song_failed_message" = "Le fichier source n’a pas pu être supprimé. Le morceau a été conservé dans la bibliothèque. Vérifiez que la source n’est pas en lecture seule et contrôlez les autorisations du compte, puis réessayez.";
 "scan" = "Analyser";

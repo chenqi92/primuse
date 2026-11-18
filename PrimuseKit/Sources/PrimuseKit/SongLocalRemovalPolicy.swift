@@ -29,6 +29,16 @@ public enum SongLocalRemovalReason: String, Codable, Sendable, Equatable, CaseIt
 /// the source file cannot be deleted: an ordinary library delete would either
 /// be impossible or be undone by the next scan.
 public enum SongLocalRemovalPolicy {
+    fileprivate static let segmentKeyPrefix = "\u{0}cue:"
+
+    /// The scanner gives each CUE track its own stable ID, even when the file
+    /// and the start time are shared (for example, tracks in a disc image).
+    /// A NUL cannot occur in an actual source path.
+    public static func segmentExclusionKey(for song: Song) -> String? {
+        guard SourceFileDeletionPolicy.isFileSegment(song) else { return nil }
+        return segmentKeyPrefix + TVScanPipelinePolicy.canonicalSongID(song.id)
+    }
+
     /// Refusals where the file is known to stay put and retrying cannot help.
     /// Authentication failures, timeouts and unknown errors stay retry-only —
     /// the source may well delete the file on the next attempt.
@@ -127,7 +137,7 @@ public struct SongLocalRemovalMetadata: Codable, Sendable, Equatable {
 /// Apple TV payload or a portable snapshot, because "removed here" is a
 /// statement about one device, not about the account.
 public struct SongLocalRemovalLedger: Codable, Sendable, Equatable {
-    public static let currentFormatVersion = 3
+    public static let currentFormatVersion = 4
     /// v2 files had exactly one producer — the duplicate-cleanup path, which
     /// removed rows precisely when a WebDAV share refused DELETE.
     public static let legacyReason = SongLocalRemovalReason.remoteDeletionDenied
@@ -198,6 +208,82 @@ public struct SongLocalRemovalLedger: Codable, Sendable, Equatable {
                 removedAt: Date(timeIntervalSince1970: 0)
             )
         }
+        // A snapshot may describe a retained track using both forms of its
+        // digest. Keep the actual removal date and a single restore entry.
+        var idBySegment: [String: String] = [:]
+        var redundantIDs: [String] = []
+        for song in songs.values {
+            guard let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) else { continue }
+            if let other = idBySegment[key] {
+                let oldDate = metadata[other]?.removedAt ?? .distantPast
+                let newDate = metadata[song.id]?.removedAt ?? .distantPast
+                if oldDate > newDate || (oldDate == newDate && other < song.id) {
+                    redundantIDs.append(song.id)
+                    continue
+                }
+                redundantIDs.append(other)
+            }
+            idBySegment[key] = song.id
+        }
+        for id in redundantIDs {
+            songs[id] = nil
+            metadata[id] = nil
+        }
         return Resolved(songs: songs, metadata: metadata)
+    }
+
+    /// Older ledgers stored a whole-file key even when the user removed just
+    /// one CUE track. Only narrow keys backed by a recoverable track record.
+    public func resolvedIdentities(
+        retainedSongs: [String: Song]? = nil, sourcePrefixes: [String: String]
+    ) -> Set<String> {
+        var keys = Set(identities)
+        guard !keys.isEmpty else { return keys }
+        let prefix = SongLocalRemovalPolicy.segmentKeyPrefix
+        let savedSegments = keys.filter { $0.hasPrefix(prefix) }
+        let retained = retainedSongs ?? resolved().songs
+        if !savedSegments.isEmpty {
+            keys.subtract(savedSegments)
+            let recoverable = Set(retained.values.compactMap(SongLocalRemovalPolicy.segmentExclusionKey))
+            for key in savedSegments {
+                let canonical = prefix + TVScanPipelinePolicy.canonicalSongID(String(key.dropFirst(prefix.count)))
+                if recoverable.contains(canonical) { keys.insert(canonical) }
+            }
+        }
+        let aliasesOnly = (formatVersion ?? 0) >= Self.currentFormatVersion
+        if aliasesOnly && sourcePrefixes.isEmpty { return keys }
+        return Self.narrowingLegacySegmentExclusions(
+            keys, retainedSongs: retained, sourcePrefixes: sourcePrefixes,
+            unresolvedAccountAliasesOnly: aliasesOnly
+        )
+    }
+
+    public static func narrowingLegacySegmentExclusions(
+        _ identities: Set<String>, retainedSongs: [String: Song], sourcePrefixes: [String: String],
+        unresolvedAccountAliasesOnly: Bool
+    ) -> Set<String> {
+        var result = identities
+        var wholeFileKeys = Set<String>()
+        var segmentFileKeys = Set<String>()
+        for song in retainedSongs.values {
+            let raw = "\(song.sourceID):\(song.filePath)"
+            let canonical = "\(sourcePrefixes[song.sourceID] ?? song.sourceID):\(song.filePath)"
+            guard result.contains(raw) || result.contains(canonical) else { continue }
+            if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) {
+                // The v3 migration may have run before the account resolver
+                // was installed. In that case only its account alias is left.
+                if unresolvedAccountAliasesOnly && (!identities.contains(key) || identities.contains(raw)) {
+                    continue
+                }
+                result.insert(key)
+                segmentFileKeys.insert(raw)
+                segmentFileKeys.insert(canonical)
+            } else {
+                wholeFileKeys.insert(raw)
+                wholeFileKeys.insert(canonical)
+            }
+        }
+        result.subtract(segmentFileKeys.subtracting(wholeFileKeys))
+        return result
     }
 }

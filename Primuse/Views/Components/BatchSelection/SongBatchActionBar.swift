@@ -290,6 +290,7 @@ private struct SongBatchActionsModifier: ViewModifier {
         let songs: [Song]
         let skipped: Int
         var wholeFileWarning: SourceFileDeletionPolicy.WholeFileWarning?
+        var wholeFileMessage: String?
         /// 非 nil 时覆盖按源类型推导的原因 —— 用于「删除被拒后改为本机移除」。
         var localRemovalReason: SongLocalRemovalReason?
         var localRemovalDetails: [String: String] = [:]
@@ -298,7 +299,7 @@ private struct SongBatchActionsModifier: ViewModifier {
             switch wholeFileWarning {
             case .file: "delete_entire_file"
             case .selectionIncludesSegments: "batch_delete_source_files"
-            case nil: "delete"
+            case nil: mode == .sourceFiles ? "delete" : "remove"
             }
         }
     }
@@ -530,12 +531,14 @@ private struct SongBatchActionsModifier: ViewModifier {
         // 三个判断各要遍历一遍选中项，先算好再往下传，别让菜单里的每一项
         // 重新数一次。
         let removesFromPlaylist = context.playlistID != nil && context.allowsRemoveFromPlaylist
-        let removesFromLibrary = context.allowsLibraryRemoval && !selectionContainsAppleMusic
-        let deletesSourceFiles = context.allowsSourceFileDeletion && hasDeletableSourceSelection
-        let onlyAppleMusic = selectionContainsOnlyAppleMusic
+        let songs = selectedSongs()
+        let removesFromDevice = context.allowsLibraryRemoval && !songs.contains { $0.sourceID == AppleMusicLibraryIdentity.sourceID }
+        let removesFromLibrary = removesFromDevice && !songs.contains(where: SourceFileDeletionPolicy.isFileSegment)
+        let deletesSourceFiles = context.allowsSourceFileDeletion && hasDeletableSourceSelection(songs)
+        let onlyAppleMusic = songs.allSatisfy { $0.sourceID == AppleMusicLibraryService.systemSourceID }
         // 「从资料库移除」和「从本机移除」是两项。
         let removalCount = (removesFromPlaylist ? 1 : 0)
-            + (removesFromLibrary ? 2 : 0)
+            + (removesFromLibrary ? 1 : 0) + (removesFromDevice ? 1 : 0)
             + (deletesSourceFiles ? 1 : 0)
 
         // 歌单里挑几首一起置顶，彼此保持在歌单里原来的先后。
@@ -640,6 +643,7 @@ private struct SongBatchActionsModifier: ViewModifier {
                         removalActions(
                             removesFromPlaylist: removesFromPlaylist,
                             removesFromLibrary: removesFromLibrary,
+                            removesFromDevice: removesFromDevice,
                             deletesSourceFiles: deletesSourceFiles
                         )
                     } label: {
@@ -650,6 +654,7 @@ private struct SongBatchActionsModifier: ViewModifier {
                     removalActions(
                         removesFromPlaylist: removesFromPlaylist,
                         removesFromLibrary: removesFromLibrary,
+                        removesFromDevice: removesFromDevice,
                         deletesSourceFiles: deletesSourceFiles
                     )
                 }
@@ -661,6 +666,7 @@ private struct SongBatchActionsModifier: ViewModifier {
     private func removalActions(
         removesFromPlaylist: Bool,
         removesFromLibrary: Bool,
+        removesFromDevice: Bool,
         deletesSourceFiles: Bool
     ) -> some View {
         if removesFromPlaylist, let playlistID = context.playlistID {
@@ -679,7 +685,9 @@ private struct SongBatchActionsModifier: ViewModifier {
                 Label("batch_remove_from_library", systemImage: "trash")
             }
             .disabled(removal.isBusy)
+        }
 
+        if removesFromDevice {
             Button(role: .destructive) {
                 prepareDeletion(mode: .deviceLocal)
             } label: {
@@ -743,10 +751,6 @@ private struct SongBatchActionsModifier: ViewModifier {
         selectedSongs().filter { $0.sourceID != AppleMusicLibraryService.systemSourceID }
     }
 
-    private var selectionContainsOnlyAppleMusic: Bool {
-        editableSelection().isEmpty
-    }
-
     private func startMedley() {
         let songs = playableSelection()
         guard songs.count >= 2 else { return }
@@ -807,18 +811,12 @@ private struct SongBatchActionsModifier: ViewModifier {
         }
     }
 
-    private var selectionContainsAppleMusic: Bool {
-        selectedSongs().contains {
-            $0.sourceID == AppleMusicLibraryIdentity.sourceID
-        }
-    }
-
-    private var hasDeletableSourceSelection: Bool {
+    private func hasDeletableSourceSelection(_ songs: [Song]) -> Bool {
         let typesByID = Dictionary(
             sourcesStore.allSources.map { ($0.id, $0.type) },
             uniquingKeysWith: { current, _ in current }
         )
-        return selectedSongs().contains {
+        return songs.contains {
             SourceFileDeletionPolicy.shouldShowDeleteAction(for: $0, sourceType: typesByID[$0.sourceID])
         }
     }
@@ -858,11 +856,13 @@ private struct SongBatchActionsModifier: ViewModifier {
                 noDeletableSourceFallback = songs
                 return
             }
+            let warning = SourceFileDeletionPolicy.wholeFileWarning(for: partition.deletable)
             pendingDeletion = PendingDeletion(
                 mode: mode,
                 songs: partition.deletable,
                 skipped: partition.skipped.count,
-                wholeFileWarning: SourceFileDeletionPolicy.wholeFileWarning(for: partition.deletable)
+                wholeFileWarning: warning,
+                wholeFileMessage: warning?.message(for: partition.deletable, in: library)
             )
         }
     }
@@ -922,13 +922,10 @@ private struct SongBatchActionsModifier: ViewModifier {
                 pending.songs.count
             )
         case .sourceFiles:
-            message = String(
+            message = pending.wholeFileMessage ?? String(
                 format: String(localized: "batch_delete_source_files_message_format"),
                 pending.songs.count
             )
-            if let warning = pending.wholeFileWarning {
-                message += "\n" + warning.message
-            }
         }
         if pending.skipped > 0 {
             message += "\n" + String(

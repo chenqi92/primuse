@@ -1156,8 +1156,10 @@
 "delete_song_failed_title" = "Error al eliminar";
 "delete_song_message" = "Cuando la fuente admita la eliminación, el archivo de la canción fuente se eliminará. Los archivos de portada/letras del mismo nombre se eliminan solo cuando ninguna otra canción los usa y se borran los cachés locales.";
 "delete_entire_file" = "Eliminar el archivo completo";
-"delete_segment_file_message_format" = "Se eliminará de forma permanente el archivo de origen completo «%@». Ninguna pista que use ese archivo podrá reproducirse desde este origen.";
-"batch_delete_segment_files_warning" = "Al eliminar un segmento seleccionado, se elimina todo su archivo de origen. Las demás pistas que usen ese archivo tampoco podrán reproducirse desde este origen, aunque no estén seleccionadas.";
+"cue_remove_track_from_device" = "Quitar esta pista del dispositivo";
+"cue_remove_track_message" = "Solo se quitará la pista seleccionada. Puedes restaurarla en la página del origen. Se conservarán el archivo de audio, el archivo CUE y las demás pistas.";
+"delete_segment_file_count_message_format" = "¿Eliminar de forma permanente el archivo de origen completo «%@»? Pistas de tu biblioteca que lo usan: %lld. Ya no podrán reproducirse desde este origen.";
+"batch_delete_segment_files_count_format" = "¿Eliminar estos archivos de origen de forma permanente? Pistas de tu biblioteca que los usan: %lld. Ninguna podrá reproducirse desde este origen, aunque no esté seleccionada.";
 "deleted_at_format" = "Eliminado %@";
 "desktop_lyrics_locked" = "Letras del escritorio bloqueadas";
 "desktop_lyrics_locked_hint" = "Bloqueado · ⌘⇧L para desbloquear";

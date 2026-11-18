@@ -21,6 +21,7 @@ struct SongRowView: View {
     private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @Environment(SourceManager.self) private var sourceManager
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SongBatchRemovalService.self) private var batchRemoval
     @Environment(MusicLibrary.self) private var library
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(ScraperSettingsStore.self) private var scraperSettings
@@ -82,7 +83,8 @@ struct SongRowView: View {
     @State private var showAddToPlaylist = false
     @State private var showSongInfo = false
     @State private var playbackRangeEditorRequest: SongPlaybackRangeEditor.Request?
-    @State private var deletionTarget: Song?
+    @State private var deletionTarget: SongFileDeletionRequest?
+    @State private var cueRemovalTarget: Song?
     /// 从音乐服务器删歌的第二次确认。
     @State private var serverDeletionRequest: ServerSongDeletionRequest?
     @State private var showBareAlert = false
@@ -200,7 +202,7 @@ struct SongRowView: View {
             || showSongInfo || playbackRangeEditorRequest != nil || deletionTarget != nil || showBareAlert || showTagEditor
             || serverDeletionRequest != nil
             || showLyricsEditor || showSimilarSongs || deleteErrorMessage != nil
-            || showLocalRemovalConfirm || localRemovalErrorMessage != nil
+            || cueRemovalTarget != nil || showLocalRemovalConfirm || localRemovalErrorMessage != nil
             || sourceCheckMessage != nil || tagReadMessage != nil || presentedShareSong != nil
             || unreachableSourceNoticeTitle != nil
     }
@@ -269,7 +271,8 @@ struct SongRowView: View {
         .sheet(item: $playbackRangeEditorRequest) { request in
             SongPlaybackRangeEditor(song: library.song(id: request.song.id) ?? request.song, purpose: request.purpose)
         }
-        .songFileDeletionConfirmation($deletionTarget, perform: confirmDeleteSong)
+        .cueTrackRemovalConfirmation($cueRemovalTarget, using: batchRemoval)
+        .songFileDeletionConfirmation($deletionTarget, using: batchRemoval, perform: confirmDeleteSong)
         .serverSongDeletionConfirmation($serverDeletionRequest)
         .alert(
             String(localized: "delete_song_failed_title"),
@@ -904,14 +907,26 @@ struct SongRowView: View {
 
         Section {
             removeFromPlaylistMenuButton
+            let target = SourceFileDeletionPolicy.isFileSegment(song) ? (library.song(id: song.id) ?? song) : song
+            let isSegment = SourceFileDeletionPolicy.isFileSegment(target)
+            if isSegment {
+                Button(role: .destructive) {
+                    cueRemovalTarget = target
+                } label: {
+                    Label("cue_remove_track_from_device", systemImage: "minus.circle")
+                }
+                .disabled(batchRemoval.isBusy)
+            }
             if canDeleteSourceFile {
                 Button(role: .destructive) {
-                    deletionTarget = song
+                    deletionTarget = SongFileDeletionRequest(song: target, library: library)
                 } label: {
-                    Label(String(localized: "delete_song"), systemImage: "trash")
+                    Label(isSegment ? String(localized: "batch_delete_source_files") : String(localized: "delete_song"),
+                          systemImage: "trash")
                 }
+                .disabled(isSegment && batchRemoval.isBusy)
             }
-            localRemovalMenuButton
+            if !isSegment { localRemovalMenuButton }
         }
     }
 
@@ -1100,6 +1115,10 @@ struct SongRowView: View {
         guard SourceFileDeletionPolicy.shouldShowDeleteAction(
             for: song, sourceType: sourcesStore.source(id: song.sourceID)?.type
         ) else { return }
+        if SourceFileDeletionPolicy.isFileSegment(song) {
+            batchRemoval.remove([song], mode: .sourceFiles)
+            return
+        }
         Task {
             // Stop if currently playing
             if player.currentSong?.id == song.id {

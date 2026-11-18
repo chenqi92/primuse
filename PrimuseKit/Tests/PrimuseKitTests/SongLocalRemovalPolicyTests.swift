@@ -1,8 +1,37 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import PrimuseKit
 
 struct SongLocalRemovalPolicyTests {
+    @Test func tvAndPhoneIdentifyTheSameHiddenCueTrackWithoutMatchingItsNeighbour() {
+        var phone = makeSong(index: 1)
+        let cuePath = "/Music/album.cue"
+        phone.cueSheetPath = cuePath
+        phone.cueStartTime = 0
+        let material = "\(phone.sourceID):\(phone.filePath)#cue:\(cuePath)#track:1"
+        phone.id = SHA256.hash(data: Data(material.utf8)).map { String(format: "%02x", $0) }.joined()
+        var tv = phone
+        tv.id = TVScanPipelinePolicy.cueSongID(sourceID: tv.sourceID, path: tv.filePath, cuePath: cuePath, trackNumber: 1)
+        var neighbour = tv
+        neighbour.id = TVScanPipelinePolicy.cueSongID(sourceID: tv.sourceID, path: tv.filePath, cuePath: cuePath, trackNumber: 2)
+        let key = SongLocalRemovalPolicy.segmentExclusionKey(for: phone)!
+        #expect(SongLocalRemovalPolicy.segmentExclusionKey(for: tv) == key)
+        #expect(LibrarySongAdmissionPolicy.verdict(for: tv, prefix: nil, tombstones: [], deviceExclusions: [key]) == .blockedByDeviceExclusion)
+        #expect(LibrarySongAdmissionPolicy.verdict(for: neighbour, prefix: nil, tombstones: [], deviceExclusions: [key]) == .admitted)
+        let oldDate = Date(timeIntervalSince1970: 0)
+        let removalDate = Date(timeIntervalSince1970: 100)
+        let ledger = SongLocalRemovalLedger(
+            identities: ["\u{0}cue:\(phone.id)", "\u{0}cue:missing", "account:/ordinary.flac"],
+            entries: [
+                SongLocalRemovalEntry(song: tv, reason: .remoteDeletionDenied, removedAt: oldDate),
+                SongLocalRemovalEntry(song: phone, reason: .userKeptRemoteFile, removedAt: removalDate)
+            ]
+        )
+        #expect(Set(ledger.resolved().songs.keys) == [phone.id])
+        #expect(ledger.resolvedIdentities(sourcePrefixes: [:]) == [key, "account:/ordinary.flac"])
+    }
+
     @Test func everyConfiguredSourceOffersTheLocalFallback() {
         // A protocol with no delete verb and a mount whose account was refused
         // are the same situation to the user, so the offer is not gated on the

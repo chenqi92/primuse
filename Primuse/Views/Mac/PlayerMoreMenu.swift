@@ -14,6 +14,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @ViewBuilder var label: () -> MenuLabel
 
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SongBatchRemovalService.self) private var batchRemoval
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
@@ -47,7 +48,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showSleepTimer = false
     @State private var showChapterList = false
     @State private var showKaraoke = false
-    @State private var deletionTarget: Song?
+    @State private var deletionTarget: SongFileDeletionRequest?
+    @State private var cueRemovalTarget: Song?
     /// 从音乐服务器删歌的第二次确认。
     @State private var serverDeletionRequest: ServerSongDeletionRequest?
     @State private var deleteErrorMessage: String?
@@ -181,7 +183,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             Text(sourceLyricsReloadAlertMessage ?? "")
         }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
-        .songFileDeletionConfirmation($deletionTarget, perform: confirmDeleteCurrentSong)
+        .cueTrackRemovalConfirmation($cueRemovalTarget, using: batchRemoval)
+        .songFileDeletionConfirmation($deletionTarget, using: batchRemoval, perform: confirmDeleteCurrentSong)
         .serverSongDeletionConfirmation($serverDeletionRequest)
         .alert(
             String(localized: "delete_song_failed_title"),
@@ -658,9 +661,21 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 openSettingsWindow()
             }
             divider()
-            if canDeleteCurrentSong {
-                menuRow(title: "delete_song", symbol: "trash", role: .destructive) {
-                    deletionTarget = player.currentSong
+            if let song = player.currentSong {
+                let librarySong = library.song(id: song.id)
+                let target = librarySong ?? song
+                let isSegment = SourceFileDeletionPolicy.isFileSegment(target)
+                if isSegment, let librarySong {
+                    menuRow(title: "cue_remove_track_from_device", symbol: "minus.circle", role: .destructive,
+                            disabled: batchRemoval.isBusy) {
+                        cueRemovalTarget = librarySong
+                    }
+                }
+                if canDeleteSourceFile(target) {
+                    menuRow(title: isSegment ? "batch_delete_source_files" : "delete_song",
+                            symbol: "trash", role: .destructive, disabled: isSegment && batchRemoval.isBusy) {
+                        deletionTarget = SongFileDeletionRequest(song: target, library: library)
+                    }
                 }
             }
         }
@@ -1352,7 +1367,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     }
 
     private func deleteCurrentSong(_ song: Song) {
-        guard player.currentSong?.id == song.id, canDeleteCurrentSong else { return }
+        guard player.currentSong?.id == song.id, canDeleteSourceFile(song) else { return }
+        if SourceFileDeletionPolicy.isFileSegment(song) {
+            batchRemoval.remove([song], mode: .sourceFiles)
+            return
+        }
         let songID = song.id
         // 先切歌、等 next() 内部 play(song:) 完成,再删缓存/库记录 ——
         // 否则正在播放/预载的音频文件会被抽走 (异步 next() 与同步删除竞态)。
@@ -1388,9 +1407,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
     }
 
-    private var canDeleteCurrentSong: Bool {
-        guard let song = player.currentSong else { return false }
-        return SourceFileDeletionPolicy.shouldShowDeleteAction(
+    private func canDeleteSourceFile(_ song: Song) -> Bool {
+        SourceFileDeletionPolicy.shouldShowDeleteAction(
             for: song,
             sourceType: sourcesStore.source(id: song.sourceID)?.type
         )

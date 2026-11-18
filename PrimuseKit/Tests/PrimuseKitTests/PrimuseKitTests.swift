@@ -363,6 +363,8 @@ import Testing
     #expect(SourceFileDeletionPolicy.wholeFileWarning(for: [first, second]) == .file(named: "disc.flac"))
     #expect(SourceFileDeletionPolicy.wholeFileWarning(for: [plain, otherFile]) == .selectionIncludesSegments)
     #expect(SourceFileDeletionPolicy.wholeFileWarning(for: [first, otherSource]) == .selectionIncludesSegments)
+    #expect(SourceFileDeletionPolicy.affectedSongs(deleting: [second], in: [first, second, otherFile, otherSource]).map(\.id)
+        == [second.id, first.id])
 }
 
 @Test func sameFileThroughANasShareAndItsMusicServerIsNotADuplicateToDelete() {
@@ -451,7 +453,7 @@ import Testing
     #expect(!scope.canDeleteCopy(online))
     #expect(scope.canDeleteCopy(track))
     #expect(scope.fileDeletingSourceIDs == ["smb", "fn"])
-    #expect(scope.individualAction(for: cue, in: [cue, track]) == .keep)
+    #expect(scope.individualAction(for: cue, in: [cue, track]) == .removeFromDevice)
     #expect(scope.individualAction(for: online, in: [online, track]) == .removeFromDevice)
     #expect(scope.individualAction(for: track, in: [online, track]) == .deleteSourceFile)
     #expect(scope.individualAction(for: track, in: [track]) == .keep)

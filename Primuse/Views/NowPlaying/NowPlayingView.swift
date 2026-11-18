@@ -2008,6 +2008,7 @@ struct NowPlayingView: View {
     @State private var contentsRequestedTab: SpokenWordContentsView.Tab?
     @State private var bookmarkFeedbackToken = 0
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SongBatchRemovalService.self) private var batchRemoval
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
@@ -2232,7 +2233,8 @@ struct NowPlayingView: View {
     /// 电台的「刚播过」:这个台上听到过的曲目标题。
     @State private var radioDetailStationID: String?
     @State private var showKaraoke = false
-    @State private var deletionTarget: Song?
+    @State private var deletionTarget: SongFileDeletionRequest?
+    @State private var cueRemovalTarget: Song?
     /// 从音乐服务器删歌的第二次确认。
     @State private var serverDeletionRequest: ServerSongDeletionRequest?
     @State private var deleteErrorMessage: String?
@@ -2309,6 +2311,7 @@ struct NowPlayingView: View {
             || showEqualizer
             || showEqualizerBypassNotice
             || controlNotice != nil
+            || cueRemovalTarget != nil
             || deletionTarget != nil
             || serverDeletionRequest != nil
             || scrapeAlertMessage != nil
@@ -2949,6 +2952,7 @@ struct NowPlayingView: View {
             scrapeAlertMessage = nil
             sourceLyricsReloadAlertMessage = nil
             showNoScraperSourceAlert = false
+            cueRemovalTarget = nil
             deletionTarget = nil
             serverDeletionRequest = nil
             deleteErrorMessage = nil
@@ -5410,7 +5414,8 @@ struct NowPlayingView: View {
         } message: {
             Text(sourceLyricsReloadAlertMessage ?? "")
         }
-        .songFileDeletionConfirmation($deletionTarget, perform: confirmDeleteCurrentSong)
+        .cueTrackRemovalConfirmation($cueRemovalTarget, using: batchRemoval)
+        .songFileDeletionConfirmation($deletionTarget, using: batchRemoval, perform: confirmDeleteCurrentSong)
         .serverSongDeletionConfirmation($serverDeletionRequest)
         .alert(
             String(localized: "delete_song_failed_title"),
@@ -9870,6 +9875,10 @@ struct NowPlayingView: View {
                   sourceType: sourcesStore.source(id: song.sourceID)?.type
               )
         else { return }
+        if SourceFileDeletionPolicy.isFileSegment(song) {
+            batchRemoval.remove([song], mode: .sourceFiles)
+            return
+        }
         Task {
             // Move off the deleted song AND drop every queue entry that
             // points at it before touching the files. Otherwise the stale
@@ -10201,6 +10210,9 @@ struct NowPlayingView: View {
         columnOverflow.like = columnOverflow.like && shows(.like)
         columnOverflow.effect = columnOverflow.effect && shows(.fullScreenEffect)
         columnOverflow.lock = columnOverflow.lock && shows(.lockControls)
+        let librarySong = player.currentSong.flatMap { library.song(id: $0.id) }
+        let removalSong = librarySong ?? player.currentSong
+        let isSegment = removalSong.map(SourceFileDeletionPolicy.isFileSegment) == true
         let snapshot = NowPlayingMoreMenuSnapshot(
             hiddenMenuItems: menuHidden,
             songID: player.currentSong?.id,
@@ -10226,7 +10238,8 @@ struct NowPlayingView: View {
             canReloadLyricsFromSource: canReloadLyricsFromSource && shows(.reloadLyrics),
             isReloadingLyricsFromSource: isReloadingLyricsFromSource,
             isAppleMusicMode: player.isAppleMusicMode,
-            canDeleteSourceFile: shows(.delete) && (player.currentSong.map {
+            showsCueRemoval: shows(.delete) && isSegment && librarySong != nil,
+            canDeleteSourceFile: shows(.delete) && (removalSong.map {
                 SourceFileDeletionPolicy.shouldShowDeleteAction(
                     for: $0,
                     sourceType: sourcesStore.source(id: $0.sourceID)?.type
@@ -10432,7 +10445,11 @@ struct NowPlayingView: View {
                 Task { await player.continueCurrentMedleySongInFull() }
             },
             onStartKaraoke: { showKaraoke = true },
-            onDelete: { deletionTarget = player.currentSong }
+            onRemoveCueTrack: { cueRemovalTarget = librarySong },
+            onDelete: {
+                guard let removalSong else { return }
+                deletionTarget = SongFileDeletionRequest(song: removalSong, library: library)
+            }
         )
         .equatable()
     }
@@ -15991,6 +16008,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let canReloadLyricsFromSource: Bool
     let isReloadingLyricsFromSource: Bool
     let isAppleMusicMode: Bool
+    let showsCueRemoval: Bool
     let canDeleteSourceFile: Bool
     let appleMusicCatalogURL: URL?
     let offersTextPreferences: Bool
@@ -16398,6 +16416,7 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
     let onStartMedley: () -> Void
     let onContinueMedleySongInFull: () -> Void
     let onStartKaraoke: () -> Void
+    let onRemoveCueTrack: () -> Void
     let onDelete: () -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -16467,7 +16486,7 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
             snapshot.showsFullScreenAction,
             snapshot.immersiveShowsArtwork != nil,
             snapshot.canShare,
-            snapshot.canDeleteSourceFile,
+            snapshot.canDeleteSourceFile && !snapshot.showsCueRemoval,
         ]
             .filter { $0 }
             .count
@@ -16624,11 +16643,24 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
                     addToPlaylistButton(inQuickRow: true)
                 }
 
-                if snapshot.canDeleteSourceFile {
+                if snapshot.canDeleteSourceFile && !snapshot.showsCueRemoval {
                     Button(role: .destructive, action: onDelete) {
                         Label(String(localized: "delete"), systemImage: "trash")
                     }
                     .disabled(!snapshot.hasSong)
+                }
+            }
+
+            if snapshot.showsCueRemoval {
+                Section {
+                    Button(role: .destructive, action: onRemoveCueTrack) {
+                        Label("cue_remove_track_from_device", systemImage: "minus.circle")
+                    }
+                    if snapshot.canDeleteSourceFile {
+                        Button(role: .destructive, action: onDelete) {
+                            Label("batch_delete_source_files", systemImage: "trash")
+                        }
+                    }
                 }
             }
 

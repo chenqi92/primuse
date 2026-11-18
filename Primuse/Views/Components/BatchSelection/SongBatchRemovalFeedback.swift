@@ -66,13 +66,17 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
             PMToastPresenter.shared.dismiss(key: Self.progressKey)
             return
         }
+        let message: String = switch progress.mode {
+        case .deviceLocal: String(localized: "batch_remove_from_device")
+        case .libraryOnly: String(localized: "batch_remove_from_library")
+        case .sourceFiles: String(
+                format: String(localized: "batch_delete_progress_format"),
+                progress.done, progress.total
+            )
+        }
         PMToastPresenter.shared.show(PMToastItem(
             key: Self.progressKey,
-            message: String(
-                format: String(localized: "batch_delete_progress_format"),
-                progress.done,
-                progress.total
-            ),
+            message: message,
             showsProgress: true,
             duration: nil
         ))
@@ -80,15 +84,15 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
 
     private func presentOutcome() {
         guard let outcome = removal.lastOutcome else { return }
-        var parts = [String(
-            format: String(localized: "batch_delete_result_format"),
-            outcome.removed
-        )]
+        let resultFormat: String = switch outcome.mode {
+        case .deviceLocal: String(localized: "local_removals_source_row_format")
+        case .libraryOnly: String(localized: "dup_action_done_format")
+        case .sourceFiles: String(localized: "batch_delete_result_format")
+        }
+        var parts = [String(format: resultFormat, outcome.removed)]
         if outcome.failed > 0 {
-            parts.append(String(
-                format: String(localized: "batch_delete_failed_format"),
-                outcome.failed
-            ))
+            parts.append(outcome.mode == .deviceLocal ? String(localized: "song_remove_from_device_failed_title")
+                : String(format: String(localized: "batch_delete_failed_format"), outcome.failed))
         }
         if outcome.skipped > 0 {
             parts.append(String(
@@ -113,24 +117,60 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
 }
 
 extension SourceFileDeletionPolicy.WholeFileWarning {
-    var message: String {
+    @MainActor
+    func message(for songs: [Song], in library: MusicLibrary) -> String {
+        let hidden = library.locallyRemovedEntries().map(\.song)
+        let count = SourceFileDeletionPolicy.affectedSongs(deleting: songs, in: library.songs + hidden).count
         switch self {
         case .file(let name):
-            return String(format: String(localized: "delete_segment_file_message_format"), name)
+            return String(format: String(localized: "delete_segment_file_count_message_format"), name, Int64(count))
         case .selectionIncludesSegments:
-            return String(localized: "batch_delete_segment_files_warning")
+            return String(format: String(localized: "batch_delete_segment_files_count_format"), Int64(count))
         }
+    }
+}
+
+struct SongFileDeletionRequest {
+    let song: Song
+    let wholeFileMessage: String?
+
+    @MainActor
+    init(song: Song, library: MusicLibrary) {
+        self.song = song
+        self.wholeFileMessage = SourceFileDeletionPolicy.wholeFileWarning(for: [song])?
+            .message(for: [song], in: library)
     }
 }
 
 extension View {
     func songFileDeletionConfirmation(
-        _ target: Binding<Song?>,
+        _ target: Binding<SongFileDeletionRequest?>,
+        using removal: SongBatchRemovalService,
         perform: @escaping (Song) -> Void
     ) -> some View {
-        let warning = target.wrappedValue.flatMap { SourceFileDeletionPolicy.wholeFileWarning(for: [$0]) }
-        return alert(
-            warning == nil ? Text("delete_song") : Text("delete_entire_file"),
+        alert(
+            target.wrappedValue?.wholeFileMessage == nil ? Text("delete_song") : Text("delete_entire_file"),
+            isPresented: Binding(
+                get: { target.wrappedValue != nil },
+                set: { if !$0 { target.wrappedValue = nil } }
+            ),
+            presenting: target.wrappedValue
+        ) { request in
+            Button("cancel", role: .cancel) {}
+            Button(request.wholeFileMessage == nil ? String(localized: "delete") : String(localized: "delete_entire_file"),
+                   role: .destructive) { perform(request.song) }
+                .disabled(request.wholeFileMessage != nil && removal.isBusy)
+        } message: { request in
+            Text(verbatim: request.wholeFileMessage ?? String(localized: "delete_song_message"))
+        }
+    }
+
+    func cueTrackRemovalConfirmation(
+        _ target: Binding<Song?>,
+        using removal: SongBatchRemovalService
+    ) -> some View {
+        alert(
+            Text("cue_remove_track_from_device"),
             isPresented: Binding(
                 get: { target.wrappedValue != nil },
                 set: { if !$0 { target.wrappedValue = nil } }
@@ -138,10 +178,12 @@ extension View {
             presenting: target.wrappedValue
         ) { song in
             Button("cancel", role: .cancel) {}
-            Button(warning == nil ? String(localized: "delete") : String(localized: "delete_entire_file"),
-                   role: .destructive) { perform(song) }
+            Button("remove", role: .destructive) {
+                removal.remove([song], mode: .deviceLocal)
+            }
+            .disabled(removal.isBusy)
         } message: { _ in
-            Text(verbatim: warning?.message ?? String(localized: "delete_song_message"))
+            Text("cue_remove_track_message")
         }
     }
 }

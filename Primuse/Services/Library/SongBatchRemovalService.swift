@@ -25,6 +25,7 @@ final class SongBatchRemovalService {
     struct Progress: Equatable {
         let done: Int
         let total: Int
+        let mode: Mode
         var isFinished: Bool { done >= total }
     }
 
@@ -86,9 +87,10 @@ final class SongBatchRemovalService {
         localRemovalDetails: [String: String] = [:]
     ) -> Task<Void, Never>? {
         guard activeTask == nil, !songs.isEmpty else { return nil }
+        guard mode != .libraryOnly || !songs.contains(where: SourceFileDeletionPolicy.isFileSegment) else { return nil }
         pendingLocalRemovalReason = localRemovalReason
         pendingLocalRemovalDetails = localRemovalDetails
-        progress = Progress(done: 0, total: songs.count)
+        progress = Progress(done: 0, total: songs.count, mode: mode)
 
         let task = Task { @MainActor in
             defer {
@@ -102,17 +104,15 @@ final class SongBatchRemovalService {
                 self.activeTask = nil
             }
 
-            await self.player.prepareQueueForRemovingSongs(
-                withIDs: Set(songs.map(\.id))
-            )
-
             switch mode {
             case .libraryOnly, .deviceLocal:
+                await self.player.prepareQueueForRemovingSongs(withIDs: Set(songs.map(\.id)))
                 self.commit(removable: songs, failed: [], mode: mode, skipped: skipped)
             case .sourceFiles:
                 await self.deleteSourceFiles(songs, skipped: skipped)
             }
-            self.progress = Progress(done: songs.count, total: songs.count)
+            let total = self.progress?.total ?? songs.count
+            self.progress = Progress(done: total, total: total, mode: mode)
         }
         activeTask = task
         return task
@@ -142,31 +142,57 @@ final class SongBatchRemovalService {
         return (deletable, skipped)
     }
 
-    private func deleteSourceFiles(_ songs: [Song], skipped: Int) async {
+    private func deleteSourceFiles(_ requested: [Song], skipped: Int) async {
+        let types = Dictionary(sourcesStore.allSources.map { ($0.id, $0.type) }, uniquingKeysWith: { first, _ in first })
+        let eligible = Self.partitionForSourceDeletion(
+            requested, sourceTypesByID: types, collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs
+        )
+        let skipped = skipped + eligible.skipped.count
+        typealias FileKey = SourceFileDeletionPolicy.FileKey
+        let selected = Dictionary(grouping: eligible.deletable, by: FileKey.init)
+        var seen = Set<FileKey>()
+        let files = eligible.deletable.filter { seen.insert(FileKey($0)).inserted }
+        let includesSegments = eligible.deletable.contains(where: SourceFileDeletionPolicy.isFileSegment)
+        let librarySnapshot = library.songs
+        let hidden = includesSegments ? library.locallyRemovedEntries().map(\.song) : []
+        let affected = includesSegments
+            ? SourceFileDeletionPolicy.affectedSongs(deleting: eligible.deletable, in: librarySnapshot + hidden)
+            : eligible.deletable
+        let tracksByFile = Dictionary(grouping: affected, by: FileKey.init)
+        let deletingIDs = Set(affected.map(\.id))
+        // Release the playing file before a connector tries to delete it. Other
+        // queue entries can stay until the source confirms their file is gone.
+        if let current = player.currentSong, let playingFile = tracksByFile[FileKey(current)] {
+            await player.prepareQueueForRemovingSongs(withIDs: Set(playingFile.map(\.id)))
+        }
+        progress = Progress(done: 0, total: files.count, mode: .sourceFiles)
         // Sidecar 共享判定一次算完。逐首扫描整个保留库会让删 200 首变成
         // O(200 × 库大小) 的主线程开销。
-        let librarySnapshot = library.songs
-        let deletingIDs = Set(songs.map(\.id))
-        let sidecarDeletionSongIDs = await Task.detached(priority: .utility) {
-            let retained = librarySnapshot.filter { !deletingIDs.contains($0.id) }
-            return SourceManager.sidecarDeletionSongIDs(deleting: songs, retaining: retained)
-        }.value
+        let sidecarDeletionSongIDs: Set<String>
+        if includesSegments {
+            sidecarDeletionSongIDs = []
+        } else {
+            sidecarDeletionSongIDs = await Task.detached(priority: .utility) {
+                let retained = librarySnapshot.filter { !deletingIDs.contains($0.id) }
+                return SourceManager.sidecarDeletionSongIDs(deleting: files, retaining: retained)
+            }.value
+        }
 
         var lastPublishAt = Date.distantPast
         let outcomes = await sourceManager.deleteSourceFiles(
-            for: songs,
+            for: files,
             deleteSidecarsForSongIDs: sidecarDeletionSongIDs
         ) { done in
             // 本地源能每秒删掉上百个小文件，逐格发布会让整屏按那个频率重算。
             let now = Date()
-            guard done == songs.count
+            guard done == files.count
                     || done.isMultiple(of: 16)
                     || now.timeIntervalSince(lastPublishAt) >= 0.1
             else { return }
             // 源端删完不等于事务落地，留一格给下面的 `library.deleteSongs`。
             self.progress = Progress(
-                done: min(done, max(songs.count - 1, 0)),
-                total: songs.count
+                done: min(done, max(files.count - 1, 0)),
+                total: files.count, mode: .sourceFiles
             )
             lastPublishAt = now
         }
@@ -176,22 +202,33 @@ final class SongBatchRemovalService {
         var locallyRemovable: [Song] = []
         var locallyRemovableDetails: [String: String] = [:]
         for outcome in outcomes {
+            let key = FileKey(outcome.song)
             if outcome.result.shouldRemoveLibraryRecord {
-                removable.append(outcome.song)
+                removable.append(contentsOf: tracksByFile[key] ?? [outcome.song])
                 continue
             }
-            failed.append(outcome.song)
+            let selectedTracks = selected[key] ?? [outcome.song]
+            failed.append(contentsOf: selectedTracks)
             // 403 / 405 / 只读挂载：源端确认文件还在，而且重试不会有别的结果。
             // 这些交回界面，让用户选择「仅从本机移除」，不要默默留在库里。
             guard SongLocalRemovalPolicy.canResolveLocally(
                 failureReasons: Set(outcome.result.failedPaths.map(\.reason))
             ) else { continue }
-            locallyRemovable.append(outcome.song)
+            locallyRemovable.append(contentsOf: selectedTracks)
             if let message = outcome.result.failedPaths.first?.message, !message.isEmpty {
-                locallyRemovableDetails[outcome.song.id] = message
+                for track in selectedTracks { locallyRemovableDetails[track.id] = message }
             }
         }
 
+        if includesSegments, !removable.isEmpty {
+            // A scan or hide/restore can complete during a network deletion.
+            let catalogue = library.songs + library.locallyRemovedEntries().map(\.song)
+            removable = SourceFileDeletionPolicy.affectedSongs(deleting: removable, in: catalogue)
+            let removedIDs = Set(removable.map(\.id))
+            let deletedFiles = outcomes.filter { $0.result.shouldRemoveLibraryRecord }.map(\.song)
+            await sourceManager.deleteSidecars(for: deletedFiles, retaining: catalogue.filter { !removedIDs.contains($0.id) })
+        }
+        await player.prepareQueueForRemovingSongs(withIDs: Set(removable.map(\.id)))
         commit(
             removable: removable,
             failed: failed,
@@ -234,7 +271,7 @@ final class SongBatchRemovalService {
         lastOutcome = Outcome(
             mode: mode,
             removed: removedCount,
-            failed: failed.count,
+            failed: failed.count + removable.count - removedCount,
             skipped: skipped,
             locallyRemovableSongs: locallyRemovableSongs,
             locallyRemovableDetails: locallyRemovableDetails

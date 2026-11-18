@@ -103,11 +103,29 @@ public enum LibrarySongAdmissionPolicy {
         tombstones: Set<String>,
         deviceExclusions: Set<String>
     ) -> Verdict {
+        verdict(sourceID: sourceID, filePath: filePath, prefix: prefixes[sourceID], segmentExclusionKey: nil,
+                tombstones: tombstones, deviceExclusions: deviceExclusions)
+    }
+
+    public nonisolated static func verdict(
+        for song: Song, prefix: String?, tombstones: Set<String>, deviceExclusions: Set<String>
+    ) -> Verdict {
+        verdict(sourceID: song.sourceID, filePath: song.filePath, prefix: prefix,
+                segmentExclusionKey: deviceExclusions.isEmpty ? nil : SongLocalRemovalPolicy.segmentExclusionKey(for: song),
+                tombstones: tombstones, deviceExclusions: deviceExclusions)
+    }
+
+    private nonisolated static func verdict(
+        sourceID: String, filePath: String, prefix: String?, segmentExclusionKey: String?,
+        tombstones: Set<String>, deviceExclusions: Set<String>
+    ) -> Verdict {
         guard hasAdmissionFilters(tombstones: tombstones, deviceExclusions: deviceExclusions) else {
             return .admitted
         }
-        let prefix = prefixes[sourceID]
         let key = identityKey(prefix: prefix, sourceID: sourceID, filePath: filePath)
+        if let segmentExclusionKey, deviceExclusions.contains(segmentExclusionKey) {
+            return .blockedByDeviceExclusion
+        }
         if deviceExclusions.contains(key) { return .blockedByDeviceExclusion }
         if let prefix, prefix != sourceID, deviceExclusions.contains(
             identityKey(prefix: nil, sourceID: sourceID, filePath: filePath)

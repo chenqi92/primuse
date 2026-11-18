@@ -603,9 +603,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                                     + trackLyrics.values.flatMap(\.values).compactMap(\.revision)
                             )
                             let existingTracks = (existingCueOffsetsByPath[item.path] ?? []).map { existingSongs[$0] }
-                            if ext != "iso", !existingTracks.isEmpty,
-                               existingTracks.allSatisfy({
-                                   $0.revision == expectedRevision
+                            if ext != "iso", existingTracks.count == descriptors.count,
+                               existingTracks.allSatisfy({ $0.revision == expectedRevision }),
+                               Set(existingTracks.map(\.id)) == Set(descriptors.map {
+                                   $0.songID(sourceID: self.sourceID, audioPath: item.path)
                                }) {
                                 for track in existingTracks {
                                     continuation.yield(ConnectorScannedSong(
@@ -952,6 +953,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         let year: Int?
         let format: AudioFormat
         let track: CueTrack
+
+        func songID(sourceID: String, audioPath: String) -> String {
+            LocalFileSource.generateID(sourceID: sourceID, path: "\(audioPath)#cue:\(cuePath)#track:\(track.identityKey)")
+        }
     }
 
     /// Parse local CUE sheets up front so a referenced album image is emitted
@@ -1089,10 +1094,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 albumArtistName: descriptor.albumPerformer ?? metadata.albumArtist,
                 trackArtistName: artist
             )
-            let trackID = Self.generateID(
-                sourceID: sourceID,
-                path: "\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.identityKey)"
-            )
+            let trackID = descriptor.songID(sourceID: sourceID, audioPath: item.path)
             var song = Song(
                 id: trackID,
                 title: descriptor.track.title ?? String(

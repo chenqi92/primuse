@@ -816,6 +816,16 @@ public enum SourceAudioDeletionStatus: Equatable, Sendable {
 /// points. Keeping the decision here makes it impossible for a view to treat a
 /// transport error as a successful library deletion.
 public enum SourceFileDeletionPolicy {
+    public struct FileKey: Hashable, Sendable {
+        public let sourceID: String
+        public let path: String
+
+        public init(_ song: Song) {
+            sourceID = song.sourceID
+            path = song.filePath
+        }
+    }
+
     public enum WholeFileWarning: Equatable {
         case file(named: String)
         case selectionIncludesSegments
@@ -829,8 +839,19 @@ public enum SourceFileDeletionPolicy {
         return .selectionIncludesSegments
     }
 
-    fileprivate static func isFileSegment(_ song: Song) -> Bool {
+    public static func isFileSegment(_ song: Song) -> Bool {
         song.cueSheetPath != nil || song.cueStartTime != nil
+    }
+
+    public static func affectedSongs(deleting selected: [Song], in catalogue: [Song]) -> [Song] {
+        let sharedFiles = Set(selected.lazy.filter(isFileSegment).map(FileKey.init))
+        guard !sharedFiles.isEmpty else { return selected }
+        var seen = Set(selected.map(\.id))
+        var songs = selected
+        for song in catalogue where sharedFiles.contains(FileKey(song)) && seen.insert(song.id).inserted {
+            songs.append(song)
+        }
+        return songs
     }
 
     public static func shouldShowDeleteAction(for sourceType: MusicSourceType?) -> Bool {
@@ -1057,10 +1078,8 @@ public struct DuplicateCleanupDeletionScope: Hashable, Sendable {
     public func individualAction(for song: Song, in songs: [Song]) -> IndividualAction {
         guard songs.contains(where: { $0.id == song.id }),
               songs.contains(where: { $0.id != song.id }) else { return .keep }
-        // Local exclusions are keyed by source path. A CUE track must not
-        // exclude every other track that reads the same audio file.
-        guard !SourceFileDeletionPolicy.isFileSegment(song),
-              !songs.contains(where: {
+        if SourceFileDeletionPolicy.isFileSegment(song) { return .removeFromDevice }
+        guard !songs.contains(where: {
                   $0.id != song.id && $0.sourceID == song.sourceID && $0.filePath == song.filePath
               }) else { return .keep }
         return writableSongs(in: songs).contains(where: { $0.id == song.id })

@@ -1,4 +1,5 @@
 import Foundation
+import AVFAudio
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
@@ -647,6 +648,220 @@ private final class BaiduRepairFileManager: FileManager, @unchecked Sendable {
     let root: URL
     init(root: URL) { self.root = root; super.init() }
     override func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [root] }
+}
+
+@MainActor
+final class CueTrackLocalRemovalTests: XCTestCase {
+    func testRemovingAndRestoringTracksSurvivesLocalRescanAndRelaunch() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let music = root.appendingPathComponent("Music")
+        try FileManager.default.createDirectory(at: music, withIntermediateDirectories: true)
+        let audioURL = music.appendingPathComponent("disc.wav")
+        try writeSilentAudio(to: audioURL)
+        let originalAudio = try Data(contentsOf: audioURL)
+        let cueURL = music.appendingPathComponent("disc.cue")
+        let cue = Data("""
+        FILE "disc.wav" WAVE
+          TRACK 01 AUDIO
+            TITLE "First Light"
+            INDEX 01 00:00:00
+          TRACK 02 AUDIO
+            TITLE "Evening Walk"
+            INDEX 01 00:01:00
+        """.utf8)
+        try cue.write(to: cueURL)
+
+        let source = MusicSource(
+            id: UUID().uuidString, name: "Tracks", type: .local, basePath: music.path, authType: .none,
+            extraConfig: MusicSource.encodeScannedDirectories(["/"], into: nil, type: .local)
+        )
+        let connector = LocalFileSource(sourceID: source.id, basePath: music)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let sources = SourcesStore(storageDirectoryURL: root.appendingPathComponent("Sources"))
+        sources.add(source)
+        let scan = ScanService(fileManager: BaiduRepairFileManager(root: root),
+                               connectorProvider: { _ in connector }, diagnosticProvider: { source, _ in
+            SourceDiagnosticReport(source: source, startedAt: Date(), checks: [])
+        })
+        func rescan(_ library: MusicLibrary) async {
+            XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: sources,
+                                          requestsContinuedProcessing: false))
+            await scan.waitForActiveScansToComplete()
+            await library.waitForPendingIndex()
+            XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        }
+        let directory = root.appendingPathComponent("Library")
+        let library = MusicLibrary(storageDirectory: directory)
+        await rescan(library)
+        let first = try XCTUnwrap(library.songs.first { $0.trackNumber == 1 })
+        let second = try XCTUnwrap(library.songs.first { $0.trackNumber == 2 })
+        XCTAssertEqual(first.filePath, second.filePath)
+        XCTAssertNotEqual(first.id, second.id)
+
+        try library.removeSongsFromThisDevice([second])
+        // Force the directory scan to commit while one CUE track is still visible.
+        try originalAudio.write(to: music.appendingPathComponent("bonus.wav"))
+        await rescan(library)
+        XCTAssertEqual(library.songs.filter(\.isCueTrack).map(\.id), [first.id])
+        XCTAssertEqual(library.locallyRemovedSongIDs(forSourceID: source.id), [second.id])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The library did not persist")
+        }
+
+        let reopened = MusicLibrary(storageDirectory: directory)
+        XCTAssertEqual(reopened.songs.filter(\.isCueTrack).map(\.id), [first.id])
+        try reopened.restoreSongsRemovedFromThisDevice([second.id])
+        XCTAssertEqual(Set(reopened.songs.filter(\.isCueTrack).map(\.id)), [first.id, second.id])
+
+        try reopened.removeSongsFromThisDevice([first, second])
+        await rescan(reopened)
+        XCTAssertTrue(reopened.songs.filter(\.isCueTrack).isEmpty)
+        XCTAssertEqual(reopened.locallyRemovedSongIDs(forSourceID: source.id), [first.id, second.id])
+        try reopened.restoreSongsRemovedFromThisDevice([first.id])
+        XCTAssertEqual(reopened.songs.filter(\.isCueTrack).map(\.id), [first.id])
+        XCTAssertTrue(reopened.isExcludedOnThisDevice(second))
+        XCTAssertTrue(reopened.deletedSongIdentities.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: audioURL), originalAudio)
+        XCTAssertEqual(try Data(contentsOf: cueURL), cue)
+    }
+
+    func testLegacyFileExclusionRestoresOnlyTheRecordedCueTrack() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        func track(_ number: Int) -> Song {
+            Song(id: "track-\(number)", title: "Track \(number)", trackNumber: number, duration: 30,
+                 fileFormat: .flac, filePath: "/disc.flac", sourceID: "nas",
+                 cueSheetPath: "/disc.cue", cueStartTime: Double(number - 1) * 30)
+        }
+        let first = track(1), second = track(2)
+        let store = try IncrementalSongStore(path: root.appendingPathComponent("library-songs.sqlite").path)
+        try store.replaceAll(with: [first, second])
+        try store.markMigrationCompleted(version: 10)
+        let entry = SongLocalRemovalEntry(song: second, reason: .userKeptRemoteFile)
+        let oldLedger = SongLocalRemovalLedger(
+            formatVersion: 3, identities: ["nas:/disc.flac", "account:/disc.flac"],
+            retainedSongs: [second], entries: [entry]
+        )
+        try JSONEncoder().encode(oldLedger).write(to: root.appendingPathComponent("library-device-local-excluded-songs.json"))
+
+        let preparing = MusicLibrary.makePreparing(storageDirectory: root)
+        preparing.sourceIdentityResolver = { _ in "account" }
+        let preview = await preparing.prepareStartupSongs(ids: [first.id, second.id], sourceIDs: ["nas"])
+        XCTAssertEqual(preview?.map(\.id), [first.id])
+        let prepared = await MusicLibrary.prepareStartup(storageDirectory: root, sourceIdentityPrefixes: ["nas": "account"])
+        preparing.publish(prepared)
+        XCTAssertEqual(preparing.songs.map(\.id), [first.id])
+        XCTAssertEqual(preparing.locallyRemovedEntries().map(\.id), [second.id])
+        try preparing.restoreSongsRemovedFromThisDevice([second.id])
+        preparing.addSongs([first, second])
+        XCTAssertEqual(Set(preparing.songs.map(\.id)), [first.id, second.id])
+        XCTAssertTrue(preparing.locallyRemovedEntries().isEmpty)
+    }
+
+    func testBatchSourceDeletionRemovesSharedTracksOnlyForFilesActuallyDeleted() async throws {
+        let suite = "CueDeletion-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let nas = MusicSource(id: UUID().uuidString, name: "NAS", type: .webdav)
+        let backup = MusicSource(id: UUID().uuidString, name: "Backup", type: .webdav)
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("Sources"))
+        store.add(nas)
+        store.add(backup)
+        let nasFiles = CueDeletionConnector(sourceID: nas.id, files: ["/one.flac", "/two.flac", "/three.flac", "/disc.cue"],
+                                            deniedPaths: ["/two.flac"])
+        let backupFiles = CueDeletionConnector(sourceID: backup.id, files: ["/one.flac", "/disc.cue"])
+        let manager = SourceManager(sourcesProvider: { [nas, backup] }, connectorFactory: { source in
+            source.id == nas.id ? nasFiles : backupFiles
+        })
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("Library"))
+        func track(_ number: Int, in path: String, sourceID: String) -> Song {
+            Song(id: "\(sourceID)-\(number)", title: "Track \(number)", trackNumber: number, duration: 30,
+                 fileFormat: .flac, filePath: path, sourceID: sourceID,
+                 cueSheetPath: "/disc.cue", cueStartTime: Double(number - 1) * 30)
+        }
+        let selected = track(1, in: "/one.flac", sourceID: nas.id)
+        let alsoSelected = track(2, in: "/one.flac", sourceID: nas.id)
+        let visibleSibling = track(3, in: "/one.flac", sourceID: nas.id)
+        let hiddenSibling = track(4, in: "/one.flac", sourceID: nas.id)
+        let denied = track(5, in: "/two.flac", sourceID: nas.id)
+        let deniedSibling = track(6, in: "/two.flac", sourceID: nas.id)
+        let hiddenDeniedSibling = track(7, in: "/two.flac", sourceID: nas.id)
+        let unselectedFile = track(8, in: "/three.flac", sourceID: nas.id)
+        let backupCopy = track(1, in: "/one.flac", sourceID: backup.id)
+        library.addSongs([selected, alsoSelected, visibleSibling, hiddenSibling, denied, deniedSibling,
+                          hiddenDeniedSibling, unselectedFile, backupCopy])
+        try library.removeSongsFromThisDevice([hiddenSibling, hiddenDeniedSibling])
+
+        let settings = PlaybackSettingsStore(defaults: defaults,
+            cloudSync: CloudKVSSync(store: nil, defaults: defaults, observing: nil))
+        let player = AudioPlayerService(
+            sourceManager: manager, library: library, playbackSettings: settings,
+            playbackSessionStore: PlaybackSessionStore(url: root.appendingPathComponent("session.json")),
+            musicSessionMemoryStore: MusicSessionMemoryStore(defaults: defaults, url: root.appendingPathComponent("music.json")),
+            activateAudioSession: { _ in XCTFail("An empty queue must stay silent") }
+        )
+        let service = SongBatchRemovalService(library: library, sourceManager: manager, sourcesStore: store, player: player)
+        let task = try XCTUnwrap(service.remove([selected, alsoSelected, denied], mode: .sourceFiles))
+        await task.value
+
+        let outcome = try XCTUnwrap(service.lastOutcome)
+        XCTAssertEqual(outcome.removed, 4)
+        XCTAssertEqual(outcome.failed, 1)
+        XCTAssertEqual(outcome.locallyRemovableSongs.map(\.id), [denied.id])
+        XCTAssertEqual(Set(library.songs.map(\.id)), [denied.id, deniedSibling.id, unselectedFile.id, backupCopy.id])
+        XCTAssertEqual(library.locallyRemovedSongIDs(forSourceID: nas.id), [hiddenDeniedSibling.id])
+        XCTAssertFalse(library.isExcludedOnThisDevice(hiddenSibling))
+        XCTAssertFalse(library.isExcludedOnThisDevice(denied))
+        let nasAttempts = await nasFiles.deletionAttempts
+        XCTAssertEqual(nasAttempts.filter { $0.hasSuffix(".flac") }.sorted(), ["/one.flac", "/two.flac"])
+        let remainingFiles = await nasFiles.files
+        XCTAssertEqual(remainingFiles, ["/two.flac", "/three.flac", "/disc.cue"])
+        let backupAttempts = await backupFiles.deletionAttempts
+        XCTAssertTrue(backupAttempts.isEmpty)
+    }
+
+    private func writeSilentAudio(to url: URL) throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 8_000, channels: 1))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000))
+        buffer.frameLength = buffer.frameCapacity
+        let samples = try XCTUnwrap(buffer.floatChannelData?[0])
+        samples.update(repeating: 0, count: Int(buffer.frameLength))
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        try file.write(from: buffer)
+    }
+}
+
+private actor CueDeletionConnector: MusicSourceConnector {
+    let sourceID: String
+    private(set) var files: Set<String>
+    private let deniedPaths: Set<String>
+    private(set) var deletionAttempts: [String] = []
+
+    init(sourceID: String, files: Set<String>, deniedPaths: Set<String> = []) {
+        self.sourceID = sourceID
+        self.files = files
+        self.deniedPaths = deniedPaths
+    }
+
+    func deleteFile(at path: String) async throws {
+        deletionAttempts.append(path)
+        if deniedPaths.contains(path) { throw SourceFileMutationError.permissionDenied }
+        guard files.remove(path) != nil else { throw SourceError.fileNotFound(path) }
+    }
+
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
 }
 
 private actor MutableFileTreeConnector: MusicSourceConnector {

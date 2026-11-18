@@ -1156,8 +1156,10 @@
 "delete_song_failed_title" = "Usuwanie nie powiodło się";
 "delete_song_message" = "Jeśli źródło obsługuje usuwanie, plik utworu źródłowego zostanie usunięty. Pliki okładek/tekstów o tej samej nazwie są usuwane tylko wtedy, gdy nie używa ich żaden inny utwór, a lokalne pamięci podręczne są czyszczone.";
 "delete_entire_file" = "Usuń cały plik";
-"delete_segment_file_message_format" = "Cały plik źródłowy „%@” zostanie trwale usunięty. Żadnego z utworów korzystających z tego pliku nie będzie już można odtworzyć z tego źródła.";
-"batch_delete_segment_files_warning" = "Usunięcie wybranego fragmentu spowoduje usunięcie całego pliku źródłowego. Innych utworów korzystających z tego pliku również nie będzie można odtworzyć z tego źródła, nawet jeśli nie zostały zaznaczone.";
+"cue_remove_track_from_device" = "Usuń ten utwór z tego urządzenia";
+"cue_remove_track_message" = "Usunięty zostanie tylko wybrany utwór. Możesz go przywrócić na stronie źródła. Plik audio, plik CUE i pozostałe utwory zostaną zachowane.";
+"delete_segment_file_count_message_format" = "Trwale usunąć cały plik źródłowy „%@”? Liczba utworów w bibliotece korzystających z tego pliku: %lld. Nie będzie już można ich odtworzyć z tego źródła.";
+"batch_delete_segment_files_count_format" = "Trwale usunąć te pliki źródłowe? Liczba utworów w bibliotece korzystających z tych plików: %lld. Nie będzie już można ich odtworzyć z tego źródła, nawet jeśli nie zostały zaznaczone.";
 "deleted_at_format" = "Usunięto %@";
 "desktop_lyrics_locked" = "Tekst na biurku zablokowany";
 "desktop_lyrics_locked_hint" = "Zablokowany · ⌘⇧L, aby odblokować";

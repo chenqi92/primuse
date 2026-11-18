@@ -4190,6 +4190,21 @@ final class MusicLibrary {
         didSet {
             // 换了 resolver, 之前解析不出来的云账号身份可能就能解析出来了。
             artworkSongIDResolutions.removeAll(keepingCapacity: true)
+            if !deviceLocalExcludedSongsByID.isEmpty, let sourceIdentityResolver {
+                var prefixes: [String: String] = [:]
+                for id in locallyRemovedSourceIDs {
+                    prefixes[id] = sourceIdentityResolver(id)
+                }
+                let keys = DeviceLocalExclusionLedger.narrowingLegacySegmentExclusions(
+                    deviceLocalExcludedSongIdentities, retainedSongs: deviceLocalExcludedSongsByID,
+                    sourcePrefixes: prefixes, unresolvedAccountAliasesOnly: true
+                )
+                if keys != deviceLocalExcludedSongIdentities {
+                    deviceLocalExcludedSongIdentities = keys
+                    do { try persistDeviceLocalExclusions() }
+                    catch { plog("Device-local segment exclusion migration failed: \(error.localizedDescription)") }
+                }
+            }
         }
     }
 
@@ -4285,9 +4300,7 @@ final class MusicLibrary {
         prefixes: [String: String]
     ) -> LibrarySongAdmissionPolicy.Verdict {
         LibrarySongAdmissionPolicy.verdict(
-            sourceID: song.sourceID,
-            filePath: song.filePath,
-            prefixes: prefixes,
+            for: song, prefix: prefixes[song.sourceID],
             tombstones: deletedSongIdentities,
             deviceExclusions: deviceLocalExcludedSongIdentities
         )
@@ -4304,8 +4317,10 @@ final class MusicLibrary {
     /// keeps an exclusion effective regardless of which side of that
     /// load-order window recorded it.
     func isExcludedOnThisDevice(_ song: Song) -> Bool {
-        deviceLocalExcludedSongIdentities.contains(identityKey(for: song))
-            || deviceLocalExcludedSongIdentities.contains("\(song.sourceID):\(song.filePath)")
+        LibrarySongAdmissionPolicy.verdict(
+            for: song, prefix: sourceIdentityResolver?(song.sourceID),
+            tombstones: [], deviceExclusions: deviceLocalExcludedSongIdentities
+        ) == .blockedByDeviceExclusion
     }
     private(set) var disabledSourceIDs: Set<String> = []
     /// 每次设置禁用源集合都前进; 后台准备的可见缓存据此判断自己是否已被更新的请求取代。
@@ -4902,13 +4917,15 @@ final class MusicLibrary {
         let classification = SpokenWordStore.shared.classificationSnapshot
         let worker = Task.detached(priority: .userInitiated) { () -> [Song]? in
             do {
-                let exclusions = try Self.startupSongExclusions(directory: directory)
+                let exclusions = try Self.startupSongExclusions(directory: directory, sourcePrefixes: identityPrefixes)
                 guard let reader = try Self.startupSongReader(
                     directory: directory, sourceIDs: enabledIDs, requiresExclusionReconciliation: false
                 ) else { return nil }
                 func isVisible(_ song: Song) -> Bool {
-                    guard !exclusions.contains("\(song.sourceID):\(song.filePath)"),
-                          !exclusions.contains("\(identityPrefixes[song.sourceID] ?? song.sourceID):\(song.filePath)") else {
+                    guard LibrarySongAdmissionPolicy.verdict(
+                        for: song, prefix: identityPrefixes[song.sourceID],
+                        tombstones: [], deviceExclusions: exclusions
+                    ) == .admitted else {
                         return false
                     }
                     return !musicOnly || (song.isPlayable
@@ -4986,10 +5003,13 @@ final class MusicLibrary {
         return reader
     }
 
-    private nonisolated static func startupSongExclusions(directory: URL) throws -> Set<String> {
+    private nonisolated static func startupSongExclusions(
+        directory: URL, sourcePrefixes: [String: String] = [:]
+    ) throws -> Set<String> {
         let url = directory.appendingPathComponent("library-device-local-excluded-songs.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-        return Set(try JSONDecoder().decode(DeviceLocalExclusionLedger.self, from: Data(contentsOf: url)).identities)
+        let ledger = try JSONDecoder().decode(DeviceLocalExclusionLedger.self, from: Data(contentsOf: url))
+        return ledger.resolvedIdentities(sourcePrefixes: sourcePrefixes)
     }
 
     func prepareStartupSongPages(sourceIDs: Set<String>) async -> LibraryStartupSongPages? {
@@ -6302,7 +6322,7 @@ final class MusicLibrary {
         if !startsPreparing || preparedStartup != nil {
             // Must precede `loadSnapshot`: the loader filters the decoded rows
             // through this set so an imported snapshot cannot resurrect them.
-            if preparedStartup == nil { loadDeviceLocalExclusions() }
+            if preparedStartup == nil { loadDeviceLocalExclusions(sourcePrefixes: sourceIdentityPrefixes ?? [:]) }
             loadSnapshot(
                 preferExternalSnapshot: preferExternalSnapshot,
                 preparedStartup: preparedStartup,
@@ -6914,8 +6934,17 @@ final class MusicLibrary {
         if pruneMissingSongs, !deviceLocalExcludedSongsByID.isEmpty {
             let scannedSourceIDs = explicitAffectedSourceIDs ?? Set(newSongs.map(\.sourceID))
             let scannedIDs = authoritativeIncomingIDs ?? Set(newSongs.map(\.id))
-            discardRetainedSongs {
+            // Imported snapshots can carry the full digest where the TV scanner
+            // reports its short form. Most passes have no missing segment.
+            let needsCanonicalIDs = deviceLocalExcludedSongsByID.values.contains {
                 scannedSourceIDs.contains($0.sourceID) && !scannedIDs.contains($0.id)
+                    && SourceFileDeletionPolicy.isFileSegment($0)
+            }
+            let canonicalIDs = needsCanonicalIDs ? Set(scannedIDs.map(TVScanPipelinePolicy.canonicalSongID)) : []
+            discardRetainedSongs { song in
+                guard scannedSourceIDs.contains(song.sourceID), !scannedIDs.contains(song.id) else { return false }
+                return !SourceFileDeletionPolicy.isFileSegment(song)
+                    || !canonicalIDs.contains(TVScanPipelinePolicy.canonicalSongID(song.id))
             }
         }
         var incomingIDs = authoritativeIncomingIDs ?? []
@@ -7334,6 +7363,7 @@ final class MusicLibrary {
         fileprivate let memberships: [String: [String]]
         fileprivate let playlistDates: [String: Date]
         fileprivate let recentIDs: [String]
+        fileprivate let removedLocalSegments: [SongLocalRemovalEntry]
         /// 剪枝刚做完时的成员表: 被剪掉的歌已换成另一份或置灰占位。回滚时成员表还是这样,
         /// 说明这期间没人动过, 才整份换回剪枝前的。
         fileprivate var prunedMemberships: [String: [String]]? = nil
@@ -7343,10 +7373,19 @@ final class MusicLibrary {
         adoptScannedIDsForRetainedSongs(incoming, sourceID: sourceID)
         let incomingIDs = Set(incoming.map(\.id))
         let removed = songs.filter { $0.sourceID == sourceID && !incomingIDs.contains($0.id) }
+        let removedLocalSegments = deviceLocalExcludedSongsByID.values.compactMap { song -> SongLocalRemovalEntry? in
+            guard song.sourceID == sourceID, !incomingIDs.contains(song.id),
+                  SourceFileDeletionPolicy.isFileSegment(song) else { return nil }
+            let metadata = deviceLocalRemovalMetadataByID[song.id]
+            return SongLocalRemovalEntry(
+                song: song, reason: metadata?.reason ?? Self.legacyLocalRemovalReason,
+                removedAt: metadata?.removedAt ?? Date(timeIntervalSince1970: 0), detail: metadata?.detail
+            )
+        }
         var recovery = ScanPruningRecovery(
             songs: removed, memberships: playlistSongIDs,
             playlistDates: Dictionary(allPlaylists.map { ($0.id, $0.updatedAt) }, uniquingKeysWith: { first, _ in first }),
-            recentIDs: recentPlaybackSongIDs
+            recentIDs: recentPlaybackSongIDs, removedLocalSegments: removedLocalSegments
         )
         // 扫描途中每一行变化都已经分批交给过曲库。没有要剪的、保留目录里也没有
         // 要清的、每一行又都和库里一样时,整源再合并一遍只是在主线程上把几万首
@@ -7377,19 +7416,19 @@ final class MusicLibrary {
     /// 「从本机移除」的保留行可能还带着手机快照里的 ID(和电视扫描的算法不同)。整源合并
     /// 按 ID 判断保留行的文件还在不在, 对不上就会当成「文件已从网盘消失」清掉, 剩下的键又
     /// 会让同一个文件被当成新放上去的放行(`deviceExclusionsYieldToReplacedFiles`)。
-    /// 所以先按路径换成这次扫描的 ID。CUE 分轨同一路径好几首, 认不准, 不动。
+    /// 普通文件按路径接回扫描 ID；CUE 分轨按同一分轨的规范化 ID 接回。
     private func adoptScannedIDsForRetainedSongs(_ incoming: [Song], sourceID: String) {
-        let retainedHere = deviceLocalExcludedSongsByID.values.filter {
-            $0.sourceID == sourceID && $0.cueSheetPath == nil
-        }
+        let retainedHere = deviceLocalExcludedSongsByID.values.filter { $0.sourceID == sourceID }
         guard !retainedHere.isEmpty else { return }
-        var scannedIDByPath: [String: String] = [:]
-        for song in incoming where song.cueSheetPath == nil {
-            scannedIDByPath[song.filePath] = scannedIDByPath[song.filePath] ?? song.id
+        var scannedIDs: [String: String] = [:]
+        for song in incoming where song.sourceID == sourceID {
+            let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) ?? song.filePath
+            scannedIDs[key] = scannedIDs[key] ?? song.id
         }
         var adopted = 0
         for retained in retainedHere {
-            guard let scannedID = scannedIDByPath[retained.filePath], scannedID != retained.id,
+            let key = SongLocalRemovalPolicy.segmentExclusionKey(for: retained) ?? retained.filePath
+            guard let scannedID = scannedIDs[key], scannedID != retained.id,
                   deviceLocalExcludedSongsByID[scannedID] == nil else { continue }
             var rekeyed = retained
             rekeyed.id = scannedID
@@ -7407,6 +7446,21 @@ final class MusicLibrary {
     func rollbackScanPruning(_ recovery: ScanPruningRecovery) {
         // S2: 成员回滚必须在发布后的歌单集合上做, 否则整段回滚落在空库上。
         if deferringUntilReady({ [weak self] in self?.rollbackScanPruning(recovery) }) { return }
+        if !recovery.removedLocalSegments.isEmpty {
+            for entry in recovery.removedLocalSegments {
+                let song = entry.song
+                guard songIndexByID[song.id] == nil, deviceLocalExcludedSongsByID[song.id] == nil,
+                      !deletedSongIdentities.contains(identityKey(for: song)),
+                      let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) else { continue }
+                deviceLocalExcludedSongIdentities.insert(key)
+                deviceLocalExcludedSongsByID[song.id] = song
+                deviceLocalRemovalMetadataByID[song.id] = SongLocalRemovalMetadata(
+                    reason: entry.reason, removedAt: entry.removedAt, detail: entry.detail
+                )
+            }
+            do { try persistDeviceLocalExclusions() }
+            catch { plog("Device-local segment exclusion rollback failed: \(error.localizedDescription)") }
+        }
         let removedIDs = Set(recovery.songs.map(\.id))
         addSongs(recovery.songs.filter { songIndexByID[$0.id] == nil },
                  notifyRemovals: false, pruneMissingSongs: false)
@@ -7758,9 +7812,13 @@ final class MusicLibrary {
         let previousMetadata = deviceLocalRemovalMetadataByID
         let removedAt = Date()
         for song in songsToRemove {
-            deviceLocalExcludedSongIdentities.insert(identityKey(for: song))
-            // The account resolver is installed after startup snapshot loading.
-            deviceLocalExcludedSongIdentities.insert("\(song.sourceID):\(song.filePath)")
+            if let segmentKey = SongLocalRemovalPolicy.segmentExclusionKey(for: song) {
+                deviceLocalExcludedSongIdentities.insert(segmentKey)
+            } else {
+                deviceLocalExcludedSongIdentities.insert(identityKey(for: song))
+                // The account resolver is installed after startup snapshot loading.
+                deviceLocalExcludedSongIdentities.insert("\(song.sourceID):\(song.filePath)")
+            }
             deviceLocalExcludedSongsByID[song.id] = song
             deviceLocalRemovalMetadataByID[song.id] = SongLocalRemovalMetadata(
                 reason: reason,
@@ -7800,14 +7858,16 @@ final class MusicLibrary {
 
     static let legacyLocalRemovalReason = SongLocalRemovalLedger.legacyReason
 
-    private func loadDeviceLocalExclusions() {
+    private func loadDeviceLocalExclusions(sourcePrefixes: [String: String]) {
         guard let data = try? Data(contentsOf: deviceLocalExclusionURL) else { return }
         guard let ledger = try? JSONDecoder().decode(DeviceLocalExclusionLedger.self, from: data) else {
             plog("Device-local song exclusions unreadable; keeping the file untouched")
             return
         }
-        deviceLocalExcludedSongIdentities = Set(ledger.identities)
         let resolved = ledger.resolved()
+        deviceLocalExcludedSongIdentities = ledger.resolvedIdentities(
+            retainedSongs: resolved.songs, sourcePrefixes: sourcePrefixes
+        )
         deviceLocalExcludedSongsByID = resolved.songs
         deviceLocalRemovalMetadataByID = resolved.metadata
     }
@@ -7907,8 +7967,12 @@ final class MusicLibrary {
         for song in restored {
             // Both shapes were written on removal; clearing only one would
             // leave the row blocked by the other on the next load.
-            deviceLocalExcludedSongIdentities.remove(identityKey(for: song))
-            deviceLocalExcludedSongIdentities.remove("\(song.sourceID):\(song.filePath)")
+            if let segmentKey = SongLocalRemovalPolicy.segmentExclusionKey(for: song) {
+                deviceLocalExcludedSongIdentities.remove(segmentKey)
+            } else {
+                deviceLocalExcludedSongIdentities.remove(identityKey(for: song))
+                deviceLocalExcludedSongIdentities.remove("\(song.sourceID):\(song.filePath)")
+            }
             deviceLocalExcludedSongsByID[song.id] = nil
             deviceLocalRemovalMetadataByID[song.id] = nil
         }
@@ -7947,16 +8011,24 @@ final class MusicLibrary {
            retained.sourceID == song.sourceID, retained.filePath == song.filePath {
             return retained
         }
+        let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) ?? song.filePath
         return deviceLocalExcludedSongsByID.values.first {
-            $0.sourceID == song.sourceID && $0.filePath == song.filePath
+            $0.sourceID == song.sourceID && (SongLocalRemovalPolicy.segmentExclusionKey(for: $0) ?? $0.filePath) == key
         }
     }
 
     /// 同一路径上换了文件, 撤掉这几首的本机排除(两种键形态和保留行一起), 落盘一次。
     private func releaseDeviceLocalExclusions(_ released: [(scanned: Song, retained: Song?)]) {
         for (scanned, retained) in released {
-            deviceLocalExcludedSongIdentities.remove(identityKey(for: scanned))
-            deviceLocalExcludedSongIdentities.remove("\(scanned.sourceID):\(scanned.filePath)")
+            if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: scanned),
+               deviceLocalExcludedSongIdentities.contains(key) {
+                // The track owns only this key. A separate file-wide exclusion
+                // may belong to another retained row at the same path.
+                deviceLocalExcludedSongIdentities.remove(key)
+            } else {
+                deviceLocalExcludedSongIdentities.remove(identityKey(for: scanned))
+                deviceLocalExcludedSongIdentities.remove("\(scanned.sourceID):\(scanned.filePath)")
+            }
             if let retained {
                 deviceLocalExcludedSongsByID[retained.id] = nil
                 deviceLocalRemovalMetadataByID[retained.id] = nil
@@ -7972,6 +8044,9 @@ final class MusicLibrary {
         let removed = deviceLocalExcludedSongsByID.values.filter(shouldRemove)
         guard !removed.isEmpty else { return }
         for song in removed {
+            if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) {
+                deviceLocalExcludedSongIdentities.remove(key)
+            }
             deviceLocalExcludedSongsByID[song.id] = nil
             deviceLocalRemovalMetadataByID[song.id] = nil
         }
@@ -15071,8 +15146,10 @@ final class MusicLibrary {
             "\(sourceIdentityPrefixes[song.sourceID] ?? song.sourceID):\(song.filePath)"
         }
         func isExcludedOnThisDevice(_ song: Song) -> Bool {
-            deviceLocalExcludedSongIdentities.contains(identityKey(for: song))
-                || deviceLocalExcludedSongIdentities.contains("\(song.sourceID):\(song.filePath)")
+            LibrarySongAdmissionPolicy.verdict(
+                for: song, prefix: sourceIdentityPrefixes[song.sourceID],
+                tombstones: [], deviceExclusions: deviceLocalExcludedSongIdentities
+            ) == .blockedByDeviceExclusion
         }
         func songForSynchronization(id: String) -> Song? {
             if let index = songIndexByID[id], songs.indices.contains(index), songs[index].id == id {
@@ -15361,19 +15438,31 @@ final class MusicLibrary {
             // the removal survives snapshot sync instead of bouncing back.
             if !deviceLocalExcludedSongIdentities.isEmpty {
                 let tombstones = Set(snapshot.deletedSongIdentities ?? [])
-                for song in loadedSongs where isExcludedOnThisDevice(song)
+                var retainedIDBySegmentKey: [String: String] = [:]
+                for retained in deviceLocalExcludedSongsByID.values {
+                    if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: retained) {
+                        retainedIDBySegmentKey[key] = retained.id
+                    }
+                }
+                for var song in loadedSongs where isExcludedOnThisDevice(song)
                     && !tombstones.contains(identityKey(for: song)) {
+                    if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) {
+                        song.id = retainedIDBySegmentKey[key] ?? song.id
+                        retainedIDBySegmentKey[key] = song.id
+                    }
                     deviceLocalExcludedSongsByID[song.id] = song
                 }
-                deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID.filter {
-                    !tombstones.contains(identityKey(for: $0.value))
-                }
-                deviceLocalRemovalMetadataByID = deviceLocalRemovalMetadataByID.filter {
-                    deviceLocalExcludedSongsByID[$0.key] != nil
-                }
-                shouldPersistDeviceLocalExclusions = true
                 let beforeCount = loadedSongs.count
                 loadedSongs.removeAll { isExcludedOnThisDevice($0) }
+                let discarded = deviceLocalExcludedSongsByID.values.filter { tombstones.contains(identityKey(for: $0)) }
+                for song in discarded {
+                    if let key = SongLocalRemovalPolicy.segmentExclusionKey(for: song) {
+                        deviceLocalExcludedSongIdentities.remove(key)
+                    }
+                    deviceLocalExcludedSongsByID[song.id] = nil
+                    deviceLocalRemovalMetadataByID[song.id] = nil
+                }
+                shouldPersistDeviceLocalExclusions = true
                 let skipped = beforeCount - loadedSongs.count
                 if skipped > 0 {
                     plog("ℹ️ Library load skipped \(skipped) song(s) excluded on this device")
@@ -15669,8 +15758,10 @@ final class MusicLibrary {
                 plog("Device-local song exclusions unreadable; keeping the file untouched")
                 return
             }
-            deviceLocalExcludedSongIdentities = Set(ledger.identities)
             let resolved = ledger.resolved()
+            deviceLocalExcludedSongIdentities = ledger.resolvedIdentities(
+                retainedSongs: resolved.songs, sourcePrefixes: sourceIdentityPrefixes
+            )
             deviceLocalExcludedSongsByID = resolved.songs
             deviceLocalRemovalMetadataByID = resolved.metadata
         }
