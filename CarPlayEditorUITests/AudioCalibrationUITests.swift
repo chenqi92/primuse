@@ -1,6 +1,61 @@
 import XCTest
 
 final class AudioCalibrationUITests: XCTestCase {
+    @MainActor private func catalogSearch(in app: XCUIApplication) -> XCUIElement {
+        let field = app.searchFields.firstMatch
+        if !field.isHittable {
+            let searchButton = app.toolbars.buttons["搜索"].firstMatch
+            if searchButton.waitForExistence(timeout: 2), searchButton.isHittable { searchButton.tap() }
+        }
+        return field
+    }
+
+    @MainActor func testFadersAndExpandedParametersShareOneScrollingPage() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["PRIMUSE_EQ_UI_TESTS"] = "1"
+        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+                                "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]
+        app.launch()
+        defer { app.terminate() }
+        let page = app.scrollViews["eq.page.scroll"]
+        XCTAssertTrue(page.waitForExistence(timeout: 15))
+        let fader = app.descendants(matching: .any).matching(identifier: "eq.band.4").firstMatch
+        XCTAssertTrue(fader.isHittable)
+        let original = fader.value as? String
+        let y = fader.frame.midY
+        let mid = fader.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let above = fader.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        mid.press(forDuration: 0.12, thenDragTo: above)
+        XCTAssertNotEqual(fader.value as? String, original)
+        XCTAssertEqual(fader.frame.midY, y, accuracy: 5)
+        fader.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.83)).tap()
+        let tappedGain = fader.value as? String
+        XCTAssertTrue(tappedGain?.hasPrefix("-") == true)
+        above.press(forDuration: 0.05, thenDragTo: above.withOffset(CGVector(dx: 0, dy: -125)))
+        XCTAssertLessThan(fader.frame.midY, y - 20)
+        XCTAssertEqual(fader.value as? String, tappedGain)
+
+        let connect = app.buttons["eq.test.connect"]
+        if !connect.isHittable { page.swipeDown() }
+        connect.tap()
+        let confirm = app.buttons["eq.calibration.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        page.swipeDown()
+        app.buttons["Equalizer APO 参数"].tap()
+        let preamp = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Preamp:")).firstMatch
+        XCTAssertTrue(preamp.isHittable)
+        XCTAssertEqual(page.scrollViews.count, 0)
+        let initialY = preamp.frame.midY
+        let parameter = preamp.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        parameter.press(forDuration: 0.05, thenDragTo: parameter.withOffset(CGVector(dx: 0, dy: -110)))
+        XCTAssertLessThan(preamp.frame.midY, initialY - 30)
+        let disconnect = app.buttons["eq.test.disconnect"]
+        if !disconnect.isHittable { page.swipeDown() }
+        disconnect.tap()
+    }
+
     @MainActor func testHeadphonePresetRowSavesTwoHeadphonesAndSwitchesAfterRelaunch() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -9,7 +64,7 @@ final class AudioCalibrationUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
         let add = app.buttons["eq.headphones.add"]
-        let scroll = app.scrollViews["eq.presets.scroll"].firstMatch
+        let scroll = app.scrollViews["eq.page.scroll"].firstMatch
         func reveal(_ element: XCUIElement) {
             for _ in 0..<4 where !element.isHittable { scroll.swipeUp() }
             XCTAssertTrue(element.isHittable)
@@ -25,7 +80,10 @@ final class AudioCalibrationUITests: XCTestCase {
         let manual = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
                                                       "eq.headphones.user.", "Studio A")).firstMatch
         let modelID = "autoeq.catalog.1b67e5d54423f50cae480b56"
-        let search = app.searchFields.firstMatch
+        let extraModel = app.buttons["eq.calibration.preset.autoeq.catalog.1b0c739262215bd30fc03d71"]
+        XCTAssertTrue(extraModel.waitForExistence(timeout: 5))
+        extraModel.tap()
+        let search = catalogSearch(in: app)
         search.tap()
         search.typeText("HD800S oratory1990")
         let model = app.buttons["eq.calibration.preset." + modelID]
@@ -38,6 +96,8 @@ final class AudioCalibrationUITests: XCTestCase {
         let headphones = app.buttons["eq.headphones." + modelID]
         XCTAssertTrue(headphones.waitForExistence(timeout: 5))
         reveal(manual)
+        XCTAssertGreaterThan(headphones.frame.minY, manual.frame.minY + 10)
+        XCTAssertEqual(scroll.scrollViews.count, 0)
         manual.tap()
         XCTAssertTrue(manual.isSelected)
         headphones.tap()
@@ -71,7 +131,7 @@ final class AudioCalibrationUITests: XCTestCase {
         XCTAssertTrue(choose.waitForExistence(timeout: 12))
         XCTAssertTrue(app.staticTexts["DTC480"].exists)
         choose.tap()
-        let search = app.searchFields.firstMatch
+        let search = catalogSearch(in: app)
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         let firstModel = app.buttons["eq.calibration.preset.autoeq.catalog.1b0c739262215bd30fc03d71"]
         XCTAssertTrue(firstModel.waitForExistence(timeout: 5))
@@ -171,7 +231,7 @@ final class AudioCalibrationUITests: XCTestCase {
         XCTAssertTrue(dac.waitForExistence(timeout: 30))
         dac.tap()
         app.buttons["eq.calibration.change"].tap()
-        let search = app.searchFields.firstMatch
+        let search = catalogSearch(in: app)
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.tap(); search.typeText("HD800S oratory1990")
         let profile = app.buttons["eq.calibration.preset.autoeq.catalog.1b67e5d54423f50cae480b56"]
@@ -225,7 +285,7 @@ final class AudioCalibrationUITests: XCTestCase {
         app.buttons["应用"].tap()
         XCTAssertTrue(app.staticTexts["Living room"].firstMatch.waitForExistence(timeout: 3))
         app.buttons["eq.calibration.library"].tap()
-        let search = app.searchFields.firstMatch
+        let search = catalogSearch(in: app)
         XCTAssertTrue(search.waitForExistence(timeout: 3))
         search.tap(); search.typeText("EA500LM")
         let row = app.buttons["eq.calibration.preset.autoeq.simgot.audio.ea500lm.black.nozzle"]
@@ -246,7 +306,7 @@ final class AudioCalibrationUITests: XCTestCase {
         XCTAssertFalse(app.buttons["eq.calibration.confirm"].exists)
         app.buttons["eq.test.dac"].tap()
         app.buttons["eq.calibration.change"].tap()
-        let reopenedSearch = app.searchFields.firstMatch
+        let reopenedSearch = catalogSearch(in: app)
         reopenedSearch.tap(); reopenedSearch.typeText("EA500LM black")
         XCTAssertTrue(harpo.waitForExistence(timeout: 3))
         XCTAssertFalse(row.exists)

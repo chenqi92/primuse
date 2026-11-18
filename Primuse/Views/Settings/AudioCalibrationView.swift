@@ -26,16 +26,15 @@ struct AudioCalibrationControls: View {
                 Text(eq.currentPreset.localizedName).font(.headline)
                 CalibrationResponseView(preset: eq.currentPreset, showsAxes: true).frame(height: 120)
                 DisclosureGroup(EQText("parameters")) {
-                  ScrollView {
-                   VStack(alignment: .leading, spacing: 5) {
-                    Text(String(format: "Preamp: %.1f dB", peq.preamp)).font(.caption.monospaced())
-                    ForEach(Array(peq.filters.enumerated()), id: \.offset) { _, filter in
-                        Text(String(format: "%@ %@ · %.0f Hz · %+.1f dB · Q %.2f",
-                                    filter.enabled ? "ON" : "OFF", filter.kind.rawValue, filter.frequency, filter.gain, filter.q))
-                            .font(.caption.monospaced()).frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(String(format: "Preamp: %.1f dB", peq.preamp))
+                        ForEach(Array(peq.filters.enumerated()), id: \.offset) { _, filter in
+                            Text(String(format: "%@ %@ · %.0f Hz · %+.1f dB · Q %.2f",
+                                        filter.enabled ? "ON" : "OFF", filter.kind.rawValue, filter.frequency, filter.gain, filter.q))
+                        }
                     }
-                   }
-                  }.frame(maxHeight: 180)
+                    .font(.caption.monospaced())
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             CalibrationAvailabilityView()
@@ -98,6 +97,7 @@ struct HeadphonePresetRow<UserPresetMenu: View>: View {
     @ViewBuilder let userPresetMenu: (EQPreset) -> UserPresetMenu
     @State private var showingLibrary = false
     @State private var catalog: [String: EQCalibrationCatalog.Entry] = [:]
+    @ScaledMetric(relativeTo: .subheadline) private var minimumChipWidth: CGFloat = 150
 
     var body: some View {
         let ids = eq.library.headphonePresetIDs ?? []
@@ -113,18 +113,15 @@ struct HeadphonePresetRow<UserPresetMenu: View>: View {
                 .accessibilityIdentifier("eq.headphones.add")
             }
             if !ids.isEmpty {
-                ScrollView(.horizontal) {
-                    LazyHStack(spacing: 8) {
-                        ForEach(ids, id: \.self) { id in
-                            if let preset = eq.library.userPreset(id: id) {
-                                chip(id: id, name: preset.name, source: preset.parametric?.source)
-                            } else if let entry = catalog[id] {
-                                chip(id: id, name: entry.name, source: entry.measurement)
-                            }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: minimumChipWidth), spacing: 8)], alignment: .leading, spacing: 8) {
+                    ForEach(ids, id: \.self) { id in
+                        if let preset = eq.library.userPreset(id: id) {
+                            chip(id: id, name: preset.name, source: preset.parametric?.source)
+                        } else if let entry = catalog[id] {
+                            chip(id: id, name: entry.name, source: entry.measurement)
                         }
                     }
                 }
-                .scrollIndicators(.hidden)
             }
         }
         .task(id: catalogIDs) {
@@ -148,11 +145,10 @@ struct HeadphonePresetRow<UserPresetMenu: View>: View {
                             Text(verbatim: source).font(.caption2).lineLimit(1).foregroundStyle(.secondary)
                         }
                     }
-                    .frame(maxWidth: 240, alignment: .leading)
                     .multilineTextAlignment(.leading)
                 }
                 .padding(.horizontal, 10)
-                .frame(minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .background(.tint.opacity(selected ? 0.15 : 0.05), in: RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)
@@ -474,16 +470,19 @@ struct CalibrationTestHost: View {
     var body: some View {
         NavigationStack {
             EqualizerView()
-                .toolbar {
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button("Sony") { eq.outputDeviceDidChange(EQOutputDevice(id: "test.sony", name: "WH-1000XM5", kind: .bluetooth)) }
-                            .accessibilityIdentifier("eq.test.connect")
-                        Button("DAC") { eq.outputDeviceDidChange(EQOutputDevice(id: "test.dac", name: "USB DAC", kind: .usb)) }
-                            .accessibilityIdentifier("eq.test.dac")
-                        Button("Off") { eq.outputDeviceDidChange(EQOutputDevice(id: "builtin", name: "Speaker", kind: .builtInSpeaker)) }
-                            .accessibilityIdentifier("eq.test.disconnect")
-                    }
-                }
+        }
+        .safeAreaInset(edge: .bottom) {
+            HStack(spacing: 24) {
+                Button("Sony") { eq.outputDeviceDidChange(EQOutputDevice(id: "test.sony", name: "WH-1000XM5", kind: .bluetooth)) }
+                    .accessibilityIdentifier("eq.test.connect")
+                Button("DAC") { eq.outputDeviceDidChange(EQOutputDevice(id: "test.dac", name: "USB DAC", kind: .usb)) }
+                    .accessibilityIdentifier("eq.test.dac")
+                Button("Off") { eq.outputDeviceDidChange(EQOutputDevice(id: "builtin", name: "Speaker", kind: .builtInSpeaker)) }
+                    .accessibilityIdentifier("eq.test.disconnect")
+            }
+            .buttonStyle(.bordered)
+            .frame(maxWidth: .infinity)
+            .background(.bar)
         }
         .calibrationPromptHost()
         .environment(eq)

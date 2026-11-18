@@ -166,59 +166,55 @@ struct EqualizerView: View {
     #endif
 
     private var iosBody: some View {
-        VStack(spacing: 14) {
-            Toggle("eq_enabled", isOn: Binding(
-                get: { eq.isEnabled },
-                set: { eq.setEnabled($0) }
-            ))
-            .settingsAnchor("equalizer.enabled")
-            .padding(.horizontal)
-
-            AudioCalibrationControls().padding(.horizontal)
-
-            // 频段滑块:占上半部分,固定高度
-            if eq.currentPreset.parametric == nil {
-            HStack(spacing: 4) {
-                ForEach(0..<PrimuseConstants.eqBandCount, id: \.self) { index in
-                    bandSlider(index: index, height: 200)
-                }
-            }
-            .settingsAnchor("equalizer.bands")
-            .padding(.horizontal, 12)
-            .opacity(eq.isEnabled ? 1 : 0.4)
-            .disabled(!eq.isEnabled)
-            // 只跟总开关走；拖动频段时 isEnabled 不变,滑块仍是逐帧跟手的。
-            .pmAnimation(.control, value: eq.isEnabled)
-            }
-
-            Button("eq_reset") { eq.reset() }
-                .settingsAnchor("equalizer.reset")
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-            if let lowered = eq.headroomLoweredDB {
-                EQHeadroomNote(loweredDB: lowered)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-
-            Divider()
+        ScrollView {
+            VStack(spacing: 14) {
+                Toggle("eq_enabled", isOn: Binding(
+                    get: { eq.isEnabled },
+                    set: { eq.setEnabled($0) }
+                ))
+                .settingsAnchor("equalizer.enabled")
                 .padding(.horizontal)
 
-            // 预设:填充下半部分空白,每个预设以迷你均衡曲线 + 名称呈现
-            ScrollView {
+                AudioCalibrationControls().padding(.horizontal)
+
+                if eq.currentPreset.parametric == nil {
+                    HStack(spacing: 4) {
+                        ForEach(0..<PrimuseConstants.eqBandCount, id: \.self) { index in
+                            bandSlider(index: index, height: 200)
+                        }
+                    }
+                    .settingsAnchor("equalizer.bands")
+                    .padding(.horizontal, 12)
+                    .opacity(eq.isEnabled ? 1 : 0.4)
+                    .disabled(!eq.isEnabled)
+                    // 只跟总开关走；拖动频段时 isEnabled 不变,滑块仍是逐帧跟手的。
+                    .pmAnimation(.control, value: eq.isEnabled)
+                }
+
+                Button("eq_reset") { eq.reset() }
+                    .settingsAnchor("equalizer.reset")
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                if let lowered = eq.headroomLoweredDB {
+                    EQHeadroomNote(loweredDB: lowered)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                Divider()
+                    .padding(.horizontal)
+
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 10)], spacing: 10) {
                     presetCards
                 }
                 .padding(.horizontal)
-                .padding(.bottom, 8)
                 .settingsAnchor("equalizer.preset")
 
                 HeadphonePresetRow(userPresetMenu: userPresetMenu)
                     .padding(.horizontal)
-                    .padding(.vertical, 8)
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
@@ -237,16 +233,11 @@ struct EqualizerView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
                 .settingsAnchor("equalizer.devices")
             }
-            .accessibilityIdentifier("eq.presets.scroll")
-            .frame(maxHeight: .infinity)
+            .padding(.vertical, 16)
         }
-        // 只留顶部间距:预设区的滚动视图要贴到底边,才能像其它设置页一样滚到标签栏、
-        // 迷你播放条下面并柔和渐隐;底下再垫一截会让它停在半空、硬生生切掉。
-        .padding(.top)
+        .accessibilityIdentifier("eq.page.scroll")
         .navigationTitle("equalizer")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -310,6 +301,17 @@ struct EqualizerView: View {
             )
             .frame(height: height)
             .frame(maxHeight: height == nil ? .infinity : nil)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: "\(PrimuseConstants.eqBandFrequencies[index].formatted()) Hz"))
+            .accessibilityValue(Text(verbatim: "\(eq.bands[index].formatted(.number.precision(.fractionLength(0...1)))) dB"))
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: eq.setBand(index, gain: eq.bands[index] + 1)
+                case .decrement: eq.setBand(index, gain: eq.bands[index] - 1)
+                @unknown default: break
+                }
+            }
+            .accessibilityIdentifier("eq.band.\(index)")
             Text(eq.bandFrequencyLabels[index])
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
@@ -613,7 +615,8 @@ struct VerticalSlider: View {
     @Binding var value: Float
     let range: ClosedRange<Float>
 
-    @State private var isDragging = false
+    @Namespace private var trackSpace
+    @State private var dragStart: Float?
 
     var body: some View {
         GeometryReader { geometry in
@@ -640,28 +643,36 @@ struct VerticalSlider: View {
                     .fill(.secondary.opacity(0.3))
                     .frame(width: 12, height: 1)
                     .position(x: geometry.size.width / 2, y: height / 2)
-
-                // Thumb
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(coordinateSpace: .local) { location in
+                guard height > 0 else { return }
+                let position = min(max(1 - Float(location.y / height), 0), 1)
+                value = range.lowerBound + position * (range.upperBound - range.lowerBound)
+            }
+            .overlay {
                 Circle()
                     .fill(.tint)
-                    .frame(width: isDragging ? 20 : 16, height: isDragging ? 20 : 16)
+                    .frame(width: dragStart == nil ? 16 : 20, height: dragStart == nil ? 16 : 20)
                     .shadow(radius: 2)
+                    .frame(width: min(44, geometry.size.width), height: 44)
+                    .contentShape(Rectangle())
+                    .pmGesture(
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named(trackSpace))
+                            .onChanged { drag in
+                                guard height > 0 else { return }
+                                let start = dragStart ?? value
+                                dragStart = start
+                                let delta = Float(drag.translation.height / height) * (range.upperBound - range.lowerBound)
+                                let gain = min(max(start - delta, range.lowerBound), range.upperBound)
+                                if gain != value { value = gain }
+                            }
+                            .onEnded { _ in dragStart = nil },
+                        onCancel: { dragStart = nil }
+                    )
                     .position(x: geometry.size.width / 2, y: yPosition)
             }
-            .pmGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { gesture in
-                        isDragging = true
-                        let normalized = 1 - Float(gesture.location.y / height)
-                        let clamped = min(max(normalized, 0), 1)
-                        value = range.lowerBound + clamped * (range.upperBound - range.lowerBound)
-                    }
-                    .onEnded { _ in
-                        isDragging = false
-                    },
-                // 被系统接走时没有结束回调,圆钮会一直停在按住的大小。
-                onCancel: { isDragging = false }
-            )
+            .coordinateSpace(name: trackSpace)
         }
     }
 }
