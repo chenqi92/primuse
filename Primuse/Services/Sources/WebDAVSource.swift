@@ -487,6 +487,55 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
         invalidateLocalCache(for: path)
     }
 
+    func canMutateDirectories() async -> Bool { true }
+
+    func renameDirectory(at path: String, to newPath: String) async throws {
+        guard (path as NSString).deletingLastPathComponent == (newPath as NSString).deletingLastPathComponent,
+              !sourceRelativePath(path).isEmpty else {
+            throw SourceFolderMutationError.unsupported
+        }
+        var request = try makeWebDAVRequest(url: collectionURL(for: path), method: "MOVE")
+        request.setValue(try collectionURL(for: newPath).absoluteString, forHTTPHeaderField: "Destination")
+        request.setValue("F", forHTTPHeaderField: "Overwrite")
+        let (_, response) = try await TrustedHTTPTransport.data(
+            for: request, session: try requireTransportSession(mutationSession ?? rangeSession), maxBytes: 1024 * 1024)
+        if (response as? HTTPURLResponse)?.statusCode == 412 {
+            throw SourceFolderMutationError.destinationExists
+        }
+        try validateMutationResponse(response, operation: "MOVE")
+    }
+
+    func deleteDirectory(at path: String) async throws {
+        guard !sourceRelativePath(path).isEmpty else { throw SourceFolderMutationError.unsupported }
+        let request = try makeWebDAVRequest(url: collectionURL(for: path), method: "DELETE")
+        let (_, response) = try await TrustedHTTPTransport.data(
+            for: request, session: try requireTransportSession(mutationSession ?? rangeSession), maxBytes: 1024 * 1024)
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid WebDAV delete response")
+        }
+        switch http.statusCode {
+        // 207 是多状态:目录里有一部分没删掉。
+        case 207: throw SourceFolderMutationError.partiallyDeleted
+        case 200, 202, 204: break
+        case 401: throw SourceError.authenticationFailed
+        case 403: throw SourceFileMutationError.permissionDenied
+        case 404, 410: throw SourceError.fileNotFound(path)
+        case 405: throw SourceFileMutationError.readOnly
+        case 423: throw EmbeddedMetadataWritebackSourceError.conflict
+        default: throw RemoteMediaHTTPError(service: "WebDAV", statusCode: http.statusCode)
+        }
+    }
+
+    /// 目录的地址带结尾的 `/`:有的服务器对不带斜杠的集合回 301,而 MOVE、DELETE 不跟随跳转。
+    private func collectionURL(for path: String) throws -> URL {
+        var url = try serverURL()
+        let components = sourceRelativePath(path).split(separator: "/")
+        for (index, component) in components.enumerated() {
+            url.appendPathComponent(String(component), isDirectory: index == components.count - 1)
+        }
+        return url
+    }
+
     func moveFileWithoutReplacing(from: String, to: String, expected: EmbeddedMetadataRemoteFileState) async throws {
         guard (from as NSString).deletingLastPathComponent == (to as NSString).deletingLastPathComponent,
               let etag = WebDAVWritebackPolicy.strongETag(expected.revision) else {

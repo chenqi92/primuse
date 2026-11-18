@@ -453,6 +453,42 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         }
     }
 
+    func canMutateDirectories() async -> Bool { supportsSidecarWriting }
+
+    func renameDirectory(at path: String, to newPath: String) async throws {
+        guard supportsSidecarWriting,
+              (path as NSString).deletingLastPathComponent == (newPath as NSString).deletingLastPathComponent,
+              !isVirtualReferenceRoot((path as NSString).deletingLastPathComponent) else {
+            throw SourceFolderMutationError.unsupported
+        }
+        let source = try renameURL(for: path)
+        let destination = try renameURL(for: newPath)
+        guard (try? source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+            throw SourceError.fileNotFound(path)
+        }
+        let status = source.path.withCString { fromPath in
+            destination.path.withCString { toPath in
+                renameatx_np(AT_FDCWD, fromPath, AT_FDCWD, toPath, UInt32(RENAME_EXCL))
+            }
+        }
+        guard status == 0 else {
+            if errno == EEXIST { throw SourceFolderMutationError.destinationExists }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+
+    func deleteDirectory(at path: String) async throws {
+        guard supportsSidecarWriting,
+              !isVirtualReferenceRoot((path as NSString).deletingLastPathComponent) else {
+            throw SourceFolderMutationError.unsupported
+        }
+        let url = try resolvedURL(for: path, allowRoot: false)
+        guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+            throw SourceError.fileNotFound(path)
+        }
+        try FileManager.default.removeItem(at: url)
+    }
+
     func deleteFile(at path: String) async throws {
         let fileURL = try resolvedURL(for: path, allowRoot: false)
         // fileExists also returns false when a parent is inaccessible. Only

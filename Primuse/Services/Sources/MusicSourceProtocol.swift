@@ -867,6 +867,13 @@ protocol MusicSourceConnector: Sendable {
     /// file and safe same-name sidecars.
     func deleteFile(at path: String) async throws
 
+    /// 文件页里给整个目录改名、删除。本机、WebDAV、SMB 实现;其余源默认不支持。
+    func canMutateDirectories() async -> Bool
+    /// 同一层里改名。目标已经存在时必须失败,不能覆盖。
+    func renameDirectory(at path: String, to newPath: String) async throws
+    /// 连同里面的文件和子目录一起删掉。不能删源的根目录。
+    func deleteDirectory(at path: String) async throws
+
     /// Delete several remote files in one source operation. Connectors whose
     /// provider exposes a batch API override this together with
     /// `preferredDeleteBatchSize`; the default preserves the existing serial
@@ -2891,4 +2898,40 @@ func httpMediaResponseLooksLikeErrorBody(_ http: HTTPURLResponse, data: Data) ->
           }) else { return false }
     let text = prefix.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     return text.hasPrefix("{") || text.hasPrefix("[") || text.hasPrefix("<")
+}
+
+/// 文件页的目录操作没能做的原因。
+enum SourceFolderMutationError: LocalizedError, Equatable {
+    case unsupported
+    case destinationExists
+    case invalidName
+    /// 这个目录是扫描目录或者里面有扫描目录:改名等于改扫描范围。
+    case containsScanRoots
+    /// 正在播放的这一首没法先停下(投屏、交叉淡入淡出中)。
+    case playbackBusy
+    /// 服务器只删掉了一部分。
+    case partiallyDeleted
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupported: String(localized: "source_folder_error_unsupported")
+        case .destinationExists: String(localized: "source_folder_error_exists")
+        case .invalidName: String(localized: "source_folder_error_invalid_name")
+        case .containsScanRoots: String(localized: "source_folder_error_scan_root")
+        case .playbackBusy: String(localized: "song_file_rename_busy")
+        case .partiallyDeleted: String(localized: "source_folder_error_partial_delete")
+        }
+    }
+}
+
+extension MusicSourceConnector {
+    func canMutateDirectories() async -> Bool { false }
+
+    func renameDirectory(at path: String, to newPath: String) async throws {
+        throw SourceFolderMutationError.unsupported
+    }
+
+    func deleteDirectory(at path: String) async throws {
+        throw SourceFolderMutationError.unsupported
+    }
 }

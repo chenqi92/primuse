@@ -94,3 +94,75 @@ struct SourceFileBrowserPolicyTests {
         #expect(index.songCount(inFolder: "/") == 0)
     }
 }
+
+@Suite("Source folder relocation")
+struct SourceFolderRelocationPolicyTests {
+    @Test("Only whole folder components are relocated")
+    func relocatedPaths() {
+        let old = "/音乐/华语"
+        let new = "/音乐/华语流行"
+        #expect(SourceFolderRelocationPolicy.relocatedPath("/音乐/华语", from: old, to: new) == "/音乐/华语流行")
+        #expect(SourceFolderRelocationPolicy.relocatedPath("/音乐/华语/", from: old, to: new) == "/音乐/华语流行")
+        #expect(SourceFolderRelocationPolicy.relocatedPath("/音乐/华语/周杰伦/稻香.flac", from: old, to: new)
+            == "/音乐/华语流行/周杰伦/稻香.flac")
+        #expect(SourceFolderRelocationPolicy.relocatedPath("/音乐/华语经典/a.flac", from: old, to: new) == nil)
+        #expect(SourceFolderRelocationPolicy.relocatedPath("/音乐/a.flac", from: old, to: new) == nil)
+        #expect(SourceFolderRelocationPolicy.relocatedPath("Music/Jazz/a.flac", from: "Music/Jazz/", to: "Music/Swing")
+            == "Music/Swing/a.flac")
+    }
+
+    @Test("Folder names are trimmed and must stay in the same folder")
+    func folderNames() {
+        #expect(SourceFolderRelocationPolicy.validatedFolderName("  周杰伦 ") == "周杰伦")
+        #expect(SourceFolderRelocationPolicy.validatedFolderName("") == nil)
+        #expect(SourceFolderRelocationPolicy.validatedFolderName("..") == nil)
+        #expect(SourceFolderRelocationPolicy.validatedFolderName("a/b") == nil)
+        #expect(SourceFolderRelocationPolicy.validatedFolderName(String(repeating: "a", count: 256)) == nil)
+        #expect(SourceFolderRelocationPolicy.siblingPath(of: "/音乐/华语/", named: "流行") == "/音乐/流行")
+        #expect(SourceFolderRelocationPolicy.siblingPath(of: "Music/Jazz", named: "Swing") == "Music/Swing")
+        #expect(SourceFolderRelocationPolicy.siblingPath(of: "Jazz", named: "Swing") == "Swing")
+    }
+
+    @Test("A folder that is or contains a scan root cannot be renamed in place")
+    func scanRoots() {
+        #expect(SourceFolderRelocationPolicy.touchesScanRoots("/音乐", selections: ["/音乐/华语"], sourceType: .smb))
+        #expect(SourceFolderRelocationPolicy.touchesScanRoots("/音乐/华语", selections: ["/音乐/华语"], sourceType: .smb))
+        #expect(!SourceFolderRelocationPolicy.touchesScanRoots("/音乐/华语/周杰伦", selections: ["/音乐/华语"], sourceType: .smb))
+    }
+
+    @Test("The scan index follows the renamed folder and keeps song IDs")
+    func indexRelocation() {
+        func item(_ path: String, parent: String?, directory: Bool, songs: [String] = []) -> SourceSyncIndexedItem {
+            SourceSyncIndexedItem(
+                stableKey: "path:\(path.lowercased())", path: path,
+                displayName: (path as NSString).lastPathComponent, parentPath: parent,
+                isDirectory: directory, songIDs: songs, size: 1, modifiedDate: nil, revision: nil,
+                sidecarFingerprint: directory ? nil : "fp"
+            )
+        }
+        var state = SourceSyncState(sourceID: "s", scopeFingerprint: "f")
+        let entries = [
+            item("/音乐/华语", parent: "/音乐", directory: true),
+            item("/音乐/华语/稻香.flac", parent: "/音乐/华语", directory: false, songs: ["song-1"]),
+            item("/音乐/华语经典/晴天.flac", parent: "/音乐/华语经典", directory: false, songs: ["song-2"]),
+        ]
+        for entry in entries { state.index[entry.stableKey] = entry }
+        state.missingStableKeys["path:/音乐/华语/稻香.flac"] = 1
+        state.pendingDirectories = ["/音乐/华语"]
+
+        let moved = SourceFolderRelocationPolicy.relocate(&state, from: "/音乐/华语", to: "/音乐/流行")
+
+        #expect(moved == 2)
+        #expect(state.index["path:/音乐/华语/稻香.flac"] == nil)
+        let song = state.index["path:/音乐/流行/稻香.flac"]
+        #expect(song?.songIDs == ["song-1"])
+        #expect(song?.parentPath == "/音乐/流行")
+        #expect(song?.sidecarFingerprint == nil)
+        #expect(state.index["path:/音乐/流行"]?.displayName == "流行")
+        #expect(state.index["path:/音乐/华语经典/晴天.flac"]?.songIDs == ["song-2"])
+        #expect(state.identityAliases["path:/音乐/华语/稻香.flac"] == "path:/音乐/流行/稻香.flac")
+        #expect(state.missingStableKeys.isEmpty)
+        #expect(state.pendingDirectories == ["/音乐/流行"])
+    }
+}
+

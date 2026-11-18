@@ -647,6 +647,38 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFil
         }
     }
 
+    func canMutateDirectories() async -> Bool { true }
+
+    func renameDirectory(at path: String, to newPath: String) async throws {
+        guard (path as NSString).deletingLastPathComponent == (newPath as NSString).deletingLastPathComponent,
+              case let .share(share, sourcePath) = try resolve(path: Self.normalizeRemotePath(path)),
+              case let .share(destinationShare, destinationPath) = try resolve(path: Self.normalizeRemotePath(newPath)),
+              share == destinationShare, sourcePath != "/", destinationPath != "/" else {
+            throw SourceFolderMutationError.unsupported
+        }
+        try await withSerializedOperation {
+            let client = try await self.ensureConnectedShare(named: share)
+            // SMB 改名遇到同名会失败,但先看一眼能给出「已经有同名的」这句准话。
+            if (try? await Self.awaitRequest({ _ in
+                try await client.attributesOfItem(atPath: destinationPath)
+            })) != nil {
+                throw SourceFolderMutationError.destinationExists
+            }
+            try await Self.awaitRequest { _ in
+                try await client.moveItem(atPath: sourcePath, toPath: destinationPath)
+            }
+        }
+    }
+
+    func deleteDirectory(at path: String) async throws {
+        guard case let .share(_, relativePath) = try resolve(path: Self.normalizeRemotePath(path)),
+              relativePath != "/" else {
+            throw SourceFolderMutationError.unsupported
+        }
+        // AMSMB2 的 removeItem 遇到目录会连里面一起删。
+        try await deleteFile(at: path)
+    }
+
     func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
         let normalizedPath = Self.normalizeRemotePath(path)
         guard case let .share(shareName, relativePath) = try resolve(path: normalizedPath) else {

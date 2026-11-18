@@ -2030,6 +2030,18 @@ extension RoutedConnectorProxy {
         try await routing.withMutation { try await $0.renameSongFile(song, stem: stem) }
     }
 
+    func canMutateDirectories() async -> Bool {
+        (try? await routing.withRead { await $0.canMutateDirectories() }) ?? false
+    }
+
+    func renameDirectory(at path: String, to newPath: String) async throws {
+        try await routing.withMutation { try await $0.renameDirectory(at: path, to: newPath) }
+    }
+
+    func deleteDirectory(at path: String) async throws {
+        try await routing.withMutation { try await $0.deleteDirectory(at: path) }
+    }
+
     func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
         try await routing.withRead { connector in
             guard let provider = connector as? any ServerCatalogChangeDetectingConnector else {

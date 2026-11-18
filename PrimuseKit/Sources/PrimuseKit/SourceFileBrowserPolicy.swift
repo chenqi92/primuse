@@ -191,3 +191,93 @@ public enum SourceFileBrowserPolicy {
         }
     }
 }
+
+/// 文件页里给目录改名之后,曲库路径与扫描索引怎么跟着搬。只认路径里带目录的源。
+public enum SourceFolderRelocationPolicy {
+    /// `path` 在 `old` 目录里(或就是它)时,换成 `new` 下面的同一位置;不在里面返回 nil。
+    /// 只按整段目录名比较:`/音乐/华语` 不会匹配 `/音乐/华语经典`。
+    public static func relocatedPath(_ path: String, from old: String, to new: String) -> String? {
+        let oldBase = trimmedDirectory(old)
+        let newBase = trimmedDirectory(new)
+        if path == oldBase || path == oldBase + "/" { return newBase }
+        let prefix = oldBase == "/" ? "/" : oldBase + "/"
+        guard path.hasPrefix(prefix) else { return nil }
+        let rest = path.dropFirst(prefix.count)
+        return (newBase == "/" ? "/" : newBase + "/") + rest
+    }
+
+    /// 同一层里的新目录名。去掉首尾空白;空的、`.`、`..`、带 `/` 或超过 255 字节的都不行。
+    public static func validatedFolderName(_ raw: String) -> String? {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != ".", name != "..",
+              !name.contains("/"), !name.contains("\0"),
+              name.utf8.count <= 255 else { return nil }
+        return name
+    }
+
+    /// 同一层里改名后的完整路径。
+    public static func siblingPath(of path: String, named name: String) -> String {
+        let trimmed = trimmedDirectory(path)
+        let parent = (trimmed as NSString).deletingLastPathComponent
+        if parent.isEmpty { return name }
+        return (parent as NSString).appendingPathComponent(name)
+    }
+
+    /// 这个目录本身被勾成扫描目录,或者里面有被勾的。改它的名字等于改扫描范围,得回选目录页去做。
+    public static func touchesScanRoots(
+        _ path: String,
+        selections: [String],
+        sourceType: MusicSourceType
+    ) -> Bool {
+        selections.contains { SourceDirectorySelectionPolicy.covers(path, $0, for: sourceType) }
+    }
+
+    /// 把扫描索引里这棵子树搬到新路径:条目的路径、上级、键一起换,旧键记成别名,
+    /// 下次扫描按原来的歌曲 ID 认回这些文件,不会当成删掉一批、又新增一批。返回改了几条。
+    @discardableResult
+    public static func relocate(_ state: inout SourceSyncState, from old: String, to new: String) -> Int {
+        var moves: [(oldKey: String, newKey: String, item: SourceSyncIndexedItem)] = []
+        for (key, item) in state.index {
+            guard let newPath = relocatedPath(item.path, from: old, to: new) else { continue }
+            var moved = item
+            let newKey: String
+            if key == "path:\(item.path.lowercased())" {
+                newKey = "path:\(newPath.lowercased())"
+            } else if key == item.path {
+                newKey = newPath
+            } else {
+                newKey = key
+            }
+            if let parent = item.parentPath, let newParent = relocatedPath(parent, from: old, to: new) {
+                moved.parentPath = newParent
+            }
+            if moved.displayName == (item.path as NSString).lastPathComponent {
+                moved.displayName = (newPath as NSString).lastPathComponent
+            }
+            moved.path = newPath
+            moved.stableKey = newKey
+            if !moved.isDirectory { moved.sidecarFingerprint = nil }
+            moves.append((key, newKey, moved))
+        }
+        for move in moves where move.oldKey != move.newKey {
+            state.index.removeValue(forKey: move.oldKey)
+        }
+        for move in moves {
+            state.index[move.newKey] = move.item
+            guard move.oldKey != move.newKey else { continue }
+            state.identityAliases[move.oldKey] = move.newKey
+            state.missingStableKeys.removeValue(forKey: move.oldKey)
+            state.missingStableKeys.removeValue(forKey: move.newKey)
+        }
+        state.pendingDirectories = state.pendingDirectories.map {
+            relocatedPath($0, from: old, to: new) ?? $0
+        }
+        return moves.count
+    }
+
+    private static func trimmedDirectory(_ path: String) -> String {
+        var trimmed = path
+        while trimmed.count > 1, trimmed.hasSuffix("/") { trimmed.removeLast() }
+        return trimmed.isEmpty ? "/" : trimmed
+    }
+}

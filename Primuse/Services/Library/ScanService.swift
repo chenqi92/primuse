@@ -1119,6 +1119,53 @@ final class ScanService {
         try await persistSyncState(state)
     }
 
+    /// 文件页给一个目录改了名:里面的歌换成新路径(歌曲 ID 不变,播放记录、歌单都还在),
+    /// 扫描索引里这棵子树一起搬过去,下次扫描按原来的 ID 认回它们,不会删掉一批再新增一批。
+    /// 发出的位置变更通知让本机缓存与离线下载跟着改名。返回搬过去的歌。
+    func recordFolderRelocation(
+        sourceID: String,
+        from oldPath: String,
+        to newPath: String,
+        in library: MusicLibrary
+    ) async throws -> [Song] {
+        await whenStartupStateReady()
+        cancelScan(for: sourceID)
+        removeCheckpoint(for: sourceID)
+        if let syncStateStore {
+            _ = try await syncStateStore.advanceMutationEpoch(
+                sourceID: sourceID, mutationEpoch: syncStateMutationEpochs[sourceID, default: 0]
+            )
+        }
+        func relocated(_ path: String) -> String? {
+            SourceFolderRelocationPolicy.relocatedPath(path, from: oldPath, to: newPath)
+        }
+        let previous = library.songs.filter { $0.sourceID == sourceID && relocated($0.filePath) != nil }
+        let moved: [Song] = previous.map { song in
+            var copy = song
+            copy.filePath = relocated(song.filePath) ?? song.filePath
+            copy.lyricsFileName = song.lyricsFileName.map { relocated($0) ?? $0 }
+            copy.coverArtFileName = song.coverArtFileName.map { relocated($0) ?? $0 }
+            copy.mvPath = song.mvPath.map { relocated($0) ?? $0 }
+            copy.cueSheetPath = song.cueSheetPath.map { relocated($0) ?? $0 }
+            return copy
+        }
+        if !moved.isEmpty {
+            library.replaceSongs(moved)
+            NotificationCenter.default.post(
+                name: .primuseSongLocationChanged, object: nil,
+                userInfo: ["previousSongs": previous, "songs": moved]
+            )
+            try await library.persistIncrementalNowAndWait().get()
+        }
+        try await waitForCheckpointPersistence()
+        if var state = syncStates[sourceID],
+           SourceFolderRelocationPolicy.relocate(&state, from: oldPath, to: newPath) > 0 {
+            try await persistSyncState(state)
+        }
+        plog("📁 Folder relocated source=\(sourceID.prefix(8))… songs=\(moved.count)")
+        return moved
+    }
+
     /// The catalogue revision the last committed walk or incremental pass
     /// saw. A server change check that has no baseline of its own yet compares
     /// against it rather than refreshing blind.

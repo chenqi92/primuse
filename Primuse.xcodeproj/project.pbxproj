@@ -1408,6 +1408,7 @@
 		9E99D4DDE3513E22BC233718 /* SourceStorageSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 450CBBFC2543F78E207CBD19 /* SourceStorageSheet.swift */; };
 		52853CEA63CCA3C10D24BABF /* SourceFileDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F47FD0218309188416773A8 /* SourceFileDetailSheet.swift */; };
 		98F8FAAFD555EC0C4526F4B1 /* SourceFilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 356B1CE410B672961B5052FD /* SourceFilesView.swift */; };
+		22F3051A8238F9F9A3C02659 /* SourceFolderActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE47C5FFCAB49A440165066B /* SourceFolderActions.swift */; };
 		8C2B8EB03DF94F2AB5311E4D /* SourceDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 599701A2CBD9F4514CBC236F /* SourceDetailViews.swift */; };
 		946B1D1623CF76235A29F946 /* DrimeSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BA942F96195D24A2C7893E4 /* DrimeSource.swift */; };
 		94870D01586827AD77F5E785 /* FolderPlaylistMembership.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB7E4BB2916CE1370F4541DF /* FolderPlaylistMembership.swift */; };
@@ -2348,6 +2349,7 @@
 		4D20CAC37CAE80A13E55379A /* SourceStorageSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 450CBBFC2543F78E207CBD19 /* SourceStorageSheet.swift */; };
 		3CBCCD99E19D03A66140BB26 /* SourceFileDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F47FD0218309188416773A8 /* SourceFileDetailSheet.swift */; };
 		57880F4EF28183A5540E0698 /* SourceFilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 356B1CE410B672961B5052FD /* SourceFilesView.swift */; };
+		1B30EA2D50ED3FB5A564636D /* SourceFolderActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE47C5FFCAB49A440165066B /* SourceFolderActions.swift */; };
 		B1C534CB6619496480D88F9E /* SourceDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 599701A2CBD9F4514CBC236F /* SourceDetailViews.swift */; };
 		FCB7FB4E6F0B47154BEE75B4 /* ExternalDisplayContentMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF5CB8E1D8013328905E208 /* ExternalDisplayContentMode.swift */; };
 		FD23A1C35068A3338334F159 /* LyricsExportPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4703209DF09B6D6B16514574 /* LyricsExportPolicy.swift */; };
@@ -3400,6 +3402,7 @@
 		450CBBFC2543F78E207CBD19 /* SourceStorageSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceStorageSheet.swift; sourceTree = "<group>"; };
 		5F47FD0218309188416773A8 /* SourceFileDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceFileDetailSheet.swift; sourceTree = "<group>"; };
 		356B1CE410B672961B5052FD /* SourceFilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceFilesView.swift; sourceTree = "<group>"; };
+		BE47C5FFCAB49A440165066B /* SourceFolderActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceFolderActions.swift; sourceTree = "<group>"; };
 		599701A2CBD9F4514CBC236F /* SourceDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDetailViews.swift; sourceTree = "<group>"; };
 		694F8F3DCD98021DF67ED95D /* ImmersivePlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersivePlayerView.swift; sourceTree = "<group>"; };
 		696F0EA37D288187E2E33DD2 /* MusicIntelligenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicIntelligenceService.swift; sourceTree = "<group>"; };
@@ -4651,6 +4654,7 @@
 				450CBBFC2543F78E207CBD19 /* SourceStorageSheet.swift */,
 				5F47FD0218309188416773A8 /* SourceFileDetailSheet.swift */,
 				356B1CE410B672961B5052FD /* SourceFilesView.swift */,
+				BE47C5FFCAB49A440165066B /* SourceFolderActions.swift */,
 				599701A2CBD9F4514CBC236F /* SourceDetailViews.swift */,
 				32E0F03194B56BD2C0A053F5 /* SourceMetadataStatusView.swift */,
 				6723FC0B92EDA2CC1B5E3C83 /* SourcesView.swift */,
@@ -8707,6 +8711,7 @@
 				9E99D4DDE3513E22BC233718 /* SourceStorageSheet.swift in Sources */,
 				52853CEA63CCA3C10D24BABF /* SourceFileDetailSheet.swift in Sources */,
 				98F8FAAFD555EC0C4526F4B1 /* SourceFilesView.swift in Sources */,
+				22F3051A8238F9F9A3C02659 /* SourceFolderActions.swift in Sources */,
 				8C2B8EB03DF94F2AB5311E4D /* SourceDetailViews.swift in Sources */,
 				B2AD355139150A6FE1146F2C /* SourceManager.swift in Sources */,
 				F4B6FD2C0B6D5AF88FB9CA4B /* SourceMetadataStatusView.swift in Sources */,
@@ -9579,6 +9584,7 @@
 				4D20CAC37CAE80A13E55379A /* SourceStorageSheet.swift in Sources */,
 				3CBCCD99E19D03A66140BB26 /* SourceFileDetailSheet.swift in Sources */,
 				57880F4EF28183A5540E0698 /* SourceFilesView.swift in Sources */,
+				1B30EA2D50ED3FB5A564636D /* SourceFolderActions.swift in Sources */,
 				B1C534CB6619496480D88F9E /* SourceDetailViews.swift in Sources */,
 				805D574A9EE6E25009EACFE4 /* SourceManager.swift in Sources */,
 				D31C2238FF06CE4653360789 /* SourceMetadataStatusView.swift in Sources */,

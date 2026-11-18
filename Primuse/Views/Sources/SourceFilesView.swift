@@ -181,6 +181,9 @@ struct SourceFolderPage: View {
     @State private var showsHiddenPlaylists = false
     @State private var toasts = PMToastPresenter()
     @State private var debugTargetsOpened = false
+    /// 这个源能不能直接改名、删除目录(本机、WebDAV、SMB)。
+    @State private var canMutateFolders = false
+    @State private var folderAction: SourceFolderAction?
 
     private var current: MusicSource {
         sourcesStore.source(id: source.id) ?? source
@@ -270,6 +273,18 @@ struct SourceFolderPage: View {
             )
         }
         .sourceDetailSheets(source: current, actions: actions, presented: $sheet)
+        .sourceFolderActions(source: current, action: $folderAction) { message in
+            fileDidChange()
+            toasts.show(PMToastItem(
+                key: "source-files-folder",
+                message: message,
+                systemImage: "checkmark.circle.fill",
+                tint: .green
+            ))
+        }
+        .task(id: current.id) {
+            canMutateFolders = await sourceManager.connector(for: current).canMutateDirectories()
+        }
         .pmToastHost(toasts)
     }
 
@@ -362,6 +377,18 @@ struct SourceFolderPage: View {
             if current.type.itemPathsCarryFileNames {
                 Button { copyPath(folder.path) } label: {
                     Label("source_files_copy_path", systemImage: "doc.on.doc")
+                }
+            }
+            if canMutateFolders {
+                Section {
+                    Button { folderAction = .rename(child) } label: {
+                        Label("playlist_rename", systemImage: "character.cursor.ibeam")
+                    }
+                }
+                Section {
+                    Button(role: .destructive) { folderAction = .delete(child) } label: {
+                        Label("source_folder_delete", systemImage: "trash")
+                    }
                 }
             }
         }
@@ -478,6 +505,9 @@ struct SourceFolderPage: View {
                 sheet = .storage
                 return
             }
+            if location.isRoot, await runDebugFolderOperationIfRequested(listing, env: env) {
+                return
+            }
             if location.isRoot, let name = env["PRIMUSE_DEBUG_SOURCE_FOLDER"],
                let folder = listing.folders.first(where: { $0.name == name }) {
                 openedFolder = location.child(path: folder.path, title: folder.name)
@@ -488,6 +518,53 @@ struct SourceFolderPage: View {
                 openedFile = SourceFileSelection(file: file, folder: location)
             }
         }
+    }
+
+    /// `PRIMUSE_DEBUG_FOLDER_RENAME=<旧名>:<新名>`、`PRIMUSE_DEBUG_FOLDER_DELETE=<名字>`:在根页直接改名或删除
+    /// 这个子目录,把前后的歌曲 ID 与路径写进日志,核对改名不换 ID、删除确实移出曲库。
+    private func runDebugFolderOperationIfRequested(
+        _ listing: SourceFileBrowserPolicy.Listing,
+        env: [String: String]
+    ) async -> Bool {
+        let operations = SourceFolderOperations(
+            sourceManager: sourceManager, scanService: scanService, library: library,
+            sourcesStore: sourcesStore, player: player
+        )
+        let source = current
+        func songs(under path: String) -> [Song] {
+            library.songs.filter {
+                $0.sourceID == source.id
+                    && SourceFolderRelocationPolicy.relocatedPath($0.filePath, from: path, to: path) != nil
+            }
+        }
+        if let spec = env["PRIMUSE_DEBUG_FOLDER_RENAME"], let colon = spec.firstIndex(of: ":"),
+           let folder = listing.folders.first(where: { $0.name == String(spec[..<colon]) }) {
+            let before = songs(under: folder.path).map(\.id).sorted()
+            do {
+                let newPath = try await operations.rename(
+                    folder: folder.path, in: source, to: String(spec[spec.index(after: colon)...])
+                )
+                let after = songs(under: newPath)
+                plog("🧪 debug folder rename ok ids-kept=\(after.map(\.id).sorted() == before) count=\(after.count) paths=\(after.map(\.filePath).sorted())")
+            } catch {
+                plog("🧪 debug folder rename failed: \(error.localizedDescription)")
+            }
+            fileDidChange()
+            return true
+        }
+        if let name = env["PRIMUSE_DEBUG_FOLDER_DELETE"],
+           let folder = listing.folders.first(where: { $0.name == name }) {
+            let impact = operations.deletionImpact(folder: folder.path, in: source)
+            do {
+                let removed = try await operations.delete(folder: folder.path, in: source)
+                plog("🧪 debug folder delete ok removed=\(removed) impact=\(impact) left=\(songs(under: folder.path).count) total=\(library.songs.filter { $0.sourceID == source.id }.count)")
+            } catch {
+                plog("🧪 debug folder delete failed: \(error.localizedDescription)")
+            }
+            fileDidChange()
+            return true
+        }
+        return false
     }
     #endif
 
