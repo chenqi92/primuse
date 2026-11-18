@@ -711,6 +711,13 @@ final class ScanService {
     @ObservationIgnored private(set) var hasScheduledBackgroundResume = false
     @ObservationIgnored private let connectorProvider: ((MusicSource) -> any MusicSourceConnector)?
     @ObservationIgnored private let diagnosticProvider: ((MusicSource, [String]) async -> SourceDiagnosticReport)?
+    @ObservationIgnored var automaticScansAllowed: () -> Bool = {
+        #if os(iOS)
+        !LaunchDiagnostics.isSafeModeActive
+        #else
+        true
+        #endif
+    }
     /// Invalidates folder indexes when a committed provider scan changes the
     /// ID/name/parent topology without adding or removing any songs.
     private(set) var folderHierarchyRevision = 0
@@ -1278,6 +1285,7 @@ final class ScanService {
         requestsContinuedProcessing: Bool = true,
         automaticRefreshIsAllowed: (() -> Bool)? = nil
     ) -> Bool {
+        guard snapshotExecutionContext == .userInitiatedForeground || automaticScansAllowed() else { return false }
         finishStartupStateLoading()
         let source = sourceStore.source(id: source.id) ?? source
         guard activeTasks[source.id] == nil else { return false }
@@ -1757,6 +1765,7 @@ final class ScanService {
     /// gate so entering the background does not manufacture a scan task just
     /// to discover that the checkpoint store is empty.
     var hasResumableScanWork: Bool {
+        guard automaticScansAllowed() else { return false }
         let now = Date()
         return scanStates.contains { sourceID, state in
             state.canResume
@@ -1773,6 +1782,7 @@ final class ScanService {
         sourceStore: SourcesStore?,
         networkSourcesOnly: Bool = false
     ) -> Date? {
+        guard automaticScansAllowed() else { return nil }
         let backingOff = scanStates.compactMap { sourceID, state -> ScanCheckpoint? in
             guard state.canResume, activeTasks[sourceID] == nil,
                   let checkpoint = checkpoints[sourceID] else { return nil }
@@ -1880,6 +1890,7 @@ final class ScanService {
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?
     ) {
+        guard automaticScansAllowed() else { return }
         guard isStartupStateReady else {
             let generation = deferredStartupWorkGeneration
             Task { @MainActor [weak self] in
@@ -2018,7 +2029,7 @@ final class ScanService {
     }
 
     private func nextPeriodicSyncDate(for source: MusicSource) -> Date? {
-        guard source.isEnabled,
+        guard automaticScansAllowed(), source.isEnabled,
               !source.isDeleted,
               checkpoints[source.id]?.isPausedByUser != true,
               Self.supportsPeriodicNativeSync(source.type),
@@ -2105,8 +2116,9 @@ final class ScanService {
     ) {
         #if os(iOS)
         let now = Date()
+        let mayResumeScans = automaticScansAllowed()
         let hasScanWork = scanStates.contains { sourceID, state in
-            guard state.isScanning || (state.canResume
+            guard state.isScanning || (mayResumeScans && state.canResume
                     && (checkpoints[sourceID]?.canAutomaticallyResume(at: now) ?? true)) else {
                 return false
             }
@@ -2116,7 +2128,7 @@ final class ScanService {
             return sourceStore?.source(id: sourceID)?.type != .baiduPan
         }
         let hasNetworkScanWork = scanStates.contains { sourceID, state in
-            guard state.isScanning || (state.canResume
+            guard state.isScanning || (mayResumeScans && state.canResume
                     && (checkpoints[sourceID]?.canAutomaticallyResume(at: now) ?? true)) else {
                 return false
             }

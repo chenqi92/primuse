@@ -31,8 +31,18 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
 
     init(sourceID: String, session: URLSession = .shared, requests: CloudRequestScheduler = .shared) {
         self.sourceID = sourceID
-        self.helper = CloudDriveHelper(sourceID: sourceID, requests: requests, session: session)
+        self.helper = CloudDriveHelper(sourceID: sourceID, requests: requests, session: session,
+                                      validateResponse: Self.checkForBlockedRequest)
         self.tokenSession = session
+    }
+
+    /// 115 的请求拦截页会返回 405。让同账号的请求一起等待，扫描可保留未读目录。
+    private static func checkForBlockedRequest(_ data: Data, _ http: HTTPURLResponse) throws {
+        guard http.statusCode == 405, Pan115APIProtocol.isAPIHost(http.url?.host),
+              data.range(of: Data("waf_agent_protection_triggered".utf8)) != nil else { return }
+        throw HTTPResponseFailure(statusCode: 405,
+                                  retryAfter: HTTPResponseFailure.retryDelay(from: http) ?? 5 * 60,
+                                  isRateLimited: true, isRetryable: false)
     }
 
     /// Exchange before committing so an invalid pasted token cannot replace saved credentials.
@@ -88,8 +98,9 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
                 let sha1 = item["sha1"] as? String
                 if isDir {
                     // 目录:用目录 id 作为后续 listFiles 的 path。
-                    let dirID = (item["fid"] as? String) ?? (item["cid"] as? String) ?? ""
-                    guard !dirID.isEmpty, dirID != "0", listedPaths.insert(dirID).inserted else { continue }
+                    guard let dirID = Self.stringValue(item["fid"] ?? item["cid"]),
+                          !dirID.isEmpty, dirID != "0" else { throw CloudDriveError.invalidResponse }
+                    guard listedPaths.insert(dirID).inserted else { continue }
                     all.append(RemoteFileItem(
                         name: name,
                         path: dirID,
@@ -123,7 +134,8 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
             offset += items.count
             // 有总数(count)就按总数翻页:服务端单页给得比 limit 少时不会漏掉后面的;没有总数才按「这页不满」收尾。
             if let total = Pan115APIProtocol.intValue(json["count"]) {
-                if items.isEmpty || offset >= total { break }
+                if offset >= total { break }
+                guard !items.isEmpty else { throw CloudDriveError.invalidResponse }
             } else if items.count < limit {
                 break
             }

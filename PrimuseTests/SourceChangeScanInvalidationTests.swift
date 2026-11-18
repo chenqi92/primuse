@@ -87,6 +87,31 @@ final class SourceChangeScanInvalidationTests: XCTestCase {
         await fixture.connector.release()
     }
 
+    func testRecoveryLaunchKeepsInterruptedScanUntilAutomaticScanningIsAllowed() async throws {
+        let fixture = try makeFixture(pausedPaths: ["/Music"])
+        XCTAssertTrue(fixture.start())
+        try await fixture.waitUntilConnectorIsWaiting()
+        fixture.scan.cancelScan(for: fixture.source.id)
+        XCTAssertTrue(fixture.scan.hasResumableScanWork)
+        fixture.scan.automaticScansAllowed = { false }
+        for context: BaiduSnapshotExecutionContext in [.foregroundResume, .background] {
+            fixture.scan.resumePendingScans(context: context, sourceManager: fixture.manager,
+                library: fixture.library, sourceStore: fixture.store, scraperService: nil)
+            XCTAssertFalse(fixture.scan.scanSource(fixture.source, snapshotExecutionContext: context,
+                sourceManager: fixture.manager, library: fixture.library, sourceStore: fixture.store))
+        }
+        XCTAssertFalse(fixture.scan.hasActiveScans)
+        XCTAssertFalse(fixture.scan.hasResumableScanWork)
+        XCTAssertEqual(fixture.scan.scanStates[fixture.source.id]?.canResume, true)
+        fixture.scan.automaticScansAllowed = { true }
+        fixture.scan.resumePendingScans(sourceManager: fixture.manager, library: fixture.library,
+            sourceStore: fixture.store, scraperService: nil)
+        XCTAssertTrue(fixture.scan.hasActiveScans)
+        await fixture.connector.release()
+        await fixture.scan.waitForActiveScansToComplete()
+        XCTAssertFalse(fixture.scan.hasResumableScanWork)
+    }
+
     func testUnchangedSourceRowKeepsRunningScanAndItsCheckpoint() async throws {
         let fixture = try makeFixture(pausedPaths: ["/Music"])
         XCTAssertTrue(fixture.start())

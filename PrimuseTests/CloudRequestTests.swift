@@ -391,6 +391,113 @@ final class CloudRequestTests: XCTestCase {
         XCTAssertEqual(index.childPaths(in: "/Music"), ["/Music/a.mp3"])
     }
 
+    func testPan115WalkReadsEveryTrackInSingleNestedAndMultipleRoots() async throws {
+        let responses = [
+            "10": #"{"state":true,"count":1,"data":[{"fn":"first.mp3","fc":"1","pc":"one"}]}"#,
+            "20": #"{"state":true,"count":1,"data":[{"fn":"artist","fc":"0","fid":3540339254645229334}]}"#,
+            "3540339254645229334": #"{"state":true,"count":1,"data":[{"fn":"album","fc":"0","cid":"40"}]}"#,
+            "40": #"{"state":true,"count":2,"data":[{"fn":"second.mp3","fc":"1","pc":"two"},{"fn":"third.mp3","fc":"1","pc":"three"}]}"#
+        ]
+        let fixture = CloudHTTPFixture(responses: [], responder: { request, _ in
+            let cid = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+                .queryItems?.first { $0.name == "cid" }?.value
+            guard let cid, let body = responses[cid] else { return .init(status: 404) }
+            return .init(status: 200, body: Data(body.utf8))
+        })
+        try await withPan115Connector(fixture) { connector in
+            let cases: [([String], Set<String>)] = [
+                (["10"], ["one"]), (["20"], ["two", "three"]),
+                (["10", "40"], ["one", "two", "three"]), (["10", "20"], ["one", "two", "three"])
+            ]
+            for (roots, expected) in cases {
+                let scanner = ConnectorScanner(connector: connector, sourceID: fixture.id)
+                var last: ConnectorScanner.ScanUpdate?
+                for try await update in await scanner.scan(directories: roots) { last = update }
+                let completed = try XCTUnwrap(last)
+                XCTAssertEqual(Set(completed.songs.map(\.filePath)), expected, roots.description)
+                XCTAssertEqual(completed.songs.count, expected.count)
+                XCTAssertEqual(completed.resumeState?.pendingDirectories, [])
+            }
+        }
+    }
+
+    func testPan115BlockedSubfolderPreservesFirstSongAndResumesAfterCooldown() async throws {
+        let attempts = CloudTestCounter()
+        let fixture = CloudHTTPFixture(responses: [], responder: { request, _ in
+            let cid = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+                .queryItems?.first { $0.name == "cid" }?.value
+            switch cid {
+            case "10":
+                return .init(status: 200, body: Data(#"{"state":true,"count":2,"data":[{"fn":"first.mp3","fc":"1","pc":"one"},{"fn":"album","fc":"0","fid":"20"}]}"#.utf8))
+            case "20":
+                attempts.increment()
+                if attempts.value == 1 {
+                    return .init(status: 405, headers: ["Retry-After": "600"], body: Data(
+                        #"<html><textarea>{"code":"REQUEST_BLOCKED","error":"waf_agent_protection_triggered"}</textarea></html>"#.utf8))
+                }
+                return .init(status: 200, body: Data(#"{"state":true,"count":1,"data":[{"fn":"second.mp3","fc":"1","pc":"two"}]}"#.utf8))
+            case "30":
+                return .init(status: 405, body: Data("Method Not Allowed".utf8))
+            default:
+                return .init(status: 200, body: Data(#"{"state":true,"count":3,"data":[]}"#.utf8))
+            }
+        })
+        let clock = CloudAdvancingClock()
+        try await withPan115Connector(fixture, clock: clock) { connector in
+            let scanner = ConnectorScanner(connector: connector, sourceID: fixture.id)
+            var last: ConnectorScanner.ScanUpdate?
+            do {
+                for try await update in await scanner.scan(directories: ["10"]) { last = update }
+                XCTFail("The blocked subfolder must remain pending")
+            } catch let error as HTTPResponseFailure {
+                XCTAssertEqual(error.statusCode, 405)
+                XCTAssertEqual(error.retryAfter, 600)
+            }
+            let partial = try XCTUnwrap(last)
+            let state = try XCTUnwrap(partial.resumeState)
+            XCTAssertEqual(partial.songs.map(\.filePath), ["one"])
+            XCTAssertEqual(state.pendingDirectories, ["20"])
+            do {
+                _ = try await connector.listFiles(at: "20")
+                XCTFail("Listing must wait for the account cooldown")
+            } catch let error as HTTPResponseFailure { XCTAssertTrue(error.isRateLimitFailure) }
+            XCTAssertEqual(attempts.value, 1)
+            clock.advance(by: 601)
+            let restored = try JSONDecoder().decode(SourceScanResumeState.self, from: JSONEncoder().encode(state))
+            for try await update in await scanner.scan(directories: ["10"], existingSongs: partial.songs,
+                                                         resumeState: restored) { last = update }
+            XCTAssertEqual(last?.songs.map(\.filePath).sorted(), ["one", "two"])
+            XCTAssertEqual(last?.resumeState?.pendingDirectories, [])
+            XCTAssertEqual(attempts.value, 2)
+            do {
+                _ = try await connector.listFiles(at: "30")
+                XCTFail("An ordinary 405 must reach the caller")
+            } catch CloudDriveError.apiError(let status, _) { XCTAssertEqual(status, 405) }
+            do {
+                _ = try await connector.listFiles(at: "40")
+                XCTFail("An empty page before the advertised total cannot complete the listing")
+            } catch CloudDriveError.invalidResponse {}
+        }
+    }
+
+    private func withPan115Connector(
+        _ fixture: CloudHTTPFixture, clock: CloudAdvancingClock = .init(),
+        run: (U115Source) async throws -> Void
+    ) async throws {
+        let session = fixture.session()
+        defer {
+            session.invalidateAndCancel()
+            fixture.remove()
+            _ = CloudTokenManager.deleteStoredCredentials(for: fixture.id)
+        }
+        let saved = await CloudTokenManager(sourceID: fixture.id).saveTokens(
+            .init(accessToken: "fixture", refreshToken: "fixture", expiresAt: Date().addingTimeInterval(3600))
+        )
+        XCTAssertTrue(saved)
+        try await run(U115Source(sourceID: fixture.id, session: session,
+                                 requests: CloudRequestScheduler(timing: clock.timing)))
+    }
+
     func testPan115ConcurrentReadsShareOneLinkLookupWithTheSameUserAgent() async throws {
         let server = try LocalCloudServer(response: .init(
             status: 206, headers: ["Content-Range": "bytes 0-3/4"], body: Data("abcd".utf8)))
@@ -1428,6 +1535,7 @@ private final class LocalCloudServer: @unchecked Sendable {
 private final class CloudAdvancingClock: @unchecked Sendable {
     private let lock = NSLock()
     private var instant: TimeInterval = 0
+    func advance(by interval: TimeInterval) { lock.withLock { instant += interval } }
     var timing: RequestExecutor.Timing {
         .init(now: { self.lock.withLock { self.instant } },
               sleep: { interval in
