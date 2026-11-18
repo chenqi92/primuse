@@ -7776,3 +7776,11 @@
 "server_admin_error_invalid_response" = "サーバーから解釈できない応答が返りました。";
 "server_admin_error_duplicate" = "このユーザー名はすでに使われています。";
 "server_admin_error_rejected" = "サーバーがこの変更を拒否しました。";
+"source_move_action" = "移動…";
+"source_move_short" = "移動";
+"source_move_title_format" = "「%@」の移動先";
+"source_move_here" = "ここに移動";
+"source_move_outside_scope" = "このフォルダはスキャン対象外です。ここに移した曲は次のスキャン後にライブラリから外れます。";
+"source_move_no_subfolders" = "ここにフォルダはありません";
+"source_move_error_destination" = "自分自身の中や、今と同じ場所には移動できません。";
+"source_moved_format" = "「%@」に移動しました";

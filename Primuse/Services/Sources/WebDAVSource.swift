@@ -526,6 +526,26 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
         }
     }
 
+    func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
+        guard !sourceRelativePath(path).isEmpty, !sourceRelativePath(newPath).isEmpty else {
+            throw SourceFolderMutationError.unsupported
+        }
+        let source = isDirectory ? try collectionURL(for: path) : try fileURL(for: path)
+        let destination = isDirectory ? try collectionURL(for: newPath) : try fileURL(for: newPath)
+        var request = try makeWebDAVRequest(url: source, method: "MOVE")
+        request.setValue(destination.absoluteString, forHTTPHeaderField: "Destination")
+        request.setValue("F", forHTTPHeaderField: "Overwrite")
+        let (_, response) = try await TrustedHTTPTransport.data(
+            for: request, session: try requireTransportSession(mutationSession ?? rangeSession), maxBytes: 1024 * 1024)
+        if (response as? HTTPURLResponse)?.statusCode == 412 {
+            throw SourceFolderMutationError.destinationExists
+        }
+        try validateMutationResponse(response, operation: "MOVE")
+        if !isDirectory {
+            invalidateLocalCache(for: path)
+        }
+    }
+
     /// 目录的地址带结尾的 `/`:有的服务器对不带斜杠的集合回 301,而 MOVE、DELETE 不跟随跳转。
     private func collectionURL(for path: String) throws -> URL {
         var url = try serverURL()

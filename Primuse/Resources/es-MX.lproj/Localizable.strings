@@ -7681,3 +7681,11 @@
 "server_admin_error_invalid_response" = "El servidor envió una respuesta que no se entiende.";
 "server_admin_error_duplicate" = "Ese usuario ya existe.";
 "server_admin_error_rejected" = "El servidor rechazó el cambio.";
+"source_move_action" = "Mover a…";
+"source_move_short" = "Mover";
+"source_move_title_format" = "Mover “%@”";
+"source_move_here" = "Mover aquí";
+"source_move_outside_scope" = "Esta carpeta está fuera del escaneo. Las canciones que muevas aquí saldrán de tu biblioteca tras el próximo escaneo.";
+"source_move_no_subfolders" = "No hay carpetas aquí";
+"source_move_error_destination" = "No se puede mover dentro de sí mismo ni al lugar donde ya está.";
+"source_moved_format" = "Se movió a “%@”";

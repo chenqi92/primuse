@@ -7752,3 +7752,11 @@
 "server_admin_error_invalid_response" = "伺服器回的內容看不懂。";
 "server_admin_error_duplicate" = "這個使用者名稱已經有人用了。";
 "server_admin_error_rejected" = "伺服器拒絕了這次修改。";
+"source_move_action" = "移動到…";
+"source_move_short" = "移動";
+"source_move_title_format" = "移動「%@」";
+"source_move_here" = "移到這裡";
+"source_move_outside_scope" = "這裡不在掃描範圍內，移過來的歌下次掃描後會從曲庫移除。";
+"source_move_no_subfolders" = "這裡沒有子資料夾";
+"source_move_error_destination" = "不能挪到它自己裡面，也不能挪回原來的位置。";
+"source_moved_format" = "已移到「%@」";

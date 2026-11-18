@@ -7681,3 +7681,11 @@
 "server_admin_error_invalid_response" = "Сервер надіслав незрозумілу відповідь.";
 "server_admin_error_duplicate" = "Це ім’я користувача вже зайняте.";
 "server_admin_error_rejected" = "Сервер відхилив зміну.";
+"source_move_action" = "Перемістити…";
+"source_move_short" = "Перемістити";
+"source_move_title_format" = "Переміщення «%@»";
+"source_move_here" = "Перемістити сюди";
+"source_move_outside_scope" = "Ця папка поза областю сканування. Переміщені сюди пісні зникнуть із медіатеки після наступного сканування.";
+"source_move_no_subfolders" = "Тут немає папок";
+"source_move_error_destination" = "Не можна перемістити об’єкт у нього самого чи туди, де він уже є.";
+"source_moved_format" = "Переміщено до «%@»";

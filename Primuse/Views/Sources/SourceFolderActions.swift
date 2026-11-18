@@ -27,6 +27,37 @@ struct SourceFolderOperations {
         guard SourceFolderRelocationPolicy.relocatedPath(newPath, from: path, to: path) == nil else {
             return path
         }
+        return try await relocate(folder: path, to: newPath, in: source) { connector in
+            try await connector.renameDirectory(at: path, to: newPath)
+        }
+    }
+
+    /// 把目录挪进 `destination`(名字不变),返回新路径。
+    func move(folder path: String, in source: MusicSource, into destination: String) async throws -> String {
+        guard SourceFileMovePlan.canMoveFolder(path, into: destination) else {
+            throw SourceFolderMutationError.invalidDestination
+        }
+        guard !SourceFolderRelocationPolicy.touchesScanRoots(
+            path, selections: source.scannedDirectories, sourceType: source.type
+        ) else {
+            throw SourceFolderMutationError.containsScanRoots
+        }
+        let name = (path.hasSuffix("/") ? String(path.dropLast()) : path) as NSString
+        let newPath = SourceFolderRelocationPolicy.siblingPath(
+            of: (destination as NSString).appendingPathComponent("_"), named: name.lastPathComponent
+        )
+        return try await relocate(folder: path, to: newPath, in: source) { connector in
+            try await connector.moveItem(at: path, to: newPath, isDirectory: true)
+        }
+    }
+
+    /// 改名、移动共用:动音乐源上的目录,再让曲库、扫描索引、播放队列、目录标签跟上。
+    private func relocate(
+        folder path: String,
+        to newPath: String,
+        in source: MusicSource,
+        perform: (any MusicSourceConnector) async throws -> Void
+    ) async throws -> String {
         let connector = sourceManager.connector(for: source)
         guard await connector.canMutateDirectories() else { throw SourceFolderMutationError.unsupported }
 
@@ -45,12 +76,12 @@ struct SourceFolderOperations {
 
         do {
             try await scanService.prepareForFileRename(sourceID: source.id)
-            try await connector.renameDirectory(at: path, to: newPath)
+            try await perform(connector)
         } catch {
             if let playing { resumePlayback?(playing) }
             throw error
         }
-        plog("📁 Folder renamed source=\(source.id.prefix(8))…")
+        plog("📁 Folder relocated on source=\(source.id.prefix(8))…")
         let moved: [Song]
         do {
             moved = try await scanService.recordFolderRelocation(
@@ -72,6 +103,86 @@ struct SourceFolderOperations {
             tags.setSpokenWordFolder(true, sourceID: source.id, path: newPath)
             tags.setSpokenWordFolder(false, sourceID: source.id, path: path)
         }
+        return newPath
+    }
+
+    /// 把一个文件(连同同名的歌词、封面)挪进 `destination`,返回它的新路径。
+    /// `songs` 是这个文件在曲库里的歌;一个文件好几首(CUE 整轨)的不挪。
+    func move(
+        file path: String, songs: [Song], in source: MusicSource, into destination: String
+    ) async throws -> String {
+        let connector = sourceManager.connector(for: source)
+        guard await connector.canMutateDirectories() else { throw SourceFolderMutationError.unsupported }
+        guard songs.count <= 1 else { throw SongFileRenameError.plan(.cue) }
+        let parent = (path as NSString).deletingLastPathComponent
+        guard SourceDirectorySelectionPolicy.isSamePath(parent.isEmpty ? "/" : parent, destination) == false else {
+            throw SourceFolderMutationError.invalidDestination
+        }
+        func listing(_ directory: String) async throws -> [RemoteFileItem] {
+            try await connector.listFiles(at: SourceDirectorySelectionPolicy.connectorPath(
+                for: source.type, browserPath: directory.isEmpty ? "/" : directory
+            ))
+        }
+        let sourceEntries = try await listing(parent).map {
+            SourceFileBrowserPolicy.Entry(name: $0.name, path: $0.path, isDirectory: $0.isDirectory,
+                                          size: $0.size, modifiedDate: $0.modifiedDate)
+        }
+        let moves: [SourceFileMovePlan.Move]
+        do {
+            moves = try SourceFileMovePlan.moves(
+                audioPath: path,
+                sourceEntries: sourceEntries,
+                destinationDirectory: destination,
+                destinationNames: try await listing(destination).map(\.name)
+            )
+        } catch SourceFileMovePlan.Failure.collision {
+            throw SourceFolderMutationError.destinationExists
+        } catch SourceFileMovePlan.Failure.cue {
+            throw SongFileRenameError.plan(.cue)
+        } catch SourceFileMovePlan.Failure.missingFile {
+            throw SourceError.fileNotFound(path)
+        }
+
+        var resumePlayback: ((Song) -> Void)?
+        var playing: Song?
+        if let song = songs.first, player.currentSong?.id == song.id {
+            do {
+                resumePlayback = try player.prepareForSourceFileRename(song)
+            } catch {
+                throw SourceFolderMutationError.playbackBusy
+            }
+            playing = song
+        }
+        try await scanService.prepareForFileRename(sourceID: source.id)
+        var completed: [SourceFileMovePlan.Move] = []
+        do {
+            for step in moves {
+                try await connector.moveItem(at: step.from, to: step.to, isDirectory: false)
+                completed.append(step)
+            }
+        } catch {
+            // 挪到一半失败:已经挪过去的再挪回来,不留下歌和歌词分在两处。
+            for step in completed.reversed() {
+                try? await connector.moveItem(at: step.to, to: step.from, isDirectory: false)
+            }
+            if let playing { resumePlayback?(playing) }
+            throw error
+        }
+        let newPath = moves.first?.to ?? path
+        if let song = songs.first {
+            let map = Dictionary(moves.map { ($0.from, $0.to) }, uniquingKeysWith: { first, _ in first })
+            var updated = song
+            updated.filePath = map[song.filePath] ?? newPath
+            updated.lyricsFileName = song.lyricsFileName.map { map[$0] ?? $0 }
+            updated.coverArtFileName = song.coverArtFileName.map { map[$0] ?? $0 }
+            updated.mvPath = song.mvPath.map { map[$0] ?? $0 }
+            try await scanService.recordMetadataFileReplacement(original: song, updated: updated, in: library)
+            player.applySourceFolderRelocation([updated])
+            if let playing { resumePlayback?(playing.id == updated.id ? updated : playing) }
+        } else if let playing {
+            resumePlayback?(playing)
+        }
+        plog("📁 File moved source=\(source.id.prefix(8))… with \(moves.count - 1) sidecar(s)")
         return newPath
     }
 
@@ -160,6 +271,7 @@ extension AudioPlayerService {
 
 enum SourceFolderAction: Equatable {
     case rename(SourceFolderLocation)
+    case move(SourceFolderLocation)
     case delete(SourceFolderLocation)
 }
 
@@ -179,6 +291,7 @@ struct SourceFolderActionsModifier: ViewModifier {
     @State private var renameTarget: SourceFolderLocation?
     @State private var renameText = ""
     @State private var deleteTarget: SourceFolderLocation?
+    @State private var moveTarget: SourceFolderLocation?
     @State private var errorMessage: String?
 
     private var operations: SourceFolderOperations {
@@ -199,6 +312,8 @@ struct SourceFolderActionsModifier: ViewModifier {
                 case .rename(let folder):
                     renameText = folder.title
                     renameTarget = folder
+                case .move(let folder):
+                    moveTarget = folder
                 case .delete(let folder):
                     deleteTarget = folder
                 }
@@ -226,6 +341,14 @@ struct SourceFolderActionsModifier: ViewModifier {
                     }
                 )
             }
+            .sheet(item: $moveTarget) { folder in
+                SourceFolderPickerSheet(
+                    source: currentSource,
+                    itemName: folder.title,
+                    canPick: { SourceFileMovePlan.canMoveFolder(folder.path, into: $0.path) },
+                    onPick: { destination in move(folder, into: destination) }
+                )
+            }
             .alert(
                 "source_file_action_failed",
                 isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
@@ -234,6 +357,18 @@ struct SourceFolderActionsModifier: ViewModifier {
             } message: {
                 Text(errorMessage ?? "")
             }
+    }
+
+    private func move(_ folder: SourceFolderLocation, into destination: SourceFolderLocation) {
+        moveTarget = nil
+        Task { @MainActor in
+            do {
+                _ = try await operations.move(folder: folder.path, in: currentSource, into: destination.path)
+                onFinished(String(format: String(localized: "source_moved_format"), destination.title))
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private var currentSource: MusicSource {
@@ -407,3 +542,143 @@ private struct SourceFolderImpactRow: View {
         }
     }
 }
+
+// MARK: - 选目标文件夹
+
+/// 移动时选目标:从源的根一层层点进去,在想要的那一层点「移到这里」。
+struct SourceFolderPickerSheet: View {
+    let source: MusicSource
+    let itemName: String
+    let canPick: (SourceFolderLocation) -> Bool
+    let onPick: (SourceFolderLocation) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            SourceFolderPickerPage(
+                source: source,
+                location: .root(for: source),
+                itemName: itemName,
+                canPick: canPick,
+                onPick: { destination in
+                    dismiss()
+                    onPick(destination)
+                }
+            )
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { dismiss() }
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 520, idealWidth: 560, minHeight: 480, idealHeight: 560)
+        #endif
+    }
+}
+
+private struct SourceFolderPickerPage: View {
+    let source: MusicSource
+    let location: SourceFolderLocation
+    let itemName: String
+    let canPick: (SourceFolderLocation) -> Bool
+    let onPick: (SourceFolderLocation) -> Void
+
+    @Environment(SourceManager.self) private var sourceManager
+    @State private var folders: [SourceFileBrowserPolicy.Entry]?
+    @State private var loadError: String?
+    @State private var opened: SourceFolderLocation?
+
+    var body: some View {
+        let scope = SourceFolderScope.resolve(path: location.path, ancestors: location.ancestors, source: source)
+        List {
+            Section {
+                if let loadError {
+                    Text(loadError).font(.footnote).foregroundStyle(.secondary)
+                } else if let folders {
+                    if folders.isEmpty {
+                        Text("source_move_no_subfolders").foregroundStyle(.secondary)
+                    }
+                    ForEach(folders, id: \.path) { folder in
+                        Button {
+                            opened = location.child(path: folder.path, title: folder.name)
+                        } label: {
+                            HStack(spacing: 12) {
+                                DirectoryFolderTile(icon: "folder.fill", tint: .blue)
+                                Text(folder.name).foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                }
+            } footer: {
+                if !scope.isScanned {
+                    Text("source_move_outside_scope")
+                }
+            }
+
+            Section {
+                Button {
+                    onPick(location)
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("source_move_here").fontWeight(.semibold)
+                        Spacer()
+                    }
+                }
+                .disabled(!canPick(location))
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .navigationTitle(location.title)
+        .navigationDestination(item: $opened) { child in
+            SourceFolderPickerPage(
+                source: source, location: child, itemName: itemName, canPick: canPick, onPick: onPick
+            )
+        }
+        .safeAreaInset(edge: .top) {
+            Text(String(format: String(localized: "source_move_title_format"), itemName))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .task(id: location.path) { await load() }
+    }
+
+    private func load() async {
+        do {
+            let connector = await sourceManager.connectorForDirectoryBrowsing(fallback: source).connector
+            try await connector.connect()
+            let items = try await connector.listFiles(at: SourceDirectorySelectionPolicy.connectorPath(
+                for: source.type, browserPath: location.path
+            ))
+            folders = SourceFileBrowserPolicy.listing(of: items.map {
+                SourceFileBrowserPolicy.Entry(name: $0.name, path: $0.path, isDirectory: $0.isDirectory,
+                                              size: $0.size, modifiedDate: $0.modifiedDate)
+            }).folders
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+}
+

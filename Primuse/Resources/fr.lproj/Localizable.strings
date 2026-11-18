@@ -7775,3 +7775,11 @@
 "server_admin_error_invalid_response" = "Le serveur a renvoyé une réponse incompréhensible.";
 "server_admin_error_duplicate" = "Ce nom d’utilisateur est déjà pris.";
 "server_admin_error_rejected" = "Le serveur a refusé cette modification.";
+"source_move_action" = "Déplacer vers…";
+"source_move_short" = "Déplacer";
+"source_move_title_format" = "Déplacement de « %@ »";
+"source_move_here" = "Déplacer ici";
+"source_move_outside_scope" = "Ce dossier n’est pas dans la zone analysée. Les morceaux déplacés ici quitteront la bibliothèque après la prochaine analyse.";
+"source_move_no_subfolders" = "Aucun dossier ici";
+"source_move_error_destination" = "Impossible de le déplacer dans lui-même ou à son emplacement actuel.";
+"source_moved_format" = "Déplacé vers « %@ »";

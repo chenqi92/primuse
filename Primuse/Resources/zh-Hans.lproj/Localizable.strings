@@ -7868,3 +7868,11 @@
 "server_admin_error_invalid_response" = "服务器回的内容看不懂。";
 "server_admin_error_duplicate" = "这个用户名已经有人用了。";
 "server_admin_error_rejected" = "服务器拒绝了这次修改。";
+"source_move_action" = "移动到…";
+"source_move_short" = "移动";
+"source_move_title_format" = "移动“%@”";
+"source_move_here" = "移到这里";
+"source_move_outside_scope" = "这里不在扫描范围内，移过来的歌下次扫描后会从曲库移除。";
+"source_move_no_subfolders" = "这里没有子文件夹";
+"source_move_error_destination" = "不能挪到它自己里面，也不能挪回原来的位置。";
+"source_moved_format" = "已移到“%@”";

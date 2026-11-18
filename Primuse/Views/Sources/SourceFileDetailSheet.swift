@@ -15,15 +15,20 @@ struct SourceFileDetailSheet: View {
     /// 同一层里已入库的歌,点「播放」从这首接着往下。
     let folderQueue: [Song]
     let isInScanScope: Bool
+    /// 这个源能不能挪文件(本机、WebDAV、SMB、群晖、SFTP)。
+    let canMove: Bool
     let onChanged: () -> Void
     let onDeleted: (String) -> Void
     let onScanFolder: () -> Void
+    /// 挪走了:参数是目标文件夹的名字。
+    let onMoved: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @Environment(ScanService.self) private var scanService
 
     /// 改过名之后这一页显示的是改名后的歌和文件名。
     @State private var displayedSong: Song?
@@ -37,6 +42,7 @@ struct SourceFileDetailSheet: View {
     @State private var showsTagEditor = false
     @State private var errorMessage: String?
     @State private var unavailableReason: String?
+    @State private var showsMovePicker = false
     @State private var toasts = PMToastPresenter()
 
     init(
@@ -45,18 +51,22 @@ struct SourceFileDetailSheet: View {
         songs: [Song],
         folderQueue: [Song],
         isInScanScope: Bool,
+        canMove: Bool,
         onChanged: @escaping () -> Void,
         onDeleted: @escaping (String) -> Void,
-        onScanFolder: @escaping () -> Void
+        onScanFolder: @escaping () -> Void,
+        onMoved: @escaping (String) -> Void
     ) {
         self.source = source
         self.file = file
         self.songs = songs
         self.folderQueue = folderQueue
         self.isInScanScope = isInScanScope
+        self.canMove = canMove
         self.onChanged = onChanged
         self.onDeleted = onDeleted
         self.onScanFolder = onScanFolder
+        self.onMoved = onMoved
         _displayedSong = State(initialValue: songs.first)
         _displayedName = State(initialValue: file.entry.name)
     }
@@ -135,6 +145,17 @@ struct SourceFileDetailSheet: View {
         } message: {
             Text(unavailableReason ?? "")
         }
+        .sheet(isPresented: $showsMovePicker) {
+            SourceFolderPickerSheet(
+                source: source,
+                itemName: displayedName,
+                canPick: { destination in
+                    let parent = ((displayedSong?.filePath ?? file.entry.path) as NSString).deletingLastPathComponent
+                    return !SourceDirectorySelectionPolicy.isSamePath(parent.isEmpty ? "/" : parent, destination.path)
+                },
+                onPick: { destination in move(into: destination) }
+            )
+        }
         .sheet(isPresented: $showsTagEditor) {
             if let song = displayedSong {
                 TagEditorView(song: library.song(id: song.id) ?? song, onSave: { saved in
@@ -163,6 +184,15 @@ struct SourceFileDetailSheet: View {
                 }
                 SourceFileActionButton(title: "playlist_rename", systemImage: "character.cursor.ibeam", isEnabled: canRename) {
                     requestRename()
+                }
+                if canMove {
+                    SourceFileActionButton(title: "source_move_short", systemImage: "folder", isEnabled: songs.count <= 1) {
+                        if songs.count > 1 {
+                            unavailableReason = String(localized: "song_file_rename_cue")
+                        } else {
+                            showsMovePicker = true
+                        }
+                    }
                 }
             }
             .buttonStyle(.borderless)
@@ -320,6 +350,26 @@ struct SourceFileDetailSheet: View {
         displayedSong = song
         displayedName = (song.filePath as NSString).lastPathComponent
         onChanged()
+    }
+
+    private func move(into destination: SourceFolderLocation) {
+        let operations = SourceFolderOperations(
+            sourceManager: sourceManager, scanService: scanService, library: library,
+            sourcesStore: sourcesStore, player: player
+        )
+        let currentSongs = songs.map { library.song(id: $0.id) ?? $0 }
+        let path = displayedSong?.filePath ?? file.entry.path
+        isWorking = true
+        Task { @MainActor in
+            defer { isWorking = false }
+            do {
+                _ = try await operations.move(file: path, songs: currentSongs, in: source, into: destination.path)
+                onMoved(destination.title)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func requestDelete() {

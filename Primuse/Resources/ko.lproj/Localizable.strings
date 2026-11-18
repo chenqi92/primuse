@@ -7775,3 +7775,11 @@
 "server_admin_error_invalid_response" = "서버가 이해할 수 없는 응답을 보냈습니다.";
 "server_admin_error_duplicate" = "이미 사용 중인 사용자 이름입니다.";
 "server_admin_error_rejected" = "서버가 이 변경을 거부했습니다.";
+"source_move_action" = "이동…";
+"source_move_short" = "이동";
+"source_move_title_format" = "‘%@’ 이동";
+"source_move_here" = "여기로 이동";
+"source_move_outside_scope" = "이 폴더는 스캔 범위 밖입니다. 여기로 옮긴 곡은 다음 스캔 후 보관함에서 빠집니다.";
+"source_move_no_subfolders" = "여기에는 폴더가 없음";
+"source_move_error_destination" = "자기 자신 안이나 지금과 같은 위치로는 옮길 수 없습니다.";
+"source_moved_format" = "‘%@’(으)로 이동함";

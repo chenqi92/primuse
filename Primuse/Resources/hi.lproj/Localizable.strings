@@ -7681,3 +7681,11 @@
 "server_admin_error_invalid_response" = "सर्वर का जवाब समझ में नहीं आया।";
 "server_admin_error_duplicate" = "यह उपयोगकर्ता नाम पहले से लिया हुआ है।";
 "server_admin_error_rejected" = "सर्वर ने यह बदलाव नहीं माना।";
+"source_move_action" = "यहाँ ले जाएँ…";
+"source_move_short" = "ले जाएँ";
+"source_move_title_format" = "“%@” ले जाएँ";
+"source_move_here" = "यहाँ ले जाएँ";
+"source_move_outside_scope" = "यह फ़ोल्डर स्कैन दायरे में नहीं है। यहाँ लाए गए गाने अगले स्कैन के बाद लाइब्रेरी से हट जाएँगे।";
+"source_move_no_subfolders" = "यहाँ कोई फ़ोल्डर नहीं";
+"source_move_error_destination" = "इसे अपने ही अंदर या उसी जगह नहीं ले जा सकते।";
+"source_moved_format" = "“%@” में ले जाया गया";

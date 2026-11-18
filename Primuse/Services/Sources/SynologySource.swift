@@ -758,6 +758,27 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, Pa
         }
     }
 
+    func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
+        // File Station 的移动不改名:只换所在的文件夹。
+        guard (path as NSString).lastPathComponent == (newPath as NSString).lastPathComponent,
+              path.split(separator: "/").count >= 2, newPath.split(separator: "/").count >= 2 else {
+            throw SourceFolderMutationError.unsupported
+        }
+        try await connect()
+        do {
+            try await api.moveFile(
+                at: path,
+                toDirectory: (newPath as NSString).deletingLastPathComponent,
+                overwrite: false
+            )
+        } catch SynologyError.fileOperationError(let code, _) where code == Self.fileStationNameExistsCode {
+            throw SourceFolderMutationError.destinationExists
+        }
+        if !isDirectory {
+            await invalidateMetadataWritebackCache(for: path)
+        }
+    }
+
     func deleteDirectory(at path: String) async throws {
         guard path.split(separator: "/").count >= 2 else { throw SourceFolderMutationError.unsupported }
         try await connect()

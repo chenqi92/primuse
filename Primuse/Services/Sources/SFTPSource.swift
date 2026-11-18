@@ -537,6 +537,21 @@ actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFi
         try await sftp.rename(at: source, to: destination, flags: 0)
     }
 
+    func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
+        try await connect()
+        guard let sftp else { throw SourceError.connectionFailed("Not connected") }
+        let source = try resolvedRemotePath(for: path)
+        let destination = try resolvedRemotePath(for: newPath)
+        guard source != rootPath, source != "/" else { throw SourceFolderMutationError.unsupported }
+        if (try? await sftp.getAttributes(at: destination)) != nil {
+            throw SourceFolderMutationError.destinationExists
+        }
+        try await sftp.rename(at: source, to: destination, flags: 0)
+        if !isDirectory {
+            await invalidateMetadataWritebackCache(for: path)
+        }
+    }
+
     func deleteDirectory(at path: String) async throws {
         try await connect()
         guard let sftp else { throw SourceError.connectionFailed("Not connected") }

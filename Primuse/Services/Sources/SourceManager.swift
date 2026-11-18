@@ -2042,6 +2042,10 @@ extension RoutedConnectorProxy {
         try await routing.withMutation { try await $0.deleteDirectory(at: path) }
     }
 
+    func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
+        try await routing.withMutation { try await $0.moveItem(at: path, to: newPath, isDirectory: isDirectory) }
+    }
+
     func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
         try await routing.withRead { connector in
             guard let provider = connector as? any ServerCatalogChangeDetectingConnector else {

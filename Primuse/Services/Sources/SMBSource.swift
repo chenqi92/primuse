@@ -670,6 +670,25 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFil
         }
     }
 
+    func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
+        guard case let .share(share, sourcePath) = try resolve(path: Self.normalizeRemotePath(path)),
+              case let .share(destinationShare, destinationPath) = try resolve(path: Self.normalizeRemotePath(newPath)),
+              share == destinationShare, sourcePath != "/", destinationPath != "/" else {
+            throw SourceFolderMutationError.unsupported
+        }
+        try await withSerializedOperation {
+            let client = try await self.ensureConnectedShare(named: share)
+            if (try? await Self.awaitRequest({ _ in
+                try await client.attributesOfItem(atPath: destinationPath)
+            })) != nil {
+                throw SourceFolderMutationError.destinationExists
+            }
+            try await Self.awaitRequest { _ in
+                try await client.moveItem(atPath: sourcePath, toPath: destinationPath)
+            }
+        }
+    }
+
     func deleteDirectory(at path: String) async throws {
         guard case let .share(_, relativePath) = try resolve(path: Self.normalizeRemotePath(path)),
               relativePath != "/" else {

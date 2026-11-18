@@ -7681,3 +7681,11 @@
 "server_admin_error_invalid_response" = "เซิร์ฟเวอร์ตอบกลับในรูปแบบที่อ่านไม่ได้";
 "server_admin_error_duplicate" = "ชื่อผู้ใช้นี้มีคนใช้แล้ว";
 "server_admin_error_rejected" = "เซิร์ฟเวอร์ปฏิเสธการเปลี่ยนแปลงนี้";
+"source_move_action" = "ย้ายไปที่…";
+"source_move_short" = "ย้าย";
+"source_move_title_format" = "ย้าย “%@”";
+"source_move_here" = "ย้ายมาที่นี่";
+"source_move_outside_scope" = "โฟลเดอร์นี้อยู่นอกขอบเขตการสแกน เพลงที่ย้ายมาจะหลุดออกจากคลังหลังการสแกนครั้งถัดไป";
+"source_move_no_subfolders" = "ไม่มีโฟลเดอร์ที่นี่";
+"source_move_error_destination" = "ย้ายเข้าไปในตัวเองหรือไปที่เดิมไม่ได้";
+"source_moved_format" = "ย้ายไปที่ “%@” แล้ว";

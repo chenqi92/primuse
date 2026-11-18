@@ -7681,3 +7681,11 @@
 "server_admin_error_invalid_response" = "Serwer przysłał niezrozumiałą odpowiedź.";
 "server_admin_error_duplicate" = "Ta nazwa użytkownika jest już zajęta.";
 "server_admin_error_rejected" = "Serwer odrzucił tę zmianę.";
+"source_move_action" = "Przenieś do…";
+"source_move_short" = "Przenieś";
+"source_move_title_format" = "Przenoszenie „%@”";
+"source_move_here" = "Przenieś tutaj";
+"source_move_outside_scope" = "Ten folder jest poza zakresem skanowania. Przeniesione tu utwory znikną z biblioteki po następnym skanowaniu.";
+"source_move_no_subfolders" = "Brak folderów";
+"source_move_error_destination" = "Nie można przenieść do siebie ani w to samo miejsce.";
+"source_moved_format" = "Przeniesiono do „%@”";

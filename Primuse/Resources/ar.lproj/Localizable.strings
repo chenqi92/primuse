@@ -7681,3 +7681,11 @@
 "server_admin_error_invalid_response" = "أرسل الخادم ردًا غير مفهوم.";
 "server_admin_error_duplicate" = "اسم المستخدم هذا مستخدم بالفعل.";
 "server_admin_error_rejected" = "رفض الخادم هذا التغيير.";
+"source_move_action" = "نقل إلى…";
+"source_move_short" = "نقل";
+"source_move_title_format" = "نقل «%@»";
+"source_move_here" = "النقل إلى هنا";
+"source_move_outside_scope" = "هذا المجلد خارج نطاق المسح. ستخرج الأغاني المنقولة إليه من مكتبتك بعد المسح القادم.";
+"source_move_no_subfolders" = "لا توجد مجلدات هنا";
+"source_move_error_destination" = "لا يمكن نقله إلى داخله أو إلى المكان الموجود فيه أصلًا.";
+"source_moved_format" = "نُقل إلى «%@»";

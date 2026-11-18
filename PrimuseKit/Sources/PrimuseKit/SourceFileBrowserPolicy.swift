@@ -281,3 +281,73 @@ public enum SourceFolderRelocationPolicy {
         return trimmed.isEmpty ? "/" : trimmed
     }
 }
+
+/// 文件页里把一首歌移到另一个文件夹:同名的歌词、封面、视频跟着走,目标里已有同名的就不动。
+public enum SourceFileMovePlan {
+    public struct Move: Equatable, Sendable {
+        public let from: String
+        public let to: String
+    }
+
+    public enum Failure: Error, Equatable, Sendable {
+        /// 目标文件夹里已经有同名的文件。
+        case collision(String)
+        /// 原来那一层里找不到这首歌了。
+        case missingFile
+        /// 同一个文件夹里有 CUE:整轨文件和分轨对不上名字,不能单独挪。
+        case cue
+    }
+
+    private static let sidecarExtensions: Set<String> = Set(PrimuseConstants.readableLyricsExtensions)
+        .union(PrimuseConstants.supportedCoverExtensions)
+        .union(["mp4", "mov", "m4v"])
+
+    /// `sourceEntries` 是歌所在那一层,`destinationNames` 是目标文件夹里已有的名字。
+    public static func moves(
+        audioPath: String,
+        sourceEntries: [SourceFileBrowserPolicy.Entry],
+        destinationDirectory: String,
+        destinationNames: [String]
+    ) throws -> [Move] {
+        guard let audio = sourceEntries.first(where: { $0.path == audioPath && !$0.isDirectory }) else {
+            throw Failure.missingFile
+        }
+        guard !sourceEntries.contains(where: { !$0.isDirectory && ($0.name as NSString).pathExtension.lowercased() == "cue" }) else {
+            throw Failure.cue
+        }
+        let stem = key(SourceFileBrowserPolicy.stem(of: audio.name))
+        var moving = [audio]
+        for entry in sourceEntries where !entry.isDirectory && entry.path != audio.path {
+            let ext = (entry.name as NSString).pathExtension.lowercased()
+            guard sidecarExtensions.contains(ext) else { continue }
+            let entryStem = key(SourceFileBrowserPolicy.stem(of: entry.name))
+            if entryStem == stem || entryStem == stem + "-cover" || entryStem == stem + "-back" {
+                moving.append(entry)
+            }
+        }
+        let taken = Set(destinationNames.map(key))
+        let base = destinationDirectory.hasSuffix("/") ? String(destinationDirectory.dropLast()) : destinationDirectory
+        return try moving.map { entry in
+            guard !taken.contains(key(entry.name)) else { throw Failure.collision(entry.name) }
+            let target = base.isEmpty ? entry.name : (base == "/" ? "/" + entry.name : base + "/" + entry.name)
+            return Move(from: entry.path, to: target)
+        }
+    }
+
+    /// 能不能把目录 `folder` 挪进 `destination`:不能挪进它自己或它下面,挪回原处也没意义。
+    public static func canMoveFolder(_ folder: String, into destination: String) -> Bool {
+        let parent = (trimmed(folder) as NSString).deletingLastPathComponent
+        guard SourceFolderRelocationPolicy.relocatedPath(destination, from: folder, to: folder) == nil else { return false }
+        return trimmed(destination) != (parent.isEmpty ? "/" : parent)
+    }
+
+    private static func key(_ name: String) -> String {
+        name.precomposedStringWithCanonicalMapping.lowercased()
+    }
+
+    private static func trimmed(_ path: String) -> String {
+        var value = path
+        while value.count > 1, value.hasSuffix("/") { value.removeLast() }
+        return value.isEmpty ? "/" : value
+    }
+}

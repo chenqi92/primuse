@@ -7775,3 +7775,11 @@
 "server_admin_error_invalid_response" = "Der Server hat eine unverständliche Antwort gesendet.";
 "server_admin_error_duplicate" = "Dieser Benutzername ist schon vergeben.";
 "server_admin_error_rejected" = "Der Server hat die Änderung abgelehnt.";
+"source_move_action" = "Verschieben nach …";
+"source_move_short" = "Verschieben";
+"source_move_title_format" = "„%@“ wird verschoben";
+"source_move_here" = "Hierher verschieben";
+"source_move_outside_scope" = "Dieser Ordner liegt nicht im Scan-Bereich. Hierher verschobene Titel verschwinden nach dem nächsten Scan aus der Mediathek.";
+"source_move_no_subfolders" = "Hier gibt es keine Ordner";
+"source_move_error_destination" = "Ein Element kann nicht in sich selbst oder an denselben Ort verschoben werden.";
+"source_moved_format" = "Nach „%@“ verschoben";

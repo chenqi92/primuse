@@ -873,6 +873,8 @@ protocol MusicSourceConnector: Sendable {
     func renameDirectory(at path: String, to newPath: String) async throws
     /// 连同里面的文件和子目录一起删掉。不能删源的根目录。
     func deleteDirectory(at path: String) async throws
+    /// 把文件或目录挪到同一个源里的另一个位置(名字不变)。目标已经存在时必须失败。
+    func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws
 
     /// Delete several remote files in one source operation. Connectors whose
     /// provider exposes a batch API override this together with
@@ -2911,6 +2913,8 @@ enum SourceFolderMutationError: LocalizedError, Equatable {
     case playbackBusy
     /// 服务器只删掉了一部分。
     case partiallyDeleted
+    /// 挪进它自己(或它下面)、或者挪回原处。
+    case invalidDestination
 
     var errorDescription: String? {
         switch self {
@@ -2920,6 +2924,7 @@ enum SourceFolderMutationError: LocalizedError, Equatable {
         case .containsScanRoots: String(localized: "source_folder_error_scan_root")
         case .playbackBusy: String(localized: "song_file_rename_busy")
         case .partiallyDeleted: String(localized: "source_folder_error_partial_delete")
+        case .invalidDestination: String(localized: "source_move_error_destination")
         }
     }
 }
@@ -2932,6 +2937,10 @@ extension MusicSourceConnector {
     }
 
     func deleteDirectory(at path: String) async throws {
+        throw SourceFolderMutationError.unsupported
+    }
+
+    func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
         throw SourceFolderMutationError.unsupported
     }
 }

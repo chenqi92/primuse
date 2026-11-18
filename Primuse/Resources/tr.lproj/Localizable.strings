@@ -7681,3 +7681,11 @@
 "server_admin_error_invalid_response" = "Sunucu anlaşılmayan bir yanıt gönderdi.";
 "server_admin_error_duplicate" = "Bu kullanıcı adı zaten alınmış.";
 "server_admin_error_rejected" = "Sunucu bu değişikliği reddetti.";
+"source_move_action" = "Taşı…";
+"source_move_short" = "Taşı";
+"source_move_title_format" = "“%@” taşınıyor";
+"source_move_here" = "Buraya taşı";
+"source_move_outside_scope" = "Bu klasör tarama kapsamında değil. Buraya taşınan şarkılar sonraki taramadan sonra arşivden çıkar.";
+"source_move_no_subfolders" = "Burada klasör yok";
+"source_move_error_destination" = "Kendi içine ya da zaten bulunduğu yere taşınamaz.";
+"source_moved_format" = "“%@” klasörüne taşındı";

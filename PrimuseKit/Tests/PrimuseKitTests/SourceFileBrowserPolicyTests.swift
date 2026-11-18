@@ -166,3 +166,54 @@ struct SourceFolderRelocationPolicyTests {
     }
 }
 
+@Suite("Source file move")
+struct SourceFileMovePlanTests {
+    private func file(_ name: String, in folder: String = "/音乐/华语") -> SourceFileBrowserPolicy.Entry {
+        .init(name: name, path: folder + "/" + name, isDirectory: false, size: 1, modifiedDate: nil)
+    }
+
+    @Test("Same-name lyrics and covers move with the song")
+    func sidecarsFollow() throws {
+        let moves = try SourceFileMovePlan.moves(
+            audioPath: "/音乐/华语/稻香.flac",
+            sourceEntries: [file("稻香.flac"), file("稻香.lrc"), file("稻香-cover.jpg"),
+                            file("晴天.flac"), file("cover.jpg"), file("稻香.txt")],
+            destinationDirectory: "/音乐/周杰伦",
+            destinationNames: ["晴天.flac"]
+        )
+        #expect(moves == [
+            .init(from: "/音乐/华语/稻香.flac", to: "/音乐/周杰伦/稻香.flac"),
+            .init(from: "/音乐/华语/稻香.lrc", to: "/音乐/周杰伦/稻香.lrc"),
+            .init(from: "/音乐/华语/稻香-cover.jpg", to: "/音乐/周杰伦/稻香-cover.jpg"),
+        ])
+    }
+
+    @Test("A name already in the destination stops the whole move")
+    func collision() {
+        #expect(throws: SourceFileMovePlan.Failure.collision("稻香.lrc")) {
+            try SourceFileMovePlan.moves(
+                audioPath: "/音乐/华语/稻香.flac",
+                sourceEntries: [file("稻香.flac"), file("稻香.lrc")],
+                destinationDirectory: "/音乐/周杰伦/",
+                destinationNames: ["稻香.LRC"]
+            )
+        }
+        #expect(throws: SourceFileMovePlan.Failure.cue) {
+            try SourceFileMovePlan.moves(
+                audioPath: "/音乐/华语/稻香.flac",
+                sourceEntries: [file("稻香.flac"), file("album.cue")],
+                destinationDirectory: "/音乐", destinationNames: []
+            )
+        }
+    }
+
+    @Test("Folders can't move into themselves or back where they are")
+    func folderTargets() {
+        #expect(SourceFileMovePlan.canMoveFolder("/音乐/华语", into: "/音乐/流行"))
+        #expect(SourceFileMovePlan.canMoveFolder("/音乐/华语", into: "/"))
+        #expect(!SourceFileMovePlan.canMoveFolder("/音乐/华语", into: "/音乐"))
+        #expect(!SourceFileMovePlan.canMoveFolder("/音乐/华语", into: "/音乐/华语/周杰伦"))
+        #expect(!SourceFileMovePlan.canMoveFolder("/音乐/华语", into: "/音乐/华语"))
+    }
+}
+

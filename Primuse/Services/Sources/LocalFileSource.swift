@@ -477,6 +477,25 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         }
     }
 
+    func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
+        guard supportsSidecarWriting,
+              !isVirtualReferenceRoot((path as NSString).deletingLastPathComponent) else {
+            throw SourceFolderMutationError.unsupported
+        }
+        let source = try resolvedURL(for: path, allowRoot: false)
+        let destination = try resolvedURL(for: newPath, allowRoot: false)
+        guard !isIndividuallyReferencedFile(source) else { throw SourceFolderMutationError.unsupported }
+        let status = source.path.withCString { fromPath in
+            destination.path.withCString { toPath in
+                renameatx_np(AT_FDCWD, fromPath, AT_FDCWD, toPath, UInt32(RENAME_EXCL))
+            }
+        }
+        guard status == 0 else {
+            if errno == EEXIST { throw SourceFolderMutationError.destinationExists }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+
     func deleteDirectory(at path: String) async throws {
         guard supportsSidecarWriting,
               !isVirtualReferenceRoot((path as NSString).deletingLastPathComponent) else {

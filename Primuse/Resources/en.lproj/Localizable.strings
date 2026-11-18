@@ -7536,3 +7536,11 @@
 "server_admin_error_invalid_response" = "The server sent a reply Primuse doesn’t understand.";
 "server_admin_error_duplicate" = "That username is already taken.";
 "server_admin_error_rejected" = "The server refused this change.";
+"source_move_action" = "Move to…";
+"source_move_short" = "Move";
+"source_move_title_format" = "Moving “%@”";
+"source_move_here" = "Move Here";
+"source_move_outside_scope" = "This folder isn’t in the scan scope. Songs moved here leave your library after the next scan.";
+"source_move_no_subfolders" = "No folders here";
+"source_move_error_destination" = "It can’t move into itself or back where it already is.";
+"source_moved_format" = "Moved to “%@”";

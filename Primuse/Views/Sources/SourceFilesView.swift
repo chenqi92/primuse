@@ -259,6 +259,7 @@ struct SourceFolderPage: View {
                 songs: model.songs(atPath: selection.file.entry.path),
                 folderQueue: folderQueue(),
                 isInScanScope: scope.isScanned,
+                canMove: canMutateFolders,
                 onChanged: { fileDidChange() },
                 onDeleted: { name in
                     fileDidChange()
@@ -269,7 +270,16 @@ struct SourceFolderPage: View {
                         tint: .secondary
                     ))
                 },
-                onScanFolder: { scanHere(selection.folder) }
+                onScanFolder: { scanHere(selection.folder) },
+                onMoved: { destination in
+                    fileDidChange()
+                    toasts.show(PMToastItem(
+                        key: "source-files-moved",
+                        message: String(format: String(localized: "source_moved_format"), destination),
+                        systemImage: "folder",
+                        tint: .secondary
+                    ))
+                }
             )
         }
         .sourceDetailSheets(source: current, actions: actions, presented: $sheet)
@@ -383,6 +393,9 @@ struct SourceFolderPage: View {
                 Section {
                     Button { folderAction = .rename(child) } label: {
                         Label("playlist_rename", systemImage: "character.cursor.ibeam")
+                    }
+                    Button { folderAction = .move(child) } label: {
+                        Label("source_move_action", systemImage: "folder")
                     }
                 }
                 Section {
