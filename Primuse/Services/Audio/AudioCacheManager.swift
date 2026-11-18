@@ -1006,6 +1006,18 @@ actor AudioCacheManager {
         schedulePersist()
     }
 
+    /// 只清一个源的播放缓存之后,把这个源没固定的记账一起去掉;别的源原样留着。
+    func clearUnpinnedAccessEntries(sourceID: String) {
+        ensureInitialized()
+        syncAllOfflineMirrors()
+        let prefix = sourceID + "/"
+        accessLog = accessLog.filter { path, _ in
+            !path.hasPrefix(prefix) || offlineManifest[path]?.isPinned == true
+        }
+        rebuildTrackedInventory(migrateAccessDates: false)
+        schedulePersist()
+    }
+
     nonisolated func acquirePlaybackReadLease(path: String) -> AudioCachePathLease? {
         playbackReadLeases.acquire(path: path)
     }

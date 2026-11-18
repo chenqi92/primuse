@@ -567,9 +567,8 @@ struct SourcesContentView: View {
     @State private var pendingDeleteTasks: [String: Task<Void, Never>] = [:]
     @State private var diagnosingSource: MusicSource?
     @State private var browsingFoldersSource: MusicSource?
-    @State private var inspectingMetadataSource: MusicSource?
-    @State private var inspectingLocalRemovalsSource: MusicSource?
-    @State private var inspectingHiddenPlaylistsSource: MusicSource?
+    /// 点了卡片:有文件的源进文件页,音乐服务器进概览,Apple Music 进资料库页。
+    @State private var openedSource: MusicSource?
     @State private var sourceAlert: SourceAlert?
     @State private var activeCacheRun: SourceCacheRun?
     /// 点了「缓存中」,等用户确认要不要停下来的那个源(#313)。
@@ -603,6 +602,8 @@ struct SourcesContentView: View {
             .pmToastHost(undoToasts)
             .onDisappear {
                 flushPendingDeletes()
+                // 点进某个源的详情页时这一页只是被盖住:导入、下载前的准备照常跑完。
+                guard openedSource == nil else { return }
                 cachePreparationTask?.cancel()
                 cachePreparationTask = nil
                 preparingCacheSourceID = nil
@@ -729,9 +730,6 @@ struct SourcesContentView: View {
             .sheet(item: $diagnosingSource) { source in
                 SourceDiagnosticsView(source: source)
             }
-            .sheet(item: $inspectingHiddenPlaylistsSource) { source in
-                SourceHiddenPlaylistsView(source: source)
-            }
             .sheet(item: $browsingFoldersSource) { source in
                 NavigationStack {
                     HomeFolderManagementView(nodeID: LibraryFolderNodeID(
@@ -798,15 +796,49 @@ struct SourcesContentView: View {
                 #endif
                 }
             }
-            .navigationDestination(item: $inspectingLocalRemovalsSource) { source in
-                SourceLocalRemovalsView(source: source)
+            .navigationDestination(item: $openedSource) { source in
+                SourceDetailPage(source: source, actions: detailActions)
             }
-            .navigationDestination(item: $inspectingMetadataSource) { source in
-                SourceMetadataStatusView(source: source)
+            #if DEBUG
+            .task {
+                // 调试构建:`PRIMUSE_DEBUG_OPEN_SOURCE=<源类型原始值>` 打开来源页后直接点进第一个这一类源
+                // (编译机上无人值守截文件页、概览页用)。
+                guard let raw = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_OPEN_SOURCE"],
+                      !raw.isEmpty, !SourcesDebugLaunch.didOpenSource else { return }
+                try? await Task.sleep(for: .seconds(2))
+                guard let source = sources.first(where: { $0.type.rawValue == raw }) else { return }
+                SourcesDebugLaunch.didOpenSource = true
+                openedSource = source
             }
+            #endif
             .onReceive(NotificationCenter.default.publisher(for: CloudDirectoryNameStore.didChangeNotification)) { _ in
                 cloudDirectoryNameRefreshID = UUID()
             }
+    }
+
+    /// 卡片点进去的那一页借用的几件事。表单由这里搭、那一页自己弹。
+    private var detailActions: SourceDetailActions {
+        SourceDetailActions(
+            scan: { source, mode in startSourceScan(currentSource(for: source), mode: mode) },
+            connectionSheet: { source, onEditAddress in
+                let current = currentSource(for: source)
+                return AnyView(
+                    connectionSheet(for: current, onEditAddress: onEditAddress)
+                        .environment(\.directoryRescanAction, directoryRescanAction(for: current))
+                        .onAppear { beginDirectorySelectionSession(for: current) }
+                )
+            },
+            connectionSheetDidClose: { finishDirectorySelectionSession() },
+            editSheet: { source in
+                AnyView(
+                    AddSourceView(sourceType: source.type, editingSource: currentSource(for: source)) { updated in
+                        updateSource(updated.id) { $0 = updated }
+                        scanService.removeSynologyAPI(for: updated.id)
+                        Task { await sourceManager.refreshConnector(for: updated.id) }
+                    }
+                )
+            }
+        )
     }
 
     private var coordinatedSourceAlert: Binding<SourceAlert?> {
@@ -866,9 +898,14 @@ struct SourcesContentView: View {
             // diskUsage 内部走后台枚举, 不卡主线程。只让源列表结构变化触发；
             // 扫描期间 songCount 会高频变化，把它放进 task id 会反复取消并
             // 重启整轮磁盘枚举，正是大库来源页滚动卡顿的一部分。
+            // 和点进去那一页右上角的「本机占用」同一个口径(含离线下载);
+            // 本机导入的源算的是导入进来的歌本身。
             var sizes: [String: Int64] = [:]
             for source in sources {
-                let size = await sourceManager.diskUsage(for: source)
+                let size = await sourceManager.sourceStorageUsage(
+                    sourceID: source.id,
+                    songs: library.visibleSongs(forSourceID: source.id)
+                ).totalBytes
                 if Task.isCancelled { return }
                 sizes[source.id] = size
             }
@@ -898,397 +935,56 @@ struct SourcesContentView: View {
             activeBatchSourceIDs: activeSourceCacheIDs
         )
         let isSourceCaching = cachePresentation.isCachingCurrentSource
-        let isSourceCacheBusy = cachePresentation.isCurrentSourceBusy
-        let isAnotherSourceCaching = cachePresentation.isBlockedByAnotherSource
-        let cacheButtonTitle: LocalizedStringKey = isSourceCacheBusy ? "source_cache_all_loading" : "source_cache_all_short"
 
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: source.type.iconName)
-                    .font(.title3).foregroundStyle(.white)
-                    .frame(width: 38, height: 38)
-                    .background(source.isEnabled ? source.type.brandTint.gradient : Color.gray.gradient)
-                    .clipShape(RoundedRectangle(cornerRadius: 9))
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(source.name).font(.body).fontWeight(.medium)
-                        SourceDeviceStateMarks(source: source)
-                    }
-                    HStack(spacing: 4) {
-                        Text(source.type.displayName).fixedSize()
-                        if source.connectionConfiguration == nil,
-                           let summary = source.connectionSummary {
-                            Text("·").fixedSize()
-                            Text(summary).truncationMode(.middle)
-                        }
-                    }
-                    .font(.caption).foregroundStyle(.secondary)
-                    // The endpoint can be long enough to wrap onto three lines,
-                    // which pushed the trailing count badge out of alignment.
-                    // Keep the whole line to one row and truncate the URL only.
-                    .lineLimit(1)
-                    if source.type.isAwaitingPublicAPI {
-                        Label(source.type.subtitle, systemImage: "clock.badge.exclamationmark")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.orange)
-                    }
+        // 卡片只放三样:点进去是什么、三个数字、一行状态加一个主按钮。
+        // 其余(目录、线路、读取标签、本机移除、隐藏歌单、自动刷新)都在点进去的那一页。
+        return VStack(alignment: .leading, spacing: 12) {
+            Button {
+                openedSource = source
+            } label: {
+                VStack(alignment: .leading, spacing: 12) {
+                    sourceCardHeader(source)
+                    sourceCardMetrics(source, dirs: dirs)
                 }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    SourceSongCountBadge(sourceID: source.id, settledCount: source.songCount)
-                    if let size = sourceSizes[source.id], size > 0 {
-                        Text(cacheSizeDescription(knownBytes: size, unknownCount: 0))
-                            .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
-                    }
-                }
+                .contentShape(Rectangle())
             }
-
-            if source.connectionConfiguration != nil,
-               source.connectionCandidates.isEmpty == false {
-                SourceConnectionRouteStrip(
-                    source: source,
-                    activeKind: sourceManager.activeConnectionRoutes[source.id],
-                    lastSuccessfulKind: sourceManager.lastSuccessfulConnectionRoutes[source.id]
-                )
-            }
-
-            if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) {
-                SourceUnreachableNotice(source: source)
-            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sources.card.\(source.id)")
 
             if source.type == .googleDrive {
                 GoogleDriveAccessChangeNotice()
             }
 
-            if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
-                serverCatalogAutoRefreshControl(for: source)
-            }
-            if source.type == .tingReader {
-                TingReaderProgressSyncControls(source: source)
-            }
+            Divider()
 
-            if !dirs.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(dirs, id: \.self) { dir in
-                            let chip = Label(
-                                directoryDisplayName(for: dir, source: source),
-                                systemImage: "folder.fill"
-                            )
-                            .font(.caption2)
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(Color.blue.opacity(0.1))
-                            .foregroundStyle(.blue)
-                            .clipShape(Capsule())
-                            // 刚选完目录的用户就停在这张卡片上，按文件夹听歌的
-                            // 入口原本只在资料库那一侧，这里把它接回来。来源
-                            // 还没扫出歌时点进去只会是空列表，保持静态。
-                            if !hasPlayableSongs {
-                                chip
-                            } else {
-                                Button { browsingFoldersSource = source } label: { chip }
-                                    .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-                .pmStopsAtVerticalBar()
-            }
-
-            SourceScanStateReader(sourceID: source.id) { scanning in
-                if let failureMessage = scanning?.failureMessage, !failureMessage.isEmpty {
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack(spacing: 8) {
-                            Label("notify_scan_failed_title", systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.red)
-                            Spacer(minLength: 8)
-                            if source.type == .synologyAudioStation {
-                                // 设备令牌失效后后台登录会卡在两步验证上,只有这里能再输一次验证码。
-                                Button {
-                                    connectingSource = source
-                                } label: {
-                                    Label("audio_station_sign_in", systemImage: "person.badge.key")
-                                        .font(.caption2.weight(.semibold))
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(Color.accentColor)
-                            }
-                            Button {
-                                diagnosingSource = source
-                            } label: {
-                                Label("source_diagnostics_short", systemImage: "stethoscope")
-                                    .font(.caption2.weight(.semibold))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(Color.accentColor)
-                        }
-                        Text(failureMessage)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.red.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(Color.red.opacity(0.14), lineWidth: 0.8)
-                    }
-                    .pmFadeTransition(motion: .list)
-                }
-            }
-
-            SourceScanStateReader(sourceID: source.id) { scanning in
-                if let reconciliationMessage = scanning?.reconciliationMessage,
-                   !reconciliationMessage.isEmpty {
-                    Label {
-                        Text(reconciliationMessage)
-                            .font(.caption2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } icon: {
-                        Image(systemName: "checkmark.shield.fill")
-                    }
-                    .foregroundStyle(.orange)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-                    .pmFadeTransition(motion: .list)
-                }
-            }
-
-            SourceScanStateReader(sourceID: source.id) { scanning in
-                // 只在真正扫描时显示进度。没扫完而停着时，扫描按钮本身已经写着「继续扫描」，
-                // 启动和回到前台也会自动接着扫，不再另挂一句「上次扫描已中断」。
-                if let scan = scanning, scan.isScanning {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if scan.totalCount > 0 {
-                            ProgressView(value: min(scan.progress, 1.0)).tint(.accentColor)
-                            HStack {
-                                Text(scan.currentFile)
-                                    .lineLimit(1).truncationMode(.middle)
-                                Spacer(minLength: 8)
-                                Text("\(scan.scannedCount)/\(scan.totalCount)").monospacedDigit()
-                            }
-                            .font(.caption2).foregroundStyle(.secondary)
-                        } else {
-                            // An indeterminate spinner on its own row left the
-                            // trailing count stranded on the next line. Keep the
-                            // spinner, the current file and the count on one row.
-                            HStack(spacing: 8) {
-                                ProgressView().scaleEffect(0.7).tint(.accentColor)
-                                Text(scan.currentFile)
-                                    .lineLimit(1).truncationMode(.middle)
-                                Spacer(minLength: 8)
-                                Text(String(format: String(localized: "new_songs_added"), scan.addedCount))
-                                    .monospacedDigit()
-                            }
-                            .font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                } else if scanning?.failureMessage == nil,
-                          scanning?.reconciliationMessage == nil {
-                    SourceMetadataStatusCard(sourceID: source.id, openDetails: {
-                        inspectingMetadataSource = source
-                    }) {
-                        EmptyView()
-                    }
-                }
-            }
-
-            localRemovalsButton(source)
-            hiddenPlaylistsButton(source)
-
-            // 整源缓存的计数每下完一首就变,单独一小块去订阅,不让整张卡片跟着重建。
-            SourceCacheTallyReader(sourceID: source.id) { tally, inFlightBytes in
-                if let tally {
-                    sourceCacheProgressView(SourceCacheProgressState(tally: tally, inFlightBytes: inFlightBytes))
-                } else if let progress = sourceCacheProgress(
-                    for: source,
-                    hasExplicitBatch: isSourceCaching
-                ) {
-                    sourceCacheProgressView(progress)
-                }
-            }
-
-            #if os(iOS)
-            if isManagedLocalImportSource(source),
-               localImportTargetSource?.id == source.id,
-               let localImportProgress {
-                localImportProgressView(localImportProgress)
-            }
-            #endif
-
-            if source.type == .appleMusic {
-                // 设置搜索里搜 "Apple Music" 落到这儿 —— 授权与同步都在这一行上,
-                // iOS 不再有单独的 Apple Music 设置页可跳。
-                appleMusicSyncStatus.settingsAnchor("sources.appleMusic")
-                #if os(iOS)
-                if appleMusic.authState == .authorized, source.isEnabled {
-                    // 系统选歌器能浏览整个 Apple Music 目录,比 Primuse 自己的搜索
-                    // 覆盖面大。选中的歌先进用户的 Apple Music 资料库,再走正常同步。
-                    // macOS 上没有这个入口:`musicPicker` 在 Mac 被标成 unavailable。
-                    AppleMusicCatalogPickerButton {
-                        appleMusicLibrary.sync()
-                    }
-                }
-                #endif
-            }
-
-            HStack(spacing: 10) {
-                if source.type == .appleMusic {
-                    // Apple Music 走 ApplicationMusicPlayer, 没有目录/体检概念。
-                    // 同步就是这个源的"扫描", 所以直接摆在行内, 跟别的源一致。
-                    // 授权也在这一行里要回来 —— 它是这个源唯一的连接步骤, 不值得
-                    // 为它单开一个只有"授权 + 同步"的设置页。
-                    if appleMusic.authState == .authorized {
-                        sourceActionButton(
-                            appleMusicSyncTitle,
-                            systemImage: "arrow.triangle.2.circlepath",
-                            prominence: .success,
-                            isLoading: isAppleMusicSyncing,
-                            isDisabled: isAppleMusicSyncing || !source.isEnabled
-                        ) {
-                            appleMusicLibrary.sync()
-                        }
-                    } else {
-                        appleMusicAuthorizationButton
-                    }
-                } else if source.type == .local {
-                    #if os(iOS)
-                    if isManagedLocalImportSource(source) {
-                        let isImportingHere = localImportTargetSource?.id == source.id
-                            && localImportProgress != nil
-                        sourceActionButton(
-                            "local_import_copy_title",
-                            systemImage: "square.and.arrow.down.on.square",
-                            prominence: .accent,
-                            isLoading: isImportingHere,
-                            isDisabled: localImportProgress != nil
-                        ) {
-                            presentExistingLocalImport(for: source)
-                        }
-                    }
-                    #endif
-
-                    SourceScanStateReader(sourceID: source.id) { scanning in
-                        sourceActionButton(
-                            scanning?.canResume == true ? "resume_scan" : "scan",
-                            systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
-                            prominence: .success,
-                            isDisabled: scanning?.isScanning == true
-                        ) {
-                            startSourceScan(source)
-                        }
-                    }
-                } else if source.type.scansEntireLibrary {
-                    // 整库来源直接扫描，无需再选目录。macOS Local 的范围已由
-                    // 用户选定的 basePath 确定。
-                    sourceCacheButton(
-                        source,
-                        title: cacheButtonTitle,
-                        isBusy: isSourceCacheBusy,
-                        isCaching: isSourceCaching,
-                        isDisabled: !hasPlayableSongs || isAnotherSourceCaching
-                    )
-
-                    SourceScanStateReader(sourceID: source.id) { scanning in
-                        sourceActionButton(
-                            scanning?.canResume == true ? "resume_scan" : "scan",
-                            systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
-                            prominence: .success,
-                            isDisabled: scanning?.isScanning == true
-                        ) {
-                            startSourceScan(source)
-                        }
-                    }
-                } else {
-                    sourceActionButton(
-                        dirs.isEmpty ? "connect_select_dirs" : "manage_dirs",
-                        systemImage: dirs.isEmpty ? "link" : "folder.badge.gear",
-                        prominence: dirs.isEmpty ? .accent : .neutral
-                    ) {
-                        connectingSource = source
-                    }
-
-                    sourceCacheButton(
-                        source,
-                        title: cacheButtonTitle,
-                        isBusy: isSourceCacheBusy,
-                        isCaching: isSourceCaching,
-                        isDisabled: !hasPlayableSongs || isAnotherSourceCaching
-                    )
-
-                    if !dirs.isEmpty {
-                        SourceScanStateReader(sourceID: source.id) { scanning in
-                            sourceActionButton(
-                                scanning?.canResume == true ? "resume_scan" : "scan",
-                                systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
-                                prominence: .success,
-                                isDisabled: scanning?.isScanning == true
-                            ) {
-                                startSourceScan(source)
-                            }
-                        }
-                    }
-                }
-            }
+            sourceCardFooter(source, dirs: dirs, isSourceCaching: isSourceCaching)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .id(source.id)
         .opacity(source.isEnabled ? 1.0 : 0.55)
+        .confirmationDialog(
+            String(format: String(localized: "source_cache_stop_title_format"), source.name),
+            isPresented: Binding(
+                get: { stopCachingSource?.id == source.id },
+                set: { if !$0 { stopCachingSource = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("source_cache_stop_action", role: .destructive) {
+                sourceManager.cancelSourceOfflineCache(sourceID: source.id)
+                stopCachingSource = nil
+            }
+            Button("cancel", role: .cancel) { stopCachingSource = nil }
+        } message: {
+            Text("source_cache_stop_message")
+        }
         .contextMenu {
-            // Apple Music 没有 edit / diagnose 概念 ── 两者都依赖 connector。
-            // 但它跟其它音乐源一样可以移除:移除即取消授权同步并清掉同步产物。
-            let isSystemSource = source.id == AppleMusicLibraryService.systemSourceID
-            let canBrowseFolders = hasPlayableSongs
-            // 「禁用/启用」永远在, 另外两个各有条件; 只剩它一个时横排会变成
-            // 一个键占满整行, 那还不如老老实实排一行。
-            let usesQuickRow = canBrowseFolders || !isSystemSource
-
-            if usesQuickRow {
-                PMMenuQuickActions {
-                    if canBrowseFolders {
-                        Button { browsingFoldersSource = source } label: {
-                            Label("library_browse_folder", systemImage: "folder")
-                        }
-                    }
-                    if !isSystemSource {
-                        Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
-                    }
-                    sourceEnableToggleButton(source)
-                }
-            } else {
-                sourceEnableToggleButton(source)
-            }
-
-            if !isSystemSource {
-                Section {
-                    if source.type == .synologyAudioStation {
-                        Button { connectingSource = source } label: {
-                            Label("audio_station_sign_in", systemImage: "person.badge.key")
-                        }
-                    }
-                    Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
-                    if source.type.scansEntireLibrary || !dirs.isEmpty {
-                        Button {
-                            startSourceScan(source, mode: .deep)
-                        } label: {
-                            Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
-                        }
-                        // 长按菜单是独立宿主, 不往里塞读 `@Environment` 的子视图;
-                        // 这份集合只在"开始扫/扫完"时翻面, 读它不会把卡片拖进
-                        // 每帧进度的重算里。
-                        .disabled(scanService.scanningSourceIDs.contains(source.id))
-                    }
-                }
-            }
-
-            // 破坏性动作单独成段落在最后。
-            Section {
-                Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
-            }
+            sourceCardMenu(
+                source,
+                dirs: dirs,
+                hasPlayableSongs: hasPlayableSongs,
+                cachePresentation: cachePresentation
+            )
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
@@ -1305,6 +1001,429 @@ struct SourcesContentView: View {
                 )
             }
             .tint(source.isEnabled ? .gray : .green)
+        }
+    }
+
+    private func sourceCardHeader(_ source: MusicSource) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: source.type.iconName)
+                .font(.title3).foregroundStyle(.white)
+                .frame(width: 42, height: 42)
+                .background(source.isEnabled ? source.type.brandTint.gradient : Color.gray.gradient)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(source.name).font(.body).fontWeight(.semibold).lineLimit(1)
+                    SourceDeviceStateMarks(source: source)
+                }
+                HStack(spacing: 4) {
+                    Text(source.type.displayName).fixedSize()
+                    if source.connectionConfiguration == nil,
+                       let summary = source.connectionSummary {
+                        Text("·").fixedSize()
+                        Text(summary).truncationMode(.middle)
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .lineLimit(1)
+                if source.type.isAwaitingPublicAPI {
+                    Label(source.type.subtitle, systemImage: "clock.badge.exclamationmark")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.orange)
+                }
+            }
+            Spacer(minLength: 8)
+            HStack(spacing: 3) {
+                Text(sourceCardOpenHint(for: source))
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(.secondary)
+            .fixedSize()
+        }
+    }
+
+    private func sourceCardOpenHint(for source: MusicSource) -> LocalizedStringKey {
+        if SourceFileBrowserPolicy.browsesFiles(source.type) { return "source_card_open_files" }
+        if source.type == .appleMusic { return "source_card_open_library" }
+        return "source_card_open_manage"
+    }
+
+    /// 三个数字:歌曲数,加上这类源最用得上的两项。
+    @ViewBuilder
+    private func sourceCardMetrics(_ source: MusicSource, dirs: [String]) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            SourceSongCountMetric(sourceID: source.id, settledCount: source.songCount)
+            if source.type == .appleMusic {
+                SourceMetricTile(
+                    value: appleMusicLastSyncedAt.map(SourceDateText.relative) ?? "—",
+                    label: String(localized: "source_card_metric_last_sync")
+                )
+            } else if SourceFileBrowserPolicy.browsesFiles(source.type), !source.type.scansEntireLibrary {
+                SourceMetricTile(
+                    value: sourceCardDirectoryCount(dirs),
+                    label: String(localized: "source_card_metric_folders")
+                )
+            } else if source.type.category == .mediaServer,
+                      AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
+                SourceMetricTile(
+                    value: sourceCardAutoRefreshText(source),
+                    label: String(localized: "source_card_metric_auto_refresh")
+                )
+            }
+            if source.type != .appleMusic {
+                SourceMetricTile(
+                    value: sourceSizes[source.id].map(SourceByteText.string) ?? "—",
+                    label: String(localized: "source_card_metric_storage")
+                )
+            }
+        }
+    }
+
+    private func sourceCardDirectoryCount(_ dirs: [String]) -> String {
+        if dirs.isEmpty { return "—" }
+        if dirs.contains(where: SourceDirectorySelectionPolicy.isRootPath) {
+            return String(localized: "source_card_metric_all_folders")
+        }
+        return dirs.count.formatted()
+    }
+
+    private func sourceCardAutoRefreshText(_ source: MusicSource) -> String {
+        let refresh = AppServices.shared.serverCatalogAutoRefresh
+        guard refresh.isEnabled(for: source.id) else {
+            return String(localized: "source_card_metric_off")
+        }
+        return Duration.seconds(refresh.refreshInterval(for: source.id).timeInterval)
+            .formatted(.units(allowed: [.hours], width: .abbreviated))
+    }
+
+    private var appleMusicLastSyncedAt: Date? {
+        if case .done(_, let at) = appleMusicLibrary.state { return at }
+        return appleMusicLibrary.syncHistory.previousCompletedAt
+    }
+
+    /// 底部:一行状态加一个主按钮。出错、扫描、下载时这一行就是它们,卡片高度不变。
+    @ViewBuilder
+    private func sourceCardFooter(_ source: MusicSource, dirs: [String], isSourceCaching: Bool) -> some View {
+        SourceScanStateReader(sourceID: source.id) { scanning in
+            HStack(alignment: .center, spacing: 12) {
+                sourceCardStatus(source, dirs: dirs, scanning: scanning, isSourceCaching: isSourceCaching)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                sourceCardPrimaryAction(source, dirs: dirs, scanning: scanning)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sourceCardStatus(
+        _ source: MusicSource,
+        dirs: [String],
+        scanning: ScanService.ScanState?,
+        isSourceCaching: Bool
+    ) -> some View {
+        if let failure = scanning?.failureMessage, !failure.isEmpty {
+            Label {
+                Text(failure).lineLimit(2)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+            }
+            .font(.caption)
+            .foregroundStyle(.red)
+        } else if let scan = scanning, scan.isScanning {
+            VStack(alignment: .leading, spacing: 4) {
+                if scan.totalCount > 0 {
+                    ProgressView(value: min(scan.progress, 1.0)).tint(.accentColor)
+                }
+                HStack(spacing: 6) {
+                    if scan.totalCount == 0 {
+                        ProgressView().controlSize(.mini)
+                    }
+                    Text(scan.currentFile.isEmpty ? String(localized: "scanning") : scan.currentFile)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 4)
+                    Group {
+                        if scan.totalCount > 0 {
+                            Text(verbatim: "\(scan.scannedCount)/\(scan.totalCount)")
+                        } else {
+                            Text(String(format: String(localized: "new_songs_added"), scan.addedCount))
+                        }
+                    }
+                    .monospacedDigit()
+                }
+                .font(.caption2).foregroundStyle(.secondary)
+            }
+        } else if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) {
+            Label("source_card_status_unreachable", systemImage: "wifi.slash")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .lineLimit(2)
+        } else if let message = scanning?.reconciliationMessage, !message.isEmpty {
+            Label {
+                Text(message).lineLimit(2)
+            } icon: {
+                Image(systemName: "checkmark.shield.fill")
+            }
+            .font(.caption)
+            .foregroundStyle(.orange)
+        } else {
+            sourceCardIdleStatus(source, dirs: dirs, isSourceCaching: isSourceCaching)
+        }
+    }
+
+    @ViewBuilder
+    private func sourceCardIdleStatus(_ source: MusicSource, dirs: [String], isSourceCaching: Bool) -> some View {
+        if source.type == .appleMusic {
+            // 设置搜索里搜 "Apple Music" 落到这儿 —— 授权与同步都在这张卡片和它点进去的那一页。
+            Text(sourceCardSummary(source, dirs: dirs))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .settingsAnchor("sources.appleMusic")
+        } else {
+            sourceCardLocalOrCacheStatus(source, dirs: dirs, isSourceCaching: isSourceCaching)
+        }
+    }
+
+    @ViewBuilder
+    private func sourceCardLocalOrCacheStatus(_ source: MusicSource, dirs: [String], isSourceCaching: Bool) -> some View {
+        #if os(iOS)
+        if isManagedLocalImportSource(source),
+           localImportTargetSource?.id == source.id,
+           let localImportProgress {
+            localImportProgressView(localImportProgress)
+        } else {
+            sourceCardCacheOrSummary(source, dirs: dirs, isSourceCaching: isSourceCaching)
+        }
+        #else
+        sourceCardCacheOrSummary(source, dirs: dirs, isSourceCaching: isSourceCaching)
+        #endif
+    }
+
+    @ViewBuilder
+    private func sourceCardCacheOrSummary(_ source: MusicSource, dirs: [String], isSourceCaching: Bool) -> some View {
+        // 整源缓存的计数每下完一首就变,单独一小块去订阅,不让整张卡片跟着重建。
+        SourceCacheTallyReader(sourceID: source.id) { tally, inFlightBytes in
+            if let tally {
+                sourceCacheProgressView(SourceCacheProgressState(tally: tally, inFlightBytes: inFlightBytes))
+            } else if let progress = sourceCacheProgress(for: source, hasExplicitBatch: isSourceCaching) {
+                sourceCacheProgressView(progress)
+            } else {
+                Text(sourceCardSummary(source, dirs: dirs))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    private func sourceCardSummary(_ source: MusicSource, dirs: [String]) -> String {
+        if source.type == .appleMusic {
+            switch appleMusic.authState {
+            case .denied, .restricted:
+                return String(localized: "settings_apple_music_denied")
+            case .notDetermined, .authorized:
+                switch appleMusicLibrary.state {
+                case .idle: return String(localized: "apple_music_library_idle")
+                case .syncing: return String(localized: "apple_music_library_syncing")
+                case .failed(let message): return message
+                case .done(let count, _):
+                    return String(format: String(localized: "source_card_status_synced_format"), count)
+                }
+            }
+        }
+        if SourceFileBrowserPolicy.browsesFiles(source.type),
+           !source.type.scansEntireLibrary,
+           dirs.isEmpty {
+            return String(localized: "source_card_status_no_directories")
+        }
+        guard let lastScannedAt = source.lastScannedAt else {
+            return String(localized: "source_card_status_never_scanned")
+        }
+        return String(
+            format: String(localized: "source_card_status_last_scan_format"),
+            SourceDateText.relative(lastScannedAt)
+        )
+    }
+
+    /// 每张卡片只有一个主按钮:选目录、扫描、导入或同步。出错时换成体检。
+    @ViewBuilder
+    private func sourceCardPrimaryAction(
+        _ source: MusicSource,
+        dirs: [String],
+        scanning: ScanService.ScanState?
+    ) -> some View {
+        if let failure = scanning?.failureMessage, !failure.isEmpty,
+           source.id != AppleMusicLibraryService.systemSourceID {
+            if source.type == .synologyAudioStation {
+                // 设备令牌失效后后台登录会卡在两步验证上,只有这里能再输一次验证码。
+                sourceFooterButton("audio_station_sign_in", systemImage: "person.badge.key", prominence: .accent) {
+                    connectingSource = source
+                }
+            } else {
+                sourceFooterButton("source_diagnostics_short", systemImage: "stethoscope", prominence: .neutral) {
+                    diagnosingSource = source
+                }
+            }
+        } else if source.type == .appleMusic {
+            if appleMusic.authState == .authorized {
+                sourceFooterButton(
+                    "source_card_sync",
+                    systemImage: "arrow.triangle.2.circlepath",
+                    prominence: .success,
+                    isLoading: isAppleMusicSyncing,
+                    isDisabled: isAppleMusicSyncing || !source.isEnabled
+                ) {
+                    appleMusicLibrary.sync()
+                }
+            } else {
+                appleMusicAuthorizationButton
+            }
+        } else if isManagedLocalImportSource(source) {
+            #if os(iOS)
+            sourceFooterButton(
+                "source_card_import",
+                systemImage: "square.and.arrow.down.on.square",
+                prominence: .accent,
+                isLoading: localImportTargetSource?.id == source.id && localImportProgress != nil,
+                isDisabled: localImportProgress != nil
+            ) {
+                presentExistingLocalImport(for: source)
+            }
+            #endif
+        } else if SourceFileBrowserPolicy.browsesFiles(source.type),
+                  !source.type.scansEntireLibrary,
+                  dirs.isEmpty {
+            sourceFooterButton("source_files_choose_directories", systemImage: "folder.badge.plus", prominence: .accent) {
+                connectingSource = source
+            }
+        } else {
+            let isScanning = scanning?.isScanning == true
+            sourceFooterButton(
+                isScanning ? "scanning" : (scanning?.canResume == true ? "resume_scan" : "scan"),
+                systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
+                prominence: .success,
+                isLoading: isScanning,
+                isDisabled: isScanning || !source.isEnabled
+            ) {
+                startSourceScan(source)
+            }
+        }
+    }
+
+    /// 底部那颗胶囊按钮:按内容收窄,不撑满一行。
+    private func sourceFooterButton(
+        _ title: LocalizedStringKey,
+        systemImage: String,
+        prominence: SourceActionProminence,
+        isLoading: Bool = false,
+        isDisabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(sourceActionForeground(for: prominence))
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 32)
+            .foregroundStyle(sourceActionForeground(for: prominence))
+            .background(Capsule().fill(sourceActionBackground(for: prominence)))
+            .overlay(Capsule().strokeBorder(sourceActionStroke(for: prominence), lineWidth: 0.8))
+            .contentShape(Capsule())
+            .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled && !isLoading ? 0.55 : 1)
+    }
+
+    /// 长按卡片:常用的三个排一行,其余分段,删除单独放最后。
+    @ViewBuilder
+    private func sourceCardMenu(
+        _ source: MusicSource,
+        dirs: [String],
+        hasPlayableSongs: Bool,
+        cachePresentation: SourceCacheActivityPresentation
+    ) -> some View {
+        // Apple Music 没有 edit / diagnose 概念 ── 两者都依赖 connector。
+        // 但它跟其它音乐源一样可以移除:移除即取消授权同步并清掉同步产物。
+        let isSystemSource = source.id == AppleMusicLibraryService.systemSourceID
+        if isSystemSource {
+            sourceEnableToggleButton(source)
+        } else {
+            PMMenuQuickActions {
+                Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
+                Button { diagnosingSource = source } label: { Label("source_diagnostics_short", systemImage: "stethoscope") }
+                sourceEnableToggleButton(source)
+            }
+        }
+
+        Section {
+            if hasPlayableSongs {
+                Button { browsingFoldersSource = source } label: {
+                    Label("library_browse_folder", systemImage: "folder")
+                }
+            }
+            if !isSystemSource, !source.type.scansEntireLibrary, SourceFileBrowserPolicy.browsesFiles(source.type) {
+                Button { connectingSource = source } label: {
+                    Label("manage_dirs", systemImage: "folder.badge.gear")
+                }
+            }
+            if source.type == .synologyAudioStation {
+                Button { connectingSource = source } label: {
+                    Label("audio_station_sign_in", systemImage: "person.badge.key")
+                }
+            }
+            if !isSystemSource, source.type.scansEntireLibrary || !dirs.isEmpty {
+                Button {
+                    startSourceScan(source, mode: .deep)
+                } label: {
+                    Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+                }
+                // 长按菜单是独立宿主, 不往里塞读 `@Environment` 的子视图;
+                // 这份集合只在"开始扫/扫完"时翻面, 读它不会把卡片拖进
+                // 每帧进度的重算里。
+                .disabled(scanService.scanningSourceIDs.contains(source.id))
+            }
+            if !isSystemSource, hasPlayableSongs {
+                sourceCacheMenuButton(source, cachePresentation: cachePresentation)
+            }
+        }
+
+        // 破坏性动作单独成段落在最后。
+        Section {
+            Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
+        }
+    }
+
+    /// 「全部下载」。整源下载跑着时变成「停止下载」,点了问一句(#313)。
+    @ViewBuilder
+    private func sourceCacheMenuButton(_ source: MusicSource, cachePresentation: SourceCacheActivityPresentation) -> some View {
+        let canStop = cachePresentation.isCachingCurrentSource
+            && sourceManager.activeOfflineSourceCacheSourceIDs.contains(source.id)
+        if canStop {
+            Button(role: .destructive) { stopCachingSource = source } label: {
+                Label("source_cache_stop_action", systemImage: "stop.circle")
+            }
+        } else {
+            Button {
+                presentCacheConfirmation(for: source, songs: playableSongs(for: source))
+            } label: {
+                Label("source_cache_all_confirm", systemImage: "arrow.down.circle")
+            }
+            .disabled(cachePresentation.isCurrentSourceBusy || cachePresentation.isBlockedByAnotherSource)
         }
     }
 
@@ -1328,11 +1447,6 @@ struct SourcesContentView: View {
         return false
     }
 
-    private var appleMusicSyncTitle: LocalizedStringKey {
-        if case .done = appleMusicLibrary.state { return "apple_music_library_resync" }
-        return "apple_music_library_sync"
-    }
-
     /// 未授权时顶替同步按钮。添加这个源时已经过过一次授权, 会走到这里的是事后
     /// 在系统设置里撤回了授权的人 —— 留一个点了只会失败的"同步"没有意义, 直接
     /// 把授权要回来。`.notDetermined` 还能就地弹系统授权框; 被拒或被屏幕使用
@@ -1341,7 +1455,7 @@ struct SourcesContentView: View {
     private var appleMusicAuthorizationButton: some View {
         switch appleMusic.authState {
         case .notDetermined:
-            sourceActionButton(
+            sourceFooterButton(
                 "settings_apple_music_connect",
                 systemImage: "applelogo",
                 prominence: .accent,
@@ -1357,7 +1471,7 @@ struct SourcesContentView: View {
                 }
             }
         case .denied, .restricted:
-            sourceActionButton(
+            sourceFooterButton(
                 "open_system_settings",
                 systemImage: "gear",
                 prominence: .accent
@@ -1382,331 +1496,12 @@ struct SourcesContentView: View {
         #endif
     }
 
-    /// Apple Music 源的"扫描进度"—— 同步状态直接显示在卡片里, 不必再跳设置页。
-    @ViewBuilder
-    private var appleMusicSyncStatus: some View {
-        switch appleMusic.authState {
-        case .denied, .restricted:
-            // 授权被撤回后同步状态会停在上一次的结果上, 只显示它会让人以为是
-            // 同步本身出了问题 —— 先把真正卡住这个源的那件事说清楚。
-            Label(
-                String(localized: "settings_apple_music_denied"),
-                systemImage: "exclamationmark.triangle"
-            )
-            .font(.caption)
-            .foregroundStyle(.orange)
-        case .notDetermined, .authorized:
-            // 还没授权时同步状态就是"尚未同步", 与旁边的"连接 Apple Music"
-            // 按钮说的是同一件事, 不必再多一行警告。
-            appleMusicSyncStateLabel
-        }
-    }
-
-    @ViewBuilder
-    private var appleMusicSyncStateLabel: some View {
-        switch appleMusicLibrary.state {
-        case .idle:
-            Text("apple_music_library_idle")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        case .syncing:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("apple_music_library_syncing")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        case .done(let count, let at):
-            Label(
-                appleMusicSyncSummary(songCount: count, at: at),
-                systemImage: "checkmark.circle.fill"
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        case .failed(let message):
-            Label(message, systemImage: "exclamationmark.triangle")
-                .font(.caption)
-                .foregroundStyle(.red)
-        }
-    }
-
-    private func appleMusicSyncSummary(songCount: Int, at date: Date) -> String {
-        let summary = String(
-            format: String(localized: "apple_music_library_done_format"),
-            songCount,
-            Self.appleMusicSyncDateFormatter.string(from: date)
-        )
-        guard let previous = appleMusicLibrary.syncHistory.previousCompletedAt else { return summary }
-        return summary + " · " + String(localized: "last_synced") + " "
-            + Self.appleMusicSyncDateFormatter.string(from: previous)
-    }
-
-    private static let appleMusicSyncDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter
-    }()
-
-    private func serverCatalogAutoRefreshControl(for source: MusicSource) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Toggle(isOn: serverCatalogAutoRefreshBinding(for: source.id)) {
-                Text("server_auto_refresh")
-                    .font(.subheadline.weight(.semibold))
-            }
-            .toggleStyle(.switch)
-            .accessibilityLabel(Text("server_auto_refresh"))
-            .accessibilityHint(Text(LocalizedStringKey(source.type.isServerLibrary
-                ? "server_auto_refresh_description" : "source_auto_refresh_description")))
-
-            if AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id) {
-                Divider()
-                HStack {
-                    Text("source_auto_refresh_interval").font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Picker("source_auto_refresh_interval", selection: automaticRefreshIntervalBinding(for: source.id)) {
-                        ForEach(SourceAutomaticRefreshInterval.allCases, id: \.self) { interval in
-                            Text(Duration.seconds(interval.timeInterval), format: .units(allowed: [.hours], width: .wide))
-                                .tag(interval)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                }
-            }
-
-            if AppServices.shared.serverCatalogAutoRefresh.supportsServerScanRequest(source) {
-                Divider()
-
-                Toggle(isOn: serverCatalogScanOnLaunchBinding(for: source.id)) {
-                    Text("server_scan_on_launch")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .toggleStyle(.switch)
-                .disabled(!AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id))
-                .accessibilityLabel(Text("server_scan_on_launch"))
-                .accessibilityHint(Text("server_scan_on_launch_description"))
-            }
-
-            if AppServices.shared.serverCatalogAutoRefresh.supportsCatalogRemovalModeChoice(source) {
-                Divider()
-
-                // 卡片里不是 Form，菜单样式的 Picker 不显示自己的 label，标题单独摆。
-                HStack(spacing: 8) {
-                    SettingsInfoLabel("catalog_prune_mode_title") {
-                        Text("catalog_prune_mode_description")
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    Spacer(minLength: 8)
-                    Picker("catalog_prune_mode_title", selection: catalogRemovalModeBinding(for: source.id)) {
-                        Text("catalog_prune_mode_confirm").tag(ServerCatalogRemovalMode.confirmFirst)
-                        Text("catalog_prune_mode_immediate").tag(ServerCatalogRemovalMode.immediate)
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .accessibilityLabel(Text("catalog_prune_mode_title"))
-                    .accessibilityHint(Text("catalog_prune_mode_description"))
-                }
-            }
-        }
-        .padding(10)
-        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func automaticRefreshIntervalBinding(for sourceID: String) -> Binding<SourceAutomaticRefreshInterval> {
-        Binding(
-            get: { AppServices.shared.serverCatalogAutoRefresh.refreshInterval(for: sourceID) },
-            set: { AppServices.shared.serverCatalogAutoRefresh.setRefreshInterval($0, for: sourceID) }
-        )
-    }
-
-    private func catalogRemovalModeBinding(for sourceID: String) -> Binding<ServerCatalogRemovalMode> {
-        Binding(
-            get: {
-                AppServices.shared.serverCatalogAutoRefresh.catalogRemovalMode(for: sourceID)
-            },
-            set: { mode in
-                AppServices.shared.serverCatalogAutoRefresh.setCatalogRemovalMode(mode, for: sourceID)
-            }
-        )
-    }
-
-    private func serverCatalogAutoRefreshBinding(for sourceID: String) -> Binding<Bool> {
-        Binding(
-            get: {
-                AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: sourceID)
-            },
-            set: { enabled in
-                AppServices.shared.serverCatalogAutoRefresh.setEnabled(enabled, for: sourceID)
-            }
-        )
-    }
-
-    private func serverCatalogScanOnLaunchBinding(for sourceID: String) -> Binding<Bool> {
-        Binding(
-            get: {
-                AppServices.shared.serverCatalogAutoRefresh
-                    .isServerScanOnLaunchEnabled(for: sourceID)
-            },
-            set: { enabled in
-                AppServices.shared.serverCatalogAutoRefresh
-                    .setServerScanOnLaunchEnabled(enabled, for: sourceID)
-            }
-        )
-    }
-
-    @ViewBuilder
-    private func hiddenPlaylistsButton(_ source: MusicSource) -> some View {
-        let hidden = library.hiddenMirrorPlaylists(forSourceID: source.id)
-        if !hidden.isEmpty {
-            Button {
-                inspectingHiddenPlaylistsSource = source
-            } label: {
-                HStack(spacing: 10) {
-                    Label("hidden_source_playlists", systemImage: "eye.slash")
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
-                    Text(hidden.count.formatted()).monospacedDigit()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                }
-                .font(.subheadline)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("sources.hiddenPlaylists")
-        }
-    }
-
-    /// 只有这个源确实有"本机已移除、远端还在"的行时才出现。按账本内容判断
-    /// 而不是按源类型 —— WebDAV 类型上支持删除, 但具体挂载可能没权限, 按类型
-    /// 判断会漏掉最典型的那一种。
-    @ViewBuilder
-    private func localRemovalsButton(_ source: MusicSource) -> some View {
-        let count = library.locallyRemovedCount(forSourceID: source.id)
-        if count > 0 {
-            Button {
-                inspectingLocalRemovalsSource = source
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "arrow.uturn.backward.circle")
-                        .font(.caption)
-                    Text(verbatim: String(
-                        format: String(localized: "local_removals_source_row_format"),
-                        count
-                    ))
-                    .font(.caption.weight(.semibold))
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
-                }
-                .foregroundStyle(.secondary)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("local_removals_title"))
-        }
-    }
-
     // MARK: - Helpers
 
     private enum SourceActionProminence {
         case neutral
         case accent
         case success
-    }
-
-    /// 「缓存」按钮。整源缓存跑着时显示「缓存中」并转圈,点它问要不要停下来(#313);
-    /// 还在准备(读本地缓存状态)时不能点。
-    private func sourceCacheButton(
-        _ source: MusicSource,
-        title: LocalizedStringKey,
-        isBusy: Bool,
-        isCaching: Bool,
-        isDisabled: Bool
-    ) -> some View {
-        let canStop = isCaching && sourceManager.activeOfflineSourceCacheSourceIDs.contains(source.id)
-        return sourceActionButton(
-            title,
-            systemImage: "arrow.down.circle",
-            prominence: .accent,
-            isLoading: isBusy,
-            isDisabled: canStop ? false : (isBusy || isDisabled)
-        ) {
-            if canStop {
-                stopCachingSource = source
-            } else {
-                presentCacheConfirmation(for: source, songs: playableSongs(for: source))
-            }
-        }
-        .accessibilityHint(canStop ? Text("source_cache_stop_hint") : Text(verbatim: ""))
-        .confirmationDialog(
-            String(format: String(localized: "source_cache_stop_title_format"), source.name),
-            isPresented: Binding(
-                get: { stopCachingSource?.id == source.id },
-                set: { if !$0 { stopCachingSource = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("source_cache_stop_action", role: .destructive) {
-                sourceManager.cancelSourceOfflineCache(sourceID: source.id)
-                stopCachingSource = nil
-            }
-            Button("cancel", role: .cancel) { stopCachingSource = nil }
-        } message: {
-            Text("source_cache_stop_message")
-        }
-    }
-
-    private func sourceActionButton(
-        _ title: LocalizedStringKey,
-        systemImage: String,
-        prominence: SourceActionProminence = .neutral,
-        isLoading: Bool = false,
-        isDisabled: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(sourceActionForeground(for: prominence))
-                        .frame(width: 18, height: 18)
-                } else {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 14, weight: .semibold))
-                        .symbolRenderingMode(.hierarchical)
-                        .frame(width: 18, height: 18)
-                }
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                    .allowsTightening(true)
-            }
-            .frame(maxWidth: .infinity, minHeight: 38)
-            .padding(.horizontal, 8)
-            .foregroundStyle(sourceActionForeground(for: prominence))
-            .background {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(sourceActionBackground(for: prominence))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .strokeBorder(sourceActionStroke(for: prominence), lineWidth: 0.8)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .opacity(isDisabled && !isLoading ? 0.55 : 1)
     }
 
     #if os(iOS)
@@ -2805,6 +2600,14 @@ struct SourcesContentView: View {
 
 }
 
+#if DEBUG
+/// 调试启动钩子只点进去一次,返回来源页时不再自动打开。
+@MainActor
+enum SourcesDebugLaunch {
+    static var didOpenSource = false
+}
+#endif
+
 struct SourceDiagnosticsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SourceManager.self) private var sourceManager
@@ -3047,8 +2850,9 @@ struct SourceScanStateReader<Content: View>: View {
     }
 }
 
-/// 扫描中显示已扫到的首数, 扫完回到来源自己记的那个总数。
-private struct SourceSongCountBadge: View {
+/// 卡片上的歌曲数:扫描中显示已扫到的首数, 扫完回到来源自己记的那个总数。
+/// 只有这一小块订阅扫描进度, 卡片其余部分不跟着每帧重建。
+private struct SourceSongCountMetric: View {
     let sourceID: String
     let settledCount: Int
 
@@ -3061,12 +2865,7 @@ private struct SourceSongCountBadge: View {
         } else {
             settledCount
         }
-        if count > 0 {
-            Text("\(count)")
-                .font(.caption).fontWeight(.semibold).monospacedDigit()
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(.quaternary).clipShape(Capsule())
-        }
+        SourceMetricTile(value: count.formatted(), label: String(localized: "tab_songs"))
     }
 }
 

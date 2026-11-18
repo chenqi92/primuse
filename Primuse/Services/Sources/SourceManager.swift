@@ -11304,18 +11304,23 @@ final class SourceManager {
         }.value
     }
 
+    /// `onlySourceID` 不为 nil 时只看这一个源的子目录(音乐源 › 本源占用)。
     nonisolated private static func audioCacheBreakdown(
         basePath: URL,
         aliveSourceIDs: Set<String>,
         activeSessionPaths: Set<String>,
         pinnedRelativePaths: Set<String>,
-        protectedInFlightPaths: Set<String>
+        protectedInFlightPaths: Set<String>,
+        onlySourceID: String? = nil
     ) -> AudioCacheBreakdown {
         var result = AudioCacheBreakdown()
 
-        guard let subdirs = try? FileManager.default.contentsOfDirectory(
+        guard var subdirs = try? FileManager.default.contentsOfDirectory(
             at: basePath, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
         ) else { return result }
+        if let onlySourceID {
+            subdirs = subdirs.filter { $0.lastPathComponent == onlySourceID }
+        }
 
         // 先收集所有 .partial.prewarmed marker 路径, 后面判断 .partial 是否
         // 是「预热种子」时用。
@@ -12442,6 +12447,136 @@ final class SourceManager {
             return (freedBytes: freed, failedCount: failed)
         }.value
         plog("🧹 clearSourceFileCaches: freed \(result.freedBytes / 1024 / 1024)MB, failed=\(result.failedCount)")
+        return result
+    }
+
+    // MARK: - 一个源在本机的占用(音乐源 › 本源占用)
+
+    /// 「音乐源」里每个源自己的那份本机占用。封面、歌词、简介是各源共用的,
+    /// 没法按源分开,仍在「存储」里统一清理,不算在这里。
+    struct SourceStorageUsage: Sendable, Equatable {
+        var offlineDownloadBytes: Int64 = 0
+        var offlineDownloadSongCount = 0
+        /// 播过之后留下的缓存:整首的、没听完的片段与预热种子。离线下载不在里面。
+        var playbackCacheBytes: Int64 = 0
+        /// `playbackCacheBytes` 里没听完的片段与预热种子那部分。
+        var partialBytes: Int64 = 0
+        /// 正在播放、正在下载的那几首,现在清不掉。
+        var inUseBytes: Int64 = 0
+        /// 连接器整首下载下来的原文件、网盘与飞牛的封面。
+        var sourceFileBytes: Int64 = 0
+        var musicVideoBytes: Int64 = 0
+        /// 本机导入源:拷进 Primuse 的歌本身。不在这里清,在文件页里删。
+        var importedFileBytes: Int64 = 0
+
+        var totalBytes: Int64 {
+            offlineDownloadBytes + playbackCacheBytes + inUseBytes + sourceFileBytes + musicVideoBytes
+                + importedFileBytes
+        }
+    }
+
+    /// `songs` 是这个源在曲库里的歌,离线下载按它们对账。
+    func sourceStorageUsage(sourceID: String, songs: [Song]) async -> SourceStorageUsage {
+        var usage = SourceStorageUsage()
+        let offline = await offlineDownloadItems(in: songs)
+        usage.offlineDownloadSongCount = offline.count
+        usage.offlineDownloadBytes = offline.reduce(0) { $0 + $1.byteCount }
+
+        let caches = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        let basePath = caches.appendingPathComponent(Self.audioCacheDirName)
+        let activeSessionPaths = CloudPlaybackSource.activeSessionPaths()
+        let pinnedRelativePaths = await AudioCacheManager.shared.pinnedRelativePaths()
+        let protectedInFlightPaths = protectedInFlightAudioCachePaths(basePath: basePath)
+        let smbDirectory = Self.smbCacheDir.appendingPathComponent(sourceID, isDirectory: true)
+        let videoDirectory = caches.appendingPathComponent(Self.videoCacheDirName)
+            .appendingPathComponent(sourceID, isDirectory: true)
+        let importedDirectory = sourceID == LocalImportService.existingSourceID
+            ? LocalImportService.musicDirectory : nil
+        let measured = await Task.detached(priority: .utility) {
+            let audio = Self.audioCacheBreakdown(
+                basePath: basePath,
+                aliveSourceIDs: [sourceID],
+                activeSessionPaths: activeSessionPaths,
+                pinnedRelativePaths: pinnedRelativePaths,
+                protectedInFlightPaths: protectedInFlightPaths,
+                onlySourceID: sourceID
+            )
+            let smb = Self.allocatedFileBytes(under: smbDirectory)
+            var sourceFiles: Int64 = 0
+            for directory in Self.sourceFileCacheDirectories() where directory.sourceID == sourceID {
+                sourceFiles += Self.allocatedFileBytes(under: directory.url)
+            }
+            let video = Self.allocatedFileBytes(under: videoDirectory)
+            let imported = importedDirectory.map { Self.allocatedFileBytes(under: $0) } ?? 0
+            return (audio: audio, smb: smb, sourceFiles: sourceFiles, video: video, imported: imported)
+        }.value
+        usage.partialBytes = measured.audio.partialBytes + measured.audio.prewarmSeedBytes
+        usage.playbackCacheBytes = measured.audio.completedBytes + measured.smb + usage.partialBytes
+        usage.inUseBytes = measured.audio.activeBytes
+        usage.sourceFileBytes = measured.sourceFiles
+        usage.musicVideoBytes = measured.video
+        usage.importedFileBytes = measured.imported
+        return usage
+    }
+
+    /// 只清这个源播过留下的缓存;离线下载、正在播放和正在下载的照旧留着。
+    @discardableResult
+    func clearPlaybackCache(sourceID: String) async -> (freedBytes: Int64, failedCount: Int) {
+        let songIDs = Set(backgroundAudioCacheTasks.filter { $0.value.sourceID != sourceID }.keys)
+        cancelBackgroundAudioCaching(keeping: songIDs)
+        let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent(Self.audioCacheDirName)
+        let pinnedRelativePaths = await AudioCacheManager.shared.pinnedRelativePaths()
+        let protectedAbsolutePaths = protectedInFlightAudioCachePaths(basePath: basePath)
+        let refreshProtection = audioCacheProtectionRefresher(
+            basePath: basePath,
+            fallbackProtected: protectedAbsolutePaths
+        )
+        let directories = [
+            basePath.appendingPathComponent(sourceID, isDirectory: true),
+            Self.smbCacheDir.appendingPathComponent(sourceID, isDirectory: true),
+        ]
+        let result = await Task.detached(priority: .utility) {
+            await Self.removeUnpinnedAudioCacheFiles(
+                dirs: directories,
+                basePath: basePath,
+                removableDirPaths: [],
+                pinnedRelativePaths: pinnedRelativePaths,
+                protectedAbsolutePaths: protectedAbsolutePaths,
+                refreshProtection: refreshProtection
+            )
+        }.value
+        await AudioCacheManager.shared.clearUnpinnedAccessEntries(sourceID: sourceID)
+        plog("🧹 clearPlaybackCache source=\(sourceID.prefix(8))…: freed \(result.freedBytes / 1024 / 1024)MB, failed=\(result.failedCount)")
+        return result
+    }
+
+    @discardableResult
+    func clearSourceFileCache(sourceID: String) async -> (freedBytes: Int64, failedCount: Int) {
+        let result = await Task.detached(priority: .utility) {
+            var freed: Int64 = 0
+            var failed = 0
+            for directory in Self.sourceFileCacheDirectories() where directory.sourceID == sourceID {
+                let removed = Self.removeFiles(under: directory.url, protectedPaths: [])
+                freed += removed.freedBytes
+                failed += removed.failedCount
+            }
+            return (freedBytes: freed, failedCount: failed)
+        }.value
+        plog("🧹 clearSourceFileCache source=\(sourceID.prefix(8))…: freed \(result.freedBytes / 1024 / 1024)MB, failed=\(result.failedCount)")
+        return result
+    }
+
+    @discardableResult
+    func clearMusicVideoCache(sourceID: String) async -> (freedBytes: Int64, failedCount: Int) {
+        let directory = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent(Self.videoCacheDirName)
+            .appendingPathComponent(sourceID, isDirectory: true)
+        let protectedPaths = protectedVideoCachePaths(including: nil)
+        let result = await Task.detached(priority: .utility) {
+            Self.removeFiles(under: directory, protectedPaths: protectedPaths)
+        }.value
+        plog("🧹 clearMusicVideoCache source=\(sourceID.prefix(8))…: freed \(result.freedBytes / 1024 / 1024)MB, failed=\(result.failedCount)")
         return result
     }
 

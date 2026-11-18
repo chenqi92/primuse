@@ -39,6 +39,8 @@ struct OfflineDownloadRemovalRequest: Identifiable {
 struct OfflineDownloadsView: View {
     /// Mac 上以表单弹出, 需要自己的「完成」按钮。
     var showsDoneButton = false
+    /// 从「音乐源 › 本源占用」进来时只列这个源的离线下载。
+    var sourceID: String? = nil
 
     @Environment(SourceManager.self) private var sourceManager
     @Environment(MusicLibrary.self) private var library
@@ -446,7 +448,8 @@ struct OfflineDownloadsView: View {
     }
 
     private func reload() async {
-        let loaded = await sourceManager.offlineDownloadItems(in: library.songs)
+        let songs = sourceID.map { id in library.songs.filter { $0.sourceID == id } } ?? library.songs
+        let loaded = await sourceManager.offlineDownloadItems(in: songs)
         guard !Task.isCancelled else { return }
         items = loaded
         selection.formIntersection(Set(loaded.map(\.id)))
