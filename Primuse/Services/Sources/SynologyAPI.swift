@@ -546,11 +546,13 @@ actor SynologyAPI {
         try confirmedResponse(responseData, operation: "Upload")
     }
 
-    func moveFile(
+    func transferFile(
         at sourcePath: String,
         toDirectory destinationDirectory: String,
-        overwrite: Bool
+        overwrite: Bool,
+        removeSource: Bool
     ) async throws {
+        let operation = removeSource ? "Move" : "Copy"
         guard let sid else { throw SynologyError.notLoggedIn }
         let pathJSON = try jsonString([sourcePath])
         let data = try await request(path: "/webapi/entry.cgi", params: [
@@ -560,16 +562,16 @@ actor SynologyAPI {
             "path": pathJSON,
             "dest_folder_path": destinationDirectory.isEmpty ? "/" : destinationDirectory,
             "overwrite": overwrite ? "true" : "false",
-            "remove_src": "true",
+            "remove_src": removeSource ? "true" : "false",
             "accurate_progress": "true",
             "_sid": sid,
         ], usePost: true)
-        let taskID = try startedTaskID(responseData: data, operation: "Move")
+        let taskID = try startedTaskID(responseData: data, operation: operation)
         try await waitForTask(
             api: "SYNO.FileStation.CopyMove",
             version: "3",
             taskID: taskID,
-            operation: "Move"
+            operation: operation
         )
     }
 

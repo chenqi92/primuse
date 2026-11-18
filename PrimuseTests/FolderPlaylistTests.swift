@@ -97,6 +97,8 @@ final class FolderPlaylistTests: XCTestCase {
         try encoder.encode(["source": checkpoint]).write(to: storage.appendingPathComponent("scan-checkpoints.json"))
         let fileManager = FolderPlaylistTestFileManager(root: root)
         let scan = ScanService(fileManager: fileManager)
+        scan.automaticScansAllowed = { true }
+        await scan.whenStartupStateReady()
         XCTAssertTrue(scan.hasResumableScanWork)
         let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
         library.addSongs([original, other], affectedSourceIDs: ["source"])
@@ -109,6 +111,8 @@ final class FolderPlaylistTests: XCTestCase {
         XCTAssertEqual(library.song(id: original.id)?.filePath, "99")
         XCTAssertNotNil(library.song(id: other.id), "Retargeting one row must not prune the source")
         let reopened = ScanService(fileManager: fileManager)
+        reopened.automaticScansAllowed = { true }
+        await reopened.whenStartupStateReady()
         XCTAssertFalse(reopened.hasResumableScanWork)
         let persistedIndex = reopened.libraryFolderSyncIndex(for: "source")
         XCTAssertNil(persistedIndex["42"])
@@ -176,6 +180,8 @@ final class FolderPlaylistTests: XCTestCase {
     func testCancellingScanUsesCurrentCheckpointForResumeEligibility() async throws {
         for discardCheckpoint in [false, true] {
             let fixture = try makeDirectoryScanFixture(missingPaths: [], pausedPaths: ["/Music"])
+            fixture.scan.automaticScansAllowed = { true }
+            await fixture.scan.whenStartupStateReady()
             fixture.library.addSongs([song("kept")], affectedSourceIDs: [fixture.source.id])
             XCTAssertTrue(fixture.start())
             let deadline = Date().addingTimeInterval(5)
@@ -407,7 +413,7 @@ final class FolderPlaylistTests: XCTestCase {
         XCTAssertNil(replaced.albumTitle)
     }
 
-    func testDirectoryPickerRescanStartsAtTheNamedFolderOrItsNearestKnownParent() async throws {
+    func testDirectoryPickerRescanStartsAtTheNamedFolderEvenBeforeDiscovery() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("PickerRescan-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let source = MusicSource(id: "source", name: "NAS", type: .webdav, extraConfig: "[\"/Music\"]")
@@ -455,28 +461,99 @@ final class FolderPlaylistTests: XCTestCase {
         XCTAssertEqual(Set(library.songs.map(\.filePath)),
                        ["/Music/A/a1.mp3", "/Music/A/Disc/d1.mp3", "/Music/A/Disc/d2.mp3", "/Music/B/b1.mp3"])
 
-        // 服务器上新建、还没扫进索引的目录：从最近一层已知的上级 A 往下列。
+        // 新目录和它的平级目录同时变化。只点 CD2，另两个目录的变更留给以后扫描。
         await connector.replaceListings([
             "/Music": [dir("/Music/A"), dir("/Music/B")],
-            "/Music/A": [file("/Music/A/a1.mp3"), dir("/Music/A/Disc"), dir("/Music/A/New")],
+            "/Music/A": [file("/Music/A/a1.mp3"), dir("/Music/A/Disc"), dir("/Music/A/CD2"), file("/Music/A/unsolicited.mp3")],
             "/Music/A/Disc": [file("/Music/A/Disc/d1.mp3"), file("/Music/A/Disc/d2.mp3")],
-            "/Music/A/New": [file("/Music/A/New/n1.mp3")],
+            "/Music/A/CD2": [file("/Music/A/CD2/n1.mp3")],
             "/Music/B": [file("/Music/B/b1.mp3"), file("/Music/B/b2.mp3")],
         ])
         XCTAssertTrue(scan.rescanFolder(
             of: source,
-            request: SourceFolderRescanRequest(directoryCandidates: ["/Music/A/New", "/Music/A", "/Music", "/"]),
+            request: SourceFolderRescanRequest(directoryCandidates: ["/Music/A/CD2", "/Music/A", "/Music", "/"]),
             sourceManager: manager, library: library, sourceStore: store
         ))
         await scan.waitForActiveScansToComplete()
         XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
         listed = await connector.listedPaths
-        XCTAssertEqual(listed.first, "/Music/A")
-        XCTAssertEqual(Set(listed), ["/Music/A", "/Music/A/Disc", "/Music/A/New"])
+        XCTAssertEqual(listed, ["/Music/A/CD2"])
         XCTAssertEqual(Set(library.songs.map(\.filePath)), [
             "/Music/A/a1.mp3", "/Music/A/Disc/d1.mp3", "/Music/A/Disc/d2.mp3",
-            "/Music/A/New/n1.mp3", "/Music/B/b1.mp3",
+            "/Music/A/CD2/n1.mp3", "/Music/B/b1.mp3",
         ])
+    }
+
+    func testFirstFolderRescanLeavesOtherSongsAndPausedFullScanUntouched() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = root.appendingPathComponent("Primuse")
+        try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
+        let source = MusicSource(id: "source", name: "Drive", type: .pan115, extraConfig: "[\"music-id\"]")
+        let outside = Song(id: "already-present", title: "Outside", fileFormat: .mp3,
+                           filePath: "sibling-song-id", sourceID: source.id)
+        let staged = Song(id: "pending-song", title: "Staged", fileFormat: .mp3,
+                          filePath: "new-sibling-id", sourceID: source.id)
+        let checkpoint = ScanCheckpoint(
+            phase: .scanning, intent: .fullScan, directories: ["music-id"], songs: [staged], totalCount: 9,
+            currentFile: "Staged", updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            scopeFingerprint: ScanService.scopeFingerprint(for: source, directories: ["music-id"]),
+            isPausedByUser: true
+        )
+        let checkpointURL = storage.appendingPathComponent("scan-checkpoints.json")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let checkpointData = try encoder.encode([source.id: checkpoint])
+        try checkpointData.write(to: checkpointURL)
+        let connector = FolderPlaylistTestConnector(missingPaths: [], listings: [
+            "album-id": [RemoteFileItem(name: "Disc", path: "disc-id", isDirectory: true, size: 0,
+                                        modifiedDate: nil, providerID: "disc-id", parentPath: "album-id")],
+            "disc-id": [RemoteFileItem(name: "Track.mp3", path: "track-id", isDirectory: false, size: 42,
+                                       modifiedDate: nil, providerID: "track-id", parentPath: "disc-id")]
+        ], pausedPaths: ["album-id"])
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        library.addSongs([outside], affectedSourceIDs: [source.id])
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let scan = ScanService(
+            fileManager: FolderPlaylistTestFileManager(root: root), connectorProvider: { _ in connector },
+            diagnosticProvider: { source, directories in
+                XCTAssertEqual(directories, ["album-id"])
+                return SourceDiagnosticReport(source: source, startedAt: Date(), checks: [])
+            }
+        )
+        scan.automaticScansAllowed = { true }
+        await scan.whenStartupStateReady()
+        XCTAssertEqual(scan.scanStates[source.id]?.canResume, true)
+        XCTAssertFalse(scan.hasResumableScanWork)
+        XCTAssertTrue(scan.rescanFolder(
+            of: source, request: SourceFolderRescanRequest(directoryCandidates: ["album-id", "music-id", "/"]),
+            sourceManager: SourceManager(sourcesProvider: { [] }), library: library, sourceStore: store
+        ))
+        let deadline = Date().addingTimeInterval(5)
+        while await !connector.isWaiting, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let isWaiting = await connector.isWaiting
+        XCTAssertTrue(isWaiting)
+        let imported = Song(id: "another-import", title: "Imported", fileFormat: .mp3,
+                            filePath: "other-import-id", sourceID: source.id)
+        var updated = outside
+        updated.title = "Edited during scan"
+        library.replaceSongs([updated])
+        library.addSongs([imported], affectedSourceIDs: [source.id], pruneMissingSongs: false)
+        await connector.release()
+        await scan.waitForActiveScansToComplete()
+
+        let listed = await connector.listedPaths
+        XCTAssertEqual(listed, ["album-id", "disc-id"])
+        XCTAssertEqual(Set(library.songs.map(\.filePath)), [outside.filePath, imported.filePath, "track-id"])
+        XCTAssertEqual(library.song(id: outside.id)?.title, updated.title)
+        XCTAssertEqual(store.source(id: source.id)?.songCount, 3)
+        XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        XCTAssertEqual(scan.scanStates[source.id]?.canResume, true)
+        XCTAssertEqual(scan.scanStates[source.id]?.totalCount, 9)
+        XCTAssertEqual(try Data(contentsOf: checkpointURL), checkpointData)
     }
 
     func testFolderRescanOfARemovedFolderWalksUpFromASong() async throws {
@@ -650,6 +727,7 @@ private actor FolderPlaylistTestConnector: MusicSourceConnector {
     let listings: [String: [RemoteFileItem]]
     let pausedPaths: Set<String>
     private(set) var listCount = 0
+    private(set) var listedPaths: [String] = []
     private(set) var isWaiting = false
     private var released = false
 
@@ -661,6 +739,7 @@ private actor FolderPlaylistTestConnector: MusicSourceConnector {
     func disconnect() async { }
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         listCount += 1
+        listedPaths.append(path)
         if pausedPaths.contains(path) {
             isWaiting = true
             while !released { try await Task.sleep(for: .milliseconds(10)) }

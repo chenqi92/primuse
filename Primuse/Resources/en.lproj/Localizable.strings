@@ -1831,6 +1831,7 @@
 "sources_count_format" = "%d sources";
 "songs_count_inline" = "songs";
 "source_state_online" = "Online";
+"source_state_offline" = "Offline";
 "source_state_attention" = "Needs attention";
 "sources_attention_banner_title" = "%d source(s) need attention";
 "source_synced_ago_format" = "Synced %@";
@@ -7399,6 +7400,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "Files";
+"source_card_mac_files" = "Files";
+"source_card_song_count %lld" = "^[%lld song](inflect: true)";
 "source_card_open_manage" = "Manage";
 "source_card_open_library" = "Library";
 "source_card_metric_folders" = "Scan folders";
@@ -7543,5 +7546,6 @@
 "source_move_outside_scope" = "This folder isn’t in the scan scope. Songs moved here leave your library after the next scan.";
 "source_move_no_subfolders" = "No folders here";
 "source_move_error_destination" = "It can’t move into itself or back where it already is.";
+"source_move_error_cue" = "This file can’t be moved separately from its CUE sheet. Move the folder instead.";
 "source_moved_format" = "Moved to “%@”";
 "server_admin_disabled" = "Disabled";

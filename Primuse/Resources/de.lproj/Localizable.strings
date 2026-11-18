@@ -263,6 +263,7 @@
 "update_banner_subtitle" = "Im App Store aktualisieren";
 "update_banner_action" = "Aktualisieren";
 "source_state_online" = "Online";
+"source_state_offline" = "Offline";
 "source_state_attention" = "Aktion erforderlich";
 "sources_attention_banner_title" = "%d Quelle(n) erfordern Aktion";
 "source_synced_ago_format" = "Synchronisiert %@";
@@ -7638,6 +7639,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "Dateien";
+"source_card_mac_files" = "Dateien";
+"source_card_song_count %lld" = "Titel: %lld";
 "source_card_open_manage" = "Verwalten";
 "source_card_open_library" = "Mediathek";
 "source_card_metric_folders" = "Scan-Ordner";
@@ -7782,5 +7785,6 @@
 "source_move_outside_scope" = "Dieser Ordner liegt nicht im Scan-Bereich. Hierher verschobene Titel verschwinden nach dem nächsten Scan aus der Mediathek.";
 "source_move_no_subfolders" = "Hier gibt es keine Ordner";
 "source_move_error_destination" = "Ein Element kann nicht in sich selbst oder an denselben Ort verschoben werden.";
+"source_move_error_cue" = "Diese Datei kann nicht getrennt von ihrem CUE-Sheet verschoben werden. Verschiebe den gesamten Ordner.";
 "source_moved_format" = "Nach „%@“ verschoben";
 "server_admin_disabled" = "Deaktiviert";

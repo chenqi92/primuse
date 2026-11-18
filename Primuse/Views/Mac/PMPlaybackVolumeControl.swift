@@ -99,7 +99,7 @@ struct PMPlaybackVolumeSlider: View {
 
         PMVolumeSlider(
             value: Binding(
-                get: { state.displayValue },
+                snapshot: state.displayValue,
                 set: { write($0, target: state.target) }
             ),
             isEnabled: state.target.isAdjustable,

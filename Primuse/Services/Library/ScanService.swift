@@ -108,7 +108,7 @@ struct SourceFolderRescanRequest: Sendable, Equatable {
         /// 资料库「文件夹」页：文件夹里一首歌当锚点，再往上几层（见 `LibraryFolderRescanAnchor`）。
         case anchor(songID: String, levelsAbove: Int)
         /// 选目录页：连接器原始写法的目录本身在前，再依次是浏览经过的各级上级
-        /// （见 `SourceSyncSubtreePolicy.directory(firstKnownOf:in:)`）。
+        /// 用于确认 ID 型网盘的范围，上级不作为这次重扫的起点。
         case directory(candidates: [String])
     }
 
@@ -523,6 +523,7 @@ final class ScanService {
     }
     var synologyAPIs: [String: SynologyAPI] = [:]
     private var activeTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var activeFolderScans: Set<String> = []
     private let postScanMaintenance = SourceMaintenanceQueue(defaults: .standard, persistenceKey: "scan.postMaintenance.pending")
     private struct QueuedAutomaticScan {
         let isRefresh: Bool
@@ -1105,6 +1106,11 @@ final class ScanService {
         state.index.removeValue(forKey: oldKey)
         entry.stableKey = newKey
         entry.path = updated.filePath
+        let previousParent = (original.filePath as NSString).deletingLastPathComponent
+        let newParent = (updated.filePath as NSString).deletingLastPathComponent
+        if previousParent != newParent {
+            entry.parentPath = newParent.isEmpty || newParent == "." ? "/" : newParent
+        }
         if oldKey.hasPrefix("path:") || entry.displayName == (original.filePath as NSString).lastPathComponent {
             entry.displayName = (updated.filePath as NSString).lastPathComponent
         }
@@ -1297,8 +1303,7 @@ final class ScanService {
             && !(source.type == .synology && source.connectionConfiguration == nil)
     }
 
-    /// 只重扫音乐源里的一个文件夹（含子文件夹）。没有可用的扫描索引、或这个源还有没扫完
-    /// 的断点时，退回平常的整源扫描（断点会照常续扫）。
+    /// 只重扫所选子树；整源扫描留下的断点独立保留。
     @discardableResult
     func rescanFolder(
         of source: MusicSource,
@@ -1387,11 +1392,47 @@ final class ScanService {
             for: source,
             directories: normalizedDirs
         )
+        let folderRoots: Set<String>?
+        if let folderRescan {
+            guard Self.supportsFolderRescan(source) else { return false }
+            let prior = syncStates[source.id].flatMap {
+                $0.matchesScope(sourceID: source.id, scopeFingerprint: checkpointScopeFingerprint) ? $0 : nil
+            }
+            let selected = normalizedDirs + (prior?.rootIdentities.map(\.currentPath) ?? [])
+            switch folderRescan.target {
+            case .directory(let candidates):
+                folderRoots = SourceSyncSubtreePolicy.directoryRoots(
+                    candidates: candidates, selectedRoots: selected, sourceType: source.type
+                )
+            case .anchor(let songID, let levels):
+                if let prior, let path = SourceSyncSubtreePolicy.directory(
+                    containingSongID: songID, levelsAbove: levels, in: prior.index
+                ) {
+                    folderRoots = source.type.usesOpaqueDirectoryIdentifiers ? [path] :
+                        SourceSyncSubtreePolicy.directoryRoots(candidates: [path], selectedRoots: selected, sourceType: source.type)
+                } else if !source.type.usesOpaqueDirectoryIdentifiers,
+                          let song = library.song(id: songID), song.sourceID == source.id, levels >= 0 {
+                    var path = (song.filePath as NSString).deletingLastPathComponent
+                    for _ in 0..<levels {
+                        guard !SourceDirectorySelectionPolicy.isRootPath(path) else { return false }
+                        path = (path as NSString).deletingLastPathComponent
+                    }
+                    folderRoots = SourceSyncSubtreePolicy.directoryRoots(
+                        candidates: [path], selectedRoots: selected, sourceType: source.type
+                    )
+                } else {
+                    return false
+                }
+            }
+            guard folderRoots?.isEmpty == false else { return false }
+        } else {
+            folderRoots = nil
+        }
         // Provider-native folder rows and their songs form one snapshot. They
         // remain atomic, but Navidrome can stage complete search3 pages in a
         // private checkpoint and resume without publishing a partial library.
         let requiresAtomicCatalogCommit = source.type.isServerLibrary || source.type == .upnp
-        if mode == .deep, !requiresAtomicCatalogCommit {
+        if mode == .deep, folderRoots == nil, !requiresAtomicCatalogCommit {
             // “Deep Scan” is an explicit fresh reconciliation. The ordinary
             // scan action resumes a checkpoint; carrying that partial queue
             // into this mode would make the two operations behave identically.
@@ -1402,7 +1443,7 @@ final class ScanService {
         // it. This closes the relaunch window between detecting an interrupted
         // song/topology commit and recording the corrective deep scan.
         let supportsAtomicCatalogResume = source.type.usesPagedCatalogStaging
-        let checkpoint = mode == .deep
+        let checkpoint = folderRoots != nil || mode == .deep
             || (requiresAtomicCatalogCommit && !supportsAtomicCatalogResume)
             ? nil
             : resumeCheckpoint(
@@ -1466,16 +1507,12 @@ final class ScanService {
             hasPendingWork: true
         )
 
-        if folderRescan != nil, checkpoint != nil {
-            plog("📂 \(source.name): folder rescan falls back to resuming the unfinished scan")
-        }
-
         // Make the scan intent durable before diagnose/login/connect can issue
         // network I/O. Existing progress for the same scope wins unchanged;
         // FnMusic receives only a restart-from-page-1 intent, never a partial
         // catalogue. Apple Music uses its separate library sync path.
         let initialCheckpointWrite: Task<Bool, Never>?
-        if source.type == .appleMusic {
+        if source.type == .appleMusic || folderRoots != nil {
             initialCheckpointWrite = nil
         } else {
             checkpoints[source.id] = ScanCheckpointPreparationPolicy.preparingCheckpoint(
@@ -1501,7 +1538,8 @@ final class ScanService {
         } else {
             userInitiatedScanSourceIDs.remove(source.id)
         }
-        if LocalImportService.isManagedSource(source) {
+        if folderRoots != nil { activeFolderScans.insert(source.id) }
+        if folderRoots == nil, LocalImportService.isManagedSource(source) {
             localImportScanRevisions[source.id] = (generation, LocalImportService.pendingScanRevision)
         }
 
@@ -1517,6 +1555,7 @@ final class ScanService {
                 // scan the user launched after cancelling this one.
                 if isCurrentScan(source.id, generation: generation) {
                     activeTasks[source.id] = nil
+                    activeFolderScans.remove(source.id)
                     endBackgroundTask(for: source.id)
                     let state = scanStates[source.id]
                     let completed = state?.canResume != true && state?.failureMessage == nil
@@ -1588,11 +1627,12 @@ final class ScanService {
             let usesDedicatedSynologyScan = source.type == .synology
                 && source.connectionConfiguration == nil
             if !usesDedicatedSynologyScan {
+                let diagnosticDirectories = folderRoots?.sorted() ?? normalizedDirs
                 let preflight: SourceDiagnosticReport
                 if let diagnosticProvider {
-                    preflight = await diagnosticProvider(source, normalizedDirs)
+                    preflight = await diagnosticProvider(source, diagnosticDirectories)
                 } else {
-                    preflight = await sourceManager.diagnose(source: source, directories: normalizedDirs)
+                    preflight = await sourceManager.diagnose(source: source, directories: diagnosticDirectories)
                 }
                 guard isCurrentScan(source.id, generation: generation),
                       sourceCanContinue(source.id, sourceStore: sourceStore) else {
@@ -1620,9 +1660,7 @@ final class ScanService {
                 }
             }
 
-            scanStates[source.id]?.currentFile = checkpoints[source.id]?.currentFile
-                ?? checkpoint?.currentFile
-                ?? ""
+            scanStates[source.id]?.currentFile = checkpoint?.currentFile ?? ""
 
             if usesDedicatedSynologyScan {
                 await scanSynology(
@@ -1649,9 +1687,8 @@ final class ScanService {
                     scraperService: scraperService,
                     mode: mode,
                     snapshotExecutionContext: snapshotExecutionContext,
-                    checkpoint: checkpoints[source.id] ?? checkpoint,
-                    // 开扫前就留着断点 = 上次没扫完，先把它续完（会覆盖这个文件夹）。
-                    folderRescan: checkpoint == nil ? folderRescan : nil
+                    checkpoint: folderRoots == nil ? checkpoints[source.id] ?? checkpoint : nil,
+                    folderRoots: folderRoots
                 )
             } else {
                 // Apple Music 不走文件 scan, 走 AppleMusicLibraryService.sync()
@@ -2261,8 +2298,9 @@ final class ScanService {
         advanceSyncStateMutationEpoch(for: sourceID, discardingState: false)
         scanStates[sourceID]?.isScanning = false
         scanStates[sourceID]?.hasPendingWork = checkpoints[sourceID] != nil
+        let wasFolderScan = activeFolderScans.remove(sourceID) != nil
         if !automaticallyResumes {
-            checkpoints[sourceID]?.isPausedByUser = true
+            if !wasFolderScan { checkpoints[sourceID]?.isPausedByUser = true }
             forgetUserInitiatedScanIntent(for: sourceID)
         }
         persistCheckpoints(force: true)
@@ -2932,7 +2970,7 @@ final class ScanService {
         snapshotExecutionContext: BaiduSnapshotExecutionContext,
         checkpoint: ScanCheckpoint?,
         trustedRetryCount: Int = 0,
-        folderRescan: SourceFolderRescanRequest? = nil
+        folderRoots: Set<String>? = nil
     ) async {
         let connector = connectorProvider?(source) ?? sourceManager.connector(for: source)
         let peerSeeds = await peerScanSeedProvider?(source)
@@ -3113,7 +3151,7 @@ final class ScanService {
                 nil
             }
             if storedState == nil || reusableState != nil {
-                workingState = Self.legacyBaiduState(
+                workingState = Self.restoringLegacyPathIndex(
                     base: reusableState,
                     sourceID: source.id,
                     scopeFingerprint: scopeFingerprint,
@@ -3122,6 +3160,44 @@ final class ScanService {
                     directories: directories
                 )
             }
+        }
+
+        if let folderRoots {
+            if !(connector is any ResumableSnapshotMusicSourceConnector), !source.type.usesOpaqueDirectoryIdentifiers,
+               scopedState == nil || scopedState?.requiresDeepScan == true {
+                let scopedSongs = existingForScan.filter { song in
+                    folderRoots.contains { SourceDirectorySelectionPolicy.covers($0, song.filePath, for: source.type) }
+                }
+                workingState = Self.restoringLegacyPathIndex(
+                    base: scopedState, sourceID: source.id, scopeFingerprint: scopeFingerprint,
+                    identityScopeFingerprint: identityScopeFingerprint, songs: scopedSongs, directories: Array(folderRoots)
+                )
+            }
+            var state = workingState ?? SourceSyncState(
+                sourceID: source.id, scopeFingerprint: scopeFingerprint,
+                identityScopeFingerprint: identityScopeFingerprint, requiresDeepScan: true
+            )
+            if scopedState == nil {
+                state.requiresDeepScan = true
+                state.lastFullScanAt = nil
+            }
+            do {
+                try await performFolderRescan(
+                    roots: folderRoots, source: source, generation: generation, directories: directories,
+                    state: state, scanner: scanner, existingSongs: existingForScan, library: library,
+                    sourceStore: sourceStore, scraperService: scraperService, sourceManager: sourceManager
+                )
+            } catch {
+                guard scanFenceIsValid() else { return }
+                if OperationCancellationPolicy.isCancellation(error) {
+                    recordScanInterruption(sourceID: source.id)
+                } else {
+                    recordScanFailure(sourceID: source.id,
+                                      message: sourceManager.scanFailureMessage(for: error, source: source),
+                                      error: error)
+                }
+            }
+            return
         }
 
         if connector is any ResumableSnapshotMusicSourceConnector,
@@ -3178,56 +3254,6 @@ final class ScanService {
                     error: error
                 )
                 return
-            }
-        }
-
-        if let folderRescan {
-            if let state = workingState,
-               state.isUsable(sourceID: source.id, scopeFingerprint: scopeFingerprint),
-               !SourceSyncFolderTopologyPolicy.requiresRebuild(
-                   sourceType: source.type,
-                   state: state
-               ) {
-                do {
-                    if try await performFolderRescan(
-                        folderRescan,
-                        source: source,
-                        generation: generation,
-                        directories: effectiveDirectories,
-                        state: state,
-                        scanner: scanner,
-                        existingSongs: existingForScan,
-                        library: library,
-                        sourceStore: sourceStore,
-                        scraperService: scraperService,
-                        sourceManager: sourceManager
-                    ) {
-                        return
-                    }
-                } catch let error where OperationCancellationPolicy.isCancellation(error) {
-                    if scanFenceIsValid() {
-                        recordScanInterruption(sourceID: source.id)
-                    }
-                    return
-                } catch {
-                    guard scanFenceIsValid() else { return }
-                    recordScanFailure(
-                        sourceID: source.id,
-                        message: sourceManager.scanFailureMessage(for: error, source: source),
-                        error: error
-                    )
-                    return
-                }
-            } else {
-                let reason: String
-                if let state = workingState {
-                    reason = state.isUsable(sourceID: source.id, scopeFingerprint: scopeFingerprint)
-                        ? "the folder topology needs a rebuild"
-                        : "the scan index is stale (deep=\(state.requiresDeepScan), scope=\(state.scopeFingerprint == scopeFingerprint))"
-                } else {
-                    reason = "there is no scan index yet (stored=\(syncStates[source.id] != nil))"
-                }
-                plog("📂 \(source.name): folder rescan falls back to the whole source: \(reason)")
             }
         }
 
@@ -5119,7 +5145,7 @@ final class ScanService {
     /// 删掉的子目录由它父目录那一轮清掉，不会因为「路径不存在」让整次重扫失败。
     /// 原生增量游标不动，也不算一次完整扫描（`lastFullScanAt` 不变）。
     private func performFolderRescan(
-        _ request: SourceFolderRescanRequest,
+        roots: Set<String>,
         source: MusicSource,
         generation: Int,
         directories: [String],
@@ -5130,32 +5156,10 @@ final class ScanService {
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?,
         sourceManager: SourceManager
-    ) async throws -> Bool {
-        let resolvedRoot: String?
-        switch request.target {
-        case .anchor(let songID, let levelsAbove):
-            resolvedRoot = SourceSyncSubtreePolicy.directory(
-                containingSongID: songID,
-                levelsAbove: levelsAbove,
-                in: state.index
-            )
-        case .directory(let candidates):
-            resolvedRoot = SourceSyncSubtreePolicy.directory(firstKnownOf: candidates, in: state.index)
-        }
-        let roots: Set<String>
-        if source.type == .baiduPan,
-           case .directory(let candidates) = request.target,
-           let requested = candidates.first {
-            roots = SourceSyncSubtreePolicy.scopedPathRoots(requested, selectedRoots: directories)
-        } else {
-            roots = Set(resolvedRoot.map { [$0] } ?? [])
-        }
-        guard let root = roots.sorted().first else {
-            plog("📂 \(source.name): folder rescan could not place the folder in the scan index; walking the whole source")
-            return false
-        }
+    ) async throws {
+        guard let root = roots.sorted().first else { return }
         let rootName = state.index.directoryItems.first { $0.path == root }?.displayName
-            ?? (root as NSString).lastPathComponent
+            ?? (source.type.usesOpaqueDirectoryIdentifiers ? String(localized: "library_browse_folder") : (root as NSString).lastPathComponent)
         scanStates[source.id]?.currentFile = rootName
         let startedAt = Date()
         let nextScanEpoch = state.scanEpoch + 1
@@ -5177,17 +5181,19 @@ final class ScanService {
                 existingSongs: songs,
                 existingIndex: index,
                 scanEpoch: nextScanEpoch,
-                requiresCompleteListings: false
+                allowedArtworkParents: listed
             )
             songs = result.songs
             index = result.index
             changedCount += result.changedCount
             listed.formUnion(frontier)
             let justListed = frontier
-            frontier = Set(index.directoryItems.lazy
-                .filter { !listed.contains($0.path) }
-                .filter { $0.parentPath.map(justListed.contains) == true }
-                .map(\.path))
+            frontier = Set(index.directoryItems.compactMap { directory in
+                guard let parent = directory.parentPath,
+                      justListed.contains(SourceSyncSubtreePolicy.scanDirectory(parent, sourceType: source.type)) else { return nil }
+                let child = SourceSyncSubtreePolicy.scanDirectory(directory.path, sourceType: source.type)
+                return listed.contains(child) ? nil : child
+            })
         }
         plog("📂 \(source.name): folder rescan listed \(listed.count) folder(s), \(changedCount) change(s) in \(Int(Date().timeIntervalSince(startedAt) * 1000))ms")
         let folderPeerSeedAdoptions = await scanner.takePeerSeedAdoptions()
@@ -5197,19 +5203,33 @@ final class ScanService {
         candidateState.index = index
         candidateState.scanEpoch = nextScanEpoch
         candidateState.lastSuccessfulSyncAt = Date()
+        // The library may gain songs or metadata in other folders while the server is listing this one.
+        let (upserts, removedIDs, scannedCount, addedCount) = await Task.detached(priority: .utility) { [songs, index] in
+            var previous = Dictionary(existingSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            var addedCount = 0
+            let changed = songs.filter { song in
+                let old = previous.removeValue(forKey: song.id)
+                if old == nil { addedCount += 1 }
+                return old != song
+            }
+            let scannedCount = index.values.lazy.filter { $0.seenEpoch == nextScanEpoch }.reduce(0) { $0 + $1.songIDs.count }
+            return (changed, Set(previous.keys), scannedCount, addedCount)
+        }.value
         var progressTimestamp = Date.distantPast
         publishScanProgress(
             sourceID: source.id,
-            scannedCount: songs.count,
-            addedCount: changedCount,
-            totalCount: songs.count,
-            currentFile: "",
+            scannedCount: scannedCount,
+            addedCount: addedCount,
+            totalCount: scannedCount,
+            currentFile: rootName,
             lastPublishedAt: &progressTimestamp
         )
         try await completeScan(
             sourceID: source.id,
             generation: generation,
-            songs: songs,
+            songs: upserts,
+            pruneMissingSongs: !removedIDs.isEmpty,
+            folderRemovedSongIDs: removedIDs,
             expectedScopeFingerprint: Self.scopeFingerprint(
                 for: source,
                 directories: directories
@@ -5222,7 +5242,6 @@ final class ScanService {
             syncState: candidateState,
             source: source
         )
-        return true
     }
 
     private func performQuickSync(
@@ -5472,6 +5491,7 @@ final class ScanService {
         songs: [Song],
         authoritativeSongIDs: Set<String>? = nil,
         pruneMissingSongs: Bool = true,
+        folderRemovedSongIDs: Set<String>? = nil,
         // True when the walk already published rows into the library. The
         // terminal snapshot then equals what is already stored, so the change
         // detection below would otherwise read a first scan as a no-op.
@@ -5512,7 +5532,9 @@ final class ScanService {
         }
         let collectionOnlySongIDs = trackedCollectionOnlyIDs.subtracting(walkedSongIDs)
         let detectedCatalogChanges: Bool
-        if let authoritativeSongIDs, source?.type.usesPagedCatalogStaging == true {
+        if let folderRemovedSongIDs {
+            detectedCatalogChanges = !songs.isEmpty || !folderRemovedSongIDs.isEmpty
+        } else if let authoritativeSongIDs, source?.type.usesPagedCatalogStaging == true {
             let librarySongsSnapshot = library.songs
             let existingIDs = await Task.detached(priority: .utility) {
                 Set(
@@ -5617,6 +5639,13 @@ final class ScanService {
         } else {
             previousFolderMemberships = [:]
         }
+        if let removedIDs = folderRemovedSongIDs, !removedIDs.isEmpty {
+            var keep = Set(library.songs.lazy.filter { $0.sourceID == sourceID }.map(\.id))
+            keep.formUnion(library.locallyRemovedEntries(forSourceID: sourceID).map { $0.song.id })
+            keep.formUnion(walkedSongIDs)
+            keep.subtract(removedIDs)
+            catalogAuthoritativeSongIDs = keep
+        }
         // 没给权威集合时剪枝按这次交上来的歌算, 仅歌单的行要并进去才留得下。
         let prunedAgainstIDs: Set<String>? = pruneMissingSongs && !collectionOnlySongIDs.isEmpty
             ? (catalogAuthoritativeSongIDs ?? Set(catalogSongs.map(\.id))).union(collectionOnlySongIDs)
@@ -5686,7 +5715,7 @@ final class ScanService {
         // scanStates, `canResume` would read true forever (totalCount is
         // always 0 since we removed Phase 1 counting) and the UI would
         // show "click to resume scan" on a finished source.
-        try await clearCheckpointAndWait(for: sourceID)
+        if folderRemovedSongIDs == nil { try await clearCheckpointAndWait(for: sourceID) }
         try checkScanCommitFence(
             sourceID: sourceID,
             generation: generation,
@@ -5694,7 +5723,8 @@ final class ScanService {
             expectedScopeDirectories: expectedScopeDirectories,
             sourceStore: sourceStore
         )
-        scanStates[sourceID] = Self.completedScanState(syncState: syncState)
+        scanStates[sourceID] = checkpoints[sourceID].map(Self.pendingScanState)
+            ?? Self.completedScanState(syncState: syncState)
         if let pending = localImportScanRevisions[sourceID], pending.generation == generation {
             LocalImportService.clearPendingScan(ifRevisionMatches: pending.revision)
         }
@@ -5705,7 +5735,7 @@ final class ScanService {
                 scopeFingerprint: expectedScopeFingerprint, directories: expectedScopeDirectories,
                 syncState: syncState, library: library, sourceStore: sourceStore,
                 sourceManager: sourceManager,
-                refreshFolderPlaylists: pruneMissingSongs,
+                refreshFolderPlaylists: pruneMissingSongs || folderRemovedSongIDs != nil,
                 previousMemberships: previousFolderMemberships
             )
         }
@@ -5787,7 +5817,7 @@ final class ScanService {
         scannedCount: Int? = nil,
         totalCount: Int? = nil
     ) {
-        if let checkpoint = checkpoints[sourceID] {
+        if !activeFolderScans.contains(sourceID), let checkpoint = checkpoints[sourceID] {
             checkpoints[sourceID] = checkpoint.recordingAutomaticResumeFailure()
             persistCheckpoints(force: true)
         }
@@ -5835,16 +5865,17 @@ final class ScanService {
     private func loadCheckpoints(_ decoded: [String: ScanCheckpoint]) {
         checkpoints = decoded
         for (sourceID, checkpoint) in decoded {
-            let snapshotProgress = checkpoint.baiduSnapshotState.map {
-                BaiduSnapshotProgressPolicy.progress(for: $0)
-            }
-            scanStates[sourceID] = ScanState(
-                isScanning: false,
-                scannedCount: snapshotProgress?.completedCount ?? checkpoint.songs.count,
-                totalCount: snapshotProgress?.totalCount ?? checkpoint.totalCount,
-                hasPendingWork: true
-            )
+            scanStates[sourceID] = Self.pendingScanState(checkpoint)
         }
+    }
+
+    private static func pendingScanState(_ checkpoint: ScanCheckpoint) -> ScanState {
+        let snapshotProgress = checkpoint.baiduSnapshotState.map { BaiduSnapshotProgressPolicy.progress(for: $0) }
+        return ScanState(
+            isScanning: false, currentFile: checkpoint.currentFile,
+            scannedCount: snapshotProgress?.completedCount ?? checkpoint.scannedSongCount ?? checkpoint.songs.count,
+            totalCount: snapshotProgress?.totalCount ?? checkpoint.totalCount, hasPendingWork: true
+        )
     }
 
     func resumePostScanMaintenance(
@@ -5877,6 +5908,9 @@ final class ScanService {
     ) {
         // Restored jobs have no active scan, but still use the same generation fence.
         if scanGenerations[source.id] == nil { scanGenerations[source.id] = generation }
+        // The first scoped scan owns only its subtree. Album artwork and drive folder playlists
+        // replace source-wide snapshots, so they need a complete provider hierarchy.
+        let committedState = syncState.flatMap { $0.requiresDeepScan && $0.lastFullScanAt == nil ? nil : $0 }
         postScanMaintenance.enqueue(sourceID: source.id) { [weak self] in
             guard let self, let ticket = self.postScanMaintenance.operationToken(for: source.id) else { throw CancellationError() }
             let fence: ServerMirrorApplyFence = {
@@ -5889,7 +5923,7 @@ final class ScanService {
                 )) != nil
             }
             guard fence() else { throw CancellationError() }
-            if let syncState {
+            if let syncState = committedState {
                 let catalog = await Task.detached(priority: .utility) {
                     let built = SourceArtistArtworkCatalog(sourceID: source.id, index: syncState.index)
                     // 这是整源替换。整份索引里一张歌手图候选都没有时(服务器源的层级里只有歌名,
@@ -5906,7 +5940,7 @@ final class ScanService {
             if refreshFolderPlaylists {
                 try await self.refreshFolderPlaylistsForCommittedScan(
                     source: source, generation: generation, scopeFingerprint: scopeFingerprint,
-                    directories: directories, syncState: syncState, library: library,
+                    directories: directories, syncState: committedState, library: library,
                     sourceStore: sourceStore, previousMemberships: previousMemberships
                 )
             }
@@ -6366,11 +6400,9 @@ final class ScanService {
         }
     }
 
-    /// Builds the conservative bridge for libraries created before Baidu
-    /// exposed `fs_id` to the scanner. Rows already represented by a committed
-    /// index are left untouched; orphaned songs become path-keyed aliases that
-    /// the pure snapshot migration can match without changing `Song.id`.
-    private nonisolated static func legacyBaiduState(
+    /// Reconstructs file and parent identities from legacy song paths. The next listing
+    /// can reconcile local rows in a folder or migrate Baidu's path keys to provider IDs.
+    private nonisolated static func restoringLegacyPathIndex(
         base: SourceSyncState?,
         sourceID: String,
         scopeFingerprint: String,

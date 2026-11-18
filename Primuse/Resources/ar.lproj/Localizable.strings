@@ -3779,6 +3779,7 @@
 "source_ssh_key_type_unsupported" = "هذا النوع من المفاتيح SSH غير مدعوم.";
 "source_state_attention" = "يحتاج إلى اهتمام";
 "source_state_online" = "اونلاين";
+"source_state_offline" = "غير متصل";
 "source_synced_ago_format" = "مزامن %@";
 "source_type" = "نوع المصدر";
 "source_unavailable" = "مصدر الموسيقى غير متوفر.";
@@ -7544,6 +7545,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "الملفات";
+"source_card_mac_files" = "الملفات";
+"source_card_song_count %lld" = "الأغاني: %lld";
 "source_card_open_manage" = "إدارة";
 "source_card_open_library" = "المكتبة";
 "source_card_metric_folders" = "مجلدات المسح";
@@ -7688,5 +7691,6 @@
 "source_move_outside_scope" = "هذا المجلد خارج نطاق المسح. ستخرج الأغاني المنقولة إليه من مكتبتك بعد المسح القادم.";
 "source_move_no_subfolders" = "لا توجد مجلدات هنا";
 "source_move_error_destination" = "لا يمكن نقله إلى داخله أو إلى المكان الموجود فيه أصلًا.";
+"source_move_error_cue" = "يتعذّر نقل هذا الملف بشكل منفصل عن ورقة CUE الخاصة به. انقل المجلد بأكمله.";
 "source_moved_format" = "نُقل إلى «%@»";
 "server_admin_disabled" = "معطّل";

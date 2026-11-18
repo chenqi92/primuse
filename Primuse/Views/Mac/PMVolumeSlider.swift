@@ -1,4 +1,5 @@
 #if os(macOS)
+import os
 import SwiftUI
 
 /// Native macOS slider that opts out of `isMovableByWindowBackground`.
@@ -22,7 +23,7 @@ struct PMVolumeSlider: NSViewRepresentable {
         Coordinator(value: $value)
     }
 
-    func makeNSView(context: Context) -> NSSlider {
+    func makeNSView(context: Context) -> PMWindowSafeSlider {
         let slider = PMWindowSafeSlider(
             value: clampedValue,
             minValue: range.lowerBound,
@@ -37,20 +38,21 @@ struct PMVolumeSlider: NSViewRepresentable {
         slider.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         slider.setContentHuggingPriority(.defaultLow, for: .horizontal)
         slider.setAccessibilityLabel(accessibilityLabel)
-        applyConfiguration(to: slider, context: context)
+        applyConfiguration(to: slider)
         return slider
     }
 
-    func updateNSView(_ nsView: NSSlider, context: Context) {
-        applyConfiguration(to: nsView, context: context)
+    nonisolated func updateNSView(_ nsView: PMWindowSafeSlider, context: Context) {
+        nsView.update(self)
     }
 
     private var clampedValue: Double {
         min(range.upperBound, max(range.lowerBound, value))
     }
 
-    private func applyConfiguration(to slider: NSSlider, context: Context) {
-        context.coordinator.value = $value
+    fileprivate func applyConfiguration(to slider: PMWindowSafeSlider) {
+        guard let coordinator = slider.target as? Coordinator else { return }
+        coordinator.value = $value
         if slider.minValue != range.lowerBound { slider.minValue = range.lowerBound }
         if slider.maxValue != range.upperBound { slider.maxValue = range.upperBound }
         if slider.controlSize != controlSize { slider.controlSize = controlSize }
@@ -59,12 +61,12 @@ struct PMVolumeSlider: NSViewRepresentable {
         if slider.trackFillColor != trackFillColor { slider.trackFillColor = trackFillColor }
         slider.setAccessibilityLabel(accessibilityLabel)
         slider.setAccessibilityHelp(accessibilityHelp)
-        (slider as? PMWindowSafeSlider)?.onEditingChanged = onEditingChanged
-        if let slider = slider as? PMWindowSafeSlider, slider.trackThicknessScale != trackThicknessScale {
+        slider.onEditingChanged = onEditingChanged
+        if slider.trackThicknessScale != trackThicknessScale {
             slider.trackThicknessScale = trackThicknessScale
             slider.needsDisplay = true
         }
-        context.coordinator.updateValue(clampedValue, on: slider)
+        coordinator.updateValue(clampedValue, on: slider)
     }
 
     @MainActor
@@ -118,6 +120,7 @@ final class PMThicknessSliderCell: NSSliderCell {
 }
 
 final class PMWindowSafeSlider: NSSlider {
+    private nonisolated let configurationRevision = OSAllocatedUnfairLock(initialState: UInt64(0))
     private var systemSliderCell: NSSliderCell?
     private var thicknessSliderCell: PMThicknessSliderCell?
     var trackThicknessScale: CGFloat? {
@@ -127,6 +130,23 @@ final class PMWindowSafeSlider: NSSlider {
         didSet { updateTrackDrawing() }
     }
     var onEditingChanged: (Bool) -> Void = { _ in }
+
+    nonisolated func update(_ configuration: PMVolumeSlider) {
+        let revision = configurationRevision.withLock { value in
+            value &+= 1
+            return value
+        }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { configuration.applyConfiguration(to: self) }
+        } else {
+            // An accessibility update can hold SwiftUI's graph lock while the main
+            // thread waits for it. Defer AppKit work and discard superseded updates.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, configurationRevision.withLock({ $0 == revision }) else { return }
+                configuration.applyConfiguration(to: self)
+            }
+        }
+    }
 
     private func updateTrackDrawing() {
         defer { needsDisplay = true }

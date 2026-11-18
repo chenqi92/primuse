@@ -270,7 +270,8 @@ struct SourceFolderPage: View {
                         tint: .secondary
                     ))
                 },
-                onScanFolder: { scanHere(selection.folder) },
+                onScanFolder: selection.folder.isRoot || ScanService.supportsFolderRescan(current)
+                    ? { scanHere(selection.folder) } : nil,
                 onMoved: { destination in
                     fileDidChange()
                     toasts.show(PMToastItem(
@@ -594,10 +595,11 @@ struct SourceFolderPage: View {
 
     private func scanHere(_ target: SourceFolderLocation) {
         let source = current
-        guard !target.isRoot, ScanService.supportsFolderRescan(source) else {
+        guard !target.isRoot else {
             actions.scan(source, .automatic)
             return
         }
+        guard ScanService.supportsFolderRescan(source) else { return }
         guard !scanService.scanningSourceIDs.contains(source.id) else {
             toasts.show(PMToastItem(
                 key: "source-files-scan",

@@ -700,10 +700,10 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, Pa
             guard expected.matches(current) else {
                 throw EmbeddedMetadataWritebackSourceError.conflict
             }
-            try await api.moveFile(
+            try await api.transferFile(
                 at: (stagingPath as NSString).appendingPathComponent(fileName),
                 toDirectory: directory,
-                overwrite: true
+                overwrite: true, removeSource: true
             )
             try? await api.deleteTemporaryItem(path: stagingPath)
         } catch {
@@ -759,23 +759,29 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, Pa
     }
 
     func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
-        // File Station 的移动不改名:只换所在的文件夹。
+        try await transferItem(at: path, to: newPath, removeSource: true)
+        if !isDirectory { await invalidateMetadataWritebackCache(for: path) }
+    }
+
+    func copyFileWithoutReplacing(at path: String, to newPath: String) async throws {
+        try await transferItem(at: path, to: newPath, removeSource: false)
+    }
+
+    private func transferItem(at path: String, to newPath: String, removeSource: Bool) async throws {
+        // File Station 的复制与移动都保留文件名。
         guard (path as NSString).lastPathComponent == (newPath as NSString).lastPathComponent,
               path.split(separator: "/").count >= 2, newPath.split(separator: "/").count >= 2 else {
             throw SourceFolderMutationError.unsupported
         }
         try await connect()
         do {
-            try await api.moveFile(
+            try await api.transferFile(
                 at: path,
                 toDirectory: (newPath as NSString).deletingLastPathComponent,
-                overwrite: false
+                overwrite: false, removeSource: removeSource
             )
         } catch SynologyError.fileOperationError(let code, _) where code == Self.fileStationNameExistsCode {
             throw SourceFolderMutationError.destinationExists
-        }
-        if !isDirectory {
-            await invalidateMetadataWritebackCache(for: path)
         }
     }
 

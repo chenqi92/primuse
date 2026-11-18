@@ -155,7 +155,17 @@ public enum CueSheetParser {
         return parse(text: text)
     }
 
+    /// Includes FILE declarations in incomplete sheets, before their track indexes have been written.
+    public static func referencedFileNames(data: Data) -> [String]? {
+        guard let text = decode(data: data) else { return nil }
+        return parse(text: text, requiresPlayableTrack: false)?.files.map(\.name)
+    }
+
     public static func parse(text: String) -> CueSheet? {
+        parse(text: text, requiresPlayableTrack: true)
+    }
+
+    private static func parse(text: String, requiresPlayableTrack: Bool) -> CueSheet? {
         var sheet = CueSheet()
         var currentFileIndex: Int?
         var currentTrackIndex: Int?
@@ -267,7 +277,7 @@ public enum CueSheetParser {
         let hasPlayableTrack = sheet.files.contains { file in
             file.tracks.contains { $0.type == "AUDIO" && $0.startTime != nil }
         }
-        return hasPlayableTrack ? sheet : nil
+        return !requiresPlayableTrack || hasPlayableTrack ? sheet : nil
     }
 
     /// `-7.21 dB`、`+1.5`、`0.988812` 这类写法;增益限在常见范围内,写坏了的不要。

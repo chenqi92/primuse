@@ -263,6 +263,7 @@
 "update_banner_subtitle" = "App Store에서 업데이트";
 "update_banner_action" = "업데이트";
 "source_state_online" = "온라인";
+"source_state_offline" = "오프라인";
 "source_state_attention" = "조치 필요";
 "sources_attention_banner_title" = "소스 %d개에 조치 필요";
 "source_synced_ago_format" = "%@ 동기화됨";
@@ -7638,6 +7639,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "파일";
+"source_card_mac_files" = "파일";
+"source_card_song_count %lld" = "%lld곡";
 "source_card_open_manage" = "관리";
 "source_card_open_library" = "보관함";
 "source_card_metric_folders" = "스캔 폴더";
@@ -7782,5 +7785,6 @@
 "source_move_outside_scope" = "이 폴더는 스캔 범위 밖입니다. 여기로 옮긴 곡은 다음 스캔 후 보관함에서 빠집니다.";
 "source_move_no_subfolders" = "여기에는 폴더가 없음";
 "source_move_error_destination" = "자기 자신 안이나 지금과 같은 위치로는 옮길 수 없습니다.";
+"source_move_error_cue" = "이 파일은 CUE 시트와 따로 이동할 수 없습니다. 폴더 전체를 이동하세요.";
 "source_moved_format" = "‘%@’(으)로 이동함";
 "server_admin_disabled" = "비활성화됨";

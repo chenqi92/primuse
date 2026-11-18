@@ -625,10 +625,7 @@ struct ServerCatalogAutoRefreshControl: View {
 
     var body: some View {
         let refresh = AppServices.shared.serverCatalogAutoRefresh
-        Toggle(isOn: Binding(
-            get: { refresh.isEnabled(for: source.id) },
-            set: { refresh.setEnabled($0, for: source.id) }
-        )) {
+        Toggle(isOn: refresh.enabledBinding(for: source.id)) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("server_auto_refresh")
                 Text(LocalizedStringKey(source.type.isServerLibrary
@@ -639,10 +636,7 @@ struct ServerCatalogAutoRefreshControl: View {
         }
 
         if refresh.isEnabled(for: source.id) {
-            Picker("source_auto_refresh_interval", selection: Binding(
-                get: { refresh.refreshInterval(for: source.id) },
-                set: { refresh.setRefreshInterval($0, for: source.id) }
-            )) {
+            Picker("source_auto_refresh_interval", selection: refresh.intervalBinding(for: source.id)) {
                 ForEach(SourceAutomaticRefreshInterval.allCases, id: \.self) { interval in
                     Text(Duration.seconds(interval.timeInterval), format: .units(allowed: [.hours], width: .wide))
                         .tag(interval)
@@ -652,10 +646,7 @@ struct ServerCatalogAutoRefreshControl: View {
         }
 
         if refresh.supportsServerScanRequest(source) {
-            Toggle(isOn: Binding(
-                get: { refresh.isServerScanOnLaunchEnabled(for: source.id) },
-                set: { refresh.setServerScanOnLaunchEnabled($0, for: source.id) }
-            )) {
+            Toggle(isOn: refresh.scanOnLaunchBinding(for: source.id)) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("server_scan_on_launch")
                     Text("server_scan_on_launch_description")
@@ -667,10 +658,7 @@ struct ServerCatalogAutoRefreshControl: View {
         }
 
         if refresh.supportsCatalogRemovalModeChoice(source) {
-            Picker(selection: Binding(
-                get: { refresh.catalogRemovalMode(for: source.id) },
-                set: { refresh.setCatalogRemovalMode($0, for: source.id) }
-            )) {
+            Picker(selection: refresh.removalModeBinding(for: source.id)) {
                 Text("catalog_prune_mode_confirm").tag(ServerCatalogRemovalMode.confirmFirst)
                 Text("catalog_prune_mode_immediate").tag(ServerCatalogRemovalMode.immediate)
             } label: {
@@ -717,19 +705,16 @@ struct AppleMusicSourcePage: View {
             }
 
             Section {
-                Toggle(isOn: Binding(
-                    get: { catalogSearchEnabled },
-                    set: { enabled in
-                        catalogSearchEnabled = enabled
-                        if !enabled { appleMusic.clearCatalogSearchResults() }
-                    }
-                )) {
+                Toggle(isOn: $catalogSearchEnabled) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Catalog Search")
                         Text("source_apple_music_catalog_search_detail")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                }
+                .onChange(of: catalogSearchEnabled) { _, enabled in
+                    if !enabled { appleMusic.clearCatalogSearchResults() }
                 }
                 Toggle(isOn: $autoAddToSmartPlaylists) {
                     VStack(alignment: .leading, spacing: 2) {

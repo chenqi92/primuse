@@ -263,6 +263,7 @@
 "update_banner_subtitle" = "Mettre à jour dans l’App Store";
 "update_banner_action" = "Mettre à jour";
 "source_state_online" = "En ligne";
+"source_state_offline" = "Hors ligne";
 "source_state_attention" = "Action requise";
 "sources_attention_banner_title" = "%d source(s) nécessite(nt) une action";
 "source_synced_ago_format" = "Synchronisé %@";
@@ -7638,6 +7639,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "Fichiers";
+"source_card_mac_files" = "Fichiers";
+"source_card_song_count %lld" = "Morceaux : %lld";
 "source_card_open_manage" = "Gérer";
 "source_card_open_library" = "Bibliothèque";
 "source_card_metric_folders" = "Dossiers analysés";
@@ -7782,5 +7785,6 @@
 "source_move_outside_scope" = "Ce dossier n’est pas dans la zone analysée. Les morceaux déplacés ici quitteront la bibliothèque après la prochaine analyse.";
 "source_move_no_subfolders" = "Aucun dossier ici";
 "source_move_error_destination" = "Impossible de le déplacer dans lui-même ou à son emplacement actuel.";
+"source_move_error_cue" = "Ce fichier ne peut pas être déplacé séparément de sa feuille CUE. Déplacez le dossier entier.";
 "source_moved_format" = "Déplacé vers « %@ »";
 "server_admin_disabled" = "Désactivé";

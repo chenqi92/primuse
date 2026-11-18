@@ -264,6 +264,7 @@
 "update_banner_subtitle" = "App Store でアップデート";
 "update_banner_action" = "アップデート";
 "source_state_online" = "オンライン";
+"source_state_offline" = "オフライン";
 "source_state_attention" = "要対応";
 "sources_attention_banner_title" = "%d 件のソースが要対応";
 "source_synced_ago_format" = "%@ に同期";
@@ -7639,6 +7640,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "ファイル";
+"source_card_mac_files" = "ファイル";
+"source_card_song_count %lld" = "%lld 曲";
 "source_card_open_manage" = "管理";
 "source_card_open_library" = "ライブラリ";
 "source_card_metric_folders" = "スキャン対象";
@@ -7783,5 +7786,6 @@
 "source_move_outside_scope" = "このフォルダはスキャン対象外です。ここに移した曲は次のスキャン後にライブラリから外れます。";
 "source_move_no_subfolders" = "ここにフォルダはありません";
 "source_move_error_destination" = "自分自身の中や、今と同じ場所には移動できません。";
+"source_move_error_cue" = "このファイルは CUE シートと別々に移動できません。フォルダごと移動してください。";
 "source_moved_format" = "「%@」に移動しました";
 "server_admin_disabled" = "無効";

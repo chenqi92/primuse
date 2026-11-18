@@ -1760,6 +1760,7 @@
 "sources_count_format" = "共 %d 個音樂源";
 "songs_count_inline" = "首歌";
 "source_state_online" = "線上";
+"source_state_offline" = "離線";
 "source_state_attention" = "需要處理";
 "sources_attention_banner_title" = "%d 個源需要處理";
 "source_synced_ago_format" = "%@ 已同步";
@@ -7615,6 +7616,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "瀏覽檔案";
+"source_card_mac_files" = "檔案";
+"source_card_song_count %lld" = "%lld 首歌";
 "source_card_open_manage" = "管理";
 "source_card_open_library" = "資料庫";
 "source_card_metric_folders" = "掃描目錄";
@@ -7759,5 +7762,6 @@
 "source_move_outside_scope" = "這裡不在掃描範圍內，移過來的歌下次掃描後會從曲庫移除。";
 "source_move_no_subfolders" = "這裡沒有子資料夾";
 "source_move_error_destination" = "不能挪到它自己裡面，也不能挪回原來的位置。";
+"source_move_error_cue" = "此檔案無法與 CUE 分軌表分開移動。請移動整個檔案夾。";
 "source_moved_format" = "已移到「%@」";
 "server_admin_disabled" = "已停用";

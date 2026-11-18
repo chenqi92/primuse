@@ -1401,19 +1401,32 @@ struct SourceSyncSubtreePolicyTests {
         #expect(SourceSyncSubtreePolicy.knownDirectories(under: "/Music/Other", in: index) == ["/Music/Other"])
     }
 
-    @Test("A folder named by the directory picker resolves to the index's own spelling, else its nearest known parent")
+    @Test("Folder scans use the named directory even before discovery and intersect selected roots")
     func resolvesPickerDirectory() {
-        #expect(SourceSyncSubtreePolicy.directory(
-            firstKnownOf: ["/Music/Artist/Album/", "/Music/Artist", "/Music", "/"], in: index
-        ) == "/Music/Artist/Album")
-        // 服务器上新建、还没扫进索引的子目录：退到最近一层已知的上级。
-        #expect(SourceSyncSubtreePolicy.directory(
-            firstKnownOf: ["/Music/Artist/New", "/Music/Artist", "/Music", "/"], in: index
-        ) == "/Music/Artist")
-        // 扫描根不是索引里的目录行，但它是顶层条目的父目录。
-        #expect(SourceSyncSubtreePolicy.directory(firstKnownOf: ["/Music/New", "/Music"], in: index) == "/Music")
-        #expect(SourceSyncSubtreePolicy.directory(firstKnownOf: ["/Elsewhere", "/"], in: index) == nil)
-        #expect(SourceSyncSubtreePolicy.directory(firstKnownOf: [], in: index) == nil)
+        func roots(_ requested: String, _ selected: [String]) -> Set<String> {
+            SourceSyncSubtreePolicy.directoryRoots(
+                candidates: [requested, "/Music", "/"], selectedRoots: selected, sourceType: .webdav
+            )
+        }
+        #expect(roots("/Music/New/", ["/Music"]) == ["/Music/New"])
+        #expect(roots("/Music", ["/Music/A", "/Music/B", "/Other"]) == ["/Music/A", "/Music/B"])
+        #expect(roots("/Elsewhere", ["/Music/A"]).isEmpty)
+        #expect(roots("/Elsewhere", ["/Music"]).isEmpty)
+        #expect(roots("/Music/../Elsewhere", ["/Music"]).isEmpty)
+        #expect(SourceSyncSubtreePolicy.directoryRoots(
+            candidates: ["music/new/"], selectedRoots: [""], sourceType: .s3
+        ) == ["music/new"])
+    }
+
+    @Test("ID-addressed scans use the browsing chain only to prove coverage")
+    func resolvesUnindexedOpaqueFolder() {
+        let selected = ["album-A"]
+        #expect(SourceSyncSubtreePolicy.directoryRoots(
+            candidates: ["new-folder-ID", "album-A", "/"], selectedRoots: selected, sourceType: .pan115
+        ) == ["new-folder-ID"])
+        #expect(SourceSyncSubtreePolicy.directoryRoots(
+            candidates: ["new-folder-ID", "/"], selectedRoots: selected, sourceType: .pan115
+        ).isEmpty)
     }
 
     @Test("Opaque ids follow the same parent links")

@@ -3779,6 +3779,7 @@
 "source_ssh_key_type_unsupported" = "यह SSH कुंजी प्रकार समर्थित नहीं है।";
 "source_state_attention" = "ध्यान देने की आवश्यकता है";
 "source_state_online" = "ऑनलाइन";
+"source_state_offline" = "ऑफ़लाइन";
 "source_synced_ago_format" = "सिंक किया गया %@";
 "source_type" = "स्रोत प्रकार";
 "source_unavailable" = "संगीत स्रोत अनुपलब्ध है।";
@@ -7544,6 +7545,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "फ़ाइलें";
+"source_card_mac_files" = "फ़ाइलें";
+"source_card_song_count %lld" = "गाने: %lld";
 "source_card_open_manage" = "प्रबंधित करें";
 "source_card_open_library" = "लाइब्रेरी";
 "source_card_metric_folders" = "स्कैन फ़ोल्डर";
@@ -7688,5 +7691,6 @@
 "source_move_outside_scope" = "यह फ़ोल्डर स्कैन दायरे में नहीं है। यहाँ लाए गए गाने अगले स्कैन के बाद लाइब्रेरी से हट जाएँगे।";
 "source_move_no_subfolders" = "यहाँ कोई फ़ोल्डर नहीं";
 "source_move_error_destination" = "इसे अपने ही अंदर या उसी जगह नहीं ले जा सकते।";
+"source_move_error_cue" = "इस फ़ाइल को इसकी CUE शीट से अलग नहीं ले जाया जा सकता। पूरा फ़ोल्डर ले जाएँ।";
 "source_moved_format" = "“%@” में ले जाया गया";
 "server_admin_disabled" = "अक्षम";

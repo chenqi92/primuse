@@ -34,6 +34,7 @@ struct SourceFolderOperations {
 
     /// 把目录挪进 `destination`(名字不变),返回新路径。
     func move(folder path: String, in source: MusicSource, into destination: String) async throws -> String {
+        let destination = try await moveDestination(destination, in: source)
         guard SourceFileMovePlan.canMoveFolder(path, into: destination) else {
             throw SourceFolderMutationError.invalidDestination
         }
@@ -111,9 +112,10 @@ struct SourceFolderOperations {
     func move(
         file path: String, songs: [Song], in source: MusicSource, into destination: String
     ) async throws -> String {
+        let destination = try await moveDestination(destination, in: source)
         let connector = sourceManager.connector(for: source)
         guard await connector.canMutateDirectories() else { throw SourceFolderMutationError.unsupported }
-        guard songs.count <= 1 else { throw SongFileRenameError.plan(.cue) }
+        guard songs.count <= 1, songs.first?.isCueTrack != true else { throw SourceFolderMutationError.cueAudioMove }
         let parent = (path as NSString).deletingLastPathComponent
         guard SourceDirectorySelectionPolicy.isSamePath(parent.isEmpty ? "/" : parent, destination) == false else {
             throw SourceFolderMutationError.invalidDestination
@@ -127,18 +129,28 @@ struct SourceFolderOperations {
             SourceFileBrowserPolicy.Entry(name: $0.name, path: $0.path, isDirectory: $0.isDirectory,
                                           size: $0.size, modifiedDate: $0.modifiedDate)
         }
+        var cueReferences: [String: [String]] = [:]
+        for entry in sourceEntries where !entry.isDirectory && (entry.name as NSString).pathExtension.lowercased() == "cue" {
+            guard entry.size <= CueSheetScanCache.maximumSheetBytes else { throw SourceFolderMutationError.cueAudioMove }
+            let length = entry.size > 0 ? entry.size : Int64(CueSheetScanCache.maximumSheetBytes)
+            let data = try await connector.fetchMetadataRange(path: entry.path, offset: 0, length: length)
+            guard data.count < length || entry.size == length,
+                  entry.size <= 0 || Int64(data.count) == entry.size else { throw SourceFolderMutationError.cueAudioMove }
+            cueReferences[entry.path] = CueSheetParser.referencedFileNames(data: data)
+        }
         let moves: [SourceFileMovePlan.Move]
         do {
             moves = try SourceFileMovePlan.moves(
                 audioPath: path,
                 sourceEntries: sourceEntries,
                 destinationDirectory: destination,
-                destinationNames: try await listing(destination).map(\.name)
+                destinationNames: try await listing(destination).map(\.name),
+                cueReferences: cueReferences, sourceType: source.type
             )
         } catch SourceFileMovePlan.Failure.collision {
             throw SourceFolderMutationError.destinationExists
         } catch SourceFileMovePlan.Failure.cue {
-            throw SongFileRenameError.plan(.cue)
+            throw SourceFolderMutationError.cueAudioMove
         } catch SourceFileMovePlan.Failure.missingFile {
             throw SourceError.fileNotFound(path)
         }
@@ -153,37 +165,94 @@ struct SourceFolderOperations {
             }
             playing = song
         }
-        try await scanService.prepareForFileRename(sourceID: source.id)
+        // Transfer sidecars first. The audio's old path stays playable if a companion can't be transferred.
+        let audio = moves[0]
+        let newPath = audio.to
         var completed: [SourceFileMovePlan.Move] = []
+        var inFlight: SourceFileMovePlan.Move?
+        func songLocation(after steps: [SourceFileMovePlan.Move]) -> Song? {
+            guard var relocated = songs.first else { return nil }
+            let paths = Dictionary(steps.map { ($0.from, $0.to) }, uniquingKeysWith: { first, _ in first })
+            relocated.filePath = paths[path] ?? path
+            relocated.lyricsFileName = relocated.lyricsFileName.map { paths[$0] ?? $0 }
+            relocated.coverArtFileName = relocated.coverArtFileName.map { paths[$0] ?? $0 }
+            relocated.mvPath = relocated.mvPath.map { paths[$0] ?? $0 }
+            return relocated
+        }
+        let updated = songLocation(after: moves)
         do {
-            for step in moves {
-                try await connector.moveItem(at: step.from, to: step.to, isDirectory: false)
+            try await scanService.prepareForFileRename(sourceID: source.id)
+            for step in Array(moves.dropFirst()) + [audio] {
+                try Task.checkCancellation()
+                inFlight = step
+                if step.keepsOriginal {
+                    try await connector.copyFileWithoutReplacing(at: step.from, to: step.to)
+                } else {
+                    try await connector.moveItem(at: step.from, to: step.to, isDirectory: false)
+                }
                 completed.append(step)
+                inFlight = nil
+            }
+            if let original = songs.first, let updated {
+                try await scanService.recordMetadataFileReplacement(original: original, updated: updated, in: library)
+                player.applySourceFolderRelocation([updated])
             }
         } catch {
-            // 挪到一半失败:已经挪过去的再挪回来,不留下歌和歌词分在两处。
-            for step in completed.reversed() {
-                try? await connector.moveItem(at: step.to, to: step.from, isDirectory: false)
+            let applied = completed
+            let unconfirmed = inFlight
+            // A cancellation of the original transfer must not cancel its rollback.
+            let remaining = await Task {
+                var rollback = applied
+                // A lost MOVE reply can arrive after the server has already renamed the file.
+                if let step = unconfirmed, !step.keepsOriginal,
+                   let original = sourceEntries.first(where: { $0.path == step.from }),
+                   let mtime = original.modifiedDate,
+                   let sourceListing = try? await listing(parent),
+                   !sourceListing.contains(where: { $0.path == step.from }),
+                   let target = try? await listing(destination).first(where: { $0.path == step.to }),
+                   target.size == original.size, target.modifiedDate == mtime {
+                    rollback.append(step)
+                }
+                var leftOnTarget: [SourceFileMovePlan.Move] = []
+                for step in rollback.reversed() {
+                    do {
+                        if step.keepsOriginal {
+                            try await connector.deleteFile(at: step.to)
+                        } else {
+                            try await connector.moveItem(at: step.to, to: step.from, isDirectory: false)
+                        }
+                    } catch {
+                        // The reverse MOVE can also succeed without its acknowledgement.
+                        if !step.keepsOriginal,
+                           let originals = try? await listing(parent), originals.contains(where: { $0.path == step.from }),
+                           let targets = try? await listing(destination), !targets.contains(where: { $0.path == step.to }) {
+                            continue
+                        }
+                        leftOnTarget.append(step)
+                        plog("⚠️ File move rollback failed: \(error.localizedDescription)")
+                    }
+                }
+                return leftOnTarget
+            }.value
+            // Shared sidecars always still exist in the old folder. Only point the song at their
+            // copy if its audio also remains in the destination.
+            let audibleMoves = remaining.contains(audio) ? remaining : remaining.filter { !$0.keepsOriginal }
+            if let original = songs.first, let recovered = songLocation(after: audibleMoves) {
+                let stored = library.storedSong(id: original.id) ?? original
+                try? await scanService.recordMetadataFileReplacement(original: stored, updated: recovered, in: library)
+                player.applySourceFolderRelocation([recovered])
+                if playing != nil { resumePlayback?(recovered) }
             }
-            if let playing { resumePlayback?(playing) }
             throw error
         }
-        let newPath = moves.first?.to ?? path
-        if let song = songs.first {
-            let map = Dictionary(moves.map { ($0.from, $0.to) }, uniquingKeysWith: { first, _ in first })
-            var updated = song
-            updated.filePath = map[song.filePath] ?? newPath
-            updated.lyricsFileName = song.lyricsFileName.map { map[$0] ?? $0 }
-            updated.coverArtFileName = song.coverArtFileName.map { map[$0] ?? $0 }
-            updated.mvPath = song.mvPath.map { map[$0] ?? $0 }
-            try await scanService.recordMetadataFileReplacement(original: song, updated: updated, in: library)
-            player.applySourceFolderRelocation([updated])
-            if let playing { resumePlayback?(playing.id == updated.id ? updated : playing) }
-        } else if let playing {
-            resumePlayback?(playing)
-        }
+        if let playing, let updated { resumePlayback?(playing.id == updated.id ? updated : playing) }
         plog("📁 File moved source=\(source.id.prefix(8))… with \(moves.count - 1) sidecar(s)")
         return newPath
+    }
+
+    private func moveDestination(_ path: String, in source: MusicSource) async throws -> String {
+        guard path.isEmpty || path == "/" else { return path }
+        return try await sourceManager.connector(for: source).fileMutationRootPath() ?? "/"
     }
 
     /// 删除整个目录,返回从曲库移除了几首。

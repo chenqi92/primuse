@@ -552,6 +552,37 @@ actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFi
         }
     }
 
+    func fileMutationRootPath() async throws -> String? {
+        try await connect()
+        return rootPath
+    }
+
+    func copyFileWithoutReplacing(at path: String, to newPath: String) async throws {
+        try await connect()
+        guard let sftp else { throw SourceError.connectionFailed("Not connected") }
+        let source = try resolvedRemotePath(for: path)
+        let destination = try resolvedRemotePath(for: newPath)
+        let staging = Self.stagingPath(for: destination)
+        do {
+            try await sftp.withFile(filePath: source, flags: .read) { input in
+                try await sftp.withFile(filePath: staging, flags: [.write, .create, .forceCreate]) { output in
+                    var offset: UInt64 = 0
+                    while true {
+                        try Task.checkCancellation()
+                        let data = try await input.read(from: offset, length: 256 * 1024)
+                        guard data.readableBytes > 0 else { break }
+                        try await output.write(data, at: offset)
+                        offset += UInt64(data.readableBytes)
+                    }
+                }
+            }
+            try await sftp.rename(at: staging, to: destination, flags: 0)
+        } catch {
+            try? await sftp.remove(at: staging)
+            throw error
+        }
+    }
+
     func deleteDirectory(at path: String) async throws {
         try await connect()
         guard let sftp else { throw SourceError.connectionFailed("Not connected") }

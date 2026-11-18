@@ -19,7 +19,7 @@ struct SourceFileDetailSheet: View {
     let canMove: Bool
     let onChanged: () -> Void
     let onDeleted: (String) -> Void
-    let onScanFolder: () -> Void
+    let onScanFolder: (() -> Void)?
     /// 挪走了:参数是目标文件夹的名字。
     let onMoved: (String) -> Void
 
@@ -54,7 +54,7 @@ struct SourceFileDetailSheet: View {
         canMove: Bool,
         onChanged: @escaping () -> Void,
         onDeleted: @escaping (String) -> Void,
-        onScanFolder: @escaping () -> Void,
+        onScanFolder: (() -> Void)?,
         onMoved: @escaping (String) -> Void
     ) {
         self.source = source
@@ -186,9 +186,10 @@ struct SourceFileDetailSheet: View {
                     requestRename()
                 }
                 if canMove {
-                    SourceFileActionButton(title: "source_move_short", systemImage: "folder", isEnabled: songs.count <= 1) {
-                        if songs.count > 1 {
-                            unavailableReason = String(localized: "song_file_rename_cue")
+                    let isCueAudio = songs.count > 1 || displayedSong?.isCueTrack == true
+                    SourceFileActionButton(title: "source_move_short", systemImage: "folder", isEnabled: !isCueAudio) {
+                        if isCueAudio {
+                            unavailableReason = String(localized: "source_move_error_cue")
                         } else {
                             showsMovePicker = true
                         }
@@ -226,7 +227,7 @@ struct SourceFileDetailSheet: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if isInScanScope {
+                if isInScanScope, let onScanFolder {
                     Button {
                         onScanFolder()
                         dismiss()

@@ -6055,7 +6055,9 @@ extension MediaServerSource: ServerAdminConnector {
     private var supportsUserAdmin: Bool { kind == .jellyfin || kind == .emby }
 
     /// 管理接口一律保留 HTTP 状态:403 是「不是管理员」,400 带着服务器给的原因。
-    private func adminRequest(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
+    private func adminRequest(
+        _ path: String, method: String = "GET", body: Data? = nil, creatingUserNamed name: String? = nil
+    ) async throws -> Data {
         guard supportsUserAdmin else { throw ServerAdmin.Failure.unavailable }
         try await connect()
         do {
@@ -6063,7 +6065,14 @@ extension MediaServerSource: ServerAdminConnector {
                 path: path, method: method, body: body, preservesHTTPFailure: true
             )
         } catch let failure as HTTPResponseFailure {
-            throw MediaServerUserAdminPayloads.failure(status: failure.statusCode, body: failure.body)
+            let reason = MediaServerUserAdminPayloads.failure(status: failure.statusCode, body: failure.body)
+            // Some Jellyfin versions return the same HTTP 400 text for duplicate names and other invalid input.
+            if kind == .jellyfin, let name, [400, 409].contains(failure.statusCode), case .rejected = reason,
+               let users = try? await serverAdminUsers(),
+               users.contains(where: { $0.userName.caseInsensitiveCompare(name) == .orderedSame }) {
+                throw ServerAdmin.Failure.duplicateName
+            }
+            throw reason
         }
     }
 
@@ -6093,7 +6102,8 @@ extension MediaServerSource: ServerAdminConnector {
         let password = draft.password ?? ""
         let created = try await adminRequest(
             "/Users/New", method: "POST",
-            body: try MediaServerUserAdminPayloads.newUserBody(name: draft.userName, password: password)
+            body: try MediaServerUserAdminPayloads.newUserBody(name: draft.userName, password: password),
+            creatingUserNamed: draft.userName
         )
         guard let json = try? JSONSerialization.jsonObject(with: created) as? [String: Any],
               let id = json["Id"] as? String, !id.isEmpty else {

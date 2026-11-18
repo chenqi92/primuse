@@ -3779,6 +3779,7 @@
 "source_ssh_key_type_unsupported" = "ไม่รองรับคีย์ประเภท SSH นี้";
 "source_state_attention" = "ต้องการความสนใจ";
 "source_state_online" = "ออนไลน์";
+"source_state_offline" = "ออฟไลน์";
 "source_synced_ago_format" = "ซิงค์แล้ว %@";
 "source_type" = "ประเภทแหล่งที่มา";
 "source_unavailable" = "แหล่งที่มาของเพลงไม่พร้อมใช้งาน";
@@ -7544,6 +7545,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "ไฟล์";
+"source_card_mac_files" = "ไฟล์";
+"source_card_song_count %lld" = "%lld เพลง";
 "source_card_open_manage" = "จัดการ";
 "source_card_open_library" = "คลังเพลง";
 "source_card_metric_folders" = "โฟลเดอร์ที่สแกน";
@@ -7688,5 +7691,6 @@
 "source_move_outside_scope" = "โฟลเดอร์นี้อยู่นอกขอบเขตการสแกน เพลงที่ย้ายมาจะหลุดออกจากคลังหลังการสแกนครั้งถัดไป";
 "source_move_no_subfolders" = "ไม่มีโฟลเดอร์ที่นี่";
 "source_move_error_destination" = "ย้ายเข้าไปในตัวเองหรือไปที่เดิมไม่ได้";
+"source_move_error_cue" = "ไม่สามารถย้ายไฟล์นี้แยกจากชีต CUE ได้ โปรดย้ายทั้งโฟลเดอร์";
 "source_moved_format" = "ย้ายไปที่ “%@” แล้ว";
 "server_admin_disabled" = "ปิดใช้งาน";

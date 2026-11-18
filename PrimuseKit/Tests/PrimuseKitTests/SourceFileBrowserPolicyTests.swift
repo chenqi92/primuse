@@ -207,6 +207,73 @@ struct SourceFileMovePlanTests {
         }
     }
 
+    @Test("Root moves use the path returned by file listings on rescan")
+    func canonicalRoot() throws {
+        for destination in ["/", ""] {
+            let steps = try SourceFileMovePlan.moves(
+                audioPath: "/album/Clip.mp3", sourceEntries: [file("Clip.mp3", in: "/album")],
+                destinationDirectory: destination, destinationNames: []
+            )
+            #expect(steps.map(\.to) == ["/Clip.mp3"])
+        }
+    }
+
+    @Test("An unindexed same-stem sibling keeps shared sidecars")
+    func sharedCompanions() throws {
+        let entries = ["Clip.mp3", "CLIP.flac", "clip.lrc", "Clip-cover.jpg", "Clip-back.png",
+                       "Clip.mp4", "Clip-cover.lrc"].map { file($0, in: "/album") }
+        let steps = try SourceFileMovePlan.moves(
+            audioPath: "/album/Clip.mp3", sourceEntries: entries, destinationDirectory: "/", destinationNames: []
+        )
+        #expect(steps.filter(\.keepsOriginal).map(\.to) == ["/clip.lrc", "/Clip-cover.jpg", "/Clip-back.png", "/Clip.mp4"])
+        #expect(steps.filter { !$0.keepsOriginal }.map(\.to) == ["/Clip.mp3"])
+        #expect(throws: SourceFileMovePlan.Failure.collision("clip.lrc")) {
+            try SourceFileMovePlan.moves(audioPath: "/album/Clip.mp3", sourceEntries: entries,
+                                         destinationDirectory: "/", destinationNames: ["Clip.LRC"])
+        }
+    }
+
+    @Test("Legacy root moves retain identity at connector roots and respect existing rows")
+    func legacyRootMoves() throws {
+        var old = Song(id: "preserved", title: "Clip", fileFormat: .flac, filePath: "Clip.flac", sourceID: "source")
+        old.lyricsFileName = "Clip.lrc"
+        old.coverArtFileName = "artwork-cache.jpg"
+        for root in ["/", "/home/music"] {
+            let expected = try #require(RemotePathScopePolicy(rootPath: root).resolvedPath(forStoredPath: "Clip.flac"))
+            let steps = try SourceFileMovePlan.moves(
+                audioPath: "/other/Clip.flac", sourceEntries: [file("Clip.flac", in: "/other")],
+                destinationDirectory: root, destinationNames: []
+            )
+            #expect(steps.first?.to == expected)
+            let repaired = try #require(SourceFileMovePlan.repairingLegacyRootMoves(in: [old], root: root).first)
+            #expect(repaired.id == old.id && repaired.filePath == expected)
+            #expect(repaired.lyricsFileName == (root as NSString).appendingPathComponent("Clip.lrc"))
+            #expect(repaired.coverArtFileName == old.coverArtFileName)
+            var current = repaired
+            current.id = "already-at-root"
+            #expect(SourceFileMovePlan.repairingLegacyRootMoves(in: [old, current], root: root) == [old, current])
+        }
+        #expect(SourceFileMovePlan.repairingLegacyRootMoves(in: [old], root: nil) == [old])
+    }
+
+    @Test("Only CUE sheets referencing the selected audio block moving it")
+    func cueReferences() throws {
+        let entries = ["Clip.mp3", "Disc.cue"].map { file($0, in: "/album") }
+        func plan(fileName: String, type: MusicSourceType) throws -> [SourceFileMovePlan.Move] {
+            let sheet = Data("FILE \"\(fileName)\" WAVE\n".utf8)
+            let names = try #require(CueSheetParser.referencedFileNames(data: sheet))
+            return try SourceFileMovePlan.moves(
+                audioPath: "/album/Clip.mp3", sourceEntries: entries,
+                destinationDirectory: "/", destinationNames: [],
+                cueReferences: ["/album/Disc.cue": names], sourceType: type
+            )
+        }
+        #expect(try plan(fileName: "Other.wav", type: .webdav).count == 1)
+        #expect(try plan(fileName: "other/Clip.mp3", type: .local).count == 1)
+        #expect(throws: SourceFileMovePlan.Failure.cue) { try plan(fileName: "./CLIP.MP3", type: .local) }
+        #expect(throws: SourceFileMovePlan.Failure.cue) { try plan(fileName: "disc\\clip.mp3", type: .sftp) }
+    }
+
     @Test("Folders can't move into themselves or back where they are")
     func folderTargets() {
         #expect(SourceFileMovePlan.canMoveFolder("/音乐/华语", into: "/音乐/流行"))

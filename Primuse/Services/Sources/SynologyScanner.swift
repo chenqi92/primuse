@@ -57,6 +57,7 @@ actor SynologyScanner {
                     // finishes. Avoiding a recursive count pass halves directory
                     // API traffic for large NAS libraries.
                     let totalCount = 0
+                    let existingSongs = SourceFileMovePlan.repairingLegacyRootMoves(in: existingSongs, root: "/")
                     var allSongs = existingSongs
                     // path → allSongs 下标。existing 条目下标全程稳定(替换原地、新增追加到
                     // 末尾), 用于 O(1) 比对/回填/替换, 避免 firstIndex 的 O(n²)。
@@ -219,6 +220,15 @@ actor SynologyScanner {
         try Task.checkCancellation()
         let items = try await api.listDirectory(path: path)
 
+        func physicalSongID(for path: String) -> String {
+            if let index = existingByPath[path] { return allSongs[index].id }
+            return PathSongIdentityPolicy.unoccupiedID(
+                generatedID: generateID(sourceID: sourceID, path: path), path: path,
+                existingPath: { id in existingByID[id].map { allSongs[$0].filePath } },
+                collisionID: { self.generateID(sourceID: self.sourceID, path: "\(path):file-rename:\($0)") }
+            )
+        }
+
         // Build filename lookup tables for sidecar detection.
         let nameByLowercase = Dictionary(
             items.map { ($0.name.lowercased(), $0.name) },
@@ -288,25 +298,20 @@ actor SynologyScanner {
                 }
                 if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
                     let baseName = (item.name as NSString).deletingPathExtension
-                    if !Self.hasSameNameAudio(
+                    guard !Self.hasSameNameAudio(
                         baseName: baseName,
                         nameByLowercase: nameByLowercase
-                    ) {
-                        recordSyncItem(
-                            item,
-                            parentPath: path,
-                            songIDs: [generateID(sourceID: sourceID, path: item.path)],
-                            in: &syncIndex
-                        )
-                    }
+                    ) else { continue }
+                    let songID = physicalSongID(for: item.path)
+                    encounteredSongIDs.insert(songID)
+                    recordSyncItem(item, parentPath: path, songIDs: [songID], in: &syncIndex)
                     scanStandaloneVideo(
-                        item: item, ext: ext,
+                        item: item, ext: ext, songID: songID,
                         nameByLowercase: nameByLowercase,
                         languageTaggedLyrics: languageTaggedLyrics,
                         folderCoverPath: folderCoverPath,
                         allSongs: &allSongs, count: &count, totalCount: totalCount,
                         existingByPath: existingByPath,
-                        encounteredSongIDs: &encounteredSongIDs,
                         resumeState: resumeState,
                         continuation: continuation
                     )
@@ -351,7 +356,7 @@ actor SynologyScanner {
                     continue
                 }
                 if ext == "iso" { continue }
-                let songID = generateID(sourceID: sourceID, path: item.path)
+                let songID = physicalSongID(for: item.path)
                 encounteredSongIDs.insert(songID)
                 recordSyncItem(
                     item,
@@ -478,10 +483,11 @@ actor SynologyScanner {
                 if isSTRM {
                     guard let parsed = await extractSTRMSong(item: item) else { continue }
                     song = parsed
-                    pendingMetadataInspectedSongIDs.insert(song.id)
+                    pendingMetadataInspectedSongIDs.insert(songID)
                 } else {
                     song = buildBareSong(item: item, ext: ext)
                 }
+                song.id = songID
 
                 // Priority: sidecar path > embedded/cached > nil。原地覆盖这两个
                 // 字段即可, 不要用部分 init 重建 —— 那会把 lastModified/revision/
@@ -822,26 +828,17 @@ actor SynologyScanner {
     /// 常在文件尾, 4MB 头不可靠; 时长由 MetadataBackfillService / 播放时
     /// AVPlayer 回填。
     private func scanStandaloneVideo(
-        item: SynologyAPI.FileItem, ext: String,
+        item: SynologyAPI.FileItem, ext: String, songID: String,
         nameByLowercase: [String: String],
         languageTaggedLyrics: LanguageTaggedLyricsIndex,
         folderCoverPath: String?,
         allSongs: inout [Song], count: inout Int, totalCount: Int,
         existingByPath: [String: Int],
-        encounteredSongIDs: inout Set<String>,
         resumeState: SourceScanResumeState,
         continuation: AsyncThrowingStream<ScanUpdate, Error>.Continuation
     ) {
         let baseName = (item.name as NSString).deletingPathExtension
         let parentDir = (item.path as NSString).deletingLastPathComponent
-
-        // 有同名音频时它是那首歌的 sidecar, 不独立成曲。
-        let hasSameNameAudio = Self.hasSameNameAudio(
-            baseName: baseName,
-            nameByLowercase: nameByLowercase
-        )
-        guard hasSameNameAudio == false else { return }
-        encounteredSongIDs.insert(generateID(sourceID: sourceID, path: item.path))
 
         var coverRef: String?
         for coverExt in PrimuseConstants.supportedCoverExtensions {
@@ -899,7 +896,7 @@ actor SynologyScanner {
         let parsedTitle = MediaMetadataTextRepair.fileNameTitle(from: item.name) ?? baseName
         let parsedArtist = MediaMetadataTextRepair.fileNameArtist(from: item.name)
         var song = Song(
-            id: generateID(sourceID: sourceID, path: item.path),
+            id: songID,
             title: parsedTitle,
             artistName: parsedArtist,
             duration: 0,

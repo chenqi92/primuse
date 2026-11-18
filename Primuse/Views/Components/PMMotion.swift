@@ -309,6 +309,20 @@ private struct PMScrollingTapSurfaceModifier: ViewModifier {
 }
 #endif
 
+// macOS 辅助功能会在后台读取开关、选择器和滑块。渲染时在主线程取值，
+// 绑定的读取只访问这次渲染的快照，实际修改仍交给主线程上的服务。
+extension Binding where Value: Sendable {
+    nonisolated init(snapshot value: Value, set: @escaping @MainActor @Sendable (Value) -> Void) {
+        self.init(get: { value }, set: { newValue in
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { set(newValue) }
+            } else {
+                Task { @MainActor in set(newValue) }
+            }
+        })
+    }
+}
+
 extension Binding {
     /// 让这个绑定的写入自带动画事务，等价于 SwiftUI 的 `animation(_:)`，但会照顾「减少动态效果」。
     ///

@@ -201,6 +201,7 @@ actor ConnectorScanner {
         existingIndex: SourceSyncIndex,
         scanEpoch: Int64,
         requiresCompleteListings: Bool = false,
+        allowedArtworkParents: Set<String>? = nil,
         progress: (@Sendable (
             _ completedCount: Int,
             _ totalCount: Int,
@@ -283,7 +284,7 @@ actor ConnectorScanner {
                let budgeted = connector as? any SnapshotReconciliationBudgetConnector {
                 try await budgeted.checkSnapshotReconciliationBudget()
             }
-            let sidecarIndex = await directoryIndex(siblings, of: directory)
+            let sidecarIndex = await directoryIndex(siblings, of: directory, allowedParents: allowedArtworkParents)
             var rebuiltStableKeys: Set<String> = []
             for (key, entry) in oldEntries {
                 // If another changed directory already moved this stable key,
@@ -540,6 +541,10 @@ actor ConnectorScanner {
                     plog("🔍 ConnectorScanner.scan source=\(sourceID) dirs=\(directories)")
                     try await connector.connect()
                     plog("🔍 ConnectorScanner.scan connected")
+                    var pendingRootRepairs: Set<String> = []
+                    let existingSongs = SourceFileMovePlan.repairingLegacyRootMoves(
+                        in: existingSongs, root: try await connector.fileMutationRootPath()
+                    ) { pendingRootRepairs.insert($0.id) }
                     // Remove redundant child directories when a parent is already selected
                     let dirs = SynologyScanner.deduplicateDirectories(directories)
                     let selectedRoots = Set(dirs)
@@ -567,7 +572,8 @@ actor ConnectorScanner {
                     // 7 万首的库等于一遍遍重跑整库准入判定与索引合并, 全在主线程上。
                     // 行内容没变就什么都不算 —— 重扫时绝大多数行都走这一支。
                     func recordRow(_ song: Song, for songID: String) {
-                        guard existingByID[songID] != song else { return }
+                        let wasRepaired = pendingRootRepairs.remove(songID) != nil
+                        guard wasRepaired || existingByID[songID] != song else { return }
                         existingByID.update(song)
                         pendingChangedSongs.append(song)
                         mutationCount += 1
@@ -702,7 +708,9 @@ actor ConnectorScanner {
                                         // a remote replacement (refresh). Decide on size
                                         // first since lastModified isn't always populated.
                                         if !songContentChanged(existing: existing, incoming: scannedSong.song) {
-                                            if connector is any RefreshingMetadataSongConnector {
+                                            if pendingRootRepairs.contains(existing.id) {
+                                                recordRow(existing, for: existing.id)
+                                            } else if connector is any RefreshingMetadataSongConnector {
                                                 let refreshed = refreshServerMetadata(
                                                     existing: existing,
                                                     incoming: scannedSong.song
@@ -1908,7 +1916,8 @@ actor ConnectorScanner {
     /// 文件夹的那张;上一层这次已经列过就直接用,否则(续扫、只同步变了的目录)按路径列一次。
     private func directoryIndex(
         _ siblings: [RemoteFileItem],
-        of directory: String
+        of directory: String,
+        allowedParents: Set<String>? = nil
     ) async -> SidecarHintResolver.DirectoryIndex {
         let (index, ownCover, isGeneric) = autoreleasepool {
             () -> (SidecarHintResolver.DirectoryIndex, RemoteFileItem?, Bool) in
@@ -1930,6 +1939,7 @@ actor ConnectorScanner {
             return index.inheriting(folderCover: known)
         }
         guard let parent = DiscFolderPolicy.parentDirectory(ofDiscFolder: directory),
+              allowedParents?.contains(parent) != false,
               !FolderCoverNamePolicy.isGenericDirectory(named: (parent as NSString).lastPathComponent)
         else { return index }
         let parentCover = (try? await connector.listFiles(at: parent))

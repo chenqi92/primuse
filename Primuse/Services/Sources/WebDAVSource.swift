@@ -527,12 +527,21 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
     }
 
     func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
+        try await transferItem(at: path, to: newPath, isDirectory: isDirectory, method: "MOVE")
+        if !isDirectory { invalidateLocalCache(for: path) }
+    }
+
+    func copyFileWithoutReplacing(at path: String, to newPath: String) async throws {
+        try await transferItem(at: path, to: newPath, isDirectory: false, method: "COPY")
+    }
+
+    private func transferItem(at path: String, to newPath: String, isDirectory: Bool, method: String) async throws {
         guard !sourceRelativePath(path).isEmpty, !sourceRelativePath(newPath).isEmpty else {
             throw SourceFolderMutationError.unsupported
         }
         let source = isDirectory ? try collectionURL(for: path) : try fileURL(for: path)
         let destination = isDirectory ? try collectionURL(for: newPath) : try fileURL(for: newPath)
-        var request = try makeWebDAVRequest(url: source, method: "MOVE")
+        var request = try makeWebDAVRequest(url: source, method: method)
         request.setValue(destination.absoluteString, forHTTPHeaderField: "Destination")
         request.setValue("F", forHTTPHeaderField: "Overwrite")
         let (_, response) = try await TrustedHTTPTransport.data(
@@ -540,10 +549,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
         if (response as? HTTPURLResponse)?.statusCode == 412 {
             throw SourceFolderMutationError.destinationExists
         }
-        try validateMutationResponse(response, operation: "MOVE")
-        if !isDirectory {
-            invalidateLocalCache(for: path)
-        }
+        try validateMutationResponse(response, operation: method)
     }
 
     /// 目录的地址带结尾的 `/`:有的服务器对不带斜杠的集合回 301,而 MOVE、DELETE 不跟随跳转。

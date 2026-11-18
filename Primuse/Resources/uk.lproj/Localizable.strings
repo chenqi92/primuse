@@ -3991,6 +3991,7 @@
 "cloud_failed_title" = "Помилка підключення";
 "advanced" = "Розширений";
 "source_state_online" = "Онлайн";
+"source_state_offline" = "Не в мережі";
 "radio_mac_now_playing %@" = "Зараз грає · %@";
 "a11y_pause" = "Пауза";
 "stats_server_unavailable_title" = "Статистика сервера недоступна";
@@ -7544,6 +7545,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "Файли";
+"source_card_mac_files" = "Файли";
+"source_card_song_count %lld" = "Пісень: %lld";
 "source_card_open_manage" = "Керування";
 "source_card_open_library" = "Медіатека";
 "source_card_metric_folders" = "Папки сканування";
@@ -7688,5 +7691,6 @@
 "source_move_outside_scope" = "Ця папка поза областю сканування. Переміщені сюди пісні зникнуть із медіатеки після наступного сканування.";
 "source_move_no_subfolders" = "Тут немає папок";
 "source_move_error_destination" = "Не можна перемістити об’єкт у нього самого чи туди, де він уже є.";
+"source_move_error_cue" = "Цей файл не можна перемістити окремо від його CUE-файлу. Перемістіть усю папку.";
 "source_moved_format" = "Переміщено до «%@»";
 "server_admin_disabled" = "Вимкнено";

@@ -910,6 +910,104 @@ private final class AutomaticScanFixtureFileManager: FileManager, @unchecked Sen
 
 @MainActor
 final class MacResourceRegressionTests: XCTestCase {
+    func testMovingLocalSongToSourceRootKeepsPlaylistAndHistoryAfterDeepScan() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock { try FileManager.default.removeItem(at: root) }
+        let music = root.appendingPathComponent("Music")
+        let album = music.appendingPathComponent("Album")
+        try FileManager.default.createDirectory(at: album, withIntermediateDirectories: true)
+        for ext in ["wav", "aiff"] {
+            let file = try AVAudioFile(forWriting: album.appendingPathComponent("Track." + ext), settings: [
+                AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1,
+                AVLinearPCMBitDepthKey: 16, AVLinearPCMIsBigEndianKey: ext == "aiff", AVLinearPCMIsFloatKey: false,
+            ])
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 4096))
+            buffer.frameLength = buffer.frameCapacity
+            try file.write(from: buffer)
+        }
+        let lyrics = Data("[00:00.00]The copper bell rings twice".utf8)
+        let artwork = try XCTUnwrap(NSImage(systemSymbolName: "music.note", accessibilityDescription: nil)?.tiffRepresentation)
+        let jpeg = try XCTUnwrap(NSBitmapImageRep(data: artwork)?.representation(using: .jpeg, properties: [:]))
+        let sidecars = ["Track.lrc": lyrics, "Track.jpg": jpeg]
+        for (name, bytes) in sidecars { try bytes.write(to: album.appendingPathComponent(name)) }
+        let otherCue = "FILE \"Unrelated.wav\" WAVE\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n"
+        try Data(otherCue.utf8).write(to: album.appendingPathComponent("Other.cue"))
+        let source = MusicSource(id: UUID().uuidString, name: "Disk", type: .local, basePath: music.path)
+        let sourceStore = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        try sourceStore.addDurably(source)
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let connector = LocalFileSource(sourceID: source.id, basePath: music)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let scan = ScanService(
+            fileManager: AutomaticScanFixtureFileManager(root: root),
+            connectorProvider: { _ in connector }
+        )
+        let player = AudioPlayerService(sourceManager: manager, library: library, activateAudioSession: { _ in })
+        let operations = SourceFolderOperations(sourceManager: manager, scanService: scan, library: library,
+                                               sourcesStore: sourceStore, player: player)
+        func deepScan() async throws {
+            XCTAssertTrue(scan.scanSource(source, mode: .deep, sourceManager: manager, library: library,
+                                          sourceStore: sourceStore, requestsContinuedProcessing: false))
+            try await waitUntilAsync { scan.scanStates[source.id]?.isScanning != true }
+            XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        }
+
+        try await deepScan()
+        let original = try XCTUnwrap(library.songs.first { $0.filePath == "/Album/Track.wav" })
+        let sibling = try XCTUnwrap(library.songs.first { $0.filePath == "/Album/Track.aiff" })
+        let playlist = library.createPlaylist(name: "Favourites")
+        library.add(songID: original.id, toPlaylist: playlist.id)
+        library.recordPlayback(of: original.id)
+        let occupied = music.appendingPathComponent("Track.lrc")
+        try Data("existing lyrics".utf8).write(to: occupied)
+        do {
+            _ = try await operations.move(file: original.filePath, songs: [original], in: source, into: "/")
+            XCTFail("A conflicting sidecar should prevent the move")
+        } catch SourceFolderMutationError.destinationExists {}
+        XCTAssertEqual(try Data(contentsOf: occupied), Data("existing lyrics".utf8))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: album.appendingPathComponent("Track.wav").path))
+        try FileManager.default.removeItem(at: occupied)
+        let audioPath = album.appendingPathComponent("Track.wav").path
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: audioPath)
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: audioPath) }
+        do {
+            _ = try await operations.move(file: original.filePath, songs: [original], in: source, into: "/")
+            XCTFail("An immutable audio file should prevent the move after its sidecars are copied")
+        } catch {
+            XCTAssertEqual(library.song(id: original.id)?.filePath, original.filePath)
+            for (name, bytes) in sidecars {
+                XCTAssertEqual(try Data(contentsOf: album.appendingPathComponent(name)), bytes)
+                XCTAssertFalse(FileManager.default.fileExists(atPath: music.appendingPathComponent(name).path))
+            }
+        }
+        try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: audioPath)
+        let moved = try await operations.move(file: original.filePath, songs: [original], in: source, into: "/")
+        XCTAssertEqual(moved, "/Track.wav")
+        for (name, bytes) in sidecars {
+            XCTAssertEqual(try Data(contentsOf: album.appendingPathComponent(name)), bytes)
+            XCTAssertEqual(try Data(contentsOf: music.appendingPathComponent(name)), bytes)
+        }
+        try await deepScan()
+        XCTAssertEqual(library.songs.count, 2)
+        XCTAssertEqual(library.song(id: original.id)?.filePath, "/Track.wav")
+        XCTAssertEqual(library.song(id: sibling.id)?.filePath, "/Album/Track.aiff")
+        XCTAssertEqual(library.songIDs(forPlaylist: playlist.id), [original.id])
+        XCTAssertEqual(library.recentlyPlayedSongs().first?.id, original.id)
+
+        let current = try XCTUnwrap(library.storedSong(id: original.id))
+        var legacy = current
+        legacy.filePath = "Track.wav"
+        legacy.lyricsFileName = "Track.lrc"
+        legacy.coverArtFileName = "Track.jpg"
+        try await scan.recordMetadataFileReplacement(original: current, updated: legacy, in: library)
+        try await deepScan()
+        XCTAssertEqual(library.songs.count, 2)
+        XCTAssertEqual(library.storedSong(id: original.id)?.filePath, "/Track.wav")
+        XCTAssertEqual(library.song(id: original.id)?.filePath, "/Track.wav")
+        XCTAssertEqual(library.songIDs(forPlaylist: playlist.id), [original.id])
+        XCTAssertEqual(library.recentlyPlayedSongs().first?.id, original.id)
+    }
+
     func testLocalDownloadActionsAreHiddenWithoutMarkingOriginalsAsDownloaded() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1180,5 +1278,24 @@ final class PlayerLyricsColorRenderingTests: XCTestCase {
             context.draw(image, in: CGRect(x: 0, y: 0, width: 64, height: 32))
         }
         return pixels
+    }
+}
+
+@MainActor
+final class MacSourceControlAccessibilityTests: XCTestCase {
+    func testPreferenceBindingReadAndWriteFromAccessibilityQueue() async {
+        let applied = expectation(description: "Preference updated on MainActor")
+        let binding = Binding(snapshot: ServerCatalogRemovalMode.confirmFirst) { mode in
+            MainActor.assertIsolated()
+            XCTAssertEqual(mode, .immediate)
+            applied.fulfill()
+        }
+        let value = await Task.detached {
+            let value = binding.wrappedValue
+            binding.wrappedValue = .immediate
+            return value
+        }.value
+        XCTAssertEqual(value, .confirmFirst)
+        await fulfillment(of: [applied], timeout: 2)
     }
 }

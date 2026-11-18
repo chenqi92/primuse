@@ -3991,6 +3991,7 @@
 "cloud_failed_title" = "Bağlantı başarısız oldu";
 "advanced" = "Gelişmiş";
 "source_state_online" = "Çevrimiçi";
+"source_state_offline" = "Çevrimdışı";
 "radio_mac_now_playing %@" = "Şimdi oynatılıyor · %@";
 "a11y_pause" = "Duraklat";
 "stats_server_unavailable_title" = "Sunucu İstatistikleri Mevcut Değil";
@@ -7544,6 +7545,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "Dosyalar";
+"source_card_mac_files" = "Dosyalar";
+"source_card_song_count %lld" = "%lld şarkı";
 "source_card_open_manage" = "Yönet";
 "source_card_open_library" = "Arşiv";
 "source_card_metric_folders" = "Taranan klasörler";
@@ -7688,5 +7691,6 @@
 "source_move_outside_scope" = "Bu klasör tarama kapsamında değil. Buraya taşınan şarkılar sonraki taramadan sonra arşivden çıkar.";
 "source_move_no_subfolders" = "Burada klasör yok";
 "source_move_error_destination" = "Kendi içine ya da zaten bulunduğu yere taşınamaz.";
+"source_move_error_cue" = "Bu dosya CUE dosyasından ayrı taşınamaz. Klasörün tamamını taşıyın.";
 "source_moved_format" = "“%@” klasörüne taşındı";
 "server_admin_disabled" = "Devre dışı";

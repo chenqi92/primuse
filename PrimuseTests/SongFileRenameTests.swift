@@ -8,6 +8,38 @@ import UIKit
 @testable import Primuse
 
 final class SongFileRenameTests: XCTestCase {
+    func testSynologyRescanPreservesMovedIDWhenOldNameIsReused() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [SynologyMovedFilesProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let api = SynologyAPI(host: "synology-move.invalid", port: 443, useSsl: true, session: session)
+        let login = await api.login(account: "qa", password: "fixture")
+        XCTAssertTrue(login.success)
+        let scanner = SynologyScanner(api: api, sourceID: UUID().uuidString)
+        func scan(_ songs: [Song]) async throws -> SynologyScanner.ScanUpdate {
+            var terminal: SynologyScanner.ScanUpdate?
+            for try await update in await scanner.scan(directories: ["/Music"], existingSongs: songs) {
+                terminal = update
+            }
+            return try XCTUnwrap(terminal)
+        }
+        let first = try await scan([])
+        var moved = try XCTUnwrap(first.songs.first { $0.filePath == "/Music/Old.flac" })
+        moved.filePath = "/Music/New.flac"
+        for size in [Int64(4096), 2048] {
+            moved.fileSize = size
+            let rescanned = try await scan([moved])
+            XCTAssertEqual(rescanned.songs.count, 2)
+            XCTAssertEqual(rescanned.songs.first { $0.filePath == moved.filePath }?.id, moved.id)
+            let replacement = try XCTUnwrap(rescanned.songs.first { $0.filePath == "/Music/Old.flac" })
+            XCTAssertNotEqual(replacement.id, moved.id)
+            let index = try XCTUnwrap(rescanned.resumeState?.index)
+            XCTAssertEqual(index.values.first { $0.path == moved.filePath }?.songIDs, [moved.id])
+            XCTAssertEqual(index.values.first { $0.path == replacement.filePath }?.songIDs, [replacement.id])
+        }
+    }
+
     func testRenamedIdentityRemainsReservedAcrossSnapshotUpdatesAndRepeatedCollisions() {
         let songs = [
             Song(id: "original", title: "First", fileFormat: .flac, filePath: "/renamed.flac", sourceID: "source"),
@@ -523,6 +555,29 @@ private final class RenameDAVProtocol: URLProtocol, @unchecked Sendable {
         Self.lock.withLock { Self.requests[String(id)] = request }
         let response = HTTPURLResponse(url: url, statusCode: 201, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "0"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private final class SynologyMovedFilesProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let payload: [String: Any]
+        if url.path == "/webapi/auth.cgi" {
+            payload = ["sid": "fixture"]
+        } else {
+            let files: [[String: Any]] = ["Old.flac", "New.flac"].map {
+                ["name": $0, "path": "/Music/" + $0, "isdir": false, "additional": ["size": 4096]]
+            }
+            payload = ["total": files.count, "files": files]
+        }
+        let body = try! JSONSerialization.data(withJSONObject: ["success": true, "data": payload])
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+                                                              headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

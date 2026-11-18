@@ -7,6 +7,53 @@ import XCTest
 
 final class MacVolumeSliderTests: XCTestCase {
     @MainActor
+    func testAccessibilityQueueDefersNativeConfigurationAndKeepsTheLatestUpdate() async {
+        _ = NSApplication.shared
+        let coordinator = PMVolumeSlider.Coordinator(value: .constant(0.2))
+        let slider = PMWindowSafeSlider(value: 0.2, minValue: 0, maxValue: 1, target: coordinator, action: nil)
+        let configuration = PMVolumeSlider(
+            value: .constant(1.4), range: 0...2, controlSize: .small, isEnabled: false,
+            trackThicknessScale: 1.8, fillColor: .red, accessibilityLabel: "Output",
+            accessibilityHelp: "Adjust output"
+        )
+
+        func updateWhileMainIsBusy(_ configuration: PMVolumeSlider) {
+            let returned = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                slider.update(configuration)
+                returned.signal()
+            }
+            XCTAssertEqual(returned.wait(timeout: .now() + 2), .success)
+        }
+        func drainMainQueue() async {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+
+        updateWhileMainIsBusy(configuration)
+        XCTAssertEqual(slider.doubleValue, 0.2, accuracy: 0.0001)
+        await drainMainQueue()
+        XCTAssertEqual(slider.doubleValue, 1.4, accuracy: 0.0001)
+        XCTAssertEqual(slider.maxValue, 2)
+        XCTAssertEqual(slider.controlSize, .small)
+        XCTAssertFalse(slider.isEnabled)
+        XCTAssertEqual(slider.trackFillColor, NSColor(Color.red))
+        XCTAssertTrue(slider.cell is PMThicknessSliderCell)
+        XCTAssertEqual(slider.accessibilityLabel(), "Output")
+        XCTAssertEqual(slider.accessibilityHelp(), "Adjust output")
+
+        updateWhileMainIsBusy(configuration)
+        let newest = PMVolumeSlider(value: .constant(0.6), accessibilityLabel: "Latest")
+        slider.update(newest)
+        await drainMainQueue()
+        XCTAssertEqual(slider.doubleValue, 0.6, accuracy: 0.0001)
+        XCTAssertEqual(slider.accessibilityLabel(), "Latest")
+        XCTAssertFalse(slider.cell is PMThicknessSliderCell)
+        withExtendedLifetime(coordinator) {}
+    }
+
+    @MainActor
     func testThicknessChangesTheNativeTrackAndRestoresItsDefaultRendering() throws {
         _ = NSApplication.shared
         let slider = PMWindowSafeSlider(value: 0.6, minValue: 0, maxValue: 1, target: nil, action: nil)

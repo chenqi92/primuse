@@ -410,6 +410,41 @@ final class MediaServerSourceCreationTransactionTests: XCTestCase {
     }
 }
 
+final class JellyfinUserCreationErrorTests: XCTestCase {
+    func testAmbiguousBadRequestIsOnlyADuplicateWhenTheAccountExists() async throws {
+        let rejected = ServerAdmin.Failure.rejected("Error processing request.")
+        let cases: [(name: String, listStatus: Int, expected: ServerAdmin.Failure)] = [
+            ("LISTENER", 200, .duplicateName), ("new-user", 200, rejected), ("listener", 403, rejected),
+        ]
+        for test in cases {
+            let connector = MediaServerSource(
+                sourceID: UUID().uuidString, kind: .jellyfin, host: "jellyfin.invalid",
+                port: nil, useSsl: true, basePath: nil, username: "admin", secret: "fixture",
+                authType: .apiKey, requestDataLoader: { request in
+                    switch (request.httpMethod, request.url?.path) {
+                    case ("GET", "/Users/Me"):
+                        return try makeResponse(for: request, status: 200, json: #"{"Id":"admin","Name":"admin"}"#)
+                    case ("POST", "/Users/New"):
+                        return try makeResponse(for: request, status: 400, json: "Error processing request.")
+                    case ("GET", "/Users"):
+                        return try makeResponse(for: request, status: test.listStatus,
+                                                json: #"[{"Id":"existing","Name":"Listener"}]"#)
+                    default:
+                        XCTFail("Unexpected request to \(request.url?.path ?? "")")
+                        throw URLError(.unsupportedURL)
+                    }
+                }
+            )
+            do {
+                try await connector.createServerAdminUser(.init(userName: test.name))
+                XCTFail("Rejected user creation should throw")
+            } catch let error as ServerAdmin.Failure {
+                XCTAssertEqual(error, test.expected)
+            }
+        }
+    }
+}
+
 private func makeResponse(
     for request: URLRequest,
     status: Int,

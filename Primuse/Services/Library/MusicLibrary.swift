@@ -7332,6 +7332,18 @@ final class MusicLibrary {
                 return (previous, current)
             }
         if !locationTransitions.isEmpty {
+            // Playback and file details look up the visible row as soon as the move is
+            // published. The asynchronously rebuilt index can still contain the old path.
+            var visible = visibleSongs
+            var updatedVisibleLocation = false
+            for (previous, current) in locationTransitions {
+                guard previous.sourceID == current.sourceID,
+                      let index = visibleSongIndexByID[current.id], visible.indices.contains(index),
+                      visible[index].id == current.id, visible[index].filePath != current.filePath else { continue }
+                visible[index] = current
+                updatedVisibleLocation = true
+            }
+            if updatedVisibleLocation { visibleSongs = visible }
             NotificationCenter.default.post(
                 name: .primuseSongLocationChanged,
                 object: nil,

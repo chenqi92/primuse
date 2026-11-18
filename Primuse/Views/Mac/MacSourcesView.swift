@@ -30,8 +30,7 @@ struct MacSourcesView: View {
     @State private var directorySelectionSession: SourceDirectorySelectionSession?
     @State private var sourceToDelete: MusicSource?
     @State private var cloudDirectoryNameRefreshID = UUID()
-    /// 点了「文件」:和手机同一套文件页,在弹框里打开。
-    @State private var browsingFilesSource: MusicSource?
+    @State private var detailSource: MusicSource?
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -114,12 +113,12 @@ struct MacSourcesView: View {
         .sheet(item: $diagnosingSource) { source in
             SourceDiagnosticsView(source: source)
         }
-        .sheet(item: $browsingFilesSource) { source in
+        .sheet(item: $detailSource) { source in
             NavigationStack {
                 SourceDetailPage(source: source, actions: detailActions)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("done") { browsingFilesSource = nil }
+                            Button("done") { detailSource = nil }
                         }
                     }
             }
@@ -154,7 +153,7 @@ struct MacSourcesView: View {
         .confirmationDialog(
             Text("source_remove_confirm_title"),
             isPresented: Binding(
-                get: { sourceToDelete != nil },
+                snapshot: sourceToDelete != nil,
                 set: { if !$0 { sourceToDelete = nil } }
             ),
             titleVisibility: .visible,
@@ -354,6 +353,13 @@ struct MacSourcesView: View {
                 SourceScanStateReader(sourceID: source.id) { _ in
                     statusBadge(runtimeState(source))
                 }
+                if SourceFileBrowserPolicy.browsesFiles(source.type) {
+                    pill("source_card_mac_files", systemImage: "folder") { detailSource = source }
+                } else if source.type.isServerLibrary {
+                    pill("source_card_open_manage", systemImage: "server.rack") { detailSource = source }
+                } else if source.type == .appleMusic {
+                    pill("source_card_open_library", systemImage: "music.note.list") { detailSource = source }
+                }
             }
 
             if source.connectionConfiguration != nil,
@@ -382,14 +388,12 @@ struct MacSourcesView: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
 
-            macLocalRemovalsButton(source)
-            hiddenPlaylistsButton(source)
-
-            if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
-                serverCatalogAutoRefreshControl(for: source)
-            }
-            if source.type == .tingReader {
-                TingReaderProgressSyncControls(source: source)
+            if !source.type.isServerLibrary {
+                macLocalRemovalsButton(source)
+                hiddenPlaylistsButton(source)
+                if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
+                    fileAutoRefreshControl(for: source)
+                }
             }
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
@@ -412,7 +416,7 @@ struct MacSourcesView: View {
                 Label("edit", systemImage: "pencil")
             }
             // 卡片上的「浏览」换成了文件页,选目录挪到这里和文件页的「更多」里。
-            if !source.type.scansEntireLibrary, !dirs.isEmpty {
+            if source.type.continuesToDirectorySelectionAfterCreation {
                 Button { connectingSource = source } label: {
                     Label("manage_dirs", systemImage: "folder.badge.gear")
                 }
@@ -442,22 +446,28 @@ struct MacSourcesView: View {
         }
     }
 
-    private func serverCatalogAutoRefreshControl(for source: MusicSource) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            serverCatalogOptionRow(
-                title: "server_auto_refresh",
-                description: source.type.isServerLibrary
-                    ? "server_auto_refresh_description" : "source_auto_refresh_description",
-                isOn: serverCatalogAutoRefreshBinding(for: source.id)
-            )
-            if AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id) {
+    private func fileAutoRefreshControl(for source: MusicSource) -> some View {
+        let refresh = AppServices.shared.serverCatalogAutoRefresh
+        return VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .center, spacing: 12) {
+                Text("server_auto_refresh")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Spacer(minLength: 10)
+                Toggle("server_auto_refresh", isOn: refresh.enabledBinding(for: source.id))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .accessibilityLabel(Text("server_auto_refresh"))
+                    .accessibilityHint(Text("source_auto_refresh_description"))
+            }
+            if refresh.isEnabled(for: source.id) {
                 Rectangle().fill(PMColor.divider).frame(height: 0.5)
                 HStack(spacing: 12) {
                     Text("source_auto_refresh_interval")
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(PMColor.text)
                     Spacer(minLength: 10)
-                    Picker("source_auto_refresh_interval", selection: automaticRefreshIntervalBinding(for: source.id)) {
+                    Picker("source_auto_refresh_interval", selection: refresh.intervalBinding(for: source.id)) {
                         ForEach(SourceAutomaticRefreshInterval.allCases, id: \.self) { interval in
                             Text(Duration.seconds(interval.timeInterval), format: .units(allowed: [.hours], width: .wide))
                                 .tag(interval)
@@ -469,99 +479,9 @@ struct MacSourcesView: View {
                     .fixedSize()
                 }
             }
-            if AppServices.shared.serverCatalogAutoRefresh.supportsServerScanRequest(source) {
-                Rectangle().fill(PMColor.divider).frame(height: 0.5)
-                serverCatalogOptionRow(
-                    title: "server_scan_on_launch",
-                    description: "server_scan_on_launch_description",
-                    isOn: serverCatalogScanOnLaunchBinding(for: source.id)
-                )
-                .disabled(!AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id))
-            }
-            if AppServices.shared.serverCatalogAutoRefresh.supportsCatalogRemovalModeChoice(source) {
-                Rectangle().fill(PMColor.divider).frame(height: 0.5)
-                HStack(alignment: .center, spacing: 12) {
-                    Text("catalog_prune_mode_title")
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                    Spacer(minLength: 10)
-                    Picker("catalog_prune_mode_title", selection: catalogRemovalModeBinding(for: source.id)) {
-                        Text("catalog_prune_mode_confirm").tag(ServerCatalogRemovalMode.confirmFirst)
-                        Text("catalog_prune_mode_immediate").tag(ServerCatalogRemovalMode.immediate)
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .fixedSize()
-                    .accessibilityLabel(Text("catalog_prune_mode_title"))
-                    .accessibilityHint(Text("catalog_prune_mode_description"))
-                }
-                // 两种做法的取舍放在悬停提示里，和这一块其它开关一样不占卡片的行。
-                .help(Text("catalog_prune_mode_description"))
-            }
         }
         .padding(10)
         .background(PMColor.bgDeep.opacity(0.5), in: .rect(cornerRadius: 9))
-    }
-
-    private func automaticRefreshIntervalBinding(for sourceID: String) -> Binding<SourceAutomaticRefreshInterval> {
-        Binding(
-            get: { AppServices.shared.serverCatalogAutoRefresh.refreshInterval(for: sourceID) },
-            set: { AppServices.shared.serverCatalogAutoRefresh.setRefreshInterval($0, for: sourceID) }
-        )
-    }
-
-    private func catalogRemovalModeBinding(for sourceID: String) -> Binding<ServerCatalogRemovalMode> {
-        Binding(
-            get: {
-                AppServices.shared.serverCatalogAutoRefresh.catalogRemovalMode(for: sourceID)
-            },
-            set: { mode in
-                AppServices.shared.serverCatalogAutoRefresh.setCatalogRemovalMode(mode, for: sourceID)
-            }
-        )
-    }
-
-    private func serverCatalogOptionRow(
-        title: LocalizedStringKey,
-        description: LocalizedStringKey,
-        isOn: Binding<Bool>
-    ) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Text(title)
-                .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(PMColor.text)
-            Spacer(minLength: 10)
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .accessibilityLabel(Text(title))
-                .accessibilityHint(Text(description))
-        }
-    }
-
-    private func serverCatalogAutoRefreshBinding(for sourceID: String) -> Binding<Bool> {
-        Binding(
-            get: {
-                AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: sourceID)
-            },
-            set: { enabled in
-                AppServices.shared.serverCatalogAutoRefresh.setEnabled(enabled, for: sourceID)
-            }
-        )
-    }
-
-    private func serverCatalogScanOnLaunchBinding(for sourceID: String) -> Binding<Bool> {
-        Binding(
-            get: {
-                AppServices.shared.serverCatalogAutoRefresh
-                    .isServerScanOnLaunchEnabled(for: sourceID)
-            },
-            set: { enabled in
-                AppServices.shared.serverCatalogAutoRefresh
-                    .setServerScanOnLaunchEnabled(enabled, for: sourceID)
-            }
-        )
     }
 
     // MARK: - Card body
@@ -633,10 +553,9 @@ struct MacSourcesView: View {
             }) {
                 HStack(spacing: 6) {
                     if displayedSongCount > 0 {
-                        Text(verbatim: displayedSongCount.formatted())
+                        Text("source_card_song_count \(displayedSongCount)")
                             .foregroundStyle(PMColor.text)
                             .monospacedDigit()
-                        Text(Lz("songs_count_inline"))
                         Text(verbatim: "·")
                     }
                     Text(syncedText(source))
@@ -768,9 +687,6 @@ struct MacSourcesView: View {
                 .disabled(isAppleMusicSyncing || !source.isEnabled)
             } else if source.type.scansEntireLibrary {
                 scanPill(source, scanning: scanning)
-                if SourceFileBrowserPolicy.browsesFiles(source.type) {
-                    pill("source_card_open_files", systemImage: "folder") { browsingFilesSource = source }
-                }
                 if source.type == .synologyAudioStation {
                     // 设备令牌失效后后台登录会卡在两步验证上,从这里再输一次验证码。
                     pill("audio_station_sign_in", systemImage: "person.badge.key") { connectingSource = source }
@@ -781,7 +697,6 @@ struct MacSourcesView: View {
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else {
                 scanPill(source, scanning: scanning)
-                pill("source_card_open_files", systemImage: "folder") { browsingFilesSource = source }
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             }
 
@@ -840,12 +755,13 @@ struct MacSourcesView: View {
 
     // MARK: - Runtime state
 
-    private enum SourceRuntimeState { case online, scanning, attention, disabled }
+    private enum SourceRuntimeState { case online, offline, scanning, attention, disabled }
 
     private func runtimeState(_ source: MusicSource) -> SourceRuntimeState {
         if !source.isEnabled { return .disabled }
         if scanService.scanStates[source.id]?.isScanning == true { return .scanning }
         if isAttention(source) { return .attention }
+        if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) { return .offline }
         return .online
     }
 
@@ -860,6 +776,7 @@ struct MacSourcesView: View {
     private func stateColor(_ state: SourceRuntimeState) -> Color {
         switch state {
         case .online: PMColor.ok
+        case .offline: .orange
         case .scanning: statusBlue
         case .attention: PMColor.bad
         case .disabled: PMColor.textFaint
@@ -869,6 +786,7 @@ struct MacSourcesView: View {
     private func stateLabel(_ state: SourceRuntimeState) -> LocalizedStringKey {
         switch state {
         case .online: "source_state_online"
+        case .offline: "source_state_offline"
         case .scanning: "scanning"
         case .attention: "source_state_attention"
         case .disabled: "source_disabled_on_this_device"
@@ -882,12 +800,14 @@ struct MacSourcesView: View {
     private var summaryText: String {
         let total = sources.count
         let online = sources.filter { runtimeState($0) == .online }.count
+        let offline = sources.filter { runtimeState($0) == .offline }.count
         let scanning = sources.filter { runtimeState($0) == .scanning }.count
         let attention = sources.filter { runtimeState($0) == .attention }.count
         let disabled = sources.filter { !$0.isEnabled }.count
 
         var parts = [String(format: String(localized: "sources_count_format"), total)]
         if online > 0 { parts.append("\(online) \(String(localized: "source_state_online"))") }
+        if offline > 0 { parts.append("\(offline) \(String(localized: "source_state_offline"))") }
         if scanning > 0 { parts.append("\(scanning) \(String(localized: "scanning"))") }
         if attention > 0 { parts.append("\(attention) \(String(localized: "source_state_attention"))") }
         if disabled > 0 { parts.append("\(disabled) \(String(localized: "disabled"))") }
@@ -920,10 +840,9 @@ struct MacSourcesView: View {
     private func appleMusicSyncStatus(songCount: Int) -> some View {
         HStack(spacing: 6) {
             if songCount > 0 {
-                Text(verbatim: songCount.formatted())
+                Text("source_card_song_count \(songCount)")
                     .foregroundStyle(PMColor.text)
                     .monospacedDigit()
-                Text(Lz("songs_count_inline"))
                 Text(verbatim: "·")
             }
             switch appleMusicLibrary.state {

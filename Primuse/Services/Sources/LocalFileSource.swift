@@ -496,6 +496,20 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         }
     }
 
+    func copyFileWithoutReplacing(at path: String, to newPath: String) async throws {
+        guard supportsSidecarWriting else { throw SourceFolderMutationError.unsupported }
+        let source = try resolvedURL(for: path, allowRoot: false)
+        let destination = try resolvedURL(for: newPath, allowRoot: false)
+        let staging = destination.deletingLastPathComponent().appendingPathComponent(".primuse-copy-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: staging) }
+        try FileManager.default.copyItem(at: source, to: staging)
+        let status = renameatx_np(AT_FDCWD, staging.path, AT_FDCWD, destination.path, UInt32(RENAME_EXCL))
+        guard status == 0 else {
+            if errno == EEXIST { throw SourceFolderMutationError.destinationExists }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+
     func deleteDirectory(at path: String) async throws {
         guard supportsSidecarWriting,
               !isVirtualReferenceRoot((path as NSString).deletingLastPathComponent) else {

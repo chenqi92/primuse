@@ -6,6 +6,26 @@ import UIKit
 import AppKit
 #endif
 
+extension ServerCatalogAutoRefreshCoordinator {
+    func enabledBinding(for sourceID: String) -> Binding<Bool> {
+        Binding(snapshot: isEnabled(for: sourceID)) { self.setEnabled($0, for: sourceID) }
+    }
+
+    func intervalBinding(for sourceID: String) -> Binding<SourceAutomaticRefreshInterval> {
+        Binding(snapshot: refreshInterval(for: sourceID)) { self.setRefreshInterval($0, for: sourceID) }
+    }
+
+    func scanOnLaunchBinding(for sourceID: String) -> Binding<Bool> {
+        Binding(snapshot: isServerScanOnLaunchEnabled(for: sourceID)) {
+            self.setServerScanOnLaunchEnabled($0, for: sourceID)
+        }
+    }
+
+    func removalModeBinding(for sourceID: String) -> Binding<ServerCatalogRemovalMode> {
+        Binding(snapshot: catalogRemovalMode(for: sourceID)) { self.setCatalogRemovalMode($0, for: sourceID) }
+    }
+}
+
 struct TingReaderProgressSyncControls: View {
     let source: MusicSource
 
@@ -13,7 +33,7 @@ struct TingReaderProgressSyncControls: View {
         let sync = AppServices.shared.tingReaderProgressSync
         VStack(alignment: .leading, spacing: 9) {
             Toggle(PMString("ting_reader_progress_auto_sync"), isOn: Binding(
-                get: { sync.isEnabled(for: source.id) },
+                snapshot: sync.isEnabled(for: source.id),
                 set: { enabled in
                     sync.setEnabled(enabled, for: source.id)
                     if enabled { Task { await sync.refresh(sourceID: source.id) } }

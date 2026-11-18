@@ -2034,6 +2034,10 @@ extension RoutedConnectorProxy {
         (try? await routing.withRead { await $0.canMutateDirectories() }) ?? false
     }
 
+    func fileMutationRootPath() async throws -> String? {
+        try await routing.withRead { try await $0.fileMutationRootPath() }
+    }
+
     func renameDirectory(at path: String, to newPath: String) async throws {
         try await routing.withMutation { try await $0.renameDirectory(at: path, to: newPath) }
     }
@@ -2044,6 +2048,10 @@ extension RoutedConnectorProxy {
 
     func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
         try await routing.withMutation { try await $0.moveItem(at: path, to: newPath, isDirectory: isDirectory) }
+    }
+
+    func copyFileWithoutReplacing(at path: String, to newPath: String) async throws {
+        try await routing.withMutation { try await $0.copyFileWithoutReplacing(at: path, to: newPath) }
     }
 
     func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {

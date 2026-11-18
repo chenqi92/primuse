@@ -287,14 +287,19 @@ public enum SourceFileMovePlan {
     public struct Move: Equatable, Sendable {
         public let from: String
         public let to: String
+        /// Another audio file in the original folder still uses this sidecar.
+        public let keepsOriginal: Bool
+
+        public init(from: String, to: String, keepsOriginal: Bool = false) {
+            self.from = from
+            self.to = to
+            self.keepsOriginal = keepsOriginal
+        }
     }
 
     public enum Failure: Error, Equatable, Sendable {
-        /// 目标文件夹里已经有同名的文件。
         case collision(String)
-        /// 原来那一层里找不到这首歌了。
         case missingFile
-        /// 同一个文件夹里有 CUE:整轨文件和分轨对不上名字,不能单独挪。
         case cue
     }
 
@@ -302,36 +307,99 @@ public enum SourceFileMovePlan {
         .union(PrimuseConstants.supportedCoverExtensions)
         .union(["mp4", "mov", "m4v"])
 
-    /// `sourceEntries` 是歌所在那一层,`destinationNames` 是目标文件夹里已有的名字。
+    /// Earlier moves into the source root stored only the filename. Repair the scan's
+    /// seed before it chooses song IDs, using the same root the connector lists.
+    public static func repairingLegacyRootMoves(
+        in songs: [Song], root: String?, onRepair: (Song) -> Void = { _ in }
+    ) -> [Song] {
+        guard let root else { return songs }
+        let base = root as NSString
+        var candidates: [String: Int] = [:]
+        for (index, song) in songs.enumerated() where !song.filePath.contains("/") && !song.isCueTrack
+            && SourceFileBrowserPolicy.isAudioFileName(song.filePath) {
+            let path = base.appendingPathComponent(song.filePath)
+            candidates[path] = candidates[path] == nil ? index : -1
+        }
+        guard !candidates.isEmpty else { return songs }
+        for song in songs { candidates.removeValue(forKey: song.filePath) }
+        var result = songs
+        for (path, index) in candidates where index >= 0 {
+            var song = songs[index]
+            let stem = key(SourceFileBrowserPolicy.stem(of: song.filePath))
+            func repair(_ reference: String?) -> String? {
+                guard let reference, !reference.contains("/"), sidecarOwners(of: reference).contains(stem) else {
+                    return reference
+                }
+                return base.appendingPathComponent(reference)
+            }
+            song.filePath = path
+            song.lyricsFileName = repair(song.lyricsFileName)
+            song.coverArtFileName = repair(song.coverArtFileName)
+            song.mvPath = repair(song.mvPath)
+            result[index] = song
+            onRepair(song)
+        }
+        return result
+    }
+
+    /// A missing sheet in cueReferences means its FILE declarations could not be verified.
     public static func moves(
         audioPath: String,
         sourceEntries: [SourceFileBrowserPolicy.Entry],
         destinationDirectory: String,
-        destinationNames: [String]
+        destinationNames: [String],
+        cueReferences: [String: [String]] = [:],
+        sourceType: MusicSourceType = .local
     ) throws -> [Move] {
         guard let audio = sourceEntries.first(where: { $0.path == audioPath && !$0.isDirectory }) else {
             throw Failure.missingFile
         }
-        guard !sourceEntries.contains(where: { !$0.isDirectory && ($0.name as NSString).pathExtension.lowercased() == "cue" }) else {
-            throw Failure.cue
-        }
-        let stem = key(SourceFileBrowserPolicy.stem(of: audio.name))
-        var moving = [audio]
-        for entry in sourceEntries where !entry.isDirectory && entry.path != audio.path {
-            let ext = (entry.name as NSString).pathExtension.lowercased()
-            guard sidecarExtensions.contains(ext) else { continue }
-            let entryStem = key(SourceFileBrowserPolicy.stem(of: entry.name))
-            if entryStem == stem || entryStem == stem + "-cover" || entryStem == stem + "-back" {
-                moving.append(entry)
+        for cue in sourceEntries where !cue.isDirectory && (cue.name as NSString).pathExtension.lowercased() == "cue" {
+            guard let references = cueReferences[cue.path] else { throw Failure.cue }
+            for reference in references {
+                let path = reference.replacingOccurrences(of: "\\", with: "/")
+                if sourceType == .local {
+                    let parent = (cue.path as NSString).deletingLastPathComponent
+                    let relative = (parent as NSString).appendingPathComponent(path)
+                    if key((relative as NSString).standardizingPath) == key((audioPath as NSString).standardizingPath) { throw Failure.cue }
+                } else if key((path as NSString).lastPathComponent) == key(audio.name) {
+                    throw Failure.cue
+                }
             }
         }
-        let taken = Set(destinationNames.map(key))
-        let base = destinationDirectory.hasSuffix("/") ? String(destinationDirectory.dropLast()) : destinationDirectory
-        return try moving.map { entry in
-            guard !taken.contains(key(entry.name)) else { throw Failure.collision(entry.name) }
-            let target = base.isEmpty ? entry.name : (base == "/" ? "/" + entry.name : base + "/" + entry.name)
-            return Move(from: entry.path, to: target)
+
+        let stem = key(SourceFileBrowserPolicy.stem(of: audio.name))
+        let otherStems = Set(sourceEntries.compactMap { entry -> String? in
+            guard entry.path != audioPath, !entry.isDirectory,
+                  SourceFileBrowserPolicy.isAudioFileName(entry.name) else { return nil }
+            return key(SourceFileBrowserPolicy.stem(of: entry.name))
+        })
+        var taken = Set(destinationNames.map(key))
+        let base = trimmed(destinationDirectory)
+        func step(_ entry: SourceFileBrowserPolicy.Entry, keepsOriginal: Bool = false) throws -> Move {
+            guard taken.insert(key(entry.name)).inserted else { throw Failure.collision(entry.name) }
+            return Move(from: entry.path, to: (base as NSString).appendingPathComponent(entry.name),
+                        keepsOriginal: keepsOriginal)
         }
+        var result = [try step(audio)]
+        for entry in sourceEntries where !entry.isDirectory && entry.path != audioPath {
+            let owners = sidecarOwners(of: entry.name)
+            if owners.contains(stem) {
+                result.append(try step(entry, keepsOriginal: !otherStems.isDisjoint(with: owners)))
+            }
+        }
+        return result
+    }
+
+    private static func sidecarOwners(of name: String) -> [String] {
+        let ext = (name as NSString).pathExtension.lowercased()
+        guard sidecarExtensions.contains(ext) else { return [] }
+        let stem = key(SourceFileBrowserPolicy.stem(of: name))
+        if PrimuseConstants.supportedCoverExtensions.contains(ext),
+           let suffix = ["-cover", "-back"].first(where: { stem.hasSuffix($0) }) {
+            return [stem, String(stem.dropLast(suffix.count))]
+        }
+        return [stem]
     }
 
     /// 能不能把目录 `folder` 挪进 `destination`:不能挪进它自己或它下面,挪回原处也没意义。

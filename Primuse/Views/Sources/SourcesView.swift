@@ -1062,9 +1062,9 @@ struct SourcesContentView: View {
                     value: appleMusicLastSyncedAt.map(SourceDateText.relative) ?? "—",
                     label: String(localized: "source_card_metric_last_sync")
                 )
-            } else if SourceFileBrowserPolicy.browsesFiles(source.type), !source.type.scansEntireLibrary {
+            } else if SourceFileBrowserPolicy.browsesFiles(source.type) {
                 SourceMetricTile(
-                    value: sourceCardDirectoryCount(dirs),
+                    value: sourceCardDirectoryCount(dirs, wholeSource: source.type.scansEntireLibrary),
                     label: String(localized: "source_card_metric_folders")
                 )
             } else if source.type.category == .mediaServer,
@@ -1083,12 +1083,11 @@ struct SourcesContentView: View {
         }
     }
 
-    private func sourceCardDirectoryCount(_ dirs: [String]) -> String {
-        if dirs.isEmpty { return "—" }
-        if dirs.contains(where: SourceDirectorySelectionPolicy.isRootPath) {
+    private func sourceCardDirectoryCount(_ dirs: [String], wholeSource: Bool) -> String {
+        if wholeSource || dirs.contains(where: SourceDirectorySelectionPolicy.isRootPath) {
             return String(localized: "source_card_metric_all_folders")
         }
-        return dirs.count.formatted()
+        return dirs.isEmpty ? "—" : dirs.count.formatted()
     }
 
     private func sourceCardAutoRefreshText(_ source: MusicSource) -> String {

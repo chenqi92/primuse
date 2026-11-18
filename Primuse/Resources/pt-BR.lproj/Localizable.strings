@@ -3779,6 +3779,7 @@
 "source_ssh_key_type_unsupported" = "Este tipo de chave SSH não é suportado.";
 "source_state_attention" = "Precisa de atenção";
 "source_state_online" = "On-line";
+"source_state_offline" = "Offline";
 "source_synced_ago_format" = "%@ sincronizado";
 "source_type" = "Tipo de Fonte";
 "source_unavailable" = "A fonte da música não está disponível.";
@@ -7544,6 +7545,8 @@
 
 /* 音乐源卡片与详情页 */
 "source_card_open_files" = "Arquivos";
+"source_card_mac_files" = "Arquivos";
+"source_card_song_count %lld" = "Músicas: %lld";
 "source_card_open_manage" = "Gerenciar";
 "source_card_open_library" = "Biblioteca";
 "source_card_metric_folders" = "Pastas escaneadas";
@@ -7688,5 +7691,6 @@
 "source_move_outside_scope" = "Esta pasta está fora do escaneamento. As músicas movidas para cá saem da biblioteca após o próximo escaneamento.";
 "source_move_no_subfolders" = "Não há pastas aqui";
 "source_move_error_destination" = "Não dá para mover para dentro dele mesmo nem para onde já está.";
+"source_move_error_cue" = "Não é possível mover este arquivo separadamente de sua folha CUE. Mova a pasta inteira.";
 "source_moved_format" = "Movido para “%@”";
 "server_admin_disabled" = "Desativado";

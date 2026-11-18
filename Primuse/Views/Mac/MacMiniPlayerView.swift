@@ -973,7 +973,7 @@ private struct ScrubberLine: View {
     var body: some View {
         PMVolumeSlider(
             value: Binding(
-                get: { isDragging ? dragValue : value },
+                snapshot: isDragging ? dragValue : value,
                 set: {
                     dragValue = $0
                     if !isDragging { onSeek($0) }

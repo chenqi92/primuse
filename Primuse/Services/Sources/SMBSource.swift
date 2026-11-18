@@ -689,6 +689,32 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFil
         }
     }
 
+    func copyFileWithoutReplacing(at path: String, to newPath: String) async throws {
+        guard case let .share(share, from) = try resolve(path: Self.normalizeRemotePath(path)),
+              case let .share(toShare, to) = try resolve(path: Self.normalizeRemotePath(newPath)),
+              share == toShare, from != "/", to != "/" else { throw SourceFolderMutationError.unsupported }
+        let staging = ((to as NSString).deletingLastPathComponent as NSString)
+            .appendingPathComponent(".primuse-copy-" + UUID().uuidString)
+        try await withSerializedOperation {
+            let client = try await self.ensureConnectedShare(named: share)
+            do {
+                try await Self.awaitRequest { activity in
+                    try await client.copyItem(atPath: from, toPath: staging, recursive: false) { _, _ in
+                        activity.noteProgress()
+                        return true
+                    }
+                }
+                try await Self.awaitRequest { _ in try await client.moveItem(atPath: staging, toPath: to) }
+            } catch {
+                self.retireClientIfRequestAbandoned(error)
+                if self.client === client {
+                    try? await Self.awaitRequest { _ in try await client.removeFile(atPath: staging) }
+                }
+                throw error
+            }
+        }
+    }
+
     func deleteDirectory(at path: String) async throws {
         guard case let .share(_, relativePath) = try resolve(path: Self.normalizeRemotePath(path)),
               relativePath != "/" else {

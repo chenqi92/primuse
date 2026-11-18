@@ -869,12 +869,16 @@ protocol MusicSourceConnector: Sendable {
 
     /// 文件页里给整个目录改名、删除。本机、WebDAV、SMB 实现;其余源默认不支持。
     func canMutateDirectories() async -> Bool
+    /// Root used in file listings, which may be an SFTP home directory.
+    func fileMutationRootPath() async throws -> String?
     /// 同一层里改名。目标已经存在时必须失败,不能覆盖。
     func renameDirectory(at path: String, to newPath: String) async throws
     /// 连同里面的文件和子目录一起删掉。不能删源的根目录。
     func deleteDirectory(at path: String) async throws
     /// 把文件或目录挪到同一个源里的另一个位置(名字不变)。目标已经存在时必须失败。
     func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws
+    /// Copy a shared sidecar, preserving the original and refusing to replace an existing target.
+    func copyFileWithoutReplacing(at path: String, to newPath: String) async throws
 
     /// Delete several remote files in one source operation. Connectors whose
     /// provider exposes a batch API override this together with
@@ -2915,6 +2919,7 @@ enum SourceFolderMutationError: LocalizedError, Equatable {
     case partiallyDeleted
     /// 挪进它自己(或它下面)、或者挪回原处。
     case invalidDestination
+    case cueAudioMove
 
     var errorDescription: String? {
         switch self {
@@ -2925,12 +2930,17 @@ enum SourceFolderMutationError: LocalizedError, Equatable {
         case .playbackBusy: String(localized: "song_file_rename_busy")
         case .partiallyDeleted: String(localized: "source_folder_error_partial_delete")
         case .invalidDestination: String(localized: "source_move_error_destination")
+        case .cueAudioMove: String(localized: "source_move_error_cue")
         }
     }
 }
 
 extension MusicSourceConnector {
     func canMutateDirectories() async -> Bool { false }
+
+    func fileMutationRootPath() async throws -> String? {
+        self is any PathFileRenameConnector ? "/" : nil
+    }
 
     func renameDirectory(at path: String, to newPath: String) async throws {
         throw SourceFolderMutationError.unsupported
@@ -2941,6 +2951,10 @@ extension MusicSourceConnector {
     }
 
     func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
+        throw SourceFolderMutationError.unsupported
+    }
+
+    func copyFileWithoutReplacing(at path: String, to newPath: String) async throws {
         throw SourceFolderMutationError.unsupported
     }
 }
