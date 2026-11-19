@@ -255,12 +255,24 @@ final class SettingsInfoButtonUITests: XCTestCase {
         for (page, scope) in [("radio", "stations"), ("podcasts", "podcasts"), ("spokenWord", "audiobooks")] {
             app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "section:" + page
             app.launch()
-            let menu = app.buttons["sharing.menu." + scope]
+            let menuID = switch scope {
+            case "stations": "radio.more"
+            case "podcasts": "podcast.more"
+            default: "sharing.menu." + scope
+            }
+            let menu = app.buttons[menuID]
             XCTAssertTrue(menu.waitForExistence(timeout: 80), app.debugDescription)
+            if scope != "audiobooks" {
+                XCTAssertTrue(app.navigationBars.buttons[scope == "stations" ? "添加电台" : "podcast.add"].exists)
+                XCTAssertFalse(app.navigationBars.buttons["分享与导入"].exists)
+            }
             menu.tap()
+            if scope != "audiobooks" {
+                app.buttons["分享与导入"].tap()
+            }
             XCTAssertTrue(app.buttons["导入分享文件"].waitForExistence(timeout: 5))
             XCTAssertTrue(app.buttons["接收附近分享"].exists)
-            XCTAssertTrue(app.buttons["sharing.importCode"].exists)
+            XCTAssertTrue(app.buttons["输入导入码"].exists)
             XCTAssertFalse(app.buttons["settings.backup.export"].exists)
             attach(app, "sharing-menu-" + scope)
             app.buttons["导入分享文件"].tap()

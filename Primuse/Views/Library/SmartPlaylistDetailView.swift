@@ -43,6 +43,7 @@ struct SmartPlaylistDetailView: View {
     /// 「在歌单里找歌」的输入。只筛眼前的行：播放照旧按整张歌单。
     @State private var findText = ""
     #if os(iOS)
+    @State private var filteredLocationTarget: String?
     @State private var isFindPresented = false
     #endif
 
@@ -133,7 +134,12 @@ struct SmartPlaylistDetailView: View {
             legacyBody(matched)
                 .songLocationReader(songLocation, revision: shownRows(matched).map(\.id))
                 .onDisappear { songLocation.cancel() }
-                // 平时不占地方, 点右上角的放大镜才在导航栏下面钉出输入框。
+                .filteredSongLocationAlert($filteredLocationTarget) { id in
+                    guard matched.contains(where: { $0.id == id }) else { return }
+                    findText = ""
+                    isFindPresented = false
+                    songLocation.locate(id)
+                }
                 .libraryDetailFind(isPresented: $isFindPresented, text: $findText, prompt: "playlist_find_prompt")
                 .minimalNavigationDetail()
                 .librarySearchContext {
@@ -148,6 +154,7 @@ struct SmartPlaylistDetailView: View {
         #endif
     }
 
+    #if os(macOS)
     private func locateCurrentButton(_ songs: [Song]) -> some View {
         LocateCurrentSongButton(
             titled: verticalBarEdge != nil,
@@ -156,13 +163,40 @@ struct SmartPlaylistDetailView: View {
         ) { songID, clearsFilters in
             if clearsFilters {
                 findText = ""
-                #if os(iOS)
-                isFindPresented = false
-                #endif
             }
             songLocation.locate(songID)
         }
     }
+
+    #else
+    @ViewBuilder
+    private func menuItems(_ smart: SmartPlaylist, matched: [Song]) -> some View {
+        LocateCurrentSongAction(isEditing: false, titled: true, contains: { id in matched.contains { $0.id == id } }) { id in
+            if let query = findQuery, let song = matched.first(where: { $0.id == id }),
+               !LibraryFindPolicy.matches(query, song: song) {
+                filteredLocationTarget = id
+            } else {
+                songLocation.locate(id)
+            }
+        }
+        Button("playlist_find_prompt", systemImage: "magnifyingglass") {
+            pmWithAnimation(.control) { isFindPresented = true }
+        }
+        .disabled(matched.isEmpty)
+        .accessibilityIdentifier("smartPlaylist.find")
+        let pinned = ListeningIntentService.shared.isSmartPlaylistPinned(smart.id)
+        Button(pinned ? "listening_intent_unpin_smart_playlist" : "listening_intent_pin_smart_playlist",
+               systemImage: pinned ? "pin.fill" : "pin") {
+            ListeningIntentService.shared.setSmartPlaylistPinned(!pinned, playlistID: smart.id)
+        }
+        .accessibilityIdentifier("smartPlaylist.pinIntent")
+        let editTitle: LocalizedStringKey = smart.aiConfiguration?.isListeningScene == true
+            ? "listening_scene_edit" : (smart.effectiveKind == .ai ? "ai_playlist_add_songs" : "smart_playlist_edit")
+        Button(editTitle, systemImage: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3") {
+            showEditor = true
+        }
+    }
+    #endif
 
     private func legacyBody(_ matched: [Song]) -> some View {
         Group {
@@ -198,46 +232,22 @@ struct SmartPlaylistDetailView: View {
                     }
                 }
                 .navigationBarTitleDisplayMode(.inline)
+                #if os(iOS)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) { locateCurrentButton(matched) }
-                    #if os(iOS)
-                    // 找歌的输入框平时不出现, 这颗按钮把它钉到导航栏下面并聚焦。
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            pmWithAnimation(.control) { isFindPresented = true }
-                        } label: {
-                            PMToolbarItemLabel("playlist_find_prompt", systemImage: "magnifyingglass", titled: verticalBarEdge != nil)
-                        }
-                        .disabled(matched.isEmpty)
-                        .accessibilityIdentifier("smartPlaylist.find")
-                    }
-                    #endif
-                    ToolbarItem(placement: .topBarTrailing) {
-                        // 钉为「开始听」里的一个意图。
-                        let pinned = ListeningIntentService.shared.isSmartPlaylistPinned(smart.id)
-                        Button {
-                            ListeningIntentService.shared.setSmartPlaylistPinned(!pinned, playlistID: smart.id)
-                        } label: {
-                            PMToolbarItemLabel(
-                                pinned ? "listening_intent_unpin_smart_playlist" : "listening_intent_pin_smart_playlist",
-                                systemImage: pinned ? "pin.fill" : "pin",
-                                titled: verticalBarEdge != nil
-                            )
-                        }
-                        .accessibilityIdentifier("smartPlaylist.pinIntent")
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showEditor = true
-                        } label: {
-                            PMToolbarItemLabel(
-                                smart.aiConfiguration?.isListeningScene == true ? "listening_scene_edit" : (smart.effectiveKind == .ai ? "ai_playlist_add_songs" : "smart_playlist_edit"),
-                                systemImage: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
-                                titled: verticalBarEdge != nil
-                            )
+                    if #available(iOS 27.0, *), verticalBarEdge != nil {
+                        ToolbarOverflowMenu { menuItems(smart, matched: matched) }
+                    } else {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Menu {
+                                menuItems(smart, matched: matched)
+                            } label: {
+                                Label("a11y_more_actions", systemImage: "ellipsis")
+                            }
+                            .accessibilityIdentifier("smartPlaylist.more")
                         }
                     }
                 }
+                #endif
                 .sheet(isPresented: $showEditor) {
                     editor(for: smart)
                 }

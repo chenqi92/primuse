@@ -57,7 +57,6 @@ struct PodcastLibraryView: View {
                         Spacer(minLength: 8)
                         MinimalHeaderActions {
                             MinimalPageFindButton()
-                            PodcastShareMenu(navigation: navigation)
                             PodcastAddMenu(navigation: navigation)
                             PodcastMoreMenu(navigation: navigation, systemImage: "ellipsis")
                         }
@@ -208,10 +207,6 @@ struct PodcastLibraryToolbar: ToolbarContent {
             }
         } else {
             ToolbarItem(placement: .primaryAction) {
-                PodcastShareMenu(navigation: navigation)
-                    .tint(ListeningSpace.podcast.tint)
-            }
-            ToolbarItem(placement: .primaryAction) {
                 PodcastAddMenu(navigation: navigation)
                     .tint(ListeningSpace.podcast.tint)
             }
@@ -255,25 +250,21 @@ struct PodcastAddMenu: View {
     }
 }
 
+#if os(macOS)
 struct PodcastShareMenu: View {
     let navigation: PodcastNavigationModel
-    #if os(macOS)
-    /// 见 `ListeningShareMenu.macHeaderLabel`。
     var macHeaderLabel = false
-    #endif
-    var body: some View {
-        #if os(macOS)
-        ListeningShareMenu(scope: .podcasts, selection: selection, macHeaderLabel: macHeaderLabel)
-        #else
-        ListeningShareMenu(scope: .podcasts, selection: selection)
-        #endif
-    }
 
-    private var selection: ListeningShareSelection {
-        .init(
-            title: ListeningShareText.string("podcasts"),
-            podcasts: navigation.organizer.isSelecting ? navigation.organizer.selectedShows : PodcastStore.shared.shows
-        )
+    var body: some View {
+        ListeningShareMenu(scope: .podcasts, selection: navigation.libraryShareSelection, macHeaderLabel: macHeaderLabel)
+    }
+}
+#endif
+
+private extension PodcastNavigationModel {
+    var libraryShareSelection: ListeningShareSelection {
+        .init(title: ListeningShareText.string("podcasts"),
+              podcasts: organizer.isSelecting ? organizer.selectedShows : PodcastStore.shared.shows)
     }
 }
 
@@ -285,7 +276,7 @@ struct PodcastMoreMenu: View {
     private var store: PodcastStore { PodcastStore.shared }
 
     var body: some View {
-        Menu {
+        ListeningShareMenu(scope: .podcasts, selection: navigation.libraryShareSelection, moreMenuImage: systemImage) {
             Button {
                 Task { await store.refreshAll() }
             } label: {
@@ -311,8 +302,6 @@ struct PodcastMoreMenu: View {
             } label: {
                 Label("podcast_settings", systemImage: "gearshape")
             }
-        } label: {
-            Label("more", systemImage: systemImage)
         }
         .accessibilityIdentifier("podcast.more")
     }

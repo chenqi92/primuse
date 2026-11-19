@@ -289,47 +289,64 @@ struct LocateCurrentSongButton: View {
     let contains: (String) -> Bool
     var isVisible: (String) -> Bool = { _ in true }
     let locate: (String, Bool) -> Void
-    @Environment(AudioPlayerService.self) private var player
-    @Environment(MusicLibrary.self) private var library
     @State private var filteredTarget: String?
 
     var body: some View {
-        Group {
-            if !isEditing, !player.isLiveRadio, !player.currentItemIsSpokenWord,
-               let song = player.currentSong {
-                let canonicalID = NowPlayingLibraryActions.locationSongID(for: song, library: library)
-                let songID = contains(canonicalID) ? canonicalID : song.id
-                if contains(songID) {
-                    Button {
-                        if isVisible(songID) { locate(songID, false) }
-                        else { filteredTarget = songID }
-                    } label: {
-                        #if os(macOS)
-                        // Mac 上它摆在页头 / 工具条那一排里: 跟旁边的键同一种玻璃键, 不是系统的描边按钮。
-                        Image(systemName: "scope")
-                            .macControlChrome(iconOnly: true)
-                        #else
-                        PMToolbarItemLabel("locate_current_song", systemImage: "scope", titled: titled)
-                        #endif
-                    }
-                    #if os(macOS)
-                    .buttonStyle(.plain)
-                    #endif
-                    .accessibilityLabel(Text("locate_current_song"))
-                    .accessibilityIdentifier("songList.locateCurrent")
-                    .help(Text("locate_current_song"))
-                }
-            }
+        LocateCurrentSongAction(isEditing: isEditing, titled: titled, contains: contains) { songID in
+            if isVisible(songID) { locate(songID, false) }
+            else { filteredTarget = songID }
         }
-        .alert("locate_current_song", isPresented: Binding(
-            get: { filteredTarget != nil },
-            set: { if !$0 { filteredTarget = nil } }
-        )) {
-            Button("clear_filters_and_locate") {
-                if let target = filteredTarget, contains(target) { locate(target, true) }
-                filteredTarget = nil
+        .filteredSongLocationAlert($filteredTarget) { songID in
+            if contains(songID) { locate(songID, true) }
+        }
+    }
+}
+
+extension View {
+    func filteredSongLocationAlert(_ target: Binding<String?>, locate: @escaping (String) -> Void) -> some View {
+        alert("locate_current_song", isPresented: Binding(
+            get: { target.wrappedValue != nil },
+            set: { if !$0 { target.wrappedValue = nil } }
+        ), presenting: target.wrappedValue) { songID in
+            Button("clear_filters_and_locate") { locate(songID) }
+            Button("cancel", role: .cancel) {}
+        }
+    }
+}
+
+struct LocateCurrentSongAction: View {
+    let isEditing: Bool
+    let titled: Bool
+    let contains: (String) -> Bool
+    let locate: (String) -> Void
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+
+    @ViewBuilder
+    var body: some View {
+        if !isEditing, !player.isLiveRadio, !player.currentItemIsSpokenWord,
+           let song = player.currentSong {
+            let canonicalID = NowPlayingLibraryActions.locationSongID(for: song, library: library)
+            let songID = contains(canonicalID) ? canonicalID : song.id
+            if contains(songID) {
+                Button {
+                    locate(songID)
+                } label: {
+                    #if os(macOS)
+                    // Mac 上它摆在页头 / 工具条那一排里: 跟旁边的键同一种玻璃键, 不是系统的描边按钮。
+                    Image(systemName: "scope")
+                        .macControlChrome(iconOnly: true)
+                    #else
+                    PMToolbarItemLabel("locate_current_song", systemImage: "scope", titled: titled)
+                    #endif
+                }
+                #if os(macOS)
+                .buttonStyle(.plain)
+                #endif
+                .accessibilityLabel(Text("locate_current_song"))
+                .accessibilityIdentifier("songList.locateCurrent")
+                .help(Text("locate_current_song"))
             }
-            Button("cancel", role: .cancel) { filteredTarget = nil }
         }
     }
 }
@@ -1182,6 +1199,9 @@ struct SongListView: View {
     #endif
     @AppStorage(LibraryFolderSongOrderPreference.followsListSortKey)
     private var folderFollowsListSort = false
+    @State private var filteredLocationTarget: String?
+    @State private var explainsFolderBlocker = false
+    @State private var explainedFolderBlocker = LibraryFolderBrowseBlocker.downloadedFilter
     @State private var showsHomeFolders = false
     @State private var folderIndexStore = LibraryFolderIndexStore()
     @State private var folderIndexTask: Task<Void, Never>?
@@ -1197,8 +1217,6 @@ struct SongListView: View {
     /// 当前选中的数据源过滤 (nil = 全部)。设计稿 SourceFilterChips 是可点切换的。
     @State private var selectedSourceID: String? = nil
     @State private var showViewOptions = false
-    @State private var explainsFolderBlocker = false
-    @State private var explainedFolderBlocker = LibraryFolderBrowseBlocker.downloadedFilter
     @State private var showAddVisibleToPlaylist = false
     // Bind context-menu sheets to the selected value itself.  A separate
     // `songID` + `isPresented` pair can publish in either order when a menu
@@ -1567,7 +1585,13 @@ struct SongListView: View {
                 }
             }
             .onDisappear(perform: handleViewDisappear)
+            .filteredSongLocationAlert($filteredLocationTarget) { id in
+                guard containsLocationTarget(id) else { return }
+                clearFiltersAndLocate(id)
+            }
             #if os(iOS)
+            .folderBrowseBlockerAlert(isPresented: $explainsFolderBlocker, blocker: explainedFolderBlocker,
+                                      resolve: resolveFolderBrowseBlocker)
             .navigationDestination(item: $folderLocationDestination) { destination in
                 LibraryFolderNodeView(
                     nodeID: destination.nodeID,
@@ -1881,16 +1905,10 @@ struct SongListView: View {
                 : " ",
             canPlay: false,
             canShuffle: false,
-            browseMode: $browseMode,
-            folderBlocker: folderBrowseBlocker,
-            resolveFolderBlocker: resolveFolderBrowseBlocker,
-            sortOrder: $sortOrder,
-            filter: $songFilter,
-            manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
-            folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil,
             orderedIDs: { [] },
             onPlay: {},
-            onShuffle: {}
+            onShuffle: {},
+            moreMenu: { songListMenu() }
         )
     }
     #endif
@@ -1978,16 +1996,10 @@ struct SongListView: View {
                 countText: songCountText,
                 canPlay: !showsFolderBrowser && filteredProjection.playableCount > 0,
                 canShuffle: !showsFolderBrowser && filteredProjection.playableCount > 1,
-                browseMode: $browseMode,
-                folderBlocker: folderBrowseBlocker,
-                resolveFolderBlocker: resolveFolderBrowseBlocker,
-                sortOrder: $sortOrder,
-                filter: $songFilter,
-                manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
-                folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil,
                 orderedIDs: { batchOrderedSongIDs },
                 onPlay: playVisibleSongs,
-                onShuffle: shuffleVisibleSongs
+                onShuffle: shuffleVisibleSongs,
+                moreMenu: { songListMenu() }
             )
         }
         #if DEBUG
@@ -3141,29 +3153,32 @@ struct SongListView: View {
     }
     #endif
 
-    private var locateCurrentButton: some View {
-        LocateCurrentSongButton(
-            isEditing: selection.isActive,
-            titled: verticalBarEdge != nil,
-            contains: { id in
-                showsFolderBrowser && listCache.isEmpty
-                    ? (folderCache.index?.nodeID(containingSongID: id) != nil)
-                    : listCache.contains(songID: id)
-            },
-            isVisible: { id in showsFolderBrowser || filteredProjection.rows.contains { $0.id == id } }
-        ) { songID, clearsFilters in
-            if clearsFilters {
-                searchText = ""
-                #if os(iOS)
-                appliedSearchText = ""
-                #endif
-                songFilter = .all
-                #if os(macOS)
-                selectedSourceID = nil
-                #endif
-            }
-            locateSong(songID)
+    private func containsLocationTarget(_ id: String) -> Bool {
+        if showsFolderBrowser && listCache.isEmpty {
+            return folderCache.index?.nodeID(containingSongID: id) != nil
         }
+        return listCache.contains(songID: id)
+    }
+
+    private var locateCurrentButton: some View {
+        LocateCurrentSongAction(isEditing: selection.isActive, titled: true, contains: containsLocationTarget) { id in
+            if showsFolderBrowser || filteredProjection.rows.contains(where: { $0.id == id }) {
+                locateSong(id)
+            } else {
+                filteredLocationTarget = id
+            }
+        }
+    }
+
+    private func clearFiltersAndLocate(_ songID: String) {
+        searchText = ""
+        songFilter = .all
+        #if os(iOS)
+        appliedSearchText = ""
+        #elseif os(macOS)
+        selectedSourceID = nil
+        #endif
+        locateSong(songID)
     }
 
     private func locateSong(_ songID: String) {
@@ -3187,111 +3202,48 @@ struct SongListView: View {
         #endif
     }
 
+    #if os(iOS)
     @ToolbarContentBuilder
     private var iosToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) { locateCurrentButton }
         ToolbarItem(placement: .principal) {
-            SongListToolbarPrincipal(
-                selection: selection,
-                progress: sortProgress
-            )
+            SongListToolbarPrincipal(selection: selection, progress: sortProgress)
         }
-        #if os(iOS)
-        if verticalBarEdge != nil {
-            verticalBarToolbar
-        } else {
-            standardTrailingToolbar
-        }
-        #else
-        standardTrailingToolbar
-        #endif
-    }
-
-    #if os(iOS)
-    /// 系统竖栏(iPhone Duo):随机与版式一组、优先留在栏里;「⋯」的内容并进系统溢出菜单,
-    /// 和竖栏里别的按钮收在一处。
-    @ToolbarContentBuilder
-    private var verticalBarToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
+        ToolbarItem(placement: .topBarTrailing) {
             SongListShuffleToolbarButton(
                 selection: selection,
                 isEnabled: !showsFolderBrowser && filteredProjection.playableCount > 1,
-                titled: true,
+                titled: verticalBarEdge != nil,
                 action: shuffleVisibleSongs
-            )
-            SongListBrowseModeToolbarButton(
-                selection: selection,
-                browseMode: $browseMode,
-                folderBlocker: folderBrowseBlocker,
-                resolveFolderBlocker: resolveFolderBrowseBlocker,
-                titled: true
             )
         }
         .pmHighVisibilityPriority()
-        ToolbarItem(placement: .topBarTrailing) {
-            SongSelectionCancelToolbarItem(selection: selection, titled: true)
-        }
-        if #available(iOS 27.0, *) {
+        if #available(iOS 27.0, *), verticalBarEdge != nil {
             ToolbarOverflowMenu {
-                SongListNormalToolbarMenu(
-                    selection: selection,
-                    sortOrder: $sortOrder,
-                    filter: $songFilter,
-                    manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
-                    folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil,
-                    asOverflowItems: true
-                )
-                if selection.isActive {
-                    SongSelectionOptionsMenu(
-                        selection: selection,
-                        orderedIDs: { batchOrderedSongIDs },
-                        asOverflowItems: true
-                    )
-                }
+                songListMenu(asOverflowItems: true)
+                SongSelectionOptionsToolbarItem(selection: selection, orderedIDs: { batchOrderedSongIDs }, asOverflowItems: true)
+            }
+        } else {
+            ToolbarItem(placement: .topBarTrailing) { songListMenu() }
+        }
+        SongSelectionToolbarItems(selection: selection, orderedIDs: { batchOrderedSongIDs },
+                                  titled: verticalBarEdge != nil, includesOptions: verticalBarEdge == nil)
+    }
+
+    private func songListMenu(asOverflowItems: Bool = false) -> some View {
+        SongListNormalToolbarMenu(
+            selection: selection, sortOrder: $sortOrder, filter: $songFilter,
+            manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
+            folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil,
+            asOverflowItems: asOverflowItems
+        ) {
+            locateCurrentButton
+            SongListBrowseModeButton(browseMode: $browseMode, folderBlocker: folderBrowseBlocker) { blocker in
+                explainedFolderBlocker = blocker
+                explainsFolderBlocker = true
             }
         }
     }
     #endif
-
-    @ToolbarContentBuilder
-    private var standardTrailingToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            SongListShuffleToolbarButton(
-                selection: selection,
-                // playableCount 是投影里存好的值。别换成 filteredSongIDs.count
-                // —— orderedSongIDs 每次求值都要 map 一遍整张列表, 而工具栏
-                // 会跟着列表一起反复重建。
-                isEnabled: !showsFolderBrowser && filteredProjection.playableCount > 1,
-                action: shuffleVisibleSongs
-            )
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            SongListBrowseModeToolbarButton(
-                selection: selection,
-                browseMode: $browseMode,
-                folderBlocker: folderBrowseBlocker,
-                resolveFolderBlocker: resolveFolderBrowseBlocker
-            )
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            SongListNormalToolbarMenu(
-                selection: selection,
-                sortOrder: $sortOrder,
-                filter: $songFilter,
-                manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
-                folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil
-            )
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            SongSelectionOptionsToolbarItem(
-                selection: selection,
-                orderedIDs: { batchOrderedSongIDs }
-            )
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            SongSelectionCancelToolbarItem(selection: selection)
-        }
-    }
 
     /// 过滤条件变了或歌被删了之后，丢掉已经不在列表里的选中项 —— 否则批量
     /// 操作会作用到用户此刻根本看不见的歌上。
@@ -4086,16 +4038,7 @@ struct SongListView: View {
         }
 
         selection.deactivate()
-        searchText = ""
-        songFilter = .all
-        #if os(iOS)
-        appliedSearchText = ""
-        #endif
-        #if os(macOS)
-        selectedSourceID = nil
-        #endif
-
-        locateSong(request.songID)
+        clearFiltersAndLocate(request.songID)
         locationRequest = nil
     }
 
@@ -5956,61 +5899,24 @@ private struct SongListShuffleToolbarButton: View {
     }
 }
 
-private struct SongListBrowseModeToolbarButton: View {
-    let selection: SongSelectionModel
+private struct SongListBrowseModeButton: View {
     @Binding var browseMode: LibrarySongBrowseMode
-    /// 目录被挡住时眼前其实是平铺：键换成画灰的「目录」，仍可点，点了说明原因。
-    var folderBlocker: LibraryFolderBrowseBlocker? = nil
-    var resolveFolderBlocker: () -> Void = {}
-    /// 系统竖栏里带上标题,其它时候仍是原来的纯图标。
-    var titled = false
-    @State private var explainsBlocker = false
-    @State private var explainedBlocker = LibraryFolderBrowseBlocker.downloadedFilter
-
-    /// 点下去去目录：正在平铺，或目录被挡住。
-    private var offersFolder: Bool {
-        browseMode != .folder || folderBlocker != nil
-    }
-
-    private var label: PMToolbarItemLabel {
-        PMToolbarItemLabel(
-            LocalizedStringKey(offersFolder ? "library_browse_folder" : "library_browse_flat"),
-            systemImage: offersFolder ? "folder" : "list.bullet",
-            titled: titled
-        )
-    }
+    let folderBlocker: LibraryFolderBrowseBlocker?
+    let explainBlocker: (LibraryFolderBrowseBlocker) -> Void
 
     var body: some View {
-        if !selection.isActive {
-            Button {
-                if let folderBlocker {
-                    explainedBlocker = folderBlocker
-                    explainsBlocker = true
-                } else {
-                    browseMode = browseMode == .folder ? .flat : .folder
-                }
-            } label: {
-                // 只在挡住时换色，平时不碰工具栏自己的着色(同 SourcesView 的读标签速度键)。
-                if folderBlocker == nil {
-                    label
-                } else {
-                    label.foregroundStyle(Color.secondary)
-                }
+        let offersFolder = browseMode != .folder || folderBlocker != nil
+        Button(LocalizedStringKey(offersFolder ? "library_browse_folder" : "library_browse_flat"),
+               systemImage: offersFolder ? "folder" : "list.bullet") {
+            if let folderBlocker {
+                explainBlocker(folderBlocker)
+            } else {
+                browseMode = offersFolder ? .folder : .flat
             }
-            .accessibilityLabel(Text(LocalizedStringKey(
-                offersFolder ? "library_browse_folder" : "library_browse_flat"
-            )))
-            .accessibilityValue(Text(LocalizedStringKey(
-                offersFolder ? "library_browse_flat" : "library_browse_folder"
-            )))
-            .accessibilityHint(folderBlocker.map { Text($0.titleKey) } ?? Text(verbatim: ""))
-            .accessibilityIdentifier("libraryBrowseMode.toggle")
-            .folderBrowseBlockerAlert(
-                isPresented: $explainsBlocker,
-                blocker: explainedBlocker,
-                resolve: resolveFolderBlocker
-            )
         }
+        .accessibilityValue(Text(LocalizedStringKey(offersFolder ? "library_browse_flat" : "library_browse_folder")))
+        .accessibilityHint(folderBlocker.map { Text($0.titleKey) } ?? Text(verbatim: ""))
+        .accessibilityIdentifier("libraryBrowseMode.toggle")
     }
 }
 
@@ -6057,7 +5963,7 @@ private extension View {
     }
 }
 
-private struct SongListNormalToolbarMenu: View {
+private struct SongListNormalToolbarMenu<NavigationItems: View>: View {
     let selection: SongSelectionModel
     let sortOrder: Binding<SongListView.SongSortOrder>
     @Binding var filter: SongListView.SongFilter
@@ -6067,6 +5973,7 @@ private struct SongListNormalToolbarMenu: View {
     var folderFollowsListSort: Binding<Bool>? = nil
     /// 只给出菜单项,由系统的溢出菜单(`ToolbarOverflowMenu`,系统竖栏里)收进去,自己不再套一层「⋯」。
     var asOverflowItems = false
+    @ViewBuilder let navigationItems: () -> NavigationItems
 
     @ViewBuilder
     var body: some View {
@@ -6087,6 +5994,7 @@ private struct SongListNormalToolbarMenu: View {
 
     @ViewBuilder
     private var items: some View {
+        Section { navigationItems() }
         Section {
             SongSortSubmenu(sortOrder: sortOrder, followsListSort: folderFollowsListSort)
 
@@ -6122,25 +6030,19 @@ private struct SongListNormalToolbarMenu: View {
 }
 
 #if os(iOS)
-/// 极简模式歌曲页的页头：左边「全部播放」带歌数，随机与版式；右边查找、排序与「⋯」。
+/// 极简模式歌曲页的页头：左边是播放和随机，右边是查找和「⋯」。
 /// 多选时换成「已选择几首」与全选、取消。选择态读在这个子视图里，
 /// 进出多选不会让整张列表重算（同工具栏条目的做法）。
-private struct SongListMinimalHeader: View {
+private struct SongListMinimalHeader<MoreMenu: View>: View {
     let selection: SongSelectionModel
     let progress: SongListSortProgressModel
     let countText: String
     let canPlay: Bool
     let canShuffle: Bool
-    @Binding var browseMode: LibrarySongBrowseMode
-    let folderBlocker: LibraryFolderBrowseBlocker?
-    let resolveFolderBlocker: () -> Void
-    let sortOrder: Binding<SongListView.SongSortOrder>
-    @Binding var filter: SongListView.SongFilter
-    var manageHomeFolders: (() -> Void)?
-    var folderFollowsListSort: Binding<Bool>?
     let orderedIDs: () -> [String]
     let onPlay: () -> Void
     let onShuffle: () -> Void
+    @ViewBuilder let moreMenu: () -> MoreMenu
 
     var body: some View {
         if selection.isActive {
@@ -6151,25 +6053,12 @@ private struct SongListMinimalHeader: View {
                     .disabled(!canPlay)
                 MinimalHeaderActions {
                     SongListShuffleToolbarButton(selection: selection, isEnabled: canShuffle, action: onShuffle)
-                    SongListBrowseModeToolbarButton(
-                        selection: selection,
-                        browseMode: $browseMode,
-                        folderBlocker: folderBlocker,
-                        resolveFolderBlocker: resolveFolderBlocker
-                    )
                 }
                 Spacer(minLength: 4)
                 SongListSortProgressIndicator(progress: progress)
                 MinimalHeaderActions {
                     MinimalPageFindButton()
-                    SongSortSubmenu(sortOrder: sortOrder, followsListSort: folderFollowsListSort)
-                    SongListNormalToolbarMenu(
-                        selection: selection,
-                        sortOrder: sortOrder,
-                        filter: $filter,
-                        manageHomeFolders: manageHomeFolders,
-                        folderFollowsListSort: folderFollowsListSort
-                    )
+                    moreMenu()
                 }
             }
         }
