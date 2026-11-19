@@ -22,6 +22,103 @@ final class MacOutputRoutingTests: XCTestCase {
         AudioEngine(volumeDefaults: defaults, outputDefaults: defaults)
     }
 
+    func testDoPPlaybackRendersEveryCarrierWordUnchanged() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).dsf")
+        let blockSize = 4096
+        let blockCount = 5
+        let bytesPerChannel = blockSize * blockCount
+        let payloadSize = bytesPerChannel * 2
+        var dsf = Data("DSD ".utf8)
+        func appendLE<T: FixedWidthInteger>(_ value: T) {
+            withUnsafeBytes(of: value.littleEndian) { dsf.append(contentsOf: $0) }
+        }
+        appendLE(UInt64(28))
+        appendLE(UInt64(92 + payloadSize))
+        appendLE(UInt64(0))
+        dsf.append(contentsOf: "fmt ".utf8)
+        appendLE(UInt64(52))
+        // Version, format ID, stereo layout, channels, DSD64 rate, MSB-first.
+        for field: UInt32 in [1, 0, 2, 2, 2_822_400, 8] { appendLE(field) }
+        appendLE(UInt64(bytesPerChannel * 8))
+        appendLE(UInt32(blockSize))
+        appendLE(UInt32(0))
+        dsf.append(contentsOf: "data".utf8)
+        appendLE(UInt64(12 + payloadSize))
+        func payloadByte(_ index: Int, channel: Int) -> UInt8 {
+            UInt8(truncatingIfNeeded: index * 17 + (index >> 8) + channel * 83)
+        }
+        for block in 0..<blockCount {
+            for channel in 0..<2 {
+                for offset in 0..<blockSize {
+                    dsf.append(payloadByte(block * blockSize + offset, channel: channel))
+                }
+            }
+        }
+        try dsf.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let decoder = NativeAudioDecoder()
+        let format = try XCTUnwrap(decoder.dsdOutputFormat(for: file, mode: .dop))
+        XCTAssertEqual(format.sampleRate, 176_400)
+        XCTAssertEqual(format.channelCount, 2)
+        let engine = AudioEngine(volumeDefaults: defaults, outputDefaults: defaults, connectDirectOutput: {
+            graph, player, format in
+            try graph.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 1024)
+            try AudioEngine.connect(player, to: graph.outputNode, format: format, in: graph)
+        })
+        defer { engine.stop() }
+        XCTAssertTrue(try engine.prepareDSDCarrier(format))
+        let stream = decoder.decode(from: file, outputFormat: format, dsdMode: .dop, onResolveSourceLength: nil)
+        for try await buffer in stream { engine.scheduleBuffer(buffer) }
+        XCTAssertTrue(engine.play())
+        let graph = try XCTUnwrap(engine.engineForVisualizer)
+        let output = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
+        for start in stride(from: 0, to: bytesPerChannel / 2, by: 1024) {
+            XCTAssertEqual(try graph.renderOffline(1024, to: output), .success)
+            XCTAssertEqual(output.frameLength, 1024)
+            let samples = try XCTUnwrap(output.floatChannelData)
+            for channel in 0..<2 {
+                for frame in 0..<1024 {
+                    let index = start + frame
+                    let marker = index.isMultiple(of: 2) ? 0x05 : 0xfa
+                    let word = marker << 16 | Int(payloadByte(2 * index, channel: channel)) << 8
+                        | Int(payloadByte(2 * index + 1, channel: channel))
+                    let actual = Int(samples[channel][frame] * 8_388_608) & 0xffffff
+                    guard actual == word else {
+                        return XCTFail("Frame \(index), channel \(channel): expected \(word), got \(actual)")
+                    }
+                }
+            }
+        }
+        XCTAssertFalse(engine.applicationGainIsAvailable)
+    }
+
+    func testDisconnectedDoPPlayerRejectsCarrierAndAllowsPCMPlayback() throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 176_400, channels: 2))
+        var firstConnection = true
+        let engine = AudioEngine(volumeDefaults: defaults, outputDefaults: defaults, connectDirectOutput: { graph, player, format in
+            try graph.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 256)
+            if firstConnection {
+                // The engine runs, but the carrier's player has no output connection.
+                firstConnection = false
+                let otherPlayer = AVAudioPlayerNode()
+                graph.attach(otherPlayer)
+                try AudioEngine.connect(otherPlayer, to: graph.outputNode, format: format, in: graph)
+            } else {
+                try AudioEngine.connect(player, to: graph.outputNode, format: format, in: graph)
+            }
+        })
+        defer { engine.stop() }
+        XCTAssertFalse(try engine.prepareDSDCarrier(format))
+        XCTAssertFalse(engine.usesDSDCarrier)
+        try engine.configure(outputMode: .highFidelity, directSourceFormat: format)
+        try engine.start()
+        let pcm = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 256))
+        pcm.frameLength = pcm.frameCapacity
+        engine.scheduleBuffer(pcm)
+        XCTAssertTrue(engine.play())
+    }
+
     private func devices() throws -> [AudioOutputDeviceManager.Device] {
         let devices = AudioOutputDeviceManager().devices
         guard !devices.isEmpty else { throw XCTSkip("No Core Audio output is connected") }

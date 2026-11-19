@@ -238,6 +238,16 @@ final class ExclusiveOutputDeviceController {
         return Self.integerBitDepth(format)
     }
 
+    func supportsDoPCarrier(sampleRate: Double, channels: UInt32, deviceID: AudioDeviceID) -> Bool {
+        guard let streamID = Self.firstOutputStream(deviceID: deviceID),
+              let format = Self.physicalFormat(streamID: streamID),
+              let bits = Self.integerBitDepth(format) else { return false }
+        return bits >= 24 && format.mChannelsPerFrame == channels
+            && DirectPCMOutputSampleRatePolicy.hardwareMatches(
+                requestedSampleRate: sampleRate, actualHardwareSampleRate: format.mSampleRate
+            )
+    }
+
     // MARK: - Core Audio helpers
 
     private static var hogModeAddress: AudioObjectPropertyAddress {

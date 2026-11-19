@@ -2337,6 +2337,7 @@ final class AudioPlayerService {
         for song: Song,
         url: URL,
         expectedPlayID: UUID,
+        forceDSDToPCM: Bool = false,
         reacquiringLocalRouteFocus: Bool = false
     ) async throws -> DSDPlaybackMode {
         try Task.checkCancellation()
@@ -2361,7 +2362,7 @@ final class AudioPlayerService {
         let probe = DSDOutputProbePolicy.required(
             isLocalDSD: isLocalDSD,
             outputModeIsHighFidelity: graphMode == .highFidelity,
-            dsdPlaybackModeIsPCM: settings.dsdPlaybackMode == .pcm
+            dsdPlaybackModeIsPCM: forceDSDToPCM || settings.dsdPlaybackMode == .pcm
         )
 
         var dopFormat: AVAudioFormat?
@@ -2377,7 +2378,7 @@ final class AudioPlayerService {
                 carriesDSD: true,
                 expectedPlayID: expectedPlayID
             )
-            if audioEngine.hardwareSupportsDirectFormat(dopFormat),
+            if audioEngine.hardwareSupportsDoPCarrier(dopFormat),
                try audioEngine.prepareDSDCarrier(dopFormat) {
                 plog("🎧 DSD output: DoP \(dopFormat.sampleRate) Hz direct")
                 return .dop
@@ -2439,53 +2440,6 @@ final class AudioPlayerService {
             directSourceFormat: directPCMFormat
         )
         return .pcm
-    }
-
-    /// A failed DoP decoder must never feed ordinary PCM into a DoP carrier
-    /// graph. Rebuild the normal direct path before trying FFmpeg/AVFoundation.
-    private func preparePCMOutputAfterDoPFailure(
-        song: Song,
-        url: URL,
-        wasUsingDoP: Bool,
-        expectedPlayID: UUID
-    ) async -> AVAudioFormat? {
-        guard wasUsingDoP else { return audioEngine.outputFormat }
-        guard !Task.isCancelled, playID == expectedPlayID else { return nil }
-        let configurationToken = beginOutputPipelineConfiguration(expectedPlayID: expectedPlayID)
-        defer { endOutputPipelineConfiguration(configurationToken) }
-        audioEngine.stopPlayback()
-        let decodedPCMFormat = try? await nativeDecoder.dsdOutputFormatOffMain(
-            for: url,
-            mode: .pcm
-        )
-        guard !Task.isCancelled, playID == expectedPlayID else { return nil }
-        _ = AudioSessionManager.shared.activatePlaybackSession()
-        do {
-            if let decodedPCMFormat {
-                try await prepareHardwareSampleRate(decodedPCMFormat.sampleRate, expectedPlayID: expectedPlayID)
-            } else {
-                try await applyOutputSampleRateMatching(for: song, expectedPlayID: expectedPlayID)
-            }
-            let graphMode = outputMode(for: song)
-            let directFormat = graphMode == .highFidelity
-                ? safeDirectPCMFormat(
-                    requestedSourceSampleRate: decodedPCMFormat?.sampleRate
-                        ?? song.sampleRate.map(Double.init),
-                    outputMode: .highFidelity
-                )
-                : nil
-            try audioEngine.configure(
-                outputMode: graphMode,
-                directSourceFormat: directFormat
-            )
-            try audioEngine.start()
-            return audioEngine.outputFormat
-        } catch is CancellationError {
-            return nil
-        } catch {
-            plog("⚠️ Failed to rebuild PCM output after DoP error: \(error.localizedDescription)")
-            return nil
-        }
     }
 
     private func observeSpatialAudioSettings() {
@@ -5735,6 +5689,7 @@ final class AudioPlayerService {
         playID id: UUID,
         sourceStreamEpoch: UInt64,
         formatRecoveryAttempt: Int = 0,
+        forceDSDToPCM: Bool = false,
         bypassSystemMediaPlayback: Bool = false,
         shouldRecordPlaybackStart: Bool = true,
         preparedStart: PreparedPlaybackStart? = nil
@@ -5828,7 +5783,8 @@ final class AudioPlayerService {
             activeDSDMode = try await configureOutputPipeline(
                 for: song,
                 url: url,
-                expectedPlayID: id
+                expectedPlayID: id,
+                forceDSDToPCM: forceDSDToPCM
             )
             guard playID == id else { return }
             logPlayStage("output-configured", playID: id)
@@ -6210,18 +6166,11 @@ final class AudioPlayerService {
                         )
                     }
                 } else if !isCloudStream {
-                    let safeOutputFormat = await preparePCMOutputAfterDoPFailure(
-                        song: song,
-                        url: url,
-                        wasUsingDoP: activeDSDMode == .dop,
-                        expectedPlayID: id
-                    ) ?? outputFormat
-                    guard playID == id else { return }
-                    activeDSDPlaybackMode = .pcm
+                    if activeDSDMode == .dop { throw error }
                     await playWithFallbackDecoder(
                         song: song,
                         url: url,
-                        outputFormat: safeOutputFormat,
+                        outputFormat: outputFormat,
                         playID: id,
                         shouldRecordPlaybackStart: shouldRecordPlaybackStart
                     )
@@ -6307,6 +6256,7 @@ final class AudioPlayerService {
                         playID: id,
                         sourceStreamEpoch: sourceStreamEpoch,
                         formatRecoveryAttempt: formatRecoveryAttempt + 1,
+                        forceDSDToPCM: forceDSDToPCM,
                         bypassSystemMediaPlayback: bypassSystemMediaPlayback,
                         shouldRecordPlaybackStart: shouldRecordPlaybackStart
                     )
@@ -6353,6 +6303,10 @@ final class AudioPlayerService {
             guard !Task.isCancelled, playID == id else { await gate.drain(); return }
             audioEngine.applyProgramVolume(initialProgramVolume)
             let didStartPlayback = audioEngine.play()
+            if !didStartPlayback, activeDSDMode == .dop {
+                await gate.drain()
+                throw AudioDecoderError.decodingFailed("DoP player node failed to start")
+            }
             logPlayStage("playing", playID: id)
             plog("▶️ After play(): \(audioEngine.diagnosticInfo())")
 
@@ -6525,6 +6479,17 @@ final class AudioPlayerService {
                 return
             }
             plog("⚠️ Playback error for '\(song.title)': \(error.localizedDescription)")
+            if activeDSDMode == .dop {
+                audioEngine.stopPlayback()
+                resetDecodedBufferHealth(resetRecoveryAttempts: false)
+                await playFromURL(
+                    song: song, url: url, playID: id, sourceStreamEpoch: sourceStreamEpoch,
+                    formatRecoveryAttempt: formatRecoveryAttempt, forceDSDToPCM: true,
+                    bypassSystemMediaPlayback: bypassSystemMediaPlayback,
+                    shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                )
+                return
+            }
             showPlaybackError(String(localized: "playback_error_decode"))
             isLoading = false
             // Auto-skip on decode failure (or stop under repeat-one

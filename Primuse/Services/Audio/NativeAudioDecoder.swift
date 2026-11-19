@@ -407,6 +407,10 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         defersLength: Bool = false
     ) async throws {
         let sourceFormat = decoder.processingFormat
+        if decoder is SFBAudioEngine.DoPDecoder,
+           outputFormat != Self.dopPlaybackFormat(for: sourceFormat) {
+            throw AudioDecoderError.decodingFailed("DoP requires its original carrier rate and channels")
+        }
         let totalFrames = defersLength ? -1 : decoder.length
         let startPosition = defersLength ? max(0, decoder.position) : 0
         var framesToDiscard = max(0, initialFramesToDiscard)
@@ -486,6 +490,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                 continuation.finish(throwing: AudioDecoderError.converterCreationFailed)
                 return
             }
+            if decoder is SFBAudioEngine.DoPDecoder { converter.dither = false }
             converter.usePlaybackResampling()
             if AudioChannelConversionPolicy.requiresDownmix(
                 sourceChannelCount: Int(sourceFormat.channelCount),
@@ -766,6 +771,19 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         }
     }
 
+    private static func dopPlaybackFormat(for carrier: AVAudioFormat) -> AVAudioFormat? {
+        #if os(macOS)
+        // AVAudioPlayerNode can silently disconnect on SFB's packed 24-bit format.
+        // Float32 represents every signed 24-bit word exactly at the same rate and layout.
+        if let layout = carrier.channelLayout {
+            return AVAudioFormat(standardFormatWithSampleRate: carrier.sampleRate, channelLayout: layout)
+        }
+        return AVAudioFormat(standardFormatWithSampleRate: carrier.sampleRate, channels: carrier.channelCount)
+        #else
+        return carrier
+        #endif
+    }
+
     func dsdOutputFormat(for url: URL, mode: DSDPlaybackMode) throws -> AVAudioFormat? {
         try Self.requireFileURL(url)
         guard isDSD(url) else { return nil }
@@ -779,7 +797,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         try decoder.open()
         let format = decoder.processingFormat
         try? decoder.close()
-        return format
+        return mode == .dop ? Self.dopPlaybackFormat(for: format) : format
     }
 
     /// Same probe, off the caller's executor. Opening a DSD decoder reads the

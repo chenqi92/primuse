@@ -543,6 +543,12 @@ final class AudioEngine {
         do {
             try configure(outputMode: .highFidelity, directSourceFormat: format, isDSDCarrier: true)
             try start()
+            guard let engine, let playerNode,
+                  engine.outputConnectionPoints(for: playerNode, outputBus: 0).contains(where: {
+                      $0.node === engine.outputNode
+                  }) else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioUnitErr_NoConnection))
+            }
             return true
         } catch {
             tearDownGraph()
@@ -652,8 +658,7 @@ final class AudioEngine {
                 format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
             }
 
-            // No mixer and no audio unit in this graph. Integer DoP buffers can
-            // also use this path when the hardware sample rate is compatible.
+            // DoP must reach the output at unity gain without a mixer or effects.
             try connectDirectOutput(eng, playerA, format)
             playerA.volume = 1
             playerB.volume = 0
@@ -1139,8 +1144,14 @@ final class AudioEngine {
         )
     }
 
-    func hardwareSupportsDirectFormat(_ format: AVAudioFormat) -> Bool {
-        DirectPCMOutputSampleRatePolicy.hardwareMatches(
+    func hardwareSupportsDoPCarrier(_ format: AVAudioFormat) -> Bool {
+        #if os(macOS)
+        guard let deviceID = hardwareOutputDeviceID,
+              exclusiveOutputController.supportsDoPCarrier(
+                  sampleRate: format.sampleRate, channels: format.channelCount, deviceID: deviceID
+              ) else { return false }
+        #endif
+        return DirectPCMOutputSampleRatePolicy.hardwareMatches(
             requestedSampleRate: format.sampleRate,
             actualHardwareSampleRate: currentHardwareSampleRate
         )
@@ -1883,7 +1894,8 @@ final class AudioEngine {
                 return false
             }
         }
-        if !startPlayerNode(playerNode), !engine.isRunning {
+        var started = startPlayerNode(playerNode)
+        if !started, !engine.isRunning {
             // The graph stopped between the start above and the node start.
             // The audio is still scheduled on the node, so bring the engine
             // back once before giving up on this song.
@@ -1894,9 +1906,9 @@ final class AudioEngine {
                 playbackClockReadsSuspended = true
                 return false
             }
-            startPlayerNode(playerNode)
+            started = startPlayerNode(playerNode)
         }
-        isPlaying = engine.isRunning && (playerNode?.isPlaying ?? false)
+        isPlaying = started && engine.isRunning
         playbackClockReadsSuspended = !isPlaying
         return isPlaying
     }
@@ -1922,7 +1934,7 @@ final class AudioEngine {
     /// command. The node's program volume (including ReplayGain) is restored
     /// while paused and reused as the target of the next fade-in.
     func pauseWithFade() {
-        guard isActuallyPlaying, let playerNode else {
+        guard !usesDSDCarrier, isActuallyPlaying, let playerNode else {
             pause()
             return
         }
@@ -1978,6 +1990,7 @@ final class AudioEngine {
     /// current level instead of producing a gain jump.
     @discardableResult
     func resumeWithFade() -> Bool {
+        if usesDSDCarrier { return resume() }
         let wasPlaying = isActuallyPlaying
         let currentVolume = playerNode?.volume ?? 1
         let targetVolume = transportFadeRestoreVolume ?? currentVolume
