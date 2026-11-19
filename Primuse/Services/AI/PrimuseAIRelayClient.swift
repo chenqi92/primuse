@@ -262,7 +262,7 @@ protocol PrimuseAIRelayCredentialStoring: Actor {
 }
 
 actor KeychainPrimuseAIRelayCredentialStore: PrimuseAIRelayCredentialStoring {
-    private static let account = "primuse.ai.relay.installation.v1"
+    fileprivate static let account = "primuse.ai.relay.installation.v1"
 
     func load() throws -> PrimuseAIRelayCredential? {
         switch KeychainService.localOnlyPasswordLookup(for: Self.account) {
@@ -1696,7 +1696,19 @@ actor PrimuseAIRelayClient {
     ) async throws -> PrimuseAIRelayCredential {
         let supportsAppAttest = await attestor.isSupported
         do {
-            if let credential = try await credentialStore.load(),
+            let saved: PrimuseAIRelayCredential?
+            #if os(macOS)
+            do {
+                saved = try await credentialStore.load()
+            } catch PrimuseAIRelayError.credentialUnavailable where allowsStoreKitRefresh {
+                saved = try await MacCredentialKeychain.$interactiveAccount.withValue(KeychainPrimuseAIRelayCredentialStore.account) {
+                    try await credentialStore.load()
+                }
+            }
+            #else
+            saved = try await credentialStore.load()
+            #endif
+            if let credential = saved,
                let installationID = credential.installationID,
                !installationID.isEmpty {
                 let hasStoreKitToken = credential.accessToken?.isEmpty == false

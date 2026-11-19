@@ -2,6 +2,9 @@ import AVFoundation
 import Foundation
 import Observation
 import PrimuseKit
+#if os(macOS)
+import Security
+#endif
 
 struct LyricAlignmentExecution {
     let document: LyricsEditorDocument
@@ -3207,10 +3210,13 @@ final class MusicIntelligenceService {
 
     func hasStoredAPIKey(configuration: AIRemoteProviderConfiguration) async -> Bool {
         guard configuration.backend.requiresAPIKey else { return false }
-        if case .ready = await credentialStore.lookupAPIKey(configuration: configuration) {
-            return true
+        switch await credentialStore.lookupAPIKey(configuration: configuration) {
+        case .ready: return true
+        #if os(macOS)
+        case .temporarilyUnavailable(errSecInteractionNotAllowed): return true
+        #endif
+        default: return false
         }
-        return false
     }
 
     func save(

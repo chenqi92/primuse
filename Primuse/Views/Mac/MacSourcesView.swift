@@ -91,11 +91,7 @@ struct MacSourcesView: View {
             // 不要再套外层 .frame —— AddSourceView 自己已经定了 560/620/660 的尺寸,
             // 外面再压一个更小的 520×460 会把内容挤变形 (编辑态错位的根因)。新增
             // 走 SourceTypeSelectionView 也是不套 frame, 这样两条路径表现一致。
-            AddSourceView(sourceType: source.type, editingSource: source) { updated in
-                updateSource(updated.id) { $0 = updated }
-                scanService.removeSynologyAPI(for: updated.id)
-                Task { await sourceManager.refreshConnector(for: updated.id) }
-            }
+            editSheet(for: source)
         }
         .sheet(item: $connectingSource, onDismiss: finishConnectionSheet) { source in
             // 这个 sheet 里既有 (云盘/Synology 的) 授权小步骤, 也有 940 宽的树形
@@ -883,6 +879,16 @@ struct MacSourcesView: View {
         onConfirm: ((Bool) -> Void)? = nil,
         onEditAddress: (() -> Void)? = nil
     ) -> some View {
+        MacSourceCredentialAccess(source: source) {
+            directoryConnectionSheet(for: source, stagedDirectories: stagedDirectories, onConfirm: onConfirm, onEditAddress: onEditAddress)
+        }
+    }
+
+    @ViewBuilder
+    private func directoryConnectionSheet(
+        for source: MusicSource, stagedDirectories: Binding<[String]>?,
+        onConfirm: ((Bool) -> Void)?, onEditAddress: (() -> Void)?
+    ) -> some View {
         let persistedDirectories = Binding(
             get: { currentSource(for: source).scannedDirectories },
             set: { newDirs in
@@ -1128,15 +1134,19 @@ struct MacSourcesView: View {
             },
             connectionSheetDidClose: { finishDirectorySelectionSession() },
             editSheet: { source in
-                AnyView(
-                    AddSourceView(sourceType: source.type, editingSource: currentSource(for: source)) { updated in
-                        updateSource(updated.id) { $0 = updated }
-                        scanService.removeSynologyAPI(for: updated.id)
-                        Task { await sourceManager.refreshConnector(for: updated.id) }
-                    }
-                )
+                AnyView(editSheet(for: currentSource(for: source)))
             }
         )
+    }
+
+    private func editSheet(for source: MusicSource) -> some View {
+        MacSourceCredentialAccess(source: source) {
+            AddSourceView(sourceType: source.type, editingSource: source) { updated in
+                updateSource(updated.id) { $0 = updated }
+                scanService.removeSynologyAPI(for: updated.id)
+                Task { await sourceManager.refreshConnector(for: updated.id) }
+            }
+        }
     }
 
     private func runScan(_ source: MusicSource) {
@@ -1168,6 +1178,28 @@ struct MacSourcesView: View {
         sourceStore.update(sourceID, mutate: mutate)
     }
 
+}
+
+/// Delay connector construction until the user's selected account has been checked.
+private struct MacSourceCredentialAccess<Content: View>: View {
+    let source: MusicSource
+    @ViewBuilder var content: () -> Content
+    @Environment(SourceManager.self) private var manager
+    @State private var readyID: String?
+
+    var body: some View {
+        Group {
+            if readyID == source.id { content() }
+            else { ProgressView() }
+        }
+        .task(id: source.id) {
+            guard readyID != source.id, !Task.isCancelled else { return }
+            let recovered = await MacCredentialKeychain.prepareUserConnection(source)
+            guard !Task.isCancelled else { return }
+            if recovered { await manager.refreshConnector(for: source.id, force: true) }
+            readyID = source.id
+        }
+    }
 }
 
 private struct MacSourceWaterfallLayout: Layout {

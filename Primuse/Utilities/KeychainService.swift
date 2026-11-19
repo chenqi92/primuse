@@ -237,7 +237,7 @@ enum KeychainService {
         }
 
         var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = CredentialKeychain.copy(query, &result, deviceOnly: true)
         guard status == errSecSuccess else {
             switch status {
             case errSecItemNotFound:
@@ -292,7 +292,7 @@ enum KeychainService {
             supportsSynchronizableAttributes: Self.supportsSynchronizableKeychainAttributes
         ) { query in
             var result: AnyObject?
-            let status = SecItemCopyMatching(query as CFDictionary, &result)
+            let status = CredentialKeychain.copy(query, &result)
             return (status, result)
         }
 
@@ -405,7 +405,7 @@ enum KeychainService {
         if Self.supportsSynchronizableKeychainAttributes {
             query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
         }
-        let status = SecItemDelete(query as CFDictionary)
+        let status = CredentialKeychain.delete(query)
         #if DEBUG && targetEnvironment(simulator)
         if status == errSecMissingEntitlement {
             let deletedFallback = applySimulatorFallbackMutation(
@@ -496,7 +496,7 @@ enum KeychainService {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+        guard CredentialKeychain.copy(query, &result) == errSecSuccess,
               let item = result as? [String: Any],
               isDeviceOnlyItem(item),
               let data = item[kSecValueData as String] as? Data else { return nil }
@@ -511,7 +511,7 @@ enum KeychainService {
             kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
-        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+        return CredentialKeychain.copy(query, nil) == errSecSuccess
     }
 
     /// 记录条目走的是哪条写入路径的标记，写在 `kSecAttrGeneric`（钥匙串留给应用
@@ -520,7 +520,7 @@ enum KeychainService {
     /// 在 Mac 上认不出 `…ThisDeviceOnly`。普通写入也写一个明确的值而不是不写：
     /// 同一账号若曾走过本机路径、后来改走同步路径，旧标记必须被覆盖掉，否则会
     /// 一直挡住迁移。用非空值而不是空 Data，是不想赌两种钥匙串对空属性的处理。
-    private static let deviceOnlyItemMarker = Data("primuse.device-only".utf8)
+    static let deviceOnlyItemMarker = Data("primuse.device-only".utf8)
     private static let syncAllowedItemMarker = Data("primuse.sync-allowed".utf8)
 
     /// `kSecAttrAccessible` 里表示「不出设备」的取值。只列未废弃的三种；应用
@@ -535,7 +535,7 @@ enum KeychainService {
     /// 两个信号任一命中即算：可访问性是系统层面的事实（iOS 上一定有），标记是
     /// 应用自己的记号（Mac 上唯一可用）。改这里前先确认 `persistPasswordItem`
     /// 的普通写入仍会把两者都覆盖回非本机值。
-    private static func isDeviceOnlyItem(_ attributes: [String: Any]) -> Bool {
+    static func isDeviceOnlyItem(_ attributes: [String: Any]) -> Bool {
         if let accessible = attributes[kSecAttrAccessible as String] as? String,
            deviceOnlyAccessibilityValues.contains(accessible) {
             return true
@@ -569,7 +569,7 @@ enum KeychainService {
                 : kSecAttrAccessibleAfterFirstUnlock,
             kSecAttrGeneric as String: deviceOnly ? deviceOnlyItemMarker : syncAllowedItemMarker,
         ]
-        let updateStatus = SecItemUpdate(identity as CFDictionary, attributes as CFDictionary)
+        let updateStatus = CredentialKeychain.update(identity, attributes)
         if updateStatus == errSecSuccess {
             return errSecSuccess
         }
@@ -579,11 +579,11 @@ enum KeychainService {
 
         var addQuery = identity
         addQuery.merge(attributes) { _, new in new }
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        let addStatus = CredentialKeychain.add(addQuery)
         if addStatus == errSecDuplicateItem {
             // Another caller may have inserted the same item between update
             // and add. Retrying update keeps the operation race-safe.
-            return SecItemUpdate(identity as CFDictionary, attributes as CFDictionary)
+            return CredentialKeychain.update(identity, attributes)
         }
         return addStatus
     }
@@ -602,7 +602,7 @@ enum KeychainService {
                 ? kCFBooleanTrue as Any
                 : kCFBooleanFalse as Any
         }
-        return SecItemDelete(query as CFDictionary)
+        return CredentialKeychain.delete(query)
     }
 
     #if DEBUG && targetEnvironment(simulator)
@@ -676,7 +676,7 @@ enum KeychainService {
         // synchronizable attribute is omitted entirely.
         return
         #else
-        let copyQuery: [String: Any] = [
+        var copyQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
@@ -684,15 +684,16 @@ enum KeychainService {
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll,
         ]
+        #if os(macOS)
+        copyQuery.removeValue(forKey: kSecReturnData as String)
+        #endif
         var result: AnyObject?
-        let status = SecItemCopyMatching(copyQuery as CFDictionary, &result)
+        let status = CredentialKeychain.copy(copyQuery, &result)
         guard status == errSecSuccess, let items = result as? [[String: Any]] else { return }
 
         var keptDeviceOnlyCount = 0
         for item in items {
-            guard let account = item[kSecAttrAccount as String] as? String,
-                  let data = item[kSecValueData as String] as? Data,
-                  let password = String(data: data, encoding: .utf8) else { continue }
+            guard let account = item[kSecAttrAccount as String] as? String else { continue }
 
             // 「非同步」不等于「待迁移」：setLocalOnlyPassword 写下的项（中继安装
             // 凭据、自建分享令牌）刻意不出设备，迁走会把秘密推到同一 Apple ID 的
@@ -706,9 +707,16 @@ enum KeychainService {
                 continue
             }
 
-            // setPassword writes the synchronizable value first, then removes
-            // the local variant only after persistence succeeds.
+            #if os(macOS)
+            guard !SourceCloudSyncOptOutRegistry.isOptedOut(account: account),
+                  let data = MacCredentialKeychain.shared.localDataForMigration(service: PrimuseConstants.keychainServiceName, account: account)
+            else { continue }
+            MacCredentialKeychain.shared.promotePassword(data, account: account)
+            #else
+            guard let data = item[kSecValueData as String] as? Data,
+                  let password = String(data: data, encoding: .utf8) else { continue }
             setPassword(password, for: account)
+            #endif
         }
         if keptDeviceOnlyCount > 0 {
             plog("🔐 Keychain migration kept \(keptDeviceOnlyCount) device-only item(s) local")
@@ -721,6 +729,45 @@ enum KeychainService {
         false
         #else
         true
+        #endif
+    }
+}
+
+/// All access to the two Primuse credential services goes through the same store.
+enum CredentialKeychain {
+    typealias Query = [String: Any]
+
+    static func copy(_ query: Query, _ result: UnsafeMutablePointer<CFTypeRef?>?, deviceOnly: Bool = false) -> OSStatus {
+        #if os(macOS)
+        let (status, value) = MacCredentialKeychain.shared.copy(query, deviceOnly: deviceOnly)
+        result?.pointee = value
+        return status
+        #else
+        return SecItemCopyMatching(query as CFDictionary, result)
+        #endif
+    }
+
+    static func add(_ query: Query) -> OSStatus {
+        #if os(macOS)
+        return MacCredentialKeychain.shared.add(query)
+        #else
+        return SecItemAdd(query as CFDictionary, nil)
+        #endif
+    }
+
+    static func update(_ query: Query, _ values: Query) -> OSStatus {
+        #if os(macOS)
+        return MacCredentialKeychain.shared.update(query, values)
+        #else
+        return SecItemUpdate(query as CFDictionary, values as CFDictionary)
+        #endif
+    }
+
+    static func delete(_ query: Query) -> OSStatus {
+        #if os(macOS)
+        return MacCredentialKeychain.shared.delete(query)
+        #else
+        return SecItemDelete(query as CFDictionary)
         #endif
     }
 }

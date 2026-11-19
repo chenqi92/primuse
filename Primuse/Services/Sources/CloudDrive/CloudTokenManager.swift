@@ -7,7 +7,7 @@ import Security
 /// the user's devices alongside the source list.
 actor CloudTokenManager {
     private let sourceID: String
-    private static let serviceName = "com.welape.primuse.cloud"
+    static let serviceName = "com.welape.primuse.cloud"
     private var volatileTokens: Tokens?
 
     init(sourceID: String) {
@@ -294,7 +294,33 @@ actor CloudTokenManager {
         }
 
         let preferredSynchronizable = CloudSyncChannel.usesSynchronizableKeychain()
-        let preferred = keychainRead(key: key, synchronizable: preferredSynchronizable)
+        let preferred: LookupResult<Data>
+        #if os(macOS)
+        if preferredSynchronizable {
+            switch Self.readKeychainRecord(key: key, synchronizable: true) {
+            case .found(let sync):
+                if MacCredentialKeychain.shared.localTokenIsNewer(account: key, than: sync.modifiedAt) {
+                    let local = Self.readKeychainRecord(key: key, synchronizable: false)
+                    switch local {
+                    case .found(let record) where CloudCredentialVariantPolicy.shouldReplaceSynchronizableValue(
+                        localModifiedAt: record.modifiedAt, synchronizableModifiedAt: sync.modifiedAt
+                    ): return .found(record.data)
+                    case .temporarilyUnavailable(let status): return .temporarilyUnavailable(status)
+                    case .failed(let status): return .failed(status)
+                    default: break
+                    }
+                }
+                return .found(sync.data)
+            case .notFound: preferred = .notFound
+            case .temporarilyUnavailable(let status): preferred = .temporarilyUnavailable(status)
+            case .failed(let status): preferred = .failed(status)
+            }
+        } else {
+            preferred = keychainRead(key: key, synchronizable: false)
+        }
+        #else
+        preferred = keychainRead(key: key, synchronizable: preferredSynchronizable)
+        #endif
         switch preferred {
         case .found:
             return preferred
@@ -340,7 +366,7 @@ actor CloudTokenManager {
                 : kCFBooleanFalse as Any
         }
         var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = CredentialKeychain.copy(query, &result)
         switch status {
         case errSecSuccess:
             guard let data = result as? Data else { return .failed(errSecDecode) }
@@ -401,7 +427,7 @@ actor CloudTokenManager {
         if Self.supportsSynchronizableKeychainAttributes {
             query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
         }
-        let status = SecItemDelete(query as CFDictionary)
+        let status = CredentialKeychain.delete(query)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             plog("⚠️ Cloud credential delete failed key=\(key.prefix(24))… status=\(status)")
             return false
@@ -415,7 +441,7 @@ actor CloudTokenManager {
         #if targetEnvironment(simulator)
         return
         #else
-        let copyQuery: [String: Any] = [
+        var copyQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: serviceName,
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
@@ -423,8 +449,11 @@ actor CloudTokenManager {
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll,
         ]
+        #if os(macOS)
+        copyQuery.removeValue(forKey: kSecReturnData as String)
+        #endif
         var result: AnyObject?
-        let status = SecItemCopyMatching(copyQuery as CFDictionary, &result)
+        let status = CredentialKeychain.copy(copyQuery, &result)
         guard status == errSecSuccess else { return }
         let items: [[String: Any]]
         if let matches = result as? [[String: Any]] {
@@ -436,10 +465,16 @@ actor CloudTokenManager {
         }
 
         for item in items {
-            guard let account = item[kSecAttrAccount as String] as? String,
-                  let data = item[kSecValueData as String] as? Data else { continue }
-
+            guard let account = item[kSecAttrAccount as String] as? String else { continue }
+            #if os(macOS)
+            let prefix = ["cloud_tokens_", "cloud_creds_"].first(where: account.hasPrefix)
+            guard let prefix, !SourceCloudSyncOptOutRegistry.isOptedOut(account: String(account.dropFirst(prefix.count))),
+                  let data = MacCredentialKeychain.shared.localDataForMigration(service: serviceName, account: account) else { continue }
+            let localModifiedAt = MacCredentialKeychain.originalTokenDate(item) ?? item[kSecAttrModificationDate as String] as? Date
+            #else
+            guard let data = item[kSecValueData as String] as? Data else { continue }
             let localModifiedAt = item[kSecAttrModificationDate as String] as? Date
+            #endif
             let synchronizable = readKeychainRecord(key: account, synchronizable: true)
             let targetData: Data
 
@@ -503,21 +538,22 @@ actor CloudTokenManager {
                 ? kCFBooleanTrue as Any
                 : kCFBooleanFalse as Any
         }
-        let updates: [String: Any] = [
+        var updates: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
-        let updateStatus = SecItemUpdate(lookup as CFDictionary, updates as CFDictionary)
+        #if os(macOS)
+        updates[kSecAttrGeneric as String] = Data("primuse.cloud-token".utf8)
+        #endif
+        let updateStatus = CredentialKeychain.update(lookup, updates)
         if updateStatus == errSecSuccess { return true }
         guard updateStatus == errSecItemNotFound else {
             plog("⚠️ Cloud token update failed key=\(key.prefix(24))… sync=\(synchronizable) status=\(updateStatus)")
             return false
         }
 
-        var add = lookup
-        add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        let addStatus = SecItemAdd(add as CFDictionary, nil)
+        let add = lookup.merging(updates) { _, new in new }
+        let addStatus = CredentialKeychain.add(add)
         if addStatus == errSecSuccess { return true }
         plog("⚠️ Cloud token add failed key=\(key.prefix(24))… sync=\(synchronizable) status=\(addStatus)")
         return false
@@ -546,17 +582,18 @@ actor CloudTokenManager {
                 : kCFBooleanFalse as Any
         }
         var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = CredentialKeychain.copy(query, &result)
         switch status {
         case errSecSuccess:
             guard let item = result as? [String: Any],
                   let data = item[kSecValueData as String] as? Data else {
                 return .failed(errSecDecode)
             }
-            return .found(KeychainRecord(
-                data: data,
-                modifiedAt: item[kSecAttrModificationDate as String] as? Date
-            ))
+            var modifiedAt = item[kSecAttrModificationDate as String] as? Date
+            #if os(macOS)
+            if !synchronizable { modifiedAt = MacCredentialKeychain.originalTokenDate(item) ?? modifiedAt }
+            #endif
+            return .found(KeychainRecord(data: data, modifiedAt: modifiedAt))
         case errSecItemNotFound:
             return .notFound
         case errSecInteractionNotAllowed, errSecNotAvailable:
@@ -633,7 +670,7 @@ actor CloudTokenManager {
                 ? kCFBooleanTrue as Any
                 : kCFBooleanFalse as Any
         }
-        return SecItemDelete(query as CFDictionary)
+        return CredentialKeychain.delete(query)
     }
 
     private nonisolated static var supportsSynchronizableKeychainAttributes: Bool {

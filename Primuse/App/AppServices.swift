@@ -1231,15 +1231,21 @@ final class AppServices {
         dispatchPrecondition(condition: .onQueue(.main))
         FullscreenPlayerEffectSync.shared.install()
 
-        if CloudSyncChannel.usesSynchronizableKeychain() {
-            KeychainService.migrateLegacyEntriesToICloud()
-            CloudTokenManager.migrateLegacyEntriesToICloud()
-        }
-        let keychainFinishedAt = ProcessInfo.processInfo.systemUptime
-
         let store = SourcesStore()
         let radioStore = RadioStationsStore()
         let sourcesFinishedAt = ProcessInfo.processInfo.systemUptime
+        if CloudSyncChannel.usesSynchronizableKeychain() {
+            #if os(macOS)
+            MacCredentialKeychain.$modernMigration.withValue(true) {
+                KeychainService.migrateLegacyEntriesToICloud()
+                CloudTokenManager.migrateLegacyEntriesToICloud()
+            }
+            #else
+            KeychainService.migrateLegacyEntriesToICloud()
+            CloudTokenManager.migrateLegacyEntriesToICloud()
+            #endif
+        }
+        let keychainFinishedAt = ProcessInfo.processInfo.systemUptime
         let initiallyDisabledSourceIDs = Set(
             store.sources.filter { !$0.isEnabled }.map(\.id)
         )
@@ -1895,9 +1901,9 @@ final class AppServices {
         plog(String(
             format: "🚀 launch services total=%.0fms keychain=%.0f sources=%.0f library=%.0f core=%.0f auxiliary=%.0f wiring=%.0f observers=%.0f",
             (startupFinishedAt - startupStartedAt) * 1_000,
-            (keychainFinishedAt - startupStartedAt) * 1_000,
-            (sourcesFinishedAt - keychainFinishedAt) * 1_000,
-            (libraryFinishedAt - sourcesFinishedAt) * 1_000,
+            (keychainFinishedAt - sourcesFinishedAt) * 1_000,
+            (sourcesFinishedAt - startupStartedAt) * 1_000,
+            (libraryFinishedAt - keychainFinishedAt) * 1_000,
             (coreServicesFinishedAt - libraryFinishedAt) * 1_000,
             (auxiliaryServicesFinishedAt - coreServicesFinishedAt) * 1_000,
             (playbackRestoreFinishedAt - auxiliaryServicesFinishedAt) * 1_000,

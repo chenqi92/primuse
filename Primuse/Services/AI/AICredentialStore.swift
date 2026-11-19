@@ -122,6 +122,24 @@ actor AICredentialStore: AICredentialStoring {
         return .notConfigured
     }
 
+    #if os(macOS)
+    @concurrent
+    static func prepareUserAccess(configuration: AIRemoteProviderConfiguration) async {
+        guard configuration.backend.requiresAPIKey, let current = try? scopedAccount(configuration: configuration),
+              let legacy = try? legacyAccounts(configuration: configuration) else { return }
+        for account in [current] + legacy {
+            guard !Task.isCancelled else { return }
+            switch KeychainService.passwordLookup(for: account) {
+            case .notFound: continue
+            case .temporarilyUnavailable(errSecInteractionNotAllowed):
+                _ = MacCredentialKeychain.$interactiveAccount.withValue(account) { KeychainService.passwordLookup(for: account) }
+                return
+            default: return
+            }
+        }
+    }
+    #endif
+
     private static func scopedAccount(
         configuration: AIRemoteProviderConfiguration
     ) throws -> String {

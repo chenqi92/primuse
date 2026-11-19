@@ -909,6 +909,9 @@ final class AISettingsEditorModel {
         isFetchingModels = true
         status = .idle
         do {
+            #if os(macOS)
+            if apiKey.isEmpty { await AICredentialStore.prepareUserAccess(configuration: configuration) }
+            #endif
             let models = try await intelligence.availableModels(
                 configuration: configuration,
                 apiKey: apiKey.isEmpty ? nil : apiKey
@@ -1047,6 +1050,9 @@ final class AISettingsEditorModel {
         isWorking = true
         status = .idle
         do {
+            #if os(macOS)
+            if apiKey.isEmpty { await AICredentialStore.prepareUserAccess(configuration: configuration) }
+            #endif
             try await intelligence.testConnection(
                 configuration: configuration,
                 apiKey: apiKey.isEmpty ? nil : apiKey
