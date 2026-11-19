@@ -438,7 +438,7 @@ public struct LyricRomanizationOverlay: Equatable, Sendable {
 public struct LyricRomanizationRowPresentation: Equatable, Sendable {
     /// 这一行的正文。「只显示罗马音」且有罗马音时就是罗马音，否则是原文。
     public var text: String
-    /// 正文换成了罗马音：罗马音没有逐字时间，这一行按整行高亮，不做逐字扫光。
+    /// 正文换成了罗马音。有独立时间轴的音译可以逐字高亮。
     public var showsRomanizationAsText: Bool
     /// 显示用的这一行（正文、逐字时间、罗马音字段都已按设置处理）。逐字歌词照它的
     /// `isWordLevel` 决定是否扫光。
@@ -553,7 +553,13 @@ public enum LyricRomanizationDisplayPolicy {
         case .romanizationOnly:
             if let replacement = resolved.replacementText {
                 display.endTimestamp = line.endTime
-                display.syllables = nil
+                if normalized(line.romanization) == replacement {
+                    display.syllables = line.romanizationSyllables
+                } else if normalized(readingRow?.text) == replacement {
+                    display.syllables = readingRow?.syllables
+                } else {
+                    display.syllables = nil
+                }
                 display.text = replacement
             }
             display.romanization = nil

@@ -359,13 +359,7 @@ private struct LyricsFingerprintWriter {
         append(line.text)
         append(line.timestamp)
         append(line.isSynchronized)
-        append(line.syllables) { writer, syllable in
-            writer.append(syllable.text)
-            writer.append(syllable.start)
-            writer.append(syllable.end)
-            writer.append(syllable.endTiming.rawValue)
-            writer.append(syllable.languageCode)
-        }
+        appendSyllables(line.syllables)
         append(line.endTimestamp)
         append(line.voice.rawValue)
         append(line.background) { writer, line in writer.append(line) }
@@ -379,6 +373,20 @@ private struct LyricsFingerprintWriter {
         // A romanization is document content: an edit that only adds or
         // removes one must still read as a changed document.
         append(line.romanization)
+        if let cues = line.romanizationSyllables, !cues.isEmpty {
+            append("romanizationSyllables")
+            appendSyllables(cues)
+        }
+    }
+
+    private mutating func appendSyllables(_ cues: [LyricSyllable]?) {
+        append(cues) { writer, syllable in
+            writer.append(syllable.text)
+            writer.append(syllable.start)
+            writer.append(syllable.end)
+            writer.append(syllable.endTiming.rawValue)
+            writer.append(syllable.languageCode)
+        }
     }
 
     private mutating func append(_ value: LyricManualTranslation?) {
@@ -396,6 +404,10 @@ private struct LyricsFingerprintWriter {
         append(value.text)
         append(value.languageCode)
         append(value.source.rawValue)
+        if let cues = value.syllables, !cues.isEmpty {
+            append("translationSyllables")
+            appendSyllables(cues)
+        }
     }
 
     private mutating func append(_ value: String) {

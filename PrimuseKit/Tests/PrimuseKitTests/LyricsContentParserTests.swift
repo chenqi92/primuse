@@ -490,6 +490,92 @@ struct LyricsContentParserTests {
         #expect(roundTrip.romanization == "'Cause my heart")
     }
 
+    private let keyedAppleTTML = """
+    <tt xmlns="http://www.w3.org/ns/ttml" xmlns:a="http://music.apple.com/lyric-ttml-internal"
+        xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xml:lang="ko">
+      <head><metadata><a:iTunesMetadata>
+        <a:translations>
+          <a:translation type="subtitle" xml:lang="zh-Hans">
+            <a:text for="B">第二行</a:text><a:text for="orphan">未匹配</a:text>
+            <a:text for="A"><span begin="2" end="2.4">第</span><span begin="2.4" end="3">一行</span><span ttm:role="x-bg">和声</span></a:text>
+          </a:translation>
+          <a:translation type="replacement" xml:lang="en"><a:text for="A">First line</a:text></a:translation>
+        </a:translations>
+        <a:transliterations><a:transliteration xml:lang="ko-Latn">
+          <a:text for="B">dul</a:text>
+          <a:text for="A">
+            <span begin="2.1" end="2.3">ha</span>
+            <span begin="2.3" end="2.9">na</span><span ttm:role="x-bg"><span begin="2.5" end="2.8">ho</span></span>
+          </a:text>
+        </a:transliteration></a:transliterations>
+      </a:iTunesMetadata></metadata></head>
+      <body><div>
+        <p a:key="A" begin="2" end="3"><span begin="2" end="3">하나</span><span ttm:role="x-bg" begin="2.5" end="2.8">호</span></p>
+        <p a:key="B" begin="4" end="5">둘<span ttm:role="x-roman">dul</span></p>
+        <p begin="6" end="7">끝</p>
+      </div></body>
+    </tt>
+    """
+
+    @Test("Apple head translations and readings follow line keys and backing vocals")
+    func matchesAppleTTMLHeadAnnotations() throws {
+        let lines = LyricsContentParser.parseText(keyedAppleTTML)
+        #expect(lines.map(\.text) == ["하나", "둘", "끝"])
+        let line = try #require(lines.first)
+        #expect(line.syllables?.map(\.text) == ["하나"])
+        #expect(line.manualTranslation?.languageCode == "zh-Hans")
+        #expect(line.manualTranslation?.syllables?.map(\.start) == [2, 2.4])
+        #expect(line.alternateManualTranslations.map(\.text) == ["First line"])
+        let translation = LyricManualTranslationPolicy.preferredTranslation(for: line, targetLanguageCode: "zh-Hans")
+        let row = LyricRomanizationDisplayPolicy.row(
+            for: line, generatedRomanization: nil, mode: .belowOriginal, translatedText: translation?.text
+        )
+        #expect(row.companions == ["ha na", "第一行"])
+        let reading = LyricRomanizationDisplayPolicy.row(for: line, generatedRomanization: nil, mode: .romanizationOnly)
+        #expect(reading.text == "ha na")
+        #expect(reading.line.syllables?.map(\.start) == [2.1, 2.3])
+        #expect(reading.line.syllables?.map(\.end) == [2.3, 2.9])
+        let backing = try #require(line.background?.first)
+        #expect(backing.text == "호")
+        #expect(backing.manualTranslation?.text == "和声")
+        #expect(backing.romanization == "ho")
+        #expect(backing.romanizationSyllables?.first?.start == 2.5)
+        let hidden = LyricBundledTranslationPolicy.presentation(of: lines, showsBundledTranslations: false)
+        #expect(hidden.hasBundledTranslations)
+        #expect(hidden.lines[0].allManualTranslations.isEmpty)
+        #expect(hidden.lines[0].romanization == "ha na")
+        #expect(lines[1].manualTranslation?.text == "第二行")
+        #expect(lines[1].romanization == "dul")
+        #expect(lines[1].romanizationSyllables == nil)
+        #expect(lines[2].manualTranslation == nil && lines[2].romanization == nil)
+    }
+
+    @Test("Authored annotation timing survives cache, editing and TTML writeback")
+    func preservesAppleTTMLHeadTiming() throws {
+        let lines = LyricsContentParser.parseText(keyedAppleTTML)
+        let cached = try JSONDecoder().decode([LyricLine].self, from: JSONEncoder().encode(lines))
+        #expect(cached == lines)
+        var editor = LyricsEditorDocument(lyricLines: cached)
+        let saved = LyricsContentParser.parseText(LyricsContentParser.serializeTTML(editor.lyricLines()))
+        #expect(LyricsContentParser.areSemanticallyEquivalent(saved, lines))
+        let shifted = try #require(editor.shifted(by: 1).lyricLines().first)
+        #expect(shifted.manualTranslation?.syllables?.map(\.start) == [3, 3.4])
+        #expect(shifted.romanizationSyllables?.map(\.start) == [3.1, 3.3])
+        #expect(shifted.background?.first?.romanizationSyllables?.first?.start == 3.5)
+        let playbackOffset = try #require(LyricDocumentOffsetPolicy.applying(offset: 1, to: lines).first)
+        #expect(playbackOffset.romanizationSyllables?.map(\.start) == [1.1, 1.3])
+        #expect(playbackOffset.manualTranslation?.syllables?.map(\.start) == [1, 1.4])
+        var retimed = lines
+        retimed[0].romanizationSyllables?[0].start = 2.01
+        #expect(LyricsDocumentFingerprint(lines: retimed) != LyricsDocumentFingerprint(lines: lines))
+        #expect(!LyricsContentParser.areSemanticallyEquivalent(retimed, lines))
+        editor.updateRomanization("hana", at: 0)
+        editor.updateManualTranslation("改译", at: 0)
+        let edited = try #require(editor.lyricLines().first)
+        #expect(edited.romanizationSyllables == nil && edited.manualTranslation?.syllables == nil)
+        #expect(edited.syllables == lines[0].syllables)
+    }
+
     @Test("A romanization survives the cache encoding")
     func keepsRomanizationAcrossCacheEncoding() throws {
         let line = LyricLine(

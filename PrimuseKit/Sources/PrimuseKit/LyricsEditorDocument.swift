@@ -24,9 +24,10 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
     /// 容器中其它语言的人工译文。当前分栏编辑首选译文，但这些字段必须随
     /// 结构化模型保留，避免打开编辑器就丢掉未选中的语言。
     public var alternateManualTranslations: [LyricManualTranslation]
-    /// Authored romanization travelling with the row. The editor does not edit
-    /// it yet, but dropping it on save would lose document content.
-    public var romanization: String?
+    public var romanization: String? {
+        didSet { if romanization != oldValue { romanizationSyllables = nil } }
+    }
+    public var romanizationSyllables: [LyricSyllable]?
 
     public init(
         id: UUID = UUID(),
@@ -40,7 +41,8 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         documentIsLocalOverride: Bool = false,
         manualTranslation: LyricManualTranslation? = nil,
         alternateManualTranslations: [LyricManualTranslation] = [],
-        romanization: String? = nil
+        romanization: String? = nil,
+        romanizationSyllables: [LyricSyllable]? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -54,6 +56,7 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         self.manualTranslation = manualTranslation
         self.alternateManualTranslations = alternateManualTranslations
         self.romanization = romanization
+        self.romanizationSyllables = romanizationSyllables
     }
 
     public var isStamped: Bool { timestamp != nil }
@@ -95,7 +98,10 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
     var earliestTime: TimeInterval? {
         let syllableStart = syllables?.map(\.start).min()
         let backgroundStart = background?.compactMap(Self.earliestTime(in:)).min()
-        return ([timestamp, endTimestamp, syllableStart, backgroundStart]
+        let annotationStart = Self.earliestAnnotationTime(
+            romanizationSyllables, primary: manualTranslation, alternates: alternateManualTranslations
+        )
+        return ([timestamp, endTimestamp, syllableStart, backgroundStart, annotationStart]
             .compactMap { $0 }).min()
     }
 
@@ -143,6 +149,9 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         }
         endTimestamp = endTimestamp.map { max(0, $0 + delta) }
         syllables = syllables?.map { Self.shifted($0, by: delta) }
+        romanizationSyllables = romanizationSyllables?.map { Self.shifted($0, by: delta) }
+        manualTranslation = manualTranslation.map { Self.shifted($0, by: delta) }
+        alternateManualTranslations = alternateManualTranslations.map { Self.shifted($0, by: delta) }
         background = background?.map { Self.shifted($0, by: delta) }
     }
 
@@ -156,6 +165,12 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         )
     }
 
+    private static func shifted(_ translation: LyricManualTranslation, by delta: TimeInterval) -> LyricManualTranslation {
+        var result = translation
+        result.syllables = translation.syllables?.map { shifted($0, by: delta) }
+        return result
+    }
+
     private static func shifted(_ line: LyricLine, by delta: TimeInterval) -> LyricLine {
         var result = line
         if line.isSynchronized {
@@ -163,6 +178,9 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         }
         result.endTimestamp = line.endTimestamp.map { max(0, $0 + delta) }
         result.syllables = line.syllables?.map { shifted($0, by: delta) }
+        result.romanizationSyllables = line.romanizationSyllables?.map { shifted($0, by: delta) }
+        result.manualTranslation = line.manualTranslation.map { shifted($0, by: delta) }
+        result.alternateManualTranslations = line.alternateManualTranslations.map { shifted($0, by: delta) }
         result.background = line.background?.map { shifted($0, by: delta) }
         return result
     }
@@ -171,8 +189,20 @@ public struct EditableLyricLine: Identifiable, Hashable, Sendable {
         var candidates: [TimeInterval] = []
         if line.isSynchronized { candidates.append(line.timestamp) }
         candidates.append(contentsOf: line.syllables?.map(\.start) ?? [])
+        if let annotationStart = earliestAnnotationTime(
+            line.romanizationSyllables, primary: line.manualTranslation, alternates: line.alternateManualTranslations
+        ) {
+            candidates.append(annotationStart)
+        }
         candidates.append(contentsOf: line.background?.compactMap(earliestTime(in:)) ?? [])
         return candidates.min()
+    }
+
+    private static func earliestAnnotationTime(
+        _ reading: [LyricSyllable]?, primary: LyricManualTranslation?, alternates: [LyricManualTranslation]
+    ) -> TimeInterval? {
+        let tracks = [reading, primary?.syllables] + alternates.map(\.syllables)
+        return tracks.compactMap { $0?.map(\.start).min() }.min()
     }
 }
 
@@ -196,6 +226,7 @@ public enum LyricsStructuredPersistencePolicy {
             && syllables.map(\.text).joined() != line.text
         return line.endTimestamp != nil
             || line.romanization != nil
+            || line.allManualTranslations.contains(where: { $0.syllables?.isEmpty == false })
             || line.voice != .primary
             || line.background?.isEmpty == false
             || line.languageCode != nil
@@ -240,7 +271,8 @@ public struct LyricsEditorDocument: Hashable, Sendable {
                 documentIsLocalOverride: $0.documentIsLocalOverride,
                 manualTranslation: $0.manualTranslation,
                 alternateManualTranslations: $0.alternateManualTranslations,
-                romanization: $0.romanization
+                romanization: $0.romanization,
+                romanizationSyllables: $0.romanizationSyllables
             )
         }
     }
@@ -294,7 +326,8 @@ public struct LyricsEditorDocument: Hashable, Sendable {
                     documentIsLocalOverride: $0.documentIsLocalOverride,
                     manualTranslation: $0.manualTranslation,
                     alternateManualTranslations: $0.alternateManualTranslations,
-                    romanization: $0.romanization
+                    romanization: $0.romanization,
+                    romanizationSyllables: $0.romanizationSyllables
                 )
             })
             timedBlock.removeAll(keepingCapacity: true)
@@ -373,7 +406,8 @@ public struct LyricsEditorDocument: Hashable, Sendable {
                 documentIsLocalOverride: line.documentIsLocalOverride,
                 manualTranslation: line.manualTranslation,
                 alternateManualTranslations: line.alternateManualTranslations,
-                romanization: line.romanization
+                romanization: line.romanization,
+                romanizationSyllables: line.romanizationSyllables
             )
         }
         if !result.isEmpty, !metadataLines.isEmpty {
