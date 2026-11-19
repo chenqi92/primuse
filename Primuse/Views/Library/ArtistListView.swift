@@ -192,7 +192,8 @@ struct ArtistListView: View {
             isLiked: favorites.isLiked(artist),
             toggleLike: { favorites.toggle(artistNamed: artist.name) },
             songs: { library.songs(forArtist: artist.id) },
-            player: player
+            player: player,
+            recentItem: .init(kind: .artist, entityID: artist.id)
         )
     }
 

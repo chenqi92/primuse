@@ -2341,7 +2341,7 @@ struct PlaylistDetailView: View {
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
         SiriMediaInteractionDonor.donate(.playlist(id: playlist.id), shuffled: shuffled)
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queue: queue, startingAt: 0, recentItem: .init(kind: .playlist, entityID: playlist.id)) }
     }
 
     private func playSong(_ song: Song) {
@@ -2349,7 +2349,7 @@ struct PlaylistDetailView: View {
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
         // 从歌单里点一首也是在放这个歌单, 捐歌单而不是这一首。
         SiriMediaInteractionDonor.donate(.playlist(id: playlist.id), shuffled: false)
-        Task { await player.play(queue: queue, startingAt: index) }
+        Task { await player.play(queue: queue, startingAt: index, recentItem: .init(kind: .playlist, entityID: playlist.id)) }
     }
 }
 

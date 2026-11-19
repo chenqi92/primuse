@@ -1278,7 +1278,7 @@ struct AlbumDetailView: View {
         if !isCatalogAlbum {
             SiriMediaInteractionDonor.donate(.album(id: album.id), shuffled: shuffled)
         }
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queue: queue, startingAt: 0, recentItem: .init(kind: .album, entityID: album.id)) }
     }
 
     private func shuffleAll() {
@@ -1290,7 +1290,7 @@ struct AlbumDetailView: View {
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
         // 目录补上的那几首不在曲库里,Siri 之后按 ID 也找不回来,不捐。
         if !isCatalogOnly(song) { SiriMediaInteractionDonor.donate(song: song) }
-        Task { await player.play(queue: queue, startingAt: index) }
+        Task { await player.play(queue: queue, startingAt: index, recentItem: .init(kind: .album, entityID: album.id)) }
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

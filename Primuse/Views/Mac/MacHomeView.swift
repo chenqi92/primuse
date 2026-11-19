@@ -407,7 +407,7 @@ struct MacHomeView: View {
             }
         case .recentlyPlayed:
             if hasContent, showContinueListening {
-                recentlyPlayedSection
+                RecentPlaybackSection(style: .grid, limit: 8)
                     .pmAppearFade(.contentAppear)
             }
         case .radio:
@@ -1038,7 +1038,7 @@ struct MacHomeView: View {
         let songs = AlbumRecommendationService.shared.songsInTrackOrder(albumID: albumID, library: library)
         guard !songs.isEmpty else { return }
         player.shuffleEnabled = false
-        Task { await player.play(queue: songs, startingAt: 0) }
+        Task { await player.play(queue: songs, startingAt: 0, recentItem: .init(kind: .album, entityID: albumID)) }
     }
 
     private var greeting: String {

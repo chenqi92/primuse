@@ -1209,3 +1209,157 @@ struct QueueBookmarksSection: View {
         }
     }
 }
+
+struct RecentPlaybackSection: View {
+    var style: HomeSectionLayoutStyle = .grid
+    var limit = 12
+    var rows = 2
+    var startupSongs: [Song] = []
+    @Environment(MusicLibrary.self) private var library
+    @Environment(AudioPlayerService.self) private var player
+
+    private enum Content {
+        case song(Song), album(Album), playlist(Playlist), smartPlaylist(SmartPlaylist), artist(Artist)
+
+        var title: String {
+            switch self {
+            case .song(let value): value.title
+            case .album(let value): value.title
+            case .playlist(let value): value.name
+            case .smartPlaylist(let value): value.name
+            case .artist(let value): value.name
+            }
+        }
+        var kindTitle: LocalizedStringKey {
+            switch self {
+            case .song: "tab_songs"
+            case .album: "album_label"
+            case .playlist, .smartPlaylist: "tab_playlists"
+            case .artist: "artist_label"
+            }
+        }
+    }
+
+    private struct Tile: Identifiable {
+        let id: String
+        let content: Content
+    }
+
+    private var tiles: [Tile] {
+        if !library.isReady {
+            return startupSongs.prefix(limit).filter {
+                $0.isPlayable && !library.disabledSourceIDs.contains($0.sourceID)
+            }.map { Tile(id: "song:\($0.id)", content: .song($0)) }
+        }
+        var items = RecentPlaybackStore.shared.items
+        // Existing listening history supplies singles and recently heard albums
+        // on upgrade; playlist/artist identity comes only from explicit entrances.
+        for entry in PlayHistoryStore.shared.entries.prefix(100) {
+            guard let song = library.visibleSong(id: entry.songID), song.isPlayable,
+                  player.listeningSpace(of: song) == .music else { continue }
+            items.append(.init(kind: .song, entityID: song.id, playedAt: entry.playedAt))
+            if let albumID = song.albumID {
+                items.append(.init(kind: .album, entityID: albumID, playedAt: entry.playedAt))
+            }
+        }
+        let playlists = Dictionary(library.playlists.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return Array(RecentPlaybackHistory.merging(items).compactMap { item -> Tile? in
+            let content: Content?
+            switch item.kind {
+            case .song:
+                content = library.visibleSong(id: item.entityID).flatMap {
+                    $0.isPlayable && player.listeningSpace(of: $0) == .music ? .song($0) : nil
+                }
+            case .album: content = library.visibleAlbum(id: item.entityID).map(Content.album)
+            case .playlist:
+                content = playlists[item.entityID].map(Content.playlist)
+                    ?? library.smartPlaylists.first(where: { $0.id == item.entityID }).map(Content.smartPlaylist)
+            case .artist: content = (library.visibleArtist(id: item.entityID) ?? library.visibleAlbumArtist(id: item.entityID)).map(Content.artist)
+            }
+            return content.map { Tile(id: item.id, content: $0) }
+        }.prefix(limit))
+    }
+
+    var body: some View {
+        let tiles = tiles
+        if !tiles.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("recently_played").font(.title3.weight(.bold))
+                switch style {
+                case .carousel:
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHGrid(rows: Array(repeating: GridItem(.fixed(60), spacing: 10),
+                                              count: max(1, min(rows, tiles.count))), spacing: 10) {
+                            ForEach(tiles) { tile in link(tile).frame(width: 250, height: 60) }
+                        }
+                    }
+                    .pmStopsAtVerticalBar()
+                case .grid:
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
+                        ForEach(tiles) { tile in link(tile) }
+                    }
+                case .list:
+                    LazyVStack(spacing: 8) {
+                        ForEach(tiles) { tile in link(tile) }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    @ViewBuilder
+    private func link(_ tile: Tile) -> some View {
+        switch tile.content {
+        case .song(let song):
+            Button { Task { await player.play(queue: [song]) } } label: { label(tile.content) }
+                .buttonStyle(.plain)
+        case .album(let album):
+            #if os(macOS)
+            MacHomeDetailLink(album: album) { label(tile.content) }
+            #else
+            NavigationLink(value: album) { label(tile.content) }.buttonStyle(.plain)
+            #endif
+        case .playlist(let playlist):
+            NavigationLink(value: playlist) { label(tile.content) }.buttonStyle(.plain)
+        case .smartPlaylist(let playlist):
+            NavigationLink(value: playlist) { label(tile.content) }.buttonStyle(.plain)
+        case .artist(let artist):
+            #if os(macOS)
+            MacHomeDetailLink(artist: artist) { label(tile.content) }
+            #else
+            NavigationLink(value: artist) { label(tile.content) }.buttonStyle(.plain)
+            #endif
+        }
+    }
+
+    private func label(_ content: Content) -> some View {
+        HStack(spacing: 10) {
+            artwork(content).frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(content.title).font(.subheadline.weight(.medium)).lineLimit(1)
+                Text(content.kindTitle).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func artwork(_ content: Content) -> some View {
+        switch content {
+        case .song(let song):
+            CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 48,
+                              cornerRadius: 8, sourceID: song.sourceID)
+        case .album(let album): AlbumArtworkView(album: album, size: 48, cornerRadius: 8)
+        case .playlist(let playlist): PlaylistArtworkView(playlist: playlist, size: 48, cornerRadius: 8)
+        case .smartPlaylist:
+            Image(systemName: "sparkles").font(.title2).foregroundStyle(Color.accentColor)
+                .frame(width: 48, height: 48)
+                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        case .artist(let artist): ArtistArtworkView(artist: artist, size: 48, cornerRadius: 24)
+        }
+    }
+}

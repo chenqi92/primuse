@@ -1340,7 +1340,7 @@ struct PlaylistListView: View {
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
         SiriMediaInteractionDonor.donate(.playlist(id: playlist.id), shuffled: shuffled)
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queue: queue, startingAt: 0, recentItem: .init(kind: .playlist, entityID: playlist.id)) }
     }
 }
 

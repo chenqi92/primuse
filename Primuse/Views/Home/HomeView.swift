@@ -2108,6 +2108,9 @@ struct HomeView: View {
                 PlaylistDetailView(playlist: $0)
                     .mediaZoomDestination(.playlist, id: $0.id)
             }
+            .navigationDestination(for: SmartPlaylist.self) {
+                SmartPlaylistDetailView(smartPlaylistID: $0.id)
+            }
             .navigationDestination(for: HomeSeeAllPage.self) { page in
                 switch page {
                 case .recentlyAddedAlbums:
@@ -2480,7 +2483,7 @@ struct HomeView: View {
                 )
             }
         case .continueListening:
-            if showContinueListening, !model.snapshot.recentSongs.isEmpty {
+            if showContinueListening {
                 HomeDeferredSection { continueListeningSection(style) }
             }
         case .radio:
@@ -5116,41 +5119,12 @@ struct HomeView: View {
 
     @ViewBuilder
     private func continueListeningSection(_ style: HomeSectionLayoutStyle) -> some View {
-        let songs = model.snapshot.recentSongs
-
-        VStack(alignment: .leading, spacing: 10) {
-            Text("home_continue_listening")
-                .font(.title3).fontWeight(.bold).padding(.horizontal, 20)
-
-            switch style {
-            // 继续听不提供网格：`resolved` 会把它夹回支持的方案，这里并到横排
-            // 只是不让任何意外取值渲染成一片空白。
-            case .carousel, .grid:
-                let shownSongs = songs.prefix(sectionItemCount(.continueListening, 12))
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows(.continueListening, height: 60, spacing: 10, itemCount: shownSongs.count), spacing: 10) {
-                        ForEach(Array(shownSongs.enumerated()), id: \.element.id) { index, song in
-                            Button { playSong(song) } label: {
-                                continueListeningRow(song, ordinal: index + 1)
-                            }
-                            .buttonStyle(.pmPressable)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                }
-                .pmStopsAtVerticalBar()
-            case .list:
-                VStack(spacing: 8) {
-                    ForEach(Array(songs.prefix(sectionItemCount(.continueListening, usesPadMetrics ? 8 : 5)).enumerated()), id: \.element.id) { index, song in
-                        Button { playSong(song) } label: {
-                            continueListeningRow(song, ordinal: index + 1, fillsWidth: true)
-                        }
-                        .buttonStyle(.pmPressable)
-                    }
-                }
-                .padding(.horizontal, 20)
-            }
-        }
+        RecentPlaybackSection(
+            style: style,
+            limit: sectionItemCount(.continueListening, style == .list ? (usesPadMetrics ? 8 : 5) : 12),
+            rows: carouselRows(.continueListening, height: 60, spacing: 10, itemCount: 12).count,
+            startupSongs: model.snapshot.recentSongs
+        )
     }
 
     /// 纵向列表里要铺满一行 —— 沿用横排的固定宽度会在右侧留一条空白。

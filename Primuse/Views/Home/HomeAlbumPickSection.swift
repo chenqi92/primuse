@@ -260,7 +260,7 @@ struct HomeAlbumPickSection: View {
         let songs = service.songsInTrackOrder(albumID: pick.albumID, library: library)
         guard !songs.isEmpty else { return }
         player.shuffleEnabled = false
-        Task { await player.play(queue: songs, startingAt: 0) }
+        Task { await player.play(queue: songs, startingAt: 0, recentItem: .init(kind: .album, entityID: pick.albumID)) }
     }
 
     private var placeholder: some View {

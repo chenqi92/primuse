@@ -1553,6 +1553,7 @@ struct LibraryCollectionMenuItems: View {
     let player: AudioPlayerService
     /// 整张专辑或整个歌单时告诉 Siri 放的是什么; 艺人、目录没有对应的。
     var donation: SiriMediaDonationContainer? = nil
+    var recentItem: RecentPlaybackItem? = nil
 
     var body: some View {
         Button {
@@ -1593,7 +1594,16 @@ struct LibraryCollectionMenuItems: View {
         let queue = shuffled ? player.shufflePlayOrder(playable) : playable
         if shuffled { player.shuffleEnabled = true }
         if let donation { SiriMediaInteractionDonor.donate(donation, shuffled: shuffled) }
-        Task { await player.play(queue: queue, startingAt: 0) }
+        let item: RecentPlaybackItem?
+        if let recentItem { item = recentItem }
+        else {
+            switch donation {
+            case .album(let id): item = .init(kind: .album, entityID: id)
+            case .playlist(let id): item = .init(kind: .playlist, entityID: id)
+            case nil: item = nil
+            }
+        }
+        Task { await player.play(queue: queue, startingAt: 0, recentItem: item) }
     }
 }
 

@@ -601,7 +601,7 @@ struct MacSidebar: View {
         let queue = shuffled ? player.shufflePlayOrder(playable) : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queue: queue, startingAt: 0, recentItem: .init(kind: .playlist, entityID: playlist.id)) }
     }
 
     /// 「歌单」分区展示的歌单 —— 过滤掉 liked 系统歌单, 因为它已经作为
@@ -643,7 +643,7 @@ struct MacSidebar: View {
         let queue = shuffled ? player.shufflePlayOrder(playable) : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queue: queue, startingAt: 0, recentItem: .init(kind: .playlist, entityID: smart.id)) }
     }
 
     private func deleteSmart(_ smart: SmartPlaylist) {

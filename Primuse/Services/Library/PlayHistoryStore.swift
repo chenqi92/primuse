@@ -794,3 +794,27 @@ extension PlayHistoryStore.Content: Codable {
         if kind == .ambient { try container.encode(true, forKey: .ambient) }
     }
 }
+
+/// Navigation history contains entity IDs only, separate from listening statistics
+/// and from the user's explicit queue checkpoints.
+@MainActor @Observable
+final class RecentPlaybackStore {
+    static let shared = RecentPlaybackStore()
+    private(set) var items: [RecentPlaybackItem]
+    @ObservationIgnored private let defaults: UserDefaults
+    private static let key = "primuse.recentPlayback.entities.v1"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        items = defaults.data(forKey: Self.key)
+            .flatMap { try? JSONDecoder().decode([RecentPlaybackItem].self, from: $0) }
+            .map { RecentPlaybackHistory.merging($0) } ?? []
+    }
+
+    func record(_ item: RecentPlaybackItem) {
+        var item = item
+        item.playedAt = Date()
+        items = RecentPlaybackHistory.merging([item] + items)
+        if let data = try? JSONEncoder().encode(items) { defaults.set(data, forKey: Self.key) }
+    }
+}

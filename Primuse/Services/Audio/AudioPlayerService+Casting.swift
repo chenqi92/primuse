@@ -2105,6 +2105,7 @@ extension AudioPlayerService {
     func play(
         queue songs: [Song],
         startingAt index: Int = 0,
+        recentItem: RecentPlaybackItem? = nil,
         caller: String = #fileID,
         callerLine: Int = #line
     ) async {
@@ -2112,6 +2113,7 @@ extension AudioPlayerService {
             queue: songs,
             startingAt: index,
             preparedContinuation: nil,
+            recentItem: recentItem,
             caller: caller,
             callerLine: callerLine
         )
@@ -2179,6 +2181,7 @@ extension AudioPlayerService {
         queue songs: [Song],
         startingAt index: Int,
         preparedContinuation: QueueContinuation?,
+        recentItem: RecentPlaybackItem? = nil,
         caller: String,
         callerLine: Int
     ) async {
@@ -2223,6 +2226,9 @@ extension AudioPlayerService {
                 : .prepareNewSelection,
             preparedContinuation: preparedContinuation
         )
+        if let recentItem, listeningSpace(of: selectedSong) == .music {
+            RecentPlaybackStore.shared.record(recentItem)
+        }
         // A one-song request (Siri, CarPlay, search) shows its similar songs
         // in Up Next right away instead of after the first song has loaded.
         scheduleAutoContinuationIfNeeded()

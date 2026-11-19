@@ -1142,7 +1142,7 @@ struct ArtistDetailView: View {
         let queue = shuffled ? player.shufflePlayOrder(playableSongs) : playableSongs
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queue: queue, startingAt: 0, recentItem: .init(kind: .artist, entityID: artist.id)) }
     }
 
     private func shuffleAll() { playAll(shuffled: true) }
@@ -1151,7 +1151,7 @@ struct ArtistDetailView: View {
         let queue = playableSongs
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
         SiriMediaInteractionDonor.donate(song: song)
-        Task { await player.play(queue: queue, startingAt: index) }
+        Task { await player.play(queue: queue, startingAt: index, recentItem: .init(kind: .artist, entityID: artist.id)) }
     }
 }
 

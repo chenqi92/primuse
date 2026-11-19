@@ -938,3 +938,29 @@ public struct QueueContinuationStore: Sendable {
         return ids
     }
 }
+
+
+public struct RecentPlaybackItem: Codable, Equatable, Identifiable, Sendable {
+    public enum Kind: String, Codable, Sendable { case song, album, playlist, artist }
+    public let kind: Kind
+    public let entityID: String
+    public var playedAt: Date
+    public var id: String { "\(kind.rawValue):\(entityID)" }
+
+    public init(kind: Kind, entityID: String, playedAt: Date = Date()) {
+        self.kind = kind
+        self.entityID = entityID
+        self.playedAt = playedAt
+    }
+}
+
+public enum RecentPlaybackHistory {
+    public static let limit = 40
+
+    public static func merging(_ items: [RecentPlaybackItem], limit: Int = limit) -> [RecentPlaybackItem] {
+        var seen = Set<String>()
+        return Array(items.sorted {
+            $0.playedAt == $1.playedAt ? $0.id < $1.id : $0.playedAt > $1.playedAt
+        }.filter { !$0.entityID.isEmpty && seen.insert($0.id).inserted }.prefix(max(0, limit)))
+    }
+}
