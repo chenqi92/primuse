@@ -478,9 +478,8 @@ public struct SongListSnapshotVersion: Hashable, Sendable {
     }
 }
 
-/// Keeps every visited ordering for the current version of a song-list scope.
-/// Switching back to an earlier ordering can therefore reuse the immutable
-/// result instead of repeating a full localized sort.
+/// Retains recent orderings within a shared row budget. The latest snapshot stays
+/// cached even when a single large list exceeds that budget.
 public actor SongListSnapshotStore {
     public static let shared = SongListSnapshotStore()
     public static let libraryScopeKey = "library"
@@ -517,8 +516,13 @@ public actor SongListSnapshotStore {
     }
     private var pendingByKey: [Key: PendingEntry] = [:]
     private let cacheMirror = CacheMirror()
+    private let maximumCachedRows: Int
+    private var recentlyUsed: [Key] = []
+    private var cacheGeneration: UInt64 = 0
 
-    public init() {}
+    public init() { maximumCachedRows = 100_000 }
+
+    init(maximumCachedRows: Int) { self.maximumCachedRows = maximumCachedRows }
 
     /// 已经算好(含预热好)的那份, 不用等。列表页出现时先拿它直接摆出来, 免得先摆一个
     /// 转圈、等主线程转一轮再换成整张表; 没有就照常走 `snapshot(...)`。
@@ -562,6 +566,7 @@ public actor SongListSnapshotStore {
             cancelPending(in: scopeKey, except: key)
         }
         if let cached = cachedByKey[key] {
+            recordUse(of: key)
             SongListSnapshotPerformance.signposter.emitEvent(
                 "SnapshotCacheHit",
                 "scope: \(scopeKey, privacy: .public), order: \(order.rawValue, privacy: .public)"
@@ -581,6 +586,7 @@ public actor SongListSnapshotStore {
             "scope: \(scopeKey, privacy: .public), order: \(order.rawValue, privacy: .public), count: \(songs.count, privacy: .public)"
         )
         let token = UUID()
+        let generation = cacheGeneration
         let task = Task.detached(priority: .userInitiated) { () -> SongListSnapshot? in
             do {
                 return try SongListSnapshotBuilder.buildCancellable(
@@ -603,10 +609,32 @@ public actor SongListSnapshotStore {
         }
         if let prepared,
            versionByScope[scopeKey] == version,
+           generation == cacheGeneration,
            isCurrentTask {
-            cachedByKey[key] = prepared
+            recordUse(of: key)
+            var retainedRows = prepared.rows.count
+            var retained: [Key: SongListSnapshot] = [key: prepared]
+            for previous in recentlyUsed.dropLast().reversed() {
+                guard let other = cachedByKey[previous],
+                      retainedRows + other.rows.count <= maximumCachedRows else { break }
+                retained[previous] = other
+                retainedRows += other.rows.count
+            }
+            cachedByKey = retained
+            recentlyUsed.removeAll { retained[$0] == nil }
         }
         return prepared
+    }
+
+    private func recordUse(of key: Key) {
+        recentlyUsed.removeAll { $0 == key || cachedByKey[$0] == nil }
+        recentlyUsed.append(key)
+    }
+
+    public func releaseCachedSnapshots() {
+        cacheGeneration &+= 1
+        cachedByKey.removeAll()
+        recentlyUsed.removeAll()
     }
 
     /// Explicit UI cancellation (selection entry, navigation, or a newer sort)
@@ -783,6 +811,7 @@ public enum SongListSnapshotBuilder {
             var songIDs: Set<String> = []
             var sourceCounts: [String: Int] = [:]
             var sourceRowsByID: [String: [SongListRowIdentity]] = [:]
+            var firstSourceID: String?
             var sourcePlayableCounts: [String: Int] = [:]
             var sectionOffsets: [String: Int] = [:]
             var playableCount = 0
@@ -797,14 +826,19 @@ public enum SongListSnapshotBuilder {
                 }
                 let song = songs[songIndex]
                 let row = SongListRowIdentity(id: song.id, offset: offset)
+                if firstSourceID == nil { firstSourceID = song.sourceID }
+                if !sourceRowsByID.isEmpty || song.sourceID != firstSourceID {
+                    // Until a second source appears its partition is exactly the global rows.
+                    if sourceRowsByID.isEmpty, let firstSourceID { sourceRowsByID[firstSourceID] = rows }
+                    let sourceOffset = sourceCounts[song.sourceID, default: 0]
+                    sourceRowsByID[song.sourceID, default: []].append(
+                        SongListRowIdentity(id: song.id, offset: sourceOffset)
+                    )
+                }
                 rows.append(row)
                 orderedSongIDs.append(song.id)
                 songIDs.insert(song.id)
                 sourceCounts[song.sourceID, default: 0] += 1
-                let sourceOffset = sourceRowsByID[song.sourceID, default: []].count
-                sourceRowsByID[song.sourceID, default: []].append(
-                    SongListRowIdentity(id: song.id, offset: sourceOffset)
-                )
                 if let indexValue = sectionIndexValue(
                     for: song,
                     order: order,
@@ -823,6 +857,7 @@ public enum SongListSnapshotBuilder {
                 }
             }
 
+            if sourceRowsByID.isEmpty, let firstSourceID { sourceRowsByID[firstSourceID] = rows }
             let sourcePartitionsByID = sourceRowsByID.reduce(
                 into: [String: SongListSnapshot.SourcePartition]()
             ) { partitions, entry in

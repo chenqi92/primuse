@@ -9216,7 +9216,10 @@ final class MusicLibrary {
         // 同样由整库算出、随时能重建的两份: 喜欢的专辑 / 艺人键表, 「此刻的专辑」候选索引。
         LibraryFavoritesStore.releaseKeyCache()
         AlbumRecommendationService.shared.releaseCandidateIndex()
-        Task { await LibrarySearchIndex.shared.releaseReadCaches() }
+        Task {
+            await SongListSnapshotStore.shared.releaseCachedSnapshots()
+            await LibrarySearchIndex.shared.releaseReadCaches()
+        }
     }
 
     /// 退到后台时用: 和内存告警放掉同样的数据, 另外记下其中哪几份放之前是建好的。

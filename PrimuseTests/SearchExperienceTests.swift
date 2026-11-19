@@ -246,6 +246,66 @@ final class SearchExperienceTests: XCTestCase {
 }
 
 @MainActor
+final class SongListLiveModelTests: XCTestCase {
+    private func song(_ id: String) -> Song {
+        Song(id: id, title: id, fileFormat: .flac, filePath: id, sourceID: "local")
+    }
+
+    func testLongScrollReleasesRowsAndRefreshesOnlyModelsStillOnScreen() throws {
+        let cache = SongListCache()
+        let kept = song("keep")
+        let mounted = try XCTUnwrap(cache.rowModel(id: kept.id, song: kept))
+        let mountedPosition = cache.positionModel(at: 0)
+        weak var departedRow: SongListRowModel?
+        weak var departedPosition: SongListPositionModel?
+        for position in 1...12_000 {
+            let id = "row-\(position)"
+            let model = cache.rowModel(id: id, song: song(id))
+            let slot = cache.positionModel(at: position)
+            if position == 12_000 { departedRow = model; departedPosition = slot }
+        }
+        XCTAssertNil(departedRow)
+        XCTAssertNil(departedPosition)
+        var resolvedIDs: [String] = []
+        let snapshot = SongListSnapshotBuilder.build(songs: [kept], order: .title)
+        cache.publish(snapshot, pruneRowModels: false) { id in
+            resolvedIDs.append(id)
+            return id == kept.id ? kept : nil
+        }
+        XCTAssertEqual(resolvedIDs, [kept.id])
+        XCTAssertTrue(cache.rowModel(id: kept.id, song: nil) === mounted)
+        XCTAssertTrue(cache.positionModel(at: 0) === mountedPosition)
+        XCTAssertEqual(mountedPosition.row?.id, kept.id)
+    }
+
+    func testMountedPositionTracksSortRemovalAndReinsertionWhileSongEditsReachItsRow() throws {
+        let cache = SongListCache()
+        var first = song("a")
+        let second = song("b")
+        let firstRow = try XCTUnwrap(cache.rowModel(id: first.id, song: first))
+        let firstPosition = cache.positionModel(at: 0)
+        func publish(_ songs: [Song]) {
+            cache.publish(SongListSnapshotBuilder.build(songs: songs, order: .title), pruneRowModels: true) { id in
+                songs.first { $0.id == id }
+            }
+        }
+        publish([first, second])
+        XCTAssertEqual(firstPosition.row?.id, first.id)
+        first.title = "z"
+        cache.patch([first.id: first]) { _ in nil }
+        XCTAssertEqual(firstRow.song.title, "z")
+        publish([first, second])
+        XCTAssertEqual(firstPosition.row?.id, second.id)
+        publish([])
+        XCTAssertNil(firstPosition.row)
+        XCTAssertNil(cache.rowModel(id: first.id, song: nil))
+        publish([second])
+        XCTAssertEqual(firstPosition.row?.id, second.id)
+        XCTAssertTrue(cache.positionModel(at: 0) === firstPosition)
+    }
+}
+
+@MainActor
 final class SongListLocationTests: XCTestCase {
     func testVisibleSongHighlightsWithoutScrollingAndCanBeLocatedAgain() throws {
         let location = SongListLocation()

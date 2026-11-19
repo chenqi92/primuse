@@ -331,7 +331,7 @@ struct SongListSnapshotTests {
         #expect(sortedIDs(songs, by: .downloaded, values: values) == ["a", "c", "b"])
     }
 
-    @Test("Caches every visited order for the current scope version")
+    @Test("Small libraries reuse visited orders for the current scope version")
     func cachesEveryVisitedOrder() async {
         let store = SongListSnapshotStore()
         let version = SongListSnapshotVersion(
@@ -370,6 +370,26 @@ struct SongListSnapshotTests {
         #expect(title === titleAgain)
         #expect(title.rows.map(\.id) == ["b", "a"])
         #expect(artist.rows.map(\.id) == ["a", "b"])
+    }
+
+    @Test("An oversized sort displaces older orders across scopes and shares its only source's rows")
+    func largeSnapshotBudget() async throws {
+        let store = SongListSnapshotStore(maximumCachedRows: 4)
+        let version = SongListSnapshotVersion(collectionRevision: 1, replacementToken: UUID())
+        let songs = (0..<5).map { song(id: String($0), title: "Track \($0)") }
+        let old = try #require(await store.snapshot(scopeKey: "library", version: version, order: .title, songs: songs))
+        let latest = try #require(await store.snapshot(scopeKey: "source", version: version, order: .duration, songs: songs))
+        #expect(store.cachedSnapshot(scopeKey: "library", version: version, order: .title) == nil)
+        #expect(store.cachedSnapshot(scopeKey: "source", version: version, order: .duration) === latest)
+        #expect(old.rows.count == songs.count)
+        let partition = try #require(latest.sourcePartition(forSourceID: songs[0].sourceID))
+        let sharesRows = latest.rows.withUnsafeBufferPointer { rows in
+            partition.rows.withUnsafeBufferPointer { $0.baseAddress == rows.baseAddress }
+        }
+        #expect(sharesRows)
+        await store.releaseCachedSnapshots()
+        #expect(store.cachedSnapshot(scopeKey: "source", version: version, order: .duration) == nil)
+        #expect(latest.rows == partition.rows)
     }
 
     @Test("A finished snapshot can be read synchronously for the same scope, version and order")

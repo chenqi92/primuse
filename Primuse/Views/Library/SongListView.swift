@@ -655,7 +655,7 @@ private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
 /// made each background backfill publication walk the full lyrics library.
 @MainActor
 @Observable
-private final class SongListRowModel {
+final class SongListRowModel {
     private final class SongReference {
         let value: Song
 
@@ -682,7 +682,7 @@ private final class SongListRowModel {
 
 @MainActor
 @Observable
-private final class SongListPositionModel {
+final class SongListPositionModel {
     private(set) var row: SongListRowIdentity?
 
     init(row: SongListRowIdentity?) {
@@ -695,9 +695,35 @@ private final class SongListPositionModel {
     }
 }
 
+/// Rows own their models. Keep a weak lookup so metadata edits and sorts can update every
+/// mounted or prefetched row without retaining the songs from a long scrolling session.
+private struct SongListLiveModels<Key: Hashable, Model: AnyObject> {
+    private struct Entry { weak var model: Model? }
+    private var entries: [Key: Entry] = [:]
+    private var nextSweep = 256
+
+    subscript(key: Key) -> Model? { entries[key]?.model }
+
+    mutating func store(_ model: Model, for key: Key) {
+        if entries.count >= nextSweep { compact() }
+        entries[key] = Entry(model: model)
+    }
+
+    mutating func compact(keeping keep: (Key) -> Bool = { _ in true }) {
+        entries = entries.filter { $0.value.model != nil && keep($0.key) }
+        nextSweep = entries.count + max(256, entries.count)
+    }
+
+    func forEach(_ visit: (Key, Model) -> Void) {
+        for (key, entry) in entries {
+            if let model = entry.model { visit(key, model) }
+        }
+    }
+}
+
 @MainActor
 @Observable
-private final class SongListCache {
+final class SongListCache {
     private struct ProjectionKey: Equatable {
         let snapshotIdentity: ObjectIdentifier
         let sourceID: String?
@@ -717,9 +743,8 @@ private final class SongListCache {
     /// navigation animation or a scroll gesture is running.
     @ObservationIgnored private var snapshot: SongListSnapshot?
 
-    @ObservationIgnored private var rowModelsByID: [String: SongListRowModel] = [:]
-    @ObservationIgnored private var positionModelsByPosition: [Int: SongListPositionModel] = [:]
-    @ObservationIgnored private var visiblePositions: Set<Int> = []
+    @ObservationIgnored private var rowModelsByID = SongListLiveModels<String, SongListRowModel>()
+    @ObservationIgnored private var positionModelsByPosition = SongListLiveModels<Int, SongListPositionModel>()
     @ObservationIgnored private var projectionEntry: ProjectionEntry?
 
     private(set) var hasSnapshot = false
@@ -746,14 +771,9 @@ private final class SongListCache {
         pruneRowModels: Bool,
         resolve: (String) -> Song?
     ) {
-        if pruneRowModels {
-            // This dictionary contains only rows SwiftUI has instantiated, not
-            // the complete library. Explicit sorts keep it intact so visible
-            // row identity and scroll state survive the order change.
-            rowModelsByID = rowModelsByID.filter { snapshot.songIDs.contains($0.key) }
-        }
+        rowModelsByID.compact { !pruneRowModels || snapshot.songIDs.contains($0) }
         // Full source publications may change metadata without per-row replacement IDs.
-        for (songID, model) in rowModelsByID {
+        rowModelsByID.forEach { songID, model in
             if let song = resolve(songID) {
                 model.replace(with: song)
             }
@@ -774,14 +794,9 @@ private final class SongListCache {
         if totalDuration != snapshot.totalDuration {
             totalDuration = snapshot.totalDuration
         }
-        if !positionModelsByPosition.isEmpty {
-            positionModelsByPosition = positionModelsByPosition.filter {
-                snapshot.rows.indices.contains($0.key)
-            }
-            visiblePositions = visiblePositions.filter(snapshot.rows.indices.contains)
-            for position in visiblePositions {
-                positionModelsByPosition[position]?.replace(with: snapshot.rows[position])
-            }
+        positionModelsByPosition.compact()
+        positionModelsByPosition.forEach { position, model in
+            model.replace(with: row(at: position))
         }
         rowOrderRevision &+= 1
     }
@@ -819,17 +834,8 @@ private final class SongListCache {
             return model
         }
         let model = SongListPositionModel(row: row(at: position))
-        positionModelsByPosition[position] = model
+        positionModelsByPosition.store(model, for: position)
         return model
-    }
-
-    func setPosition(_ position: Int, isVisible: Bool) {
-        if isVisible {
-            visiblePositions.insert(position)
-            positionModelsByPosition[position]?.replace(with: row(at: position))
-        } else {
-            visiblePositions.remove(position)
-        }
     }
 
     func rowModel(id: String, song: @autoclosure () -> Song?) -> SongListRowModel? {
@@ -838,11 +844,11 @@ private final class SongListCache {
         }
         guard let song = song() else { return nil }
         let model = SongListRowModel(song: song)
-        rowModelsByID[id] = model
+        rowModelsByID.store(model, for: id)
         return model
     }
 
-    func projection(
+    fileprivate func projection(
         sourceID: String?,
         query: String,
         includedSongIDs: Set<String>?,
@@ -5690,9 +5696,16 @@ private struct LibraryFolderSongRow: View {
     }
 }
 
-/// Each resolved List position observes its own lightweight model. Snapshot
-/// publication updates only visible/prefetched models; an offscreen slot syncs
-/// from the latest snapshot when it appears.
+/// The view owns the observed position for its lifetime, including while SwiftUI prefetches it.
+private struct ObservedSongListPosition<Content: View>: View {
+    let model: SongListPositionModel
+    @ViewBuilder let content: (SongListRowIdentity) -> Content
+
+    var body: some View {
+        if let row = model.row { content(row) }
+    }
+}
+
 private struct IOSSongListPositionRow: View {
     @Environment(MusicLibrary.self) private var library
 
@@ -5704,10 +5717,8 @@ private struct IOSSongListPositionRow: View {
 
     @ViewBuilder
     var body: some View {
-        let positionModel = cache.positionModel(at: position)
-        Group {
-            if let row = positionModel.row,
-               let model = cache.rowModel(
+        ObservedSongListPosition(model: cache.positionModel(at: position)) { row in
+            if let model = cache.rowModel(
                    id: row.id,
                    song: library.unobservedVisibleSong(id: row.id)
                ) {
@@ -5737,8 +5748,6 @@ private struct IOSSongListPositionRow: View {
                 #endif
             }
         }
-        .onAppear { cache.setPosition(position, isVisible: true) }
-        .onDisappear { cache.setPosition(position, isVisible: false) }
     }
 }
 
