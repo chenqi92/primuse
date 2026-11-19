@@ -3945,6 +3945,9 @@
 "ai_audio_transcription_action" = "听歌识词";
 "ai_audio_transcription_working" = "正在识别歌曲…";
 "ai_audio_transcription_editor_detail" = "上传歌曲音频，识别歌词与时间点；结果先进入编辑器校对。";
+"ai_audio_transcription_on_device_detail" = "请选择演唱语言。Apple 在本机识别含伴奏的原音频，首次使用可能需要下载语言模型。";
+"ai_audio_transcription_google_detail" = "使用你的密钥和转写模型将歌曲上传到 Google。支持 MP3、AAC、FLAC、WAV、AIFF 和 Ogg，最长 30 分钟。";
+"ai_audio_transcription_draft_changed" = "识别期间歌词已被编辑。可重新开始识别当前草稿。";
 "ai_audio_transcription_now_playing_detail" = "识别结果会先在歌词编辑器中打开，确认后才保存。";
 "ai_audio_transcription_replace_title" = "替换当前歌词？";
 "ai_audio_transcription_replace" = "重新听歌识词";
@@ -4101,7 +4104,7 @@
 "lyrics_transcription_model" = "转写模型";
 "lyrics_transcription_configuration_section" = "Google 转写服务";
 "lyrics_transcription_model_footer" = "兼容模型从 Google 需认证的模型目录实时载入；Primuse 不预设易过期的版本名称。";
-"lyrics_transcription_enabled" = "允许听歌识词";
+"lyrics_transcription_enabled" = "允许云端听歌识词";
 "lyrics_transcription_audio_consent" = "允许上传音频";
 "lyrics_transcription_consent_footer" = "只有主动发起听歌识词时才会上传音频；可编辑结果需确认后才会保存。";
 "lyrics_transcription_models_loaded_format" = "已载入 %d 个兼容模型。";

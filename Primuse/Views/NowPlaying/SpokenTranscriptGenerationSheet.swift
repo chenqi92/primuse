@@ -13,7 +13,6 @@ struct SpokenTranscriptGenerationSheet: View {
 
     @State private var engine: SpokenTranscriptEngine?
     @State private var onDeviceAvailable: Bool?
-    @State private var supportedLocales: [String] = []
     @State private var localeIdentifier: String?
     @State private var allowance: SpokenTranscriptBuiltInAllowance?
     @State private var showsUploadConfirmation = false
@@ -112,7 +111,12 @@ struct SpokenTranscriptGenerationSheet: View {
                 engineDetail(engine)
             }
             if engine == .onDevice, onDeviceAvailable == true {
-                languageRow
+                TranscriptRecognitionLanguagePicker(
+                    candidates: (generator.records[song.id]?.localeIdentifier.map { [$0] } ?? [])
+                        + SpokenTranscriptGenerator.languageCandidates(for: song),
+                    selection: $localeIdentifier
+                )
+                .disabled(generator.activeJob != nil)
             }
         } footer: {
             if engine == .onDevice, onDeviceAvailable == true {
@@ -197,21 +201,6 @@ struct SpokenTranscriptGenerationSheet: View {
         .font(.footnote)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
-    }
-
-    @ViewBuilder
-    private var languageRow: some View {
-        if supportedLocales.isEmpty {
-            Text("transcript_generation_language_loading")
-                .foregroundStyle(.secondary)
-        } else {
-            Picker("transcript_generation_language", selection: $localeIdentifier) {
-                ForEach(supportedLocales, id: \.self) { identifier in
-                    Text(verbatim: Self.languageName(identifier)).tag(Optional(identifier))
-                }
-            }
-            .disabled(generator.activeJob != nil)
-        }
     }
 
     @ViewBuilder
@@ -341,9 +330,10 @@ struct SpokenTranscriptGenerationSheet: View {
     }
 
     private func prepare() async {
-        let available = await OnDeviceSpeechTranscription.isAvailable()
+        let available = OnDeviceSpeechTranscription.isAvailable
         onDeviceAvailable = available
         aliyunAccount.reload()
+        if available, engine == nil, generator.records[song.id]?.engine == nil { engine = .onDevice }
         await intelligence.refreshBuiltInTranscriptGenerationOffer()
         if engine == nil {
             engine = Self.defaultEngine(
@@ -353,18 +343,6 @@ struct SpokenTranscriptGenerationSheet: View {
                 aliyun: aliyunAccount.isConfigured,
                 previous: generator.records[song.id]?.engine
             )
-        }
-        if available {
-            async let locales = OnDeviceSpeechTranscription.supportedLocaleIdentifiers()
-            async let preferred = OnDeviceSpeechTranscription.resolvedLocaleIdentifier(
-                from: (generator.records[song.id]?.localeIdentifier.map { [$0] } ?? [])
-                    + SpokenTranscriptGenerator.languageCandidates(for: song)
-            )
-            let (supported, resolved) = await (locales, preferred)
-            supportedLocales = supported.sorted { Self.languageName($0) < Self.languageName($1) }
-            if localeIdentifier == nil {
-                localeIdentifier = resolved.flatMap { id in supported.contains(id) ? id : nil } ?? supported.first
-            }
         }
         allowance = await intelligence.transcriptGenerationAllowance()
     }
@@ -481,12 +459,43 @@ struct SpokenTranscriptGenerationSheet: View {
         }
     }
 
-    private static func languageName(_ identifier: String) -> String {
-        Locale.current.localizedString(forIdentifier: identifier) ?? identifier
-    }
-
     private static func durationText(_ duration: TimeInterval) -> String {
         Duration.seconds(duration).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+    }
+}
+
+struct TranscriptRecognitionLanguagePicker: View {
+    let candidates: [String]
+    @Binding var selection: String?
+    @State private var locales: [String]?
+
+    var body: some View {
+        Group {
+            if let locales, !locales.isEmpty {
+                Picker("transcript_generation_language", selection: $selection) {
+                    ForEach(locales, id: \.self) { identifier in
+                        Text(verbatim: Self.name(identifier)).tag(Optional(identifier))
+                    }
+                }
+            } else {
+                Text(locales == nil ? LocalizedStringKey("transcript_generation_language_loading")
+                                    : LocalizedStringKey("transcript_generation_failure_language"))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task(id: candidates) {
+            async let supported = OnDeviceSpeechTranscription.supportedLocaleIdentifiers()
+            async let preferred = OnDeviceSpeechTranscription.resolvedLocaleIdentifier(from: candidates)
+            let (identifiers, suggested) = await (supported, preferred)
+            guard !Task.isCancelled else { return }
+            let sorted = identifiers.sorted { Self.name($0) < Self.name($1) }
+            selection = [selection, suggested].compactMap { $0 }.first(where: sorted.contains) ?? sorted.first
+            locales = sorted
+        }
+    }
+
+    private static func name(_ identifier: String) -> String {
+        Locale.current.localizedString(forIdentifier: identifier) ?? identifier
     }
 }
 

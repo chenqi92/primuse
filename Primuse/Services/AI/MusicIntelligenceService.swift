@@ -111,6 +111,21 @@ enum AIAudioTranscriptionOutcome: Sendable {
     case notInPlan
     /// 内置 AI 只收 10 分钟以内的歌(资料库里没有时长时才会走到服务端才知道)。
     case tooLong
+
+    case providerFailure(String)
+
+    static func providerFailure(for error: Error) -> Self {
+        let detail = AIRecommendationFailureDetail(error)
+        if let status = detail.httpStatus {
+            return .providerFailure(String(format: String(localized: "ai_error_http_status_format"), status))
+        }
+        switch detail.kind {
+        case .timedOut: return .providerFailure(String(localized: "ai_error_timeout"))
+        case .network: return .providerFailure(String(localized: "ai_error_connection"))
+        case .notConfigured: return .unavailable
+        default: return .failed
+        }
+    }
 }
 
 /// 歌词「智能翻译」现在发不发得出去,发不出去时差哪一步。播放页与设置页据此说明原因、
@@ -832,18 +847,16 @@ final class MusicIntelligenceService {
             && builtInTranscriptionOffered
     }
 
-    /// 这首歌现在能不能听歌识词:设置都齐了,且按所选的服务看格式和时长。
-    /// Apple Music 的歌拿不到音频,CUE 分轨只是整轨文件里的一段。
     func canTranscribeAudio(of song: Song) -> Bool {
-        isAudioTranscriptionConfigured
-            && song.sourceID != AppleMusicLibraryIdentity.sourceID
-            && song.cueSheetPath == nil
-            && AIAudioTranscriptionPolicy.canTranscribe(
-                format: song.fileFormat,
-                duration: song.duration,
-                builtIn: lyricsTranscriptionSettingsStore.usesBuiltIn,
-                ownKey: !lyricsTranscriptionSettingsStore.usesBuiltIn
-            )
+        #if os(iOS) || os(macOS)
+        if OnDeviceSpeechTranscription.isAvailable, SongTranscriptionMethod.onDevice.supports(song) { return true }
+        #endif
+        return canUseCloudTranscription(for: song, usesBuiltIn: true) || canUseCloudTranscription(for: song, usesBuiltIn: false)
+    }
+
+    func canUseCloudTranscription(for song: Song, usesBuiltIn: Bool) -> Bool {
+        let method: SongTranscriptionMethod = usesBuiltIn ? .builtIn : .ownKey
+        return method.supports(song) && isCloudTranscriptionConfigured(usesBuiltIn: usesBuiltIn)
     }
 
     var shouldExposeRemoteConfiguration: Bool {
@@ -1053,7 +1066,11 @@ final class MusicIntelligenceService {
     }
 
     var isAudioTranscriptionConfigured: Bool {
-        if lyricsTranscriptionSettingsStore.usesBuiltIn {
+        isCloudTranscriptionConfigured(usesBuiltIn: lyricsTranscriptionSettingsStore.usesBuiltIn)
+    }
+
+    private func isCloudTranscriptionConfigured(usesBuiltIn: Bool) -> Bool {
+        if usesBuiltIn {
             return lyricsTranscriptionSettingsStore.isEnabled
                 && lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent
                 && isBuiltInTranscriptionReady
@@ -2760,9 +2777,10 @@ final class MusicIntelligenceService {
         mimeType: String,
         displayName: String,
         duration: TimeInterval,
+        usesBuiltIn: Bool,
         customVocabulary: [String] = []
     ) async -> AIAudioTranscriptionOutcome {
-        if lyricsTranscriptionSettingsStore.usesBuiltIn {
+        if usesBuiltIn {
             return await transcribeAudioWithBuiltIn(at: audioFileURL, duration: duration)
         }
         let regionSnapshot = regionAvailability.snapshot
@@ -2777,6 +2795,7 @@ final class MusicIntelligenceService {
                   purpose: .generation
               ),
               lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent,
+              lyricsTranscriptionCredentialAvailable,
               decision.isAllowed,
               (!decision.requiresExplicitConsent
                   || lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent),
@@ -2789,50 +2808,36 @@ final class MusicIntelligenceService {
             displayName: displayName,
             customVocabulary: customVocabulary
         )
-        let providers = [configuration].filter {
-            AIAudioTranscriptionPolicy.supports(configuration: $0)
-                && AIProviderRegionPolicy.allows(
-                    configuration: $0,
-                    region: regionSnapshot.context.region,
-                    purpose: .generation
+        guard AIRegionRequestPolicy.canSendRemoteRequest(
+            captured: regionSnapshot,
+            latest: regionAvailability.snapshot,
+            configuration: configuration
+        ) else { return .failed }
+        do {
+            let result = try await engine.transcribeAudio(
+                request,
+                configuration: configuration,
+                regionContext: regionSnapshot.context,
+                hasExplicitAudioUploadConsent: lyricsTranscriptionSettingsStore
+                    .hasExplicitAudioUploadConsent,
+                requestAuthorization: regionAuthorization(
+                    for: regionSnapshot,
+                    configuration: configuration
                 )
-        }
-        for (fallbackDepth, configuration) in providers.enumerated() {
-            guard AIRegionRequestPolicy.canSendRemoteRequest(
+            )
+            guard AIRegionRequestPolicy.canCommitRemoteResponse(
                 captured: regionSnapshot,
                 latest: regionAvailability.snapshot,
                 configuration: configuration
             ) else { return .failed }
-            do {
-                let result = try await engine.transcribeAudio(
-                    request,
-                    configuration: configuration,
-                    regionContext: regionSnapshot.context,
-                    hasExplicitAudioUploadConsent: lyricsTranscriptionSettingsStore
-                        .hasExplicitAudioUploadConsent,
-                    requestAuthorization: regionAuthorization(
-                        for: regionSnapshot,
-                        configuration: configuration
-                    )
-                )
-                guard AIRegionRequestPolicy.canCommitRemoteResponse(
-                    captured: regionSnapshot,
-                    latest: regionAvailability.snapshot,
-                    configuration: configuration
-                ) else { return .failed }
-                guard !result.isEmpty else { continue }
-                return .success(AIAudioTranscriptionExecution(
-                    result: result,
-                    providerName: configuration.displayName,
-                    fallbackDepth: fallbackDepth
-                ))
-            } catch is CancellationError {
-                return .failed
-            } catch {
-                continue
-            }
+            return .success(AIAudioTranscriptionExecution(
+                result: result,
+                providerName: configuration.displayName,
+                fallbackDepth: 0
+            ))
+        } catch {
+            return .providerFailure(for: error)
         }
-        return .failed
     }
 
     /// 内置 AI:先在本机转成 22.05 kHz、48 kbps 的 M4A(能播的格式都能转),
@@ -2885,7 +2890,7 @@ final class MusicIntelligenceService {
         } catch is CancellationError {
             return .failed
         } catch let error as PrimuseAIRelayError {
-            guard case .requestFailed(let statusCode, let code, _) = error else { return .failed }
+            guard case .requestFailed(let statusCode, let code, _) = error else { return .providerFailure(for: error) }
             plog("[transcription] built-in AI refused: \(statusCode) \(code)")
             switch code {
             case "feature_quota_exhausted", "daily_request_limit_exhausted", "daily_quota_exhausted":
@@ -2906,10 +2911,10 @@ final class MusicIntelligenceService {
                 builtInTranscriptionCheckedAt = Date()
                 return .unavailable
             default:
-                return .failed
+                return .providerFailure(for: error)
             }
         } catch {
-            return .failed
+            return .providerFailure(for: error)
         }
         #endif
     }

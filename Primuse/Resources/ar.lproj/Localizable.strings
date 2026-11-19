@@ -505,6 +505,9 @@
 "ai_audio_transcription_model_detail" = "اختر نموذج النسخ الصوتي المدعوم من قائمة نماذج Google الحالية. تحتفظ الخدمات الذكية العامة بمزودها ونموذجها الخاص.";
 "ai_audio_transcription_no_speech" = "لم تتعرف الخدمة على كلمات مغنّاة قابلة للاستخدام.";
 "ai_audio_transcription_not_configured" = "يتطلب نموذج نسخ صوتي مدعوم من Google";
+"ai_audio_transcription_on_device_detail" = "اختر لغة الغناء. تتعرّف Apple على المزيج الصوتي بالكامل على هذا الجهاز. قد يلزم تنزيل نموذج اللغة أولًا.";
+"ai_audio_transcription_google_detail" = "تُرفع الأغنية إلى Google باستخدام مفتاحك ونموذج النسخ الذي حدّدته. الصيغ المدعومة هي MP3 وAAC وFLAC وWAV وAIFF وOgg بمدة تصل إلى 30 دقيقة.";
+"ai_audio_transcription_draft_changed" = "تغيّرت الكلمات أثناء التعرّف. ابدأ النسخ من جديد للمسوّدة الحالية.";
 "ai_audio_transcription_now_playing_detail" = "يتم فتح النص في محرر الكلمات الغنائية ولا يتم حفظه إلا بعد تأكيده.";
 "ai_audio_transcription_replace" = "النسخ مرة أخرى";
 "ai_audio_transcription_replace_message" = "يحل النص الجديد محل مسودة المحرر الحالية. لا يزال بإمكانك مراجعته قبل الحفظ.";
@@ -2141,7 +2144,7 @@
 "ai_audio_transcription_not_in_plan" = "لا تتضمن خطتك الحالية نسخ الأغاني. يمكنك الانتقال إلى مفتاح Google API الخاص بك من الإعدادات.";
 "ai_audio_transcription_too_long" = "يمكن للذكاء الاصطناعي المدمج نسخ الأغاني التي لا تتجاوز 10 دقائق فقط.";
 "lyrics_transcription_consent_footer" = "لا يتم تحميل الصوت إلا بعد بدء النسخ بشكل صريح. لا يتم حفظ النتيجة القابلة للتحرير حتى تقوم بتأكيدها.";
-"lyrics_transcription_enabled" = "السماح بنسخ الأغنية";
+"lyrics_transcription_enabled" = "السماح بنسخ كلمات الأغاني عبر السحابة";
 "lyrics_transcription_fetch_models" = "تحميل نماذج النسخ المتوفرة";
 "lyrics_transcription_google_footer" = "يستخدم النسخ الصوتي API الرسمي من Google ويتم تهيئته بشكل مستقل عن البحث والتوصيات والترجمة النصية.";
 "lyrics_transcription_model" = "نموذج النسخ";

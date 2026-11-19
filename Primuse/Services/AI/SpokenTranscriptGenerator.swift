@@ -206,7 +206,9 @@ final class SpokenTranscriptGenerator {
             let fetched = try await fetchAudio(for: song)
             cleanups.append(fetched.cleanup)
             try Task.checkCancellation()
-            let readable = try await readableAudio(at: fetched.url, expectedDuration: song.duration)
+            let readable = try await Self.readableAudio(at: fetched.url, expectedDuration: song.duration) {
+                setPhase(.convertingAudio)
+            }
             if let temporary = readable.temporaryURL {
                 cleanups.append { try? FileManager.default.removeItem(at: temporary) }
             }
@@ -367,7 +369,7 @@ final class SpokenTranscriptGenerator {
         return destination
     }
 
-    private struct ReadableAudio {
+    struct ReadableAudio {
         var url: URL
         var temporaryURL: URL?
         var duration: TimeInterval
@@ -375,12 +377,14 @@ final class SpokenTranscriptGenerator {
 
     /// 系统能直接读的(MP3、AAC、FLAC、WAV……)原样用;读不了的(Opus、WMA 等)先用播放那套解码器
     /// 转成一份 M4A。
-    private func readableAudio(at url: URL, expectedDuration: TimeInterval) async throws -> ReadableAudio {
+    static func readableAudio(
+        at url: URL, expectedDuration: TimeInterval, onConvert: () -> Void = {}
+    ) async throws -> ReadableAudio {
         // 打开文件可能要把整个 VBR 的 MP3 扫一遍,放到主线程外。
         if let duration = await Task.detached(priority: .userInitiated, operation: { Self.readableDuration(at: url) }).value {
             return ReadableAudio(url: url, temporaryURL: nil, duration: duration)
         }
-        setPhase(.convertingAudio)
+        onConvert()
         let compact: OfflineAudioCompactor.Output
         do {
             compact = try await OfflineAudioCompactor.encodeForTranscription(
@@ -412,7 +416,7 @@ final class SpokenTranscriptGenerator {
     // MARK: On-device
 
     private func transcribeOnDevice(url: URL, localeIdentifier: String?) async throws -> AIAudioTranscriptionResult {
-        guard await OnDeviceSpeechTranscription.isAvailable() else { throw Failure.onDeviceUnavailable }
+        guard OnDeviceSpeechTranscription.isAvailable else { throw Failure.onDeviceUnavailable }
         guard let localeIdentifier else { throw Failure.unsupportedLanguage }
         do {
             return try await OnDeviceSpeechTranscription.transcribe(
@@ -483,7 +487,7 @@ final class SpokenTranscriptGenerator {
                 throw Failure.builtInNotInPlan
             case .unavailable:
                 throw engine == .builtIn ? Failure.builtInUnavailable : Failure.ownKeyUnavailable
-            case .tooLong, .failed:
+            case .tooLong, .failed, .providerFailure:
                 throw Failure.failed
             }
         }

@@ -671,6 +671,29 @@ struct AIRemoteEndpointPolicyTests {
         #expect(!AIAudioTranscriptionPolicy.supportsInput(mimeType: "video/mp4"))
     }
 
+    @Test func songRecognitionRoutesRespectSourceAndCloudLimits() {
+        var song = Song(id: "paper-moons", title: "Paper Moons over Copper Kites", duration: 2_400,
+                        fileFormat: .m4a, filePath: "kites.m4a", sourceID: "library")
+        #expect(SongTranscriptionMethod.onDevice.supports(song))
+        #expect(!SongTranscriptionMethod.builtIn.supports(song))
+        #expect(!SongTranscriptionMethod.ownKey.supports(song))
+        song.duration = 200
+        #expect(SongTranscriptionMethod.builtIn.supports(song))
+        #expect(!SongTranscriptionMethod.ownKey.supports(song))
+        song.fileFormat = .flac
+        #expect(SongTranscriptionMethod.allCases.allSatisfy { $0.supports(song) })
+        for source in [AppleMusicLibraryIdentity.sourceID, RadioStation.playbackSourceID, PodcastPlaybackSong.sourceID] {
+            song.sourceID = source
+            #expect(SongTranscriptionMethod.allCases.allSatisfy { !$0.supports(song) })
+        }
+        song.sourceID = "library"
+        song.cueSheetPath = "paper-moons.cue"
+        #expect(SongTranscriptionMethod.allCases.allSatisfy { !$0.supports(song) })
+        song.cueSheetPath = nil
+        song.id = RadioStation.playbackSongIDPrefix + "copper"
+        #expect(SongTranscriptionMethod.allCases.allSatisfy { !$0.supports(song) })
+    }
+
     @Test func builtInTranscriptionTakesAnyFormatUpToTenMinutes() {
         // 内置 AI 先在本机转码:原文件格式不限,时长到 10 分钟为止;未知时长交给服务端。
         for format in [AudioFormat.m4a, .alac, .opus, .ape, .flac] {

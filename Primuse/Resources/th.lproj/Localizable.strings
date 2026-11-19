@@ -505,6 +505,9 @@
 "ai_audio_transcription_model_detail" = "เลือกโมเดลการถอดเสียงที่รองรับจากรายการโมเดลปัจจุบันของ Google บริการอัจฉริยะทั่วไปจะมีผู้ให้บริการและรุ่นของตนเอง";
 "ai_audio_transcription_no_speech" = "บริการตรวจไม่พบเนื้อร้องที่ใช้งานได้";
 "ai_audio_transcription_not_configured" = "ต้องใช้โมเดลการถอดเสียงของ Google ที่รองรับ";
+"ai_audio_transcription_on_device_detail" = "เลือกภาษาที่ใช้ร้อง Apple จะรู้จำเสียงที่รวมดนตรีประกอบบนอุปกรณ์นี้ อาจต้องดาวน์โหลดโมเดลภาษาก่อน";
+"ai_audio_transcription_google_detail" = "อัปโหลดเพลงไปยัง Google ด้วยคีย์และโมเดลถอดเสียงของคุณ รองรับไฟล์ MP3, AAC, FLAC, WAV, AIFF และ Ogg ความยาวไม่เกิน 30 นาที";
+"ai_audio_transcription_draft_changed" = "เนื้อเพลงมีการแก้ไขระหว่างการรู้จำ เริ่มถอดเสียงอีกครั้งสำหรับฉบับร่างปัจจุบัน";
 "ai_audio_transcription_now_playing_detail" = "การถอดเสียงจะเปิดขึ้นในตัวแก้ไขเนื้อเพลงและจะถูกบันทึกหลังจากที่คุณยืนยันแล้วเท่านั้น";
 "ai_audio_transcription_replace" = "ถอดเสียงอีกครั้ง";
 "ai_audio_transcription_replace_message" = "การถอดเสียงใหม่แทนที่ฉบับร่างของตัวแก้ไขปัจจุบัน คุณยังคงตรวจสอบได้ก่อนที่จะบันทึก";
@@ -2141,7 +2144,7 @@
 "ai_audio_transcription_not_in_plan" = "แพ็กเกจปัจจุบันของคุณไม่รวมการถอดเสียงเพลง เปลี่ยนไปใช้คีย์ Google API ของคุณเองได้ในการตั้งค่า";
 "ai_audio_transcription_too_long" = "AI ในตัวถอดเสียงได้เฉพาะเพลงที่ยาวไม่เกิน 10 นาที";
 "lyrics_transcription_consent_footer" = "เสียงจะถูกอัปโหลดหลังจากที่คุณเริ่มถอดเสียงอย่างชัดเจนเท่านั้น ผลลัพธ์ที่แก้ไขได้จะไม่ถูกบันทึกจนกว่าคุณจะยืนยัน";
-"lyrics_transcription_enabled" = "อนุญาตการถอดเสียงเพลง";
+"lyrics_transcription_enabled" = "อนุญาตให้ถอดเสียงเพลงบนคลาวด์";
 "lyrics_transcription_fetch_models" = "โหลดโมเดลการถอดเสียงที่มีอยู่";
 "lyrics_transcription_google_footer" = "การถอดเสียงใช้ API อย่างเป็นทางการของ Google และกำหนดค่าแยกจากการค้นหา คำแนะนำ และการแปลข้อความ";
 "lyrics_transcription_model" = "โมเดลการถอดความ";

@@ -74,6 +74,7 @@ struct LyricsEditorView: View {
     @State private var isTranscribingAudio = false
     @State private var audioTranscriptionTask: Task<Void, Never>?
     @State private var didAutoStartAudioTranscription = false
+    @State private var showsTranscriptionOptions = false
     @State private var showTranscriptionReplaceConfirm = false
     @State private var transcriptionMessage: String?
 
@@ -151,12 +152,18 @@ struct LyricsEditorView: View {
                     timingSession.reset(document: aligned)
                 }
             }
+            .sheet(isPresented: $showsTranscriptionOptions) {
+                SongTranscriptionOptions(song: song, method: initialTranscriptionMethod) { method, language in
+                    showsTranscriptionOptions = false
+                    startAudioTranscriptionTask(method: method, language: language)
+                }
+            }
             .task(id: "\(song.id)#\(autoStartsAudioTranscription)") {
                 guard autoStartsAudioTranscription,
                       !didAutoStartAudioTranscription,
                       document.lines.isEmpty else { return }
                 didAutoStartAudioTranscription = true
-                await transcribeSongAudio()
+                requestAudioTranscription()
             }
             .onDisappear {
                 audioTranscriptionTask?.cancel()
@@ -528,7 +535,7 @@ struct LyricsEditorView: View {
                         title: String(localized: isTranscribingAudio
                                       ? "ai_audio_transcription_working"
                                       : "ai_audio_transcription_action"),
-                        subtitle: String(localized: "ai_audio_transcription_editor_detail"),
+                        subtitle: String(localized: "ai_audio_transcription_now_playing_detail"),
                         prominent: true,
                         isWorking: isTranscribingAudio
                     ) {
@@ -643,19 +650,26 @@ struct LyricsEditorView: View {
         .buttonStyle(.plain)
     }
 
+    private var initialTranscriptionMethod: SongTranscriptionMethod {
+        if OnDeviceSpeechTranscription.isAvailable { return .onDevice }
+        let preferred = intelligence.lyricsTranscriptionSettingsStore.usesBuiltIn
+        let useBuiltIn = intelligence.canUseCloudTranscription(for: song, usesBuiltIn: preferred) ? preferred : !preferred
+        return useBuiltIn ? .builtIn : .ownKey
+    }
+
     private func requestAudioTranscription() {
         guard canTranscribeSongAudio, !isTranscribingAudio else { return }
         guard document.lines.isEmpty else {
             showTranscriptionReplaceConfirm = true
             return
         }
-        startAudioTranscriptionTask()
+        showsTranscriptionOptions = true
     }
 
-    private func startAudioTranscriptionTask() {
+    private func startAudioTranscriptionTask(method: SongTranscriptionMethod, language: String?) {
         audioTranscriptionTask?.cancel()
         audioTranscriptionTask = Task { @MainActor in
-            await transcribeSongAudio()
+            await transcribeSongAudio(method: method, language: language)
             audioTranscriptionTask = nil
         }
     }
@@ -666,34 +680,47 @@ struct LyricsEditorView: View {
         var temporaryURL: URL?
     }
 
-    private func transcribeSongAudio() async {
+    private func transcribeSongAudio(method: SongTranscriptionMethod, language: String?) async {
         guard canTranscribeSongAudio, !isTranscribingAudio else { return }
         isTranscribingAudio = true
         defer { isTranscribingAudio = false }
 
-        var temporaryURL: URL?
+        let baseline = document
         do {
-            let input = try await localTranscriptionInput()
-            temporaryURL = input.temporaryURL
-            defer {
-                if let temporaryURL {
-                    try? FileManager.default.removeItem(at: temporaryURL)
-                }
+            let input: LocalTranscriptionInput
+            do {
+                input = try await localTranscriptionInput(requiresConversion: method != .ownKey)
+            } catch {
+                guard !Task.isCancelled else { return }
+                transcriptionMessage = String(localized: "transcript_generation_failure_audio")
+                return
             }
+            defer { if let url = input.temporaryURL { try? FileManager.default.removeItem(at: url) } }
             try Task.checkCancellation()
-            // 逐词时间戳不能和自定义词表同时用(Google 会直接拒绝请求),所以不传歌名、歌手做词表。
-            let outcome = await intelligence.transcribeAudio(
-                at: input.url,
-                mimeType: input.mimeType,
-                displayName: song.title,
-                duration: song.duration
-            )
+            let outcome: AIAudioTranscriptionOutcome
+            switch method {
+            case .onDevice:
+                guard let language else { throw OnDeviceSpeechTranscription.Failure.unsupportedLanguage }
+                let audio = try await SpokenTranscriptGenerator.readableAudio(at: input.url, expectedDuration: song.duration)
+                defer { if let url = audio.temporaryURL { try? FileManager.default.removeItem(at: url) } }
+                let result = try await OnDeviceSpeechTranscription.transcribe(
+                    fileURL: audio.url, localeIdentifier: language, progress: { _ in }
+                )
+                outcome = .success(.init(result: result, providerName: SpokenTranscriptGenerationSheet.title(.onDevice), fallbackDepth: 0))
+            case .builtIn, .ownKey:
+                outcome = await intelligence.transcribeAudio(
+                    at: input.url, mimeType: input.mimeType, displayName: song.title,
+                    duration: song.duration, usesBuiltIn: method == .builtIn
+                )
+            }
             try Task.checkCancellation()
             switch outcome {
             case .unavailable:
                 transcriptionMessage = String(
                     localized: "ai_audio_transcription_unavailable"
                 )
+            case .providerFailure(let reason):
+                transcriptionMessage = reason
             case .failed:
                 transcriptionMessage = String(localized: "ai_audio_transcription_failed")
             case .limitReached:
@@ -713,6 +740,10 @@ struct LyricsEditorView: View {
                     transcriptionMessage = String(localized: "ai_audio_transcription_no_speech")
                     return
                 }
+                guard document == baseline else {
+                    transcriptionMessage = String(localized: "ai_audio_transcription_draft_changed")
+                    return
+                }
                 document = transcribed
                 sourceText = transcribed.serialized()
                 timingSession.reset(document: transcribed)
@@ -728,18 +759,30 @@ struct LyricsEditorView: View {
         } catch is CancellationError {
             return
         } catch {
-            transcriptionMessage = String(localized: "ai_audio_transcription_failed")
+            guard !Task.isCancelled else { return }
+            if let failure = error as? OnDeviceSpeechTranscription.Failure {
+                switch failure {
+                case .unavailable: transcriptionMessage = String(localized: "transcript_generation_on_device_unavailable")
+                case .unsupportedLanguage: transcriptionMessage = String(localized: "transcript_generation_failure_language")
+                case .modelUnavailable: transcriptionMessage = String(localized: "transcript_generation_failure_model")
+                case .unreadableAudio: transcriptionMessage = String(localized: "transcript_generation_failure_unreadable")
+                }
+            } else if (error as? SpokenTranscriptGenerator.Failure) == .unreadableAudio {
+                transcriptionMessage = String(localized: "transcript_generation_failure_unreadable")
+            } else {
+                transcriptionMessage = error.localizedDescription
+            }
         }
     }
 
-    private func localTranscriptionInput(requiresConversion: Bool = false) async throws -> LocalTranscriptionInput {
+    private func localTranscriptionInput(requiresConversion: Bool) async throws -> LocalTranscriptionInput {
         let resolvedURL = try await sourceManager.resolveFullDownloadSourceURL(for: song)
         // 内置 AI 先在本机转成 M4A 再上传,原文件是什么格式都行;自己的 Google 密钥
         // 直接传原文件,只能是 Google 写明支持的格式。
         guard let mimeType = Self.audioTranscriptionMIMEType(
             for: resolvedURL,
             fallbackFormat: song.fileFormat
-        ) ?? ((requiresConversion || intelligence.lyricsTranscriptionSettingsStore.usesBuiltIn)
+        ) ?? (requiresConversion
             ? "application/octet-stream"
             : nil) else {
             throw CocoaError(.fileReadUnsupportedScheme)
@@ -1500,7 +1543,7 @@ struct LyricsEditorView: View {
     @ViewBuilder
     private var transcriptionReplaceActions: some View {
         Button(String(localized: "ai_audio_transcription_replace"), role: .destructive) {
-            startAudioTranscriptionTask()
+            showsTranscriptionOptions = true
         }
         Button(String(localized: "cancel"), role: .cancel) {}
     }
@@ -3419,5 +3462,78 @@ struct LyricAlignmentSheet: View {
                 } catch { message = String(localized: "lyric_alignment_failed") }
             }
         }
+    }
+}
+
+private struct SongTranscriptionOptions: View {
+    let song: Song
+
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(\.dismiss) private var dismiss
+    @State var method: SongTranscriptionMethod
+    let onStart: (SongTranscriptionMethod, String?) -> Void
+    @State private var language: String?
+
+    private var canStart: Bool {
+        switch method {
+        case .onDevice: OnDeviceSpeechTranscription.isAvailable && language != nil
+        case .builtIn, .ownKey: intelligence.canUseCloudTranscription(for: song, usesBuiltIn: method == .builtIn)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("transcript_generation_engine_section", selection: $method) {
+                        Text("transcript_generation_engine_on_device").tag(SongTranscriptionMethod.onDevice)
+                        Text("lyrics_transcription_service_builtin").tag(SongTranscriptionMethod.builtIn)
+                        Text("lyrics_transcription_service_own_key").tag(SongTranscriptionMethod.ownKey)
+                    }
+                    if method == .onDevice, OnDeviceSpeechTranscription.isAvailable {
+                        TranscriptRecognitionLanguagePicker(
+                            candidates: SpokenTranscriptGenerator.languageCandidates(for: song), selection: $language
+                        )
+                    }
+                } footer: {
+                    switch method {
+                    case .onDevice:
+                        Text(OnDeviceSpeechTranscription.isAvailable ? LocalizedStringKey("ai_audio_transcription_on_device_detail")
+                                                                    : LocalizedStringKey("transcript_generation_on_device_unavailable"))
+                    case .builtIn:
+                        Text("lyrics_transcription_builtin_footer")
+                    case .ownKey:
+                        Text("ai_audio_transcription_google_detail")
+                    }
+                }
+                Section {
+                    if method != .onDevice, method.supports(song), !canStart {
+                        NavigationLink {
+                            GoogleLyricsTranscriptionSettingsView()
+                        } label: {
+                            Label("lyrics_transcription_settings_title", systemImage: "gearshape")
+                        }
+                    }
+                    Button("ai_audio_transcription_action") {
+                        if canStart { onStart(method, language) }
+                    }
+                    .disabled(!canStart)
+                }
+            }
+            #if os(macOS)
+            .macFormSheet(title: Text("ai_audio_transcription_title"), systemImage: "waveform.and.mic") {
+                Button("cancel") { dismiss() }
+                    .buttonStyle(.macSheet)
+                    .keyboardShortcut(.cancelAction)
+            }
+            #else
+            .navigationTitle("ai_audio_transcription_title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("cancel") { dismiss() } } }
+            #endif
+        }
+        #if os(macOS)
+        .frame(minWidth: 420, minHeight: 320)
+        #endif
     }
 }

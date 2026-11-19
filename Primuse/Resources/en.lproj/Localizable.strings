@@ -3614,6 +3614,9 @@
 "ai_audio_transcription_action" = "Transcribe Song";
 "ai_audio_transcription_working" = "Transcribing song…";
 "ai_audio_transcription_editor_detail" = "Upload the song to recognize lyrics and timing. Results open here for review first.";
+"ai_audio_transcription_on_device_detail" = "Choose the language being sung. Apple recognizes the full mix on this device. The language model may need to download first.";
+"ai_audio_transcription_google_detail" = "Uploads the song to Google using your key and transcription model. Supports MP3, AAC, FLAC, WAV, AIFF and Ogg, up to 30 minutes.";
+"ai_audio_transcription_draft_changed" = "The lyrics changed during recognition. Start again to transcribe the current draft.";
 "ai_audio_transcription_now_playing_detail" = "The transcript opens in the lyric editor and is saved only after you confirm it.";
 "ai_audio_transcription_replace_title" = "Replace the current lyrics?";
 "ai_audio_transcription_replace" = "Transcribe Again";
@@ -3770,7 +3773,7 @@
 "lyrics_transcription_model" = "Transcription Model";
 "lyrics_transcription_configuration_section" = "Google Transcription Service";
 "lyrics_transcription_model_footer" = "Compatible models are loaded from Google’s authenticated model catalog; Primuse does not assume a release name.";
-"lyrics_transcription_enabled" = "Allow Song Transcription";
+"lyrics_transcription_enabled" = "Allow Cloud Song Transcription";
 "lyrics_transcription_audio_consent" = "Allow Audio Uploads";
 "lyrics_transcription_consent_footer" = "Audio is uploaded only after you explicitly start transcription. The editable result is not saved until you confirm it.";
 "lyrics_transcription_models_loaded_format" = "%d compatible models loaded.";

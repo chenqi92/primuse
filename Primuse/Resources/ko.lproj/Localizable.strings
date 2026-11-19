@@ -3843,6 +3843,9 @@
 "ai_audio_transcription_action" = "노래 받아쓰기";
 "ai_audio_transcription_working" = "노래를 받아쓰는 중…";
 "ai_audio_transcription_editor_detail" = "노래를 업로드해 가사와 시간 정보를 인식합니다. 결과는 먼저 편집기에서 검토합니다.";
+"ai_audio_transcription_on_device_detail" = "노래의 언어를 선택하세요. Apple이 이 기기에서 반주를 포함한 전체 음원을 인식합니다. 먼저 언어 모델을 다운로드해야 할 수 있습니다.";
+"ai_audio_transcription_google_detail" = "내 키와 전사 모델을 사용해 곡을 Google에 업로드합니다. 최대 30분의 MP3, AAC, FLAC, WAV, AIFF, Ogg 파일을 지원합니다.";
+"ai_audio_transcription_draft_changed" = "인식 중에 가사가 편집되었습니다. 현재 초안에서 다시 시작하세요.";
 "ai_audio_transcription_now_playing_detail" = "결과는 가사 편집기에서 먼저 열리며 확인 후에만 저장됩니다.";
 "ai_audio_transcription_replace_title" = "현재 가사를 교체할까요?";
 "ai_audio_transcription_replace" = "다시 받아쓰기";
@@ -3999,7 +4002,7 @@
 "lyrics_transcription_model" = "받아쓰기 모델";
 "lyrics_transcription_configuration_section" = "Google 받아쓰기 서비스";
 "lyrics_transcription_model_footer" = "호환 모델은 인증된 Google 모델 카탈로그에서 불러오며 Primuse는 특정 버전 이름을 가정하지 않습니다.";
-"lyrics_transcription_enabled" = "곡 받아쓰기 허용";
+"lyrics_transcription_enabled" = "클라우드 가사 전사 허용";
 "lyrics_transcription_audio_consent" = "오디오 업로드 허용";
 "lyrics_transcription_consent_footer" = "사용자가 받아쓰기를 직접 시작할 때만 오디오를 업로드합니다. 편집 가능한 결과는 확인 후 저장됩니다.";
 "lyrics_transcription_models_loaded_format" = "호환 모델 %d개를 불러왔습니다.";

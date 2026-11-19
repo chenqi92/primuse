@@ -947,7 +947,7 @@
 "library_recommendations_description" = "Пісні, які можна відтворити, спочатку вибираються на пристрої. Коли інтелектуальна служба ввімкнена, вона лише змінює їх порядок і пояснює, чому.";
 "relay_share_access_password" = "Пароль";
 "apple_music_notice_denied" = "У доступі до Apple Music відмовлено. Знову ввімкніть його в системних налаштуваннях → конфіденційність → медіа та Apple Music.";
-"lyrics_transcription_enabled" = "Дозволити транскрипцію пісні";
+"lyrics_transcription_enabled" = "Дозволити розпізнавання пісень у хмарі";
 "status_no_icloud_account" = "Ви не ввійшли в iCloud — увійдіть із налаштувань";
 "manage_playlists" = "Керування списками відтворення";
 "scan_in_progress" = "Сканування музичних файлів...";
@@ -2585,6 +2585,9 @@
 "Playback Rate" = "Швидкість відтворення";
 "Play a song first, then try again." = "Спочатку відтворіть пісню, а потім повторіть спробу.";
 "no_new_songs" = "Немає нових пісень";
+"ai_audio_transcription_on_device_detail" = "Виберіть мову співу. Apple розпізнає весь запис разом з акомпанементом на цьому пристрої. Можливо, спершу знадобиться завантажити мовну модель.";
+"ai_audio_transcription_google_detail" = "Пісню буде надіслано до Google з вашим ключем і моделлю транскрибування. Підтримуються MP3, AAC, FLAC, WAV, AIFF та Ogg тривалістю до 30 хвилин.";
+"ai_audio_transcription_draft_changed" = "Текст змінився під час розпізнавання. Запустіть транскрибування поточної чернетки ще раз.";
 "ai_audio_transcription_now_playing_detail" = "Стенограма відкривається в редакторі текстів і зберігається лише після того, як ви її підтвердите.";
 "Theme" = "Тема";
 "lyrics_editor_timing_skipped_info %lld" = "Пропуск рядків із назвою або авторами: %lld";

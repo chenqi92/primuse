@@ -947,7 +947,7 @@
 "library_recommendations_description" = "Сначала на устройстве выбираются воспроизводимые песни. Когда интеллектуальная служба включена, она лишь меняет их порядок и объясняет, почему.";
 "relay_share_access_password" = "Пароль";
 "apple_music_notice_denied" = "Apple Music доступ запрещен. Снова включите его в «Настройки системы» → «Конфиденциальность» → «Медиа и Apple Music».";
-"lyrics_transcription_enabled" = "Разрешить транскрипцию песни";
+"lyrics_transcription_enabled" = "Разрешить распознавание песен в облаке";
 "status_no_icloud_account" = "Не выполнен вход в iCloud — войдите в настройки.";
 "manage_playlists" = "Управление плейлистами";
 "scan_in_progress" = "Сканирование музыкальных файлов...";
@@ -2585,6 +2585,9 @@
 "Playback Rate" = "Скорость воспроизведения";
 "Play a song first, then try again." = "Сначала воспроизведите песню, а затем повторите попытку.";
 "no_new_songs" = "Новых песен нет.";
+"ai_audio_transcription_on_device_detail" = "Выберите язык исполнения. Apple распознаёт всю запись вместе с аккомпанементом на этом устройстве. Может потребоваться загрузить языковую модель.";
+"ai_audio_transcription_google_detail" = "Песня отправляется в Google с вашим ключом и моделью транскрипции. Поддерживаются MP3, AAC, FLAC, WAV, AIFF и Ogg длительностью до 30 минут.";
+"ai_audio_transcription_draft_changed" = "Текст изменился во время распознавания. Запустите транскрипцию текущего черновика ещё раз.";
 "ai_audio_transcription_now_playing_detail" = "Транскрипт открывается в текстовом редакторе и сохраняется только после вашего подтверждения.";
 "Theme" = "Тема";
 "lyrics_editor_timing_skipped_info %lld" = "Пропуск строк с названием или авторами: %lld";

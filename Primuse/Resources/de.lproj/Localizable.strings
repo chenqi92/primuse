@@ -3843,6 +3843,9 @@
 "ai_audio_transcription_action" = "Song transkribieren";
 "ai_audio_transcription_working" = "Song wird transkribiert…";
 "ai_audio_transcription_editor_detail" = "Song hochladen, Text und Zeitpunkte erkennen und das Ergebnis zuerst hier prüfen.";
+"ai_audio_transcription_on_device_detail" = "Wähle die Sprache des Gesangs. Apple erkennt den gesamten Mix auf diesem Gerät. Das Sprachmodell muss eventuell zuerst geladen werden.";
+"ai_audio_transcription_google_detail" = "Lädt den Song mit deinem Schlüssel und Transkriptionsmodell zu Google hoch. Unterstützt MP3, AAC, FLAC, WAV, AIFF und Ogg bis 30 Minuten.";
+"ai_audio_transcription_draft_changed" = "Der Liedtext wurde während der Erkennung geändert. Starte die Erkennung für den aktuellen Entwurf erneut.";
 "ai_audio_transcription_now_playing_detail" = "Das Transkript wird zuerst im Liedtexteditor geöffnet und erst nach Bestätigung gespeichert.";
 "ai_audio_transcription_replace_title" = "Aktuellen Liedtext ersetzen?";
 "ai_audio_transcription_replace" = "Erneut transkribieren";
@@ -3999,7 +4002,7 @@
 "lyrics_transcription_model" = "Transkriptionsmodell";
 "lyrics_transcription_configuration_section" = "Google-Transkriptionsdienst";
 "lyrics_transcription_model_footer" = "Kompatible Modelle werden aus dem authentifizierten Google-Modellkatalog geladen; Primuse setzt keinen Versionsnamen voraus.";
-"lyrics_transcription_enabled" = "Songtranskription erlauben";
+"lyrics_transcription_enabled" = "Songtranskription in der Cloud erlauben";
 "lyrics_transcription_audio_consent" = "Audio-Uploads erlauben";
 "lyrics_transcription_consent_footer" = "Audio wird nur nach ausdrücklichem Start der Transkription hochgeladen. Das bearbeitbare Ergebnis wird erst nach Bestätigung gespeichert.";
 "lyrics_transcription_models_loaded_format" = "%d kompatible Modelle geladen.";

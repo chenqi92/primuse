@@ -27,10 +27,10 @@ enum OnDeviceSpeechTranscription {
     }
 
     /// 这台设备能不能做本机识别。
-    static func isAvailable() async -> Bool {
+    static let isAvailable: Bool = {
         guard #available(iOS 26.0, macOS 26.0, *) else { return false }
-        return await SpeechTranscriber.isAvailable
-    }
+        return SpeechTranscriber.isAvailable
+    }()
 
     /// 本机识别支持(含要下载模型)的语言标识。
     static func supportedLocaleIdentifiers() async -> [String] {
@@ -57,7 +57,7 @@ enum OnDeviceSpeechTranscription {
         progress: @escaping @Sendable (Phase) -> Void
     ) async throws -> AIAudioTranscriptionResult {
         guard #available(iOS 26.0, macOS 26.0, *) else { throw Failure.unavailable }
-        guard await SpeechTranscriber.isAvailable else { throw Failure.unavailable }
+        guard SpeechTranscriber.isAvailable else { throw Failure.unavailable }
         guard let locale = await SpeechTranscriber.supportedLocale(
             equivalentTo: Locale(identifier: localeIdentifier)
         ) else {
@@ -103,25 +103,26 @@ enum OnDeviceSpeechTranscription {
             return words
         }
         let analyzer = SpeechAnalyzer(modules: [transcriber], options: nil)
-        let lastSample: CMTime?
-        do {
-            lastSample = try await analyzer.analyzeSequence(from: file)
-        } catch {
-            await analyzer.cancelAndFinishNow()
+        let words = try await withTaskCancellationHandler {
+            do {
+                try Task.checkCancellation()
+                if let lastSample = try await analyzer.analyzeSequence(from: file) {
+                    try await analyzer.finalizeAndFinish(through: lastSample)
+                } else {
+                    await analyzer.cancelAndFinishNow()
+                }
+                let words = try await collector.value
+                try Task.checkCancellation()
+                return words
+            } catch {
+                collector.cancel()
+                await analyzer.cancelAndFinishNow()
+                throw error
+            }
+        } onCancel: {
             collector.cancel()
-            throw error
+            Task { await analyzer.cancelAndFinishNow() }
         }
-        guard !Task.isCancelled else {
-            await analyzer.cancelAndFinishNow()
-            collector.cancel()
-            throw CancellationError()
-        }
-        if let lastSample {
-            try await analyzer.finalizeAndFinish(through: lastSample)
-        } else {
-            await analyzer.cancelAndFinishNow()
-        }
-        let words = try await collector.value
         return AIAudioTranscriptionResult(
             transcript: words.map(\.text).joined(separator: " "),
             words: words

@@ -947,7 +947,7 @@
 "library_recommendations_description" = "Çalınabilir şarkılar öncelikle cihazda seçilir. Akıllı bir hizmet etkinleştirildiğinde yalnızca bunları yeniden sıralar ve nedenini açıklar.";
 "relay_share_access_password" = "Şifre";
 "apple_music_notice_denied" = "Apple Music erişimi reddedildi. Sistem Ayarları → Gizlilik → Medya ve Apple Music bölümünden yeniden etkinleştirin.";
-"lyrics_transcription_enabled" = "Şarkı Transkripsiyonuna İzin Ver";
+"lyrics_transcription_enabled" = "Bulutta şarkı sözlerini yazıya aktarmaya izin ver";
 "status_no_icloud_account" = "iCloud'de oturum açılmadı — Ayarlar'dan oturum açın";
 "manage_playlists" = "Çalma Listelerini Yönet";
 "scan_in_progress" = "Müzik dosyaları taranıyor...";
@@ -2585,6 +2585,9 @@
 "Playback Rate" = "Oynatma Oranı";
 "Play a song first, then try again." = "Önce bir şarkı çalın, ardından tekrar deneyin.";
 "no_new_songs" = "Yeni şarkı yok";
+"ai_audio_transcription_on_device_detail" = "Şarkının söylendiği dili seçin. Apple bu aygıtta eşlik dahil tüm kaydı tanır. Önce dil modelinin indirilmesi gerekebilir.";
+"ai_audio_transcription_google_detail" = "Şarkıyı anahtarınız ve transkripsiyon modelinizle Google’a yükler. En fazla 30 dakikalık MP3, AAC, FLAC, WAV, AIFF ve Ogg dosyalarını destekler.";
+"ai_audio_transcription_draft_changed" = "Tanıma sırasında şarkı sözleri değişti. Geçerli taslağı dönüştürmek için yeniden başlatın.";
 "ai_audio_transcription_now_playing_detail" = "Transkript şarkı sözü düzenleyicide açılır ve yalnızca siz onayladıktan sonra kaydedilir.";
 "Theme" = "Tema";
 "lyrics_editor_timing_skipped_info %lld" = "%lld başlık/katkı bilgisi satırı atlanıyor";

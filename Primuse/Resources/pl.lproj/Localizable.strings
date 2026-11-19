@@ -505,6 +505,9 @@
 "ai_audio_transcription_model_detail" = "Wybierz obsługiwany model transkrypcji audio z aktualnej listy modeli Google. Ogólne inteligentne usługi mają własnego dostawcę i model.";
 "ai_audio_transcription_no_speech" = "Usługa nie wykryła użytecznych tekstów wokalnych.";
 "ai_audio_transcription_not_configured" = "Wymaga obsługiwanego modelu transkrypcji audio Google";
+"ai_audio_transcription_on_device_detail" = "Wybierz język śpiewu. Apple rozpoznaje pełny miks na tym urządzeniu. Najpierw może być konieczne pobranie modelu językowego.";
+"ai_audio_transcription_google_detail" = "Przesyła utwór do Google przy użyciu Twojego klucza i modelu transkrypcji. Obsługuje MP3, AAC, FLAC, WAV, AIFF i Ogg do 30 minut.";
+"ai_audio_transcription_draft_changed" = "Tekst zmienił się w trakcie rozpoznawania. Rozpocznij ponownie transkrypcję bieżącego szkicu.";
 "ai_audio_transcription_now_playing_detail" = "Transkrypcja otwiera się w edytorze tekstu i jest zapisywana dopiero po zatwierdzeniu.";
 "ai_audio_transcription_replace" = "Dokonaj ponownej transkrypcji";
 "ai_audio_transcription_replace_message" = "Nowy zapis zastępuje obecną wersję roboczą redaktora. Nadal możesz go sprawdzić przed zapisaniem.";
@@ -2141,7 +2144,7 @@
 "ai_audio_transcription_not_in_plan" = "Twój obecny plan nie obejmuje transkrypcji utworów. W ustawieniach możesz przełączyć się na własny klucz API Google.";
 "ai_audio_transcription_too_long" = "Wbudowana sztuczna inteligencja transkrybuje tylko utwory do 10 minut.";
 "lyrics_transcription_consent_footer" = "Dźwięk jest przesyłany dopiero po wyraźnym rozpoczęciu transkrypcji. Edytowalny wynik nie zostanie zapisany, dopóki go nie potwierdzisz.";
-"lyrics_transcription_enabled" = "Zezwól na transkrypcję utworu";
+"lyrics_transcription_enabled" = "Zezwalaj na transkrypcję utworów w chmurze";
 "lyrics_transcription_fetch_models" = "Załaduj dostępne modele transkrypcji";
 "lyrics_transcription_google_footer" = "Transkrypcja audio wykorzystuje oficjalny API Google i jest konfigurowana niezależnie od wyszukiwania, rekomendacji i tłumaczenia tekstu.";
 "lyrics_transcription_model" = "Model transkrypcji";

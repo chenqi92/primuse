@@ -505,6 +505,9 @@
 "ai_audio_transcription_model_detail" = "Google की वर्तमान मॉडल सूची से एक समर्थित ऑडियो ट्रांस्क्रिप्शन मॉडल चुनें। सामान्य बुद्धिमान सेवाएँ अपना स्वयं का प्रदाता और मॉडल रखती हैं।";
 "ai_audio_transcription_no_speech" = "सेवा को उपयोग करने योग्य गाए गए बोल नहीं मिले।";
 "ai_audio_transcription_not_configured" = "एक समर्थित Google ऑडियो ट्रांसक्रिप्शन मॉडल की आवश्यकता है";
+"ai_audio_transcription_on_device_detail" = "गाने की भाषा चुनें। Apple इसी डिवाइस पर पूरे ऑडियो मिक्स को पहचानता है। पहले भाषा मॉडल डाउनलोड करना पड़ सकता है।";
+"ai_audio_transcription_google_detail" = "आपकी कुंजी और ट्रांसक्रिप्शन मॉडल से गाना Google पर अपलोड होता है। 30 मिनट तक की MP3, AAC, FLAC, WAV, AIFF और Ogg फ़ाइलें समर्थित हैं।";
+"ai_audio_transcription_draft_changed" = "पहचान के दौरान गीत के बोल बदल गए। मौजूदा ड्राफ़्ट के लिए फिर से शुरू करें।";
 "ai_audio_transcription_now_playing_detail" = "प्रतिलेख गीत के बोल संपादक में खुलता है और आपके द्वारा इसकी पुष्टि करने के बाद ही सहेजा जाता है।";
 "ai_audio_transcription_replace" = "फिर से प्रतिलेखन करें";
 "ai_audio_transcription_replace_message" = "नई प्रतिलेख वर्तमान संपादक मसौदे की जगह लेती है। आप सहेजने से पहले अभी भी इसकी समीक्षा कर सकते हैं.";
@@ -2141,7 +2144,7 @@
 "ai_audio_transcription_not_in_plan" = "आपके मौजूदा प्लान में गाने का ट्रांसक्रिप्शन शामिल नहीं है। सेटिंग्स में अपनी Google API कुंजी पर जा सकते हैं।";
 "ai_audio_transcription_too_long" = "अंतर्निहित एआई केवल 10 मिनट तक के गाने ट्रांसक्राइब कर सकता है।";
 "lyrics_transcription_consent_footer" = "ऑडियो केवल तभी अपलोड किया जाता है जब आप स्पष्ट रूप से ट्रांसक्रिप्शन शुरू करते हैं। संपादन योग्य परिणाम तब तक सहेजा नहीं जाता जब तक आप इसकी पुष्टि नहीं कर देते।";
-"lyrics_transcription_enabled" = "गीत प्रतिलेखन की अनुमति दें";
+"lyrics_transcription_enabled" = "क्लाउड में गानों का ट्रांसक्रिप्शन चालू करें";
 "lyrics_transcription_fetch_models" = "उपलब्ध ट्रांसक्रिप्शन मॉडल लोड करें";
 "lyrics_transcription_google_footer" = "ऑडियो ट्रांसक्रिप्शन Google के आधिकारिक API का उपयोग करता है और इसे खोज, अनुशंसाओं और पाठ अनुवाद से स्वतंत्र रूप से कॉन्फ़िगर किया गया है।";
 "lyrics_transcription_model" = "प्रतिलेखन मॉडल";

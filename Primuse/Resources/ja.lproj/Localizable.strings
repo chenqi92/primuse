@@ -3844,6 +3844,9 @@
 "ai_audio_transcription_action" = "曲を文字起こし";
 "ai_audio_transcription_working" = "曲を文字起こし中…";
 "ai_audio_transcription_editor_detail" = "曲をアップロードして歌詞と時刻を認識します。結果はまずエディタで確認できます。";
+"ai_audio_transcription_on_device_detail" = "歌唱言語を選んでください。Apple がこのデバイス上で伴奏を含む音声を認識します。初回は言語モデルのダウンロードが必要な場合があります。";
+"ai_audio_transcription_google_detail" = "自分のキーと文字起こしモデルを使って曲を Google にアップロードします。MP3、AAC、FLAC、WAV、AIFF、Ogg に対応し、最長 30 分です。";
+"ai_audio_transcription_draft_changed" = "認識中に歌詞が編集されました。現在の下書きで文字起こしをやり直してください。";
 "ai_audio_transcription_now_playing_detail" = "結果は歌詞エディタで開き、確認後にのみ保存されます。";
 "ai_audio_transcription_replace_title" = "現在の歌詞を置き換えますか？";
 "ai_audio_transcription_replace" = "もう一度文字起こし";
@@ -4000,7 +4003,7 @@
 "lyrics_transcription_model" = "文字起こしモデル";
 "lyrics_transcription_configuration_section" = "Google 文字起こしサービス";
 "lyrics_transcription_model_footer" = "互換モデルは認証済みの Google モデルカタログから読み込まれ、Primuse は特定のリリース名を前提にしません。";
-"lyrics_transcription_enabled" = "曲の文字起こしを許可";
+"lyrics_transcription_enabled" = "クラウドでの歌詞の文字起こしを許可";
 "lyrics_transcription_audio_consent" = "音声アップロードを許可";
 "lyrics_transcription_consent_footer" = "文字起こしを明示的に開始した場合のみ音声がアップロードされます。編集可能な結果は確認後に保存されます。";
 "lyrics_transcription_models_loaded_format" = "%d 件の互換モデルを読み込みました。";

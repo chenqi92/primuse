@@ -503,6 +503,23 @@ public enum AISelfHostedEndpointPolicy {
     }
 }
 
+public enum SongTranscriptionMethod: CaseIterable, Sendable {
+    case onDevice, builtIn, ownKey
+
+    public func supports(_ song: Song) -> Bool {
+        guard song.sourceID != AppleMusicLibraryIdentity.sourceID, song.cueSheetPath == nil,
+              song.sourceID != RadioStation.playbackSourceID, !song.id.hasPrefix(RadioStation.playbackSongIDPrefix),
+              !PodcastPlaybackSong.isEpisode(song) else { return false }
+        switch self {
+        case .onDevice: return true
+        case .builtIn, .ownKey:
+            return AIAudioTranscriptionPolicy.canTranscribe(
+                format: song.fileFormat, duration: song.duration, builtIn: self == .builtIn, ownKey: self == .ownKey
+            )
+        }
+    }
+}
+
 public enum AIAudioTranscriptionPolicy {
     public static let maximumDuration: TimeInterval = 30 * 60
     public static let maximumFileBytes: Int64 = 2 * 1_024 * 1_024 * 1_024
