@@ -4,6 +4,8 @@ import PrimuseKit
 enum SettingsCatalogData {
     static let items: [SettingDefinition] = [
         SettingDefinition(id: "playback.autoplayOnLaunch", titleKey: "playback_autoplay_on_launch", iosPage: .playback, macPage: .playback, keywords: ["autoplay", "launch", "启动", "打开", "自动播放"]),
+        SettingDefinition(id: "playback.opensNowPlayingOnPlay", titleKey: "playback_open_now_playing_on_play", iosPage: nil, macPage: .playback, keywords: ["now playing", "player", "播放页", "点歌", "打开"]),
+        SettingDefinition(id: "playback.musicVideoStartsFullScreen", titleKey: "music_video_starts_full_screen", iosPage: nil, macPage: .playback, keywords: ["MV", "music video", "full screen", "全屏", "视频"]),
         SettingDefinition(id: "playback.outputMode", titleKey: "audio_output_mode", iosPage: .playback, macPage: .playback, keywords: ["bit perfect", "DAC", "高保真", "直通", "音质", "无损", "DSP", "Output Mode"]),
         SettingDefinition(id: "playback.dsdMode", titleKey: "dsd_playback_mode", iosPage: .playback, macPage: .playback, keywords: ["DSD Playback"]),
         SettingDefinition(id: "playback.matchSampleRate", titleKey: "output_sr_matching", iosPage: .playback, macPage: .playback, keywords: ["Match Hardware Sample Rate"]),

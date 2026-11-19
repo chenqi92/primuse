@@ -2893,6 +2893,10 @@ private struct MacSTInfoText: View {
 
 private struct MacSTPlaybackView: View {
     @AppStorage(PlaybackSessionRestoreLifecycle.launchAutoplayKey) private var autoplayOnLaunch = false
+    @AppStorage(PlayerAppearancePreferences.opensNowPlayingOnPlayKey)
+    private var opensNowPlayingOnPlay = PlayerAppearancePreferences.opensNowPlayingOnPlayByDefault
+    @AppStorage(PlayerAppearancePreferences.musicVideoStartsFullScreenKey)
+    private var musicVideoStartsFullScreen = PlayerAppearancePreferences.musicVideoStartsFullScreenByDefault
     // 接真 Store, 拖滑块/切 toggle 会立即写回 PlaybackSettingsStore 并 persist。
     @Environment(PlaybackSettingsStore.self) private var store
     @Environment(SourceManager.self) private var sourceManager
@@ -2940,6 +2944,19 @@ private struct MacSTPlaybackView: View {
                 }
                 .settingsAnchor("playback.autoplayOnLaunch")
                 .accessibilityIdentifier("playback.autoplayOnLaunch")
+                MacSTRow(String(localized: "playback_open_now_playing_on_play")) {
+                    MacSTToggle(isOn: $opensNowPlayingOnPlay)
+                }
+                .settingsAnchor("playback.opensNowPlayingOnPlay")
+                .accessibilityIdentifier("playback.opensNowPlayingOnPlay")
+                MacSTRow(
+                    String(localized: "music_video_starts_full_screen"),
+                    hint: String(localized: "music_video_starts_full_screen_hint")
+                ) {
+                    MacSTToggle(isOn: $musicVideoStartsFullScreen)
+                }
+                .settingsAnchor("playback.musicVideoStartsFullScreen")
+                .accessibilityIdentifier("playback.musicVideoStartsFullScreen")
             }
         }
 

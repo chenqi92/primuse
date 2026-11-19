@@ -7825,3 +7825,6 @@
 "library_music_videos_title" = "Musikvideos";
 "music_videos_count" = "Musikvideos";
 "music_videos_empty_hint" = "Videodateien aus deinen Musikquellen und Songs mit einem gleichnamigen Musikvideo erscheinen hier.";
+"playback_open_now_playing_on_play" = "Nach Songauswahl „Wird gespielt“ öffnen";
+"music_video_starts_full_screen" = "Musikvideos im Vollbild abspielen";
+"music_video_starts_full_screen_hint" = "Ausgewählte Musikvideos starten im Vollbild. Wenn aus, öffnet sich stattdessen „Wird gespielt“.";

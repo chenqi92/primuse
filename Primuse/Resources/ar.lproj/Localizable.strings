@@ -7731,3 +7731,6 @@
 "library_music_videos_title" = "الفيديوهات الموسيقية";
 "music_videos_count" = "فيديو موسيقي";
 "music_videos_empty_hint" = "تظهر هنا ملفات الفيديو في مصادر الموسيقى لديك والأغاني التي لها فيديو موسيقي بالاسم نفسه.";
+"playback_open_now_playing_on_play" = "فتح شاشة قيد التشغيل بعد اختيار أغنية";
+"music_video_starts_full_screen" = "تشغيل الفيديوهات الموسيقية بملء الشاشة";
+"music_video_starts_full_screen_hint" = "عند اختيار فيديو موسيقي يُشغَّل بملء الشاشة. عند الإيقاف تُفتح شاشة قيد التشغيل بدلًا من ذلك.";

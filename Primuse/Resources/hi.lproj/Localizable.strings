@@ -7731,3 +7731,6 @@
 "library_music_videos_title" = "म्यूज़िक वीडियो";
 "music_videos_count" = "म्यूज़िक वीडियो";
 "music_videos_empty_hint" = "आपके म्यूज़िक सोर्स की वीडियो फ़ाइलें और उसी नाम के म्यूज़िक वीडियो वाले गाने यहाँ दिखते हैं।";
+"playback_open_now_playing_on_play" = "गाना चुनने के बाद अभी चल रहा खोलें";
+"music_video_starts_full_screen" = "म्यूज़िक वीडियो फ़ुल स्क्रीन में चलाएँ";
+"music_video_starts_full_screen_hint" = "म्यूज़िक वीडियो चुनने पर वह फ़ुल स्क्रीन में चलता है। बंद होने पर अभी चल रहा खुलता है।";

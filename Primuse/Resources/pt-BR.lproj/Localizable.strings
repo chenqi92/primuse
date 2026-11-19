@@ -7731,3 +7731,6 @@
 "library_music_videos_title" = "Videoclipes";
 "music_videos_count" = "videoclipes";
 "music_videos_empty_hint" = "Arquivos de vídeo das suas fontes de música e músicas com um videoclipe de mesmo nome aparecem aqui.";
+"playback_open_now_playing_on_play" = "Abrir Reproduzindo ao escolher uma música";
+"music_video_starts_full_screen" = "Reproduzir videoclipes em tela cheia";
+"music_video_starts_full_screen_hint" = "Ao escolher um videoclipe, ele é reproduzido em tela cheia. Desativado, abre Reproduzindo.";

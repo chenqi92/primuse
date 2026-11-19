@@ -7731,3 +7731,6 @@
 "library_music_videos_title" = "Videos musicales";
 "music_videos_count" = "videos musicales";
 "music_videos_empty_hint" = "Aquí aparecen los archivos de video de tus fuentes de música y las canciones con un video musical del mismo nombre.";
+"playback_open_now_playing_on_play" = "Abrir Reproduciendo al elegir una canción";
+"music_video_starts_full_screen" = "Reproducir videos musicales en pantalla completa";
+"music_video_starts_full_screen_hint" = "Al elegir un video musical, se reproduce en pantalla completa. Si está desactivado, se abre Reproduciendo.";

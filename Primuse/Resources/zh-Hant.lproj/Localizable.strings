@@ -7802,3 +7802,6 @@
 "library_music_videos_title" = "MV";
 "music_videos_count" = "個 MV";
 "music_videos_empty_hint" = "音樂來源裡的影片檔案、帶同名 MV 的歌曲會出現在這裡。";
+"playback_open_now_playing_on_play" = "點歌後打開播放頁";
+"music_video_starts_full_screen" = "MV 直接全螢幕播放";
+"music_video_starts_full_screen_hint" = "點播 MV 時直接進入全螢幕；關閉後改為打開播放頁。";

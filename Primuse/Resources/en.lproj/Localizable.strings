@@ -7586,3 +7586,6 @@
 "library_music_videos_title" = "Music Videos";
 "music_videos_count" = "music videos";
 "music_videos_empty_hint" = "Video files in your music sources, and songs with a music video of the same name, appear here.";
+"playback_open_now_playing_on_play" = "Open Now Playing After Choosing a Song";
+"music_video_starts_full_screen" = "Play Music Videos in Full Screen";
+"music_video_starts_full_screen_hint" = "A music video you choose plays in full screen. When off, Now Playing opens instead.";

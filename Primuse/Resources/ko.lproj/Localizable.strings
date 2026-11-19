@@ -7825,3 +7825,6 @@
 "library_music_videos_title" = "뮤직비디오";
 "music_videos_count" = "개의 뮤직비디오";
 "music_videos_empty_hint" = "음악 소스의 동영상 파일과 이름이 같은 뮤직비디오가 있는 노래가 여기에 표시됩니다.";
+"playback_open_now_playing_on_play" = "노래를 선택하면 재생 화면 열기";
+"music_video_starts_full_screen" = "뮤직비디오를 전체 화면으로 재생";
+"music_video_starts_full_screen_hint" = "선택한 뮤직비디오를 전체 화면으로 재생합니다. 끄면 재생 화면이 열립니다.";

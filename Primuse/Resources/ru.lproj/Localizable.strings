@@ -7731,3 +7731,6 @@
 "library_music_videos_title" = "Клипы";
 "music_videos_count" = "клипов";
 "music_videos_empty_hint" = "Здесь появятся видеофайлы из ваших источников музыки и песни с одноимённым клипом.";
+"playback_open_now_playing_on_play" = "Открывать экран воспроизведения после выбора песни";
+"music_video_starts_full_screen" = "Воспроизводить клипы на весь экран";
+"music_video_starts_full_screen_hint" = "Выбранный клип открывается на весь экран. Если выключено, открывается экран воспроизведения.";

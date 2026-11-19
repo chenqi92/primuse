@@ -2232,6 +2232,18 @@ extension AudioPlayerService {
         // A one-song request (Siri, CarPlay, search) shows its similar songs
         // in Up Next right away instead of after the first song has loaded.
         scheduleAutoContinuationIfNeeded()
+        #if os(macOS)
+        // 点了一首:主窗口按设置打开播放页,点的是 MV 就进全屏。播放器自己续播有声书、
+        // 同步服务端进度时也走这里,那些不算用户点歌。
+        let callerFile = caller.split(separator: "/").last ?? Substring(caller)
+        if !callerFile.hasPrefix("AudioPlayerService") {
+            NotificationCenter.default.post(
+                name: .primuseUserDidStartPlayback,
+                object: selectedSong.id,
+                userInfo: [PrimuseUserPlaybackStart.musicVideoKey: usesVideoPipeline(for: selectedSong)]
+            )
+        }
+        #endif
         guard decision == .startSelectedItem else {
             plog("🎶 queue selection reused active transport for '\(selectedSong.title)'")
             if let skippedSourceID { await announceSkippedUnreachableSource(skippedSourceID) }
@@ -2952,4 +2964,14 @@ extension AudioPlayerService {
 /// answering, or it answers too slowly to keep up.
 struct PlaybackConnectivityFailure: Error {
     var failure: RemoteReadFailure = .noConnection
+}
+
+extension Notification.Name {
+    /// 用户点了一首开始播放(列表、搜索、侧栏、Spotlight 这类入口;自动切歌、恢复上次播放不发)。
+    /// object 是那首歌的 id,userInfo 的 `PrimuseUserPlaybackStart.musicVideoKey` 说它是不是按 MV 放。
+    static let primuseUserDidStartPlayback = Notification.Name("primuse.userDidStartPlayback")
+}
+
+enum PrimuseUserPlaybackStart {
+    static let musicVideoKey = "musicVideo"
 }

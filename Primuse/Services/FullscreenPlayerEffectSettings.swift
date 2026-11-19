@@ -233,6 +233,13 @@ enum PlayerAppearancePreferences {
     static let pinsMiniPlayerKey = "primuse.player.pinsMiniPlayer"
     static let pinsMiniPlayerByDefault = false
 
+    /// Mac:点歌之后打开播放页。默认关,点歌仍停在当前页。
+    static let opensNowPlayingOnPlayKey = "primuse.player.opensNowPlayingOnPlay"
+    static let opensNowPlayingOnPlayByDefault = false
+    /// Mac:点的是 MV 时直接全屏播放;关掉时只打开播放页。
+    static let musicVideoStartsFullScreenKey = "primuse.player.musicVideoStartsFullScreen"
+    static let musicVideoStartsFullScreenByDefault = true
+
     static var supportsMiniPlayerPinning: Bool {
         #if os(iOS)
         if #available(iOS 26.1, *) { return true }

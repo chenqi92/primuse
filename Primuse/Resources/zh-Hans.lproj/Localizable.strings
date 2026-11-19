@@ -7918,3 +7918,6 @@
 "library_music_videos_title" = "MV";
 "music_videos_count" = "个 MV";
 "music_videos_empty_hint" = "音乐源里的视频文件、带同名 MV 的歌曲会出现在这里。";
+"playback_open_now_playing_on_play" = "点歌后打开播放页";
+"music_video_starts_full_screen" = "MV 直接全屏播放";
+"music_video_starts_full_screen_hint" = "点播 MV 时直接进入全屏；关闭后改为打开播放页。";

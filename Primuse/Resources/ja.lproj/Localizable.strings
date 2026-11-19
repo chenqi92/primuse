@@ -7826,3 +7826,6 @@
 "library_music_videos_title" = "ミュージックビデオ";
 "music_videos_count" = "本のミュージックビデオ";
 "music_videos_empty_hint" = "音楽ソース内の動画ファイルや、同名のミュージックビデオがある曲がここに表示されます。";
+"playback_open_now_playing_on_play" = "曲を選んだら再生画面を開く";
+"music_video_starts_full_screen" = "ミュージックビデオをフルスクリーンで再生";
+"music_video_starts_full_screen_hint" = "選んだミュージックビデオはフルスクリーンで再生します。オフにすると再生画面を開きます。";

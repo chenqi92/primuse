@@ -7731,3 +7731,6 @@
 "library_music_videos_title" = "มิวสิกวิดีโอ";
 "music_videos_count" = "มิวสิกวิดีโอ";
 "music_videos_empty_hint" = "ไฟล์วิดีโอในแหล่งเพลงของคุณ และเพลงที่มีมิวสิกวิดีโอชื่อเดียวกันจะแสดงที่นี่";
+"playback_open_now_playing_on_play" = "เปิดหน้ากำลังเล่นหลังเลือกเพลง";
+"music_video_starts_full_screen" = "เล่นมิวสิกวิดีโอแบบเต็มจอ";
+"music_video_starts_full_screen_hint" = "เมื่อเลือกมิวสิกวิดีโอจะเล่นแบบเต็มจอ ถ้าปิดไว้จะเปิดหน้ากำลังเล่นแทน";

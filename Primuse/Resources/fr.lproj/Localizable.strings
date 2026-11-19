@@ -7825,3 +7825,6 @@
 "library_music_videos_title" = "Clips";
 "music_videos_count" = "clips";
 "music_videos_empty_hint" = "Les fichiers vidéo de vos sources musicales et les morceaux accompagnés d’un clip du même nom apparaissent ici.";
+"playback_open_now_playing_on_play" = "Ouvrir « À l’écoute » après le choix d’un morceau";
+"music_video_starts_full_screen" = "Lire les clips en plein écran";
+"music_video_starts_full_screen_hint" = "Un clip choisi se lance en plein écran. Si désactivé, « À l’écoute » s’ouvre à la place.";

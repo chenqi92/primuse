@@ -553,6 +553,10 @@ struct MacContentView: View {
         }
         .background {
             MacAuthoritativeSongRemovalObserver(onSongsRemoved: enqueuePlaybackReconciliation)
+            MacPlaybackStartPresenter(
+                openPlayer: openNowPlayingAfterUserPlayback,
+                enterMusicVideoFullScreen: enterMusicVideoFullScreenAfterUserPlayback
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseSidebarRequestNewPlaylist)) { _ in
             newPlaylistName = ""
@@ -752,6 +756,21 @@ struct MacContentView: View {
             }
             window.toggleFullScreen(nil)
         }
+    }
+
+    /// 点歌之后打开播放页(设置里开了「点歌后打开播放页」,或点的是 MV 而没选直接全屏)。
+    private func openNowPlayingAfterUserPlayback() {
+        guard !nowPlayingPresented else { return }
+        pmWithAnimation(.panel) {
+            nowPlayingPresented = true
+            queuePresented = false
+        }
+    }
+
+    /// 点的是 MV:视频管线接手后直接全屏播放。已经在全屏播放页里就不再动。
+    private func enterMusicVideoFullScreenAfterUserPlayback() {
+        guard library.isReady, !isFullScreenNowPlaying else { return }
+        enterFullScreenPlayer(in: hostWindow)
     }
 
     /// 全屏播放页铺满窗口:右侧的队列、推荐和底栏的效果面板都收起。
@@ -1362,6 +1381,63 @@ private struct MacAuthoritativeSongRemovalObserver: View {
                 guard !songIDs.isEmpty else { return }
                 onSongsRemoved(songIDs)
             }
+    }
+}
+
+/// 点歌之后要不要把播放页拉出来。设置里开了「点歌后打开播放页」就打开;点的是 MV 时,开着
+/// 「MV 直接全屏」就等视频管线接手再进全屏,关着也至少打开播放页,画面不会藏在底栏后面。
+/// 只有用户点选的那条路(`play(queue:)`)发通知,自动切下一首、恢复上次播放不会走到这里。
+private struct MacPlaybackStartPresenter: View {
+    @Environment(AudioPlayerService.self) private var player
+    @AppStorage(PlayerAppearancePreferences.opensNowPlayingOnPlayKey)
+    private var opensNowPlayingOnPlay = PlayerAppearancePreferences.opensNowPlayingOnPlayByDefault
+    @AppStorage(PlayerAppearancePreferences.musicVideoStartsFullScreenKey)
+    private var musicVideoStartsFullScreen = PlayerAppearancePreferences.musicVideoStartsFullScreenByDefault
+    let openPlayer: @MainActor () -> Void
+    let enterMusicVideoFullScreen: @MainActor () -> Void
+    @State private var fullScreenTask: Task<Void, Never>?
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onReceive(NotificationCenter.default.publisher(for: .primuseUserDidStartPlayback)) { note in
+                // 快捷指令、Siri 在后台点的歌不把窗口拉到前面来。
+                guard NSApp.isActive, let songID = note.object as? String else { return }
+                let isMusicVideo = note.userInfo?[PrimuseUserPlaybackStart.musicVideoKey] as? Bool ?? false
+                handleStart(songID: songID, isMusicVideo: isMusicVideo)
+            }
+            .onDisappear { fullScreenTask?.cancel() }
+    }
+
+    private func handleStart(songID: String, isMusicVideo: Bool) {
+        fullScreenTask?.cancel()
+        fullScreenTask = nil
+        guard isMusicVideo else {
+            if opensNowPlayingOnPlay { openPlayer() }
+            return
+        }
+        guard musicVideoStartsFullScreen else {
+            openPlayer()
+            return
+        }
+        fullScreenTask = Task { @MainActor in
+            // 全屏 MV 舞台只在进全屏那一刻看这首是不是 MV:等它装上(载入中、准备视频或已出画面)再进。
+            for _ in 0..<50 {
+                if Task.isCancelled { return }
+                if player.currentSong?.id == songID,
+                   player.isLoading || player.isMusicVideoPlaybackActive || player.pendingMusicVideoPlayID != nil {
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard !Task.isCancelled, player.currentSong?.id == songID else { return }
+            if player.isLoading || player.isMusicVideoPlaybackActive || player.pendingMusicVideoPlayID != nil {
+                enterMusicVideoFullScreen()
+            } else {
+                // 视频没起来(退回只放声音):不进全屏,打开播放页。
+                openPlayer()
+            }
+        }
     }
 }
 

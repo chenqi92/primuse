@@ -7731,3 +7731,6 @@
 "library_music_videos_title" = "Müzik Videoları";
 "music_videos_count" = "müzik videosu";
 "music_videos_empty_hint" = "Müzik kaynaklarınızdaki video dosyaları ve aynı adlı müzik videosu olan şarkılar burada görünür.";
+"playback_open_now_playing_on_play" = "Şarkı seçince Şimdi Çalıyor’u aç";
+"music_video_starts_full_screen" = "Müzik videolarını tam ekranda oynat";
+"music_video_starts_full_screen_hint" = "Bir müzik videosu seçtiğinizde tam ekranda oynatılır. Kapalıyken Şimdi Çalıyor açılır.";
