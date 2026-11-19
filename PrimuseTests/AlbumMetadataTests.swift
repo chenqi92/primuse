@@ -220,9 +220,12 @@ final class AlbumMetadataTests: XCTestCase {
         let order = [.recentlyAdded] + HomeSectionConfiguration.defaultOrder.filter { $0 != .recentlyAdded }
         defaults.set(HomeSectionConfiguration.encode(order), forKey: HomeSectionConfiguration.orderKey)
         let model = HomeView.Model()
+        await model.prewarm(library: library, sources: sources, cache: cache, defaults: defaults)
+        XCTAssertTrue(model.isPrepared)
+        XCTAssertTrue(library.songs.isEmpty)
         let home = startupLibraryView(HomeView(model: model, openLibrarySongs: {}, initialSnapshotCache: cache),
             library: library, sources: sources, player: player, defaults: defaults, directory: directory)
-            .environment(AppServices.shared.updateChecker).environment(\.scenePhase, .active)
+            .environment(AppServices.shared.updateChecker).environment(\.scenePhase, .inactive)
         let homeStart = ProcessInfo.processInfo.systemUptime
         let homeWindow = try show(home, size: CGSize(width: 430, height: 880))
         defer { homeWindow.isHidden = true; homeWindow.rootViewController = nil }
@@ -251,6 +254,14 @@ final class AlbumMetadataTests: XCTestCase {
         }
         XCTAssertFalse(library.isReady)
         XCTAssertTrue(library.songs.isEmpty)
+        sources.setEnabledOnThisDevice("source", false)
+        let hiddenWindow = try show(home, size: CGSize(width: 430, height: 880))
+        defer { hiddenWindow.isHidden = true; hiddenWindow.rootViewController = nil }
+        XCTAssertFalse(try recognizedText(hiddenWindow, name: "cached-home-source-disabled")
+            .localizedCaseInsensitiveContains("CobaltAtlas"))
+        let disabled = HomeView.Model()
+        await disabled.prewarm(library: library, sources: sources, cache: cache, defaults: defaults)
+        XCTAssertFalse(disabled.isPrepared)
         print("PRESENTATION_CACHE_FRAME songs=\(count) homeSeconds=\(homeCapture) hubObservedBySeconds=\(hubCapture)")
     }
 
