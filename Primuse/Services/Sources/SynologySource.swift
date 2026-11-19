@@ -191,6 +191,13 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, Pa
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         try await connect()
+        // File Station 的 list 不收 "/";根这一层是共享文件夹,和选目录页、电视端一样走 list_share。
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "/" {
+            return try await api.listSharedFolders().map {
+                RemoteFileItem(name: $0.name, path: $0.path, isDirectory: true, size: 0, modifiedDate: nil)
+            }
+        }
         return try await api.listDirectory(path: path).map {
             RemoteFileItem(
                 name: $0.name,

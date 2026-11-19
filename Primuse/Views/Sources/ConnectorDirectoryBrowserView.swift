@@ -37,7 +37,7 @@ struct ConnectorDirectoryBrowserView: View {
                 rootTitle: source.basePath ?? source.name,
                 selectedDirectories: policySelectedDirectories,
                 load: { path in
-                    try await ensureInsecureHTTPAccess()
+                    try await DirectoryBrowserTransportTrust.ensureInsecureHTTPAccess(for: source)
                     try await connector.connect()
                     let loaded = try await connector.listFiles(at: path)
                     await MainActor.run {
@@ -151,18 +151,6 @@ struct ConnectorDirectoryBrowserView: View {
             hasLoadedRoot = true
             loadDirectory()
         }
-    }
-
-    private func promptSSLTrust(for error: Error) async -> Bool {
-        guard let domain = SSLTrustStore.sslErrorDomain(from: error) else { return false }
-        return await SSLTrustStore.shared.requestTrust(domain: domain)
-    }
-
-    private func promptTransportTrust(for error: Error) async -> Bool {
-        if case TrustedHTTPTransportError.permissionRequired(let host) = error {
-            return await promptInsecureHTTPTrust(host: host)
-        }
-        return await promptSSLTrust(for: error)
     }
 
     private var directoryList: some View {
@@ -354,7 +342,7 @@ struct ConnectorDirectoryBrowserView: View {
                 isLoading = false
             } catch {
                 guard !Task.isCancelled, navigation.accepts(request) else { return }
-                let trusted = await promptTransportTrust(for: error)
+                let trusted = await DirectoryBrowserTransportTrust.promptTrust(for: error)
                 guard !Task.isCancelled, navigation.accepts(request) else { return }
                 if trusted {
                     do {
@@ -410,42 +398,10 @@ struct ConnectorDirectoryBrowserView: View {
             browserPath: path
         )
         return try await DirectoryBrowserNetworkRetry.loadWithLocalNetworkAuthorizationGrace {
-            try await ensureInsecureHTTPAccess()
+            try await DirectoryBrowserTransportTrust.ensureInsecureHTTPAccess(for: source)
             try await connector.connect()
             return try await connector.listFiles(at: connectorPath)
         }
-    }
-
-    private func ensureInsecureHTTPAccess() async throws {
-        guard Self.usesHTTPTransport(source.type),
-              let url = NetworkURLBuilder.baseURL(
-                  host: source.host ?? "",
-                  scheme: source.useSsl ? "https" : "http",
-                  port: source.port
-              ),
-              TrustedHTTPTransport.requiresPlainSocket(for: url),
-              let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
-              !SSLTrustStore.shared.allowsInsecureHTTP(domain: trustTarget) else {
-            return
-        }
-
-        let approved = await promptInsecureHTTPTrust(host: trustTarget)
-        guard approved else {
-            throw TrustedHTTPTransportError.permissionRequired(host: trustTarget)
-        }
-    }
-
-    private static func usesHTTPTransport(_ type: MusicSourceType) -> Bool {
-        switch type {
-        case .qnap, .ugreen, .fnos, .webdav, .s3:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func promptInsecureHTTPTrust(host: String) async -> Bool {
-        await SSLTrustStore.shared.requestInsecureHTTPTrust(domain: host)
     }
 
     private var policySelectedDirectories: Binding<[String]> {
@@ -488,5 +444,47 @@ struct ConnectorDirectoryBrowserView: View {
             }
         }
         sourcesStore.mergeDirectoryDisplayNames(names, sourceID: source.id)
+    }
+}
+
+/// 列目录前后要用户点头的两件事:明文 HTTP 的公网地址先问一次;证书不受信或明文被拦时
+/// 弹信任询问,点了信任再列一次。选目录页和文件页共用,免得一边列得出、一边读不出。
+@MainActor
+enum DirectoryBrowserTransportTrust {
+    static func ensureInsecureHTTPAccess(for source: MusicSource) async throws {
+        guard usesHTTPTransport(source.type),
+              let url = NetworkURLBuilder.baseURL(
+                  host: source.host ?? "",
+                  scheme: source.useSsl ? "https" : "http",
+                  port: source.port
+              ),
+              TrustedHTTPTransport.requiresPlainSocket(for: url),
+              let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
+              !SSLTrustStore.shared.allowsInsecureHTTP(domain: trustTarget) else {
+            return
+        }
+
+        let approved = await SSLTrustStore.shared.requestInsecureHTTPTrust(domain: trustTarget)
+        guard approved else {
+            throw TrustedHTTPTransportError.permissionRequired(host: trustTarget)
+        }
+    }
+
+    /// 出错后问一次信任;返回 true 表示用户信任了,值得再列一次。
+    static func promptTrust(for error: Error) async -> Bool {
+        if case TrustedHTTPTransportError.permissionRequired(let host) = error {
+            return await SSLTrustStore.shared.requestInsecureHTTPTrust(domain: host)
+        }
+        guard let domain = SSLTrustStore.sslErrorDomain(from: error) else { return false }
+        return await SSLTrustStore.shared.requestTrust(domain: domain)
+    }
+
+    private static func usesHTTPTransport(_ type: MusicSourceType) -> Bool {
+        switch type {
+        case .qnap, .ugreen, .fnos, .webdav, .s3:
+            return true
+        default:
+            return false
+        }
     }
 }

@@ -283,7 +283,10 @@ struct SourceFolderPage: View {
                 }
             )
         }
-        .sourceDetailSheets(source: current, actions: actions, presented: $sheet)
+        .sourceDetailSheets(source: current, actions: actions, presented: $sheet) {
+            // 重新连过或改过地址:读不出来的这一层再列一次。
+            load()
+        }
         .sourceFolderActions(source: current, action: $folderAction) { message in
             fileDidChange()
             toasts.show(PMToastItem(
@@ -318,7 +321,9 @@ struct SourceFolderPage: View {
                 SourceFolderLoadFailure(
                     message: message,
                     onRetry: { load() },
-                    onDiagnose: { sheet = .diagnostics }
+                    onDiagnose: { sheet = .diagnostics },
+                    // 登录过期、两步验证、网盘重新授权都在连接页里办。
+                    onReconnect: { sheet = .connection }
                 )
             }
         case .loaded(let listing):
@@ -477,11 +482,15 @@ struct SourceFolderPage: View {
         let path = SourceDirectorySelectionPolicy.connectorPath(for: source.type, browserPath: location.path)
         loadTask = Task { @MainActor in
             do {
-                let items = try await DirectoryBrowserNetworkRetry.loadWithLocalNetworkAuthorizationGrace {
-                    // 网盘刚重新授权时要等新的账号身份落定,和选目录页用同一个入口。
-                    let connector = await sourceManager.connectorForDirectoryBrowsing(fallback: source).connector
-                    try await connector.connect()
-                    return try await connector.listFiles(at: path)
+                let items: [RemoteFileItem]
+                do {
+                    items = try await listItems(of: source, at: path)
+                } catch {
+                    // 证书不受信、明文 HTTP 没放行:和选目录页一样问一次,信任了再列。
+                    guard !Task.isCancelled,
+                          await DirectoryBrowserTransportTrust.promptTrust(for: error),
+                          !Task.isCancelled else { throw error }
+                    items = try await listItems(of: source, at: path)
                 }
                 guard !Task.isCancelled else { return }
                 if source.type.isCloudDrive {
@@ -502,6 +511,16 @@ struct SourceFolderPage: View {
                 guard !Task.isCancelled else { return }
                 phase = .failed(error.localizedDescription)
             }
+        }
+    }
+
+    private func listItems(of source: MusicSource, at path: String) async throws -> [RemoteFileItem] {
+        try await DirectoryBrowserNetworkRetry.loadWithLocalNetworkAuthorizationGrace {
+            try await DirectoryBrowserTransportTrust.ensureInsecureHTTPAccess(for: source)
+            // 网盘刚重新授权时要等新的账号身份落定,和选目录页用同一个入口。
+            let connector = await sourceManager.connectorForDirectoryBrowsing(fallback: source).connector
+            try await connector.connect()
+            return try await connector.listFiles(at: path)
         }
     }
 
@@ -902,6 +921,7 @@ private struct SourceFolderLoadFailure: View {
     let message: String
     let onRetry: () -> Void
     let onDiagnose: () -> Void
+    let onReconnect: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -913,13 +933,21 @@ private struct SourceFolderLoadFailure: View {
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 16) {
-                Button("retry", action: onRetry)
-                Button("source_diagnostics", action: onDiagnose)
+            // 德语等三个按钮排不下一行时竖着排。
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) { buttons }
+                VStack(alignment: .leading, spacing: 10) { buttons }
             }
             .font(.subheadline.weight(.semibold))
             .buttonStyle(.borderless)
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var buttons: some View {
+        Button("retry", action: onRetry)
+        Button("reconnect_browse", action: onReconnect)
+        Button("source_diagnostics", action: onDiagnose)
     }
 }

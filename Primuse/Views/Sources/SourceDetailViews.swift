@@ -45,8 +45,11 @@ struct SourceDetailSheets: ViewModifier {
     let source: MusicSource
     let actions: SourceDetailActions
     @Binding var presented: SourceDetailSheet?
+    /// 连接页或编辑表单关上以后(可能重新登录、改了地址),给详情页重新读一次的机会。
+    var onConnectionChanged: (() -> Void)?
 
     @State private var connectionWasOpen = false
+    @State private var editWasOpen = false
     @State private var editAfterConnection = false
 
     func body(content: Content) -> some View {
@@ -57,6 +60,7 @@ struct SourceDetailSheets: ViewModifier {
                     SourceDiagnosticsView(source: source)
                 case .edit:
                     actions.editSheet(source)
+                        .onAppear { editWasOpen = true }
                 case .connection:
                     actions.connectionSheet(source) {
                         editAfterConnection = true
@@ -70,6 +74,10 @@ struct SourceDetailSheets: ViewModifier {
     }
 
     private func didDismiss() {
+        if editWasOpen {
+            editWasOpen = false
+            onConnectionChanged?()
+        }
         guard connectionWasOpen else { return }
         connectionWasOpen = false
         actions.connectionSheetDidClose()
@@ -77,7 +85,9 @@ struct SourceDetailSheets: ViewModifier {
         if editAfterConnection {
             editAfterConnection = false
             presented = .edit
+            return
         }
+        onConnectionChanged?()
     }
 }
 
@@ -94,9 +104,15 @@ extension View {
     func sourceDetailSheets(
         source: MusicSource,
         actions: SourceDetailActions,
-        presented: Binding<SourceDetailSheet?>
+        presented: Binding<SourceDetailSheet?>,
+        onConnectionChanged: (() -> Void)? = nil
     ) -> some View {
-        modifier(SourceDetailSheets(source: source, actions: actions, presented: presented))
+        modifier(SourceDetailSheets(
+            source: source,
+            actions: actions,
+            presented: presented,
+            onConnectionChanged: onConnectionChanged
+        ))
     }
 }
 
