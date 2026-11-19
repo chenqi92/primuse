@@ -7258,6 +7258,7 @@
 "listening_scene_running_prompt" = "เพลงมีพลังสำหรับวิ่ง จังหวะสม่ำเสมอ หลีกเลี่ยงเพลงช้าและช่วงเงียบนาน";
 "listening_scene_studying_prompt" = "ดนตรีบรรเลงสงบสำหรับอ่านหนังสือ เสียงร้องน้อย ไม่เปลี่ยนอารมณ์ฉับพลัน ช่วยให้มีสมาธิ";
 
+"library_song_row_swipe_actions" = "การปัดแถวเพลงเพื่อแสดงคำสั่ง";
 "library_show_row_numbers" = "แสดงหมายเลขในคลัง";
 
 "spoken_chapters_manage" = "บท";

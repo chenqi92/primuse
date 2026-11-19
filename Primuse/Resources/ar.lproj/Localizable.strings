@@ -7258,6 +7258,7 @@
 "listening_scene_running_prompt" = "أغانٍ حماسية للجري بإيقاع ثابت. تجنّب الأغاني البطيئة والمقاطع الهادئة الطويلة.";
 "listening_scene_studying_prompt" = "موسيقى هادئة بلا كلمات للدراسة، بقليل من الغناء والتغيّرات المفاجئة، للمساعدة على التركيز.";
 
+"library_song_row_swipe_actions" = "إجراءات السحب على صف الأغنية";
 "library_show_row_numbers" = "إظهار أرقام الصفوف في المكتبة";
 
 "spoken_chapters_manage" = "الفصول";

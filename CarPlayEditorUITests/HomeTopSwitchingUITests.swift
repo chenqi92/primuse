@@ -151,23 +151,6 @@ final class HomeTopSwitchingUITests: XCTestCase {
         XCTAssertTrue(!anchor.exists || !anchor.isHittable || anchor.frame.midY < oldY - 25, "A vertical drag from a song must scroll the list")
     }
 
-    private func assertRevealedAction(_ title: String, in frame: CGRect, app: XCUIApplication) throws {
-        if app.buttons[title].firstMatch.isHittable { return }
-        // The song row can combine its accessibility children, hiding the rendered action from XCTest.
-        let shot = try XCTUnwrap(app.screenshot().image.cgImage)
-        let scale = CGFloat(shot.width) / app.frame.width
-        let crop = try XCTUnwrap(shot.cropping(to: frame.applying(.init(scaleX: scale, y: scale))))
-        let proof = XCTAttachment(image: UIImage(cgImage: crop))
-        proof.name = title
-        add(proof)
-        let request = VNRecognizeTextRequest()
-        request.recognitionLanguages = ["zh-Hans", "en-US"]
-        try VNImageRequestHandler(cgImage: crop).perform([request])
-        let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-            .joined().replacingOccurrences(of: " ", with: "")
-        XCTAssertTrue(text.contains(title), "The row did not reveal \(title)")
-    }
-
     private func verifyMusicSectionSwipes(mode: String, tabPrefix: String) {
         continueAfterFailure = false
         let app = configuredHomeRegressionApp()
@@ -991,7 +974,31 @@ final class LibrarySectionSwipeUITests: XCTestCase {
                       "Queue actions stay in the row menu when swipes page between categories")
     }
 
-    private func launch(page: String) -> XCUIApplication {
+    func testSongRowSwipePreferenceControlsBothDirections() throws {
+        for enabled in [false, true] {
+            let app = launch(page: "songs", extraArguments: [
+                "-primuse.library.sectionSwipe.v1", "NO",
+                "-primuse.library.songRowSwipeActions", enabled ? "YES" : "NO"
+            ])
+            var previousRowID: String?
+            for (distance, title) in [(CGFloat(105), "下一首播放"), (CGFloat(-105), "加入播放队列")] {
+                let row = middleSongRow(app, excluding: previousRowID)
+                previousRowID = row.identifier
+                let frame = row.frame
+                drag(app, from: row, by: distance)
+                let area = CGRect(x: distance > 0 ? frame.minX : frame.maxX - 115,
+                                  y: frame.minY, width: 115, height: frame.height)
+                try assertRevealedAction(title, in: area, app: app, visible: enabled)
+            }
+            if !enabled {
+                middleSongRow(app).press(forDuration: 1.2)
+                XCTAssertTrue(app.buttons["加入播放队列"].firstMatch.waitForExistence(timeout: 5))
+            }
+            app.terminate()
+        }
+    }
+
+    private func launch(page: String, extraArguments: [String] = []) -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
         app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "sectionSwipe"
@@ -1003,14 +1010,15 @@ final class LibrarySectionSwipeUITests: XCTestCase {
             "-primuse.hasSeenOnboarding", "YES", "-primuse.iCloudSyncEnabled", "NO",
             "-primuse.notifyLongTasks", "NO", "-primuse.launch.consecutiveAborts", "0",
             "-primuse.launch.safeModeLatched", "NO", "-primuse.launch.backgroundLaunchRepairDone", "NO",
-            "-primuse.library.sectionSwipe.v1", "YES",
             "-primuse.navigation.libraryPage.v1", "section:\(page)",
             "-primuse.library.sectionOrder.v1", "",
             "-primuse.library.hiddenSections.v1",
             String(decoding: try! JSONEncoder().encode(String(decoding: try! JSONEncoder().encode(hidden), as: UTF8.self)), as: UTF8.self),
             "-songListAppearance", "list", "-library.songBrowseMode", "flat", "-library.songFilter.v1", "all"
         ]
+        app.launchArguments += extraArguments.isEmpty ? ["-primuse.library.sectionSwipe.v1", "YES"] : extraArguments
         addTeardownBlock { @MainActor in
+            guard app.state != .notRunning else { return }
             if self.testRun?.hasSucceeded == false {
                 let shot = XCTAttachment(screenshot: app.screenshot())
                 shot.name = "section-swipe-failure"
@@ -1024,14 +1032,14 @@ final class LibrarySectionSwipeUITests: XCTestCase {
         return app
     }
 
-    private func middleSongRow(_ app: XCUIApplication) -> XCUIElement {
+    private func middleSongRow(_ app: XCUIApplication, excluding previousRowID: String? = nil) -> XCUIElement {
         let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "songRow."))
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 60))
         let screen = app.frame
         for index in 0..<min(20, rows.count) {
             let row = rows.element(boundBy: index)
             let frame = row.frame
-            if frame.width > screen.width / 2, frame.minY > screen.height * 0.4,
+            if row.identifier != previousRowID, frame.width > screen.width / 2, frame.minY > screen.height * 0.4,
                frame.maxY < screen.height * 0.75, row.isHittable {
                 return rows.matching(identifier: row.identifier).firstMatch
             }
@@ -1058,5 +1066,28 @@ final class LibrarySectionSwipeUITests: XCTestCase {
         }, object: nil)
         let result = XCTWaiter.wait(for: [matched], timeout: timeout)
         XCTAssertEqual(result, .completed, "\(message) (now: \(label.exists ? label.label : "missing"))", file: file, line: line)
+    }
+}
+
+@MainActor
+private extension XCTestCase {
+    func assertRevealedAction(_ title: String, in frame: CGRect, app: XCUIApplication, visible: Bool = true) throws {
+        if app.buttons[title].firstMatch.isHittable {
+            XCTAssertTrue(visible)
+            return
+        }
+        // The song row can combine its accessibility children, hiding the rendered action from XCTest.
+        let shot = try XCTUnwrap(app.screenshot().image.cgImage)
+        let scale = CGFloat(shot.width) / app.frame.width
+        let crop = try XCTUnwrap(shot.cropping(to: frame.applying(.init(scaleX: scale, y: scale))))
+        let proof = XCTAttachment(image: UIImage(cgImage: crop))
+        proof.name = title
+        add(proof)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLanguages = ["zh-Hans", "en-US"]
+        try VNImageRequestHandler(cgImage: crop).perform([request])
+        let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+            .joined().replacingOccurrences(of: " ", with: "")
+        XCTAssertEqual(text.contains(title), visible, "Unexpected visibility of \(title)")
     }
 }

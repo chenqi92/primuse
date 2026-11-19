@@ -7352,6 +7352,7 @@
 "listening_scene_running_prompt" = "Chansons énergiques au rythme régulier pour courir. Éviter les morceaux lents et les longues plages calmes.";
 "listening_scene_studying_prompt" = "Musique instrumentale douce pour étudier, peu de voix et de changements brusques, pour rester concentré.";
 
+"library_song_row_swipe_actions" = "Actions par balayage sur les morceaux";
 "library_show_row_numbers" = "Afficher les numéros dans la bibliothèque";
 
 "spoken_chapters_manage" = "Chapitres";

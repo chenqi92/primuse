@@ -7258,6 +7258,7 @@
 "listening_scene_running_prompt" = "Енергійні пісні для бігу з рівним ритмом. Без повільних пісень і довгих тихих уривків.";
 "listening_scene_studying_prompt" = "Спокійна інструментальна музика для навчання, мінімум вокалу та різких змін, щоб зосередитися.";
 
+"library_song_row_swipe_actions" = "Дії під час змахування рядка пісні";
 "library_show_row_numbers" = "Показувати номери в медіатеці";
 
 "spoken_chapters_manage" = "Розділи";

@@ -17,6 +17,11 @@ struct SongRowActionRequest: Identifiable {
 }
 
 struct SongRowView: View {
+    #if os(iOS)
+    @AppStorage(SongRowSwipePolicy.enabledKey) private var songRowSwipesEnabled = true
+    #else
+    private let songRowSwipesEnabled = true
+    #endif
     @AppStorage(LibraryRowNumberPreferences.storageKey)
     private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @Environment(SourceManager.self) private var sourceManager
@@ -622,7 +627,7 @@ struct SongRowView: View {
             songID: song.id,
             isEnabled: allowsQueueActions,
             clipsContent: listAppearance == .list,
-            allowsSwipe: listAppearance == .list && !swipeYieldsToSectionPaging,
+            allowsSwipe: offersRowSwipe,
             onInsertNext: { insertNextInQueue() },
             onAppendToQueue: { player.appendToQueue([song]) }
         )
@@ -742,6 +747,10 @@ struct SongRowView: View {
         queueSwipeActionsEnabled && canQueueSong
     }
 
+    private var offersRowSwipe: Bool {
+        songRowSwipesEnabled && listAppearance == .list && !swipeYieldsToSectionPaging
+    }
+
     /// 入队走播放器的同一个调用，菜单和滑动手势不各留一份。
     private func insertNextInQueue() {
         player.insertNextInQueue([song])
@@ -816,8 +825,7 @@ struct SongRowView: View {
             }
         }
 
-        // 时间线与封面外观没有横滑、分类页横划归翻页时也不横滑，横滑里的「加入队列」放进菜单。
-        if listAppearance != .list || swipeYieldsToSectionPaging, canQueueSong {
+        if !offersRowSwipe, canQueueSong {
             Button {
                 player.appendToQueue([song])
             } label: {

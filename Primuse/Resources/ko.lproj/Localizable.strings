@@ -7352,6 +7352,7 @@
 "listening_scene_running_prompt" = "달리기에 어울리는 일정한 리듬의 활기찬 곡. 느린 곡과 긴 조용한 구간은 피해 주세요.";
 "listening_scene_studying_prompt" = "공부에 집중할 수 있는 차분한 연주곡. 보컬과 급격한 변화가 적은 음악으로 골라 주세요.";
 
+"library_song_row_swipe_actions" = "곡 항목 쓸어넘기기 동작";
 "library_show_row_numbers" = "보관함 번호 표시";
 
 "spoken_chapters_manage" = "챕터";

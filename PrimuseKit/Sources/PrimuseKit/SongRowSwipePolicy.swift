@@ -40,6 +40,7 @@ public struct SongRowSwipeSample: Sendable, Equatable {
 /// from artwork, text, or trailing controls without waiting for a SwiftUI
 /// drag gesture to cancel.
 public enum SongRowSwipePolicy {
+    public static let enabledKey = "primuse.library.songRowSwipeActions"
     public static let minimumIntentDistance = 8.0
     public static let minimumIntentVelocity = 40.0
     public static let horizontalDominanceRatio = 1.25

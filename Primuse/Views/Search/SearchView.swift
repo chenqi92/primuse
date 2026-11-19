@@ -581,6 +581,7 @@ private struct AppleMusicActionFeedback: Equatable {
 }
 
 struct SearchView: View {
+    @AppStorage(SongRowSwipePolicy.enabledKey) private var songRowSwipesEnabled = true
     @Environment(AudioPlayerService.self) private var player
     /// 搜索结果这一层导航栈的 zoom 命名空间。
     @Namespace private var searchZoomNamespace
@@ -4015,6 +4016,7 @@ struct SearchView: View {
                         orderedIDs: { selectableSongIDs }
                     )
                     .searchResultSwipeActions(
+                        swipesEnabled: songRowSwipesEnabled,
                         queueActionsEnabled: result.song.isPlayable
                             && !selection.isActive,
                         onInsertNext: { player.insertNextInQueue([result.song]) },
@@ -4086,6 +4088,7 @@ struct SearchView: View {
                         orderedIDs: { selectableSongIDs }
                     )
                     .searchResultSwipeActions(
+                        swipesEnabled: songRowSwipesEnabled,
                         queueActionsEnabled: result.song.isPlayable
                             && !selection.isActive,
                         onInsertNext: { player.insertNextInQueue([result.song]) },
@@ -5214,13 +5217,21 @@ struct SearchView: View {
 private extension View {
     @ViewBuilder
     func searchResultSwipeActions<LibraryAction: View>(
+        swipesEnabled: Bool,
         queueActionsEnabled: Bool,
         onInsertNext: @escaping () -> Void,
         onAppendToQueue: @escaping () -> Void,
         @ViewBuilder showInLibrary: @escaping () -> LibraryAction
     ) -> some View {
         #if os(iOS)
-        if queueActionsEnabled {
+        if !swipesEnabled {
+            if queueActionsEnabled {
+                self.accessibilityAction(named: Text("insert_next"), onInsertNext)
+                    .accessibilityAction(named: Text("add_to_queue"), onAppendToQueue)
+            } else {
+                self
+            }
+        } else if queueActionsEnabled {
             self
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                     Button(action: onInsertNext) {

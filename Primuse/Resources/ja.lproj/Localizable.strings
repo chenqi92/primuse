@@ -7353,6 +7353,7 @@
 "listening_scene_running_prompt" = "ランニングに合う一定のリズムで元気な曲。ゆっくりした曲や長い静かな部分は避けてください。";
 "listening_scene_studying_prompt" = "勉強に集中できる穏やかなインスト曲。歌声や急な変化の少ない曲を選んでください。";
 
+"library_song_row_swipe_actions" = "曲の行のスワイプ操作";
 "library_show_row_numbers" = "ライブラリの番号を表示";
 
 "spoken_chapters_manage" = "チャプター";

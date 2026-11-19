@@ -7329,6 +7329,7 @@
 "listening_scene_running_prompt" = "適合跑步的節奏穩定、充滿活力的歌曲，避免緩慢和大段安靜的段落。";
 "listening_scene_studying_prompt" = "適合學習的舒緩純音樂，少人聲、少突變，不分散注意力。";
 
+"library_song_row_swipe_actions" = "歌曲列左右滑動操作";
 "library_show_row_numbers" = "顯示資料庫序號";
 
 "spoken_chapters_manage" = "章節管理";

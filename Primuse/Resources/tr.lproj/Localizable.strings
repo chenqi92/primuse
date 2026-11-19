@@ -7258,6 +7258,7 @@
 "listening_scene_running_prompt" = "Koşu için düzenli ritimli, enerjik şarkılar. Yavaş şarkılar ve uzun sakin bölümler olmasın.";
 "listening_scene_studying_prompt" = "Ders çalışmak için sakin enstrümantal müzik, az vokal ve ani değişimler olmadan, odaklanmaya yardımcı olsun.";
 
+"library_song_row_swipe_actions" = "Şarkı satırını kaydırma eylemleri";
 "library_show_row_numbers" = "Arşivde sıra numaralarını göster";
 
 "spoken_chapters_manage" = "Bölümler";

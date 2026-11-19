@@ -7258,6 +7258,7 @@
 "listening_scene_running_prompt" = "दौड़ने के लिए स्थिर ताल वाले ऊर्जावान गाने। धीमे गाने और लंबे शांत हिस्से न चुनें।";
 "listening_scene_studying_prompt" = "पढ़ाई के लिए शांत वाद्य संगीत, कम गायन और अचानक बदलाव के बिना, ताकि ध्यान बना रहे।";
 
+"library_song_row_swipe_actions" = "गाने की पंक्ति पर स्वाइप क्रियाएँ";
 "library_show_row_numbers" = "लाइब्रेरी में क्रमांक दिखाएँ";
 
 "spoken_chapters_manage" = "अध्याय";

@@ -7113,6 +7113,7 @@
 "listening_scene_running_prompt" = "Energetic songs for running with a steady rhythm. Avoid slow songs and long quiet passages.";
 "listening_scene_studying_prompt" = "Calm instrumental music for studying, with little singing or sudden changes, to help concentration.";
 
+"library_song_row_swipe_actions" = "Song Row Swipe Actions";
 "library_show_row_numbers" = "Show Library Row Numbers";
 
 "spoken_chapters_manage" = "Chapters";

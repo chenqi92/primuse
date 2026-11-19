@@ -1007,6 +1007,7 @@ private struct LibraryDisplaySettingsView: View {
     @State private var confirmsDiscardingWaitingMarks = false
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
     #if os(iOS)
+    @AppStorage(SongRowSwipePolicy.enabledKey) private var songRowSwipesEnabled = true
     @AppStorage(CollectionCoverWall.preferenceKey) private var usesPlaylistCoverWall = CollectionCoverWall.defaultEnabled
     @AppStorage(PlaylistDetailDisplayPreferences.coverTintKey)
     private var tintsPlaylistFromCover = PlaylistDetailDisplayPreferences.coverTintByDefault
@@ -1079,6 +1080,11 @@ private struct LibraryDisplaySettingsView: View {
                 Toggle("library_show_row_numbers", isOn: $showsRowNumbers)
                     .settingsAnchor("library.showRowNumbers")
                     .accessibilityIdentifier("library.showRowNumbers")
+                #if os(iOS)
+                Toggle("library_song_row_swipe_actions", isOn: $songRowSwipesEnabled)
+                    .settingsAnchor("library.songRowSwipeActions")
+                    .accessibilityIdentifier("library.songRowSwipeActions")
+                #endif
             }
 
             Section {

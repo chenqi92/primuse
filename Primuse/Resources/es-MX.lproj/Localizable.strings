@@ -7258,6 +7258,7 @@
 "listening_scene_running_prompt" = "Canciones enérgicas para correr con ritmo constante. Evitar canciones lentas y pasajes largos de calma.";
 "listening_scene_studying_prompt" = "Música instrumental tranquila para estudiar, con pocas voces y sin cambios bruscos, para concentrarse.";
 
+"library_song_row_swipe_actions" = "Acciones al deslizar canciones";
 "library_show_row_numbers" = "Mostrar números de fila en la biblioteca";
 
 "spoken_chapters_manage" = "Capítulos";

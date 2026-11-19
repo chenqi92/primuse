@@ -7352,6 +7352,7 @@
 "listening_scene_running_prompt" = "Energiegeladene Lieder zum Laufen mit gleichmäßigem Rhythmus. Keine langsamen Lieder oder langen ruhigen Passagen.";
 "listening_scene_studying_prompt" = "Ruhige Instrumentalmusik zum Lernen, wenig Gesang und keine plötzlichen Wechsel, für mehr Konzentration.";
 
+"library_song_row_swipe_actions" = "Streichaktionen für Titelzeilen";
 "library_show_row_numbers" = "Zeilennummern in der Mediathek anzeigen";
 
 "spoken_chapters_manage" = "Kapitel";

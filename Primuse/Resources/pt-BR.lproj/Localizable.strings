@@ -7258,6 +7258,7 @@
 "listening_scene_running_prompt" = "Músicas animadas para correr, com ritmo constante. Evitar faixas lentas e longos trechos calmos.";
 "listening_scene_studying_prompt" = "Música instrumental calma para estudar, com poucas vozes e sem mudanças bruscas, para manter a concentração.";
 
+"library_song_row_swipe_actions" = "Ações ao deslizar faixas";
 "library_show_row_numbers" = "Mostrar números na biblioteca";
 
 "spoken_chapters_manage" = "Capítulos";
