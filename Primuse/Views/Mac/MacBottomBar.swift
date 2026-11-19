@@ -82,8 +82,9 @@ struct MacBottomBar: View {
 
     private var leftColumn: some View {
         HStack(spacing: 10) {
-            coverThumb
-                .onTapGesture { onToggleNowPlaying() }
+            MacBottomBarCoverButton(isExpanded: isExpanded, action: onToggleNowPlaying) {
+                coverThumb
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -136,7 +137,6 @@ struct MacBottomBar: View {
                 CoverArtView(data: nil, size: 48, cornerRadius: 5)
             }
         }
-        .help(Text(isExpanded ? "close" : "now_playing"))
     }
 
     private var isSpokenWord: Bool {
@@ -754,6 +754,42 @@ enum MacListeningSpaceStyle {
     @MainActor
     static func color(for space: ListeningSpace) -> Color {
         space.tint
+    }
+}
+
+/// 底栏左边的封面:点一下展开或收起播放页。指上去时封面微微放大、压暗,中间亮出展开/收起的箭头,
+/// 手形指针提示能点。悬停状态记在这里,不让整条底栏跟着重算。
+private struct MacBottomBarCoverButton<Cover: View>: View {
+    let isExpanded: Bool
+    let action: () -> Void
+    @ViewBuilder let cover: Cover
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            cover
+                .overlay {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.black.opacity(hovering ? 0.34 : 0))
+                }
+                .overlay {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                        .opacity(hovering ? 1 : 0)
+                }
+                .scaleEffect(hovering && !reduceMotion ? 1.05 : 1)
+                .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .pmPointingHand()
+        .onHover { isHovering in
+            pmWithAnimation(.hover) { hovering = isHovering }
+        }
+        .help(Text(isExpanded ? "close" : "now_playing"))
+        .accessibilityLabel(Text(isExpanded ? "close" : "now_playing"))
     }
 }
 
