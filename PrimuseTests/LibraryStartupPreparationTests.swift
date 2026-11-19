@@ -288,6 +288,10 @@ final class LibraryStartupPreparationTests: XCTestCase {
         library.publish(prepared)
         XCTAssertTrue(library.isReady)
         XCTAssertEqual(library.visibleSongs.count, 4)
+        let musicLookup = try XCTUnwrap(library.searchSongSnapshot().lookup)
+        XCTAssertEqual(Set(songs.compactMap { musicLookup($0.id)?.id }), Set(library.musicSongs.map(\.id)))
+        let visibleLookup = try XCTUnwrap(library.searchSongSnapshot(musicOnly: false).lookup)
+        XCTAssertEqual(Set(songs.compactMap { visibleLookup($0.id)?.id }), Set(library.visibleSongs.map(\.id)))
     }
 
     func testUnchangedStartupClassificationDoesNotRepublishVisibleLibrary() async throws {

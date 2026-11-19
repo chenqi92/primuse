@@ -492,6 +492,7 @@ enum LibrarySearchWorker {
         cache: LibrarySearchCache,
         includeMetadata: Bool = true,
         includeLyrics: Bool = true,
+        excluding excluded: Set<String> = [],
         matchKinds: Set<LibrarySearchMatchKind> = LibrarySearchMatchKind.all,
         songLimit: Int = 120,
         albumLimit: Int = 10
@@ -509,10 +510,19 @@ enum LibrarySearchWorker {
         let localLyricsFiles = shouldSearchLyrics
             ? (try? FileManager.default.contentsOfDirectory(atPath: MetadataAssetStore.shared.lyricsDirectoryURL.path)).map(Set.init)
             : nil
-        var rankedSongs: [LibrarySearchResult] = []
-        rankedSongs.reserveCapacity(min(songs.count, songLimit * 2))
-        for song in songs {
+        func rank(_ lhs: LibrarySearchResult, _ rhs: LibrarySearchResult) -> ComparisonResult {
+            if lhs.score != rhs.score { return lhs.score > rhs.score ? .orderedAscending : .orderedDescending }
+            return lhs.song.title.localizedCaseInsensitiveCompare(rhs.song.title)
+        }
+        let limited = songLimit < songs.count
+        var top = TopKBuffer<(offset: Int, hit: LibrarySearchResult)>(limit: songLimit) { lhs, rhs in
+            let order = rank(lhs.hit, rhs.hit)
+            return order == .orderedSame ? lhs.offset < rhs.offset : order == .orderedAscending
+        }
+        var all: [LibrarySearchResult] = []
+        for (offset, song) in songs.enumerated() {
             guard !Task.isCancelled else { break }
+            guard !excluded.contains(song.id) else { continue }
             var bestScore = 0
             var bestKind: LibrarySearchMatchKind?
             var lyricSnippet: String?
@@ -568,19 +578,17 @@ enum LibrarySearchWorker {
             }
 
             guard let bestKind else { continue }
-            rankedSongs.append(LibrarySearchResult(
+            let hit = LibrarySearchResult(
                 song: song,
                 matchKind: bestKind,
                 score: bestScore,
                 lyricSnippet: lyricSnippet,
                 lyricTimestamp: lyricTimestamp
-            ))
+            )
+            if limited { top.insert((offset, hit)) } else { all.append(hit) }
         }
 
-        let songResults = Array(rankedSongs.sorted { lhs, rhs in
-            if lhs.score != rhs.score { return lhs.score > rhs.score }
-            return lhs.song.title.localizedCaseInsensitiveCompare(rhs.song.title) == .orderedAscending
-        }.prefix(songLimit))
+        let songResults = limited ? top.sorted().map(\.hit) : all.sorted { rank($0, $1) == .orderedAscending }
 
         let albumResults = includeMetadata
             ? searchAlbums(query: query, albums: albums, limit: albumLimit)
@@ -842,6 +850,33 @@ struct LibraryIndexedSearchOutput: Sendable {
     var lyricsIndexComplete: Bool
 }
 
+struct LibrarySearchSongSnapshot: Sendable {
+    let songs: [Song]
+    let lookup: (@Sendable (String) -> Song?)?
+
+    init(_ songs: [Song], lookup: (@Sendable (String) -> Song?)? = nil) {
+        self.songs = songs
+        self.lookup = lookup
+    }
+
+    fileprivate func matches(ids: Set<String>, excluding excluded: Set<String>) throws -> [String: Song] {
+        var needed = ids.subtracting(excluded)
+        guard !needed.isEmpty else { return [:] }
+        var matches: [String: Song] = [:]
+        if let lookup {
+            for id in needed { matches[id] = lookup(id) }
+        } else {
+            // Custom and legacy snapshots may contain duplicate IDs. Keep their first occurrence.
+            for (offset, song) in songs.enumerated() {
+                if offset.isMultiple(of: 512) { try Task.checkCancellation() }
+                if needed.remove(song.id) != nil { matches[song.id] = song }
+                if needed.isEmpty { break }
+            }
+        }
+        return matches
+    }
+}
+
 /// 后台整理资料库时高频写的记账: 搜索索引、Spotlight、补读队列的代次与待办标记。
 ///
 /// 它们不放在 `UserDefaults.standard` 里。键名带点号的 `@AppStorage` 只能监听
@@ -909,8 +944,6 @@ actor LibrarySearchIndex {
     private let metadataBatchDidWriteForTesting: (@Sendable (Int) async -> Void)?
     private let lyricsBatchDidWriteForTesting: (@Sendable (Int) async -> Void)?
     private var lastMetadataRevisionKey: String?
-    private var projectionSongIDs: [String] = []
-    private var projectionIndexByID: [String: Int] = [:]
     private struct SearchDisplayPath {
         let filePath: String
         let sourceID: String
@@ -922,10 +955,7 @@ actor LibrarySearchIndex {
     private var searchDisplayPaths: [String: SearchDisplayPath] = [:]
     private static let searchDisplayPathLimit = 4_096
 
-    /// 搜索页关掉、退到后台、内存告警时调用。下一次搜索按需重建投影, 在这个 actor 上做, 不占主线程。
     func releaseReadCaches() {
-        projectionSongIDs = []
-        projectionIndexByID = [:]
         searchDisplayPaths = [:]
     }
     private var isPreparing = false
@@ -1224,8 +1254,6 @@ actor LibrarySearchIndex {
     /// for first launch, schema migration, or crash recovery. Routine library
     /// mutations enter through `applyChanges` and touch only changed rows.
     func prepare(songs: [Song], generation: Int) async {
-        projectionSongIDs = []
-        projectionIndexByID = [:]
         guard dbPool != nil, !Task.isCancelled, Self.isPreparationPending() else { return }
         pendingFullPreparation = PendingFullPreparation(
             songs: songs,
@@ -1243,8 +1271,6 @@ actor LibrarySearchIndex {
         deletingIDs: Set<String>,
         generation: Int
     ) async {
-        projectionSongIDs = []
-        projectionIndexByID = [:]
         guard dbPool != nil, !upserts.isEmpty || !deletingIDs.isEmpty else { return }
         pendingSearchDelta.merge(
             upserts: upserts,
@@ -1377,8 +1403,6 @@ actor LibrarySearchIndex {
         }
     }
 
-    /// Search a fully indexed snapshot. Metadata and display-path synchronization
-    /// are cheap on normal queries because stable fingerprints avoid writes and ICU.
     func search(
         query: String,
         songs: [Song],
@@ -1387,6 +1411,17 @@ actor LibrarySearchIndex {
         matchKinds: Set<LibrarySearchMatchKind> = LibrarySearchMatchKind.all,
         songLimit: Int = 120,
         albumLimit: Int = 10
+    ) async -> LibraryIndexedSearchOutput? {
+        await search(query: query, snapshot: LibrarySearchSongSnapshot(songs), albums: albums,
+                     metadataRevisionKey: metadataRevisionKey, matchKinds: matchKinds,
+                     songLimit: songLimit, albumLimit: albumLimit)
+    }
+
+    func search(
+        query: String, snapshot: LibrarySearchSongSnapshot, albums: [Album],
+        metadataRevisionKey: String, excluding excluded: Set<String> = [],
+        matchKinds: Set<LibrarySearchMatchKind> = LibrarySearchMatchKind.all,
+        songLimit: Int = 120, albumLimit: Int = 10
     ) async -> LibraryIndexedSearchOutput? {
         guard let pool = dbPool else { return nil }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1407,27 +1442,14 @@ actor LibrarySearchIndex {
         lastMetadataRevisionKey = metadataRevisionKey
 
         do {
-            if projectionSongIDs.count != songs.count
-                || !zip(projectionSongIDs, songs).allSatisfy({ $0.0 == $0.1.id }) {
-                var index: [String: Int] = [:]
-                index.reserveCapacity(songs.count)
-                for (offset, song) in songs.enumerated() where index[song.id] == nil {
-                    if offset % 512 == 0 { try Task.checkCancellation() }
-                    index[song.id] = offset
-                }
-                projectionSongIDs = songs.map(\.id)
-                projectionIndexByID = index
-                searchDisplayPaths = searchDisplayPaths.filter { index[$0.key] != nil }
-            }
-            let songIndexByID = projectionIndexByID
-            // crash-pattern: allow index-map-subscript offsets validated against this snapshot's ordered IDs
-            func indexedSong(withID id: String) -> Song? { songIndexByID[id].map { songs[$0] } }
             var metadataIDs: [String] = []
             var seenMetadata = Set<String>()
             var pathIDs: [String] = []
             var seenPaths = Set<String>()
 
-            if trimmed.count >= 3 {
+            let wantsAlbums = albumLimit > 0 && !albums.isEmpty
+            let searchesMetadata = wantsAlbums || matchKinds.contains(.metadata) || matchKinds.contains(.fuzzy)
+            if searchesMetadata, trimmed.count >= 3 {
                 let ids = try Self.matchingSongIDs(
                     pool: pool,
                     ftsTable: "metadataLexicalFts",
@@ -1436,18 +1458,19 @@ actor LibrarySearchIndex {
                     limit: songLimit * 2
                 )
                 Self.appendUnique(ids, to: &metadataIDs, seen: &seenMetadata)
-            } else if Self.containsHan(trimmed) {
+            } else if searchesMetadata, Self.containsHan(trimmed) {
                 // Trigram indexes intentionally do not handle one/two-character
                 // queries. A short literal metadata pass is bounded and never
                 // invokes transliteration.
-                let ids = songs.lazy
-                    .filter { Self.metadataContainsLiteral($0, query: trimmed) }
-                    .prefix(songLimit * 2)
-                    .map(\.id)
-                Self.appendUnique(Array(ids), to: &metadataIDs, seen: &seenMetadata)
+                for (offset, song) in snapshot.songs.enumerated() {
+                    if offset.isMultiple(of: 512) { try Task.checkCancellation() }
+                    if metadataIDs.count >= songLimit * 2 { break }
+                    if !excluded.contains(song.id), Self.metadataContainsLiteral(song, query: trimmed),
+                       seenMetadata.insert(song.id).inserted { metadataIDs.append(song.id) }
+                }
             }
 
-            if !Self.containsHan(trimmed) {
+            if searchesMetadata, !Self.containsHan(trimmed) {
                 let normalized = Self.normalizedLatinQuery(trimmed)
                 let terms = Set([normalized.spaced, normalized.compact])
                     .filter { !$0.isEmpty }
@@ -1487,8 +1510,9 @@ actor LibrarySearchIndex {
                 Self.appendUnique(ids, to: &pathIDs, seen: &seenPaths)
             } else if searchesPaths, songLimit > 0 {
                 var ids: [String] = []
-                for (offset, song) in songs.enumerated() {
+                for (offset, song) in snapshot.songs.enumerated() {
                     if offset.isMultiple(of: 512) { try Task.checkCancellation() }
+                    guard !excluded.contains(song.id) else { continue }
                     // 原始路径里都没有的, 显示路径里也不会有: 不必为整库每首都算一遍显示路径。
                     guard SongPathPresentationPolicy.displayPathMayContain(
                         filePath: song.filePath,
@@ -1557,6 +1581,8 @@ actor LibrarySearchIndex {
                 }
             }
 
+            let matchedIDs = Set(metadataIDs).union(pathIDs).union(lyricHits.map(\.songID))
+            let matches = try snapshot.matches(ids: matchedIDs, excluding: excluded)
             var ranked: [LibrarySearchResult] = []
             ranked.reserveCapacity(min(
                 songLimit * 2,
@@ -1564,7 +1590,7 @@ actor LibrarySearchIndex {
             ))
             var resultIDs = Set<String>()
             for (offset, id) in metadataIDs.enumerated() {
-                guard let song = indexedSong(withID: id) else { continue }
+                guard let song = matches[id] else { continue }
                 let literal = Self.metadataContainsLiteral(song, query: trimmed)
                 let kind: LibrarySearchMatchKind = literal ? .metadata : .fuzzy
                 // 用户关掉的那类命中不占这首歌, 让它还能落进路径或歌词命中。
@@ -1579,7 +1605,7 @@ actor LibrarySearchIndex {
                 resultIDs.insert(id)
             }
             for (offset, id) in pathIDs.enumerated() where !resultIDs.contains(id) {
-                guard let song = indexedSong(withID: id) else { continue }
+                guard let song = matches[id] else { continue }
                 ranked.append(LibrarySearchResult(
                     song: song,
                     matchKind: .path,
@@ -1590,7 +1616,7 @@ actor LibrarySearchIndex {
                 resultIDs.insert(id)
             }
             for (offset, hit) in lyricHits.enumerated() where !resultIDs.contains(hit.songID) {
-                guard let song = indexedSong(withID: hit.songID) else { continue }
+                guard let song = matches[hit.songID] else { continue }
                 ranked.append(LibrarySearchResult(
                     song: song,
                     matchKind: .lyrics,
@@ -1609,8 +1635,8 @@ actor LibrarySearchIndex {
             // 专辑常驻一张字典(几十万首的库上二十来 MB)。同一个 id 仍是第一张算数。
             var candidateAlbumIDs: [String] = []
             var wantedAlbumIDs = Set<String>()
-            for id in metadataIDs {
-                guard let albumID = indexedSong(withID: id)?.albumID,
+            for id in metadataIDs where wantsAlbums {
+                guard let albumID = matches[id]?.albumID,
                       wantedAlbumIDs.insert(albumID).inserted else { continue }
                 candidateAlbumIDs.append(albumID)
             }
@@ -2356,9 +2382,10 @@ actor LibrarySearchIndex {
     }
 
     private static func metadataContainsLiteral(_ song: Song, query: String) -> Bool {
-        [song.title, librarySearchableArtistText(song), song.albumTitle, song.genre]
-            .compactMap { $0 }
-            .contains { $0.localizedCaseInsensitiveContains(query) }
+        song.title.localizedCaseInsensitiveContains(query)
+            || librarySearchableArtistText(song).localizedCaseInsensitiveContains(query)
+            || song.albumTitle?.localizedCaseInsensitiveContains(query) == true
+            || song.genre?.localizedCaseInsensitiveContains(query) == true
     }
 
     private func displayPath(for song: Song) -> String? {
@@ -3982,6 +4009,19 @@ struct VisibleSongLookup: Sendable {
         guard let index = indexByID[id], songs.indices.contains(index) else { return nil }
         let song = songs[index]
         return song.id == id ? song : nil
+    }
+
+    func songs(inLibraryOrder ids: Set<String>) -> [Song] {
+        guard !ids.isEmpty else { return [] }
+        // The scan preserves duplicate rows in legacy libraries and avoids sorting a dense selection.
+        guard indexByID.count == songs.count, ids.count <= songs.count / 8 else {
+            return songs.filter { ids.contains($0.id) }
+        }
+        let offsets = ids.compactMap { id -> Int? in
+            guard let index = indexByID[id], songs.indices.contains(index), songs[index].id == id else { return nil }
+            return index
+        }
+        return offsets.sorted().map { songs[$0] }
     }
 
     func contains(id: String, playableOnly: Bool) -> Bool {
@@ -8652,6 +8692,18 @@ final class MusicLibrary {
         VisibleSongLookup(indexByID: visibleSongIndexByID, songs: visibleSongsLookupReference.value)
     }
 
+    func searchSongSnapshot(musicOnly: Bool = true) -> LibrarySearchSongSnapshot {
+        let rows = musicOnly ? musicSongs : visibleSongs
+        let visible = visibleSongLookup()
+        guard visible.indexByID.count == visible.songs.count else { return LibrarySearchSongSnapshot(rows) }
+        let nonMusic = musicOnly ? nonMusicSongIDs : []
+        let collectionOnly = musicOnly ? visibleContentClassification.collectionOnlySongIDs : []
+        return LibrarySearchSongSnapshot(rows) { id in
+            guard !nonMusic.contains(id), !collectionOnly.contains(id) else { return nil }
+            return visible.song(id: id)
+        }
+    }
+
     /// 历史分类也要能读取停用来源中的文件；取快照不复制整库。
     func historySongLookup() -> VisibleSongLookup {
         VisibleSongLookup(indexByID: songIndexByID, songs: songsReference.value)
@@ -10076,6 +10128,10 @@ final class MusicLibrary {
         return albumOnlyArtistSongIDs(artistID).compactMap { lookupVisibleSong($0) }
     }
 
+    func trackSongIDs(forArtistNamed name: String) -> [String] {
+        visibleSongIDsByArtistID[Self.hashID(ArtistIdentityPolicy.groupingKey(name))] ?? []
+    }
+
     func isAlbum(_ album: Album, creditedToArtist artistID: String) -> Bool {
         _ = albumArtistCreditsRevision
         return albumIDsByAlbumArtistID[artistID]?.contains(album.id) == true
@@ -10118,6 +10174,15 @@ final class MusicLibrary {
     func songIDs(forGenre genreID: String) -> [String] {
         _ = visibleSongsReference
         return visibleSongIDsByGenreID[genreID] ?? []
+    }
+
+    func recommendationGenreGroups() -> @Sendable ([String]) -> [[String]] {
+        let genres = visibleGenres
+        let ids = visibleSongIDsByGenreID
+        return { texts in
+            let matches = AIPlaylistPromptHints.genreMatcher(texts)
+            return genres.compactMap { genre in matches(genre.name) ? ids[genre.id] : nil }
+        }
     }
 
     func albums(forGenre genreID: String) -> [Album] {
@@ -14880,11 +14945,7 @@ final class MusicLibrary {
                 return
             }
             if !Task.isCancelled {
-                // 搜索投影按旧的歌曲顺序建, 这次重建一落地多半就作废; 先放掉, 别让它和重建中的
-                // 新旧两份可见集一起压在峰值上。下一次搜索在搜索 actor 上按需重建, 不占主线程。
-                await LibrarySearchIndex.shared.releaseReadCaches()
-                // 推荐引擎的整库特征索引按 `musicSongsRevision` 记, 这次重建一落地就换代作废;
-                // 同理先放掉(40 万首约 80MB), 用到时再按新的曲库建。
+                // 发布后特征索引会换代，先释放旧索引以降低重建峰值。
                 MusicDiscoveryEngine.releaseFeatureIndex()
                 let startedAt = ProcessInfo.processInfo.systemUptime
                 let signature = MusicLibrary.derivedIndexSignature(

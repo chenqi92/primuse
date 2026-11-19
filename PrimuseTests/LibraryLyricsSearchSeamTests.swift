@@ -1,4 +1,5 @@
 import Foundation
+import os
 import PrimuseKit
 import XCTest
 @testable import Primuse
@@ -252,6 +253,61 @@ final class LibraryLyricsSearchSeamTests: XCTestCase {
 
 @MainActor
 final class LibrarySearchProjectionSnapshotTests: XCTestCase {
+    func testLimitedFallbackKeepsTheSameRankAndTiesAsFullScopeSearch() {
+        let songs = (0..<200).map { i in
+            Song(id: String(i), title: i == 199 ? "Match" : "Match title", fileFormat: .flac,
+                 filePath: "/\(i)", sourceID: "source")
+        }
+        func hits(limit: Int) -> [String] {
+            LibrarySearchWorker.compute(query: "Match", songs: songs, albums: [], cache: .init(),
+                                        includeLyrics: false, excluding: ["0"], songLimit: limit)
+                .songResults.map(\.song.id)
+        }
+        XCTAssertEqual(hits(limit: 7), Array(hits(limit: songs.count).prefix(7)))
+        XCTAssertTrue(hits(limit: 0).isEmpty)
+    }
+
+    func testSearchReadsOnlyMatchingIDsAndKeepsItsPublishedRowsAcrossEdits() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await exerciseSearchSnapshot(in: directory)
+    }
+
+    private func exerciseSearchSnapshot(in directory: URL) async throws {
+        let library = MusicLibrary(storageDirectory: directory)
+        var songs = (0..<160).map {
+            Song(id: "snapshot-\($0)", title: "普通 \($0)", fileFormat: .mp3, filePath: "/\($0)", sourceID: "snapshot")
+        }
+        songs[120].title = "独有曲目"
+        library.addSongs(songs, affectedSourceIDs: ["snapshot"])
+        await library.waitForPendingIndex()
+        let captured = library.searchSongSnapshot()
+        let lookup = try XCTUnwrap(captured.lookup)
+        let reads = OSAllocatedUnfairLock(initialState: [String]())
+        let recorded = LibrarySearchSongSnapshot(captured.songs) { id in
+            reads.withLock { $0.append(id) }
+            return lookup(id)
+        }
+        let visible = library.visibleSongLookup()
+        let ids: Set<String> = [songs[159].id, songs[3].id, "missing"]
+        XCTAssertEqual(visible.songs(inLibraryOrder: ids).map(\.id), [songs[3].id, songs[159].id])
+        let index = LibrarySearchIndex(storageDirectory: directory.appendingPathComponent("isolated-index"))
+        await index.applyChanges(upserts: [songs[120]], deletingIDs: [], generation: 1)
+        _ = library.deleteSong(songs[120])
+        await library.waitForPendingIndex()
+        let old = await index.search(query: "独有曲目", snapshot: recorded, albums: [], metadataRevisionKey: "same")
+        let current = await index.search(query: "独有曲目", snapshot: library.searchSongSnapshot(), albums: [],
+                                         metadataRevisionKey: "same")
+        XCTAssertEqual(try XCTUnwrap(old).output.songResults.map(\.song.id), [songs[120].id])
+        XCTAssertEqual(reads.withLock { $0 }, [songs[120].id])
+        XCTAssertTrue(try XCTUnwrap(current).output.songResults.isEmpty)
+        let excluded = await index.search(query: "独", snapshot: captured, albums: [], metadataRevisionKey: "same",
+                                          excluding: [songs[120].id], matchKinds: [.metadata])
+        XCTAssertTrue(try XCTUnwrap(excluded).output.songResults.isEmpty)
+        XCTAssertEqual(visible.songs(inLibraryOrder: ids).map(\.id), [songs[3].id, songs[159].id])
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("Fixture failed to persist") }
+    }
+
     func testReorderedOrFilteredSnapshotNeverReusesStaleSongOffsets() async throws {
         let first = Song(id: "projection-a", title: "歌曲甲", fileFormat: .mp3, filePath: "/a.mp3", sourceID: "projection")
         let second = Song(id: "projection-b", title: "歌曲乙", fileFormat: .mp3, filePath: "/b.mp3", sourceID: "projection")

@@ -9,34 +9,14 @@ import PrimuseKit
 private enum AIPlaylistCandidateFinder {
     static func candidates(
         for prompt: String,
-        songs: [Song],
-        metadataRevisionKey: String,
+        library: MusicLibrary,
         excluding excludedSongIDs: Set<String>,
         intelligence: MusicIntelligenceService,
         history: PlayHistoryStore = .shared,
         salt: UInt64,
         maximumCount: Int = AIPlaylistCandidatePoolPolicy.poolSize
     ) async -> [Song] {
-        guard maximumCount > 0, !songs.isEmpty else { return [] }
-        let filtering = Task.detached(priority: .userInitiated) { () -> [Song] in
-            var kept: [Song]?
-            for (position, song) in songs.enumerated() {
-                if position.isMultiple(of: 512), Task.isCancelled { return [] }
-                if song.id.isEmpty || excludedSongIDs.contains(song.id) {
-                    if kept == nil { kept = Array(songs[..<position]) }
-                } else {
-                    kept?.append(song)
-                }
-            }
-            return kept ?? songs
-        }
-        let available = await withTaskCancellationHandler {
-            await filtering.value
-        } onCancel: {
-            filtering.cancel()
-        }
-        guard !available.isEmpty, !Task.isCancelled else { return [] }
-
+        guard maximumCount > 0, !library.musicSongs.isEmpty else { return [] }
         var queries = [prompt]
         if intelligence.isSemanticSearchConfigured,
            case .success(let execution) = await intelligence.semanticSearchOutcome(for: prompt) {
@@ -46,12 +26,19 @@ private enum AIPlaylistCandidateFinder {
         }
         queries = uniqueQueries(queries)
 
+        let snapshot = library.searchSongSnapshot()
+        let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
+        let topArtists = history.topArtists(in: .year, limit: 8).map(\.title)
+        let topSongs = history.topSongs(in: .year, limit: 24).map(\.id)
+        let useIndexes = snapshot.lookup != nil && snapshot.songs.count > AIPlaylistCandidatePoolPolicy.poolSize * 48
+        let genreGroups = useIndexes ? library.recommendationGenreGroups() : nil
+        let artistGroups = useIndexes ? topArtists.map { library.trackSongIDs(forArtistNamed: $0) } : []
         var rankedCandidates: [AISemanticLibraryMatchCandidate] = []
         for (queryOrder, query) in queries.enumerated() {
             guard !Task.isCancelled else { return [] }
             let matches = await search(
                 query: query,
-                songs: available,
+                snapshot: snapshot, excluding: excludedSongIDs,
                 metadataRevisionKey: metadataRevisionKey
             )
             for match in matches {
@@ -70,12 +57,19 @@ private enum AIPlaylistCandidateFinder {
         ).map(\.songID)
         guard !Task.isCancelled else { return [] }
 
-        let topArtists = history.topArtists(in: .year, limit: 8).map(\.title)
-        let topSongs = history.topSongs(in: .year, limit: 24).map(\.id)
         let worker = Task.detached(priority: .userInitiated) { [queries] in
-            AIPlaylistCandidatePoolPolicy.songs(
-                in: available, texts: queries, searchIDs: searchIDs, topArtists: topArtists,
-                topSongIDs: topSongs, salt: salt, limit: maximumCount, isCancelled: { Task.isCancelled }
+            if let genreGroups, let lookup = snapshot.lookup {
+                return AIPlaylistCandidatePoolPolicy.indexedCandidates(
+                    in: snapshot.songs, texts: queries, searchIDs: searchIDs, topArtists: topArtists,
+                    topSongIDs: topSongs, genreGroups: genreGroups(queries), artistGroups: artistGroups,
+                    lookup: lookup, excluding: excludedSongIDs, salt: salt, limit: maximumCount,
+                    isCancelled: { Task.isCancelled }
+                )
+            }
+            return AIPlaylistCandidatePoolPolicy.songs(
+                in: snapshot.songs, texts: queries, searchIDs: searchIDs, topArtists: topArtists,
+                topSongIDs: topSongs, salt: salt, limit: maximumCount, excluding: excludedSongIDs,
+                isCancelled: { Task.isCancelled }
             )
         }
         return await withTaskCancellationHandler {
@@ -90,14 +84,15 @@ private enum AIPlaylistCandidateFinder {
 
     private static func search(
         query: String,
-        songs: [Song],
+        snapshot: LibrarySearchSongSnapshot, excluding: Set<String>,
         metadataRevisionKey: String
     ) async -> [LibrarySearchResult] {
         if let indexed = await LibrarySearchIndex.shared.search(
             query: query,
-            songs: songs,
+            snapshot: snapshot,
             albums: [],
             metadataRevisionKey: metadataRevisionKey,
+            excluding: excluding,
             songLimit: searchLimit,
             albumLimit: 0
         ) {
@@ -107,11 +102,12 @@ private enum AIPlaylistCandidateFinder {
         let worker = Task.detached(priority: .utility) {
             LibrarySearchWorker.compute(
                 query: query,
-                songs: songs,
+                songs: snapshot.songs,
                 albums: [],
                 cache: LibrarySearchCache(),
                 includeMetadata: true,
                 includeLyrics: false,
+                excluding: excluding,
                 songLimit: searchLimit,
                 albumLimit: 0
             ).songResults
@@ -419,9 +415,6 @@ struct AIPlaylistEditorView: View {
         generationMessage = nil
         isGenerating = true
 
-        // 只在音乐里挑:有声书章节、播客单集不进歌单候选。
-        let songsSnapshot = library.musicSongs
-        let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
         var excludedIDs = library.dislikedSongIDs
         if !isListeningScene, let selections = existing?.aiConfiguration?.selections {
             excludedIDs.formUnion(library.visibleSongs(matching: selections.map(\.identity)).map(\.id))
@@ -436,8 +429,7 @@ struct AIPlaylistEditorView: View {
             // 每次生成换一个随机数:「重新生成」送去的候选不同,挑出来的才会不同。
             let candidates = await AIPlaylistCandidateFinder.candidates(
                 for: requestPrompt,
-                songs: songsSnapshot,
-                metadataRevisionKey: metadataRevisionKey,
+                library: library,
                 excluding: excludedIDs,
                 intelligence: intelligence,
                 salt: UInt64.random(in: .min ... .max)

@@ -104,7 +104,8 @@ extension AIPlaylistCandidatePoolPolicy {
 
     public static func songs(
         in songs: [Song], texts: [String], searchIDs: [String], topArtists: [String],
-        topSongIDs: [String], salt: UInt64, limit requested: Int, isCancelled: () -> Bool = { false }
+        topSongIDs: [String], salt: UInt64, limit requested: Int, excluding: Set<String> = [],
+        isCancelled: () -> Bool = { false }
     ) -> [Song] {
         let limit = min(requested, poolSize)
         guard limit > 0, !songs.isEmpty, !isCancelled() else { return [] }
@@ -130,7 +131,8 @@ extension AIPlaylistCandidatePoolPolicy {
             }
             for (position, song) in songs.enumerated() {
                 if position.isMultiple(of: 256), isCancelled() { return [] }
-                guard !song.id.isEmpty, song.isPlayable, seen.insert(song.id).inserted else { continue }
+                guard !song.id.isEmpty, song.isPlayable, !excluding.contains(song.id),
+                      seen.insert(song.id).inserted else { continue }
                 if requestedIDs.contains(song.id) { positions[song.id] = position }
                 let sample = Sample(hash: stableHash(song.id, salt: salt), position: position)
                 spread.insert(sample)
@@ -181,6 +183,79 @@ extension AIPlaylistCandidatePoolPolicy {
         let ids = compose(matched: matched, taste: favorites, spread: breadth, limit: limit,
                           artist: { id in positions[id].flatMap { artist(at: $0) } })
         return isCancelled() ? [] : ids.compactMap { id in positions[id].map { songs[$0] } }
+    }
+
+    /// Build the ranking input from exact hits, the library's genre and artist indexes, and a
+    /// sample spread across the entire music library. Only an explicit decade needs the year column.
+    public static func indexedCandidates(
+        in songs: [Song], texts: [String], searchIDs: [String], topArtists: [String],
+        topSongIDs: [String], genreGroups: [[String]], artistGroups: [[String]],
+        lookup: (String) -> Song?, excluding: Set<String>, salt: UInt64, limit requested: Int,
+        isCancelled: () -> Bool = { false }
+    ) -> [Song] {
+        let limit = min(requested, poolSize)
+        guard limit > 0, !isCancelled() else { return [] }
+        var rng = ListeningSeededGenerator(seed: salt)
+        var input: [Song] = []
+        var seen = Set<String>()
+        func eligible(_ song: Song) -> Bool {
+            !song.id.isEmpty && song.isPlayable && !excluding.contains(song.id)
+        }
+        @discardableResult func include(_ song: Song?) -> Bool {
+            guard let song, eligible(song) else { return false }
+            if seen.insert(song.id).inserted { input.append(song) }
+            return true
+        }
+        for id in searchIDs + topSongIDs where !excluding.contains(id) { include(lookup(id)) }
+
+        // A step coprime to count visits every offset exactly once, even when almost every
+        // song is excluded. It needs no shuffled copy or set of visited library positions.
+        func sample(count: Int, budget: Int, visit: (Int) -> Bool) {
+            guard count > 0, budget > 0 else { return }
+            var step = Int.random(in: 1...count, using: &rng)
+            while true {
+                var a = count, b = step
+                while b != 0 { (a, b) = (b, a % b) }
+                if a == 1 { break }
+                step = step == count ? 1 : step + 1
+            }
+            var position = Int.random(in: 0..<count, using: &rng)
+            var accepted = 0
+            for offset in 0..<count {
+                if offset.isMultiple(of: 256), isCancelled() { return }
+                if visit(position) {
+                    accepted += 1
+                    if accepted == budget { return }
+                }
+                position = (position + step) % count
+            }
+        }
+        func sampleGroups(_ groups: [[String]]) {
+            var remaining = limit * 6
+            for (index, ids) in groups.enumerated() {
+                guard remaining > 0, !isCancelled() else { return }
+                let left = groups.count - index
+                sample(count: ids.count, budget: (remaining + left - 1) / left) { position in
+                    guard include(lookup(ids[position])) else { return false }
+                    remaining -= 1
+                    return true
+                }
+            }
+        }
+        sampleGroups(genreGroups)
+        sampleGroups(artistGroups)
+        sample(count: songs.count, budget: limit * 24) { include(songs[$0]) }
+
+        let decades = AIPlaylistPromptHints.decades(in: texts.joined(separator: " "))
+        if !decades.isEmpty {
+            sample(count: songs.count, budget: limit * 6) { position in
+                let song = songs[position]
+                guard let year = song.year, decades.contains(where: { $0.contains(year) }) else { return false }
+                return include(song)
+            }
+        }
+        return self.songs(in: input, texts: texts, searchIDs: searchIDs, topArtists: topArtists,
+                          topSongIDs: topSongIDs, salt: salt, limit: limit, isCancelled: isCancelled)
     }
 
     private static func interleave(_ lhs: [String], _ rhs: [String]) -> [String] {
@@ -251,7 +326,7 @@ public enum AIPlaylistPromptHints {
         libraryGenres.filter(genreMatcher(texts))
     }
 
-    static func genreMatcher(_ texts: [String]) -> (String) -> Bool {
+    public static func genreMatcher(_ texts: [String]) -> (String) -> Bool {
         let prompt = PromptText(texts)
         guard !prompt.isEmpty else { return { _ in false } }
         var wanted = Set<String>()

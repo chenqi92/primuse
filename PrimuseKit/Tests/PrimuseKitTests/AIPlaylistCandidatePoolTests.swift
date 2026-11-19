@@ -4,6 +4,30 @@ import Testing
 
 @Suite("AI playlist candidate pool")
 struct AIPlaylistCandidatePoolTests {
+    @Test("Indexed candidates include rare distant matches, respect exclusions and cover the full library")
+    func indexedRareMatches() {
+        var songs = (0..<12_000).map { i in
+            Song(id: String(i), title: "Track \(i)", artistName: "Artist \(i)", duration: 2,
+                 fileFormat: .mp3, filePath: "/\(i)", sourceID: "local")
+        }
+        songs[11_991].year = 1984
+        songs[11_992].genre = "Jazz"
+        songs[11_993].artistName = "Favorite"
+        let excluded: Set<String> = ["11995"]
+        func pick(_ salt: UInt64) -> [String] {
+            AIPlaylistCandidatePoolPolicy.indexedCandidates(
+                in: songs, texts: ["80年代 爵士"], searchIDs: ["11995", "11994"], topArtists: ["Favorite"],
+                topSongIDs: ["11990"], genreGroups: [["11995", "11992"]], artistGroups: [["11993"]],
+                lookup: { Int($0).map { songs[$0] } }, excluding: excluded, salt: salt, limit: 100
+            ).map(\.id)
+        }
+        let result = pick(42)
+        #expect(Set(result).count == 100)
+        #expect(Set(["11990", "11991", "11992", "11993", "11994"]).isSubset(of: Set(result)))
+        #expect(!result.contains("11995"))
+        #expect(result == pick(42))
+        #expect(result != pick(43))
+    }
     /// 「b-3」= 艺人 b 的第 3 首。
     private func artist(_ id: String) -> String? {
         id.split(separator: "-").first.map(String.init)

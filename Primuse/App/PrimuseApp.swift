@@ -1344,7 +1344,6 @@ final class RebuildableMemoryReliefCoordinator {
         Task {
             await ImageCache.shared.clearMemoryCache()
             await ArtworkFetchService.shared.clearMemoryCache()
-            // 搜索投影在搜索 actor 上, 等它放完再还页。
             await LibrarySearchIndex.shared.releaseReadCaches()
             await MusicLibrary.returnFreedMemoryToSystem()
         }

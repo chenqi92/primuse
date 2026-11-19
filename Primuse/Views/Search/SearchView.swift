@@ -4510,7 +4510,8 @@ struct SearchView: View {
         let matchKinds = layout.matchKinds
         // 全局搜索只在音乐里找歌: 有声条目按书列在自己那一组, 不混进歌曲结果。
         // 在某个歌单 / 文件夹范围里搜时, 范围里有什么就找什么。
-        let sourceSongsSnapshot = scopedSearch ? library.visibleSongs : library.musicSongs
+        let searchSnapshot = library.searchSongSnapshot(musicOnly: !scopedSearch)
+        let visibleLookup = scopedSearch ? library.visibleSongLookup() : nil
         let scopeSnapshot = scope
         let albumsSnapshot = scopedSearch || !layout.shows(.albums) ? [] : library.visibleAlbums
         let artistsSnapshot = scopedSearch || !layout.shows(.artists) ? [] : library.visibleArtists
@@ -4537,10 +4538,15 @@ struct SearchView: View {
             guard !Task.isCancelled else { return }
 
             let searchStartedAt = ProcessInfo.processInfo.systemUptime
-            let scopeWorker = Task.detached(priority: .userInitiated) {
-                scopeSnapshot?.songs(in: sourceSongsSnapshot) ?? sourceSongsSnapshot
+            let songsSnapshot: [PrimuseKit.Song]
+            if let scopeSnapshot, let visibleLookup {
+                let worker = Task.detached(priority: .userInitiated) {
+                    visibleLookup.songs(inLibraryOrder: scopeSnapshot.songIDs)
+                }
+                songsSnapshot = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            } else {
+                songsSnapshot = searchSnapshot.songs
             }
-            let songsSnapshot = await withTaskCancellationHandler { await scopeWorker.value } onCancel: { scopeWorker.cancel() }
             guard !Task.isCancelled else { return }
 
             // The persistent index limits global matches before membership filtering.
@@ -4551,7 +4557,7 @@ struct SearchView: View {
             } else {
                 indexed = await LibrarySearchIndex.shared.search(
                     query: query,
-                    songs: songsSnapshot,
+                    snapshot: searchSnapshot,
                     albums: albumsSnapshot,
                     metadataRevisionKey: metadataRevisionKey,
                     matchKinds: matchKinds
@@ -4799,7 +4805,8 @@ struct SearchView: View {
         workCoordinator.semanticMatchGeneration &+= 1
         let matchGeneration = workCoordinator.semanticMatchGeneration
         let concepts = AISemanticLibraryAggregationPolicy.concepts(from: plan)
-        let songsSnapshot = library.musicSongs
+        let searchSnapshot = library.searchSongSnapshot()
+        let songsSnapshot = searchSnapshot.songs
         let albumsSnapshot = resultLayout.shows(.albums) ? library.visibleAlbums : []
         let artistsSnapshot = resultLayout.shows(.artists) ? library.visibleArtists : []
         let matchKinds = resultLayout.matchKinds
@@ -4814,7 +4821,7 @@ struct SearchView: View {
         for (conceptOrder, concept) in concepts.enumerated() {
             guard !Task.isCancelled else { return }
             let indexed = await LibrarySearchIndex.shared.search(
-                query: concept, songs: songsSnapshot, albums: albumsSnapshot,
+                query: concept, snapshot: searchSnapshot, albums: albumsSnapshot,
                 metadataRevisionKey: metadataRevisionKey, matchKinds: matchKinds,
                 songLimit: 12, albumLimit: 12
             )

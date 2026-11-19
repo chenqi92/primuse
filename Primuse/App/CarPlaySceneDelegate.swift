@@ -668,11 +668,11 @@ extension CarPlaySceneDelegate {
 
     private func searchMatches(_ normalized: String) async -> [Song] {
         let library = AppServices.shared.musicLibrary
-        let songs = library.visibleSongs
+        let snapshot = library.searchSongSnapshot(musicOnly: false)
         let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
         if let indexed = await LibrarySearchIndex.shared.search(
             query: normalized,
-            songs: songs,
+            snapshot: snapshot,
             albums: [],
             metadataRevisionKey: metadataRevisionKey,
             songLimit: 100,
@@ -683,7 +683,7 @@ extension CarPlaySceneDelegate {
         return await Task.detached(priority: .userInitiated) {
             LibrarySearchWorker.compute(
                 query: normalized,
-                songs: songs,
+                songs: snapshot.songs,
                 albums: [],
                 cache: LibrarySearchCache(),
                 includeMetadata: true,
