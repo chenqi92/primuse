@@ -154,10 +154,13 @@ public struct SourceNetworkPathFingerprint: Hashable, Sendable {
     public var status: String
     /// `type:name` for every available interface, sorted.
     public var interfaces: [String]
+    /// Wi-Fi and cellular can both remain available while the path switches between them.
+    public var usedInterfaceTypes: Set<NWInterface.InterfaceType>
     /// Gateway endpoints, sorted. Two WLANs on the same interface differ here.
     public var gateways: [String]
     public var supportsIPv4: Bool
     public var supportsIPv6: Bool
+    public var supportsDNS: Bool
     public var isExpensive: Bool
     public var isConstrained: Bool
 
@@ -168,13 +171,17 @@ public struct SourceNetworkPathFingerprint: Hashable, Sendable {
         supportsIPv4: Bool,
         supportsIPv6: Bool,
         isExpensive: Bool,
-        isConstrained: Bool
+        isConstrained: Bool,
+        usedInterfaceTypes: Set<NWInterface.InterfaceType> = [],
+        supportsDNS: Bool = true
     ) {
         self.status = status
         self.interfaces = interfaces.sorted()
+        self.usedInterfaceTypes = usedInterfaceTypes
         self.gateways = gateways.sorted()
         self.supportsIPv4 = supportsIPv4
         self.supportsIPv6 = supportsIPv6
+        self.supportsDNS = supportsDNS
         self.isExpensive = isExpensive
         self.isConstrained = isConstrained
     }
@@ -309,7 +316,10 @@ public extension SourceNetworkPathFingerprint {
             supportsIPv4: path.supportsIPv4,
             supportsIPv6: path.supportsIPv6,
             isExpensive: path.isExpensive,
-            isConstrained: path.isConstrained
+            isConstrained: path.isConstrained,
+            usedInterfaceTypes: Set([NWInterface.InterfaceType.wifi, .wiredEthernet, .cellular, .other, .loopback]
+                .filter(path.usesInterfaceType)),
+            supportsDNS: path.supportsDNS
         )
     }
 

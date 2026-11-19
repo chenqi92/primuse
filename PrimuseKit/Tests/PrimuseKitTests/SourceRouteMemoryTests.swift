@@ -93,6 +93,34 @@ struct SourceRouteMemoryTests {
         #expect(!summary.contains("192.168"))
     }
 
+    @Test func returningToWiFiWithTheSameAvailableInterfacesRetriesTheLAN() async {
+        let runtime = SourceConnectionRuntime()
+        let cellular = SourceNetworkPathFingerprint(
+            status: "satisfied", interfaces: ["wifi:en0", "cellular:pdp_ip0"], gateways: [],
+            supportsIPv4: true, supportsIPv6: true, isExpensive: false, isConstrained: false,
+            usedInterfaceTypes: [.cellular]
+        )
+        await runtime.recordDiagnosis(.init(workingKind: .publicAddress, localFailed: true), for: "nas")
+        var wifi = cellular
+        wifi.usedInterfaceTypes = [.wifi]
+        let transition = SourceNetworkPathFingerprint.transition(from: cellular, to: wifi)
+        await runtime.observeNetworkPath(condition: .init(interfaceClass: .directLocal), pathChanged: transition == .changed)
+        #expect(await runtime.preferredKind(for: "nas", availableKinds: kinds) == .localAddress)
+    }
+
+    @Test func dnsAndAddressFamilyChangesInvalidateThePublicRouteVerdict() {
+        let dualStack = SourceNetworkPathFingerprint(
+            status: "satisfied", interfaces: ["wifi:en0"], gateways: [],
+            supportsIPv4: true, supportsIPv6: true, isExpensive: false, isConstrained: false,
+            usedInterfaceTypes: [.wifi]
+        )
+        for flag in [\SourceNetworkPathFingerprint.supportsDNS, \.supportsIPv4, \.supportsIPv6] {
+            var previous = dualStack
+            previous[keyPath: flag] = false
+            #expect(SourceNetworkPathFingerprint.transition(from: previous, to: dualStack) == .changed)
+        }
+    }
+
     @Test func backedOffPrivateEndpointDoesNotSpeakForReachability() async {
         let lan = SourceConnectionEndpoint(host: "192.168.0.50", port: 5001, useSsl: true)
         let wan = SourceConnectionEndpoint(host: "nas.example.com", port: 5001, useSsl: true)

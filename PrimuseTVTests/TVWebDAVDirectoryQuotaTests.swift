@@ -7,6 +7,26 @@ import XCTest
 @testable import PrimuseTV
 
 final class TVWebDAVDirectoryQuotaTests: XCTestCase {
+    func testIPv6EndpointBuildsBothDirectoryAndPlaybackURLs() async throws {
+        let fixture = TVDirectoryQuotaFixture { TVDirectoryQuotaFixture.listing($0) }
+        defer { fixture.close() }
+        let endpoint = SourceConnectionEndpoint(host: "2001:db8::431", port: 8443, useSsl: true, pathPrefix: "/dav")
+        var source = MusicSource(name: "IPv6 DAV", type: .webdav)
+        source.connectionConfiguration = .init(publicEndpoint: endpoint)
+        let candidate = try XCTUnwrap(source.connectionCandidates.first)
+        let routed = source.applyingConnectionCandidate(candidate)
+        let lister = try XCTUnwrap(TVWebDAVDirectoryLister(source: routed, credential: nil,
+            sessionConfiguration: { fixture.configuration() }, quotaRegistry: fixture.registry, timing: fixture.clock.timing))
+        _ = try await lister.list("/Music")
+        let request = try XCTUnwrap(fixture.requests.first)
+        XCTAssertEqual(request.httpMethod, "PROPFIND")
+        XCTAssertEqual(request.url?.absoluteString, "https://[2001:db8::431]:8443/dav/Music/")
+
+        let song = Song(id: "track", title: "Track", fileFormat: .flac, filePath: "/Music/a b.flac", sourceID: source.id)
+        let stream = try await WebDavStreamResolver().streamURL(for: song, source: routed, credential: nil)
+        XCTAssertEqual(stream.absoluteString, "https://[2001:db8::431]:8443/dav/Music/a%20b.flac")
+    }
+
     @MainActor
     func testInfiniCloudUsesDiscoveredWebDAVNodeAndPassword() async throws {
         let fixture = TVDirectoryQuotaFixture { request in TVDirectoryQuotaFixture.listing(request) }

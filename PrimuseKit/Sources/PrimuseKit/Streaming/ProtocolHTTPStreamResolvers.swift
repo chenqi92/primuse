@@ -11,7 +11,7 @@ public struct WebDavStreamResolver: StreamResolver {
     public func streamURL(for song: Song, source: MusicSource, credential: SourceCredential?) async throws -> URL {
         var comps = URLComponents()
         comps.scheme = source.useSsl ? "https" : "http"
-        comps.host = source.host
+        comps.host = source.host.map { $0.contains(":") ? NetworkHostAuthority.urlHost($0) : $0 }
         let defaultPort = source.useSsl ? 443 : 80
         if let p = source.port, p != defaultPort { comps.port = p }
         comps.path = Self.joinPath(source.basePath, song.filePath)

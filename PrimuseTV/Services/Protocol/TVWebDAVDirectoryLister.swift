@@ -20,7 +20,7 @@ actor TVWebDAVDirectoryLister: TVDirectoryLister {
         guard !host.isEmpty else { return nil }
         var components = URLComponents()
         components.scheme = source.useSsl ? "https" : "http"
-        components.host = host
+        components.host = host.contains(":") ? NetworkHostAuthority.urlHost(host) : host
         if let port = source.port, port > 0 { components.port = port }
         let root = TVServerPathPolicy.providerPath(base: source.basePath ?? "", path: "/")
         components.path = root.hasSuffix("/") ? root : root + "/"
