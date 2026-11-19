@@ -4413,6 +4413,10 @@
 "carplay_top_audioInfo" = "オーディオ情報";
 "carplay_top_hidden" = "非表示";
 "carplay_audio_summary" = "音声仕様の概要";
+"carplay_song_actions" = "曲の操作";
+"carplay_radio_and_recommendations" = "ステーションとおすすめ";
+"carplay_suggest_less" = "おすすめを減らす";
+"carplay_restore_recommendations" = "再びおすすめする";
 "carplay_audio_resolution" = "ビット深度／サンプルレート";
 "carplay_audio_playing" = "再生形式";
 "carplay_audio_original" = "元のファイル";

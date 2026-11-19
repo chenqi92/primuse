@@ -100,6 +100,15 @@ struct CarPlayLayoutConfigurationTests {
         #expect(config.matchingPreset == .quickPlay)
     }
 
+    @Test func songActionsAndArtistCanBeSavedBesideAlbumForMusic() throws {
+        var config = CarPlayLayoutConfiguration()
+        config.setNowPlayingButtons([.songActions, .artist, .album], isSpokenWord: false)
+        config.setNowPlayingButtons([.songActions, .artist, .like], isSpokenWord: true)
+        let restored = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: JSONEncoder().encode(config))
+        #expect(restored.visibleNowPlayingButtons(isSpokenWord: false, isLiveRadio: false, supportsPlaybackRate: false) == [.songActions, .artist, .album])
+        #expect(restored.nowPlayingButtons(isSpokenWord: true) == [.like])
+    }
+
     @Test func switchingPresetsPreservesPinnedCollectionsAndRestoresPresentation() {
         var config = CarPlayLayoutConfiguration()
         let folder = LibraryFolderNodeID(sourceID: "nas", kind: .folder, normalizedRelativePath: "/Music/Live")

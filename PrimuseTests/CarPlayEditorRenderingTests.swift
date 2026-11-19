@@ -198,6 +198,34 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         XCTAssertEqual(CPNowPlayingTemplate.shared.upNextTitle, String(localized: "more"))
     }
 
+    func testSongActionsMatchLibraryMembershipAndRecommendationState() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        await library.whenReady()
+        let delegate = CarPlaySceneDelegate()
+        let catalogSong = Song(id: UUID().uuidString, title: "山谷回声", fileFormat: .aac,
+                               filePath: String(UInt64.random(in: 1...UInt64.max)), sourceID: AppleMusicLibraryIdentity.sourceID)
+        let sheet = delegate.songActionsTemplate(for: catalogSong, library: library)
+        let catalogActions = sheet.actions
+        XCTAssertEqual(sheet.userInfo as? String, catalogSong.id)
+        XCTAssertEqual(catalogActions.map(\.title), [String(localized: "apple_music_add_to_library"),
+                                                    String(localized: "carplay_radio_and_recommendations"), String(localized: "cancel")])
+        XCTAssertEqual(catalogActions.last?.style, .cancel)
+        let recommendations = delegate.songActionsTemplate(for: catalogSong, library: library, recommendationsOnly: true)
+        XCTAssertEqual(recommendations.actions.map(\.title), [String(localized: "start_song_radio"),
+                                                             String(localized: "carplay_suggest_less"), String(localized: "cancel")])
+        XCTAssertEqual(recommendations.actions.last?.style, .cancel)
+
+        let localSong = Song(id: UUID().uuidString, title: "暮色航线", fileFormat: .flac,
+                             filePath: "fixture.flac", sourceID: "fixture")
+        library.addSongs([localSong])
+        let titles = { delegate.songActionsTemplate(for: localSong, library: library).actions.map(\.title) }
+        XCTAssertEqual(titles(), [String(localized: "start_song_radio"), String(localized: "carplay_suggest_less"), String(localized: "cancel")])
+        library.setDisliked(songID: localSong.id, isDisliked: true)
+        XCTAssertEqual(titles(), [String(localized: "start_song_radio"), String(localized: "carplay_restore_recommendations"), String(localized: "cancel")])
+    }
+
     func testLayoutOnlyEditsDoNotInvalidateCatalogInputs() throws {
         let suite = "CarPlayLiveKindsTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

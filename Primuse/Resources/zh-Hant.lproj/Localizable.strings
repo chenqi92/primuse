@@ -4398,6 +4398,10 @@
 "carplay_top_audioInfo" = "音訊資訊";
 "carplay_top_hidden" = "隱藏";
 "carplay_audio_summary" = "規格摘要";
+"carplay_song_actions" = "歌曲操作";
+"carplay_radio_and_recommendations" = "電台與推薦";
+"carplay_suggest_less" = "減少推薦";
+"carplay_restore_recommendations" = "恢復推薦";
 "carplay_audio_resolution" = "位元深度／取樣率";
 "carplay_audio_playing" = "播放規格";
 "carplay_audio_original" = "原始檔案";

@@ -4412,6 +4412,10 @@
 "carplay_top_audioInfo" = "오디오 정보";
 "carplay_top_hidden" = "숨김";
 "carplay_audio_summary" = "사양 요약";
+"carplay_song_actions" = "곡 옵션";
+"carplay_radio_and_recommendations" = "스테이션 및 추천";
+"carplay_suggest_less" = "추천 줄이기";
+"carplay_restore_recommendations" = "다시 추천하기";
 "carplay_audio_resolution" = "비트 깊이 / 샘플 레이트";
 "carplay_audio_playing" = "재생 형식";
 "carplay_audio_original" = "원본 파일";

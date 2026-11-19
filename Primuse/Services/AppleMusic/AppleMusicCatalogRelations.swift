@@ -28,11 +28,14 @@ extension AppleMusicLibraryService {
         for song in similar + artistLists.flatMap({ $0 }) where songsByID[song.id.rawValue] == nil {
             songsByID[song.id.rawValue] = song
         }
+        let catalogDislikes = dislikedCatalogIDs
         let picked = Policy.assemble(
             similarTracks: similar.map(AppleMusicCatalogNeighbors.candidate),
             artistTopSongs: artistLists.map { $0.map(AppleMusicCatalogNeighbors.candidate) },
             isExcluded: { candidate in
-                excludedIDs.contains(Self.primuseSongID(forItemID: candidate.id))
+                catalogDislikes.contains(candidate.id)
+                    || excludedIDs.contains(Self.primuseSongID(forItemID: candidate.id))
+                    || excludedIDs.contains(self.libraryRowID(forCatalogID: candidate.id))
                     || excludedSongKeys.contains(Policy.songKey(title: candidate.title, artist: candidate.artist))
             }
         )

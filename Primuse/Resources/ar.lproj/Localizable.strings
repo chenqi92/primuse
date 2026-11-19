@@ -4318,6 +4318,10 @@
 "carplay_top_audioInfo" = "معلومات الصوت";
 "carplay_top_hidden" = "مخفي";
 "carplay_audio_summary" = "ملخص المواصفات";
+"carplay_song_actions" = "خيارات الأغنية";
+"carplay_radio_and_recommendations" = "الراديو والتوصيات";
+"carplay_suggest_less" = "اقتراح هذه الأغنية أقل";
+"carplay_restore_recommendations" = "استئناف اقتراح هذه الأغنية";
 "carplay_audio_resolution" = "عمق البت / معدل العينة";
 "carplay_audio_playing" = "صيغة التشغيل";
 "carplay_audio_original" = "الملف الأصلي";

@@ -996,6 +996,36 @@ final class AppleMusicLibraryService {
         return try await addCatalogSongToLibrary(catalog)
     }
 
+    private static let dislikedCatalogIDsKey = "primuse.appleMusic.dislikedCatalogIDs"
+
+    var dislikedCatalogIDs: Set<String> {
+        Set(defaults.stringArray(forKey: Self.dislikedCatalogIDsKey) ?? [])
+    }
+
+    func setCatalogDisliked(_ disliked: Bool, itemID: String) {
+        guard Self.isCatalogItemID(itemID) else { return }
+        var ids = dislikedCatalogIDs
+        if disliked { ids.insert(itemID) } else { ids.remove(itemID) }
+        defaults.set(Array(ids), forKey: Self.dislikedCatalogIDsKey)
+    }
+
+    func libraryRowID(forCatalogID id: String) -> String {
+        let libraryID = canonicalLibraryTrackIdentityIndex.canonicalID(for: AppleMusicTrackIdentity(itemID: id, title: ""))
+        return Self.primuseSongID(forItemID: libraryID ?? id)
+    }
+
+    private func reconcileCatalogDislikes() {
+        let pending = dislikedCatalogIDs
+        var remaining = pending
+        for id in pending {
+            let row = libraryRowID(forCatalogID: id)
+            guard library.song(id: row) != nil else { continue }
+            if !library.isLiked(songID: row) { library.setDisliked(songID: row, isDisliked: true) }
+            remaining.remove(id)
+        }
+        if remaining != pending { defaults.set(Array(remaining), forKey: Self.dislikedCatalogIDsKey) }
+    }
+
     /// 把搜索里的目录歌加进用户自己的 Apple Music 资料库,同步一次,交回它在曲库里的那一行。
     /// 不把目录曲直接塞进本地库:启动对账会清掉源里没有的歌,硬塞的下次同步就没了。
     /// 资料库刚加进去的歌偶尔要过一两秒才读得到,没对上就隔一会儿再同步,最多四轮。
@@ -1773,6 +1803,7 @@ final class AppleMusicLibraryService {
             songIDs: mirrorIDs,
             coverArtPath: nil
         )
+        reconcileCatalogDislikes()
     }
 
     /// Refreshes trusted local-file provenance before every MusicKit snapshot.

@@ -4318,6 +4318,10 @@
 "carplay_top_audioInfo" = "Информация об аудио";
 "carplay_top_hidden" = "Скрыто";
 "carplay_audio_summary" = "Сводка параметров";
+"carplay_song_actions" = "Действия с треком";
+"carplay_radio_and_recommendations" = "Радио и рекомендации";
+"carplay_suggest_less" = "Рекомендовать реже";
+"carplay_restore_recommendations" = "Снова рекомендовать";
 "carplay_audio_resolution" = "Разрядность / Частота";
 "carplay_audio_playing" = "Формат воспроизведения";
 "carplay_audio_original" = "Исходный файл";

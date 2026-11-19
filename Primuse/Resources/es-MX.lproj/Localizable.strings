@@ -4318,6 +4318,10 @@
 "carplay_top_audioInfo" = "Información de audio";
 "carplay_top_hidden" = "Oculto";
 "carplay_audio_summary" = "Resumen de audio";
+"carplay_song_actions" = "Acciones de la canción";
+"carplay_radio_and_recommendations" = "Radio y recomendaciones";
+"carplay_suggest_less" = "Sugerir menos";
+"carplay_restore_recommendations" = "Volver a recomendar";
 "carplay_audio_resolution" = "Profundidad / Frecuencia";
 "carplay_audio_playing" = "Formato de reproducción";
 "carplay_audio_original" = "Archivo original";

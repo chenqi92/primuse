@@ -4318,6 +4318,10 @@
 "carplay_top_audioInfo" = "ऑडियो जानकारी";
 "carplay_top_hidden" = "छिपा हुआ";
 "carplay_audio_summary" = "ऑडियो सारांश";
+"carplay_song_actions" = "गाने के विकल्प";
+"carplay_radio_and_recommendations" = "रेडियो और सुझाव";
+"carplay_suggest_less" = "कम सुझाएँ";
+"carplay_restore_recommendations" = "फिर से सुझाएँ";
 "carplay_audio_resolution" = "बिट गहराई / सैंपल दर";
 "carplay_audio_playing" = "प्लेबैक फ़ॉर्मैट";
 "carplay_audio_original" = "मूल फ़ाइल";

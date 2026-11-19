@@ -4318,6 +4318,10 @@
 "carplay_top_audioInfo" = "ข้อมูลเสียง";
 "carplay_top_hidden" = "ซ่อน";
 "carplay_audio_summary" = "สรุปข้อมูลเสียง";
+"carplay_song_actions" = "ตัวเลือกเพลง";
+"carplay_radio_and_recommendations" = "วิทยุและเพลงแนะนำ";
+"carplay_suggest_less" = "แนะนำให้น้อยลง";
+"carplay_restore_recommendations" = "แนะนำอีกครั้ง";
 "carplay_audio_resolution" = "ความลึกบิต / อัตราสุ่ม";
 "carplay_audio_playing" = "รูปแบบที่เล่น";
 "carplay_audio_original" = "ไฟล์ต้นฉบับ";

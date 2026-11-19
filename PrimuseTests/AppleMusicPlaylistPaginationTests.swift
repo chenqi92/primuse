@@ -48,6 +48,25 @@ final class AppleMusicLibraryReconciliationTests: XCTestCase {
         await library.waitForPendingIndex()
     }
 
+    func testUnsavedCatalogDislikeIsReversibleAndFollowsTheSongIntoTheLibrary() async throws {
+        try await withLibrary { library, service in
+            let catalogID = "123456789"
+            let rowID = AppleMusicLibraryService.primuseSongID(forItemID: catalogID)
+            service.setCatalogDisliked(true, itemID: catalogID)
+            XCTAssertEqual(service.dislikedCatalogIDs, [catalogID])
+            XCTAssertNil(library.song(id: rowID))
+            service.setCatalogDisliked(false, itemID: catalogID)
+            XCTAssertTrue(service.dislikedCatalogIDs.isEmpty)
+
+            service.setCatalogDisliked(true, itemID: catalogID)
+            var imported = song(rowID)
+            imported.filePath = catalogID
+            await commit([imported], to: library, using: service)
+            XCTAssertTrue(service.dislikedCatalogIDs.isEmpty)
+            XCTAssertTrue(library.isDisliked(songID: rowID))
+        }
+    }
+
     func testSystemDeletionUpdatesSongsCountAndMirrorWithoutSubscription() async throws {
         try await withLibrary { library, service in
             let imported = [song("local-1"), song("local-2"), song("local-3")]

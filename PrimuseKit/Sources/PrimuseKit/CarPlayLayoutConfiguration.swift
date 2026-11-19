@@ -131,7 +131,7 @@ public enum CarPlayTopRightAction: String, Codable, CaseIterable, Identifiable, 
 
 public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable, Sendable {
     case shuffle, repeatMode, like, audioQuality, queue, album, playbackRate, skipBackward, skipForward
-    case audioFormat, audioBitRate, audioResolution
+    case audioFormat, audioBitRate, audioResolution, songActions, artist
     /// 有声内容的减一档、加一档(#423),和中间那颗速度键排成 Apple Books 那样的「− 1.25× +」。
     case slowerPlaybackRate, fasterPlaybackRate
 
@@ -156,6 +156,8 @@ public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable
         case .audioResolution: "carplay_audio_resolution"
         case .queue: "carplay_up_next"
         case .album: "carplay_albums_title"
+        case .artist: "go_to_artist"
+        case .songActions: "carplay_song_actions"
         case .playbackRate: "playback_rate"
         case .slowerPlaybackRate: "transcript_reader_speed_slower"
         case .fasterPlaybackRate: "transcript_reader_speed_faster"
@@ -171,6 +173,8 @@ public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable
         case .audioQuality, .audioFormat, .audioBitRate, .audioResolution: "waveform"
         case .queue: "list.bullet"
         case .album: "square.stack"
+        case .artist: "music.mic"
+        case .songActions: "ellipsis.circle"
         case .playbackRate: "speedometer"
         case .slowerPlaybackRate: "minus.circle"
         case .fasterPlaybackRate: "plus.circle"
@@ -185,7 +189,7 @@ public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable
         isSpokenWord
             ? [.skipBackward, .slowerPlaybackRate, .playbackRate, .fasterPlaybackRate, .skipForward,
                .like, .audioQuality, .queue, .audioFormat, .audioBitRate, .audioResolution]
-            : [.shuffle, .repeatMode, .like, .audioQuality, .audioBitRate, .queue, .album, .audioFormat, .audioResolution]
+            : [.shuffle, .repeatMode, .like, .audioQuality, .audioBitRate, .queue, .songActions, .album, .artist, .audioFormat, .audioResolution]
     }
 
     public static func defaults(isSpokenWord: Bool) -> [Self] {

@@ -4318,6 +4318,10 @@
 "carplay_top_audioInfo" = "Ses Bilgisi";
 "carplay_top_hidden" = "Gizli";
 "carplay_audio_summary" = "Özellik Özeti";
+"carplay_song_actions" = "Parça seçenekleri";
+"carplay_radio_and_recommendations" = "Radyo ve öneriler";
+"carplay_suggest_less" = "Daha az öner";
+"carplay_restore_recommendations" = "Tekrar öner";
 "carplay_audio_resolution" = "Bit Derinliği / Örnekleme";
 "carplay_audio_playing" = "Çalma Biçimi";
 "carplay_audio_original" = "Özgün Dosya";

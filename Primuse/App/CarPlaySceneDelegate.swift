@@ -254,6 +254,7 @@ final class CarPlaySceneDelegate: UIResponder {
     /// faster than anyone could read them.
     private var libraryRefreshTask: Task<Void, Never>?
     private let libraryActions = NowPlayingLibraryActions()
+    private var songRadioTask: Task<Void, Never>?
 
     /// Currently visible queue page (if any). When the player advances, we
     /// patch its sections in place so the user sees the next track highlighted.
@@ -422,6 +423,8 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             self.staleRootTemplates.removeAll()
             self.libraryRefreshTask?.cancel()
             self.libraryRefreshTask = nil
+            self.songRadioTask?.cancel()
+            self.songRadioTask = nil
             self.nowPlayingPresentationTask?.cancel()
             self.nowPlayingPresentationTask = nil
             self.nowPlayingPresentationRequestID = nil
@@ -847,16 +850,7 @@ extension CarPlaySceneDelegate {
     private func likedArtistsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
         let artists = Array(LibraryFavoritesStore.shared.likedArtists(in: browsableArtists(library)).prefix(500))
-        let items = artists.map { artist in
-            let item = CPListItem(text: artist.name, detailText: nil)
-            item.handler = { [weak self] _, completion in
-                Task { @MainActor in
-                    self?.pushArtistDetail(artist)
-                    completion()
-                }
-            }
-            return item
-        }
+        let items = artists.map(artistItem)
         return items.isEmpty ? [] : [CPListSection(items: items)]
     }
 
@@ -865,17 +859,18 @@ extension CarPlaySceneDelegate {
         let artists = CarPlayListSelection.firstSorted(browsableArtists(library), limit: 500) {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
-        let sections = Self.sectionedByIndexLetter(artists, titleKey: \.name) { artist in
-            let item = CPListItem(text: artist.name, detailText: nil)
-            item.handler = { [weak self] _, completion in
-                Task { @MainActor in
-                    self?.pushArtistDetail(artist)
-                    completion()
-                }
+        return Self.sectionedByIndexLetter(artists, titleKey: \.name, makeItem: artistItem)
+    }
+
+    private func artistItem(_ artist: Artist) -> CPListItem {
+        let item = CPListItem(text: artist.name, detailText: nil)
+        item.handler = { [weak self] _, completion in
+            Task { @MainActor in
+                self?.pushArtistDetail(artist)
+                completion()
             }
-            return item
         }
-        return sections
+        return item
     }
 
     private func songsSections() -> [CPListSection] {
@@ -2248,7 +2243,11 @@ extension CarPlaySceneDelegate {
     }
 
     private func presentPlayFailureAlert(songTitle: String) {
-        let title = String(format: String(localized: "carplay_play_failed_format"), songTitle)
+        presentMessage(String(format: String(localized: "carplay_play_failed_format"), songTitle))
+    }
+
+    private func presentMessage(_ title: String) {
+        guard let controller = interfaceController, controller.presentedTemplate == nil else { return }
         let alert = CPAlertTemplate(
             titleVariants: [title],
             actions: [
@@ -2262,7 +2261,7 @@ extension CarPlaySceneDelegate {
                 }
             ]
         )
-        interfaceController?.presentTemplate(alert, animated: true, completion: nil)
+        controller.presentTemplate(alert, animated: true, completion: nil)
     }
 }
 
@@ -2355,6 +2354,11 @@ extension CarPlaySceneDelegate {
             supportsPlaybackRate: offersPlaybackRateControls
         )
         template.updateNowPlayingButtons(actions.map { makeNowPlayingButton($0) })
+        if let controller = interfaceController, let sheet = controller.presentedTemplate as? CPActionSheetTemplate,
+           let songID = sheet.userInfo as? String,
+           songID != player.currentSong?.id || player.isLiveRadio || player.currentItemIsSpokenWord {
+            controller.dismissTemplate(animated: true, completion: nil)
+        }
         openAudioInfoTemplate?.updateSections(audioInfoSections())
         openNowPlayingMoreTemplate?.updateSections(nowPlayingMoreSections())
     }
@@ -2411,6 +2415,8 @@ extension CarPlaySceneDelegate {
             CarPlayAudioQualityText(song: $0, transcodePlan: player.activeTranscodePlan).details
         } : NSLocalizedString(action.titleKey, comment: "")
         switch action {
+        case .artist:
+            button.isEnabled = !currentSongArtists.isEmpty
         case .playbackRate:
             button.accessibilityLabel = NSLocalizedString(action.titleKey, comment: "") + " "
                 + SpokenWordPlaybackRatePolicy.label(for: player.currentSpokenWordRate)
@@ -2468,7 +2474,7 @@ extension CarPlaySceneDelegate {
 
     private func performNowPlayingAction(_ action: CarPlayNowPlayingAction) {
         let player = AppServices.shared.playerService
-        guard !player.isLiveRadio, player.currentSong != nil else { return }
+        guard !player.isLiveRadio, let song = player.currentSong else { return }
         switch action {
         case .shuffle: toggleShuffle()
         case .repeatMode: cycleRepeat()
@@ -2476,11 +2482,126 @@ extension CarPlaySceneDelegate {
         case .audioQuality, .audioFormat, .audioBitRate, .audioResolution: showAudioQuality()
         case .queue: pushQueueTemplate()
         case .album: nowPlayingTemplateAlbumArtistButtonTapped(.shared)
+        case .artist: showCurrentSongArtists()
+        case .songActions:
+            guard !player.currentItemIsSpokenWord, let controller = interfaceController,
+                  controller.presentedTemplate == nil else { return }
+            controller.presentTemplate(songActionsTemplate(for: song), animated: true, completion: nil)
         case .playbackRate: cycleSpokenWordRate()
         case .slowerPlaybackRate: stepSpokenWordRate(faster: false)
         case .fasterPlaybackRate: stepSpokenWordRate(faster: true)
         case .skipBackward: player.skipSpokenWordBackward()
         case .skipForward: player.skipSpokenWordForward()
+        }
+    }
+
+    func songActionsTemplate(for song: Song, library: MusicLibrary = AppServices.shared.musicLibrary,
+                             recommendationsOnly: Bool = false) -> CPActionSheetTemplate {
+        let player = AppServices.shared.playerService
+        let appleMusic = AppServices.shared.appleMusicLibrary
+        let rowID = NowPlayingLibraryActions.libraryRowID(for: song, library: library)
+        let isCatalogSong = song.sourceID == AppleMusicLibraryService.systemSourceID
+            && AppleMusicLibraryService.isCatalogItemID(song.filePath)
+        var actions: [CPAlertAction] = []
+
+        func action(_ title: String, style: CPAlertAction.Style = .default,
+                    perform: @escaping @MainActor () async -> Void) -> CPAlertAction {
+            CPAlertAction(title: title, style: style) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, let controller = self.interfaceController else { return }
+                    if let presented = controller.presentedTemplate {
+                        guard let sheet = presented as? CPActionSheetTemplate, sheet.userInfo as? String == song.id else { return }
+                        do { try await controller.dismissTemplate(animated: true) } catch { return }
+                    }
+                    guard self.interfaceController === controller, player.currentSong?.id == song.id,
+                          !player.isLiveRadio, !player.currentItemIsSpokenWord else { return }
+                    await perform()
+                }
+            }
+        }
+
+        func sheet(_ choices: [CPAlertAction]) -> CPActionSheetTemplate {
+            let cancel = action(String(localized: "cancel"), style: .cancel) {}
+            let template = CPActionSheetTemplate(title: nil, message: nil, actions: choices + [cancel])
+            template.userInfo = song.id
+            return template
+        }
+
+        // CarPlay keeps at most three actions, including Cancel.
+        if rowID == nil, isCatalogSong, !recommendationsOnly {
+            actions.append(action(String(localized: "apple_music_add_to_library")) { [weak self] in
+                guard let self else { return }
+                let generation = self.connectionGeneration
+                do {
+                    _ = try await appleMusic.resolveLibraryActionSong(song)
+                } catch {
+                    if self.connectionGeneration == generation { self.presentMessage(error.localizedDescription) }
+                }
+            })
+            actions.append(action(String(localized: "carplay_radio_and_recommendations")) { [weak self] in
+                guard let self, let controller = self.interfaceController, controller.presentedTemplate == nil else { return }
+                let menu = self.songActionsTemplate(for: song, library: library, recommendationsOnly: true)
+                controller.presentTemplate(menu, animated: true, completion: nil)
+            })
+            return sheet(actions)
+        }
+        actions.append(action(String(localized: "start_song_radio")) { [weak self] in
+            self?.startSongRadio(from: song)
+        })
+        if rowID != nil || isCatalogSong {
+            let disliked = rowID.map(library.isDisliked(songID:)) == true
+                || (isCatalogSong && appleMusic.dislikedCatalogIDs.contains(song.filePath))
+            actions.append(action(String(localized: disliked ? "carplay_restore_recommendations" : "carplay_suggest_less")) {
+                if let currentRow = NowPlayingLibraryActions.libraryRowID(for: song, library: library) {
+                    library.setDisliked(songID: currentRow, isDisliked: !disliked)
+                    if isCatalogSong { appleMusic.setCatalogDisliked(false, itemID: song.filePath) }
+                } else if isCatalogSong {
+                    appleMusic.setCatalogDisliked(!disliked, itemID: song.filePath)
+                } else { return }
+                if !disliked { await player.next() }
+            })
+        }
+        return sheet(actions)
+    }
+
+    private func startSongRadio(from song: Song) {
+        songRadioTask?.cancel()
+        let services = AppServices.shared
+        let player = services.playerService
+        let queueToken = player.queueRequestToken
+        songRadioTask = Task { @MainActor [weak self] in
+            let queue = await SongRadioBuilder.queue(from: song, in: services.musicLibrary).filteredPlayable()
+            guard !Task.isCancelled, let self, self.interfaceController != nil,
+                  player.queueRequestToken == queueToken, player.currentSong?.id == song.id,
+                  !player.isLiveRadio, !player.currentItemIsSpokenWord else { return }
+            guard queue.contains(where: { $0.id != song.id }) else {
+                self.presentMessage(String(localized: "similar_songs_empty"))
+                return
+            }
+            player.shuffleEnabled = false
+            await player.play(queue: queue, startingAt: 0)
+        }
+    }
+
+    private var currentSongArtists: [Artist] {
+        guard let song = AppServices.shared.playerService.currentSong else { return [] }
+        let library = AppServices.shared.musicLibrary
+        let artists = library.linkedArtists(for: song)
+        if artists.isEmpty, let id = song.artistID, let artist = library.visibleArtist(id: id) {
+            return [artist]
+        }
+        return artists
+    }
+
+    private func showCurrentSongArtists() {
+        let artists = currentSongArtists
+        guard let first = artists.first else { return }
+        if artists.count == 1 {
+            pushArtistDetail(first)
+        } else {
+            let items = artists.prefix(CPListTemplate.maximumItemCount).map(artistItem)
+            safePush(CPListTemplate(title: String(localized: "go_to_artist"), sections: [CPListSection(items: items)]),
+                     label: "SongArtists")
         }
     }
 
@@ -2925,6 +3046,9 @@ extension CarPlaySceneDelegate {
             }
         }
         refreshDrillDownTemplates()
+        if layout.nowPlayingButtons(isSpokenWord: false).contains(.artist) || openNowPlayingMoreTemplate != nil {
+            refreshNowPlayingButtons()
+        }
     }
 
     private func markRootTemplatesStale() {

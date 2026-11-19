@@ -4185,6 +4185,10 @@
 "carplay_top_audioInfo" = "Audio Info";
 "carplay_top_hidden" = "Hidden";
 "carplay_audio_summary" = "Spec Summary";
+"carplay_song_actions" = "Song Actions";
+"carplay_radio_and_recommendations" = "Radio and Recommendations";
+"carplay_suggest_less" = "Suggest Less";
+"carplay_restore_recommendations" = "Recommend Again";
 "carplay_audio_resolution" = "Bit Depth / Sample Rate";
 "carplay_audio_playing" = "Playing Format";
 "carplay_audio_original" = "Original File";

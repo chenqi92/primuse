@@ -4412,6 +4412,10 @@
 "carplay_top_audioInfo" = "Audioinformationen";
 "carplay_top_hidden" = "Ausgeblendet";
 "carplay_audio_summary" = "Audioübersicht";
+"carplay_song_actions" = "Titelaktionen";
+"carplay_radio_and_recommendations" = "Radio und Empfehlungen";
+"carplay_suggest_less" = "Seltener empfehlen";
+"carplay_restore_recommendations" = "Wieder empfehlen";
 "carplay_audio_resolution" = "Bittiefe / Abtastrate";
 "carplay_audio_playing" = "Wiedergabeformat";
 "carplay_audio_original" = "Originaldatei";

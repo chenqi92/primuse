@@ -4514,6 +4514,10 @@
 "carplay_top_audioInfo" = "音频信息";
 "carplay_top_hidden" = "隐藏";
 "carplay_audio_summary" = "规格摘要";
+"carplay_song_actions" = "歌曲操作";
+"carplay_radio_and_recommendations" = "电台与推荐";
+"carplay_suggest_less" = "减少推荐";
+"carplay_restore_recommendations" = "恢复推荐";
 "carplay_audio_resolution" = "位深／采样率";
 "carplay_audio_playing" = "播放规格";
 "carplay_audio_original" = "原始文件";
