@@ -2444,10 +2444,13 @@
 "motion_cover_error_too_large" = "Plik jest za duży. Wybierz mniejszy film lub GIF.";
 "motion_cover_error_unreadable" = "Nie można odczytać tego pliku. Wybierz film MP4, MOV lub M4V albo GIF.";
 "motion_cover_storage" = "Filmy ruchomych okładek";
-"motion_cover_storage_footer" = "Ruchome okładki ustawione dla utworów i albumów są przechowywane tylko na tym urządzeniu. Po ich usunięciu wraca statyczna okładka.";
+"motion_cover_storage_footer" = "Ruchome okładki ustawione dla utworów i albumów są przechowywane na tym urządzeniu. Po ich usunięciu wraca statyczna okładka.";
 "motion_cover_storage_clear_title" = "Usunąć wszystkie ruchome okładki?";
 "motion_cover_storage_clear_message" = "Ruchome okładki wszystkich utworów i albumów zostaną usunięte z tego urządzenia. Statyczne okładki pozostaną bez zmian.";
 "motion_cover_storage_clear_confirm" = "Usuń wszystkie";
+"motion_cover_storage_clear_message_synced" = "Ruchome okładki wszystkich utworów i albumów zostaną usunięte z tego urządzenia, a także z iCloud i z Twoich innych synchronizujących urządzeń. Statyczne okładki pozostaną bez zmian.";
+"motion_cover_icloud_sync" = "Synchronizuj ruchome okładki przez iCloud";
+"motion_cover_icloud_sync_footer" = "Po włączeniu ruchome okładki ustawione dla utworów i albumów są wysyłane do iCloud i zajmują miejsce w iCloud. Twoje inne iPhone’y, iPady i Maki pobierają je automatycznie, gdy też mają włączony ten przełącznik; ustawienie, zmiana lub usunięcie okładki na jednym urządzeniu przenosi się na pozostałe. Wymaga synchronizacji iCloud. Po wyłączeniu nic nie jest już wysyłane ani odbierane; filmy na tym urządzeniu i w iCloud zostają. Okładki pojedynczych utworów z folderów lokalnych i filmy powyżej 100 MB nie są synchronizowane; Apple TV ich nie pobiera. Gdy włączona jest opcja „Pobieraj oryginalne okładki tylko przez Wi-Fi”, filmy są wysyłane i pobierane tylko przez Wi-Fi.";
 "motion_artwork_service_enabled" = "Animowane okładki online";
 "motion_artwork_service_endpoint" = "Punkt końcowy usługi";
 "music_video_badge" = "Teledysk";

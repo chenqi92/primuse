@@ -3528,10 +3528,13 @@
 "motion_cover_error_too_large" = "文件太大了，请换一个小一些的视频或动图。";
 "motion_cover_error_unreadable" = "无法读取这个文件，请选择 MP4、MOV、M4V 视频或 GIF 动图。";
 "motion_cover_storage" = "动态封面视频";
-"motion_cover_storage_footer" = "给歌曲和专辑设置的视频动态封面只保存在这台设备上，移除后恢复为静态封面。";
+"motion_cover_storage_footer" = "给歌曲和专辑设置的视频动态封面保存在这台设备上，移除后恢复为静态封面。";
 "motion_cover_storage_clear_title" = "移除全部动态封面？";
 "motion_cover_storage_clear_message" = "所有歌曲和专辑设置的视频动态封面都会从这台设备删除，静态封面不受影响。";
 "motion_cover_storage_clear_confirm" = "全部移除";
+"motion_cover_storage_clear_message_synced" = "所有歌曲和专辑设置的视频动态封面都会从这台设备删除，并从 iCloud 和打开了同步的其他设备上一起移除。静态封面不受影响。";
+"motion_cover_icloud_sync" = "iCloud 同步动态封面";
+"motion_cover_icloud_sync_footer" = "打开后，你给歌曲和专辑设置的视频动态封面会上传到 iCloud，占用 iCloud 空间；其他 iPhone、iPad、Mac 打开这个开关后会自动下载，在任何一台上设置、更换或移除，其他设备都会跟着变。需要同时打开 iCloud 同步。关掉后不再上传和接收，这台设备和 iCloud 里已有的都保留。本机文件夹里的歌曲单独设的和超过 100 MB 的视频不同步；Apple TV 不下载。开着「仅通过 Wi-Fi 下载原始封面」时，视频只在 Wi-Fi 下上传和下载。";
 "player_lyrics_section" = "歌词";
 "player_lyrics_alignment" = "歌词对齐";
 "player_lyrics_alignment_left" = "左对齐";

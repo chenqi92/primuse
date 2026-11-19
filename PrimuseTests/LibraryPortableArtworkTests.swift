@@ -261,6 +261,42 @@ final class LibraryPortableArtworkTests: XCTestCase {
         XCTAssertNil(CloudKitSyncService.readSongCoverAsset(record, contentID: contentID))
     }
 
+    func testMotionCoverVideosStayOutOfEngineFetchesAndBindingsStayPrivate() {
+        let videoZone = CloudKitSyncService.motionCoverVideoZoneID
+        let other = CKRecordZone.ID(zoneName: "Other")
+        guard case .allExcluding(let fromAll) = CloudKitSyncService.excludingMotionCoverVideoZone(.all) else {
+            return XCTFail("A full fetch must exclude the motion cover video zone")
+        }
+        XCTAssertEqual(fromAll, [videoZone])
+        guard case .allExcluding(let merged) = CloudKitSyncService.excludingMotionCoverVideoZone(.allExcluding([other])) else {
+            return XCTFail("Existing exclusions must be kept")
+        }
+        XCTAssertEqual(Set(merged), [videoZone, other])
+        guard case .zoneIDs(let listed) = CloudKitSyncService.excludingMotionCoverVideoZone(
+            .zoneIDs([videoZone, CloudKitSyncService.zoneID])
+        ) else {
+            return XCTFail("A listed fetch must stay a listed fetch")
+        }
+        XCTAssertEqual(listed, [CloudKitSyncService.zoneID])
+        guard case .allExcluding(let manual) = CloudKitSyncService.privateFetchChangesOptions.scope else {
+            return XCTFail("Manual fetches must use the excluding scope too")
+        }
+        XCTAssertEqual(manual, [videoZone])
+
+        let contentID = String(repeating: "ab", count: 32)
+        let recordID = MotionCoverCloudVideoTransfer.recordID(contentID: contentID)
+        XCTAssertEqual(recordID.zoneID, videoZone)
+        XCTAssertEqual(MotionCoverCloudVideoTransfer.contentID(of: recordID), contentID)
+        XCTAssertNil(MotionCoverCloudVideoTransfer.contentID(of: CKRecord.ID(recordName: "Playlist/normal", zoneID: videoZone)))
+
+        let binding = MotionCoverCloudRecordID.binding(for: .album("album-1"))
+        let family = UserDefaults.standard.object(forKey: "primuse.familySharing.enabled")
+        defer { UserDefaults.standard.set(family, forKey: "primuse.familySharing.enabled") }
+        CloudKitSyncService.familySharingEnabled = true
+        XCTAssertEqual(CloudKitSyncService.zoneFor(recordType: "Playlist", id: binding).zoneName, "PrimuseSync")
+        XCTAssertNil(CloudKitSyncService.channel(for: "Playlist", id: binding))
+    }
+
     func testSongGIFWritesCompatibleStillToAudioSource() async throws {
         let gif = try animatedUploadGIF()
         let connector = SongGIFWritebackConnector()

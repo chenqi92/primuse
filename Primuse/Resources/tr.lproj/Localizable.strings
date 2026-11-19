@@ -114,10 +114,13 @@
 "motion_cover_error_too_large" = "Dosya çok büyük. Daha küçük bir video veya GIF seçin.";
 "motion_cover_error_unreadable" = "Bu dosya okunamıyor. MP4, MOV veya M4V video ya da GIF seçin.";
 "motion_cover_storage" = "Hareketli kapak videoları";
-"motion_cover_storage_footer" = "Şarkılar ve albümler için ayarlanan hareketli kapaklar yalnızca bu cihazda saklanır. Kaldırıldığında sabit kapak geri gelir.";
+"motion_cover_storage_footer" = "Şarkılar ve albümler için ayarlanan hareketli kapaklar bu cihazda saklanır. Kaldırıldığında sabit kapak geri gelir.";
 "motion_cover_storage_clear_title" = "Tüm hareketli kapaklar kaldırılsın mı?";
 "motion_cover_storage_clear_message" = "Tüm şarkı ve albümlerin hareketli kapakları bu cihazdan silinecek. Sabit kapaklar etkilenmez.";
 "motion_cover_storage_clear_confirm" = "Tümünü kaldır";
+"motion_cover_storage_clear_message_synced" = "Tüm şarkı ve albümlerin hareketli kapakları bu cihazdan silinecek, ayrıca iCloud’dan ve eşitleme yapan diğer cihazlarınızdan da kaldırılacak. Sabit kapaklar etkilenmez.";
+"motion_cover_icloud_sync" = "Hareketli kapakları iCloud ile eşitle";
+"motion_cover_icloud_sync_footer" = "Açıkken şarkılar ve albümler için ayarladığınız hareketli kapak videoları iCloud’a yüklenir ve iCloud depolama alanınızı kullanır. Diğer iPhone, iPad ve Mac aygıtlarınızda da bu anahtar açıldığında otomatik olarak indirilir; herhangi birinde kapak ayarlamak, değiştirmek veya kaldırmak diğerlerine de yansır. iCloud eşitlemenin açık olması gerekir. Kapatıldığında yükleme ve alma durur; bu cihazdaki ve iCloud’daki videolar korunur. Yerel klasörlerdeki tek tek şarkılara ayarlanan kapaklar ve 100 MB’tan büyük videolar eşitlenmez; Apple TV bunları indirmez. “Orijinal kapakları yalnızca Wi-Fi üzerinden indir” açıkken videolar yalnızca Wi-Fi üzerinden yüklenir ve indirilir.";
 "hide_desktop_lyrics" = "Masaüstü şarkı sözlerini gizle";
 "share_link_method" = "Yöntem";
 "ai_provider_preset_zhipu" = "Zhipu GLM";

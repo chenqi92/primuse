@@ -2444,10 +2444,13 @@
 "motion_cover_error_too_large" = "O arquivo é grande demais. Escolha um vídeo ou GIF menor.";
 "motion_cover_error_unreadable" = "Não é possível ler este arquivo. Escolha um vídeo MP4, MOV ou M4V ou um GIF.";
 "motion_cover_storage" = "Vídeos de capas em movimento";
-"motion_cover_storage_footer" = "As capas em movimento definidas para músicas e álbuns ficam salvas apenas neste dispositivo. Ao removê-las, volta a capa estática.";
+"motion_cover_storage_footer" = "As capas em movimento definidas para músicas e álbuns ficam salvas neste dispositivo. Ao removê-las, volta a capa estática.";
 "motion_cover_storage_clear_title" = "Remover todas as capas em movimento?";
 "motion_cover_storage_clear_message" = "As capas em movimento de todas as músicas e álbuns serão apagadas deste dispositivo. As capas estáticas não são afetadas.";
 "motion_cover_storage_clear_confirm" = "Remover tudo";
+"motion_cover_storage_clear_message_synced" = "As capas em movimento de todas as músicas e álbuns serão apagadas deste dispositivo e também removidas do iCloud e dos seus outros dispositivos que as sincronizam. As capas estáticas não são afetadas.";
+"motion_cover_icloud_sync" = "Sincronizar capas em movimento com o iCloud";
+"motion_cover_icloud_sync_footer" = "Quando ativado, as capas em movimento que você define para músicas e álbuns são enviadas ao iCloud e ocupam seu armazenamento do iCloud. Seus outros iPhone, iPad e Mac as baixam automaticamente quando esta opção também estiver ativada neles; definir, trocar ou remover uma capa em qualquer um deles atualiza os demais. Requer a sincronização iCloud. Ao desativar, nada mais é enviado ou recebido; os vídeos que já estão neste dispositivo e no iCloud são mantidos. Capas de músicas avulsas de pastas locais e vídeos acima de 100 MB não são sincronizados; a Apple TV não os baixa. Com “Wi-Fi apenas para arte original” ativado, os vídeos só são enviados e baixados pelo Wi-Fi.";
 "motion_artwork_service_enabled" = "Capas animadas online";
 "motion_artwork_service_endpoint" = "Ponto final de serviço";
 "music_video_badge" = "Vídeo musical";

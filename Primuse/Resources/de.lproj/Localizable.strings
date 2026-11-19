@@ -3426,10 +3426,13 @@
 "motion_cover_error_too_large" = "Die Datei ist zu groß. Wähle ein kleineres Video oder GIF.";
 "motion_cover_error_unreadable" = "Diese Datei kann nicht gelesen werden. Wähle ein MP4-, MOV- oder M4V-Video oder ein GIF.";
 "motion_cover_storage" = "Videos für bewegte Cover";
-"motion_cover_storage_footer" = "Für Titel und Alben festgelegte bewegte Cover werden nur auf diesem Gerät gespeichert. Nach dem Entfernen wird wieder das statische Cover angezeigt.";
+"motion_cover_storage_footer" = "Für Titel und Alben festgelegte bewegte Cover werden auf diesem Gerät gespeichert. Nach dem Entfernen wird wieder das statische Cover angezeigt.";
 "motion_cover_storage_clear_title" = "Alle bewegten Cover entfernen?";
 "motion_cover_storage_clear_message" = "Die bewegten Cover aller Titel und Alben werden von diesem Gerät gelöscht. Statische Cover bleiben erhalten.";
 "motion_cover_storage_clear_confirm" = "Alle entfernen";
+"motion_cover_storage_clear_message_synced" = "Die bewegten Cover aller Titel und Alben werden von diesem Gerät gelöscht und auch aus iCloud und von deinen anderen synchronisierenden Geräten entfernt. Statische Cover bleiben erhalten.";
+"motion_cover_icloud_sync" = "Bewegte Cover über iCloud synchronisieren";
+"motion_cover_icloud_sync_footer" = "Wenn aktiviert, werden die bewegten Cover, die du für Titel und Alben festlegst, in iCloud hochgeladen und belegen iCloud-Speicher. Deine anderen iPhone, iPad und Mac laden sie automatisch, sobald dieser Schalter dort ebenfalls aktiv ist; Festlegen, Ersetzen oder Entfernen auf einem Gerät wird auf die anderen übernommen. Erfordert die iCloud-Synchronisierung. Beim Deaktivieren wird nichts mehr hoch- oder heruntergeladen; Videos auf diesem Gerät und in iCloud bleiben erhalten. Cover einzelner Titel aus lokalen Ordnern und Videos über 100 MB werden nicht synchronisiert; Apple TV lädt sie nicht. Ist „Originalcover nur über WLAN“ aktiviert, werden die Videos nur über WLAN hoch- und heruntergeladen.";
 "player_lyrics_section" = "Liedtext";
 "player_lyrics_alignment" = "Liedtextausrichtung";
 "player_lyrics_alignment_left" = "Links";

@@ -2177,6 +2177,10 @@ struct PrimuseApp: App {
                     // `library.allPlaylists` / `allSmartPlaylists` / 封面覆盖, 空库
                     // 上传完还会把 `didCompleteInitialUpload` 永久置真。
                     if iCloudSyncEnabled { await cloudSync.start() }
+                    #if !os(tvOS)
+                    // 打开「iCloud 同步动态封面」时引擎没在跑的，起来后补一次（不挡后面的启动工作）。
+                    if iCloudSyncEnabled { Task { await cloudSync.resumePendingMotionCoverCatchUp() } }
+                    #endif
                     // macOS can refresh MusicKit while its window is active.
                     // On iOS a full request is reserved for explicit source
                     // sync or the playback cache-miss path, so launch never

@@ -2444,10 +2444,13 @@
 "motion_cover_error_too_large" = "El archivo es demasiado grande. Elige un video o GIF más pequeño.";
 "motion_cover_error_unreadable" = "No se puede leer este archivo. Elige un video MP4, MOV o M4V, o un GIF.";
 "motion_cover_storage" = "Videos de portadas en movimiento";
-"motion_cover_storage_footer" = "Las portadas en movimiento de canciones y álbumes se guardan solo en este dispositivo. Al quitarlas vuelve la portada fija.";
+"motion_cover_storage_footer" = "Las portadas en movimiento de canciones y álbumes se guardan en este dispositivo. Al quitarlas vuelve la portada fija.";
 "motion_cover_storage_clear_title" = "¿Quitar todas las portadas en movimiento?";
 "motion_cover_storage_clear_message" = "Se eliminarán de este dispositivo las portadas en movimiento de todas las canciones y álbumes. Las portadas fijas no se verán afectadas.";
 "motion_cover_storage_clear_confirm" = "Quitar todo";
+"motion_cover_storage_clear_message_synced" = "Se eliminarán de este dispositivo las portadas en movimiento de todas las canciones y álbumes, y también se quitarán de iCloud y de tus otros dispositivos que las sincronizan. Las portadas fijas no se verán afectadas.";
+"motion_cover_icloud_sync" = "Sincronizar portadas en movimiento con iCloud";
+"motion_cover_icloud_sync_footer" = "Al activarlo, las portadas en movimiento que asignes a canciones y álbumes se suben a iCloud y ocupan tu almacenamiento de iCloud. Tus otros iPhone, iPad y Mac las descargan automáticamente cuando también activan esta opción; asignar, reemplazar o quitar una portada en cualquiera de ellos actualiza los demás. Requiere la sincronización iCloud. Al desactivarlo se deja de subir y recibir; los videos que ya están en este dispositivo y en iCloud se conservan. No se sincronizan las portadas de canciones sueltas de carpetas locales ni los videos de más de 100 MB; el Apple TV no los descarga. Si “Descargar portadas originales solo con Wi-Fi” está activado, los videos solo se suben y descargan con Wi-Fi.";
 "motion_artwork_service_enabled" = "Portadas animadas en línea";
 "motion_artwork_service_endpoint" = "Punto final de servicio";
 "music_video_badge" = "Vídeo musical";

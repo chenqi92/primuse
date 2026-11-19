@@ -3426,10 +3426,13 @@
 "motion_cover_error_too_large" = "파일이 너무 큽니다. 더 작은 동영상이나 GIF를 선택하세요.";
 "motion_cover_error_unreadable" = "이 파일을 읽을 수 없습니다. MP4, MOV, M4V 동영상이나 GIF를 선택하세요.";
 "motion_cover_storage" = "움직이는 커버 동영상";
-"motion_cover_storage_footer" = "곡과 앨범에 설정한 움직이는 커버는 이 기기에만 저장됩니다. 삭제하면 정지 커버로 돌아갑니다.";
+"motion_cover_storage_footer" = "곡과 앨범에 설정한 움직이는 커버는 이 기기에 저장됩니다. 삭제하면 정지 커버로 돌아갑니다.";
 "motion_cover_storage_clear_title" = "모든 움직이는 커버를 삭제하시겠습니까?";
 "motion_cover_storage_clear_message" = "모든 곡과 앨범의 움직이는 커버가 이 기기에서 삭제됩니다. 정지 커버는 그대로 유지됩니다.";
 "motion_cover_storage_clear_confirm" = "모두 삭제";
+"motion_cover_storage_clear_message_synced" = "모든 곡과 앨범의 움직이는 커버가 이 기기에서 삭제되고, iCloud와 동기화 중인 다른 기기에서도 함께 삭제됩니다. 정지 커버는 그대로 유지됩니다.";
+"motion_cover_icloud_sync" = "iCloud로 움직이는 커버 동기화";
+"motion_cover_icloud_sync_footer" = "켜면 곡과 앨범에 설정한 움직이는 커버 동영상이 iCloud에 업로드되어 iCloud 저장 공간을 사용합니다. 다른 iPhone, iPad, Mac에서도 이 스위치를 켜면 자동으로 다운로드되며, 어느 기기에서 설정·변경·삭제해도 다른 기기에 반영됩니다. iCloud 동기화가 켜져 있어야 합니다. 끄면 업로드와 수신을 멈추며, 이 기기와 iCloud에 있는 동영상은 그대로 유지됩니다. 로컬 폴더의 곡에 개별로 설정한 커버와 100MB를 넘는 동영상은 동기화되지 않으며, Apple TV에는 다운로드되지 않습니다. ‘Wi-Fi에서만 원본 앨범 아트 다운로드’가 켜져 있으면 비디오는 Wi-Fi에서만 업로드하고 다운로드합니다.";
 "player_lyrics_section" = "가사";
 "player_lyrics_alignment" = "가사 정렬";
 "player_lyrics_alignment_left" = "왼쪽";

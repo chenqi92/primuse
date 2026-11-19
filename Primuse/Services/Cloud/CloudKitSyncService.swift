@@ -3,6 +3,11 @@ import CryptoKit
 import Foundation
 import PrimuseKit
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 enum CloudSyncStatus: Equatable, Sendable {
     case disabled
@@ -73,6 +78,31 @@ enum SyncTestScenario: String {
 final class CloudKitSyncService {
     nonisolated static let containerID = CloudKitRuntime.containerID
     nonisolated static let zoneID = CKRecordZone.ID(zoneName: "PrimuseSync")
+    /// 自己设的视频动态封面的视频本体（#428）单独放在这个私有区里。同步引擎拉取时排除它
+    /// （`nextFetchChangesOptions`），任何设备都不会经引擎下载视频；只有开着「iCloud 同步动态封面」
+    /// 的设备按需单条去取、去传（`MotionCoverCloudVideoTransfer`）。区不属于 schema，不用部署。
+    nonisolated static let motionCoverVideoZoneID = CKRecordZone.ID(zoneName: "PrimuseMotionCovers")
+
+    /// 私有库引擎手动拉取时用的范围。自动拉取走 `nextFetchChangesOptions`，结果一样。
+    nonisolated static var privateFetchChangesOptions: CKSyncEngine.FetchChangesOptions {
+        CKSyncEngine.FetchChangesOptions(scope: excludingMotionCoverVideoZone(.all))
+    }
+
+    nonisolated static func excludingMotionCoverVideoZone(
+        _ scope: CKSyncEngine.FetchChangesOptions.Scope
+    ) -> CKSyncEngine.FetchChangesOptions.Scope {
+        let zone = motionCoverVideoZoneID
+        switch scope {
+        case .all:
+            return .allExcluding([zone])
+        case .allExcluding(let zones):
+            return .allExcluding(zones.contains(zone) ? zones : zones + [zone])
+        case .zoneIDs(let zones):
+            return .zoneIDs(zones.filter { $0 != zone })
+        @unknown default:
+            return scope
+        }
+    }
 
     /// 家庭共享 zone ── owner 在这里创建 CKShare, 邀请的 participant 通过
     /// 系统 sharing 接受后能看到这个 zone 里的 record。
@@ -149,6 +179,8 @@ final class CloudKitSyncService {
         // Playlist 类型按 id 例外: 「我喜欢」及它的封面规则、「不喜欢」「随机时连播」这些记录每人独立。
         if recordType == RecordType.playlist {
             if songCoverAssetContentID(id) != nil { return Self.zoneID }
+            // 自己设的视频动态封面是个人内容，不进家庭共享。
+            if MotionCoverCloudRecordID.isMotionCover(id) { return Self.zoneID }
             if id == MusicLibrary.likedSongsPlaylistID || MusicLibrary.recordPlaylistIDs.contains(id) {
                 return Self.zoneID
             }
@@ -182,6 +214,9 @@ final class CloudKitSyncService {
 
     private var container: CKContainer?
     private var database: CKDatabase?
+    #if !os(tvOS)
+    @ObservationIgnored private var motionCoverVideoTransfer: MotionCoverCloudVideoTransfer?
+    #endif
     private(set) var engine: CKSyncEngine?
     /// Identifies the one start attempt that is allowed to cross the async
     /// account check. Main-actor isolation alone does not prevent reentrancy at
@@ -410,12 +445,15 @@ final class CloudKitSyncService {
 
         do {
             plog("CloudKitSync: starting fetchChanges()")
-            try await engine.fetchChanges()
+            try await engine.fetchChanges(Self.privateFetchChangesOptions)
             plog("CloudKitSync: fetchChanges OK, starting sendChanges()")
             // 用户可能刚好在 fetch 期间关掉同步 / 切换账号。此时这条 pass 必须
             // 停在这里,不能再把本地数据推上去。
             guard self.engine === engine, startAttemptID == attemptID else { return }
             uploadDeferredRadioSnapshotIfNeeded()
+            #if !os(tvOS)
+            motionCoverVideos.schedulePass()
+            #endif
             let drained = try await sendChangesResolvingRecoverableFailures(using: engine)
             plog("CloudKitSync: sendChanges OK")
             guard self.engine === engine, startAttemptID == attemptID else { return }
@@ -764,7 +802,13 @@ final class CloudKitSyncService {
         for channel in CloudSyncChannel.allCases where CloudSyncChannel.isEnabled(channel) {
             enqueueLocalEntities(for: channel)
         }
+        #if !os(tvOS)
+        enqueueAllMotionCovers()
+        #endif
         await syncNow()
+        #if !os(tvOS)
+        await resumePendingMotionCoverCatchUp()
+        #endif
     }
 
     private func refetchEverythingBeforeCatchUp() async {
@@ -825,11 +869,14 @@ final class CloudKitSyncService {
         }
         status = .syncing
         do {
-            try await engine.fetchChanges()
+            try await engine.fetchChanges(Self.privateFetchChangesOptions)
             // 同上:stop() 之后这条 pass 既不能继续上传,也不能把 `.disabled`
             // 状态改回来。
             guard self.engine === engine else { return }
             uploadDeferredRadioSnapshotIfNeeded()
+            #if !os(tvOS)
+            motionCoverVideos.schedulePass()
+            #endif
             let drained = try await sendChangesResolvingRecoverableFailures(using: engine)
             guard self.engine === engine else { return }
             status = drained ? .upToDate : .syncing
@@ -947,6 +994,9 @@ final class CloudKitSyncService {
             dropPendingRecordZoneChanges(for: recordID, syncEngine: syncEngine)
             return true
         }
+        #if !os(tvOS)
+        if resolveFailedMotionCoverSave(recordID: recordID, error: error, syncEngine: syncEngine) { return true }
+        #endif
 
         if error.code == .constraintViolation,
            let local = makeRecord(for: recordID),
@@ -1191,6 +1241,14 @@ final class CloudKitSyncService {
             let uploads = (note.userInfo?["ids"] as? [String]) ?? []
             let deleted = (note.userInfo?["deleted"] as? [String]) ?? []
             Task { @MainActor in self?.songTagEditCoversChanged(uploads: uploads, deleted: deleted) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseMotionCoverSyncChanges, object: nil, queue: .main) { [weak self] note in
+            let bindings = (note.userInfo?["bindings"] as? [String]) ?? []
+            let uploads = (note.userInfo?["uploads"] as? [String]) ?? []
+            let deletedVideos = (note.userInfo?["deletedVideos"] as? [String]) ?? []
+            Task { @MainActor in
+                self?.motionCoversChanged(bindings: bindings, uploads: uploads, deletedVideos: deletedVideos)
+            }
         })
         #endif
         observerTokens.append(nc.addObserver(forName: .primuseScraperConfigDidChange, object: nil, queue: .main) { [weak self] note in
@@ -1519,9 +1577,13 @@ final class CloudKitSyncService {
         var saves: [String: [String]] = [:]
         var deletes: [String: [String]] = [:]
         for (name, deleting) in lastOperation {
-            guard let meta = recordMetadata(for: CKRecord.ID(recordName: name)),
-                  let channel = Self.channel(for: meta.recordType, id: meta.localID),
-                  CloudSyncChannel.isEnabled(channel) else { continue }
+            guard let meta = recordMetadata(for: CKRecord.ID(recordName: name)) else { continue }
+            if meta.recordType == RecordType.playlist, MotionCoverCloudRecordID.isMotionCover(meta.localID) {
+                guard Self.isMotionCoverSyncEnabled else { continue }
+            } else {
+                guard let channel = Self.channel(for: meta.recordType, id: meta.localID),
+                      CloudSyncChannel.isEnabled(channel) else { continue }
+            }
             if deleting {
                 deletes[meta.recordType, default: []].append(meta.localID)
             } else {
@@ -1576,7 +1638,71 @@ final class CloudKitSyncService {
         songTagEditCoversChanged(uploads: store.allPortableCoverIDs, deleted: [])
         songTagEditsChanged(ids: store.allSongIDs)
     }
+
+    /// 用户在这台设备上改了视频动态封面。设置走同步引擎；视频本体交给 `motionCoverVideos`
+    /// 单独上传，没有设置再用的视频从云端删掉。
+    func motionCoversChanged(bindings: [String], uploads: [String], deletedVideos: [String]) {
+        guard Self.isMotionCoverSyncEnabled else { return }
+        let store = MotionCoverStore.shared
+        let syncable = bindings.filter { id in
+            store.owner(forBindingID: id).map { self.motionCoverOwnerIsSyncable($0) } ?? false
+        }
+        enqueueOrDefer(recordType: RecordType.playlist, ids: syncable)
+        motionCoverVideos.videosChanged(uploads: uploads, deleted: deletedVideos)
+    }
+
+    /// 打开同步、首次上传时：本机所有设置（含墓碑）和云端还没有的视频。
+    private func enqueueAllMotionCovers() {
+        guard Self.isMotionCoverSyncEnabled else { return }
+        let store = MotionCoverStore.shared
+        let owners = store.syncOwners.filter { self.motionCoverOwnerIsSyncable($0) }
+        plog("☁️ CloudKitSync: motion covers bindings=\(owners.count)")
+        enqueueOrDefer(recordType: RecordType.playlist, ids: owners.map(MotionCoverCloudRecordID.binding(for:)))
+        motionCoverVideos.schedulePass()
+    }
+
+    /// 设置页「iCloud 同步动态封面」开关变了。关掉不用做什么：之后排着的由 `isSyncableRecordID`
+    /// 挡下，收到的记录不再应用，本机和云端已有的都保留。
+    func motionCoverSyncSettingChanged(isOn: Bool) {
+        plog("☁️ CloudKitSync: motion cover sync \(isOn ? "on" : "off")")
+        guard isOn else {
+            UserDefaults.standard.removeObject(forKey: Self.motionCoverCatchUpPendingKey)
+            motionCoverVideos.cancel()
+            return
+        }
+        // 引擎这会儿没在跑（总开关关着、刚启动）时先记着，起来以后补做。
+        UserDefaults.standard.set(true, forKey: Self.motionCoverCatchUpPendingKey)
+        Task { await catchUpMotionCovers() }
+    }
+
+    private static let motionCoverCatchUpPendingKey = "primuse.motionCover.iCloudCatchUpPending"
+
+    /// 打开开关时没能补同步的，引擎起来后补一次。
+    func resumePendingMotionCoverCatchUp() async {
+        guard UserDefaults.standard.bool(forKey: Self.motionCoverCatchUpPendingKey) else { return }
+        await catchUpMotionCovers()
+    }
+
+    /// 关着的时候别的设备传的设置被跳过、游标照样往前走了，所以和通道打开一样先丢掉游标
+    /// 重拉一遍，再补传本机的。
+    private func catchUpMotionCovers() async {
+        guard isStarted, Self.isMotionCoverSyncEnabled else { return }
+        UserDefaults.standard.removeObject(forKey: Self.motionCoverCatchUpPendingKey)
+        await refetchEverythingBeforeCatchUp()
+        guard isStarted else { return }
+        enqueueAllMotionCovers()
+        await syncNow()
+    }
     #endif
+
+    /// 总开关和「iCloud 同步动态封面」都开着。Apple TV 不收不传。
+    nonisolated static var isMotionCoverSyncEnabled: Bool {
+        #if os(tvOS)
+        return false
+        #else
+        return MotionCoverStore.isCloudSyncEnabled
+        #endif
+    }
 
     func scraperConfigsChanged(ids: [String]) {
         guard CloudSyncChannel.isEnabled(.settings) else { return }
@@ -1717,6 +1843,8 @@ final class CloudKitSyncService {
     /// gate inbound (apply-remote) processing.
     static func channel(for recordType: String, id: String? = nil) -> CloudSyncChannel? {
         if recordType == RecordType.playlist, let id, songCoverAssetContentID(id) != nil { return .sources }
+        // 视频动态封面不归哪个通道管，由自己的开关决定（`isMotionCoverSyncEnabled`）。
+        if recordType == RecordType.playlist, let id, MotionCoverCloudRecordID.isMotionCover(id) { return nil }
         switch recordType {
         case RecordType.playlist: return .playlists
         case RecordType.smartPlaylist: return .playlists
@@ -1857,6 +1985,11 @@ final class CloudKitSyncService {
            MirrorPlaylistIdentity.isMirrorPlaylist(metadata.localID) {
             return false
         }
+        // 关掉「iCloud 同步动态封面」后，之前排着的上传、删除都不再发。
+        if metadata.recordType == RecordType.playlist,
+           MotionCoverCloudRecordID.isMotionCover(metadata.localID) {
+            return Self.isMotionCoverSyncEnabled
+        }
         if metadata.recordType == RecordType.musicSource {
             let stored = sourcesStore.source(id: metadata.localID)
             let tombstone = sourcesStore.sourceDeletionRecord(id: metadata.localID)?.tombstone
@@ -1963,6 +2096,10 @@ final class CloudKitSyncService {
         enqueueLyricLineComments(pendingOnly: false)
         #if !os(tvOS)
         enqueueAllSongTagEdits()
+        // 整份重传时云端可能是空的（区被删、换了账号）：「云端已有哪些视频」的记账不可信，
+        // 全部重传；云端其实还在的，保存时撞冲突就撤掉。
+        MotionCoverStore.shared.forgetCloudVideos()
+        enqueueAllMotionCovers()
         #endif
         // Push history at startup too (bypass the 5-min throttle, but still
         // honour the channel toggle).
@@ -2406,6 +2543,15 @@ final class CloudKitSyncService {
         syncEngine: CKSyncEngine
     ) {
         remoteLibraryMergeAwaitingDurableWrite = true
+        if record.recordType == RecordType.playlist,
+           let id = parseLocalID(from: record.recordID, recordType: RecordType.playlist),
+           MotionCoverCloudRecordID.isMotionCover(id) {
+            // 不走歌单那条（受歌单通道管、会当成歌单解）；Apple TV 不收，和手改标签一样连 changeTag 也不记。
+            #if !os(tvOS)
+            applyFetchedMotionCoverRecord(record, id: id, syncEngine: syncEngine)
+            #endif
+            return
+        }
         if record.recordType == RecordType.musicSource,
            let source = decodedSource(from: record),
            !MusicSourceCloudSyncPolicy.isEligible(source) {
@@ -2617,6 +2763,14 @@ final class CloudKitSyncService {
         if recordType == RecordType.musicSource, !sourcesStore.syncsViaICloud(id) {
             return
         }
+        if recordType == RecordType.playlist, MotionCoverCloudRecordID.isMotionCover(id) {
+            #if !os(tvOS)
+            if applyMotionCoverDeletion(id: id), let target = engine(for: recordID.zoneID) {
+                addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: target)
+            }
+            #endif
+            return
+        }
         if recordType == RecordType.playlist, let contentID = Self.songCoverAssetContentID(id) {
             #if !os(tvOS)
             if SongTagEditStore.shared.remotePortableCoverDeleted(contentID: contentID),
@@ -2743,6 +2897,13 @@ final class CloudKitSyncService {
     // MARK: - Playlist mapping
 
     private func populatePlaylistRecord(_ record: CKRecord, playlistID: String) -> Bool {
+        if MotionCoverCloudRecordID.isMotionCover(playlistID) {
+            #if os(tvOS)
+            return false
+            #else
+            return populateMotionCoverRecord(record, id: playlistID)
+            #endif
+        }
         if let contentID = Self.songCoverAssetContentID(playlistID) {
             #if !os(tvOS)
             let store = SongTagEditStore.shared
@@ -2795,7 +2956,7 @@ final class CloudKitSyncService {
     /// 身份信封内联进记录的上限。记录还带着 songIDs 数组和几个小字段, 留够余量。
     private nonisolated static let playlistEnvelopeInlineLimit = 700_000
     /// 超大歌单的信封附件字段。新字段: 发布前要把 Playlist 的 schema 部署到生产环境。
-    private nonisolated static let songIdentitiesAssetField = "songIdentitiesAsset"
+    nonisolated static let songIdentitiesAssetField = "songIdentitiesAsset"
 
     /// 附件文件要活到引擎真正上传完为止, 所以按歌单 id 放在固定路径、每次构建
     /// 记录时整份覆盖, 不用临时目录。
@@ -2816,6 +2977,14 @@ final class CloudKitSyncService {
 
     @discardableResult
     private func applyPlaylistRecord(_ record: CKRecord) -> Bool {
+        if let id = parseLocalID(from: record.recordID, recordType: RecordType.playlist),
+           MotionCoverCloudRecordID.isMotionCover(id) {
+            #if os(tvOS)
+            return false
+            #else
+            return applyMotionCoverRecord(record, id: id)
+            #endif
+        }
         if let id = parseLocalID(from: record.recordID, recordType: RecordType.playlist),
            let contentID = Self.songCoverAssetContentID(id) {
             #if !os(tvOS)
@@ -3033,7 +3202,8 @@ final class CloudKitSyncService {
         _ record: CKRecord
     ) -> (playlist: Playlist, identities: [SongIdentity]?)? {
         guard let id = parseLocalID(from: record.recordID, recordType: RecordType.playlist),
-              Self.songCoverAssetContentID(id) == nil else {
+              Self.songCoverAssetContentID(id) == nil,
+              !MotionCoverCloudRecordID.isMotionCover(id) else {
             return nil
         }
         // 超大歌单的信封在附件里; 引擎在回调前已把附件下载到本地临时文件。
@@ -3381,6 +3551,139 @@ final class CloudKitSyncService {
     }
     #endif
 
+    #if !os(tvOS)
+    // MARK: - Motion cover mapping (#428)
+    //
+    // 借用 `Playlist` 记录（见 `MotionCoverCloudRecordID`），不需要部署新的记录类型或字段。
+
+    /// 视频本体的上传、下载、删除（见 `MotionCoverCloudVideoTransfer`），用到时才建。
+    var motionCoverVideos: MotionCoverCloudVideoTransfer {
+        if let motionCoverVideoTransfer { return motionCoverVideoTransfer }
+        let transfer = MotionCoverCloudVideoTransfer(
+            database: { [weak self] in self?.isStarted == true ? self?.configuredDatabase() : nil },
+            isSyncable: { [weak self] owner in self?.motionCoverOwnerIsSyncable(owner) ?? false }
+        )
+        motionCoverVideoTransfer = transfer
+        return transfer
+    }
+
+    /// 专辑 id 由专辑名和专辑艺人算出，各台设备一致，都同步。歌曲和手改标签一样只同步跨设备
+    /// 音乐源上的：本机文件夹这类源的歌曲 id 每台设备各自生成，传过去也对不上。
+    private func motionCoverOwnerIsSyncable(_ owner: MotionCoverOwner) -> Bool {
+        switch owner {
+        case .album: return true
+        case .song(let id): return songTagEditIsSyncable(songID: id)
+        }
+    }
+
+    private func populateMotionCoverRecord(_ record: CKRecord, id: String) -> Bool {
+        guard Self.isMotionCoverSyncEnabled else { return false }
+        let store = MotionCoverStore.shared
+        // 视频本体不经引擎上传（见 `MotionCoverCloudVideoTransfer`）。
+        guard MotionCoverCloudRecordID.isBinding(id),
+              let owner = store.owner(forBindingID: id),
+              motionCoverOwnerIsSyncable(owner),
+              let entry = store.syncEntry(for: owner),
+              entry.isAcceptable,
+              let data = try? JSONEncoder().encode(entry) else { return false }
+        record[Self.songIdentitiesField] = data
+        record[Self.songIdentitiesAssetField] = nil
+        return true
+    }
+
+    /// 返回 true：本机这条比云端的新，要传回去。
+    @discardableResult
+    private func applyMotionCoverRecord(_ record: CKRecord, id: String) -> Bool {
+        guard Self.isMotionCoverSyncEnabled else { return false }
+        let store = MotionCoverStore.shared
+        guard MotionCoverCloudRecordID.isBinding(id),
+              let data = record[Self.songIdentitiesField] as? Data,
+              data.count <= Self.motionCoverEntryByteLimit,
+              let entry = try? JSONDecoder().decode(MotionCoverSyncEntry.self, from: data),
+              MotionCoverCloudRecordID.entry(entry, matchesBinding: id),
+              let owner = entry.owner,
+              motionCoverOwnerIsSyncable(owner) else { return false }
+        let result = store.applyRemoteSyncEntry(entry)
+        // 别的设备设的视频本机还没有：去取（开关开着、网络允许时）。
+        if case .applied = result { motionCoverVideos.schedulePass() }
+        return result == .localNewer
+    }
+
+    private static let motionCoverEntryByteLimit = 64 * 1_024
+
+    /// 拉到的动态封面记录。关着同步时也记下 changeTag：之后打开再传同一条才是更新，
+    /// 不会撞「记录已存在」。
+    private func applyFetchedMotionCoverRecord(_ record: CKRecord, id: String, syncEngine: CKSyncEngine) {
+        storeSystemFields(record)
+        guard Self.isMotionCoverSyncEnabled else { return }
+        isApplyingRemote = true
+        let localNewer = applyMotionCoverRecord(record, id: id)
+        isApplyingRemote = false
+        if localNewer {
+            addCoalescedRecordZoneChanges([.saveRecord(record.recordID)], to: syncEngine)
+        } else {
+            dropPendingSaveIfServerMatches(record, syncEngine: syncEngine)
+        }
+    }
+
+    /// 云端这条没了。返回 true：本机还有、要传回去。
+    private func applyMotionCoverDeletion(id: String) -> Bool {
+        guard Self.isMotionCoverSyncEnabled else { return false }
+        let store = MotionCoverStore.shared
+        // 视频本体不在引擎管的区里，不会经这里收到删除。
+        guard MotionCoverCloudRecordID.isBinding(id) else { return false }
+        // 设置记录平时只换成墓碑、不删；被删了（比如清空了 iCloud 里的 App 数据）而本机还有就传回去。
+        guard let owner = store.owner(forBindingID: id) else { return false }
+        return motionCoverOwnerIsSyncable(owner) && store.syncEntry(for: owner) != nil
+    }
+
+    private func resolveMotionCoverConflict(server: CKRecord, id: String, syncEngine: CKSyncEngine) {
+        guard Self.isMotionCoverSyncEnabled else {
+            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(server.recordID)])
+            return
+        }
+        guard MotionCoverCloudRecordID.isBinding(id) else {
+            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(server.recordID)])
+            return
+        }
+        isApplyingRemote = true
+        applyMotionCoverRecord(server, id: id)
+        isApplyingRemote = false
+        // 并进本机后本机这条就是两边里新的那份：和服务器相同就不传，否则带着新的 changeTag 重传。
+        addCoalescedRecordZoneChanges([.saveRecord(server.recordID)], to: syncEngine)
+        dropPendingSaveIfServerMatches(server, syncEngine: syncEngine)
+    }
+
+    /// 动态封面记录保存失败。冲突、云端已删、网络、iCloud 空间不足这些照通用流程处理；其余
+    /// （生产环境缺字段、附件过大、附件文件没了等）只丢掉这一条：不把整个同步标成出错，
+    /// 也不清「首次上传已完成」去触发整份重传。
+    private func resolveFailedMotionCoverSave(
+        recordID: CKRecord.ID,
+        error: CKError,
+        syncEngine: CKSyncEngine
+    ) -> Bool {
+        guard let meta = recordMetadata(for: recordID),
+              meta.recordType == RecordType.playlist,
+              MotionCoverCloudRecordID.isMotionCover(meta.localID) else { return false }
+        if Self.schemaError(in: error) == nil {
+            switch error.code {
+            case .serverRecordChanged, .constraintViolation, .unknownItem, .zoneNotFound, .userDeletedZone,
+                 .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy,
+                 .quotaExceeded, .notAuthenticated:
+                return false
+            default:
+                break
+            }
+        }
+        syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+        plog(
+            "☁️ CloudKitSync: dropped motion cover save \(meta.localID.prefix(40)) "
+                + "code=\(error.code.rawValue): \(error.localizedDescription)"
+        )
+        return true
+    }
+    #endif
+
     // MARK: - Playback history mapping
 
     private func populatePlaybackHistoryRecord(_ record: CKRecord) -> Bool {
@@ -3499,7 +3802,7 @@ final class CloudKitSyncService {
 
     // MARK: - Song identity / cross-device resolution
 
-    private nonisolated static let songIdentitiesField = "songIdentities"
+    nonisolated static let songIdentitiesField = "songIdentities"
 
     /// Build cross-device identities for a batch of locally-stored song
     /// IDs. Songs that have already been deleted locally still get a stub
@@ -3731,6 +4034,16 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         )
     }
 
+    /// 每次拉取都把视频动态封面的视频区排除在外（见 `motionCoverVideoZoneID`）。
+    nonisolated func nextFetchChangesOptions(
+        _ context: CKSyncEngine.FetchChangesContext,
+        syncEngine: CKSyncEngine
+    ) async -> CKSyncEngine.FetchChangesOptions {
+        var options = context.options
+        options.scope = Self.excludingMotionCoverVideoZone(options.scope)
+        return options
+    }
+
     nonisolated func nextRecordZoneChangeBatch(
         _ context: CKSyncEngine.SendChangesContext,
         syncEngine: CKSyncEngine
@@ -3775,6 +4088,10 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         remoteLibraryMergeAwaitingDurableWrite = true
         let recordID = failed.record.recordID
         let ckError = failed.error
+
+        #if !os(tvOS)
+        if resolveFailedMotionCoverSave(recordID: recordID, error: ckError, syncEngine: syncEngine) { return }
+        #endif
 
         if let schemaError = Self.schemaError(in: ckError) {
             // 后来加的记录类型(评分评论、手改标签)生产环境还没部署时,只是这几类不同步、下次启动
@@ -3936,6 +4253,15 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         // 不论分支走哪条,都先把 server 的 changeTag 存起来——下一轮 makeRecord
         // 重建时才能复用,save 才会被识别成 update。
         storeSystemFields(server)
+
+        #if !os(tvOS)
+        if server.recordType == RecordType.playlist,
+           let id = parseLocalID(from: server.recordID, recordType: RecordType.playlist),
+           MotionCoverCloudRecordID.isMotionCover(id) {
+            resolveMotionCoverConflict(server: server, id: id, syncEngine: syncEngine)
+            return
+        }
+        #endif
 
         switch server.recordType {
         case RecordType.playlist:
@@ -4195,3 +4521,385 @@ private extension Error {
         (self as? CKError)?.retryAfterSeconds
     }
 }
+
+#if !os(tvOS)
+/// 自己设的视频动态封面，视频本体在 iCloud 里的上传、下载和删除（#428）。
+///
+/// 视频不走 CKSyncEngine：引擎拉取时连附件一起下载，没法按设备不收，同一账号下没开同步的设备、
+/// Apple TV 也会被迫下载每一段视频，整区重拉时还要再下一遍。所以视频单独放在
+/// `CloudKitSyncService.motionCoverVideoZoneID` 区里（引擎拉取时排除），这里只在开着
+/// 「iCloud 同步动态封面」时按需单条去传、去取。「谁用哪段视频」的设置记录照旧走引擎。
+///
+/// 记录借用已部署的 `Playlist` 类型和它的两个字段（不用部署 schema）：说明放 `songIdentities`，
+/// 视频放 `songIdentitiesAsset`；记录名和以前一样带 `Playlist/` 前缀，旧版本万一拉到也解不出歌单、会跳过。
+/// 视频网络开销大，跟「仅通过 Wi-Fi 下载原始封面」走：开着时只在不计流量的网络上传和下载。
+@MainActor
+final class MotionCoverCloudVideoTransfer {
+    private let database: () -> CKDatabase?
+    private let isSyncable: (MotionCoverOwner) -> Bool
+    private var passTask: Task<Void, Never>?
+    /// 认领 `passTask` 的令牌：关掉同步后旧的一趟还在收尾时，不能把新起的那趟的句柄清掉。
+    private var passToken: UInt64 = 0
+    private var rerunRequested = false
+    private var zoneReady = false
+    private var isWaitingForNetwork = false
+    private var retryTask: Task<Void, Never>?
+    /// 这次运行里云端还没有（别的设备还没传上来）的视频：隔一阵再试，次数有限，下次启动重新算。
+    private var missingAttempts: [String: Int] = [:]
+    /// 刚取到、还在后台校验安装的视频，别在这期间重复下载。
+    private var recentDownloads: [String: Date] = [:]
+    private var activationObserver: NSObjectProtocol?
+
+    private static let pendingDeletesKey = "primuse.motionCover.pendingCloudVideoDeletes"
+    private static let missingRetryDelays: [Duration] = [.seconds(60), .seconds(300), .seconds(1_800)]
+    private static let recentDownloadWindow: TimeInterval = 10 * 60
+
+    init(database: @escaping () -> CKDatabase?, isSyncable: @escaping (MotionCoverOwner) -> Bool) {
+        self.database = database
+        self.isSyncable = isSyncable
+        #if os(iOS)
+        let activation = UIApplication.didBecomeActiveNotification
+        #else
+        let activation = NSApplication.didBecomeActiveNotification
+        #endif
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: activation, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.schedulePass() }
+        }
+    }
+
+    /// 本机设了、换了、移除了：`uploads` 是现在用到的视频，`deleted` 是没有设置再用、要从云端删的。
+    func videosChanged(uploads: [String], deleted: [String]) {
+        var pending = Self.pendingDeletes
+        pending.formUnion(deleted)
+        pending.subtract(uploads)
+        Self.pendingDeletes = pending
+        schedulePass()
+    }
+
+    /// 把要传的、要删的、本机缺的都过一遍。同一时间只跑一趟，跑着时又来的请求合并成跑完再来一趟。
+    func schedulePass() {
+        guard CloudKitSyncService.isMotionCoverSyncEnabled else { return }
+        if passTask != nil {
+            rerunRequested = true
+            return
+        }
+        passToken &+= 1
+        let token = passToken
+        passTask = Task { [weak self] in
+            await self?.runPasses(token: token)
+        }
+    }
+
+    /// 关掉同步：停下正在传的，排着的删除留着，下次打开再做。
+    func cancel() {
+        passToken &+= 1
+        passTask?.cancel()
+        passTask = nil
+        retryTask?.cancel()
+        retryTask = nil
+        rerunRequested = false
+        missingAttempts = [:]
+    }
+
+    private func runPasses(token: UInt64) async {
+        repeat {
+            rerunRequested = false
+            await runPass()
+        } while rerunRequested && !Task.isCancelled && passToken == token
+        if passToken == token { passTask = nil }
+    }
+
+    private func runPass() async {
+        guard CloudKitSyncService.isMotionCoverSyncEnabled, let database = database() else { return }
+        guard Self.networkAllowsTransfer else {
+            waitForNetwork()
+            return
+        }
+        do {
+            try await ensureZone(in: database)
+        } catch {
+            plog("☁️ MotionCover video: zone not ready: \(error.localizedDescription)")
+            return
+        }
+        guard await deletePending(in: database) else { return }
+        guard await uploadPending(in: database) else { return }
+        await downloadMissing(from: database)
+    }
+
+    // MARK: - Steps
+
+    private func ensureZone(in database: CKDatabase) async throws {
+        guard !zoneReady else { return }
+        let zoneID = CloudKitSyncService.motionCoverVideoZoneID
+        let results = try await database.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)], deleting: [])
+        if case .failure(let error) = results.saveResults[zoneID] { throw error }
+        zoneReady = true
+    }
+
+    /// 返回 false：网络、账号这类整趟都做不下去的错误，这趟停下。
+    private func deletePending(in database: CKDatabase) async -> Bool {
+        let store = MotionCoverStore.shared
+        // 删之前本机又用上了的，不删。
+        let ids = Self.pendingDeletes.filter { store.uploadableVideoURL(contentID: $0) == nil }
+        guard !ids.isEmpty else {
+            Self.pendingDeletes = []
+            return true
+        }
+        do {
+            let results = try await database.modifyRecords(
+                saving: [],
+                deleting: ids.map(Self.recordID(contentID:)),
+                savePolicy: .ifServerRecordUnchanged,
+                atomically: false
+            )
+            var remaining = Set(ids)
+            for (recordID, result) in results.deleteResults {
+                guard let contentID = Self.contentID(of: recordID) else { continue }
+                switch result {
+                case .success:
+                    remaining.remove(contentID)
+                case .failure(let error):
+                    if Self.meansAbsent(error) {
+                        remaining.remove(contentID)
+                    } else {
+                        plog("☁️ MotionCover video: delete \(contentID.prefix(8)) failed: \(error.localizedDescription)")
+                    }
+                }
+            }
+            for contentID in Set(ids).subtracting(remaining) { store.markVideoInCloud(contentID, false) }
+            Self.pendingDeletes = remaining
+            return true
+        } catch {
+            return handleBatchError(error, step: "delete")
+        }
+    }
+
+    /// 本机设置在用、云端还没有的视频，一段一段传。
+    private func uploadPending(in database: CKDatabase) async -> Bool {
+        let store = MotionCoverStore.shared
+        let owners = store.syncOwners.filter(isSyncable)
+        for contentID in store.videosNeedingUpload(usedBy: owners) {
+            guard !Task.isCancelled, CloudKitSyncService.isMotionCoverSyncEnabled else { return false }
+            guard Self.networkAllowsTransfer else {
+                waitForNetwork()
+                return false
+            }
+            guard let url = store.uploadableVideoURL(contentID: contentID),
+                  let asset = store.asset(forContentID: contentID),
+                  let summary = try? JSONEncoder().encode(asset) else { continue }
+            // 先问一下云端有没有（不取附件）：内容哈希相同就是同一段，别的设备传过、或者记账被清掉
+            // （整份重传）时，不必把整段视频再传一遍才被「记录已存在」拒掉。
+            switch await existsInCloud(contentID: contentID, in: database) {
+            case .some(true):
+                store.markVideoInCloud(contentID, true)
+                continue
+            case .some(false):
+                break
+            case nil:
+                return false
+            }
+            let record = CKRecord(
+                recordType: CloudKitSyncService.RecordType.playlist,
+                recordID: Self.recordID(contentID: contentID)
+            )
+            // 小段说明放在旧版本解歌单时先读的字段里：旧版本解不出、又没有歌单名，就跳过这条，
+            // 不会去把附件整段读进内存。按内容哈希命名的文件上传期间不会被改写。
+            record[CloudKitSyncService.songIdentitiesField] = summary
+            record[CloudKitSyncService.songIdentitiesAssetField] = CKAsset(fileURL: url)
+            do {
+                let results = try await database.modifyRecords(
+                    saving: [record],
+                    deleting: [],
+                    savePolicy: .ifServerRecordUnchanged,
+                    atomically: true
+                )
+                switch results.saveResults[record.recordID] {
+                case .success:
+                    store.markVideoInCloud(contentID, true)
+                    plog("☁️ MotionCover video: uploaded \(contentID.prefix(8))")
+                case .failure(let error):
+                    let code = (error as? CKError)?.code
+                    if code == .serverRecordChanged {
+                        // 同一段视频（内容哈希相同）别的设备已经传过了。
+                        store.markVideoInCloud(contentID, true)
+                    } else if code == .zoneNotFound || code == .userDeletedZone {
+                        zoneReady = false
+                        rerunRequested = true
+                        return false
+                    } else if !handleBatchError(error, step: "upload") {
+                        return false
+                    }
+                case nil:
+                    break
+                }
+            } catch {
+                guard handleBatchError(error, step: "upload") else { return false }
+            }
+        }
+        return true
+    }
+
+    /// 云端有没有这段视频。nil：网络、账号这类问题，这趟先停。
+    private func existsInCloud(contentID: String, in database: CKDatabase) async -> Bool? {
+        let recordID = Self.recordID(contentID: contentID)
+        do {
+            let results = try await database.records(for: [recordID], desiredKeys: [])
+            switch results[recordID] {
+            case .success:
+                return true
+            case .failure(let error):
+                if Self.meansAbsent(error) { return false }
+                return handleBatchError(error, step: "lookup") ? false : nil
+            case nil:
+                return false
+            }
+        } catch {
+            return handleBatchError(error, step: "lookup") ? false : nil
+        }
+    }
+
+    /// 别的设备设的、本机还没有文件的视频，一段一段取。
+    private func downloadMissing(from database: CKDatabase) async {
+        let store = MotionCoverStore.shared
+        let now = Date()
+        recentDownloads = recentDownloads.filter { now.timeIntervalSince($0.value) < Self.recentDownloadWindow }
+        var stillMissing = false
+        for contentID in store.videosMissingLocally() {
+            guard !Task.isCancelled, CloudKitSyncService.isMotionCoverSyncEnabled else { return }
+            guard recentDownloads[contentID] == nil,
+                  (missingAttempts[contentID] ?? 0) <= Self.missingRetryDelays.count else { continue }
+            guard Self.networkAllowsTransfer else {
+                waitForNetwork()
+                return
+            }
+            let recordID = Self.recordID(contentID: contentID)
+            do {
+                let results = try await database.records(
+                    for: [recordID],
+                    desiredKeys: [CloudKitSyncService.songIdentitiesAssetField]
+                )
+                switch results[recordID] {
+                case .success(let record):
+                    guard let url = (record[CloudKitSyncService.songIdentitiesAssetField] as? CKAsset)?.fileURL else {
+                        continue
+                    }
+                    recentDownloads[contentID] = Date()
+                    missingAttempts[contentID] = nil
+                    // 取到的文件只保证这一刻在，安装时先在这里硬链接进暂存目录。
+                    store.installRemoteVideo(contentID: contentID, from: url)
+                    plog("☁️ MotionCover video: downloaded \(contentID.prefix(8))")
+                case .failure(let error):
+                    if Self.meansAbsent(error) {
+                        // 设置先到了，视频那台设备还没传上来（或在等 Wi-Fi）。
+                        missingAttempts[contentID, default: 0] += 1
+                        stillMissing = true
+                    } else if !handleBatchError(error, step: "download") {
+                        return
+                    }
+                case nil:
+                    break
+                }
+            } catch {
+                guard handleBatchError(error, step: "download") else { return }
+            }
+        }
+        if stillMissing { scheduleMissingRetry() }
+    }
+
+    // MARK: - Retry
+
+    private func scheduleMissingRetry() {
+        guard retryTask == nil else { return }
+        let attempt = max(1, missingAttempts.values.min() ?? 1)
+        let delay = Self.missingRetryDelays[min(attempt, Self.missingRetryDelays.count) - 1]
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self?.retryTask = nil
+            self?.schedulePass()
+        }
+    }
+
+    /// 只用 Wi-Fi 时在蜂窝网络下：网络一变再试。
+    private func waitForNetwork() {
+        guard !isWaitingForNetwork else { return }
+        isWaitingForNetwork = true
+        withObservationTracking {
+            _ = NetworkMonitor.shared.pathGeneration
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isWaitingForNetwork = false
+                self.schedulePass()
+            }
+        }
+    }
+
+    /// 返回 true：只是这一条的问题，接着做下一条；false：整趟停下，等下一次触发。
+    private func handleBatchError(_ error: Error, step: String) -> Bool {
+        let ckError = error as? CKError
+        switch ckError?.code {
+        case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited,
+             .zoneBusy, .notAuthenticated, .quotaExceeded, .accountTemporarilyUnavailable:
+            plog("☁️ MotionCover video: \(step) paused: \(error.localizedDescription)")
+            if let seconds = ckError?.retryAfterSeconds, seconds > 0, seconds < 3_600 {
+                retryTask?.cancel()
+                retryTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(seconds))
+                    guard !Task.isCancelled else { return }
+                    self?.retryTask = nil
+                    self?.schedulePass()
+                }
+            }
+            return false
+        case .zoneNotFound, .userDeletedZone:
+            zoneReady = false
+            return false
+        default:
+            plog("☁️ MotionCover video: \(step) failed: \(error.localizedDescription)")
+            return true
+        }
+    }
+
+    // MARK: - Helpers
+
+    private static var networkAllowsTransfer: Bool {
+        let network = NetworkMonitor.shared
+        guard network.isReachable else { return false }
+        return !AnimatedArtworkPreferences.shared.animatedArtworkUnmeteredOnly || network.isOnUnmeteredNetwork
+    }
+
+    private static func meansAbsent(_ error: Error) -> Bool {
+        switch (error as? CKError)?.code {
+        case .unknownItem, .zoneNotFound, .userDeletedZone: return true
+        default: return false
+        }
+    }
+
+    static func recordID(contentID: String) -> CKRecord.ID {
+        CKRecord.ID(
+            recordName: "\(CloudKitSyncService.RecordType.playlist)/\(MotionCoverCloudRecordID.video(contentID: contentID))",
+            zoneID: CloudKitSyncService.motionCoverVideoZoneID
+        )
+    }
+
+    static func contentID(of recordID: CKRecord.ID) -> String? {
+        let prefix = "\(CloudKitSyncService.RecordType.playlist)/"
+        guard recordID.recordName.hasPrefix(prefix) else { return nil }
+        return MotionCoverCloudRecordID.videoContentID(String(recordID.recordName.dropFirst(prefix.count)))
+    }
+
+    private static var pendingDeletes: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: pendingDeletesKey) ?? []) }
+        set {
+            if newValue.isEmpty {
+                UserDefaults.standard.removeObject(forKey: pendingDeletesKey)
+            } else {
+                UserDefaults.standard.set(newValue.sorted(), forKey: pendingDeletesKey)
+            }
+        }
+    }
+}
+#endif

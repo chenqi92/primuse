@@ -3427,10 +3427,13 @@
 "motion_cover_error_too_large" = "ファイルが大きすぎます。もっと小さい動画か GIF を選んでください。";
 "motion_cover_error_unreadable" = "このファイルを読み込めません。MP4、MOV、M4V の動画か GIF を選んでください。";
 "motion_cover_storage" = "モーションアートワーク動画";
-"motion_cover_storage_footer" = "曲やアルバムに設定したモーションアートワークはこのデバイスにのみ保存されます。削除すると静止画のアートワークに戻ります。";
+"motion_cover_storage_footer" = "曲やアルバムに設定したモーションアートワークはこのデバイスに保存されます。削除すると静止画のアートワークに戻ります。";
 "motion_cover_storage_clear_title" = "すべてのモーションアートワークを削除しますか？";
 "motion_cover_storage_clear_message" = "すべての曲とアルバムに設定したモーションアートワークがこのデバイスから削除されます。静止画のアートワークはそのままです。";
 "motion_cover_storage_clear_confirm" = "すべて削除";
+"motion_cover_storage_clear_message_synced" = "すべての曲とアルバムに設定したモーションアートワークがこのデバイスから削除され、iCloud と同期しているほかのデバイスからも削除されます。静止画のアートワークはそのままです。";
+"motion_cover_icloud_sync" = "モーションアートワークを iCloud で同期";
+"motion_cover_icloud_sync_footer" = "オンにすると、曲やアルバムに設定したモーションアートワークの動画が iCloud にアップロードされ、iCloud のストレージを使用します。ほかの iPhone、iPad、Mac でもこのスイッチをオンにすると自動でダウンロードされ、どのデバイスで設定・変更・削除してもほかのデバイスに反映されます。iCloud 同期をオンにしておく必要があります。オフにするとアップロードと受信を停止し、このデバイスと iCloud にある動画はそのまま残ります。ローカルフォルダの曲に個別に設定したものと 100 MB を超える動画は同期されず、Apple TV にはダウンロードされません。 「オリジナルは Wi-Fi のみ」がオンのときは、動画のアップロードとダウンロードは Wi-Fi 接続時だけ行います。";
 "player_lyrics_section" = "歌詞";
 "player_lyrics_alignment" = "歌詞の配置";
 "player_lyrics_alignment_left" = "左揃え";

@@ -431,6 +431,24 @@ struct MacSettingsView: View {
 
 // MARK: - ST-16 Storage
 
+/// 存储页「iCloud 同步动态封面」（#428），和 iPhone / iPad 同一个键，各台设备各自开。
+private struct MacMotionCoverICloudSyncRow: View {
+    @AppStorage(MotionCoverSyncPreferences.enabledKey)
+    private var isOn = MotionCoverSyncPreferences.enabledByDefault
+
+    var body: some View {
+        MacSTRow(
+            String(localized: "motion_cover_icloud_sync"),
+            help: String(localized: "motion_cover_icloud_sync_footer")
+        ) {
+            MacSTToggle(isOn: $isOn)
+        }
+        .onChange(of: isOn) { _, newValue in
+            AppServices.shared.cloudSync.motionCoverSyncSettingChanged(isOn: newValue)
+        }
+    }
+}
+
 private struct MacSTStorageView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(SourceManager.self) private var sourceManager
@@ -622,8 +640,14 @@ private struct MacSTStorageView: View {
                         }
                         Button(String(localized: "cancel"), role: .cancel) {}
                     } message: {
-                        Text("motion_cover_storage_clear_message")
+                        Text(LocalizedStringKey(
+                            MotionCoverStore.isCloudSyncEnabled
+                                ? "motion_cover_storage_clear_message_synced"
+                                : "motion_cover_storage_clear_message"
+                        ))
                     }
+                    MacMotionCoverICloudSyncRow()
+                        .settingsAnchor("storage.motionCoverICloudSync")
                     MacSTRow(
                         String(localized: "companion_assets_download"),
                         hint: companionAssetHint,

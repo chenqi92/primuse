@@ -3426,10 +3426,13 @@
 "motion_cover_error_too_large" = "Le fichier est trop volumineux. Choisissez une vidéo ou un GIF plus léger.";
 "motion_cover_error_unreadable" = "Impossible de lire ce fichier. Choisissez une vidéo MP4, MOV ou M4V, ou un GIF.";
 "motion_cover_storage" = "Vidéos de pochettes animées";
-"motion_cover_storage_footer" = "Les pochettes animées définies pour des morceaux et albums sont stockées uniquement sur cet appareil. Les supprimer rétablit la pochette fixe.";
+"motion_cover_storage_footer" = "Les pochettes animées définies pour des morceaux et albums sont stockées sur cet appareil. Les supprimer rétablit la pochette fixe.";
 "motion_cover_storage_clear_title" = "Supprimer toutes les pochettes animées ?";
 "motion_cover_storage_clear_message" = "Les pochettes animées de tous les morceaux et albums seront supprimées de cet appareil. Les pochettes fixes ne sont pas concernées.";
 "motion_cover_storage_clear_confirm" = "Tout supprimer";
+"motion_cover_storage_clear_message_synced" = "Les pochettes animées de tous les morceaux et albums seront supprimées de cet appareil, ainsi que d’iCloud et de vos autres appareils synchronisés. Les pochettes fixes ne sont pas concernées.";
+"motion_cover_icloud_sync" = "Synchroniser les pochettes animées avec iCloud";
+"motion_cover_icloud_sync_footer" = "Si cette option est activée, les pochettes animées que vous définissez pour des morceaux et albums sont envoyées dans iCloud et utilisent votre stockage iCloud. Vos autres iPhone, iPad et Mac les téléchargent automatiquement une fois l’option activée sur ceux-ci ; définir, remplacer ou supprimer une pochette sur l’un d’eux met à jour les autres. Nécessite la synchronisation iCloud. Une fois désactivée, plus rien n’est envoyé ni reçu ; les vidéos déjà présentes sur cet appareil et dans iCloud sont conservées. Les pochettes de morceaux isolés issus de dossiers locaux et les vidéos de plus de 100 Mo ne sont pas synchronisées ; l’Apple TV ne les télécharge pas. Si « Pochette originale via Wi-Fi uniquement » est activé, les vidéos ne sont envoyées et téléchargées qu’en Wi-Fi.";
 "player_lyrics_section" = "Paroles";
 "player_lyrics_alignment" = "Alignement des paroles";
 "player_lyrics_alignment_left" = "À gauche";

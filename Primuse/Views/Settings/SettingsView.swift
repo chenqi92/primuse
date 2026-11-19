@@ -3254,6 +3254,24 @@ struct RelaySettingsView: View {
 
 // MARK: - Storage Management
 
+/// 存储管理页「iCloud 同步动态封面」（#428）。单独成一个视图：自己管开关和打开时的补同步，
+/// 不往存储页那条已经很长的视图链上再加东西。
+private struct MotionCoverICloudSyncToggle: View {
+    @AppStorage(MotionCoverSyncPreferences.enabledKey)
+    private var isOn = MotionCoverSyncPreferences.enabledByDefault
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            SettingsInfoLabel("motion_cover_icloud_sync") {
+                Text("motion_cover_icloud_sync_footer")
+            }
+        }
+        .onChange(of: isOn) { _, newValue in
+            AppServices.shared.cloudSync.motionCoverSyncSettingChanged(isOn: newValue)
+        }
+    }
+}
+
 struct StorageManagementView: View {
     var opensCacheSync = false
     @State private var showsCacheSync = false
@@ -3562,8 +3580,16 @@ struct StorageManagementView: View {
                     }
                     Button(String(localized: "cancel"), role: .cancel) {}
                 } message: {
-                    Text("motion_cover_storage_clear_message")
+                    // 开着 iCloud 同步时「全部移除」会传到别的设备和云端，说明里要写清。
+                    Text(LocalizedStringKey(
+                        MotionCoverStore.isCloudSyncEnabled
+                            ? "motion_cover_storage_clear_message_synced"
+                            : "motion_cover_storage_clear_message"
+                    ))
                 }
+
+                MotionCoverICloudSyncToggle()
+                    .settingsAnchor("storage.motionCoverICloudSync")
 
                 Picker("artwork_store_limit", selection: Binding(
                     get: { Int64(artworkStoreLimit) },

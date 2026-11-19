@@ -3197,10 +3197,13 @@
 "motion_cover_error_too_large" = "The file is too large. Choose a smaller video or GIF.";
 "motion_cover_error_unreadable" = "This file can’t be read. Choose an MP4, MOV or M4V video or a GIF.";
 "motion_cover_storage" = "Motion Artwork Videos";
-"motion_cover_storage_footer" = "Motion artwork you set for songs and albums is stored only on this device. Removing it restores the static artwork.";
+"motion_cover_storage_footer" = "Motion artwork you set for songs and albums is stored on this device. Removing it restores the static artwork.";
 "motion_cover_storage_clear_title" = "Remove All Motion Artwork?";
 "motion_cover_storage_clear_message" = "Motion artwork set for every song and album will be deleted from this device. Static artwork isn’t affected.";
 "motion_cover_storage_clear_confirm" = "Remove All";
+"motion_cover_storage_clear_message_synced" = "Motion artwork set for every song and album will be deleted from this device and also removed from iCloud and your other devices that sync it. Static artwork isn’t affected.";
+"motion_cover_icloud_sync" = "Sync Motion Artwork with iCloud";
+"motion_cover_icloud_sync_footer" = "When on, the motion artwork videos you set for songs and albums are uploaded to iCloud and use your iCloud storage. Your other iPhone, iPad, and Mac download them automatically once this switch is on there too, and setting, replacing, or removing artwork on any of them updates the rest. Requires iCloud Sync. Turning it off stops uploading and receiving; videos already on this device and in iCloud are kept. Artwork set on individual songs from local folders and videos over 100 MB aren’t synced; Apple TV doesn’t download them. When Wi-Fi Only for Original Artwork is on, videos are uploaded and downloaded only over Wi-Fi.";
 "player_lyrics_section" = "Lyrics";
 "player_lyrics_alignment" = "Lyrics Alignment";
 "player_lyrics_alignment_left" = "Left";
