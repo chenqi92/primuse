@@ -63,12 +63,6 @@ enum SpokenWordPlayerText {
         return found.episode.link ?? PodcastShare.url(for: found.show)
     }
 
-    /// 正在播的这一集所在的节目(节目页的入口)。退订了的节目没有页面可去。
-    static func podcastShowID(_ player: AudioPlayerService) -> String? {
-        guard let episode = podcastEpisode(player) else { return nil }
-        return PodcastStore.shared.episode(id: episode.id)?.show.id
-    }
-
     /// 标题块里节目名后面那一小段:这一集是哪天发的。
     static func podcastPublishedLine(_ player: AudioPlayerService) -> String? {
         guard let episode = podcastEpisode(player) else { return nil }
@@ -91,16 +85,17 @@ enum SpokenWordPlayerText {
 
     /// 语速菜单的标题:书按本记速度,播客按节目记,别对播客说「本书」。
     static func rateTitleKey(_ player: AudioPlayerService) -> LocalizedStringKey {
-        isPodcastEpisode(player) ? "playback_rate" : "spoken_word_book_speed"
+        player.currentListeningSpace == .podcast ? "playback_rate" : "spoken_word_book_speed"
     }
 
     /// 标题键的旁白提示:书是「前往这本书」,播客是这一集的详情。
     static func openTitleHintKey(_ player: AudioPlayerService) -> LocalizedStringKey {
-        isPodcastEpisode(player) ? "podcast_player_episode_details" : "spoken_word_go_to_book"
+        if isPodcastEpisode(player) { return "podcast_player_episode_details" }
+        return player.currentListeningSpace == .podcast ? "podcast_go_to_show" : "spoken_word_go_to_book"
     }
 
     static func bookTitle(_ player: AudioPlayerService) -> String {
-        if let episode = podcastEpisode(player) { return episode.title }
+        if player.currentListeningSpace == .podcast, let episode = player.currentSong { return episode.title }
         if let title = player.currentSpokenWordBook?.title, !title.isEmpty { return title }
         let album = player.currentSong?.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return album.isEmpty ? (player.currentSong?.title ?? "") : album
@@ -111,6 +106,9 @@ enum SpokenWordPlayerText {
             let show = episode.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return show.isEmpty ? episode.artistName : show
         }
+        if player.currentListeningSpace == .podcast, let song = player.currentSong {
+            return player.library?.localPodcastShowTitle(forSongID: song.id) ?? song.albumTitle
+        }
         if let author = player.currentSpokenWordBook?.author, !author.isEmpty { return author }
         guard let song = player.currentSong else { return nil }
         let name = song.albumArtistName ?? song.artistName
@@ -120,7 +118,7 @@ enum SpokenWordPlayerText {
     /// 演播:曲目的艺人和作者不是同一个人时才有(分书规则里曲目艺人就是演播,
     /// 见 `SpokenWordBookGroupingRules`)。播客单集没有这一行。
     static func narrator(_ player: AudioPlayerService) -> String? {
-        guard podcastEpisode(player) == nil,
+        guard player.currentListeningSpace != .podcast,
               let name = player.currentSong?.artistName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !name.isEmpty else { return nil }
         let author = author(player)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -131,7 +129,7 @@ enum SpokenWordPlayerText {
     /// book, the file's title (with the chapter mark under it, if any) in a
     /// book of several files. Nil when it would only repeat the book title.
     static func partTitle(_ player: AudioPlayerService) -> String? {
-        if podcastEpisode(player) != nil {
+        if player.currentListeningSpace == .podcast {
             let chapter = player.currentChapter?.title ?? ""
             return chapter.isEmpty ? nil : chapter
         }
@@ -165,7 +163,7 @@ enum SpokenWordPlayerText {
             rate: player.currentSpokenWordRate
         )
         // 没有章节的播客单集只有它自己,说「剩余」,不说「本章」。
-        let isWholeEpisode = podcastEpisode(player) != nil && player.spokenWordChapters.isEmpty
+        let isWholeEpisode = player.currentListeningSpace == .podcast && player.spokenWordChapters.isEmpty
         // 不到一分钟单独一句,免得拼成「本章还剩约 不到 1 分钟」。
         guard listening.isFinite, listening >= 60 else {
             let key: String.LocalizationValue = isWholeEpisode
@@ -200,6 +198,41 @@ enum SpokenWordPlayerText {
             .joined(separator: ", ")
     }
 
+    struct HeadingPosition {
+        let title: String
+        let bookFraction: Double?
+        let detail: String?
+        let accessibilityValue: String
+    }
+
+    static func headingPosition(_ player: AudioPlayerService) -> HeadingPosition? {
+        if player.currentListeningSpace == .podcast {
+            guard let song = player.currentSong else { return nil }
+            let chapter = SpokenWordNowPlayingPolicy.partPosition(
+                bookItemIDs: nil,
+                currentItemID: song.id,
+                chapterCount: player.spokenWordChapters.count,
+                currentChapterIndex: player.currentChapterIndex
+            )
+            guard let title = partPosition(chapter) else { return nil }
+            return HeadingPosition(title: title, bookFraction: nil, detail: nil, accessibilityValue: title)
+        }
+        // The cached summary uses a non-observable revision. Completed chapters also change book progress.
+        _ = SpokenWordStore.shared.finishedAt
+        guard let summary = player.spokenWordNowPlayingSummary(live: false) else { return nil }
+        let chapter = partPosition(summary)
+        let fraction = bookFraction(summary.bookFraction)
+        let title = chapter ?? fraction
+        let detail = [chapter == nil ? nil : fraction, bookRemaining(summary, rate: player.currentSpokenWordRate)]
+            .compactMap { $0 }.joined(separator: " · ")
+        return HeadingPosition(
+            title: title,
+            bookFraction: summary.bookFraction,
+            detail: detail.isEmpty ? nil : detail,
+            accessibilityValue: partPositionWithBook(chapter ?? "", summary: summary, rate: player.currentSpokenWordRate)
+        )
+    }
+
     /// What the sleep tile says while a timer is armed. Nil for a timed
     /// sleep, which draws its own countdown.
     static func sleepTileLabel(_ player: AudioPlayerService) -> String {
@@ -227,34 +260,21 @@ struct SpokenWordPartPositionButton: View {
     @ScaledMetric(relativeTo: .footnote) private var ringSize: CGFloat = 12
 
     var body: some View {
-        let store = SpokenWordStore.shared
-        // Registers the chip with the store, so the stored positions it reads
-        // redraw it when they change.
-        let _ = store.positions.count
-        let _ = store.finishedAt.count
-        let summary = player.spokenWordNowPlayingSummary(live: false)
-        if let summary, SpokenWordPlayerText.partPosition(summary) != nil || !SpokenWordPlayerText.isPodcastEpisode(player) {
-            let chapterPosition = SpokenWordPlayerText.partPosition(summary)
-            let position = chapterPosition ?? SpokenWordPlayerText.bookFraction(summary.bookFraction)
-            // 播客单集不是书,进度条就是它自己的进度,不画全书那一圈。
-            let showsRing = !SpokenWordPlayerText.isPodcastEpisode(player)
+        if let position = SpokenWordPlayerText.headingPosition(player) {
             Button(action: action) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 5) {
-                        if showsRing {
-                            SpokenWordBookRing(fraction: summary.bookFraction, color: palette.accent)
+                        if let fraction = position.bookFraction {
+                            SpokenWordBookRing(fraction: fraction, color: palette.accent)
                                 .frame(width: ringSize, height: ringSize)
                         }
-                        Text(verbatim: position)
+                        Text(verbatim: position.title)
                             .monospacedDigit()
                         Image(systemName: "chevron.right")
                             .font(.caption2.weight(.semibold))
                     }
-                    if showsRing {
-                        Text(verbatim: [
-                            chapterPosition == nil ? nil : SpokenWordPlayerText.bookFraction(summary.bookFraction),
-                            SpokenWordPlayerText.bookRemaining(summary, rate: player.currentSpokenWordRate)
-                        ].compactMap { $0 }.joined(separator: " · "))
+                    if let detail = position.detail {
+                        Text(verbatim: detail)
                             .font(.caption)
                             .foregroundStyle(palette.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -266,9 +286,7 @@ struct SpokenWordPartPositionButton: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text("spoken_word_contents_title"))
-            .accessibilityValue(Text(verbatim: showsRing
-                ? SpokenWordPlayerText.partPositionWithBook(chapterPosition ?? "", summary: summary, rate: player.currentSpokenWordRate)
-                : position))
+            .accessibilityValue(Text(verbatim: position.accessibilityValue))
         }
     }
 }
@@ -724,7 +742,7 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
                     Text(verbatim: SpokenWordPlayerText.bookTitle(player))
                         .font(titleFont.weight(.bold))
                         // 书名用衬线体像书脊;播客单集就是一集节目的标题。
-                        .fontDesign(SpokenWordPlayerText.isPodcastEpisode(player) ? Font.Design.default : Font.Design.serif)
+                        .fontDesign(player.currentListeningSpace == .podcast ? Font.Design.default : Font.Design.serif)
                         .foregroundStyle(palette.primary)
                         .lineLimit(titleLineLimit)
                         .minimumScaleFactor(0.8)
@@ -752,7 +770,7 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
 
             HStack(spacing: 10) {
                 if let author = SpokenWordPlayerText.author(player) {
-                    if let onOpenShow, SpokenWordPlayerText.podcastShowID(player) != nil {
+                    if let onOpenShow {
                         podcastShowLink(author, action: onOpenShow)
                     } else {
                         Text(verbatim: author)

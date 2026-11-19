@@ -414,23 +414,23 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     }
                 }
             }
+            if isPodcastEpisode, let episodeID = SpokenWordPlayerText.openablePodcastEpisodeID(player) {
+                menuRow(title: "podcast_player_episode_details", symbol: "info.circle") {
+                    podcastSheet = .episode(episodeID)
+                }
+            }
+            if let target = PodcastPlayerSheetTarget.show(for: player) {
+                menuRow(title: "podcast_go_to_show", symbol: "rectangle.stack") {
+                    podcastSheet = target
+                }
+            }
             if isPodcastEpisode {
-                if let episodeID = SpokenWordPlayerText.openablePodcastEpisodeID(player) {
-                    menuRow(title: "podcast_player_episode_details", symbol: "info.circle") {
-                        podcastSheet = .episode(episodeID)
-                    }
-                }
-                if let showID = SpokenWordPlayerText.podcastShowID(player) {
-                    menuRow(title: "podcast_go_to_show", symbol: "rectangle.stack") {
-                        podcastSheet = .show(showID)
-                    }
-                }
                 podcastEpisodeRows
-            } else if isSpokenWord, let bookID = player.currentBookID {
+            } else if player.currentItemIsAudiobook, let bookID = player.currentBookID {
                 menuRow(title: "spoken_word_go_to_book", symbol: "books.vertical") {
                     NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
                 }
-            } else if let song = player.currentSong {
+            } else if !isSpokenWord, let song = player.currentSong {
                 let songID = NowPlayingLibraryActions.locationSongID(for: song, library: library)
                 if !player.isLiveRadio, library.visibleSong(id: songID) != nil {
                     menuRow(title: "show_in_library", symbol: "music.note.list") {

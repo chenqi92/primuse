@@ -2676,11 +2676,9 @@ struct NowPlayingView: View {
     /// 有声内容的「转到这本书」: iPhone/iPad 在播放页上弹出书详情(和专辑一样
     /// 不收起播放页), Mac 交给主窗口的详情栈。
     private func presentCurrentBook() {
-        if PodcastPlaybackSong.isEpisode(player.currentSong) {
+        if currentItemIsPodcast {
             #if os(iOS)
-            if let episodeID = currentPodcastEpisodeID {
-                presentedPodcastSheet = .episode(episodeID)
-            }
+            presentedPodcastSheet = PodcastPlayerSheetTarget.details(for: player)
             #endif
             return
         }
@@ -2699,12 +2697,8 @@ struct NowPlayingView: View {
     /// 播客标题块里的节目名:在播放页上弹出节目页(不收起播放页)。
     private var openCurrentPodcastShow: (() -> Void)? {
         #if os(iOS)
-        guard SpokenWordPlayerText.isPodcastEpisode(player) else { return nil }
-        return {
-            if let showID = SpokenWordPlayerText.podcastShowID(player) {
-                presentedPodcastSheet = .show(showID)
-            }
-        }
+        guard let target = PodcastPlayerSheetTarget.show(for: player) else { return nil }
+        return { presentedPodcastSheet = target }
         #else
         return nil
         #endif
@@ -8264,8 +8258,7 @@ struct NowPlayingView: View {
 
     /// 正在放的是播客:订阅的单集,或资料库里标成播客的文件。播客不套书的版式。
     private var currentItemIsPodcast: Bool {
-        guard let song = player.currentSong else { return false }
-        return PodcastPlaybackSong.isEpisode(song) || SpokenWordStore.shared.isPodcast(song)
+        player.currentListeningSpace == .podcast
     }
 
     /// 有声书(播客单集不算)用专门的两套设计,见 `AudiobookPlayerStyle`。iPhone 与 iPad 竖屏是
@@ -10220,8 +10213,8 @@ struct NowPlayingView: View {
             isPodcastEpisode: isPodcastEpisode,
             canOpenPodcastEpisode: isPodcastEpisode && currentPodcastEpisodeID != nil
                 && shows(.podcastEpisodeDetails),
-            canOpenPodcastShow: isPodcastEpisode && SpokenWordPlayerText.podcastShowID(player) != nil
-                && shows(.podcastGoToShow),
+            canOpenPodcastShow: currentItemIsPodcast && PodcastPlayerSheetTarget.show(for: player) != nil
+                && shows(isPodcastEpisode ? .podcastGoToShow : .goToBook),
             showsPodcastMarkPlayed: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastMarkPlayed),
             showsPodcastDownload: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastDownload),
             spokenWordVideoShown: shows(.spokenWordVideo) && player.offersSpokenWordVideoToggle ? player.isSpokenWordVideoShown : nil,
@@ -10231,7 +10224,7 @@ struct NowPlayingView: View {
             },
             textExportFormats: textExportFormats(showsItem: shows(.exportText)),
             podcastShareURL: podcastShareURL,
-            canOpenBook: isSpokenWord && !isPodcastEpisode && player.currentBookID != nil && shows(.goToBook),
+            canOpenBook: isSpokenWord && !currentItemIsPodcast && player.currentBookID != nil && shows(.goToBook),
             hasChapterList: (player.hasChapters || isSpokenWord) && shows(.chaptersAndBookmarks),
             hasSong: player.currentSong != nil,
             isScrapingCurrentSong: isScrapeActionUnavailable,
@@ -11421,19 +11414,17 @@ struct NowPlayingView: View {
 
         // 有声内容这一行点开是它所在的书: 艺人页与专辑页只收音乐, 对它是空的。
         // 播客单集点开是这一集的详情(节目还订着时)。
-        let isPodcastEpisode = PodcastPlaybackSong.isEpisode(player.currentSong)
-        let opensBook = usesSpokenWordTransport && (isPodcastEpisode
-            ? currentPodcastEpisodeID != nil
+        let isPodcast = currentItemIsPodcast
+        let opensBook = usesSpokenWordTransport && (isPodcast
+            ? PodcastPlayerSheetTarget.details(for: player) != nil
             : player.currentBookID != nil)
         if opensBook {
             Button { presentCurrentBook() } label: {
                 label
             }
             .buttonStyle(.plain)
-            .accessibilityHint(isPodcastEpisode
-                ? Text("podcast_player_episode_details")
-                : Text("spoken_word_go_to_book"))
-        } else if usesSpokenWordTransport && isPodcastEpisode {
+            .accessibilityHint(Text(SpokenWordPlayerText.openTitleHintKey(player)))
+        } else if usesSpokenWordTransport && isPodcast {
             label
         } else if (onOpenArtist != nil && !currentArtists.isEmpty) || canOpenCurrentAlbum {
             Menu {
@@ -16870,16 +16861,17 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
                             Label(String(localized: "podcast_player_episode_details"), systemImage: "info.circle")
                         }
                     }
-                    if snapshot.canOpenPodcastShow {
-                        Button(action: onOpenPodcastShow) {
-                            Label(String(localized: "podcast_go_to_show"), systemImage: "rectangle.stack")
-                        }
-                    }
                 } else if snapshot.showsSongInfo {
                     Button(action: onShowSongInfo) {
                         Label(String(localized: "song_info"), systemImage: "info.circle")
                     }
                     .disabled(!snapshot.hasSong)
+                }
+
+                if snapshot.canOpenPodcastShow {
+                    Button(action: onOpenPodcastShow) {
+                        Label(String(localized: "podcast_go_to_show"), systemImage: "rectangle.stack")
+                    }
                 }
 
                 if snapshot.isSpokenWord {

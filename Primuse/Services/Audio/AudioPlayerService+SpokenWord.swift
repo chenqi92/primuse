@@ -831,6 +831,11 @@ extension AudioPlayerService {
         return spokenWordBookID(for: song)
     }
 
+    var playingBookID: String? {
+        guard isPlaying, currentItemIsAudiobook else { return nil }
+        return currentBookID
+    }
+
     /// The current book's items as they stand in the queue, in queue order
     /// (which is reading order: the shelf installs the book as the queue).
     /// Empty for music and radio.

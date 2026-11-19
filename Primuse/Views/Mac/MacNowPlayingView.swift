@@ -1128,12 +1128,8 @@ struct MacNowPlayingView: View {
 
     /// 播客标题块里的节目名:弹出节目页。
     private var openCurrentPodcastShow: (() -> Void)? {
-        guard SpokenWordPlayerText.isPodcastEpisode(player) else { return nil }
-        return {
-            if let showID = SpokenWordPlayerText.podcastShowID(player) {
-                podcastSheet = .show(showID)
-            }
-        }
+        guard let target = PodcastPlayerSheetTarget.show(for: player) else { return nil }
+        return { podcastSheet = target }
     }
 
     /// 有声内容的左栏下半截:书名、正在听的章、演播者与「第几章」(前面那一圈是全书进度),
@@ -1151,10 +1147,8 @@ struct MacNowPlayingView: View {
                 alignment: alignment,
                 onOpenShow: openCurrentPodcastShow,
                 onOpenBook: {
-                    if PodcastPlaybackSong.isEpisode(player.currentSong) {
-                        if let episodeID = SpokenWordPlayerText.openablePodcastEpisodeID(player) {
-                            podcastSheet = .episode(episodeID)
-                        }
+                    if player.currentListeningSpace == .podcast {
+                        podcastSheet = PodcastPlayerSheetTarget.details(for: player)
                     } else if let bookID = player.currentBookID {
                         NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
                     }
@@ -2928,7 +2922,7 @@ private struct MacNowPlayingMetadata: View {
     /// 「歌名下显示专辑名」关掉时音乐只写艺人(和 iPhone 同一个开关);有声书、播客这一栏是
     /// 书名、节目名,照旧。
     private var showsAlbumLine: Bool {
-        showsAlbumInSubtitle || podcastShowID != nil || bookID != nil
+        showsAlbumInSubtitle || podcastShowTarget != nil || bookID != nil
             || PodcastPlaybackSong.isEpisode(song)
             || (player.currentSong?.id == song.id && player.currentItemIsSpokenWord)
     }
@@ -2936,15 +2930,13 @@ private struct MacNowPlayingMetadata: View {
     /// 正在播的有声内容所在的书; 艺人页与专辑页只收音乐, 对它是空的。
     /// 播客单集没有书, 专辑那一栏是节目名, 点开的是节目页。
     private var bookID: String? {
-        guard player.currentSong?.id == song.id,
-              player.currentItemIsSpokenWord, !player.isLiveRadio,
-              !PodcastPlaybackSong.isEpisode(song) else { return nil }
+        guard player.currentSong?.id == song.id, player.currentItemIsAudiobook else { return nil }
         return player.currentBookID
     }
 
-    private var podcastShowID: String? {
+    private var podcastShowTarget: PodcastPlayerSheetTarget? {
         guard player.currentSong?.id == song.id else { return nil }
-        return SpokenWordPlayerText.podcastShowID(player)
+        return PodcastPlayerSheetTarget.show(for: player)
     }
 
     var body: some View {
@@ -2982,9 +2974,9 @@ private struct MacNowPlayingMetadata: View {
     /// 专辑那一栏:有声书、播客是书名、节目名,点开的是书或节目页。
     @ViewBuilder
     private func albumLine(_ title: String) -> some View {
-        if let podcastShowID {
+        if let podcastShowTarget {
             metadataLink(title, help: "podcast_go_to_show") {
-                podcastSheet = .show(podcastShowID)
+                podcastSheet = podcastShowTarget
             }
         } else if let bookID {
             metadataLink(title, help: "spoken_word_go_to_book") {

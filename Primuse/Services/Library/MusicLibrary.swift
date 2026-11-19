@@ -4497,6 +4497,7 @@ final class MusicLibrary {
     /// Local podcast item id → the show it is grouped into, the way
     /// `spokenWordBookIDs` does it for books.
     @ObservationIgnored private(set) var localPodcastBookIDs: [String: String] = [:]
+    @ObservationIgnored private var localPodcastShowTitles: [String: String] = [:]
     /// Spoken-word item id → the id of the book the shelf puts it in.
     @ObservationIgnored private(set) var spokenWordBookIDs: [String: String] = [:]
     /// Spoken-word item id → the chapter title the shelf shows for a file
@@ -4786,10 +4787,10 @@ final class MusicLibrary {
         let ambientSongs: [Song]
         let ambientSongIDs: Set<String>
         /// Local podcast item id → show id, grouped like books.
-        let podcastBookIDs: [String: String]
+        let podcastPlacement: SpokenWordBookGrouping.BookPlacement
         /// Spoken-word item id → book id, as the bookshelf groups them.
         let spokenWordBookIDs: [String: String]
-        /// The book ids in `spokenWordBookIDs` and the show ids in `podcastBookIDs`.
+        /// The distinct ids in the book and podcast groupings.
         let spokenWordBookIDSet: Set<String>
         let podcastBookIDSet: Set<String>
         /// Spoken-word item id → the shelf's title for a file renamed after tagging.
@@ -5684,10 +5685,14 @@ final class MusicLibrary {
         let booksWentAway = !spokenWordBookIDSet.isSubset(of: prepared.spokenWordBookIDSet)
         let showsWentAway = !localPodcastBookIDSet.isSubset(of: prepared.podcastBookIDSet)
         // 扫描时每批都发布一次,没变就不写,播客页不必跟着重画。
-        localPodcastBookIDs = prepared.podcastBookIDs
         if localPodcastSongs != prepared.podcastSongs {
             localPodcastSongs = prepared.podcastSongs
+        } else if previousShowIDs != prepared.podcastPlacement.bookIDs
+                    || localPodcastShowTitles != prepared.podcastPlacement.groupTitles {
+            localPodcastContentRevision &+= 1
         }
+        localPodcastBookIDs = prepared.podcastPlacement.bookIDs
+        localPodcastShowTitles = prepared.podcastPlacement.groupTitles
         spokenWordBookIDs = prepared.spokenWordBookIDs
         spokenWordDisplayTitles = prepared.spokenWordDisplayTitles
         spokenWordBookIDSet = prepared.spokenWordBookIDSet
@@ -5701,7 +5706,7 @@ final class MusicLibrary {
         if booksWentAway || showsWentAway {
             carryRenamedSpokenWordBooks(
                 books: booksWentAway ? (previousBookIDs, prepared.spokenWordBookIDs) : nil,
-                shows: showsWentAway ? (previousShowIDs, prepared.podcastBookIDs) : nil
+                shows: showsWentAway ? (previousShowIDs, prepared.podcastPlacement.bookIDs) : nil
             )
         }
         if unchanged.albums.map({ $0 !== visibleAlbumsReference }) ?? true {
@@ -5897,9 +5902,9 @@ final class MusicLibrary {
         let spokenWordPlacement = spokenWordSongs.isEmpty
             ? SpokenWordBookGrouping.BookPlacement()
             : SpokenWordBookGrouping.bookPlacement(for: spokenWordSongs.map { SpokenWordBookItem(song: $0) })
-        let podcastBookIDs = podcastSongs.isEmpty
-            ? [:]
-            : SpokenWordBookGrouping.bookIDs(for: podcastSongs.map { SpokenWordBookItem(song: $0) })
+        let podcastPlacement = podcastSongs.isEmpty
+            ? SpokenWordBookGrouping.BookPlacement()
+            : SpokenWordBookGrouping.bookPlacement(for: podcastSongs.map { SpokenWordBookItem(song: $0) })
         var releaseMetadataIndex = lookups.releaseMetadataIndex
         autoreleasepool { releaseMetadataIndex.prepare(albums: nextVisibleAlbums) }
         autoreleasepool {
@@ -5916,10 +5921,10 @@ final class MusicLibrary {
             podcastSongs: podcastSongs,
             ambientSongs: ambientSongs,
             ambientSongIDs: ambientSongIDs,
-            podcastBookIDs: podcastBookIDs,
+            podcastPlacement: podcastPlacement,
             spokenWordBookIDs: spokenWordPlacement.bookIDs,
             spokenWordBookIDSet: Set(spokenWordPlacement.bookIDs.values),
-            podcastBookIDSet: Set(podcastBookIDs.values),
+            podcastBookIDSet: Set(podcastPlacement.bookIDs.values),
             spokenWordDisplayTitles: spokenWordPlacement.displayTitles,
             albums: nextVisibleAlbums,
             artists: nextVisibleArtists,
@@ -10126,7 +10131,12 @@ final class MusicLibrary {
 
     /// 本地播客单集所在节目的 id(本地节目页按它打开);不是本地播客时为 nil。
     func localPodcastShowID(forSongID songID: String) -> String? {
-        localPodcastBookIDs[songID]
+        _ = localPodcastContentRevision
+        return localPodcastBookIDs[songID]
+    }
+
+    func localPodcastShowTitle(forSongID songID: String) -> String? {
+        localPodcastShowID(forSongID: songID).flatMap { localPodcastShowTitles[$0] }
     }
 
     /// `SmartPlaylistEngine` 按输入版本记下的匹配结果, 跟着这个库实例走。

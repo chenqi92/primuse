@@ -8,11 +8,30 @@ import PrimuseKit
 enum PodcastPlayerSheetTarget: Identifiable, Hashable {
     case episode(String)
     case show(String)
+    case localShow(String)
+
+    @MainActor
+    static func show(for player: AudioPlayerService) -> Self? {
+        guard player.currentListeningSpace == .podcast, let song = player.currentSong else { return nil }
+        if PodcastPlaybackSong.isEpisode(song) {
+            return PodcastPlayerEpisodeActions.showID(player).map(Self.show)
+        }
+        return player.library?.localPodcastShowID(forSongID: song.id).map(Self.localShow)
+    }
+
+    @MainActor
+    static func details(for player: AudioPlayerService) -> Self? {
+        if PodcastPlaybackSong.isEpisode(player.currentSong) {
+            return SpokenWordPlayerText.openablePodcastEpisodeID(player).map(Self.episode)
+        }
+        return show(for: player)
+    }
 
     var id: String {
         switch self {
         case .episode(let id): "episode:\(id)"
         case .show(let id): "show:\(id)"
+        case .localShow(let id): "localShow:\(id)"
         }
     }
 }
@@ -27,6 +46,8 @@ struct NowPlayingPodcastSheet: View {
                 PodcastEpisodeDetailView(episodeID: id)
             case .show(let id):
                 PodcastShowDetailView(source: .show(id))
+            case .localShow(let id):
+                SpokenWordBookDetailView(bookID: id, collection: .localPodcasts)
             }
         }
         #if os(macOS)

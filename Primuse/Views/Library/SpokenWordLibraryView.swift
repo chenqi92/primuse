@@ -1065,13 +1065,13 @@ struct SpokenWordShelfContent: View {
             if layout.isGrid {
                 SpokenWordBookCoverCell(
                     book: book, coverSong: entry.coverSong,
-                    isPlaying: player.currentBookID == book.id, tint: tint,
+                    isPlaying: player.playingBookID == book.id, tint: tint,
                     showsText: layout == .bookshelf
                 )
             } else {
                 SpokenWordBookListRow(
                     book: book, coverSong: entry.coverSong,
-                    isPlaying: player.currentBookID == book.id, tint: tint
+                    isPlaying: player.playingBookID == book.id, tint: tint
                 )
             }
         }
@@ -1543,7 +1543,7 @@ struct SpokenWordBookDetailView: View {
                             item: item,
                             number: index + 1,
                             isResumeItem: item.id == book.resumeItemID && book.canContinue,
-                            isPlaying: player.currentSong?.id == item.id
+                            isPlaying: player.isPlaying && player.currentSong?.id == item.id
                         )
                     }
                     .buttonStyle(.plain)

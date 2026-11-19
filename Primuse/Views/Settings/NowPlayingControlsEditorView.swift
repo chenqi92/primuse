@@ -2034,9 +2034,9 @@ private struct SpokenWordMenuItemsEditor: View {
         ("player_menu_group_quick", [.like, .share, .addToPlaylist, .delete]),
         ("player_menu_group_episode", [
             .podcastMarkPlayed, .podcastDownload, .podcastEpisodeDetails, .podcastGoToShow, .upNext,
-            .chaptersAndBookmarks, .goToBook, .generateTranscript, .exportText, .songInfo, .editTags, .editLyrics,
-            .reloadLyrics, .openInAppleMusic,
+            .chaptersAndBookmarks, .generateTranscript, .exportText,
         ]),
+        ("podcast_local_shows", [.goToBook, .songInfo, .editTags, .editLyrics, .reloadLyrics, .openInAppleMusic]),
         ("player_menu_group_spoken_playback", playbackItems),
     ]
 
@@ -2044,6 +2044,7 @@ private struct SpokenWordMenuItemsEditor: View {
         NowPlayingMenuItemsForm(
             groups: kind == .podcast ? Self.podcastGroups : Self.audiobookGroups,
             footerKey: "player_menu_items_spoken_footer",
+            displayItem: { kind == .podcast && $0 == .goToBook ? .podcastGoToShow : $0 },
             hiddenCount: layout.hiddenMenuItems.count,
             shows: { layout.showsMenuItem($0) },
             setShown: { storage = layout.settingMenuItem($0, visible: $1).encoded() },
@@ -2056,6 +2057,7 @@ private struct SpokenWordMenuItemsEditor: View {
 private struct NowPlayingMenuItemsForm: View {
     let groups: [(LocalizedStringKey, [NowPlayingMenuItem])]
     let footerKey: LocalizedStringKey
+    var displayItem: (NowPlayingMenuItem) -> NowPlayingMenuItem = { $0 }
     let hiddenCount: Int
     let shows: (NowPlayingMenuItem) -> Bool
     let setShown: (NowPlayingMenuItem, Bool) -> Void
@@ -2071,9 +2073,9 @@ private struct NowPlayingMenuItemsForm: View {
                             set: { setShown(item, $0) }
                         )) {
                             Label {
-                                Text(item.editorTitleKey)
+                                Text(displayItem(item).editorTitleKey)
                             } icon: {
-                                Image(systemName: item.editorSymbol)
+                                Image(systemName: displayItem(item).editorSymbol)
                             }
                         }
                     }

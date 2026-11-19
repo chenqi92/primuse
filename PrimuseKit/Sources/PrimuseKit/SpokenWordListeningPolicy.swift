@@ -368,16 +368,18 @@ public enum SpokenWordBookGrouping {
     public struct BookPlacement: Sendable, Equatable {
         public var bookIDs: [String: String]
         public var displayTitles: [String: String]
+        public var groupTitles: [String: String]
 
-        public init(bookIDs: [String: String] = [:], displayTitles: [String: String] = [:]) {
+        public init(bookIDs: [String: String] = [:], displayTitles: [String: String] = [:], groupTitles: [String: String] = [:]) {
             self.bookIDs = bookIDs
             self.displayTitles = displayTitles
+            self.groupTitles = groupTitles
         }
     }
 
     public static func bookPlacement(for items: [SpokenWordBookItem]) -> BookPlacement {
         let assignment = SpokenWordBookGroupingRules.assign(items)
-        return BookPlacement(bookIDs: assignment.bookIDs, displayTitles: assignment.displayTitles)
+        return BookPlacement(bookIDs: assignment.bookIDs, displayTitles: assignment.displayTitles, groupTitles: assignment.titles)
     }
 
     /// The book id `item` would get on its own, without the rest of the

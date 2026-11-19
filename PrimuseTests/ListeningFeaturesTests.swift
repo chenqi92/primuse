@@ -2294,6 +2294,78 @@ extension ListeningFeaturesTests {
         XCTAssertEqual(SpokenWordShelfOrder.decode("[\"a\",\"a\",\"b\"]"), ["a", "b"])
     }
 
+    func testConvertedPodcastUsesEpisodeProgressAndOpensItsLocalShow() async throws {
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        var episode = song(UUID().uuidString, path: "/Shows/Night walks/01.flac")
+        episode.albumTitle = nil
+        let player = try makePlayer(library: library)
+        let store = SpokenWordStore.shared
+        defer {
+            player.currentSong = nil
+            store.setKind(nil, forSongIDs: [episode.id])
+            store.clearPosition(forSongID: episode.id)
+        }
+        library.addSongs([episode])
+        await library.waitForPendingIndex()
+        player.currentSong = episode
+        store.move([episode], to: .podcast)
+        library.refreshContentClassification()
+        await library.waitForPendingIndex()
+        player.refreshCurrentItemContentKind()
+
+        let show = try XCTUnwrap(SpokenWordBookGrouping.books(from: [SpokenWordBookItem(song: episode)]).first)
+        XCTAssertEqual(SpokenWordPlayerText.bookTitle(player), episode.title)
+        XCTAssertEqual(SpokenWordPlayerText.author(player), show.title)
+        XCTAssertNil(SpokenWordPlayerText.partTitle(player))
+        XCTAssertNil(SpokenWordPlayerText.headingPosition(player))
+        XCTAssertEqual(PodcastPlayerSheetTarget.show(for: player), .localShow(show.id))
+        XCTAssertEqual(PodcastPlayerSheetTarget.details(for: player), .localShow(show.id))
+        XCTAssertNil(SpokenWordPlayerText.openablePodcastEpisodeID(player))
+
+        player.spokenWordChapters = [MediaChapter(startTime: 0, title: "River"), MediaChapter(startTime: 90, title: "Bridge")]
+        player.currentChapterIndex = 1
+        let position = try XCTUnwrap(SpokenWordPlayerText.headingPosition(player))
+        XCTAssertEqual(SpokenWordPlayerText.partTitle(player), "Bridge")
+        XCTAssertEqual(position.title, String(format: String(localized: "spoken_word_part_position_format"), 2, 2))
+        XCTAssertNil(position.bookFraction)
+        XCTAssertNil(position.detail)
+        XCTAssertEqual(position.accessibilityValue, position.title)
+    }
+
+    func testPausedBookRetainsProgressAndLosesItsPlayingBadge() throws {
+        let player = try makePlayer()
+        let chapter = song(UUID().uuidString, genre: "Audiobook")
+        defer {
+            player.currentSong = nil
+            SpokenWordStore.shared.clearPosition(forSongID: chapter.id)
+        }
+        player.currentSong = chapter
+        let book = try XCTUnwrap(player.currentBookID)
+        player.isPlaying = true
+        XCTAssertEqual(player.playingBookID, book)
+        player.isPlaying = false
+        XCTAssertNil(player.playingBookID)
+        XCTAssertEqual(player.currentBookID, book)
+        XCTAssertNotNil(SpokenWordPlayerText.headingPosition(player)?.bookFraction)
+        XCTAssertNil(PodcastPlayerSheetTarget.details(for: player))
+        player.isPlaying = true
+        XCTAssertEqual(player.playingBookID, book)
+        player.isPlaying = false
+    }
+
+    func testUnsubscribedFeedEpisodeKeepsItsHeadingWithoutALocalShowRoute() throws {
+        let player = try makePlayer()
+        var episode = song(UUID().uuidString, genre: "Podcast")
+        episode.sourceID = PodcastPlaybackSong.sourceID
+        defer { player.currentSong = nil }
+        player.currentSong = episode
+        XCTAssertEqual(SpokenWordPlayerText.bookTitle(player), episode.title)
+        XCTAssertEqual(SpokenWordPlayerText.author(player), episode.albumTitle)
+        XCTAssertNil(SpokenWordPlayerText.headingPosition(player))
+        XCTAssertNil(PodcastPlayerSheetTarget.show(for: player))
+        XCTAssertNil(PodcastPlayerSheetTarget.details(for: player))
+    }
+
     func testSpokenWordSnapshotKeepsShelfSectionsAndChapterQueuesConsistent() async throws {
         let model = SpokenWordBooksModel()
         XCTAssertFalse(model.snapshot.isPrepared)
