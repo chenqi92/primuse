@@ -329,6 +329,8 @@ final class SourceChangeScanInvalidationTests: XCTestCase {
                 SourceDiagnosticReport(source: source, startedAt: Date(), checks: [])
             }
         )
+        // This fixture starts in normal mode even when its XCTest host previously entered recovery.
+        scan.automaticScansAllowed = { true }
         return Fixture(
             source: source, connector: connector, scan: scan, library: library, store: store,
             manager: SourceManager(sourcesProvider: { [] })
