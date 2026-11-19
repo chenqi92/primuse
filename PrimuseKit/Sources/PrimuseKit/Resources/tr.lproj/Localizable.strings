@@ -1037,5 +1037,5 @@
 "scraper.rule.error.invalidPlaylist" = "Desteklenmeyen kapak çalma listesi";
 "scraper.rule.error.apiStatus" = "Meta veri toplama API hatası: %lld";
 
-"src.displayName.zspace" = "ZSpace";
+"src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "ZMusic ayarlarında medya kitaplığı hizmetini etkinleştirin, ardından hizmetin adresini ve ayrı kullanıcı adı ile parolasını kullanın.";

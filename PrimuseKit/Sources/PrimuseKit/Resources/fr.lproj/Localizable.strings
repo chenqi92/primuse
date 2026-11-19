@@ -1090,5 +1090,5 @@
 "scraper.rule.error.invalidPlaylist" = "Liste de lecture des pochettes non prise en charge";
 "scraper.rule.error.apiStatus" = "Erreur de l’API de récupération : %lld";
 
-"src.displayName.zspace" = "ZSpace";
+"src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "Activez le service de bibliothèque multimédia dans les réglages de ZMusic, puis utilisez son adresse et ses identifiants distincts.";

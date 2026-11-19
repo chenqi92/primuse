@@ -1037,5 +1037,5 @@
 "scraper.rule.error.invalidPlaylist" = "قائمة تشغيل أغلفة غير مدعومة";
 "scraper.rule.error.apiStatus" = "خطأ في واجهة برمجة تطبيقات جلب البيانات: %lld";
 
-"src.displayName.zspace" = "ZSpace";
+"src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "فعّل خدمة مكتبة الوسائط في إعدادات ZMusic، ثم استخدم عنوانها واسم المستخدم وكلمة المرور المنفصلين.";

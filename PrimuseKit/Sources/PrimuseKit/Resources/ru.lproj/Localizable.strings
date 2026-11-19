@@ -1037,5 +1037,5 @@
 "scraper.rule.error.invalidPlaylist" = "Неподдерживаемый плейлист обложек";
 "scraper.rule.error.apiStatus" = "Ошибка API загрузки метаданных: %lld";
 
-"src.displayName.zspace" = "ZSpace";
+"src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "Включите службу медиатеки в настройках ZMusic и используйте её адрес, отдельное имя пользователя и пароль.";

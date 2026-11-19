@@ -1037,5 +1037,5 @@
 "scraper.rule.error.invalidPlaylist" = "Lista de reproducción de portadas no compatible";
 "scraper.rule.error.apiStatus" = "Error de la API de extracción %lld";
 
-"src.displayName.zspace" = "ZSpace";
+"src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "Activa el servicio de biblioteca multimedia en los ajustes de ZMusic y usa su dirección, nombre de usuario y contraseña independientes.";

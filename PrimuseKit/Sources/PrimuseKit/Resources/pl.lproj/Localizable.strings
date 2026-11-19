@@ -1037,5 +1037,5 @@
 "scraper.rule.error.invalidPlaylist" = "Nieobsługiwana lista odtwarzania okładek";
 "scraper.rule.error.apiStatus" = "Błąd API pobierania metadanych: %lld";
 
-"src.displayName.zspace" = "ZSpace";
+"src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "Włącz usługę biblioteki multimediów w ustawieniach ZMusic, a następnie użyj jej adresu oraz osobnej nazwy użytkownika i hasła.";

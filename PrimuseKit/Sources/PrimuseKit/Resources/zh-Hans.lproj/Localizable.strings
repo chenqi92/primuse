@@ -1087,5 +1087,5 @@
 "scraper.rule.error.invalidPlaylist" = "不支持此封面播放列表";
 "scraper.rule.error.apiStatus" = "刮削接口错误 %lld";
 
-"src.displayName.zspace" = "极空间";
+"src.displayName.zspace" = "极空间·极音乐";
 "zspace_account_hint" = "在极音乐设置中开启「媒体库服务」，使用该服务的地址和独立账号密码。";

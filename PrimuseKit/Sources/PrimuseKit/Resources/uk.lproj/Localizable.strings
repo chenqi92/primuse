@@ -1037,5 +1037,5 @@
 "scraper.rule.error.invalidPlaylist" = "Непідтримуваний список відтворення обкладинок";
 "scraper.rule.error.apiStatus" = "Помилка API завантаження метаданих: %lld";
 
-"src.displayName.zspace" = "ZSpace";
+"src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "Увімкніть службу медіатеки в налаштуваннях ZMusic і використовуйте її адресу, окреме ім’я користувача та пароль.";

@@ -1090,5 +1090,5 @@
 "scraper.rule.error.invalidPlaylist" = "지원하지 않는 커버 재생목록";
 "scraper.rule.error.apiStatus" = "스크레이퍼 API 오류 %lld";
 
-"src.displayName.zspace" = "ZSpace";
+"src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "ZMusic 설정에서 미디어 라이브러리 서비스를 활성화한 후 해당 주소와 별도의 사용자 이름 및 비밀번호를 사용하세요.";

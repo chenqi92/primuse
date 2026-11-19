@@ -1090,5 +1090,5 @@
 "scraper.rule.error.invalidPlaylist" = "このアートワークのプレイリストには対応していません";
 "scraper.rule.error.apiStatus" = "スクレイパー API エラー %lld";
 
-"src.displayName.zspace" = "ZSpace";
+"src.displayName.zspace" = "ZSpace · ZMusic";
 "zspace_account_hint" = "ZMusicの設定でメディアライブラリサービスを有効にし、そのアドレスと専用のユーザー名・パスワードを使用してください。";
