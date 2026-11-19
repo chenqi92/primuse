@@ -172,12 +172,14 @@ struct TVScanPipelineTests {
         )
         existing.bitRate = 1_411
         existing.lyricsText = "cached lyrics"
-        let candidate = song(
+        existing.contentMetadata = SongContentMetadata(iTunesAdvisory: 1, isFileInspectionComplete: true)
+        var candidate = song(
             id: String(repeating: "a", count: 32),
             title: "Filename",
             duration: 0,
             dateAdded: Date(timeIntervalSince1970: 999)
         )
+        candidate.contentMetadata = SongContentMetadata(releaseType: "single")
 
         let merged = TVScanPipelinePolicy.reconciledSkeleton(
             existing: existing,
@@ -189,6 +191,9 @@ struct TVScanPipelineTests {
         #expect(merged.duration == 245)
         #expect(merged.bitRate == 1_411)
         #expect(merged.lyricsText == "cached lyrics")
+        #expect(merged.contentMetadata?.releaseType == "single")
+        #expect(merged.contentMetadata?.iTunesAdvisory == 1)
+        #expect(merged.contentMetadata?.isFileInspectionComplete == true)
         #expect(merged.dateAdded == existing.dateAdded)
         #expect(TVScanPipelinePolicy.canReuseMetadata(
             existing: existing,

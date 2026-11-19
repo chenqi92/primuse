@@ -989,7 +989,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
               albumWithSongs.songCount.map({ $0 == songs.count }) ?? true else {
             throw SourceError.connectionFailed("Subsonic getAlbum returned an incomplete song list")
         }
-        return LegacyAlbumResult(index: index, album: album, songs: songs)
+        var summary = album
+        if albumWithSongs.releaseTypes?.value != nil { summary.releaseTypes = albumWithSongs.releaseTypes }
+        return LegacyAlbumResult(index: index, album: summary, songs: songs)
     }
 
     /// `toleratesDriftOnLastAttempt` lets a scan finish on a server that keeps
@@ -1270,7 +1272,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private func loadAlbumMetadata(preparationID: UUID) async throws {
         let scopes = albumScopes
         let wideAlbums = serverType?.lowercased() == "navidrome"
-        let cacheKey = Self.hash(([baseURL.absoluteString, username, wideAlbums ? "search3-albums-v1" : "albums-v1"] + scopes.sorted()).joined(separator: "\0"))
+        let cacheKey = Self.hash(([baseURL.absoluteString, username, wideAlbums ? "search3-albums-v2" : "albums-v2"] + scopes.sorted()).joined(separator: "\0"))
         let revision = catalogRevision
         let store = albumCatalogStore
         var checkpoint = await Task.detached(priority: .utility) {
@@ -1377,7 +1379,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
         return albums.map {
             ServerCatalogAlbumMetadata(id: $0.id, artist: Self.cleaned($0.artist, unknown: "[Unknown Artist]"),
-                                       created: $0.created.flatMap(Self.parseCatalogDate), libraryID: scope.isEmpty ? libraryScope?.soleLibraryID : scope)
+                                       created: $0.created.flatMap(Self.parseCatalogDate), libraryID: scope.isEmpty ? libraryScope?.soleLibraryID : scope,
+                                       releaseType: $0.releaseTypes?.value)
         }
     }
 
@@ -2399,8 +2402,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         let coverArtID = child.coverArt ?? album?.coverArt
         let created = child.created.flatMap(Self.parseDate)
         let added = created.map(ServerSongCatalogMergePolicy.normalizedAddedDate)
-        let albumCreated = album?.created.flatMap(Self.parseCatalogDate)
-            ?? (child.albumId ?? album?.id).flatMap { catalogAlbums[$0]?.created }
+        let catalogAlbum = (child.albumId ?? album?.id).flatMap { catalogAlbums[$0] }
+        let albumCreated = album?.created.flatMap(Self.parseCatalogDate) ?? catalogAlbum?.created
+        let releaseType = album?.releaseTypes?.value ?? catalogAlbum?.releaseType
 
         // 单曲艺术家常缺标签 → Subsonic 返回 "[Unknown Artist]" 占位; 回退到
         // 专辑艺术家。真正全空的归一成 nil, 让 Primuse 走自己的"未知"处理,
@@ -2484,6 +2488,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             ),
             serverDateAdded: added,
             serverAlbumDateAdded: albumCreated,
+            contentMetadata: releaseType.map { SongContentMetadata(releaseType: $0) },
             serverCatalogAlbum: (child.albumId ?? album?.id).map { ServerCatalogAlbumReference(id: $0, taggedArtist: taggedAlbumArtist) },
             isExternal: child.isExternal
         )
@@ -3319,7 +3324,20 @@ private struct AlbumList2: Decodable {
     let album: [AlbumSummary]?
 }
 
+private struct SubsonicReleaseTypes: Decodable, Sendable {
+    let value: String?
+
+    init(from decoder: Decoder) throws {
+        // A malformed optional tag must not make the entire album page unreadable.
+        let tags = try SubsonicLenientList<String>(from: decoder).elements.compactMap { tag in
+            tag?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+        value = tags.isEmpty ? nil : tags.joined(separator: "; ")
+    }
+}
+
 private struct AlbumSummary: Decodable, Sendable {
+    var releaseTypes: SubsonicReleaseTypes?
     let id: String
     let name: String?
     let artist: String?
@@ -3408,6 +3426,7 @@ private struct ArtistContainer: SubsonicResponseContainer {
 }
 
 private struct AlbumWithSongs: Decodable, Sendable {
+    let releaseTypes: SubsonicReleaseTypes?
     let id: String?
     let songCount: Int?
     let song: [SubsonicChild]?

@@ -17,12 +17,14 @@ public struct ServerCatalogAlbumMetadata: Codable, Equatable, Sendable {
     public var artist: String?
     public var created: Date?
     public var libraryID: String?
+    public var releaseType: String?
 
-    public init(id: String, artist: String?, created: Date?, libraryID: String?) {
+    public init(id: String, artist: String?, created: Date?, libraryID: String?, releaseType: String? = nil) {
         self.id = id
         self.artist = artist
         self.created = created
         self.libraryID = libraryID
+        self.releaseType = releaseType
     }
 }
 
@@ -47,6 +49,11 @@ public struct ServerCatalogEnrichment: Sendable {
             ),
             trackArtistName: song.artistName
         )
+        if let type = album.releaseType {
+            var content = song.contentMetadata ?? SongContentMetadata()
+            content.releaseType = type
+            song.contentMetadata = content
+        }
         if let created = album.created { song.serverAlbumDateAdded = created }
         if !hasOverlappingLibraries, let libraryID = album.libraryID {
             song.serverLibraryID = libraryID

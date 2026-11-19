@@ -1183,7 +1183,7 @@ struct PagedSongCatalogStagingStoreTests {
 }
 
 struct SubsonicAlbumCatalogStoreTests {
-    private let album = ServerCatalogAlbumMetadata(id: "album", artist: "Various Artists", created: Date(timeIntervalSince1970: 100), libraryID: "2")
+    private let album = ServerCatalogAlbumMetadata(id: "album", artist: "Various Artists", created: Date(timeIntervalSince1970: 100), libraryID: "2", releaseType: "ep; live")
 
     @Test func resumesPagesAndRejectsLateWriters() throws {
         let store = try SubsonicAlbumCatalogStore(path: ":memory:")
@@ -1239,6 +1239,12 @@ struct SubsonicAlbumCatalogStoreTests {
         #expect(merged.albumArtistName == "My edit")
         #expect(merged.serverAlbumDateAdded == album.created)
         #expect(merged.serverCatalogAlbum == song.serverCatalogAlbum)
+        #expect(merged.contentMetadata?.releaseType == "ep; live")
+
+        let legacy = try JSONDecoder().decode(ServerCatalogAlbumMetadata.self, from: Data(#"{"id":"album","libraryID":"2"}"#.utf8))
+        #expect(legacy.releaseType == nil)
+        let withoutTags = ServerCatalogEnrichment(albums: [legacy.id: legacy]).applying(to: merged)
+        #expect(withoutTags.contentMetadata?.releaseType == "ep; live")
     }
 
     @Test func cachedDateParsingKeepsExistingPrecisionAndOffsets() {

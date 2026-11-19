@@ -112,13 +112,11 @@ struct ServerCatalogAutoRefreshPolicyTests {
         }
     }
 
-    @Test func onlySubsonicServersRefreshOnceForReplayGain() {
-        // The Subsonic connector started keeping `replayGain`; rows already in
-        // the library only receive it from one more complete walk.
+    @Test func subsonicLibrariesWithOnlyReplayGainRefreshForReleaseTypes() {
         for type in MusicSourceType.allCases {
             #expect(
                 ServerCatalogAutoRefreshPolicy.catalogFieldRevision(for: type)
-                    == (type.isSubsonicFamily ? 1 : 0)
+                    == (type.isSubsonicFamily ? 2 : 0)
             )
         }
     }

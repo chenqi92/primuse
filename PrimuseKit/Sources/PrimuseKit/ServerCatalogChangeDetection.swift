@@ -157,9 +157,9 @@ public enum ServerCatalogAutoRefreshPolicy {
     /// rows already in the library pick the field up without waiting for the
     /// server's catalogue to change.
     ///
-    /// 1: Subsonic `replayGain`.
+    /// 1: Subsonic `replayGain`. 2: OpenSubsonic album `releaseTypes`.
     public static func catalogFieldRevision(for type: MusicSourceType) -> Int {
-        type.isSubsonicFamily ? 1 : 0
+        type.isSubsonicFamily ? 2 : 0
     }
 }
 

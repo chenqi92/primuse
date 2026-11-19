@@ -1778,6 +1778,7 @@ actor ConnectorScanner {
                 from: existing,
                 in: incoming
             )
+            refreshed.contentMetadata = SongContentMetadata.merging(previous: existing.contentMetadata, incoming: incoming.contentMetadata)
             if refreshed.duration <= 0 { refreshed.duration = incoming.duration }
             if refreshed.fileSize <= 0 { refreshed.fileSize = incoming.fileSize }
             if refreshed.bitRate == nil { refreshed.bitRate = incoming.bitRate }
@@ -1790,6 +1791,8 @@ actor ConnectorScanner {
         }
 
         var refreshed = existing
+        refreshed.serverCatalogAlbum = incoming.serverCatalogAlbum ?? existing.serverCatalogAlbum
+        refreshed.contentMetadata = SongContentMetadata.merging(previous: existing.contentMetadata, incoming: incoming.contentMetadata)
         // The server owns the location: a carried row keeps its song ID while
         // the id in its path follows the server.
         if !incoming.filePath.isEmpty { refreshed.filePath = incoming.filePath }

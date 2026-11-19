@@ -193,6 +193,7 @@ public enum TVScanPipelinePolicy {
             result.id = candidate.id
             result.filePath = candidate.filePath
             result.sourceID = candidate.sourceID
+            result.contentMetadata = SongContentMetadata.merging(previous: existing.contentMetadata, incoming: candidate.contentMetadata)
             if !candidate.isStreamDescriptor {
                 result.fileFormat = candidate.fileFormat
                 result.fileSize = candidate.fileSize

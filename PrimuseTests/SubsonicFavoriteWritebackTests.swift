@@ -338,9 +338,12 @@ final class SubsonicLegacyCatalogSafetyTests: XCTestCase {
         let (source, session, host) = makeSource(.cappedPages)
         defer { session.invalidateAndCancel() }
         var paths: [String] = []
+        var releaseTypes: [String?] = []
         for try await scanned in try await source.scanSongs(from: "/") {
             paths.append(scanned.song.filePath)
+            releaseTypes.append(scanned.song.contentMetadata?.releaseType)
         }
+        XCTAssertEqual(releaseTypes, ["single", "ep; live", nil])
         XCTAssertEqual(paths, (0..<3).map { "/songs/song-\($0).flac" })
         XCTAssertEqual(SubsonicLegacyCatalogURLProtocol.offsets(host: host), [0, 2, 3])
         await source.disconnect()
@@ -511,7 +514,11 @@ private final class SubsonicLegacyCatalogURLProtocol: URLProtocol, @unchecked Se
             case .repeatedShortPage, .laterPageFailure: indices = [0, 1]
             default: indices = offset == 0 ? [0] : []
             }
-            payload["albumList2"] = ["album": indices.map { ["id": "album-\($0)", "name": "纸灯 \($0)"] }]
+            payload["albumList2"] = ["album": indices.map { index -> [String: Any] in
+                var row: [String: Any] = ["id": "album-\(index)", "name": "纸灯 \(index)"]
+                if index < 2 { row["releaseTypes"] = [index == 0 ? "single" : "album"] }
+                return row
+            }]
         case "getAlbum.view":
             let id = query.first { $0.name == "id" }?.value ?? ""
             let songID = id.replacingOccurrences(of: "album-", with: "song-")
@@ -520,6 +527,7 @@ private final class SubsonicLegacyCatalogURLProtocol: URLProtocol, @unchecked Se
                 "duration": 180, "albumId": id,
             ]
             var album: [String: Any] = ["id": id, "songCount": 1, "song": [song]]
+            if id == "album-1" { album["releaseTypes"] = [" ep ", "live"] }
             switch state.mode {
             case .missingSongs: album.removeValue(forKey: "song")
             case .truncatedSongs: album["songCount"] = 2
@@ -1326,6 +1334,8 @@ final class SubsonicCatalogEnrichmentTests: XCTestCase {
         let enrichment = try XCTUnwrap(enrichmentValue)
         let enriched = enrichment.applying(to: try XCTUnwrap(page.songs.first?.song))
         XCTAssertEqual(enriched.albumArtistName, "Various Artists")
+        let type = try XCTUnwrap(enriched.contentMetadata?.releaseType)
+        XCTAssertEqual(AlbumReleaseClassification.categories(title: "纸灯", releaseTypes: [type]), [.singleEP, .live])
         XCTAssertEqual(enriched.serverAlbumDateAdded, Date(timeIntervalSince1970: 1_577_836_800))
         XCTAssertTrue(CatalogEnrichmentURLProtocol.offsets(host, albums: false).contains(1))
         XCTAssertEqual(CatalogEnrichmentURLProtocol.offsets(host, albums: true), [0, 1, 2])
@@ -1446,7 +1456,7 @@ private final class CatalogEnrichmentURLProtocol: URLProtocol, @unchecked Sendab
             let offset = Int(value(albums ? "albumOffset" : "songOffset") ?? "0") ?? 0
             let body: [String: Any]
             if albums {
-                body = ["searchResult3": ["album": offset < 2 ? [["id": "album-\(offset)", "artist": "Various Artists", "created": "2020-01-01T00:00:00Z"]] : []]]
+                body = ["searchResult3": ["album": offset < 2 ? [["id": "album-\(offset)", "artist": "Various Artists", "created": "2020-01-01T00:00:00Z", "releaseTypes": ["single", "live"]]] : []]]
             } else {
                 body = ["searchResult3": ["song": offset < 2 ? [["id": "song-\(offset)", "albumId": "album-\(offset)", "title": "Song", "artist": "Soloist", "suffix": "mp3"]] : []]]
             }
