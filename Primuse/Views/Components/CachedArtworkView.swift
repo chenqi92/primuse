@@ -151,6 +151,8 @@ struct CachedArtworkView: View {
     }
     @State private var isArtworkVisible = true
     @State private var motionArtworkVideoURL: URL?
+    /// 用户自己设的视频动态封面的首帧截图，见 `MotionArtworkVideoView.posterURL`。
+    @State private var motionCoverPosterURL: URL?
     @State private var animatedArtworkData: Data?
     @State private var animatedArtworkDescriptor: ArtworkDescriptor?
     @State private var animatedArtworkIdentity: String?
@@ -416,6 +418,7 @@ struct CachedArtworkView: View {
             onPolicySignal: { animationPolicyRevision &+= 1 },
             onDisable: {
                 motionArtworkVideoURL = nil
+                motionCoverPosterURL = nil
                 animatedArtworkData = nil
                 animatedArtworkDescriptor = nil
                 animatedArtworkIdentity = nil
@@ -519,7 +522,7 @@ struct CachedArtworkView: View {
             // 跟其它来源的封面一样填满 cell。ArtworkImage 自身按 display scale
             // 解码, 所以传点数即可, 不用再乘 scale。
             if let motionArtworkVideoURL {
-                MotionArtworkVideoView(url: motionArtworkVideoURL, shouldAnimate: animationPlaybackPolicy.shouldAnimate) {
+                MotionArtworkVideoView(url: motionArtworkVideoURL, shouldAnimate: animationPlaybackPolicy.shouldAnimate, posterURL: motionCoverPosterURL) {
                     appleMusicArtworkView(artwork)
                 }
             } else if let animatedArtworkData, let animatedArtworkDescriptor {
@@ -568,7 +571,7 @@ struct CachedArtworkView: View {
     @ViewBuilder
     private func animatedOrStaticArtwork(_ image: PlatformImage) -> some View {
         if let motionArtworkVideoURL {
-            MotionArtworkVideoView(url: motionArtworkVideoURL, shouldAnimate: animationPlaybackPolicy.shouldAnimate) {
+            MotionArtworkVideoView(url: motionArtworkVideoURL, shouldAnimate: animationPlaybackPolicy.shouldAnimate, posterURL: motionCoverPosterURL) {
                 Image(platformImage: image).resizable().aspectRatio(contentMode: .fill)
             }
         } else if let animatedArtworkData, let animatedArtworkDescriptor {
@@ -988,13 +991,57 @@ struct CachedArtworkView: View {
         return Self.fullMaxPixel
     }
 
+    /// 用户给这首歌（或它的专辑）设的视频动态封面与首帧截图。
+    private func localMotionCover() -> (video: URL, poster: URL)? {
+        guard motionCoverLookupEnabled,
+              let resolved = MotionCoverStore.shared.effectiveAsset(
+                songID: songID,
+                albumID: albumID ?? songID.flatMap { library.song(id: $0)?.albumID }
+              ) else { return nil }
+        return (MotionCoverStore.videoURL(for: resolved.asset), MotionCoverStore.posterURL(for: resolved.asset))
+    }
+
+    @MainActor private static var lastStillMotionCoverLog: String?
+
+    /// 诊断：设了动态封面却停着不动时记一行原因，同一首歌同一组原因只记一次（#428 这类「不显示」的反馈对得上）。
+    private func logStillMotionCoverIfNeeded() {
+        let policy = animationPlaybackPolicy
+        let reasons = [
+            policy.requiresPlayback && !policy.isPlaying ? "paused" : nil,
+            policy.isVisible ? nil : "hidden",
+            policy.isSceneActive ? nil : "background",
+            policy.reduceMotion ? "reduceMotion" : nil,
+            policy.playAnimatedImages ? nil : "autoPlayOff",
+            policy.isLowPowerModeEnabled ? "lowPower" : nil,
+            policy.thermalCondition.permitsAnimation ? nil : "thermal",
+        ].compactMap { $0 }.joined(separator: ",")
+        let key = "\(songID ?? albumID ?? "")|\(reasons)"
+        guard Self.lastStillMotionCoverLog != key else { return }
+        Self.lastStillMotionCoverLog = key
+        plog("🎞️ motion cover held on first frame song=\(songID ?? "-") album=\(albumID ?? "-") reasons=\(reasons.isEmpty ? "loading" : reasons)")
+    }
+
+    /// 不动的时候还要不要停在用户设的动态封面首帧：只在大封面位、动态封面总开关开着、静态封面已经按当前
+    /// 身份载好时。动态封面关掉了就照旧显示原来的封面。
+    private func stillMotionCover() -> (video: URL, poster: URL)? {
+        guard presentationRole == .animatedHero,
+              animatedArtworkEnabled,
+              loadedIdentity == loadIdentity else { return nil }
+        return localMotionCover()
+    }
+
     @MainActor
     private func loadAnimatedArtwork(for identity: String) async {
         guard !identity.isEmpty,
               !animationCacheMaintenancePending,
               loadedIdentity == loadIdentity,
               animationPlaybackPolicy.shouldAnimate else {
-            motionArtworkVideoURL = nil
+            // 用户自己设了视频动态封面时，不动（暂停、低电量、减少动态效果）也停在它的首帧，
+            // 不退回歌曲原来的静态封面，不然看起来像设的动态封面没生效（#428）。
+            let still = stillMotionCover()
+            motionArtworkVideoURL = still?.video
+            motionCoverPosterURL = still?.poster
+            if still != nil { logStillMotionCoverIfNeeded() }
             animatedArtworkData = nil
             animatedArtworkDescriptor = nil
             animatedArtworkIdentity = nil
@@ -1006,10 +1053,9 @@ struct CachedArtworkView: View {
 
         // 用户给这首歌（或它的专辑）指定的视频动态封面优先于来源自带的动图和在线服务（#411）。
         if motionCoverLookupEnabled,
-           let localVideo = MotionCoverStore.shared.videoURL(
-            songID: songID,
-            albumID: albumID ?? songID.flatMap { library.song(id: $0)?.albumID }
-           ) {
+           let local = localMotionCover() {
+            let localVideo = local.video
+            motionCoverPosterURL = local.poster
             if motionArtworkVideoURL != localVideo {
                 animatedArtworkData = nil
                 animatedArtworkDescriptor = nil
@@ -1031,6 +1077,7 @@ struct CachedArtworkView: View {
             return
         }
         motionArtworkVideoURL = nil
+        motionCoverPosterURL = nil
         animatedArtworkData = nil
         animatedArtworkDescriptor = nil
         animatedArtworkIdentity = nil
@@ -1496,6 +1543,7 @@ struct CachedArtworkView: View {
             )
         }
         motionArtworkVideoURL = nil
+        motionCoverPosterURL = nil
         animatedArtworkData = nil
         animatedArtworkDescriptor = nil
         animatedArtworkIdentity = nil

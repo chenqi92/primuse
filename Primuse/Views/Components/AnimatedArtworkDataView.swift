@@ -84,17 +84,50 @@ struct UploadedArtworkAnimation<Fallback: View>: View {
 struct MotionArtworkVideoView<Fallback: View>: View {
     let url: URL
     let shouldAnimate: Bool
+    /// 视频首帧截图(用户自己设的动态封面才有)。不动的时候(暂停、低电量、减少动态效果)和视频还没备好时
+    /// 停在这一帧，而不是退回歌曲原来的静态封面：看得出设的动态封面在，开播时也不跳一下。
+    var posterURL: URL? = nil
     @ViewBuilder let fallback: () -> Fallback
     @State private var playback: MotionArtworkVideoPlayback?
+    @State private var poster: CGImage?
 
     var body: some View {
         fallback()
+            .overlay {
+                if let poster, !(shouldAnimate && playback != nil) {
+                    Color.clear
+                        .overlay {
+                            Image(decorative: poster, scale: 1)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        }
+                        .clipped()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             .overlay {
                 if shouldAnimate, let playback {
                     MotionArtworkVideoLayer(playback: playback)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
+            }
+            .task(id: posterURL) {
+                guard let posterURL else { poster = nil; return }
+                let decoded = await Task.detached(priority: .utility) { () -> CGImage? in
+                    guard let source = CGImageSourceCreateWithURL(posterURL as CFURL, [
+                        kCGImageSourceShouldCache: false,
+                    ] as CFDictionary) else { return nil }
+                    return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                        kCGImageSourceCreateThumbnailFromImageAlways: true,
+                        kCGImageSourceCreateThumbnailWithTransform: true,
+                        kCGImageSourceShouldCacheImmediately: true,
+                        kCGImageSourceThumbnailMaxPixelSize: 1_080,
+                    ] as CFDictionary)
+                }.value
+                guard !Task.isCancelled else { return }
+                poster = decoded
             }
             .task(id: "\(url.path)|\(shouldAnimate)") {
                 playback?.stop()
@@ -106,7 +139,8 @@ struct MotionArtworkVideoView<Fallback: View>: View {
                     playback = prepared
                     prepared.play()
                 } catch {
-                    // The static cover remains visible if the rendition cannot be decoded.
+                    // The static cover (or the poster frame) remains visible if the rendition cannot be decoded.
+                    plog("🎞️ motion artwork video failed to prepare file=\(url.lastPathComponent) error=\(error)")
                 }
             }
             .onDisappear {
