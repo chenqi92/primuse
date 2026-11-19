@@ -438,6 +438,35 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
     uint64_t _ioTimeoutNanos;
 }
 
++ (BOOL)hasMPEGAudioFramesWithReader:(NSData * _Nullable (NS_NOESCAPE ^)(NSInteger, NSInteger))reader {
+    NSData *header = reader(0, 10);
+    if (header.length != 10) return NO;
+    const uint8_t *bytes = header.bytes;
+    NSInteger audioOffset = 0;
+    if (memcmp(bytes, "ID3", 3) == 0) {
+        if (bytes[3] < 2 || bytes[3] > 4 || bytes[4] == 0xff
+            || ((bytes[6] | bytes[7] | bytes[8] | bytes[9]) & 0x80) != 0) return NO;
+        const uint8_t allowedFlags[] = { 0xc0, 0xe0, 0xf0 };
+        if (bytes[5] & ~allowedFlags[bytes[3] - 2]) return NO;
+        NSInteger tagSize = (bytes[6] << 21) | (bytes[7] << 14) | (bytes[8] << 7) | bytes[9];
+        audioOffset = 10 + tagSize + ((bytes[5] & 0x10) ? 10 : 0);
+    } else if (bytes[0] != 0xff || (bytes[1] & 0xe0) != 0xe0 || (bytes[1] & 0x06) == 0) {
+        return NO;
+    }
+
+    const NSInteger window = 32 * 1024;
+    NSData *payload = reader(audioOffset, window);
+    if (!payload.length || payload.length > window) return NO;
+    // Supplying neither a filename nor a MIME type makes the demuxer earn its
+    // probe score from consecutive MPEG frames. ID3 alone also occurs on FLAC.
+    NSMutableData *padded = [NSMutableData dataWithLength:payload.length + AVPROBE_PADDING_SIZE];
+    memcpy(padded.mutableBytes, payload.bytes, payload.length);
+    AVProbeData probe = { .filename = "", .buf = padded.mutableBytes, .buf_size = (int)payload.length };
+    int score = 0;
+    const AVInputFormat *format = av_probe_input_format3(&probe, 1, &score);
+    return format && format == av_find_input_format("mp3") && score > AVPROBE_SCORE_RETRY;
+}
+
 + (BOOL)dataContainsDTSSync:(NSData *)data {
     if (data.length < 8) return NO;
     const uint8_t *bytes = data.bytes;
@@ -558,6 +587,57 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
                        error:error];
 }
 
+- (const AVInputFormat *)verifiedMPEGFormatForURL:(NSURL *)url {
+    NSNumber *regularFile = nil;
+    if (!url.isFileURL || ![url getResourceValue:&regularFile forKey:NSURLIsRegularFileKey error:nil]
+        || !regularFile.boolValue) return NULL;
+    AVIOInterruptCB interrupt = { .callback = FFmpegInterruptCallback, .opaque = &_interruptState };
+    AVIOContext *input = NULL;
+    FFmpegBeginInterruptibleOperation(&_interruptState, _ioTimeoutNanos);
+    if (avio_open2(&input, url.fileSystemRepresentation, AVIO_FLAG_READ, &interrupt, NULL) < 0) return NULL;
+    BOOL matched = [FFmpegDecoderBridge hasMPEGAudioFramesWithReader:^NSData *(NSInteger offset, NSInteger length) {
+        if (avio_seek(input, offset, SEEK_SET) != offset) return nil;
+        NSMutableData *data = [NSMutableData dataWithLength:length];
+        int count = avio_read(input, data.mutableBytes, (int)length);
+        if (count <= 0) return nil;
+        data.length = count;
+        return data;
+    }];
+    avio_closep(&input);
+    return matched ? av_find_input_format("mp3") : NULL;
+}
+
+- (int)openAudioStreamForURL:(NSURL *)url
+                 inputFormat:(const AVInputFormat *)inputFormat
+                       codec:(const AVCodec **)codec
+                       error:(NSError **)error {
+    _formatContext = avformat_alloc_context();
+    if (!_formatContext) {
+        *error = FFmpegError(AVERROR(ENOMEM), @"Unable to allocate input context");
+        return AVERROR(ENOMEM);
+    }
+    _formatContext->interrupt_callback.callback = FFmpegInterruptCallback;
+    _formatContext->interrupt_callback.opaque = &_interruptState;
+    FFmpegBeginInterruptibleOperation(&_interruptState, _ioTimeoutNanos);
+    int result = avformat_open_input(&_formatContext, url.fileSystemRepresentation, inputFormat, NULL);
+    if (result < 0) {
+        *error = FFmpegOperationError(result, @"Opening audio file", &_interruptState);
+        return result;
+    }
+    FFmpegBeginInterruptibleOperation(&_interruptState, _ioTimeoutNanos);
+    result = avformat_find_stream_info(_formatContext, NULL);
+    if (result < 0) {
+        *error = FFmpegOperationError(result, @"Reading stream information", &_interruptState);
+        return result;
+    }
+    result = av_find_best_stream(_formatContext, AVMEDIA_TYPE_AUDIO, -1, -1, codec, 0);
+    if (result < 0 || !*codec) {
+        result = result < 0 ? result : AVERROR_DECODER_NOT_FOUND;
+        *error = FFmpegError(result, @"No supported audio stream");
+    }
+    return result;
+}
+
 - (instancetype)initWithURL:(NSURL *)url
           scanPacketDuration:(BOOL)scanPacketDuration
             includeContainerMetadata:(BOOL)includeContainerMetadata
@@ -605,39 +685,22 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
         return nil;
     }
 
-    _formatContext = avformat_alloc_context();
-    if (!_formatContext) {
-        if (error) *error = FFmpegError(AVERROR(ENOMEM), @"Unable to allocate input context");
-        [self closeDecoder];
-        return nil;
-    }
-    _formatContext->interrupt_callback.callback = FFmpegInterruptCallback;
-    _formatContext->interrupt_callback.opaque = &_interruptState;
-    FFmpegBeginInterruptibleOperation(&_interruptState, _ioTimeoutNanos);
-    int result = avformat_open_input(&_formatContext, url.fileSystemRepresentation,
-                                     forcedInputFormat, NULL);
-    if (result < 0) {
-        if (error) *error = FFmpegOperationError(
-            result, @"Opening audio file", &_interruptState
-        );
-        [self closeDecoder];
-        return nil;
-    }
-    FFmpegBeginInterruptibleOperation(&_interruptState, _ioTimeoutNanos);
-    result = avformat_find_stream_info(_formatContext, NULL);
-    if (result < 0) {
-        if (error) *error = FFmpegOperationError(
-            result, @"Reading stream information", &_interruptState
-        );
-        [self closeDecoder];
-        return nil;
-    }
-
     const AVCodec *codec = NULL;
-    result = av_find_best_stream(_formatContext, AVMEDIA_TYPE_AUDIO, -1, -1, &codec, 0);
-    if (result < 0 || !codec) {
-        if (error) *error = FFmpegError(result < 0 ? result : AVERROR_DECODER_NOT_FOUND,
-                                        @"No supported audio stream");
+    NSError *openError = nil;
+    int result = [self openAudioStreamForURL:url inputFormat:forcedInputFormat codec:&codec error:&openError];
+    BOOL formatError = result == AVERROR_INVALIDDATA || result == AVERROR_STREAM_NOT_FOUND
+        || result == AVERROR_DEMUXER_NOT_FOUND || result == AVERROR_DECODER_NOT_FOUND || result == AVERROR_EOF;
+    if (!forcedInputFormat && formatError && !FFmpegInterruptCallback(&_interruptState)) {
+        avformat_close_input(&_formatContext);
+        forcedInputFormat = [self verifiedMPEGFormatForURL:url];
+        if (FFmpegInterruptCallback(&_interruptState)) {
+            openError = FFmpegOperationError(AVERROR_EXIT, @"Reading audio header", &_interruptState);
+        } else if (forcedInputFormat) {
+            result = [self openAudioStreamForURL:url inputFormat:forcedInputFormat codec:&codec error:&openError];
+        }
+    }
+    if (result < 0) {
+        if (error) *error = openError;
         [self closeDecoder];
         return nil;
     }

@@ -31,6 +31,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// and AVFoundation values to Swift, keeping all AVFormat/AVCodec/Swr lifetime
 /// rules and pointer arithmetic on one serial decoder task.
 @interface FFmpegDecoderBridge : NSObject
+/// Verifies MPEG frames in a bounded prefix, skipping any leading ID3v2 tag.
++ (BOOL)hasMPEGAudioFramesWithReader:(NSData * _Nullable (NS_NOESCAPE ^)(NSInteger offset, NSInteger length))reader
+    NS_SWIFT_NAME(hasMPEGAudioFrames(read:));
 + (BOOL)dataContainsDTSSync:(NSData *)data;
 + (nullable NSNumber *)DTSSyncResultForURL:(NSURL *)url error:(NSError **)error;
 + (nullable NSNumber *)decodeSupportForURL:(NSURL *)url error:(NSError **)error;

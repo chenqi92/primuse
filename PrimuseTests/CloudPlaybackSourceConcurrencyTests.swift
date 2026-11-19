@@ -1850,6 +1850,93 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         XCTAssertEqual(pastEnd.reportedLengths, [])
     }
 
+    func testLargeTaggedMP3WithFLACSuffixStreamsAndSeeksWithoutReadingToTheEnd() async throws {
+        let fixture = Self.makeUnindexedMP3Fixture(seconds: 60)
+        let tag = Self.largeID3Tag()
+        let bytes = tag + fixture.bytes
+        let reads = try await Self.readsBeforeFirstBuffer(
+            of: bytes, startingAt: 20, lengthCanWait: true, fileExtension: "flac"
+        )
+        let laterAudio = (tag.count + Self.unindexedMP3ByteOffset(seconds: 40))..<(bytes.count - 4_096)
+        XCTAssertFalse(reads.contains { $0.overlaps(laterAudio) })
+
+        let resumed = try await Self.decodeUnindexedMP3(bytes, startingAt: 20, fileExtension: "flac")
+        let duration = Double(fixture.frames) / 44_100
+        XCTAssertEqual(resumed.seconds, duration - 20, accuracy: 0.2)
+        XCTAssertEqual(try XCTUnwrap(resumed.reportedLengths.last), duration, accuracy: 0.05)
+    }
+
+    func testLocalDecodersPlayLargeTaggedMP3UnderItsOriginalFLACFilename() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("song.flac")
+        let fixture = Self.makeUnindexedMP3Fixture(seconds: 3)
+        try (Self.largeID3Tag() + fixture.bytes).write(to: url)
+        let ffmpeg = FFmpegAudioDecoder()
+        let info = try await ffmpeg.fileInfo(for: url)
+        XCTAssertEqual(info.format, "MP3")
+        for decoder: any PrimuseAudioDecoder in [NativeAudioDecoder(), ffmpeg] {
+            let frames = try await Self.decodedFrames(from: url, with: decoder)
+            XCTAssertEqual(frames, fixture.frames)
+        }
+    }
+
+    func testMPEGProbeSkipsID3ContentsAndFooterAndPreservesRealFLAC() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let flac = try Self.makeFLACFixture(in: directory, seconds: 2)
+        let mp3 = Self.makeUnindexedMP3Fixture(seconds: 1).bytes
+        let tag = Self.id3TagWithFooter(containing: mp3)
+        func matches(_ bytes: Data) -> Bool {
+            FFmpegDecoderBridge.hasMPEGAudioFrames { offset, length in
+                XCTAssertTrue(offset == 0 || offset == tag.count)
+                guard offset < bytes.count else { return nil }
+                return bytes.subdata(in: offset..<min(offset + length, bytes.count))
+            }
+        }
+        XCTAssertTrue(matches(mp3))
+        XCTAssertTrue(matches(tag + mp3))
+        XCTAssertFalse(matches(tag + flac))
+        XCTAssertFalse(matches(tag + mp3.prefix(417))) // A single MPEG frame is insufficient.
+        XCTAssertFalse(matches(tag.dropLast(10))) // No payload at the declared offset.
+        let input = Self.rangeInput(Self.largeID3Tag() + flac, fileExtension: "flac")
+        let seconds = try await Self.decodedSeconds(from: input)
+        XCTAssertEqual(seconds, 2, accuracy: 0.05)
+
+        // libFLAC skips ID3v2 headers but cannot open a FLAC behind a v2.4
+        // footer. The complete-file fallback must still select FLAC.
+        let url = directory.appendingPathComponent("tagged.flac")
+        try (tag + flac).write(to: url)
+        let ffmpeg = FFmpegAudioDecoder()
+        let info = try await ffmpeg.fileInfo(for: url)
+        XCTAssertEqual(info.format, "FLAC")
+        let frames = try await Self.decodedFrames(from: url, with: ffmpeg)
+        XCTAssertEqual(frames, 2 * 44_100)
+    }
+
+    private static func decodedFrames(from url: URL, with decoder: any PrimuseAudioDecoder) async throws -> Int {
+        let output = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        var frames = 0
+        for try await buffer in decoder.decode(from: url, outputFormat: output) {
+            frames += Int(buffer.frameLength)
+        }
+        return frames
+    }
+
+    private static func largeID3Tag() -> Data {
+        Data([0x49, 0x44, 0x33, 3, 0, 0, 0, 64, 0, 0]) + Data(count: 1 << 20)
+    }
+
+    private static func id3TagWithFooter(containing bytes: Data) -> Data {
+        func synchsafeSize(_ size: Int) -> Data {
+            Data([21, 14, 7, 0].map { UInt8((size >> $0) & 0x7f) })
+        }
+        let body = Data("fixture".utf8) + Data([0]) + bytes
+        let frame = Data("PRIV".utf8) + synchsafeSize(body.count) + Data([0, 0]) + body
+        let headerFields = Data([4, 0, 0x10]) + synchsafeSize(frame.count)
+        return Data("ID3".utf8) + headerFields + frame + Data("3DI".utf8) + headerFields
+    }
+
     /// The seek walks held bytes a packet at a time; every one of those
     /// small reads must come back byte for byte without another fetch.
     func testSmallReadsOverHeldBytesComeFromTheCache() async throws {
@@ -2122,12 +2209,13 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         Int(seconds * 44_100 / 1_152) * 417
     }
 
-    private static func unindexedMP3Input(
+    private static func rangeInput(
         _ bytes: Data,
-        log: MP3ReadLog? = nil
+        log: MP3ReadLog? = nil,
+        fileExtension: String = "mp3"
     ) -> CloudInputSourceObjC {
         CloudInputSourceObjC(
-            url: URL(string: "primuse-cloud://fixture/chapter.mp3"),
+            url: URL(string: "primuse-cloud://fixture/chapter.\(fileExtension)"),
             totalLength: Int64(bytes.count)
         ) { offset, length, _ in
             guard offset >= 0, offset < bytes.count else { return Data() }
@@ -2140,12 +2228,13 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     private static func readsBeforeFirstBuffer(
         of bytes: Data,
         startingAt startTime: TimeInterval,
-        lengthCanWait: Bool
+        lengthCanWait: Bool,
+        fileExtension: String = "mp3"
     ) async throws -> [Range<Int>] {
         let log = MP3ReadLog()
         let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
         let stream = NativeAudioDecoder().decode(
-            from: unindexedMP3Input(bytes, log: log),
+            from: rangeInput(bytes, log: log, fileExtension: fileExtension),
             outputFormat: format,
             startingAt: startTime,
             lengthCanWait: lengthCanWait
@@ -2161,13 +2250,14 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
 
     private static func decodeUnindexedMP3(
         _ bytes: Data,
-        startingAt startTime: TimeInterval
+        startingAt startTime: TimeInterval,
+        fileExtension: String = "mp3"
     ) async throws -> (seconds: Double, reportedLengths: [TimeInterval]) {
         let reported = MP3ReadLog()
         let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
         var frames = 0
         for try await buffer in NativeAudioDecoder().decode(
-            from: unindexedMP3Input(bytes),
+            from: rangeInput(bytes, fileExtension: fileExtension),
             outputFormat: format,
             startingAt: startTime,
             onResolveSourceLength: { reported.appendLength($0) },

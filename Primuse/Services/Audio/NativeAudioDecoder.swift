@@ -173,16 +173,6 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         // safe to hand off across one Task boundary — the decoder owns
         // it from then on. Box it to silence the strict-concurrency check.
         let inputBox = InputSourceBox(inputSource)
-        // Core Audio counts an MP3's frames by reading every frame of a file
-        // without a Xing/VBRI header. Over a range stream that downloads the
-        // whole song before the first buffer, so a streamed MP3 learns its
-        // length when it reaches the end instead. A seek needs no length:
-        // Core Audio walks packets only as far as the target, and a resume
-        // after pause finds those bytes already in the session's cache.
-        let defersLength = lengthCanWait
-            && inputSource.url.map {
-                Self.coreAudioPreferredExtensions.contains($0.pathExtension.lowercased())
-            } == true
         // Reads served by a synchronous bridge over an asynchronous fetch
         // must not park a cooperative-pool thread; give them their own lane.
         let lane = AudioDecodeBlockingLanePolicy.requiresDedicatedBlockingLane(
@@ -191,39 +181,26 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         return AudioBufferStreamFactory.make { continuation in
             let task = Task {
                 do {
-                    let decoder: any SFBAudioEngine.PCMDecoding
-                    let framesToDiscard: AVAudioFramePosition
+                    let prepared: (framesToDiscard: AVAudioFramePosition, defersLength: Bool)
                     if let lane {
-                        framesToDiscard = try await self.openDecoder(
-                            on: lane,
-                            startingAt: startTime,
-                            seekClampsToLength: !defersLength
-                        )
-                        guard let opened = inputBox.decoder else {
-                            throw AudioDecoderError.decodingFailed("Native input source closed")
+                        prepared = try await lane.perform { box in
+                            try self.prepareInputDecoder(box, startingAt: startTime, lengthCanWait: lengthCanWait)
                         }
-                        decoder = opened
                     } else {
-                        let prepared = try self.prepareDecoder(
-                            startingAt: startTime,
-                            reopenAfterFailedSeek: false,
-                            allowDecodeAndDiscardFallback: false,
-                            seekClampsToLength: !defersLength
-                        ) {
-                            try Self.makeSafeDecoder(inputSource: inputBox.value)
-                        }
-                        decoder = prepared.decoder
-                        framesToDiscard = prepared.framesToDiscard
+                        prepared = try self.prepareInputDecoder(inputBox, startingAt: startTime, lengthCanWait: lengthCanWait)
+                    }
+                    guard let decoder = inputBox.decoder else {
+                        throw AudioDecoderError.decodingFailed("Native input source closed")
                     }
                     onDecoderOpened?()
                     try await self.runDecode(
                         decoder: decoder,
                         outputFormat: outputFormat,
-                        framesToDiscard: framesToDiscard,
+                        framesToDiscard: prepared.framesToDiscard,
                         continuation: continuation,
                         onResolveSourceLength: onResolveSourceLength,
                         blockingLane: lane,
-                        defersLength: defersLength
+                        defersLength: prepared.defersLength
                     )
                 } catch {
                     if let sourceError = (inputBox.value as? CloudInputSourceObjC)?.lastReadError,
@@ -238,26 +215,25 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         }
     }
 
-    /// Opens the session's decoder on its blocking lane. Only the Sendable
-    /// discard count crosses back; the decoder itself stays in the box the
-    /// lane owns.
-    private func openDecoder(
-        on lane: SFBInputSourceDecodeLane,
+    private func prepareInputDecoder(
+        _ box: InputSourceBox,
         startingAt startTime: TimeInterval?,
-        seekClampsToLength: Bool
-    ) async throws -> AVAudioFramePosition {
-        try await lane.perform { box in
-            let prepared = try self.prepareDecoder(
-                startingAt: startTime,
-                reopenAfterFailedSeek: false,
-                allowDecodeAndDiscardFallback: false,
-                seekClampsToLength: seekClampsToLength
-            ) {
-                try Self.makeSafeDecoder(inputSource: box.value)
-            }
-            box.decoder = prepared.decoder
-            return prepared.framesToDiscard
+        lengthCanWait: Bool
+    ) throws -> (framesToDiscard: AVAudioFramePosition, defersLength: Bool) {
+        let usesCoreAudio = try Self.prefersCoreAudio(for: box.value)
+        // Asking Core Audio for the length of an unindexed MP3 reads every
+        // frame. Defer that scan for streamed MP3s even under another suffix.
+        let defersLength = lengthCanWait && usesCoreAudio
+        let prepared = try prepareDecoder(
+            startingAt: startTime,
+            reopenAfterFailedSeek: false,
+            allowDecodeAndDiscardFallback: false,
+            seekClampsToLength: !defersLength
+        ) {
+            try Self.makeSafeDecoder(inputSource: box.value, usesCoreAudio: usesCoreAudio)
         }
+        box.decoder = prepared.decoder
+        return (prepared.framesToDiscard, defersLength)
     }
 
     private static func decodeSourceKind(of inputSource: InputSource) -> AudioDecodeSourceKind {
@@ -352,22 +328,40 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     private static let coreAudioPreferredExtensions: Set<String> = ["mp1", "mp2", "mp3", "au", "snd"]
 
     private static func makeSafeDecoder(url: URL) throws -> SFBAudioEngine.AudioDecoder {
-        if coreAudioPreferredExtensions.contains(url.pathExtension.lowercased()) {
-            return try SFBAudioEngine.AudioDecoder(url: url, decoderName: .coreAudio)
-        }
-        // Left to choose by content, SFB hands `.s3m` to its MPEG decoder and
-        // `.it` to one that fails on the first buffer; name DUMB outright.
-        if AudioFormat.from(fileExtension: url.pathExtension)?.isTrackerModule == true {
-            return try SFBAudioEngine.AudioDecoder(url: url, decoderName: .module)
-        }
-        return try requireSafeDecoder(SFBAudioEngine.AudioDecoder(url: url))
+        let input = try InputSource(for: url)
+        return try makeSafeDecoder(inputSource: input, usesCoreAudio: prefersCoreAudio(for: input))
     }
 
-    private static func makeSafeDecoder(inputSource: InputSource) throws -> SFBAudioEngine.AudioDecoder {
-        if let url = inputSource.url,
-           coreAudioPreferredExtensions.contains(url.pathExtension.lowercased()) {
+    private static func prefersCoreAudio(for input: InputSource) throws -> Bool {
+        let ext = input.url?.pathExtension.lowercased() ?? ""
+        if coreAudioPreferredExtensions.contains(ext) { return true }
+        if AudioFormat.from(fileExtension: ext)?.isTrackerModule == true { return false }
+        if !input.isOpen { try input.open() }
+        guard input.supportsSeeking else { return false }
+        let originalOffset = try input.offset
+        var readError: Error?
+        let matched = FFmpegDecoderBridge.hasMPEGAudioFrames { offset, length in
+            do {
+                if offset > 0, let size = try? input.length, size >= 0, offset >= size { return nil }
+                try input.seek(toOffset: offset)
+                return try input.read(length: .init(length))
+            } catch {
+                readError = error
+                return nil
+            }
+        }
+        try input.seek(toOffset: originalOffset)
+        if let readError { throw readError }
+        return matched
+    }
+
+    private static func makeSafeDecoder(
+        inputSource: InputSource, usesCoreAudio: Bool
+    ) throws -> SFBAudioEngine.AudioDecoder {
+        if usesCoreAudio {
             return try SFBAudioEngine.AudioDecoder(inputSource: inputSource, decoderName: .coreAudio)
         }
+        // SFB otherwise hands .s3m to its MPEG decoder and can fail on .it.
         if let url = inputSource.url,
            AudioFormat.from(fileExtension: url.pathExtension)?.isTrackerModule == true {
             return try SFBAudioEngine.AudioDecoder(inputSource: inputSource, decoderName: .module)
