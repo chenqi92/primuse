@@ -1419,6 +1419,8 @@ final class AudioPlayerService {
         /// 下一首的稳态音量(回放增益换算后的线性值, 没有标签就是 1)。
         /// ramp 直接淡入到这个值, 换节点时原样交给 primary。
         let programVolume: Float
+        /// The incoming node may already hold the song's final buffer before the ramp ends.
+        var pendingGaplessBoundary: GaplessTransitionState?
     }
     enum CrossfadeCompletionMode: Equatable {
         case activePlayback
@@ -8136,12 +8138,22 @@ final class AudioPlayerService {
             return
         }
 
+        scheduleGaplessFinalBuffer(buffer, on: .primary, playID: id, advanceTicket: advanceTicket)
+    }
+
+    private func scheduleGaplessFinalBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        on role: PlayerNodeRole,
+        playID id: UUID,
+        advanceTicket: PlaybackAdvanceTicket
+    ) {
         let transition = GaplessTransitionState(
             queueGeneration: queueGeneration,
             advanceTicket: advanceTicket
         )
-        transition.boundary = audioEngine.scheduleBuffer(
+        transition.boundary = audioEngine.scheduleDecodedBuffer(
             buffer,
+            on: role,
             completionCallbackType: .dataPlayedBack
         ) { [weak self, transition] _ in
             // .dataPlayedBack 在 playerNode.reset() / stopPlayback() 时也会
@@ -8149,13 +8161,21 @@ final class AudioPlayerService {
             // 捕获的旧 playID, 移到 guard 内才不会在 log 里产生误导事件。
             Task { @MainActor [weak self] in
                 guard let self, self.playID == id else { return }
+                if self.committedCrossfade?.playID == id {
+                    // An exceptionally short incoming track can end during its own fade.
+                    await self.handleTrackEnd(advanceTicket: advanceTicket, trigger: "crossfade-final")
+                    return
+                }
                 plog("🔔 gapless boundary fired playID=\(id.uuidString.prefix(8))")
                 await self.handleGaplessBoundary(transition: transition, playID: id)
             }
         }
-        transition.trailingSilence = audioEngine.primaryTrailingSilence()
-
-        startGaplessPreparation(playID: id, transition: transition)
+        if role == .crossfade {
+            committedCrossfade?.pendingGaplessBoundary = transition
+        } else {
+            transition.trailingSilence = audioEngine.primaryTrailingSilence()
+            startGaplessPreparation(playID: id, transition: transition)
+        }
     }
 
     /// Schedules the held final buffer on whichever physical node currently
@@ -8166,6 +8186,11 @@ final class AudioPlayerService {
         finalBufferScheduledPlayID = id
         guard let advanceTicket = playbackAdvancePolicy.activeTicket else {
             scheduleCrossfadeDecodedBuffer(buffer, playID: id)
+            return
+        }
+        if shouldAttemptGapless(settings: playbackSettings.snapshot()), nextSongInQueue() != nil {
+            let role: PlayerNodeRole = committedCrossfade?.playID == id ? .crossfade : .primary
+            scheduleGaplessFinalBuffer(buffer, on: role, playID: id, advanceTicket: advanceTicket)
             return
         }
         let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { [weak self] _ in

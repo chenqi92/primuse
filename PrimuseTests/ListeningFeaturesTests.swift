@@ -848,6 +848,29 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 384)
     }
 
+    func testCrossfadedSongPreparesGaplessSuccessorOnItsOwnNode() throws {
+        for alreadySwapped in [false, true] {
+            let (player, id) = try makeCrossfadedPlayer(completingTransition: alreadySwapped)
+            player.playbackSettings.outputMode = .effects
+            player.playbackSettings.crossfadeEnabled = false
+            player.playbackSettings.gaplessEnabled = true
+            _ = player.beginAutomaticAdvanceTransport(itemID: "current", reason: "test")
+            player.scheduleCrossfadeFinalBuffer(try silentBuffer(for: player), playID: id)
+            if !alreadySwapped {
+                XCTAssertNil(player.gaplessPreparationTransition)
+                player.cancelCrossfadeAttempt(
+                    finishingCommittedTransition: true,
+                    completionMode: .preserveCachedProgress
+                )
+            }
+            let boundary = try XCTUnwrap(player.gaplessPreparationTransition?.boundary)
+            XCTAssertTrue(player.audioEngine.isPrimaryTimelineLive(boundary))
+            XCTAssertEqual(boundary.frameCursor, 128)
+            XCTAssertEqual(player.audioEngine.primaryTrailingSilence().endFrame, 128)
+            player.cancelGaplessTasks()
+        }
+    }
+
     func testCancellingSuccessorKeepsCurrentDecodeFailureOnCurrentNode() throws {
         let (player, id) = try makeCrossfadedPlayer()
         let buffer = try silentBuffer(for: player)

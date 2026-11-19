@@ -934,11 +934,20 @@ extension AudioPlayerService {
         // startCrossfade 早期设置好了, 不在这里重复 (重复会让 ScrobbleService
         // 误以为又开了一首新歌, 重新计时)。
         activeDecoderKind = nextDecoderKind
+        let pendingBoundary = committedCrossfade?.pendingGaplessBoundary
         crossfadeAttemptID = nil
         committedCrossfade = nil
         crossfadeStartupTask = nil
         crossfadeTriggered = false
         isCrossfading = false
+        if let pendingBoundary,
+           pendingBoundary.queueGeneration == queueGeneration,
+           pendingBoundary.advanceTicket == playbackAdvancePolicy.activeTicket {
+            // The swap carries the incoming node's timeline with it. The successor
+            // can now be appended behind that final buffer on the same node.
+            pendingBoundary.trailingSilence = audioEngine.primaryTrailingSilence()
+            startGaplessPreparation(playID: completedPlayID, transition: pendingBoundary)
+        }
         if completionMode == .activePlayback {
             startTimeUpdater()
         }

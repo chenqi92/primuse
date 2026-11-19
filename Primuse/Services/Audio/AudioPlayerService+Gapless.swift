@@ -19,6 +19,29 @@ import WidgetKit
 extension AudioPlayerService {
     // MARK: - Gapless Playback
 
+    /// The node's render clock can enter the successor before a wireless
+    /// output acknowledges the outgoing final buffer. Restarting at that
+    /// point would send the successor's opening to the device twice.
+    func recoverScheduledGaplessBoundary(
+        ticket: PlaybackAdvanceTicket,
+        renderedFrame: Int64?,
+        clockIsStalled: Bool
+    ) async -> Bool {
+        guard let id = playID,
+              let transition = gaplessPreparationTransition,
+              transition.advanceTicket == ticket,
+              !transition.shouldCancelPreparation,
+              let boundary = transition.boundary,
+              audioEngine.isPrimaryTimelineLive(boundary),
+              transition.prepared?.hasScheduledBuffers == true,
+              let renderedFrame else { return false }
+        // Metadata duration may underestimate the outgoing track. As long
+        // as its frames are still advancing, keep waiting for the real end.
+        guard renderedFrame >= boundary.frameCursor else { return !clockIsStalled }
+        await handleGaplessBoundary(transition: transition, playID: id)
+        return true
+    }
+
     func startGaplessPreparation(playID id: UUID, transition: GaplessTransitionState) {
         cancelGaplessPreparation()
         gaplessPreparationTransition = transition

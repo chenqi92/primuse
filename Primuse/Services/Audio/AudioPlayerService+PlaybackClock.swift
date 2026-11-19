@@ -76,15 +76,25 @@ extension AudioPlayerService {
                         && (exceededReportedEnd
                             || self.nearEndStallSampleCount >= Self.trackEndStallSampleThreshold)
                     if watchdogShouldAdvance {
-                        plog("⚠️ Track-end watchdog: progress ended at \(self.currentTime)/\(self.duration), forcing queue advance")
-                        self.stopTimeUpdater()
-                        if let watchdogTicket {
+                        guard let watchdogTicket else {
+                            self.stopTimeUpdater()
+                            return
+                        }
+                        let ownsBoundary = await self.recoverScheduledGaplessBoundary(
+                            ticket: watchdogTicket,
+                            renderedFrame: self.audioEngine.primaryRenderedFrame,
+                            clockIsStalled: self.nearEndStallSampleCount >= Self.trackEndStallSampleThreshold
+                        )
+                        if !ownsBoundary {
+                            plog("⚠️ Track-end watchdog: progress ended at \(self.currentTime)/\(self.duration), forcing queue advance")
+                            self.stopTimeUpdater()
                             await self.handleTrackEnd(
                                 advanceTicket: watchdogTicket,
                                 trigger: "track-end-watchdog"
                             )
+                            return
                         }
-                        return
+                        guard self.playbackClockTickGate.isCurrent(clockTicket) else { return }
                     }
 
                     // Scrobble 进度判断 — 计入规则 (默认 50% 或 4 分钟) 由 service 内部决定。

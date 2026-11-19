@@ -333,6 +333,121 @@ final class DeviceMusicPlaybackTests: XCTestCase {
     }
 
     @MainActor
+    func testLocalShuffleLinkKeepsRenderedMusicContinuous() async throws {
+        let clips = FileManager.default.temporaryDirectory.appendingPathComponent("ShuffleLinkValidation")
+        let first = clips.appendingPathComponent("A.flac"), second = clips.appendingPathComponent("B.flac")
+        guard FileManager.default.fileExists(atPath: first.path),
+              FileManager.default.fileExists(atPath: second.path) else {
+            throw XCTSkip("Requires two consecutive eight-second music clips in tmp/ShuffleLinkValidation.")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let suite = "shuffle-link-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let library = MusicLibrary(storageDirectory: root, deferredMaintenanceAllowed: { false },
+                                   searchIndexDefaults: defaults, lyricsSearchIndexRefresh: { _, _, _ in })
+        let settings = PlaybackSettingsStore(defaults: defaults)
+        settings.outputMode = .effects
+        settings.crossfadeMode = .fixed
+        settings.crossfadeDuration = 2
+        settings.gaplessEnabled = false
+        settings.replayGainEnabled = false
+        settings.skipLeadingSilenceEnabled = false
+        settings.skipTrailingSilenceEnabled = false
+        settings.prewarmQueueCount = 0
+        let player = AudioPlayerService(library: library, playbackSettings: settings,
+            playbackSessionStore: PlaybackSessionStore(url: root.appendingPathComponent("session.json")),
+            musicSessionMemoryStore: MusicSessionMemoryStore(defaults: defaults, url: root.appendingPathComponent("previous.json")))
+        let modes = ListeningPlayModeStore.shared.ledger
+        let history = PlayHistoryStore.shared.isRecordingSuspended
+        let scrobble = ScrobbleService.shared.isSuspended
+        PlayHistoryStore.shared.isRecordingSuspended = true
+        ScrobbleService.shared.isSuspended = true
+        defer {
+            player.stop()
+            player.persistPlaybackSession(flushImmediately: true)
+            ListeningPlayModeStore.shared.update { $0 = modes }
+            PlayHistoryStore.shared.isRecordingSuspended = history
+            ScrobbleService.shared.isSuspended = scrobble
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let introURL = root.appendingPathComponent("Intro.flac")
+        try FileManager.default.copyItem(at: first, to: introURL)
+        let songs = [introURL, first, second].enumerated().map { index, url in
+            Song(id: "link-\(index)", title: "Track \(index)", albumTitle: "Live", artistName: "Artist",
+                 albumArtistName: "Artist", trackNumber: index + 1, discNumber: 1, duration: 8,
+                 fileFormat: .flac, filePath: url.path, sourceID: "local-test")
+        }
+        let (intro, a, b) = (songs[0], songs[1], songs[2])
+        library.addSongs(songs)
+        let indexed = await waitUntil { library.shuffleLinkNeighbor(of: a.id, direction: .next)?.id == b.id }
+        XCTAssertTrue(indexed)
+        guard indexed else { return }
+        library.setShuffleLinked(songID: a.id, direction: .next, isLinked: true)
+        XCTAssertTrue(library.shuffleLinkGraph.isLinked(a.id, to: b.id))
+
+        for (crossfade, delayedCompletion) in [(false, false), (true, false), (false, true)] {
+            player.stop()
+            settings.crossfadeEnabled = crossfade
+            player.repeatMode = .off
+            player.shuffleEnabled = true
+            player.setQueue(crossfade ? songs : [a, b])
+            await player.play(song: crossfade ? intro : a)
+            let ready = await waitUntil(timeout: 16) {
+                player.currentSong?.id == a.id && !player.isCrossfading
+                    && player.gaplessPreparationTransition?.prepared?.song.id == b.id
+            }
+            XCTAssertTrue(ready, "The linked successor should already be on the node.")
+            guard ready else { return }
+            if crossfade { XCTAssertNotNil(player.lastCommittedCrossfadeAttemptID) }
+            let id = try XCTUnwrap(player.playID)
+            let transition = try XCTUnwrap(player.gaplessPreparationTransition)
+            let boundary = try XCTUnwrap(transition.boundary)
+            let node = try XCTUnwrap(player.audioEngine.visualizerTapNode)
+            let probe = RepeatPlaybackAudioProbe()
+            probe.install(on: node)
+            defer { node.removeTap(onBus: 0) }
+            if delayedCompletion {
+                // Deliver the render-clock watchdog before the output completion,
+                // then let the real callback arrive on the same boundary.
+                let stalled = await player.recoverScheduledGaplessBoundary(ticket: transition.advanceTicket,
+                    renderedFrame: boundary.frameCursor - 1, clockIsStalled: true)
+                XCTAssertFalse(stalled)
+                let early = await player.recoverScheduledGaplessBoundary(ticket: transition.advanceTicket,
+                    renderedFrame: boundary.frameCursor - 1, clockIsStalled: false)
+                XCTAssertTrue(early)
+                XCTAssertEqual(player.currentSong?.id, a.id)
+                let recovered = await player.recoverScheduledGaplessBoundary(ticket: transition.advanceTicket,
+                    renderedFrame: boundary.frameCursor + 1, clockIsStalled: false)
+                XCTAssertTrue(recovered)
+            }
+            let continued = await waitUntil(timeout: 16) {
+                player.currentSong?.id == b.id && player.currentTime > 4
+            }
+            XCTAssertTrue(continued)
+            XCTAssertEqual(player.playID, id)
+            XCTAssertTrue(player.activeGaplessFeed?.transition === transition)
+            let output = probe.snapshot()
+            print("LINK_OUTPUT crossfade=\(crossfade) delayedCompletion=\(delayedCompletion) capturedSeconds=\(output.duration) longestSilence=\(output.silence)")
+            XCTAssertGreaterThan(output.duration, 1)
+            XCTAssertLessThan(output.silence, 0.08)
+        }
+
+        player.stop()
+        library.setShuffleLinked(songID: a.id, direction: .next, isLinked: false)
+        settings.crossfadeEnabled = false
+        player.shuffleEnabled = false
+        player.setQueue([a, b])
+        await player.play(song: a)
+        let originalID = try XCTUnwrap(player.playID)
+        let advanced = await waitUntil { player.currentSong?.id == b.id && player.currentTime > 0.5 }
+        XCTAssertTrue(advanced)
+        XCTAssertNotEqual(player.playID, originalID)
+        XCTAssertEqual(player.currentIndex, 1)
+    }
+
+    @MainActor
     func testPhysicalRepeatPlaybackKeepsOutputContinuous() async throws {
         #if targetEnvironment(simulator)
         throw XCTSkip("Requires a physical audio output device.")
