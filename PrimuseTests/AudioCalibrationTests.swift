@@ -307,7 +307,9 @@ final class AudioCalibrationTests: XCTestCase {
         let config = EQRenderConfiguration(filters: [EQBiquad(filter: PEQFilter(kind: .peak, frequency: 3000, gain: -6, q: 2), sampleRate: 48_000)], preampDB: -3)
         unit.mailbox.publish(config)
         engine.attach(player); engine.attach(node)
+        // crash-pattern: allow avaudioengine-connect 离线渲染图，两端都用上面构造的 48 kHz 双声道标准格式。
         engine.connect(player, to: node, format: format)
+        // crash-pattern: allow avaudioengine-connect 同上，离线图里接到主混音，格式一致。
         engine.connect(node, to: engine.mainMixerNode, format: format)
         try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 256)
         let input = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8192))
@@ -320,6 +322,7 @@ final class AudioCalibrationTests: XCTestCase {
         try engine.start()
         defer { player.stop(); engine.stop(); engine.disableManualRenderingMode() }
         player.scheduleBuffer(input)
+        // crash-pattern: allow audio-player-node-play 离线图已连好且 engine.start() 已成功，没有设备路由变化。
         player.play()
         var peak: Float = 0
         for block in 0..<24 {
