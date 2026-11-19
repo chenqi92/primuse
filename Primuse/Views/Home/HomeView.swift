@@ -2295,8 +2295,10 @@ struct HomeView: View {
     // its last complete projection or treating cancelled work as a cache hit.
     @MainActor
     @Observable
-    final class Model {
+    final class Model: ObservableObject {
         fileprivate var snapshot = HomeSnapshot()
+        @ObservationIgnored fileprivate var startupScope: StartupScope?
+        @ObservationIgnored fileprivate var startupPrewarm: Task<Void, Never>?
         var isPrepared = false
         let discovery = HomeDiscoveryModel()
         @ObservationIgnored var signature: HomeSnapshotSignature?
@@ -2307,10 +2309,49 @@ struct HomeView: View {
         /// 按 `heroSeeds.next` 挑好、随首页快照存下留给下次打开的那一组。
         @ObservationIgnored var preparedNextHero: (seed: UInt64, songIDs: [String])?
 
+        func beginPrewarming(library: MusicLibrary, sources: SourcesStore) {
+            startupPrewarm = Task {
+                defer { startupPrewarm = nil }
+                await prewarm(library: library, sources: sources)
+            }
+        }
+
+        func prewarm(library: MusicLibrary, sources: SourcesStore,
+                     cache: HomeInitialSnapshotCacheStore = .shared, defaults: UserDefaults = .standard) async {
+            guard !isPrepared, !library.isReady, let saved = await cache.load(),
+                  saved.version == PersistedHomeSnapshot.currentVersion else { return }
+            let scope = StartupScope(library: library, sources: sources, defaults: defaults)
+            guard let songs = await library.prepareStartupSongs(
+                ids: HomeView.startupSongIDs(in: saved), sourceIDs: scope.sources, musicOnly: true
+            ), !songs.isEmpty, !isPrepared, !library.isReady, !Task.isCancelled,
+               scope == StartupScope(library: library, sources: sources, defaults: defaults) else { return }
+            heroSeeds = HomeHeroCarouselSeeds(prepared: saved.heroSeed, dayStamp: HomeHeroRecommendationPolicy.dayStamp(Date()))
+            snapshot = HomeView.startupSnapshot(saved, music: songs, showsExternalAlbums: scope.showsExternalAlbums,
+                                                showForYou: scope.showForYou)
+            startupScope = scope
+            isPrepared = true
+        }
+
         func needsRefresh(for signature: HomeSnapshotSignature) -> Bool {
             !isPrepared || self.signature != signature
                 || highlightsSignature != signature
                 || (signature.showsRecommendations && recommendationSignature != signature)
+        }
+    }
+
+    fileprivate struct StartupScope: Equatable {
+        let sources: Set<String>
+        let classification: SpokenWordClassificationInputs
+        let generation: UInt64
+        let showsExternalAlbums: Bool
+        let showForYou: Bool
+
+        @MainActor init(library: MusicLibrary, sources: SourcesStore, defaults: UserDefaults) {
+            self.sources = Set(sources.sources.filter(\.isEnabled).map(\.id))
+            classification = SpokenWordStore.shared.classificationSnapshot
+            generation = library.songMutationGenerationForMaintenance
+            showsExternalAlbums = defaults.bool(forKey: RecentlyAddedAlbumPolicy.showsExternalAlbumsKey)
+            showForYou = defaults.object(forKey: "primuse.home.showForYou") as? Bool ?? true
         }
     }
 
@@ -3235,7 +3276,7 @@ struct HomeView: View {
         } else if activeHomeFilter == .ambient {
             AmbientSoundBoard()
                 .padding(.horizontal, 16)
-        } else if !model.isPrepared || (!library.isReady && !hasContent) {
+        } else if !model.isPrepared || (!library.isReady && (!hasContent || !validStartupScope)) {
             // 曲库还没装好时的「随机播放」「全部播放」就是顶部封面骨架里那两颗(见 `heroLoadingPlaceholder`),
             // 不在骨架上面另加一排:那一排换上内容时整行消失,下面的主视觉跟着往上跳。
             initialLoadingView
@@ -3512,14 +3553,19 @@ struct HomeView: View {
     private func refreshHomeSnapshotAfterPresentationIfNeeded() async {
         isHomeVisible = true
         guard showsMusicHomeSnapshot else { return }
-        await Task.yield()
+        if library.isReady {
+            await Task.yield()
+        } else if let prewarm = model.startupPrewarm {
+            await prewarm.value
+        }
         guard !Task.isCancelled else { return }
-        guard isSceneActive, !playerCoversContent else {
+        guard canPresentInitialHome else {
             needsHomeRefreshWhenActive = true
             return
         }
 
         if !library.isReady || !model.isPrepared || model.signature == nil {
+            if !library.isReady, model.isPrepared, model.startupScope != nil, validStartupScope { return }
             if !library.isReady { model.isPrepared = false }
             await prepareInitialHomeSnapshot()
             return
@@ -3530,6 +3576,10 @@ struct HomeView: View {
         await UserScrollActivityMonitor.shared.waitUntilSettled(maximumHold: 5)
         guard !Task.isCancelled else { return }
         refreshHomeSnapshot()
+    }
+
+    private var canPresentInitialHome: Bool {
+        isHomeVisible && !playerCoversContent && (isSceneActive || (!library.isReady && scenePhase == .inactive))
     }
 
     @ViewBuilder
@@ -3548,7 +3598,7 @@ struct HomeView: View {
     private func prepareInitialHomeSnapshot() async {
         let persistedSnapshot = await initialSnapshotCache.load()
         guard !Task.isCancelled, showsMusicHomeSnapshot else { return }
-        guard isSceneActive, isHomeVisible, !playerCoversContent else {
+        guard canPresentInitialHome else {
             needsHomeRefreshWhenActive = true
             return
         }
@@ -3603,6 +3653,13 @@ struct HomeView: View {
         Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
     }
 
+    private var validStartupScope: Bool {
+        guard let scope = model.startupScope else { return true }
+        return scope.sources == startupSourceIDs && scope.showsExternalAlbums == showsExternalAlbums
+            && scope.showForYou == showForYou && scope.generation == library.songMutationGenerationForMaintenance
+            && scope.classification == SpokenWordStore.shared.classificationSnapshot
+    }
+
     static func startupSongIDs(in snapshot: PersistedHomeSnapshot?) -> [String] {
         guard let snapshot, snapshot.version == PersistedHomeSnapshot.currentVersion else { return [] }
         var seen: Set<String> = []
@@ -3617,40 +3674,40 @@ struct HomeView: View {
         guard let music = await library.prepareStartupSongs(
             ids: Self.startupSongIDs(in: persisted), sourceIDs: sources, fallbackToFirstPage: true, musicOnly: true
         ), !Task.isCancelled, !library.isReady, sources == startupSourceIDs else { return }
-        guard isSceneActive, isHomeVisible, !playerCoversContent else {
+        guard canPresentInitialHome else {
             needsHomeRefreshWhenActive = true
             return
         }
-        let byID = Dictionary(music.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        guard !byID.isEmpty else {
-            model.snapshot = HomeSnapshot()
-            model.signature = nil
-            model.isPrepared = true
-            return
-        }
-        let payload = Self.rehydrateInitialHomePayload(persisted, showsExternalAlbums: showsExternalAlbums, albumForTile: {
-            $0.startupAlbum(representedBy: $0.artworkSongID.flatMap { byID[$0] }, showsExternal: showsExternalAlbums)
-        }, songForID: { byID[$0] })
-        let recent = (persisted?.recentSongIDs.prefix(30) ?? []).compactMap { byID[$0] }
-        let savedHero = payload?.heroCoverSongs ?? []
-        let hero = savedHero.isEmpty ? Self.provisionalHeroCoverSongs(from: music) : Array(savedHero.prefix(20))
-        let snapshot = HomeSnapshot(
-            hasContent: true,
-            forYouResults: showForYou ? Array((payload?.forYouResults ?? []).prefix(30)) : [],
-            recentSongs: recent,
-            heroCoverSongs: hero,
-            recentlyAddedAlbums: payload?.recentlyAddedAlbums ?? []
-        )
+        let snapshot = Self.startupSnapshot(persisted, music: music, showsExternalAlbums: showsExternalAlbums,
+                                            showForYou: showForYou)
         // This is a read-only projection. Full publication will rebuild the
         // remaining sections and signatures from the canonical library.
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
+            model.startupScope = nil
             model.snapshot = snapshot
             model.signature = nil
             model.isPrepared = true
         }
-        tintProvider.prepare(Array(music.prefix(20)))
+        if isSceneActive { tintProvider.prepare(Array(music.prefix(20))) }
+    }
+
+    private static func startupSnapshot(_ persisted: PersistedHomeSnapshot?, music: [Song],
+                                        showsExternalAlbums: Bool, showForYou: Bool) -> HomeSnapshot {
+        guard !music.isEmpty else { return HomeSnapshot() }
+        let byID = Dictionary(music.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let payload = rehydrateInitialHomePayload(persisted, showsExternalAlbums: showsExternalAlbums, albumForTile: {
+            $0.startupAlbum(representedBy: $0.artworkSongID.flatMap { byID[$0] }, showsExternal: showsExternalAlbums)
+        }, songForID: { byID[$0] })
+        let savedHero = payload?.heroCoverSongs ?? []
+        return HomeSnapshot(
+            hasContent: true,
+            forYouResults: showForYou ? Array((payload?.forYouResults ?? []).prefix(30)) : [],
+            recentSongs: (persisted?.recentSongIDs.prefix(30) ?? []).compactMap { byID[$0] },
+            heroCoverSongs: savedHero.isEmpty ? provisionalHeroCoverSongs(from: music) : Array(savedHero.prefix(20)),
+            recentlyAddedAlbums: payload?.recentlyAddedAlbums ?? []
+        )
     }
 
     private func publishInitialHomeSnapshot(
@@ -3658,6 +3715,7 @@ struct HomeView: View {
         signature: HomeSnapshotSignature
     ) {
         model.snapshot = snapshot
+        model.startupScope = nil
         model.signature = signature
         refreshCoordinator.pendingSignature = signature
         tintProvider.prepare(snapshot.forYouResults.map(\.song))

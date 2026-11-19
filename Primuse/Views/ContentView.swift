@@ -1416,7 +1416,11 @@ struct LibraryReadyContent<Content: View>: View {
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var navigationScenePhase
-    @State private var homeModel = HomeView.Model()
+    @StateObject private var homeModel: HomeView.Model
+
+    init(homeModel: @autoclosure @escaping () -> HomeView.Model = HomeView.Model()) {
+        _homeModel = StateObject(wrappedValue: homeModel())
+    }
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore

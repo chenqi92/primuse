@@ -98,8 +98,7 @@ struct HomeHeroCarousel: View {
     /// 上次量到的宽度。首页顶部切到电台、有声书再切回来时轮播是重建的,第一帧按它定卡片大小,
     /// 不先按 393 排、量到实际宽度后再重排并重新居中一次(#283)。
     @MainActor private static var lastViewportWidth: CGFloat = 0
-    /// 刚挂上时先画和轮播同形状的骨架,等滚到居中那张、眼前三张封面也读好了(或者等够一会儿)
-    /// 再整组淡进来:不露出还没滚到位的那一帧,封面也不一张张蹦出来。
+    /// 封面定位并一同淡入。曲名独立于封面加载。
     @State private var isRevealed = false
     @State private var isPositioned = false
     @State private var settledSongIDs: Set<String> = []
@@ -127,7 +126,6 @@ struct HomeHeroCarousel: View {
             viewportWidth: viewportWidth > 0 ? viewportWidth : Self.lastViewportWidth,
             compactCanvasHeight: compactCanvasHeight
         )
-        // 骨架分别盖在轮播和歌名上,和它们同位置同大小;按钮一直是真的。
         HomeHeroLayout(metrics: metrics) {
             carousel(metrics)
                 .opacity(isRevealed ? 1 : 0)
@@ -141,15 +139,6 @@ struct HomeHeroCarousel: View {
                 }
 
             caption(metrics)
-                .opacity(isRevealed ? 1 : 0)
-                .overlay {
-                    if !isRevealed {
-                        LoadingSkeletonGroup {
-                            HomeHeroCarouselSkeletonCaption(metrics: metrics)
-                        }
-                        .transition(.opacity)
-                    }
-                }
 
             buttons(metrics)
         }

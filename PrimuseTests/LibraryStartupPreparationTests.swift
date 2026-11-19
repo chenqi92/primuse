@@ -742,6 +742,41 @@ final class LibraryStartupPreparationTests: XCTestCase {
 
     // MARK: - Stage 2 T7 有界就绪等待 `whenReady(timeout:)`
 
+    func testDeferredCatalogueStartsOnPresentationOnDemandOrWithoutAWindow() async throws {
+        enum Trigger: CaseIterable { case presentation, demand, noWindow }
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        for trigger in Trigger.allCases {
+            let library = MusicLibrary.makePreparing(storageDirectory: directory)
+            let signal = library.deferStartupReadUntilPresentation(
+                maximumDelay: trigger == .noWindow ? .milliseconds(50) : .seconds(30)
+            )
+            let published = expectation(description: "Catalogue published for \(trigger)")
+            let reader = Task { @MainActor in
+                var iterator = signal.makeAsyncIterator()
+                _ = await iterator.next()
+                library.publish(await MusicLibrary.prepareStartup(storageDirectory: directory))
+                published.fulfill()
+            }
+            defer { reader.cancel() }
+            await Task.yield()
+            XCTAssertFalse(library.isReady)
+            switch trigger {
+            case .presentation:
+                library.startPendingCatalogueRead()
+                library.startPendingCatalogueRead()
+            case .demand:
+                let ready = await library.whenReady(timeout: .seconds(3))
+                XCTAssertTrue(ready)
+            case .noWindow:
+                break
+            }
+            await fulfillment(of: [published], timeout: 3)
+            XCTAssertTrue(library.isReady)
+        }
+    }
+
     /// 已发布的库立即返回 true, 不会为了一个已经满足的条件多睡一次。
     func testBoundedWhenReadyReturnsImmediatelyForAPublishedLibrary() async throws {
         let directory = try Self.makeStorageDirectory()

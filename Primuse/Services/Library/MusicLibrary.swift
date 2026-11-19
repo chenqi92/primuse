@@ -5058,6 +5058,35 @@ final class MusicLibrary {
     private(set) var readiness: LibraryReadiness = .preparing
     var isReady: Bool { readiness == .ready }
 
+    @ObservationIgnored private var startupPresentationGate: AsyncStream<Void>.Continuation?
+    @ObservationIgnored private var startupPresentationDeadline: Task<Void, Never>?
+
+    nonisolated static func hasLargeStartupStore(in directory: URL? = nil) -> Bool {
+        let url = (directory ?? defaultStorageDirectory()).appendingPathComponent("library-songs.sqlite")
+        let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        return (size ?? 0) >= 64 * 1024 * 1024
+    }
+
+    /// A visible scene releases the read after its initial layout. A headless consumer can ask
+    /// for the catalogue immediately, and an interrupted scene cannot leave the reader parked.
+    func deferStartupReadUntilPresentation(maximumDelay: Duration = .seconds(2)) -> AsyncStream<Void> {
+        startPendingCatalogueRead()
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        startupPresentationGate = continuation
+        startupPresentationDeadline = Task { [weak self] in
+            do { try await Task.sleep(for: maximumDelay) } catch { return }
+            self?.startPendingCatalogueRead()
+        }
+        return stream
+    }
+
+    func startPendingCatalogueRead() {
+        startupPresentationGate?.finish()
+        startupPresentationGate = nil
+        startupPresentationDeadline?.cancel()
+        startupPresentationDeadline = nil
+    }
+
     func prepareStartupSongs(
         ids: [String], sourceIDs: Set<String>, fallbackToFirstPage: Bool = false,
         musicOnly: Bool = false
@@ -5279,6 +5308,7 @@ final class MusicLibrary {
 
     /// 已就绪时立即返回; 否则挂起到发布完成。
     func whenReady() async {
+        startPendingCatalogueRead()
         await waitForSourceRemoval()
         guard readiness != .ready else { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -5298,6 +5328,7 @@ final class MusicLibrary {
     /// 超时后按今天的代码路径继续, 空库自然落到既有的"没找到"应答。
     func whenReady(timeout: Duration) async -> Bool {
         guard readiness != .ready else { return true }
+        if !Task.isCancelled { startPendingCatalogueRead() }
         let id = UUID()
         let timer = Task { @MainActor [weak self] in
             try? await Task.sleep(for: timeout)

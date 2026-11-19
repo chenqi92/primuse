@@ -2137,6 +2137,7 @@ struct PrimuseApp: App {
                     // potentially 10K+ queue or starting network maintenance.
                     try? await Task.sleep(for: .milliseconds(350))
                     guard !Task.isCancelled else { return }
+                    musicLibrary.startPendingCatalogueRead()
                     // Stage 2b: DLNA 渲染器只起 HTTP/SSDP 与播放器观察, 不读
                     // 资料库, 没有理由排在库发布之后。
                     if dlnaRendererEnabled {
@@ -2923,7 +2924,7 @@ private struct IOSAppRootContent: View {
 
     var body: some View {
         let appearance = IOSAppearancePreference(rawValue: appearanceRawValue) ?? .system
-        ContentView()
+        ContentView(homeModel: AppServices.shared.takeInitialHomeModel())
             .environment(\.pmIsPhoneIdiom, UIDevice.current.userInterfaceIdiom == .phone)
             .preferredColorScheme(appearance.colorScheme)
             .modifier(IOSWindowAppearanceModifier(preference: appearance))

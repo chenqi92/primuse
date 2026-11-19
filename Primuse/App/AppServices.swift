@@ -1191,6 +1191,14 @@ final class AppServices {
     /// Stage 2: 把离线准备结果送进主线程发布的那一步。生产环境不取消它 ——
     /// 库不发布就永远停在 `.preparing`; 句柄保留下来只为让测试可以 await。
     private var startupPublication: Task<Void, Never>?
+    #if os(iOS)
+    private var firstWindowHomeModel: HomeView.Model?
+
+    func takeInitialHomeModel() -> HomeView.Model {
+        defer { firstWindowHomeModel = nil }
+        return firstWindowHomeModel ?? HomeView.Model()
+    }
+    #endif
     private struct SourceCleanupRequest {
         var purgePersistentCaches = false
         var removeImportedFiles = false
@@ -1257,13 +1265,8 @@ final class AppServices {
         let sourceIdentityPrefixes = store.allSources.reduce(into: [String: String]()) { result, source in
             if let accountID = source.cloudAccountID { result[source.id] = accountID }
         }
-        // Stage 2: 整库装载移出主线程。准备任务在这里起跑, 服务图谱继续在主
-        // 线程构造; 发布是 init 末尾唯一的主线程步骤 (见文件末尾的
-        // `startupPublication`)。`prepareStartup` 内部自己 detach。
-        // Stage 2b: 这里必须用 `Task.detached` —— 普通 `Task {}` 会继承
-        // `init` 的 MainActor 隔离, 于是装载要排在整个服务图谱(以及主线程上
-        // 已经排队的工作)之后才起跑, 重叠根本不会发生。
-        // DEBUG 逃生舱: A/B 测量时可以退回今天的同步构造。
+        // 整库准备在主线程外运行。iOS 前台的大库先让首页读取少量可见行，
+        // 小库和后台启动则直接与服务初始化并行。
         #if DEBUG
         let usesSynchronousLibraryStartup =
             ProcessInfo.processInfo.environment["PRIMUSE_SYNC_LIBRARY_STARTUP"] == "1"
@@ -1272,6 +1275,12 @@ final class AppServices {
         #endif
         let preparation: Task<MusicLibrary.PreparedStartup, Never>?
         let library: MusicLibrary
+        #if os(iOS)
+        let presentationFirst = !usesSynchronousLibraryStartup
+            && UIApplication.shared.applicationState != .background && MusicLibrary.hasLargeStartupStore()
+        #else
+        let presentationFirst = false
+        #endif
         if usesSynchronousLibraryStartup {
             preparation = nil
             library = MusicLibrary(
@@ -1279,14 +1288,19 @@ final class AppServices {
                 sourceIdentityPrefixes: sourceIdentityPrefixes
             )
         } else {
+            library = MusicLibrary.makePreparing(disabledSourceIDs: initiallyDisabledSourceIDs)
+            let presentation = presentationFirst ? library.deferStartupReadUntilPresentation() : nil
             preparation = Task.detached(priority: .userInitiated) {
-                await MusicLibrary.prepareStartup(
+                if let presentation {
+                    var signal = presentation.makeAsyncIterator()
+                    _ = await signal.next()
+                }
+                return await MusicLibrary.prepareStartup(
                     disabledSourceIDs: initiallyDisabledSourceIDs,
                     sourceIdentityPrefixes: sourceIdentityPrefixes,
                     spokenWordClassification: initialClassification
                 )
             }
-            library = MusicLibrary.makePreparing(disabledSourceIDs: initiallyDisabledSourceIDs)
         }
         // 异步路径下这一项只测 `makePreparing` (不读盘), 同步路径下含义不变。
         let libraryFinishedAt = ProcessInfo.processInfo.systemUptime
@@ -1933,6 +1947,14 @@ final class AppServices {
         // 发布步骤。必须是 init 的最后一件事, 并且只依赖准备任务本身 ——
         // 任何会 await `persistNowAndWait()` / `whenReady()` 的调用都要等这里
         // 先跑完, 放进来就是死锁。
+        #if os(iOS)
+        if presentationFirst, UserDefaults.standard.integer(forKey: "primuse.navigation.selectedTab.v1") == 0 {
+            let model = HomeView.Model()
+            firstWindowHomeModel = model
+            model.beginPrewarming(library: library, sources: store)
+            library.onReady { [weak self] in self?.firstWindowHomeModel = nil }
+        }
+        #endif
         if let preparation {
             startupPublication = Task { @MainActor [library] in
                 library.publish(await preparation.value)
