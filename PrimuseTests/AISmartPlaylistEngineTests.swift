@@ -159,6 +159,125 @@ final class AISmartPlaylistEngineTests: XCTestCase {
         XCTAssertNil(AIRecommendationContextBuilder.request(scene: .automatic, candidates: [], history: history))
     }
 
+    func testThousandSongFillResumesShortBatchesWithoutRepeatingSelections() async {
+        let rows = (0..<1030).map { song(id: String($0), title: "Test \($0)", path: "/\($0)") }
+        var ids = Array(rows.prefix(6).map(\.id))
+        var batches = 0
+        let count = await AIPlaylistGeneration.fill(to: 1000, startingWith: ids, candidates: { excluded in
+            XCTAssertEqual(excluded, Set(ids))
+            return Array(rows.lazy.filter { !excluded.contains($0.id) }.prefix(110))
+        }, request: { page, requested, appending in
+            XCTAssertTrue(appending)
+            XCTAssertLessThanOrEqual(page.count, 100)
+            XCTAssertLessThanOrEqual(requested, 30)
+            let additions = page.prefix(min(requested, batches.isMultiple(of: 2) ? 5 : 30)).map(\.id)
+            ids.append(contentsOf: additions)
+            batches += 1
+            return .added(additions)
+        })
+        XCTAssertEqual(count, 1000)
+        XCTAssertEqual(ids, rows.prefix(1000).map(\.id))
+        XCTAssertGreaterThan(batches, 34)
+    }
+
+    func testCandidateRefillsCanSaveAThousandUniquePortableSongs() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        await library.whenReady()
+        library.sourceIdentityResolver = { _ in "shared-catalog" }
+        let tracks = (0..<1002).map { song(id: String($0), title: "Track \($0)", path: "/\($0).flac") }
+        var aliases = Array(tracks.prefix(110))
+        for index in aliases.indices {
+            aliases[index].id = "mirror-\(index)"
+            aliases[index].sourceID = "mirror"
+        }
+        library.addSongs(tracks + aliases)
+        await library.waitForPendingIndex()
+        library.setDisliked(songID: "1001", isDisliked: true)
+        let existing = library.portableSongIdentity(for: tracks[0])
+        let finder = AIPlaylistCandidateFinder(queries: ["Track"], library: library, existing: [existing])
+        var selected: [String] = []
+        var requests = 0
+        let count = await AIPlaylistGeneration.fill(to: 1000, startingWith: [], candidates: { excluded in
+            await finder.next(excluding: excluded, selectedIDs: selected)
+        }, request: { page, requested, _ in
+            requests += 1
+            let ids = page.prefix(requested).map(\.id)
+            selected.append(contentsOf: ids)
+            return .added(ids)
+        })
+        let selections = selected.compactMap { library.visibleSong(id: $0) }.map {
+            AISmartPlaylistSelection(identity: library.portableSongIdentity(for: $0))
+        }
+        let saved = AISmartPlaylistConfiguration().appending(prompt: "Track", selections: selections)
+        XCTAssertEqual(count, 1000)
+        XCTAssertEqual(saved.selections.count, 1000)
+        XCTAssertEqual(Set(saved.selections.map(\.identity.filePath)), Set((1...1000).map { "/\($0).flac" }))
+        XCTAssertGreaterThanOrEqual(requests, 34)
+    }
+
+    func testPlaylistRefillRetriesShortLimitAndStopsOnRepeatedEmptyOrHardFailure() async {
+        let rows = (0..<205).map { song(id: String($0), title: "Test \($0)", path: "/\($0)") }
+        var requests: [[String]] = []
+        var waits: [Double] = []
+        let count = await AIPlaylistGeneration.fill(to: 101, startingWith: [], candidates: { excluded in
+            Array(rows.lazy.filter { !excluded.contains($0.id) }.prefix(100))
+        }, request: { page, _, appending in
+            requests.append(page.map(\.id))
+            switch requests.count {
+            case 1: return .retry(after: 4.1)
+            case 2:
+                XCTAssertFalse(appending)
+                return .added([page[0].id])
+            case 3:
+                XCTAssertTrue(appending)
+                return .empty
+            default: return .empty
+            }
+        }, wait: { waits.append($0) })
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(waits, [5])
+        XCTAssertEqual(requests.count, 4)
+        if requests.count == 4 {
+            XCTAssertEqual(requests[0], requests[1])
+            XCTAssertTrue(Set(requests[2]).isDisjoint(with: requests[3]))
+        }
+
+        var calls = 0
+        let retained = await AIPlaylistGeneration.fill(to: 1000, startingWith: ["saved"], candidates: { _ in rows },
+            request: { _, _, _ in calls += 1; return .stopped })
+        XCTAssertEqual(retained, 1)
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testPlaylistRefillHandlesExhaustionAndCancellationWhileWaiting() async {
+        let rows = [song(id: "only", title: "Only", path: "/one")]
+        var calls = 0
+        let exhausted = await AIPlaylistGeneration.fill(to: 1000, startingWith: [], candidates: { _ in rows },
+            request: { page, count, _ in
+                calls += 1
+                XCTAssertEqual(count, 1)
+                return .added(page.map(\.id))
+            })
+        XCTAssertEqual(exhausted, 1)
+        XCTAssertEqual(calls, 1)
+
+        var attempts = 0
+        let task = Task { @MainActor in
+            await AIPlaylistGeneration.fill(to: 100, startingWith: ["saved"], candidates: { _ in rows }, request: { _, _, _ in
+                attempts += 1
+                return .retry(after: 60)
+            }, wait: { _ in
+                withUnsafeCurrentTask { $0?.cancel() }
+                try Task.checkCancellation()
+            })
+        }
+        let retained = await task.value
+        XCTAssertEqual(attempts, 1)
+        XCTAssertEqual(retained, 1)
+    }
+
     private func song(id: String, title: String, path: String) -> Song {
         Song(
             id: id,

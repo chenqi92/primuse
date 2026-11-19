@@ -3691,6 +3691,60 @@ enum AIRecommendationContextBuilder {
 }
 
 @MainActor
+enum AIPlaylistGeneration {
+    enum Batch {
+        case added([String])
+        case empty
+        case retry(after: TimeInterval)
+        case stopped
+    }
+
+    static func fill(
+        to requestedCount: Int,
+        startingWith selectedIDs: [String],
+        candidates: (Set<String>) async -> [Song],
+        request: ([Song], Int, Bool) async -> Batch,
+        wait: (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
+    ) async -> Int {
+        let target = min(requestedCount, AISmartPlaylistConfiguration.maximumSelectionCount)
+        var selected = Set(selectedIDs)
+        var emptyPage = Set<String>()
+        while selected.count < target, !Task.isCancelled {
+            let excluded = selected.union(emptyPage)
+            let available = await candidates(excluded)
+            var seen = excluded
+            var page: [Song] = []
+            for song in available where song.isPlayable && !song.id.isEmpty && seen.insert(song.id).inserted {
+                page.append(song)
+                if page.count == AIRecommendationRequest.maximumCandidates { break }
+            }
+            guard !page.isEmpty, !Task.isCancelled else { break }
+            let count = min(target - selected.count, page.count, AIRecommendationRequest.maximumSongSelections)
+            var batch = await request(page, count, !selected.isEmpty)
+            if case .retry(let seconds) = batch, seconds.isFinite, seconds <= 120, !Task.isCancelled {
+                do { try await wait(max(1, seconds.rounded(.up))) } catch { break }
+                guard !Task.isCancelled else { break }
+                batch = await request(page, count, !selected.isEmpty)
+            }
+            switch batch {
+            case .added(let ids):
+                let previousCount = selected.count
+                selected.formUnion(ids)
+                guard selected.count > previousCount else { return selected.count }
+                emptyPage.removeAll()
+            case .empty:
+                // Try one different page when the service finds no match.
+                guard emptyPage.isEmpty else { return selected.count }
+                emptyPage = Set(page.map(\.id))
+            case .retry, .stopped:
+                return selected.count
+            }
+        }
+        return selected.count
+    }
+}
+
+@MainActor
 @Observable
 final class AIRecommendationViewModel {
     private(set) var feedback: AIRecommendationFeedback = .idle
@@ -3707,6 +3761,45 @@ final class AIRecommendationViewModel {
     private(set) var failureDetail: AIRecommendationFailureDetail?
     private var generation: UInt64 = 0
 
+    func refreshPlaylist(
+        intent: String,
+        using intelligence: MusicIntelligenceService,
+        songCount: Int,
+        candidates: (Set<String>) async -> [Song]
+    ) async -> Bool {
+        let generatedCount = await AIPlaylistGeneration.fill(
+            to: songCount, startingWith: orderedSongIDs, candidates: candidates,
+            request: { page, batchCount, appending in
+                let previousCount = self.orderedSongIDs.count
+                let didGenerate = await self.refresh(
+                    scene: .automatic,
+                    intent: intent,
+                    candidates: page,
+                    using: intelligence,
+                    forceRefresh: true,
+                    maximumResults: batchCount,
+                    minimumResults: min(8, batchCount),
+                    candidateLimit: AIRecommendationRequest.maximumCandidates,
+                    appending: appending,
+                    followsTimeOfDay: false,
+                    keepsStreamedSongsOnCancel: true
+                )
+                if didGenerate { return .added(Array(self.orderedSongIDs.dropFirst(previousCount))) }
+                guard case .localFallback(_, _, let reason) = self.feedback else { return .stopped }
+                switch reason {
+                case .empty: return .empty
+                case .minuteLimit, .busy:
+                    return .retry(after: self.retryAvailableAt?.timeIntervalSinceNow ?? (reason == .busy ? 2 : 60))
+                default:
+                    if reason == .upstream, self.failureDetail?.httpStatus == 429 { return .retry(after: 60) }
+                    return .stopped
+                }
+            }
+        )
+        isPartial = generatedCount < songCount
+        return generatedCount > 0
+    }
+
     @discardableResult
     func refresh(
         scene: AIRecommendationScene,
@@ -3721,7 +3814,8 @@ final class AIRecommendationViewModel {
         unit: AIRecommendationUnit = .songs,
         albumCandidates: [AIRecommendationAlbumCandidate] = [],
         reuseSurface: AIRecommendationSurface? = nil,
-        followsTimeOfDay: Bool = true
+        followsTimeOfDay: Bool = true,
+        keepsStreamedSongsOnCancel: Bool = false
     ) async -> Bool {
         finishRetryCooldown()
         generation &+= 1
@@ -3840,12 +3934,24 @@ final class AIRecommendationViewModel {
         guard operationGeneration == generation, !Task.isCancelled else {
             if operationGeneration == generation {
                 isStreaming = false
+                let streamed = keepsStreamedSongsOnCancel ? orderedSongIDs.compactMap { id -> AIRecommendationSelection? in
+                    guard !startingIDs.contains(id), let reason = reasonsBySongID[id] else { return nil }
+                    return AIRecommendationSelection(songID: id, reason: reason)
+                } : []
                 orderedSongIDs = startingSongIDs
                 reasonsBySongID = startingReasons
                 orderedAlbumKeys = startingAlbumKeys
                 reasonsByAlbumKey = startingAlbumReasons
                 feedback = previousFeedback
                 isPartial = previousPartial
+                if !streamed.isEmpty, intelligence.settingsStore.hasExplicitListeningContextConsent {
+                    let kept = AIRecommendationPlan(selections: streamed).normalized(for: request).songSelections
+                    for selection in kept {
+                        orderedSongIDs.append(selection.songID)
+                        reasonsBySongID[selection.songID] = selection.reason
+                    }
+                    if !kept.isEmpty { isPartial = true; return true }
+                }
             }
             return false
         }
@@ -4058,9 +4164,9 @@ final class AIRecommendationViewModel {
         }
     }
 
-    /// AI 歌单生成失败时给的话:编辑器里没有现有推荐可保留,超时、被拒、网络不通分开说。
+    /// 编辑器保留已生成的歌曲，并显示后续批次失败的原因。
     var playlistFailureText: String {
-        guard case .localFallback(_, _, let reason) = feedback, orderedSongIDs.isEmpty else {
+        guard case .localFallback(_, _, let reason) = feedback else {
             return statusText
         }
         return AIRecommendationFailureDetail.playlistMessage(reason: reason, detail: failureDetail)

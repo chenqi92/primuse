@@ -105,6 +105,7 @@ extension AIPlaylistCandidatePoolPolicy {
     public static func songs(
         in songs: [Song], texts: [String], searchIDs: [String], topArtists: [String],
         topSongIDs: [String], salt: UInt64, limit requested: Int, excluding: Set<String> = [],
+        excludedPathsBySource: [String: Set<String>] = [:],
         isCancelled: () -> Bool = { false }
     ) -> [Song] {
         let limit = min(requested, poolSize)
@@ -132,6 +133,7 @@ extension AIPlaylistCandidatePoolPolicy {
             for (position, song) in songs.enumerated() {
                 if position.isMultiple(of: 256), isCancelled() { return [] }
                 guard !song.id.isEmpty, song.isPlayable, !excluding.contains(song.id),
+                      excludedPathsBySource[song.sourceID]?.contains(song.filePath) != true,
                       seen.insert(song.id).inserted else { continue }
                 if requestedIDs.contains(song.id) { positions[song.id] = position }
                 let sample = Sample(hash: stableHash(song.id, salt: salt), position: position)
@@ -182,7 +184,18 @@ extension AIPlaylistCandidatePoolPolicy {
         let breadth = sample(spread, count: limit * 4, perArtist: 1)
         let ids = compose(matched: matched, taste: favorites, spread: breadth, limit: limit,
                           artist: { id in positions[id].flatMap { artist(at: $0) } })
-        return isCancelled() ? [] : ids.compactMap { id in positions[id].map { songs[$0] } }
+        var result = ids.compactMap { id in positions[id].map { songs[$0] } }
+        // A small number of artists can exhaust the diversity slots while the library
+        // still has plenty of playable candidates for the service to choose from.
+        if result.count < limit {
+            var used = Set(ids)
+            for sample in spread.sorted() {
+                let song = songs[sample.position]
+                if used.insert(song.id).inserted { result.append(song) }
+                if result.count == limit { break }
+            }
+        }
+        return isCancelled() ? [] : result
     }
 
     /// Build the ranking input from exact hits, the library's genre and artist indexes, and a
@@ -191,6 +204,7 @@ extension AIPlaylistCandidatePoolPolicy {
         in songs: [Song], texts: [String], searchIDs: [String], topArtists: [String],
         topSongIDs: [String], genreGroups: [[String]], artistGroups: [[String]],
         lookup: (String) -> Song?, excluding: Set<String>, salt: UInt64, limit requested: Int,
+        excludedPathsBySource: [String: Set<String>] = [:],
         isCancelled: () -> Bool = { false }
     ) -> [Song] {
         let limit = min(requested, poolSize)
@@ -200,6 +214,7 @@ extension AIPlaylistCandidatePoolPolicy {
         var seen = Set<String>()
         func eligible(_ song: Song) -> Bool {
             !song.id.isEmpty && song.isPlayable && !excluding.contains(song.id)
+                && excludedPathsBySource[song.sourceID]?.contains(song.filePath) != true
         }
         @discardableResult func include(_ song: Song?) -> Bool {
             guard let song, eligible(song) else { return false }

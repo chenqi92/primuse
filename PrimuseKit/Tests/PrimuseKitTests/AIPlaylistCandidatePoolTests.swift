@@ -17,13 +17,15 @@ struct AIPlaylistCandidatePoolTests {
         func pick(_ salt: UInt64) -> [String] {
             AIPlaylistCandidatePoolPolicy.indexedCandidates(
                 in: songs, texts: ["80年代 爵士"], searchIDs: ["11995", "11994"], topArtists: ["Favorite"],
-                topSongIDs: ["11990"], genreGroups: [["11995", "11992"]], artistGroups: [["11993"]],
-                lookup: { Int($0).map { songs[$0] } }, excluding: excluded, salt: salt, limit: 100
+                topSongIDs: ["11989", "11990"], genreGroups: [["11995", "11992"]], artistGroups: [["11993"]],
+                lookup: { Int($0).map { songs[$0] } }, excluding: excluded, salt: salt, limit: 100,
+                excludedPathsBySource: ["local": ["/11989"]]
             ).map(\.id)
         }
         let result = pick(42)
         #expect(Set(result).count == 100)
         #expect(Set(["11990", "11991", "11992", "11993", "11994"]).isSubset(of: Set(result)))
+        #expect(!result.contains("11989"))
         #expect(!result.contains("11995"))
         #expect(result == pick(42))
         #expect(result != pick(43))
@@ -31,6 +33,18 @@ struct AIPlaylistCandidatePoolTests {
     /// 「b-3」= 艺人 b 的第 3 首。
     private func artist(_ id: String) -> String? {
         id.split(separator: "-").first.map(String.init)
+    }
+
+    @Test func pagesFromOneArtistStillOfferAFullSelection() {
+        let songs = (0..<150).map { i in
+            Song(id: String(i), title: "Track \(i)", artistName: "Solo", duration: 90,
+                 fileFormat: .flac, filePath: "/\(i)", sourceID: "local")
+        }
+        let excluded = Set(songs.prefix(40).map(\.id))
+        let page = AIPlaylistCandidatePoolPolicy.songs(in: songs, texts: [], searchIDs: [], topArtists: [],
+            topSongIDs: [], salt: 7, limit: 100, excluding: excluded)
+        #expect(Set(page.map(\.id)).count == 100)
+        #expect(excluded.isDisjoint(with: page.map(\.id)))
     }
 
     @Test("Matched songs take turns and leave room for taste and breadth")

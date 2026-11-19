@@ -147,19 +147,40 @@ public struct AISmartPlaylistSelection: Codable, Hashable, Sendable {
 public struct AISmartPlaylistConfiguration: Codable, Hashable, Sendable {
     public static let maximumPromptCount = 50
     public static let maximumSelectionCount = 1_000
+    public static let defaultGenerationSongCount = 25
+    public static let generationSongCountRange = 1...maximumSelectionCount
 
     public var prompts: [AISmartPlaylistPrompt]
     public var selections: [AISmartPlaylistSelection]
     public var isListeningScene: Bool?
+    public var generationSongCount: Int?
 
     public init(
         prompts: [AISmartPlaylistPrompt] = [],
         selections: [AISmartPlaylistSelection] = [],
-        isListeningScene: Bool? = nil
+        isListeningScene: Bool? = nil,
+        generationSongCount: Int? = nil
     ) {
         self.prompts = Array(prompts.suffix(Self.maximumPromptCount))
         self.selections = Self.uniqueSelections(selections)
         self.isListeningScene = isListeningScene
+        self.generationSongCount = generationSongCount
+    }
+
+    public var effectiveGenerationSongCount: Int {
+        guard let generationSongCount, Self.generationSongCountRange.contains(generationSongCount) else {
+            return Self.defaultGenerationSongCount
+        }
+        return generationSongCount
+    }
+
+    public static func generationSongCount(from input: String, locale: Locale) -> Int? {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text == maximumSelectionCount.formatted(.number.locale(locale)) { return maximumSelectionCount }
+        guard !text.isEmpty, text.unicodeScalars.allSatisfy({ $0.properties.numericType == .decimal }),
+              let count = Int(text.compactMap(\.wholeNumberValue).map(String.init).joined()),
+              generationSongCountRange.contains(count) else { return nil }
+        return count
     }
 
     public var lastPrompt: String? {
@@ -179,7 +200,8 @@ public struct AISmartPlaylistConfiguration: Codable, Hashable, Sendable {
         return AISmartPlaylistConfiguration(
             prompts: nextPrompts,
             selections: selections + additions,
-            isListeningScene: isListeningScene
+            isListeningScene: isListeningScene,
+            generationSongCount: generationSongCount
         )
     }
 
@@ -191,7 +213,8 @@ public struct AISmartPlaylistConfiguration: Codable, Hashable, Sendable {
         AISmartPlaylistConfiguration(
             prompts: [AISmartPlaylistPrompt(text: prompt, createdAt: date)],
             selections: selections,
-            isListeningScene: true
+            isListeningScene: true,
+            generationSongCount: generationSongCount
         )
     }
 
@@ -210,7 +233,7 @@ public struct AISmartPlaylistConfiguration: Codable, Hashable, Sendable {
         return result
     }
 
-    private static func identityKey(_ identity: SongIdentity) -> String {
+    public static func identityKey(_ identity: SongIdentity) -> String {
         if let accountID = identity.cloudAccountID, !identity.filePath.isEmpty {
             return "cloud:\(accountID)\u{1F}\(identity.filePath)"
         }

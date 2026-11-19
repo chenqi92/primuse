@@ -7,10 +7,12 @@ struct SmartPlaylistAITests {
     @Test func editingSceneReplacesSongsAndRoundTripsThePrompt() throws {
         let old = selection(songID: "old", filePath: "/old.flac")
         let new = selection(songID: "new", filePath: "/new.flac")
-        let initial = AISmartPlaylistConfiguration().appending(prompt: "sad", selections: [old])
+        let initial = AISmartPlaylistConfiguration(generationSongCount: 50)
+            .appending(prompt: "sad", selections: [old])
         let scene = initial.replacingScene(prompt: "  sweet\nromantic music  ", selections: [new, new])
         let restored = try JSONDecoder().decode(AISmartPlaylistConfiguration.self, from: JSONEncoder().encode(scene))
         #expect(restored.isListeningScene == true)
+        #expect(restored.effectiveGenerationSongCount == 50)
         #expect(restored.lastPrompt == "sweet romantic music")
         #expect(restored.selections.map(\.identity.songID) == ["new"])
         #expect(initial.selections.map(\.identity.songID) == ["old"])
@@ -20,7 +22,29 @@ struct SmartPlaylistAITests {
         let data = Data(#"{"prompts":[],"selections":[]}"#.utf8)
         let restored = try JSONDecoder().decode(AISmartPlaylistConfiguration.self, from: data)
         #expect(restored.isListeningScene == nil)
+        #expect(restored.effectiveGenerationSongCount == 25)
         #expect(restored.appending(prompt: "more", selections: []).isListeningScene == nil)
+    }
+
+    @Test(arguments: [0, 1001])
+    func outOfRangeGenerationCountUsesTheDefault(count: Int) {
+        let config = AISmartPlaylistConfiguration(generationSongCount: count)
+        #expect(config.effectiveGenerationSongCount == 25)
+    }
+
+    @Test func aThousandTracksCanBeEnteredInTheEditorsLocaleAndRestored() throws {
+        for identifier in ["en_US", "fr_FR", "ar_EG"] {
+            let locale = Locale(identifier: identifier)
+            let formatted = 1000.formatted(.number.locale(locale))
+            #expect(AISmartPlaylistConfiguration.generationSongCount(from: formatted, locale: locale) == 1000)
+            #expect(AISmartPlaylistConfiguration.generationSongCount(from: "１０１", locale: locale) == 101)
+            #expect(AISmartPlaylistConfiguration.generationSongCount(from: "1.5", locale: locale) == nil)
+        }
+        let selections = (0..<1000).map { selection(songID: String($0), filePath: "/\($0).flac") }
+        let original = AISmartPlaylistConfiguration(selections: selections, generationSongCount: 1000)
+        let decoded = try JSONDecoder().decode(AISmartPlaylistConfiguration.self, from: JSONEncoder().encode(original))
+        #expect(decoded.effectiveGenerationSongCount == 1000)
+        #expect(decoded.selections == selections)
     }
 
     @Test func legacyPlaylistWithoutKindDecodesAsRuleBased() throws {

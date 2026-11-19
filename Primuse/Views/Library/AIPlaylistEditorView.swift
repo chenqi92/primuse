@@ -1,22 +1,52 @@
 import SwiftUI
 import PrimuseKit
 
-/// 给智能服务挑歌的候选(最多 100 首)。服务只在这里面挑,歌单好不好几乎全看这一步:
-/// 搜索结果(提示词原文和扩展词)、提示词提到的风格和年代、常听艺人的歌、全库抽样,
-/// 按 `AIPlaylistCandidatePoolPolicy` 配比。以前搜不到几首时直接按哈希在全库均匀抽,
-/// 心情、场景类的提示词送去的几乎都是随机歌。
+/// 每批结合提示词、收听历史与全库抽样，排除已入选歌曲及其跨来源副本。
 @MainActor
-private enum AIPlaylistCandidateFinder {
-    static func candidates(
+final class AIPlaylistCandidateFinder {
+    private let queries: [String]
+    private let library: MusicLibrary
+    private let existingIDs: Set<String>
+    private var pathsByAccount: [String: Set<String>] = [:]
+    private var recordedCount = 0
+
+    init(queries: [String], library: MusicLibrary, existing: [SongIdentity]) {
+        self.queries = queries
+        self.library = library
+        existingIDs = Set(existing.map(\.songID)).union(library.visibleSongs(matching: existing).map(\.id))
+        for identity in existing { rememberCloudPath(identity) }
+    }
+
+    private func rememberCloudPath(_ identity: SongIdentity) {
+        if let account = identity.cloudAccountID, !identity.filePath.isEmpty {
+            pathsByAccount[account, default: []].insert(identity.filePath)
+        }
+    }
+
+    func next(excluding: Set<String>, selectedIDs: [String]) async -> [Song] {
+        for id in selectedIDs.dropFirst(recordedCount) {
+            if let song = library.visibleSong(id: id) {
+                rememberCloudPath(library.portableSongIdentity(for: song))
+            }
+        }
+        recordedCount = selectedIDs.count
+        var pathsBySource: [String: Set<String>] = [:]
+        for source in library.sourceIDsWithPlayableSongs {
+            if let account = library.sourceIdentityResolver?(source) { pathsBySource[source] = pathsByAccount[account] }
+        }
+        let blocked = existingIDs.union(library.dislikedSongIDs).union(excluding)
+        let page = await Self.candidates(for: queries, library: library, excluding: blocked,
+                                         excludedPathsBySource: pathsBySource, salt: UInt64.random(in: .min ... .max))
+        var pageKeys = Set<String>()
+        return page.filter {
+            pageKeys.insert(AISmartPlaylistConfiguration.identityKey(library.portableSongIdentity(for: $0))).inserted
+        }
+    }
+
+    static func queries(
         for prompt: String,
-        library: MusicLibrary,
-        excluding excludedSongIDs: Set<String>,
-        intelligence: MusicIntelligenceService,
-        history: PlayHistoryStore = .shared,
-        salt: UInt64,
-        maximumCount: Int = AIPlaylistCandidatePoolPolicy.poolSize
-    ) async -> [Song] {
-        guard maximumCount > 0, !library.musicSongs.isEmpty else { return [] }
+        intelligence: MusicIntelligenceService
+    ) async -> [String] {
         var queries = [prompt]
         if intelligence.isSemanticSearchConfigured,
            case .success(let execution) = await intelligence.semanticSearchOutcome(for: prompt) {
@@ -24,8 +54,19 @@ private enum AIPlaylistCandidateFinder {
                 from: execution.plan
             ))
         }
-        queries = uniqueQueries(queries)
+        return uniqueQueries(queries)
+    }
 
+    private static func candidates(
+        for queries: [String],
+        library: MusicLibrary,
+        excluding excludedSongIDs: Set<String>,
+        excludedPathsBySource: [String: Set<String>],
+        history: PlayHistoryStore = .shared,
+        salt: UInt64
+    ) async -> [Song] {
+        guard !Task.isCancelled, !library.musicSongs.isEmpty else { return [] }
+        let maximumCount = AIPlaylistCandidatePoolPolicy.poolSize
         let snapshot = library.searchSongSnapshot()
         let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
         let topArtists = history.topArtists(in: .year, limit: 8).map(\.title)
@@ -63,12 +104,14 @@ private enum AIPlaylistCandidateFinder {
                     in: snapshot.songs, texts: queries, searchIDs: searchIDs, topArtists: topArtists,
                     topSongIDs: topSongs, genreGroups: genreGroups(queries), artistGroups: artistGroups,
                     lookup: lookup, excluding: excludedSongIDs, salt: salt, limit: maximumCount,
+                    excludedPathsBySource: excludedPathsBySource,
                     isCancelled: { Task.isCancelled }
                 )
             }
             return AIPlaylistCandidatePoolPolicy.songs(
                 in: snapshot.songs, texts: queries, searchIDs: searchIDs, topArtists: topArtists,
                 topSongIDs: topSongs, salt: salt, limit: maximumCount, excluding: excludedSongIDs,
+                excludedPathsBySource: excludedPathsBySource,
                 isCancelled: { Task.isCancelled }
             )
         }
@@ -143,20 +186,20 @@ struct AIPlaylistEditorView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
 
     @State private var name = ""
     @State private var prompt = ""
+    @State private var songCountText = String(AISmartPlaylistConfiguration.defaultGenerationSongCount)
     @State private var generatedPrompt = ""
-    @State private var candidateSongs: [Song] = []
+    @State private var generatedSongCount: Int?
     @State private var recommendation = AIRecommendationViewModel()
     @State private var isGenerating = false
     @State private var generationMessage: String?
     @State private var generationTask: Task<Void, Never>?
     @State private var generationID = UUID()
     @State private var didLoadInitialState = false
-
-    /// 一次生成挑多少首(内置 AI 一次最多 30 首)。
-    private static let songsPerGeneration = 25
+    @State private var existingSongCount = 0
 
     private var isEditing: Bool { existing != nil }
     private var isListeningScene: Bool {
@@ -167,26 +210,48 @@ struct AIPlaylistEditorView: View {
         AISmartPlaylistPrompt(text: prompt).text
     }
 
+    private var requestedSongCount: Int? {
+        AISmartPlaylistConfiguration.generationSongCount(from: songCountText, locale: locale)
+    }
+
+    private var remainingSelectionCapacity: Int {
+        let previousCount = isListeningScene ? 0 : (existing?.aiConfiguration?.selections.count ?? 0)
+        return AISmartPlaylistConfiguration.maximumSelectionCount - previousCount
+    }
+
     private var generatedSongs: [Song] {
-        let songsByID = Dictionary(
-            candidateSongs.map { ($0.id, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
-        return recommendation.orderedSongIDs.compactMap { songsByID[$0] }
+        recommendation.orderedSongIDs.compactMap { library.visibleSong(id: $0) }
+    }
+
+    private var canResumeGeneration: Bool {
+        recommendation.isPartial && !recommendation.orderedSongIDs.isEmpty
+            && normalizedPrompt == generatedPrompt && requestedSongCount == generatedSongCount
+    }
+
+    private var generationButtonTitle: LocalizedStringKey {
+        if isGenerating { return "transcript_generation_stop" }
+        if canResumeGeneration { return "chapter_generation_resume" }
+        return recommendation.orderedSongIDs.isEmpty ? "ai_playlist_generate" : "ai_playlist_regenerate"
     }
 
     private var canGenerate: Bool {
         !isGenerating
             && !normalizedPrompt.isEmpty
+            && requestedSongCount != nil
+            && remainingSelectionCapacity > 0
             && !library.visibleSongs.isEmpty
             && intelligence.isPersonalizedRecommendationsConfigured
     }
 
     private var canSave: Bool {
-        !isGenerating
-            && ((!generatedSongs.isEmpty && normalizedPrompt == generatedPrompt)
-                || (generatedSongs.isEmpty && isListeningScene && isEditing && !normalizedPrompt.isEmpty
-                    && normalizedPrompt == existing?.aiConfiguration?.lastPrompt))
+        guard !isGenerating, let requestedSongCount else { return false }
+        if !recommendation.orderedSongIDs.isEmpty {
+            return normalizedPrompt == generatedPrompt && requestedSongCount == generatedSongCount
+                && recommendation.orderedSongIDs.contains { library.visibleSong(id: $0) != nil }
+        }
+        return isListeningScene && isEditing && !normalizedPrompt.isEmpty
+            && normalizedPrompt == existing?.aiConfiguration?.lastPrompt
+            && requestedSongCount == existing?.aiConfiguration?.effectiveGenerationSongCount
     }
 
     private var commitTitle: String {
@@ -194,15 +259,10 @@ struct AIPlaylistEditorView: View {
         if isEditing {
             return String(
                 format: String(localized: "ai_playlist_add_count_format"),
-                generatedSongs.count
+                isGenerating ? recommendation.orderedSongIDs.count : generatedSongs.count
             )
         }
         return String(localized: "ai_playlist_create")
-    }
-
-    private var existingSongCount: Int {
-        guard let existing else { return 0 }
-        return SmartPlaylistEngine.match(existing, in: library, history: .shared).count
     }
 
     var body: some View {
@@ -219,6 +279,11 @@ struct AIPlaylistEditorView: View {
                             "songs_count",
                             value: existingSongCount.formatted()
                         )
+                        .onChange(of: library.visibleSongsVersion, initial: true) { _, _ in
+                            if let existing {
+                                existingSongCount = SmartPlaylistEngine.match(existing, in: library, history: .shared).count
+                            }
+                        }
                     }
                 }
 
@@ -241,25 +306,24 @@ struct AIPlaylistEditorView: View {
                             }
                     }
 
-                    Button(action: generate) {
+                    songCountField
+
+                    Button {
+                        if isGenerating { generationTask?.cancel() } else { generate() }
+                    } label: {
                         HStack {
                             if isGenerating {
-                                ProgressView()
-                                    .controlSize(.small)
+                                Image(systemName: "stop.fill")
                             } else {
-                                Image(systemName: generatedSongs.isEmpty
+                                Image(systemName: recommendation.orderedSongIDs.isEmpty
                                       ? "sparkles"
                                       : "arrow.clockwise")
                             }
-                            Text(LocalizedStringKey(
-                                generatedSongs.isEmpty
-                                    ? "ai_playlist_generate"
-                                    : "ai_playlist_regenerate"
-                            ))
+                            Text(generationButtonTitle)
                             Spacer()
                         }
                     }
-                    .disabled(!canGenerate)
+                    .disabled(!isGenerating && !canGenerate)
                     .accessibilityIdentifier("aiPlaylistGenerateButton")
                 } header: {
                     Text("ai_playlist_prompt_section")
@@ -267,31 +331,38 @@ struct AIPlaylistEditorView: View {
                     Text(promptFooterKey)
                 }
 
-                if isGenerating || generationMessage != nil || !generatedSongs.isEmpty {
+                if isGenerating || generationMessage != nil || !recommendation.orderedSongIDs.isEmpty {
                     Section {
                         if isGenerating {
                             HStack(spacing: 10) {
                                 ProgressView()
                                 Text(LocalizedStringKey(
-                                    candidateSongs.isEmpty
+                                    recommendation.feedback == .idle
                                         ? "ai_playlist_finding_candidates"
                                         : (recommendation.isStreaming
                                            ? "ai_playlist_streaming_results"
                                            : "ai_recommendation_status_loading")
                                 ))
                                     .foregroundStyle(.secondary)
+                                if let generatedSongCount {
+                                    Spacer()
+                                    Text(verbatim: "\(recommendation.orderedSongIDs.count.formatted()) / \(min(generatedSongCount, remainingSelectionCapacity).formatted())")
+                                        .monospacedDigit()
+                                }
                             }
                         }
 
-                        ForEach(Array(generatedSongs.enumerated()), id: \.element.id) { index, song in
-                            previewRow(song, ordinal: index + 1)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        ForEach(Array(recommendation.orderedSongIDs.enumerated()), id: \.element) { index, id in
+                            if let song = library.visibleSong(id: id) {
+                                previewRow(song, ordinal: index + 1)
+                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            }
                         }
 
                         if let generationMessage {
                             Text(generationMessage)
                                 .font(.footnote)
-                                .foregroundStyle(generatedSongs.isEmpty ? .secondary : .tertiary)
+                                .foregroundStyle(recommendation.orderedSongIDs.isEmpty ? .secondary : .tertiary)
                         }
                     } header: {
                         Text("ai_playlist_preview_section")
@@ -360,6 +431,29 @@ struct AIPlaylistEditorView: View {
         return "ai_playlist_prompt_footer"
     }
 
+    private var songCountField: some View {
+        let range = AISmartPlaylistConfiguration.generationSongCountRange
+        let numberFormat = IntegerFormatStyle<Int>(locale: locale)
+        let rangeText = "\(range.lowerBound.formatted(numberFormat))–\(range.upperBound.formatted(numberFormat))"
+        return LabeledContent("playlist_sort_song_count") {
+            HStack(spacing: 8) {
+                if requestedSongCount == nil && !songCountText.isEmpty {
+                    Text(verbatim: rangeText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                TextField("playlist_sort_song_count", text: $songCountText, prompt: Text(verbatim: rangeText))
+                    #if os(iOS)
+                    .keyboardType(.numberPad)
+                    #endif
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 80)
+                    .accessibilityIdentifier("aiPlaylistSongCountField")
+            }
+        }
+        .disabled(isGenerating)
+    }
+
     private func previewRow(_ song: Song, ordinal: Int) -> some View {
         HStack(spacing: 10) {
             CachedArtworkView(
@@ -374,7 +468,7 @@ struct AIPlaylistEditorView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    SongRowTrackNumber(number: ordinal, largestNumber: generatedSongs.count)
+                    SongRowTrackNumber(number: ordinal, largestNumber: recommendation.orderedSongIDs.count)
                     Text(song.title)
                         .lineLimit(1)
                 }
@@ -396,6 +490,9 @@ struct AIPlaylistEditorView: View {
         guard !didLoadInitialState else { return }
         didLoadInitialState = true
         name = existing?.name ?? initialName
+        let count = existing?.aiConfiguration?.effectiveGenerationSongCount
+            ?? AISmartPlaylistConfiguration.defaultGenerationSongCount
+        songCountText = count.formatted(.number.grouping(.never).locale(locale))
         if isListeningScene {
             prompt = existing?.aiConfiguration?.lastPrompt ?? initialPrompt
         }
@@ -403,22 +500,20 @@ struct AIPlaylistEditorView: View {
 
     private func generate() {
         let requestPrompt = normalizedPrompt
-        guard !requestPrompt.isEmpty else { return }
+        guard canGenerate, let requestedSongCount else { return }
+        let targetSongCount = min(requestedSongCount, remainingSelectionCapacity)
 
         generationTask?.cancel()
         let operationID = UUID()
         generationID = operationID
-        let nextRecommendation = AIRecommendationViewModel()
+        let nextRecommendation = canResumeGeneration ? recommendation : AIRecommendationViewModel()
         recommendation = nextRecommendation
-        candidateSongs = []
-        generatedPrompt = ""
+        generatedPrompt = requestPrompt
+        generatedSongCount = requestedSongCount
         generationMessage = nil
         isGenerating = true
 
-        var excludedIDs = library.dislikedSongIDs
-        if !isListeningScene, let selections = existing?.aiConfiguration?.selections {
-            excludedIDs.formUnion(library.visibleSongs(matching: selections.map(\.identity)).map(\.id))
-        }
+        let existingIdentities = isListeningScene ? [] : (existing?.aiConfiguration?.selections.map(\.identity) ?? [])
 
         generationTask = Task { @MainActor in
             defer {
@@ -426,62 +521,55 @@ struct AIPlaylistEditorView: View {
                     isGenerating = false
                 }
             }
-            // 每次生成换一个随机数:「重新生成」送去的候选不同,挑出来的才会不同。
-            let candidates = await AIPlaylistCandidateFinder.candidates(
-                for: requestPrompt,
-                library: library,
-                excluding: excludedIDs,
-                intelligence: intelligence,
-                salt: UInt64.random(in: .min ... .max)
-            )
-            guard !Task.isCancelled, generationID == operationID else { return }
-            guard !candidates.isEmpty else {
-                generationMessage = String(localized: "ai_playlist_no_suggestions")
-                return
+            let queries = await AIPlaylistCandidateFinder.queries(for: requestPrompt, intelligence: intelligence)
+            let finder = AIPlaylistCandidateFinder(queries: queries, library: library, existing: existingIdentities)
+            let didGenerate = await nextRecommendation.refreshPlaylist(
+                intent: requestPrompt, using: intelligence, songCount: targetSongCount
+            ) { excluded in
+                await finder.next(excluding: excluded, selectedIDs: nextRecommendation.orderedSongIDs)
             }
-            candidateSongs = candidates
-            let didGenerate = await nextRecommendation.refresh(
-                scene: .automatic,
-                intent: requestPrompt,
-                candidates: candidates,
-                using: intelligence,
-                forceRefresh: true,
-                // 还没升级的服务只看前 36 首、最多回 12 首,8 首以上照样算成功。
-                maximumResults: Self.songsPerGeneration,
-                minimumResults: min(8, candidates.count),
-                candidateLimit: AIRecommendationRequest.maximumCandidates,
-                followsTimeOfDay: false
-            )
-            guard !Task.isCancelled, generationID == operationID else { return }
+            guard generationID == operationID else { return }
             guard didGenerate, !nextRecommendation.orderedSongIDs.isEmpty else {
-                generationMessage = nextRecommendation.playlistFailureText
+                if !Task.isCancelled {
+                    generationMessage = nextRecommendation.feedback == .idle
+                        ? String(localized: "ai_playlist_no_suggestions") : nextRecommendation.playlistFailureText
+                }
                 return
             }
 
-            generatedPrompt = requestPrompt
             if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 name = defaultName(from: requestPrompt)
             }
-            if case .success(let summary, _, _, _, _) = nextRecommendation.feedback,
+            let resultCount = nextRecommendation.orderedSongIDs.count
+            if !nextRecommendation.isPartial,
+               resultCount == requestedSongCount,
+               requestedSongCount <= AIRecommendationRequest.maximumSongSelections,
+               case .success(let summary, _, _, _, _) = nextRecommendation.feedback,
                !summary.isEmpty {
                 generationMessage = summary
             } else {
-                generationMessage = String(
+                let countMessage = String(
                     format: String(localized: "ai_playlist_generated_count_format"),
-                    nextRecommendation.orderedSongIDs.count
+                    resultCount
                 )
+                if !Task.isCancelled, case .localFallback = nextRecommendation.feedback {
+                    generationMessage = countMessage + "\n" + nextRecommendation.playlistFailureText
+                } else {
+                    generationMessage = countMessage
+                }
             }
         }
     }
 
     private func save() {
-        guard canSave else { return }
+        guard canSave, let requestedSongCount else { return }
         let additions = generatedSongs.map { song in
             AISmartPlaylistSelection(
                 identity: library.portableSongIdentity(for: song),
                 reason: recommendation.reason(for: song.id)
             )
         }
+        guard recommendation.orderedSongIDs.isEmpty || !additions.isEmpty else { return }
         var configuration = existing?.aiConfiguration ?? AISmartPlaylistConfiguration()
         if isListeningScene {
             configuration.isListeningScene = true
@@ -491,6 +579,7 @@ struct AIPlaylistEditorView: View {
         } else {
             configuration = configuration.appending(prompt: generatedPrompt, selections: additions)
         }
+        configuration.generationSongCount = requestedSongCount
 
         var smart = existing ?? SmartPlaylist(name: "")
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
