@@ -531,6 +531,7 @@ enum LibrarySearchWorker {
             func consider(
                 _ candidate: String?,
                 boost: Int,
+                prioritizesExactTitle: Bool = false,
                 matchKindOverride: LibrarySearchMatchKind? = nil
             ) {
                 guard let candidate,
@@ -538,7 +539,9 @@ enum LibrarySearchWorker {
                 // 用户关掉的那类命中不占这首歌, 让它还能落进开着的那类。
                 let kind = matchKindOverride ?? match.kind
                 guard matchKinds.contains(kind) else { return }
-                let score = match.score + boost
+                let exactTitle = prioritizesExactTitle
+                    && candidate.localizedCaseInsensitiveCompare(matcher.rawQuery) == .orderedSame
+                let score = match.score + boost + (exactTitle ? 10 : 0)
                 if score > bestScore {
                     bestScore = score
                     bestKind = kind
@@ -546,7 +549,7 @@ enum LibrarySearchWorker {
             }
 
             if includeMetadata {
-                consider(song.title, boost: 30)
+                consider(song.title, boost: 30, prioritizesExactTitle: true)
                 consider(librarySearchableArtistText(song), boost: 20)
                 consider(song.albumTitle, boost: 14)
                 consider(song.genre, boost: 6)
@@ -1459,15 +1462,9 @@ actor LibrarySearchIndex {
                 )
                 Self.appendUnique(ids, to: &metadataIDs, seen: &seenMetadata)
             } else if searchesMetadata, Self.containsHan(trimmed) {
-                // Trigram indexes intentionally do not handle one/two-character
-                // queries. A short literal metadata pass is bounded and never
-                // invokes transliteration.
-                for (offset, song) in snapshot.songs.enumerated() {
-                    if offset.isMultiple(of: 512) { try Task.checkCancellation() }
-                    if metadataIDs.count >= songLimit * 2 { break }
-                    if !excluded.contains(song.id), Self.metadataContainsLiteral(song, query: trimmed),
-                       seenMetadata.insert(song.id).inserted { metadataIDs.append(song.id) }
-                }
+                metadataIDs = try Self.shortMetadataIDs(
+                    in: snapshot.songs, query: trimmed, excluding: excluded, limit: songLimit * 2
+                )
             }
 
             if searchesMetadata, !Self.containsHan(trimmed) {
@@ -2383,9 +2380,46 @@ actor LibrarySearchIndex {
 
     private static func metadataContainsLiteral(_ song: Song, query: String) -> Bool {
         song.title.localizedCaseInsensitiveContains(query)
-            || librarySearchableArtistText(song).localizedCaseInsensitiveContains(query)
+            || otherMetadataContainsLiteral(song, query: query)
+    }
+
+    private static func otherMetadataContainsLiteral(_ song: Song, query: String) -> Bool {
+        librarySearchableArtistText(song).localizedCaseInsensitiveContains(query)
             || song.albumTitle?.localizedCaseInsensitiveContains(query) == true
             || song.genre?.localizedCaseInsensitiveContains(query) == true
+    }
+
+    // Trigram FTS cannot serve short Han queries. Keep looking for titles even
+    // after album or artist hits have filled the candidate limit.
+    private static func shortMetadataIDs(
+        in songs: [Song], query: String, excluding excluded: Set<String>, limit: Int
+    ) throws -> [String] {
+        guard limit > 0 else { return [] }
+        let locale = Locale.current
+        var exactTitles: [String] = []
+        var partialTitles: [String] = []
+        var otherMatches: [String] = []
+        var seen = excluded
+        for (offset, song) in songs.enumerated() {
+            if offset.isMultiple(of: 512) { try Task.checkCancellation() }
+            guard !seen.contains(song.id) else { continue }
+            let title = song.title
+            if let range = title.range(of: query, options: .caseInsensitive, locale: locale) {
+                if range == title.startIndex..<title.endIndex {
+                    exactTitles.append(song.id)
+                    if exactTitles.count == limit { break }
+                } else {
+                    guard exactTitles.count + partialTitles.count < limit else { continue }
+                    partialTitles.append(song.id)
+                }
+            } else {
+                guard exactTitles.count + partialTitles.count + otherMatches.count < limit,
+                      otherMetadataContainsLiteral(song, query: query) else { continue }
+                otherMatches.append(song.id)
+            }
+            seen.insert(song.id)
+        }
+        return Array((exactTitles + partialTitles + otherMatches).prefix(limit))
     }
 
     private func displayPath(for song: Song) -> String? {

@@ -253,6 +253,42 @@ final class LibraryLyricsSearchSeamTests: XCTestCase {
 
 @MainActor
 final class LibrarySearchProjectionSnapshotTests: XCTestCase {
+    func testShortSongTitleSurvivesAlbumMatchesBeyondTheCandidateLimit() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var songs = (0..<250).map { i in
+            Song(id: "album-\(i)", title: "曲目 \(i)", albumTitle: "路过人间",
+                 fileFormat: .m4a, filePath: "/\(i).m4a", sourceID: "local")
+        }
+        songs += [
+            Song(id: "partial", title: "01 人间烟火", fileFormat: .m4a, filePath: "/p.m4a", sourceID: "local"),
+            Song(id: "exact", title: "人间", artistName: "王菲", fileFormat: .m4a, filePath: "/e.m4a", sourceID: "local")
+        ]
+        let index = LibrarySearchIndex(storageDirectory: directory)
+        let indexed = await index.search(query: "人间", songs: songs, albums: [], metadataRevisionKey: "fixture")
+        let hits = try XCTUnwrap(indexed).output.songResults
+        XCTAssertEqual(hits.count, 120)
+        XCTAssertEqual(hits.prefix(2).map(\.id), ["exact", "partial"])
+        XCTAssertTrue(hits.allSatisfy { $0.matchKind == .metadata })
+
+        let scoped = LibrarySearchWorker.compute(query: "人间", songs: songs, albums: [], cache: .init(),
+                                                 songLimit: 2)
+        XCTAssertEqual(scoped.songResults.map(\.id), ["exact", "partial"])
+    }
+
+    func testSingleCharacterExactTitleOutranksEarlierPartialTitlesAndHonorsExclusions() async throws {
+        let titles = ["微光", "追光", "晨光", "流光", "星光", "光", "光"]
+        let songs = titles.enumerated().map { i, title in
+            Song(id: String(i), title: title, fileFormat: .m4a, filePath: "/\(i).m4a", sourceID: "local")
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let index = LibrarySearchIndex(storageDirectory: directory)
+        let result = await index.search(query: "光", snapshot: LibrarySearchSongSnapshot(songs), albums: [],
+                                        metadataRevisionKey: "fixture", excluding: ["5"], songLimit: 2)
+        XCTAssertEqual(try XCTUnwrap(result).output.songResults.map(\.id), ["6", "0"])
+    }
+
     func testLimitedFallbackKeepsTheSameRankAndTiesAsFullScopeSearch() {
         let songs = (0..<200).map { i in
             Song(id: String(i), title: i == 199 ? "Match" : "Match title", fileFormat: .flac,
