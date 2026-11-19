@@ -363,7 +363,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
              .oneDrive, .dropbox, .googleDrive, .baiduPan, .aliyunDrive,
-             .pan123, .drime, .infiniCloud, .pcloud:
+             .pan115, .pan123, .drime, .infiniCloud, .pcloud:
             return true
         default:
             return false

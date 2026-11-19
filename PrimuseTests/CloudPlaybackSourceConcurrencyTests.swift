@@ -4272,8 +4272,8 @@ final class Pan123MetadataWritebackTests: XCTestCase {
                 requested.title = "Corrected"
                 library.addSongs([song], affectedSourceIDs: [source.id])
                 await library.waitForPendingIndex()
-                manager.metadataFileReplacementHandler = { original, updated in
-                    try await scan.recordMetadataFileReplacement(original: original, updated: updated, in: library)
+                manager.metadataFileReplacementHandler = { original, updated, keys in
+                    try await scan.recordMetadataFileReplacement(original: original, updated: updated, in: library, providerKeys: keys)
                 }
                 if lyricsOnly {
                     do {

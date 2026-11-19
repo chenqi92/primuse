@@ -1309,9 +1309,10 @@ enum LyricsSidecarTargetPolicy {
     /// stays on the image's album-wide `<image>.lrc` (if any) but a save gets
     /// a new per-track file. Nil when the sheet cannot be read: the caller
     /// then keeps the historical whole-image behaviour instead of guessing.
-    private static func cueTrackTarget(
+    static func cueTrackTarget(
         for song: Song,
         songBase: String,
+        audioFileName: String? = nil,
         containerPath: String,
         items: [RemoteFileItem],
         using connector: any MusicSourceConnector
@@ -1361,7 +1362,7 @@ enum LyricsSidecarTargetPolicy {
         } catch {
             return storedCueTrackDocument(for: song, containerPath: containerPath, items: items)
         }
-        let audioName = (song.filePath as NSString).lastPathComponent
+        let audioName = audioFileName ?? (song.filePath as NSString).lastPathComponent
         guard let cue,
               let cueFile = cue.files.first(where: {
                   (($0.name.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent)
@@ -2825,6 +2826,10 @@ extension ServerLyricsConnector {
         // three-state API.
         return .unavailable
     }
+}
+
+protocol RemoteCoverSidecarLocating: MusicSourceConnector {
+    func existingCoverSidecar(for path: String) async throws -> RemoteFileItem?
 }
 
 /// Implemented by connectors whose `Song.filePath` is an opaque provider

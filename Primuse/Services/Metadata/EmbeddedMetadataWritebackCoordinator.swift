@@ -435,6 +435,7 @@ enum EmbeddedMetadataWritebackCoordinator {
         case "NFSSource": return MusicSourceType.nfs.displayName
         case "S3Source": return MusicSourceType.s3.displayName
         case "BaiduPanSource": return MusicSourceType.baiduPan.displayName
+        case "U115Source": return MusicSourceType.pan115.displayName
         case "Pan123Source": return MusicSourceType.pan123.displayName
         case "DrimeSource": return MusicSourceType.drime.displayName
         case "AliyunDriveSource": return MusicSourceType.aliyunDrive.displayName

@@ -235,15 +235,15 @@ actor SidecarWriteService {
         return result
     }
 
-    /// Whether the cover file a save would write is already there. Only
-    /// path-addressed songs can be checked by name; a song stored under an
-    /// opaque provider ID gets no new file in embed-only mode, and a listing
-    /// that fails counts as "not there" — the embedded picture is the save.
+    /// In embed-only mode, update an existing sibling cover only when the source can locate it.
     private func coverFileExists(
         named fileName: String,
         beside song: Song,
         using connector: any MusicSourceConnector
     ) async -> Bool {
+        if let locator = connector as? any RemoteCoverSidecarLocating {
+            return (try? await locator.existingCoverSidecar(for: song.filePath)) != nil
+        }
         guard MusicScraperService.sidecarReferencePath(for: song, suffix: "-cover.jpg") != nil else {
             return false
         }

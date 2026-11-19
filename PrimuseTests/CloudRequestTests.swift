@@ -182,20 +182,7 @@ final class CloudRequestTests: XCTestCase {
         XCTAssertEqual(request.url?.absoluteString, "https://passportapi.115.com/open/refreshToken")
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
-        var body = request.httpBody ?? Data()
-        if let stream = request.httpBodyStream {
-            stream.open()
-            defer { stream.close() }
-            var buffer = [UInt8](repeating: 0, count: 1024)
-            while stream.hasBytesAvailable {
-                let count = stream.read(&buffer, maxLength: buffer.count)
-                if count <= 0 { break }
-                body.append(contentsOf: buffer.prefix(count))
-            }
-        }
-        var components = URLComponents()
-        components.percentEncodedQuery = String(decoding: body, as: UTF8.self)
-        XCTAssertEqual(components.queryItems, [.init(name: "refresh_token", value: "refresh+token/&=value")])
+        XCTAssertEqual(CloudHTTPFixture.formFields(of: request), ["refresh_token": "refresh+token/&=value"])
         XCTAssertEqual(fixture.requests.count, 1)
     }
 
@@ -477,6 +464,116 @@ final class CloudRequestTests: XCTestCase {
                 _ = try await connector.listFiles(at: "40")
                 XCTFail("An empty page before the advertised total cannot complete the listing")
             } catch CloudDriveError.invalidResponse {}
+        }
+    }
+
+    func testPan115ReplacesTheSelectedIDAndPreservesOriginalOnFailure() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("edited file".utf8).write(to: file)
+        for outcome in Pan115WriteFixture.Outcome.allCases {
+            let drive = Pan115WriteFixture(outcome)
+            let fixture = CloudHTTPFixture(responses: [], responder: drive.respond)
+            try await withPan115Connector(fixture) { source in
+                _ = try await source.listFiles(at: "42")
+                let before = try await source.metadataWritebackState(for: "old")
+                do {
+                    let path = try await source.replaceMetadataFileReturningPath(at: "old", with: file, expected: before)
+                    XCTAssertTrue(outcome == .success || outcome == .lostDeleteReply)
+                    XCTAssertEqual(path, "new")
+                    let keys = await source.replacementIndexKeys(from: "old", to: path)
+                    XCTAssertEqual(keys?.old, "71")
+                    XCTAssertEqual(keys?.new, "81")
+                    let after = try await source.metadataWritebackState(for: path)
+                    XCTAssertEqual(after.revision, try Pan115FileUpload.Fingerprint(file: file).sha1)
+                } catch {
+                    if outcome == .success || outcome == .lostDeleteReply { throw error }
+                }
+                let remaining = try await source.listFiles(at: "42")
+                if outcome == .success || outcome == .lostDeleteReply {
+                    XCTAssertEqual(remaining.map(\.path), ["new"])
+                    XCTAssertEqual(remaining.first?.name, "Ballad.flac")
+                } else {
+                    XCTAssertTrue(remaining.contains { $0.path == "old" && $0.name == "Ballad.flac" })
+                    XCTAssertFalse(remaining.contains { $0.path == "new" })
+                }
+                if outcome == .duplicate {
+                    XCTAssertFalse(fixture.requests.contains { $0.url?.path == "/open/upload/init" })
+                }
+            }
+        }
+    }
+
+    func testPan115LyricsAndCoverUseRealNamesAndVerifyReturnedPickCodes() async throws {
+        let lyrics = Data("[00:01.00]窗外的灯正亮".utf8)
+        let cover = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x02, 0xFF, 0xD9])
+        for (isCover, exists, badReadback) in [(false, false, false), (false, true, false),
+                                                (true, false, false), (true, true, false), (false, true, true)] {
+            let content = isCover ? cover : lyrics
+            let returned = badReadback ? Data(repeating: 0, count: content.count) : content
+            let server = try LocalCloudServer(response: .init(status: 206,
+                headers: ["Content-Range": "bytes 0-\(content.count - 1)/\(content.count)"], body: returned))
+            let cdn = try await server.start()
+            defer { server.stop() }
+            let name = isCover ? "Ballad-cover.jpg" : "Ballad.lrc"
+            let drive = Pan115WriteFixture(.success, cdn: cdn, sidecar: exists ? name : nil)
+            let fixture = CloudHTTPFixture(responses: [], responder: drive.respond)
+            try await withPan115Connector(fixture) { source in
+                _ = try await source.listFiles(at: "42")
+                let song = Song(id: "saved", title: "Library title", fileFormat: .flac, filePath: "old", sourceID: fixture.id)
+                do {
+                    if isCover {
+                        let report = await SidecarWriteService.shared.writeSidecars(
+                            for: song, using: source, coverData: content, lyricsLines: nil, createsCoverFile: false
+                        )
+                        XCTAssertEqual(report.coverWritten, exists)
+                        XCTAssertTrue(report.errors.isEmpty, report.errors.description)
+                        if !exists {
+                            XCTAssertFalse(fixture.requests.contains { $0.url?.path == "/open/upload/init" })
+                            return
+                        }
+                    } else {
+                        let target = try await source.lyricsSidecarTarget(for: song, request: .current(pinned: nil))
+                        XCTAssertEqual(target.fileName, name)
+                        XCTAssertEqual(target.exists, exists)
+                        let receipt = try await source.writeLyricsSidecar(data: content, target: target, priority: .background)
+                        XCTAssertEqual(receipt.writtenPath, "new")
+                        XCTAssertEqual(receipt.readback, content)
+                        let updated = try await source.lyricsSidecarTarget(for: song, request: .current(pinned: nil))
+                        XCTAssertEqual(updated.existingPath, "new")
+                    }
+                    XCTAssertFalse(badReadback)
+                } catch EmbeddedMetadataWritebackSourceError.remoteVerificationFailed {
+                    XCTAssertTrue(badReadback)
+                }
+                let files = try await source.listFiles(at: "42")
+                XCTAssertEqual(Set(files.map(\.name)), ["Ballad.flac", name])
+                XCTAssertEqual(files.first(where: { $0.name == name })?.path, badReadback ? "side" : "new")
+                XCTAssertEqual(files.first(where: { $0.name == "Ballad.flac" })?.path, "old")
+            }
+        }
+    }
+
+    func testPan115NamedSubtitleEditAndSerializedLyricsChooseDifferentFiles() async throws {
+        for rawEdit in [true, false] {
+            let data = Data((rawEdit ? "WEBVTT\n\n00:01.000 --> 00:02.000\n窗前有风" : "<tt><body/></tt>").utf8)
+            let server = try LocalCloudServer(response: .init(status: 206,
+                headers: ["Content-Range": "bytes 0-\(data.count - 1)/\(data.count)"], body: data))
+            let cdn = try await server.start()
+            defer { server.stop() }
+            let drive = Pan115WriteFixture(.success, cdn: cdn, sidecar: "Ballad.en.vtt")
+            let fixture = CloudHTTPFixture(responses: [], responder: drive.respond)
+            try await withPan115Connector(fixture) { source in
+                _ = try await source.listFiles(at: "42")
+                let song = Song(id: "track", title: "Ballad", fileFormat: .flac, filePath: "old", sourceID: fixture.id)
+                let document = try await SidecarWriteService.shared.lyricsDocumentTarget(named: "Ballad.en.vtt", for: song, using: source)
+                let target = rawEdit ? document : try LyricsSidecarTargetPolicy.writeTarget(for: document)
+                let receipt = try await source.writeLyricsSidecar(data: data, target: target, priority: .background)
+                XCTAssertEqual(receipt.fileName, rawEdit ? "Ballad.en.vtt" : "Ballad.ttml")
+                let files = try await source.listFiles(at: "42")
+                XCTAssertEqual(files.first { $0.name == "Ballad.en.vtt" }?.path, rawEdit ? "new" : "side")
+                XCTAssertEqual(files.first { $0.name == "Ballad.ttml" }?.path, rawEdit ? nil : "new")
+            }
         }
     }
 
@@ -1365,6 +1462,22 @@ private final class CloudHTTPFixture: @unchecked Sendable {
     private let responder: (@Sendable (URLRequest, Int) -> Response)?
     private var sent: [URLRequest] = []
     var requests: [URLRequest] { lock.withLock { sent } }
+    static func formFields(of request: URLRequest) -> [String: String] {
+        var body = request.httpBody ?? Data()
+        if body.isEmpty, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while true {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                guard count > 0 else { break }
+                body.append(contentsOf: buffer.prefix(count))
+            }
+        }
+        var components = URLComponents()
+        components.percentEncodedQuery = String(decoding: body, as: UTF8.self)
+        return Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+    }
     init(responses: [Response], responder: (@Sendable (URLRequest, Int) -> Response)? = nil) {
         self.responses = responses
         self.responder = responder
@@ -1383,6 +1496,59 @@ private final class CloudHTTPFixture: @unchecked Sendable {
         return URLSession(configuration: configuration)
     }
     func remove() { CloudHTTPProtocol.fixtures.remove(id) }
+}
+
+/// CloudHTTPFixture serializes calls to this in-memory provider.
+private final class Pan115WriteFixture: @unchecked Sendable {
+    enum Outcome: CaseIterable { case success, duplicate, originalChanged, denied, lostDeleteReply, uploadDenied }
+    let outcome: Outcome
+    let cdn: URL?
+    private var files: [[String: String]]
+
+    init(_ outcome: Outcome, cdn: URL? = nil, sidecar: String? = nil) {
+        self.outcome = outcome
+        self.cdn = cdn
+        let old = ["fn": "Ballad.flac", "fc": "1", "fid": "71", "pc": "old", "fs": "8",
+                   "sha1": String(repeating: "A", count: 40)]
+        files = [old]
+        if let sidecar {
+            files.append(old.merging(["fn": sidecar, "pc": "side", "fid": "72"]) { _, value in value })
+        }
+        if outcome == .duplicate {
+            files.append(old.merging(["fid": "72", "pc": "other"]) { _, new in new })
+        }
+    }
+
+    func respond(_ request: URLRequest, _ count: Int) -> CloudHTTPFixture.Response {
+        let fields = CloudHTTPFixture.formFields(of: request)
+        var payload: [String: Any] = ["state": true]
+        switch request.url?.path {
+        case "/open/ufile/files":
+            payload["count"] = files.count
+            payload["data"] = files
+        case "/open/upload/init":
+            if outcome == .uploadDenied { return .init(status: 403) }
+            guard let name = fields["file_name"], let hash = fields["fileid"], let size = fields["file_size"],
+                  fields["target"] == "U_1_42" else { return .init(status: 400) }
+            files.append(["fn": name, "fc": "1", "fid": "81", "pc": "new", "fs": size, "sha1": hash])
+            if outcome == .originalChanged { files[0]["sha1"] = String(repeating: "B", count: 40) }
+            payload["data"] = ["status": 2, "pick_code": "new"]
+        case "/open/ufile/downurl":
+            guard fields["pick_code"] == "new", let cdn else { return .init(status: 404) }
+            payload["data"] = ["81": ["url": ["url": cdn.absoluteString]]]
+        case "/open/ufile/update":
+            guard fields["file_id"] == "81", let i = files.firstIndex(where: { $0["fid"] == "81" }),
+                  let name = fields["file_name"] else { return .init(status: 400) }
+            files[i]["fn"] = name
+        case "/open/ufile/delete":
+            guard fields["parent_id"] == "42", let id = fields["file_ids"] else { return .init(status: 400) }
+            if outcome == .denied && id == "71" { return .init(status: 403) }
+            files.removeAll { $0["fid"] == id }
+            if outcome == .lostDeleteReply && id == "71" { return .init(status: 500) }
+        default: return .init(status: 404)
+        }
+        return .init(status: 200, body: (try? JSONSerialization.data(withJSONObject: payload)) ?? Data())
+    }
 }
 
 private final class CloudHTTPFixtures: @unchecked Sendable {

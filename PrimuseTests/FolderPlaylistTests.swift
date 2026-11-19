@@ -78,6 +78,16 @@ final class FolderPlaylistTests: XCTestCase {
     }
 
     func testMetadataReplacementPersistsIndexAndDiscardsOldScanCheckpoint() async throws {
+        try await assertReplacementIndex(providerKeys: nil)
+    }
+
+    func test115ReplacementPersistsFileIDsWhileTheRowUsesPickCodes() async throws {
+        try await assertReplacementIndex(providerKeys: ("2301", "2302"))
+    }
+
+    private func assertReplacementIndex(providerKeys: (old: String, new: String)?) async throws {
+        let oldKey = providerKeys?.old ?? "42"
+        let newKey = providerKeys?.new ?? "99"
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let storage = root.appendingPathComponent("Primuse")
@@ -85,10 +95,10 @@ final class FolderPlaylistTests: XCTestCase {
         let original = Song(id: "kept-id", title: "Original", fileFormat: .mp3,
                             filePath: "42", sourceID: "source", fileSize: 123, revision: "before")
         let other = song("other")
-        let index = SourceSyncIndexedItem(stableKey: "42", path: "42", displayName: "Song.mp3",
+        let index = SourceSyncIndexedItem(stableKey: oldKey, path: "42", displayName: "Song.mp3",
                                          parentPath: "0", isDirectory: false, songIDs: [original.id],
                                          size: 123, modifiedDate: nil, revision: "before")
-        let state = SourceSyncState(sourceID: "source", scopeFingerprint: "fixture", index: ["42": index])
+        let state = SourceSyncState(sourceID: "source", scopeFingerprint: "fixture", index: [oldKey: index])
         let checkpoint = ScanCheckpoint(phase: .scanning, intent: .fullScan, directories: ["0"],
                                         songs: [original], totalCount: 1, currentFile: "Song.mp3", updatedAt: Date())
         let encoder = JSONEncoder()
@@ -107,7 +117,7 @@ final class FolderPlaylistTests: XCTestCase {
         updated.filePath = "99"
         updated.fileSize = 456
         updated.revision = "after"
-        try await scan.recordMetadataFileReplacement(original: original, updated: updated, in: library)
+        try await scan.recordMetadataFileReplacement(original: original, updated: updated, in: library, providerKeys: providerKeys)
         XCTAssertEqual(library.song(id: original.id)?.filePath, "99")
         XCTAssertNotNil(library.song(id: other.id), "Retargeting one row must not prune the source")
         let reopened = ScanService(fileManager: fileManager)
@@ -115,10 +125,21 @@ final class FolderPlaylistTests: XCTestCase {
         await reopened.whenStartupStateReady()
         XCTAssertFalse(reopened.hasResumableScanWork)
         let persistedIndex = reopened.libraryFolderSyncIndex(for: "source")
-        XCTAssertNil(persistedIndex["42"])
-        XCTAssertEqual(persistedIndex["99"]?.songIDs, [original.id])
-        XCTAssertEqual(persistedIndex["99"]?.displayName, "Song.mp3")
-        XCTAssertEqual(persistedIndex["99"]?.revision, "after")
+        XCTAssertNil(persistedIndex[oldKey])
+        XCTAssertEqual(persistedIndex[newKey]?.songIDs, [original.id])
+        XCTAssertEqual(persistedIndex[newKey]?.displayName, "Song.mp3")
+        XCTAssertEqual(persistedIndex[newKey]?.revision, "after")
+        XCTAssertEqual(persistedIndex[newKey]?.path, "99")
+        if providerKeys != nil {
+            let remote = RemoteFileItem(name: "Song.mp3", path: "99", isDirectory: false, size: 456,
+                                        modifiedDate: nil, revision: "after", providerID: newKey, parentPath: "0")
+            let connector = FolderPlaylistTestConnector(missingPaths: [], listings: ["0": [remote]])
+            let scanner = ConnectorScanner(connector: connector, sourceID: "source")
+            let refreshed = try await scanner.reconcileChangedDirectories(
+                ["0"], deletedStableKeys: [], existingSongs: [updated], existingIndex: persistedIndex, scanEpoch: 2
+            )
+            XCTAssertEqual(refreshed.songs.map(\.id), [original.id])
+        }
     }
 
     func testMissingChildPreservesSongsWithoutCompleteIdentityIndex() async throws {

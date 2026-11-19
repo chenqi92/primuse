@@ -1304,9 +1304,9 @@ final class AppServices {
             guard let scanService else { throw CancellationError() }
             try await scanService.prepareForFileRename(sourceID: sourceID)
         }
-        manager.metadataFileReplacementHandler = { [weak scanService, weak library] original, updated in
+        manager.metadataFileReplacementHandler = { [weak scanService, weak library] original, updated, keys in
             guard let scanService, let library else { throw CancellationError() }
-            try await scanService.recordMetadataFileReplacement(original: original, updated: updated, in: library)
+            try await scanService.recordMetadataFileReplacement(original: original, updated: updated, in: library, providerKeys: keys)
         }
         let scraper = MusicScraperService(
             sourceManager: manager,

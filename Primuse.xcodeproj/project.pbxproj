@@ -1887,6 +1887,7 @@
 		C551ECCE93DC2DCEEC34D2B5 /* SourceConnectionPreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABCDD184859E3A5DD05A21C /* SourceConnectionPreflight.swift */; };
 		C563EE8F814D118AC050F7C0 /* MacSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C45DBC29426E786513B5CFA0 /* MacSettingsView.swift */; };
 		C57C7FEB8A28B4DB936A5D23 /* WatchSeekDialDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = F83786B9EA063AD9AA4D76EC /* WatchSeekDialDrag.swift */; };
+		C5C340052089A1FB2312132B /* Pan115FileUpload.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE7C38C81C92318FB2F3122 /* Pan115FileUpload.swift */; };
 		C5C3EDB97E878C3354348252 /* MusicScraperService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE228964342BBAAB23DCAD8 /* MusicScraperService.swift */; };
 		C5DA9BC12C2530019948D296 /* SharedNowPlayingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */; };
 		C5FDE14699BD4BC04DD7D8E2 /* SongloftSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A373D69542A894AC0E311DF /* SongloftSource.swift */; };
@@ -4354,6 +4355,7 @@
 		FABA25380E65408B1259872B /* LANCloudAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANCloudAuthorization.swift; sourceTree = "<group>"; };
 		FAD31F17F1371BA9E8556919 /* TVMetadataParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVMetadataParityTests.swift; sourceTree = "<group>"; };
 		FAE228964342BBAAB23DCAD8 /* MusicScraperService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicScraperService.swift; sourceTree = "<group>"; };
+		FAE7C38C81C92318FB2F3122 /* Pan115FileUpload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pan115FileUpload.swift; sourceTree = "<group>"; };
 		FB66C8ABA2D7F24A53E9EB80 /* CollectionOnlySongStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionOnlySongStore.swift; sourceTree = "<group>"; };
 		FB94DFFD5CAD068763D78E9C /* ThemeServicePaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeServicePaletteTests.swift; sourceTree = "<group>"; };
 		FBBD19A2B420E188F62B053C /* KaraokeVocalReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeVocalReducer.swift; sourceTree = "<group>"; };
@@ -6761,6 +6763,7 @@
 				462A1CC2221A693AE52A85E3 /* MediaServerStreamResolver.swift */,
 				984D9BE82FF301BBD6F0FAD7 /* NasHttpStreamResolver.swift */,
 				BA9C0A3ABC7FEA17A5A7FB35 /* OAuthTokenRequests.swift */,
+				FAE7C38C81C92318FB2F3122 /* Pan115FileUpload.swift */,
 				55836FA9C4560040CB077655 /* PCloudAPIProtocol.swift */,
 				5F14A8B457724588F5559B41 /* ProtocolHTTPStreamResolvers.swift */,
 				A75355E44B15EE1441507621 /* RadioSnapshotUploadPolicy.swift */,
@@ -7537,6 +7540,7 @@
 			files = (
 				03DFF0934A21C2F21AC830BD /* EQCalibrationCatalog.swift in Sources */,
 				104E628BA5138E61EFECBCD4 /* EQRealtimeProcessor.swift in Sources */,
+				C5C340052089A1FB2312132B /* Pan115FileUpload.swift in Sources */,
 				3C1E909BE5A89EB274DBED2F /* ParametricEQ.swift in Sources */,
 				F8D572F8EC30A3A3490030B8 /* ABRepeatPolicy.swift in Sources */,
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,

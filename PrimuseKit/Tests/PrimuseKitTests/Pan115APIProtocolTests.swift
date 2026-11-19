@@ -138,3 +138,100 @@ struct Pan115APIProtocolTests {
         #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .pan115, defaultValue: 0) == 0)
     }
 }
+
+@Suite("115 file upload")
+struct Pan115FileUploadTests {
+    @Test func rangeChallengeUsesInclusiveOffsetsAndInstantUploadSkipsOSS() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("abcdefgh".utf8).write(to: url)
+        let fingerprint = try Pan115FileUpload.Fingerprint(file: url)
+        let calls = UploadTrace()
+        try await Pan115FileUpload.upload(file: url, fingerprint: fingerprint, parent: "7", name: "夜.flac") { items in
+            let attempts = await calls.nextAttempt()
+            let fields = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+            #expect(fields["target"] == "U_1_7")
+            #expect(fields["fileid"] == "425AF12A0743502B322E93A015BCF868E324D56A")
+            #expect(fields["preid"] == fields["fileid"])
+            if attempts == 1 {
+                return Data(#"{"status":7,"sign_check":"1-3","sign_key":"key"}"#.utf8)
+            }
+            #expect(fields["sign_key"] == "key")
+            #expect(fields["sign_val"] == "924F61661A3472DA74307A35F2C8D22E07E84A4D")
+            return Data(#"{"status":2}"#.utf8)
+        } credentials: { throw URLError(.unsupportedURL) } transfer: { _, _ in throw URLError(.unsupportedURL) }
+        #expect(await calls.attempts == 2)
+        for range in ["4-3", "0-8", "-2-3", "2-x"] {
+            #expect(throws: (any Error).self) { try Pan115FileUpload.challengeHash(range, file: url, size: 8) }
+        }
+    }
+
+    @Test func signingUsesTheAssignedBucketAndKeepsSTSOnOSS() throws {
+        let credentials = ["endpoint": "http://oss-cn-shenzhen.aliyuncs.com", "AccessKeyId": "fixture-id",
+                           "AccessKeySecret": "fixture-secret", "SecurityToken": "fixture-token"]
+        let signer = try Pan115FileUpload.OSS(bucket: "fixture-bucket", key: "a b/key", credentials: credentials)
+        let request = signer.request("PUT", date: Date(timeIntervalSince1970: 1704067200))
+        #expect(request.url?.absoluteString == "https://fixture-bucket.oss-cn-shenzhen.aliyuncs.com/a%20b/key")
+        #expect(request.value(forHTTPHeaderField: "Authorization") ==
+            "OSS4-HMAC-SHA256 Credential=fixture-id/20240101/cn-shenzhen/oss/aliyun_v4_request,Signature=3c1d5b1b4d168e2c4fd2c14375d2b020e50a500241f7afa47a535c390ad9870b")
+        var otherHost = credentials
+        otherHost["endpoint"] = "https://oss-cn-shenzhen.aliyuncs.com.example.org"
+        #expect(throws: (any Error).self) { try Pan115FileUpload.OSS(bucket: "fixture-bucket", key: "key", credentials: otherHost) }
+    }
+
+    @Test(arguments: [false, true])
+    func streamsOrdinaryAndMultipartUploadsAndConfirmsCallback(multipart: Bool) async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("data".utf8).write(to: file)
+        if multipart {
+            let handle = try FileHandle(forWritingTo: file)
+            try handle.truncate(atOffset: 65 * 1024 * 1024)
+            try handle.close()
+        }
+        let fingerprint = try Pan115FileUpload.Fingerprint(file: file)
+        let trace = UploadTrace()
+        try await Pan115FileUpload.upload(file: file, fingerprint: fingerprint, parent: "0", name: "stage") { _ in
+            Data(#"{"status":1,"bucket":"fixture","object":"a/b","callback":{"callback":"call","callback_var":"vars"}}"#.utf8)
+        } credentials: {
+            Data(#"{"endpoint":"oss-cn-shenzhen.aliyuncs.com","AccessKeyId":"id","AccessKeySecret":"secret","SecurityToken":"sts"}"#.utf8)
+        } transfer: { request, body in
+            let url = try #require(request.url)
+            #expect(url.host == "fixture.oss-cn-shenzhen.aliyuncs.com")
+            let part = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "partNumber" }?.value
+            var data = Data()
+            var headers: [String: String] = [:]
+            if url.query == "uploads" {
+                data = Data("<InitiateMultipartUploadResult><UploadId>abc</UploadId></InitiateMultipartUploadResult>".utf8)
+            } else if let part, case .bytes(let bytes) = body {
+                await trace.part(Int(part)!, size: bytes.count)
+                headers["ETag"] = "\"0123456789ABCDEF0123456789ABCDEF\""
+            } else {
+                #expect(request.value(forHTTPHeaderField: "x-oss-callback") == "Y2FsbA==")
+                #expect(request.value(forHTTPHeaderField: "x-oss-callback-var") == "dmFycw==")
+                if multipart, case .bytes(let bytes) = body {
+                    #expect(String(decoding: bytes, as: UTF8.self).contains("<PartNumber>9</PartNumber>"))
+                } else if case .file(let bodyURL) = body { #expect(bodyURL == file) }
+                else { Issue.record("Unexpected upload body") }
+                await trace.complete()
+                data = Data(#"{"state":true}"#.utf8)
+            }
+            return (data, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: headers)!)
+        }
+        #expect(await trace.completed)
+        if multipart {
+            #expect(await trace.parts == Array(1...9))
+            #expect(await trace.size == 65 * 1024 * 1024)
+        }
+    }
+
+    private actor UploadTrace {
+        var attempts = 0
+        func nextAttempt() -> Int { attempts += 1; return attempts }
+        var parts: [Int] = []
+        var size = 0
+        var completed = false
+        func part(_ n: Int, size: Int) { parts.append(n); self.size += size }
+        func complete() { completed = true }
+    }
+}

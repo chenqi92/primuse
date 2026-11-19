@@ -420,6 +420,7 @@ public enum AudioMetadataWritebackPolicy {
         .nfs,
         .s3,
         .baiduPan,
+        .pan115,
         .pan123,
         .drime,
         .aliyunDrive,

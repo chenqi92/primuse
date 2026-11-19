@@ -215,13 +215,13 @@ extension SourceManager {
         } catch SongFileRenameError.partial(let partial, let message) {
             playbackSong = partial.song
             deleteAudioCache(for: song)
-            try? await persist(song, partial.song)
+            try? await persist(song, partial.song, nil)
             throw SongFileRenameError.partial(partial, message)
         }
         playbackSong = result.song
         deleteAudioCache(for: song)
         do {
-            try await persist(song, result.song)
+            try await persist(song, result.song, nil)
         } catch {
             throw SongFileRenameError.partial(result,
                 String(localized: "song_file_rename_partial") + "\n" + error.localizedDescription)

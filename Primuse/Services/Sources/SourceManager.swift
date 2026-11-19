@@ -3668,7 +3668,7 @@ final class SourceManager {
     @ObservationIgnored private var offlineCompactionTasks: [String: OfflineCompactionTaskRecord] = [:]
     /// 副本装好时原文件正被播放, 当时没删; 等这组文件没人用了再删。值是原文件字节数。
     @ObservationIgnored private var supersededOfflineOriginalByteCounts: [String: Int64] = [:]
-    @ObservationIgnored var metadataFileReplacementHandler: ((Song, Song) async throws -> Void)?
+    @ObservationIgnored var metadataFileReplacementHandler: ((Song, Song, (old: String, new: String)?) async throws -> Void)?
     @ObservationIgnored var prepareFileRenameHandler: ((String) async throws -> Void)?
     @ObservationIgnored var prepareFileRenamePlayback: ((Song) throws -> ((Song) -> Void))?
     @ObservationIgnored var automaticOfflineDownloadRemovedHandler: ((String) -> Void)?
@@ -16244,6 +16244,12 @@ final class SourceManager {
         }
     }
 
+    private func persistReplacementLocation(from original: Song, to updated: Song,
+                                            using connector: any MusicSourceConnector) async throws {
+        let keys = await (connector as? U115Source)?.replacementIndexKeys(from: original.filePath, to: updated.filePath)
+        try await metadataFileReplacementHandler?(original, updated, keys)
+    }
+
     /// The tag editor's only source-write entry point. Capability routing,
     /// per-field outcomes, optimistic replacement, and provider/API error
     /// reporting all stay behind this boundary.
@@ -16274,7 +16280,7 @@ final class SourceManager {
         }
         let relocated = report.replacementAfterFailedVerification ?? report.updatedSong
         if relocated.filePath != original.filePath {
-            try await metadataFileReplacementHandler?(original, relocated)
+            try await persistReplacementLocation(from: original, to: relocated, using: connector)
         }
         if mode == .embedded {
             // The next batch edit on this source says beforehand that the
@@ -16405,7 +16411,7 @@ final class SourceManager {
             updated.revision = result.revision
             if updated.filePath != song.filePath {
                 deleteAudioCache(for: song)
-                try await metadataFileReplacementHandler?(song, updated)
+                try await persistReplacementLocation(from: song, to: updated, using: connector)
             }
             return updated
         } catch let error as EmbeddedMetadataReplacementReadbackError {
@@ -16415,7 +16421,7 @@ final class SourceManager {
             relocated.lastModified = nil
             relocated.revision = nil
             deleteAudioCache(for: song)
-            try await metadataFileReplacementHandler?(song, relocated)
+            try await persistReplacementLocation(from: song, to: relocated, using: connector)
             throw error
         }
     }

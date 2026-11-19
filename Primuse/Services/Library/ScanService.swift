@@ -1061,7 +1061,8 @@ final class ScanService {
         try await waitForCheckpointPersistence()
     }
 
-    func recordMetadataFileReplacement(original: Song, updated: Song, in library: MusicLibrary) async throws {
+    func recordMetadataFileReplacement(original: Song, updated: Song, in library: MusicLibrary,
+                                       providerKeys: (old: String, new: String)? = nil) async throws {
         await whenStartupStateReady()
         guard original.id == updated.id, original.sourceID == updated.sourceID,
               original.filePath != updated.filePath
@@ -1097,12 +1098,14 @@ final class ScanService {
         )
         try await library.persistIncrementalNowAndWait().get()
         try await waitForCheckpointPersistence()
+        let candidates = [providerKeys?.old, original.filePath, "path:\(original.filePath.lowercased())"].compactMap { $0 }
         guard original.filePath != updated.filePath,
               var state = syncStates[sourceID],
-              let oldKey = [original.filePath, "path:\(original.filePath.lowercased())"].first(where: { state.index[$0] != nil }),
+              let oldKey = candidates.first(where: { state.index[$0]?.songIDs == [original.id] }),
               var entry = state.index[oldKey],
-              !entry.isDirectory, entry.songIDs == [original.id] else { return }
-        let newKey = oldKey.hasPrefix("path:") ? "path:\(updated.filePath.lowercased())" : updated.filePath
+              !entry.isDirectory else { return }
+        let newKey = providerKeys?.new ?? (oldKey.hasPrefix("path:") ? "path:\(updated.filePath.lowercased())" : updated.filePath)
+        guard state.index[newKey] == nil || state.index[newKey]?.songIDs == [original.id] else { return }
         state.index.removeValue(forKey: oldKey)
         entry.stableKey = newKey
         entry.path = updated.filePath

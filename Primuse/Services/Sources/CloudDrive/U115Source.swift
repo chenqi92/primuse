@@ -7,9 +7,12 @@ import PrimuseKit
 ///
 /// 注意:115 的业务错误多半是 HTTP 200 + `{"state":false,"code":…}`,必须看 body(见 `Pan115APIProtocol`)。
 /// 只看 HTTP 码时,出错的列目录(`data` 是空数组)会被当成空文件夹,重扫就把歌删掉;token 失效也触发不了刷新。
-actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryListingConfirmingConnector {
+actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryListingConfirmingConnector,
+    EmbeddedMetadataWritebackAdapter, LyricsSidecarTargetResolving, RemoteCoverSidecarLocating, RemoteFileDisplayNameProviding {
     let sourceID: String
     nonisolated let preferredDeleteBatchSize = 100
+    nonisolated let supportsSidecarWriting = true
+    private var parentByPickCode: [String: String] = [:]
     private let helper: CloudDriveHelper
     private let tokenSession: URLSession
 
@@ -82,6 +85,7 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
                 URLQueryItem(name: "limit", value: String(limit)),
                 URLQueryItem(name: "offset", value: String(offset)),
                 URLQueryItem(name: "show_dir", value: "1"),
+                URLQueryItem(name: "cur", value: "1"),
             ]
             // 出错(state 为假)在 apiRequest 里就抛了:这里拿到的空数组才是真的空文件夹。
             let json = try await apiRequest(comps.url!, missingPath: cid)
@@ -117,6 +121,7 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
                     let fileID = Self.stringValue(item["fid"] ?? item["file_id"])
                     if let fileID, !fileID.isEmpty {
                         fileIDByPickCode[pc] = fileID
+                        parentByPickCode[pc] = cid
                     }
                     all.append(RemoteFileItem(
                         name: name,
@@ -223,6 +228,7 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
         for pickCode in uniquePickCodes {
             downloadURLCache.removeValue(forKey: pickCode)
             fileIDByPickCode.removeValue(forKey: pickCode)
+            parentByPickCode.removeValue(forKey: pickCode)
         }
         plog("🗑️ 115 items moved to recycle bin: \(fileIDs.count)")
     }
@@ -263,7 +269,7 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
                 }
             )
             if http.statusCode == 404 { throw CloudDriveError.fileNotFound(missingPath) }
-            if http.statusCode == 403 { throw CloudDriveError.permissionDenied(.fileRead) }
+            if http.statusCode == 403 { throw CloudDriveError.permissionDenied(replay == .never ? .fileWrite : .fileRead) }
             guard (200...299).contains(http.statusCode) else {
                 throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
@@ -505,5 +511,286 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource, DestructiveDirectoryLi
             usesPKCE: false,
             explicitCallbackScheme: CloudOAuthConfig.callbackScheme
         )
+    }
+}
+
+extension U115Source {
+    private func fileContext(_ path: String) async throws -> (file: RemoteFileItem, parent: String, siblings: [RemoteFileItem]) {
+        let id = try await resolveFileID(for: path)
+        if let parent = parentByPickCode[path] {
+            let items = try await listFiles(at: parent)
+            if let file = items.first(where: { !$0.isDirectory && $0.path == path && $0.providerID == id }) {
+                return (file, parent, items)
+            }
+        }
+        var url = URLComponents(string: Self.apiBase + "/folder/get_info")!
+        url.queryItems = [.init(name: "file_id", value: id)]
+        let json = try await apiRequest(url.url!, missingPath: path)
+        let detail = json["data"] as? [String: Any] ?? (json["data"] as? [[String: Any]])?.first
+        guard let detail, Self.stringValue(detail["file_id"]) == id else { throw CloudDriveError.invalidResponse }
+        let ancestors = (detail["paths"] as? [[String: Any]])?.compactMap { Self.stringValue($0["file_id"]) }
+        let parent = Self.stringValue(detail["parent_id"]) ?? ancestors?.last(where: { $0 != id }) ?? "0"
+        let items = try await listFiles(at: parent)
+        guard let file = items.first(where: { !$0.isDirectory && $0.path == path && $0.providerID == id }) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        return (file, parent, items)
+    }
+
+    private func state(_ item: RemoteFileItem) throws -> EmbeddedMetadataRemoteFileState {
+        guard let sha = item.revision, sha.count == 40, sha.allSatisfy(\.isHexDigit),
+              let parent = item.parentPath, let id = item.providerID, !id.isEmpty else {
+            throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+        }
+        return .init(fileSize: item.size, modifiedDate: item.modifiedDate, revision: sha,
+                     replacementToken: parent + "/" + id + "/" + item.name)
+    }
+
+    func displayName(for path: String) async throws -> String? {
+        try await fileContext(path).file.name
+    }
+
+    func existingCoverSidecar(for path: String) async throws -> RemoteFileItem? {
+        let context = try await fileContext(path)
+        let name = (context.file.name as NSString).deletingPathExtension + "-cover.jpg"
+        return try sidecar(in: context.siblings, named: name)
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        try await state(fileContext(path).file)
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        downloadURLCache[path] = nil
+        helper.invalidateCachedFile(path: path)
+    }
+
+    func replaceMetadataFile(at path: String, with file: URL, expected: EmbeddedMetadataRemoteFileState) async throws {
+        _ = try await replaceMetadataFileReturningPath(at: path, with: file, expected: expected)
+    }
+
+    func replaceMetadataFileReturningPath(at path: String, with file: URL, expected: EmbeddedMetadataRemoteFileState) async throws -> String {
+        let context = try await fileContext(path)
+        guard try expected.matches(state(context.file)) else { throw EmbeddedMetadataWritebackSourceError.conflict }
+        return try await publish(file, name: context.file.name, parent: context.parent, original: context.file).path
+    }
+
+    private func uploadPayload(_ endpoint: String, form: [URLQueryItem]? = nil, parent: String) async throws -> Data {
+        let json = try await apiRequest(URL(string: Self.apiBase + endpoint)!, method: form == nil ? "GET" : "POST",
+                                        form: form, replay: form == nil ? .idempotent : .never, missingPath: parent)
+        guard let payload = json["data"] as? [String: Any] else { throw CloudDriveError.invalidResponse }
+        return try JSONSerialization.data(withJSONObject: payload)
+    }
+
+    private func upload(_ file: URL, fingerprint: Pan115FileUpload.Fingerprint, name: String, parent: String) async throws {
+        try await Pan115FileUpload.upload(file: file, fingerprint: fingerprint, parent: parent, name: name) { form in
+            try await self.uploadPayload("/upload/init", form: form, parent: parent)
+        } credentials: {
+            try await self.uploadPayload("/upload/get_token", parent: parent)
+        } transfer: { [helper] request, body in
+            let (data, response) = try await helper.sendOnce(request) { session, request in
+                switch body {
+                case .empty: return try await session.data(for: request, delegate: Pan115FileUpload.redirectDelegate)
+                case .file(let url): return try await session.upload(for: request, fromFile: url, delegate: Pan115FileUpload.redirectDelegate)
+                case .bytes(let bytes): return try await session.upload(for: request, from: bytes, delegate: Pan115FileUpload.redirectDelegate)
+                }
+            }
+            guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
+            return (data, http)
+        }
+    }
+
+    private func sameOriginal(_ candidates: [RemoteFileItem], as original: RemoteFileItem?) throws {
+        if let original {
+            guard candidates.count == 1, let found = candidates.first, found.path == original.path,
+                  !found.isDirectory, try state(found).matches(state(original)) else {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+        } else if !candidates.isEmpty {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+    }
+
+    func replacementIndexKeys(from oldPath: String, to newPath: String) -> (old: String, new: String)? {
+        guard let old = fileIDByPickCode[oldPath], let new = fileIDByPickCode[newPath] else { return nil }
+        return (old, new)
+    }
+
+    private func recycle(_ item: RemoteFileItem, parent: String) async throws {
+        guard item.parentPath == parent, let id = item.providerID else { throw CloudDriveError.invalidResponse }
+        _ = try await apiRequest(URL(string: Self.apiBase + "/ufile/delete")!, method: "POST",
+                                 form: [.init(name: "file_ids", value: id), .init(name: "parent_id", value: parent)],
+                                 replay: .never, missingPath: item.path)
+        await invalidateMetadataWritebackCache(for: item.path)
+        // Preserve the immutable pick-code/file-ID pair until the library migrates its scan index.
+        parentByPickCode[item.path] = nil
+    }
+
+    /// 115 can keep multiple files with the same name. Publish a verified new ID alongside
+    /// the old one, then retire only the original ID after checking its revision again.
+    private func publish(_ file: URL, name: String, parent: String, original: RemoteFileItem?,
+                         verifyBytes: Data? = nil) async throws -> RemoteFileItem {
+        let fingerprint = try await Task.detached(priority: .utility) { try Pan115FileUpload.Fingerprint(file: file) }.value
+        let stageName = "primuse-" + UUID().uuidString + ".tmp"
+        func matchesBytes(_ item: RemoteFileItem) -> Bool {
+            !item.isDirectory && item.size == fingerprint.size && item.revision?.uppercased() == fingerprint.sha1
+        }
+        func named(_ items: [RemoteFileItem]) -> [RemoteFileItem] {
+            items.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        }
+        try sameOriginal(named(try await listFiles(at: parent)), as: original)
+        if let original, matchesBytes(original) {
+            if let verifyBytes {
+                let readback = try await fetchRange(path: original.path, offset: 0, length: Int64(verifyBytes.count))
+                guard readback == verifyBytes else { throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed }
+            }
+            return original
+        }
+
+        // A lost callback can follow a successful upload. The unique stage name and
+        // exact digest let us recover it without submitting the upload a second time.
+        var uploadFailure: Error?
+        do { try await upload(file, fingerprint: fingerprint, name: stageName, parent: parent) }
+        catch { uploadFailure = error }
+        var listing = try await listFiles(at: parent)
+        let staged = listing.filter { $0.name == stageName && matchesBytes($0) }
+        guard staged.count == 1, let stage = staged.first, let stageID = stage.providerID,
+              stage.path != original?.path, stageID != original?.providerID else {
+            throw uploadFailure ?? EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        var retirementStarted = false
+        do {
+            if let verifyBytes {
+                let readback = try await fetchRange(path: stage.path, offset: 0, length: Int64(verifyBytes.count))
+                guard readback == verifyBytes else { throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed }
+            }
+            try sameOriginal(named(listing), as: original)
+            try Task.checkCancellation()
+            var renameFailure: Error?
+            do {
+                _ = try await apiRequest(URL(string: Self.apiBase + "/ufile/update")!, method: "POST",
+                                         form: [.init(name: "file_id", value: stageID), .init(name: "file_name", value: name)],
+                                         replay: .never, missingPath: stage.path)
+            } catch { renameFailure = error }
+            listing = try await listFiles(at: parent)
+            guard let result = listing.first(where: { $0.providerID == stageID && $0.path == stage.path &&
+                $0.name == name && matchesBytes($0) }) else {
+                throw renameFailure ?? EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+            }
+            try sameOriginal(named(listing).filter { $0.path != result.path }, as: original)
+            if let original {
+                try Task.checkCancellation()
+                retirementStarted = true
+                var removalFailure: Error?
+                do { try await recycle(original, parent: parent) }
+                catch { removalFailure = error }
+                let remaining: [RemoteFileItem]
+                do {
+                    remaining = try await listFiles(at: parent, confirmingPreviouslyObservedPaths: removalFailure == nil ? [result.path] : [result.path, original.path])
+                } catch {
+                    throw EmbeddedMetadataReplacementReadbackError(filePath: result.path, fileSize: result.size,
+                                                                  detail: error.localizedDescription)
+                }
+                if remaining.contains(where: { $0.path == original.path }) {
+                    retirementStarted = false
+                    throw removalFailure ?? EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+                }
+                guard named(remaining).count == 1, remaining.contains(where: {
+                    $0.path == result.path && $0.name == name && matchesBytes($0)
+                }) else {
+                    throw EmbeddedMetadataReplacementReadbackError(filePath: result.path, fileSize: result.size,
+                        detail: EmbeddedMetadataWritebackSourceError.remoteVerificationFailed.localizedDescription)
+                }
+            }
+            return result
+        } catch {
+            if !retirementStarted, let current = try? await listFiles(at: parent),
+               let own = current.first(where: { $0.providerID == stageID && $0.path == stage.path &&
+                   ($0.name == stageName || $0.name == name) && matchesBytes($0) }),
+               original == nil || current.contains(where: { $0.path == original?.path }) {
+                try? await recycle(own, parent: parent)
+            }
+            throw error
+        }
+    }
+}
+
+extension U115Source {
+    func lyricsSidecarTarget(for song: Song, request: LyricsDocumentRequest) async throws -> LyricsSidecarTarget {
+        let (audio, parent, siblings) = try await fileContext(song.filePath)
+        let base = (audio.name as NSString).deletingPathExtension
+        func address(_ name: String) -> String { song.filePath + "/" + audio.name + "/" + name }
+        if song.isCueTrack {
+            guard let cue = try await LyricsSidecarTargetPolicy.cueTrackTarget(
+                for: song, songBase: base, audioFileName: audio.name, containerPath: parent, items: siblings, using: self
+            ) else { throw EmbeddedMetadataWritebackSourceError.conflict }
+            // With opaque IDs even an album-wide lyric file looks like a per-track
+            // reference. A shared document must never become the track's write target.
+            if cue.separateWritePath == nil, cue.exists,
+               (cue.fileName as NSString).deletingPathExtension.caseInsensitiveCompare(base) == .orderedSame {
+                throw EmbeddedMetadataWritebackSourceError.conflict
+            }
+            return LyricsSidecarTarget(targetPath: address(cue.fileName), fileName: cue.fileName, containerPath: parent,
+                exists: cue.exists, existingPath: cue.existingPath, existingSize: cue.existingSize, songBaseName: cue.songBaseName,
+                translationPath: cue.translationPath, translationFileName: cue.translationFileName, translationSize: cue.translationSize,
+                separateWritePath: cue.separateWriteFileName.map(address), separateWriteFileName: cue.separateWriteFileName)
+        }
+        let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(baseName: base, in: siblings, request: request)
+        let companion = LyricsSidecarTargetPolicy.translationTrackItem(forPrimary: existing, baseName: base, in: siblings)
+        let name = existing?.name ?? base + ".lrc"
+        return LyricsSidecarTarget(targetPath: address(name), fileName: name, containerPath: parent,
+            exists: existing != nil, existingPath: existing?.path, existingSize: existing?.size, songBaseName: base,
+            translationPath: companion?.path, translationFileName: companion?.name, translationSize: companion?.size,
+            documents: LyricsSidecarTargetPolicy.documents(baseName: base, in: siblings))
+    }
+
+    private func sidecar(in siblings: [RemoteFileItem], named name: String) throws -> RemoteFileItem? {
+        let matches = siblings.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        guard matches.count <= 1, matches.allSatisfy({ !$0.isDirectory && $0.name == name }) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        return matches.first
+    }
+
+    private func writeSidecar(_ data: Data, name: String, parent: String, original: RemoteFileItem?) async throws -> RemoteFileItem {
+        guard !data.isEmpty else { throw CloudDriveError.invalidResponse }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("primuse-115-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try data.write(to: file)
+        return try await publish(file, name: name, parent: parent, original: original, verifyBytes: data)
+    }
+
+    func writeLyricsSidecar(data: Data, target: LyricsSidecarTarget, priority: RangeFetchPriority) async throws -> LyricsSidecarWriteReceipt {
+        let address = target.targetPath.split(separator: "/", maxSplits: 2)
+        let fileExtension = (target.fileName as NSString).pathExtension.lowercased()
+        guard address.count == 3, String(address[2]) == target.fileName, !target.fileName.contains("/"),
+              LyricsSidecarSelectionPolicy.isWritableDocument(fileName: target.fileName)
+                || (target.exists && PrimuseConstants.readableLyricsExtensions.contains(fileExtension)) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        let context = try await fileContext(String(address[0]))
+        let existing = try sidecar(in: context.siblings, named: target.fileName)
+        guard context.file.name == String(address[1]), context.parent == target.containerPath, target.exists == (existing != nil),
+              existing?.path == target.existingPath, target.existingSize == nil || existing?.size == target.existingSize else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        let result = try await writeSidecar(data, name: target.fileName, parent: context.parent, original: existing)
+        return .init(requestedTargetPath: target.targetPath, writtenPath: result.path, fileName: result.name,
+                     containerPath: context.parent, remoteSize: result.size, readback: data)
+    }
+
+    func writeFile(data: Data, to path: String) async throws {
+        let suffix: String
+        if path.hasSuffix("-cover.jpg") { suffix = "-cover.jpg" }
+        else if let ext = PrimuseConstants.supportedLyricsExtensions.first(where: { path.hasSuffix("." + $0) }) {
+            suffix = "." + ext
+        } else { throw CloudDriveError.invalidResponse }
+        let context = try await fileContext(String(path.dropLast(suffix.count)))
+        let name = (context.file.name as NSString).deletingPathExtension + suffix
+        _ = try await writeSidecar(data, name: name, parent: context.parent, original: sidecar(in: context.siblings, named: name))
+    }
+
+    func verifySidecarWrite(data: Data, at path: String) async throws {
+        // publish reads the actual uploaded pick_code before retiring any previous sidecar.
     }
 }
