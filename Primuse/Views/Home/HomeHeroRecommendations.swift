@@ -36,6 +36,18 @@ private struct HomeHeroSettingsSheet: View {
     @State private var songCount = HomeHeroRecommendationPolicy.defaultSongCount
     @State private var albumCount = HomeHeroRecommendationPolicy.defaultAlbumCount
 
+    @State private var appearances = HomeHeroCardAppearances()
+    @State private var originalAppearances = HomeHeroCardAppearances()
+    @State private var prepared = false
+    @State private var importing = false
+    @State private var saveFailed = false
+    private let appearanceStore = HomeHeroCardAppearanceStore.shared
+
+    private var canSave: Bool {
+        let current = style == .medium ? appearances.medium : appearances.large
+        return prepared && !importing && (style == .carousel || current.cover != .photo || current.photo != nil)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -85,8 +97,16 @@ private struct HomeHeroSettingsSheet: View {
                             .accessibilityIdentifier("home.hero.albumCount")
                         }
                     }
+                    Section {
+                        HomeHeroCardAppearanceFields(
+                            appearance: style == .medium ? $appearances.medium : $appearances.large,
+                            importing: $importing
+                        )
+                        .id(style)
+                    }
                 }
             }
+            .disabled(!prepared)
             .environment(\.editMode, .constant(.inactive))
             .navigationTitle("home_hero_section_title")
             .navigationBarTitleDisplayMode(.inline)
@@ -94,19 +114,39 @@ private struct HomeHeroSettingsSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("done") {
+                        do {
+                            try appearanceStore.save(appearances, original: originalAppearances)
+                        } catch {
+                            saveFailed = true
+                            return
+                        }
                         savedContent = content
                         savedSongCount = songCount
                         savedAlbumCount = albumCount
                         savedStyle = style
                         dismiss()
                     }
+                    .disabled(!canSave)
                     .accessibilityIdentifier("home.hero.settings.done")
                 }
             }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .onAppear {
+        .onChange(of: style) { previous, _ in
+            let key: WritableKeyPath<HomeHeroCardAppearances, HomeHeroCardAppearance> = previous == .medium ? \.medium : \.large
+            if appearances[keyPath: key].cover == .photo && appearances[keyPath: key].photo == nil {
+                appearances[keyPath: key].cover = originalAppearances[keyPath: key].cover
+            }
+        }
+        .alert("home_hero_save_failed", isPresented: $saveFailed) { Button("ok") {} }
+        .task {
+            guard !prepared else { return }
+            await appearanceStore.load()
+            guard !Task.isCancelled else { return }
+            originalAppearances = appearanceStore.values
+            appearances = originalAppearances
+            prepared = true
             style = savedStyle
             content = savedContent
             songCount = HomeHeroRecommendationPolicy.songCount(savedSongCount)
@@ -140,6 +180,20 @@ struct HomeHeroRecommendationSection: View {
     @AppStorage(HomeHeroRecommendationPolicy.songCountKey) private var songCount = HomeHeroRecommendationPolicy.defaultSongCount
     @AppStorage(HomeHeroRecommendationPolicy.albumCountKey) private var albumCount = HomeHeroRecommendationPolicy.defaultAlbumCount
 
+    @AppStorage(HomeHeroStyle.storageKey) private var style: HomeHeroStyle = .carousel
+    @State private var centerIndex = 0
+    @State private var scrolling = false
+    @State private var visible = false
+    private let appearanceStore = HomeHeroCardAppearanceStore.shared
+
+    private var appearance: HomeHeroCardAppearance {
+        style == .medium ? appearanceStore.values.medium : appearanceStore.values.large
+    }
+
+    private func focused(_ index: Int, count: Int) -> Bool {
+        isInteractive && visible && !scrolling && index == min(max(0, centerIndex), count - 1)
+    }
+
     private var models: [HomeHeroRecommendationModel] {
         content == .albums ? [catalog.albums] : HomeHeroRecommendationTheme.allCases.map { catalog.collection($0) }
     }
@@ -165,12 +219,13 @@ struct HomeHeroRecommendationSection: View {
     }
 
     var body: some View {
+        let albums = content == .albums ? shownAlbums : []
         VStack(alignment: .leading, spacing: 12) {
-            Text("home_hero_daily_title").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+            Text(content == .albums ? LocalizedStringKey("home_hero_album_picks") : "home_hero_theme_playlists").font(.title3.bold()).accessibilityAddTraits(.isHeader)
                 .padding(.horizontal, 20)
             if isInteractive && (library.musicSongs.isEmpty || models.allSatisfy({ $0.revision > 0 && !$0.isLoading && $0.songs.isEmpty })) {
                 ContentUnavailableView("library_recommendations_empty_title", systemImage: "sparkles")
-            } else if content == .albums && shownAlbums.isEmpty {
+            } else if content == .albums && albums.isEmpty {
                 if !isInteractive || catalog.albums.isLoading || catalog.albums.revision == 0 {
                     HomeHeroFeaturedSkeleton(metrics: metrics)
                 } else {
@@ -180,23 +235,27 @@ struct HomeHeroRecommendationSection: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         if content == .albums {
-                            ForEach(shownAlbums) { album in
+                            ForEach(Array(albums.enumerated()), id: \.element.id) { index, album in
                                 NavigationLink(value: HomeHeroRecommendationDestination.albums) {
                                     HomeHeroRecommendationCard(
-                                        metrics: metrics, songs: Array(library.songs(forAlbum: album.id).prefix(1)),
-                                        title: album.title, subtitle: album.artistName ?? ""
+                                        metrics: metrics, songs: Array(library.songs(forAlbum: album.id).prefix(appearance.cover == .collage ? 4 : 1)),
+                                        title: album.title, subtitle: album.artistName ?? "",
+                                        appearance: appearance, medium: style == .medium,
+                                        focused: focused(index, count: albums.count)
                                     )
                                 }
                                 .accessibilityIdentifier("home.hero.recommendation.album.\(album.id)")
                             }
                         } else {
-                            ForEach(HomeHeroRecommendationTheme.allCases, id: \.self) { theme in
+                            ForEach(Array(HomeHeroRecommendationTheme.allCases.enumerated()), id: \.element) { index, theme in
                                 let songs = shownSongs(for: theme)
                                 NavigationLink(value: HomeHeroRecommendationDestination.songs(theme)) {
                                     HomeHeroRecommendationCard(
                                         metrics: metrics, songs: Array(songs.prefix(4)), title: theme.title,
                                         subtitle: String(format: String(localized: "home_hero_song_count_format"), songs.count),
-                                        isLoading: songs.isEmpty && catalog.collection(theme).revision == 0
+                                        isLoading: songs.isEmpty && catalog.collection(theme).revision == 0,
+                                        appearance: appearance, theme: theme, medium: style == .medium,
+                                        focused: focused(index, count: HomeHeroRecommendationTheme.allCases.count)
                                     )
                                 }
                                 .disabled(songs.isEmpty)
@@ -210,10 +269,18 @@ struct HomeHeroRecommendationSection: View {
                 }
                 .contentMargins(.horizontal, 20, for: .scrollContent)
                 .scrollTargetBehavior(.viewAligned)
+                .onScrollGeometryChange(for: Int.self) { geometry in
+                    let step = metrics.cardWidth + 14
+                    let center = geometry.visibleRect.midX - metrics.cardWidth / 2
+                    return Int((center / step).rounded())
+                } action: { _, index in centerIndex = index }
+                .onScrollPhaseChange { _, phase in scrolling = phase != .idle }
                 .pmHorizontalClipExtendingUnderVerticalBar()
                 .accessibilityIdentifier("home.hero.featured.cards")
             }
         }
+        .onScrollVisibilityChange(threshold: 0.1) { visible = $0 }
+        .task { await appearanceStore.load() }
         .modifier(HomeHeroRecommendationRefresh(models: models, contentKind: content, isEnabled: isInteractive))
     }
 }
@@ -272,19 +339,43 @@ struct HomeHeroRecommendationCard: View {
     let title: String
     let subtitle: String
     var isLoading = false
+    var appearance = HomeHeroCardAppearance()
+    var theme: HomeHeroRecommendationTheme?
+    var medium = false
+    var focused = false
     @ScaledMetric(relativeTo: .body) private var captionHeight: CGFloat = 84
     @Environment(CoverTintProvider.self) private var tintProvider
-    @Environment(\.self) private var environment
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var palette: ImmersiveArtworkPalette {
+        let artwork = tintSong.flatMap { song in
+            tintProvider.palette(forSongID: song.id)
+                ?? (tintProvider.hasAnalyzedColorlessArtwork(forSongID: song.id) ? .homeMonochrome : nil)
+        }
+        return appearance.palette(artwork: artwork, theme: theme)
+    }
 
     var body: some View {
-        let tint = songs.first.flatMap { tintProvider.tint(forSongID: $0.id) } ?? Color(red: 0.24, green: 0.28, blue: 0.34)
-        let resolved = tint.resolve(in: environment)
-        let background = ThemeAccentContrastPolicy.legible(.init(
-            red: Double(resolved.red), green: Double(resolved.green), blue: Double(resolved.blue)
-        ), for: .light)
         let layout = metrics.isCompact ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+        let coverSide = metrics.artworkSide * (theme == nil ? 0.87 : 0.68)
         return layout {
-            HomeHeroRecommendationArtwork(songs: songs, side: metrics.artworkSide)
+            Group {
+                if appearance.cover == .hidden {
+                    Color.clear
+                } else if appearance.cover == .photo, let photo = appearance.photo {
+                    Image(uiImage: photo.image).resizable().scaledToFill()
+                } else {
+                    HomeHeroRecommendationArtwork(
+                        songs: appearance.cover == .collage ? songs : Array(songs.prefix(1)),
+                        side: coverSide, showsPlaceholder: false
+                    )
+                }
+            }
+            .frame(width: coverSide, height: coverSide)
+            .clipShape(.rect(cornerRadius: 8))
+            .shadow(color: .black.opacity(0.24), radius: 7, y: 3)
+            .frame(width: metrics.artworkSide, height: metrics.artworkSide)
             VStack(alignment: .leading, spacing: 5) {
                 Text(verbatim: title).font(.headline).foregroundStyle(.white).lineLimit(2)
                 if isLoading {
@@ -298,17 +389,35 @@ struct HomeHeroRecommendationCard: View {
             .frame(height: metrics.isCompact ? max(metrics.artworkSide, captionHeight) : captionHeight)
         }
         .frame(width: metrics.cardWidth)
-        .background(Color(.sRGB, red: background.red, green: background.green, blue: background.blue))
+        .background {
+            HomeHeroCardBackdrop(style: appearance.backdrop.resolved(medium: medium, album: theme == nil),
+                                 palette: palette, focused: focused, reduceMotion: reduceMotion)
+                .overlay {
+                    LinearGradient(stops: [.init(color: .clear, location: 0.15),
+                                           .init(color: .black.opacity(0.60), location: metrics.isCompact ? 0.46 : 0.72),
+                                           .init(color: .black.opacity(0.67), location: 1)],
+                                   startPoint: metrics.isCompact ? .leading : .top,
+                                   endPoint: metrics.isCompact ? .trailing : .bottom)
+                }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 18).stroke(.primary.opacity(0.06), lineWidth: 0.5) }
         .contentShape(RoundedRectangle(cornerRadius: 18))
-        .task(id: songs.first?.id) { tintProvider.prepare(Array(songs.prefix(1))) }
+        .task(id: tintSong?.id) {
+            if let tintSong { tintProvider.prepare([tintSong]) }
+        }
+    }
+
+    private var tintSong: Song? {
+        guard !appearance.customColors, appearance.cover != .hidden, appearance.cover != .photo else { return nil }
+        return songs.first
     }
 }
 
 private struct HomeHeroRecommendationArtwork: View {
     let songs: [Song]
     let side: CGFloat
+    var showsPlaceholder = true
 
     var body: some View {
         Group {
@@ -326,8 +435,10 @@ private struct HomeHeroRecommendationArtwork: View {
                 }
             } else if let song = songs.first {
                 artwork(song, size: side)
-            } else {
+            } else if showsPlaceholder {
                 Rectangle().fill(.quaternary).overlay { Image(systemName: "music.note").font(.largeTitle) }
+            } else {
+                Color.clear
             }
         }
         .frame(width: side, height: side)
@@ -337,7 +448,8 @@ private struct HomeHeroRecommendationArtwork: View {
 
     private func artwork(_ song: Song, size: CGFloat) -> some View {
         CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: size, cornerRadius: 0,
-                          sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat)
+                          sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat,
+                          showsPlaceholder: showsPlaceholder)
     }
 }
 
@@ -352,7 +464,7 @@ struct HomeHeroRecommendationDetail: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var title: String {
-        content == .albums ? String(localized: "home_hero_daily_title") : model.theme.title
+        content == .albums ? String(localized: "home_hero_album_picks") : model.theme.title
     }
 
     private var collectionArtwork: [Song] {

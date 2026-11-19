@@ -7082,7 +7082,15 @@
 "home_hero_content_songs" = "مجموعة أغانٍ";
 "home_hero_song_count_format" = "%d أغنية";
 "home_hero_album_count_format" = "%d ألبوم";
-"home_hero_daily_title" = "اختيارات يومية";
+"home_hero_album_picks" = "ألبومات مختارة";
+"home_hero_theme_playlists" = "قوائم حسب الموضوع";
+"home_hero_cover_collage" = "أربعة أغلفة";
+"home_hero_cover_hidden" = "بدون غلاف";
+"home_hero_static_gradient" = "تدرج ثابت";
+"home_hero_soft_glow" = "توهج خافت";
+"home_hero_primary_color" = "اللون الأساسي";
+"home_hero_secondary_color" = "اللون الثانوي";
+"home_hero_save_failed" = "تعذر حفظ مظهر البطاقات. حاول مرة أخرى.";
 "home_hero_daily_mix" = "مزيجك اليومي";
 "home_hero_refresh" = "اختيارات جديدة";
 

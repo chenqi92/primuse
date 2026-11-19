@@ -7176,7 +7176,15 @@
 "home_hero_content_songs" = "노래 모음";
 "home_hero_song_count_format" = "%d곡";
 "home_hero_album_count_format" = "앨범 %d개";
-"home_hero_daily_title" = "오늘의 추천";
+"home_hero_album_picks" = "추천 앨범";
+"home_hero_theme_playlists" = "테마별 플레이리스트";
+"home_hero_cover_collage" = "커버 네 장 콜라주";
+"home_hero_cover_hidden" = "커버 없음";
+"home_hero_static_gradient" = "고정 그라데이션";
+"home_hero_soft_glow" = "은은한 빛";
+"home_hero_primary_color" = "기본 색상";
+"home_hero_secondary_color" = "보조 색상";
+"home_hero_save_failed" = "카드 모양을 저장할 수 없습니다. 다시 시도해 주세요.";
 "home_hero_daily_mix" = "데일리 믹스";
 "home_hero_refresh" = "새 추천 받기";
 

@@ -7269,7 +7269,15 @@
 "home_hero_content_songs" = "歌曲集合";
 "home_hero_song_count_format" = "%d 首歌曲";
 "home_hero_album_count_format" = "%d 张专辑";
-"home_hero_daily_title" = "每日推荐";
+"home_hero_album_picks" = "专辑之选";
+"home_hero_theme_playlists" = "主题歌单";
+"home_hero_cover_collage" = "四格拼贴";
+"home_hero_cover_hidden" = "无封面";
+"home_hero_static_gradient" = "静态渐变";
+"home_hero_soft_glow" = "柔光";
+"home_hero_primary_color" = "主色";
+"home_hero_secondary_color" = "辅色";
+"home_hero_save_failed" = "卡片外观未能保存，请重试。";
 "home_hero_daily_mix" = "每日精选";
 "home_hero_refresh" = "换一轮";
 

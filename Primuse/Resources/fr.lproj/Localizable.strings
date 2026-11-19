@@ -7176,7 +7176,15 @@
 "home_hero_content_songs" = "Sélection de titres";
 "home_hero_song_count_format" = "%d titres";
 "home_hero_album_count_format" = "Albums : %d";
-"home_hero_daily_title" = "Sélection du jour";
+"home_hero_album_picks" = "Sélection d’albums";
+"home_hero_theme_playlists" = "Mix thématiques";
+"home_hero_cover_collage" = "Mosaïque de quatre pochettes";
+"home_hero_cover_hidden" = "Sans pochette";
+"home_hero_static_gradient" = "Dégradé fixe";
+"home_hero_soft_glow" = "Lueur douce";
+"home_hero_primary_color" = "Couleur principale";
+"home_hero_secondary_color" = "Couleur secondaire";
+"home_hero_save_failed" = "Impossible d’enregistrer l’apparence des cartes. Réessayez.";
 "home_hero_daily_mix" = "Votre mix du jour";
 "home_hero_refresh" = "Renouveler";
 

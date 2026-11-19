@@ -6937,7 +6937,15 @@
 "home_hero_content_songs" = "Song Collection";
 "home_hero_song_count_format" = "%d songs";
 "home_hero_album_count_format" = "%d albums";
-"home_hero_daily_title" = "Daily Picks";
+"home_hero_album_picks" = "Album Picks";
+"home_hero_theme_playlists" = "Themed Mixes";
+"home_hero_cover_collage" = "Four-cover collage";
+"home_hero_cover_hidden" = "No cover";
+"home_hero_static_gradient" = "Static gradient";
+"home_hero_soft_glow" = "Soft glow";
+"home_hero_primary_color" = "Primary color";
+"home_hero_secondary_color" = "Secondary color";
+"home_hero_save_failed" = "Couldn’t save the card appearance. Please try again.";
 "home_hero_daily_mix" = "Your Daily Mix";
 "home_hero_refresh" = "Refresh Picks";
 

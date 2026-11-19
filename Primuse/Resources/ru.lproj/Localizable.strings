@@ -7082,7 +7082,15 @@
 "home_hero_content_songs" = "Подборка песен";
 "home_hero_song_count_format" = "Песен: %d";
 "home_hero_album_count_format" = "Альбомов: %d";
-"home_hero_daily_title" = "Выбор дня";
+"home_hero_album_picks" = "Подборка альбомов";
+"home_hero_theme_playlists" = "Тематические плейлисты";
+"home_hero_cover_collage" = "Коллаж из четырёх обложек";
+"home_hero_cover_hidden" = "Без обложки";
+"home_hero_static_gradient" = "Статичный градиент";
+"home_hero_soft_glow" = "Мягкое свечение";
+"home_hero_primary_color" = "Основной цвет";
+"home_hero_secondary_color" = "Дополнительный цвет";
+"home_hero_save_failed" = "Не удалось сохранить оформление карточек. Попробуйте ещё раз.";
 "home_hero_daily_mix" = "Ваш ежедневный микс";
 "home_hero_refresh" = "Обновить подборку";
 

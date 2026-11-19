@@ -512,6 +512,41 @@ final class HomeTopSwitchingUITests: XCTestCase {
         }
     }
 
+    func testHeroAppearanceSheetCancelsDraftChanges() {
+        continueAfterFailure = false
+        let app = configuredHomeRegressionApp()
+        defer { app.terminate() }
+        app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "home.order"
+        app.launch()
+        let settings = app.buttons["home.edit.heroStyle"]
+        let large = app.buttons["home.hero.style.featured"]
+        let effect = app.buttons["home.hero.appearance.effect"]
+        func openLargeCardEffects() {
+            XCTAssertTrue(settings.waitForExistence(timeout: 15))
+            settings.tap()
+            XCTAssertTrue(large.waitForExistence(timeout: 5))
+            large.tap()
+            for _ in 0..<3 where !effect.isHittable { app.swipeUp() }
+            XCTAssertTrue(effect.isHittable)
+        }
+        openLargeCardEffects()
+        func selectedEffect() -> String? {
+            let description = effect.label + " " + (effect.value as? String ?? "")
+            return ["自动", "静态渐变", "流动", "柔光"].first { description.contains($0) }
+        }
+        let before = selectedEffect()
+        XCTAssertNotNil(before, effect.debugDescription)
+        effect.tap()
+        let choice = before == "柔光" ? "流动" : "柔光"
+        app.buttons[choice].tap()
+        attach(app, "hero-appearance-editor")
+        XCTAssertEqual(selectedEffect(), choice, effect.debugDescription)
+        app.buttons["取消"].tap()
+        openLargeCardEffects()
+        XCTAssertEqual(selectedEffect(), before)
+        app.buttons["取消"].tap()
+    }
+
     func testFeaturedHeroSwitchPersistsAndScrolls() {
         continueAfterFailure = false
         let app = configuredApp()
@@ -565,6 +600,7 @@ final class HomeTopSwitchingUITests: XCTestCase {
         home.tap()
         let collection = app.buttons["home.hero.recommendation.songs.daily"]
         XCTAssertTrue(collection.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["主题歌单"].exists)
         XCTAssertFalse(settings.exists, "Home must not expose layout settings")
         let cards = app.scrollViews["home.hero.featured.cards"]
         let rewind = app.buttons["home.hero.recommendation.songs.catalogRewind"]
@@ -625,11 +661,13 @@ final class HomeTopSwitchingUITests: XCTestCase {
         home.tap()
         XCTAssertTrue(cards.waitForExistence(timeout: 20))
         XCTAssertFalse(settings.exists)
+        XCTAssertTrue(app.staticTexts["专辑之选"].exists)
         attach(app, "hero-daily-medium-albums")
         let albumCard = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.hero.recommendation.album.")).firstMatch
         albumCard.tap()
         let album = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.hero.recommendation.albumDetail.")).firstMatch
         XCTAssertTrue(album.waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["home.hero.recommendation.title"].label, "专辑之选")
         XCTAssertFalse(settings.exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
         cards.swipeLeft()

@@ -7082,7 +7082,15 @@
 "home_hero_content_songs" = "Coleção de músicas";
 "home_hero_song_count_format" = "%d músicas";
 "home_hero_album_count_format" = "%d álbuns";
-"home_hero_daily_title" = "Seleção diária";
+"home_hero_album_picks" = "Álbuns em destaque";
+"home_hero_theme_playlists" = "Mixes temáticos";
+"home_hero_cover_collage" = "Mosaico de quatro capas";
+"home_hero_cover_hidden" = "Sem capa";
+"home_hero_static_gradient" = "Gradiente estático";
+"home_hero_soft_glow" = "Brilho suave";
+"home_hero_primary_color" = "Cor principal";
+"home_hero_secondary_color" = "Cor secundária";
+"home_hero_save_failed" = "Não foi possível salvar a aparência dos cartões. Tente novamente.";
 "home_hero_daily_mix" = "Seu mix diário";
 "home_hero_refresh" = "Renovar seleção";
 

@@ -7176,7 +7176,15 @@
 "home_hero_content_songs" = "Songsammlung";
 "home_hero_song_count_format" = "%d Titel";
 "home_hero_album_count_format" = "%d Alben";
-"home_hero_daily_title" = "Tägliche Empfehlungen";
+"home_hero_album_picks" = "Albumtipps";
+"home_hero_theme_playlists" = "Themenmixes";
+"home_hero_cover_collage" = "Vierer-Collage";
+"home_hero_cover_hidden" = "Kein Cover";
+"home_hero_static_gradient" = "Statischer Farbverlauf";
+"home_hero_soft_glow" = "Sanftes Leuchten";
+"home_hero_primary_color" = "Hauptfarbe";
+"home_hero_secondary_color" = "Zweitfarbe";
+"home_hero_save_failed" = "Das Kartendesign konnte nicht gesichert werden. Versuche es erneut.";
 "home_hero_daily_mix" = "Dein täglicher Mix";
 "home_hero_refresh" = "Neue Auswahl";
 

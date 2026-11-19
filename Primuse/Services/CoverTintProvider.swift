@@ -49,6 +49,10 @@ final class CoverTintProvider {
         cache[songID]
     }
 
+    func hasAnalyzedColorlessArtwork(forSongID songID: String) -> Bool {
+        noColorCache.contains(songID)
+    }
+
     /// Schedule background extraction for any songs not already
     /// cached. Idempotent — safe to call on every body re-eval.
     func prepare(_ songs: [Song]) {

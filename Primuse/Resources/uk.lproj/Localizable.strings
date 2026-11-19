@@ -7082,7 +7082,15 @@
 "home_hero_content_songs" = "Добірка пісень";
 "home_hero_song_count_format" = "Пісень: %d";
 "home_hero_album_count_format" = "Альбомів: %d";
-"home_hero_daily_title" = "Вибір дня";
+"home_hero_album_picks" = "Добірка альбомів";
+"home_hero_theme_playlists" = "Тематичні плейлісти";
+"home_hero_cover_collage" = "Колаж із чотирьох обкладинок";
+"home_hero_cover_hidden" = "Без обкладинки";
+"home_hero_static_gradient" = "Статичний градієнт";
+"home_hero_soft_glow" = "М’яке сяйво";
+"home_hero_primary_color" = "Основний колір";
+"home_hero_secondary_color" = "Додатковий колір";
+"home_hero_save_failed" = "Не вдалося зберегти вигляд карток. Спробуйте ще раз.";
 "home_hero_daily_mix" = "Ваш щоденний мікс";
 "home_hero_refresh" = "Оновити добірку";
 

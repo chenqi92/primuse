@@ -7082,7 +7082,15 @@
 "home_hero_content_songs" = "คอลเลกชันเพลง";
 "home_hero_song_count_format" = "%d เพลง";
 "home_hero_album_count_format" = "%d อัลบั้ม";
-"home_hero_daily_title" = "เพลงแนะนำประจำวัน";
+"home_hero_album_picks" = "อัลบั้มคัดสรร";
+"home_hero_theme_playlists" = "เพลย์ลิสต์ตามธีม";
+"home_hero_cover_collage" = "ภาพปกสี่ช่อง";
+"home_hero_cover_hidden" = "ไม่แสดงปก";
+"home_hero_static_gradient" = "ไล่สีแบบนิ่ง";
+"home_hero_soft_glow" = "แสงนวล";
+"home_hero_primary_color" = "สีหลัก";
+"home_hero_secondary_color" = "สีรอง";
+"home_hero_save_failed" = "บันทึกรูปแบบการ์ดไม่ได้ โปรดลองอีกครั้ง";
 "home_hero_daily_mix" = "มิกซ์ประจำวันของคุณ";
 "home_hero_refresh" = "เปลี่ยนชุดแนะนำ";
 

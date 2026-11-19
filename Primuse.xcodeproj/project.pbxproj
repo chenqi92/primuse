@@ -460,6 +460,7 @@
 		2E7C059A7243349F4D7BBB23 /* LibraryInsightBatchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0178243499743E59140E4898 /* LibraryInsightBatchViews.swift */; };
 		2E8D2AA64CC077D5625523F5 /* KaraokeLineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC7465EC4D7BFF7A5D825BF /* KaraokeLineView.swift */; };
 		2EA80583377D4B489C9D2556 /* SongRadioMix.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6E80970440262553A71FAF /* SongRadioMix.swift */; };
+		2EDCA1964BB40CE2189F33A6 /* HomeHeroCardAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = E21801ED1CE3E70DBD733623 /* HomeHeroCardAppearance.swift */; };
 		2EFBCB657D83A2B64F03C9C3 /* WidgetDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB675457344DDF1B61FF4AF /* WidgetDesignSystem.swift */; };
 		2F09AF9820B07E36BBDEDC15 /* FileMetadataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8607E666A6AB28E00D1C257 /* FileMetadataReader.swift */; };
 		2F14E31927C791EE603C3613 /* ImmersiveKineticDirectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C553E98E3682CD8AABB2FC /* ImmersiveKineticDirectionPolicy.swift */; };
@@ -1523,6 +1524,7 @@
 		A14AFA154222E9F7EB19828C /* AppIntentVocabulary.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2A854F368F59E5BB35E0510A /* AppIntentVocabulary.plist */; };
 		A16B9D09ACBCB3FE594899D5 /* HTTPDeclaredBodyLengthPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B122A5378EECD0356BD6FF0 /* HTTPDeclaredBodyLengthPolicy.swift */; };
 		A16CCCDDB616A31F67877A67 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E8868307C8B45B391847C2B /* SettingsView.swift */; };
+		A17181F55F057930D7DA46A9 /* HomeHeroCardAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = E21801ED1CE3E70DBD733623 /* HomeHeroCardAppearance.swift */; };
 		A19631EF086FEE965AA22F7E /* Pan123Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309F9BB53ECA9FA54F805457 /* Pan123Source.swift */; };
 		A1979A551B4997809F2AE317 /* SourceAddressForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DC47CC232985205CE2E6861 /* SourceAddressForm.swift */; };
 		A19AAA0FCB37214487EC2B79 /* MusicLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */; };
@@ -4207,6 +4209,7 @@
 		E1E751E7059225B7B6985AAE /* WebDAVMultistatusParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVMultistatusParser.swift; sourceTree = "<group>"; };
 		E1F7BC83F45C23C5FEECE7C3 /* TianyiCloudAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TianyiCloudAPIProtocol.swift; sourceTree = "<group>"; };
 		E20F7B4C2CC5E6302579FD2E /* AudioEngineVolumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngineVolumeTests.swift; sourceTree = "<group>"; };
+		E21801ED1CE3E70DBD733623 /* HomeHeroCardAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeHeroCardAppearance.swift; sourceTree = "<group>"; };
 		E29626A0E82F1C22DE16A59A /* SongLocalRemovalPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongLocalRemovalPolicy.swift; sourceTree = "<group>"; };
 		E33D82BA02A515B3AED89287 /* MedleyHighlight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedleyHighlight.swift; sourceTree = "<group>"; };
 		E3539A081659E6E09ECAA357 /* HomeHeroCarousel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeHeroCarousel.swift; sourceTree = "<group>"; };
@@ -4718,6 +4721,7 @@
 				09162255A250ACB54D607FA4 /* HomeDiscoveryModel.swift */,
 				D193CFC6EA53C8CC4DB668EF /* HomeFoldersSection.swift */,
 				17E404D4638787229DC81095 /* HomeForYouSection.swift */,
+				E21801ED1CE3E70DBD733623 /* HomeHeroCardAppearance.swift */,
 				E3539A081659E6E09ECAA357 /* HomeHeroCarousel.swift */,
 				86615BF85CE62FE06638827E /* HomeHeroRecommendations.swift */,
 				D58A8EAF8B5EACE572269A93 /* HomeListeningRankingSection.swift */,
@@ -8371,6 +8375,7 @@
 				C2E29DE1D474D35D4742D02D /* HomeDiscoveryModel.swift in Sources */,
 				9B7F2B5D35C992AA95A93735 /* HomeFoldersSection.swift in Sources */,
 				7C79048A9955A27D0B866308 /* HomeForYouSection.swift in Sources */,
+				A17181F55F057930D7DA46A9 /* HomeHeroCardAppearance.swift in Sources */,
 				3515CF76B3FAC5CE74392FAD /* HomeHeroCarousel.swift in Sources */,
 				00E92D73BF1DB07F98EA6D1D /* HomeHeroRecommendationModel.swift in Sources */,
 				347A6CEFA632B6BED35C0758 /* HomeHeroRecommendations.swift in Sources */,
@@ -9246,6 +9251,7 @@
 				DE124BF8F7E0731A1266A557 /* HomeDiscoveryModel.swift in Sources */,
 				8DB09314546C2B60BB2EF852 /* HomeFoldersSection.swift in Sources */,
 				884C3119A61DE634E6721FCB /* HomeForYouSection.swift in Sources */,
+				2EDCA1964BB40CE2189F33A6 /* HomeHeroCardAppearance.swift in Sources */,
 				F0FBCFD78D91DD251C135DAE /* HomeHeroCarousel.swift in Sources */,
 				9C3E48BACDF56208F9AAC76B /* HomeHeroRecommendationModel.swift in Sources */,
 				E2A2E4AFE9C0E4B76F6A6AD7 /* HomeHeroRecommendations.swift in Sources */,

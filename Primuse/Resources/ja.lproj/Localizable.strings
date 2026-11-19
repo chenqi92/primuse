@@ -7177,7 +7177,15 @@
 "home_hero_content_songs" = "曲のコレクション";
 "home_hero_song_count_format" = "%d 曲";
 "home_hero_album_count_format" = "%d 枚のアルバム";
-"home_hero_daily_title" = "毎日のおすすめ";
+"home_hero_album_picks" = "おすすめのアルバム";
+"home_hero_theme_playlists" = "テーマ別プレイリスト";
+"home_hero_cover_collage" = "4枚のコラージュ";
+"home_hero_cover_hidden" = "カバーなし";
+"home_hero_static_gradient" = "静止グラデーション";
+"home_hero_soft_glow" = "やわらかな光";
+"home_hero_primary_color" = "メインカラー";
+"home_hero_secondary_color" = "サブカラー";
+"home_hero_save_failed" = "カードの外観を保存できませんでした。もう一度お試しください。";
 "home_hero_daily_mix" = "デイリーミックス";
 "home_hero_refresh" = "別のおすすめ";
 

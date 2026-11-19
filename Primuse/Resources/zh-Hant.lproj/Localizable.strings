@@ -7153,7 +7153,15 @@
 "home_hero_content_songs" = "歌曲集合";
 "home_hero_song_count_format" = "%d 首歌曲";
 "home_hero_album_count_format" = "%d 張專輯";
-"home_hero_daily_title" = "每日推薦";
+"home_hero_album_picks" = "專輯之選";
+"home_hero_theme_playlists" = "主題歌單";
+"home_hero_cover_collage" = "四格拼貼";
+"home_hero_cover_hidden" = "無封面";
+"home_hero_static_gradient" = "靜態漸層";
+"home_hero_soft_glow" = "柔光";
+"home_hero_primary_color" = "主色";
+"home_hero_secondary_color" = "輔色";
+"home_hero_save_failed" = "無法儲存卡片外觀，請再試一次。";
 "home_hero_daily_mix" = "每日精選";
 "home_hero_refresh" = "換一輪";
 

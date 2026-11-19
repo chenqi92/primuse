@@ -203,6 +203,80 @@ final class HomeHeroRecommendationTests: XCTestCase {
 
 @MainActor
 final class HomeHeroCarouselLayoutTests: XCTestCase {
+    func testHeroAppearanceRestoresEachSizeAndUsesTheSelectedCoverForColor() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("appearance.plist")
+        let store = HomeHeroCardAppearanceStore(url: url)
+        await store.load()
+        let initial = store.values
+        XCTAssertEqual(initial.large.backdrop.resolved(medium: false, album: false), .flow)
+        XCTAssertEqual(initial.medium.backdrop.resolved(medium: true, album: false), .gradient)
+        XCTAssertEqual(initial.large.backdrop.resolved(medium: false, album: true), .gradient)
+
+        let neutral = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).jpegData(withCompressionQuality: 0.85) { context in
+            UIColor.lightGray.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        }
+        var largeEdit = initial
+        largeEdit.large.cover = .photo
+        largeEdit.large.photo = try HomeHeroCardPhoto(jpeg: neutral)
+        try store.save(largeEdit, original: initial)
+        var otherWindow = initial
+        otherWindow.medium.cover = .hidden
+        otherWindow.medium.backdrop = .glow
+        otherWindow.medium.customColors = true
+        otherWindow.medium.primaryHex = "CC2266"
+        try store.save(otherWindow, original: initial)
+
+        let restored = HomeHeroCardAppearanceStore(url: url)
+        await restored.load()
+        XCTAssertEqual(restored.values.large, largeEdit.large)
+        XCTAssertEqual(restored.values.medium, otherWindow.medium)
+        let gray = restored.values.large.palette(artwork: .fallback, theme: .daily)
+        XCTAssertEqual(gray.primary, ImmersiveArtworkPalette.homeMonochrome.primary)
+        let custom = restored.values.medium.palette(artwork: .fallback, theme: .recentCatalog)
+        XCTAssertEqual(custom.primary, Color(hex: "CC2266"))
+        var hidden = restored.values.medium
+        hidden.customColors = false
+        XCTAssertEqual(hidden.palette(artwork: .fallback, theme: .recentCatalog).primary,
+                       ImmersiveArtworkPalette.homePreset(.recentCatalog).primary)
+    }
+
+    func testFlowAndGlowMoveOnlyWhileFocusedAndRespectReduceMotion() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        func backdrop(_ style: HomeHeroBackdropStyle, focused: Bool, reduced: Bool) -> some View {
+            HomeHeroCardBackdrop(style: style, palette: .homePreset(.catalogRewind), focused: focused, reduceMotion: reduced)
+                .environment(\.scenePhase, .active)
+                .frame(width: 180, height: 180)
+        }
+        let host = UIHostingController(rootView: backdrop(.flow, focused: true, reduced: false))
+        host.safeAreaRegions = []
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 180, height: 180)
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        func snapshot() -> Data {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            return UIGraphicsImageRenderer(size: host.view.bounds.size, format: format).pngData { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+        }
+        for (style, focused, reduced, shouldMove) in [
+            (HomeHeroBackdropStyle.flow, true, false, true), (.glow, true, false, true),
+            (.flow, false, false, false), (.glow, true, true, false), (.gradient, true, false, false)
+        ] {
+            host.rootView = backdrop(style, focused: focused, reduced: reduced)
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(180))
+            let first = snapshot()
+            try await Task.sleep(for: .milliseconds(700))
+            XCTAssertEqual(first != snapshot(), shouldMove, "Unexpected motion for \(style), focus=\(focused), reduced=\(reduced)")
+        }
+    }
+
     func testFeaturedCardsResizeAndKeepTheNextCardVisible() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -217,7 +291,7 @@ final class HomeHeroCarouselLayoutTests: XCTestCase {
         func root(_ size: CGSize, largeText: Bool = false) -> some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Daily Picks").font(.title3.bold())
+                    Text("home_hero_album_picks").font(.title3.bold())
                     ScrollView(.horizontal) {
                         HStack(spacing: 12) {
                             ForEach(songs) { song in

@@ -7082,7 +7082,15 @@
 "home_hero_content_songs" = "Şarkı koleksiyonu";
 "home_hero_song_count_format" = "%d şarkı";
 "home_hero_album_count_format" = "%d albüm";
-"home_hero_daily_title" = "Günlük öneriler";
+"home_hero_album_picks" = "Seçili Albümler";
+"home_hero_theme_playlists" = "Temalı Listeler";
+"home_hero_cover_collage" = "Dört kapaklı kolaj";
+"home_hero_cover_hidden" = "Kapaksız";
+"home_hero_static_gradient" = "Sabit renk geçişi";
+"home_hero_soft_glow" = "Yumuşak parıltı";
+"home_hero_primary_color" = "Ana renk";
+"home_hero_secondary_color" = "İkincil renk";
+"home_hero_save_failed" = "Kart görünümü kaydedilemedi. Tekrar deneyin.";
 "home_hero_daily_mix" = "Günlük karışımın";
 "home_hero_refresh" = "Yeni öneriler";
 
