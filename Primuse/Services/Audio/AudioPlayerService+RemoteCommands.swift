@@ -51,7 +51,14 @@ extension AudioPlayerService {
                 detail: "target=\(String(format: "%.1f", event.positionTime))"
             )
             guard self?.playbackCapabilities.canSeek == true else { return .commandFailed }
-            self?.seek(to: event.positionTime); return .success
+            self?.logCarPlayNowPlayingSnapshot(
+                MPNowPlayingInfoCenter.default().nowPlayingInfo, event: "seek.received"
+            )
+            self?.seek(to: event.positionTime)
+            self?.logCarPlayNowPlayingSnapshot(
+                MPNowPlayingInfoCenter.default().nowPlayingInfo, event: "seek.returned"
+            )
+            return .success
         }
         #if os(iOS)
         center.likeCommand.addTarget { [weak self] event in

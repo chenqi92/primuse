@@ -121,6 +121,7 @@ extension AudioPlayerService {
                 min(elapsed, duration > 0 ? duration : elapsed)
             )
             nowPlayingCenter.nowPlayingInfo = info
+            logCarPlayNowPlayingSnapshot(info, event: "publish.lyrics")
             cachedNowPlayingInfo = info
             lastPublishedLockScreenLyricsPresentation = lyricsPresentation
             noteLockScreenLyricsPublished()
@@ -194,6 +195,7 @@ extension AudioPlayerService {
         }
         lockScreenMotionArtworkPublisher.decorate(&info, song: song, player: self)
         nowPlayingCenter.nowPlayingInfo = info
+        logCarPlayNowPlayingSnapshot(info, event: "publish.full")
         logNowPlayingPublishIfNeeded(info, songID: song.id, songTitle: song.title)
         cachedNowPlayingInfo = info
         cachedNowPlayingInfoKey = currentNowPlayingInfoSnapshotKey()
@@ -259,6 +261,7 @@ extension AudioPlayerService {
         lockScreenMotionArtworkPublisher.reset()
         let nowPlayingCenter = MPNowPlayingInfoCenter.default()
         nowPlayingCenter.nowPlayingInfo = nil
+        logCarPlayNowPlayingSnapshot(nil, event: "publish.clear")
         synchronizeSystemPlaybackState(.stopped, with: nowPlayingCenter)
     }
 
@@ -408,6 +411,7 @@ extension AudioPlayerService {
             nowInfo[MPMediaItemPropertyArtwork] = nil
             LockScreenMotionArtworkPublisher.removeEntries(from: &nowInfo)
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nowInfo
+            logCarPlayNowPlayingSnapshot(nowInfo, event: "publish.artworkRemoval")
             invalidateCachedNowPlayingInfo()
         }
 
@@ -669,6 +673,36 @@ extension AudioPlayerService {
 }
 
 extension AudioPlayerService {
+    /// 记录提交给 MediaPlayer 的本地快照；不代表 CarPlay 已完成显示。
+    func logCarPlayNowPlayingSnapshot(_ info: [String: Any]?, event: String) {
+        #if os(iOS)
+        guard FileLogger.isDiagnosticModeActive,
+              let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? CPTemplateApplicationScene }).first else { return }
+        let controller = scene.interfaceController
+        let top = controller.topTemplate
+        let template = top.map { String(describing: type(of: $0)) } ?? "nil"
+        let foreground = scene.activationState == .foregroundActive
+        let fullScreen = top is CPNowPlayingTemplate
+        let elapsed = (info?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? NSNumber)?.doubleValue ?? -1
+        let rate = (info?[MPNowPlayingInfoPropertyPlaybackRate] as? NSNumber)?.doubleValue ?? -1
+        let publishedDuration = (info?[MPMediaItemPropertyPlaybackDuration] as? NSNumber)?.doubleValue ?? -1
+        let itemID = info?[MPNowPlayingInfoPropertyExternalContentIdentifier] as? String ?? "nil"
+        let titleHash = (info?[MPMediaItemPropertyTitle] as? String).map { String(StableFNV1a64.hash($0)) } ?? "nil"
+        let persistentID = (info?[MPMediaItemPropertyPersistentID] as? NSNumber)?.stringValue ?? "nil"
+        pdiag(
+            "CarPlay NowPlaying event=\(event) uptime=\(String(format: "%.3f", ProcessInfo.processInfo.systemUptime)) "
+                + "template=\(template) foreground=\(foreground) fullScreen=\(fullScreen) "
+                + "presented=\(controller.presentedTemplate != nil) songID=\(currentSong?.id ?? "nil") "
+                + "publishedSongID=\(itemID) persistentID=\(persistentID) titleHash=\(titleHash) "
+                + "current=\(String(format: "%.3f", currentTime)) elapsed=\(String(format: "%.3f", elapsed)) "
+                + "duration=\(publishedDuration) rate=\(rate) playing=\(isPlaying) "
+                + "active=\(isPlaybackActuallyActive) loading=\(isLoading) remoteBuffering=\(isRemotePlaybackBuffering) "
+                + "artwork=\(info?[MPMediaItemPropertyArtwork] != nil)"
+        )
+        #endif
+    }
+
     /// 诊断:整份「正在播放」快照换了歌或隔了一分钟才记一行(锁屏歌词的逐行增量不记)。
     /// 锁屏、控制中心、灵动岛不见了的时候,对得上当时发出去的是什么。
     func logNowPlayingPublishIfNeeded(_ info: [String: Any], songID: String, songTitle: String) {
