@@ -7602,6 +7602,7 @@
 "source_files_scope_outside" = "Tarama kapsamı dışında";
 "source_files_scope_none" = "Henüz taranacak klasör seçilmedi";
 "source_files_choose_directories" = "Klasör seç";
+"source_files_scope_editing_hint" = "Taranacak klasörleri işaretleyin. Yeni seçimle taramak için Bitti’ye dokunun.";
 "source_files_scan_here" = "Yalnızca bu klasörü tara";
 "source_files_scan_source" = "Tüm kaynağı tara";
 "source_files_scan_started_format" = "“%@” taranıyor";

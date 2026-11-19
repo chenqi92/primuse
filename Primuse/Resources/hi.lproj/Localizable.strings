@@ -7602,6 +7602,7 @@
 "source_files_scope_outside" = "स्कैन दायरे से बाहर";
 "source_files_scope_none" = "अभी स्कैन के लिए कोई फ़ोल्डर नहीं चुना";
 "source_files_choose_directories" = "फ़ोल्डर चुनें";
+"source_files_scope_editing_hint" = "स्कैन करने के लिए फ़ोल्डर चुनें। नए चयन के साथ स्कैन करने के लिए “हो गया” पर टैप करें।";
 "source_files_scan_here" = "सिर्फ़ यह फ़ोल्डर स्कैन करें";
 "source_files_scan_source" = "पूरा स्रोत स्कैन करें";
 "source_files_scan_started_format" = "“%@” स्कैन हो रहा है";

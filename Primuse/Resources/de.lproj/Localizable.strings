@@ -7696,6 +7696,7 @@
 "source_files_scope_outside" = "Nicht im Scan-Bereich";
 "source_files_scope_none" = "Noch keine Scan-Ordner gewählt";
 "source_files_choose_directories" = "Ordner wählen";
+"source_files_scope_editing_hint" = "Wähle die Ordner aus, die gescannt werden sollen. Tippe auf „Fertig“, um mit der neuen Auswahl zu scannen.";
 "source_files_scan_here" = "Nur diesen Ordner scannen";
 "source_files_scan_source" = "Ganze Quelle scannen";
 "source_files_scan_started_format" = "„%@“ wird gescannt";

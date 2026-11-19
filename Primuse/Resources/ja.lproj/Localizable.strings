@@ -7697,6 +7697,7 @@
 "source_files_scope_outside" = "スキャン対象外";
 "source_files_scope_none" = "スキャンするフォルダが未選択";
 "source_files_choose_directories" = "フォルダを選択";
+"source_files_scope_editing_hint" = "スキャンするフォルダにチェックを入れてください。「完了」をタップすると新しい範囲でスキャンします。";
 "source_files_scan_here" = "このフォルダだけスキャン";
 "source_files_scan_source" = "ソース全体をスキャン";
 "source_files_scan_started_format" = "「%@」をスキャンしています";

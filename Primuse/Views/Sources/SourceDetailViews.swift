@@ -23,13 +23,15 @@ struct SourceDetailActions {
 struct SourceDetailPage: View {
     let source: MusicSource
     let actions: SourceDetailActions
+    /// 卡片上的「选择目录」「管理目录」:文件页一进来就在勾选扫描目录。
+    var startsScopeEditing = false
 
     @Environment(SourcesStore.self) private var sourcesStore
 
     var body: some View {
         let current = sourcesStore.source(id: source.id) ?? source
         if SourceFileBrowserPolicy.browsesFiles(current.type) {
-            SourceFilesRootPage(source: current, actions: actions)
+            SourceFilesRootPage(source: current, actions: actions, startsScopeEditing: startsScopeEditing)
         } else if current.type == .appleMusic {
             AppleMusicSourcePage(source: current)
         } else {
@@ -328,9 +330,10 @@ struct SourceDetailHeader: View {
 struct SourceMetricTile: View {
     let value: String
     let label: String
+    var alignment: HorizontalAlignment = .leading
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: alignment, spacing: 2) {
             Text(value)
                 .font(.headline)
                 .monospacedDigit()
@@ -341,7 +344,7 @@ struct SourceMetricTile: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
         .accessibilityElement(children: .combine)
     }
 }
@@ -634,6 +637,39 @@ enum SourceDateText {
 }
 
 // MARK: - 服务器自动刷新
+
+/// 「自动刷新」一个选项列表:关,或者隔多久刷一次。卡片上的胶囊和文件页「更多」里共用。
+struct SourceAutoRefreshPicker: View {
+    let sourceID: String
+
+    var body: some View {
+        let refresh = AppServices.shared.serverCatalogAutoRefresh
+        Picker(selection: Binding<SourceAutomaticRefreshInterval?>(
+            get: { refresh.isEnabled(for: sourceID) ? refresh.refreshInterval(for: sourceID) : nil },
+            set: { interval in
+                guard let interval else {
+                    refresh.setEnabled(false, for: sourceID)
+                    return
+                }
+                if refresh.isEnabled(for: sourceID) {
+                    refresh.setRefreshInterval(interval, for: sourceID)
+                } else {
+                    // 先换间隔再打开,只按新间隔检查一次。
+                    refresh.setRefreshInterval(interval, for: sourceID)
+                    refresh.setEnabled(true, for: sourceID)
+                }
+            }
+        )) {
+            Text("source_card_metric_off").tag(nil as SourceAutomaticRefreshInterval?)
+            ForEach(SourceAutomaticRefreshInterval.allCases, id: \.self) { interval in
+                Text(Duration.seconds(interval.timeInterval), format: .units(allowed: [.hours], width: .wide))
+                    .tag(Optional(interval))
+            }
+        } label: {
+            Label("server_auto_refresh", systemImage: "clock.arrow.circlepath")
+        }
+    }
+}
 
 /// 原来挂在音乐服务器卡片上的自动刷新设置,搬到概览页。
 struct ServerCatalogAutoRefreshControl: View {

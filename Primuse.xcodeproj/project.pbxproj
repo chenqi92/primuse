@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		2F1BD27F5DD3B6A456109A6E /* ScraperJSONRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB638275B078E9C44B152E91 /* ScraperJSONRule.swift */; };
+		35E758F0BF2F384438D25094 /* SourceCardPresentationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C01DBCFFB9CFEF7BEED062B /* SourceCardPresentationPolicy.swift */; };
 		4E946A6C8B1A4D400853404A /* AutoEqCatalog.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = B1182B82F376B068C60AEA5F /* AutoEqCatalog.sqlite */; };
 		54BA135767A4998E95D1E958 /* NowPlayingCarouselUpNextFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = F584CC469247A34048416F9E /* NowPlayingCarouselUpNextFace.swift */; };
 		967513E316CADFC13E8D1FE1 /* NowPlayingCarouselExploreFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09C0B9A17A59CE43F6EAB17 /* NowPlayingCarouselExploreFace.swift */; };
@@ -2678,6 +2679,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		9C01DBCFFB9CFEF7BEED062B /* SourceCardPresentationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceCardPresentationPolicy.swift; sourceTree = "<group>"; };
 		B1182B82F376B068C60AEA5F /* AutoEqCatalog.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = AutoEqCatalog.sqlite; sourceTree = "<group>"; };
 		DB638275B078E9C44B152E91 /* ScraperJSONRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperJSONRule.swift; sourceTree = "<group>"; };
 		6904511379BB45DCF7239315 /* RemoteTransferProgressPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTransferProgressPolicy.swift; sourceTree = "<group>"; };
@@ -4922,6 +4924,7 @@
 				0CDF376A886EA798FB63A718 /* Settings */,
 				1FA61E5EA3526337A1F7518F /* Sharing */,
 				9FDD9EBD6C42B122707FB29D /* Skin */,
+				9C01DBCFFB9CFEF7BEED062B /* SourceCardPresentationPolicy.swift */,
 				982CFDD034CB574AA740A619 /* Storage */,
 				F49A5BE606706F898B5DEAC8 /* Streaming */,
 				653663F81F12EC2A31ED433E /* TopShelf */,
@@ -7663,6 +7666,7 @@
 				9170264A12CAC6F2F15C1CAD /* DiagnosticReportMailPolicy.swift in Sources */,
 				24AE193B4E4F4C4A6FE3A70E /* DiagnosticUploadPolicy.swift in Sources */,
 				648972DDA395F92075E33575 /* DirectoryBrowserNavigationState.swift in Sources */,
+				35E758F0BF2F384438D25094 /* SourceCardPresentationPolicy.swift in Sources */,
 				B240DD8EF7FDFC9F11E75059 /* SourceFileBrowserPolicy.swift in Sources */,
 				25FA5A068CDA02B52BB70A05 /* DiscImageFileSystem.swift in Sources */,
 				09E0FA677763B8D51EAF2356 /* DrimeAPIProtocol.swift in Sources */,

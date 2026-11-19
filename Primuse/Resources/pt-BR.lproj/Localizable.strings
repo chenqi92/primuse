@@ -7602,6 +7602,7 @@
 "source_files_scope_outside" = "Fora do escaneamento";
 "source_files_scope_none" = "Nenhuma pasta escolhida para escanear";
 "source_files_choose_directories" = "Escolher pastas";
+"source_files_scope_editing_hint" = "Marque as pastas que deseja escanear. Toque em Concluído para escanear com a nova seleção.";
 "source_files_scan_here" = "Escanear esta pasta";
 "source_files_scan_source" = "Escanear a fonte inteira";
 "source_files_scan_started_format" = "Escaneando “%@”";

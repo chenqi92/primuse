@@ -7673,6 +7673,7 @@
 "source_files_scope_outside" = "不在掃描範圍內";
 "source_files_scope_none" = "還沒選掃描目錄";
 "source_files_choose_directories" = "選擇目錄";
+"source_files_scope_editing_hint" = "勾選要掃描的目錄，點「完成」後按新的範圍掃描。";
 "source_files_scan_here" = "只掃這裡";
 "source_files_scan_source" = "掃描整個來源";
 "source_files_scan_started_format" = "開始掃描「%@」";

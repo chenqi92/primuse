@@ -7696,6 +7696,7 @@
 "source_files_scope_outside" = "Hors de la zone analysée";
 "source_files_scope_none" = "Aucun dossier à analyser choisi";
 "source_files_choose_directories" = "Choisir les dossiers";
+"source_files_scope_editing_hint" = "Cochez les dossiers à analyser. Touchez Terminé pour lancer l’analyse avec la nouvelle sélection.";
 "source_files_scan_here" = "Analyser ce dossier";
 "source_files_scan_source" = "Analyser toute la source";
 "source_files_scan_started_format" = "Analyse de « %@ »";

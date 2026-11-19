@@ -7602,6 +7602,7 @@
 "source_files_scope_outside" = "Fuera del escaneo";
 "source_files_scope_none" = "Aún no eliges carpetas para escanear";
 "source_files_choose_directories" = "Elegir carpetas";
+"source_files_scope_editing_hint" = "Marca las carpetas que quieres escanear. Toca Listo para escanear con la nueva selección.";
 "source_files_scan_here" = "Escanear esta carpeta";
 "source_files_scan_source" = "Escanear toda la fuente";
 "source_files_scan_started_format" = "Escaneando “%@”";

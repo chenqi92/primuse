@@ -46,10 +46,30 @@ final class SourceFilesModel {
     private(set) var isLoaded = false
     /// 每重建一次加一。
     private(set) var revision = 0
+    /// 正在文件页里勾选扫描目录时,记着开始勾之前的目录;点「完成」或离开文件页时
+    /// 按前后差异重扫。各级目录页共用这一份,进下一层也还在勾选。
+    private(set) var scopeEditingBaseline: [String]?
+    /// 根页此刻在不在屏幕上。推进、返回时系统偶尔让它先消失再出现一下,
+    /// 离开后过一会儿还不在,才算真的退出了文件页。
+    @ObservationIgnored var isRootVisible = false
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
     init(sourceID: String) {
         self.sourceID = sourceID
+    }
+
+    var isEditingScope: Bool { scopeEditingBaseline != nil }
+
+    func beginScopeEditing(directories: [String]) {
+        guard scopeEditingBaseline == nil else { return }
+        scopeEditingBaseline = directories
+        plog("🗂️ Source files scope editing began source=\(sourceID.prefix(8)) dirs=\(directories.count)")
+    }
+
+    /// 结束勾选,交回开始时的目录;本来没在勾选时为 nil。
+    func endScopeEditing() -> [String]? {
+        defer { scopeEditingBaseline = nil }
+        return scopeEditingBaseline
     }
 
     func refresh(library: MusicLibrary, countsFolders: Bool) {
@@ -130,12 +150,16 @@ struct SourceFileSelection: Identifiable {
 struct SourceFilesRootPage: View {
     let source: MusicSource
     let actions: SourceDetailActions
+    /// 从卡片的「选择目录」「管理目录」进来:一进来就是勾选扫描目录的样子。
+    var startsScopeEditing = false
 
     @State private var model: SourceFilesModel
+    @State private var appliedInitialScopeEditing = false
 
-    init(source: MusicSource, actions: SourceDetailActions) {
+    init(source: MusicSource, actions: SourceDetailActions, startsScopeEditing: Bool = false) {
         self.source = source
         self.actions = actions
+        self.startsScopeEditing = startsScopeEditing
         _model = State(initialValue: SourceFilesModel(sourceID: source.id))
     }
 
@@ -146,6 +170,12 @@ struct SourceFilesRootPage: View {
             model: model,
             actions: actions
         )
+        .onAppear {
+            guard startsScopeEditing, !appliedInitialScopeEditing,
+                  SourceFolderPage.canEditScope(source) else { return }
+            appliedInitialScopeEditing = true
+            model.beginScopeEditing(directories: source.scannedDirectories)
+        }
     }
 }
 
@@ -199,11 +229,21 @@ struct SourceFolderPage: View {
         current.type != .upnp
     }
 
+    /// 有选目录这一步的源,扫描目录直接在文件页里勾,不再弹选目录页。
+    static func canEditScope(_ source: MusicSource) -> Bool {
+        source.type.continuesToDirectorySelectionAfterCreation && !source.type.scansEntireLibrary
+    }
+
+    private var isEditingScope: Bool {
+        model.isEditingScope && Self.canEditScope(current)
+    }
+
     var body: some View {
         let current = current
         let scope = SourceFolderScope.resolve(
             path: location.path, ancestors: location.ancestors, source: current
         )
+        let isEditingScope = isEditingScope
         List {
             if location.isRoot {
                 SourceFilesRootHeader(
@@ -215,32 +255,42 @@ struct SourceFolderPage: View {
                     onHiddenPlaylists: { showsHiddenPlaylists = true }
                 )
             }
-            Section {
-                SourceFolderScopeBanner(
-                    scope: scope,
-                    songCount: countsFolders ? model.index.songCount(inFolder: location.path) : nil,
-                    isRoot: location.isRoot,
-                    canScanHere: ScanService.supportsFolderRescan(current) && current.isEnabled,
-                    onScanHere: { scanHere(location) },
-                    onManage: { sheet = .connection }
-                )
+            if isEditingScope {
+                scopeEditingSection
+            } else {
+                Section {
+                    SourceFolderScopeBanner(
+                        scope: scope,
+                        songCount: countsFolders ? model.index.songCount(inFolder: location.path) : nil,
+                        isRoot: location.isRoot,
+                        canScanHere: ScanService.supportsFolderRescan(current) && current.isEnabled,
+                        onScanHere: { scanHere(location) },
+                        onManage: manageDirectories
+                    )
+                }
             }
-            listingSections(scope: scope)
+            listingSections(scope: scope, isEditingScope: isEditingScope)
         }
         #if os(iOS)
         .listStyle(.insetGrouped)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .navigationTitle(location.title)
-        .toolbar { toolbarContent(scope: scope) }
+        .toolbar { toolbarContent(scope: scope, isEditingScope: isEditingScope) }
         .refreshable { await reload() }
         .onAppear {
+            if location.isRoot { model.isRootVisible = true }
             guard !hasAppeared else { return }
             hasAppeared = true
             if location.isRoot { model.refresh(library: library, countsFolders: countsFolders) }
             load()
         }
-        .onDisappear { loadTask?.cancel() }
+        .onDisappear {
+            loadTask?.cancel()
+            guard location.isRoot else { return }
+            model.isRootVisible = false
+            finishScopeEditingIfLeft()
+        }
         .onChange(of: scanService.scanningSourceIDs.contains(current.id)) { wasScanning, isScanning in
             // 扫完一次,入库状态变了:重建索引、重列这一层。
             guard wasScanning, !isScanning, location.isRoot else { return }
@@ -305,7 +355,7 @@ struct SourceFolderPage: View {
     // MARK: 列表
 
     @ViewBuilder
-    private func listingSections(scope: SourceFolderScope) -> some View {
+    private func listingSections(scope: SourceFolderScope, isEditingScope: Bool) -> some View {
         switch phase {
         case .loading:
             Section {
@@ -340,7 +390,11 @@ struct SourceFolderPage: View {
                 if !listing.folders.isEmpty {
                     Section {
                         ForEach(listing.folders, id: \.path) { folder in
-                            folderRow(folder)
+                            if isEditingScope {
+                                scopeEditingFolderRow(folder)
+                            } else {
+                                folderRow(folder)
+                            }
                         }
                     }
                 }
@@ -438,40 +492,230 @@ struct SourceFolderPage: View {
     }
 
     @ToolbarContentBuilder
-    private func toolbarContent(scope: SourceFolderScope) -> some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            SourceStorageCapsule(sourceID: current.id, isSheetClosed: sheet == nil) { sheet = .storage }
-            Menu {
-                Section {
-                    Button { actions.scan(current, .automatic) } label: {
-                        Label("source_files_scan_source", systemImage: "waveform.badge.magnifyingglass")
-                    }
-                    if !location.isRoot, scope.isScanned, ScanService.supportsFolderRescan(current) {
-                        Button { scanHere(location) } label: {
-                            Label("source_files_scan_here", systemImage: "arrow.clockwise")
+    private func toolbarContent(scope: SourceFolderScope, isEditingScope: Bool) -> some ToolbarContent {
+        if isEditingScope {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("done") { finishScopeEditing() }
+                    .fontWeight(.semibold)
+            }
+        } else {
+            ToolbarItemGroup(placement: .primaryAction) {
+                SourceStorageCapsule(sourceID: current.id, isSheetClosed: sheet == nil) { sheet = .storage }
+                Menu {
+                    Section {
+                        Button { actions.scan(current, .automatic) } label: {
+                            Label("source_files_scan_source", systemImage: "waveform.badge.magnifyingglass")
+                        }
+                        if !location.isRoot, scope.isScanned, ScanService.supportsFolderRescan(current) {
+                            Button { scanHere(location) } label: {
+                                Label("source_files_scan_here", systemImage: "arrow.clockwise")
+                            }
+                        }
+                        Button { actions.scan(current, .deep) } label: {
+                            Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+                        }
+                        if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(current) {
+                            SourceAutoRefreshPicker(sourceID: current.id)
+                                .pickerStyle(.menu)
                         }
                     }
-                    Button { actions.scan(current, .deep) } label: {
-                        Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
-                    }
-                }
-                Section {
-                    if !current.type.scansEntireLibrary {
-                        Button { sheet = .connection } label: {
-                            Label("manage_dirs", systemImage: "folder.badge.gear")
+                    Section {
+                        if !current.type.scansEntireLibrary {
+                            Button(action: manageDirectories) {
+                                Label("manage_dirs", systemImage: "folder.badge.gear")
+                            }
+                        }
+                        Button { sheet = .diagnostics } label: {
+                            Label("source_diagnostics", systemImage: "stethoscope")
+                        }
+                        Button { sheet = .edit } label: {
+                            Label("edit", systemImage: "pencil")
                         }
                     }
-                    Button { sheet = .diagnostics } label: {
-                        Label("source_diagnostics", systemImage: "stethoscope")
-                    }
-                    Button { sheet = .edit } label: {
-                        Label("edit", systemImage: "pencil")
-                    }
+                } label: {
+                    Label("more", systemImage: "ellipsis.circle")
                 }
-            } label: {
-                Label("more", systemImage: "ellipsis.circle")
             }
         }
+    }
+
+    // MARK: 勾选扫描目录
+
+    /// 勾选时顶上那一段:这一层自己能勾就给一行「当前目录」,下面一句说明。
+    private var scopeEditingSection: some View {
+        Section {
+            if let path = currentSelectablePath {
+                DirectoryCheckRow(
+                    name: String(localized: "current_directory"),
+                    subtitle: currentDirectorySubtitle,
+                    path: path,
+                    icon: location.isRoot ? "shippingbox.fill" : "folder.fill",
+                    iconColor: .orange,
+                    isNavigable: false,
+                    selectedDirectories: scopeSelection,
+                    folderTag: DirectoryFolderTag.forFolder(
+                        path: path,
+                        of: current,
+                        ancestors: location.ancestors,
+                        parentTitle: scopeTitle(for:)
+                    ),
+                    ancestorPaths: location.ancestors,
+                    sourceType: current.type,
+                    ancestorTitle: scopeTitle(for:),
+                    inGroupedList: true
+                )
+            }
+        } footer: {
+            Text("source_files_scope_editing_hint")
+        }
+        .environment(\.directoryRescanAction, scopeRescanAction)
+    }
+
+    private func scopeEditingFolderRow(_ folder: SourceFileBrowserPolicy.Entry) -> some View {
+        let child = location.child(path: folder.path, title: folder.name)
+        let count = countsFolders ? model.index.songCount(inFolder: folder.path) : 0
+        return DirectoryCheckRow(
+            name: folder.name,
+            subtitle: count > 0
+                ? String(format: String(localized: "source_files_folder_count_format"), count)
+                : nil,
+            path: folder.path,
+            icon: "folder.fill",
+            iconColor: .blue,
+            isNavigable: true,
+            selectedDirectories: scopeSelection,
+            onNavigate: { openedFolder = child },
+            folderTag: DirectoryFolderTag.forFolder(
+                path: folder.path,
+                of: current,
+                ancestors: child.ancestors,
+                parentTitle: scopeTitle(for:)
+            ),
+            ancestorPaths: child.ancestors,
+            sourceType: current.type,
+            ancestorTitle: scopeTitle(for:),
+            inGroupedList: true
+        )
+        .environment(\.directoryRescanAction, scopeRescanAction)
+    }
+
+    /// 这一层「当前目录」勾的是哪条路径。根目录本来不能勾的源,已存的选择里有根
+    /// (比如电视端存的「整个音乐源」)时也给出来,好让它能被取消。和选目录页同一套规则。
+    private var currentSelectablePath: String? {
+        if let selectable = SourceDirectorySelectionPolicy.selectableCurrentPath(
+            for: current.type,
+            browserPath: location.path
+        ) {
+            return selectable
+        }
+        guard location.isRoot else { return nil }
+        return SourceDirectorySelectionPolicy.storedRootSelection(in: current.scannedDirectories)
+    }
+
+    private var currentDirectorySubtitle: String? {
+        if location.isRoot { return current.basePath }
+        return current.type.itemPathsCarryFileNames ? location.path : nil
+    }
+
+    /// 「已包含在「…」中」里上级目录的名字。这一层自己叫得出;别的退到已存的目录名,
+    /// ID 寻址的网盘再退到列目录时记下的名字,给不出就用通用说法,不把 ID 露出来。
+    private func scopeTitle(for path: String) -> String? {
+        if !location.isRoot, SourceDirectorySelectionPolicy.isSamePath(path, location.path) {
+            return location.title
+        }
+        if let name = current.scannedDirectoryDisplayNames[path], !name.isEmpty {
+            return name
+        }
+        if current.type.isCloudDrive,
+           let name = CloudDirectoryNameStore.displayName(for: path, sourceID: current.id),
+           !name.isEmpty {
+            return name
+        }
+        return SourceDirectoryLabelPolicy.readableFallback(path: path, sourceType: current.type)
+    }
+
+    /// 勾选直接写进这个源的扫描目录;重扫等「完成」时按前后差异一次做。
+    private var scopeSelection: Binding<[String]> {
+        let sourceID = current.id
+        let sourceType = current.type
+        return Binding(
+            get: { sourcesStore.source(id: sourceID)?.scannedDirectories ?? [] },
+            set: { newValue in
+                let normalized = SourceDirectorySelectionPolicy.normalizedSelections(newValue, for: sourceType)
+                pmWithAnimation(.list) {
+                    sourcesStore.update(sourceID) {
+                        $0.extraConfig = MusicSource.encodeScannedDirectories(
+                            normalized, into: $0.extraConfig, type: $0.type
+                        )
+                    }
+                }
+                persistScopeDisplayNames(normalized)
+            }
+        )
+    }
+
+    /// 网盘的目录是 ID,勾上的那几条把名字一起存进源里,别的设备和卡片才叫得出名字。
+    private func persistScopeDisplayNames(_ selections: [String]) {
+        let source = current
+        guard source.type.isCloudDrive, !selections.isEmpty else { return }
+        if !location.isRoot {
+            CloudDirectoryNameStore.saveName(location.title, for: location.path, sourceID: source.id)
+        }
+        let localNames = CloudDirectoryNameStore.displayNames(for: source.id)
+        let names = selections.reduce(into: [String: String]()) { result, path in
+            if let name = localNames[path], !name.isEmpty {
+                result[path] = name
+            }
+        }
+        sourcesStore.mergeDirectoryDisplayNames(names, sourceID: source.id)
+    }
+
+    private var scopeRescanAction: DirectoryRescanAction? {
+        DirectoryRescanAction.forSavedSource(
+            current,
+            directoriesWhenOpened: { [model] in model.scopeEditingBaseline },
+            scanService: scanService,
+            sourceManager: sourceManager,
+            library: library,
+            sourceStore: sourcesStore,
+            scraperService: scraperService
+        )
+    }
+
+    /// 横幅和「更多」里的「管理目录」:能就地勾的源进勾选,其余仍走连接页。
+    private func manageDirectories() {
+        guard Self.canEditScope(current) else {
+            sheet = .connection
+            return
+        }
+        pmWithAnimation(.list) {
+            model.beginScopeEditing(directories: current.scannedDirectories)
+        }
+    }
+
+    /// 根页被退出文件页(不是推进下一层)时,勾到一半的目录也按新范围扫。
+    private func finishScopeEditingIfLeft() {
+        guard model.isEditingScope else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard model.isEditingScope, !model.isRootVisible,
+                  openedFolder == nil, !showsMetadata, !showsLocalRemovals else { return }
+            finishScopeEditing(trigger: "leave")
+        }
+    }
+
+    private func finishScopeEditing(trigger: String = "done") {
+        guard model.isEditingScope,
+              let baseline = pmWithAnimation(.list, { model.endScopeEditing() }) else { return }
+        plog("🗂️ Source files scope editing ended trigger=\(trigger) source=\(current.id.prefix(8)) before=\(baseline.count) after=\(current.scannedDirectories.count)")
+        scanService.scanAfterDirectorySelectionChange(
+            sourceID: current.id,
+            previousDirectories: baseline,
+            sourceManager: sourceManager,
+            library: library,
+            sourceStore: sourcesStore,
+            scraperService: scraperService
+        )
     }
 
     // MARK: 动作

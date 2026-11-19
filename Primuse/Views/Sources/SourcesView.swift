@@ -219,6 +219,21 @@ struct SourceConnectionRouteStrip: View {
     }
 
     private func title(for kind: SourceConnectionCandidateKind) -> LocalizedStringKey {
+        SourceConnectionRouteText.title(for: kind, sourceType: source.type)
+    }
+
+    private func iconName(for kind: SourceConnectionCandidateKind) -> String {
+        SourceConnectionRouteText.iconName(for: kind)
+    }
+
+    private func address(for candidate: SourceConnectionCandidate) -> String {
+        SourceConnectionRouteText.address(for: candidate, sourceType: source.type)
+    }
+}
+
+/// 线路的叫法、图标和地址。详情页的线路条和卡片上那一行共用。
+enum SourceConnectionRouteText {
+    static func title(for kind: SourceConnectionCandidateKind, sourceType: MusicSourceType) -> LocalizedStringKey {
         switch kind {
         case .localAddress:
             "source_connection_local"
@@ -227,13 +242,13 @@ struct SourceConnectionRouteStrip: View {
         case .alternative:
             "source_connection_route"
         case .vendorRemote:
-            source.type.usesSynologyConnectionMode
+            sourceType.usesSynologyConnectionMode
                 ? "synology_connection_quickconnect"
                 : "fnmusic_connection_fnconnect"
         }
     }
 
-    private func iconName(for kind: SourceConnectionCandidateKind) -> String {
+    static func iconName(for kind: SourceConnectionCandidateKind) -> String {
         switch kind {
         case .localAddress: "wifi"
         case .publicAddress, .alternative: "globe"
@@ -241,11 +256,11 @@ struct SourceConnectionRouteStrip: View {
         }
     }
 
-    private func address(for candidate: SourceConnectionCandidate) -> String {
+    static func address(for candidate: SourceConnectionCandidate, sourceType: MusicSourceType) -> String {
         if let endpoint = candidate.endpoint {
-            return SourceAddressInputPolicy.renderedAddress(for: endpoint, sourceType: source.type)
+            return SourceAddressInputPolicy.renderedAddress(for: endpoint, sourceType: sourceType)
         }
-        return candidate.vendorIdentifier ?? source.type.displayName
+        return candidate.vendorIdentifier ?? sourceType.displayName
     }
 }
 
@@ -603,7 +618,10 @@ struct SourcesContentView: View {
     @State private var diagnosingSource: MusicSource?
     @State private var browsingFoldersSource: MusicSource?
     /// 点了卡片:有文件的源进文件页,音乐服务器进概览,Apple Music 进资料库页。
-    @State private var openedSource: MusicSource?
+    /// 点了卡片要打开的那一页。「选择目录」「管理目录」进来时文件页一进来就在勾选扫描目录;
+    /// 这个标记跟着条目走 —— 另存一个状态的话,导航目的地读到的是旧值。
+    @State private var openedSource: SourceDetailRoute?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var sourceAlert: SourceAlert?
     @State private var activeCacheRun: SourceCacheRun?
     /// 点了「缓存中」,等用户确认要不要停下来的那个源(#313)。
@@ -831,8 +849,12 @@ struct SourcesContentView: View {
                 #endif
                 }
             }
-            .navigationDestination(item: $openedSource) { source in
-                SourceDetailPage(source: source, actions: detailActions)
+            .navigationDestination(item: $openedSource) { route in
+                SourceDetailPage(
+                    source: route.source,
+                    actions: detailActions,
+                    startsScopeEditing: route.startsScopeEditing
+                )
             }
             #if DEBUG
             .task {
@@ -843,7 +865,11 @@ struct SourcesContentView: View {
                 try? await Task.sleep(for: .seconds(2))
                 guard let source = sources.first(where: { $0.type.rawValue == raw }) else { return }
                 SourcesDebugLaunch.didOpenSource = true
-                openedSource = source
+                if ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SOURCE_SCOPE_EDITING"] == "1" {
+                    openForDirectorySelection(source)
+                } else {
+                    openedSource = SourceDetailRoute(source: source)
+                }
             }
             #endif
             .onReceive(NotificationCenter.default.publisher(for: CloudDirectoryNameStore.didChangeNotification)) { _ in
@@ -918,15 +944,28 @@ struct SourcesContentView: View {
         // 不必再拼进每张卡片的 .id ── 那样任意一个源改名都会销毁重建所有源卡片。
         _ = cloudDirectoryNameRefreshID
         let activeSourceCacheIDs = sourceManager.activeOfflineSourceCacheSourceIDs
+        let accountSourceIDs = SourceCardPresentationPolicy.sourceIDsShowingAccount(sources)
+        // 每个源单独一段,读起来是一张张卡片;分区标题挂在这一类的第一张上。
         return List {
             ForEach(groupedSources, id: \.0) { category, items in
-                Section(category.displayName) {
-                    ForEach(items) { source in
-                        sourceCard(source, activeSourceCacheIDs: activeSourceCacheIDs)
+                ForEach(items) { source in
+                    Section {
+                        sourceCard(
+                            source,
+                            activeSourceCacheIDs: activeSourceCacheIDs,
+                            showsAccount: accountSourceIDs.contains(source.id)
+                        )
+                    } header: {
+                        if source.id == items.first?.id {
+                            Text(category.displayName)
+                        }
                     }
                 }
             }
         }
+        #if os(iOS)
+        .listSectionSpacing(14)
+        #endif
         .serverCatalogPullToRefresh()
         .task(id: sources.map(\.id).joined(separator: ",")) {
             // 后台逐源算磁盘占用, 一次性重建字典(顺带清掉已删源的残留键)。
@@ -956,7 +995,8 @@ struct SourcesContentView: View {
 
     private func sourceCard(
         _ source: MusicSource,
-        activeSourceCacheIDs: Set<String>
+        activeSourceCacheIDs: Set<String>,
+        showsAccount: Bool
     ) -> some View {
         let dirs = source.scannedDirectories
         // 卡片主体刻意不读 `scanStates`, 也不读整库引用 —— 这两样在扫描期间每秒
@@ -971,14 +1011,18 @@ struct SourcesContentView: View {
         )
         let isSourceCaching = cachePresentation.isCachingCurrentSource
 
-        // 卡片只放三样:点进去是什么、三个数字、一行状态加一个主按钮。
-        // 其余(目录、线路、读取标签、本机移除、隐藏歌单、自动刷新)都在点进去的那一页。
-        return VStack(alignment: .leading, spacing: 12) {
+        // 卡片:点进去是什么和现在走的线路、几个数字、一行状态,底下是自动刷新和主按钮。
+        // 其余(目录、读取标签、本机移除、隐藏歌单)都在点进去的那一页。
+        return VStack(alignment: .leading, spacing: 14) {
             Button {
-                openedSource = source
+                openedSource = SourceDetailRoute(source: source)
             } label: {
-                VStack(alignment: .leading, spacing: 12) {
-                    sourceCardHeader(source)
+                VStack(alignment: .leading, spacing: 14) {
+                    SourceCardHeader(
+                        source: source,
+                        openHint: sourceCardOpenHint(for: source),
+                        showsAccount: showsAccount
+                    )
                     sourceCardMetrics(source, dirs: dirs)
                 }
                 .contentShape(Rectangle())
@@ -990,11 +1034,9 @@ struct SourcesContentView: View {
                 GoogleDriveAccessChangeNotice()
             }
 
-            Divider()
-
             sourceCardFooter(source, dirs: dirs, isSourceCaching: isSourceCaching)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .id(source.id)
         .opacity(source.isEnabled ? 1.0 : 0.55)
         .confirmationDialog(
@@ -1039,83 +1081,46 @@ struct SourcesContentView: View {
         }
     }
 
-    private func sourceCardHeader(_ source: MusicSource) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: source.type.iconName)
-                .font(.title3).foregroundStyle(.white)
-                .frame(width: 42, height: 42)
-                .background(source.isEnabled ? source.type.brandTint.gradient : Color.gray.gradient)
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(source.name).font(.body).fontWeight(.semibold).lineLimit(1)
-                    SourceDeviceStateMarks(source: source)
-                }
-                HStack(spacing: 4) {
-                    Text(source.type.displayName).fixedSize()
-                    if source.connectionConfiguration == nil,
-                       let summary = source.connectionSummary {
-                        Text("·").fixedSize()
-                        Text(summary).truncationMode(.middle)
-                    }
-                }
-                .font(.caption).foregroundStyle(.secondary)
-                .lineLimit(1)
-                if source.type.isAwaitingPublicAPI {
-                    Label(source.type.subtitle, systemImage: "clock.badge.exclamationmark")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.orange)
-                }
-            }
-            Spacer(minLength: 8)
-            HStack(spacing: 3) {
-                Text(sourceCardOpenHint(for: source))
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-            }
-            .foregroundStyle(.secondary)
-            .fixedSize()
-        }
-    }
-
     private func sourceCardOpenHint(for source: MusicSource) -> LocalizedStringKey {
         if SourceFileBrowserPolicy.browsesFiles(source.type) { return "source_card_open_files" }
         if source.type == .appleMusic { return "source_card_open_library" }
         return "source_card_open_manage"
     }
 
-    /// 三个数字:歌曲数,加上这类源最用得上的两项。
+    /// 一条浅底的数字:歌曲数,加上这类源最用得上的一两项。自动刷新挪到了底下的胶囊上。
     @ViewBuilder
     private func sourceCardMetrics(_ source: MusicSource, dirs: [String]) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 0) {
             SourceSongCountMetric(sourceID: source.id, settledCount: source.songCount)
+            SourceMetricSeparator()
             if source.type == .appleMusic {
                 SourceMetricTile(
                     value: appleMusicLastSyncedAt.map(SourceDateText.relative) ?? "—",
-                    label: String(localized: "source_card_metric_last_sync")
+                    label: String(localized: "source_card_metric_last_sync"),
+                    alignment: .center
                 )
-            } else if SourceFileBrowserPolicy.browsesFiles(source.type) {
-                SourceMetricTile(
-                    value: sourceCardDirectoryCount(dirs, wholeSource: source.type.scansEntireLibrary),
-                    label: String(localized: "source_card_metric_folders")
-                )
-            } else if source.type.category == .mediaServer,
-                      AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
-                SourceMetricTile(
-                    value: sourceCardAutoRefreshText(source),
-                    label: String(localized: "source_card_metric_auto_refresh")
-                )
-            }
-            if source.type != .appleMusic {
+            } else {
+                if SourceFileBrowserPolicy.browsesFiles(source.type) {
+                    SourceMetricTile(
+                        value: sourceCardDirectoryCount(dirs, wholeSource: source.type.scansEntireLibrary),
+                        label: String(localized: "source_card_metric_folders"),
+                        alignment: .center
+                    )
+                    SourceMetricSeparator()
+                }
                 SourceMetricTile(
                     value: sourceSizes[source.id].map(SourceByteText.string) ?? "—",
-                    label: String(localized: "source_card_metric_storage")
+                    label: String(localized: "source_card_metric_storage"),
+                    alignment: .center
                 )
             }
         }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 4)
+        .background(
+            Color.primary.opacity(0.045),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
     }
 
     private func sourceCardDirectoryCount(_ dirs: [String], wholeSource: Bool) -> String {
@@ -1125,30 +1130,54 @@ struct SourcesContentView: View {
         return dirs.isEmpty ? "—" : dirs.count.formatted()
     }
 
-    private func sourceCardAutoRefreshText(_ source: MusicSource) -> String {
-        let refresh = AppServices.shared.serverCatalogAutoRefresh
-        guard refresh.isEnabled(for: source.id) else {
-            return String(localized: "source_card_metric_off")
-        }
-        return Duration.seconds(refresh.refreshInterval(for: source.id).timeInterval)
-            .formatted(.units(allowed: [.hours], width: .abbreviated))
-    }
-
     private var appleMusicLastSyncedAt: Date? {
         if case .done(_, let at) = appleMusicLibrary.state { return at }
         return appleMusicLibrary.syncHistory.previousCompletedAt
     }
 
-    /// 底部:一行状态加一个主按钮。出错、扫描、下载时这一行就是它们,卡片高度不变。
+    /// 底部:一行状态,右边是自动刷新和主按钮两颗胶囊。出错、扫描、下载时状态就是它们。
+    /// 辅助功能大字号时胶囊换到状态下面一行。
     @ViewBuilder
     private func sourceCardFooter(_ source: MusicSource, dirs: [String], isSourceCaching: Bool) -> some View {
         SourceScanStateReader(sourceID: source.id) { scanning in
-            HStack(alignment: .center, spacing: 12) {
-                sourceCardStatus(source, dirs: dirs, scanning: scanning, isSourceCaching: isSourceCaching)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                sourceCardPrimaryAction(source, dirs: dirs, scanning: scanning)
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 10) {
+                    sourceCardStatus(source, dirs: dirs, scanning: scanning, isSourceCaching: isSourceCaching)
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        sourceCardActions(source, dirs: dirs, scanning: scanning)
+                    }
+                }
+            } else {
+                HStack(alignment: .center, spacing: 8) {
+                    sourceCardStatus(source, dirs: dirs, scanning: scanning, isSourceCaching: isSourceCaching)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    sourceCardActions(source, dirs: dirs, scanning: scanning)
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private func sourceCardActions(
+        _ source: MusicSource,
+        dirs: [String],
+        scanning: ScanService.ScanState?
+    ) -> some View {
+        if showsAutoRefreshCapsule(source, dirs: dirs) {
+            SourceAutoRefreshCapsule(source: source)
+        }
+        sourceCardPrimaryAction(source, dirs: dirs, scanning: scanning)
+    }
+
+    /// 还没选目录时自动刷新无从谈起,先让人去选目录;Apple Music 不走这一套。
+    private func showsAutoRefreshCapsule(_ source: MusicSource, dirs: [String]) -> Bool {
+        guard AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source),
+              source.id != AppleMusicLibraryService.systemSourceID else { return false }
+        if SourceFileBrowserPolicy.browsesFiles(source.type), !source.type.scansEntireLibrary {
+            return !dirs.isEmpty
+        }
+        return true
     }
 
     @ViewBuilder
@@ -1331,7 +1360,7 @@ struct SourcesContentView: View {
                   !source.type.scansEntireLibrary,
                   dirs.isEmpty {
             sourceFooterButton("source_files_choose_directories", systemImage: "folder.badge.plus", prominence: .accent) {
-                connectingSource = source
+                openForDirectorySelection(source)
             }
         } else {
             let isScanning = scanning?.isScanning == true
@@ -1357,26 +1386,12 @@ struct SourcesContentView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(sourceActionForeground(for: prominence))
-                } else {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .frame(minHeight: 32)
-            .foregroundStyle(sourceActionForeground(for: prominence))
-            .background(Capsule().fill(sourceActionBackground(for: prominence)))
-            .overlay(Capsule().strokeBorder(sourceActionStroke(for: prominence), lineWidth: 0.8))
-            .contentShape(Capsule())
-            .fixedSize()
+            SourceCardCapsuleLabel(
+                title: Text(title),
+                systemImage: systemImage,
+                prominence: prominence,
+                isLoading: isLoading
+            )
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -1411,7 +1426,7 @@ struct SourcesContentView: View {
                 }
             }
             if !isSystemSource, !source.type.scansEntireLibrary, SourceFileBrowserPolicy.browsesFiles(source.type) {
-                Button { connectingSource = source } label: {
+                Button { openForDirectorySelection(source) } label: {
                     Label("manage_dirs", systemImage: "folder.badge.gear")
                 }
             }
@@ -1531,12 +1546,6 @@ struct SourcesContentView: View {
     }
 
     // MARK: - Helpers
-
-    private enum SourceActionProminence {
-        case neutral
-        case accent
-        case success
-    }
 
     #if os(iOS)
     private func presentExistingLocalImport(for source: MusicSource) {
@@ -1832,30 +1841,6 @@ struct SourcesContentView: View {
         localImportSession.cancel()
     }
     #endif
-
-    private func sourceActionForeground(for prominence: SourceActionProminence) -> Color {
-        switch prominence {
-        case .neutral: .secondary
-        case .accent: .accentColor
-        case .success: .green
-        }
-    }
-
-    private func sourceActionBackground(for prominence: SourceActionProminence) -> Color {
-        switch prominence {
-        case .neutral: Color(.tertiarySystemFill)
-        case .accent: Color.accentColor.opacity(0.14)
-        case .success: Color.green.opacity(0.16)
-        }
-    }
-
-    private func sourceActionStroke(for prominence: SourceActionProminence) -> Color {
-        switch prominence {
-        case .neutral: Color.white.opacity(0.04)
-        case .accent: Color.accentColor.opacity(0.20)
-        case .success: Color.green.opacity(0.24)
-        }
-    }
 
     private var sources: [MusicSource] {
         // 排除正处于"撤销倒计时"被乐观隐藏的源(尚未真正删除)。
@@ -2376,8 +2361,17 @@ struct SourcesContentView: View {
         let grouped = Dictionary(grouping: sources) { $0.type.category }
         return SourceCategory.allCases.compactMap { cat in
             guard let items = grouped[cat], !items.isEmpty else { return nil }
-            return (cat, items)
+            return (cat, SourceCardPresentationPolicy.keepingSameTypeTogether(items))
         }
+    }
+
+    /// 卡片上的「选择目录」「管理目录」:能在文件页里就地勾的源直接进文件页勾选,其余仍弹连接页。
+    private func openForDirectorySelection(_ source: MusicSource) {
+        guard SourceFolderPage.canEditScope(source) else {
+            connectingSource = source
+            return
+        }
+        openedSource = SourceDetailRoute(source: source, startsScopeEditing: true)
     }
 
     /// 「已包含」目录行上的「立即扫描此目录」(见 `DirectoryRescanAction`)。
@@ -2899,7 +2893,7 @@ private struct SourceSongCountMetric: View {
         } else {
             settledCount
         }
-        SourceMetricTile(value: count.formatted(), label: String(localized: "tab_songs"))
+        SourceMetricTile(value: count.formatted(), label: String(localized: "tab_songs"), alignment: .center)
     }
 }
 
@@ -2942,3 +2936,243 @@ private struct SourceDeviceStateMarks: View {
         }
     }
 }
+
+// MARK: - 卡片零件
+
+/// 卡片点进去的那一页,连同进去时要不要直接勾选扫描目录。
+private struct SourceDetailRoute: Hashable, Identifiable {
+    let source: MusicSource
+    var startsScopeEditing = false
+
+    var id: String { source.id }
+}
+
+/// 卡片底部胶囊的三种分量:中性、强调色、绿色(扫描、同步)。
+enum SourceActionProminence {
+    case neutral
+    case accent
+    case success
+
+    var foreground: Color {
+        switch self {
+        case .neutral: .secondary
+        case .accent: .accentColor
+        case .success: .green
+        }
+    }
+
+    var background: Color {
+        switch self {
+        case .neutral: Color(.tertiarySystemFill)
+        case .accent: Color.accentColor.opacity(0.14)
+        case .success: Color.green.opacity(0.16)
+        }
+    }
+
+    var stroke: Color {
+        switch self {
+        case .neutral: Color.white.opacity(0.04)
+        case .accent: Color.accentColor.opacity(0.20)
+        case .success: Color.green.opacity(0.24)
+        }
+    }
+}
+
+/// 底部那颗胶囊的样子:按内容收窄,不撑满一行。扫描按钮和自动刷新共用。
+struct SourceCardCapsuleLabel: View {
+    let title: Text
+    let systemImage: String
+    let prominence: SourceActionProminence
+    var isLoading = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if isLoading {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(prominence.foreground)
+            } else {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            title
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 32)
+        .foregroundStyle(prominence.foreground)
+        .background(Capsule().fill(prominence.background))
+        .overlay(Capsule().strokeBorder(prominence.stroke, lineWidth: 0.8))
+        .contentShape(Capsule())
+        .fixedSize()
+    }
+}
+
+/// 卡片上的「自动刷新」:关着是灰的,开着带上间隔、换成强调色。点开选间隔或关掉。
+private struct SourceAutoRefreshCapsule: View {
+    let source: MusicSource
+
+    var body: some View {
+        let refresh = AppServices.shared.serverCatalogAutoRefresh
+        let isOn = refresh.isEnabled(for: source.id)
+        let interval = Duration.seconds(refresh.refreshInterval(for: source.id).timeInterval)
+            .formatted(.units(allowed: [.hours], width: .abbreviated))
+        let title = isOn
+            ? "\(String(localized: "server_auto_refresh")) \(interval)"
+            : String(localized: "server_auto_refresh")
+        Menu {
+            SourceAutoRefreshPicker(sourceID: source.id)
+                .pickerStyle(.inline)
+        } label: {
+            SourceCardCapsuleLabel(
+                title: Text(verbatim: title),
+                systemImage: "clock.arrow.circlepath",
+                prominence: isOn ? .accent : .neutral
+            )
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .disabled(!source.isEnabled)
+        .opacity(source.isEnabled ? 1 : 0.55)
+        .accessibilityLabel(Text("server_auto_refresh"))
+        .accessibilityValue(Text(verbatim: isOn ? interval : String(localized: "source_card_metric_off")))
+    }
+}
+
+/// 数字条里两格之间的细竖线。
+private struct SourceMetricSeparator: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.1))
+            .frame(width: 0.5, height: 26)
+            .accessibilityHidden(true)
+    }
+}
+
+/// 卡片头:图标、名字,下面一行是类型和现在走的线路或地址。
+private struct SourceCardHeader: View {
+    let source: MusicSource
+    let openHint: LocalizedStringKey
+    let showsAccount: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: source.type.iconName)
+                .font(.title3.weight(.medium))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(
+                    source.isEnabled ? source.type.brandTint.gradient : Color.gray.gradient,
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(source.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                    SourceDeviceStateMarks(source: source)
+                }
+                SourceCardConnectionLine(source: source, showsAccount: showsAccount)
+                if source.type.isAwaitingPublicAPI {
+                    Label(source.type.subtitle, systemImage: "clock.badge.exclamationmark")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.orange)
+                }
+            }
+            Spacer(minLength: 8)
+            HStack(spacing: 3) {
+                Text(openHint)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(.secondary)
+            .fixedSize()
+        }
+    }
+}
+
+/// 类型 · 线路 地址。有几条线路的源写正在用的那条(连上了图标换强调色),
+/// 只有一个地址的写地址。同类型、同地址的源不止一个时把账号带上才分得开:
+/// 账号跟类型单起一行,地址那行不被挤得截掉主机名。
+private struct SourceCardConnectionLine: View {
+    let source: MusicSource
+    let showsAccount: Bool
+
+    @Environment(SourceManager.self) private var sourceManager
+
+    var body: some View {
+        let route = route
+        Group {
+            if let account {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: "\(source.type.displayName) · \(account)")
+                        .truncationMode(.middle)
+                    if route != nil || plainAddress != nil {
+                        addressLine(route: route, showsType: false)
+                    }
+                }
+            } else {
+                addressLine(route: route, showsType: true)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+    }
+
+    private func addressLine(route: SourceConnectionCandidate?, showsType: Bool) -> some View {
+        HStack(spacing: 4) {
+            if showsType {
+                Text(source.type.displayName).fixedSize()
+            }
+            if let route {
+                if showsType { Text(verbatim: "·").fixedSize() }
+                HStack(spacing: 3) {
+                    Image(systemName: SourceConnectionRouteText.iconName(for: route.kind))
+                        .imageScale(.small)
+                    Text(SourceConnectionRouteText.title(for: route.kind, sourceType: source.type))
+                }
+                .foregroundStyle(isActive(route) ? Color.accentColor : Color.secondary)
+                .fixedSize()
+                Text(verbatim: SourceConnectionRouteText.address(for: route, sourceType: source.type))
+                    .truncationMode(.middle)
+            } else if let address = plainAddress {
+                if showsType { Text(verbatim: "·").fixedSize() }
+                Text(verbatim: address).truncationMode(.middle)
+            }
+        }
+    }
+
+    private var route: SourceConnectionCandidate? {
+        guard let configuration = source.connectionConfiguration else { return nil }
+        return SourceCardPresentationPolicy.displayedRoute(
+            candidates: source.connectionCandidates,
+            active: sourceManager.activeConnectionRoutes[source.id],
+            lastSuccessful: sourceManager.lastSuccessfulConnectionRoutes[source.id],
+            selected: configuration.effectiveSelectedRoute
+        )
+    }
+
+    private func isActive(_ route: SourceConnectionCandidate) -> Bool {
+        sourceManager.activeConnectionRoutes[source.id] == route.kind
+            && !sourceManager.unreachablePlaybackSourceIDs.contains(source.id)
+    }
+
+    private var plainAddress: String? {
+        guard let summary = source.connectionSummary, !summary.isEmpty else { return nil }
+        return summary
+    }
+
+    private var account: String? {
+        guard showsAccount,
+              let name = source.username?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else { return nil }
+        return name
+    }
+}
+

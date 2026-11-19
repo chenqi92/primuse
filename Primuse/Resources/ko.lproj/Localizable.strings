@@ -7696,6 +7696,7 @@
 "source_files_scope_outside" = "스캔 범위 밖";
 "source_files_scope_none" = "아직 스캔할 폴더를 고르지 않음";
 "source_files_choose_directories" = "폴더 선택";
+"source_files_scope_editing_hint" = "스캔할 폴더를 선택하세요. 완료를 탭하면 새로 선택한 범위로 스캔합니다.";
 "source_files_scan_here" = "이 폴더만 스캔";
 "source_files_scan_source" = "소스 전체 스캔";
 "source_files_scan_started_format" = "‘%@’ 스캔 중";

@@ -7602,6 +7602,7 @@
 "source_files_scope_outside" = "อยู่นอกขอบเขตการสแกน";
 "source_files_scope_none" = "ยังไม่ได้เลือกโฟลเดอร์ที่จะสแกน";
 "source_files_choose_directories" = "เลือกโฟลเดอร์";
+"source_files_scope_editing_hint" = "เลือกโฟลเดอร์ที่จะสแกน แล้วแตะ “เสร็จสิ้น” เพื่อสแกนตามที่เลือกใหม่";
 "source_files_scan_here" = "สแกนเฉพาะโฟลเดอร์นี้";
 "source_files_scan_source" = "สแกนทั้งแหล่ง";
 "source_files_scan_started_format" = "กำลังสแกน “%@”";

@@ -7602,6 +7602,7 @@
 "source_files_scope_outside" = "Вне области сканирования";
 "source_files_scope_none" = "Папки для сканирования не выбраны";
 "source_files_choose_directories" = "Выбрать папки";
+"source_files_scope_editing_hint" = "Отметьте папки для сканирования. Нажмите «Готово», чтобы сканировать по новому выбору.";
 "source_files_scan_here" = "Сканировать эту папку";
 "source_files_scan_source" = "Сканировать весь источник";
 "source_files_scan_started_format" = "Сканируется «%@»";

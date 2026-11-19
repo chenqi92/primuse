@@ -7602,6 +7602,7 @@
 "source_files_scope_outside" = "Poza zakresem skanowania";
 "source_files_scope_none" = "Nie wybrano jeszcze folderów do skanowania";
 "source_files_choose_directories" = "Wybierz foldery";
+"source_files_scope_editing_hint" = "Zaznacz foldery do skanowania. Stuknij Gotowe, aby skanować według nowego wyboru.";
 "source_files_scan_here" = "Skanuj ten folder";
 "source_files_scan_source" = "Skanuj całe źródło";
 "source_files_scan_started_format" = "Skanowanie „%@”";

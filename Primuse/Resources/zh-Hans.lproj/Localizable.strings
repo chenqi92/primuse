@@ -7789,6 +7789,7 @@
 "source_files_scope_outside" = "不在扫描范围内";
 "source_files_scope_none" = "还没选扫描目录";
 "source_files_choose_directories" = "选择目录";
+"source_files_scope_editing_hint" = "勾选要扫描的目录，点「完成」后按新的范围扫描。";
 "source_files_scan_here" = "只扫这里";
 "source_files_scan_source" = "扫描整个源";
 "source_files_scan_started_format" = "开始扫描“%@”";

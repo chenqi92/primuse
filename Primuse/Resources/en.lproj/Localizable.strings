@@ -7457,6 +7457,7 @@
 "source_files_scope_outside" = "Not in scan scope";
 "source_files_scope_none" = "No scan folders chosen yet";
 "source_files_choose_directories" = "Choose Folders";
+"source_files_scope_editing_hint" = "Check the folders to scan. Tap Done to scan with the new selection.";
 "source_files_scan_here" = "Scan This Folder";
 "source_files_scan_source" = "Scan Whole Source";
 "source_files_scan_started_format" = "Scanning “%@”";

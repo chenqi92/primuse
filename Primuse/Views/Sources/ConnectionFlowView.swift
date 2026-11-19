@@ -1500,6 +1500,8 @@ struct DirectoryCheckRow: View {
     var sourceType: MusicSourceType? = nil
     /// 「已包含在「…」中」里那个上级目录的名字;给不出时用通用说法。
     var ancestorTitle: (@MainActor (String) -> String?)? = nil
+    /// 放在分组列表里(文件页):没勾的行保留卡片底色,不像选目录页那样透出列表背景。
+    var inGroupedList = false
     @Environment(\.directoryRescanAction) private var rescanAction
 
     private var selectionState: SourceDirectorySelectionPolicy.SelectionState {
@@ -1680,8 +1682,20 @@ struct DirectoryCheckRow: View {
                 .accessibilityLabel(Text("open_folder"))
             }
         }
-        .listRowBackground(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
+        .listRowBackground(iOSRowBackground)
         .pmAnimation(.hover, value: selectionState)
+    }
+
+    @ViewBuilder
+    private var iOSRowBackground: some View {
+        if inGroupedList {
+            ZStack {
+                Color(.secondarySystemGroupedBackground)
+                if isSelected { Color.accentColor.opacity(0.08) }
+            }
+        } else {
+            isSelected ? Color.accentColor.opacity(0.08) : Color.clear
+        }
     }
 
     /// 已勾选用强调色;被上级覆盖的用次要色的勾,看得出「在扫描范围里」,

@@ -7602,6 +7602,7 @@
 "source_files_scope_outside" = "خارج نطاق المسح";
 "source_files_scope_none" = "لم تُختر مجلدات للمسح بعد";
 "source_files_choose_directories" = "اختيار المجلدات";
+"source_files_scope_editing_hint" = "حدّد المجلدات المراد فحصها، ثم اضغط «تم» للفحص وفق التحديد الجديد.";
 "source_files_scan_here" = "مسح هذا المجلد فقط";
 "source_files_scan_source" = "مسح المصدر بالكامل";
 "source_files_scan_started_format" = "جارٍ مسح «%@»";
