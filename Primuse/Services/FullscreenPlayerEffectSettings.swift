@@ -421,6 +421,10 @@ enum PlayerAppearancePreferences {
         NowPlayingArtworkStyle(rawValue: rawValue) ?? .card
     }
 
+    static func artworkCardScale(_ scale: Double, style: String) -> Double {
+        artworkStyle(rawValue: style) == .card ? NowPlayingArtworkCardSize.scale(scale) : 1
+    }
+
     /// 播放页播放 / 暂停键与上一首 / 下一首的图标样式(「播放页样式与按钮」里挑)。这两个键是音乐的;
     /// 有声书、播客、电台的播放键各存一份,电台的上一台 / 下一台也单独一份,改一页不牵动别的页。
     /// 有声内容的快退、快进是秒数键,不换样子。

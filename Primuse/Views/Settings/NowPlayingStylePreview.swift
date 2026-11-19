@@ -608,6 +608,7 @@ private struct MusicPortraitPreviewScreen: View {
     private var artworkLyricsLinesRawValue = NowPlayingArtworkLyricsLines.one.rawValue
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(NowPlayingArtworkCardSize.musicKey) private var cardScale = NowPlayingArtworkCardSize.defaultScale
     @AppStorage(PlayerAppearancePreferences.controlTintKey)
     private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
     @AppStorage(AppThemePreferences.ambientStrengthKey)
@@ -702,6 +703,7 @@ private struct MusicPortraitPreviewScreen: View {
         let canvas = context.canvas
         let size = canvas.size
         let artSize = NowPlayingView.portraitArtworkSize(in: size)
+        let scale = PlayerAppearancePreferences.artworkCardScale(cardScale, style: artworkStyleRawValue)
         let controlGap = NowPlayingView.portraitControlGap(forHeight: size.height)
         // 封面下的那几行歌词只在封面那一面出现;关掉音量条空出来的高度照播放页的分法
         // (`NowPlayingView.portraitLayout`):行数选了「自动」时归歌词,否则分到封面上方和几行控件之间。
@@ -757,12 +759,12 @@ private struct MusicPortraitPreviewScreen: View {
                         Spacer(minLength: 0)
                             .frame(maxHeight: 16 + volumeSlack * 0.4)
                         GeometryReader { region in
-                            let side = min(artSize, max(1, region.size.height - 24))
+                            let side = NowPlayingArtworkCardSize.fittedSide(preferred: artSize, in: region.size, scale: scale)
                             artwork(side: side, cornerRadius: 12)
                                 .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                        .frame(maxHeight: artSize + 24)
+                        .frame(maxHeight: NowPlayingArtworkCardSize.regionHeight(preferred: artSize, scale: scale))
                         .layoutPriority(1)
                     }
 

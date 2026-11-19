@@ -147,7 +147,8 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
         safeAreaTrailing: Double,
         prefersVolumeBar: Bool,
         textScale: Double = 1,
-        isExpandedCanvas: Bool = false
+        isExpandedCanvas: Bool = false,
+        artworkCardScale: Double = NowPlayingArtworkCardSize.defaultScale
     ) -> Metrics {
         let scale = normalizedTextScale(textScale)
 
@@ -186,6 +187,13 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
             }
         }
 
+        let cardScale = NowPlayingArtworkCardSize.scale(artworkCardScale)
+        if cardScale != 1 {
+            let detailMinimum = detailColumnWidth >= togglesWidth ? togglesWidth : detailFloor
+            let limit = min(availableContentHeight, max(0, contentWidth - columnSpacing - detailMinimum))
+            artworkSize = min(artworkSize * cardScale, limit)
+            detailColumnWidth = max(0, contentWidth - artworkSize - columnSpacing)
+        }
         let showsEdgeToggles = detailColumnWidth >= togglesWidth
 
         let titleScale = 1 + (scale - 1) * titleScaleDamping
@@ -278,7 +286,8 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
         safeAreaTrailing: Double,
         occlusions: [OcclusionAvoidancePolicy.Region],
         prefersVolumeBar: Bool,
-        textScale: Double = 1
+        textScale: Double = 1,
+        artworkCardScale: Double = NowPlayingArtworkCardSize.defaultScale
     ) -> (leading: Double, trailing: Double) {
         let fallback = (leading: sanitized(safeAreaLeading), trailing: sanitized(safeAreaTrailing))
         guard !occlusions.isEmpty else { return (0, 0) }
@@ -290,7 +299,8 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
             safeAreaLeading: 0,
             safeAreaTrailing: 0,
             prefersVolumeBar: prefersVolumeBar,
-            textScale: textScale
+            textScale: textScale,
+            artworkCardScale: artworkCardScale
         )
         let columnsTop = centered.topInset + centered.chromeRowHeight + centered.chromeBottomSpacing
         let artworkTop = columnsTop + (centered.availableContentHeight - centered.artworkSize) / 2

@@ -915,6 +915,7 @@ struct PodcastPreviewScreen: View {
     private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
     @AppStorage(PlayerAppearancePreferences.podcastArtworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(NowPlayingArtworkCardSize.podcastKey) private var cardScale = NowPlayingArtworkCardSize.defaultScale
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
@@ -936,6 +937,7 @@ struct PodcastPreviewScreen: View {
         let canvas = context.canvas
         let size = canvas.size
         let artSize = NowPlayingView.portraitArtworkSize(in: size)
+        let scale = PlayerAppearancePreferences.artworkCardScale(cardScale, style: artworkStyleRawValue)
         let gap = NowPlayingView.portraitControlGap(forHeight: size.height)
         let volumeSlack: CGFloat = showsVolumeBar ? 0 : NowPlayingView.portraitVolumeRowHeight + 10 + gap
         let barLift = NowPlayingView.portraitBottomBarLift(bottomSafeArea: canvas.bottomSafeArea)
@@ -981,13 +983,13 @@ struct PodcastPreviewScreen: View {
                     Spacer(minLength: 0)
                         .frame(maxHeight: 16 + volumeSlack * 0.4)
                     GeometryReader { region in
-                        let side = min(artSize, max(1, region.size.height - 24))
+                        let side = NowPlayingArtworkCardSize.fittedSide(preferred: artSize, in: region.size, scale: scale)
                         PreviewSpokenCover(symbol: "mic", cornerRadius: 12)
                             .frame(width: side, height: side)
                             .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(maxHeight: artSize + 24)
+                    .frame(maxHeight: NowPlayingArtworkCardSize.regionHeight(preferred: artSize, scale: scale))
                     .layoutPriority(1)
                 }
 
@@ -1179,6 +1181,7 @@ struct RadioPreviewScreen: View {
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.radioArtworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(NowPlayingArtworkCardSize.radioKey) private var cardScale = NowPlayingArtworkCardSize.defaultScale
     @AppStorage(PlayerAppearancePreferences.radioPlayButtonStyleKey)
     private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
     @AppStorage(PlayerAppearancePreferences.radioSkipButtonStyleKey)
@@ -1204,7 +1207,8 @@ struct RadioPreviewScreen: View {
         let gap = NowPlayingView.portraitControlGap(forHeight: size.height)
         let layout = NowPlayingRadioControlLayout.decode(storage)
         let showsVolume = showsVolumeBar && layout.showsVolumeBar
-        let logoSide = min(size.width * 0.8, 430)
+        let scale = PlayerAppearancePreferences.artworkCardScale(cardScale, style: artworkStyleRawValue)
+        let logoSide = NowPlayingArtworkCardSize.radioRegionSide(in: size, scale: scale)
         // 和播放页一样只在 iPhone 竖屏上铺满。
         let fullBleedLogo = canvas.isPhone
             && PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .fullBleed
@@ -1237,11 +1241,12 @@ struct RadioPreviewScreen: View {
 
                     Spacer(minLength: 12)
 
-                    RadioStationPlaceholderArtwork()
-                        .frame(width: logoSide, height: logoSide)
-                        .clipShape(RoundedRectangle(cornerRadius: max(18, logoSide * 0.06), style: .continuous))
-                        .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
-                        .accessibilityHidden(true)
+                    NowPlayingRadioArtworkCard(maximumSide: logoSide, scale: scale) { side in
+                        RadioStationPlaceholderArtwork()
+                            .clipShape(RoundedRectangle(cornerRadius: max(18, side * 0.06), style: .continuous))
+                    }
+                    .layoutPriority(1)
+                    .accessibilityHidden(true)
                 }
 
                 Spacer(minLength: 22)

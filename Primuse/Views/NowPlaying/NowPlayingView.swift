@@ -24,6 +24,30 @@ extension EnvironmentValues {
 import AppKit
 #endif
 
+struct NowPlayingRadioArtworkCard<Artwork: View>: View {
+    let maximumSide: CGFloat
+    let scale: Double
+    @ViewBuilder let artwork: (CGFloat) -> Artwork
+
+    var body: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .frame(maxWidth: maximumSide, maxHeight: maximumSide)
+            .overlay {
+                GeometryReader { geometry in
+                    let fitted = min(geometry.size.width, geometry.size.height)
+                    if fitted >= 48 {
+                        let side = fitted * min(1, scale)
+                        artwork(side)
+                            .frame(width: side, height: side)
+                            .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            }
+    }
+}
+
 struct LyricsResolutionState {
     private(set) var revision: UInt?
     private(set) var offersRecoveryActions = false
@@ -2063,6 +2087,9 @@ struct NowPlayingView: View {
     private var podcastArtworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.radioArtworkStyleKey)
     private var radioArtworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(NowPlayingArtworkCardSize.musicKey) private var musicCardScale = NowPlayingArtworkCardSize.defaultScale
+    @AppStorage(NowPlayingArtworkCardSize.podcastKey) private var podcastCardScale = NowPlayingArtworkCardSize.defaultScale
+    @AppStorage(NowPlayingArtworkCardSize.radioKey) private var radioCardScale = NowPlayingArtworkCardSize.defaultScale
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.showsReplayGainBadgeKey)
@@ -3245,7 +3272,7 @@ struct NowPlayingView: View {
         let limit = CGFloat(OcclusionAvoidancePolicy.centeredWidthLimit(
             regions: occlusions,
             bandMinY: artworkTop,
-            bandMaxY: artworkTop + Double(preferred),
+            bandMaxY: artworkTop + Double(preferred) * max(1, artworkCardScale),
             width: width,
             gap: 16
         ))
@@ -3778,7 +3805,8 @@ struct NowPlayingView: View {
         let top = TabletopColumnsPolicy.topHalf(
             width: Double(geo.size.width),
             height: Double(topHeight - topSafeArea - 44),
-            wantsTextColumn: tabletopShowsTextColumn
+            wantsTextColumn: tabletopShowsTextColumn,
+            artworkCardScale: artworkCardScale
         )
         let bottom = TabletopColumnsPolicy.bottomHalf(
             width: Double(geo.size.width),
@@ -5460,7 +5488,8 @@ struct NowPlayingView: View {
         safeInsets: EdgeInsets,
         occlusions: [OcclusionAvoidancePolicy.Region] = []
     ) -> some View {
-        let preferredArtworkSize = min(geo.size.width * (geo.size.width > geo.size.height ? 0.30 : 0.80), 430)
+        let scale = artworkCardScale
+        let preferredArtworkSize = NowPlayingArtworkCardSize.radioRegionSide(in: geo.size, scale: scale)
         // 整屏居中(iPhone Duo)时台标在遮挡区那段高度里两边都不碰它;其它设备不设限。
         // 台标上面还垫着最多一半的空余高度,遮挡带按它可能落到的最低处算。
         let artworkSlack = max(0, geo.size.height - preferredArtworkSize) / 2
@@ -5507,24 +5536,12 @@ struct NowPlayingView: View {
 
                 // 台标只吃文字和控件之外剩下的高度。只按宽度取值时，iPhone Duo 外屏、
                 // 内屏分屏半幅这类宽而矮的窗口会把底部控件顶出屏幕。
-                Color.clear
-                    .aspectRatio(1, contentMode: .fit)
-                    .frame(maxWidth: artworkSize, maxHeight: artworkSize)
-                    .overlay {
-                        GeometryReader { artworkGeometry in
-                            let fittedSize = min(artworkGeometry.size.width, artworkGeometry.size.height)
-                            if let station = player.currentRadioStation, fittedSize >= 48 {
-                                RadioStationArtworkView(
-                                    station: station,
-                                    size: fittedSize,
-                                    cornerRadius: max(18, fittedSize * 0.06)
-                                )
-                                .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            }
-                        }
+                NowPlayingRadioArtworkCard(maximumSide: artworkSize, scale: scale) { side in
+                    if let station = player.currentRadioStation {
+                        RadioStationArtworkView(station: station, size: side, cornerRadius: max(18, side * 0.06))
                     }
-                    .layoutPriority(1)
+                }
+                .layoutPriority(1)
             }
 
             Spacer(minLength: 22)
@@ -5674,7 +5691,8 @@ struct NowPlayingView: View {
             safeAreaTrailing: Double(safeInsets.trailing),
             prefersVolumeBar: showsPlayerVolumeBar && radioControlLayout.showsVolumeBar,
             textScale: compactLandscapeTextScale,
-            isExpandedCanvas: usesExpandedLandscapeCanvas
+            isExpandedCanvas: usesExpandedLandscapeCanvas,
+            artworkCardScale: artworkCardScale
         )
         // 整屏居中(iPhone Duo 外屏横握)时圆钮排单独让开遮挡区，和音乐横屏一样。
         let chromeClearance = OcclusionAvoidancePolicy.sideClearance(
@@ -6428,7 +6446,8 @@ struct NowPlayingView: View {
             safeAreaTrailing: Double(windowInsets.trailing),
             occlusions: occlusions,
             prefersVolumeBar: showsPlayerVolumeBar,
-            textScale: compactLandscapeTextScale
+            textScale: compactLandscapeTextScale,
+            artworkCardScale: artworkCardScale
         )
         return EdgeInsets(
             top: windowInsets.top,
@@ -6466,7 +6485,8 @@ struct NowPlayingView: View {
             safeAreaTrailing: Double(safeInsets.trailing),
             prefersVolumeBar: showsPlayerVolumeBar,
             textScale: compactLandscapeTextScale,
-            isExpandedCanvas: usesExpandedLandscapeCanvas
+            isExpandedCanvas: usesExpandedLandscapeCanvas,
+            artworkCardScale: artworkCardScale
         )
     }
 
@@ -7445,8 +7465,9 @@ struct NowPlayingView: View {
             transcriptGenerationStatus
 
             GeometryReader { artworkGeometry in
-                let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
-                let fittedWidth = min(artSize, max(1, artworkGeometry.size.height - 24) * ratio)
+                let fittedWidth = player.isMusicVideoPlaybackActive
+                    ? min(artSize, max(1, artworkGeometry.size.height - 24) * 16 / 9)
+                    : NowPlayingArtworkCardSize.fittedSide(preferred: artSize, in: artworkGeometry.size, scale: artworkCardScale)
                 artworkOrMusicVideo(
                     size: fittedWidth,
                     cornerRadius: 16,
@@ -7765,7 +7786,9 @@ struct NowPlayingView: View {
                 ? max(artSize, min(max(0, geo.size.width - 44), insets.mediaWidthLimit))
                 : artSize
         // 封面那一块只要封面加上下各 12 的高度,封面、歌名一起靠上;多出来的高度放在歌名与进度条之间。
-        let artworkRegionHeight = (player.isMusicVideoPlaybackActive ? mediaWidth * 9 / 16 : mediaWidth) + 24
+        let artworkRegionHeight = player.isMusicVideoPlaybackActive
+            ? mediaWidth * 9 / 16 + 24
+            : NowPlayingArtworkCardSize.regionHeight(preferred: mediaWidth, scale: artworkCardScale)
         let controlGap = Self.portraitControlGap(forHeight: geo.size.height)
         // 进度条上面那几行歌词(设置里打开)。它占的高度从封面那里让出来: 高屏的空白就够,
         // 不够时封面按剩下的高度缩小。不跟歌词页开关走, 进出歌词页时下面几行不挪位置。
@@ -8132,8 +8155,10 @@ struct NowPlayingView: View {
                         .frame(maxHeight: 16 + volumeSlack * 0.4)
                 }
                 GeometryReader { artworkGeometry in
-                    let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
-                    let fittedWidth = min(mediaWidth, max(1, artworkGeometry.size.height - 24) * ratio)
+                    let fittedWidth = player.isMusicVideoPlaybackActive
+                        ? min(mediaWidth, max(1, artworkGeometry.size.height - 24) * 16 / 9)
+                        : NowPlayingArtworkCardSize.fittedSide(preferred: mediaWidth, in: artworkGeometry.size,
+                                                               widthLimit: insets.mediaWidthLimit, scale: artworkCardScale)
                     artworkOrMusicVideo(
                         size: fittedWidth,
                         cornerRadius: 12,
@@ -9411,6 +9436,18 @@ struct NowPlayingView: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+    }
+
+    private var artworkCardScale: Double {
+        if player.isLiveRadio {
+            return PlayerAppearancePreferences.artworkCardScale(radioCardScale, style: radioArtworkStyleRawValue)
+        }
+        if player.isMusicVideoPlaybackActive { return 1 }
+        if usesSpokenWordTransport {
+            guard currentItemIsPodcast else { return 1 }
+            return PlayerAppearancePreferences.artworkCardScale(podcastCardScale, style: podcastArtworkStyleRawValue)
+        }
+        return PlayerAppearancePreferences.artworkCardScale(musicCardScale, style: artworkStyleRawValue)
     }
 
     /// 播放页的大封面铺满（设置里「封面样式」选了铺满，音乐与播客各选各的）。只在 iPhone 上：竖版

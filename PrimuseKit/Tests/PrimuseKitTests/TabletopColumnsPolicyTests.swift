@@ -6,6 +6,14 @@ import Testing
 struct TabletopColumnsPolicyTests {
     private typealias Policy = TabletopColumnsPolicy
 
+    @Test func cardSizeKeepsTheTextColumnWhenShrinkingAndGrowing() {
+        let small = Policy.topHalf(width: 626, height: 400, wantsTextColumn: true, artworkCardScale: 0.6)
+        let large = Policy.topHalf(width: 626, height: 400, wantsTextColumn: true, artworkCardScale: 1.1)
+        #expect(small.artworkSide == 145)
+        #expect(large.artworkSide == 267)
+        #expect(large.textColumnWidth == 287)
+    }
+
     @Test("上半屏有歌词时左封面右歌词")
     func topHalfSplits() throws {
         // Duo 内屏竖握半折（模拟器 669 宽），上半屏留给封面约 400 高：封面按宽度比例取。

@@ -80,3 +80,33 @@ public enum ArtworkContentLayout {
                       width: size.width, height: size.height)
     }
 }
+
+public enum NowPlayingArtworkCardSize {
+    public static let musicKey = "playerMusicArtworkCardScale"
+    public static let podcastKey = "playerPodcastArtworkCardScale"
+    public static let radioKey = "playerRadioArtworkCardScale"
+    public static let defaultScale = 1.0
+    public static let range = 0.6...1.1
+
+    public static func scale(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultScale }
+        return min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    /// 从当前版面实际能放下的默认封面缩放，矮屏上也能从第一个刻度开始缩小。
+    public static func fittedSide(preferred: CGFloat, in available: CGSize, widthLimit: CGFloat = .infinity,
+                                  scale: Double) -> CGFloat {
+        let defaultSide = min(preferred, max(1, available.height - 24))
+        let scaled = defaultSide * Self.scale(scale)
+        guard scaled > defaultSide else { return scaled }
+        return min(scaled, max(defaultSide, min(available.width - 8, available.height, widthLimit)))
+    }
+
+    public static func regionHeight(preferred: CGFloat, scale: Double) -> CGFloat {
+        preferred * max(1, Self.scale(scale)) + 24
+    }
+
+    public static func radioRegionSide(in size: CGSize, scale: Double) -> CGFloat {
+        min(size.width * (size.width > size.height ? 0.30 : 0.80), 430) * max(1, Self.scale(scale))
+    }
+}

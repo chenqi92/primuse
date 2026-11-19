@@ -669,6 +669,8 @@ private struct MusicArtworkStyleSections: View {
             if PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .fullBleed {
                 FullBleedTopSofteningToggle(isOn: $fullBleedTopSoftening)
                 FullBleedMiddleSofteningToggle()
+            } else {
+                ArtworkCardSizeSlider(key: NowPlayingArtworkCardSize.musicKey)
             }
             Toggle(isOn: $showsArtworkLyrics) {
                 SettingsInfoLabel("player_artwork_lyrics") {
@@ -1589,6 +1591,7 @@ private struct SpokenWordControlsSections: View {
         if kind == .podcast {
             PlayerArtworkStyleSection(
                 key: PlayerAppearancePreferences.podcastArtworkStyleKey,
+                scaleKey: NowPlayingArtworkCardSize.podcastKey,
                 title: "player_artwork_style_title",
                 footer: "player_artwork_style_podcast_footer",
                 offersTopSoftening: true
@@ -1828,6 +1831,7 @@ private struct RadioControlsSections: View {
     var body: some View {
         PlayerArtworkStyleSection(
             key: PlayerAppearancePreferences.radioArtworkStyleKey,
+            scaleKey: NowPlayingArtworkCardSize.radioKey,
             title: "player_radio_artwork_style_title",
             footer: "player_artwork_style_radio_footer"
         )
@@ -1929,6 +1933,34 @@ private struct FullBleedMiddleSofteningToggle: View {
     }
 }
 
+private struct ArtworkCardSizeSlider: View {
+    @AppStorage private var storedScale: Double
+
+    init(key: String) {
+        _storedScale = AppStorage(wrappedValue: NowPlayingArtworkCardSize.defaultScale, key)
+    }
+
+    var body: some View {
+        let scale = Binding(
+            get: { NowPlayingArtworkCardSize.scale(storedScale) },
+            set: { storedScale = $0 }
+        )
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("home_cover_size_title")
+                Spacer()
+                Text(scale.wrappedValue, format: .percent.precision(.fractionLength(0)))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Slider(value: scale, in: NowPlayingArtworkCardSize.range, step: 0.01) {
+                Text("home_cover_size_title")
+            }
+            .accessibilityValue(Text(scale.wrappedValue, format: .percent.precision(.fractionLength(0))))
+        }
+    }
+}
+
 /// 播客、电台那一页的封面(台标)样式:卡片或铺满,各存各的键;音乐的在 `MusicArtworkStyleSections`。
 private struct PlayerArtworkStyleSection: View {
     @AppStorage private var rawValue: String
@@ -1938,9 +1970,11 @@ private struct PlayerArtworkStyleSection: View {
     let footer: LocalizedStringKey
     /// 播客的单集封面铺满时也做顶部柔化;电台台标不做。
     let offersTopSoftening: Bool
+    let scaleKey: String
 
-    init(key: String, title: LocalizedStringKey, footer: LocalizedStringKey, offersTopSoftening: Bool = false) {
+    init(key: String, scaleKey: String, title: LocalizedStringKey, footer: LocalizedStringKey, offersTopSoftening: Bool = false) {
         _rawValue = AppStorage(wrappedValue: NowPlayingArtworkStyle.card.rawValue, key)
+        self.scaleKey = scaleKey
         self.title = title
         self.footer = footer
         self.offersTopSoftening = offersTopSoftening
@@ -1960,7 +1994,9 @@ private struct PlayerArtworkStyleSection: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            if offersTopSoftening, PlayerAppearancePreferences.artworkStyle(rawValue: rawValue) == .fullBleed {
+            if PlayerAppearancePreferences.artworkStyle(rawValue: rawValue) == .card {
+                ArtworkCardSizeSlider(key: scaleKey)
+            } else if offersTopSoftening {
                 FullBleedTopSofteningToggle(isOn: $fullBleedTopSoftening)
                 FullBleedMiddleSofteningToggle()
             }

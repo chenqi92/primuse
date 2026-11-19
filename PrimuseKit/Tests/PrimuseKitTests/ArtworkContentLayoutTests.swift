@@ -3,6 +3,27 @@ import Testing
 @testable import PrimuseKit
 
 struct ArtworkContentLayoutTests {
+    @Test func cardSizeScalesTheFittedCoverOnShortScreens() {
+        let slot = CGSize(width: 375, height: 224)
+        func side(_ scale: Double) -> CGFloat {
+            NowPlayingArtworkCardSize.fittedSide(preferred: 300, in: slot, scale: scale)
+        }
+        #expect(side(NowPlayingArtworkCardSize.defaultScale) == 200)
+        #expect(side(0.8) == 160)
+        #expect(abs(side(1.1) - 220) < 0.001)
+        #expect(side(.nan) == side(1))
+        #expect(side(-1) == 120)
+        #expect(side(20) == side(1.1))
+    }
+
+    @Test func largerCardsRespectTheAvailableWidthAndOcclusions() {
+        let slot = CGSize(width: 360, height: 350)
+        #expect(NowPlayingArtworkCardSize.fittedSide(preferred: 325, in: slot, scale: 1.1) == 350)
+        #expect(NowPlayingArtworkCardSize.fittedSide(preferred: 325, in: slot, widthLimit: 330, scale: 1.1) == 330)
+        let narrow = CGSize(width: 340, height: 400)
+        #expect(NowPlayingArtworkCardSize.fittedSide(preferred: 325, in: narrow, scale: 1.1) == 332)
+    }
+
     @Test func portraitAndLandscapeCoversKeepAllEdges() {
         #expect(ArtworkContentLayout.fittedRect(imageSize: CGSize(width: 200, height: 400),
                     in: CGRect(x: 0, y: 0, width: 300, height: 300))

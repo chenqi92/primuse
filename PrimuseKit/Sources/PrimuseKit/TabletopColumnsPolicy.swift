@@ -36,20 +36,25 @@ public enum TabletopColumnsPolicy {
 
     /// 上半屏。`width` 是整幅宽，`height` 是扣掉顶部安全区、把手与下沿留白后留给封面的高度。
     /// `wantsTextColumn` 为假（这一首确定没有歌词）时封面整幅居中，和不分栏时一样大。
-    public static func topHalf(width: Double, height: Double, wantsTextColumn: Bool) -> TopHalf {
+    public static func topHalf(width: Double, height: Double, wantsTextColumn: Bool,
+                               artworkCardScale: Double = NowPlayingArtworkCardSize.defaultScale) -> TopHalf {
         guard width.isFinite, height.isFinite, width > 0, height > 0 else {
             return TopHalf(artworkSide: 0, textColumnWidth: nil)
         }
+        let scale = NowPlayingArtworkCardSize.scale(artworkCardScale)
         if wantsTextColumn {
             let content = width - outerPadding * 2 - columnGap
             let side = min(height, content * artworkWidthFraction).rounded(.down)
             let text = (content - side).rounded(.down)
             if side >= minimumArtworkSide, text >= minimumTextColumnWidth {
-                return TopHalf(artworkSide: side, textColumnWidth: text)
+                let scaledSide = min(side * scale, height, content - minimumTextColumnWidth).rounded(.down)
+                return TopHalf(artworkSide: scaledSide, textColumnWidth: (content - scaledSide).rounded(.down))
             }
         }
         // 与不分栏时的老版式同一个取法：左右各留 48。
-        return TopHalf(artworkSide: max(0, min(width - 96, height)).rounded(.down), textColumnWidth: nil)
+        let side = max(0, min(width - 96, height)).rounded(.down)
+        return TopHalf(artworkSide: min(side * scale, height, max(0, width - outerPadding * 2)).rounded(.down),
+                       textColumnWidth: nil)
     }
 
     public struct BottomHalf: Equatable, Sendable {

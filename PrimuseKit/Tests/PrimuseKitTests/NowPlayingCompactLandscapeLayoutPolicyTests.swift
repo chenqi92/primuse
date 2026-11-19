@@ -7,6 +7,22 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
     private typealias Policy = NowPlayingCompactLandscapeLayoutPolicy
     private typealias Metrics = NowPlayingCompactLandscapeLayoutPolicy.Metrics
 
+    @Test func resizingTheCardMakesRoomForControlsInLandscape() {
+        func metrics(_ scale: Double) -> Metrics {
+            Policy.metrics(viewportWidth: 852, viewportHeight: 393, safeAreaTop: 0, safeAreaBottom: 21,
+                           safeAreaLeading: 59, safeAreaTrailing: 59, prefersVolumeBar: true, artworkCardScale: scale)
+        }
+        let small = metrics(0.6)
+        let large = metrics(1.1)
+        #expect(metrics(1) == iPhone15)
+        #expect(abs(small.artworkSize - iPhone15.artworkSize * 0.6) < 0.001)
+        #expect(large.artworkSize > iPhone15.artworkSize)
+        #expect(large.artworkSize <= large.availableContentHeight)
+        #expect(large.detailColumnWidth >= Policy.minimumTransportWidth(includesEdgeToggles: true))
+        #expect(abs(horizontalTotal(small) - 852) < 0.001)
+        #expect(abs(horizontalTotal(large) - 852) < 0.001)
+    }
+
     @Test("歌词在右侧时只避让右侧顶部遮挡，RTL 对称处理")
     func lyricsAvoidOcclusionsOnTheirOwnSide() {
         let metrics = Policy.metrics(
