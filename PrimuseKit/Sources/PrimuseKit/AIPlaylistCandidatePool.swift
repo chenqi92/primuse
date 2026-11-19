@@ -92,6 +92,113 @@ public enum AIPlaylistCandidatePoolPolicy {
     }
 }
 
+extension AIPlaylistCandidatePoolPolicy {
+    private struct Sample {
+        let hash: UInt64
+        let position: Int
+
+        static func precedes(_ lhs: Self, _ rhs: Self) -> Bool {
+            lhs.hash == rhs.hash ? lhs.position < rhs.position : lhs.hash < rhs.hash
+        }
+    }
+
+    public static func songs(
+        in songs: [Song], texts: [String], searchIDs: [String], topArtists: [String],
+        topSongIDs: [String], salt: UInt64, limit requested: Int, isCancelled: () -> Bool = { false }
+    ) -> [Song] {
+        let limit = min(requested, poolSize)
+        guard limit > 0, !songs.isEmpty, !isCancelled() else { return [] }
+        let genreMatches = AIPlaylistPromptHints.genreMatcher(texts)
+        let decades = AIPlaylistPromptHints.decades(in: texts.joined(separator: " "))
+        let artists = Set(topArtists.compactMap(SongRadioGrouping.artistKey))
+        let requestedIDs = Set(searchIDs).union(topSongIDs)
+        var positions: [String: Int] = [:]
+        // Keep the same six choices per slot before applying the per-artist quotas.
+        var genre = TopKBuffer<Sample>(limit: limit * 6, by: Sample.precedes)
+        var decade = genre, taste = genre
+        var spread = TopKBuffer<Sample>(limit: limit * 4 * 6, by: Sample.precedes)
+        do {
+            var seen = Set<String>()
+            var genreMatchesByRaw: [String: Bool] = [:]
+            var artistMatchesByRaw: [String: Bool] = [:]
+            func matches(_ raw: String, cache: inout [String: Bool], evaluate: (String) -> Bool) -> Bool {
+                if let hit = cache[raw] { return hit }
+                let hit = evaluate(raw)
+                if cache.count == 32_768 { cache.removeAll(keepingCapacity: true) }
+                cache[raw] = hit
+                return hit
+            }
+            for (position, song) in songs.enumerated() {
+                if position.isMultiple(of: 256), isCancelled() { return [] }
+                guard !song.id.isEmpty, song.isPlayable, seen.insert(song.id).inserted else { continue }
+                if requestedIDs.contains(song.id) { positions[song.id] = position }
+                let sample = Sample(hash: stableHash(song.id, salt: salt), position: position)
+                spread.insert(sample)
+                if let raw = song.genre, matches(raw, cache: &genreMatchesByRaw, evaluate: {
+                    SongDiscoveryMatching.genreNames($0).contains(where: genreMatches)
+                }) {
+                    genre.insert(sample)
+                }
+                if let year = song.year, decades.contains(where: { $0.contains(year) }) { decade.insert(sample) }
+                if !artists.isEmpty, let raw = song.artistName, matches(raw, cache: &artistMatchesByRaw, evaluate: {
+                    SongRadioGrouping.artistKey($0).map(artists.contains) == true
+                }) {
+                    taste.insert(sample)
+                }
+            }
+        }
+        guard !isCancelled() else { return [] }
+        var artistKeys: [Int: String?] = [:]
+        func artist(at position: Int) -> String? {
+            if let key = artistKeys[position] { return key }
+            let key = SongRadioGrouping.artistKey(songs[position].artistName)
+            artistKeys[position] = .some(key)
+            return key
+        }
+        func sample(_ ranked: TopKBuffer<Sample>, count: Int, perArtist: Int) -> [String] {
+            var counts: [String: Int] = [:]
+            var ids: [String] = []
+            for row in ranked.sorted() {
+                if let key = artist(at: row.position) {
+                    guard counts[key, default: 0] < perArtist else { continue }
+                    counts[key, default: 0] += 1
+                }
+                let id = songs[row.position].id
+                positions[id] = row.position
+                ids.append(id)
+                if ids.count == count { break }
+            }
+            return ids
+        }
+
+        let favoriteIDs = topSongIDs.filter { positions[$0] != nil }.sorted {
+            stableHash($0, salt: salt) < stableHash($1, salt: salt)
+        }
+        let matched = [searchIDs.filter { positions[$0] != nil },
+                       sample(genre, count: limit, perArtist: 2), sample(decade, count: limit, perArtist: 2)]
+        let favorites = interleave(favoriteIDs, sample(taste, count: limit, perArtist: tastePerArtist))
+        let breadth = sample(spread, count: limit * 4, perArtist: 1)
+        let ids = compose(matched: matched, taste: favorites, spread: breadth, limit: limit,
+                          artist: { id in positions[id].flatMap { artist(at: $0) } })
+        return isCancelled() ? [] : ids.compactMap { id in positions[id].map { songs[$0] } }
+    }
+
+    private static func interleave(_ lhs: [String], _ rhs: [String]) -> [String] {
+        var output: [String] = []
+        for index in 0..<max(lhs.count, rhs.count) {
+            if index < lhs.count { output.append(lhs[index]) }
+            if index < rhs.count { output.append(rhs[index]) }
+        }
+        return output
+    }
+
+    private static func stableHash(_ id: String, salt: UInt64) -> UInt64 {
+        var hash: UInt64 = 14_695_981_039_346_656_037 ^ salt
+        for byte in id.utf8 { hash = (hash ^ UInt64(byte)) &* 1_099_511_628_211 }
+        return hash
+    }
+}
+
 /// 从提示词里读出能直接对到曲库标签上的东西:风格和年代。
 public enum AIPlaylistPromptHints {
     /// 中英文风格名对照。曲库的风格标签多是英文(「Rock」「Jazz」),提示词多是中文。
@@ -141,14 +248,18 @@ public enum AIPlaylistPromptHints {
 
     /// 提示词与扩展词里提到的风格,对到曲库里实际有的风格名上。返回 `libraryGenres` 里命中的,原顺序。
     public static func matchingGenres(texts: [String], libraryGenres: [String]) -> [String] {
+        libraryGenres.filter(genreMatcher(texts))
+    }
+
+    static func genreMatcher(_ texts: [String]) -> (String) -> Bool {
         let prompt = PromptText(texts)
-        guard !prompt.isEmpty else { return [] }
+        guard !prompt.isEmpty else { return { _ in false } }
         var wanted = Set<String>()
         for group in genreAliases {
             let keys = group.map(SongDiscoveryMatching.key)
             if keys.contains(where: prompt.mentions) { wanted.formUnion(keys) }
         }
-        return libraryGenres.filter { genre in
+        return { genre in
             let key = SongDiscoveryMatching.key(genre)
             guard key.count >= 2 else { return false }
             if wanted.contains(key) { return true }
@@ -262,4 +373,46 @@ public enum AIPlaylistPromptHints {
         let scalar = scalars[index]
         return ("a"..."z").contains(scalar) || ("A"..."Z").contains(scalar)
     }
+}
+
+/// Retains the best elements seen so far. Supply a tie-breaker when the input order matters.
+public struct TopKBuffer<Element> {
+    private var heap: [Element] = []
+    private let limit: Int
+    private let precedes: (Element, Element) -> Bool
+    public private(set) var didDiscard = false
+
+    public init(limit: Int, by precedes: @escaping (Element, Element) -> Bool) {
+        self.limit = max(0, limit)
+        self.precedes = precedes
+    }
+
+    public mutating func insert(_ element: Element) {
+        if heap.count < limit {
+            var child = heap.count
+            heap.append(element)
+            while child > 0 {
+                let parent = (child - 1) / 2
+                guard precedes(heap[parent], element) else { break }
+                heap[child] = heap[parent]
+                child = parent
+            }
+            heap[child] = element
+            return
+        }
+
+        didDiscard = true
+        guard let worst = heap.first, precedes(element, worst) else { return }
+        var parent = 0
+        while parent * 2 + 1 < heap.count {
+            var child = parent * 2 + 1
+            if child + 1 < heap.count, precedes(heap[child], heap[child + 1]) { child += 1 }
+            guard precedes(element, heap[child]) else { break }
+            heap[parent] = heap[child]
+            parent = child
+        }
+        heap[parent] = element
+    }
+
+    public func sorted() -> [Element] { heap.sorted(by: precedes) }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import PrimuseKit
 import XCTest
 @testable import Primuse
@@ -8,6 +9,20 @@ import XCTest
 /// implementation it replaced, kept verbatim below as the reference.
 final class MusicDiscoveryEngineEquivalenceTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
+
+    func testTrimWhileFeatureIndexIsBuildingPreventsLateCacheInsertion() {
+        let songs = [Song(id: "small-hours", title: "Small Hours", fileFormat: .flac,
+                          filePath: "/music/small-hours.flac", sourceID: "local")]
+        MusicDiscoveryEngine.releaseFeatureIndex()
+        defer { MusicDiscoveryEngine.releaseFeatureIndex() }
+        MusicDiscoveryEngine.prewarmFeatureIndex(for: songs, revision: 1) {
+            MusicDiscoveryEngine.releaseFeatureIndex()
+            return false
+        }
+        XCTAssertFalse(MusicDiscoveryEngine.hasFeatureIndex)
+        MusicDiscoveryEngine.prewarmFeatureIndex(for: songs, revision: 1) { false }
+        XCTAssertTrue(MusicDiscoveryEngine.hasFeatureIndex)
+    }
 
     private func makeLibrary(count: Int) -> [Song] {
         let artists: [String?] = ["周杰伦", "Adele", "adele ", "Beyoncé", "BEYONCE", nil, "", "林俊杰", "Queen", "  "]
@@ -143,6 +158,74 @@ final class MusicDiscoveryEngineEquivalenceTests: XCTestCase {
         )
         XCTAssertTrue(MusicDiscoveryEngine.dailyRecommendations(from: input, isCancelled: { true }).isEmpty)
         XCTAssertTrue(MusicDiscoveryEngine.dailyRecommendations(from: input, limit: 0).isEmpty)
+    }
+
+    func testColdHomeKeepsTheWholeLibraryEligibleWithoutCachingSimilarityFeatures() throws {
+        MusicDiscoveryEngine.releaseFeatureIndex()
+        defer { MusicDiscoveryEngine.releaseFeatureIndex() }
+        var songs = (0..<1_200).map { index in
+            Song(id: "cold-\(index)", title: "Track \(index)", albumID: "shared", artistID: "one",
+                 duration: 180, fileFormat: .flac, filePath: "/audio/\(index)", sourceID: "fixture",
+                 dateAdded: now)
+        }
+        let tail = try XCTUnwrap(songs.indices.last)
+        songs[tail].artistID = "other"
+        songs[tail].albumID = "other"
+        songs[tail].dateAdded = now.addingTimeInterval(-180 * 86_400)
+        for seedIDs in [[], ["removed-song"]] {
+            let input = MusicDiscoveryEngine.RecommendationInput(
+                songs: songs, recentWeekIDs: [], recentMonthIDs: [], topArtists: [],
+                seedIDs: seedIDs, now: now, libraryRevision: 20
+            )
+            let results = MusicDiscoveryEngine.dailyRecommendations(from: input, limit: 12)
+            assertSame(results, LegacyMusicDiscoveryEngine.dailyRecommendations(from: input, limit: 12), "cold home")
+            XCTAssertTrue(results.contains { $0.song.id == songs[tail].id })
+            XCTAssertFalse(MusicDiscoveryEngine.hasFeatureIndex)
+        }
+    }
+
+    func testPagedPersonalizationMatchesRankingAndColdFallbacksAcrossPageBoundaries() {
+        MusicDiscoveryEngine.releaseFeatureIndex()
+        defer { MusicDiscoveryEngine.releaseFeatureIndex() }
+        var songs = (0..<16_500).map { index in
+            Song(id: "paged-\(index)", title: "Track \(index)", albumID: "record-\(index / 12)",
+                 artistName: "Artist \(index / 48)", duration: Double(100 + index % 200),
+                 fileFormat: .flac, filePath: "/audio/\(index / 12)/\(index)", sourceID: "fixture",
+                 genre: index.isMultiple(of: 2) ? "Rock" : "Jazz", year: 1990 + index % 30,
+                 dateAdded: now.addingTimeInterval(-180 * 86_400))
+        }
+        songs[8192].id = songs[4095].id
+        let blocked = Set(songs.prefix(5).map(\.id))
+        for sparse in [false, true] {
+            if sparse {
+                songs[4095].albumID = "unique"
+                songs[4095].artistName = "Unique artist"
+                songs[4095].genre = nil
+                songs[4095].duration = 0
+                songs[4095].year = nil
+                songs[4095].filePath = "/unique/seed.flac"
+            }
+            let input = MusicDiscoveryEngine.RecommendationInput(
+                songs: songs, recentWeekIDs: blocked, recentMonthIDs: Set(songs.map(\.id)), topArtists: [],
+                seedIDs: sparse ? [songs[4095].id] : [songs[4095].id, songs[16_420].id],
+                now: now, libraryRevision: sparse ? 220 : 219, excludedSongIDs: blocked
+            )
+            assertSame(MusicDiscoveryEngine.dailyRecommendations(from: input, limit: 16),
+                       LegacyMusicDiscoveryEngine.dailyRecommendations(from: input, limit: 16),
+                       "paged sparse=\(sparse)")
+            XCTAssertFalse(MusicDiscoveryEngine.hasFeatureIndex)
+        }
+        let checks = OSAllocatedUnfairLock(initialState: 0)
+        let input = MusicDiscoveryEngine.RecommendationInput(songs: songs, recentWeekIDs: [], recentMonthIDs: [],
+                                                             topArtists: [], seedIDs: [songs[0].id], now: now, libraryRevision: 221)
+        let cancelled = MusicDiscoveryEngine.dailyRecommendations(from: input, limit: 16) {
+            checks.withLock { count in
+                count += 1
+                return count > 100
+            }
+        }
+        XCTAssertTrue(cancelled.isEmpty)
+        XCTAssertFalse(MusicDiscoveryEngine.hasFeatureIndex)
     }
 
     func testSimilarSongsMatchTheStringImplementation() {

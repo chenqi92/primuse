@@ -42,18 +42,30 @@ final class LibraryPortableArtworkTests: XCTestCase {
         intents.refresh(library: library)
         albums.refresh(library: library)
         for owner in [first, second] {
-            intents.setPlayerPresentationActive(true, owner: owner)
-            albums.setPlayerPresentationActive(true, owner: owner)
+            intents.setRefreshSuspended(true, for: .player(owner))
+            albums.setRefreshSuspended(true, for: .player(owner))
         }
-        intents.setPlayerPresentationActive(false, owner: first)
-        albums.setPlayerPresentationActive(false, owner: first)
+        intents.setRefreshSuspended(true, for: .applicationBackground)
+        albums.setRefreshSuspended(true, for: .applicationBackground)
+        intents.setRefreshSuspended(false, for: .player(first))
+        albums.setRefreshSuspended(false, for: .player(first))
         intents.refresh(library: library)
         albums.refresh(library: library)
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertNil(intents.availability)
         XCTAssertNil(albums.recommendations)
-        intents.setPlayerPresentationActive(false, owner: second)
-        albums.setPlayerPresentationActive(false, owner: second)
+        intents.setRefreshSuspended(false, for: .player(second))
+        albums.setRefreshSuspended(false, for: .player(second))
+        // A late library notification or curation setting change may request another pass while suspended.
+        intents.setAICurationEnabled(true)
+        intents.setAICurationEnabled(false)
+        intents.refresh(library: library)
+        albums.refresh(library: library)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(intents.availability)
+        XCTAssertNil(albums.recommendations)
+        intents.setRefreshSuspended(false, for: .applicationBackground)
+        albums.setRefreshSuspended(false, for: .applicationBackground)
         for _ in 0..<300 where intents.availability == nil || albums.recommendations == nil {
             try await Task.sleep(for: .milliseconds(10))
         }
@@ -62,18 +74,18 @@ final class LibraryPortableArtworkTests: XCTestCase {
         XCTAssertEqual(intents.availability?.libraryGeneration, library.musicSongsRevision)
         let computedAt = intents.availability?.computedAt
         let revision = albums.revision
-        intents.setPlayerPresentationActive(true, owner: first)
-        albums.setPlayerPresentationActive(true, owner: first)
-        intents.setPlayerPresentationActive(false, owner: first)
-        albums.setPlayerPresentationActive(false, owner: first)
+        intents.setRefreshSuspended(true, for: .player(first))
+        albums.setRefreshSuspended(true, for: .player(first))
+        intents.setRefreshSuspended(false, for: .player(first))
+        albums.setRefreshSuspended(false, for: .player(first))
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(intents.availability?.computedAt, computedAt,
                        "Closing a player reuses a current result instead of rescanning the library")
         XCTAssertEqual(albums.revision, revision)
         // Stop only these isolated services' deferred work before the fixture
         // library and defaults are removed.
-        intents.setPlayerPresentationActive(true, owner: first)
-        albums.setPlayerPresentationActive(true, owner: first)
+        intents.setRefreshSuspended(true, for: .player(first))
+        albums.setRefreshSuspended(true, for: .player(first))
     }
 
     private actor ArtistPhotoStub {

@@ -68,8 +68,8 @@ final class AlbumRecommendationService {
     @ObservationIgnored private var trackOrder: [String: [String]] = [:]
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var refreshPending = false
-    @ObservationIgnored private var playerPresentationOwners: Set<UUID> = []
-    @ObservationIgnored private var playerSettleRefresh: Task<Void, Never>?
+    @ObservationIgnored private var refreshPauses: Set<HomeRecommendationPause> = []
+    @ObservationIgnored private var settleRefresh: Task<Void, Never>?
     @ObservationIgnored private var forcePicksOnNextRefresh = false
     @ObservationIgnored private var momentTimer: Task<Void, Never>?
     @ObservationIgnored private weak var library: MusicLibrary?
@@ -88,11 +88,12 @@ final class AlbumRecommendationService {
         return ["CN", "HK", "MO", "TW", "SG", "MY"].contains(region)
     }
 
-    func setPlayerPresentationActive(_ active: Bool, owner: UUID) {
-        if active {
-            playerPresentationOwners.insert(owner)
-            playerSettleRefresh?.cancel()
-            playerSettleRefresh = nil
+    func setRefreshSuspended(_ suspended: Bool, for reason: HomeRecommendationPause) {
+        if suspended {
+            guard refreshPauses.insert(reason).inserted else { return }
+            if reason == .applicationBackground { releaseCandidateIndex() }
+            settleRefresh?.cancel()
+            settleRefresh = nil
             if refreshTask != nil {
                 refreshPending = true
                 forcePicksOnNextRefresh = true
@@ -100,21 +101,21 @@ final class AlbumRecommendationService {
             }
             momentTimer?.cancel()
             momentTimer = nil
-        } else if playerPresentationOwners.remove(owner) != nil,
-                  playerPresentationOwners.isEmpty, let library {
-            refreshAfterPlayerSettles(library: library)
+        } else if refreshPauses.remove(reason) != nil,
+                  refreshPauses.isEmpty, let library {
+            refreshAfterInteractionSettles(library: library)
         }
     }
 
     /// 收起播放页时收起动画还在走：等它停稳（最多几秒）再补这一轮，不和动画抢。
-    private func refreshAfterPlayerSettles(library: MusicLibrary) {
-        playerSettleRefresh?.cancel()
-        playerSettleRefresh = Task { @MainActor [weak self, weak library] in
+    private func refreshAfterInteractionSettles(library: MusicLibrary) {
+        settleRefresh?.cancel()
+        settleRefresh = Task { @MainActor [weak self, weak library] in
             #if os(iOS) || os(macOS)
             await UserScrollActivityMonitor.shared.waitUntilSettled(maximumHold: 5)
             #endif
-            guard let self, let library, !Task.isCancelled, self.playerPresentationOwners.isEmpty else { return }
-            self.playerSettleRefresh = nil
+            guard let self, let library, !Task.isCancelled, self.refreshPauses.isEmpty else { return }
+            self.settleRefresh = nil
             self.refresh(library: library)
         }
     }
@@ -139,7 +140,7 @@ final class AlbumRecommendationService {
         let now = currentDate
         let followsClock = true
         #endif
-        guard playerPresentationOwners.isEmpty else {
+        guard refreshPauses.isEmpty else {
             refreshPending = true
             return
         }
@@ -236,7 +237,7 @@ final class AlbumRecommendationService {
             }
             guard let self else { return }
             self.refreshTask = nil
-            let result = Task.isCancelled || !self.playerPresentationOwners.isEmpty ? nil : computed
+            let result = Task.isCancelled || !self.refreshPauses.isEmpty ? nil : computed
             if let result {
                 let (index, set, forYou, order) = result
                 // 算的这一会儿索引被放掉过(退到后台了): 推荐照常换上, 索引不再留着。
@@ -304,7 +305,8 @@ final class AlbumRecommendationService {
         let wanted = Set(picks.map(\.albumID))
         guard !wanted.isEmpty else { return [:] }
         var grouped: [String: [Song]] = [:]
-        for song in songs {
+        for (position, song) in songs.enumerated() {
+            if position.isMultiple(of: 512), Task.isCancelled { return [:] }
             guard let albumID = song.albumID, wanted.contains(albumID), song.isPlayable else { continue }
             grouped[albumID, default: []].append(song)
         }

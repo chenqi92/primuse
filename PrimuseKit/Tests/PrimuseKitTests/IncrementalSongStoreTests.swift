@@ -322,6 +322,45 @@ struct IncrementalSongStoreTests {
         }
     }
 
+    @Test("Launch pages seek past tied keys, skip filtered rows and reject a changed catalogue")
+    func launchPageCursor() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("songs.sqlite").path
+        let store = try IncrementalSongStore(path: path)
+        let songs = (0..<641).map { index -> Song in
+            var song = makeSong(id: String(format: "%04d", index), path: "/\(index).mp3", title: "Track")
+            song.sourceID = index.isMultiple(of: 7) ? "hidden" : "shown"
+            return song
+        }
+        try store.replaceAll(with: songs)
+        try store.markMigrationCompleted(version: 10)
+        try DatabaseQueue(path: path).write { db in try db.execute(sql: "UPDATE librarySongRecords SET orderKey = 1") }
+        func read(_ cursor: IncrementalSongPreviewCursor? = nil, ids: [String] = []) throws -> IncrementalSongPreviewPage {
+            try IncrementalSongPageReader.preview(at: path, sources: ["shown"], minimumMigration: 10, ids: ids,
+                                                  browseIfMissing: true, after: cursor) { !$0.id.hasSuffix("3") }
+        }
+        let first = try read()
+        let cursor = try #require(first.next)
+        let second = try read(cursor)
+        let finalCursor = try #require(second.next)
+        let last = try read(finalCursor)
+        #expect(first.songs.count == 200 && second.songs.count == 200 && last.next == nil)
+        #expect((first.songs + second.songs + last.songs).map(\.id) == songs.filter {
+            $0.sourceID == "shown" && !$0.id.hasSuffix("3")
+        }.map(\.id))
+        #expect(try read(ids: ["0640", "0000", "0640", "0003", "missing"]).songs.map(\.id) == ["0640", "0640"])
+        try DatabaseQueue(path: path).write { db in
+            try db.execute(sql: "DROP INDEX librarySongRecords_on_orderKey_id")
+        }
+        #expect(try read(cursor).songs == second.songs)
+        let olderStore = try IncrementalSongPageReader(path: path, sourceIDs: ["shown"])
+        #expect(try olderStore.page(at: 0) == Array(songs.filter { $0.sourceID == "shown" }.prefix(200)))
+        try store.apply(upserts: [], deletingIDs: ["0640"])
+        #expect(throws: IncrementalSongPageError.snapshotChanged) { try read(cursor) }
+    }
+
     private func withStore(_ body: (IncrementalSongStore) throws -> Void) throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse-song-store-\(UUID().uuidString).sqlite")

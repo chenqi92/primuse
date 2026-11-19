@@ -524,6 +524,33 @@ private struct LibraryArtworkPreviewSelection: Sendable {
     var artistFallbackSongs: [String: [Song]] = [:]
 }
 
+struct LibraryHubStartupPreview: Codable {
+    struct Scope: Codable, Equatable {
+        let sources: Set<String>
+        let artistMode: String
+        let hidesSingleOnlyAlbumArtists: Bool
+    }
+
+    static let storageKey = "primuse.library.hubPreview.v1"
+    let scope: Scope
+    let stamp: MusicLibrary.PresentationCacheStamp
+    let counts: [String: Int]
+    let chapters: Int
+    let coverSongIDs: [String: [String]]
+
+    static func decode(_ data: Data?, scope: Scope, stamp: MusicLibrary.PresentationCacheStamp) -> Self? {
+        guard let data, data.count <= 64 * 1024,
+              let saved = try? PropertyListDecoder().decode(Self.self, from: data),
+              saved.scope == scope, saved.stamp == stamp else { return nil }
+        return saved
+    }
+
+    func encoded() -> Data? {
+        guard let data = try? PropertyListEncoder().encode(self), data.count <= 64 * 1024 else { return nil }
+        return data
+    }
+}
+
 @MainActor
 private final class LibraryArtworkPreviewSessionStore {
     private struct InFlight {
@@ -719,6 +746,19 @@ struct LibraryView: View {
     @State private var artworkPreviewSelection = LibraryArtworkPreviewSelection()
     /// 上一次真正挑完封面预览的时刻, 给资料库内容驱动的重挑做节流。
     @State private var artworkPreviewBuiltAt: Date?
+    @State private var startupPreview: LibraryHubStartupPreview?
+    @State private var startupCoverSongs: [String: Song] = [:]
+    @AppStorage(LibraryHubStartupPreview.storageKey) private var hubPreviewData: Data?
+
+    private var hubScope: LibraryHubStartupPreview.Scope {
+        .init(sources: Set(startupSourcesStore.sources.filter(\.isEnabled).map(\.id)),
+              artistMode: artistBrowseModeRaw, hidesSingleOnlyAlbumArtists: hidesSingleOnlyAlbumArtists)
+    }
+
+    private var currentStartupPreview: LibraryHubStartupPreview? {
+        guard !library.isReady, startupPreview?.scope == hubScope else { return nil }
+        return startupPreview
+    }
 
     private var songs: [Song] { library.visibleSongs }
     private var albums: [Album] { library.visibleAlbums }
@@ -771,7 +811,7 @@ struct LibraryView: View {
             enabledSourceIDs: Set(startupSourcesStore.sources.filter(\.isEnabled).map(\.id))
         ) }
         // 「环境音」同样只在真有环境音时出现。
-        .filter { $0 != .ambient || library.hasAmbientContent }
+        .filter { $0 != .ambient || library.hasAmbientContent || (currentStartupPreview?.counts[$0.rawValue] ?? 0) > 0 }
     }
     private var artworkPreviewRevision: String {
         // 电台部分用存储里缓存的摘要：这个属性一次刷新要被求值好几遍，
@@ -1079,7 +1119,7 @@ struct LibraryView: View {
         let previewRevision = artworkPreviewRevision
         return ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                if !library.isReady {
+                if !library.isReady, currentStartupPreview == nil {
                     ProgressView("library_preparing")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1096,8 +1136,16 @@ struct LibraryView: View {
                 HomeDiscoveryObserver(model: favoriteFolderModel)
             }
         }
-        .task(id: previewRevision) {
-            await refreshArtworkPreviews(for: previewRevision)
+        .task(id: HubRefreshKey(scope: hubScope, ready: library.isReady, revision: previewRevision)) {
+            if library.isReady {
+                await refreshArtworkPreviews(for: previewRevision)
+                if !Task.isCancelled, artworkPreviewSelection.revision == previewRevision {
+                    startupPreview = nil
+                    startupCoverSongs = [:]
+                }
+            } else {
+                await restoreHubPreview()
+            }
         }
         .serverCatalogPullToRefresh(alsoRefresh: {
             LibraryArtworkPreviewSessionStore.shared.invalidateForManualRefresh()
@@ -1474,7 +1522,15 @@ struct LibraryView: View {
             }
 
             Spacer(minLength: 8)
-            categoryPreview(section)
+            if let covers = cachedHubCovers(for: section) {
+                overlappingPreview(covers) { song in
+                    CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 36,
+                                      cornerRadius: section == .artists ? 18 : 7, sourceID: song.sourceID,
+                                      filePath: song.filePath, fileFormat: song.fileFormat)
+                }
+            } else {
+                categoryPreview(section)
+            }
 
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
@@ -1806,14 +1862,72 @@ struct LibraryView: View {
         PlaylistArtworkView(playlist: playlist, size: size, cornerRadius: cornerRadius)
     }
 
+    private struct HubRefreshKey: Equatable {
+        let scope: LibraryHubStartupPreview.Scope
+        let ready: Bool
+        let revision: String
+    }
+
+    private func cachedHubCovers(for section: LibrarySection) -> [Song]? {
+        guard let saved = startupPreview, saved.scope == hubScope,
+              let ids = saved.coverSongIDs[section.rawValue] else { return nil }
+        if library.isReady {
+            guard !hasCurrentArtworkPreviewSelection else { return nil }
+            return ids.prefix(3).compactMap { library.unobservedVisibleSong(id: $0) }
+        }
+        return ids.prefix(3).compactMap { startupCoverSongs[$0] }
+    }
+
+    private func restoreHubPreview() async {
+        startupPreview = nil
+        startupCoverSongs = [:]
+        let scope = hubScope
+        guard let stamp = await library.presentationCacheStamp(), !Task.isCancelled, !library.isReady,
+              scope == hubScope, let saved = LibraryHubStartupPreview.decode(hubPreviewData, scope: scope, stamp: stamp) else { return }
+        startupPreview = saved
+        let ids = Array(Set(saved.coverSongIDs.values.flatMap { $0.prefix(3) }))
+        guard !ids.isEmpty, let songs = await library.prepareStartupSongs(ids: ids, sourceIDs: scope.sources),
+              !Task.isCancelled, !library.isReady, scope == hubScope else { return }
+        startupCoverSongs = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private func saveHubPreview(_ selection: LibraryArtworkPreviewSelection, revision: String) async {
+        let scope = hubScope
+        guard library.isReady, let stamp = await library.presentationCacheStamp(),
+              !Task.isCancelled, scope == hubScope, revision == artworkPreviewRevision else { return }
+        let counts: [LibrarySection: Int] = [
+            .songs: library.musicSongs.count, .folders: songs.count, .albums: albums.count, .artists: artists.count,
+            .genres: genres.count, .playlists: regularPlaylists.count + library.smartPlaylists.count,
+            .spokenWord: library.spokenWordBookCount, .ambient: library.ambientSongs.count
+        ]
+        let sampled = selection.songs.prefix(3).map(\.id)
+        let covers: [LibrarySection: [String]] = [
+            .songs: sampled, .recommendations: sampled,
+            .albums: selection.albums.prefix(3).compactMap { selection.albumFallbackSongs[$0.id]?.first?.id },
+            .artists: selection.artists.prefix(3).compactMap { selection.artistFallbackSongs[$0.id]?.first?.id },
+            .genres: previewGenreSongs.map(\.id),
+            .playlists: selection.playlists.prefix(3).compactMap { library.rawSongIDs(forPlaylist: $0.id).first },
+            .spokenWord: library.spokenWordSongs.prefix(3).map(\.id), .ambient: library.ambientSongs.prefix(3).map(\.id)
+        ]
+        let saved = LibraryHubStartupPreview(scope: scope, stamp: stamp,
+            counts: Dictionary(uniqueKeysWithValues: counts.map { ($0.key.rawValue, $0.value) }),
+            chapters: library.spokenWordChapterCount,
+            coverSongIDs: Dictionary(uniqueKeysWithValues: covers.map { ($0.key.rawValue, $0.value) }))
+        if let data = saved.encoded(), data != hubPreviewData { hubPreviewData = data }
+    }
+
     @MainActor
     private func refreshArtworkPreviews(for revision: String) async {
         guard library.isReady else { return }
-        if artworkPreviewSelection.revision == revision { return }
+        if artworkPreviewSelection.revision == revision {
+            await saveHubPreview(artworkPreviewSelection, revision: revision)
+            return
+        }
         if let cached = LibraryArtworkPreviewSessionStore.shared.cachedSelection(
             for: revision
         ) {
             artworkPreviewSelection = cached
+            await saveHubPreview(cached, revision: revision)
             return
         }
         let userRevision = artworkPreviewUserRevision
@@ -1984,17 +2098,20 @@ struct LibraryView: View {
               let selection else { return }
         artworkPreviewSelection = selection
         artworkPreviewBuiltAt = Date()
+        await saveHubPreview(selection, revision: revision)
     }
 
     private func categoryCountText(_ section: LibrarySection) -> String {
-        if !library.isReady, section != .radio, section != .podcasts {
-            return "—"
+        func count(_ live: @autoclosure () -> Int, unitKey: String.LocalizationValue) -> String {
+            if library.isReady { return countText(live(), unitKey: unitKey) }
+            guard let cached = currentStartupPreview?.counts[section.rawValue] else { return "—" }
+            return countText(cached, unitKey: unitKey)
         }
         switch section {
         case .favorites:
             return String(localized: "library_quick_access")
         case .folders:
-            return countText(songs.count, unitKey: "songs_count")
+            return count(songs.count, unitKey: "songs_count")
         case .statistics:
             return String(localized: "stats_section_label")
         case .releaseDate:
@@ -2003,22 +2120,23 @@ struct LibraryView: View {
             return String(localized: "library_recommendations_subtitle")
         case .songs:
             // 「歌曲」只数音乐,有声内容在有声那一页按书计。
-            return countText(library.musicSongs.count, unitKey: "songs_count")
+            return count(library.musicSongs.count, unitKey: "songs_count")
         case .spokenWord:
             // 有声书按书和章节计,不是「几首歌曲」。带内嵌章节的文件按章节数算,其余一个文件一章。
-            return String(
-                format: String(localized: "library_spoken_word_count_format"),
-                library.spokenWordBookCount,
-                library.spokenWordChapterCount
-            )
+            let totals: (books: Int, chapters: Int)
+            if library.isReady { totals = (library.spokenWordBookCount, library.spokenWordChapterCount) }
+            else if let cached = currentStartupPreview, let books = cached.counts[section.rawValue] {
+                totals = (books, cached.chapters)
+            } else { return "—" }
+            return String(format: String(localized: "library_spoken_word_count_format"), totals.books, totals.chapters)
         case .albums:
-            return countText(albums.count, unitKey: "albums_count")
+            return count(albums.count, unitKey: "albums_count")
         case .artists:
-            return countText(artists.count, unitKey: "artists_count")
+            return count(artists.count, unitKey: "artists_count")
         case .genres:
-            return countText(genres.count, unitKey: "genres_count")
+            return count(genres.count, unitKey: "genres_count")
         case .playlists:
-            return countText(
+            return count(
                 regularPlaylists.count + library.smartPlaylists.count,
                 unitKey: "playlists_count"
             )
@@ -2027,7 +2145,7 @@ struct LibraryView: View {
         case .podcasts:
             return countText(PodcastStore.shared.shows.count, unitKey: "podcast_shows_count")
         case .ambient:
-            return countText(library.ambientSongs.count, unitKey: "ambient_sounds_count")
+            return count(library.ambientSongs.count, unitKey: "ambient_sounds_count")
         }
     }
 

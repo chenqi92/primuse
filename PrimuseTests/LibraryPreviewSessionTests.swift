@@ -376,10 +376,10 @@ final class HomePresentationCacheTests: XCTestCase {
             recommendations: [], showsExternalAlbums: true
         )
         XCTAssertTrue(try XCTUnwrap(HomeView.rehydrateInitialHomePayload(
-            cache, visibleAlbums: [album], showsExternalAlbums: false, songForID: { _ in nil }
+            cache, showsExternalAlbums: false, albumForTile: { $0.albumID == album.id ? album : nil }, songForID: { _ in nil }
         )).recentlyAddedAlbums.isEmpty)
         XCTAssertEqual(try XCTUnwrap(HomeView.rehydrateInitialHomePayload(
-            cache, visibleAlbums: [album], showsExternalAlbums: true, songForID: { _ in nil }
+            cache, showsExternalAlbums: true, albumForTile: { $0.albumID == album.id ? album : nil }, songForID: { _ in nil }
         )).recentlyAddedAlbums.map(\.id), [album.id])
     }
 
@@ -396,6 +396,63 @@ final class HomePresentationCacheTests: XCTestCase {
         XCTAssertEqual(ids.count, 79)
         XCTAssertEqual(Array(ids.prefix(30)), Array(snapshot.recentSongIDs.prefix(30)))
         XCTAssertEqual(Set(ids).count, ids.count)
+    }
+
+    func testCachedAlbumRequiresAVisibleRepresentativeFromTheSameAlbum() {
+        let album = Album(id: "album", title: "Cobalt Atlas", sourceID: "visible")
+        let tile = PersistedHomeAlbumTile(albumID: album.id, artworkSongID: "track", preview: album)
+        var song = Song(id: "track", title: "Track", albumID: album.id, fileFormat: .mp3,
+                        filePath: "/track.mp3", sourceID: "visible")
+        XCTAssertEqual(tile.startupAlbum(representedBy: song, showsExternal: false), album)
+        XCTAssertNil(tile.startupAlbum(representedBy: nil, showsExternal: true))
+        song.isExternal = true
+        XCTAssertNil(tile.startupAlbum(representedBy: song, showsExternal: false))
+        song.albumID = "moved"
+        XCTAssertNil(tile.startupAlbum(representedBy: song, showsExternal: true))
+    }
+
+    func testLateHomeHighlightsCannotOverwriteNewerRecommendationsOnDisk() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let suite = UUID().uuidString
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            UserDefaults.standard.removePersistentDomain(forName: suite)
+        }
+        let cache = HomeInitialSnapshotCacheStore(directory: directory, defaultsSuite: suite)
+        func snapshot(_ ids: [String]) -> PersistedHomeSnapshot {
+            .init(version: PersistedHomeSnapshot.currentVersion, dayStamp: 1, visibleSongCount: 10,
+                  visibleAlbumCount: 2, visibleArtistCount: 1, recentSongIDs: [], heroSongIDs: [],
+                  recentlyAddedAlbums: [], recommendations: ids.map { .init(songID: $0, score: 1, reasons: []) })
+        }
+        let first = ContinuousClock.now
+        await cache.save(snapshot(["tail"]), capturedAt: first.advanced(by: .milliseconds(1)))
+        await cache.save(snapshot([]), capturedAt: first)
+        let saved = await cache.load()
+        XCTAssertEqual(saved?.recommendations.map(\.songID), ["tail"])
+    }
+
+    func testHubCacheRejectsChangedSourcesSettingsAndStoreRevision() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = try IncrementalSongStore(path: dir.appendingPathComponent("library-songs.sqlite").path)
+        let song = Song(id: "one", title: "One", fileFormat: .mp3, filePath: "/one", sourceID: "s")
+        try store.replaceAll(with: [song])
+        try store.markMigrationCompleted(version: 10)
+        let library = MusicLibrary.makePreparing(storageDirectory: dir)
+        let first = await library.presentationCacheStamp()
+        let stamp = try XCTUnwrap(first)
+        let scope = LibraryHubStartupPreview.Scope(sources: ["s"], artistMode: "all", hidesSingleOnlyAlbumArtists: false)
+        let preview = LibraryHubStartupPreview(scope: scope, stamp: stamp, counts: ["songs": 1], chapters: 0,
+                                              coverSongIDs: ["songs": ["one"]])
+        let data = try XCTUnwrap(preview.encoded())
+        XCTAssertEqual(LibraryHubStartupPreview.decode(data, scope: scope, stamp: stamp)?.counts["songs"], 1)
+        XCTAssertNil(LibraryHubStartupPreview.decode(data, scope: .init(sources: [], artistMode: "all", hidesSingleOnlyAlbumArtists: false), stamp: stamp))
+        XCTAssertNil(LibraryHubStartupPreview.decode(data, scope: .init(sources: ["s"], artistMode: "album", hidesSingleOnlyAlbumArtists: true), stamp: stamp))
+        XCTAssertNil(LibraryHubStartupPreview.decode(Data("corrupt".utf8), scope: scope, stamp: stamp))
+        try store.apply(upserts: [], deletingIDs: ["one"])
+        let changed = await library.presentationCacheStamp()
+        XCTAssertNil(LibraryHubStartupPreview.decode(data, scope: scope, stamp: try XCTUnwrap(changed)))
     }
 
     func testStaleDiskCacheRestoresOnlyCurrentVisibleContent() throws {
@@ -415,7 +472,7 @@ final class HomePresentationCacheTests: XCTestCase {
             ]
         )
         let restored = try XCTUnwrap(HomeView.rehydrateInitialHomePayload(
-            cached, visibleAlbums: [album], songForID: { $0 == song.id ? song : nil }
+            cached, albumForTile: { $0.albumID == album.id ? album : nil }, songForID: { $0 == song.id ? song : nil }
         ))
         XCTAssertEqual(restored.heroCoverSongs.map(\.id), [song.id])
         XCTAssertEqual(restored.forYouResults.map(\.song.title), ["Updated title"])
@@ -423,7 +480,7 @@ final class HomePresentationCacheTests: XCTestCase {
         XCTAssertNil(restored.recentlyAddedAlbums.first?.artworkSong)
 
         let removedSource = try XCTUnwrap(HomeView.rehydrateInitialHomePayload(
-            cached, visibleAlbums: [], songForID: { _ in nil }
+            cached, albumForTile: { _ in nil }, songForID: { _ in nil }
         ))
         XCTAssertTrue(removedSource.heroCoverSongs.isEmpty)
         XCTAssertTrue(removedSource.recentlyAddedAlbums.isEmpty)

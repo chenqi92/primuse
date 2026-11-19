@@ -34,6 +34,35 @@ private final class PersistenceBarrierRecorder {
 @MainActor
 final class LibraryStartupPreparationTests: XCTestCase {
 
+    func testStartupBrowseReadsOnlyTheRequestedAlbumAndArtistRows() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cacheURL = directory.appendingPathComponent("library-startup-cache.plist")
+        let album: [String: Any] = ["id": "album", "title": "Album", "songCount": 1, "totalDuration": 180.0]
+        let artist: [String: Any] = ["id": "artist", "name": "Artist", "albumCount": 1, "songCount": 1]
+        var cache: [String: Any] = [
+            "formatVersion": 2,
+            "snapshot": ["songs": [], "playlists": []],
+            "albums": [album, "malformed later row"] as [Any],
+            "artists": [artist, "malformed later row"] as [Any]
+        ]
+        func writeCache() throws {
+            try PropertyListSerialization.data(fromPropertyList: cache, format: .binary, options: 0).write(to: cacheURL)
+        }
+        try writeCache()
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        let first = await library.prepareStartupBrowsePreview(limit: 1)
+        XCTAssertEqual(first?.albums.map(\.id), ["album"])
+        XCTAssertEqual(first?.artists.map(\.id), ["artist"])
+        let invalidPage = await library.prepareStartupBrowsePreview(limit: 2)
+        XCTAssertNil(invalidPage)
+        cache["formatVersion"] = 1
+        try writeCache()
+        let legacyPreview = await library.prepareStartupBrowsePreview(limit: 1)
+        XCTAssertNil(legacyPreview)
+        XCTAssertFalse(library.isReady)
+    }
+
     func testStartupPagesBrowseEnabledSourcesBeforeFullReadiness() async throws {
         let directory = try Self.makeStorageDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -391,6 +420,29 @@ final class LibraryStartupPreparationTests: XCTestCase {
             "the fixture should contain a startup cache"
         )
         try await openBothWays(fixture)
+    }
+
+    func testLegacyCacheWithAnUnmatchedFingerprintCannotReplaceAuthoritativeSongs() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let expected = try await Self.populate(directory)
+        let url = directory.appendingPathComponent("library-startup-cache.plist")
+        let data = try Data(contentsOf: url)
+        var cache = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        var snapshot = try XCTUnwrap(cache["snapshot"] as? [String: Any])
+        let ghost = Self.makeSong(id: "old-library-only", sourceID: "source-a")
+        let encoded = try PropertyListEncoder().encode([ghost])
+        snapshot["songs"] = try PropertyListSerialization.propertyList(from: encoded, format: nil)
+        cache["snapshot"] = snapshot
+        cache["formatVersion"] = 1
+        XCTAssertNotNil(cache.removeValue(forKey: "snapshotFingerprint"))
+        try PropertyListSerialization.data(fromPropertyList: cache, format: .binary, options: 0).write(to: url)
+
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        library.publish(await MusicLibrary.prepareStartup(storageDirectory: directory))
+        XCTAssertTrue(library.isReady)
+        XCTAssertEqual(library.songs.map(\.id), expected)
+        XCTAssertFalse(library.songs.contains { $0.id == ghost.id })
     }
 
     func testPreparedStartupMatchesTheSynchronousLoadWithoutAStartupCache() async throws {

@@ -71,28 +71,30 @@ public final class IncrementalSongStore: @unchecked Sendable {
     /// Cheap metadata used to validate the disposable binary launch cache
     /// without decoding every song row first.
     public func startupState() throws -> IncrementalSongStoreStartupState {
-        try database.read { db in
-            let rows = try Row.fetchAll(
-                db,
-                sql: "SELECT key, value FROM libraryStoreMetadata WHERE key IN (?, ?, ?)",
-                arguments: [
-                    Self.authoritativeKey,
-                    Self.contentRevisionKey,
-                    Self.completedMigrationVersionKey,
-                ]
-            )
-            let values = Dictionary(uniqueKeysWithValues: rows.compactMap { row -> (String, String)? in
-                guard let key: String = row["key"], let value: String = row["value"] else {
-                    return nil
-                }
-                return (key, value)
-            })
-            return IncrementalSongStoreStartupState(
-                isAuthoritative: values[Self.authoritativeKey] == "1",
-                contentRevision: Int64(values[Self.contentRevisionKey] ?? "") ?? 0,
-                completedMigrationVersion: Int(values[Self.completedMigrationVersionKey] ?? "") ?? 0
-            )
-        }
+        try database.read(Self.startupState(in:))
+    }
+
+    fileprivate static func startupState(in db: Database) throws -> IncrementalSongStoreStartupState {
+        let rows = try Row.fetchAll(
+            db,
+            sql: "SELECT key, value FROM libraryStoreMetadata WHERE key IN (?, ?, ?)",
+            arguments: [
+                Self.authoritativeKey,
+                Self.contentRevisionKey,
+                Self.completedMigrationVersionKey,
+            ]
+        )
+        let values = Dictionary(uniqueKeysWithValues: rows.compactMap { row -> (String, String)? in
+            guard let key: String = row["key"], let value: String = row["value"] else {
+                return nil
+            }
+            return (key, value)
+        })
+        return IncrementalSongStoreStartupState(
+            isAuthoritative: values[Self.authoritativeKey] == "1",
+            contentRevision: Int64(values[Self.contentRevisionKey] ?? "") ?? 0,
+            completedMigrationVersion: Int(values[Self.completedMigrationVersionKey] ?? "") ?? 0
+        )
     }
 
     public func loadSongs() throws -> [Song] {
@@ -387,6 +389,18 @@ public enum IncrementalSongPageError: Error, Equatable {
     case snapshotChanged
 }
 
+public struct IncrementalSongPreviewCursor: Equatable, Sendable {
+    fileprivate let revision: Int64
+    fileprivate let sources: Set<String>
+    fileprivate let orderKey: Int64
+    fileprivate let id: String
+}
+
+public struct IncrementalSongPreviewPage: Sendable {
+    public let songs: [Song]
+    public let next: IncrementalSongPreviewCursor?
+}
+
 /// An independent read-only connection lets browsing proceed while launch
 /// preparation streams the canonical store on its own connection.
 public final class IncrementalSongPageReader: @unchecked Sendable {
@@ -397,14 +411,24 @@ public final class IncrementalSongPageReader: @unchecked Sendable {
     private let database: DatabaseQueue
     private let predicate: String
     private let arguments: StatementArguments
+    private let allowedSources: Set<String>?
 
-    public init(path: String, sourceIDs: Set<String>? = nil) throws {
+    private static func connection(at path: String) throws -> DatabaseQueue {
         var configuration = Configuration()
         configuration.readonly = true
         configuration.label = "Primuse song pages"
-        database = try DatabaseQueue(path: path, configuration: configuration)
+        return try DatabaseQueue(path: path, configuration: configuration)
+    }
+
+    public static func startupState(at path: String) throws -> IncrementalSongStoreStartupState {
+        try connection(at: path).read(IncrementalSongStore.startupState(in:))
+    }
+
+    public init(path: String, sourceIDs: Set<String>? = nil) throws {
+        database = try Self.connection(at: path)
+        allowedSources = sourceIDs
         let ids = sourceIDs?.sorted() ?? []
-        let scopedPredicate = ids.isEmpty ? " WHERE 0" : " WHERE sourceID IN (\(ids.map { _ in "?" }.joined(separator: ",")))"
+        let sourceFilter = ids.isEmpty ? "0" : "sourceID IN (\(ids.map { _ in "?" }.joined(separator: ",")))"
         let scopedArguments = StatementArguments(ids)
         let state = try database.read { db -> (Int, Int, Int64, Int) in
             guard try String.fetchOne(db, sql: "SELECT value FROM libraryStoreMetadata WHERE key = 'songs-authoritative'") == "1" else {
@@ -412,7 +436,7 @@ public final class IncrementalSongPageReader: @unchecked Sendable {
             }
             let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM librarySongRecords") ?? 0
             let visible = sourceIDs == nil ? total : try Int.fetchOne(
-                db, sql: "SELECT COUNT(*) FROM librarySongRecords" + scopedPredicate,
+                db, sql: "SELECT COUNT(*) FROM librarySongRecords WHERE " + sourceFilter,
                 arguments: scopedArguments
             ) ?? 0
             let revision = try Self.contentRevision(db)
@@ -422,7 +446,7 @@ public final class IncrementalSongPageReader: @unchecked Sendable {
         // With all sources enabled, omit the redundant source predicate so
         // SQLite can skip a deep offset using only the ordering index.
         if state.0 != state.1 {
-            predicate = scopedPredicate
+            predicate = " WHERE likely(\(sourceFilter))"
             arguments = scopedArguments
         } else {
             predicate = ""
@@ -460,18 +484,79 @@ public final class IncrementalSongPageReader: @unchecked Sendable {
         try Task.checkCancellation()
         return try database.read { db in
             guard try Self.contentRevision(db) == revision else { throw IncrementalSongPageError.snapshotChanged }
-            let uniqueIDs = Array(Set(ids))
-            var byID: [String: Song] = [:]
-            for start in stride(from: 0, to: uniqueIDs.count, by: 400) {
-                try Task.checkCancellation()
-                let batch = Array(uniqueIDs[start..<min(start + 400, uniqueIDs.count)])
-                let idPredicate = "id IN (\(batch.map { _ in "?" }.joined(separator: ",")))"
-                let sql = "SELECT payload FROM librarySongRecords"
-                    + (predicate.isEmpty ? " WHERE " : predicate + " AND ") + idPredicate
-                let payloads = try Data.fetchAll(db, sql: sql, arguments: arguments + StatementArguments(batch))
-                for song in try IncrementalSongStore.decodeSongs(payloads) { byID[song.id] = song }
+            return try Self.songs(ids: ids, sources: allowedSources, in: db)
+        }
+    }
+
+    private static func songs(ids: [String], sources: Set<String>?, in db: Database) throws -> [Song] {
+        let unique = Array(Set(ids))
+        var byID: [String: Song] = [:]
+        for start in stride(from: 0, to: unique.count, by: 400) {
+            try Task.checkCancellation()
+            let batch = unique[start..<min(start + 400, unique.count)]
+            let placeholders = batch.map { _ in "?" }.joined(separator: ",")
+            let rows = try Row.fetchCursor(db, sql: "SELECT sourceID, payload FROM librarySongRecords WHERE id IN (\(placeholders))",
+                                           arguments: StatementArguments(batch))
+            var payloads: [Data] = []
+            while let row = try rows.next() {
+                if sources?.contains(row["sourceID"]) != false { payloads.append(row["payload"]) }
             }
-            return ids.compactMap { byID[$0] }
+            for song in try IncrementalSongStore.decodeSongs(payloads) { byID[song.id] = song }
+        }
+        return ids.compactMap { byID[$0] }
+    }
+
+    /// A launch projection needs no total count. Seek from the last examined row so filtered
+    /// tracks, equal order keys and nonconsecutive pages cannot drop or repeat a song.
+    public static func preview(
+        at path: String, sources: Set<String>, minimumMigration: Int, ids: [String],
+        browseIfMissing: Bool, after cursor: IncrementalSongPreviewCursor? = nil,
+        including: (Song) -> Bool
+    ) throws -> IncrementalSongPreviewPage {
+        try Task.checkCancellation()
+        return try connection(at: path).read { db in
+            let state = try IncrementalSongStore.startupState(in: db)
+            guard state.isAuthoritative, state.completedMigrationVersion >= minimumMigration else {
+                throw IncrementalSongPageError.unavailable
+            }
+            if let cursor, cursor.revision != state.contentRevision || cursor.sources != sources {
+                throw IncrementalSongPageError.snapshotChanged
+            }
+            guard !sources.isEmpty else { return .init(songs: [], next: nil) }
+            let selected = try songs(ids: ids, sources: sources, in: db).filter(including)
+            guard selected.isEmpty, browseIfMissing else { return .init(songs: selected, next: nil) }
+
+            let sourceIDs = sources.sorted()
+            let placeholders = sourceIDs.map { _ in "?" }.joined(separator: ",")
+            let sourceFilter = "sourceID IN (\(placeholders))"
+            var arguments = StatementArguments(sourceIDs)
+            guard try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM librarySongRecords WHERE " + sourceFilter + ")",
+                                    arguments: arguments) == true else { return .init(songs: [], next: nil) }
+            // Most launches include all sources. SQLite can use the ordering index as soon as it exists.
+            var predicate = "WHERE likely(\(sourceFilter))"
+            if let cursor {
+                predicate += " AND (orderKey, id) > (?, ?)"
+                arguments += [cursor.orderKey, cursor.id]
+            }
+            arguments += [pageSize * 8 + 1]
+            let rows = try Row.fetchCursor(db, sql: """
+                SELECT orderKey, id, payload FROM librarySongRecords
+                \(predicate) ORDER BY orderKey, id LIMIT ?
+                """, arguments: arguments)
+            var result: [Song] = []
+            var next: IncrementalSongPreviewCursor?
+            var examined = 0
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            while let row = try rows.next() {
+                if examined == pageSize * 8 || result.count == pageSize { return .init(songs: result, next: next) }
+                if examined.isMultiple(of: 32) { try Task.checkCancellation() }
+                examined += 1
+                next = .init(revision: state.contentRevision, sources: sources, orderKey: row["orderKey"], id: row["id"])
+                let song = try decoder.decode(Song.self, from: row["payload"])
+                if including(song) { result.append(song) }
+            }
+            return .init(songs: result, next: nil)
         }
     }
 
@@ -480,7 +565,7 @@ public final class IncrementalSongPageReader: @unchecked Sendable {
     }
 
     private static func pageSQL(predicate: String) -> String {
-        "SELECT payload FROM librarySongRecords INDEXED BY librarySongRecords_on_orderKey_id"
+        "SELECT payload FROM librarySongRecords"
             + predicate + " ORDER BY orderKey ASC, id ASC LIMIT ? OFFSET ?"
     }
 

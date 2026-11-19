@@ -115,25 +115,14 @@ final class HomeHeroRecommendationModel {
         let theme = self.theme
         let worker = Task.detached(priority: .utility) {
             let input = snapshot.makeInput()
-            let ranked = MusicDiscoveryEngine.dailyRecommendations(from: input, limit: 200, isCancelled: { Task.isCancelled })
-            var pool = ranked.map(\.song)
-            if theme != .daily || pool.count < AIRecommendationRequest.maximumCandidates {
-                var seen = Set(pool.map(\.id))
-                for song in input.songs where song.isPlayable && !input.excludedSongIDs.contains(song.id) {
-                    if theme != .daily, (song.year ?? 0) <= 0 { continue }
-                    if seen.insert(song.id).inserted { pool.append(song) }
-                    if theme == .daily, pool.count >= 200 { break }
-                }
-            }
-            pool = theme.candidatePool(from: pool, minimumCount: configuration.songCount)
-            let byID = Dictionary(pool.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            let freshCount = pool.filter { !previousSongs.contains($0.id) }.count
-            let ids = HomeHeroRecommendationPolicy.candidates(
-                rankedIDs: pool.map(\.id), day: day + theme.rotationOffset, round: round,
-                excluding: previousSongs,
-                limit: min(AIRecommendationRequest.maximumCandidates, max(configuration.songCount, freshCount))
+            let ranked = MusicDiscoveryEngine.dailyRecommendations(
+                from: input, limit: HomeHeroRecommendationPolicy.rankedSongLimit, isCancelled: { Task.isCancelled }
             )
-            return ids.compactMap { byID[$0] }
+            return HomeHeroRecommendationPolicy.songCandidates(
+                ranked: ranked.map(\.song), librarySongs: input.songs, excludedSongIDs: input.excludedSongIDs,
+                theme: theme, minimumCount: configuration.songCount, day: day, round: round,
+                previous: previousSongs, isCancelled: { Task.isCancelled }
+            )
         }
         let candidates = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
         guard operation == generation, !Task.isCancelled else { return }

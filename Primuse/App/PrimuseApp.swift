@@ -2351,6 +2351,13 @@ struct PrimuseApp: App {
                     plog("⚠️ Unhandled openURL: \(url.absoluteString)")
                     #endif
                 }
+                #if os(iOS)
+                .onChange(of: scenePhase, initial: true) { _, phase in
+                    guard phase != .inactive else { return }
+                    ListeningIntentService.shared.setRefreshSuspended(phase == .background, for: .applicationBackground)
+                    AlbumRecommendationService.shared.setRefreshSuspended(phase == .background, for: .applicationBackground)
+                }
+                #endif
                 .onChange(of: scenePhase) { _, newPhase in
                     metadataBackfill.readingConfigurationChanged()
                     serverCatalogAutoRefresh.setApplicationActive(newPhase == .active)

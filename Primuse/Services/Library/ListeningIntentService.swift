@@ -2,6 +2,11 @@ import Foundation
 import SwiftUI
 import PrimuseKit
 
+enum HomeRecommendationPause: Hashable {
+    case player(UUID)
+    case applicationBackground
+}
+
 /// 「开始听」:按听歌意图(流行、九十年代、安静一点、很久没听的……)直接起播。
 ///
 /// 点亮(每个意图在曲库里有多少首)是一次整库遍历,只在后台算:曲库变了且距上次至少五分钟
@@ -73,8 +78,8 @@ final class ListeningIntentService {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var refreshPending = false
-    @ObservationIgnored private var playerPresentationOwners: Set<UUID> = []
-    @ObservationIgnored private var playerSettleRefresh: Task<Void, Never>?
+    @ObservationIgnored private var refreshPauses: Set<HomeRecommendationPause> = []
+    @ObservationIgnored private var settleRefresh: Task<Void, Never>?
     @ObservationIgnored private var deferredRefresh: Task<Void, Never>?
     @ObservationIgnored private var smartPlaylistCountsKey: String?
     /// 上次点亮时停用着的音乐源。停用、重新启用是用户自己的操作,不等五分钟的节流,马上重数。
@@ -87,7 +92,7 @@ final class ListeningIntentService {
     @ObservationIgnored private var forcesNextRefresh = false
     @ObservationIgnored private var forcesNextCuration = false
     @ObservationIgnored private var profile: ListeningProfile?
-    @ObservationIgnored private var localPersonalIntents: [ListeningIntent] = []
+    @ObservationIgnored private var profileReleaseGeneration: UInt64 = 0
     @ObservationIgnored private var curated: CuratedIntents?
     @ObservationIgnored private var curationTask: Task<Void, Never>?
     @ObservationIgnored private var usage: ListeningIntentUsage
@@ -127,7 +132,8 @@ final class ListeningIntentService {
     }
 
     func releaseRebuildableCaches() {
-        guard curationTask == nil, let displaced = profile else { return }
+        profileReleaseGeneration &+= 1
+        guard let displaced = profile else { return }
         profile = nil
         Task.detached(priority: .utility) { withExtendedLifetime(displaced) {} }
     }
@@ -150,11 +156,12 @@ final class ListeningIntentService {
         #endif
     }
 
-    func setPlayerPresentationActive(_ active: Bool, owner: UUID) {
-        if active {
-            playerPresentationOwners.insert(owner)
-            playerSettleRefresh?.cancel()
-            playerSettleRefresh = nil
+    func setRefreshSuspended(_ suspended: Bool, for reason: HomeRecommendationPause) {
+        if suspended {
+            guard refreshPauses.insert(reason).inserted else { return }
+            if reason == .applicationBackground { releaseRebuildableCaches() }
+            settleRefresh?.cancel()
+            settleRefresh = nil
             if refreshTask != nil {
                 refreshPending = true
                 forcesNextRefresh = true
@@ -162,21 +169,21 @@ final class ListeningIntentService {
             }
             deferredRefresh?.cancel()
             deferredRefresh = nil
-        } else if playerPresentationOwners.remove(owner) != nil,
-                  playerPresentationOwners.isEmpty, let library {
-            refreshAfterPlayerSettles(library: library)
+        } else if refreshPauses.remove(reason) != nil,
+                  refreshPauses.isEmpty, let library {
+            refreshAfterInteractionSettles(library: library)
         }
     }
 
     /// 收起播放页时收起动画还在走：等它停稳（最多几秒）再补这一轮，不和动画抢。
-    private func refreshAfterPlayerSettles(library: MusicLibrary) {
-        playerSettleRefresh?.cancel()
-        playerSettleRefresh = Task { @MainActor [weak self, weak library] in
+    private func refreshAfterInteractionSettles(library: MusicLibrary) {
+        settleRefresh?.cancel()
+        settleRefresh = Task { @MainActor [weak self, weak library] in
             #if os(iOS) || os(macOS)
             await UserScrollActivityMonitor.shared.waitUntilSettled(maximumHold: 5)
             #endif
-            guard let self, let library, !Task.isCancelled, self.playerPresentationOwners.isEmpty else { return }
-            self.playerSettleRefresh = nil
+            guard let self, let library, !Task.isCancelled, self.refreshPauses.isEmpty else { return }
+            self.settleRefresh = nil
             self.refresh(library: library)
         }
     }
@@ -190,7 +197,7 @@ final class ListeningIntentService {
             guard let self, let library = self.library else { return }
             self.refresh(library: library)
         }
-        guard playerPresentationOwners.isEmpty else {
+        guard refreshPauses.isEmpty else {
             refreshPending = true
             return
         }
@@ -229,6 +236,7 @@ final class ListeningIntentService {
         let intents = countedIntents
         let curatedIntents = isAICurationEnabled ? curated?.intents ?? [] : []
         let computesPersonal = Self.computesPersonalIntents
+        let releaseGeneration = profileReleaseGeneration
         let startedAt = ProcessInfo.processInfo.systemUptime
         refreshTask = Task { @MainActor [weak self] in
             let worker = Task.detached(priority: .utility) { () -> LightingResult? in
@@ -248,7 +256,7 @@ final class ListeningIntentService {
                     libraryGeneration: generation,
                     isCancelled: { Task.isCancelled }
                 ) else { return nil }
-                return LightingResult(availability: availability, profile: profile, local: local, personal: personal)
+                return LightingResult(availability: availability, profile: profile, personal: personal)
             }
             let computed = await withTaskCancellationHandler {
                 await worker.value
@@ -257,12 +265,13 @@ final class ListeningIntentService {
             }
             guard let self else { return }
             self.refreshTask = nil
-            let result = Task.isCancelled || !self.playerPresentationOwners.isEmpty ? nil : computed
+            let result = Task.isCancelled || !self.refreshPauses.isEmpty ? nil : computed
             if let result {
                 self.countedDisabledSourceIDs = disabledSourceIDs
                 self.countedHistoryCount = historyCount
-                self.profile = result.profile
-                self.localPersonalIntents = result.local
+                if self.profileReleaseGeneration == releaseGeneration {
+                    self.profile = result.profile
+                }
                 if result.personal != self.personalIntents { self.personalIntents = result.personal }
             }
             if let result, result.availability != self.availability {
@@ -277,10 +286,12 @@ final class ListeningIntentService {
                     (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
                 ))
             }
-            if result != nil {
+            if result != nil, self.profile != nil {
                 let forced = self.forcesNextCuration
                 self.forcesNextCuration = false
                 self.considerCuration(force: forced)
+            } else if self.forcesNextCuration {
+                self.forcesNextRefresh = true
             }
             if self.refreshPending, let library = self.library {
                 self.refreshPending = false
@@ -292,7 +303,6 @@ final class ListeningIntentService {
     private struct LightingResult: Sendable {
         let availability: ListeningIntentAvailability
         let profile: ListeningProfile?
-        let local: [ListeningIntent]
         let personal: [ListeningIntent]
     }
 

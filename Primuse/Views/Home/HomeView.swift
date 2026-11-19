@@ -74,6 +74,13 @@ private final class HomeScrollMemory {
 struct PersistedHomeAlbumTile: Codable, Sendable {
     let albumID: String
     let artworkSongID: String?
+    var preview: Album? = nil
+
+    func startupAlbum(representedBy song: Song?, showsExternal: Bool) -> Album? {
+        guard let song, song.albumID == albumID, showsExternal || song.isExternal != true,
+              let preview, preview.id == albumID, preview.sourceID == nil || preview.sourceID == song.sourceID else { return nil }
+        return preview
+    }
 }
 
 /// 首页区块标题上「全部」推进来的整页。
@@ -81,7 +88,8 @@ struct PersistedHomeAlbumTile: Codable, Sendable {
 /// 这两页里的专辑、艺术家、歌单卡片是 `NavigationLink(value:)`,要走首页导航栈的 path;
 /// 「全部」本身若是闭包式链接,SwiftUI 会把 path 里的详情页排在它下面 —— 点卡片没反应、
 /// 返回才露出详情,点几次就压几层。所以「全部」也只能用 value 式链接进 path。
-private enum HomeSeeAllPage: Hashable {
+private enum HomeLibraryPage: Hashable {
+    case recentAlbum(String)
     case recentlyAddedAlbums
     case quickAccess
 }
@@ -192,16 +200,17 @@ struct PersistedHomeSnapshot: Codable, Sendable {
     var showsExternalAlbums: Bool? = nil
 }
 
-private actor HomeInitialSnapshotCacheStore {
+actor HomeInitialSnapshotCacheStore {
     static let shared = HomeInitialSnapshotCacheStore()
 
     private let url: URL
+    private let defaults: UserDefaults
+    private var newestCapture: ContinuousClock.Instant?
 
-    init(fileManager: FileManager = .default) {
-        let directory = fileManager
-            .primuseDirectoryURL(for: .cachesDirectory)
-            .appendingPathComponent("Primuse", isDirectory: true)
-        url = directory.appendingPathComponent("home-initial-snapshot.plist")
+    init(directory: URL = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent("Primuse", isDirectory: true), defaultsSuite: String? = nil) {
+        self.url = directory.appendingPathComponent("home-initial-snapshot.plist")
+        self.defaults = defaultsSuite.flatMap(UserDefaults.init(suiteName:)) ?? .standard
     }
 
     func load() -> PersistedHomeSnapshot? {
@@ -214,11 +223,12 @@ private actor HomeInitialSnapshotCacheStore {
     // 首帧只读一个布局标记；旧版本已有的快照在首次读取时补上。
     private func rememberCarouselLayout(_ snapshot: PersistedHomeSnapshot) {
         guard let compact = snapshot.usesCompactCarousel,
-              UserDefaults.standard.bool(forKey: PersistedHomeSnapshot.compactCarouselKey) != compact else { return }
-        UserDefaults.standard.set(compact, forKey: PersistedHomeSnapshot.compactCarouselKey)
+              defaults.bool(forKey: PersistedHomeSnapshot.compactCarouselKey) != compact else { return }
+        defaults.set(compact, forKey: PersistedHomeSnapshot.compactCarouselKey)
     }
 
-    func save(_ snapshot: PersistedHomeSnapshot) {
+    func save(_ snapshot: PersistedHomeSnapshot, capturedAt: ContinuousClock.Instant = .now) {
+        guard newestCapture.map({ capturedAt >= $0 }) ?? true else { return }
         do {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(),
@@ -227,6 +237,7 @@ private actor HomeInitialSnapshotCacheStore {
             let encoder = PropertyListEncoder()
             encoder.outputFormat = .binary
             try encoder.encode(snapshot).write(to: url, options: .atomic)
+            newestCapture = capturedAt
             rememberCarouselLayout(snapshot)
         } catch {
             plog("⚠️ Home snapshot cache write failed: \(error.localizedDescription)")
@@ -1624,6 +1635,7 @@ struct HomeView: View {
     var editorMode = false
     /// Home cards and "see all" links that lead into radio or spoken word.
     var openListeningSpace: ((ListeningSpace) -> Void)? = nil
+    var initialSnapshotCache = HomeInitialSnapshotCacheStore.shared
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(CoverTintProvider.self) private var tintProvider
@@ -2111,10 +2123,19 @@ struct HomeView: View {
             .navigationDestination(for: SmartPlaylist.self) {
                 SmartPlaylistDetailView(smartPlaylistID: $0.id)
             }
-            .navigationDestination(for: HomeSeeAllPage.self) { page in
+            .navigationDestination(for: HomeLibraryPage.self) { page in
                 switch page {
+                case .recentAlbum(let id):
+                    libraryPageWhenReady {
+                        if let album = library.visibleAlbum(id: id) {
+                            AlbumDetailView(album: album)
+                                .mediaZoomDestination(.album, id: id)
+                        } else {
+                            ContentUnavailableView("no_albums", systemImage: "square.stack")
+                        }
+                    }
                 case .recentlyAddedAlbums:
-                    RecentlyAddedAlbumsView()
+                    libraryPageWhenReady { RecentlyAddedAlbumsView() }
                         #if os(iOS)
                         .minimalNavigationDetail()
                         #endif
@@ -2516,7 +2537,7 @@ struct HomeView: View {
                 HomeDeferredSection { artistsSection(style) }
             }
         case .recentlyAdded:
-            if showRecentlyAdded, !library.visibleAlbums.isEmpty {
+            if showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty || !library.visibleAlbums.isEmpty {
                 HomeDeferredSection { recentlyAddedAlbumsSection(style) }
             }
         case .stats:
@@ -3222,7 +3243,7 @@ struct HomeView: View {
             // 冷启动第一次换上内容时由各区块自己错峰入场,整块不再跟着淡一遍(两层透明度会相乘);
             // 骨架照旧淡出。之后再换上内容(比如从空态)还是整块淡入。
             contentView
-                .transition(HomeColdStartEntrance.beginIfNeeded()
+                .transition(!library.isReady ? .identity : HomeColdStartEntrance.beginIfNeeded()
                     ? AnyTransition.asymmetric(insertion: .identity, removal: .opacity)
                     : AnyTransition.opacity)
                 .onAppear { hasShownHomeContent = true }
@@ -3498,7 +3519,7 @@ struct HomeView: View {
             return
         }
 
-        if !library.isReady || !model.isPrepared {
+        if !library.isReady || !model.isPrepared || model.signature == nil {
             if !library.isReady { model.isPrepared = false }
             await prepareInitialHomeSnapshot()
             return
@@ -3511,12 +3532,21 @@ struct HomeView: View {
         refreshHomeSnapshot()
     }
 
+    @ViewBuilder
+    private func libraryPageWhenReady<Content: View>(@ViewBuilder _ content: @escaping () -> Content) -> some View {
+        #if os(iOS)
+        LibraryReadyContent(content: content)
+        #else
+        content()
+        #endif
+    }
+
     /// The first frame should never claim the library is empty while the home
     /// snapshot is still being assembled. Rehydrate the last complete page
     /// from current library models when possible, then refresh the expensive
     /// highlights and recommendations off the main actor.
     private func prepareInitialHomeSnapshot() async {
-        let persistedSnapshot = await HomeInitialSnapshotCacheStore.shared.load()
+        let persistedSnapshot = await initialSnapshotCache.load()
         guard !Task.isCancelled, showsMusicHomeSnapshot else { return }
         guard isSceneActive, isHomeVisible, !playerCoversContent else {
             needsHomeRefreshWhenActive = true
@@ -3535,11 +3565,10 @@ struct HomeView: View {
             return
         }
         let visibleSongs = library.visibleSongs
-        let visibleAlbums = library.visibleAlbums
         let payload = Self.rehydrateInitialHomePayload(
             persistedSnapshot,
-            visibleAlbums: visibleAlbums,
             showsExternalAlbums: showsExternalAlbums,
+            albumForTile: { library.visibleAlbum(id: $0.albumID) },
             songForID: { library.unobservedVisibleSong(id: $0) }
         )
         let snapshot = makeHomeSnapshot(
@@ -3554,7 +3583,7 @@ struct HomeView: View {
         scheduleLibraryHighlightsRefresh(
             songs: visibleSongs,
             musicSongs: library.musicSongs,
-            albums: visibleAlbums,
+            albums: library.visibleAlbums,
             recentSongs: library.recentlyPlayedSongs(limit: 30),
             playedAlbumKeys: recentlyPlayedAlbumKeys(),
             signature: signature
@@ -3577,23 +3606,20 @@ struct HomeView: View {
     static func startupSongIDs(in snapshot: PersistedHomeSnapshot?) -> [String] {
         guard let snapshot, snapshot.version == PersistedHomeSnapshot.currentVersion else { return [] }
         var seen: Set<String> = []
-        return (Array(snapshot.recentSongIDs.prefix(30)) + Array(snapshot.heroSongIDs.prefix(20))
-            + snapshot.recommendations.prefix(30).map(\.songID)).filter { seen.insert($0).inserted }
+        let selected = Array(snapshot.recentSongIDs.prefix(30)) + Array(snapshot.heroSongIDs.prefix(20))
+            + snapshot.recommendations.prefix(30).map(\.songID)
+        return (selected + snapshot.recentlyAddedAlbums.prefix(recentlyAddedAlbumPoolLimit).compactMap(\.artworkSongID))
+            .filter { seen.insert($0).inserted }
     }
 
     private func prepareStartupHomeSnapshot(_ persisted: PersistedHomeSnapshot?) async {
-        guard let songs = await library.prepareStartupSongs(
-            ids: Self.startupSongIDs(in: persisted), sourceIDs: startupSourceIDs, fallbackToFirstPage: true, musicOnly: true
-        ), !Task.isCancelled, !library.isReady else { return }
+        let sources = startupSourceIDs
+        guard let music = await library.prepareStartupSongs(
+            ids: Self.startupSongIDs(in: persisted), sourceIDs: sources, fallbackToFirstPage: true, musicOnly: true
+        ), !Task.isCancelled, !library.isReady, sources == startupSourceIDs else { return }
         guard isSceneActive, isHomeVisible, !playerCoversContent else {
             needsHomeRefreshWhenActive = true
             return
-        }
-        let classification = SpokenWordStore.shared.classificationSnapshot
-        let music = songs.filter {
-            $0.isPlayable && !classification.collectionOnlySongIDs.contains($0.id)
-                && classification.kind(songID: $0.id, sourceID: $0.sourceID, filePath: $0.filePath,
-                                       genre: $0.genre, serverLibraryID: $0.serverLibraryID) == .music
         }
         let byID = Dictionary(music.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         guard !byID.isEmpty else {
@@ -3602,20 +3628,28 @@ struct HomeView: View {
             model.isPrepared = true
             return
         }
-        let payload = Self.rehydrateInitialHomePayload(persisted, visibleAlbums: [], songForID: { byID[$0] })
+        let payload = Self.rehydrateInitialHomePayload(persisted, showsExternalAlbums: showsExternalAlbums, albumForTile: {
+            $0.startupAlbum(representedBy: $0.artworkSongID.flatMap { byID[$0] }, showsExternal: showsExternalAlbums)
+        }, songForID: { byID[$0] })
         let recent = (persisted?.recentSongIDs.prefix(30) ?? []).compactMap { byID[$0] }
         let savedHero = payload?.heroCoverSongs ?? []
         let hero = savedHero.isEmpty ? Self.provisionalHeroCoverSongs(from: music) : Array(savedHero.prefix(20))
-        model.snapshot = HomeSnapshot(
+        let snapshot = HomeSnapshot(
             hasContent: true,
             forYouResults: showForYou ? Array((payload?.forYouResults ?? []).prefix(30)) : [],
             recentSongs: recent,
-            heroCoverSongs: hero
+            heroCoverSongs: hero,
+            recentlyAddedAlbums: payload?.recentlyAddedAlbums ?? []
         )
         // This is a read-only projection. Full publication will rebuild the
         // remaining sections and signatures from the canonical library.
-        model.signature = nil
-        model.isPrepared = true
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            model.snapshot = snapshot
+            model.signature = nil
+            model.isPrepared = true
+        }
         tintProvider.prepare(Array(music.prefix(20)))
     }
 
@@ -3633,8 +3667,8 @@ struct HomeView: View {
 
     static func rehydrateInitialHomePayload(
         _ persisted: PersistedHomeSnapshot?,
-        visibleAlbums: [Album],
         showsExternalAlbums: Bool = false,
+        albumForTile: (PersistedHomeAlbumTile) -> Album?,
         songForID: (String) -> Song?
     ) -> InitialHomeSnapshotPayload? {
         guard let persisted,
@@ -3645,15 +3679,10 @@ struct HomeView: View {
         let heroCoverSongs = persisted.heroSongIDs.compactMap {
             songForID($0)
         }
-
-        let albumsByID = Dictionary(
-            visibleAlbums.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
         let cachedAlbums = (persisted.showsExternalAlbums ?? false) == showsExternalAlbums
             ? persisted.recentlyAddedAlbums : []
-        let recentlyAddedAlbums = cachedAlbums.compactMap { tile in
-            albumsByID[tile.albumID].map { album in
+        let recentlyAddedAlbums = cachedAlbums.prefix(recentlyAddedAlbumPoolLimit).compactMap { tile in
+            albumForTile(tile).map { album in
                 HomeAlbumTile(
                     album: album,
                     artworkSong: tile.artworkSongID.flatMap {
@@ -3682,7 +3711,6 @@ struct HomeView: View {
 
     private func persistInitialHomeSnapshotCache(signature: HomeSnapshotSignature) {
         guard model.highlightsSignature == signature,
-              !signature.showsRecommendations || model.recommendationSignature == signature,
               let nextHero = model.preparedNextHero else { return }
         let persisted = PersistedHomeSnapshot(
             version: PersistedHomeSnapshot.currentVersion,
@@ -3695,7 +3723,7 @@ struct HomeView: View {
             recentlyAddedAlbums: model.snapshot.recentlyAddedAlbums.map {
                 PersistedHomeAlbumTile(
                     albumID: $0.album.id,
-                    artworkSongID: $0.artworkSong?.id
+                    artworkSongID: $0.artworkSong?.id, preview: $0.album
                 )
             },
             recommendations: model.snapshot.forYouResults.map {
@@ -3708,8 +3736,9 @@ struct HomeView: View {
             heroSeed: nextHero.seed,
             showsExternalAlbums: signature.showsExternalAlbums
         )
+        let capturedAt = ContinuousClock.now
         Task(priority: .utility) {
-            await HomeInitialSnapshotCacheStore.shared.save(persisted)
+            await initialSnapshotCache.save(persisted, capturedAt: capturedAt)
         }
     }
 
@@ -4822,7 +4851,7 @@ struct HomeView: View {
                 // value 式:页里的卡片要压在这一页上面,见 `HomeSeeAllPage`。
                 // plain:默认按钮样式会把字染成 App 主题色(主题跟随封面时就是封面色),
                 // 和首页别的区块一样留灰。
-                NavigationLink(value: HomeSeeAllPage.quickAccess) {
+                NavigationLink(value: HomeLibraryPage.quickAccess) {
                     HStack(spacing: 5) {
                         Text("see_all")
                         Image(systemName: "chevron.right").font(.caption)
@@ -5252,7 +5281,7 @@ struct HomeView: View {
                 Spacer()
                 HomeRecentlyAddedPlayButton(albumIDs: albums.map(\.album.id), includesExternalSongs: showsExternalAlbums)
                 // value 式:页里的专辑卡要压在这一页上面,见 `HomeSeeAllPage`。
-                NavigationLink(value: HomeSeeAllPage.recentlyAddedAlbums) {
+                NavigationLink(value: HomeLibraryPage.recentlyAddedAlbums) {
                     HStack(spacing: 5) {
                         Text("home_section_view_all")
                         Image(systemName: "chevron.right").font(.caption)
@@ -5275,7 +5304,7 @@ struct HomeView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHGrid(rows: carouselRows(.recentlyAdded, height: Self.coverCardHeight(width: cardWidth), itemCount: shownAlbums.count), spacing: 14) {
                         ForEach(shownAlbums) { tile in
-                            NavigationLink(value: tile.album) {
+                            NavigationLink(value: HomeLibraryPage.recentAlbum(tile.id)) {
                                 AlbumCardView(album: tile.album, showsSongCount: true)
                                     .frame(width: cardWidth)
                             }
@@ -5291,7 +5320,7 @@ struct HomeView: View {
                 VStack(spacing: 0) {
                     let displayed = Array(albums.prefix(sectionItemCount(.recentlyAdded, usesPadMetrics ? 8 : 6)))
                     ForEach(Array(displayed.enumerated()), id: \.element.id) { index, tile in
-                        NavigationLink(value: tile.album) {
+                        NavigationLink(value: HomeLibraryPage.recentAlbum(tile.id)) {
                             albumListRow(tile.album)
                         }
                         .buttonStyle(.plain)
@@ -5307,7 +5336,7 @@ struct HomeView: View {
             case .grid:
                 LazyVGrid(columns: recentlyAddedGridColumns, spacing: 20) {
                     ForEach(albums.prefix(sectionItemCount(.recentlyAdded, usesPadMetrics ? 12 : 6))) { tile in
-                        NavigationLink(value: tile.album) {
+                        NavigationLink(value: HomeLibraryPage.recentAlbum(tile.id)) {
                             AlbumCardView(album: tile.album, showsSongCount: true)
                         }
                         .buttonStyle(.pmPressable)

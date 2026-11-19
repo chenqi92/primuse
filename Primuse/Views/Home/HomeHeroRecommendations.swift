@@ -232,15 +232,14 @@ private struct HomeHeroRecommendationRefresh: ViewModifier {
     @State private var handledRefreshRound = 0
 
     private var refreshKey: String {
-        "\(models.map { $0.theme.rawValue }.joined(separator: ","))#\(day)#\(refreshRound)#\(contentKind.rawValue)#\(songCount)#\(albumCount)#\(library.isReady)#\(library.musicSongs.count)#\(library.musicSongsRevision)#\(intelligence.settingsStore.revision)#\(intelligence.regionAvailability.revision)"
+        "\(models.map { $0.theme.rawValue }.joined(separator: ","))#\(day)#\(refreshRound)#\(contentKind.rawValue)#\(songCount)#\(albumCount)#\(isEnabled && scenePhase == .active)#\(library.isReady)#\(library.musicSongs.count)#\(library.musicSongsRevision)#\(intelligence.settingsStore.revision)#\(intelligence.regionAvailability.revision)"
     }
 
     func body(content: Content) -> some View {
         content
             .task(id: refreshKey) {
-                guard isEnabled, library.isReady else { return }
+                guard isEnabled, scenePhase == .active, library.isReady else { return }
                 let force = refreshRound != handledRefreshRound
-                handledRefreshRound = refreshRound
                 for model in models {
                     guard !Task.isCancelled else { return }
                     await model.refresh(
@@ -248,6 +247,7 @@ private struct HomeHeroRecommendationRefresh: ViewModifier {
                         library: library, intelligence: intelligence, force: force
                     )
                 }
+                if !Task.isCancelled { handledRefreshRound = refreshRound }
             }
             .task {
                 guard isEnabled else { return }

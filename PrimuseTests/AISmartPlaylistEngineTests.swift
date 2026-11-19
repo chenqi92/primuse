@@ -132,6 +132,33 @@ final class AISmartPlaylistEngineTests: XCTestCase {
         XCTAssertEqual(matches.map(\.id), [second.id, first.id])
     }
 
+    func testRecommendationPayloadCapsSongsAndFindsHistoryBeyondTheCap() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let history = PlayHistoryStore(storeURL: dir.appendingPathComponent("history.json"))
+        var tail = song(id: "history", title: "Night Ferry", path: "/tail")
+        history.record(song: tail, startedAt: Date().addingTimeInterval(-3600), listenedSec: 180)
+        tail.artistName = "Updated artist"
+        tail.genre = "Jazz"
+        var laterCopy = tail
+        laterCopy.genre = "Other"
+        let initial = (0..<150).map { song(id: "track-\($0)", title: "Track \($0)", path: "/track/\($0)") }
+        let rows = [song(id: "", title: "Empty", path: "/empty"), initial[0]] + initial + [tail, laterCopy]
+        let request = try XCTUnwrap(AIRecommendationContextBuilder.request(
+            scene: .automatic, candidates: rows, candidateLimit: 500_000, history: history
+        ))
+        XCTAssertEqual(request.candidates.map(\.songID), Array(initial.prefix(100).map(\.id)))
+        XCTAssertEqual(request.preferences.first?.artist, tail.artistName)
+        XCTAssertEqual(request.preferences.first?.genre, "Jazz")
+        let album = AIRecommendationAlbumCandidate(albumKey: "a", title: "Harbour", artist: "North", trackCount: 4)
+        let albumsOnly = AIRecommendationContextBuilder.request(
+            scene: .automatic, candidates: [], candidateLimit: 0, unit: .albums, albumCandidates: [album], history: history
+        )
+        XCTAssertEqual(albumsOnly?.albumCandidates.map(\.albumKey), ["a"])
+        XCTAssertNil(AIRecommendationContextBuilder.request(scene: .automatic, candidates: [], history: history))
+    }
+
     private func song(id: String, title: String, path: String) -> Song {
         Song(
             id: id,

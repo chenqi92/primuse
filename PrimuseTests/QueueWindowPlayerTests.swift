@@ -440,6 +440,30 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
+    func testReadyLibraryRestoreKeepsTheSelectedDuplicateAndSkipsHiddenAndMissingSongs() async throws {
+        var catalog = songs(2_501)
+        catalog[1].sourceID = "hidden"
+        let player = try await makePlayer(librarySongs: catalog)
+        let library = try XCTUnwrap(player.library)
+        library.updateDisabledSourceIDs(["hidden"])
+        XCTAssertNil(library.unobservedVisibleSong(id: catalog[1].id))
+
+        let tail = try XCTUnwrap(catalog.last).id
+        let ids = [tail, catalog[1].id, "missing", catalog[0].id, tail]
+        try player.playbackSessionStore.save(.init(
+            queueSongIDs: ids, currentSongID: tail, currentIndex: 4,
+            currentTime: 47, duration: 180, wasPlaying: true, shuffleEnabled: false,
+            shuffledIndices: [], shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false
+        ))
+        await player.restorePlaybackSessionIfAvailable()
+
+        XCTAssertEqual(player.queue.map(\.id), [tail, catalog[0].id, tail])
+        XCTAssertEqual(player.currentIndex, 2)
+        XCTAssertEqual(player.currentTime, 47)
+        XCTAssertFalse(player.isPlaying)
+    }
+
+    @MainActor
     private func restorePausedAppleMusicQueue(at time: TimeInterval) async throws -> AudioPlayerService {
         let savedCatalog = AppleMusicCatalogPlaybackMemory.shared.songs()
         addTeardownBlock { @MainActor in

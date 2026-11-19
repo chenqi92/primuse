@@ -182,6 +182,79 @@ final class AlbumMetadataTests: XCTestCase {
     }
 
     @MainActor
+    func testCachedHomeAndLibraryHubRenderWhileTheCatalogueIsStillPreparing() async throws {
+        let count = min(500_000, max(2, Int(ProcessInfo.processInfo.environment["PRIMUSE_HARNESS_SONGS"] ?? "") ?? 240))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Presentation-\(UUID())")
+        let suite = "Presentation-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let album = Album(id: "tail-album", title: "Cobalt Atlas", songCount: 1, sourceID: "source")
+        let tail = String(count - 1)
+        try await Task.detached {
+            let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+            for start in stride(from: 0, to: count, by: 2_000) {
+                let songs = (start..<min(count, start + 2_000)).map { i in
+                    Song(id: String(i), title: "Track \(i)", albumID: i == count - 1 ? album.id : nil,
+                         albumTitle: i == count - 1 ? album.title : nil, duration: 180,
+                         fileFormat: .mp3, filePath: "/Fixture/\(i).mp3", sourceID: "source")
+                }
+                try store.apply(upserts: songs, deletingIDs: [])
+            }
+            try store.markMigrationCompleted(version: 10)
+        }.value
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        sources.add(MusicSource(id: "source", name: "Fixture", type: .local))
+        let player = AudioPlayerService(library: library, playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("A presentation cache must not start playback") })
+        let cache = HomeInitialSnapshotCacheStore(directory: directory, defaultsSuite: suite)
+        await cache.save(.init(version: PersistedHomeSnapshot.currentVersion, dayStamp: 20261119,
+            visibleSongCount: count, visibleAlbumCount: 1, visibleArtistCount: 0, recentSongIDs: [], heroSongIDs: [],
+            recentlyAddedAlbums: [.init(albumID: album.id, artworkSongID: tail, preview: album)], recommendations: []))
+        defaults.set(false, forKey: "primuse.home.showHero")
+        let order = [.recentlyAdded] + HomeSectionConfiguration.defaultOrder.filter { $0 != .recentlyAdded }
+        defaults.set(HomeSectionConfiguration.encode(order), forKey: HomeSectionConfiguration.orderKey)
+        let model = HomeView.Model()
+        let home = startupLibraryView(HomeView(model: model, openLibrarySongs: {}, initialSnapshotCache: cache),
+            library: library, sources: sources, player: player, defaults: defaults, directory: directory)
+            .environment(AppServices.shared.updateChecker).environment(\.scenePhase, .active)
+        let homeStart = ProcessInfo.processInfo.systemUptime
+        let homeWindow = try show(home, size: CGSize(width: 430, height: 880))
+        defer { homeWindow.isHidden = true; homeWindow.rootViewController = nil }
+        for _ in 0..<160 where !model.isPrepared { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertTrue(model.isPrepared)
+        let homeCapture = try await observedContent(in: homeWindow, since: homeStart, name: "cached-home-preparing") {
+            $0.localizedCaseInsensitiveContains("CobaltAtlas")
+        }
+        homeWindow.isHidden = true
+        homeWindow.rootViewController = nil
+
+        let validStamp = await library.presentationCacheStamp()
+        let stamp = try XCTUnwrap(validStamp)
+        let scope = LibraryHubStartupPreview.Scope(sources: ["source"], artistMode: ArtistBrowseMode.allArtists.rawValue,
+                                                  hidesSingleOnlyAlbumArtists: false)
+        let hubCache = LibraryHubStartupPreview(scope: scope, stamp: stamp, counts: ["songs": count, "albums": 1],
+                                               chapters: 0, coverSongIDs: ["songs": [tail]])
+        defaults.set(try XCTUnwrap(hubCache.encoded()), forKey: LibraryHubStartupPreview.storageKey)
+        let hub = startupLibraryView(LibraryView(), library: library, sources: sources, player: player,
+                                     defaults: defaults, directory: directory)
+        let hubStart = ProcessInfo.processInfo.systemUptime
+        let hubWindow = try show(hub, size: CGSize(width: 430, height: 880))
+        defer { hubWindow.isHidden = true; hubWindow.rootViewController = nil }
+        let hubCapture = try await observedContent(in: hubWindow, since: hubStart, name: "cached-library-hub-preparing") {
+            $0.replacingOccurrences(of: ",", with: "").contains(String(count)) && !$0.contains("准备资料库")
+        }
+        XCTAssertFalse(library.isReady)
+        XCTAssertTrue(library.songs.isEmpty)
+        print("PRESENTATION_CACHE_FRAME songs=\(count) homeSeconds=\(homeCapture) hubObservedBySeconds=\(hubCapture)")
+    }
+
+    @MainActor
     func testStartupShowsCategoriesAndOnlyPreviewsSongsInsideTheSongPage() async throws {
         let suite = "StartupDestinationTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -198,6 +271,13 @@ final class AlbumMetadataTests: XCTestCase {
         disabled.sourceID = "disabled-source"
         try store.replaceAll(with: [song("startup", title: "Startup Sentinel"), chapter, disabled])
         try store.markMigrationCompleted(version: 10)
+        let cachedAlbum = Album(id: "preview", title: "Copper Atlas", songCount: 1, sourceID: "source")
+        let albumRows = try PropertyListSerialization.propertyList(
+            from: PropertyListEncoder().encode([cachedAlbum]), format: nil
+        )
+        try PropertyListSerialization.data(fromPropertyList: ["formatVersion": 2, "albums": albumRows, "artists": []],
+                                           format: .binary, options: 0)
+            .write(to: directory.appendingPathComponent("library-startup-cache.plist"))
         let library = MusicLibrary.makePreparing(storageDirectory: directory)
         let sources = SourcesStore(storageDirectoryURL: directory)
         sources.add(MusicSource(id: "source", name: "Startup Source", type: .local))
@@ -222,6 +302,7 @@ final class AlbumMetadataTests: XCTestCase {
                 XCTAssertEqual(text.contains("StartupSentinel"), section == .songs, text)
                 XCTAssertFalse(text.contains("HiddenChapter"), text)
                 XCTAssertFalse(text.contains("DisabledSentinel"), text)
+                XCTAssertEqual(text.localizedCaseInsensitiveContains("CopperAtlas"), section == .albums, text)
                 XCTAssertTrue(text.contains("准备资料库"), text)
                 XCTAssertTrue(text.contains(section == .songs ? "歌曲" : section == .albums ? "专辑" : "资料库"), text)
                 if section == nil {
@@ -392,14 +473,43 @@ final class AlbumMetadataTests: XCTestCase {
 
     @MainActor
     private func recognizedText(_ window: UIWindow, name: String) throws -> String {
+        let image = capture(window)
+        attach(image, name: name)
+        return try recognize(image)
+    }
+
+    @MainActor
+    private func observedContent(in window: UIWindow, since start: TimeInterval, name: String,
+                                 matching: (String) -> Bool) async throws -> TimeInterval {
+        while true {
+            try await Task.sleep(for: .milliseconds(35))
+            let image = capture(window)
+            let elapsed = ProcessInfo.processInfo.systemUptime - start
+            let text = try recognize(image)
+            if matching(text) || elapsed >= 4 {
+                attach(image, name: name)
+                XCTAssertTrue(matching(text), "Expected content in \(name); last visible text: \(text)")
+                return elapsed
+            }
+        }
+    }
+
+    @MainActor
+    private func capture(_ window: UIWindow) -> UIImage {
         window.layoutIfNeeded()
-        let image = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
+        return UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
+    }
+
+    private func attach(_ image: UIImage, name: String) {
         let attachment = XCTAttachment(image: image)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func recognize(_ image: UIImage) throws -> String {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.recognitionLanguages = ["zh-Hans", "en-US"]

@@ -2765,36 +2765,113 @@ enum MusicDiscoveryEngine {
     ) -> [MusicDiscoveryResult] {
         let songs = input.songs
         guard limit > 0, !songs.isEmpty, !isCancelled() else { return [] }
-        // 整库打分只在紧凑的特征索引上做: 每首歌几十字节的整数键, 不复制歌曲本身;
-        // 只有最后选中的那十几首才取出完整的 Song。
-        guard let index = featureIndex(for: songs, revision: input.libraryRevision, isCancelled: isCancelled),
-              !isCancelled() else { return [] }
-
         let seedIDSet = Set(input.seedIDs)
         var seedPositionByID: [String: Int] = [:]
         if !seedIDSet.isEmpty {
-            for position in index.ids.indices
-            where index.playable[position] && seedIDSet.contains(index.ids[position]) {
-                if seedPositionByID[index.ids[position]] == nil { seedPositionByID[index.ids[position]] = position }
+            for (position, song) in songs.enumerated() {
+                if position.isMultiple(of: 512), isCancelled() { return [] }
+                guard seedIDSet.contains(song.id), song.isPlayable else { continue }
+                if seedPositionByID[song.id] == nil { seedPositionByID[song.id] = position }
                 if seedPositionByID.count == seedIDSet.count { break }
             }
         }
-        let seeds = input.seedIDs.compactMap { seedPositionByID[$0] }.map { index.feature(at: $0) }
-
-        guard !seeds.isEmpty else {
+        guard !seedPositionByID.isEmpty else {
             return coldStartCandidates(
-                in: index,
+                in: songs,
                 excluding: input.excludedSongIDs,
                 limit: limit,
                 now: input.now,
                 isCancelled: isCancelled
             ).map { $0.result(in: songs) }
         }
-
-        let topArtistKeys = Set(input.topArtists.compactMap { index.textKeys[$0] })
+        let seedPositions = input.seedIDs.compactMap { seedPositionByID[$0] }
+        // Radio may already own a full index. A large Home request on its own only needs one page of features.
+        let cached = featureIndexCache.withLock { state -> FeatureIndex? in
+            guard let entry = state.index, entry.revision == input.libraryRevision, entry.count == songs.count else { return nil }
+            return entry.index
+        }
+        if songs.count > 16_384, cached == nil {
+            let seedSongs = seedPositions.map { songs[$0] }
+            let selected = rankedCandidates(in: songs, limit: limit, personalized: input,
+                                            isCancelled: isCancelled) { visit in
+                for start in stride(from: 0, to: songs.count, by: 4_096) {
+                    let page = songs[start..<min(start + 4_096, songs.count)]
+                    guard let index = FeatureIndex(songs: page, isCancelled: isCancelled) else { return false }
+                    let seeds = seedSongs.map { index.feature(for: $0) }
+                    guard scoreRecommendations(in: index, seeds: seeds, offset: start, input: input,
+                                               isCancelled: isCancelled, visit: visit) else { return false }
+                }
+                return !isCancelled()
+            }
+            return selected.map { $0.result(in: songs) }
+        }
+        guard !isCancelled(),
+              let index = cached ?? featureIndex(for: songs, revision: input.libraryRevision, isCancelled: isCancelled),
+              !isCancelled() else { return [] }
+        let seeds = seedPositions.map { index.feature(at: $0) }
         var results: [Candidate] = []
-        for position in index.ids.indices where index.playable[position] {
-            if position.isMultiple(of: 128), isCancelled() { return [] }
+        guard scoreRecommendations(in: index, seeds: seeds, offset: 0, input: input,
+                                   isCancelled: isCancelled, visit: { results.append($0) }) else { return [] }
+
+        guard !isCancelled() else { return [] }
+        guard var ranking = CandidateRanking(results, in: index, limit: limit, isCancelled: isCancelled) else { return [] }
+        // 目标最多 4 位艺人, 数够就停。
+        let artistCountCap = min(4, max(0, limit))
+        var availableArtists = Set<Int64>()
+        for position in index.ids.indices {
+            if availableArtists.count >= artistCountCap { break }
+            guard index.playable[position], !input.recentWeekIDs.contains(index.ids[position]) else { continue }
+            availableArtists.insert(index.artistIdentity[position])
+        }
+        let targetArtistCount = min(artistCountCap, availableArtists.count)
+        var ranked: [Candidate] = []
+        var rankedIDs = Set<String>()
+        var rankedArtists = Set<Int64>()
+        while ranked.count < limit || rankedArtists.count < targetArtistCount {
+            guard !isCancelled() else { return [] }
+            guard let candidate = ranking.next() else { break }
+            guard rankedIDs.insert(index.ids[candidate.position]).inserted else { continue }
+            ranked.append(candidate)
+            rankedArtists.insert(index.artistIdentity[candidate.position])
+        }
+        if ranked.count < limit || rankedArtists.count < targetArtistCount {
+            let excluded = rankedIDs
+                .union(input.recentWeekIDs)
+                .union(input.excludedSongIDs)
+            ranked.append(contentsOf: coldStartCandidates(
+                in: songs,
+                excluding: excluded,
+                limit: max(limit * 2, limit - ranked.count),
+                now: input.now,
+                isCancelled: isCancelled
+            ))
+            guard !isCancelled() else { return [] }
+            return diversified(ranked, limit: limit, in: index).map { $0.result(in: songs) }
+        }
+        guard !isCancelled() else { return [] }
+        var offset = 0
+        return diversified(
+            limit: limit, in: index,
+            artistCount: ranking.artistCount, albumCount: ranking.albumCount,
+            isCancelled: isCancelled,
+            nextCandidate: {
+                if offset < ranked.count {
+                    defer { offset += 1 }
+                    return ranked[offset]
+                }
+                return ranking.next()
+            }
+        ).map { $0.result(in: songs) }
+    }
+
+    private static func scoreRecommendations(
+        in index: FeatureIndex, seeds: [Feature], offset: Int, input: RecommendationInput,
+        isCancelled: () -> Bool, visit: (Candidate) -> Void
+    ) -> Bool {
+        let topArtistKeys = Set(input.topArtists.compactMap { index.textKeys[$0] })
+        for position in index.ids.indices {
+            if position.isMultiple(of: 128), isCancelled() { return false }
+            guard index.playable[position] else { continue }
             let id = index.ids[position]
             guard !input.recentWeekIDs.contains(id), !input.excludedSongIDs.contains(id) else { continue }
 
@@ -2829,58 +2906,9 @@ enum MusicDiscoveryEngine {
 
             guard score >= 16 else { continue }
             if reasons.isEmpty { reasons = ReasonSet([.libraryPick]) }
-            results.append(Candidate(position: position, score: score, reasons: reasons))
+            visit(Candidate(position: offset + position, score: score, reasons: reasons))
         }
-
-        guard !isCancelled() else { return [] }
-        guard var ranking = CandidateRanking(results, in: index, limit: limit, isCancelled: isCancelled) else { return [] }
-        // 目标最多 4 位艺人, 数够就停。
-        let artistCountCap = min(4, max(0, limit))
-        var availableArtists = Set<Int64>()
-        for position in index.ids.indices {
-            if availableArtists.count >= artistCountCap { break }
-            guard index.playable[position], !input.recentWeekIDs.contains(index.ids[position]) else { continue }
-            availableArtists.insert(index.artistIdentity[position])
-        }
-        let targetArtistCount = min(artistCountCap, availableArtists.count)
-        var ranked: [Candidate] = []
-        var rankedIDs = Set<String>()
-        var rankedArtists = Set<Int64>()
-        while ranked.count < limit || rankedArtists.count < targetArtistCount {
-            guard !isCancelled() else { return [] }
-            guard let candidate = ranking.next() else { break }
-            guard rankedIDs.insert(index.ids[candidate.position]).inserted else { continue }
-            ranked.append(candidate)
-            rankedArtists.insert(index.artistIdentity[candidate.position])
-        }
-        if ranked.count < limit || rankedArtists.count < targetArtistCount {
-            let excluded = rankedIDs
-                .union(input.recentWeekIDs)
-                .union(input.excludedSongIDs)
-            ranked.append(contentsOf: coldStartCandidates(
-                in: index,
-                excluding: excluded,
-                limit: max(limit * 2, limit - ranked.count),
-                now: input.now,
-                isCancelled: isCancelled
-            ))
-            guard !isCancelled() else { return [] }
-            return diversified(ranked, limit: limit, in: index).map { $0.result(in: songs) }
-        }
-        guard !isCancelled() else { return [] }
-        var offset = 0
-        return diversified(
-            limit: limit, in: index,
-            artistCount: ranking.artistCount, albumCount: ranking.albumCount,
-            isCancelled: isCancelled,
-            nextCandidate: {
-                if offset < ranked.count {
-                    defer { offset += 1 }
-                    return ranked[offset]
-                }
-                return ranking.next()
-            }
-        ).map { $0.result(in: songs) }
+        return !isCancelled()
     }
 
     @MainActor
@@ -3161,9 +3189,6 @@ enum MusicDiscoveryEngine {
         var dateAdded: [Date] = []
         var playable: [Bool] = []
         var hasCoverArt: [Bool] = []
-        var hasArtistName: [Bool] = []
-        var hasAlbumTitle: [Bool] = []
-        var hasGenre: [Bool] = []
         var albumID: [Int32] = []
         var albumTitle: [Int32] = []
         var artistID: [Int32] = []
@@ -3175,7 +3200,6 @@ enum MusicDiscoveryEngine {
         var duration: [TimeInterval] = []
         var artistIdentity: [Int64] = []
         var albumIdentity: [Int64] = []
-        var coldStartNoise: [Double] = []
         /// Normalized text → key. Shared by every folded field; keys are only
         /// ever compared within the same field.
         var textKeys: [String: Int32] = [:]
@@ -3187,16 +3211,13 @@ enum MusicDiscoveryEngine {
         private var rawTextKeys: [String: Int32] = [:]
         private var folderKeys: [String: Int32] = [:]
 
-        init?(songs: [Song], isCancelled: () -> Bool) {
+        init?(songs: some Collection<Song>, isCancelled: () -> Bool) {
             let count = songs.count
             ids.reserveCapacity(count)
             titles.reserveCapacity(count)
             dateAdded.reserveCapacity(count)
             playable.reserveCapacity(count)
             hasCoverArt.reserveCapacity(count)
-            hasArtistName.reserveCapacity(count)
-            hasAlbumTitle.reserveCapacity(count)
-            hasGenre.reserveCapacity(count)
             albumID.reserveCapacity(count)
             albumTitle.reserveCapacity(count)
             artistID.reserveCapacity(count)
@@ -3208,7 +3229,6 @@ enum MusicDiscoveryEngine {
             duration.reserveCapacity(count)
             artistIdentity.reserveCapacity(count)
             albumIdentity.reserveCapacity(count)
-            coldStartNoise.reserveCapacity(count)
             var albumTitleIdentityKeys: [AlbumTitleIdentity: Int64] = [:]
 
             for (position, song) in songs.enumerated() {
@@ -3218,9 +3238,6 @@ enum MusicDiscoveryEngine {
                 dateAdded.append(song.dateAdded)
                 playable.append(song.isPlayable)
                 hasCoverArt.append(song.coverArtFileName?.isEmpty == false)
-                hasArtistName.append(song.artistName?.isEmpty == false)
-                hasAlbumTitle.append(song.albumTitle?.isEmpty == false)
-                hasGenre.append(song.genre?.isEmpty == false)
                 let albumIDKey = intern(song.albumID)
                 let albumTitleKey = intern(song.albumTitle)
                 let artistIDKey = intern(song.artistID)
@@ -3234,7 +3251,6 @@ enum MusicDiscoveryEngine {
                 source.append(internSource(song.sourceID))
                 year.append(song.year)
                 duration.append(song.duration)
-                coldStartNoise.append(MusicDiscoveryEngine.stableNoise(song.id))
 
                 // Same precedence as `artistIdentity(_:)` / `albumIdentity(_:artistKey:)`:
                 // id, then name/title, then the song itself.
@@ -3344,14 +3360,22 @@ enum MusicDiscoveryEngine {
         let index: FeatureIndex
     }
 
-    private static let featureIndexCache = OSAllocatedUnfairLock<CachedFeatureIndex?>(initialState: nil)
+    private struct FeatureCacheState: Sendable {
+        var index: CachedFeatureIndex?
+        var releaseGeneration: UInt64 = 0
+    }
+
+    private static let featureIndexCache = OSAllocatedUnfairLock(initialState: FeatureCacheState())
 
     static func releaseFeatureIndex() {
-        featureIndexCache.withLock { $0 = nil }
+        featureIndexCache.withLock {
+            $0.releaseGeneration &+= 1
+            $0.index = nil
+        }
     }
 
     static var hasFeatureIndex: Bool {
-        featureIndexCache.withLock { $0 != nil }
+        featureIndexCache.withLock { $0.index != nil }
     }
 
     /// 退到后台放掉之前建着的那份, 回到前台在主线程外先建好: 相似歌曲、歌曲电台在主线程上取它,
@@ -3371,18 +3395,19 @@ enum MusicDiscoveryEngine {
         revision: UInt64?,
         isCancelled: () -> Bool = { false }
     ) -> FeatureIndex? {
-        if let revision,
-           let cached = featureIndexCache.withLock({ $0 }),
-           cached.revision == revision,
-           cached.count == songs.count {
-            return cached.index
+        let (reusable, generation) = featureIndexCache.withLock { state -> (FeatureIndex?, UInt64) in
+            let cached = state.index
+            let matches = revision != nil && cached?.revision == revision && cached?.count == songs.count
+            return (matches ? cached?.index : nil, state.releaseGeneration)
         }
+        if let reusable { return reusable }
         guard let index = FeatureIndex(songs: songs, isCancelled: isCancelled) else { return nil }
         if let revision {
-            featureIndexCache.withLock { cache in
-                if cache == nil || cache!.revision <= revision {
-                    cache = CachedFeatureIndex(revision: revision, count: songs.count, index: index)
-                }
+            featureIndexCache.withLock { state in
+                // A request can finish using its own index after a trim, but must not put it back in the cache.
+                guard state.releaseGeneration == generation,
+                      state.index.map({ $0.revision <= revision }) ?? true else { return }
+                state.index = CachedFeatureIndex(revision: revision, count: songs.count, index: index)
             }
         }
         return index
@@ -3453,38 +3478,134 @@ enum MusicDiscoveryEngine {
         return match
     }
 
+    private enum RankedArtistKey: Hashable {
+        case id(String), name(String), row(Int)
+    }
+
+    private enum RankedAlbumKey: Hashable {
+        case id(String), title(artist: RankedArtistKey, title: String), row(Int)
+    }
+
     private static func coldStartCandidates(
-        in index: FeatureIndex,
+        in songs: [Song],
         excluding excludedIDs: Set<String>,
         limit: Int,
         now: Date,
         isCancelled: @Sendable () -> Bool = { false }
     ) -> [Candidate] {
-        var ranked: [Candidate] = []
-        for position in index.ids.indices where index.playable[position] {
-            if position.isMultiple(of: 128), isCancelled() { return [] }
-            guard !excludedIDs.contains(index.ids[position]) else { continue }
-            let dateAdded = index.dateAdded[position]
-            var score = index.hasCoverArt[position] ? 12.0 : 0.0
-            score += max(0, 10 - now.timeIntervalSince(dateAdded) / (7 * 24 * 60 * 60))
-            if index.hasArtistName[position] { score += 3 }
-            if index.hasAlbumTitle[position] { score += 3 }
-            if index.hasGenre[position] { score += 2 }
-            score += index.coldStartNoise[position]
-
-            let reason: MusicDiscoveryReason = now.timeIntervalSince(dateAdded) <= 30 * 24 * 60 * 60
-                ? .newToLibrary
-                : .libraryPick
-            ranked.append(Candidate(position: position, score: score, reasons: ReasonSet([reason])))
+        let newReason = ReasonSet([.newToLibrary]), libraryReason = ReasonSet([.libraryPick])
+        func scan(_ visit: (Candidate) -> Void) -> Bool {
+            for (position, song) in songs.enumerated() {
+                if position.isMultiple(of: 128), isCancelled() { return false }
+                guard song.isPlayable, !excludedIDs.contains(song.id) else { continue }
+                let age = now.timeIntervalSince(song.dateAdded)
+                var score = song.coverArtFileName?.isEmpty == false ? 12.0 : 0.0
+                score += max(0, 10 - age / (7 * 24 * 60 * 60))
+                if song.artistName?.isEmpty == false { score += 3 }
+                if song.albumTitle?.isEmpty == false { score += 3 }
+                if song.genre?.isEmpty == false { score += 2 }
+                score += stableNoise(song.id)
+                visit(Candidate(position: position, score: score,
+                                reasons: age <= 30 * 24 * 60 * 60 ? newReason : libraryReason))
+            }
+            return !isCancelled()
         }
+        return rankedCandidates(in: songs, limit: limit, isCancelled: isCancelled, scan: scan)
+    }
+
+    private static func rankedCandidates(
+        in songs: [Song], limit: Int, personalized: RecommendationInput? = nil, isCancelled: @Sendable () -> Bool,
+        scan: (_ visit: (Candidate) -> Void) -> Bool
+    ) -> [Candidate] {
+        func precedes(_ lhs: Candidate, _ rhs: Candidate) -> Bool {
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            let left = songs[lhs.position].dateAdded, right = songs[rhs.position].dateAdded
+            return left != right ? left > right : lhs.position < rhs.position
+        }
+        var normalizedText: [String: String] = [:]
+        func key(_ raw: String?) -> String? {
+            guard let raw else { return nil }
+            let value = normalizedText[raw] ?? normalized(raw)
+            if normalizedText.count < 1_024 { normalizedText[raw] = value }
+            return value.isEmpty ? nil : value
+        }
+        func artistKey(at position: Int) -> RankedArtistKey {
+            let song = songs[position]
+            if let id = key(song.artistID) { return .id(id) }
+            if let name = key(song.artistName) { return .name(name) }
+            return .row(position)
+        }
+        func albumKey(at position: Int, artist: RankedArtistKey) -> RankedAlbumKey {
+            let song = songs[position]
+            if let id = key(song.albumID) { return .id(id) }
+            if let title = key(song.albumTitle) { return .title(artist: artist, title: title) }
+            return .row(position)
+        }
+        var artists = Set<RankedArtistKey>(), albums = Set<RankedAlbumKey>()
+        func select(_ ordered: [Candidate], truncated: Bool, includesFallbacks: Bool = false) -> [Candidate] {
+            var iterator = ordered.makeIterator()
+            return diversified(limit: limit, idAt: { songs[$0].id }, groupsAt: { position in
+                let artist = artistKey(at: position)
+                return (artist, albumKey(at: position, artist: artist))
+            }, artistCount: includesFallbacks ? nil : artists.count, albumCount: includesFallbacks ? nil : albums.count,
+               truncated: truncated,
+               isCancelled: isCancelled, nextCandidate: { iterator.next() })
+        }
+
+        // If the strongest rows fill each diversity pass to its global capacity, lower rows cannot change the result.
+        // Similarity scores cluster by artist and album, so keep a wider window for personalized rankings.
+        let width = personalized == nil ? 4 : 16
+        let capacity = limit > songs.count / width ? songs.count : max(64, limit * width)
+        var best = TopKBuffer<Candidate>(limit: capacity, by: precedes)
+        guard scan({ candidate in
+            best.insert(candidate)
+            if artists.count < limit || albums.count < limit {
+                let artist = artistKey(at: candidate.position)
+                if artists.count < limit { artists.insert(artist) }
+                if albums.count < limit { albums.insert(albumKey(at: candidate.position, artist: artist)) }
+            }
+        }) else { return [] }
+        let prefix = best.sorted()
+        let selected = select(prefix, truncated: best.didDiscard)
         guard !isCancelled() else { return [] }
-        guard var ranking = CandidateRanking(ranked, in: index, limit: limit, isCancelled: isCancelled) else { return [] }
-        return diversified(
-            limit: limit, in: index,
-            artistCount: ranking.artistCount, albumCount: ranking.albumCount,
-            isCancelled: isCancelled,
-            nextCandidate: { ranking.next() }
-        )
+        var artistTarget = 0
+        if let personalized {
+            let cap = min(4, limit)
+            var eligible = Set<RankedArtistKey>()
+            for (position, song) in songs.enumerated() {
+                if position.isMultiple(of: 512), isCancelled() { return [] }
+                guard song.isPlayable, !personalized.recentWeekIDs.contains(song.id) else { continue }
+                eligible.insert(artistKey(at: position))
+                if eligible.count == cap { break }
+            }
+            artistTarget = eligible.count
+        }
+        if selected.count == limit, artistTarget == 0 || Set(selected.map { artistKey(at: $0.position) }).count >= artistTarget {
+            return selected
+        }
+        if !best.didDiscard, personalized == nil { return selected }
+
+        // A concentrated artist or album can hide the next eligible row arbitrarily far down the ranking.
+        var ordered = prefix
+        if best.didDiscard {
+            ordered = []
+            guard scan({ ordered.append($0) }) else { return [] }
+            ordered.sort(by: precedes)
+        }
+        guard let personalized else { return select(ordered, truncated: false) }
+        var ranked: [Candidate] = []
+        var ids = Set<String>(), rankedArtists = Set<RankedArtistKey>()
+        for (offset, candidate) in ordered.enumerated() {
+            if offset.isMultiple(of: 512), isCancelled() { return [] }
+            guard ids.insert(songs[candidate.position].id).inserted else { continue }
+            ranked.append(candidate)
+            rankedArtists.insert(artistKey(at: candidate.position))
+            if ranked.count >= limit, rankedArtists.count >= artistTarget { return select(ordered, truncated: false) }
+        }
+        let excluded = ids.union(personalized.recentWeekIDs).union(personalized.excludedSongIDs)
+        ranked += coldStartCandidates(in: songs, excluding: excluded, limit: max(limit * 2, limit - ranked.count),
+                                      now: personalized.now, isCancelled: isCancelled)
+        return select(ranked, truncated: false, includesFallbacks: true)
     }
 
     /// `diversifiedRecommendations` over index positions.
@@ -3507,6 +3628,17 @@ enum MusicDiscoveryEngine {
         isCancelled: () -> Bool = { false },
         nextCandidate: () -> Candidate?
     ) -> [Candidate] {
+        diversified(limit: limit, idAt: { index.ids[$0] },
+                    groupsAt: { (index.artistIdentity[$0], index.albumIdentity[$0]) },
+                    artistCount: artistCount, albumCount: albumCount,
+                    isCancelled: isCancelled, nextCandidate: nextCandidate)
+    }
+
+    private static func diversified<Artist: Hashable, Album: Hashable>(
+        limit: Int, idAt: (Int) -> String, groupsAt: (Int) -> (Artist, Album),
+        artistCount: Int? = nil, albumCount: Int? = nil, truncated: Bool = false,
+        isCancelled: () -> Bool, nextCandidate: () -> Candidate?
+    ) -> [Candidate] {
         guard limit > 0 else { return [] }
         // 与先整份 `uniqued` 再挑逐项相同, 只是去重只做到挑够为止: 冷启动时
         // 候选是整库, 整份去重要为百万首各建一项集合。
@@ -3514,27 +3646,26 @@ enum MusicDiscoveryEngine {
         var rankedIDs = Set<String>()
         func rankedCandidate(at offset: Int) -> Candidate? {
             while ranked.count <= offset, !isCancelled(), let candidate = nextCandidate() {
-                if rankedIDs.insert(index.ids[candidate.position]).inserted { ranked.append(candidate) }
+                if rankedIDs.insert(idAt(candidate.position)).inserted { ranked.append(candidate) }
             }
             return offset < ranked.count ? ranked[offset] : nil
         }
         var output: [Candidate] = []
         var selectedIDs = Set<String>()
-        var artistCounts: [Int64: Int] = [:]
-        var albumCounts: [Int64: Int] = [:]
+        var artistCounts: [Artist: Int] = [:]
+        var albumCounts: [Album: Int] = [:]
 
-        func appendPass(maxPerArtist: Int?, maxPerAlbum: Int?) {
+        func appendPass(maxPerArtist: Int?, maxPerAlbum: Int?) -> Bool {
             var capacity = limit
             if let maxPerArtist, let artistCount { capacity = min(capacity, artistCount * maxPerArtist) }
             if let maxPerAlbum, let albumCount { capacity = min(capacity, albumCount * maxPerAlbum) }
-            guard output.count < capacity else { return }
+            guard output.count < capacity else { return true }
             var offset = 0
             while output.count < capacity, !isCancelled(), let candidate = rankedCandidate(at: offset) {
                 offset += 1
-                let id = index.ids[candidate.position]
+                let id = idAt(candidate.position)
                 guard !selectedIDs.contains(id) else { continue }
-                let artistKey = index.artistIdentity[candidate.position]
-                let albumKey = index.albumIdentity[candidate.position]
+                let (artistKey, albumKey) = groupsAt(candidate.position)
                 if let maxPerArtist, artistCounts[artistKey, default: 0] >= maxPerArtist {
                     continue
                 }
@@ -3546,12 +3677,13 @@ enum MusicDiscoveryEngine {
                 albumCounts[albumKey, default: 0] += 1
                 output.append(candidate)
             }
+            return !truncated || output.count == capacity
         }
 
-        appendPass(maxPerArtist: 1, maxPerAlbum: 1)
-        appendPass(maxPerArtist: 2, maxPerAlbum: 1)
-        appendPass(maxPerArtist: 2, maxPerAlbum: 2)
-        appendPass(maxPerArtist: nil, maxPerAlbum: nil)
+        guard appendPass(maxPerArtist: 1, maxPerAlbum: 1),
+              appendPass(maxPerArtist: 2, maxPerAlbum: 1),
+              appendPass(maxPerArtist: 2, maxPerAlbum: 2),
+              appendPass(maxPerArtist: nil, maxPerAlbum: nil) else { return [] }
         return isCancelled() ? [] : output
     }
 
@@ -3856,6 +3988,25 @@ struct VisibleSongLookup: Sendable {
         guard let index = indexByID[id], songs.indices.contains(index),
               songs[index].id == id else { return false }
         return !playableOnly || songs[index].isPlayable
+    }
+
+    func playableSongs(forIDs ids: Set<String>) -> [Song] {
+        guard !ids.isEmpty else { return [] }
+        if indexByID.count == songs.count {
+            return ids.compactMap { id in
+                guard let match = song(id: id), match.isPlayable else { return nil }
+                return match
+            }
+        }
+        // Legacy snapshots can contain duplicate IDs. Queue restoration uses the first playable occurrence.
+        var needed = ids
+        var matches: [Song] = []
+        for song in songs where needed.contains(song.id) && song.isPlayable {
+            matches.append(song)
+            needed.remove(song.id)
+            if needed.isEmpty { break }
+        }
+        return matches
     }
 
     /// 逐首看一遍; 随机播放统计各首的服务器播放次数用, 不登记对曲库的观察。
@@ -4911,6 +5062,14 @@ final class MusicLibrary {
         ids: [String], sourceIDs: Set<String>, fallbackToFirstPage: Bool = false,
         musicOnly: Bool = false
     ) async -> [Song]? {
+        await prepareStartupSongPage(ids: ids, sourceIDs: sourceIDs, browseIfMissing: fallbackToFirstPage,
+                                     musicOnly: musicOnly)?.songs
+    }
+
+    func prepareStartupSongPage(
+        ids: [String] = [], sourceIDs: Set<String>, browseIfMissing: Bool = true,
+        musicOnly: Bool = true, after cursor: IncrementalSongPreviewCursor? = nil
+    ) async -> IncrementalSongPreviewPage? {
         guard !isReady else { return nil }
         let directory = snapshotURL.deletingLastPathComponent()
         let enabledIDs = sourceIDs.subtracting(preparingDisabledSourceIDs ?? disabledSourceIDs)
@@ -4918,13 +5077,14 @@ final class MusicLibrary {
             result[sourceID] = sourceIdentityResolver?(sourceID) ?? sourceID
         }
         let classification = SpokenWordStore.shared.classificationSnapshot
-        let worker = Task.detached(priority: .userInitiated) { () -> [Song]? in
+        let worker = Task.detached(priority: .userInitiated) { () -> IncrementalSongPreviewPage? in
             do {
                 let exclusions = try Self.startupSongExclusions(directory: directory, sourcePrefixes: identityPrefixes)
-                guard let reader = try Self.startupSongReader(
-                    directory: directory, sourceIDs: enabledIDs, requiresExclusionReconciliation: false
-                ) else { return nil }
-                func isVisible(_ song: Song) -> Bool {
+                return try IncrementalSongPageReader.preview(
+                    at: directory.appendingPathComponent("library-songs.sqlite").path, sources: enabledIDs,
+                    minimumMigration: Self.loadedSongMigrationVersion, ids: ids,
+                    browseIfMissing: browseIfMissing, after: cursor
+                ) { song in
                     guard LibrarySongAdmissionPolicy.verdict(
                         for: song, prefix: identityPrefixes[song.sourceID],
                         tombstones: [], deviceExclusions: exclusions
@@ -4938,33 +5098,69 @@ final class MusicLibrary {
                             genre: song.genre, serverLibraryID: song.serverLibraryID
                         ) == .music)
                 }
-                let songs = try reader.songs(ids: ids).filter(isVisible)
-                guard songs.isEmpty, fallbackToFirstPage else { return songs }
-                var fallback: [Song] = []
-                let pageCount = min(8, (reader.count + IncrementalSongPageReader.pageSize - 1)
-                    / IncrementalSongPageReader.pageSize)
-                for page in 0..<pageCount {
-                    try Task.checkCancellation()
-                    fallback.append(contentsOf: try reader.page(at: page).filter(isVisible))
-                    if fallback.count >= 80 { break }
-                }
-                return Array(fallback.prefix(IncrementalSongPageReader.pageSize))
             } catch { return nil }
         }
-        let songs = await withTaskCancellationHandler {
+        let page = await withTaskCancellationHandler {
             await worker.value
         } onCancel: {
             worker.cancel()
         }
-        guard !Task.isCancelled, !isReady,
+        guard !Task.isCancelled, !isReady, !musicOnly || classification == SpokenWordStore.shared.classificationSnapshot,
               enabledIDs == sourceIDs.subtracting(preparingDisabledSourceIDs ?? disabledSourceIDs) else { return nil }
-        return songs
+        return page
+    }
+
+    struct PresentationCacheStamp: Codable, Equatable, Sendable {
+        let songRevision: Int64
+        fileprivate let databaseFileNumber: UInt64
+        fileprivate let snapshot: SnapshotFileFingerprint?
+        fileprivate let delta: SnapshotFileFingerprint?
+        fileprivate let exclusions: SnapshotFileFingerprint?
+        fileprivate let playlists: SnapshotFileFingerprint?
+    }
+
+    func presentationCacheStamp() async -> PresentationCacheStamp? {
+        let snapshot = snapshotURL, exclusions = deviceLocalExclusionURL, playlists = playlistDurabilityURL
+        let generation = songMutationGeneration
+        if isReady, let write = songStoreWriteTask, await write.value == nil { return nil }
+        let stamp = await Task.detached(priority: .userInitiated) { () -> PresentationCacheStamp? in
+            let database = snapshot.deletingLastPathComponent().appendingPathComponent("library-songs.sqlite")
+            guard let state = try? IncrementalSongPageReader.startupState(at: database.path), state.isAuthoritative,
+                  let fileNumber = Self.snapshotFingerprint(at: database)?.fileNumber,
+                  state.completedMigrationVersion >= Self.loadedSongMigrationVersion else { return nil }
+            return PresentationCacheStamp(songRevision: state.contentRevision, databaseFileNumber: fileNumber,
+                                         snapshot: Self.snapshotFingerprint(at: snapshot),
+                                         delta: Self.snapshotFingerprint(at: SnapshotDelta.url(for: snapshot)),
+                                         exclusions: Self.snapshotFingerprint(at: exclusions),
+                                         playlists: Self.snapshotFingerprint(at: playlists))
+        }.value
+        return !Task.isCancelled && generation == songMutationGeneration ? stamp : nil
     }
 
     /// 曲库就绪前给专辑页、歌手页先看的一屏。
-    struct StartupBrowsePreview: Sendable {
+    struct StartupBrowsePreview: Sendable, DecodableWithConfiguration {
         let albums: [Album]
         let artists: [Artist]
+
+        private enum CodingKeys: String, CodingKey { case formatVersion, albums, artists }
+
+        init(from decoder: Decoder, configuration limit: Int) throws {
+            let fields = try decoder.container(keyedBy: CodingKeys.self)
+            guard try fields.decode(Int.self, forKey: .formatVersion) == MusicLibrary.startupCacheFormatVersion else {
+                throw DecodingError.dataCorruptedError(forKey: .formatVersion, in: fields, debugDescription: "Unsupported browse cache")
+            }
+            func prefix<T: Decodable>(_ type: T.Type, forKey key: CodingKeys) throws -> [T] {
+                var rows = try fields.nestedUnkeyedContainer(forKey: key)
+                var result: [T] = []
+                while result.count < limit, !rows.isAtEnd {
+                    try Task.checkCancellation()
+                    result.append(try rows.decode(type))
+                }
+                return result
+            }
+            albums = try prefix(Album.self, forKey: .albums)
+            artists = try prefix(Artist.self, forKey: .artists)
+        }
     }
 
     /// 直接读上次落盘的启动缓存里的专辑和歌手,取前面一屏。整库的歌还在读的时候页面外层就有内容可看;
@@ -4973,13 +5169,8 @@ final class MusicLibrary {
         guard !isReady else { return nil }
         let url = startupCacheURL
         let worker = Task.detached(priority: .userInitiated) { () -> StartupBrowsePreview? in
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-                  let cache = try? PropertyListDecoder().decode(StartupCache.self, from: data),
-                  cache.formatVersion == MusicLibrary.startupCacheFormatVersion else { return nil }
-            return StartupBrowsePreview(
-                albums: Array(cache.albums.prefix(limit)),
-                artists: Array(cache.artists.prefix(limit))
-            )
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+            return try? PropertyListDecoder().decode(StartupBrowsePreview.self, from: data, configuration: limit)
         }
         let preview = await withTaskCancellationHandler {
             await worker.value
@@ -4991,14 +5182,10 @@ final class MusicLibrary {
     }
 
     private nonisolated static func startupSongReader(
-        directory: URL, sourceIDs: Set<String>, requiresExclusionReconciliation: Bool = true
+        directory: URL, sourceIDs: Set<String>
     ) throws -> IncrementalSongPageReader? {
         try Task.checkCancellation()
-        if requiresExclusionReconciliation {
-            // Paging counts must match the filtered rows. Bounded previews
-            // instead filter each returned row by both supported identity keys.
-            guard try Self.startupSongExclusions(directory: directory).isEmpty else { return nil }
-        }
+        guard try Self.startupSongExclusions(directory: directory).isEmpty else { return nil }
         let reader = try IncrementalSongPageReader(
             path: directory.appendingPathComponent("library-songs.sqlite").path, sourceIDs: sourceIDs
         )
@@ -15779,14 +15966,8 @@ final class MusicLibrary {
             snapshotFingerprint: SnapshotFileFingerprint?
         ) -> StartupCache? {
             autoreleasepool {
-                guard let data = try? Data(contentsOf: startupCacheURL, options: .mappedIfSafe),
-                      let cache = try? PropertyListDecoder().decode(StartupCache.self, from: data),
-                      cache.formatVersion == MusicLibrary.startupCacheFormatVersion
-                        || cache.formatVersion == MusicLibrary.legacyStartupCacheFormatVersion,
-                      cache.snapshotFingerprint == snapshotFingerprint else {
-                    return nil
-                }
-                return cache
+                guard let data = try? Data(contentsOf: startupCacheURL, options: .mappedIfSafe) else { return nil }
+                return try? PropertyListDecoder().decode(StartupCache.self, from: data, configuration: snapshotFingerprint)
             }
         }
 
@@ -19014,7 +19195,7 @@ final class MusicLibrary {
     /// 格式 1 还带着整库歌曲: 每次落盘都要把二十多万首歌编进 plist(瞬时多占
     /// 三百多 MB、多写近 100MB), SQLite 修订号一变又整份解码后丢掉。格式 2
     /// 写入时总是清空 `snapshot.songs`。
-    private struct StartupCache: Codable, Sendable {
+    private struct StartupCache: Codable, Sendable, DecodableWithConfiguration {
         let formatVersion: Int
         let songStoreRevision: Int64?
         let snapshotFingerprint: SnapshotFileFingerprint?
@@ -19024,6 +19205,19 @@ final class MusicLibrary {
         let derivedIndexSignature: String?
         let folderSignature: String?
         let completeSnapshotBase: Bool?
+
+        init(from decoder: Decoder, configuration fingerprint: SnapshotFileFingerprint?) throws {
+            // Format 1 can embed the whole catalogue. Reject an unusable cache before decoding those songs.
+            let header = try decoder.container(keyedBy: CodingKeys.self)
+            let version = try header.decode(Int.self, forKey: .formatVersion)
+            guard version == MusicLibrary.startupCacheFormatVersion || version == MusicLibrary.legacyStartupCacheFormatVersion else {
+                throw DecodingError.dataCorruptedError(forKey: .formatVersion, in: header, debugDescription: "Unknown startup cache format")
+            }
+            guard try header.decodeIfPresent(SnapshotFileFingerprint.self, forKey: .snapshotFingerprint) == fingerprint else {
+                throw DecodingError.dataCorruptedError(forKey: .snapshotFingerprint, in: header, debugDescription: "Different library snapshot")
+            }
+            try self.init(from: decoder)
+        }
 
         init(
             formatVersion: Int,

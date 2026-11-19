@@ -1245,34 +1245,32 @@ struct LibraryStartupSongPreview: View {
     @Environment(MusicLibrary.self) private var library
     let sourceIDs: Set<String>
     let play: (PrimuseKit.Song) -> Void
-    @State private var songs: [PrimuseKit.Song] = []
+    private struct Page: Identifiable {
+        let id: Int
+        let content: IncrementalSongPreviewPage
+    }
+    @State private var pages: [Page] = []
+    @State private var starts: [IncrementalSongPreviewCursor?] = [nil]
+    @State private var requestedPage = 0
 
     var body: some View {
         Group {
-            if songs.isEmpty {
+            if pages.isEmpty {
                 LibraryPreparingView(section: .songs)
             } else {
                 List {
-                    ForEach(songs) { song in
-                        Button { play(song) } label: {
-                            HStack(spacing: 12) {
-                                CachedArtworkView(
-                                    coverRef: song.coverArtFileName, songID: song.id,
-                                    size: 44, cornerRadius: 7, sourceID: song.sourceID,
-                                    filePath: song.filePath, fileFormat: song.fileFormat
-                                )
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(song.title).foregroundStyle(.primary).lineLimit(1)
-                                    Text(song.artistName ?? "").font(.caption)
-                                        .foregroundStyle(.secondary).lineLimit(1)
-                                }
-                                Spacer(minLength: 0)
+                    ForEach(pages) { page in
+                        ForEach(page.content.songs) { song in
+                            songRow(song).onAppear {
+                                if song.id == page.content.songs.last?.id, page.id == pages.last?.id,
+                                   page.content.next != nil { requestedPage = page.id + 1 }
+                                else if song.id == page.content.songs.first?.id, page.id == pages.first?.id,
+                                        page.id > 0 { requestedPage = page.id - 1 }
                             }
-                            .frame(minHeight: 48)
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("library.startup.song.\(song.id)")
+                    }
+                    if let last = pages.last, last.content.songs.isEmpty, last.content.next != nil {
+                        Button("Next") { requestedPage = last.id + 1 }
                     }
                     ProgressView("library_preparing")
                         .frame(maxWidth: .infinity)
@@ -1282,14 +1280,49 @@ struct LibraryStartupSongPreview: View {
                 .accessibilityIdentifier("library.startup.songs")
             }
         }
-        .task(id: sourceIDs) {
-            songs = []
-            let preview = await library.prepareStartupSongs(
-                ids: [], sourceIDs: sourceIDs, fallbackToFirstPage: true, musicOnly: true
-            )
-            guard !Task.isCancelled else { return }
-            songs = preview ?? []
+        .task(id: requestedPage) {
+            let index = requestedPage
+            guard starts.indices.contains(index), !pages.contains(where: { $0.id == index }) else { return }
+            let result = await library.prepareStartupSongPage(sourceIDs: sourceIDs, after: starts[index])
+            guard !Task.isCancelled, !library.isReady else { return }
+            guard let result else {
+                pages = []
+                starts = [nil]
+                requestedPage = 0
+                return
+            }
+            if let next = result.next, starts.count == index + 1 { starts.append(next) }
+            let page = Page(id: index, content: result)
+            if let first = pages.first, index < first.id {
+                if pages.count == 3 { pages.removeLast() }
+                pages.insert(page, at: 0)
+            } else {
+                if pages.count == 3 { pages.removeFirst() }
+                pages.append(page)
+            }
         }
+    }
+
+    private func songRow(_ song: PrimuseKit.Song) -> some View {
+        Button { play(song) } label: {
+            HStack(spacing: 12) {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName, songID: song.id,
+                    size: 44, cornerRadius: 7, sourceID: song.sourceID,
+                    filePath: song.filePath, fileFormat: song.fileFormat
+                )
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(song.title).foregroundStyle(.primary).lineLimit(1)
+                    Text(song.artistName ?? "").font(.caption)
+                        .foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("library.startup.song.\(song.id)")
     }
 }
 
@@ -1324,6 +1357,7 @@ struct LibraryReadyContent<Content: View>: View {
                 Group {
                     if startupSection == .songs {
                         LibraryStartupSongPreview(sourceIDs: sourceIDs, play: playStartupSong)
+                            .id(sourceIDs)
                     } else if startupSection == .albums || startupSection == .artists, let startupSection {
                         LibraryStartupBrowsePreview(section: startupSection)
                     } else {
@@ -2907,12 +2941,12 @@ struct PlayerCoveredContentLayout: ViewModifier {
                     UserScrollActivityMonitor.shared.recordInteraction(lasting: Self.presentationTransitionDuration)
                 }
                 // 只给首页看的推算（推荐、「为你」）盖住时不算，收起后补。
-                ListeningIntentService.shared.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
-                AlbumRecommendationService.shared.setPlayerPresentationActive(presented, owner: presentationWorkOwner)
+                ListeningIntentService.shared.setRefreshSuspended(presented, for: .player(presentationWorkOwner))
+                AlbumRecommendationService.shared.setRefreshSuspended(presented, for: .player(presentationWorkOwner))
             }
             .onDisappear {
-                ListeningIntentService.shared.setPlayerPresentationActive(false, owner: presentationWorkOwner)
-                AlbumRecommendationService.shared.setPlayerPresentationActive(false, owner: presentationWorkOwner)
+                ListeningIntentService.shared.setRefreshSuspended(false, for: .player(presentationWorkOwner))
+                AlbumRecommendationService.shared.setRefreshSuspended(false, for: .player(presentationWorkOwner))
             }
     }
 }

@@ -26,6 +26,38 @@ struct AIPlaylistCandidatePoolTests {
         #expect(pool.filter { $0.hasPrefix("w") }.count == AIPlaylistCandidatePoolPolicy.reservedForBreadth(in: 36))
     }
 
+    @Test("Sampling covers the end of the library and keeps the first playable copy of each ID")
+    func samplesAcrossTheWholeLibrary() {
+        var songs = (0..<4_000).map { index in
+            Song(id: "track-\(index)", title: "Track \(index)", artistName: "Artist \(index)",
+                 duration: 180, fileFormat: .flac, filePath: "/track/\(index)", sourceID: "sample")
+        }
+        let last = songs.count - 1
+        songs[last].genre = "Indie Rock"
+        songs[last].year = 1995
+        var duplicate = songs[last]
+        duplicate.id = songs[0].id
+        duplicate.title = "Later conflicting copy"
+        songs.append(duplicate)
+        let salt: UInt64 = 27
+        let sampled = AIPlaylistCandidatePoolPolicy.songs(
+            in: songs, texts: [], searchIDs: [], topArtists: [], topSongIDs: [], salt: salt, limit: 100
+        )
+        func hash(_ id: String) -> UInt64 {
+            id.utf8.reduce(14_695_981_039_346_656_037 ^ salt) { ($0 ^ UInt64($1)) &* 1_099_511_628_211 }
+        }
+        let expected = songs.dropLast().map { (id: $0.id, hash: hash($0.id)) }.sorted { $0.hash < $1.hash }
+        #expect(sampled.map(\.id) == expected.prefix(100).map(\.id))
+        let matches = AIPlaylistCandidatePoolPolicy.songs(
+            in: songs, texts: ["90年代摇滚"], searchIDs: ["missing", songs[0].id], topArtists: [],
+            topSongIDs: [], salt: salt, limit: 10
+        )
+        #expect(matches.prefix(2).map(\.id) == [songs[0].id, songs[last].id])
+        #expect(matches.first?.title == songs[0].title)
+        #expect(AIPlaylistCandidatePoolPolicy.songs(in: songs, texts: [], searchIDs: [], topArtists: [],
+                                                  topSongIDs: [], salt: salt, limit: 10, isCancelled: { true }).isEmpty)
+    }
+
     @Test("A full-size pool keeps a fifth for breadth and puts the matched songs first")
     func fullSizePool() {
         let search = (1...120).map { "s\($0)-1" }

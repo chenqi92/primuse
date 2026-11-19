@@ -3625,17 +3625,23 @@ enum AIRecommendationContextBuilder {
         history: PlayHistoryStore = .shared,
         now: Date = Date()
     ) -> AIRecommendationRequest? {
-        var seen = Set<String>()
-        let uniqueCandidates = candidates.filter {
-            !$0.id.isEmpty && seen.insert($0.id).inserted
-        }
         let albums = unit.includesAlbums ? albumCandidates : []
-        guard !uniqueCandidates.isEmpty || !albums.isEmpty else { return nil }
-        let metadataByID = Dictionary(
-            uniqueKeysWithValues: uniqueCandidates.map { ($0.id, $0) }
-        )
+        let topSongs = history.topSongs(in: .year, limit: 36)
+        let limit = min(max(0, candidateLimit), AIRecommendationRequest.maximumCandidates)
+        var wanted = Set(topSongs.map(\.id))
+        var metadataByID: [String: Song] = [:]
+        var selected: [Song] = []
+        var selectedIDs = Set<String>()
+        var hasCandidate = false
+        for song in candidates where !song.id.isEmpty {
+            hasCandidate = true
+            if selected.count < limit, selectedIDs.insert(song.id).inserted { selected.append(song) }
+            if wanted.remove(song.id) != nil { metadataByID[song.id] = song }
+            if selected.count == limit, wanted.isEmpty { break }
+        }
+        guard hasCandidate || !albums.isEmpty else { return nil }
         var preferenceArtistCounts: [String: Int] = [:]
-        let preferences = Array(history.topSongs(in: .year, limit: 36).compactMap {
+        let preferences = Array(topSongs.compactMap {
             item -> AIRecommendationPreference? in
             let artist = metadataByID[item.id]?.artistName ?? item.subtitle
             let normalizedArtist = artist
@@ -3652,7 +3658,7 @@ enum AIRecommendationContextBuilder {
                 playCount: item.playCount
             )
         }.prefix(12))
-        let recommendationCandidates = uniqueCandidates.prefix(candidateLimit).map { song in
+        let recommendationCandidates = selected.map { song in
             let durationSeconds: Int
             if song.duration.isFinite {
                 durationSeconds = Int(max(0, min(song.duration, 86_400)).rounded())

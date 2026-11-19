@@ -17,10 +17,25 @@ private enum AIPlaylistCandidateFinder {
         salt: UInt64,
         maximumCount: Int = AIPlaylistCandidatePoolPolicy.poolSize
     ) async -> [Song] {
-        let available = songs.filter {
-            !$0.id.isEmpty && !excludedSongIDs.contains($0.id)
+        guard maximumCount > 0, !songs.isEmpty else { return [] }
+        let filtering = Task.detached(priority: .userInitiated) { () -> [Song] in
+            var kept: [Song]?
+            for (position, song) in songs.enumerated() {
+                if position.isMultiple(of: 512), Task.isCancelled { return [] }
+                if song.id.isEmpty || excludedSongIDs.contains(song.id) {
+                    if kept == nil { kept = Array(songs[..<position]) }
+                } else {
+                    kept?.append(song)
+                }
+            }
+            return kept ?? songs
         }
-        guard !available.isEmpty, maximumCount > 0 else { return [] }
+        let available = await withTaskCancellationHandler {
+            await filtering.value
+        } onCancel: {
+            filtering.cancel()
+        }
+        guard !available.isEmpty, !Task.isCancelled else { return [] }
 
         var queries = [prompt]
         if intelligence.isSemanticSearchConfigured,
@@ -55,160 +70,19 @@ private enum AIPlaylistCandidateFinder {
         ).map(\.songID)
         guard !Task.isCancelled else { return [] }
 
-        let request = PoolRequest(
-            prompt: prompt,
-            texts: queries,
-            searchIDs: searchIDs,
-            topArtists: history.topArtists(in: .year, limit: 8).map(\.title),
-            topSongIDs: history.topSongs(in: .year, limit: 24).map(\.id),
-            salt: salt,
-            limit: maximumCount
-        )
-        let worker = Task.detached(priority: .userInitiated) {
-            Self.pool(for: request, in: available)
+        let topArtists = history.topArtists(in: .year, limit: 8).map(\.title)
+        let topSongs = history.topSongs(in: .year, limit: 24).map(\.id)
+        let worker = Task.detached(priority: .userInitiated) { [queries] in
+            AIPlaylistCandidatePoolPolicy.songs(
+                in: available, texts: queries, searchIDs: searchIDs, topArtists: topArtists,
+                topSongIDs: topSongs, salt: salt, limit: maximumCount, isCancelled: { Task.isCancelled }
+            )
         }
         return await withTaskCancellationHandler {
             await worker.value
         } onCancel: {
             worker.cancel()
         }
-    }
-
-    private struct PoolRequest: Sendable {
-        let prompt: String
-        let texts: [String]
-        let searchIDs: [String]
-        let topArtists: [String]
-        let topSongIDs: [String]
-        let salt: UInt64
-        let limit: Int
-    }
-
-    /// 风格、年代、常听艺人、全库抽样要扫整个曲库,不放在主线程上。
-    private nonisolated static func pool(for request: PoolRequest, in songs: [Song]) -> [Song] {
-        var songsByID: [String: Song] = [:]
-        songsByID.reserveCapacity(songs.count)
-        var playableIDs: [String] = []
-        playableIDs.reserveCapacity(songs.count)
-        var genreNamesByRaw: [String: [String]] = [:]
-        var libraryGenres: [String] = []
-        var seenGenres = Set<String>()
-        for song in songs where song.isPlayable && songsByID[song.id] == nil {
-            songsByID[song.id] = song
-            playableIDs.append(song.id)
-            guard let raw = song.genre, genreNamesByRaw[raw] == nil else { continue }
-            let names = SongDiscoveryMatching.genreNames(raw)
-            genreNamesByRaw[raw] = names
-            for name in names where seenGenres.insert(SongDiscoveryMatching.key(name)).inserted {
-                libraryGenres.append(name)
-            }
-        }
-        guard !Task.isCancelled else { return [] }
-
-        let wantedGenres = Set(AIPlaylistPromptHints.matchingGenres(
-            texts: request.texts,
-            libraryGenres: libraryGenres
-        ).map(SongDiscoveryMatching.key))
-        let decades = AIPlaylistPromptHints.decades(in: request.texts.joined(separator: " "))
-        let topArtistKeys = Set(request.topArtists.compactMap { SongRadioGrouping.artistKey($0) })
-
-        var genreIDs: [String] = []
-        var decadeIDs: [String] = []
-        var topArtistSongIDs: [String] = []
-        var artistKeyByRaw: [String: String?] = [:]
-        for id in playableIDs {
-            guard let song = songsByID[id] else { continue }
-            if !wantedGenres.isEmpty, let raw = song.genre,
-               genreNamesByRaw[raw]?.contains(where: { wantedGenres.contains(SongDiscoveryMatching.key($0)) }) == true {
-                genreIDs.append(song.id)
-            }
-            if let year = song.year, decades.contains(where: { $0.contains(year) }) {
-                decadeIDs.append(song.id)
-            }
-            if !topArtistKeys.isEmpty, let raw = song.artistName {
-                let key: String?
-                if let cached = artistKeyByRaw[raw] {
-                    key = cached
-                } else {
-                    key = SongRadioGrouping.artistKey(raw)
-                    artistKeyByRaw[raw] = .some(key)
-                }
-                if let key, topArtistKeys.contains(key) { topArtistSongIDs.append(song.id) }
-            }
-        }
-        guard !Task.isCancelled else { return [] }
-
-        var artistKeys: [String: String?] = [:]
-        func artist(_ id: String) -> String? {
-            if let cached = artistKeys[id] { return cached }
-            let key = SongRadioGrouping.artistKey(songsByID[id]?.artistName)
-            artistKeys[id] = .some(key)
-            return key
-        }
-        /// 按这次生成的随机数打乱后,每位艺人最多取 `perArtist` 首,取够 `count` 首为止。
-        func sample(_ ids: [String], count: Int, perArtist: Int) -> [String] {
-            var counts: [String: Int] = [:]
-            var output: [String] = []
-            for id in shuffled(ids, salt: request.salt, keeping: count * 6) {
-                if let key = artist(id) {
-                    guard counts[key, default: 0] < perArtist else { continue }
-                    counts[key, default: 0] += 1
-                }
-                output.append(id)
-                if output.count == count { break }
-            }
-            return output
-        }
-
-        let limit = request.limit
-        let topSongIDs = request.topSongIDs.filter { songsByID[$0] != nil }
-        let taste = interleave(
-            shuffled(topSongIDs, salt: request.salt, keeping: topSongIDs.count),
-            sample(topArtistSongIDs, count: limit, perArtist: AIPlaylistCandidatePoolPolicy.tastePerArtist)
-        )
-        let ids = AIPlaylistCandidatePoolPolicy.compose(
-            matched: [
-                request.searchIDs.filter { songsByID[$0] != nil },
-                sample(genreIDs, count: limit, perArtist: 2),
-                sample(decadeIDs, count: limit, perArtist: 2),
-            ],
-            taste: taste,
-            spread: sample(playableIDs, count: limit * 4, perArtist: 1),
-            limit: limit,
-            artist: artist
-        )
-        return ids.compactMap { songsByID[$0] }
-    }
-
-    /// 按 (id, salt) 的哈希排序的前 `keeping` 个。整库几十万首时先按哈希阈值粗筛,只排一小部分。
-    private nonisolated static func shuffled(_ ids: [String], salt: UInt64, keeping: Int) -> [String] {
-        guard keeping > 0, !ids.isEmpty else { return [] }
-        var hashed = ids.map { (hash: stableHash($0, salt: salt), id: $0) }
-        if hashed.count > keeping * 4 {
-            let threshold = UInt64.max / UInt64(hashed.count) * UInt64(keeping * 2)
-            let narrowed = hashed.filter { $0.hash <= threshold }
-            if narrowed.count >= keeping { hashed = narrowed }
-        }
-        hashed.sort { $0.hash < $1.hash }
-        return hashed.prefix(keeping).map(\.id)
-    }
-
-    private nonisolated static func interleave(_ lhs: [String], _ rhs: [String]) -> [String] {
-        var output: [String] = []
-        output.reserveCapacity(lhs.count + rhs.count)
-        for index in 0..<max(lhs.count, rhs.count) {
-            if index < lhs.count { output.append(lhs[index]) }
-            if index < rhs.count { output.append(rhs[index]) }
-        }
-        return output
-    }
-
-    private nonisolated static func stableHash(_ id: String, salt: UInt64) -> UInt64 {
-        var hash: UInt64 = 14_695_981_039_346_656_037 ^ salt
-        for byte in id.utf8 {
-            hash = (hash ^ UInt64(byte)) &* 1_099_511_628_211
-        }
-        return hash
     }
 
     /// 每个搜索词取多少首。候选池放到 100 首后,12 首会让搜索结果占不满池子。
@@ -546,15 +420,11 @@ struct AIPlaylistEditorView: View {
         isGenerating = true
 
         // 只在音乐里挑:有声书章节、播客单集不进歌单候选。
-        let songsSnapshot = library.musicSongsExcludingDisliked
+        let songsSnapshot = library.musicSongs
         let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
-        let excludedIDs: Set<String>
+        var excludedIDs = library.dislikedSongIDs
         if !isListeningScene, let selections = existing?.aiConfiguration?.selections {
-            excludedIDs = Set(
-                library.visibleSongs(matching: selections.map(\.identity)).map(\.id)
-            )
-        } else {
-            excludedIDs = []
+            excludedIDs.formUnion(library.visibleSongs(matching: selections.map(\.identity)).map(\.id))
         }
 
         generationTask = Task { @MainActor in

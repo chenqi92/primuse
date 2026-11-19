@@ -180,7 +180,6 @@ extension AudioPlayerService {
         let library = library
         let initialQueueGeneration = queueGeneration
         let initialAdvanceGeneration = playbackAdvancePolicy.generation
-        let readySongs = library?.isReady == true ? library?.visibleSongs : nil
         // 旧版播客快照只存 ID, 从独立的队列文件补回元数据。
         let podcastSongs = PodcastPlaybackMemory.shared.songs()
         // 曲库外的 Apple Music 歌(搜索点播、目录续播、专辑页补上的)同理。
@@ -234,30 +233,19 @@ extension AudioPlayerService {
             where queuedIDs.contains(song.id) && PodcastPlaybackSong.isEpisode(song) {
                 playableSongsByID[song.id] = song
             }
-            let visibleSongs: [Song]
-            if playableSongsByID.count == queuedIDs.count {
-                visibleSongs = []
-            } else if let readySongs {
-                visibleSongs = readySongs
-            } else if let library, let startupSourceIDs,
-                      let savedSongs = await library.prepareStartupSongs(
-                        ids: snapshot.queueSongIDs, sourceIDs: startupSourceIDs
-                      ) {
-                visibleSongs = savedSongs
-            } else if let library {
-                await library.whenReady()
-                visibleSongs = await library.visibleSongs
-            } else {
-                visibleSongs = []
-            }
-
-            // 只为队列里的歌建表, 不把整个可见曲库拷进字典。
-            if playableSongsByID.count < queuedIDs.count {
-                for song in visibleSongs
-                where queuedIDs.contains(song.id) && song.isPlayable && playableSongsByID[song.id] == nil {
-                    playableSongsByID[song.id] = song
-                    if playableSongsByID.count == queuedIDs.count { break }
+            let missingIDs = queuedIDs.subtracting(playableSongsByID.keys)
+            if let library, !missingIDs.isEmpty {
+                let matches: [Song]
+                if let startupSourceIDs, let savedSongs = await library.prepareStartupSongs(
+                    ids: Array(missingIDs), sourceIDs: startupSourceIDs
+                ) {
+                    matches = savedSongs.filter(\.isPlayable)
+                } else {
+                    await library.whenReady()
+                    let lookup = await library.visibleSongLookup()
+                    matches = lookup.playableSongs(forIDs: missingIDs)
                 }
+                for song in matches { playableSongsByID[song.id] = song }
             }
             // 后来收进了曲库的,上面已经用曲库那一行。
             for song in appleMusicCatalogSongs
