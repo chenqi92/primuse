@@ -25,6 +25,7 @@
 "applied" = "%@ angewendet";
 "selected" = "%@ ausgewählt";
 "chooseDevice" = "Kopfhörer oder Lautsprecher wählen";
+"promptOnHeadphoneChange" = "Beim Kopfhörerwechsel nach dem Preset fragen";
 "confirm" = "Bestätigen";
 "choose" = "Auswählen";
 "change" = "Ändern";

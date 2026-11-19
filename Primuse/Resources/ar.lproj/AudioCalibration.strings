@@ -25,6 +25,7 @@
 "applied" = "تم تطبيق %@";
 "selected" = "تم اختيار %@";
 "chooseDevice" = "اختر سماعات رأس أو مكبرات صوت";
+"promptOnHeadphoneChange" = "طلب اختيار إعداد مسبق عند تبديل سماعات الرأس";
 "confirm" = "تأكيد";
 "choose" = "اختيار";
 "change" = "تغيير";

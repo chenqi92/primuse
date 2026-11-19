@@ -25,6 +25,7 @@
 "applied" = "Se aplicó %@";
 "selected" = "Se seleccionó %@";
 "chooseDevice" = "Elige audífonos o bocinas";
+"promptOnHeadphoneChange" = "Preguntar qué preajuste usar al cambiar de audífonos";
 "confirm" = "Confirmar";
 "choose" = "Elegir";
 "change" = "Cambiar";

@@ -93,6 +93,9 @@ private struct CalibrationPromptHost: ViewModifier {
             .onChange(of: eq.calibrationAvailable) { _, available in
                 if !available { choosing = nil }
             }
+            .onChange(of: eq.promptsOnHeadphoneChange) { _, enabled in
+                if !enabled { choosing = nil }
+            }
     }
 
     private func close(_ id: UUID) {

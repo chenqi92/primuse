@@ -25,6 +25,7 @@
 "applied" = "%@ aplicado";
 "selected" = "%@ selecionado";
 "chooseDevice" = "Escolher fones ou alto-falantes";
+"promptOnHeadphoneChange" = "Perguntar qual predefinição usar ao trocar os fones";
 "confirm" = "Confirmar";
 "choose" = "Escolher";
 "change" = "Alterar";

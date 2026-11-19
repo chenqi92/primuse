@@ -25,6 +25,7 @@
 "applied" = "已套用 %@";
 "selected" = "已選擇 %@";
 "chooseDevice" = "選擇耳機或音響";
+"promptOnHeadphoneChange" = "切換耳機時提示選擇預設";
 "confirm" = "確認";
 "choose" = "選擇";
 "change" = "更換";

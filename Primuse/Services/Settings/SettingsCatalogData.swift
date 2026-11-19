@@ -41,6 +41,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "playback.prewarmQueue", titleKey: "Prewarm queue head", iosPage: nil, macPage: .playback),
         SettingDefinition(id: "equalizer.enabled", titleKey: "eq_enabled", iosPage: .equalizer, macPage: .equalizer, keywords: ["EQ", "equalizer", "均衡器", "低音", "bass", "treble", "高音", "Enable EQ"]),
         SettingDefinition(id: "equalizer.preset", titleKey: "eq_preset", iosPage: .equalizer, macPage: .equalizer, keywords: ["Current Preset"]),
+        SettingDefinition(id: "equalizer.promptOnHeadphoneChange", titleKey: "promptOnHeadphoneChange", table: "AudioCalibration", iosPage: .equalizer, macPage: .equalizer, keywords: ["耳机插拔", "切换确认", "headphone prompt"]),
         SettingDefinition(id: "equalizer.bands", titleKey: "equalizer", iosPage: .equalizer, macPage: .equalizer, keywords: ["EQ bands", "frequency", "频段", "31Hz", "62Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"]),
         SettingDefinition(id: "equalizer.reset", titleKey: "eq_reset", iosPage: .equalizer, macPage: .equalizer, keywords: ["Reset"]),
         SettingDefinition(id: "equalizer.savePreset", titleKey: "eq_save_as_preset", iosPage: .equalizer, macPage: .equalizer, keywords: ["保存预设", "自定义预设", "我的预设", "命名", "save preset", "custom preset"], anchor: "equalizer.preset"),

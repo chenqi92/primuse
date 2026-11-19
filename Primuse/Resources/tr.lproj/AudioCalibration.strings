@@ -25,6 +25,7 @@
 "applied" = "%@ uygulandı";
 "selected" = "%@ seçildi";
 "chooseDevice" = "Kulaklık veya hoparlör seç";
+"promptOnHeadphoneChange" = "Kulaklık değiştiğinde hangi ön ayarın kullanılacağını sor";
 "confirm" = "Onayla";
 "choose" = "Seç";
 "change" = "Değiştir";

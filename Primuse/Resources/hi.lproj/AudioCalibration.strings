@@ -25,6 +25,7 @@
 "applied" = "%@ लागू किया गया";
 "selected" = "%@ चुना गया";
 "chooseDevice" = "हेडफ़ोन या स्पीकर चुनें";
+"promptOnHeadphoneChange" = "हेडफ़ोन बदलने पर प्रीसेट चुनने के लिए पूछें";
 "confirm" = "पुष्टि करें";
 "choose" = "चुनें";
 "change" = "बदलें";

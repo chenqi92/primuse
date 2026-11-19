@@ -16,7 +16,12 @@ struct AudioCalibrationControls: View {
     @State private var selection: LibrarySelection?
 
     var body: some View {
+        @Bindable var eq = eq
         VStack(alignment: .leading, spacing: 12) {
+            Toggle(EQText("promptOnHeadphoneChange"), isOn: $eq.promptsOnHeadphoneChange)
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("eq.calibration.promptOnChange")
+                .settingsAnchor("equalizer.promptOnHeadphoneChange")
             Button { selection = LibrarySelection(deviceID: eq.currentOutputDevice?.id) } label: {
                 Label(EQText("library"), systemImage: "headphones")
             }

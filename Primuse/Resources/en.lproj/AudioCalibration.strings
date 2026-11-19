@@ -25,6 +25,7 @@
 "applied" = "Applied %@";
 "selected" = "Selected %@";
 "chooseDevice" = "Choose headphones or speakers";
+"promptOnHeadphoneChange" = "Ask which preset to use when headphones change";
 "confirm" = "Confirm";
 "choose" = "Choose";
 "change" = "Change";

@@ -4,18 +4,71 @@ import PrimuseKit
 @testable import Primuse
 
 final class AudioCalibrationTests: XCTestCase {
-    @MainActor private func withService(enabled: Bool = true, _ body: (EqualizerService, UserDefaults, AudioEngine) throws -> Void) throws {
+    @MainActor private func withService(enabled: Bool = true, prompts: Bool = false, _ body: (EqualizerService, UserDefaults, AudioEngine) throws -> Void) throws {
         let suite = "eq-tests-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let engine = AudioEngine(volumeDefaults: defaults, outputDefaults: defaults)
         let service = EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false)
+        if prompts { service.promptsOnHeadphoneChange = true }
         if enabled { service.setEnabled(true) }
         try body(service, defaults, engine)
     }
 
+    @MainActor func testPromptDefaultsOffAndBoundPresetsStillFollowHeadphones() throws {
+        try withService(enabled: false) { service, _, _ in
+            let headphones = EQOutputDevice(id: "phones", name: "Headphones", kind: .headphones)
+            let speaker = EQOutputDevice(id: "builtin", name: "Speaker", kind: .builtInSpeaker)
+            service.outputDeviceDidChange(headphones)
+            service.setEnabled(true)
+            XCTAssertFalse(service.promptsOnHeadphoneChange)
+            XCTAssertNil(service.deviceSuggestion)
+            service.chooseCalibration(.bass, for: headphones.id)
+            service.outputDeviceDidChange(speaker)
+            XCTAssertNil(service.deviceSuggestion)
+            XCTAssertEqual(service.currentPreset.id, EQPreset.flat.id)
+            service.outputDeviceDidChange(headphones)
+            XCTAssertNil(service.deviceSuggestion)
+            XCTAssertEqual(service.currentPreset.id, EQPreset.bass.id)
+        }
+    }
+
+    @MainActor func testPromptPreferenceSurvivesRelaunchAndFollowsHeadphoneChanges() throws {
+        try withService { service, defaults, engine in
+            let speaker = EQOutputDevice(id: "builtin", name: "Speaker", kind: .builtInSpeaker)
+            let wired = EQOutputDevice(id: "jack", name: "Headphones", kind: .headphones)
+            let wireless = EQOutputDevice(id: "sony", name: "WH-1000XM5", kind: .bluetooth)
+            service.promptsOnHeadphoneChange = true
+            let reopened = EqualizerService(audioEngine: engine, defaults: defaults, tracksOutputDevices: false)
+            reopened.outputDeviceDidChange(speaker)
+            XCTAssertNil(reopened.deviceSuggestion)
+            reopened.outputDeviceDidChange(wired)
+            XCTAssertEqual(reopened.deviceSuggestion?.device, wired)
+            reopened.outputDeviceDidChange(wireless)
+            let matched = try XCTUnwrap(reopened.deviceSuggestion)
+            XCTAssertEqual(matched.device, wireless)
+            XCTAssertNotNil(matched.presetID)
+            reopened.outputDeviceDidChange(nil)
+            reopened.outputDeviceDidChange(speaker)
+            let unplugged = try XCTUnwrap(reopened.deviceSuggestion)
+            XCTAssertEqual(unplugged.device, speaker)
+            reopened.outputDeviceDidChange(speaker)
+            XCTAssertEqual(reopened.deviceSuggestion?.id, unplugged.id)
+            reopened.outputDeviceDidChange(wireless)
+            let pending = try XCTUnwrap(reopened.deviceSuggestion)
+            reopened.promptsOnHeadphoneChange = false
+            XCTAssertNil(reopened.deviceSuggestion)
+            reopened.acceptDeviceSuggestion(pending.id)
+            XCTAssertNil(reopened.currentDeviceBinding)
+            reopened.outputDeviceDidChange(speaker)
+            XCTAssertNil(reopened.deviceSuggestion)
+            service.reloadAfterOfflineImport()
+            XCTAssertFalse(service.promptsOnHeadphoneChange)
+        }
+    }
+
     @MainActor func testEQOffSkipsRoutesAndStaleChoicesUntilExplicitlyEnabled() throws {
-        try withService(enabled: false) { service, defaults, engine in
+        try withService(enabled: false, prompts: true) { service, defaults, engine in
             let dac = EQOutputDevice(id: "dac", name: "DTC480", kind: .usb)
             let headphones = EQOutputDevice(id: "sony", name: "WH-1000XM5", kind: .bluetooth)
             XCTAssertFalse(service.isEnabled)
@@ -44,7 +97,7 @@ final class AudioCalibrationTests: XCTestCase {
     }
 
     @MainActor func testDecliningARecommendationRestoresManualEQAndPersistsByDevice() throws {
-        try withService { service, defaults, engine in
+        try withService(prompts: true) { service, defaults, engine in
             let sony = EQOutputDevice(id: "sony", name: "WH-1000XM5", kind: .bluetooth)
             let dac = EQOutputDevice(id: "dac", name: "DTC480", kind: .usb)
             service.applyPreset(.jazz)
@@ -71,7 +124,7 @@ final class AudioCalibrationTests: XCTestCase {
     }
 
     @MainActor func testHighFidelitySkipsCalibrationWhilePausedAndAfterRestart() throws {
-        try withService { service, defaults, engine in
+        try withService(prompts: true) { service, defaults, engine in
             let sony = EQOutputDevice(id: "sony", name: "WH-1000XM5", kind: .bluetooth)
             service.setCalibrationOutputMode(.highFidelity)
             service.outputDeviceDidChange(sony)
@@ -91,7 +144,7 @@ final class AudioCalibrationTests: XCTestCase {
     }
 
     @MainActor func testLegacyDefaultAndNoCalibrationBindingStayQuietAfterUpgrade() throws {
-        try withService(enabled: false) { _, defaults, engine in
+        try withService(enabled: false, prompts: true) { _, defaults, engine in
             let dac = EQOutputDevice(id: "dac", name: "DTC480", kind: .usb)
             var old = EQPresetLibrary()
             old.setBinding(device: dac, presetID: EQPreset.flat.id)
@@ -118,7 +171,7 @@ final class AudioCalibrationTests: XCTestCase {
     }
 
     @MainActor func testRecommendationAcceptsOnlyCurrentRouteAndRestoresPreviousCurve() throws {
-        try withService { service, _, _ in
+        try withService(prompts: true) { service, _, _ in
             service.applyPreset(.jazz)
             let sony = EQOutputDevice(id: "sony", name: "WH-1000XM5", kind: .bluetooth)
             service.outputDeviceDidChange(sony)
@@ -161,7 +214,7 @@ final class AudioCalibrationTests: XCTestCase {
     }
 
     @MainActor func testManualOverrideAndStaleChooserCannotRebindDevice() throws {
-        try withService { service, _, _ in
+        try withService(prompts: true) { service, _, _ in
             let sony = EQOutputDevice(id: "sony", name: "WH-1000XM5", kind: .bluetooth)
             service.outputDeviceDidChange(sony)
             let old = try XCTUnwrap(service.deviceSuggestion)
@@ -180,7 +233,7 @@ final class AudioCalibrationTests: XCTestCase {
     }
 
     @MainActor func testDisablingAutomaticSwitchSuppressesFutureRecommendations() throws {
-        try withService { service, defaults, engine in
+        try withService(prompts: true) { service, defaults, engine in
             let device = EQOutputDevice(id: "sony", name: "WH-1000XM5", kind: .bluetooth)
             service.outputDeviceDidChange(device)
             service.bindCurrentDevice(to: nil)

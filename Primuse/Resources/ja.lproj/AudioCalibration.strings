@@ -25,6 +25,7 @@
 "applied" = "%@を適用しました";
 "selected" = "%@を選択しました";
 "chooseDevice" = "ヘッドフォンかスピーカーを選択";
+"promptOnHeadphoneChange" = "ヘッドフォンの切り替え時にプリセットの選択を確認";
 "confirm" = "確認";
 "choose" = "選択";
 "change" = "変更";

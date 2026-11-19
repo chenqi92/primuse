@@ -25,6 +25,7 @@
 "applied" = "Zastosowano %@";
 "selected" = "Wybrano %@";
 "chooseDevice" = "Wybierz słuchawki lub głośniki";
+"promptOnHeadphoneChange" = "Pytaj o ustawienie przy zmianie słuchawek";
 "confirm" = "Potwierdź";
 "choose" = "Wybierz";
 "change" = "Zmień";

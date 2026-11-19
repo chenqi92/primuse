@@ -46,7 +46,7 @@ enum OfflineSettingsCatalog {
         "primuse.carplay.savedLayouts.v1", "primuse.smartNudge.enabled.v1", "primuse.smartNudge.disabledKinds.v1",
         "primuse.cloudScanWifiOnly", "primuse.appearance", "primuse.appIconChoice", "pm.mac.appIcon",
         "primuse.playback.autoplayOnLaunch", "primuse.clipExport.appliesFades",
-        "eq.enabled", "eq.presetId", "eq.bands", "eq.customBands",
+        "eq.enabled", "eq.promptsOnHeadphoneChange", "eq.presetId", "eq.bands", "eq.customBands",
         "album.showsTrackArtwork", "library.albumReleaseFilter", "library.hideSingleSongAlbums",
         "library.artistBrowseMode", "playlistListSortOrder", "home.folderSongOrder.v1",
         "primuse.home.filter", "primuse.podcast.feed.filter", "primuse.podcast.library.sort",

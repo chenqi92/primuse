@@ -25,6 +25,7 @@
 "applied" = "ใช้ %@ แล้ว";
 "selected" = "เลือก %@ แล้ว";
 "chooseDevice" = "เลือกหูฟังหรือลำโพง";
+"promptOnHeadphoneChange" = "ถามว่าจะใช้พรีเซ็ตใดเมื่อเปลี่ยนหูฟัง";
 "confirm" = "ยืนยัน";
 "choose" = "เลือก";
 "change" = "เปลี่ยน";

@@ -20,6 +20,13 @@ final class EqualizerService {
     }
     private var outputMode: AudioOutputMode
     var calibrationAvailable: Bool { isEnabled && outputMode == .effects }
+    var promptsOnHeadphoneChange = false {
+        didSet {
+            guard !suppressPersist else { return }
+            defaults.set(promptsOnHeadphoneChange, forKey: Keys.promptsOnHeadphoneChange)
+            if !promptsOnHeadphoneChange { deviceSuggestion = nil }
+        }
+    }
     var bands: [Float] = Array(repeating: 0, count: PrimuseConstants.eqBandCount)
 
     /// 有频段提升时整体压低的量(dB,≤ 0),关着时为 0。
@@ -39,6 +46,7 @@ final class EqualizerService {
     private(set) var currentOutputDevice: EQOutputDevice?
 
     @ObservationIgnored private var outputMonitor: EQOutputDeviceMonitor?
+    @ObservationIgnored private var lastKnownOutputKind: EQOutputDevice.Kind?
 
     @ObservationIgnored private weak var appliedNode: AVAudioUnitEffect?
     @ObservationIgnored private var appliedConfiguration: EQRenderConfiguration?
@@ -256,9 +264,11 @@ final class EqualizerService {
 
     func outputDeviceDidChange(_ device: EQOutputDevice?) {
         let changed = device?.id != currentOutputDevice?.id
+        let previousKind = lastKnownOutputKind
+        if let device { lastKnownOutputKind = device.kind }
         currentOutputDevice = device
         if let device, library.refreshName(of: device) { persist() }
-        if changed { reconcileCalibration() }
+        if changed { reconcileCalibration(previousOutputKind: previousKind) }
     }
 
     func setCalibrationOutputMode(_ mode: AudioOutputMode) {
@@ -267,7 +277,7 @@ final class EqualizerService {
         reconcileCalibration()
     }
 
-    private func reconcileCalibration() {
+    private func reconcileCalibration(previousOutputKind: EQOutputDevice.Kind? = nil) {
         deviceSuggestion = nil
         guard calibrationAvailable, let device = currentOutputDevice else { return }
         let next = EQDevicePresetSwitchPolicy.presetIDAfterRouteChange(
@@ -281,11 +291,17 @@ final class EqualizerService {
         } else {
             persist()
         }
-        guard device.kind != .builtInSpeaker,
-              library.automaticSwitchDisabledDeviceIDs?.contains(device.id) != true else { return }
+        guard library.automaticSwitchDisabledDeviceIDs?.contains(device.id) != true else { return }
         let binding = library.binding(for: device.id)
         // The old “no calibration” action saved a flat binding. Keep its sound without prompting.
         guard binding?.presetID != EQPreset.flat.id else { return }
+        if device.kind == .builtInSpeaker {
+            if promptsOnHeadphoneChange,
+               previousOutputKind == .headphones || previousOutputKind == .bluetooth || previousOutputKind == .usb {
+                deviceSuggestion = DeviceSuggestion(device: device, presetID: binding?.presetID)
+            }
+            return
+        }
         let suggested = binding.flatMap { preset(withID: $0.presetID) }
             ?? EQCalibrationCatalog.automaticPreset(for: device)
         if let suggested {
@@ -298,6 +314,7 @@ final class EqualizerService {
         } else if currentPreset.parametric != nil {
             setCurve(.flat)
         }
+        guard promptsOnHeadphoneChange else { return }
         deviceSuggestion = DeviceSuggestion(device: device, presetID: suggested?.id)
         plog("EQ calibration prompt kind=\(device.kind.rawValue) matched=\(suggested != nil)")
     }
@@ -440,6 +457,7 @@ final class EqualizerService {
 
     private enum Keys {
         static let enabled = "eq.enabled"
+        static let promptsOnHeadphoneChange = "eq.promptsOnHeadphoneChange"
         static let bands = "eq.bands"
         static let customBands = "eq.customBands"
         static let presetId = "eq.presetId"
@@ -467,6 +485,7 @@ final class EqualizerService {
     private func load() {
         suppressPersist = true
         defer { suppressPersist = false }
+        promptsOnHeadphoneChange = defaults.bool(forKey: Keys.promptsOnHeadphoneChange)
         let count = PrimuseConstants.eqBandCount
         library = EQPresetLibrary.decode(defaults.data(forKey: EQPresetLibrary.storageKey))
 

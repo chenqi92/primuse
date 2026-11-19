@@ -14,7 +14,7 @@ final class AudioCalibrationUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchEnvironment["PRIMUSE_EQ_UI_TESTS"] = "1"
-        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        app.launchArguments += ["-eq.promptsOnHeadphoneChange", "YES", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
                                 "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]
         app.launch()
         defer { app.terminate() }
@@ -120,7 +120,7 @@ final class AudioCalibrationUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchEnvironment["PRIMUSE_EQ_TEST_USB_OUTPUT"] = "DTC480"
-        app.launchArguments += ["-eq.enabled", "YES", "-eq.presetId", "jazz",
+        app.launchArguments += ["-eq.enabled", "YES", "-eq.promptsOnHeadphoneChange", "YES", "-eq.presetId", "jazz",
                                 "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
                                 "-primuse.navigation.mode.v1", "minimal", "-primuse.hasSeenOnboarding", "YES",
                                 "-primuse.iCloudSyncEnabled", "NO",
@@ -158,7 +158,7 @@ final class AudioCalibrationUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchEnvironment["PRIMUSE_EQ_TEST_USB_OUTPUT"] = "DTC480"
-        app.launchArguments += ["-eq.enabled", "NO", "-primuse.navigation.mode.v1", "minimal",
+        app.launchArguments += ["-eq.enabled", "NO", "-eq.promptsOnHeadphoneChange", "YES", "-primuse.navigation.mode.v1", "minimal",
                                 "-primuse.hasSeenOnboarding", "YES", "-primuse.iCloudSyncEnabled", "NO",
                                 "-primuse.launch.consecutiveAborts", "0", "-primuse.launch.safeModeLatched", "NO"]
         defer { app.terminate() }
@@ -175,6 +175,7 @@ final class AudioCalibrationUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchEnvironment["PRIMUSE_EQ_UI_TESTS"] = "1"
+        app.launchArguments += ["-eq.promptsOnHeadphoneChange", "YES"]
         app.launch()
         defer { app.terminate() }
         let dac = app.buttons["eq.test.dac"]
@@ -208,6 +209,9 @@ final class AudioCalibrationUITests: XCTestCase {
         defer { app.terminate() }
         let sony = app.buttons["eq.test.connect"]
         XCTAssertTrue(sony.waitForExistence(timeout: 30))
+        let toggle = app.switches["eq.calibration.promptOnChange"]
+        XCTAssertEqual(toggle.value as? String, "0")
+        toggle.tap()
         sony.tap()
         let confirm = app.buttons["eq.calibration.confirm"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 3))
@@ -219,12 +223,14 @@ final class AudioCalibrationUITests: XCTestCase {
         add(banner)
         confirm.tap()
         XCTAssertTrue(confirm.waitForNonExistence(timeout: 3))
+        app.buttons["eq.test.disconnect"].tap()
+        XCTAssertTrue(change.waitForExistence(timeout: 3))
     }
 
     @MainActor func testFullCatalogSearchSelectionAndDeviceRecall() throws {
         let app = XCUIApplication()
         app.launchEnvironment["PRIMUSE_EQ_UI_TESTS"] = "1"
-        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launchArguments += ["-eq.promptsOnHeadphoneChange", "YES", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         app.launch()
         defer { app.terminate() }
         let dac = app.buttons["eq.test.dac"]
@@ -253,7 +259,7 @@ final class AudioCalibrationUITests: XCTestCase {
     @MainActor func testAutomaticAcceptanceAndDACImport() throws {
         let app = XCUIApplication()
         app.launchEnvironment["PRIMUSE_EQ_UI_TESTS"] = "1"
-        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launchArguments += ["-eq.promptsOnHeadphoneChange", "YES", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         app.launch()
         defer { app.terminate() }
         let connect = app.buttons["eq.test.connect"]

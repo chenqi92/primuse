@@ -25,6 +25,7 @@
 "applied" = "%@ appliqué";
 "selected" = "%@ sélectionné";
 "chooseDevice" = "Choisir un casque ou des enceintes";
+"promptOnHeadphoneChange" = "Demander quel préréglage utiliser au changement de casque";
 "confirm" = "Confirmer";
 "choose" = "Choisir";
 "change" = "Modifier";
