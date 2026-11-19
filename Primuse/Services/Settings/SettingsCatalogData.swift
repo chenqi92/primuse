@@ -58,7 +58,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "effects.chain", titleKey: "Enable Effects Chain", iosPage: nil, macPage: .effects),
         SettingDefinition(id: "effects.reverbRoomSize", titleKey: "Room Size", table: "SettingsSearch", iosPage: nil, macPage: .effects),
         SettingDefinition(id: "lyrics.translationEnabled", titleKey: "lyrics_translation_enabled", iosPage: .lyrics, macPage: .lyrics),
-        SettingDefinition(id: "lyrics.embeddedVariantPriority", titleKey: "embedded_lyrics_variant_priority", iosPage: .lyrics, macPage: .lyrics, keywords: ["内嵌歌词", "多份歌词", "多条歌词", "歌词优先级", "读取优先级", "SYNCEDLYRICS", "USLT", "SYLT", "embedded lyrics", "lyrics priority"]),
+        SettingDefinition(id: "lyrics.embeddedVariantPriority", titleKey: "embedded_lyrics_variant_priority", iosPage: .lyrics, macPage: .lyrics, keywords: ["内嵌歌词", "多份歌词", "多条歌词", "歌词优先级", "读取优先级", "时间轴类型", "歌词格式", "TTML", "LRC", "lyrics format", "SYNCEDLYRICS", "USLT", "SYLT", "embedded lyrics", "lyrics priority"]),
         SettingDefinition(id: "lyrics.bundledTranslation", titleKey: "lyrics_bundled_translation_shown", iosPage: .lyrics, macPage: .lyrics, keywords: ["自带译文", "双语", "内嵌翻译", "bilingual", "embedded translation"]),
         SettingDefinition(id: "lyrics.translationMode", titleKey: "lyrics_translation_mode", iosPage: .lyrics, macPage: .lyrics, anchor: "lyrics.translationEnabled"),
         SettingDefinition(id: "lyrics.translationTarget", titleKey: "lyrics_translation_target", iosPage: .lyrics, macPage: .lyrics, anchor: "lyrics.translationEnabled"),

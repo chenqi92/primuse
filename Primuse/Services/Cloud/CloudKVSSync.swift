@@ -831,6 +831,8 @@ final class InterfaceLayoutSync {
         WordLyricsDiscoveryPreferences.enabledKey,
         WordLyricsDiscoveryPreferences.showsActivityKey,
         EmbeddedLyricsVariantPriority.storageKey,
+        EmbeddedLyricsVariantPriority.timingOrderKey,
+        EmbeddedLyricsVariantPriority.formatOrderKey,
         PlayerAppearancePreferences.showsLyricsInterludeKey,
         PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey,
     ]

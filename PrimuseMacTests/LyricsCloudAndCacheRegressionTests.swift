@@ -86,6 +86,53 @@ final class LyricsCacheObserverTests: XCTestCase {
 }
 
 @MainActor
+final class EmbeddedLyricsReselectionTests: XCTestCase {
+    func testCachedSongCanSwitchBetweenTwoWordTimingsForTheSameLine() async throws {
+        let song = Song(id: "embedded-\(UUID().uuidString)", title: "Copper Tide", fileFormat: .flac,
+                        filePath: "/Copper Tide.flac", sourceID: "test", fileSize: 1)
+        let original = "[00:01.00]<00:01.00>Copper <00:01.70>tide"
+        let preferred = "[00:01.00]<00:01.00>Copper <00:01.30>tide"
+        let stored = LyricsDocumentSource.embedded.stamped(LyricsContentParser.parseText(original))
+        let store = MetadataAssetStore.shared
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [song.id]) }
+        let wrote = await store.cacheLyrics(stored, forSongID: song.id, force: true)
+        XCTAssertTrue(wrote)
+        await store.storeEmbeddedLyricsAlternatives(.init(variants: [.init(text: preferred), .init(text: original)]),
+                                                   forSongID: song.id)
+        let changed = await LyricsLoader.reselectedEmbeddedVariant(for: song, cached: stored)
+        let lastStart = try XCTUnwrap(changed?.first?.syllables?.last?.start)
+        XCTAssertEqual(lastStart, 1.3, accuracy: 0.001)
+        let cached = await store.cachedLyrics(forSongID: song.id)
+        let again = await LyricsLoader.reselectedEmbeddedVariant(for: song, cached: try XCTUnwrap(cached))
+        XCTAssertNil(again)
+    }
+
+    func testSYLTBeforeUSLTKeepsItsPhysicalPosition() async throws {
+        func bytes(_ value: Int, shift: Int = 8) -> Data {
+            let mask = (1 << shift) - 1
+            return Data((0..<4).reversed().map { UInt8((value >> ($0 * shift)) & mask) })
+        }
+        func frame(_ name: String, _ payload: Data) -> Data {
+            Data(name.utf8) + bytes(payload.count) + Data([0, 0]) + payload
+        }
+        let prefix = Data([3]) + Data("eng".utf8)
+        let timed = prefix + Data([2, 1, 0]) + Data("Copper tide".utf8) + Data([0]) + bytes(1000)
+        let plain = prefix + Data([0]) + Data("Paper lantern".utf8)
+        let custom = Data([3]) + Data("LYRICS".utf8) + Data([0]) + Data("[00:01.00]Glass harbor".utf8)
+        let body = frame("SYLT", timed) + frame("USLT", plain) + frame("TXXX", custom)
+        let header = Data([0x49, 0x44, 0x33, 3, 0, 0]) + bytes(body.count, shift: 7)
+        let audioFrame = Data([0xFF, 0xFB, 0x90, 0x64]) + Data(repeating: 0, count: 413)
+        var song = header + body
+        for _ in 0..<8 { song += audioFrame }
+        let metadata = await FileMetadataReader.RangeReadSession().read(from: song, fileExtension: "mp3")
+        let alternatives = try XCTUnwrap(metadata.embeddedLyricsAlternatives)
+        XCTAssertEqual(alternatives.variants.map(\.text), ["[00:01.000]Copper tide", "Paper lantern", "[00:01.00]Glass harbor"])
+        XCTAssertEqual(FileMetadataReader.Metadata.embeddedLyrics(from: alternatives, priority: .firstInFile)?.lyricsText,
+                       "[00:01.000]Copper tide")
+    }
+}
+
+@MainActor
 final class LyricLineCommentCloudMappingTests: XCTestCase {
     func testPrivateRecordRoundTripAndRejectsMismatchedPayloadIdentity() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

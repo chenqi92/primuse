@@ -5,17 +5,67 @@ import Foundation
 ///
 /// 只管「原文」：标明是译文的字段、标了另一种语言的那份照旧当译文候选，不参与这里的挑选。
 public enum EmbeddedLyricsVariantPriority: String, CaseIterable, Sendable {
-    /// 逐字 > 逐行 > 纯文本；一样细的取文件里排在前面的。
-    case finestTiming
-    /// 文件里排在前面的那份，不看有没有时间轴。
+    // Keep the original stored value for listeners upgrading from Finest Timing.
+    case timingType = "finestTiming"
+    case lyricsFormat
     case firstInFile
 
     public static let storageKey = "primuse.lyrics.embeddedVariantPriority.v1"
-    public static let defaultValue: Self = .finestTiming
+    public static let timingOrderKey = "primuse.lyrics.embeddedTimingOrder.v1"
+    public static let formatOrderKey = "primuse.lyrics.embeddedFormatOrder.v1"
+    public static let defaultValue: Self = .timingType
+
+    private var defaultOrder: [String] {
+        switch self {
+        case .timingType: [LyricsFormat.wordLevel, .lineLevel, .plain].map(\.rawValue)
+        case .lyricsFormat: EmbeddedLyricsContentFormat.allCases.map(\.rawValue)
+        case .firstInFile: []
+        }
+    }
+
+    public func order(from stored: String?) -> [String] {
+        let available = defaultOrder
+        var remaining = Set(available)
+        let known = (stored ?? "").split(separator: ",").map(String.init).filter {
+            remaining.remove($0) != nil
+        }
+        return known + available.filter(remaining.contains)
+    }
+
+    fileprivate func storedOrder(in defaults: UserDefaults) -> String? {
+        switch self {
+        case .timingType: defaults.string(forKey: Self.timingOrderKey)
+        case .lyricsFormat: defaults.string(forKey: Self.formatOrderKey)
+        case .firstInFile: nil
+        }
+    }
 
     /// 读标签、换歌词时用的那一档。认不出的存值按默认。
     public static func current(_ defaults: UserDefaults = .standard) -> Self {
         defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? defaultValue
+    }
+}
+
+/// Formats distinguishable from the embedded text, which has no filename extension.
+public enum EmbeddedLyricsContentFormat: String, CaseIterable, Sendable {
+    case ttml, lrc, lys, yrc, qrc, krc, webVTT, subRip, substationAlpha, plainText
+
+    static func detect(_ text: String, timing: LyricsTimingLevel) -> Self {
+        if LyricsContentParser.isTTML(text) { return .ttml }
+        if let format = WordTimedLyricsParser.detect(text) {
+            switch format {
+            case .lys: return .lys
+            case .yrc: return .yrc
+            case .qrc: return .qrc
+            case .krc: return .krc
+            }
+        }
+        switch SubtitleLyricsParser.detect(text) {
+        case .webVTT: return .webVTT
+        case .subRip: return .subRip
+        case .substationAlpha: return .substationAlpha
+        case nil: return timing == .plain ? .plainText : .lrc
+        }
     }
 }
 
@@ -51,25 +101,37 @@ public enum EmbeddedLyricsVariantPolicy {
     /// 几份里显示哪一份。没有候选时为 nil。
     public static func preferredIndex(
         in variants: [EmbeddedLyricsVariant],
-        priority: EmbeddedLyricsVariantPriority
+        priority: EmbeddedLyricsVariantPriority,
+        defaults: UserDefaults = .standard
     ) -> Int? {
-        guard !variants.isEmpty else { return nil }
-        switch priority {
-        case .firstInFile:
-            return variants.startIndex
-        case .finestTiming:
-            var best = variants.startIndex
-            var bestRank = rank(of: variants[best].text)
-            for index in variants.indices.dropFirst() {
-                let candidate = rank(of: variants[index].text)
-                // 严格更细才换：一样细的留排在前面的。
-                if candidate > bestRank {
-                    best = index
-                    bestRank = candidate
+        guard variants.count > 1 else { return variants.indices.first }
+        let order = priority.order(from: priority.storedOrder(in: defaults))
+        var best: Int?
+        var bestRank = (Int.max, Int.max)
+        for (index, variant) in variants.enumerated() {
+            let lines = LyricsContentParser.parseText(variant.text)
+            guard !lines.isEmpty else { continue }
+            if priority == .firstInFile { return index }
+            let timing = LyricsTimingLevel(lines: lines)
+            let id: String
+            if priority == .timingType {
+                let type: LyricsFormat = switch timing {
+                case .word: .wordLevel
+                case .line: .lineLevel
+                case .plain: .plain
                 }
+                id = type.rawValue
+            } else {
+                id = EmbeddedLyricsContentFormat.detect(variant.text, timing: timing).rawValue
             }
-            return best
+            // Within one format, keep the finer timing. Equal ranks retain file order.
+            let rank = (order.firstIndex(of: id) ?? order.count, -timing.rawValue)
+            if rank < bestRank {
+                bestRank = rank
+                best = index
+            }
         }
+        return best
     }
 
     public static func preferred(
@@ -77,14 +139,6 @@ public enum EmbeddedLyricsVariantPolicy {
         priority: EmbeddedLyricsVariantPriority
     ) -> EmbeddedLyricsVariant? {
         preferredIndex(in: variants, priority: priority).map { variants[$0] }
-    }
-
-    private static func rank(of text: String) -> Int {
-        switch LyricsFormat.detect(text) {
-        case .plain: return 0
-        case .lineLevel: return 1
-        case .wordLevel: return 2
-        }
     }
 }
 

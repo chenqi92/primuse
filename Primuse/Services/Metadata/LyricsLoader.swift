@@ -808,12 +808,14 @@ enum LyricsLoader {
                       .contains { $0.source == .localEditor }
               }),
               let alternatives = await MetadataAssetStore.shared.embeddedLyricsAlternatives(forSongID: song.id),
-              let preferred = embeddedVariant(from: alternatives),
-              !EmbeddedLyricsPrecedencePolicy.sameDocument(cached, preferred) else { return nil }
+              let preferred = embeddedVariant(from: alternatives) else { return nil }
+        let fingerprint = LyricsDocumentFingerprint(lines: cached)
+        let normalized = MetadataAssetStore.normalizedCachedLyrics(preferred)
+        guard LyricsDocumentFingerprint(lines: normalized) != fingerprint else { return nil }
         let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
             preferred,
             forSongID: song.id,
-            expectedFingerprint: LyricsDocumentFingerprint(lines: cached),
+            expectedFingerprint: fingerprint,
             force: true,
             preservingSelection: true
         )
@@ -822,13 +824,23 @@ enum LyricsLoader {
         return preferred
     }
 
-    /// 设置里改了内嵌多份歌词挑哪一份：正在放的这首马上换，别的歌下次放时换。
+    private static var embeddedRefreshRunning = false
+    private static var embeddedRefreshPending = false
+
+    /// Coalesce drag updates and finish each cache write before applying the latest preference.
     static func applyEmbeddedVariantPriorityChange() {
-        guard let song = AppServices.shared.playerService.currentSong else { return }
+        embeddedRefreshPending = true
+        guard !embeddedRefreshRunning else { return }
+        embeddedRefreshRunning = true
         Task { @MainActor in
-            guard let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
-                  await reselectedEmbeddedVariant(for: song, cached: cached) != nil else { return }
-            NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
+            defer { embeddedRefreshRunning = false }
+            while embeddedRefreshPending {
+                embeddedRefreshPending = false
+                guard let song = AppServices.shared.playerService.currentSong,
+                      let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
+                      await reselectedEmbeddedVariant(for: song, cached: cached) != nil else { continue }
+                NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
+            }
         }
     }
 

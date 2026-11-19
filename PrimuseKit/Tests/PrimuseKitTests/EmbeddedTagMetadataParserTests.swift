@@ -28,6 +28,20 @@ struct EmbeddedTagMetadataParserTests {
             == "J-Pop; Vocaloid")
     }
 
+    @Test func vorbisAndAPEKeepOriginalLyricsInPhysicalOrder() {
+        let fields = [("SYNCEDLYRICS", "[00:01.00]Copper tide"), ("LYRICS", "Paper ferry"),
+                      ("TRANSLATEDLYRICS", "铜色潮汐"), ("SYNCEDLYRICS", "[00:02.00]Glass shore")]
+        let opus = makeOggPage(packets: [Data("OpusTags".utf8) + makeVorbisComments(
+            fields.map { $0.0 + "=" + $0.1 }
+        )], sequence: 0)
+        let ape = makeAPEv2Tag(fields.map { apeTextItem($0.0, $0.1) })
+        for metadata in [EmbeddedTagMetadataParser.parse(head: opus, fileExtension: "opus"),
+                         EmbeddedTagMetadataParser.parse(head: Data(), tail: ape, fileExtension: "ape")] {
+            #expect(metadata?.lyricsVariants.map(\.text) == [fields[0].1, fields[1].1, fields[3].1])
+            #expect(metadata?.translatedLyrics == fields[2].1)
+        }
+    }
+
     @Test(arguments: ["ALBUMARTIST", "Album Artist", "album_artist", "WM/AlbumArtist"])
     func resolvesAlbumArtistAliasesIndependentlyFromTrackArtist(key: String) {
         let metadata = EmbeddedTagMetadataParser.metadata(fromTagValues: [

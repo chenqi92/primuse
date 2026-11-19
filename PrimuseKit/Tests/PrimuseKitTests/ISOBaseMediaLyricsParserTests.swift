@@ -63,6 +63,21 @@ struct ISOBaseMediaLyricsParserTests {
         #expect(ISOBaseMediaLyricsParser.lyrics(in: mediaFile(items: item)) == expected)
     }
 
+    @Test("File order spans freeform, standard and keyed originals without including translations")
+    func interleavedFormats() {
+        func freeform(_ name: String, _ text: String) -> Data {
+            atom("----", payload: fullBoxTextAtom("name", value: name) + dataAtom(Data(text.utf8)))
+        }
+        let items = freeform("LYRICS:fr", "Reflet de cuivre")
+            + freeform("SYNCEDLYRICS", "[00:01.00]Copper tide")
+            + atom(type: Data([0xA9, 0x6C, 0x79, 0x72]), payload: dataAtom(Data("Paper ferry".utf8)) + dataAtom(Data("Tin sail".utf8)))
+            + atom(type: bigEndian(UInt32(1)), payload: dataAtom(Data("Glass shore".utf8)))
+        let metadata = metadataAtom(keys: ["LYRICS"], items: items)
+        let payload = ISOBaseMediaLyricsParser.payload(in: mediaFile(metadata: metadata))
+        #expect(payload?.lyricsVariants.map(\.text) == ["[00:01.00]Copper tide", "Paper ferry", "Tin sail", "Glass shore"])
+        #expect(payload?.languageTaggedLyrics["fr"] == "Reflet de cuivre")
+    }
+
     @Test("Keeps translated and language-tagged lyrics separate")
     func translatedFreeformLyrics() {
         let original = "[00:01.00]متن اصلی"

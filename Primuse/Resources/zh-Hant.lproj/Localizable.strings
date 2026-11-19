@@ -7266,9 +7266,12 @@
 "explore_word_lyrics" = "探索逐字歌詞";
 "explore_word_lyrics_footer" = "預設關閉。開啟後，播放時會自動從已啟用的歌詞來源尋找逐字歌詞，並優先顯示找到的逐字歌詞，即使歌曲已有一般歌詞。此功能獨立於「找不到歌詞時自動線上取得」開關；如需停止自動尋找逐字歌詞，請關閉本開關。";
 "embedded_lyrics_variant_priority" = "內嵌多份歌詞時優先";
-"embedded_lyrics_variant_finest" = "時間軸最細的";
-"embedded_lyrics_variant_first" = "檔案裡排在前面的";
-"embedded_lyrics_variant_priority_footer" = "一個音訊檔裡寫了不止一份同一首歌的歌詞時（例如一份純文字、一份帶時間軸，或 LYRICS 和 SYNCEDLYRICS 都有），顯示哪一份。「時間軸最細的」按逐字、逐行、純文字的順序挑，一樣細的取排在前面的。標明是譯文的歌詞照舊當譯文；歌曲旁邊有歌詞檔時仍先用歌詞檔。";
+"embedded_lyrics_variant_timing" = "依時間軸類型";
+"embedded_lyrics_variant_format" = "依歌詞格式";
+"embedded_lyrics_word_timing" = "逐字";
+"embedded_lyrics_line_timing" = "逐行";
+"embedded_lyrics_variant_first" = "依檔案順序";
+"embedded_lyrics_variant_priority_footer" = "可使用檔案中最前面的原文，也可拖曳時間軸類型或歌詞格式，越靠前越優先。";
 "player_activity_status" = "工作狀態";
 "word_lyrics_searching" = "正在探索逐字歌詞";
 "word_lyrics_source_format" = "正在從 %@ 取得逐字歌詞";

@@ -2,6 +2,85 @@ import Observation
 import SwiftUI
 import PrimuseKit
 
+extension EmbeddedLyricsVariantPriority {
+    var settingsTitle: String {
+        switch self {
+        case .timingType: String(localized: "embedded_lyrics_variant_timing")
+        case .lyricsFormat: String(localized: "embedded_lyrics_variant_format")
+        case .firstInFile: String(localized: "embedded_lyrics_variant_first")
+        }
+    }
+}
+
+struct EmbeddedLyricsOrderRows: View {
+    let priority: EmbeddedLyricsVariantPriority
+    @AppStorage(EmbeddedLyricsVariantPriority.timingOrderKey) private var timingOrder = ""
+    @AppStorage(EmbeddedLyricsVariantPriority.formatOrderKey) private var formatOrder = ""
+
+    private var order: [String] {
+        priority.order(from: priority == .timingType ? timingOrder : formatOrder)
+    }
+
+    var body: some View {
+        let rows = order
+        ForEach(rows, id: \.self) { id in
+            #if os(macOS)
+            let index = rows.firstIndex(of: id) ?? 0
+            HStack(spacing: 10) {
+                MacScraperReorderHandle(index: index, sourceCount: rows.count, move: move, rowStep: 32)
+                    .frame(width: 18, height: 22)
+                    .help(Lz("Drag to Reorder"))
+                Text(title(for: id))
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .accessibilityAction(named: Text("home_edit_move_up")) {
+                if index > 0 { move(IndexSet(integer: index), index - 1) }
+            }
+            .accessibilityAction(named: Text("home_edit_move_down")) {
+                if index + 1 < rows.count { move(IndexSet(integer: index), index + 2) }
+            }
+            #else
+            Text(title(for: id))
+            #endif
+        }
+        #if os(iOS)
+        .onMove(perform: move)
+        #endif
+    }
+
+    private func move(_ offsets: IndexSet, _ destination: Int) {
+        var rows = order
+        rows.move(fromOffsets: offsets, toOffset: destination)
+        let stored = rows.joined(separator: ",")
+        switch priority {
+        case .timingType: timingOrder = stored
+        case .lyricsFormat: formatOrder = stored
+        case .firstInFile: return
+        }
+        LyricsLoader.applyEmbeddedVariantPriorityChange()
+    }
+
+    private func title(for id: String) -> String {
+        if priority == .timingType {
+            switch LyricsFormat(rawValue: id) {
+            case .wordLevel: return String(localized: "embedded_lyrics_word_timing")
+            case .lineLevel: return String(localized: "embedded_lyrics_line_timing")
+            case .plain, nil: return String(localized: "lyrics_format_plain_short")
+            }
+        }
+        switch EmbeddedLyricsContentFormat(rawValue: id) {
+        case .lrc: return "LRC / ELRC / LYL"
+        case .webVTT: return "WebVTT"
+        case .subRip: return "SRT"
+        case .substationAlpha: return "ASS / SSA"
+        case .plainText: return String(localized: "lyrics_format_plain_short")
+        default: return id.uppercased()
+        }
+    }
+}
+
 /// 歌词翻译设置 — 用 Apple Translation Framework 离线翻译。
 /// 已安装语言包自动工作；缺少语言包时播放器先显示显式翻译操作，只有用户
 /// 点击后才允许系统展示下载或源语言确认界面。
@@ -12,7 +91,7 @@ struct LyricsSettingsView: View {
     @AppStorage(WordLyricsDiscoveryPreferences.enabledKey)
     private var exploresWordLyrics = WordLyricsDiscoveryPreferences.enabledByDefault
     @AppStorage(EmbeddedLyricsVariantPriority.storageKey)
-    private var embeddedVariantPriority = EmbeddedLyricsVariantPriority.defaultValue.rawValue
+    private var embeddedVariantPriority = EmbeddedLyricsVariantPriority.defaultValue
     @State private var cacheCount: Int = 0
     @State private var showClearConfirm = false
 
@@ -26,12 +105,10 @@ struct LyricsSettingsView: View {
                 }
                 .settingsAnchor("lyrics.exploreWordTiming")
 
-                // 一个文件里写了不止一份同一首歌的歌词时显示哪一份。
                 Picker(selection: $embeddedVariantPriority) {
-                    Text("embedded_lyrics_variant_finest")
-                        .tag(EmbeddedLyricsVariantPriority.finestTiming.rawValue)
-                    Text("embedded_lyrics_variant_first")
-                        .tag(EmbeddedLyricsVariantPriority.firstInFile.rawValue)
+                    ForEach(EmbeddedLyricsVariantPriority.allCases, id: \.self) { priority in
+                        Text(priority.settingsTitle).tag(priority)
+                    }
                 } label: {
                     SettingsInfoLabel("embedded_lyrics_variant_priority") {
                         Text("embedded_lyrics_variant_priority_footer")
@@ -41,7 +118,11 @@ struct LyricsSettingsView: View {
                 .onChange(of: embeddedVariantPriority) { _, _ in
                     LyricsLoader.applyEmbeddedVariantPriorityChange()
                 }
+                EmbeddedLyricsOrderRows(priority: embeddedVariantPriority)
             }
+            #if os(iOS)
+            .environment(\.editMode, .constant(.active))
+            #endif
             Section {
                 Toggle(isOn: $settings.isEnabled) {
                     SettingsInfoLabel("lyrics_translation_enabled") {

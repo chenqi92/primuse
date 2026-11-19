@@ -139,6 +139,33 @@ public enum EmbeddedTagMetadataParser {
     private static let apeSignature = Data("APETAGEX".utf8)
     private static let id3Signature = Data("ID3".utf8)
 
+    private static let originalLyricKeys = [
+        "LYRICS", "SYNCEDLYRICS", "SYNCED LYRICS",
+        "UNSYNCEDLYRICS", "UNSYNCED LYRICS", "WM/LYRICS",
+    ]
+
+    /// Keep the order across different keys as well as repeated values of one key.
+    public static func metadata(fromOrderedTagValues fields: [(key: String, value: String)]) -> EmbeddedTagMetadata {
+        var values: [String: [String]] = [:]
+        var originals: [EmbeddedLyricsVariant] = []
+        for field in fields {
+            let key = normalizedKey(field.key)
+            let value = field.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty, !value.isEmpty else { continue }
+            values[key, default: []].append(value)
+            if let variant = originalLyric(key: key, text: value) { originals.append(variant) }
+        }
+        return metadata(from: values, orderedOriginals: originals)
+    }
+
+    private static func originalLyric(key: String, text: String) -> EmbeddedLyricsVariant? {
+        if originalLyricKeys.contains(key) { return .init(text: text) }
+        guard key.contains("LYRICS"), let language = lyricLanguageSuffix(in: key, roots: originalLyricKeys) else {
+            return nil
+        }
+        return .init(text: text, languageCode: language)
+    }
+
     /// Resolves already-decoded text fields with the same mapping used by the
     /// container parsers. Callers that own a format-specific comment decoder
     /// can therefore preserve lyric translations without reimplementing the
@@ -274,14 +301,11 @@ public enum EmbeddedTagMetadataParser {
         _ entries: [(key: String, value: String)],
         coverArtData: Data? = nil
     ) -> EmbeddedTagMetadata? {
-        var values: [String: [String]] = [:]
-        for entry in entries {
-            let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty, let key = containerTagKey(entry.key),
-                  values[key]?.contains(value) != true else { continue }
-            values[key, default: []].append(value)
+        let fields = entries.compactMap { entry -> (key: String, value: String)? in
+            guard let key = containerTagKey(entry.key) else { return nil }
+            return (key, entry.value)
         }
-        var result = metadata(from: values)
+        var result = metadata(fromOrderedTagValues: fields)
         if result.coverArtData == nil, let coverArtData {
             result.coverArtData = normalizedImageData(coverArtData)
         }
@@ -513,7 +537,7 @@ public enum EmbeddedTagMetadataParser {
             guard count <= data.count - cursor else { return nil }
             if header & 0x7f == 4 {
                 guard let comments = parseVorbisCommentList(data.subdata(in: cursor..<(cursor + count))) else { return nil }
-                return metadata(from: comments)
+                return metadata(fromOrderedTagValues: comments)
             }
             cursor += count
             if header & 0x80 != 0 { break }
@@ -527,7 +551,7 @@ public enum EmbeddedTagMetadataParser {
               let comments = parseVorbisCommentList(payload) else {
             return nil
         }
-        return metadata(from: comments)
+        return metadata(fromOrderedTagValues: comments)
     }
 
     private static func commentPayload(in packets: [Data]) -> Data? {
@@ -548,7 +572,7 @@ public enum EmbeddedTagMetadataParser {
         return nil
     }
 
-    private static func parseVorbisCommentList(_ data: Data) -> [String: [String]]? {
+    private static func parseVorbisCommentList(_ data: Data) -> [(key: String, value: String)]? {
         var cursor = 0
         guard let vendorLength = readBoundedUInt32LE(data, at: cursor) else { return nil }
         cursor += 4
@@ -567,12 +591,9 @@ public enum EmbeddedTagMetadataParser {
             cursor += length
             if let field = vorbisCommentField(item) { fields.append(field) }
         }
-        var comments: [String: [String]] = [:]
+        var comments: [(key: String, value: String)] = []
         for (field, decoded) in zip(fields, TextEncodingRepair.decodeTagValues(fields.map(\.value))) {
-            let key = normalizedKey(field.key)
-            guard let value = decoded?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !key.isEmpty, !value.isEmpty else { continue }
-            comments[key, default: []].append(value)
+            if let decoded { comments.append((field.key, decoded)) }
         }
         return comments
     }
@@ -608,7 +629,7 @@ public enum EmbeddedTagMetadataParser {
             cursor += 32
         }
 
-        var values: [String: [String]] = [:]
+        var fields: [(key: String, value: String)] = []
         var textItems: [(key: String, values: [Data])] = []
         var cover: Data?
         for _ in 0..<itemCount {
@@ -645,10 +666,10 @@ public enum EmbeddedTagMetadataParser {
                 .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
             decoded = decoded.dropFirst(item.values.count)
-            if !strings.isEmpty { values[item.key, default: []].append(contentsOf: strings) }
+            fields.append(contentsOf: strings.map { (item.key, $0) })
         }
 
-        var metadata = metadata(from: values)
+        var metadata = metadata(fromOrderedTagValues: fields)
         metadata.coverArtData = metadata.coverArtData ?? cover
         return metadata.isEmpty ? nil : metadata
     }
@@ -703,7 +724,7 @@ public enum EmbeddedTagMetadataParser {
         let objectCount = readUInt32LE(data, at: 24)
         guard objectCount <= 100_000 else { return nil }
         var cursor = 30
-        var values: [String: [String]] = [:]
+        var fields: [(key: String, value: String)] = []
         var cover: Data?
 
         for _ in 0..<objectCount {
@@ -725,7 +746,7 @@ public enum EmbeddedTagMetadataParser {
                 for (key, length) in zip(keys, lengths) {
                     guard length <= objectEnd - lengthCursor else { break }
                     if let text = decodedUTF16LE(data.subdata(in: lengthCursor..<(lengthCursor + length))) {
-                        values[key, default: []].append(text)
+                        fields.append((key, text))
                     }
                     lengthCursor += length
                 }
@@ -756,14 +777,14 @@ public enum EmbeddedTagMetadataParser {
                     if key == "WM/PICTURE", valueType == 1, cover == nil {
                         cover = parseASFPicture(valueData)
                     } else if let text = decodedASFValue(valueData, type: valueType) {
-                        values[key, default: []].append(text)
+                        fields.append((key, text))
                     }
                 }
             }
             cursor = objectEnd
         }
 
-        var metadata = metadata(from: values)
+        var metadata = metadata(fromOrderedTagValues: fields)
         metadata.coverArtData = metadata.coverArtData ?? cover
         return metadata.isEmpty ? nil : metadata
     }
@@ -956,7 +977,7 @@ public enum EmbeddedTagMetadataParser {
 
     // MARK: - Shared field mapping
 
-    private static func metadata(from values: [String: [String]]) -> EmbeddedTagMetadata {
+    private static func metadata(from values: [String: [String]], orderedOriginals: [EmbeddedLyricsVariant]? = nil) -> EmbeddedTagMetadata {
         func first(_ keys: String...) -> String? {
             for key in keys {
                 if let value = values[normalizedKey(key)]?.first, !value.isEmpty { return value }
@@ -981,7 +1002,7 @@ public enum EmbeddedTagMetadataParser {
         let track = first("TRACKNUMBER", "TRACK", "WM/TRACKNUMBER", "IPRT", "ITRK")
         let disc = first("DISCNUMBER", "DISC", "WM/PARTOFSET")
         let date = first("DATE", "YEAR", "WM/YEAR", "ICRD")
-        let lyricFields = resolvedLyricFields(from: values)
+        let lyricFields = resolvedLyricFields(from: values, orderedOriginals: orderedOriginals)
         var result = EmbeddedTagMetadata(
             title: first("TITLE", "WM/TITLE", "INAM"),
             artist: artists?.joined(separator: "; "),
@@ -1032,12 +1053,9 @@ public enum EmbeddedTagMetadataParser {
     /// body. Language-suffixed variants are retained even when there is not
     /// enough information to decide which one is the source language.
     private static func resolvedLyricFields(
-        from values: [String: [String]]
+        from values: [String: [String]],
+        orderedOriginals: [EmbeddedLyricsVariant]?
     ) -> ResolvedLyricFields {
-        let originalRoots = [
-            "LYRICS", "SYNCEDLYRICS", "SYNCED LYRICS",
-            "UNSYNCEDLYRICS", "UNSYNCED LYRICS", "WM/LYRICS",
-        ]
         let translationRoots = [
             "TRANSLATEDLYRICS", "TRANSLATED LYRICS", "TRANSLATION",
             "LYRICS TRANSLATION", "WM/TRANSLATEDLYRICS", "WM/TRANSLATION",
@@ -1063,7 +1081,7 @@ public enum EmbeddedTagMetadataParser {
             return result
         }
 
-        let taggedLyrics = taggedValues(for: originalRoots)
+        let taggedLyrics = taggedValues(for: originalLyricKeys)
         let taggedTranslations = taggedValues(for: translationRoots)
         let declaredLyricsLanguage = normalizedLyricLanguageCode(
             first(["LYRICS_LANGUAGE", "LYRICS LANGUAGE"])
@@ -1075,21 +1093,30 @@ public enum EmbeddedTagMetadataParser {
             ])
         )
 
-        // 不带语言后缀的几个原文字段（LYRICS、SYNCEDLYRICS、UNSYNCEDLYRICS……，同名字段写了几遍的也算）
-        // 都是同一首歌的原文，按设置挑一份：默认时间轴最细的，LYRICS 是纯文本、SYNCEDLYRICS 是 LRC 时
-        // 不再显示纯文本。字段之间的先后按上面这个顺序。
+        // Unordered callers retain the legacy priority across keys.
+        let originals = orderedOriginals ?? (originalLyricKeys + values.keys.sorted().filter {
+            !originalLyricKeys.contains($0) && $0.contains("LYRICS")
+        }).flatMap { key in (values[key] ?? []).compactMap { originalLyric(key: key, text: $0) } }
+        let untaggedTexts = Set(originals.filter { $0.languageCode == nil }.map(\.text))
+        let sourceLanguage: String?
+        if let declaredLyricsLanguage {
+            sourceLanguage = declaredLyricsLanguage
+        } else {
+            let possibleLanguages = Set(originals.compactMap { entry in
+                untaggedTexts.isEmpty || untaggedTexts.contains(entry.text) ? entry.languageCode : nil
+            })
+            sourceLanguage = possibleLanguages.count == 1 ? possibleLanguages.first : nil
+        }
         var variants: [EmbeddedLyricsVariant] = []
-        for key in originalRoots {
-            for value in values[normalizedKey(key)] ?? [] {
-                EmbeddedLyricsVariantPolicy.append(value, languageCode: declaredLyricsLanguage, to: &variants)
-            }
+        for entry in originals where entry.languageCode == nil || entry.languageCode == sourceLanguage {
+            EmbeddedLyricsVariantPolicy.append(entry.text, languageCode: sourceLanguage, to: &variants)
         }
         var result = ResolvedLyricFields(
             lyrics: EmbeddedLyricsVariantPolicy.preferred(
                 in: variants,
                 priority: EmbeddedLyricsVariantPriority.current()
             )?.text,
-            lyricsLanguageCode: declaredLyricsLanguage,
+            lyricsLanguageCode: sourceLanguage,
             translatedLyrics: first(translationRoots),
             translatedLyricsLanguageCode: declaredTranslationLanguage,
             languageTaggedLyrics: taggedLyrics,

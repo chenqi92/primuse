@@ -7050,9 +7050,12 @@
 "explore_word_lyrics" = "Explore Word-Synced Lyrics";
 "explore_word_lyrics_footer" = "Off by default. When enabled, playback automatically searches enabled lyrics sources for word-synced lyrics and displays them in preference to existing regular lyrics. This is independent of “Fetch Lyrics Online When Missing”. To stop automatic word-synced lyrics searches, turn this option off.";
 "embedded_lyrics_variant_priority" = "Multiple Embedded Lyrics";
-"embedded_lyrics_variant_finest" = "Finest Timing";
-"embedded_lyrics_variant_first" = "First in File";
-"embedded_lyrics_variant_priority_footer" = "When an audio file embeds more than one copy of the song's lyrics (for example plain text plus a timed version, or both LYRICS and SYNCEDLYRICS), choose which one to show. Finest Timing prefers word-synced, then line-synced, then plain lyrics, and takes the earlier copy when they tie. Fields marked as translations are still used as translations, and a lyrics file next to the song still comes first.";
+"embedded_lyrics_variant_timing" = "By timing type";
+"embedded_lyrics_variant_format" = "By lyrics format";
+"embedded_lyrics_word_timing" = "Word-synced";
+"embedded_lyrics_line_timing" = "Line-synced";
+"embedded_lyrics_variant_first" = "By file order";
+"embedded_lyrics_variant_priority_footer" = "Use the first embedded original, or drag timing types or formats into your preferred order.";
 "player_activity_status" = "Task Status";
 "word_lyrics_searching" = "Finding word-synced lyrics";
 "word_lyrics_source_format" = "Fetching word-synced lyrics from %@";

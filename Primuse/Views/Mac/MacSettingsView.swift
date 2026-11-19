@@ -5822,7 +5822,7 @@ private struct MacScraperSourceRow: View {
     }
 }
 
-private struct MacScraperReorderHandle: NSViewRepresentable {
+struct MacScraperReorderHandle: NSViewRepresentable {
     let index: Int
     let sourceCount: Int
     let move: (IndexSet, Int) -> Void
@@ -5847,7 +5847,7 @@ private struct MacScraperReorderHandle: NSViewRepresentable {
     }
 }
 
-private final class ScraperReorderHandleNSView: NSView {
+final class ScraperReorderHandleNSView: NSView {
     var index = 0
     var sourceCount = 0
     var onMove: ((IndexSet, Int) -> Void)?
@@ -6008,7 +6008,7 @@ private struct MacSTLyricsView: View {
     @AppStorage(WordLyricsDiscoveryPreferences.enabledKey)
     private var exploresWordLyrics = WordLyricsDiscoveryPreferences.enabledByDefault
     @AppStorage(EmbeddedLyricsVariantPriority.storageKey)
-    private var embeddedVariantPriority = EmbeddedLyricsVariantPriority.defaultValue.rawValue
+    private var embeddedVariantPriority = EmbeddedLyricsVariantPriority.defaultValue
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var settings = LyricsTranslationSettingsStore.shared
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
@@ -6056,18 +6056,14 @@ private struct MacSTLyricsView: View {
                     ) {
                         MacSTPicker(
                             selection: $embeddedVariantPriority,
-                            options: [
-                                (EmbeddedLyricsVariantPriority.finestTiming.rawValue,
-                                 String(localized: "embedded_lyrics_variant_finest")),
-                                (EmbeddedLyricsVariantPriority.firstInFile.rawValue,
-                                 String(localized: "embedded_lyrics_variant_first")),
-                            ]
+                            options: EmbeddedLyricsVariantPriority.allCases.map { ($0, $0.settingsTitle) }
                         )
                     }
                     .settingsAnchor("lyrics.embeddedVariantPriority")
                     .onChange(of: embeddedVariantPriority) { _, _ in
                         LyricsLoader.applyEmbeddedVariantPriorityChange()
                     }
+                    EmbeddedLyricsOrderRows(priority: embeddedVariantPriority)
                 }
             }
             MacSTSection(String(localized: "lyrics_translation_section")) {

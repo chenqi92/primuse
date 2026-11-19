@@ -7290,9 +7290,12 @@
 "explore_word_lyrics" = "単語同期の歌詞を探す";
 "explore_word_lyrics_footer" = "初期設定ではオフです。オンにすると、再生中に有効な歌詞ソースから単語同期の歌詞を自動的に探し、通常の歌詞がすでにある曲でも、見つかった単語同期の歌詞を優先して表示します。この機能は「歌詞がないときはオンラインで自動取得」とは独立しています。単語同期の歌詞の自動検索を止めるには、この設定をオフにしてください。";
 "embedded_lyrics_variant_priority" = "複数の埋め込み歌詞";
-"embedded_lyrics_variant_finest" = "タイミングが最も細かいもの";
-"embedded_lyrics_variant_first" = "ファイル内で先にあるもの";
-"embedded_lyrics_variant_priority_footer" = "1つの音声ファイルに同じ曲の歌詞が複数埋め込まれている場合（テキストのみとタイミング付きの両方、LYRICS と SYNCEDLYRICS の両方など）、どれを表示するかを選びます。「タイミングが最も細かいもの」は単語同期、行同期、テキストのみの順に選び、同じ細かさなら先にあるものを使います。訳文と明記された項目は引き続き訳文として扱い、曲の隣に歌詞ファイルがある場合はそちらが優先されます。";
+"embedded_lyrics_variant_timing" = "同期の種類順";
+"embedded_lyrics_variant_format" = "歌詞の形式順";
+"embedded_lyrics_word_timing" = "単語単位";
+"embedded_lyrics_line_timing" = "行単位";
+"embedded_lyrics_variant_first" = "ファイル内の順番";
+"embedded_lyrics_variant_priority_footer" = "ファイル内で最初の原文を使うか、同期の種類や歌詞の形式をドラッグして優先順を設定できます。";
 "player_activity_status" = "タスクの状態";
 "word_lyrics_searching" = "単語同期の歌詞を検索中";
 "word_lyrics_source_format" = "%@ から単語同期の歌詞を取得中";

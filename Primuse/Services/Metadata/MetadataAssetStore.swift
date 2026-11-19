@@ -999,7 +999,7 @@ actor MetadataAssetStore {
         return Self.normalizedCachedLyrics(lines)
     }
 
-    nonisolated private static func normalizedCachedLyrics(_ lines: [LyricLine]) -> [LyricLine] {
+    nonisolated static func normalizedCachedLyrics(_ lines: [LyricLine]) -> [LyricLine] {
         LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(
             in: LyricBilingualPairingPolicy.normalizingCachedLines(
                 lines.map { LyricTextEntityPolicy.decoded($0) }

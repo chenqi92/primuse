@@ -78,7 +78,8 @@ enum FileMetadataReader {
             languageCode: String?,
             variants: [EmbeddedLyricsVariant]
         ) {
-            if let text, variants.count > max(1, lyricsVariants.count) {
+            if let text, variants.count > 1,
+               variants.count > lyricsVariants.count || Set(variants.map(\.text)) == Set(lyricsVariants.map(\.text)) {
                 lyricsText = text
                 lyricsLanguageCode = languageCode
                 lyricsVariants = variants
@@ -792,10 +793,10 @@ enum FileMetadataReader {
             }
 
             // Try format-specific metadata for more detail
-            var synchronizedLyrics: ID3SynchronizedLyricsParser.Frame?
+            var avLyrics = ID3NativeMetadata()
             // MP4 `gnre` 只是 ID3v1 编号，`©gen` 写了文字时以文字为准。
             var predefinedGenre: String?
-            for item in items {
+            for (index, item) in items.enumerated() {
                 guard let identifier = item.identifier else { continue }
                 let value = try? await item.load(.value)
 
@@ -914,25 +915,19 @@ enum FileMetadataReader {
                      .quickTimeMetadataGenre,
                      .quickTimeUserDataGenre:
                     metadata.genre = metadata.genre ?? decodedText(value)
-                case .id3MetadataUnsynchronizedLyric:
-                    // 几帧 USLT 都记下，最后按设置挑（原来是最后一帧胜出）。
+                case .id3MetadataUnsynchronizedLyric, .iTunesMetadataLyrics:
                     if let text = decodedText(value), !text.isEmpty {
-                        metadata.lyricsText = metadata.lyricsText ?? text
-                        EmbeddedLyricsVariantPolicy.append(text, languageCode: nil, to: &metadata.lyricsVariants)
-                    }
-                case .iTunesMetadataLyrics:
-                    if let text = decodedText(value), !text.isEmpty {
-                        metadata.lyricsText = metadata.lyricsText ?? text
-                        EmbeddedLyricsVariantPolicy.append(text, languageCode: nil, to: &metadata.lyricsVariants)
+                        let language = item.extendedLanguageTag
+                            .flatMap { LyricLanguageCodePolicy.canonicalIdentifier($0) }
+                        let attributes = try? await item.load(.extraAttributes)
+                        let descriptor = attributes?[.info] as? String ?? ""
+                        let frame = ID3LyricsFrame(text: text, languageCode: language, description: descriptor)
+                        avLyrics.collect(frame, afterPrimaryFrames: false, at: index)
                     }
                 case .id3MetadataSynchronizedLyric:
-                    // AVFoundation hands SYLT over as the raw frame payload only;
-                    // this is the one reader that sees it for an iOS
-                    // media-library asset, which has no bytes to fall back to.
-                    if synchronizedLyrics == nil,
-                       let payload = try? await item.load(.dataValue),
-                       let frame = ID3SynchronizedLyricsParser.parse(payload) {
-                        synchronizedLyrics = frame
+                    if let data = try? await item.load(.dataValue),
+                       let frame = parseID3SynchronizedLyricsFrame(data) {
+                        avLyrics.collect(frame, afterPrimaryFrames: true, at: index)
                     }
                 case .id3MetadataUserText:
                     // TXXX frames: ReplayGain tags stored in extraAttributes[.info]
@@ -948,39 +943,10 @@ enum FileMetadataReader {
                             metadata.replayGainAlbumGain = parseReplayGainDB(stringValue)
                         case "replaygain_album_peak":
                             metadata.replayGainAlbumPeak = Double(stringValue ?? "")
-                        case "translatedlyrics", "translated lyrics", "translation",
-                             "lyrics translation":
-                            if let stringValue, !stringValue.isEmpty {
-                                metadata.translatedLyricsText = stringValue
-                            }
                         default:
-                            if let stringValue, !stringValue.isEmpty {
-                                if let languageCode = lyricTagLanguageCode(
-                                    in: desc,
-                                    roots: [
-                                        "translatedlyrics", "translated lyrics", "translation",
-                                    ]
-                                ) {
-                                    if metadata.translatedLyricsText == nil {
-                                        metadata.translatedLyricsText = stringValue
-                                        metadata.translatedLyricsLanguageCode = languageCode
-                                    } else if metadata.translatedLyricsText == stringValue,
-                                              metadata.translatedLyricsLanguageCode == nil {
-                                        metadata.translatedLyricsLanguageCode = languageCode
-                                    }
-                                    metadata.languageTaggedTranslations[languageCode] = stringValue
-                                } else if let languageCode = lyricTagLanguageCode(
-                                    in: desc,
-                                    roots: ["lyrics", "syncedlyrics", "unsyncedlyrics"]
-                                ) {
-                                    metadata.languageTaggedLyrics[languageCode] = stringValue
-                                    if metadata.lyricsText == nil {
-                                        metadata.lyricsText = stringValue
-                                        metadata.lyricsLanguageCode = languageCode
-                                    }
-                                }
+                            if let stringValue {
+                                avLyrics.collectUserText((desc, stringValue), at: index)
                             }
-                            break
                         }
                     }
                 default:
@@ -991,30 +957,14 @@ enum FileMetadataReader {
             metadata.title = MetadataTitleResolutionPolicy.preferredEmbeddedTitle(
                 from: titleCandidates
             )
-            // Same rule as the byte-level ID3 reader: a timed frame is another
-            // copy of the same words, and the setting picks which copy shows.
-            if let synchronizedLyrics {
-                if let existing = metadata.lyricsText, metadata.lyricsVariants.isEmpty {
-                    EmbeddedLyricsVariantPolicy.append(existing, languageCode: metadata.lyricsLanguageCode, to: &metadata.lyricsVariants)
-                }
-                EmbeddedLyricsVariantPolicy.append(
-                    synchronizedLyrics.text,
-                    languageCode: synchronizedLyrics.languageCode,
-                    to: &metadata.lyricsVariants
-                )
-            }
-            if let chosen = EmbeddedLyricsVariantPolicy.preferred(
-                in: metadata.lyricsVariants,
-                priority: EmbeddedLyricsVariantPriority.current()
-            ) {
-                if chosen.text != metadata.lyricsText {
-                    metadata.lyricsText = chosen.text
-                    metadata.lyricsLanguageCode = chosen.languageCode ?? metadata.lyricsLanguageCode
-                }
-                if let languageCode = chosen.languageCode {
-                    metadata.languageTaggedLyrics[languageCode] = chosen.text
-                }
-            }
+            avLyrics.resolveLyrics()
+            metadata.lyricsVariants = avLyrics.lyricsVariants
+            metadata.lyricsText = avLyrics.lyricsText
+            metadata.lyricsLanguageCode = avLyrics.lyricsLanguageCode
+            metadata.translatedLyricsText = avLyrics.translatedLyricsText
+            metadata.translatedLyricsLanguageCode = avLyrics.translatedLyricsLanguageCode
+            metadata.languageTaggedLyrics = avLyrics.languageTaggedLyrics
+            metadata.languageTaggedTranslations = avLyrics.languageTaggedTranslations
         }
 
         // Get audio format details
@@ -1595,12 +1545,52 @@ enum FileMetadataReader {
         var translatedLyricsLanguageCode: String?
         var languageTaggedLyrics: [String: String] = [:]
         var languageTaggedTranslations: [String: String] = [:]
-        /// 同一首歌原文的几帧（USLT 在前、SYLT 在后），最后按设置挑一份当 `lyricsText`。
+        /// 同一首歌原文的几帧按文件顺序保留。
         var lyricsVariants: [EmbeddedLyricsVariant] = []
         var replayGainTrackGain: Double?
         var replayGainTrackPeak: Double?
         var replayGainAlbumGain: Double?
         var replayGainAlbumPeak: Double?
+
+        private var alternateFrames: [ID3LyricsFrame] = []
+        private var firstOffset: [String: Int] = [:]
+
+        mutating func collect(_ frame: ID3LyricsFrame, afterPrimaryFrames: Bool, at offset: Int) {
+            if !isExplicitID3Translation(frame.description), firstOffset[frame.text] == nil {
+                firstOffset[frame.text] = offset
+            }
+            if afterPrimaryFrames {
+                alternateFrames.append(frame)
+            } else {
+                applyID3LyricsFrame(frame, to: &self)
+            }
+        }
+
+        mutating func collectUserText(_ pair: (String, String), at offset: Int) {
+            let untaggedOriginals = ["lyrics", "syncedlyrics", "synced lyrics", "unsyncedlyrics", "unsynced lyrics"]
+            if untaggedOriginals.contains(pair.0.lowercased()) {
+                let frame = ID3LyricsFrame(text: pair.1, languageCode: nil, description: "")
+                collect(frame, afterPrimaryFrames: true, at: offset)
+                return
+            }
+            applyID3UserText(pair, to: &self)
+            if firstOffset[pair.1] == nil, lyricsText == pair.1 {
+                firstOffset[pair.1] = offset
+            }
+        }
+
+        mutating func resolveLyrics() {
+            // Resolve the role of SYLT against USLT before ordering the eligible originals.
+            for frame in alternateFrames { applyID3SynchronizedLyricsFrame(frame, to: &self) }
+            let offsets = firstOffset
+            lyricsVariants.sort { offsets[$0.text, default: .max] < offsets[$1.text, default: .max] }
+            guard let chosen = EmbeddedLyricsVariantPolicy.preferred(
+                in: lyricsVariants, priority: EmbeddedLyricsVariantPriority.current()
+            ) else { return }
+            lyricsText = chosen.text
+            lyricsLanguageCode = chosen.languageCode ?? lyricsLanguageCode
+            if let language = chosen.languageCode { languageTaggedLyrics[language] = chosen.text }
+        }
     }
 
     private struct ID3Picture {
@@ -1629,7 +1619,6 @@ enum FileMetadataReader {
 
         var cursor = id3ExtendedHeaderLength(in: tag, version: majorVersion, flags: data[5])
         var pictures: [ID3Picture] = []
-        var synchronizedLyrics: [ID3LyricsFrame] = []
         var result = ID3NativeMetadata()
 
         while cursor < tag.count {
@@ -1648,11 +1637,11 @@ enum FileMetadataReader {
                 if frameID == "PIC", let picture = parseID3PictureFrame(payload, isV22PIC: true) {
                     pictures.append(picture)
                 } else if frameID == "ULT", let lyrics = parseID3LyricsFrame(payload) {
-                    applyID3LyricsFrame(lyrics, to: &result)
+                    result.collect(lyrics, afterPrimaryFrames: false, at: cursor)
                 } else if frameID == "SLT", let lyrics = parseID3SynchronizedLyricsFrame(payload) {
-                    synchronizedLyrics.append(lyrics)
+                    result.collect(lyrics, afterPrimaryFrames: true, at: cursor)
                 } else if frameID == "TXX", let pair = parseID3UserTextFrame(payload) {
-                    applyID3UserText(pair, to: &result)
+                    result.collectUserText(pair, at: cursor)
                 }
             } else {
                 guard cursor + 10 <= tag.count else { break }
@@ -1677,32 +1666,16 @@ enum FileMetadataReader {
                 if frameID == "APIC", let picture = parseID3PictureFrame(payload, isV22PIC: false) {
                     pictures.append(picture)
                 } else if frameID == "USLT", let lyrics = parseID3LyricsFrame(payload) {
-                    applyID3LyricsFrame(lyrics, to: &result)
+                    result.collect(lyrics, afterPrimaryFrames: false, at: cursor)
                 } else if frameID == "SYLT", let lyrics = parseID3SynchronizedLyricsFrame(payload) {
-                    synchronizedLyrics.append(lyrics)
+                    result.collect(lyrics, afterPrimaryFrames: true, at: cursor)
                 } else if frameID == "TXXX", let pair = parseID3UserTextFrame(payload) {
-                    applyID3UserText(pair, to: &result)
+                    result.collectUserText(pair, at: cursor)
                 }
             }
         }
 
-        // A timed frame is applied last so it can take over from an
-        // unsynchronized USLT frame carrying the same lyrics.
-        for frame in synchronizedLyrics {
-            applyID3SynchronizedLyricsFrame(frame, to: &result)
-        }
-        // 同一首歌的原文有几帧时按设置挑一份（默认时间轴最细的，见 `EmbeddedLyricsVariantPolicy`）。
-        if let chosen = EmbeddedLyricsVariantPolicy.preferred(
-            in: result.lyricsVariants,
-            priority: EmbeddedLyricsVariantPriority.current()
-        ) {
-            result.lyricsText = chosen.text
-            result.lyricsLanguageCode = chosen.languageCode ?? result.lyricsLanguageCode
-            if let languageCode = chosen.languageCode {
-                result.languageTaggedLyrics[languageCode] = chosen.text
-            }
-        }
-
+        result.resolveLyrics()
         let preferred = pictures.first(where: { $0.type == 3 }) ?? pictures.first
         result.coverArtData = preferred?.data
         return result.coverArtData != nil
@@ -2378,11 +2351,15 @@ enum FileMetadataReader {
         }
         // 老工具写进来的 GBK / Big5 值不再整条丢掉, 按整块注释判一次编码。
         var comments: [String: [String]] = [:]
+        var orderedComments: [(key: String, value: String)] = []
         for (field, value) in zip(fields, TextEncodingRepair.decodeTagValues(fields.map(\.value))) {
             guard let value else { continue }
-            comments[field.key.uppercased(), default: []].append(value)
+            let key = field.key.uppercased()
+            comments[key, default: []].append(value)
+            orderedComments.append((key, repairLegacyChineseMojibake(value)))
         }
-        result.releaseType = EmbeddedTagMetadataParser.metadata(fromTagValues: comments).releaseType
+        let tagMetadata = EmbeddedTagMetadataParser.metadata(fromOrderedTagValues: orderedComments)
+        result.releaseType = tagMetadata.releaseType
 
         func first(_ keys: String...) -> String? {
             for key in keys {
@@ -2414,12 +2391,6 @@ enum FileMetadataReader {
             return result
         }
 
-        let repairedComments = comments.mapValues { values in
-            values.map { repairLegacyChineseMojibake($0) }
-        }
-        let tagMetadata = EmbeddedTagMetadataParser.metadata(
-            fromTagValues: repairedComments
-        )
         result.title = result.title ?? first("TITLE")
         let artists = all("ARTIST")
         result.sourceArtistNames = artists.isEmpty ? nil : artists

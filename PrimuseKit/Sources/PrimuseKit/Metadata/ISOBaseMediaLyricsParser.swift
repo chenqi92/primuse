@@ -42,27 +42,6 @@ public enum ISOBaseMediaLyricsParser {
                 && languageTaggedLyrics.isEmpty
                 && languageTaggedTranslations.isEmpty
         }
-
-        mutating func fillMissing(from fallback: LyricsPayload) {
-            if lyrics == nil {
-                lyrics = fallback.lyrics
-                lyricsLanguageCode = fallback.lyricsLanguageCode
-                lyricsVariants = fallback.lyricsVariants
-            } else if lyrics == fallback.lyrics, lyricsLanguageCode == nil {
-                lyricsLanguageCode = fallback.lyricsLanguageCode
-            }
-            if translatedLyrics == nil {
-                translatedLyrics = fallback.translatedLyrics
-                translatedLyricsLanguageCode = fallback.translatedLyricsLanguageCode
-            } else if translatedLyrics == fallback.translatedLyrics,
-                      translatedLyricsLanguageCode == nil {
-                translatedLyricsLanguageCode = fallback.translatedLyricsLanguageCode
-            }
-            languageTaggedLyrics.merge(fallback.languageTaggedLyrics) { current, _ in current }
-            languageTaggedTranslations.merge(fallback.languageTaggedTranslations) {
-                current, _ in current
-            }
-        }
     }
 
     public static func lyrics(in data: Data) -> String? {
@@ -108,14 +87,34 @@ public enum ISOBaseMediaLyricsParser {
 
     public static func payload(in data: Data) -> LyricsPayload? {
         guard !data.isEmpty else { return nil }
-        var result = LyricsPayload()
+        var fields: [(text: String, role: LyricFieldRole)] = []
         for moov in atoms(in: data, range: data.startIndex..<data.endIndex)
             where moov.type == AtomType.moov {
             for metadata in metadataAtoms(in: data, moov: moov) {
-                if let payload = lyricsPayload(in: data, metadata: metadata) {
-                    result.fillMissing(from: payload)
-                }
+                fields.append(contentsOf: lyricFields(in: data, metadata: metadata))
             }
+        }
+        let originals = fields.compactMap { field -> EmbeddedLyricsVariant? in
+            guard case .original(let language) = field.role else { return nil }
+            return EmbeddedLyricsVariant(text: field.text, languageCode: language)
+        }
+        // Untagged originals identify the source even if a language-specific alternate
+        // occurs earlier. Without an untagged original, use the first original's language.
+        let primaryLanguage: String?
+        if let untagged = originals.first(where: { $0.languageCode == nil }) {
+            primaryLanguage = originals.first { $0.text == untagged.text && $0.languageCode != nil }?.languageCode
+        } else {
+            primaryLanguage = originals.first?.languageCode
+        }
+        var result = LyricsPayload()
+        for field in fields {
+            apply(text: field.text, role: field.role, primaryLanguage: primaryLanguage, to: &result)
+        }
+        if let chosen = EmbeddedLyricsVariantPolicy.preferred(
+            in: result.lyricsVariants, priority: EmbeddedLyricsVariantPriority.current()
+        ) {
+            result.lyrics = chosen.text
+            result.lyricsLanguageCode = chosen.languageCode ?? primaryLanguage
         }
         return result.isEmpty ? nil : result
     }
@@ -319,46 +318,29 @@ public enum ISOBaseMediaLyricsParser {
         return result
     }
 
-    private static func lyricsPayload(in data: Data, metadata: Atom) -> LyricsPayload? {
-        guard metadata.payload.count >= 4 else { return nil }
+    private static func lyricFields(in data: Data, metadata: Atom) -> [(text: String, role: LyricFieldRole)] {
+        guard metadata.payload.count >= 4 else { return [] }
         let childrenRange = (metadata.payload.lowerBound + 4)..<metadata.payload.upperBound
         let children = atoms(in: data, range: childrenRange)
         let keys = children.first(where: { $0.type == AtomType.keys })
             .map { metadataKeys(in: data, atom: $0) } ?? [:]
-        var result = LyricsPayload()
+        var fields: [(text: String, role: LyricFieldRole)] = []
 
         for list in children where list.type == AtomType.ilst {
-            let items = atoms(in: data, range: list.payload)
-
-            for item in items where item.type == AtomType.iTunesLyrics {
-                if let text = decodedItem(in: data, item: item) {
-                    result.lyrics = result.lyrics ?? text
-                    EmbeddedLyricsVariantPolicy.append(text, languageCode: nil, to: &result.lyricsVariants)
+            for item in atoms(in: data, range: list.payload) {
+                let role: LyricFieldRole?
+                switch item.type {
+                case AtomType.iTunesLyrics: role = .original(languageCode: nil)
+                case AtomType.freeform: role = freeformName(in: data, item: item).flatMap(lyricFieldRole)
+                default: role = keys[item.type].flatMap(lyricFieldRole)
+                }
+                guard let role else { continue }
+                for child in atoms(in: data, range: item.payload) {
+                    if let text = decodedDataAtom(child, in: data) { fields.append((text, role)) }
                 }
             }
-
-            for item in items {
-                guard let key = keys[item.type], let role = lyricFieldRole(key),
-                      let text = decodedItem(in: data, item: item) else { continue }
-                apply(text: text, role: role, to: &result)
-            }
-
-            for item in items where item.type == AtomType.freeform {
-                guard let name = freeformName(in: data, item: item),
-                      let role = lyricFieldRole(name),
-                      let text = decodedItem(in: data, item: item) else { continue }
-                apply(text: text, role: role, to: &result)
-            }
         }
-        // 原文不止一份时按设置挑（默认时间轴最细的），见 `EmbeddedLyricsVariantPolicy`。
-        if let chosen = EmbeddedLyricsVariantPolicy.preferred(
-            in: result.lyricsVariants,
-            priority: EmbeddedLyricsVariantPriority.current()
-        ) {
-            result.lyrics = chosen.text
-            result.lyricsLanguageCode = chosen.languageCode ?? result.lyricsLanguageCode
-        }
-        return result.isEmpty ? nil : result
+        return fields
     }
 
     private static func metadataKeys(in data: Data, atom: Atom) -> [UInt32: String] {
@@ -403,17 +385,17 @@ public enum ISOBaseMediaLyricsParser {
     }
 
     private static func decodedItem(in data: Data, item: Atom) -> String? {
-        for child in atoms(in: data, range: item.payload) where child.type == AtomType.data {
-            guard child.payload.count >= 8,
-                  let declaredType = readUInt32BE(data, at: child.payload.lowerBound) else {
-                continue
-            }
-            let value = data.subdata(in: (child.payload.lowerBound + 8)..<child.payload.upperBound)
-            if let decoded = decode(value, declaredType: declaredType & 0x00FF_FFFF) {
-                return decoded
-            }
+        for child in atoms(in: data, range: item.payload) {
+            if let text = decodedDataAtom(child, in: data) { return text }
         }
         return nil
+    }
+
+    private static func decodedDataAtom(_ child: Atom, in data: Data) -> String? {
+        guard child.type == AtomType.data, child.payload.count >= 8,
+              let declaredType = readUInt32BE(data, at: child.payload.lowerBound) else { return nil }
+        let value = data.subdata(in: (child.payload.lowerBound + 8)..<child.payload.upperBound)
+        return decode(value, declaredType: declaredType & 0x00FF_FFFF)
     }
 
     private static func decode(_ data: Data, declaredType: UInt32) -> String? {
@@ -457,6 +439,7 @@ public enum ISOBaseMediaLyricsParser {
     private static func apply(
         text: String,
         role: LyricFieldRole,
+        primaryLanguage: String?,
         to payload: inout LyricsPayload
     ) {
         switch role {
@@ -464,16 +447,8 @@ public enum ISOBaseMediaLyricsParser {
             if let languageCode {
                 payload.languageTaggedLyrics[languageCode] = text
             }
-            // 不带语言、或和第一份同一种语言的是同一首歌原文的又一份；另一种语言的留作译文候选。
-            let primaryLanguage = payload.lyricsVariants.first?.languageCode ?? payload.lyricsLanguageCode
-            if languageCode == nil || payload.lyricsVariants.isEmpty || languageCode == primaryLanguage {
+            if languageCode == nil || languageCode == primaryLanguage {
                 EmbeddedLyricsVariantPolicy.append(text, languageCode: languageCode, to: &payload.lyricsVariants)
-            }
-            if payload.lyrics == nil {
-                payload.lyrics = text
-                payload.lyricsLanguageCode = languageCode
-            } else if payload.lyrics == text, payload.lyricsLanguageCode == nil {
-                payload.lyricsLanguageCode = languageCode
             }
         case .translation(let languageCode):
             if let languageCode {

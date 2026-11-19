@@ -7289,9 +7289,12 @@
 "explore_word_lyrics" = "단어별 동기화 가사 찾기";
 "explore_word_lyrics_footer" = "기본값은 꺼짐입니다. 켜면 재생 중에 활성화된 가사 소스에서 단어별 동기화 가사를 자동으로 검색하고, 기존 일반 가사가 있어도 검색된 가사를 우선 표시합니다. 이 기능은 “가사가 없으면 온라인에서 자동으로 가져오기” 설정과 별개입니다. 단어별 동기화 가사의 자동 검색을 중지하려면 이 설정을 끄세요.";
 "embedded_lyrics_variant_priority" = "여러 개의 내장 가사";
-"embedded_lyrics_variant_finest" = "타이밍이 가장 세밀한 것";
-"embedded_lyrics_variant_first" = "파일에서 앞에 있는 것";
-"embedded_lyrics_variant_priority_footer" = "하나의 오디오 파일에 같은 곡의 가사가 여러 개 들어 있을 때(일반 텍스트와 타이밍이 있는 가사, LYRICS와 SYNCEDLYRICS가 함께 있는 경우 등) 어떤 것을 표시할지 선택합니다. '타이밍이 가장 세밀한 것'은 단어 동기, 줄 동기, 일반 텍스트 순으로 고르며, 세밀함이 같으면 앞에 있는 것을 사용합니다. 번역으로 표시된 항목은 계속 번역으로 쓰이며, 곡 옆에 가사 파일이 있으면 그 파일이 먼저 쓰입니다.";
+"embedded_lyrics_variant_timing" = "동기화 유형순";
+"embedded_lyrics_variant_format" = "가사 형식순";
+"embedded_lyrics_word_timing" = "단어 단위";
+"embedded_lyrics_line_timing" = "줄 단위";
+"embedded_lyrics_variant_first" = "파일에 저장된 순서";
+"embedded_lyrics_variant_priority_footer" = "파일의 첫 번째 원문 가사를 사용하거나 동기화 유형 또는 가사 형식을 드래그해 원하는 순서로 정렬하세요.";
 "player_activity_status" = "작업 상태";
 "word_lyrics_searching" = "단어별 동기화 가사 검색 중";
 "word_lyrics_source_format" = "%@에서 단어별 동기화 가사 가져오는 중";
