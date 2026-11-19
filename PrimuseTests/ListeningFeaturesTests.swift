@@ -531,12 +531,15 @@ final class ListeningFeaturesTests: XCTestCase {
 
     private func makePlayer(library: MusicLibrary? = nil) throws -> AudioPlayerService {
         let directory = makeDirectory()
-        return AudioPlayerService(
+        let player = AudioPlayerService(
             library: library,
             playbackSettings: PlaybackSettingsStore(defaults: try makeDefaults()),
             playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
             activateAudioSession: { _ in XCTFail("These tests must not start audio") }
         )
+        let persistence = player.playbackSessionPersistence
+        cleanups.append { XCTAssertNil(persistence.drain().failureDescription) }
+        return player
     }
 
     private func song(
@@ -2334,6 +2337,7 @@ extension ListeningFeaturesTests {
         store.move([episode], to: .podcast)
         library.refreshContentClassification()
         await library.waitForPendingIndex()
+        try await library.persistNowAndWait().get()
         player.refreshCurrentItemContentKind()
 
         let show = try XCTUnwrap(SpokenWordBookGrouping.books(from: [SpokenWordBookItem(song: episode)]).first)
@@ -2344,9 +2348,12 @@ extension ListeningFeaturesTests {
         XCTAssertEqual(PodcastPlayerSheetTarget.show(for: player), .localShow(show.id))
         XCTAssertEqual(PodcastPlayerSheetTarget.details(for: player), .localShow(show.id))
         XCTAssertNil(SpokenWordPlayerText.openablePodcastEpisodeID(player))
+        XCTAssertFalse(player.currentItemIsAudiobook)
+        XCTAssertEqual(SpokenWordPlayerText.partButtonLabelKey(player, forward: true), "spoken_word_next_item")
 
         player.spokenWordChapters = [MediaChapter(startTime: 0, title: "River"), MediaChapter(startTime: 90, title: "Bridge")]
         player.currentChapterIndex = 1
+        XCTAssertEqual(SpokenWordPlayerText.partButtonLabelKey(player, forward: false), "spoken_word_previous_chapter")
         let position = try XCTUnwrap(SpokenWordPlayerText.headingPosition(player))
         XCTAssertEqual(SpokenWordPlayerText.partTitle(player), "Bridge")
         XCTAssertEqual(position.title, String(format: String(localized: "spoken_word_part_position_format"), 2, 2))
@@ -2364,6 +2371,8 @@ extension ListeningFeaturesTests {
         }
         player.currentSong = chapter
         let book = try XCTUnwrap(player.currentBookID)
+        XCTAssertTrue(player.currentItemIsAudiobook)
+        XCTAssertEqual(SpokenWordPlayerText.partButtonLabelKey(player, forward: true), "spoken_word_next_chapter")
         player.isPlaying = true
         XCTAssertEqual(player.playingBookID, book)
         player.isPlaying = false

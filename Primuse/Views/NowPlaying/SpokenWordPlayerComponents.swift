@@ -71,7 +71,7 @@ enum SpokenWordPlayerText {
 
     /// 两侧小键的旁白:书是上一章 / 下一章;播客有章节时按章,没有(或到了最后一章)是上一集 / 下一集。
     static func partButtonLabelKey(_ player: AudioPlayerService, forward: Bool) -> LocalizedStringKey {
-        guard podcastEpisode(player) != nil else {
+        guard player.currentListeningSpace == .podcast else {
             return forward ? "spoken_word_next_chapter" : "spoken_word_previous_chapter"
         }
         let unit = forward ? player.podcastForwardUnit : player.podcastBackwardUnit

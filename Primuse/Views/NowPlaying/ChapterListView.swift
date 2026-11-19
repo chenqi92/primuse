@@ -454,8 +454,7 @@ private struct SpokenWordContentsList: View, Equatable {
 
     /// "全书 9% · 已听完 11/120 · 剩约 58 小时" above the list.
     private var bookSummaryLine: String? {
-        guard let book = player.currentSpokenWordBook,
-              !PodcastPlaybackSong.isEpisode(player.currentSong) else { return nil }
+        guard player.currentItemIsAudiobook, let book = player.currentSpokenWordBook else { return nil }
         var parts: [String] = []
         if let summary = player.spokenWordNowPlayingSummary(live: false), summary.partCount != nil {
             parts.append(SpokenWordPlayerText.bookFraction(summary.bookFraction))

@@ -8157,7 +8157,7 @@ struct NowPlayingView: View {
                 .zIndex(1)
             }
 
-            let headingHugsProgress = fullBleedArtwork && !artworkLyricsFill
+            let headingHugsProgress = currentItemIsPodcast || (fullBleedArtwork && !artworkLyricsFill)
             if headingHugsProgress {
                 Spacer(minLength: 0)
             } else {
@@ -8177,7 +8177,7 @@ struct NowPlayingView: View {
                 .padding(.horizontal, insets.rows)
                 .pmLayoutSwitchFade()
 
-            if fillsTallCanvas {
+            if fillsTallCanvas && !currentItemIsPodcast {
                 Color.clear
                     .frame(height: Self.portraitTallCanvasHeadingGap)
             }
