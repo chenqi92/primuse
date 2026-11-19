@@ -233,6 +233,20 @@ struct PlexAccountTests {
         ) == nil)
     }
 
+    @Test func plexDiscoveryCannotReplaceTheAddressOfAFixedRoute() {
+        var current = SourceConnectionConfiguration(
+            publicEndpoint: .init(host: "203.0.113.7", port: 32400, useSsl: true)
+        )
+        let discovered = PlexServerRoutes(
+            local: nil, remote: .init(host: "203.0.113.8", port: 32400, useSsl: true)
+        )
+        current.selectedRoute = .publicAddress
+        #expect(PlexServerLinkRefreshPolicy.refreshedConfiguration(current: current, routes: discovered) == nil)
+        current.selectedRoute = nil
+        let refreshed = PlexServerLinkRefreshPolicy.refreshedConfiguration(current: current, routes: discovered)
+        #expect(refreshed?.publicEndpoint?.host == "203.0.113.8")
+    }
+
     @Test func refreshedTokenOnlyWhenTheServerHandsOutADifferentOne() throws {
         let friend = try Self.servers()[2]
         #expect(PlexServerLinkRefreshPolicy.refreshedToken(current: "friend-server-token", resource: friend) == nil)

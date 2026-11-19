@@ -102,13 +102,12 @@ struct SourceAddressFormPolicyTests {
         #expect(reading.placement.slots == [.local, .publicAddress])
     }
 
-    @Test func twoAddressesOfTheSameClassShareTheTwoSlots() {
-        // 两条都是内网,槽只是标签:第二条放进空着的那个槽,两条都成为候选。
+    @Test func twoLANAddressesKeepTheirOwnRoutes() {
         let reading = SourceAddressFormPolicy.read(
             [draft("192.168.1.20"), draft("10.0.0.7")],
             sourceType: .jellyfin
         )
-        #expect(reading.placement.slots == [.local, .publicAddress])
+        #expect(reading.placement.slots == [.local, .additional])
         #expect(reading.placement.unusedIndices.isEmpty)
     }
 
@@ -117,7 +116,7 @@ struct SourceAddressFormPolicyTests {
             [draft("https://a.example.com"), draft("https://b.example.com")],
             sourceType: .webdav
         )
-        #expect(reading.placement.slots == [.publicAddress, .local])
+        #expect(reading.placement.slots == [.publicAddress, .additional])
         #expect(reading.placement.unusedIndices.isEmpty)
     }
 
@@ -157,13 +156,15 @@ struct SourceAddressFormPolicyTests {
         #expect(second.isRedundant)
     }
 
-    @Test func aThirdEndpointHasNowhereToGoAndSaysSo() {
+    @Test func aVendorRelayAndMultipleDirectRoutesCanCoexist() {
         let reading = SourceAddressFormPolicy.read(
-            [draft("192.168.1.20"), draft("10.0.0.7"), draft("172.16.0.3")],
-            sourceType: .emby
+            [draft("mynas"), draft("192.168.1.20"), draft("https://east.example.com"),
+             draft("https://west.example.com")],
+            sourceType: .synology
         )
-        #expect(reading.placement.unusedIndices == [2])
-        #expect(reading.placement.slots[2] == nil)
+        #expect(reading.placement.unusedIndices.isEmpty)
+        #expect(reading.placement.slots == [.vendor, .local, .additional, .additional])
+        #expect(reading.isSubmittable)
     }
 
     // MARK: - 解读
@@ -372,6 +373,72 @@ struct SourceAddressFormPolicyTests {
     }
 
     // MARK: - 回显
+
+    @Test func threeRoutesAtOneHostKeepTheirPathsAndFixedSelectionAfterReload() throws {
+        let addresses = [
+            "https://nas.example.com:8443/east",
+            "https://nas.example.com:8443/west",
+            "http://nas.example.com:8080/west",
+        ]
+        let rowIDs = addresses.map { _ in UUID() }
+        let reading = SourceAddressFormPolicy.read(addresses.map(draft), sourceType: .navidrome)
+        let pinned = SourceAddressFormPolicy.configuration(
+            for: reading, rowIDs: rowIDs, selectedCandidates: [:], selectedRowID: rowIDs[1], sourceType: .navidrome
+        )
+        let stored = try JSONEncoder().encode(pinned)
+        let restored = try JSONDecoder().decode(SourceConnectionConfiguration.self, from: stored)
+        #expect(restored == pinned)
+        #expect(restored.selectedRoute == .alternative(rowIDs[1]))
+        let drafts = SourceAddressFormPolicy.drafts(for: restored, sourceType: .navidrome)
+        #expect(drafts.map(\.address) == addresses)
+        #expect(drafts.map(\.savedRoute) == [.publicAddress, .alternative(rowIDs[1]), .alternative(rowIDs[2])])
+
+        var source = MusicSource(name: "NAS", type: .navidrome, connectionConfiguration: restored)
+        #expect(source.connectionCandidates.map(\.kind) == [.alternative(rowIDs[1])])
+        #expect(source.diagnosticConnectionCandidates == source.connectionCandidates)
+        let projected = source.projectingPreferredConnectionForLegacy()
+        #expect(projected.host == "nas.example.com")
+        #expect(projected.port == 8443)
+        #expect(projected.useSsl)
+        #expect(projected.basePath == "/west")
+
+        source.connectionConfiguration?.selectedRoute = nil
+        #expect(source.connectionCandidates.map(\.kind) == [.publicAddress, .alternative(rowIDs[1]), .alternative(rowIDs[2])])
+        #expect(source.connectionCandidates.compactMap(\.endpoint) == [
+            SourceConnectionEndpoint(host: "nas.example.com", port: 8443, useSsl: true, pathPrefix: "/east"),
+            SourceConnectionEndpoint(host: "nas.example.com", port: 8443, useSsl: true, pathPrefix: "/west"),
+            SourceConnectionEndpoint(host: "nas.example.com", port: 8080, useSsl: false, pathPrefix: "/west"),
+        ])
+    }
+
+    @Test func deletingTheSelectedFormRowRestoresAutomaticForTheSurvivors() {
+        let remainingIDs = [UUID(), UUID()]
+        let removedID = UUID()
+        let reading = SourceAddressFormPolicy.read(
+            [draft("https://east.example.com"), draft("https://west.example.com")],
+            sourceType: .navidrome
+        )
+        let saved = SourceAddressFormPolicy.configuration(
+            for: reading, rowIDs: remainingIDs, selectedCandidates: [:], selectedRowID: removedID, sourceType: .navidrome
+        )
+        #expect(saved.selectedRoute == nil)
+        let source = MusicSource(name: "NAS", type: .navidrome, connectionConfiguration: saved)
+        #expect(source.connectionCandidates.compactMap { $0.endpoint?.host } == ["east.example.com", "west.example.com"])
+    }
+
+    @Test func olderDualAddressRecordsRetainTheirAutomaticRoutes() throws {
+        let stored = Data("""
+        {"localEndpoint":{"host":"192.168.1.8","port":4533,"useSsl":false},
+         "publicEndpoint":{"host":"nas.example.com","port":443,"useSsl":true}}
+        """.utf8)
+        let configuration = try JSONDecoder().decode(SourceConnectionConfiguration.self, from: stored)
+        #expect(configuration.additionalEndpoints.isEmpty)
+        #expect(configuration.effectiveSelectedRoute == nil)
+        let source = MusicSource(name: "NAS", type: .navidrome, connectionConfiguration: configuration)
+        #expect(source.connectionCandidates.map(\.kind) == [.localAddress, .publicAddress])
+        #expect(SourceAddressFormPolicy.drafts(for: configuration, sourceType: .navidrome).map(\.savedRoute)
+            == [.localAddress, .publicAddress])
+    }
 
     @Test func storedEndpointsRenderBackIntoAddressRowsWithoutLoss() {
         let configuration = SourceConnectionConfiguration(

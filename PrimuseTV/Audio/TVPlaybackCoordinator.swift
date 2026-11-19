@@ -3413,8 +3413,9 @@ final class TVPlaybackCoordinator {
         credential: SourceCredential?
     ) async -> SubsonicLyricsReadResult {
         let runtime = SourceConnectionRuntime.shared
-        let candidates = await runtime.orderedCandidates(for: source)
+        let candidates = await runtime.connectionAttemptCandidates(for: source)
         if candidates.isEmpty {
+            guard source.connectionConfiguration == nil else { return .unavailable }
             return await SubsonicLyricsClient(session: Self.lyricsSession).readLyrics(
                 forSongPath: path,
                 source: source,

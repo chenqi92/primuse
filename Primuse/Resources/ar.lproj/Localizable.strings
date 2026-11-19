@@ -4684,14 +4684,15 @@
 
 // MARK: - Add source: address form
 "source_address_section" = "عنوان الخادم";
-"source_address_alternate_section" = "عنوان بديل";
+"source_address_alternate_section" = "عنوان المسار";
 "source_address_section_footer" = "اترك المنفذ فارغًا وسيحدده Primuse عند الحفظ.";
 "source_address_placeholder" = "نطاق أو IP أو رابط كامل";
 "source_address_placeholder_vendor %@" = "نطاق أو IP أو %@";
-"source_address_add_alternate" = "إضافة عنوان بديل";
+"source_address_add_alternate" = "إضافة مسار";
 "source_address_remove" = "إزالة هذا العنوان";
 "source_address_advanced" = "ضبط المنفذ والتشفير يدويًا";
 "source_address_transport" = "الاتصال";
+"source_connection_route" = "مسار الاتصال";
 "source_address_transport_automatic" = "تلقائي";
 "source_address_class_loopback" = "هذا الجهاز";
 "source_address_class_overlay" = "شبكة افتراضية";

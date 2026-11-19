@@ -1652,6 +1652,15 @@ actor SourceConnectionRouter {
         let probeable = baseline.filter {
             candidates[$0].endpoint?.normalized.isUsable == true && !isBackedOff($0)
         }
+        if baseline.contains(where: { candidates[$0].kind.isAlternative }) {
+            let routes = baseline.map { SourceConnectionCandidate(kind: candidates[$0].kind, endpoint: candidates[$0].endpoint) }
+            if let kind = await runtime.probeAdditionalRoutes(routes, for: sourceID, probe: endpointProbe),
+               let winner = baseline.first(where: { candidates[$0].kind == kind }) {
+                probeVerifiedIndex = winner
+                return [winner] + baseline.filter { $0 != winner }
+            }
+            return baseline
+        }
         if let backedOffIndex = baseline.first(where: isBackedOff) {
             guard !probeable.isEmpty, !Task.isCancelled else { return baseline }
             if let winner = await firstReachableCandidate(among: probeable, minimumTargets: 1) {
@@ -4499,6 +4508,8 @@ final class SourceManager {
             switch candidate?.kind {
             case .localAddress: routeTitle = String(localized: "source_connection_local")
             case .publicAddress: routeTitle = String(localized: "source_connection_public_direct")
+            case .alternative:
+                routeTitle = candidate?.endpoint?.displayDescription ?? String(localized: "source_connection_route")
             case .vendorRemote:
                 routeTitle = source.type == .fnMusic ? "FN Connect" : "QuickConnect"
             case nil: routeTitle = source.type.displayName
@@ -15409,7 +15420,7 @@ final class SourceManager {
         if source.connectionConfiguration != nil,
            source.connectionCandidates.count > 1 {
             guard let activeKind = activeConnectionRoutes[source.id],
-                  activeKind == .publicAddress,
+                  activeKind == .publicAddress || activeKind.isAlternative,
                   let activeCandidate = source.connectionCandidates.first(where: {
                       $0.kind == activeKind
                   }) else {

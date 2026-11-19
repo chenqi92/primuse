@@ -294,14 +294,20 @@ public actor StreamResolverRegistry {
             return RoutedResult(value: value, routeGeneration: generation, sessionEpoch: epoch)
         }
 
-        let candidates = await runtime.orderedCandidates(for: source)
-        guard candidates.isEmpty == false else {
+        let order = await runtime.connectionAttemptOrder(for: source, probe: endpointProbe)
+        guard !order.candidates.isEmpty else {
             throw StreamResolveError.cannotBuildURL
+        }
+        if let verified = order.verified {
+            noteRouteEvidence(
+                sourceID: source.id, candidate: verified, routeGeneration: order.generation,
+                lifetime: PlaybackSourceAvailabilityPolicy.reachableVerdictLifetime
+            )
         }
         let routeGeneration = await runtime.routeGeneration()
 
         var lastError: Error = StreamResolveError.cannotBuildURL
-        for candidate in candidates {
+        for candidate in order.candidates {
             try Task.checkCancellation()
             let routedSource = source.applyingConnectionCandidate(candidate)
             let currentState = routedResolverStates[source.id]

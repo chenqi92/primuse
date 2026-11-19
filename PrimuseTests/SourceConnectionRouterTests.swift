@@ -48,6 +48,57 @@ final class SourceConnectionRouterTests: XCTestCase {
         }
     }
 
+    func testThreePublicRoutesKeepFastestReachableLineAcrossReads() async throws {
+        let publicLine = RouterTestConnector(sourceID: "primary")
+        let slowLine = RouterTestConnector(sourceID: "slow")
+        let fastLine = RouterTestConnector(sourceID: "fast")
+        let fastKind = SourceConnectionCandidateKind.alternative(UUID())
+        let events = RouteEvents()
+        let router = SourceConnectionRouter(sourceID: UUID().uuidString, candidates: [
+            .init(kind: .publicAddress, endpoint: .init(host: "music.example", port: 443, useSsl: true), connector: publicLine),
+            .init(kind: .alternative(UUID()), endpoint: .init(host: "music.example", port: 8443, useSsl: true), connector: slowLine),
+            .init(kind: fastKind, endpoint: .init(host: "music.example", port: 9443, useSsl: true), connector: fastLine)
+        ], runtime: SourceConnectionRuntime(), endpointProbe: { endpoint in
+            if endpoint.port != 9443 { try await Task.sleep(for: .seconds(5)) }
+        }) { events.values.append($0) }
+
+        for _ in 0..<2 {
+            let value = try await router.withRead { try await ($0 as! RouterTestConnector).read() }
+            XCTAssertEqual(value, "fast")
+        }
+        XCTAssertEqual(events.values, [fastKind])
+        let otherConnections = await publicLine.connections + slowLine.connections
+        XCTAssertEqual(otherConnections, 0)
+    }
+
+    func testPinnedAlternativeConnectionFailureNeverConstructsOtherEndpoints() async throws {
+        let lineID = UUID()
+        var source = MusicSource(id: UUID().uuidString, name: "Pinned", type: .webdav)
+        source.connectionConfiguration = .init(
+            publicEndpoint: .init(host: "public.example", port: 443, useSsl: true),
+            additionalEndpoints: [
+                .init(id: lineID, endpoint: .init(host: "selected.example", port: 8443, useSsl: true))
+            ],
+            selectedRoute: .alternative(lineID)
+        )
+        let snapshot = source
+        var opened: [String] = []
+        let unavailable = RouterTestConnector(sourceID: "selected")
+        await unavailable.failNextConnect(URLError(.timedOut))
+        let manager = SourceManager(sourcesProvider: { [snapshot] }, connectorFactory: { route in
+            opened.append(route.host ?? "")
+            return unavailable
+        })
+
+        do {
+            try await manager.connector(for: source).connect()
+            XCTFail("Expected the selected endpoint's timeout")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .timedOut)
+        }
+        XCTAssertEqual(opened, ["selected.example"])
+    }
+
     func testRoutedTranscodingPreservesBitrateAndOriginalRequests() async throws {
         let stub = AdaptiveTranscodingStubConnector(sourceID: "lan")
         let router = SourceConnectionRouter(sourceID: UUID().uuidString, candidates: [

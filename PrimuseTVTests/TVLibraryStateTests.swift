@@ -611,6 +611,60 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertTrue(store.normalPlaylists.contains { $0.kind == .liked && $0.count == 1 })
     }
 
+    func testChoosingAnotherLineKeepsScannedSongsAndDirectories() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let routeID = UUID()
+        let scannedAt = Date(timeIntervalSince1970: 1_789_000_000)
+        try fixture.sources.updateLocalDurably(fixture.source.id) { source in
+            source.type = .webdav
+            source.connectionConfiguration = .init(
+                publicEndpoint: .init(host: "first.example", port: 443, useSsl: true, pathPrefix: "/dav"),
+                additionalEndpoints: [
+                    .init(id: routeID, endpoint: .init(host: "second.example", port: 8443, useSsl: true, pathPrefix: "/proxy/dav"))
+                ]
+            )
+            source = source.projectingPreferredConnectionForLegacy()
+            source.songCount = 1
+            source.lastScannedAt = scannedAt
+            source.extraConfig = MusicSource.encodeScannedDirectories(["/Music"], into: nil, type: .webdav)
+        }
+        let song = fixture.song("saved-track")
+        fixture.library.addSongs([song])
+        let store = fixture.store()
+        var source = try XCTUnwrap(fixture.sources.source(id: fixture.source.id))
+        source.connectionConfiguration?.selectedRoute = .alternative(routeID)
+        source = source.projectingPreferredConnectionForLegacy()
+        XCTAssertTrue(store.updateSource(source, password: nil))
+        let saved = try XCTUnwrap(fixture.sources.source(id: source.id))
+        XCTAssertEqual(saved.host, "second.example")
+        XCTAssertEqual(saved.songCount, 1)
+        XCTAssertEqual(saved.lastScannedAt, scannedAt)
+        XCTAssertEqual(saved.scannedDirectories, ["/Music"])
+        XCTAssertNotNil(fixture.library.song(id: song.id))
+    }
+
+    func testRemovingFirstAddressKeepsCatalogWhenAnExistingRouteBecomesPrimary() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let remaining = SourceConnectionEndpoint(host: "west.example", port: 8443, useSsl: true, pathPrefix: "/dav")
+        try fixture.sources.updateLocalDurably(fixture.source.id) { source in
+            source.type = .webdav
+            source.connectionConfiguration = .init(
+                publicEndpoint: .init(host: "east.example", port: 443, useSsl: true, pathPrefix: "/dav"),
+                additionalEndpoints: [.init(endpoint: remaining)]
+            )
+            source = source.projectingPreferredConnectionForLegacy()
+        }
+        let song = fixture.song("existing")
+        fixture.library.addSongs([song])
+        let store = fixture.store()
+        var edited = try XCTUnwrap(fixture.sources.source(id: fixture.source.id))
+        edited.connectionConfiguration = .init(publicEndpoint: remaining)
+        XCTAssertTrue(store.updateSource(edited.projectingPreferredConnectionForLegacy(), password: nil))
+        XCTAssertNotNil(fixture.library.song(id: song.id))
+    }
+
     func testLocalSourceRemovalRetainsSharedRecordAndRestoresSongs() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

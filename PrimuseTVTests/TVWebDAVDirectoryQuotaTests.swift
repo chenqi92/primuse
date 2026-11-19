@@ -7,6 +7,52 @@ import XCTest
 @testable import PrimuseTV
 
 final class TVWebDAVDirectoryQuotaTests: XCTestCase {
+    @MainActor
+    func testScannerUsesPinnedWebDAVLineAndFindsThirdLivePortInAutomaticMode() async throws {
+        let first = try TVWebDAVHTTPServer { TVDirectoryQuotaFixture.listing($0) }
+        let second = try TVWebDAVHTTPServer { _ in (503, [:], Data()) }
+        let third = try TVWebDAVHTTPServer { TVDirectoryQuotaFixture.listing($0) }
+        defer {
+            first.stop()
+            second.stop()
+            third.stop()
+        }
+        func endpoint(_ server: TVWebDAVHTTPServer) async throws -> SourceConnectionEndpoint {
+            let port = try await server.start()
+            return .init(host: "127.0.0.1", port: Int(port), useSsl: false)
+        }
+        let west = SourceConnectionAlternative(endpoint: try await endpoint(second))
+        let east = SourceConnectionAlternative(endpoint: try await endpoint(third))
+        var source = MusicSource(name: "DAV", type: .webdav, connectionConfiguration: .init(
+            localEndpoint: try await endpoint(first), additionalEndpoints: [west, east], selectedRoute: .alternative(east.id)
+        ))
+        let scanner = TVSourceScanner()
+        let selected = try XCTUnwrap(scanner.makeLister(source: source, credential: nil))
+        _ = try await selected.list("/Music")
+        XCTAssertEqual(third.requests.map(\.httpMethod), ["PROPFIND"])
+        XCTAssertTrue(first.requests.isEmpty && second.requests.isEmpty)
+
+        source.connectionConfiguration?.selectedRoute = .alternative(west.id)
+        let unavailable = try XCTUnwrap(scanner.makeLister(source: source, credential: nil))
+        do {
+            _ = try await unavailable.list("/Music")
+            XCTFail("Expected the selected service's error")
+        } catch let error as RemoteDirectoryHTTPStatusError {
+            XCTAssertEqual(error.statusCode, 503)
+        }
+        XCTAssertFalse(second.requests.isEmpty)
+        XCTAssertTrue(first.requests.isEmpty)
+        XCTAssertEqual(third.requests.count, 1)
+
+        first.stop()
+        second.stop()
+        source.connectionConfiguration?.selectedRoute = nil
+        await SourceConnectionRuntime.shared.invalidate(sourceID: source.id)
+        let automatic = try XCTUnwrap(scanner.makeLister(source: source, credential: nil))
+        _ = try await automatic.list("/Music")
+        XCTAssertEqual(third.requests.count, 2)
+    }
+
     func testIPv6EndpointBuildsBothDirectoryAndPlaybackURLs() async throws {
         let fixture = TVDirectoryQuotaFixture { TVDirectoryQuotaFixture.listing($0) }
         defer { fixture.close() }

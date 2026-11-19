@@ -1389,22 +1389,35 @@ public enum SourceConnectionURLRewriter {
     }
 }
 
-/// Persisted multi-route configuration. A filled endpoint is a usable route, and
-/// filling both lets the router pick. Empty inactive fields are retained so
-/// switching between a public URL and QuickConnect/FN Connect is lossless.
+public struct SourceConnectionAlternative: Codable, Hashable, Sendable, Identifiable {
+    public let id: UUID
+    public var endpoint: SourceConnectionEndpoint
+
+    public init(id: UUID = UUID(), endpoint: SourceConnectionEndpoint) {
+        self.id = id
+        self.endpoint = endpoint
+    }
+}
+
+/// Keep the original address slots readable by older clients. Every further
+/// direct endpoint has its own identity, including endpoints on the same network.
 public struct SourceConnectionConfiguration: Codable, Hashable, Sendable {
     public var localEndpoint: SourceConnectionEndpoint?
     public var publicEndpoint: SourceConnectionEndpoint?
     public var remoteAccessMode: SourceRemoteAccessMode
     public var vendorIdentifier: String?
-
-    /// Older sources persisted an explicit local-only / remote-only choice.
-    /// It is no longer editable — filling in an address is the choice — but it
-    /// is still decoded and re-encoded so an untouched source keeps its exact
-    /// behavior, and so a peer device on the previous build does not see its
-    /// selection disappear. Cleared on the first save from the new form; drop
-    /// this once the previous build is out of circulation.
+    public var additionalEndpoints: [SourceConnectionAlternative]
+    public var selectedRoute: SourceConnectionCandidateKind?
     public private(set) var legacyRouteRestriction: LegacyRouteRestriction?
+
+    public var effectiveSelectedRoute: SourceConnectionCandidateKind? {
+        if let selectedRoute { return selectedRoute }
+        switch legacyRouteRestriction {
+        case .localOnly: return .localAddress
+        case .remoteOnly: return remoteAccessMode == .vendor ? .vendorRemote : .publicAddress
+        case nil: return nil
+        }
+    }
 
     public enum LegacyRouteRestriction: String, Codable, Sendable {
         case localOnly
@@ -1415,18 +1428,22 @@ public struct SourceConnectionConfiguration: Codable, Hashable, Sendable {
         localEndpoint: SourceConnectionEndpoint? = nil,
         publicEndpoint: SourceConnectionEndpoint? = nil,
         remoteAccessMode: SourceRemoteAccessMode = .direct,
-        vendorIdentifier: String? = nil
+        vendorIdentifier: String? = nil,
+        additionalEndpoints: [SourceConnectionAlternative] = [],
+        selectedRoute: SourceConnectionCandidateKind? = nil
     ) {
         self.localEndpoint = localEndpoint
         self.publicEndpoint = publicEndpoint
         self.remoteAccessMode = remoteAccessMode
         self.vendorIdentifier = vendorIdentifier
+        self.additionalEndpoints = additionalEndpoints
+        self.selectedRoute = selectedRoute
         self.legacyRouteRestriction = nil
     }
 
     private enum CodingKeys: String, CodingKey {
         case localEndpoint, publicEndpoint, remoteAccessMode, vendorIdentifier
-        case preference
+        case preference, additionalEndpoints, selectedRoute
     }
 
     public init(from decoder: Decoder) throws {
@@ -1438,6 +1455,8 @@ public struct SourceConnectionConfiguration: Codable, Hashable, Sendable {
             forKey: .remoteAccessMode
         ) ?? .direct
         vendorIdentifier = try c.decodeIfPresent(String.self, forKey: .vendorIdentifier)
+        additionalEndpoints = try c.decodeIfPresent([SourceConnectionAlternative].self, forKey: .additionalEndpoints) ?? []
+        selectedRoute = try c.decodeIfPresent(SourceConnectionCandidateKind.self, forKey: .selectedRoute)
         // Decoded as a raw String rather than an enum so an unrecognized value
         // means "no restriction" instead of failing the whole decode.
         switch try c.decodeIfPresent(String.self, forKey: .preference) {
@@ -1453,6 +1472,10 @@ public struct SourceConnectionConfiguration: Codable, Hashable, Sendable {
         try c.encodeIfPresent(publicEndpoint, forKey: .publicEndpoint)
         try c.encode(remoteAccessMode, forKey: .remoteAccessMode)
         try c.encodeIfPresent(vendorIdentifier, forKey: .vendorIdentifier)
+        if !additionalEndpoints.isEmpty {
+            try c.encode(additionalEndpoints, forKey: .additionalEndpoints)
+        }
+        try c.encodeIfPresent(selectedRoute, forKey: .selectedRoute)
         switch legacyRouteRestriction {
         case .localOnly: try c.encode("localOnly", forKey: .preference)
         case .remoteOnly: try c.encode("remoteOnly", forKey: .preference)
@@ -1460,17 +1483,43 @@ public struct SourceConnectionConfiguration: Codable, Hashable, Sendable {
         }
     }
 
-    /// The new form always writes an unrestricted configuration: whatever the
-    /// user left filled in is what gets used.
     public mutating func clearLegacyRouteRestriction() {
         legacyRouteRestriction = nil
     }
 }
 
-public enum SourceConnectionCandidateKind: String, Codable, Hashable, Sendable {
+public enum SourceConnectionCandidateKind: RawRepresentable, Codable, Hashable, Sendable {
     case localAddress
     case publicAddress
     case vendorRemote
+    case alternative(UUID)
+
+    public var isAlternative: Bool {
+        if case .alternative = self { return true }
+        return false
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .localAddress: return "localAddress"
+        case .publicAddress: return "publicAddress"
+        case .vendorRemote: return "vendorRemote"
+        case let .alternative(id): return "alternative:" + id.uuidString
+        }
+    }
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "localAddress": self = .localAddress
+        case "publicAddress": self = .publicAddress
+        case "vendorRemote": self = .vendorRemote
+        default:
+            let prefix = "alternative:"
+            guard rawValue.hasPrefix(prefix),
+                  let id = UUID(uuidString: String(rawValue.dropFirst(prefix.count))) else { return nil }
+            self = .alternative(id)
+        }
+    }
 }
 
 /// Bounds the protocol/authentication handshake only when a route can safely
@@ -1512,7 +1561,7 @@ public enum SourceConnectionHandshakePolicy {
         }
         switch candidate {
         case .localAddress: return localFallbackTimeout
-        case .publicAddress: return remoteFallbackTimeout
+        case .publicAddress, .alternative: return remoteFallbackTimeout
         case .vendorRemote: return vendorFallbackTimeout
         }
     }
@@ -1625,6 +1674,12 @@ public actor SourceConnectionRuntime {
         let activeKind = activeKinds[sourceID].flatMap { active in
             availableKinds.contains(active) ? active : nil
         }
+        // A successful race between same-network addresses remains valid on this
+        // path. Keep a scheduled retry of a previously failed LAN endpoint.
+        if let activeKind, availableKinds.contains(where: \.isAlternative),
+           rejectedLocalSources[sourceID] == nil, localHandshakeBackoffUntil[sourceID] == nil {
+            return activeKind
+        }
         let localKind: SourceConnectionCandidateKind? = availableKinds.contains(.localAddress)
             ? .localAddress
             : nil
@@ -1643,7 +1698,7 @@ public actor SourceConnectionRuntime {
         }
 
         if let remoteKind {
-            return activeKind == remoteKind ? activeKind : remoteKind
+            return activeKind.flatMap { $0 == .localAddress ? nil : $0 } ?? remoteKind
         }
         return activeKind ?? localKind ?? availableKinds.first
     }
@@ -2476,63 +2531,53 @@ public extension MusicSource {
         return SourceConnectionConfiguration(publicEndpoint: endpoint)
     }
 
-    /// Ordered candidates for a connection attempt: LAN first, then the
-    /// selected remote method. A configured route is always eligible — filling
-    /// in an address is what enables it. Sources saved before the strategy
-    /// picker was removed keep their recorded restriction until next saved.
+    /// Candidates that scanners, players and connection tests may actually contact.
     var connectionCandidates: [SourceConnectionCandidate] {
         guard let configuration = effectiveConnectionConfiguration else { return [] }
-
-        let local = configuration.localEndpoint.flatMap { endpoint in
-            let normalized = endpoint.normalized
-            return normalized.isUsable
-                ? SourceConnectionCandidate(kind: .localAddress, endpoint: normalized)
-                : nil
+        if let selection = configuration.effectiveSelectedRoute {
+            return configuredConnectionCandidates.filter { $0.kind == selection }
         }
+        return configuredConnectionCandidates
+    }
 
-        let remote: SourceConnectionCandidate?
-        if configuration.remoteAccessMode == .vendor, type.supportsVendorRemoteAccess {
-            let identifier = configuration.vendorIdentifier?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            remote = identifier.isEmpty
-                ? nil
-                : SourceConnectionCandidate(kind: .vendorRemote, vendorIdentifier: identifier)
-        } else {
-            remote = configuration.publicEndpoint.flatMap { endpoint in
-                let normalized = endpoint.normalized
-                return normalized.isUsable
-                    ? SourceConnectionCandidate(kind: .publicAddress, endpoint: normalized)
-                    : nil
+    /// All active configuration rows, including alternatives hidden by a manual selection.
+    var configuredConnectionCandidates: [SourceConnectionCandidate] {
+        guard let configuration = effectiveConnectionConfiguration else { return [] }
+        let vendorMode = type.supportsVendorRemoteAccess && configuration.remoteAccessMode == .vendor
+        return allStoredConnectionCandidates.filter { candidate in
+            if let endpoint = candidate.endpoint, !endpoint.isUsable { return false }
+            switch candidate.kind {
+            case .vendorRemote: return vendorMode
+            case .publicAddress: return !vendorMode
+            case .localAddress, .alternative: return true
             }
-        }
-
-        switch configuration.legacyRouteRestriction {
-        case .localOnly:
-            return [local].compactMap { $0 }
-        case .remoteOnly:
-            return [remote].compactMap { $0 }
-        case nil:
-            return [local, remote].compactMap { $0 }
         }
     }
 
-    /// Diagnostics inspect every configured method, including saved alternatives
-    /// that normal routing does not currently select.
-    var diagnosticConnectionCandidates: [SourceConnectionCandidate] {
+    private var allStoredConnectionCandidates: [SourceConnectionCandidate] {
         guard let configuration = effectiveConnectionConfiguration else { return [] }
         var candidates: [SourceConnectionCandidate] = []
-        if let endpoint = configuration.localEndpoint {
-            candidates.append(SourceConnectionCandidate(kind: .localAddress, endpoint: endpoint.normalized))
+        func appendEndpoint(_ endpoint: SourceConnectionEndpoint?, kind: SourceConnectionCandidateKind) {
+            guard let value = endpoint?.normalized else { return }
+            candidates.append(SourceConnectionCandidate(kind: kind, endpoint: value))
         }
-        if let endpoint = configuration.publicEndpoint {
-            candidates.append(SourceConnectionCandidate(kind: .publicAddress, endpoint: endpoint.normalized))
-        }
+        appendEndpoint(configuration.localEndpoint, kind: .localAddress)
+        appendEndpoint(configuration.publicEndpoint, kind: .publicAddress)
         if type.supportsVendorRemoteAccess,
            let identifier = configuration.vendorIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
            !identifier.isEmpty {
             candidates.append(SourceConnectionCandidate(kind: .vendorRemote, vendorIdentifier: identifier))
         }
+        for route in configuration.additionalEndpoints {
+            appendEndpoint(route.endpoint, kind: .alternative(route.id))
+        }
         return candidates
+    }
+
+    var diagnosticConnectionCandidates: [SourceConnectionCandidate] {
+        if effectiveConnectionConfiguration?.selectedRoute != nil { return connectionCandidates }
+        // Historical restrictions only affected routing; keep their diagnostic behavior.
+        return allStoredConnectionCandidates
     }
 
     /// Applies one candidate to the legacy fields consumed by existing source
@@ -2540,7 +2585,7 @@ public extension MusicSource {
     func applyingConnectionCandidate(_ candidate: SourceConnectionCandidate) -> MusicSource {
         var projected = self
         switch candidate.kind {
-        case .localAddress, .publicAddress:
+        case .localAddress, .publicAddress, .alternative:
             guard let endpoint = candidate.endpoint else { return projected }
             if (type == .synology || type == .qnap || type == .ugreen || type == .s3),
                endpoint.pathPrefix != nil {
@@ -2638,6 +2683,8 @@ public extension MusicSource {
             case .publicAddress:
                 guard let endpoint = candidate.endpoint else { return nil }
                 return "\(PMString("source_connection_public_direct")) \(endpoint.displayDescription)"
+            case .alternative:
+                return candidate.endpoint?.displayDescription
             case .vendorRemote:
                 guard let identifier = candidate.vendorIdentifier else { return nil }
                 let label = type.usesSynologyConnectionMode

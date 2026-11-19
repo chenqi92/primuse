@@ -293,6 +293,12 @@ actor TVSourceAssetReader {
         return client
     }
 
+    private func routedSources(for source: MusicSource) async -> [MusicSource] {
+        guard source.connectionConfiguration != nil else { return [source] }
+        let candidates = await SourceConnectionRuntime.shared.connectionAttemptCandidates(for: source)
+        return candidates.map(source.applyingConnectionCandidate)
+    }
+
     func artworkData(reference: String, source: MusicSource, credential: SourceCredential?, maximumBytes: Int, maximumPixels: Int = 480) async -> Data? {
         if source.type == .synology {
             // 文件源保存的是 NAS 上的图片路径,须和音频一样通过 File Station 鉴权读取。
@@ -317,10 +323,7 @@ actor TVSourceAssetReader {
                 return nil
             }
         }
-        let candidates = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
-        let routes = candidates.isEmpty
-            ? [source]
-            : candidates.map { source.applyingConnectionCandidate($0) }
+        let routes = await routedSources(for: source)
         // A route that dropped the connection mid-transfer says nothing about
         // the cover; the loader asks again soon instead of in five minutes.
         var interrupted = false
@@ -369,10 +372,7 @@ actor TVSourceAssetReader {
     }
 
     func lyrics(path: String, source: MusicSource, credential: SourceCredential?) async -> ServerLyricsReadResult {
-        let candidates = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
-        let routes = candidates.isEmpty
-            ? [source]
-            : candidates.map { source.applyingConnectionCandidate($0) }
+        let routes = await routedSources(for: source)
         for routed in routes {
             guard !Task.isCancelled else { return .unavailable }
             let result: ServerLyricsReadResult
@@ -416,10 +416,7 @@ actor TVSourceAssetReader {
         guard source.type.readsContainerCodecFromFileHeader,
               !song.isStreamDescriptor,
               song.fileFormat.holdsVariousCodecs else { return nil }
-        let candidates = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
-        let routes = candidates.isEmpty
-            ? [source]
-            : candidates.map { source.applyingConnectionCandidate($0) }
+        let routes = await routedSources(for: source)
         for routed in routes {
             guard !Task.isCancelled,
                   let connector = connector(for: routed, credential: credential) else { return nil }

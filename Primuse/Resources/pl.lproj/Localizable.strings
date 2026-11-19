@@ -4684,14 +4684,15 @@
 
 // MARK: - Add source: address form
 "source_address_section" = "Adres serwera";
-"source_address_alternate_section" = "Adres zapasowy";
+"source_address_alternate_section" = "Adres trasy";
 "source_address_section_footer" = "Zostaw port pusty — Primuse ustali go przy zapisie.";
 "source_address_placeholder" = "Domena, IP lub pełny adres URL";
 "source_address_placeholder_vendor %@" = "Domena, IP lub %@";
-"source_address_add_alternate" = "Dodaj adres zapasowy";
+"source_address_add_alternate" = "Dodaj trasę";
 "source_address_remove" = "Usuń ten adres";
 "source_address_advanced" = "Ustaw port i szyfrowanie ręcznie";
 "source_address_transport" = "Połączenie";
+"source_connection_route" = "Trasa połączenia";
 "source_address_transport_automatic" = "Automatycznie";
 "source_address_class_loopback" = "To urządzenie";
 "source_address_class_overlay" = "Sieć mesh";

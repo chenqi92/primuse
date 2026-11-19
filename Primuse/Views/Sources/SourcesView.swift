@@ -83,7 +83,7 @@ struct SourceUnreachableNotice: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text("source_card_unreachable")
-                if guidance == .addRemoteRoute {
+                if guidance == .addRemoteRoute, source.connectionConfiguration?.effectiveSelectedRoute == nil {
                     Text("source_card_unreachable_add_route_hint")
                         .foregroundStyle(.secondary)
                 }
@@ -109,18 +109,51 @@ struct SourceConnectionRouteStrip: View {
     let source: MusicSource
     let activeKind: SourceConnectionCandidateKind?
     let lastSuccessfulKind: SourceConnectionCandidateKind?
+    @Environment(SourcesStore.self) private var sourceStore
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(ScanService.self) private var scanService
 
     private var candidates: [SourceConnectionCandidate] {
-        source.connectionCandidates
+        let usable = source.connectionCandidates
+        guard usable.count > 2 else { return usable }
+        return usable.filter { $0.kind == (activeKind ?? lastSuccessfulKind) }
     }
 
     var body: some View {
-        HStack(spacing: 7) {
-            ForEach(candidates) { candidate in
-                routeSegment(candidate)
+        VStack(alignment: .leading, spacing: 7) {
+            if source.configuredConnectionCandidates.count > 1 {
+                Picker("source_connection_route", selection: Binding(
+                    get: { source.connectionConfiguration?.effectiveSelectedRoute },
+                    set: selectRoute
+                )) {
+                    Text("source_address_transport_automatic").tag(nil as SourceConnectionCandidateKind?)
+                    ForEach(source.configuredConnectionCandidates) { candidate in
+                        Text(verbatim: address(for: candidate)).tag(Optional(candidate.kind))
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            HStack(spacing: 7) {
+                ForEach(candidates) { candidate in
+                    routeSegment(candidate)
+                }
             }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    private func selectRoute(_ kind: SourceConnectionCandidateKind?) {
+        guard let current = sourceStore.source(id: source.id),
+              let configuration = current.connectionConfiguration,
+              configuration.effectiveSelectedRoute != kind,
+              kind == nil || current.configuredConnectionCandidates.contains(where: { $0.kind == kind }) else { return }
+        sourceStore.update(source.id) { row in
+            row.connectionConfiguration?.clearLegacyRouteRestriction()
+            row.connectionConfiguration?.selectedRoute = kind
+            row = row.projectingPreferredConnectionForLegacy()
+        }
+        scanService.removeSynologyAPI(for: source.id)
+        Task { await sourceManager.refreshConnector(for: source.id) }
     }
 
     private func routeSegment(_ candidate: SourceConnectionCandidate) -> some View {
@@ -191,6 +224,8 @@ struct SourceConnectionRouteStrip: View {
             "source_connection_local"
         case .publicAddress:
             "source_connection_public_direct"
+        case .alternative:
+            "source_connection_route"
         case .vendorRemote:
             source.type.usesSynologyConnectionMode
                 ? "synology_connection_quickconnect"
@@ -201,14 +236,14 @@ struct SourceConnectionRouteStrip: View {
     private func iconName(for kind: SourceConnectionCandidateKind) -> String {
         switch kind {
         case .localAddress: "wifi"
-        case .publicAddress: "globe"
+        case .publicAddress, .alternative: "globe"
         case .vendorRemote: "point.3.connected.trianglepath.dotted"
         }
     }
 
     private func address(for candidate: SourceConnectionCandidate) -> String {
         if let endpoint = candidate.endpoint {
-            return endpoint.displayDescription
+            return SourceAddressInputPolicy.renderedAddress(for: endpoint, sourceType: source.type)
         }
         return candidate.vendorIdentifier ?? source.type.displayName
     }

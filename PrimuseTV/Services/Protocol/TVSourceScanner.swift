@@ -86,9 +86,17 @@ private actor TVRoutedDirectoryLister: TVDirectoryLister {
             routeGeneration = currentGeneration
         }
         var lastError: Error = TVScanError.connectFailed
-        let activeKind = await SourceConnectionRuntime.shared.preferredKind(
+        let runtime = SourceConnectionRuntime.shared
+        var activeKind = await runtime.preferredKind(
             for: sourceID, availableKinds: candidates.map(\.kind)
         )
+        if activeIndex == nil, candidates.count > 1, candidates.contains(where: { $0.kind.isAlternative }) {
+            let routes = candidates.map { SourceConnectionCandidate(kind: $0.kind, endpoint: $0.endpoint) }
+            if let winner = await runtime.probeAdditionalRoutes(routes, for: sourceID) {
+                activeKind = winner
+            }
+            try Task.checkCancellation()
+        }
         let orderedIndices = candidates.indices.sorted { lhs, rhs in
             if candidates[lhs].kind == activeKind { return true }
             if candidates[rhs].kind == activeKind { return false }
@@ -2530,7 +2538,7 @@ final class TVSourceScanner {
         guard source.connectionConfiguration != nil else {
             return try await operation(source)
         }
-        let candidates = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
+        let candidates = await SourceConnectionRuntime.shared.connectionAttemptCandidates(for: source)
         guard candidates.isEmpty == false else { throw TVScanError.connectFailed }
 
         var lastError: Error = TVScanError.connectFailed

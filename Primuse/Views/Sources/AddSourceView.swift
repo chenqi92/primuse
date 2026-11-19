@@ -85,9 +85,9 @@ struct AddSourceView: View {
     /// 这个源在这台设备上是否经 iCloud 同步。编辑已有的、能跨设备同步的源时才显示;
     /// 保存时生效(关掉在写凭据之前,打开在保存之后)。
     @State private var syncsViaICloud = true
-    /// 用户填的那一到两行地址。上面那组 host/port/useSsl/publicHost/… 仍然是
-    /// 保存路径唯一读取的字段 —— 提交时由 `applyAddressPlan` 一次性写回。
     @State private var addressRows: [SourceAddressRow] = [SourceAddressRow()]
+    @State private var selectedAddressRowID: UUID?
+    @State private var resolvedConfiguration: SourceConnectionConfiguration?
     /// 打开编辑页时回显出来的那一份。地址、手填端口、手选协议都没动过就不探测:
     /// 离线改个名字、换个密码不该因为服务器此刻不在线而失败。
     @State private var addressBaseline: [SourceAddressFormPolicy.AddressDraft]?
@@ -142,11 +142,6 @@ struct AddSourceView: View {
         guard let value = Int(trimmed), (1...65_535).contains(value) else { return nil }
         return value
     }
-    private var validatedPublicPort: Int? {
-        let trimmed = publicPort.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let value = Int(trimmed), (1...65_535).contains(value) else { return nil }
-        return value
-    }
     private var remoteUsesVendor: Bool {
         if sourceType.usesSynologyConnectionMode { return synologyConnectionMode == .quickConnect }
         if sourceType == .fnMusic { return fnMusicConnectionMode == .fnConnect }
@@ -160,8 +155,11 @@ struct AddSourceView: View {
 
     /// 至少有一条能用的地址,而且没有哪一行写坏了(含高级选项里的端口)。
     private var addressFormIsValid: Bool {
-        addressReading.isSubmittable
-            && addressRows.contains(where: \.hasInvalidManualPort) == false
+        let reading = addressReading
+        guard reading.isSubmittable, !addressRows.contains(where: \.hasInvalidManualPort) else { return false }
+        guard let selectedAddressRowID else { return true }
+        guard let index = addressRows.firstIndex(where: { $0.id == selectedAddressRowID }) else { return false }
+        return reading.placement.slots[index] != nil
     }
 
     /// 这个源当前是不是走厂商中转。地址框里填了 QuickConnect ID / FN ID 就是。
@@ -344,7 +342,9 @@ struct AddSourceView: View {
     }
 
     private var addressProbeSignature: String {
-        addressRows.map(\.draft.probeSignature).joined(separator: "\n")
+        ([selectedAddressRowID?.uuidString ?? ""]
+            + addressRows.map { "\($0.id.uuidString)\u{1}\($0.draft.probeSignature)" })
+            .joined(separator: "\n")
     }
 
     /// Follow HTTP's 80/443 defaults only while the field still contains the
@@ -408,7 +408,7 @@ struct AddSourceView: View {
     private var iOSBody: some View {
         NavigationStack {
             Form { formSections }
-            .disabled(isResolvingInfiniCloud)
+            .disabled(isResolvingInfiniCloud || mediaServerCreationTransaction.isRunning)
             .scrollDismissesKeyboard(.interactively)
             .floatingInputPanelClearance()
             .navigationTitle(isEditing ? String(localized: "edit_source") : sourceType.displayName)
@@ -435,7 +435,7 @@ struct AddSourceView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     macFormContent
-                        .disabled(isResolvingInfiniCloud)
+                        .disabled(isResolvingInfiniCloud || mediaServerCreationTransaction.isRunning)
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
@@ -820,6 +820,11 @@ struct AddSourceView: View {
                     onRemove: { removeAddressRow(row.id) }
                 )
             }
+            if addressRows.count > 1 || selectedAddressRowID != nil {
+                macCustomRow("source_connection_route") {
+                    routePicker(reading).labelsHidden()
+                }
+            }
             macAddressActionRow
             if let note = unconfirmedServiceNote {
                 macInfoText(note)
@@ -830,11 +835,9 @@ struct AddSourceView: View {
 
     private var macAddressActionRow: some View {
         HStack(spacing: 10) {
-            if addressRows.count < SourceAddressFormPolicy.maximumAddressCount {
-                Button("source_address_add_alternate") { addAddressRow() }
-                    .buttonStyle(.link)
-                    .font(.system(size: 11.5))
-            }
+            Button("source_address_add_alternate") { addAddressRow() }
+                .buttonStyle(.link)
+                .font(.system(size: 11.5))
             Spacer(minLength: 12)
             macAddressProgress
         }
@@ -1402,6 +1405,9 @@ struct AddSourceView: View {
         }
 
         Section {
+            if addressRows.count > 1 || selectedAddressRowID != nil {
+                routePicker(reading)
+            }
             addressActionRows
         } footer: {
             Text("source_address_section_footer")
@@ -1410,9 +1416,7 @@ struct AddSourceView: View {
 
     @ViewBuilder
     private var addressActionRows: some View {
-        if addressRows.count < SourceAddressFormPolicy.maximumAddressCount {
-            Button("source_address_add_alternate") { addAddressRow() }
-        }
+        Button("source_address_add_alternate") { addAddressRow() }
         if addressProbe.isProbing {
             HStack(spacing: 10) {
                 ProgressView().controlSize(.small)
@@ -1712,9 +1716,12 @@ struct AddSourceView: View {
                     portText: $0.portText,
                     transport: $0.transport.rawValue,
                     showsAdvancedOptions: $0.showsAdvancedOptions,
-                    treatDotlessTokenAsHostname: $0.treatDotlessTokenAsHostname
+                    treatDotlessTokenAsHostname: $0.treatDotlessTokenAsHostname,
+                    id: $0.id,
+                    savedRoute: $0.savedRoute
                 )
-            }
+            },
+            selectedAddressRowID: selectedAddressRowID
         )
     }
 
@@ -1768,13 +1775,15 @@ struct AddSourceView: View {
         rememberDevice = draft.rememberDevice
         if !draft.addressRows.isEmpty {
             addressRows = draft.addressRows.map { saved in
-                var row = SourceAddressRow(address: saved.address)
+                var row = SourceAddressRow(address: saved.address, id: saved.id ?? UUID())
+                row.savedRoute = saved.savedRoute
                 row.portText = saved.portText
                 row.transport = SourceAddressTransportChoice(rawValue: saved.transport) ?? .automatic
                 row.showsAdvancedOptions = saved.showsAdvancedOptions
                 row.treatDotlessTokenAsHostname = saved.treatDotlessTokenAsHostname
                 return row
             }
+            selectedAddressRowID = draft.selectedAddressRowID
         }
         password = restored.secrets.password
         sshKey = restored.secrets.sshKey
@@ -1822,6 +1831,10 @@ struct AddSourceView: View {
         // 端点。留一份基线:这几行没被动过就不重新探测。
         let drafts = SourceAddressFormPolicy.drafts(for: configuration, sourceType: sourceType)
         addressRows = drafts.isEmpty ? [SourceAddressRow()] : drafts.map(SourceAddressRow.init(draft:))
+        selectedAddressRowID = configuration.effectiveSelectedRoute.flatMap { selection in
+            addressRows.first { $0.savedRoute == selection }?.id
+        }
+        resolvedConfiguration = configuration
         addressBaseline = drafts.isEmpty ? nil : drafts
     }
 
@@ -1858,13 +1871,27 @@ struct AddSourceView: View {
         return nil
     }
 
+    private func routePicker(_ reading: SourceAddressFormPolicy.FormReading) -> some View {
+        Picker("source_connection_route", selection: $selectedAddressRowID) {
+            Text("source_address_transport_automatic").tag(UUID?.none)
+            ForEach(addressRows) { row in
+                if let label = addressRowReading(reading, for: row.id).routeLabel(sourceType: sourceType) {
+                    Text(verbatim: label).tag(Optional(row.id))
+                } else if row.id == selectedAddressRowID {
+                    Text("source_connection_no_route").tag(Optional(row.id))
+                }
+            }
+        }
+        .pickerStyle(.menu)
+    }
+
     private func addAddressRow() {
-        guard addressRows.count < SourceAddressFormPolicy.maximumAddressCount else { return }
         addressRows.append(SourceAddressRow())
     }
 
     private func removeAddressRow(_ id: UUID) {
         guard addressRows.count > 1 else { return }
+        if selectedAddressRowID == id { selectedAddressRowID = nil }
         addressRows.removeAll { $0.id == id }
     }
 
@@ -1898,14 +1925,17 @@ struct AddSourceView: View {
 
         // 逐行判断要不要探:编辑已有源时没动过的那几行原样留着 —— 否则在外网
         // 给源补一条备用地址,会连带去探那条此刻动不了的内网地址。
-        let probing = Set(
+        let probing = Set<UUID>(
             zip(
                 addressRows,
                 SourceAddressFormPolicy.rowsRequiringProbe(
                     drafts: addressRows.map(\.draft),
                     baseline: addressBaseline
                 )
-            ).compactMap { row, needsProbe in needsProbe ? row.id : nil }
+            ).compactMap { row, needsProbe in
+                guard needsProbe, selectedAddressRowID == nil || selectedAddressRowID == row.id else { return nil }
+                return row.id
+            }
         )
         plog(
             "🔎 Source address submit type=\(sourceType.rawValue) editing=\(editingSource != nil) "
@@ -1918,15 +1948,17 @@ struct AddSourceView: View {
             return
         }
 
+        let submittedSignature = addressProbeSignature
         addressSubmitTask?.cancel()
         addressSubmitTask = Task { @MainActor in
+            guard !Task.isCancelled, submittedSignature == addressProbeSignature else { return }
             let outcome = await addressProbe.probe(
                 rows: addressRows,
                 reading: reading,
                 sourceType: sourceType,
                 probing: probing
             )
-            guard outcome.isCancelled == false, Task.isCancelled == false else {
+            guard !outcome.isCancelled, !Task.isCancelled, submittedSignature == addressProbeSignature else {
                 plog("🔎 Source address submit cancelled")
                 return
             }
@@ -1951,8 +1983,8 @@ struct AddSourceView: View {
 
     /// 探测不通也要存:已经探到的行用它探到的候选,没应答的行用第一个候选。
     private func saveWithoutProbing() {
+        guard canSave else { return }
         let reading = addressReading
-        guard reading.isSubmittable else { return }
         // `cancelAddressProbe` 会清掉控制器上的结论,先取出来再取消。
         let selected = addressProbe.selectedCandidates
         plog("🔎 Source address saved without a full probe verdict resolved=\(selected.count)")
@@ -1961,37 +1993,18 @@ struct AddSourceView: View {
         saveSource()
     }
 
-    /// 把识别 + 探测的结果写回 host / port / useSsl / publicHost / … 这组
-    /// `@State`。保存路径读的仍然是这些字段,所以它的语义一点没变。
     private func applyAddressPlan(
         _ reading: SourceAddressFormPolicy.FormReading,
         selected: [UUID: SourceConnectionCandidatePlanner.Candidate]
     ) {
-        var localEndpoint: SourceConnectionEndpoint?
-        var publicEndpoint: SourceConnectionEndpoint?
-        var resolvedVendorIdentifier: String?
-
-        for (index, row) in addressRows.enumerated() where index < reading.rows.count {
-            switch reading.rows[index] {
-            case let .vendor(vendor):
-                guard reading.placement.slots[index] == .vendor else { continue }
-                resolvedVendorIdentifier = vendor.id
-            case let .endpoint(endpoint):
-                let candidate = selected[row.id] ?? endpoint.preferred
-                guard let slot = endpoint.slot, let candidate else { continue }
-                let value = SourceConnectionCandidatePlanner.endpoint(
-                    for: endpoint.input,
-                    candidate: candidate
-                )
-                if slot == .local {
-                    localEndpoint = value
-                } else {
-                    publicEndpoint = value
-                }
-            case .empty, .invalid:
-                continue
-            }
-        }
+        let configuration = SourceAddressFormPolicy.configuration(
+            for: reading, rowIDs: addressRows.map(\.id), selectedCandidates: selected,
+            selectedRowID: selectedAddressRowID, sourceType: sourceType
+        )
+        resolvedConfiguration = configuration
+        let localEndpoint = configuration.localEndpoint
+        let publicEndpoint = configuration.publicEndpoint
+        let resolvedVendorIdentifier = configuration.vendorIdentifier
 
         host = localEndpoint?.host ?? ""
         port = localEndpoint.map { String($0.port) } ?? ""
@@ -2012,7 +2025,12 @@ struct AddSourceView: View {
             fnMusicConnectionMode = usesVendor ? .fnConnect : .address
         }
 
-        applyAddressPath(localEndpoint?.pathPrefix ?? publicEndpoint?.pathPrefix)
+        // SMB、NFS 和 FTP 把地址里的目录保存在源级字段。
+        let paths = reading.rows.compactMap { row -> String? in
+            guard case let .endpoint(endpoint) = row, endpoint.slot != nil else { return nil }
+            return endpoint.input.pathPrefix
+        }
+        applyAddressPath(paths.first)
         autoAssignNameIfNeeded(
             preferred: resolvedVendorIdentifier ?? localEndpoint?.host ?? publicEndpoint?.host
         )
@@ -2124,7 +2142,7 @@ struct AddSourceView: View {
         let finalBasePath: String?
         let finalShareName: String?
         let finalUsername: String?
-        let adaptiveConfiguration = makeAdaptiveConnectionConfiguration()
+        let adaptiveConfiguration = supportsAdaptiveConnections ? resolvedConfiguration : nil
         var extraConfig = editingSource?.extraConfig
 
         if sourceType == .s3 {
@@ -2497,63 +2515,6 @@ struct AddSourceView: View {
         validatedCredentialSource = nil
         password = ""
         completeSave(source)
-    }
-
-    private func makeAdaptiveConnectionConfiguration() -> SourceConnectionConfiguration? {
-        guard supportsAdaptiveConnections else { return nil }
-
-        let localHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let remoteHost = publicHost.trimmingCharacters(in: .whitespacesAndNewlines)
-        let localEndpoint = localHost.isEmpty ? nil : validatedPort.map {
-            SourceConnectionEndpoint(
-                host: localHost,
-                port: $0,
-                useSsl: useSsl,
-                pathPrefix: sourceType.supportsEndpointPathPrefix
-                    ? normalizedOptionalPath(localPathPrefix)
-                    : nil
-            ).normalized
-        }
-        let publicEndpoint = remoteHost.isEmpty ? nil : validatedPublicPort.map {
-            SourceConnectionEndpoint(
-                host: remoteHost,
-                port: $0,
-                useSsl: publicUseSsl,
-                pathPrefix: sourceType.supportsEndpointPathPrefix
-                    ? normalizedOptionalPath(publicBasePath)
-                    : nil
-            ).normalized
-        }
-
-        let rawVendorIdentifier = vendorIdentifier
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedVendorIdentifier: String?
-        if rawVendorIdentifier.isEmpty {
-            normalizedVendorIdentifier = nil
-        } else if sourceType.usesSynologyConnectionMode {
-            normalizedVendorIdentifier = SynologyQuickConnectResolver.quickConnectID(
-                from: rawVendorIdentifier
-            ) ?? rawVendorIdentifier
-        } else if sourceType == .fnMusic {
-            normalizedVendorIdentifier = FnConnectResolver.fnID(from: rawVendorIdentifier)
-                ?? rawVendorIdentifier
-        } else {
-            normalizedVendorIdentifier = nil
-        }
-
-        // A save from this form always writes an unrestricted configuration:
-        // whatever the user left filled in is what gets used.
-        return SourceConnectionConfiguration(
-            localEndpoint: localEndpoint,
-            publicEndpoint: publicEndpoint,
-            remoteAccessMode: remoteUsesVendor ? .vendor : .direct,
-            vendorIdentifier: normalizedVendorIdentifier
-        )
-    }
-
-    private func normalizedOptionalPath(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
     #if os(macOS)

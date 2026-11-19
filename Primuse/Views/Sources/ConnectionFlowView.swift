@@ -659,7 +659,7 @@ struct ConnectionFlowView: View {
         if let explicitCandidate {
             candidate = explicitCandidate
         } else if source.connectionConfiguration != nil {
-            let ordered = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
+            let ordered = await SourceConnectionRuntime.shared.connectionAttemptCandidates(for: source)
             if (otpCode != nil || overridePassword != nil),
                let activeSynologyCandidateKind,
                let active = ordered.first(where: { $0.kind == activeSynologyCandidateKind }) {
@@ -999,7 +999,7 @@ struct ConnectionFlowView: View {
         if let explicitCandidate {
             candidate = explicitCandidate
         } else if source.connectionConfiguration != nil {
-            let ordered = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
+            let ordered = await SourceConnectionRuntime.shared.connectionAttemptCandidates(for: source)
             if (otpCode != nil || overridePassword != nil),
                let activeSynologyCandidateKind,
                let active = ordered.first(where: { $0.kind == activeSynologyCandidateKind }) {

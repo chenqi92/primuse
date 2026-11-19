@@ -11,6 +11,8 @@ import Foundation
 /// to the form's default instead of discarding the whole draft.
 public struct AddSourceDraft: Codable, Equatable, Sendable {
     public struct AddressRow: Codable, Equatable, Sendable {
+        public var id: UUID?
+        public var savedRoute: SourceConnectionCandidateKind?
         public var address: String
         public var portText: String
         public var transport: String
@@ -22,8 +24,12 @@ public struct AddSourceDraft: Codable, Equatable, Sendable {
             portText: String,
             transport: String,
             showsAdvancedOptions: Bool,
-            treatDotlessTokenAsHostname: Bool
+            treatDotlessTokenAsHostname: Bool,
+            id: UUID? = nil,
+            savedRoute: SourceConnectionCandidateKind? = nil
         ) {
+            self.id = id
+            self.savedRoute = savedRoute
             self.address = address
             self.portText = portText
             self.transport = transport
@@ -59,6 +65,7 @@ public struct AddSourceDraft: Codable, Equatable, Sendable {
     public var autoConnect: Bool
     public var rememberDevice: Bool
     public var addressRows: [AddressRow]
+    public var selectedAddressRowID: UUID?
 
     public init(
         sourceType: String,
@@ -85,7 +92,8 @@ public struct AddSourceDraft: Codable, Equatable, Sendable {
         nfsVersion: String,
         autoConnect: Bool,
         rememberDevice: Bool,
-        addressRows: [AddressRow]
+        addressRows: [AddressRow],
+        selectedAddressRowID: UUID? = nil
     ) {
         self.sourceType = sourceType
         self.editingSourceID = editingSourceID
@@ -112,6 +120,7 @@ public struct AddSourceDraft: Codable, Equatable, Sendable {
         self.autoConnect = autoConnect
         self.rememberDevice = rememberDevice
         self.addressRows = addressRows
+        self.selectedAddressRowID = selectedAddressRowID
     }
 }
 

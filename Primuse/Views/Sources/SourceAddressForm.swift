@@ -28,7 +28,8 @@ enum SourceAddressTransportChoice: String, CaseIterable, Identifiable {
 
 /// 表单里的一行地址。地址串本身是主输入,端口与协议是它的高级选项。
 struct SourceAddressRow: Identifiable, Equatable {
-    let id = UUID()
+    let id: UUID
+    var savedRoute: SourceConnectionCandidateKind?
     var address: String = ""
     /// 空字符串 = 自动。**绝不预填真实端口**:预填出来的值会在用户填了域名之后
     /// 继续生效,把 `https://emby.example.com` 连成 `:8096`。
@@ -58,7 +59,8 @@ struct SourceAddressRow: Identifiable, Equatable {
             address: address,
             manualPort: manualPort,
             manualUseSsl: transport.manualUseSsl,
-            treatDotlessTokenAsHostname: treatDotlessTokenAsHostname
+            treatDotlessTokenAsHostname: treatDotlessTokenAsHostname,
+            savedRoute: savedRoute
         )
     }
 
@@ -79,13 +81,20 @@ struct SourceAddressRow: Identifiable, Equatable {
     /// 从一个已存的端点/标识回显。高级选项留在「自动」—— 端口与协议已经写进
     /// 地址串里了,再在下面重复一遍会让用户以为有两个地方要改。
     init(draft: SourceAddressFormPolicy.AddressDraft) {
+        if case let .alternative(routeID) = draft.savedRoute {
+            id = routeID
+        } else {
+            id = UUID()
+        }
+        savedRoute = draft.savedRoute
         address = draft.address
         portText = draft.manualPort.map(String.init) ?? ""
         transport = .choice(forUseSsl: draft.manualUseSsl)
         treatDotlessTokenAsHostname = draft.treatDotlessTokenAsHostname
     }
 
-    init(address: String = "") {
+    init(address: String = "", id: UUID = UUID()) {
+        self.id = id
         self.address = address
     }
 }

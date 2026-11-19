@@ -3,6 +3,82 @@ import Testing
 @testable import PrimuseKit
 
 @Suite struct StreamResolverRoutingTests {
+    @Test func aFailedFixedRouteStaysFixedAcrossNetworkChangesUntilAutomaticIsSelected() async throws {
+        let runtime = SourceConnectionRuntime()
+        let probe = RoutingProbe()
+        let registry = StreamResolverRegistry(runtime: runtime, endpointProbe: { endpoint in
+            await probe.record(endpoint.host)
+            if endpoint.host == "third.invalid" { throw URLError(.cannotConnectToHost) }
+        })
+        let resolver = RoutingResolver()
+        await registry.register(resolver, for: [.navidrome])
+        var source = makeSource(type: .navidrome)
+        let routeID = UUID()
+        source.connectionConfiguration?.additionalEndpoints = [
+            .init(id: routeID, endpoint: .init(host: "third.invalid", port: 443, useSsl: true)),
+        ]
+        source.connectionConfiguration?.selectedRoute = .localAddress
+        let song = Song(id: "song", title: "T", fileFormat: .flac, filePath: "/s.flac", sourceID: source.id)
+        let prepared = try await registry.resolveForPreparation(for: song, source: source, credential: nil)
+        #expect(prepared.stream.url.host == "lan.invalid")
+
+        source.connectionConfiguration?.selectedRoute = .alternative(routeID)
+        for prefersLocal in [nil, false, true] as [Bool?] {
+            if let prefersLocal {
+                await runtime.observeNetworkPath(prefersLocalNetwork: prefersLocal, pathChanged: true)
+            }
+            do {
+                _ = try await registry.streamURL(for: song, source: source, credential: nil)
+                Issue.record("The unreachable fixed route should report its error")
+            } catch { #expect((error as? URLError)?.code == .cannotConnectToHost) }
+        }
+        #expect(await probe.hosts == ["lan.invalid", "third.invalid", "third.invalid", "third.invalid"])
+        #expect(await resolver.hosts == ["lan.invalid"])
+        #expect(await registry.sessionEpoch(for: source.id) != prepared.sessionEpoch)
+
+        source.connectionConfiguration?.selectedRoute = nil
+        let resumed = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(resumed.host == "lan.invalid" || resumed.host == "wan.invalid")
+    }
+
+    @Test func missingFixedRouteDoesNotProbeOrLogInToAnyOtherAddress() async throws {
+        let probe = RoutingProbe()
+        let registry = StreamResolverRegistry(runtime: SourceConnectionRuntime(), endpointProbe: { endpoint in
+            await probe.record(endpoint.host)
+        })
+        let resolver = RoutingResolver()
+        await registry.register(resolver, for: [.navidrome])
+        var source = makeSource(type: .navidrome)
+        source.connectionConfiguration?.selectedRoute = .alternative(UUID())
+        let song = Song(id: "song", title: "T", fileFormat: .flac, filePath: "/s.flac", sourceID: source.id)
+        #expect(source.connectionCandidates.isEmpty)
+        #expect(source.diagnosticConnectionCandidates.isEmpty)
+        await #expect(throws: StreamResolveError.cannotBuildURL) {
+            _ = try await registry.streamURL(for: song, source: source, credential: nil)
+        }
+        #expect(await probe.hosts.isEmpty)
+        #expect(await resolver.hosts.isEmpty)
+    }
+
+    @Test func automaticPlaybackCanReachTheThirdEndpointWhenTheFirstTwoAreDown() async throws {
+        let runtime = SourceConnectionRuntime()
+        let registry = StreamResolverRegistry(runtime: runtime, endpointProbe: { endpoint in
+            if endpoint.host != "third.invalid" { throw URLError(.cannotConnectToHost) }
+        })
+        let resolver = RoutingResolver()
+        await registry.register(resolver, for: [.navidrome])
+        var source = makeSource(type: .navidrome)
+        let routeID = UUID()
+        source.connectionConfiguration?.additionalEndpoints = [
+            .init(id: routeID, endpoint: .init(host: "third.invalid", port: 443, useSsl: true)),
+        ]
+        let song = Song(id: "song", title: "T", fileFormat: .flac, filePath: "/s.flac", sourceID: source.id)
+        let result = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(result.host == "third.invalid")
+        #expect(await resolver.hosts == ["third.invalid"])
+        #expect(await runtime.activeKind(for: source.id) == .alternative(routeID))
+    }
+
     @Test func serviceAndCancellationErrorsDoNotRetireLAN() async throws {
         let errors: [any Error] = [CancellationError(), URLError(.cancelled),
                                   StreamResolveError.authFailed, StreamResolveError.needs2FA,

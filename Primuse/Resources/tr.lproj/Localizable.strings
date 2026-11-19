@@ -4684,14 +4684,15 @@
 
 // MARK: - Add source: address form
 "source_address_section" = "Sunucu adresi";
-"source_address_alternate_section" = "Yedek adres";
+"source_address_alternate_section" = "Rota adresi";
 "source_address_section_footer" = "Bağlantı noktasını boş bırakın, Primuse kaydederken kendisi bulur.";
 "source_address_placeholder" = "Alan adı, IP veya tam URL";
 "source_address_placeholder_vendor %@" = "Alan adı, IP veya %@";
-"source_address_add_alternate" = "Yedek adres ekle";
+"source_address_add_alternate" = "Rota ekle";
 "source_address_remove" = "Bu adresi kaldır";
 "source_address_advanced" = "Bağlantı noktasını ve şifrelemeyi elle ayarla";
 "source_address_transport" = "Bağlantı";
+"source_connection_route" = "Bağlantı rotası";
 "source_address_transport_automatic" = "Otomatik";
 "source_address_class_loopback" = "Bu cihaz";
 "source_address_class_overlay" = "Örgü ağ";

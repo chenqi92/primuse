@@ -572,7 +572,7 @@ public enum PlexServerLinkRefreshPolicy {
         current: SourceConnectionConfiguration?,
         routes: PlexServerRoutes
     ) -> SourceConnectionConfiguration? {
-        guard routes.isEmpty == false else { return nil }
+        guard current?.selectedRoute == nil, routes.isEmpty == false else { return nil }
         let currentLocal = current?.localEndpoint?.normalized
         let currentPublic = current?.publicEndpoint?.normalized
 

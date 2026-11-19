@@ -829,14 +829,15 @@
 
 /* Apple TV add-source address form (shared wording with iPhone) */
 "source_address_section" = "Адрес сервера";
-"source_address_alternate_section" = "Запасной адрес";
+"source_address_alternate_section" = "Адрес маршрута";
 "source_address_section_footer" = "Оставьте порт пустым — Primuse определит его при сохранении.";
 "source_address_placeholder" = "Домен, IP или полный адрес";
 "source_address_placeholder_vendor %@" = "Домен, IP или %@";
-"source_address_add_alternate" = "Добавить запасной адрес";
+"source_address_add_alternate" = "Добавить маршрут";
 "source_address_remove" = "Удалить этот адрес";
 "source_address_advanced" = "Указать порт и шифрование вручную";
 "source_address_transport" = "Подключение";
+"source_connection_route" = "Маршрут подключения";
 "source_address_transport_automatic" = "Автоматически";
 "source_address_class_loopback" = "Это устройство";
 "source_address_class_overlay" = "Оверлейная сеть";

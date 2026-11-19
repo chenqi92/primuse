@@ -208,12 +208,6 @@ struct TVSourceFormView: View {
     @State private var host = ""
     @State private var portText = ""
     @State private var useSsl = false
-    @State private var publicHost = ""
-    @State private var publicPortText = ""
-    @State private var publicUseSsl = true
-    @State private var localPathPrefix = ""
-    @State private var publicPathPrefix = ""
-    @State private var vendorIdentifier = ""
     @State private var synologyConnectionMode: SynologyConnectionMode = .quickConnect
     @State private var fnMusicConnectionMode: FnMusicConnectionMode = .fnConnect
     @State private var username = ""
@@ -239,9 +233,9 @@ struct TVSourceFormView: View {
     @State private var infiniCloudError: String?
     /// 这个源在这台 Apple TV 上是否经 iCloud 同步。编辑能跨设备同步的源时才显示,保存时生效。
     @State private var syncsViaICloud = true
-    /// 用户填的那一到两行地址。上面那组 host/portText/useSsl/publicHost/… 仍然是
-    /// `draftSource()` 唯一读取的字段 —— 提交时由 `applyAddressPlan` 一次性写回。
     @State private var addressRows: [TVSourceAddressRow] = [TVSourceAddressRow()]
+    @State private var selectedAddressRowID: UUID?
+    @State private var resolvedConfiguration: SourceConnectionConfiguration?
     /// 打开编辑页时回显出来的那一份。地址、手填端口、手选协议都没动过就不探测:
     /// 遥控器上改个名字、换个密码不该因为服务器此刻不在线而失败。
     @State private var addressBaseline: [SourceAddressFormPolicy.AddressDraft]?
@@ -283,11 +277,6 @@ struct TVSourceFormView: View {
         guard let value = Int(trimmed), (1...65_535).contains(value) else { return nil }
         return value
     }
-    private var validatedPublicPort: Int? {
-        let trimmed = publicPortText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let value = Int(trimmed), (1...65_535).contains(value) else { return nil }
-        return value
-    }
     private var remoteUsesVendor: Bool {
         if type.usesSynologyConnectionMode { return synologyConnectionMode == .quickConnect }
         if type == .fnMusic { return fnMusicConnectionMode == .fnConnect }
@@ -301,8 +290,11 @@ struct TVSourceFormView: View {
 
     /// 至少有一条能用的地址,而且没有哪一行写坏了(含高级选项里的端口)。
     private var addressFormIsValid: Bool {
-        addressReading.isSubmittable
-            && addressRows.contains(where: \.hasInvalidManualPort) == false
+        let reading = addressReading
+        guard reading.isSubmittable, !addressRows.contains(where: \.hasInvalidManualPort) else { return false }
+        guard let selectedAddressRowID else { return true }
+        guard let index = addressRows.firstIndex(where: { $0.id == selectedAddressRowID }) else { return false }
+        return reading.placement.slots[index] != nil
     }
 
     /// 这个源当前是不是走厂商中转。地址框里填了 QuickConnect ID / FN ID 就是 ——
@@ -430,21 +422,10 @@ struct TVSourceFormView: View {
             showsPlexSignIn = true
         }
         #endif
-        // 自适应连接的表单里已经没有 SSL 开关了 —— 协议跟着地址走。这两条跟随
-        // 规则只服务于老的单地址表单;留着会在写回探测结果时把刚定下来的端口
-        // 当成"上一个默认值"改掉。
         .onChange(of: useSsl) { oldValue, newValue in
             guard !supportsAdaptiveConnections else { return }
             updateDefaultPortForSSLChange(
                 port: $portText,
-                from: oldValue,
-                to: newValue
-            )
-        }
-        .onChange(of: publicUseSsl) { oldValue, newValue in
-            guard !supportsAdaptiveConnections else { return }
-            updateDefaultPortForSSLChange(
-                port: $publicPortText,
                 from: oldValue,
                 to: newValue
             )
@@ -760,6 +741,9 @@ struct TVSourceFormView: View {
                 onRemove: { removeAddressRow(row.id) }
             )
         }
+        if addressRows.count > 1 || selectedAddressRowID != nil {
+            routePicker(reading).frame(maxWidth: 760, alignment: .leading)
+        }
         addressActionRow
         if let note = unconfirmedServiceNote {
             connectionHintText(note)
@@ -772,10 +756,8 @@ struct TVSourceFormView: View {
     @ViewBuilder
     private var addressActionRow: some View {
         HStack(spacing: 14) {
-            if addressRows.count < SourceAddressFormPolicy.maximumAddressCount {
-                TVSourceAddressActionButton(title: PMString("source_address_add_alternate")) {
-                    addAddressRow()
-                }
+            TVSourceAddressActionButton(title: PMString("source_address_add_alternate")) {
+                addAddressRow()
             }
             if addressProbe.isProbing {
                 ProgressView().tint(TVColor.brand)
@@ -841,13 +823,7 @@ struct TVSourceFormView: View {
         host = configuration.localEndpoint?.host ?? ""
         portText = configuration.localEndpoint.map { String($0.port) } ?? ""
         useSsl = configuration.localEndpoint?.useSsl ?? type.defaultSSL
-        publicHost = configuration.publicEndpoint?.host ?? ""
-        publicPortText = configuration.publicEndpoint.map { String($0.port) } ?? ""
-        publicUseSsl = configuration.publicEndpoint?.useSsl ?? true
-        // 地址框回显成选中的线路并记为基线，提交时不再探测 —— 这些就是服务器自己报给 plex.tv 的地址。
-        let drafts = SourceAddressFormPolicy.drafts(for: configuration, sourceType: type)
-        addressRows = drafts.map(TVSourceAddressRow.init(draft:))
-        addressBaseline = drafts
+        loadAddressRows(configuration)
         resolvedSelection = nil
 
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -940,8 +916,6 @@ struct TVSourceFormView: View {
     private func prefill() {
         useSsl = type.defaultSSL
         portText = String(type.defaultPort(useSsl: useSsl))
-        publicUseSsl = showsSSL ? true : type.defaultSSL
-        publicPortText = String(type.defaultPort(useSsl: publicUseSsl))
         if type == .plex {
             authType = .apiKey
         } else if !type.requiresCredentials {
@@ -961,15 +935,7 @@ struct TVSourceFormView: View {
                     host = endpoint.host
                     portText = String(endpoint.port)
                     useSsl = endpoint.useSsl
-                    localPathPrefix = endpoint.pathPrefix ?? ""
                 }
-                if let endpoint = configuration.publicEndpoint {
-                    publicHost = endpoint.host
-                    publicPortText = String(endpoint.port)
-                    publicUseSsl = endpoint.useSsl
-                    publicPathPrefix = endpoint.pathPrefix ?? ""
-                }
-                vendorIdentifier = configuration.vendorIdentifier ?? ""
                 if type.usesSynologyConnectionMode {
                     synologyConnectionMode = configuration.remoteAccessMode == .vendor
                         ? .quickConnect
@@ -979,17 +945,7 @@ struct TVSourceFormView: View {
                         ? .fnConnect
                         : .address
                 }
-                // 已存的端点渲染回地址串,协议与端口都写在里面,再读一遍能原样回到
-                // 同一个端点。留一份基线:这几行没被动过就不重新探测,免得离线改个
-                // 名字也要等服务器应答 —— 扫码直传和 iCloud 同步下来的源也走这里。
-                let drafts = SourceAddressFormPolicy.drafts(
-                    for: configuration,
-                    sourceType: type
-                )
-                addressRows = drafts.isEmpty
-                    ? [TVSourceAddressRow()]
-                    : drafts.map(TVSourceAddressRow.init(draft:))
-                addressBaseline = drafts.isEmpty ? nil : drafts
+                loadAddressRows(configuration)
             } else {
                 host = e.host ?? ""
                 portText = String(e.port ?? type.defaultPort)
@@ -1046,6 +1002,16 @@ struct TVSourceFormView: View {
         }
     }
 
+    private func loadAddressRows(_ configuration: SourceConnectionConfiguration) {
+        let drafts = SourceAddressFormPolicy.drafts(for: configuration, sourceType: type)
+        addressRows = drafts.isEmpty ? [TVSourceAddressRow()] : drafts.map(TVSourceAddressRow.init(draft:))
+        selectedAddressRowID = configuration.effectiveSelectedRoute.flatMap { selection in
+            addressRows.first { $0.savedRoute == selection }?.id
+        }
+        resolvedConfiguration = configuration
+        addressBaseline = drafts.isEmpty ? nil : drafts
+    }
+
     // MARK: - 地址行
 
     private struct ResolvedAddressSelection {
@@ -1057,8 +1023,8 @@ struct TVSourceFormView: View {
     /// 拿回来的探测结论。行的身份也算进来 —— `selected` 是按行 id 存的,删掉
     /// 再加一行虽然文字一样,却对不上任何一条已探到的候选。
     private var addressProbeSignature: String {
-        addressRows
-            .map { "\($0.id.uuidString)\u{1}\($0.draft.probeSignature)" }
+        ([selectedAddressRowID?.uuidString ?? ""]
+            + addressRows.map { "\($0.id.uuidString)\u{1}\($0.draft.probeSignature)" })
             .joined(separator: "\n")
     }
 
@@ -1086,13 +1052,27 @@ struct TVSourceFormView: View {
         return nil
     }
 
+    private func routePicker(_ reading: SourceAddressFormPolicy.FormReading) -> some View {
+        Picker(PMString("source_connection_route"), selection: $selectedAddressRowID) {
+            Text(PMString("source_address_transport_automatic")).tag(UUID?.none)
+            ForEach(addressRows) { row in
+                if let label = addressRowReading(reading, for: row.id).routeLabel(sourceType: type) {
+                    Text(verbatim: label).tag(Optional(row.id))
+                } else if row.id == selectedAddressRowID {
+                    Text(PMString("source_connection_no_route")).tag(Optional(row.id))
+                }
+            }
+        }
+        .pickerStyle(.menu)
+    }
+
     private func addAddressRow() {
-        guard addressRows.count < SourceAddressFormPolicy.maximumAddressCount else { return }
         addressRows.append(TVSourceAddressRow())
     }
 
     private func removeAddressRow(_ id: UUID) {
         guard addressRows.count > 1 else { return }
+        if selectedAddressRowID == id { selectedAddressRowID = nil }
         addressRows.removeAll { $0.id == id }
     }
 
@@ -1161,14 +1141,17 @@ struct TVSourceFormView: View {
 
         // 逐行判断要不要探:编辑已有源时没动过的那几行原样留着 —— 否则在外网
         // 给源补一条备用地址,会连带去探那条此刻动不了的内网地址。
-        let probing = Set(
+        let probing = Set<UUID>(
             zip(
                 addressRows,
                 SourceAddressFormPolicy.rowsRequiringProbe(
                     drafts: addressRows.map(\.draft),
                     baseline: addressBaseline
                 )
-            ).compactMap { row, needsProbe in needsProbe ? row.id : nil }
+            ).compactMap { row, needsProbe in
+                guard needsProbe, selectedAddressRowID == nil || selectedAddressRowID == row.id else { return nil }
+                return row.id
+            }
         )
         plog(
             "🔎 Source address submit type=\(type.rawValue) editing=\(editing != nil) "
@@ -1188,15 +1171,17 @@ struct TVSourceFormView: View {
             return
         }
 
+        let submittedSignature = addressProbeSignature
         addressSubmitTask?.cancel()
         addressSubmitTask = Task { @MainActor in
+            guard !Task.isCancelled, submittedSignature == addressProbeSignature else { return }
             let outcome = await addressProbe.probe(
                 rows: addressRows,
                 reading: reading,
                 sourceType: type,
                 probing: probing
             )
-            guard outcome.isCancelled == false, Task.isCancelled == false else {
+            guard !outcome.isCancelled, !Task.isCancelled, submittedSignature == addressProbeSignature else {
                 plog("🔎 Source address submit cancelled")
                 return
             }
@@ -1232,8 +1217,8 @@ struct TVSourceFormView: View {
 
     /// 探测不通也要存:已经探到的行用它探到的候选,没应答的行用第一个候选。
     private func saveWithoutProbing() {
+        guard canSave else { return }
         let reading = addressReading
-        guard reading.isSubmittable else { return }
         // `cancelAddressProbe` 会清掉控制器上的结论,先取出来再取消。
         let selected = addressProbe.selectedCandidates
         plog("🔎 Source address saved without a full probe verdict resolved=\(selected.count)")
@@ -1242,50 +1227,21 @@ struct TVSourceFormView: View {
         commitSave()
     }
 
-    /// 把识别 + 探测的结果写回 host / portText / useSsl / publicHost / … 这组
-    /// `@State`。`draftSource()` 读的仍然是这些字段,所以它的语义一点没变。
     private func applyAddressPlan(
         _ reading: SourceAddressFormPolicy.FormReading,
         selected: [UUID: SourceConnectionCandidatePlanner.Candidate]
     ) {
-        var localEndpoint: SourceConnectionEndpoint?
-        var publicEndpoint: SourceConnectionEndpoint?
-        var resolvedVendorIdentifier: String?
-
-        for (index, row) in addressRows.enumerated() where index < reading.rows.count {
-            switch reading.rows[index] {
-            case let .vendor(vendor):
-                guard reading.placement.slots[index] == .vendor else { continue }
-                resolvedVendorIdentifier = vendor.id
-            case let .endpoint(endpoint):
-                let candidate = selected[row.id] ?? endpoint.preferred
-                guard let slot = endpoint.slot, let candidate else { continue }
-                let value = SourceConnectionCandidatePlanner.endpoint(
-                    for: endpoint.input,
-                    candidate: candidate
-                )
-                if slot == .local {
-                    localEndpoint = value
-                } else {
-                    publicEndpoint = value
-                }
-            case .empty, .invalid:
-                continue
-            }
-        }
+        let configuration = SourceAddressFormPolicy.configuration(
+            for: reading, rowIDs: addressRows.map(\.id), selectedCandidates: selected,
+            selectedRowID: selectedAddressRowID, sourceType: type
+        )
+        resolvedConfiguration = configuration
+        let localEndpoint = configuration.localEndpoint
 
         host = localEndpoint?.host ?? ""
         portText = localEndpoint.map { String($0.port) } ?? ""
         useSsl = localEndpoint?.useSsl ?? type.defaultSSL
-        localPathPrefix = localEndpoint?.pathPrefix ?? ""
-
-        publicHost = publicEndpoint?.host ?? ""
-        publicPortText = publicEndpoint.map { String($0.port) } ?? ""
-        publicUseSsl = publicEndpoint?.useSsl ?? (showsSSL ? true : type.defaultSSL)
-        publicPathPrefix = publicEndpoint?.pathPrefix ?? ""
-
-        vendorIdentifier = resolvedVendorIdentifier ?? ""
-        let usesVendor = resolvedVendorIdentifier != nil
+        let usesVendor = configuration.remoteAccessMode == .vendor
         if type.usesSynologyConnectionMode {
             synologyConnectionMode = usesVendor ? .quickConnect : .address
         }
@@ -1293,7 +1249,12 @@ struct TVSourceFormView: View {
             fnMusicConnectionMode = usesVendor ? .fnConnect : .address
         }
 
-        applyAddressPath(localEndpoint?.pathPrefix ?? publicEndpoint?.pathPrefix)
+        // SMB、NFS 和 FTP 把地址里的目录保存在源级字段。
+        let paths = reading.rows.compactMap { row -> String? in
+            guard case let .endpoint(endpoint) = row, endpoint.slot != nil else { return nil }
+            return endpoint.input.pathPrefix
+        }
+        applyAddressPath(paths.first)
     }
 
     /// `smb://nas/music` 里的那截路径不属于端点:SMB 的共享名、NFS 的导出路径、
@@ -1375,7 +1336,7 @@ struct TVSourceFormView: View {
         var src = editing ?? MusicSource(id: newSourceID, name: trimmedName, type: type)
         src.name = trimmedName
         if type.requiresHost && supportsAdaptiveConnections {
-            src.connectionConfiguration = adaptiveConnectionConfiguration()
+            src.connectionConfiguration = resolvedConfiguration
             src.synologyConnectionMode = type.usesSynologyConnectionMode ? synologyConnectionMode : nil
             src.fnMusicConnectionMode = type == .fnMusic ? fnMusicConnectionMode : nil
             src = src.projectingPreferredConnectionForLegacy()
@@ -1438,58 +1399,6 @@ struct TVSourceFormView: View {
         return src
     }
 
-    private func adaptiveConnectionConfiguration() -> SourceConnectionConfiguration {
-        let localAddress = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let publicAddress = publicHost.trimmingCharacters(in: .whitespacesAndNewlines)
-        let localEndpoint = localAddress.isEmpty ? nil : validatedPort.map {
-            SourceConnectionEndpoint(
-                host: localAddress,
-                port: $0,
-                useSsl: useSsl,
-                pathPrefix: type.supportsEndpointPathPrefix
-                    ? normalizedPath(localPathPrefix)
-                    : nil
-            ).normalized
-        }
-        let publicEndpoint = publicAddress.isEmpty ? nil : validatedPublicPort.map {
-            SourceConnectionEndpoint(
-                host: publicAddress,
-                port: $0,
-                useSsl: publicUseSsl,
-                pathPrefix: type.supportsEndpointPathPrefix
-                    ? normalizedPath(publicPathPrefix)
-                    : nil
-            ).normalized
-        }
-
-        let rawVendorID = vendorIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedVendorID: String?
-        if rawVendorID.isEmpty {
-            normalizedVendorID = nil
-        } else if type.usesSynologyConnectionMode {
-            normalizedVendorID = SynologyQuickConnectResolver.quickConnectID(from: rawVendorID)
-                ?? rawVendorID
-        } else if type == .fnMusic {
-            normalizedVendorID = FnConnectResolver.fnID(from: rawVendorID) ?? rawVendorID
-        } else {
-            normalizedVendorID = nil
-        }
-
-        return SourceConnectionConfiguration(
-            localEndpoint: localEndpoint,
-            publicEndpoint: publicEndpoint,
-            remoteAccessMode: remoteUsesVendor ? .vendor : .direct,
-            vendorIdentifier: normalizedVendorID
-        )
-    }
-
-    private func normalizedPath(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    /// 原来的保存路径,一个字没动:构造 `MusicSource`、写凭据、云盘再走授权页。
-    /// 地址已经在 `applyAddressPlan` 里写回了那组 `@State`,这里照旧读它们。
     private func commitSave() {
         guard let src = draftSource() else { return }
         if usesCloudAuthorization {
@@ -1625,7 +1534,8 @@ enum TVSourceAddressTransportChoice: String, CaseIterable, Identifiable {
 
 /// 表单里的一行地址。地址串本身是主输入,端口与协议是它的高级选项。
 struct TVSourceAddressRow: Identifiable, Equatable {
-    let id = UUID()
+    let id: UUID
+    var savedRoute: SourceConnectionCandidateKind?
     var address: String = ""
     /// 空字符串 = 自动。**绝不预填真实端口**:预填出来的值会在用户填了域名之后
     /// 继续生效,把 `https://emby.example.com` 连成 `:8096`。
@@ -1651,7 +1561,8 @@ struct TVSourceAddressRow: Identifiable, Equatable {
             address: address,
             manualPort: manualPort,
             manualUseSsl: transport.manualUseSsl,
-            treatDotlessTokenAsHostname: treatDotlessTokenAsHostname
+            treatDotlessTokenAsHostname: treatDotlessTokenAsHostname,
+            savedRoute: savedRoute
         )
     }
 
@@ -1672,13 +1583,20 @@ struct TVSourceAddressRow: Identifiable, Equatable {
     /// 从一个已存的端点/标识回显。高级选项留在「自动」—— 端口与协议已经写进
     /// 地址串里了,再在下面重复一遍会让用户以为有两个地方要改。
     init(draft: SourceAddressFormPolicy.AddressDraft) {
+        if case let .alternative(routeID) = draft.savedRoute {
+            id = routeID
+        } else {
+            id = UUID()
+        }
+        savedRoute = draft.savedRoute
         address = draft.address
         portText = draft.manualPort.map(String.init) ?? ""
         transport = .choice(forUseSsl: draft.manualUseSsl)
         treatDotlessTokenAsHostname = draft.treatDotlessTokenAsHostname
     }
 
-    init(address: String = "") {
+    init(address: String = "", id: UUID = UUID()) {
+        self.id = id
         self.address = address
     }
 }

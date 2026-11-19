@@ -779,8 +779,8 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
         operation: (MusicSource) async throws -> T
     ) async throws -> T {
         guard source.connectionConfiguration != nil else { return try await operation(source) }
-        let candidates = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
-        guard let last = candidates.last else { return try await operation(source) }
+        let candidates = await SourceConnectionRuntime.shared.connectionAttemptCandidates(for: source)
+        guard let last = candidates.last else { throw TVServerFeedbackError.invalidURL }
         for candidate in candidates.dropLast() {
             do {
                 return try await operation(source.applyingConnectionCandidate(candidate))

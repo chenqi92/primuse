@@ -34,8 +34,12 @@ public enum ListeningSourceAttribution {
             .joined(separator: "/")
         var endpoints: [(host: String, port: Int?)] = []
         if let host = nonEmpty(source.host) { endpoints.append((host, source.port)) }
-        for endpoint in [source.connectionConfiguration?.localEndpoint, source.connectionConfiguration?.publicEndpoint] {
-            if let endpoint, let host = nonEmpty(endpoint.host) { endpoints.append((host, endpoint.port)) }
+        if let configuration = source.connectionConfiguration {
+            let addresses = [configuration.localEndpoint, configuration.publicEndpoint].compactMap { $0 }
+                + configuration.additionalEndpoints.map(\.endpoint)
+            for address in addresses {
+                if let host = nonEmpty(address.host) { endpoints.append((host, address.port)) }
+            }
         }
         for endpoint in endpoints {
             keys.insert("address:\(endpoint.host.lowercased()):\(endpoint.port.map(String.init) ?? ""):\(location)")

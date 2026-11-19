@@ -4684,14 +4684,15 @@
 
 // MARK: - Add source: address form
 "source_address_section" = "Адреса сервера";
-"source_address_alternate_section" = "Запасна адреса";
+"source_address_alternate_section" = "Адреса маршруту";
 "source_address_section_footer" = "Залиште порт порожнім — Primuse визначить його під час збереження.";
 "source_address_placeholder" = "Домен, IP або повна адреса";
 "source_address_placeholder_vendor %@" = "Домен, IP або %@";
-"source_address_add_alternate" = "Додати запасну адресу";
+"source_address_add_alternate" = "Додати маршрут";
 "source_address_remove" = "Видалити цю адресу";
 "source_address_advanced" = "Указати порт і шифрування вручну";
 "source_address_transport" = "Підключення";
+"source_connection_route" = "Маршрут підключення";
 "source_address_transport_automatic" = "Автоматично";
 "source_address_class_loopback" = "Цей пристрій";
 "source_address_class_overlay" = "Оверлейна мережа";

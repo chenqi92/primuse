@@ -5054,9 +5054,22 @@ final class TVStore {
         guard canMutateLibrary else { return false }
         let originalSource = sourcesStore.source(id: source.id)
         var source = source
-        if let originalSource,
-           Self.connectionIdentity(originalSource) != Self.connectionIdentity(source) {
-            cancelScan(sourceID: source.id)
+        let connectionChanged = originalSource.map {
+            Self.connectionIdentity($0) != Self.connectionIdentity(source)
+        } ?? false
+        let clearsCatalog = connectionChanged && originalSource.map { previous in
+            let previousRoutes = previous.configuredConnectionCandidates
+            let previousEndpoints = Set(previousRoutes.compactMap(\.endpoint))
+            let previousVendorIDs = Set(previousRoutes.compactMap(\.vendorIdentifier))
+            let currentRoutes = source.configuredConnectionCandidates
+            // An address can move out of an additional row into the first slot.
+            let sharesRoute = !previousEndpoints.isDisjoint(with: currentRoutes.compactMap(\.endpoint))
+                || !previousVendorIDs.isDisjoint(with: currentRoutes.compactMap(\.vendorIdentifier))
+            return !sharesRoute
+                || MusicSourceScopeFingerprint.credentialScope(for: previous)
+                    != MusicSourceScopeFingerprint.credentialScope(for: source)
+        } == true
+        if clearsCatalog {
             source.lastScannedAt = nil
             source.songCount = 0
             source.extraConfig = MusicSource.encodeScannedDirectories([], into: source.extraConfig, type: source.type)
@@ -5077,11 +5090,11 @@ final class TVStore {
         MetadataAssetStore.shared.revalidateArtwork(sourceID: source.id)
         serverFeedback.cancel(sourceID: source.id)
         if let originalSource,
-           originalSource.authType != source.authType || originalSource.username != source.username {
+           connectionChanged || originalSource.connectionConfiguration != source.connectionConfiguration
+                || originalSource.authType != source.authType || originalSource.username != source.username {
             cancelScan(sourceID: source.id)
         }
-        if let originalSource,
-           Self.connectionIdentity(originalSource) != Self.connectionIdentity(source) {
+        if clearsCatalog {
             library.addSongs([], affectedSourceIDs: [source.id])
             library.persistNow()
             locallyScannedSourceIDs.remove(source.id)

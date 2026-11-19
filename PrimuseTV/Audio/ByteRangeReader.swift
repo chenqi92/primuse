@@ -173,9 +173,17 @@ actor TVRoutedByteRangeReader: ByteRangeReader {
             routeGeneration = currentGeneration
         }
         var lastError: Error = TVRoutedByteRangeReaderError.noConnection
-        let preferredKind = await SourceConnectionRuntime.shared.preferredKind(
+        let runtime = SourceConnectionRuntime.shared
+        var preferredKind = await runtime.preferredKind(
             for: sourceID, availableKinds: candidates.map(\.kind)
         )
+        if activeIndex == nil, candidates.count > 1, candidates.contains(where: { $0.kind.isAlternative }) {
+            let routes = candidates.map { SourceConnectionCandidate(kind: $0.kind, endpoint: $0.endpoint) }
+            if let winner = await runtime.probeAdditionalRoutes(routes, for: sourceID, probe: endpointProbe) {
+                preferredKind = winner
+            }
+            try Task.checkCancellation()
+        }
         var orderedIndices = Array(candidates.indices)
         let preferredIndex = preferredKind.flatMap { kind in
                 candidates.firstIndex(where: { $0.kind == kind })

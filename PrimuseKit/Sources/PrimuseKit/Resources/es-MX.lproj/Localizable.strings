@@ -829,14 +829,15 @@
 
 /* Apple TV add-source address form (shared wording with iPhone) */
 "source_address_section" = "Dirección del servidor";
-"source_address_alternate_section" = "Dirección alterna";
+"source_address_alternate_section" = "Dirección de la ruta";
 "source_address_section_footer" = "Deja el puerto vacío y Primuse lo averigua al guardar.";
 "source_address_placeholder" = "Dominio, IP o URL completa";
 "source_address_placeholder_vendor %@" = "Dominio, IP o %@";
-"source_address_add_alternate" = "Agregar dirección alterna";
+"source_address_add_alternate" = "Agregar una ruta";
 "source_address_remove" = "Quitar esta dirección";
 "source_address_advanced" = "Configurar el puerto y el cifrado manualmente";
 "source_address_transport" = "Conexión";
+"source_connection_route" = "Ruta de conexión";
 "source_address_transport_automatic" = "Automático";
 "source_address_class_loopback" = "Este dispositivo";
 "source_address_class_overlay" = "Red de malla";

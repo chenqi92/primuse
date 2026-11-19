@@ -133,3 +133,49 @@ public enum SourceConnectionPreflight {
         return .name(literal, nil)
     }
 }
+
+/// Cold-start reachability for a source with several direct addresses. Routes
+/// on the same class of network start together, regardless of their form order.
+public enum SourceConnectionRouteRace {
+    public static func firstReachable(
+        in candidates: [SourceConnectionCandidate],
+        prefersLocalNetwork: Bool? = nil,
+        probe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check
+    ) async -> SourceConnectionCandidate? {
+        let preferLocal: Bool
+        if let prefersLocalNetwork {
+            preferLocal = prefersLocalNetwork
+        } else {
+            preferLocal = await SourceConnectionRuntime.shared.pathCondition().prefersPrivateRouteFirst
+        }
+        let targets = candidates.compactMap { candidate -> (route: SourceConnectionCandidate, endpoint: SourceConnectionEndpoint, preferred: Bool)? in
+            guard let endpoint = candidate.endpoint, endpoint.isUsable else { return nil }
+            let hostClass = SourceAddressFormPolicy.hostClass(ofHost: endpoint.host)
+            let isLocal = hostClass == .lan || hostClass == .loopback
+            return (candidate, endpoint, isLocal == preferLocal)
+        }
+        guard !targets.isEmpty, !Task.isCancelled else { return nil }
+        let hasPreferred = targets.contains { $0.preferred }
+        return await withTaskGroup(of: SourceConnectionCandidate?.self) { group in
+            for (candidate, endpoint, preferred) in targets {
+                group.addTask {
+                    do {
+                        if hasPreferred && !preferred { try await Task.sleep(for: .milliseconds(250)) }
+                        try Task.checkCancellation()
+                        try await probe(endpoint)
+                        return candidate
+                    } catch {
+                        return nil
+                    }
+                }
+            }
+            for await winner in group {
+                if let winner {
+                    group.cancelAll()
+                    return winner
+                }
+            }
+            return nil
+        }
+    }
+}

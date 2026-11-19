@@ -829,14 +829,15 @@
 
 /* Apple TV add-source address form (shared wording with iPhone) */
 "source_address_section" = "सर्वर का पता";
-"source_address_alternate_section" = "वैकल्पिक पता";
+"source_address_alternate_section" = "मार्ग का पता";
 "source_address_section_footer" = "पोर्ट खाली छोड़ दें, सहेजते समय Primuse खुद पता लगा लेगा।";
 "source_address_placeholder" = "डोमेन, IP या पूरा URL";
 "source_address_placeholder_vendor %@" = "डोमेन, IP या %@";
-"source_address_add_alternate" = "वैकल्पिक पता जोड़ें";
+"source_address_add_alternate" = "मार्ग जोड़ें";
 "source_address_remove" = "यह पता हटाएँ";
 "source_address_advanced" = "पोर्ट और एन्क्रिप्शन खुद सेट करें";
 "source_address_transport" = "कनेक्शन";
+"source_connection_route" = "कनेक्शन मार्ग";
 "source_address_transport_automatic" = "स्वचालित";
 "source_address_class_loopback" = "यही डिवाइस";
 "source_address_class_overlay" = "मेश नेटवर्क";

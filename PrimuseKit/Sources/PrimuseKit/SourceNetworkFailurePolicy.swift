@@ -1,6 +1,46 @@
 import Foundation
 import Network
 
+public extension SourceConnectionRuntime {
+    /// Returns a TCP race winner only for a cold, multi-line configuration.
+    /// A live session and a manually selected single route need no race.
+    func probeAdditionalRoutes(
+        _ candidates: [SourceConnectionCandidate],
+        for sourceID: String,
+        probe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check
+    ) async -> SourceConnectionCandidateKind? {
+        guard candidates.count > 1, candidates.contains(where: { $0.kind.isAlternative }),
+              !candidates.contains(where: { $0.kind == activeKind(for: sourceID) }) else { return nil }
+        let backOffLocal = isLocalRouteBackedOff(for: sourceID)
+        let eligible = candidates.filter { !backOffLocal || $0.kind != .localAddress }
+        let generation = routeGeneration()
+        let winner = await SourceConnectionRouteRace.firstReachable(
+            in: eligible, prefersLocalNetwork: pathCondition().prefersPrivateRouteFirst, probe: probe
+        )
+        return routeGeneration() == generation ? winner?.kind : nil
+    }
+
+    func connectionAttemptCandidates(
+        for source: MusicSource,
+        probe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check
+    ) async -> [SourceConnectionCandidate] {
+        await connectionAttemptOrder(for: source, probe: probe).candidates
+    }
+
+    internal func connectionAttemptOrder(
+        for source: MusicSource, probe: @escaping SourceNetworkFailurePolicy.EndpointProbe
+    ) async -> (candidates: [SourceConnectionCandidate], verified: SourceConnectionCandidate?, generation: UInt64) {
+        let ordered = orderedCandidates(for: source)
+        let generation = routeGeneration()
+        guard let winner = await probeAdditionalRoutes(ordered, for: source.id, probe: probe),
+              generation == routeGeneration(),
+              let candidate = ordered.first(where: { $0.kind == winner }) else {
+            return (ordered, nil, generation)
+        }
+        return ([candidate] + ordered.filter { $0.kind != winner }, candidate, generation)
+    }
+}
+
 /// Route health needs transport evidence. Service responses, trust decisions,
 /// cancellation and unknown errors must not quarantine a reachable endpoint.
 public enum SourceNetworkFailurePolicy {

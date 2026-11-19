@@ -880,14 +880,15 @@
 
 /* Apple TV add-source address form (shared wording with iPhone) */
 "source_address_section" = "Server Address";
-"source_address_alternate_section" = "Alternate Address";
+"source_address_alternate_section" = "Route address";
 "source_address_section_footer" = "Leave the port blank and Primuse works it out when you save.";
 "source_address_placeholder" = "Domain, IP, or full URL";
 "source_address_placeholder_vendor %@" = "Domain, IP, or %@";
-"source_address_add_alternate" = "Add an alternate address";
+"source_address_add_alternate" = "Add a route";
 "source_address_remove" = "Remove this address";
 "source_address_advanced" = "Set the port and encryption manually";
 "source_address_transport" = "Connection";
+"source_connection_route" = "Connection route";
 "source_address_transport_automatic" = "Automatic";
 "source_address_class_loopback" = "This device";
 "source_address_class_overlay" = "Mesh network";

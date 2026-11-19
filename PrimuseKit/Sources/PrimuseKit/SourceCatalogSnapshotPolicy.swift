@@ -67,6 +67,16 @@ public enum MusicSourceScopeFingerprint {
             components.append(configuration.remoteAccessMode.rawValue)
             components.append(configuration.vendorIdentifier?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+            for route in configuration.additionalEndpoints {
+                let endpoint = route.endpoint.normalized
+                components.append(contentsOf: [
+                    route.id.uuidString, endpoint.host.lowercased(), String(endpoint.port),
+                    endpoint.useSsl ? "tls" : "plain", endpoint.pathPrefix ?? ""
+                ])
+            }
+            if let selected = configuration.selectedRoute {
+                components.append("selected=" + selected.rawValue)
+            }
         } else {
             components.append(source.host?.lowercased() ?? "")
             components.append(source.port.map(String.init) ?? "")
@@ -122,6 +132,7 @@ public enum MusicSourceScopeFingerprint {
             return source.basePath ?? ""
         }
         let endpoint = configuration.localEndpoint ?? configuration.publicEndpoint
+            ?? configuration.additionalEndpoints.first?.endpoint
         return endpoint?.normalized.pathPrefix ?? ""
     }
 }
@@ -147,9 +158,8 @@ public enum SourceScanContentScopePolicy {
 
     private static func contentFields(of source: MusicSource) -> MusicSource {
         var fields = source
-        if source.type.supportsEndpointSpecificPath,
-           !source.type.endpointPathPrefixSelectsContent {
-            // 服务端接口类源的 basePath 就是地址里的路径前缀，属于线路。
+        if source.type.supportsEndpointSpecificPath {
+            // 内容根由 credentialScope 核对；basePath 也可能只是当前线路投影出的前缀。
             fields.basePath = nil
         }
         fields.name = ""

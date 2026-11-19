@@ -6,6 +6,36 @@ import Testing
 struct SourceRouteMemoryTests {
     let kinds: [SourceConnectionCandidateKind] = [.localAddress, .publicAddress]
 
+    @Test(.timeLimit(.minutes(1)))
+    func fasterThirdLANRouteWinsAndIsReusedUntilTheNetworkChanges() async throws {
+        let third = SourceConnectionCandidateKind.alternative(UUID())
+        let kinds: [SourceConnectionCandidateKind] = [.localAddress, .alternative(UUID()), third]
+        let candidates = kinds.enumerated().map { index, kind in
+            SourceConnectionCandidate(kind: kind, endpoint: .init(host: "10.0.0.\(index + 1)", port: 443, useSsl: true))
+        }
+        let slowProbeStarted = AsyncStream<Void>.makeStream()
+        let winner = await SourceConnectionRouteRace.firstReachable(in: candidates, prefersLocalNetwork: true) { endpoint in
+            if endpoint.host == "10.0.0.3" {
+                for await _ in slowProbeStarted.stream {}
+            } else {
+                slowProbeStarted.continuation.finish()
+                // A slow but otherwise healthy TCP connection remains pending until the race cancels it.
+                let pending = AsyncStream<Void>.makeStream()
+                defer { pending.continuation.finish() }
+                for await _ in pending.stream {}
+                try Task.checkCancellation()
+            }
+        }
+        let winningKind = try #require(winner?.kind)
+        #expect(winningKind == third)
+
+        let runtime = SourceConnectionRuntime()
+        await runtime.record(winningKind, for: "nas")
+        #expect(await runtime.preferredKind(for: "nas", availableKinds: kinds, prefersLocalNetwork: true) == third)
+        await runtime.observeNetworkPath(prefersLocalNetwork: true, pathChanged: true)
+        #expect(await runtime.preferredKind(for: "nas", availableKinds: kinds, prefersLocalNetwork: true) == .localAddress)
+    }
+
     @Test func handshakeCooldownSteersEveryCallerToThePublicRoute() async {
         let runtime = SourceConnectionRuntime()
         let now = Date(timeIntervalSince1970: 1_000)

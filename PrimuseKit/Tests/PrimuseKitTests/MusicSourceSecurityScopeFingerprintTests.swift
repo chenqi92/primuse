@@ -189,6 +189,33 @@ struct MusicSourceSecurityScopeFingerprintTests {
         ))
     }
 
+    @Test func selectingOrEditingAnAdditionalWebDAVRouteKeepsTheCatalogAndRebuildsTheConnector() {
+        let routeID = UUID()
+        var automatic = makeWebDAVSource()
+        automatic.connectionConfiguration = .init(
+            localEndpoint: .init(host: "192.168.0.50", port: 5006, useSsl: true, pathPrefix: "/music"),
+            additionalEndpoints: [
+                .init(id: routeID, endpoint: .init(host: "edge.example.com", port: 443, useSsl: true, pathPrefix: "/dav/proxy")),
+            ]
+        )
+        var fixed = automatic
+        fixed.connectionConfiguration?.selectedRoute = .alternative(routeID)
+        fixed = fixed.projectingPreferredConnectionForLegacy()
+        #expect(fixed.basePath == "/dav/proxy")
+        var edited = fixed
+        edited.connectionConfiguration?.additionalEndpoints[0].endpoint.port = 8443
+        edited = edited.projectingPreferredConnectionForLegacy()
+
+        let sources = [automatic, fixed, edited]
+        let connectorScopes = sources.map { MusicSourceSecurityScopeFingerprint.make(for: $0, revision: 3) }
+        #expect(Set(connectorScopes).count == 3)
+        let credentialScopes = sources.map { MusicSourceSecurityScopeFingerprint.credentialScoped(for: $0, revisionIdentity: "3") }
+        #expect(Set(credentialScopes).count == 1)
+        #expect(SourceScanContentScopePolicy.contentUnchanged(previous: automatic, current: fixed))
+        #expect(SourceScanContentScopePolicy.contentUnchanged(previous: fixed, current: edited))
+        #expect(SourceScanContentScopePolicy.contentUnchanged(previous: edited, current: automatic))
+    }
+
     @Test func credentialScopeRejectsAnAlternateAddressServingAnotherContentRoot() {
         // WebDAV 的路径就是目录：换了前缀就是换了一份内容。
         let source = makeWebDAVSource()

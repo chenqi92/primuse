@@ -1,30 +1,11 @@
 import Foundation
 
-/// 「添加音乐源」表单里那几行地址怎么归位、怎么解读、什么时候需要重新探测。
-///
-/// 以前表单常驻两个区块(内网 / 公网),各有地址、端口、SSL、路径前缀,用户得
-/// 自己判断手上这个地址该填哪个框 —— 而这个判断本来就是 App 自己能做的。现在
-/// 表单只剩一串地址,归位规则集中在这里:`localEndpoint` / `publicEndpoint` /
-/// `vendorIdentifier` 这三个存储位置**一点没变**,变的只是谁来决定往哪存。
-///
-/// 规则放在 kit 里还有一个原因:iOS 与 macOS 是两套布局,归位与解读一旦各写一遍
-/// 就会慢慢长歪。两边都只调这里。
-///
-/// 纯函数、不访问网络;真正的探测在 `SourceEndpointResolver`。
+/// Shared address parsing, route selection and persistence for the source editors.
 public enum SourceAddressFormPolicy {
-
-    /// 地址框最多几行。数据模型只有 `localEndpoint` / `publicEndpoint` 两个端点
-    /// 槽,再多的地址无处可存;厂商标识不占槽,所以"两行"够表达
-    /// 「内网 + 公网」和「内网 + QuickConnect」这两种真实配置。
-    public static let maximumAddressCount = 2
-
-    // MARK: - 槽位
-
-    /// 一行地址最终存到哪。槽位只是存储位置的名字,不是对路由的限制 ——
-    /// 两个槽都会被 `MusicSource.connectionCandidates` 排成候选。
     public enum Slot: String, Sendable, Equatable, CaseIterable {
         case local
         case publicAddress
+        case additional
         /// 厂商远程接入标识。不占端点槽,走 `vendorIdentifier`。
         case vendor
     }
@@ -32,6 +13,7 @@ public enum SourceAddressFormPolicy {
     /// 界面上的一行地址输入,连同它自己那组高级选项。
     public struct AddressDraft: Sendable, Equatable {
         public var address: String
+        public var savedRoute: SourceConnectionCandidateKind?
         /// 手填的端口。**nil 表示自动** —— 端口框留空就是让 App 去试,
         /// 而不是像旧表单那样预填一个真实值然后永远赢。
         public var manualPort: Int?
@@ -44,9 +26,11 @@ public enum SourceAddressFormPolicy {
             address: String = "",
             manualPort: Int? = nil,
             manualUseSsl: Bool? = nil,
-            treatDotlessTokenAsHostname: Bool = false
+            treatDotlessTokenAsHostname: Bool = false,
+            savedRoute: SourceConnectionCandidateKind? = nil
         ) {
             self.address = address
+            self.savedRoute = savedRoute
             self.manualPort = manualPort
             self.manualUseSsl = manualUseSsl
             self.treatDotlessTokenAsHostname = treatDotlessTokenAsHostname
@@ -138,6 +122,19 @@ public enum SourceAddressFormPolicy {
         case vendor(VendorReading)
         case endpoint(EndpointReading)
         case invalid(SourceAddressInputPolicy.InvalidReason)
+
+        public func routeLabel(sourceType: MusicSourceType) -> String? {
+            switch self {
+            case let .endpoint(row):
+                guard row.slot != nil, let candidate = row.preferred else { return nil }
+                let endpoint = SourceConnectionCandidatePlanner.endpoint(for: row.input, candidate: candidate)
+                return SourceAddressInputPolicy.renderedAddress(for: endpoint, sourceType: sourceType)
+            case let .vendor(row) where !row.isRedundant:
+                return row.id
+            default:
+                return nil
+            }
+        }
     }
 
     public struct VendorReading: Sendable, Equatable {
@@ -242,8 +239,7 @@ public enum SourceAddressFormPolicy {
 
     /// 地址按主机位置归位:内网 / 回环进 local,公网进 public,覆盖网优先 public。
     ///
-    /// 两条地址想进同一个槽而另一个槽空着时,后来的那条放进空槽 —— 槽只是标签,
-    /// 两条都会成为候选,顺序由 `SourceConnectionRuntime` 按当前网络决定。
+    /// 同类的后续地址各占一条独立线路。
     public static func place(
         _ interpretations: [SourceAddressInputPolicy.Interpretation]
     ) -> Placement {
@@ -265,40 +261,17 @@ public enum SourceAddressFormPolicy {
             }
         }
 
-        let endpoints: [(index: Int, preferred: Slot)] = interpretations.enumerated()
-            .compactMap { index, interpretation in
-                guard case let .endpoint(input) = interpretation else { return nil }
-                return (
-                    index,
-                    preferredSlot(for: hostClass(of: input), vendorIsPresent: vendorIndex != nil)
-                )
-            }
-
-        func claim(_ slot: Slot, at index: Int) -> Bool {
-            switch slot {
-            case .local:
-                guard localIndex == nil else { return false }
+        for (index, interpretation) in interpretations.enumerated() {
+            guard case let .endpoint(input) = interpretation else { continue }
+            let preferred = preferredSlot(for: hostClass(of: input), vendorIsPresent: vendorIndex != nil)
+            if preferred == .local && localIndex == nil {
                 localIndex = index
-            case .publicAddress:
-                guard publicIndex == nil else { return false }
+                slots[index] = .local
+            } else if preferred == .publicAddress && publicIndex == nil {
                 publicIndex = index
-            case .vendor:
-                return false
-            }
-            slots[index] = slot
-            return true
-        }
-
-        for endpoint in endpoints {
-            _ = claim(endpoint.preferred, at: endpoint.index)
-        }
-        for endpoint in endpoints where slots[endpoint.index] == nil {
-            // 首选槽被占了就退到另一个槽。带厂商标识时 public 槽是死的
-            // (见 preferredSlot 的说明),所以这里不会把它当退路。
-            let alternative: Slot = endpoint.preferred == .local ? .publicAddress : .local
-            let isDeadSlot = vendorIndex != nil && alternative == .publicAddress
-            if isDeadSlot || claim(alternative, at: endpoint.index) == false {
-                unused.append(endpoint.index)
+                slots[index] = .publicAddress
+            } else {
+                slots[index] = .additional
             }
         }
 
@@ -309,6 +282,47 @@ public enum SourceAddressFormPolicy {
             vendorIndex: vendorIndex,
             unusedIndices: unused.sorted()
         )
+    }
+
+    public static func configuration(
+        for reading: FormReading,
+        rowIDs: [UUID],
+        selectedCandidates: [UUID: SourceConnectionCandidatePlanner.Candidate],
+        selectedRowID: UUID?,
+        sourceType: MusicSourceType
+    ) -> SourceConnectionConfiguration {
+        var configuration = SourceConnectionConfiguration()
+        for (rowID, row) in zip(rowIDs, reading.rows) {
+            let kind: SourceConnectionCandidateKind
+            switch row {
+            case let .vendor(vendor) where !vendor.isRedundant:
+                configuration.remoteAccessMode = .vendor
+                configuration.vendorIdentifier = vendor.id
+                kind = .vendorRemote
+            case let .endpoint(row):
+                guard let slot = row.slot,
+                      let candidate = selectedCandidates[rowID] ?? row.preferred else { continue }
+                var endpoint = SourceConnectionCandidatePlanner.endpoint(for: row.input, candidate: candidate).normalized
+                if !sourceType.supportsEndpointPathPrefix { endpoint.pathPrefix = nil }
+                switch slot {
+                case .local:
+                    configuration.localEndpoint = endpoint
+                    kind = .localAddress
+                case .publicAddress:
+                    configuration.publicEndpoint = endpoint
+                    kind = .publicAddress
+                case .additional:
+                    configuration.additionalEndpoints.append(SourceConnectionAlternative(id: rowID, endpoint: endpoint))
+                    kind = .alternative(rowID)
+                case .vendor:
+                    continue
+                }
+            default:
+                continue
+            }
+            if selectedRowID == rowID { configuration.selectedRoute = kind }
+        }
+        return configuration
     }
 
     /// 单标签主机名(`mynas`、`nas`)在公网上不可能存在 —— 没有哪个顶级域叫这个,
@@ -435,8 +449,7 @@ public enum SourceAddressFormPolicy {
         if vendorIsPresent { return .local }
         switch hostClass {
         case .loopback, .lan: return .local
-        // 覆盖网(Tailscale 之类)从外面也够得着,当远程路由用更合适;
-        // 公网槽被占了会在上面退回 local。
+        // 覆盖网从外部也可访问，首条使用远程地址槽。
         case .overlay, .public: return .publicAddress
         }
     }
@@ -487,16 +500,19 @@ public enum SourceAddressFormPolicy {
     ) -> [AddressDraft] {
         var drafts: [AddressDraft] = []
         if let endpoint = configuration.localEndpoint, endpoint.isUsable {
-            drafts.append(draft(for: endpoint, sourceType: sourceType))
+            drafts.append(draft(for: endpoint, sourceType: sourceType, kind: .localAddress))
         }
         if configuration.remoteAccessMode == .vendor,
            sourceType.supportsVendorRemoteAccess,
            let identifier = configuration.vendorIdentifier?
                .trimmingCharacters(in: .whitespacesAndNewlines),
            identifier.isEmpty == false {
-            drafts.append(AddressDraft(address: identifier))
+            drafts.append(AddressDraft(address: identifier, savedRoute: .vendorRemote))
         } else if let endpoint = configuration.publicEndpoint, endpoint.isUsable {
-            drafts.append(draft(for: endpoint, sourceType: sourceType))
+            drafts.append(draft(for: endpoint, sourceType: sourceType, kind: .publicAddress))
+        }
+        for route in configuration.additionalEndpoints where route.endpoint.isUsable {
+            drafts.append(draft(for: route.endpoint, sourceType: sourceType, kind: .alternative(route.id)))
         }
         return drafts
     }
@@ -508,13 +524,15 @@ public enum SourceAddressFormPolicy {
     /// 本来就不可能被当成厂商标识。
     private static func draft(
         for endpoint: SourceConnectionEndpoint,
-        sourceType: MusicSourceType
+        sourceType: MusicSourceType,
+        kind: SourceConnectionCandidateKind
     ) -> AddressDraft {
         AddressDraft(
             address: SourceAddressInputPolicy.renderedAddress(
                 for: endpoint,
                 sourceType: sourceType
-            )
+            ),
+            savedRoute: kind
         )
     }
 

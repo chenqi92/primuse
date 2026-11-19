@@ -4779,14 +4779,15 @@
 
 // MARK: - Add source: address form
 "source_address_section" = "サーバーのアドレス";
-"source_address_alternate_section" = "予備のアドレス";
+"source_address_alternate_section" = "接続先アドレス";
 "source_address_section_footer" = "ポートを空けておけば、保存時に Primuse が自動で見つけます。";
 "source_address_placeholder" = "ドメイン、IP、または URL";
 "source_address_placeholder_vendor %@" = "ドメイン、IP、または %@";
-"source_address_add_alternate" = "予備のアドレスを追加";
+"source_address_add_alternate" = "接続経路を追加";
 "source_address_remove" = "このアドレスを削除";
 "source_address_advanced" = "ポートと暗号化を手動で設定";
 "source_address_transport" = "接続方法";
+"source_connection_route" = "接続経路";
 "source_address_transport_automatic" = "自動";
 "source_address_class_loopback" = "このデバイス";
 "source_address_class_overlay" = "メッシュネットワーク";
