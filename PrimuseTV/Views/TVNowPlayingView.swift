@@ -108,6 +108,12 @@ struct TVNowPlayingView: View {
     @FocusState private var scrubberFocused: Bool
     /// 传输键这一行里喜欢、随机、循环、浏览、更多这些键(`TVPlayerRowControl.rawValue`)。
     @FocusState private var focusedRowControl: String?
+    /// MV 全屏时下面的控件排藏起来了(遥控几秒不动、或按了返回)。
+    @State private var musicVideoChromeHidden = false
+    /// 控件排正在收起:先把焦点交给唤醒层,再淡出(见 `yieldMusicVideoChromeFocus`)。
+    @State private var musicVideoChromeYieldsFocus = false
+    @State private var musicVideoChromeTask: Task<Void, Never>?
+    @FocusState private var musicVideoWakeFocused: Bool
     /// 升起货架前焦点在哪颗键上。不参与观察:每挪一次焦点都要记。
     @State private var shelfFocusMemory = TVPlayerShelfFocusMemory()
 
@@ -191,6 +197,10 @@ struct TVNowPlayingView: View {
         .onExitCommand {
             if showShelf {
                 if !shelfReleasesFocus { closeShelf(startedPlayback: false) }
+            } else if store.isMusicVideoPlaybackActive, !musicVideoChromeHidden, !musicVideoChromeYieldsFocus,
+                      activePresentationCount == 0 {
+                // MV 全屏时控件排还在:先收起控件排只留画面,再按一次才离开播放页。
+                yieldMusicVideoChromeFocus()
             } else if isTabContent {
                 onReturnToTabs()
             } else {
@@ -655,8 +665,7 @@ struct TVNowPlayingView: View {
     // MARK: 左列
 
     private var musicVideoFullScreenPlayer: some View {
-        let np = store.nowPlaying
-        return ZStack {
+        ZStack {
             TVMusicVideoSurface(player: store.engine.displayPlayer)
                 .ignoresSafeArea()
                 .background(.black)
@@ -667,61 +676,182 @@ struct TVNowPlayingView: View {
                 endPoint: .bottom
             )
             .ignoresSafeArea()
+            .opacity(musicVideoChromeHidden ? 0 : 1)
 
-            VStack(alignment: .leading, spacing: 0) {
-                TVEyebrow(
-                    text: PMString("ext.tv.nowPlaying.eyebrow"),
-                    color: .white.opacity(0.62)
-                )
-                .padding(.bottom, 18)
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(np.title)
-                        .tvFont(size: 58, weight: .bold, relativeTo: .largeTitle)
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                    TVContentRatingBadge(songID: store.currentSongID)
-                }
-                Text(np.artist)
-                    .tvFont(.cardTitle, weight: .regular)
-                    .foregroundStyle(.white.opacity(0.74))
-                    .padding(.top, 8)
-                audioInfoButton(np, color: .white.opacity(0.52))
-                    .padding(.top, 5)
+            musicVideoWakeLayer
 
-                Spacer(minLength: 0)
-
-                if let issue = store.playbackIssue {
-                    Label(issue.message, systemImage: "exclamationmark.triangle.fill")
-                        .tvFont(.caption, weight: .medium)
-                        .foregroundStyle(TVColor.warn)
-                        .lineLimit(3)
-                        .padding(.bottom, 18)
-                } else if let preparing = MusicVideoPreparationStatus.shared.label(for: np.songID) {
-                    Label(preparing, systemImage: "film")
-                        .tvFont(.caption, weight: .medium)
-                        .foregroundStyle(.white.opacity(0.74))
-                        .monospacedDigit()
-                        .padding(.bottom, 18)
-                } else if store.isLoading {
-                    loadingStatus.padding(.bottom, 18)
-                }
-
-                scrubber(immersiveDark: true)
-                    .padding(.bottom, 20)
-                // 放画面的有声内容(#365)用有声那排:倍速、睡眠、书签和「只听声音」都在。
-                if store.currentItemIsSpokenWord {
-                    spokenWordTransport
-                } else {
-                    transport(immersiveDark: true)
-                }
+            if !musicVideoChromeHidden {
+                musicVideoChrome
+                    .transition(.opacity)
             }
-            .focusScope(playerFocus)
-            .focusSection()
-            .padding(.horizontal, 100)
-            .padding(.top, isTabContent ? TVSpace.pageTop : 78)
-            .padding(.bottom, isTabContent ? TVSpace.pageBottom : 70)
         }
         .environment(\.colorScheme, .dark)
+        .onAppear { scheduleMusicVideoChromeHide() }
+        .onDisappear { resetMusicVideoChrome() }
+        .onChange(of: musicVideoWakeFocused) { _, focused in
+            if focused { hideMusicVideoChromeAfterFocusYielded() }
+        }
+        .onChange(of: store.isPlaying) { _, _ in noteMusicVideoInteraction() }
+    }
+
+    /// MV 全屏时控件排藏起来以后承接遥控的透明层:一直挂着,焦点树不在淡出时重建;
+    /// 控件排显示时禁用,藏起来时按确认键或方向键都把控件排叫回来。
+    private var musicVideoWakeLayer: some View {
+        Button {
+            revealMusicVideoChrome()
+        } label: {
+            Color.clear
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused($musicVideoWakeFocused)
+        .focusEffectDisabled()
+        .disabled(!musicVideoChromeHidden && !musicVideoChromeYieldsFocus)
+        .accessibilityHidden(!musicVideoChromeHidden)
+        .onMoveCommand { _ in revealMusicVideoChrome() }
+        .ignoresSafeArea()
+    }
+
+    /// MV 全屏的控件排:标题、状态、进度和传输键。
+    private var musicVideoChrome: some View {
+        let np = store.nowPlaying
+        return VStack(alignment: .leading, spacing: 0) {
+            TVEyebrow(
+                text: PMString("ext.tv.nowPlaying.eyebrow"),
+                color: .white.opacity(0.62)
+            )
+            .padding(.bottom, 18)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(np.title)
+                    .tvFont(size: 58, weight: .bold, relativeTo: .largeTitle)
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                TVContentRatingBadge(songID: store.currentSongID)
+            }
+            Text(np.artist)
+                .tvFont(.cardTitle, weight: .regular)
+                .foregroundStyle(.white.opacity(0.74))
+                .padding(.top, 8)
+            audioInfoButton(np, color: .white.opacity(0.52))
+                .padding(.top, 5)
+
+            Spacer(minLength: 0)
+
+            if let issue = store.playbackIssue {
+                Label(issue.message, systemImage: "exclamationmark.triangle.fill")
+                    .tvFont(.caption, weight: .medium)
+                    .foregroundStyle(TVColor.warn)
+                    .lineLimit(3)
+                    .padding(.bottom, 18)
+            } else if let preparing = MusicVideoPreparationStatus.shared.label(for: np.songID) {
+                Label(preparing, systemImage: "film")
+                    .tvFont(.caption, weight: .medium)
+                    .foregroundStyle(.white.opacity(0.74))
+                    .monospacedDigit()
+                    .padding(.bottom, 18)
+            } else if store.isLoading {
+                loadingStatus.padding(.bottom, 18)
+            }
+
+            scrubber(immersiveDark: true)
+                .padding(.bottom, 20)
+            // 放画面的有声内容(#365)用有声那排:倍速、睡眠、书签和「只听声音」都在。
+            if store.currentItemIsSpokenWord {
+                spokenWordTransport
+            } else {
+                transport(immersiveDark: true)
+            }
+        }
+        .disabled(musicVideoChromeYieldsFocus)
+        .focusScope(playerFocus)
+        .focusSection()
+        .padding(.horizontal, 100)
+        .padding(.top, isTabContent ? TVSpace.pageTop : 78)
+        .padding(.bottom, isTabContent ? TVSpace.pageBottom : 70)
+    }
+
+    // MARK: MV 全屏控件排的自动收起
+
+    /// 播放中遥控几秒不动就收起控件排,只留画面;暂停、货架或弹层开着、正在拖进度时不收。
+    private func scheduleMusicVideoChromeHide() {
+        musicVideoChromeTask?.cancel()
+        musicVideoChromeTask = nil
+        guard canAutoHideMusicVideoChrome else { return }
+        musicVideoChromeTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(5))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, canAutoHideMusicVideoChrome else { return }
+            yieldMusicVideoChromeFocus()
+        }
+    }
+
+    private var canAutoHideMusicVideoChrome: Bool {
+        store.isMusicVideoPlaybackActive && store.isPlaying && !musicVideoChromeHidden
+            && !showShelf && activePresentationCount == 0 && !scrubberFocused
+    }
+
+    /// 收起的第一步:控件排不再接焦点,焦点交给唤醒层,到了(`musicVideoWakeFocused`)再淡出。
+    /// 理由同 `TVImmersivePlayerView.yieldChromeFocus`:焦点还在要拿掉的控件里时碰上一次焦点更新,
+    /// UIKit 会断言闪退。一直等不到焦点也不把控件排留着,稍后不带动画直接拿掉。
+    private func yieldMusicVideoChromeFocus() {
+        guard !musicVideoChromeHidden, !musicVideoChromeYieldsFocus else { return }
+        musicVideoChromeTask?.cancel()
+        musicVideoChromeTask = nil
+        musicVideoChromeYieldsFocus = true
+        Task { @MainActor in
+            await Task.yield()
+            guard musicVideoChromeYieldsFocus else { return }
+            musicVideoWakeFocused = true
+            try? await Task.sleep(for: .milliseconds(750))
+            hideMusicVideoChromeAfterFocusYielded(animated: false)
+        }
+    }
+
+    private func hideMusicVideoChromeAfterFocusYielded(animated: Bool = true) {
+        guard !musicVideoChromeHidden, musicVideoChromeYieldsFocus else { return }
+        let animates = animated && !reduceMotion
+        var transaction = Transaction(animation: animates ? .easeInOut(duration: 0.4) : nil)
+        transaction.disablesAnimations = !animates
+        withTransaction(transaction) {
+            musicVideoChromeHidden = true
+        }
+    }
+
+    /// 叫回控件排,焦点落在播放 / 暂停上,重新计时。
+    private func revealMusicVideoChrome() {
+        musicVideoChromeYieldsFocus = false
+        if musicVideoChromeHidden {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.24)) {
+                musicVideoChromeHidden = false
+            }
+            Task { @MainActor in
+                await Task.yield()
+                guard store.isMusicVideoPlaybackActive, !musicVideoChromeHidden else { return }
+                resetFocus(in: playerFocus)
+                focusedTransport = .songPrimary
+            }
+        }
+        scheduleMusicVideoChromeHide()
+    }
+
+    /// 遥控有操作(移动焦点、按播放键、暂停或继续):藏着就叫回来,显示着就重新计时。
+    private func noteMusicVideoInteraction() {
+        guard store.isMusicVideoPlaybackActive else { return }
+        if musicVideoChromeHidden {
+            revealMusicVideoChrome()
+        } else if !musicVideoChromeYieldsFocus {
+            scheduleMusicVideoChromeHide()
+        }
+    }
+
+    private func resetMusicVideoChrome() {
+        musicVideoChromeTask?.cancel()
+        musicVideoChromeTask = nil
+        musicVideoChromeYieldsFocus = false
+        musicVideoChromeHidden = false
     }
 
     private var leftColumn: some View {
@@ -1286,6 +1416,7 @@ struct TVNowPlayingView: View {
 
     private func registerInteraction() {
         interactionClock.touch()
+        noteMusicVideoInteraction()
     }
 
     /// 传输键这一行的圆键聚焦或按下时:算一次操作,并记下焦点在它身上(货架收起时回到它)。
