@@ -20,7 +20,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     NetworkAdaptiveTranscodingConnector, TemporaryAudioProcessingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector, ServerCatalogEnrichingConnector,
-    ServerPlaylistConnector, ServerPlaylistCreatingConnector, ServerPlaylistDescriptionConnector,
+    ServerPlaylistConnector, ServerPlaylistRemovingConnector, ServerPlaylistCreatingConnector, ServerPlaylistDescriptionConnector,
     ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerListeningStatsConnector, ServerRatingConnector, MediaServerWritebackConnector,
     ServerLibraryListingConnector {
@@ -2038,6 +2038,45 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return refreshed
     }
 
+    private var pendingRemovals = Set<String>()
+
+    func removeFromServerPlaylist(id: String, itemIDs: Set<String>) async throws -> ServerPlaylistRemovalResult {
+        guard !id.isEmpty, id != Self.starredPlaylistID, !itemIDs.isEmpty,
+              !itemIDs.contains("") else { throw SourceError.fileNotFound(id) }
+        guard pendingRemovals.insert(id).inserted else { throw URLError(.resourceUnavailable) }
+        defer { pendingRemovals.remove(id) }
+        try await connect()
+        var current = try await serverPlaylistDetail(id: id, summary: nil, requiresExactOrder: true)
+        while true {
+            try Task.checkCancellation()
+            // Mirrors show one row per track. Remove every occurrence of that track,
+            // using positions from this server response, including duplicates.
+            let trackIDs = current.trackIDs
+            let batch = Array(trackIDs.indices.reversed().lazy.filter { itemIDs.contains(trackIDs[$0]) }.prefix(100))
+            if batch.isEmpty { return .updated(current) }
+            if current.isSmartPlaylist { return .readOnly(current) }
+            let query = [URLQueryItem(name: "playlistId", value: id)] + batch.map {
+                URLQueryItem(name: "songIndexToRemove", value: String($0))
+            }
+            let response: EmptyContainer
+            do {
+                response = try await responseJSON("updatePlaylist", query: query)
+            } catch let error as SubsonicHTTPStatusError where error.statusCode == 403 {
+                return .readOnly(current.withReadOnly(true))
+            }
+            guard response.status == "ok" else {
+                if response.error?.code == 50 { return .readOnly(current.withReadOnly(true)) }
+                throw Self.error(from: response.error)
+            }
+            let removed = Set(batch)
+            let expected = current.trackIDs.enumerated().compactMap { removed.contains($0.offset) ? nil : $0.element }
+            current = try await serverPlaylistDetail(id: id, summary: nil, requiresExactOrder: true)
+            guard current.trackIDs == expected else {
+                throw SourceError.connectionFailed(String(localized: "metadata_writeback_media_readback_mismatch"))
+            }
+        }
+    }
+
     func updateServerPlaylistDescription(id: String, description: String) async throws -> ServerPlaylist {
         guard !id.isEmpty, id != Self.starredPlaylistID else {
             throw ServerPlaylistAppendError.readOnly
@@ -2082,7 +2121,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return try await serverPlaylistDetail(id: id, summary: summary)
     }
 
-    private func serverPlaylistDetail(id: String, summary: PlaylistSummary?) async throws -> ServerPlaylist {
+    private func serverPlaylistDetail(id: String, summary: PlaylistSummary?, requiresExactOrder: Bool = false) async throws -> ServerPlaylist {
         let detail: PlaylistContainer = try await requestJSON(
             "getPlaylist",
             query: [URLQueryItem(name: "id", value: id)]
@@ -2092,6 +2131,14 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
         let entries = playlist.entry?.elements ?? []
         let trackIDs = entries.compactMap { $0?.id }
+        if requiresExactOrder {
+            guard playlist.id == nil || playlist.id == id,
+                  playlist.entry != nil || playlist.songCount == 0,
+                  trackIDs.count == entries.count, !trackIDs.contains(""),
+                  playlist.songCount.map({ $0 == trackIDs.count }) ?? true else {
+                throw SourceError.connectionFailed(String(localized: "metadata_writeback_media_readback_mismatch"))
+            }
+        }
         if trackIDs.count < entries.count {
             plog("⚠️ Subsonic getPlaylist '\(playlist.name ?? id)' skipped \(entries.count - trackIDs.count) unreadable entr(ies)")
         }

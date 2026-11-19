@@ -5946,7 +5946,7 @@ final class TVStore {
             applier.finish()
             guard applyFence() else { return }
             _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library,
-                                           descriptionReadRevision: applier.descriptionReadRevision)
+                                           readRevision: applier.readRevision)
         } catch {
             if OperationCancellationPolicy.isCancellation(error) { return }
             // 歌单镜像是扫描的附加步骤,失败不能把已经成功的扫描算作失败。

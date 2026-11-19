@@ -5664,6 +5664,7 @@
 "server_playlist_create_unsupported" = "このサーバーでは Primuse からプレイリストを作成できません。サーバー上で同じ名前のプレイリストを作成してから、もう一度同期してください。";
 "server_playlist_append_partial_title" = "一部の曲は追加されませんでした";
 "server_playlist_append_partial_message %lld %lld" = "%1$lld 曲を追加しました。%2$lld 曲はサーバー上の対応する曲が見つからないため追加されませんでした。";
+"server_playlist_removed_locally" = "このデバイスのプレイリストからのみ削除しました。";
 "server_playlist_append_footer" = "曲はサーバー上のプレイリストに追加されます。削除するにはサーバー側で編集してください。";
 
 // MARK: - Apple TV scraping

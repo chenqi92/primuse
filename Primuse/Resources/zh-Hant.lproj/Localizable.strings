@@ -5640,6 +5640,7 @@
 "server_playlist_create_unsupported" = "這台伺服器不支援從 Primuse 建立歌單，可以先在伺服器上建立一個同名歌單再同步。";
 "server_playlist_append_partial_title" = "部分歌曲沒有加入";
 "server_playlist_append_partial_message %lld %lld" = "已加入 %1$lld 首；另有 %2$lld 首在伺服器上找不到對應曲目，沒有加入。";
+"server_playlist_removed_locally" = "已僅從此裝置的這份播放列表移除。";
 "server_playlist_append_footer" = "歌曲會加入伺服器上的這個播放列表；若要移除，請到伺服器上編輯。";
 
 // MARK: - Apple TV 刮削

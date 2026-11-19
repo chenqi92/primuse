@@ -5569,6 +5569,7 @@
 "server_playlist_create_unsupported" = "لا يمكن لـ Primuse إنشاء قوائم على هذا الخادم. أنشئ قائمة بالاسم نفسه على الخادم ثم زامن مجددًا.";
 "server_playlist_append_partial_title" = "لم تُضَف بعض الأغاني";
 "server_playlist_append_partial_message %lld %lld" = "تمت إضافة %1$lld أغنية. تعذّرت مطابقة %2$lld أغنية مع مقطع على الخادم فلم تُضَف.";
+"server_playlist_removed_locally" = "أُزيلت من قائمة التشغيل على هذا الجهاز فقط.";
 "server_playlist_append_footer" = "تُضاف الأغاني إلى قائمة التشغيل على الخادم. لإزالتها، عدّل القائمة على الخادم.";
 
 // MARK: - Apple TV scraping

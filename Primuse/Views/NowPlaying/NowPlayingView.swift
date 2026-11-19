@@ -15612,7 +15612,7 @@ struct AddToPlaylistSheet: View {
         library.playlists.filter { isEditablePlaylist($0.id) }
     }
 
-    /// 这首歌所在服务器上的歌单(#162)。只能往里加, 移出要在服务器上操作。
+    /// 这首歌所在服务器上的歌单。
     private var serverPlaylists: [Playlist] {
         guard let sourcesStore, sourceManager != nil else { return [] }
         return ServerPlaylistAppendService.targets(for: [song], library: library, sourcesStore: sourcesStore)
@@ -15630,14 +15630,26 @@ struct AddToPlaylistSheet: View {
         )
     }
 
-    private func appendToServerPlaylist(_ playlist: Playlist) {
+    private var supportsServerRemoval: Bool {
+        sourcesStore?.source(id: song.sourceID)?.type.isSubsonicFamily == true
+    }
+
+    private func toggleServerPlaylist(_ playlist: Playlist) {
         guard appendingPlaylistID == nil,
-              let sourcesStore, let sourceManager,
-              !library.contains(songID: song.id, inPlaylist: playlist.id) else { return }
+              let sourcesStore, let sourceManager else { return }
+        let removing = library.contains(songID: song.id, inPlaylist: playlist.id)
+        guard !removing || supportsServerRemoval else { return }
         appendingPlaylistID = playlist.id
         Task { @MainActor in
             defer { appendingPlaylistID = nil }
             do {
+                if removing {
+                    if try await ServerPlaylistRemovalService.remove([song], from: playlist.id, library: library,
+                                                                      sourcesStore: sourcesStore, sourceManager: sourceManager) {
+                        appendErrorMessage = String(localized: "server_playlist_removed_locally")
+                    }
+                    return
+                }
                 try await ServerPlaylistAppendService.append(
                     [song],
                     toMirrorPlaylist: playlist.id,
@@ -15691,7 +15703,7 @@ struct AddToPlaylistSheet: View {
                     } header: {
                         Text(verbatim: serverSectionTitle)
                     } footer: {
-                        Text("server_playlist_append_footer")
+                        if !supportsServerRemoval { Text("server_playlist_append_footer") }
                     }
                 }
             }
@@ -15712,7 +15724,7 @@ struct AddToPlaylistSheet: View {
                     newPlaylistName = ""
                 }
             }
-            .alert(String(localized: "server_playlist_append_failed_title"), isPresented: appendErrorBinding) {
+            .alert(String(localized: "playlist_kind_server_mirror"), isPresented: appendErrorBinding) {
                 Button(String(localized: "ok"), role: .cancel) {}
             } message: {
                 Text(verbatim: appendErrorMessage ?? "")
@@ -15767,6 +15779,7 @@ struct AddToPlaylistSheet: View {
                                 .padding(.bottom, 2)
                             ForEach(serverPlaylists) { playlist in
                                 macPlaylistRow(playlist)
+                                    .disabled(appendingPlaylistID != nil || (!supportsServerRemoval && library.contains(songID: song.id, inPlaylist: playlist.id)))
                             }
                         }
                     }
@@ -15817,7 +15830,7 @@ struct AddToPlaylistSheet: View {
                 newPlaylistName = ""
             }
         }
-        .alert(String(localized: "server_playlist_append_failed_title"), isPresented: appendErrorBinding) {
+        .alert(String(localized: "playlist_kind_server_mirror"), isPresented: appendErrorBinding) {
             Button(String(localized: "ok"), role: .cancel) {}
         } message: {
             Text(verbatim: appendErrorMessage ?? "")
@@ -15830,7 +15843,7 @@ struct AddToPlaylistSheet: View {
 
         return Button {
             guard isEditablePlaylist(playlist.id) else {
-                appendToServerPlaylist(playlist)
+                toggleServerPlaylist(playlist)
                 return
             }
             if isAdded {
@@ -15904,7 +15917,7 @@ struct AddToPlaylistSheet: View {
     private func serverPlaylistRow(playlist: Playlist) -> some View {
         let isAdded = library.contains(songID: song.id, inPlaylist: playlist.id)
         Button {
-            appendToServerPlaylist(playlist)
+            toggleServerPlaylist(playlist)
         } label: {
             HStack {
                 PlaylistArtworkView(playlist: playlist, size: 40, cornerRadius: 6)
@@ -15925,7 +15938,7 @@ struct AddToPlaylistSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isAdded || appendingPlaylistID != nil)
+        .disabled((isAdded && !supportsServerRemoval) || appendingPlaylistID != nil)
     }
 
     private func isEditablePlaylist(_ playlistID: String) -> Bool {

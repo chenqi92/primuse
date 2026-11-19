@@ -72,14 +72,12 @@ enum ServerPlaylistSyncService {
         }
 
         result = ServerPlaylistMirror.apply(prepared, snapshot: snapshot, source: source, library: library,
-                                            descriptionReadRevision: applier.descriptionReadRevision)
+                                            readRevision: applier.readRevision)
         return result
     }
 }
 
-/// 「添加到歌单」里能选的服务端歌单(#162)。镜像歌单本身仍是只读快照, 只是
-/// 支持追加的源(Subsonic 系、Emby、Jellyfin、Plex、Songloft、群晖 Audio Station、飞牛音乐、道理鱼)允许把自己源里的歌
-/// 加进去: 先写服务端, 再用服务端回读的明细刷新镜像, 不做乐观更新 —— 服务端拒绝时本地什么都没变。
+/// 现有「添加到歌单」入口可写入同源歌单，也可以恢复本机隐藏的成员。
 @MainActor
 enum ServerPlaylistAppendService {
     /// 这批歌可以加进去的服务端镜像歌单。歌必须全部来自同一个支持追加的源。
@@ -89,7 +87,13 @@ enum ServerPlaylistAppendService {
         sourcesStore: SourcesStore
     ) -> [Playlist] {
         guard let source = source(for: songs, sourcesStore: sourcesStore) else { return [] }
-        return writablePlaylists(sourceID: source.id, library: library)
+        let selected = Set(songs.map(\.id))
+        return library.playlists.filter { playlist in
+            guard ServerPlaylistWritebackPolicy.serverPlaylistID(fromMirrorPlaylistID: playlist.id, sourceID: source.id) != nil
+            else { return false }
+            return !ServerPlaylistMirror.readOnlyPlaylistIDs.contains(playlist.id)
+                || selected.isSubset(of: library.locallyRemovedMirrorSongs(in: playlist.id))
+        }
     }
 
     /// 这个源上当前账户能加歌的服务端歌单(镜像)。
@@ -125,14 +129,55 @@ enum ServerPlaylistAppendService {
                   fromMirrorPlaylistID: playlistID,
                   sourceID: source.id
               ) else { throw CancellationError() }
+        let selected = Set(songs.map(\.id))
+        let hidden = library.locallyRemovedMirrorSongs(in: playlistID).intersection(selected)
+        // Restore from the latest raw mirror, including its original ordering.
+        // A song since removed on the server goes through the normal append path.
+        let restorable = hidden.isEmpty ? [] : hidden.intersection(library.rawSongIDs(forPlaylist: playlistID))
+        let toAppend = songs.filter { !restorable.contains($0.id) }
+        if toAppend.isEmpty {
+            try library.setMirrorSongs(hidden, hidden: false, in: playlistID)
+            return 0
+        }
         let (refreshed, skippedCount) = try await sourceManager.appendSongs(
-            songs,
+            toAppend,
             toServerPlaylist: serverPlaylistID,
             source: source
         )
+        try library.setMirrorSongs(hidden, hidden: false, in: playlistID)
         ServerPlaylistMirror.applyAppended(refreshed, source: source, library: library)
         plog("Server playlists source=\(LogRedactionPolicy.digest(source.id)) playlist=\(LogRedactionPolicy.digest(refreshed.id)) stage=append result=complete tracks=\(songs.count - skippedCount) skipped=\(skippedCount)")
         return skippedCount
+    }
+}
+
+@MainActor
+enum ServerPlaylistRemovalService {
+    static func source(for playlistID: String, sourcesStore: SourcesStore) -> MusicSource? {
+        guard ServerPlaylistIdentity.isMirrorPlaylist(playlistID) else { return nil }
+        return sourcesStore.sources.first {
+            $0.isEnabled && !$0.isDeleted && $0.type.isSubsonicFamily &&
+                ServerPlaylistWritebackPolicy.serverPlaylistID(fromMirrorPlaylistID: playlistID, sourceID: $0.id) != nil
+        }
+    }
+
+    /// Returns true when the server explicitly denied the edit and it applies only on this device.
+    static func remove(_ songs: [Song], from playlistID: String, library: MusicLibrary,
+                       sourcesStore: SourcesStore, sourceManager: SourceManager) async throws -> Bool {
+        guard let source = source(for: playlistID, sourcesStore: sourcesStore),
+              let id = ServerPlaylistWritebackPolicy.serverPlaylistID(fromMirrorPlaylistID: playlistID, sourceID: source.id)
+        else { throw CancellationError() }
+        switch try await sourceManager.removeSongs(songs, fromServerPlaylist: id, source: source) {
+        case .updated(let refreshed):
+            ServerPlaylistMirror.applyAppended(refreshed, source: source, library: library)
+            return false
+        case .readOnly(let current):
+            // Earlier batches may already have completed. Only hide surviving remote members.
+            ServerPlaylistMirror.applyAppended(current, source: source, library: library)
+            let remaining = Set(library.rawSongIDs(forPlaylist: playlistID))
+            try library.setMirrorSongs(remaining.intersection(songs.map(\.id)), hidden: true, in: playlistID)
+            return true
+        }
     }
 }
 

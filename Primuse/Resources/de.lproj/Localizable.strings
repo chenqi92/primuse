@@ -5663,6 +5663,7 @@
 "server_playlist_create_unsupported" = "Primuse kann auf diesem Server keine Playlists anlegen. Lege dort eine mit demselben Namen an und synchronisiere erneut.";
 "server_playlist_append_partial_title" = "Einige Titel wurden nicht hinzugefügt";
 "server_playlist_append_partial_message %lld %lld" = "%1$lld Titel hinzugefügt. %2$lld Titel konnten keinem Titel auf dem Server zugeordnet werden und wurden nicht hinzugefügt.";
+"server_playlist_removed_locally" = "Nur auf diesem Gerät aus der Playlist entfernt.";
 "server_playlist_append_footer" = "Titel werden der Playlist auf dem Server hinzugefügt. Zum Entfernen die Playlist auf dem Server bearbeiten.";
 
 // MARK: - Apple TV scraping

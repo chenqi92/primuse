@@ -5569,6 +5569,7 @@
 "server_playlist_create_unsupported" = "Primuse สร้างเพลย์ลิสต์บนเซิร์ฟเวอร์นี้ไม่ได้ สร้างเพลย์ลิสต์ชื่อเดียวกันบนเซิร์ฟเวอร์แล้วซิงค์อีกครั้ง";
 "server_playlist_append_partial_title" = "บางเพลงไม่ได้ถูกเพิ่ม";
 "server_playlist_append_partial_message %lld %lld" = "เพิ่มแล้ว %1$lld เพลง อีก %2$lld เพลงไม่พบแทร็กที่ตรงกันบนเซิร์ฟเวอร์จึงไม่ได้เพิ่ม";
+"server_playlist_removed_locally" = "นำออกจากเพลย์ลิสต์นี้บนอุปกรณ์นี้เท่านั้น";
 "server_playlist_append_footer" = "เพลงจะถูกเพิ่มลงในเพลย์ลิสต์บนเซิร์ฟเวอร์ หากต้องการนำออก ให้แก้ไขเพลย์ลิสต์บนเซิร์ฟเวอร์";
 
 // MARK: - Apple TV scraping

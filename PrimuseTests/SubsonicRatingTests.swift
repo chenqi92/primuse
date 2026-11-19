@@ -943,6 +943,94 @@ final class ServerPlaylistDescriptionTests: XCTestCase {
         }
     }
 
+    func testRemovalUsesEveryRemoteOccurrenceAndVerifiesTheRemainingOrder() async throws {
+        let fixture = PlaylistDescriptionHTTPFixture(mode: .duplicateRows)
+        let (connector, session) = makeSource(fixture)
+        defer { session.invalidateAndCancel() }
+        let result = try await connector.removeFromServerPlaylist(id: "list.a-42", itemIDs: ["target"])
+        guard case .updated(let playlist) = result else { return XCTFail("Expected confirmed update") }
+        XCTAssertEqual(playlist.trackIDs, ["unmatched", "other"])
+        let write = try XCTUnwrap(fixture.requests.first { $0.url?.lastPathComponent == "updatePlaylist.view" })
+        let query = try XCTUnwrap(URLComponents(url: try XCTUnwrap(write.url), resolvingAgainstBaseURL: false)?.queryItems)
+        XCTAssertEqual(query.filter { $0.name == "songIndexToRemove" }.compactMap(\.value), ["3", "1"])
+        _ = try await connector.removeFromServerPlaylist(id: "list.a-42", itemIDs: ["target"])
+        XCTAssertEqual(fixture.requests.filter { $0.url?.lastPathComponent == "updatePlaylist.view" }.count, 1)
+    }
+
+    func testUnreadableRowsAndUnconfirmedWritesCannotChangeTheMirror() async throws {
+        for mode in [PlaylistDescriptionHTTPFixture.Mode.badEntry, .mismatch] {
+            let fixture = PlaylistDescriptionHTTPFixture(mode: mode)
+            let (connector, session) = makeSource(fixture)
+            defer { session.invalidateAndCancel() }
+            do {
+                _ = try await connector.removeFromServerPlaylist(id: "list.a-42", itemIDs: ["song.a-2"])
+                XCTFail("Unexpected update")
+            } catch {
+                XCTAssertEqual(fixture.requests.filter { $0.url?.lastPathComponent == "updatePlaylist.view" }.count,
+                               mode == .badEntry ? 0 : 1)
+            }
+        }
+    }
+
+    func testPermissionFallbackSurvivesRescanAndRestoresThroughAddToPlaylist() async throws {
+        for mode in [PlaylistDescriptionHTTPFixture.Mode.rejected, .smart, .forbidden, .timeout, .unauthorized] {
+            let fixture = PlaylistDescriptionHTTPFixture(mode: mode)
+            let (connector, session) = makeSource(fixture)
+            defer { session.invalidateAndCancel() }
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let library = MusicLibrary(storageDirectory: root)
+            let sources = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+            let source = MusicSource(id: await connector.sourceID, name: "Server", type: .navidrome,
+                                     host: "primary.invalid", useSsl: true, connectionConfiguration: .init(
+                                        localEndpoint: .init(host: "primary.invalid", port: 443, useSsl: true),
+                                        publicEndpoint: .init(host: "secondary.invalid", port: 443, useSsl: true)))
+            sources.add(source)
+            let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+            let songs = ["song.a-1", "song.a-2"].map {
+                Song(id: "local-" + $0, title: $0, duration: 60, fileFormat: .mp3,
+                     filePath: "/songs/" + $0 + ".mp3", sourceID: source.id)
+            }
+            library.addSongs(songs)
+            await library.waitForPendingIndex()
+            let snapshot = try await connector.fetchServerPlaylists()
+            let playlistID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "list.a-42")
+            func sync(_ target: MusicLibrary) {
+                _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: target)
+            }
+            sync(library)
+            let target = songs[0]
+            if mode == .timeout || mode == .unauthorized {
+                do {
+                    _ = try await ServerPlaylistRemovalService.remove([target], from: playlistID, library: library,
+                                                                      sourcesStore: sources, sourceManager: manager)
+                    XCTFail("Unconfirmed removal")
+                } catch {
+                    XCTAssertEqual(library.songIDs(forPlaylist: playlistID), songs.map(\.id))
+                    XCTAssertTrue(library.locallyRemovedMirrorSongs(in: playlistID).isEmpty)
+                }
+                continue
+            }
+            let localOnly = try await ServerPlaylistRemovalService.remove([target], from: playlistID, library: library,
+                                                                          sourcesStore: sources, sourceManager: manager)
+            XCTAssertTrue(localOnly)
+            sync(library)
+            XCTAssertEqual(library.songs(forPlaylist: playlistID).map(\.id), [songs[1].id])
+            XCTAssertEqual(library.songCount(forPlaylist: playlistID), 1)
+            XCTAssertNotNil(library.song(id: target.id))
+            guard case .success = await library.persistNowAndWait() else { return XCTFail("Persist failed") }
+            let reloaded = MusicLibrary(storageDirectory: root)
+            sync(reloaded)
+            XCTAssertFalse(reloaded.contains(songID: target.id, inPlaylist: playlistID))
+            XCTAssertTrue(ServerPlaylistAppendService.targets(for: [target], library: reloaded, sourcesStore: sources)
+                .contains(where: { $0.id == playlistID }))
+            let before = fixture.requests.count
+            _ = try await ServerPlaylistAppendService.append([target], toMirrorPlaylist: playlistID, library: reloaded,
+                                                            sourcesStore: sources, sourceManager: manager)
+            XCTAssertEqual(fixture.requests.count, before)
+            XCTAssertEqual(reloaded.songIDs(forPlaylist: playlistID), songs.map(\.id))
+        }
+    }
+
     func testEmptyDetailCommentOverridesStaleListComment() async throws {
         let fixture = PlaylistDescriptionHTTPFixture(mode: .emptyDetail)
         let (source, session) = makeSource(fixture)
@@ -972,7 +1060,7 @@ final class ServerPlaylistDescriptionTests: XCTestCase {
         ServerPlaylistMirror.applyAppended(snapshot("Changed remotely").playlists[0], source: source, library: library)
         staleRead.apply(snapshot("Old snapshot").playlists[0])
         _ = ServerPlaylistMirror.apply(snapshot: snapshot("Old snapshot"), source: source, library: library,
-                                       descriptionReadRevision: staleRead.descriptionReadRevision)
+                                       readRevision: staleRead.readRevision)
         XCTAssertEqual(library.playlist(id: id)?.descriptionText, "Changed remotely")
         let local = library.createPlaylist(name: "Local", descriptionText: "Created with description")
         XCTAssertTrue(library.updatePlaylistDescription(id: local.id, description: "Local edit"))
@@ -996,13 +1084,17 @@ final class ServerPlaylistDescriptionTests: XCTestCase {
 }
 
 private final class PlaylistDescriptionHTTPFixture: @unchecked Sendable {
-    enum Mode { case success, rejected, mismatch, readOnly, smart, emptyDetail }
+    enum Mode { case success, rejected, mismatch, readOnly, smart, emptyDetail, duplicateRows, badEntry, forbidden, timeout, unauthorized }
     let mode: Mode
     private let lock = NSLock()
     private var recorded: [URLRequest] = []
     private var comment = "服务器简介"
     var requests: [URLRequest] { lock.withLock { recorded } }
-    init(mode: Mode = .success) { self.mode = mode }
+    private var rows: [String]
+    init(mode: Mode = .success) {
+        self.mode = mode
+        rows = mode == .duplicateRows ? ["unmatched", "target", "other", "target"] : ["song.a-1", "song.a-2"]
+    }
     func query(_ request: URLRequest) -> [String: String] {
         var parts = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
         parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%20")
@@ -1014,8 +1106,9 @@ private final class PlaylistDescriptionHTTPFixture: @unchecked Sendable {
             recorded.append(request)
             var body: [String: Any] = ["status": "ok", "version": "1.16.1", "type": "navidrome", "openSubsonic": true]
             var playlist: [String: Any] = ["id": "list.a-42", "name": "List", "comment": comment,
-                "owner": mode == .readOnly ? "another-user" : "qa", "readonly": mode == .smart, "songCount": 2,
-                "entry": [["id": "song.a-1"], ["id": "song.a-2"]]]
+                "owner": mode == .readOnly ? "another-user" : "qa", "readonly": mode == .smart, "songCount": rows.count,
+                "entry": rows.map { ["id": $0] }]
+            if mode == .badEntry { playlist["entry"] = [[:], ["id": "song.a-2"]] }
             switch request.url!.lastPathComponent {
             case "ping.view": break
             case "getPlaylists.view": body["playlists"] = ["playlist": [playlist]]
@@ -1026,7 +1119,12 @@ private final class PlaylistDescriptionHTTPFixture: @unchecked Sendable {
             case "getUser.view": body["user"] = ["adminRole": false]
             case "updatePlaylist.view":
                 if mode == .rejected { body = ["status": "failed", "error": ["code": 50, "message": "Denied"]] }
-                else if mode != .mismatch { comment = query(request)["comment"] ?? comment }
+                else if mode != .mismatch {
+                    let indices = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?
+                        .filter { $0.name == "songIndexToRemove" }.compactMap { $0.value.flatMap(Int.init) } ?? []
+                    rows = rows.enumerated().compactMap { indices.contains($0.offset) ? nil : $0.element }
+                    comment = query(request)["comment"] ?? comment
+                }
             default: body = ["status": "failed", "error": ["code": 70, "message": "Unknown method"]]
             }
             return try! JSONSerialization.data(withJSONObject: ["subsonic-response": body])
@@ -1044,9 +1142,15 @@ private final class PlaylistDescriptionHTTPProtocol: URLProtocol, @unchecked Sen
         guard let url = request.url, let fixture = Self.lock.withLock({ Self.fixtures[url.host ?? ""] }) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
         }
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+        let isWrite = url.lastPathComponent == "updatePlaylist.view"
+        if isWrite, fixture.mode == .timeout {
+            client?.urlProtocol(self, didFailWithError: URLError(.timedOut))
+            return
+        }
+        let status = isWrite && fixture.mode == .forbidden ? 403 : (isWrite && fixture.mode == .unauthorized ? 401 : 200)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
             headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: fixture.response(request))
+        client?.urlProtocol(self, didLoad: status == 200 ? fixture.response(request) : Data())
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

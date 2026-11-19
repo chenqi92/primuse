@@ -4864,6 +4864,8 @@ final class MusicLibrary {
     /// each scraped lyric does not refresh Home and other whole-library views.
     private(set) var lyricsSearchRevision: Int = 0
 
+    private let mirrorSongExclusionsURL: URL
+    private var mirrorSongExclusions: [String: Set<String>] = [:]
     private let snapshotURL: URL
     private let backupSnapshotURL: URL
     /// 快照不带歌时, 增量库读不出来的那一刻靠它恢复, 见 `songFallbackRefreshInterval`。
@@ -6284,6 +6286,11 @@ final class MusicLibrary {
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
 
+        mirrorSongExclusionsURL = directory.appendingPathComponent("device-mirror-playlist-exclusions.json")
+        if let data = try? Data(contentsOf: mirrorSongExclusionsURL),
+           let exclusions = try? JSONDecoder().decode([String: Set<String>].self, from: data) {
+            mirrorSongExclusions = exclusions
+        }
         snapshotURL = directory.appendingPathComponent("library-cache.json")
         backupSnapshotURL = directory.appendingPathComponent("library-cache.backup.json")
         songFallbackURL = directory.appendingPathComponent(Self.songFallbackFileName)
@@ -10089,6 +10096,7 @@ final class MusicLibrary {
 
     private func playlistUnpinnedMemberIDs(_ playlistID: String) -> [String] {
         let ids = playlistSongIDs[playlistID] ?? []
+        if let excluded = mirrorSongExclusions[playlistID] { return ids.filter { !excluded.contains($0) } }
         guard playlistID == Self.likedSongsPlaylistID else { return ids }
         _ = localPodcastContentRevision
         guard !localPodcastBookIDs.isEmpty else { return ids }
@@ -10158,6 +10166,7 @@ final class MusicLibrary {
         _ = visibleSongsReference
         _ = playlistSongIDs
         _ = playlistPendingEntries
+        _ = mirrorSongExclusions
         return PlaylistContentVersion(key: playlistMaterializationKey)
     }
 
@@ -10191,6 +10200,7 @@ final class MusicLibrary {
     @ObservationIgnored private var playlistVisibleSummaries: [String: PlaylistVisibleSummary] = [:]
 
     private func playlistVisibleSummary(_ playlistID: String) -> PlaylistVisibleSummary {
+        _ = mirrorSongExclusions
         if let cached = playlistVisibleSummaries[playlistID],
            cached.membershipRevision == playlistMembershipRevision,
            cached.visibleIndexGeneration == visibleSongIndexGeneration,
@@ -10258,7 +10268,24 @@ final class MusicLibrary {
     }
 
     func contains(songID: String, inPlaylist playlistID: String) -> Bool {
-        playlistSongIDs[playlistID]?.contains(songID) == true
+        mirrorSongExclusions[playlistID]?.contains(songID) != true && playlistSongIDs[playlistID]?.contains(songID) == true
+    }
+
+    func locallyRemovedMirrorSongs(in playlistID: String) -> Set<String> {
+        mirrorSongExclusions[playlistID] ?? []
+    }
+
+    func setMirrorSongs(_ ids: Set<String>, hidden: Bool, in playlistID: String) throws {
+        guard ServerPlaylistIdentity.isMirrorPlaylist(playlistID), !ids.isEmpty else { return }
+        var exclusions = mirrorSongExclusions
+        var members = exclusions[playlistID] ?? []
+        if hidden { members.formUnion(ids) } else { members.subtract(ids) }
+        exclusions[playlistID] = members.isEmpty ? nil : members
+        guard exclusions != mirrorSongExclusions else { return }
+        try JSONEncoder().encode(exclusions).write(to: mirrorSongExclusionsURL, options: .atomic)
+        mirrorSongExclusions = exclusions
+        playlistMembershipRevision &+= 1
+        notifyPlaylistsChanged([playlistID])
     }
 
     func recordPlayback(of songID: String) {
@@ -12554,7 +12581,10 @@ final class MusicLibrary {
     /// 新大小 / 修订号要等整库分组重建后才进可见集，刮削、回填一直在改库时那次
     /// 重建会被反复作废；要按文件内容做决定的调用方（「始终保持离线」）读这一份。
     func storedSongs(forPlaylist playlistID: String) -> [Song] {
-        rawSongIDs(forPlaylist: playlistID).compactMap { storedSong(id: $0) }
+        let excluded = mirrorSongExclusions[playlistID]
+        return rawSongIDs(forPlaylist: playlistID).compactMap { id in
+            excluded?.contains(id) == true ? nil : storedSong(id: id)
+        }
     }
 
     /// Projects the already-persisted Apple Music mirrors into the folder

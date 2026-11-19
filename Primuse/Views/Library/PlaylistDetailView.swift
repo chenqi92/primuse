@@ -78,10 +78,34 @@ struct PlaylistDetailView: View {
     @State private var isFindPresented = false
     #endif
 
-    /// 镜像歌单 (Apple Music 资料库 / 服务端曲库) 里的条目不给移除入口 —— 我们
-    /// 没法把改动推回服务端，下次 sync 又会把它们带回来，视觉上就是"删了又出现"。
-    private var allowsPlaylistRemoval: Bool {
+    private var allowsManualMembership: Bool {
         (currentPlaylist ?? playlist).allowsManualSongMembership
+    }
+
+    private var removalSource: MusicSource? {
+        ServerPlaylistRemovalService.source(for: playlist.id, sourcesStore: sourcesStore)
+    }
+
+    private func canRemove(_ song: Song) -> Bool {
+        allowsManualMembership || removalSource?.id == song.sourceID
+    }
+
+    private func removeSongs(_ songs: [Song]) {
+        if allowsManualMembership {
+            library.remove(songIDs: songs.map(\.id), fromPlaylist: playlist.id)
+            return
+        }
+        Task {
+            do {
+                if try await ServerPlaylistRemovalService.remove(songs, from: playlist.id, library: library,
+                                                                  sourcesStore: sourcesStore, sourceManager: sourceManager) {
+                    showScrapeFeedback(String(localized: "server_playlist_removed_locally"), systemImage: "info.circle", color: .accentColor)
+                }
+            } catch is CancellationError {
+            } catch {
+                showScrapeFeedback(SourceErrorPresentation.userFacingDescription(error), systemImage: "exclamationmark.circle", color: .red)
+            }
+        }
     }
 
     private var currentPlaylist: Playlist? {
@@ -105,7 +129,7 @@ struct PlaylistDetailView: View {
     }
 
     private func beginSongReordering() {
-        guard allowsPlaylistRemoval else { return }
+        guard allowsManualMembership else { return }
         let entries = displayEntries
         guard entries.count > 1 else { return }
         selection.deactivate()
@@ -276,7 +300,7 @@ struct PlaylistDetailView: View {
                 Text("playlist_order_title")
             }
         }
-        if allowsPlaylistRemoval {
+        if allowsManualMembership {
             Button("playlist_reorder", systemImage: "line.3.horizontal") {
                 beginSongReordering()
             }
@@ -477,10 +501,11 @@ struct PlaylistDetailView: View {
         .pmToastHost(feedbackToasts)
         .songBatchActions(
             selection: selection,
-            context: .playlist(id: playlist.id, allowsRemoval: allowsPlaylistRemoval),
+            context: .playlist(id: playlist.id, allowsRemoval: allowsManualMembership || removalSource != nil),
             orderedIDs: { selectableSongIDs },
             resolve: { library.song(id: $0) },
-            onMoveToTop: allowsPlaylistRemoval ? { pinSongs($0) } : nil
+            onRemoveFromPlaylist: { removeSongs($0) },
+            onMoveToTop: allowsManualMembership ? { pinSongs($0) } : nil
         )
         .onChange(of: findText) { _, _ in
             guard selection.isActive, !selection.isEmpty else { return }
@@ -863,7 +888,7 @@ struct PlaylistDetailView: View {
         Section {
             // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
             // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
-            if allowsPlaylistRemoval {
+            if allowsManualMembership {
                 Button {
                     beginSongReordering()
                 } label: {
@@ -996,7 +1021,7 @@ struct PlaylistDetailView: View {
                         pending,
                         number: index + 1,
                         count: entries.count,
-                        allowsEditing: allowsPlaylistRemoval
+                        allowsEditing: allowsManualMembership
                     )
                     .padding(.horizontal)
                     .padding(.vertical, 8)
@@ -1240,8 +1265,8 @@ struct PlaylistDetailView: View {
             largestTrackNumber: count,
             showsActions: false,
             selection: selection,
-            onRemoveFromPlaylist: allowsPlaylistRemoval
-                ? { library.remove(songID: song.id, fromPlaylist: playlist.id) }
+            onRemoveFromPlaylist: canRemove(song)
+                ? { removeSongs([song]) }
                 : nil,
             onMoveToTop: isPinned == false ? { pinSongs([song.id]) } : nil,
             onUnpin: isPinned == true ? { unpinSongs([song.id]) } : nil,
@@ -1629,7 +1654,7 @@ struct PlaylistDetailView: View {
     @ViewBuilder
     private var macPlaylistRuleCard: some View {
         if playlist.id != MusicLibrary.likedSongsPlaylistID,
-           allowsPlaylistRemoval {
+           allowsManualMembership {
             HStack(spacing: 12) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 15, weight: .semibold))
@@ -1728,7 +1753,7 @@ struct PlaylistDetailView: View {
         middle.append(.init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
             showArtworkEditor = true
         })
-        if allowsPlaylistRemoval {
+        if allowsManualMembership {
             middle.append(.init(icon: "arrow.up.arrow.down", title: String(localized: "playlist_reorder"),
                                 enabled: displayEntries.count >= 2) {
                 beginSongReordering()
@@ -1964,7 +1989,7 @@ struct PlaylistDetailView: View {
                                     PlaylistPendingEntryRow(
                                         entry: pending,
                                         playlistID: playlist.id,
-                                        allowsEditing: allowsPlaylistRemoval
+                                        allowsEditing: allowsManualMembership
                                     )
                                 }
                                 .padding(.horizontal, 10)
@@ -2065,9 +2090,9 @@ struct PlaylistDetailView: View {
 
             SongCopyTitleButton(song: song)
 
-            if allowsPlaylistRemoval {
+            if canRemove(song) {
                 Button(role: .destructive) {
-                    library.remove(songID: song.id, fromPlaylist: playlist.id)
+                    removeSongs([song])
                 } label: {
                     Label("remove_from_playlist", systemImage: "trash")
                 }
@@ -2125,7 +2150,7 @@ struct PlaylistDetailView: View {
 
     /// 能置顶的歌单(用户歌单与「我喜欢」)里眼下置顶的歌; 镜像与文件夹歌单为 nil。
     private var pinnedSongIDSet: Set<String>? {
-        allowsPlaylistRemoval ? Set(library.pinnedSongIDs(forPlaylist: playlist.id)) : nil
+        allowsManualMembership ? Set(library.pinnedSongIDs(forPlaylist: playlist.id)) : nil
     }
 
     /// 置顶(#412): 不管眼下按什么排, 置顶的歌都排在最上面, 不再把列表换回歌单顺序。

@@ -2587,6 +2587,15 @@ protocol ServerPlaylistAppendingConnector: MusicSourceConnector {
     func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist
 }
 
+enum ServerPlaylistRemovalResult: Sendable {
+    case updated(ServerPlaylist)
+    case readOnly(ServerPlaylist)
+}
+
+protocol ServerPlaylistRemovingConnector: MusicSourceConnector {
+    func removeFromServerPlaylist(id: String, itemIDs: Set<String>) async throws -> ServerPlaylistRemovalResult
+}
+
 /// 在服务端新建一个空歌单(Subsonic `createPlaylist`、Emby / Jellyfin `POST /Playlists`、
 /// Audio Station `create`)。加歌仍走 `appendToServerPlaylist`, 去重、分批与回读确认都在那一步;
 /// 返回的歌单 id 与 `fetchServerPlaylists` 里的同一套, 能直接派生本地镜像。

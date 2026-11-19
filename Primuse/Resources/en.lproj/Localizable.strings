@@ -5427,6 +5427,7 @@
 "server_playlist_create_unsupported" = "Primuse can’t create playlists on this server. Create one with the same name on the server, then sync again.";
 "server_playlist_append_partial_title" = "Some Songs Weren't Added";
 "server_playlist_append_partial_message %lld %lld" = "Added %1$lld songs. %2$lld songs couldn't be matched to a track on the server and weren't added.";
+"server_playlist_removed_locally" = "Removed from this playlist on this device only.";
 "server_playlist_append_footer" = "Songs are added to the playlist on the server. To remove them, edit the playlist on the server.";
 
 // MARK: - Apple TV scraping

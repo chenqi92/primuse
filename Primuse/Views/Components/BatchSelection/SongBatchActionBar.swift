@@ -42,6 +42,7 @@ extension View {
         context: SongBatchActionContext = .library,
         orderedIDs: @escaping () -> [String],
         resolve: @escaping (String) -> Song?,
+        onRemoveFromPlaylist: (([Song]) -> Void)? = nil,
         onMoveToTop: (([String]) -> Void)? = nil
     ) -> some View {
         modifier(SongBatchActionsModifier(
@@ -49,6 +50,7 @@ extension View {
             context: context,
             orderedIDs: orderedIDs,
             resolve: resolve,
+            onRemoveFromPlaylist: onRemoveFromPlaylist,
             onMoveToTop: onMoveToTop
         ))
     }
@@ -267,6 +269,7 @@ private struct SongBatchActionsModifier: ViewModifier {
     let context: SongBatchActionContext
     let orderedIDs: () -> [String]
     let resolve: (String) -> Song?
+    let onRemoveFromPlaylist: (([Song]) -> Void)?
     let onMoveToTop: (([String]) -> Void)?
 
     @State private var showAddToPlaylist = false
@@ -671,7 +674,11 @@ private struct SongBatchActionsModifier: ViewModifier {
     ) -> some View {
         if removesFromPlaylist, let playlistID = context.playlistID {
             Button(role: .destructive) {
-                library.remove(songIDs: Array(selection.selectedIDs), fromPlaylist: playlistID)
+                if let onRemoveFromPlaylist {
+                    onRemoveFromPlaylist(selection.selectedIDs.compactMap(resolve))
+                } else {
+                    library.remove(songIDs: Array(selection.selectedIDs), fromPlaylist: playlistID)
+                }
                 selection.deactivate()
             } label: {
                 Label("remove_from_playlist", systemImage: "minus.circle")

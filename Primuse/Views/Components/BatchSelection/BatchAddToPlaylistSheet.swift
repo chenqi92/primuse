@@ -177,7 +177,9 @@ struct BatchAddToPlaylistSheet: View {
                     } header: {
                         Text(verbatim: serverSectionTitle)
                     } footer: {
-                        Text("server_playlist_append_footer")
+                        if let sourceID = songs.first?.sourceID, sourcesStore?.source(id: sourceID)?.type.isSubsonicFamily != true {
+                            Text("server_playlist_append_footer")
+                        }
                     }
                 }
             }

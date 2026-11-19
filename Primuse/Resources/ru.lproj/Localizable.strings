@@ -5569,6 +5569,7 @@
 "server_playlist_create_unsupported" = "Primuse не может создавать плейлисты на этом сервере. Создайте на сервере плейлист с тем же названием и синхронизируйте снова.";
 "server_playlist_append_partial_title" = "Некоторые песни не добавлены";
 "server_playlist_append_partial_message %lld %lld" = "Добавлено песен: %1$lld. Ещё %2$lld не удалось сопоставить с треками на сервере, они не добавлены.";
+"server_playlist_removed_locally" = "Удалено из этого плейлиста только на этом устройстве.";
 "server_playlist_append_footer" = "Треки добавляются в плейлист на сервере. Чтобы удалить их, отредактируйте плейлист на сервере.";
 
 // MARK: - Apple TV scraping

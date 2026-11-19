@@ -2428,10 +2428,17 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTra
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ServerCatalogEnrichingConnector, ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistDescriptionConnector,
-    ServerPlaylistCreatingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
+    ServerPlaylistCreatingConnector, ServerPlaylistRemovingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector,
     ServerCollectionFavoriteConnector, ServerAlbumRatingConnector, ServerLibraryListingConnector,
     ServerInsightReadingConnector {
+    func removeFromServerPlaylist(id: String, itemIDs: Set<String>) async throws -> ServerPlaylistRemovalResult {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerPlaylistRemovingConnector else { throw URLError(.unsupportedURL) }
+            return try await provider.removeFromServerPlaylist(id: id, itemIDs: itemIDs)
+        }
+    }
+
     private let enrichmentContext = RoutedCatalogEnrichmentContext()
     let sourceID: String
     let routing: SourceConnectionRouter
@@ -15722,6 +15729,23 @@ final class SourceManager {
             throw CancellationError()
         }
         return (playlist, songs.count - itemIDs.count)
+    }
+
+    func removeSongs(_ songs: [Song], fromServerPlaylist id: String, source: MusicSource) async throws -> ServerPlaylistRemovalResult {
+        guard source.type.isSubsonicFamily, !songs.isEmpty else { throw CancellationError() }
+        let itemIDs = try songs.map { song in
+            guard song.sourceID == source.id,
+                  let itemID = ServerPlaylistWritebackPolicy.songID(fromConnectorPath: song.filePath, sourceType: source.type)
+            else { throw SourceError.fileNotFound(song.filePath) }
+            return itemID
+        }
+        let scope = Self.audioCacheScopeSignature(for: source)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope),
+              let provider = connector(for: source) as? any ServerPlaylistRemovingConnector else { throw CancellationError() }
+        let result = try await provider.removeFromServerPlaylist(id: id, itemIDs: Set(itemIDs))
+        try Task.checkCancellation()
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope) else { throw CancellationError() }
+        return result
     }
 
     /// 在服务端新建一个空歌单, 歌随后用 `appendSongs` 加。和加歌一样, 源在请求途中被停用、
