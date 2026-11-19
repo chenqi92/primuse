@@ -33,11 +33,25 @@ struct SongCompactStorageTests {
         )
     }
 
-    @Test("Library snapshots keep at most 96 inline bytes per song")
+    @Test("Library snapshots keep at most 64 inline bytes per song")
     func layout() {
-        // 88 → 96: `serverDateAdded` is inline now (every media-server song has
-        // one; in the rare box it cost each of them a ~512-byte box).
-        #expect(MemoryLayout<Song>.stride <= 96)
+        #expect(MemoryLayout<Song>.stride <= 64)
+    }
+
+    @Test("Adding or clearing the last ReplayGain tag preserves snapshots and exact gain bits")
+    func replayGainCopyOnWrite() throws {
+        let original = Song(id: "rg", title: "Track", fileFormat: .flac, filePath: "/rg", sourceID: "source")
+        var edited = original
+        edited.replayGainTrackGain = -0.0
+        let tagged = edited
+        var renamed = tagged
+        renamed.title = "Renamed"
+        #expect(renamed.replayGainTrackGain?.bitPattern == (-0.0 as Double).bitPattern)
+        edited.replayGainTrackGain = nil
+        #expect(edited == original)
+        #expect(tagged != original)
+        #expect(Set([original, tagged, edited]).count == 2)
+        #expect(try JSONDecoder().decode(Song.self, from: JSONEncoder().encode(renamed)) == renamed)
     }
 
     @Test("The shared core box stays in the 320-byte allocation class")

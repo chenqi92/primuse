@@ -198,11 +198,16 @@ struct IncrementalSongStoreTests {
             try store.replaceAll(with: [original])
             var invalid = original
             invalid.duration = .nan
-
+            let inserted = makeSong(id: "inserted", path: "/b.mp3", title: "Inserted")
             #expect(throws: (any Error).self) {
-                try store.apply(upserts: [invalid])
+                try store.apply(upserts: [inserted, invalid], deletingIDs: [original.id])
             }
             #expect(try store.loadSongs() == [original])
+            #expect(throws: (any Error).self) {
+                try store.replaceAll(with: [inserted, invalid], snapshotImportID: "incomplete")
+            }
+            #expect(try store.loadSongs() == [original])
+            #expect(try store.lastSnapshotImportID() == nil)
             #expect(try store.startupState().contentRevision == 1)
         }
     }

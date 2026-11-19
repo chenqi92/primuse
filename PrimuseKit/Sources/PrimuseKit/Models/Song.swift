@@ -150,10 +150,6 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
 
     private var numbers = SongNumberFields()
     private var lastModifiedBits = SongOptionalDouble.absent
-    private var replayGainTrackGainBits = SongOptionalDouble.absent
-    private var replayGainTrackPeakBits = SongOptionalDouble.absent
-    private var replayGainAlbumGainBits = SongOptionalDouble.absent
-    private var replayGainAlbumPeakBits = SongOptionalDouble.absent
     private var serverDateAddedBits = SongOptionalDouble.absent
     private var rare = SongRareFields.empty
 
@@ -204,20 +200,20 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         set { lastModifiedBits = SongOptionalDouble.bits(newValue?.timeIntervalSinceReferenceDate) }
     }
     public var replayGainTrackGain: Double? {
-        get { SongOptionalDouble.value(replayGainTrackGainBits) }
-        set { replayGainTrackGainBits = SongOptionalDouble.bits(newValue) }
+        get { SongOptionalDouble.value(core.replayGain.trackGain) }
+        set { updateReplayGain(\.trackGain, newValue) }
     }
     public var replayGainTrackPeak: Double? {
-        get { SongOptionalDouble.value(replayGainTrackPeakBits) }
-        set { replayGainTrackPeakBits = SongOptionalDouble.bits(newValue) }
+        get { SongOptionalDouble.value(core.replayGain.trackPeak) }
+        set { updateReplayGain(\.trackPeak, newValue) }
     }
     public var replayGainAlbumGain: Double? {
-        get { SongOptionalDouble.value(replayGainAlbumGainBits) }
-        set { replayGainAlbumGainBits = SongOptionalDouble.bits(newValue) }
+        get { SongOptionalDouble.value(core.replayGain.albumGain) }
+        set { updateReplayGain(\.albumGain, newValue) }
     }
     public var replayGainAlbumPeak: Double? {
-        get { SongOptionalDouble.value(replayGainAlbumPeakBits) }
-        set { replayGainAlbumPeakBits = SongOptionalDouble.bits(newValue) }
+        get { SongOptionalDouble.value(core.replayGain.albumPeak) }
+        set { updateReplayGain(\.albumPeak, newValue) }
     }
     public var contentMetadata: SongContentMetadata? {
         get { rare.values.contentMetadata }
@@ -345,7 +341,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         serverCatalogAlbum: ServerCatalogAlbumReference? = nil,
         isExternal: Bool? = nil
     ) {
-        core = SongCoreFields(.init(
+        core = SongCoreFields.make(.init(
             id: id,
             title: title,
             albumID: albumID,
@@ -366,6 +362,9 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             artistArtworkFileName: artistArtworkFileName,
             lyricsFileName: lyricsFileName,
             revision: revision
+        ), replayGain: SongReplayGainFields(
+            trackGain: SongOptionalDouble.bits(replayGainTrackGain), trackPeak: SongOptionalDouble.bits(replayGainTrackPeak),
+            albumGain: SongOptionalDouble.bits(replayGainAlbumGain), albumPeak: SongOptionalDouble.bits(replayGainAlbumPeak)
         ))
         self.trackNumber = trackNumber
         self.discNumber = discNumber
@@ -376,10 +375,6 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.year = year
         self.serverPlayCount = serverPlayCount
         self.lastModified = lastModified
-        self.replayGainTrackGain = replayGainTrackGain
-        self.replayGainTrackPeak = replayGainTrackPeak
-        self.replayGainAlbumGain = replayGainAlbumGain
-        self.replayGainAlbumPeak = replayGainAlbumPeak
         self.serverDateAdded = serverDateAdded
         if mvPath != nil || cueSheetPath != nil || cueStartTime != nil || cueEndTime != nil || sacdTrackNumber != nil || isoAudioTrack != nil
             || lyricsText != nil || userMetadataEditedAt != nil || audioVariants != nil
@@ -562,9 +557,17 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
 
     private mutating func updateCore(_ change: (inout SongCoreFields.Values) -> Void) {
         if !isKnownUniquelyReferenced(&core) {
-            core = SongCoreFields(core.values)
+            core = SongCoreFields.make(core.values, replayGain: core.replayGain)
         }
         change(&core.values)
+    }
+
+    private mutating func updateReplayGain(_ key: WritableKeyPath<SongReplayGainFields, UInt64>, _ value: Double?) {
+        var gain = core.replayGain
+        let bits = SongOptionalDouble.bits(value)
+        guard gain[keyPath: key] != bits else { return }
+        gain[keyPath: key] = bits
+        core = SongCoreFields.make(core.values, replayGain: gain)
     }
 
     private mutating func updateRare(_ change: (inout SongRareFields.Values) -> Void) {
@@ -613,7 +616,7 @@ private enum SongOptionalDouble {
 
 /// Mutable only through Song's uniqueness-checked setter. Separate Song values
 /// may cross executors; a write first detaches their shared storage.
-private final class SongCoreFields: Hashable, @unchecked Sendable {
+private class SongCoreFields: Hashable, @unchecked Sendable {
     struct Values: Hashable, Sendable {
         var id: String
         var title: String
@@ -640,15 +643,44 @@ private final class SongCoreFields: Hashable, @unchecked Sendable {
         var revision: String?
     }
 
-    var values: Values
+    final var values: Values
+    var replayGain: SongReplayGainFields { .empty }
 
     init(_ values: Values) { self.values = values }
 
-    static func == (lhs: SongCoreFields, rhs: SongCoreFields) -> Bool {
-        lhs.values == rhs.values
+    static func make(_ values: Values, replayGain: SongReplayGainFields) -> SongCoreFields {
+        if replayGain == .empty { return SongCoreFields(values) }
+        return SongCoreWithReplayGain(values, replayGain)
     }
 
-    func hash(into hasher: inout Hasher) { hasher.combine(values) }
+    static func == (lhs: SongCoreFields, rhs: SongCoreFields) -> Bool {
+        lhs.values == rhs.values && lhs.replayGain == rhs.replayGain
+    }
+
+    final func hash(into hasher: inout Hasher) {
+        hasher.combine(values)
+        hasher.combine(replayGain)
+    }
+}
+
+private struct SongReplayGainFields: Hashable {
+    var trackGain = SongOptionalDouble.absent
+    var trackPeak = SongOptionalDouble.absent
+    var albumGain = SongOptionalDouble.absent
+    var albumPeak = SongOptionalDouble.absent
+    static let empty = Self()
+}
+
+/// A tagged track extends its existing core allocation. Untagged tracks pay neither
+/// the four values nor an extra pointer; album-level rare fields can still be shared.
+private final class SongCoreWithReplayGain: SongCoreFields, @unchecked Sendable {
+    private let gain: SongReplayGainFields
+    override var replayGain: SongReplayGainFields { gain }
+
+    init(_ values: Values, _ gain: SongReplayGainFields) {
+        self.gain = gain
+        super.init(values)
+    }
 }
 
 /// Fields almost every song leaves empty, boxed so they cost one pointer.

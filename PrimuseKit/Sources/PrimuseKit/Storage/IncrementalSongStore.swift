@@ -204,19 +204,13 @@ public final class IncrementalSongStore: @unchecked Sendable {
     /// first migration and for an explicitly downloaded external snapshot.
     @discardableResult
     public func replaceAll(with songs: [Song], snapshotImportID: String? = nil) throws -> Int64 {
-        let rows = try songs.enumerated().map { index, song in
-            (song.id, song.sourceID, Int64(index), try encoder.encode(song))
-        }
-        return try database.write { db in
+        try database.write { db in
+            let insert = try db.makeStatement(sql: """
+                INSERT INTO librarySongRecords (id, sourceID, orderKey, payload) VALUES (?, ?, ?, ?)
+                """)
             try db.execute(sql: "DELETE FROM librarySongRecords")
-            for row in rows {
-                try db.execute(
-                    sql: """
-                        INSERT INTO librarySongRecords (id, sourceID, orderKey, payload)
-                        VALUES (?, ?, ?, ?)
-                        """,
-                    arguments: [row.0, row.1, row.2, row.3]
-                )
+            for (index, song) in songs.enumerated() {
+                try insert.execute(arguments: [song.id, song.sourceID, Int64(index), try encoder.encode(song)])
             }
             try Self.markAuthoritative(in: db)
             if let snapshotImportID {
@@ -239,10 +233,6 @@ public final class IncrementalSongStore: @unchecked Sendable {
         guard !upserts.isEmpty || !deletingIDs.isEmpty else {
             return try startupState().contentRevision
         }
-        let encoded = try upserts.map { song in
-            (song.id, song.sourceID, try encoder.encode(song))
-        }
-
         return try database.write { db in
             var changed = false
             if !deletingIDs.isEmpty {
@@ -262,19 +252,20 @@ public final class IncrementalSongStore: @unchecked Sendable {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
 
-            for row in encoded {
+            for song in upserts {
+                let encoded = try encoder.encode(song)
                 let existing = try Row.fetchOne(
                     db,
                     sql: "SELECT sourceID, orderKey, payload FROM librarySongRecords WHERE id = ?",
-                    arguments: [row.0]
+                    arguments: [song.id]
                 )
-                if let existing, existing["sourceID"] as String == row.1 {
+                if let existing, existing["sourceID"] as String == song.sourceID {
                     let payload: Data = existing["payload"]
-                    if payload == row.2 { continue }
+                    if payload == encoded { continue }
                     // Older rows used unordered JSON keys. Compare their
                     // persisted values without rewriting the library on upgrade.
-                    if let song = try? decoder.decode(Song.self, from: payload),
-                       try encoder.encode(song) == row.2 { continue }
+                    if let previous = try? decoder.decode(Song.self, from: payload),
+                       try encoder.encode(previous) == encoded { continue }
                 }
                 let orderKey: Int64
                 if let existing {
@@ -296,7 +287,7 @@ public final class IncrementalSongStore: @unchecked Sendable {
                             sourceID = excluded.sourceID,
                             payload = excluded.payload
                     """,
-                    arguments: [row.0, row.1, orderKey, row.2]
+                    arguments: [song.id, song.sourceID, orderKey, encoded]
                 )
                 changed = true
             }
