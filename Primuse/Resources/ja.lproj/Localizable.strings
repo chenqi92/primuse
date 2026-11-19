@@ -7821,3 +7821,8 @@
 "queue_bookmark_remove" = "キューのブックマークを削除";
 "queue_bookmarks_title" = "キューのブックマーク";
 "queue_bookmark_error" = "ブックマークを読み込むか保存できませんでした。もう一度お試しください。";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "ミュージックビデオ";
+"music_videos_count" = "本のミュージックビデオ";
+"music_videos_empty_hint" = "音楽ソース内の動画ファイルや、同名のミュージックビデオがある曲がここに表示されます。";

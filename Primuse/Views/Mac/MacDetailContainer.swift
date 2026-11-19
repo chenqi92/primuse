@@ -159,6 +159,8 @@ struct MacDetailContainer: View {
                 PodcastLibraryView()
             case .ambient:
                 AmbientSoundsView()
+            case .musicVideos:
+                MusicVideoLibraryView()
             }
         case .liked:
             PlaylistDetailView(

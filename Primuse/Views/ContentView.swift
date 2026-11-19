@@ -996,6 +996,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     case libraryReleaseDate
     case libraryPodcasts
     case libraryAmbient
+    case libraryMusicVideos
     case search
     case settings
 
@@ -1009,7 +1010,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .library, .libraryRecommendations, .librarySongs, .librarySpokenWord, .libraryAlbums,
                 .libraryArtists, .libraryGenres, .libraryPlaylists, .libraryRadio,
                 .libraryFavorites, .libraryFolders, .libraryStatistics, .libraryReleaseDate, .libraryPodcasts,
-                .libraryAmbient:
+                .libraryAmbient, .libraryMusicVideos:
             return 1
         case .search: return 2
         case .settings: return 3
@@ -1034,6 +1035,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .releaseDate: return .libraryReleaseDate
         case .podcasts: return .libraryPodcasts
         case .ambient: return .libraryAmbient
+        case .musicVideos: return .libraryMusicVideos
         }
     }
 
@@ -1055,6 +1057,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .libraryReleaseDate: return "library_release_date_title"
         case .libraryPodcasts: return "listening_space_podcast"
         case .libraryAmbient: return "listening_space_ambient"
+        case .libraryMusicVideos: return "library_music_videos_title"
         case .search: return "search_title"
         case .settings: return "settings_title"
         }
@@ -1078,6 +1081,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .libraryReleaseDate: return "calendar"
         case .libraryPodcasts: return ListeningSpace.podcast.systemImage
         case .libraryAmbient: return ListeningSpace.ambient.systemImage
+        case .libraryMusicVideos: return "play.rectangle.fill"
         case .search: return "magnifyingglass"
         case .settings: return "gearshape"
         }
@@ -1586,6 +1590,7 @@ struct ContentView: View {
         ) }
         // 环境音也一样。
         .filter { $0 != .ambient || library.hasAmbientContent }
+        .filter { $0 != .musicVideos || library.hasMusicVideoContent }
     }
 
     private var minimalMusicSections: [LibrarySection] {
@@ -2093,6 +2098,8 @@ struct ContentView: View {
             librarySubpane(title: "listening_space_podcast", startupSection: .podcasts) { PodcastLibraryView() }
         case .libraryAmbient:
             librarySubpane(title: "listening_space_ambient") { AmbientSoundsView() }
+        case .libraryMusicVideos:
+            librarySubpane(title: "library_music_videos_title") { MusicVideoLibraryView() }
         case .search:
             LibraryReadyContent {
                 SearchView(searchText: $searchText, scope: $searchScope,

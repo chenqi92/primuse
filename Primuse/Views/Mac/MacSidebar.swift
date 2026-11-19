@@ -45,6 +45,8 @@ struct MacSidebar: View {
         )
         // 环境音只在真有环境音时占一行。
         .filter { $0 != .ambient || library.hasAmbientContent }
+        // MV 也是。
+        .filter { $0 != .musicVideos || library.hasMusicVideoContent }
     }
 
     /// 「资料库」分组里的行: 照设置 › 外观里排好的顺序与显隐, 设置页那张列表就是这一组的样子。
@@ -191,6 +193,13 @@ struct MacSidebar: View {
                 icon: section.icon,
                 title: ListeningSpace.ambient.titleKey,
                 trailing: countLabel(library.ambientSongs.count)
+            )
+        case .musicVideos:
+            item(
+                route: .section(.musicVideos),
+                icon: section.icon,
+                title: "library_music_videos_title",
+                trailing: countLabel(library.musicVideoSongs.count)
             )
         case .albums:
             item(

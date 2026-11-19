@@ -565,8 +565,8 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
             LibraryDisplayConfiguration.defaultSectionOrder
         )
         XCTAssertEqual(
-            Array(LibraryDisplayConfiguration.defaultSectionOrder.prefix(8)),
-            [.favorites, .songs, .albums, .artists, .genres, .folders, .releaseDate, .playlists]
+            Array(LibraryDisplayConfiguration.defaultSectionOrder.prefix(9)),
+            [.favorites, .songs, .musicVideos, .albums, .artists, .genres, .folders, .releaseDate, .playlists]
         )
         let visible = LibraryDisplayConfiguration.visibleSections(orderRawValue: "", hiddenRawValue: "")
         XCTAssertFalse(visible.contains(.recommendations))
@@ -584,7 +584,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
 
         XCTAssertEqual(
             LibraryDisplayConfiguration.decodeSectionOrder(rawValue),
-            [.favorites, .albums, .songs, .artists, .genres, .folders, .releaseDate, .playlists, .radio,
+            [.favorites, .albums, .songs, .musicVideos, .artists, .genres, .folders, .releaseDate, .playlists, .radio,
              .spokenWord, .podcasts, .ambient, .recommendations, .statistics]
         )
     }

@@ -237,6 +237,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "library.show.genres", titleKey: "tab_genres", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.show.albums", titleKey: "tab_albums", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.show.songs", titleKey: "tab_songs", iosPage: .libraryDisplay, macPage: .appearance),
+        SettingDefinition(id: "library.show.musicVideos", titleKey: "library_music_videos_title", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["MV", "music video", "视频", "影片", "音乐视频"]),
         SettingDefinition(id: "library.show.radio", titleKey: "radio_title", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.show.podcasts", titleKey: "listening_space_podcast", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["podcast", "播客", "RSS", "订阅", "訂閱"]),
         SettingDefinition(id: "library.separatesAmbient", titleKey: "ambient_separate_setting_title", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["环境音", "環境音", "白噪音", "白噪声", "雨声", "助眠", "自然声", "ambient", "white noise", "rain", "sleep sounds", "nature sounds"]),

@@ -7797,3 +7797,8 @@
 "queue_bookmark_remove" = "取消佇列書籤";
 "queue_bookmarks_title" = "佇列書籤";
 "queue_bookmark_error" = "無法讀取或儲存佇列書籤，請再試一次。";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "MV";
+"music_videos_count" = "個 MV";
+"music_videos_empty_hint" = "音樂來源裡的影片檔案、帶同名 MV 的歌曲會出現在這裡。";

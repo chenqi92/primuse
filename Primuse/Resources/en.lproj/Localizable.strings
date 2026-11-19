@@ -7581,3 +7581,8 @@
 "queue_bookmark_remove" = "Remove Queue Bookmark";
 "queue_bookmarks_title" = "Queue Bookmarks";
 "queue_bookmark_error" = "Could not read or save this queue bookmark. Please try again.";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "Music Videos";
+"music_videos_count" = "music videos";
+"music_videos_empty_hint" = "Video files in your music sources, and songs with a music video of the same name, appear here.";

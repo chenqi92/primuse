@@ -4702,6 +4702,18 @@ final class MusicLibrary {
     }
     @ObservationIgnored private var nonMusicSongIDsCache: Set<String>?
 
+    /// 有 MV 的音乐(独立 MV 与带同名 MV 的歌),在 `musicSongs` 里的先后。仍算音乐,
+    /// 歌曲列表里照样有;资料库「MV」分类只列它们。
+    private(set) var musicVideoSongs: [Song] = [] {
+        didSet {
+            musicVideoContentRevision &+= 1
+            if hasMusicVideoContent == musicVideoSongs.isEmpty { hasMusicVideoContent = !musicVideoSongs.isEmpty }
+        }
+    }
+    private(set) var musicVideoContentRevision: UInt64 = 0
+    /// 有没有 MV。「MV」入口要不要出现只问这一句,不订阅整份数组。
+    private(set) var hasMusicVideoContent = false
+
     /// 不算音乐的曲目:有声书、本机播客文件与环境音。只想把它们挡在音乐列表、推荐、统计外面的地方读它;
     /// 要的是「按有声的方式播」时读 `spokenWordSongIDs`。没有环境音时就是 `spokenWordSongIDs` 本身。
     var nonMusicSongIDs: Set<String> {
@@ -5011,6 +5023,8 @@ final class MusicLibrary {
         /// 环境音,和 `musicSongs` 在同一趟里分出来。
         let ambientSongs: [Song]
         let ambientSongIDs: Set<String>
+        /// `musicSongs` 里有 MV 的(独立 MV 与带同名 MV 的歌),资料库「MV」分类读它。
+        let musicVideoSongs: [Song]
         /// Local podcast item id → show id, grouped like books.
         let podcastPlacement: SpokenWordBookGrouping.BookPlacement
         /// Spoken-word item id → book id, as the bookshelf groups them.
@@ -5972,6 +5986,9 @@ final class MusicLibrary {
         if ambientSongs != prepared.ambientSongs {
             ambientSongs = prepared.ambientSongs
         }
+        if musicVideoSongs != prepared.musicVideoSongs {
+            musicVideoSongs = prepared.musicVideoSongs
+        }
         // 有书或节目这次分组里没了:多半是换了 id(读出第一集的专辑,按目录成书改按专辑成书),
         // 按章节找出接手的书,把按书 id 记的设置带过去。
         let previousBookIDs = spokenWordBookIDs
@@ -6125,6 +6142,8 @@ final class MusicLibrary {
         } else {
             musicSongs = nextVisibleSongs
         }
+        // MV 仍是音乐,只是在音乐里再挑出有画面的那些;在后台这一趟里挑,不占主线程。
+        let musicVideoSongs = musicSongs.filter(\.hasMusicVideo)
         // 本机下载的播客单集也是有声的听法(不进音乐),但不上书架,单独放在播客那边。
         let podcastSongIDs = lookups.podcastSongIDs
         let spokenWordSongs = spokenWordSongIDs.isEmpty
@@ -6215,6 +6234,7 @@ final class MusicLibrary {
             podcastSongs: podcastSongs,
             ambientSongs: ambientSongs,
             ambientSongIDs: ambientSongIDs,
+            musicVideoSongs: musicVideoSongs,
             podcastPlacement: podcastPlacement,
             spokenWordBookIDs: spokenWordPlacement.bookIDs,
             spokenWordBookIDSet: Set(spokenWordPlacement.bookIDs.values),
@@ -7920,6 +7940,9 @@ final class MusicLibrary {
         visibleSongs = nextVisibleSongs
         visibleSongIndexByID = rebuiltIndexByID
         visibleLookupGeneration &+= 1
+        if musicVideoSongs.contains(where: { removedVisibleIDs.contains($0.id) }) {
+            musicVideoSongs.removeAll { removedVisibleIDs.contains($0.id) }
+        }
         // 下标整体前移, 按源的位置表跟着重排一遍 (与上面的数组重建同为 O(可见行))。
         rebuildSourcePositions()
         if musicSongsSharesVisibleSongs { musicSongsRevision &+= 1 }
@@ -8815,9 +8838,44 @@ final class MusicLibrary {
         return state
     }
 
+    /// 就地改了几行(封面、标签、MV 指针)之后让「MV」分类跟上:有 MV 的行换成新内容,
+    /// MV 指针清掉的出列;新找到 MV 的歌要按资料库里的先后插进去,这时整份重挑一遍。
+    /// 资料库里没有 MV、这批改动也没碰到 MV 时直接返回。
+    private func patchMusicVideoSongs(songIDs: [String]) {
+        guard !songIDs.isEmpty else { return }
+        let updated = songIDs.compactMap { lookupVisibleSong($0) }
+        guard !musicVideoSongs.isEmpty || updated.contains(where: \.hasMusicVideo) else { return }
+        var positions: [String: Int] = [:]
+        positions.reserveCapacity(musicVideoSongs.count)
+        for (index, song) in musicVideoSongs.enumerated() { positions[song.id] = index }
+        let nonMusic = nonMusicSongIDs
+        var next = musicVideoSongs
+        var removedIDs: Set<String> = []
+        var changed = false
+        for song in updated {
+            if let index = positions[song.id] {
+                if !song.hasMusicVideo {
+                    removedIDs.insert(song.id)
+                } else if next[index] != song {
+                    next[index] = song
+                    changed = true
+                }
+            } else if song.hasMusicVideo, !nonMusic.contains(song.id) {
+                musicVideoSongs = visibleSongs.filter { $0.hasMusicVideo && !nonMusic.contains($0.id) }
+                return
+            }
+        }
+        if !removedIDs.isEmpty {
+            next.removeAll { removedIDs.contains($0.id) }
+            changed = true
+        }
+        if changed { musicVideoSongs = next }
+    }
+
     /// After in-place replacements, invalidate each affected source list
     /// without retaining another full slice of Song values.
     private func patchSourceAssetReferences(songIDs: [String], invalidatesSort: Bool = false) {
+        patchMusicVideoSongs(songIDs: songIDs)
         var replacedBySource: [String: Set<String>] = [:]
         for id in songIDs {
             guard let song = lookupVisibleSong(id) else { continue }

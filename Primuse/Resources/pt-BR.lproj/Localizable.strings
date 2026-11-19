@@ -7726,3 +7726,8 @@
 "queue_bookmark_remove" = "Remover marcador da fila";
 "queue_bookmarks_title" = "Marcadores de fila";
 "queue_bookmark_error" = "Não foi possível ler ou salvar o marcador. Tente novamente.";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "Videoclipes";
+"music_videos_count" = "videoclipes";
+"music_videos_empty_hint" = "Arquivos de vídeo das suas fontes de música e músicas com um videoclipe de mesmo nome aparecem aqui.";

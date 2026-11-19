@@ -7726,3 +7726,8 @@
 "queue_bookmark_remove" = "Usuń zakładkę kolejki";
 "queue_bookmarks_title" = "Zakładki kolejek";
 "queue_bookmark_error" = "Nie można odczytać ani zapisać zakładki. Spróbuj ponownie.";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "Teledyski";
+"music_videos_count" = "teledysków";
+"music_videos_empty_hint" = "Tutaj pojawiają się pliki wideo ze źródeł muzyki oraz utwory z teledyskiem o tej samej nazwie.";

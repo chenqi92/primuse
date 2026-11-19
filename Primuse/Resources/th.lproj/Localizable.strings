@@ -7726,3 +7726,8 @@
 "queue_bookmark_remove" = "ลบบุ๊กมาร์กคิว";
 "queue_bookmarks_title" = "บุ๊กมาร์กคิว";
 "queue_bookmark_error" = "ไม่สามารถอ่านหรือบันทึกบุ๊กมาร์กได้ โปรดลองอีกครั้ง";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "มิวสิกวิดีโอ";
+"music_videos_count" = "มิวสิกวิดีโอ";
+"music_videos_empty_hint" = "ไฟล์วิดีโอในแหล่งเพลงของคุณ และเพลงที่มีมิวสิกวิดีโอชื่อเดียวกันจะแสดงที่นี่";

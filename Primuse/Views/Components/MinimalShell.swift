@@ -731,6 +731,7 @@ struct StandardLibrarySectionTabs: View {
             )
             // 「环境音」只在真有环境音时出现,和资料库首页一样。
             .filter { $0 != .ambient || library.hasAmbientContent }
+            .filter { $0 != .musicVideos || library.hasMusicVideoContent }
         )
         if !sections.isEmpty {
             MinimalSectionTabs(

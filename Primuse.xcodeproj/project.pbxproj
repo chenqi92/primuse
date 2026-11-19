@@ -402,6 +402,7 @@
 		278054AFB875BFD0D4548D29 /* SpokenWordLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27DD45712F9E0206213AB3FA /* SpokenWordLibraryView.swift */; };
 		1C1EA6CF4B61FBF2D77CF607 /* SpokenWordShelfStartupPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = C400B2EAE52971B6D67508BA /* SpokenWordShelfStartupPreview.swift */; };
 		2C275B8A86B96442CD41B329 /* AmbientSoundsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040070F66FDDEF7972629457 /* AmbientSoundsView.swift */; };
+		37D35FB5B13EDF89BD2EFC82 /* MusicVideoLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9480CF5FAA0349557D3780C9 /* MusicVideoLibraryView.swift */; };
 		27C3E852FFCB097F485AE4CB /* DesktopLyricsIslandView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B791CDE5294C7EDF2F6149B8 /* DesktopLyricsIslandView.swift */; };
 		27DF2635D908614F71C08038 /* CloudRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2F1ECD4D2EF5E8F0D9C7EA /* CloudRequestTests.swift */; };
 		27E5236E95FD3D5B7E8193A1 /* ListeningIntentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E939B4F62B0E16588D1CD8F /* ListeningIntentService.swift */; };
@@ -952,6 +953,7 @@
 		620C22596174B16A2958B096 /* SpokenWordLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27DD45712F9E0206213AB3FA /* SpokenWordLibraryView.swift */; };
 		D07C166C35DF21B9C0CB93AF /* SpokenWordShelfStartupPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = C400B2EAE52971B6D67508BA /* SpokenWordShelfStartupPreview.swift */; };
 		D93EF409D523BE9D52ED551D /* AmbientSoundsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040070F66FDDEF7972629457 /* AmbientSoundsView.swift */; };
+		E60EBFE70A43E81123EACEAD /* MusicVideoLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9480CF5FAA0349557D3780C9 /* MusicVideoLibraryView.swift */; };
 		628B3F5A345BBDA862C39732 /* NowPlayingStylePreviewScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F27A05589D788FC47B4394B1 /* NowPlayingStylePreviewScreens.swift */; };
 		62AA0AE701E12FC9F5F269D8 /* NetworkHostAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09B9293AFE6E82ABC6C9C896 /* NetworkHostAuthority.swift */; };
 		62B317E128A1D573CA03533E /* PalveniDiagnosticsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257E9CF86D994DA59DEEBDC /* PalveniDiagnosticsClient.swift */; };
@@ -2961,6 +2963,7 @@
 		27DD45712F9E0206213AB3FA /* SpokenWordLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordLibraryView.swift; sourceTree = "<group>"; };
 		C400B2EAE52971B6D67508BA /* SpokenWordShelfStartupPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordShelfStartupPreview.swift; sourceTree = "<group>"; };
 		040070F66FDDEF7972629457 /* AmbientSoundsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSoundsView.swift; sourceTree = "<group>"; };
+		9480CF5FAA0349557D3780C9 /* MusicVideoLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicVideoLibraryView.swift; sourceTree = "<group>"; };
 		27F922996E55613A514AD0D4 /* ID3LyricsFramePreservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ID3LyricsFramePreservation.swift; sourceTree = "<group>"; };
 		281204C93E975E56E2AA02F1 /* MedleyDataUsageConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedleyDataUsageConfirmation.swift; sourceTree = "<group>"; };
 		28344C4A76C56EC6BE57ED3B /* PlaybackSourceAvailabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSourceAvailabilityTests.swift; sourceTree = "<group>"; };
@@ -5911,6 +5914,7 @@
 				27DD45712F9E0206213AB3FA /* SpokenWordLibraryView.swift */,
 				C400B2EAE52971B6D67508BA /* SpokenWordShelfStartupPreview.swift */,
 				040070F66FDDEF7972629457 /* AmbientSoundsView.swift */,
+				9480CF5FAA0349557D3780C9 /* MusicVideoLibraryView.swift */,
 				9F7380ABF7CFF416B08F01F2 /* TagEditorView.swift */,
 			);
 			path = Library;
@@ -8761,6 +8765,7 @@
 				620C22596174B16A2958B096 /* SpokenWordLibraryView.swift in Sources */,
 				D07C166C35DF21B9C0CB93AF /* SpokenWordShelfStartupPreview.swift in Sources */,
 				D93EF409D523BE9D52ED551D /* AmbientSoundsView.swift in Sources */,
+				E60EBFE70A43E81123EACEAD /* MusicVideoLibraryView.swift in Sources */,
 				7814030E97D0D88E7252DC4D /* SpokenWordPlayerComponents.swift in Sources */,
 				4364BBE73E5E16055CBA24B9 /* SpokenWordStore.swift in Sources */,
 				0210526C4C63B35683700C39 /* SpokenWordTranscriptOffsetStore.swift in Sources */,
@@ -9638,6 +9643,7 @@
 				278054AFB875BFD0D4548D29 /* SpokenWordLibraryView.swift in Sources */,
 				1C1EA6CF4B61FBF2D77CF607 /* SpokenWordShelfStartupPreview.swift in Sources */,
 				2C275B8A86B96442CD41B329 /* AmbientSoundsView.swift in Sources */,
+				37D35FB5B13EDF89BD2EFC82 /* MusicVideoLibraryView.swift in Sources */,
 				77D0B826FFF2C7ECF3507191 /* SpokenWordPlayerComponents.swift in Sources */,
 				325C09DC9D9271795E966AAD /* SpokenWordStore.swift in Sources */,
 				C01BCE8A6DD90C0295B369BB /* SpokenWordTranscriptOffsetStore.swift in Sources */,

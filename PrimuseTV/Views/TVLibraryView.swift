@@ -15,6 +15,9 @@ final class TVLibraryBrowseMemory {
     /// 歌曲页上次聚焦的那首和它在列表里的位置(位置只用来免掉几十万首里逐个找)。
     var songID: String?
     var songIndex: Int?
+    /// MV 页上次聚焦的那首和它的位置,同歌曲页。
+    var musicVideoSongID: String?
+    var musicVideoSongIndex: Int?
     /// 从哪张专辑页开始播放、点的是哪一首。播放页按 Menu 回来时先回到这张专辑页、
     /// 焦点落在那一首,再按一次才回海报墙;在专辑页里按 Menu 关掉就清空。
     var albumDetailID: String?
@@ -112,6 +115,7 @@ extension TVLibraryFilter {
         switch self {
         case .albums: return String(localized: "tab_albums")
         case .songs: return String(localized: "tab_songs")
+        case .musicVideos: return String(localized: "library_music_videos_title")
         case .artists: return String(localized: "tab_artists")
         case .genres: return String(localized: "tab_genres")
         case .folders: return TVDiscoveryText.string("folders")
@@ -125,6 +129,7 @@ extension TVLibraryFilter {
         switch self {
         case .albums: return "square.stack"
         case .songs: return "music.note"
+        case .musicVideos: return "play.rectangle"
         case .artists: return "person.2"
         case .genres: return "guitars"
         case .folders: return "folder"
@@ -286,6 +291,7 @@ struct TVLibraryView: View {
         }
         .onChange(of: filter) { _, _ in resetLetterIndex() }
         .onAppear(perform: leaveHiddenFilter)
+        .onChange(of: store.library.hasMusicVideoContent) { _, _ in leaveHiddenFilter() }
         .onChange(of: filterConfigurationRawValue) { _, _ in leaveHiddenFilter() }
         .onChange(of: artistBrowseModeRaw) { _, _ in
             // 换了列法,上次停的那位可能已经不在墙上;网格从头开始,焦点留在列法菜单上。
@@ -483,10 +489,19 @@ struct TVLibraryView: View {
         .decode(filterConfigurationRawValue)
     }
 
-    /// 停在被关掉的筛选上(设置里刚关、或从旧版本带过来)就回到专辑墙。
+    /// 停在被关掉的筛选上(设置里刚关、或从旧版本带过来)就回到专辑墙。MV 页在曲库里
+    /// 一个 MV 都没有时也一样。
     private func leaveHiddenFilter() {
-        let resolved = filterConfiguration.resolved(filter)
+        var resolved = filterConfiguration.resolved(filter)
+        if resolved == .musicVideos, !store.library.hasMusicVideoContent { resolved = .albums }
         if resolved != filter { filter = resolved }
+    }
+
+    /// 筛选条上实际摆出来的项:「MV」只在曲库里有 MV 时出现。
+    private var stripFilters: [TVLibraryFilter] {
+        let visible = filterConfiguration.visibleFilters
+        guard !store.library.hasMusicVideoContent else { return visible }
+        return visible.filter { $0 != .musicVideos }
     }
 
     /// 专辑墙分段的标题:按年份排时分段是年代(和手机上「发行日期」页同一套),其余是首字母。
@@ -593,6 +608,12 @@ struct TVLibraryView: View {
         return ids.firstIndex(of: id)
     }
 
+    private func rememberedMusicVideoIndex(in ids: [String]) -> Int? {
+        guard let id = browseMemory.musicVideoSongID else { return nil }
+        if let index = browseMemory.musicVideoSongIndex, ids.indices.contains(index), ids[index] == id { return index }
+        return ids.firstIndex(of: id)
+    }
+
     /// 当前筛选下记住的那张卡片;已从曲库消失的不算。
     private var browseAnchorFocusID: String? {
         switch filter {
@@ -607,6 +628,9 @@ struct TVLibraryView: View {
             return Self.artistFocusID(id)
         case .songs:
             guard let id = browseMemory.songID, store.song(id) != nil else { return nil }
+            return Self.songFocusID(id)
+        case .musicVideos:
+            guard let id = browseMemory.musicVideoSongID, store.song(id) != nil else { return nil }
             return Self.songFocusID(id)
         case .genres:
             guard let id = browseMemory.genreID,
@@ -625,6 +649,7 @@ struct TVLibraryView: View {
         case .albums, .years: anchor = browseMemory.albumID
         case .artists: anchor = browseMemory.artistID
         case .songs: anchor = browseMemory.songID
+        case .musicVideos: anchor = browseMemory.musicVideoSongID
         case .genres: anchor = browseMemory.genreID
         default: anchor = nil
         }
@@ -826,6 +851,7 @@ struct TVLibraryView: View {
                 : store.browsableArtists(artistBrowseMode).count
             return PMString("ext.tv.library.title.artists", count)
         case .songs: return PMString("ext.tv.library.title.songs", TVFmt.count(store.songs.count))
+        case .musicVideos: return filter.display + " · " + TVFmt.count(store.library.musicVideoSongs.count)
         case .genres, .folders, .years, .ranking: return filter.display
         }
     }
@@ -840,7 +866,7 @@ struct TVLibraryView: View {
             HStack(spacing: 14) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 14) {
-                        ForEach(filterConfiguration.visibleFilters) { item in
+                        ForEach(stripFilters) { item in
                             Button { filter = item } label: {
                                 TVFilterChipLabel(
                                     title: item.display,
@@ -1083,6 +1109,40 @@ struct TVLibraryView: View {
             } else {
                 browseLayoutPlaceholder
             }
+        case .musicVideos:
+            // MV 按添加先后排、不分字母段;点一首从它开始按 MV 连着放,带同名 MV 的歌也直接出画面。
+            let songIDs = store.musicVideoSongIDs
+            TVIndexedGrid(
+                items: TVSongIDItems(ids: songIDs), sections: [],
+                columns: [GridItem(.flexible())], spacing: 10,
+                revealingIndex: rememberedMusicVideoIndex(in: songIDs),
+                jumpRequest: gridJumpRequest,
+                scrollProxy: proxy,
+                focusItem: { focusedGridItem = Self.songFocusID($0) },
+                onSectionFocused: noteFocusedSection
+            ) { index, item, focusChanged in
+                if let song = store.song(item.id) {
+                    TVSongRow(
+                        song: song,
+                        ordinal: index + 1,
+                        largestOrdinal: songIDs.count,
+                        queueSongIDs: songIDs,
+                        playsMusicVideo: true,
+                        action: openPlayer,
+                        onFocusChanged: { focused in
+                            focusChanged(focused)
+                            if focused {
+                                browseMemory.musicVideoSongID = item.id
+                                browseMemory.musicVideoSongIndex = index
+                            }
+                        },
+                        focusBinding: $focusedGridItem,
+                        focusID: Self.songFocusID(item.id)
+                    )
+                }
+            }
+            .onAppear { revealBrowseAnchor(with: proxy) }
+            .transition(TVPageMotion.contentReveal)
         case .genres:
             TVGenreBrowser(
                 revealingGenreID: browseMemory.genreID,
@@ -2409,6 +2469,8 @@ struct TVSongRow: View {
     var largestOrdinal: Int = 1
     var reason: String? = nil
     var queueSongIDs: [String]? = nil
+    /// 资料库「MV」页里的行:点了按 MV 放(带同名 MV 的歌也直接出画面)。
+    var playsMusicVideo = false
     var action: () -> Void = {}
     /// 长列表分页要知道焦点走到哪一行了,见 `TVPagedSongIDList`。
     var onFocusChanged: (Bool) -> Void = { _ in }
@@ -2423,6 +2485,7 @@ struct TVSongRow: View {
                       action: {
                           // 列表内点歌保持该列表为队列,并沿用当前随机开关;
                           // 没给列表时按可见曲库顺序续播。
+                          if playsMusicVideo { store.prefersMusicVideoForNextPlay() }
                           if let queueSongIDs {
                               guard store.play(song, in: queueSongIDs) else { return }
                           } else { store.play(song) }

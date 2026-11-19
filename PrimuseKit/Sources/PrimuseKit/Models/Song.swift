@@ -1544,6 +1544,12 @@ public extension Song {
         guard let mvPath, !mvPath.isEmpty else { return false }
         return mvPath == filePath
     }
+
+    /// 有 MV 可放:独立 MV,或带同名 MV 的歌曲。资料库的「MV」分类收的就是这些。
+    var hasMusicVideo: Bool {
+        guard let mvPath else { return false }
+        return !mvPath.isEmpty
+    }
 }
 
 public extension Sequence where Element == Song {

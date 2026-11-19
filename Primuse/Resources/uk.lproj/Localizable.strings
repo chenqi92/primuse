@@ -7726,3 +7726,8 @@
 "queue_bookmark_remove" = "Видалити закладку черги";
 "queue_bookmarks_title" = "Закладки черг";
 "queue_bookmark_error" = "Не вдалося прочитати або зберегти закладку. Спробуйте ще раз.";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "Кліпи";
+"music_videos_count" = "кліпів";
+"music_videos_empty_hint" = "Тут з’являться відеофайли з ваших джерел музики та пісні з однойменним кліпом.";

@@ -3551,6 +3551,26 @@ final class AudioPlayerService {
         Task { await setMusicVideoModeEnabled(!isMusicVideoModeEnabled) }
     }
 
+    /// 资料库「MV」分类里点播:先打开 MV 模式再装队列,带同名 MV 的歌一开播就出画面,
+    /// 不用先放一段声音再切成视频。点的正是当前这首时只换队列,再把它切成 MV。
+    func playMusicVideos(
+        queueIDs ids: [String],
+        startingAt index: Int,
+        order: LargeQueueRequestOrder = .rotatedToStart,
+        caller: String = #fileID,
+        callerLine: Int = #line
+    ) async {
+        guard ids.indices.contains(index) else { return }
+        let isAlreadyCurrent = currentSong?.id == ids[index]
+        if !isAlreadyCurrent, !isMusicVideoModeEnabled {
+            isMusicVideoModeEnabled = true
+        }
+        await play(queueIDs: ids, startingAt: index, order: order, playableOnly: false, caller: caller, callerLine: callerLine)
+        if isAlreadyCurrent, !isMusicVideoModeEnabled {
+            await setMusicVideoModeEnabled(true)
+        }
+    }
+
     func setMusicVideoModeEnabled(_ enabled: Bool) async {
         guard enabled != isMusicVideoModeEnabled else { return }
         guard let song = currentSong else {

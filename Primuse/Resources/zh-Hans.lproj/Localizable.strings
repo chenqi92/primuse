@@ -7913,3 +7913,8 @@
 "queue_bookmark_remove" = "取消队列书签";
 "queue_bookmarks_title" = "队列书签";
 "queue_bookmark_error" = "无法读取或保存队列书签，请重试。";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "MV";
+"music_videos_count" = "个 MV";
+"music_videos_empty_hint" = "音乐源里的视频文件、带同名 MV 的歌曲会出现在这里。";

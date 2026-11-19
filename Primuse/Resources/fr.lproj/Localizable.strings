@@ -7820,3 +7820,8 @@
 "queue_bookmark_remove" = "Supprimer le signet";
 "queue_bookmarks_title" = "Files enregistrées";
 "queue_bookmark_error" = "Impossible de lire ou enregistrer ce signet. Veuillez réessayer.";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "Clips";
+"music_videos_count" = "clips";
+"music_videos_empty_hint" = "Les fichiers vidéo de vos sources musicales et les morceaux accompagnés d’un clip du même nom apparaissent ici.";

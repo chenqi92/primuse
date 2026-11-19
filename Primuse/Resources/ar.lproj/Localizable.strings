@@ -7726,3 +7726,8 @@
 "queue_bookmark_remove" = "إزالة إشارة قائمة التشغيل";
 "queue_bookmarks_title" = "إشارات قوائم التشغيل";
 "queue_bookmark_error" = "تعذرت قراءة الإشارة أو حفظها. حاول مرة أخرى.";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "الفيديوهات الموسيقية";
+"music_videos_count" = "فيديو موسيقي";
+"music_videos_empty_hint" = "تظهر هنا ملفات الفيديو في مصادر الموسيقى لديك والأغاني التي لها فيديو موسيقي بالاسم نفسه.";

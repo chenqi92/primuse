@@ -7820,3 +7820,8 @@
 "queue_bookmark_remove" = "대기열 북마크 삭제";
 "queue_bookmarks_title" = "대기열 북마크";
 "queue_bookmark_error" = "북마크를 읽거나 저장할 수 없습니다. 다시 시도해 주세요.";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "뮤직비디오";
+"music_videos_count" = "개의 뮤직비디오";
+"music_videos_empty_hint" = "음악 소스의 동영상 파일과 이름이 같은 뮤직비디오가 있는 노래가 여기에 표시됩니다.";

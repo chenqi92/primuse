@@ -9,6 +9,8 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
     case podcasts
     /// 环境音(白噪音、雨声…)。默认收起,第一次有了环境音时亮出来一次;没有内容时不出现。
     case ambient
+    /// MV:独立 MV 与带同名 MV 的歌,排在「歌曲」旁边;没有 MV 时不出现。
+    case musicVideos
 
     var id: String { rawValue }
 
@@ -28,6 +30,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .releaseDate: return "library_release_date_title"
         case .podcasts: return "listening_space_podcast"
         case .ambient: return "listening_space_ambient"
+        case .musicVideos: return "library_music_videos_title"
         }
     }
 
@@ -47,6 +50,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .releaseDate: return "calendar"
         case .podcasts: return ListeningSpace.podcast.systemImage
         case .ambient: return ListeningSpace.ambient.systemImage
+        case .musicVideos: return "play.rectangle.fill"
         }
     }
 
@@ -68,6 +72,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .releaseDate: return .indigo
         case .podcasts: return ListeningSpace.podcast.glyphTileTint
         case .ambient: return ListeningSpace.ambient.glyphTileTint
+        case .musicVideos: return .cyan
         }
     }
 
@@ -87,6 +92,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .releaseDate: return String(localized: "library_release_date_title")
         case .podcasts: return String(localized: "listening_space_podcast")
         case .ambient: return String(localized: "listening_space_ambient")
+        case .musicVideos: return String(localized: "library_music_videos_title")
         }
     }
 }
@@ -99,6 +105,7 @@ enum LibraryDisplayConfiguration {
     static let defaultSectionOrder: [LibrarySection] = [
         .favorites,
         .songs,
+        .musicVideos,
         .albums,
         .artists,
         .genres,
@@ -812,6 +819,8 @@ struct LibraryView: View {
         ) }
         // 「环境音」同样只在真有环境音时出现。
         .filter { $0 != .ambient || library.hasAmbientContent || (currentStartupPreview?.counts[$0.rawValue] ?? 0) > 0 }
+        // 「MV」也是:曲库里一个 MV 都没有就不摆这个入口。
+        .filter { $0 != .musicVideos || library.hasMusicVideoContent || (currentStartupPreview?.counts[$0.rawValue] ?? 0) > 0 }
     }
     private var artworkPreviewRevision: String {
         // 电台部分用存储里缓存的摘要：这个属性一次刷新要被求值好几遍，
@@ -1566,6 +1575,19 @@ struct LibraryView: View {
                     fileFormat: song.fileFormat
                 )
             }
+        case .musicVideos:
+            overlappingPreview(Array(library.musicVideoSongs.prefix(3))) { song in
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 36,
+                    cornerRadius: 7,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat,
+                    placeholderIcon: "play.rectangle.fill"
+                )
+            }
         case .songs:
             overlappingPreview(previewSongs) { song in
                 CachedArtworkView(
@@ -1898,7 +1920,8 @@ struct LibraryView: View {
         let counts: [LibrarySection: Int] = [
             .songs: library.musicSongs.count, .folders: songs.count, .albums: albums.count, .artists: artists.count,
             .genres: genres.count, .playlists: regularPlaylists.count + library.smartPlaylists.count,
-            .spokenWord: library.spokenWordBookCount, .ambient: library.ambientSongs.count
+            .spokenWord: library.spokenWordBookCount, .ambient: library.ambientSongs.count,
+            .musicVideos: library.musicVideoSongs.count
         ]
         let sampled = selection.songs.prefix(3).map(\.id)
         let covers: [LibrarySection: [String]] = [
@@ -1907,7 +1930,8 @@ struct LibraryView: View {
             .artists: selection.artists.prefix(3).compactMap { selection.artistFallbackSongs[$0.id]?.first?.id },
             .genres: previewGenreSongs.map(\.id),
             .playlists: selection.playlists.prefix(3).compactMap { library.rawSongIDs(forPlaylist: $0.id).first },
-            .spokenWord: library.spokenWordSongs.prefix(3).map(\.id), .ambient: library.ambientSongs.prefix(3).map(\.id)
+            .spokenWord: library.spokenWordSongs.prefix(3).map(\.id), .ambient: library.ambientSongs.prefix(3).map(\.id),
+            .musicVideos: library.musicVideoSongs.prefix(3).map(\.id)
         ]
         let saved = LibraryHubStartupPreview(scope: scope, stamp: stamp,
             counts: Dictionary(uniqueKeysWithValues: counts.map { ($0.key.rawValue, $0.value) }),
@@ -2146,6 +2170,8 @@ struct LibraryView: View {
             return countText(PodcastStore.shared.shows.count, unitKey: "podcast_shows_count")
         case .ambient:
             return count(library.ambientSongs.count, unitKey: "ambient_sounds_count")
+        case .musicVideos:
+            return count(library.musicVideoSongs.count, unitKey: "music_videos_count")
         }
     }
 
@@ -2195,6 +2221,8 @@ struct LibraryView: View {
             PodcastLibraryView()
         case .ambient:
             AmbientSoundsView()
+        case .musicVideos:
+            MusicVideoLibraryView()
         }
     }
 

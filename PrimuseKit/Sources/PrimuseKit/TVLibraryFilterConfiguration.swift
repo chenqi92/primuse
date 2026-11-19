@@ -4,7 +4,10 @@ import Foundation
 ///
 /// 显隐按 rawValue 存盘,case 名发布后不能改。
 public enum TVLibraryFilter: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
-    case albums, songs, artists, genres, folders
+    case albums, songs
+    /// MV:独立 MV 与带同名 MV 的歌,排在「歌曲」旁边。曲库里没有 MV 时筛选条上不出现。
+    case musicVideos
+    case artists, genres, folders
     /// 按年份分段的专辑墙。
     case years
     case recommendations, ranking
@@ -14,7 +17,7 @@ public enum TVLibraryFilter: String, CaseIterable, Codable, Hashable, Identifiab
     /// 能在设置里关掉的项。藏品本身(专辑、歌曲、艺人、流派、文件夹)一直在。
     public var isOptional: Bool {
         switch self {
-        case .years, .recommendations, .ranking: true
+        case .musicVideos, .years, .recommendations, .ranking: true
         case .albums, .songs, .artists, .genres, .folders: false
         }
     }

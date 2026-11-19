@@ -7820,3 +7820,8 @@
 "queue_bookmark_remove" = "Lesezeichen entfernen";
 "queue_bookmarks_title" = "Gemerkte Warteschlangen";
 "queue_bookmark_error" = "Das Lesezeichen konnte nicht gelesen oder gespeichert werden. Bitte erneut versuchen.";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "Musikvideos";
+"music_videos_count" = "Musikvideos";
+"music_videos_empty_hint" = "Videodateien aus deinen Musikquellen und Songs mit einem gleichnamigen Musikvideo erscheinen hier.";

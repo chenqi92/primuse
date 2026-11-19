@@ -8,7 +8,7 @@ struct TVLibraryFilterConfigurationTests {
     func defaults() {
         let configuration = TVLibraryFilterConfiguration.decode("")
         #expect(configuration == .default)
-        #expect(configuration.visibleFilters == [.albums, .songs, .artists, .genres, .folders, .years])
+        #expect(configuration.visibleFilters == [.albums, .songs, .musicVideos, .artists, .genres, .folders, .years])
         #expect(configuration.encoded() == "")
     }
 
@@ -46,6 +46,10 @@ struct TVLibraryFilterConfigurationTests {
         let configuration = TVLibraryFilterConfiguration.default
         #expect(configuration.resolved(.recommendations) == .albums)
         #expect(configuration.resolved(.years) == .years)
+        var withoutMusicVideos = configuration
+        withoutMusicVideos.setShown(false, for: .musicVideos)
+        #expect(withoutMusicVideos.resolved(.musicVideos) == .albums)
+        #expect(TVLibraryFilterConfiguration.decode(withoutMusicVideos.encoded()) == withoutMusicVideos)
         #expect(TVLibraryFilterConfiguration.decode("garbage") == .default)
     }
 }

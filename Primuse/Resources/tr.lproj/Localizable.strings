@@ -7726,3 +7726,8 @@
 "queue_bookmark_remove" = "Kuyruk yer imini kaldır";
 "queue_bookmarks_title" = "Kuyruk yer imleri";
 "queue_bookmark_error" = "Yer imi okunamadı veya kaydedilemedi. Lütfen tekrar deneyin.";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "Müzik Videoları";
+"music_videos_count" = "müzik videosu";
+"music_videos_empty_hint" = "Müzik kaynaklarınızdaki video dosyaları ve aynı adlı müzik videosu olan şarkılar burada görünür.";

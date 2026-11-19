@@ -1260,6 +1260,22 @@ final class TVStore {
         didSet { syncTrackNavigationCommands() }
     }
     var isMusicVideoModeEnabled = false
+    @ObservationIgnored private var musicVideoSongIDsCache: (revision: UInt64, ids: [String])?
+
+    /// 资料库「MV」页的列表:有 MV 的音乐(独立 MV 与带同名 MV 的歌),新添加的在前。
+    /// 按 MV 列表的修订号缓存,焦点每挪一格网格重算时不必再排一遍。
+    var musicVideoSongIDs: [String] {
+        let revision = library.musicVideoContentRevision
+        if let cache = musicVideoSongIDsCache, cache.revision == revision { return cache.ids }
+        let ids = library.musicVideoSongs.sorted { $0.dateAdded > $1.dateAdded }.map(\.id)
+        musicVideoSongIDsCache = (revision, ids)
+        return ids
+    }
+
+    /// 从「MV」页点播:先打开 MV 模式,带同名 MV 的歌一开播就走视频管线。
+    func prefersMusicVideoForNextPlay() {
+        isMusicVideoModeEnabled = true
+    }
     /// 有声内容里的视频(视频播客单集、当节目听的视频文件,#365)放画面还是只放声音。这台电视自己记着,
     /// 播放页上切;规则见 `SpokenWordVideoPolicy`,和 iPhone 同一套。
     private(set) var showsSpokenWordVideo = UserDefaults.standard

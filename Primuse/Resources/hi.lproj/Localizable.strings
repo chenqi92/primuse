@@ -7726,3 +7726,8 @@
 "queue_bookmark_remove" = "क्यू बुकमार्क हटाएँ";
 "queue_bookmarks_title" = "क्यू बुकमार्क";
 "queue_bookmark_error" = "बुकमार्क पढ़ा या सहेजा नहीं जा सका। फिर से कोशिश करें।";
+
+/* 资料库 MV 分类与 Mac 点歌后的播放页 */
+"library_music_videos_title" = "म्यूज़िक वीडियो";
+"music_videos_count" = "म्यूज़िक वीडियो";
+"music_videos_empty_hint" = "आपके म्यूज़िक सोर्स की वीडियो फ़ाइलें और उसी नाम के म्यूज़िक वीडियो वाले गाने यहाँ दिखते हैं।";
