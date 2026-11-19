@@ -3446,6 +3446,9 @@
 "lyrics_converter_lrc_help" = "LRC；逐字时间会保留为增强 LRC";
 "lyrics_converter_ttml_help" = "兼容 Apple Music 的 TTML";
 "lyrics_converter_txt_help" = "不含时间轴的纯文本";
+"reread_album_cover" = "补读专辑封面";
+"reread_album_cover_done" = "专辑封面已就绪";
+"reread_album_cover_not_found" = "这张专辑中未找到可用封面";
 "artwork_edit" = "更换封面";
 "artwork_editor_title" = "选择封面";
 "artwork_artist_from_apple_music" = "从 Apple Music 获取";

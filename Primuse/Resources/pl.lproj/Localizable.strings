@@ -880,6 +880,9 @@
 "artwork_choose_song" = "Wybierz spośród utworów";
 "artwork_choose_folder_image" = "Wybierz z folderu albumu";
 "artwork_folder_images_empty" = "W folderze albumu nie ma obrazów.";
+"reread_album_cover" = "Wczytaj ponownie okładkę albumu";
+"reread_album_cover_done" = "Okładka albumu jest gotowa";
+"reread_album_cover_not_found" = "Nie znaleziono okładki tego albumu";
 "artwork_edit" = "Zmień okładkę";
 "artwork_editor_title" = "Wybierz okładkę";
 "artwork_invalid_image" = "Wybierz prawidłowy obraz, który Primuse może przetworzyć.";

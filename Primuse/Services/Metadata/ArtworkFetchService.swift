@@ -32,6 +32,7 @@ actor ArtworkFetchService {
 
     /// In-flight deduplication: albumID/artistID → Task
     private var inFlightAlbum: [String: Task<Data?, Never>] = [:]
+    private var albumsReadingFromSource: Set<String> = []
     private var inFlightArtist: [String: Task<Data?, Never>] = [:]
 
     /// Reuse scraper sessions and parsing configuration across artwork lookups.
@@ -44,6 +45,165 @@ actor ArtworkFetchService {
     private var sourceFailures: [String: SourceFailureState] = [:]
 
     // MARK: - Album Cover
+
+    enum LocalCoverRead: Sendable {
+        case unavailable
+        case inspected(Data?)
+    }
+
+    /// 仅补这张专辑的自动封面。先找本机已有的曲目图片，再读源里已知的图片，
+    /// 最后按实际音频文件读内嵌封面。多碟/CUE 的重复引用和同一文件只读一次。
+    func rereadAlbumCover(
+        albumID: String, songs: [PrimuseKit.Song],
+        isCurrent: @MainActor @Sendable (PrimuseKit.Song) -> Bool,
+        readLocalFile: @Sendable (PrimuseKit.Song) async throws -> LocalCoverRead,
+        readReference: @Sendable (PrimuseKit.Song, String) async throws -> Data?,
+        readRemoteFile: @Sendable (PrimuseKit.Song) async throws -> Data?
+    ) async throws -> Bool {
+        guard albumsReadingFromSource.insert(albumID).inserted else { throw CancellationError() }
+        defer { albumsReadingFromSource.remove(albumID) }
+        let candidates = songs.filter { $0.albumID == albumID }
+        func install(_ data: Data?, from song: PrimuseKit.Song) async throws -> Bool {
+            try Task.checkCancellation()
+            guard let data, ArtworkImageCompatibility.isCompleteImage(data),
+                  let image = LibraryArtworkImageProcessor.process(data),
+                  await isCurrent(song) else { return false }
+            try Task.checkCancellation()
+            guard await assetStore.storeAlbumCover(image, forAlbumID: albumID) != nil else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            return true
+        }
+
+        if let cached = await assetStore.cachedAlbumCover(forAlbumID: albumID),
+           ArtworkImageCompatibility.isCompleteImage(cached) { return true }
+        for song in candidates {
+            try Task.checkCancellation()
+            guard !SourceArtworkPolicy.shouldIgnoreGenericFolderCover(ref: song.coverArtFileName, filePath: song.filePath)
+            else { continue }
+            let cached = assetStore.cachedSourceCover(sourceID: song.sourceID, reference: song.coverArtFileName,
+                                                       maximumPixels: 1536, allowsStale: true)
+                ?? assetStore.displayCoverData(songID: song.id, reference: song.coverArtFileName)
+            if try await install(cached, from: song) { return true }
+        }
+
+        var blockedSources: Set<String> = []
+        var inspectedFiles: [String: Set<String>] = [:]
+        var lastError: Error?
+        enum CoverLocation { case localFile, reference, remoteFile }
+        for location in [CoverLocation.localFile, .reference, .remoteFile] {
+            var seen: [String: Set<String>] = [:]
+            for song in candidates {
+                try Task.checkCancellation()
+                guard !blockedSources.contains(song.sourceID),
+                      let path = location == .reference ? song.coverArtFileName : song.filePath, !path.isEmpty,
+                      await isCurrent(song), seen[song.sourceID, default: []].insert(path).inserted else { continue }
+                let data: Data?
+                do {
+                    switch location {
+                    case .localFile:
+                        guard case .inspected(let cover) = try await readLocalFile(song) else { continue }
+                        inspectedFiles[song.sourceID, default: []].insert(path)
+                        data = cover
+                    case .reference: data = try await readReference(song, path)
+                    case .remoteFile:
+                        guard inspectedFiles[song.sourceID]?.contains(path) != true else { continue }
+                        data = try await readRemoteFile(song)
+                    }
+                } catch {
+                    try Task.checkCancellation()
+                    if error is CancellationError { throw error }
+                    lastError = error
+                    if location != .localFile, Self.blocksAlbumReads(error) { blockedSources.insert(song.sourceID) }
+                    continue
+                }
+                if try await install(data, from: song) { return true }
+            }
+        }
+        if let lastError { throw lastError }
+        return false
+    }
+
+    private static func blocksAlbumReads(_ error: Error) -> Bool {
+        if let http = error as? HTTPResponseFailure {
+            return http.isRateLimitFailure || http.statusCode == 401
+        }
+        switch error {
+        case CloudDriveError.apiError(430, _), CloudDriveError.apiError(429, _), CloudDriveError.rateLimited,
+             CloudDriveError.permissionDenied(.accountAccess),
+             CloudDriveError.notAuthenticated,
+             CloudDriveError.downloadQuotaExceeded: return true
+        default: return false
+        }
+    }
+
+    nonisolated static func embeddedAlbumCover(for song: PrimuseKit.Song, at url: URL) async throws -> Data? {
+        if song.fileFormat == .flac {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            var local = song
+            local.fileSize = Int64(clamping: try handle.seekToEnd())
+            if let cover = try await embeddedAlbumCover(for: local, fetch: { offset, length in
+                try handle.seek(toOffset: UInt64(offset))
+                return try handle.read(upToCount: Int(length)) ?? Data()
+            }) { return cover }
+        }
+        try Task.checkCancellation()
+        return await FileMetadataReader.read(from: url).coverArtData
+    }
+
+    /// 远端手动读取复用格式的标签解析器。FLAC 可越过自动扫描的文件头上限，
+    /// 尾置 moov 的 M4A 直接定位 moov；都不需要为找图下载整首音频。
+    nonisolated static func embeddedAlbumCover(
+        for song: PrimuseKit.Song, fetch: @Sendable (Int64, Int64) async throws -> Data
+    ) async throws -> Data? {
+        let size = song.fileSize
+        let prefixLength = Int64(RemoteMetadataReadPolicy.initialHeadByteCount)
+        var head = Data(try await fetch(0, size > 0 ? min(size, prefixLength) : prefixLength))
+        guard !head.isEmpty else { return nil }
+        let ext = RemoteMetadataInspectionPolicy.parserFileExtension(
+            declaredFileExtension: song.fileFormat.rawValue, signature: AudioFileSignaturePolicy.inspect(head)
+        )
+        if ext == "flac",
+           let cover = try await RemoteMetadataReadPolicy.readFLACArtwork(
+               head: head, fileSize: size, fetch: fetch, decodePicture: FileMetadataReader.completeFLACPicture
+           ) { return cover }
+        let strategy = RemoteMetadataInspectionPolicy.tailStrategy(fileExtension: ext, isExplicitReread: true)
+        if strategy == .isoBaseMedia, size > 0,
+           let tags = try await ISOBaseMediaRangeReader.read(head: head, fileSize: size, fetch: fetch) {
+            return await FileMetadataReader.read(from: tags, fileExtension: ext).coverArtData
+        }
+        let maxTag = 32 * 1024 * 1024
+        if let tagLength = EmbeddedTagMetadataParser.id3TagByteCount(in: head),
+           tagLength > head.count, tagLength <= maxTag, size <= 0 || tagLength <= size {
+            head = try await RemoteMetadataReadPolicy.extendingHead(head, to: tagLength, fetch: fetch)
+        }
+        while let length = EmbeddedTagMetadataParser.expandedHeadReadSize(
+            fileSize: size, currentData: head, fileExtension: ext
+        ), length > head.count {
+            head = try await RemoteMetadataReadPolicy.extendingHead(head, to: length, fetch: fetch)
+        }
+        let session = FileMetadataReader.RangeReadSession()
+        if let cover = await session.read(from: head, fileExtension: ext).coverArtData { return cover }
+        guard size > head.count else { return nil }
+        if strategy == .dsfOffset, let offset = EmbeddedTagMetadataParser.dsfMetadataOffset(in: head),
+           offset >= 0, offset <= size - 10 {
+            let header = try await fetch(offset, 10)
+            guard let length = EmbeddedTagMetadataParser.id3TagByteCount(in: header),
+                  length <= maxTag, Int64(length) <= size - offset else { return nil }
+            let tag = try await fetch(offset, Int64(length))
+            return await session.read(from: head, fileExtension: ext, id3TailData: tag).coverArtData
+        }
+        guard ext != "flac", [.apeV2, .mp3ID3, .containerID3, .genericEOF].contains(strategy) else { return nil }
+        let count = min(size, Int64(RemoteMetadataReadPolicy.initialContainerTailByteCount))
+        var tail = try await fetch(size - count, count)
+        if let length = EmbeddedTagMetadataParser.expandedTailReadSize(
+            fileSize: size, currentData: tail, fileExtension: ext
+        ), length > tail.count {
+            tail = try await fetch(size - Int64(length), Int64(length))
+        }
+        return await session.read(from: head, fileExtension: ext, id3TailData: tail).coverArtData
+    }
 
     /// Fetch album cover: check cache → search online → store
     func fetchAlbumCover(albumTitle: String, artistName: String?, albumID: String) async -> Data? {

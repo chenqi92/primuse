@@ -587,6 +587,72 @@ public enum RemoteMetadataReadPolicy {
         }
     }
 
+    /// 按 FLAC 块头定位图片。展示时的预算只计新增的读取，文件头里已有的字节直接复用。
+    public static func readFLACArtwork(
+        head: Data, fileSize: Int64,
+        maximumFetchedBytes: Int = .max, maximumRequests: Int = 128,
+        fetch: (Int64, Int64) async throws -> Data,
+        decodePicture: (Data) -> Data?
+    ) async throws -> Data? {
+        let limit = fileSize > 0 ? fileSize : Int64.max
+        var window = head.startIndex == 0 ? head : Data(head)
+        var windowOffset: Int64 = 0
+        var remainingBytes = maximumFetchedBytes
+        var remainingRequests = maximumRequests
+
+        func bytes(at offset: Int64, count: Int, readAhead: Bool = false) async throws -> Data? {
+            try Task.checkCancellation()
+            var result = Data()
+            while result.count < count {
+                let next = offset + Int64(result.count)
+                let missing = count - result.count
+                let relative = next - windowOffset
+                if relative >= 0, relative < window.count {
+                    let start = window.startIndex + Int(relative)
+                    result.append(window[start..<min(window.endIndex, start + missing)])
+                    continue
+                }
+                try Task.checkCancellation()
+                guard missing <= remainingBytes, remainingRequests > 0 else { return nil }
+                let length = min(limit - next, Int64(remainingBytes), Int64(readAhead ? max(4096, missing) : missing))
+                guard length > 0 else { return nil }
+                remainingRequests -= 1
+                window = try await fetch(next, length)
+                windowOffset = next
+                guard !window.isEmpty, window.count <= length else { throw URLError(.badServerResponse) }
+                remainingBytes -= window.count
+            }
+            return result
+        }
+
+        let signatureOffset = Int64(EmbeddedTagMetadataParser.id3TagByteCount(in: window) ?? 0)
+        guard limit >= 4, signatureOffset <= limit - 4,
+              try await bytes(at: signatureOffset, count: 4, readAhead: true) == Data("fLaC".utf8)
+        else { return nil }
+        var offset = signatureOffset + 4
+        var fallback: Data?
+        // 块长是 24 位。限制畸形文件能触发的读取次数和累计图片字节数。
+        var remainingPictureBytes = 32 * 1024 * 1024
+        for _ in 0..<128 {
+            guard offset <= limit - 4, let header = try await bytes(at: offset, count: 4, readAhead: true) else { break }
+            let type = header[0] & 0x7f
+            let length = Int(header[1]) << 16 | Int(header[2]) << 8 | Int(header[3])
+            offset += 4
+            guard type != 127, Int64(length) <= limit - offset else { break }
+            if type == 6, length >= 32, length <= remainingPictureBytes,
+               let block = try await bytes(at: offset, count: length) {
+                remainingPictureBytes -= length
+                if let image = decodePicture(block) {
+                    if block.prefix(4).elementsEqual([0, 0, 0, 3]) { return image }
+                    if fallback == nil { fallback = image }
+                }
+            }
+            if header[0] & 0x80 != 0 { break }
+            offset += Int64(length)
+        }
+        return fallback
+    }
+
     /// moov 在首段里放不下时补读的上限。moov 里只有样本表和标签, 十几个小时的整本书也就
     /// 几 MB; 比别的格式的 4 MB 高, 是因为 moov 读不全就一个标签都拿不到。
     public static let maximumISOBaseMediaHeadByteCount = 16 * 1024 * 1024

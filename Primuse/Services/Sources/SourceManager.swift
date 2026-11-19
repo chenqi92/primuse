@@ -16515,6 +16515,59 @@ final class SourceManager {
         }
     }
 
+    func rereadAlbumCover(albumID: String, in library: MusicLibrary) async throws -> Bool {
+        let found = try await ArtworkFetchService.shared.rereadAlbumCover(
+            albumID: albumID, songs: library.songs(forAlbum: albumID),
+            isCurrent: { song in
+                guard let live = library.visibleSong(id: song.id) else { return false }
+                return live.albumID == albumID && live.sourceID == song.sourceID
+                    && live.filePath == song.filePath && live.revision == song.revision
+                    && live.fileSize == song.fileSize && live.coverArtFileName == song.coverArtFileName
+            },
+            readLocalFile: { [self] song in
+                guard MetadataBackfillEligibilityPolicy.embeddedArtworkFormats.contains(song.fileFormat) else {
+                    return .unavailable
+                }
+                let url: URL?
+                if let cached = await cachedURLForBackgroundRead(for: song) {
+                    url = cached
+                } else {
+                    url = await directLocalFileURL(for: song)
+                }
+                guard let url else { return .unavailable }
+                return .inspected(try await ArtworkFetchService.embeddedAlbumCover(for: song, at: url))
+            },
+            readReference: { [self] song, reference in
+                guard song.sourceID != AppleMusicLibraryIdentity.sourceID,
+                      !MetadataAssetStore.isLocalCoverFileName(reference),
+                      !CachedArtworkView.shouldIgnoreGenericFolderCover(ref: reference, filePath: song.filePath)
+                else { return nil }
+                let connector = try await auxiliaryConnector(for: song)
+                return try await connector.fetchArtworkData(for: reference, maximumBytes: 32 * 1024 * 1024,
+                                                            purpose: .fullResolution)
+            },
+            readRemoteFile: { [self] song in
+                if song.sourceID == AppleMusicLibraryIdentity.sourceID {
+                    if let data = await AppServices.shared.appleMusicLibrary.importedArtworkData(
+                        songID: song.id, amID: song.filePath) { return data }
+                    return await AppleMusicSongArtwork.image(for: song, pixelSize: 1536,
+                                                             mirrorsIntoSongCache: false)?.platformPNGData()
+                }
+                guard MetadataBackfillEligibilityPolicy.embeddedArtworkFormats.contains(song.fileFormat) else { return nil }
+                guard let source = await source(withID: song.sourceID), source.isEnabled, !source.isDeleted,
+                      source.type.supportsEmbeddedMetadataBackfill else { return nil }
+                let reader = try await metadataRangeReader(for: song)
+                return try await ArtworkFetchService.embeddedAlbumCover(for: song) { offset, length in
+                    try await SpeculativeRangeRead.withBoundedResponses(requestedLength: length) {
+                        try await reader.fetch(offset: offset, length: length, intent: .bulkBounded)
+                    }
+                }
+            }
+        )
+        if found { CachedArtworkView.invalidateAlbumCover(albumID) }
+        return found
+    }
+
     /// Downloads artwork inside the connector's routed read operation. A local
     /// URL that becomes stale during a Wi-Fi handoff can therefore retire that
     /// route and retry through the configured public endpoint in the same view

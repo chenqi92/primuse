@@ -3345,6 +3345,9 @@
 "lyrics_converter_lrc_help" = "LRC。単語タイミングは拡張LRCとして保持";
 "lyrics_converter_ttml_help" = "Apple Music互換のTTML";
 "lyrics_converter_txt_help" = "時間情報のないプレーンテキスト";
+"reread_album_cover" = "アルバムアートワークを再読み込み";
+"reread_album_cover_done" = "アルバムアートワークを読み込みました";
+"reread_album_cover_not_found" = "このアルバムのアートワークが見つかりませんでした";
 "artwork_edit" = "アートワークを変更";
 "artwork_editor_title" = "アートワークを選択";
 "artwork_artist_from_apple_music" = "Apple Musicから取得";

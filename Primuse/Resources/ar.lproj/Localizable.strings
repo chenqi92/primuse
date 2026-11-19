@@ -880,6 +880,9 @@
 "artwork_choose_song" = "اختر من الاغاني";
 "artwork_choose_folder_image" = "الاختيار من مجلد الألبوم";
 "artwork_folder_images_empty" = "لا توجد صور في مجلد الألبوم.";
+"reread_album_cover" = "إعادة تحميل غلاف الألبوم";
+"reread_album_cover_done" = "غلاف الألبوم جاهز";
+"reread_album_cover_not_found" = "لم يُعثر على غلاف لهذا الألبوم";
 "artwork_edit" = "تغيير العمل الفني";
 "artwork_editor_title" = "اختر العمل الفني";
 "artwork_invalid_image" = "اختر صورة صالحة يستطيع Primuse معالجتها.";

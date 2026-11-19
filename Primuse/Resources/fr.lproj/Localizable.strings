@@ -3344,6 +3344,9 @@
 "lyrics_converter_lrc_help" = "LRC; le minutage des mots reste en LRC amélioré";
 "lyrics_converter_ttml_help" = "TTML compatible avec Apple Music";
 "lyrics_converter_txt_help" = "Texte brut sans minutage";
+"reread_album_cover" = "Recharger la pochette";
+"reread_album_cover_done" = "La pochette de l’album est prête";
+"reread_album_cover_not_found" = "Aucune pochette trouvée pour cet album";
 "artwork_edit" = "Modifier l’illustration";
 "artwork_editor_title" = "Choisir l’illustration";
 "artwork_artist_from_apple_music" = "Obtenir depuis Apple Music";

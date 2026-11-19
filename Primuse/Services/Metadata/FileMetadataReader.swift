@@ -2431,6 +2431,11 @@ enum FileMetadataReader {
         result.replayGainAlbumPeak = result.replayGainAlbumPeak ?? Double(first("REPLAYGAIN_ALBUM_PEAK") ?? "")
     }
 
+    static func completeFLACPicture(_ block: Data) -> Data? {
+        guard let image = parseFLACPicture(block), SourceArtworkDataValidator.isRecognizedImage(image) else { return nil }
+        return image
+    }
+
     private static func parseFLACPicture(_ block: Data) -> Data? {
         var cursor = 0
         guard readUInt32BE(block, cursor: &cursor) != nil,

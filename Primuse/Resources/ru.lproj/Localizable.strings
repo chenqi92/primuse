@@ -2993,6 +2993,9 @@
 "disliked_songs_empty" = "Нет непонравившихся треков";
 "disliked_songs_manage" = "Управление…";
 "two_factor_auth" = "Двухфакторная аутентификация";
+"reread_album_cover" = "Загрузить обложку альбома заново";
+"reread_album_cover_done" = "Обложка альбома готова";
+"reread_album_cover_not_found" = "Для этого альбома не найдена обложка";
 "artwork_edit" = "Изменить обложку";
 "no_sources_desc" = "Добавьте NAS, WebDAV или локальную папку, чтобы начать сканирование музыки.";
 "lyrics_editor_empty_paste_detail" = "Текст обнаружен в буфере обмена";

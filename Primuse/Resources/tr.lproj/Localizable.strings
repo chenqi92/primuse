@@ -2993,6 +2993,9 @@
 "disliked_songs_empty" = "Beğenilmeyen şarkı yok";
 "disliked_songs_manage" = "Yönet…";
 "two_factor_auth" = "İki Faktörlü Kimlik Doğrulama";
+"reread_album_cover" = "Albüm kapağını yeniden yükle";
+"reread_album_cover_done" = "Albüm kapağı hazır";
+"reread_album_cover_not_found" = "Bu albüm için kapak bulunamadı";
 "artwork_edit" = "Resmi Değiştir";
 "no_sources_desc" = "Müzik taramaya başlamak için bir NAS, WebDAV veya yerel klasör ekleyin";
 "lyrics_editor_empty_paste_detail" = "Panoda şarkı sözleri algılandı";

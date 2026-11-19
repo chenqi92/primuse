@@ -880,6 +880,9 @@
 "artwork_choose_song" = "เลือกจากเพลง";
 "artwork_choose_folder_image" = "เลือกจากโฟลเดอร์อัลบั้ม";
 "artwork_folder_images_empty" = "ไม่มีรูปภาพในโฟลเดอร์อัลบั้ม";
+"reread_album_cover" = "โหลดปกอัลบั้มอีกครั้ง";
+"reread_album_cover_done" = "ปกอัลบั้มพร้อมแล้ว";
+"reread_album_cover_not_found" = "ไม่พบปกสำหรับอัลบั้มนี้";
 "artwork_edit" = "เปลี่ยนอาร์ตเวิร์ก";
 "artwork_editor_title" = "เลือกอาร์ตเวิร์ก";
 "artwork_invalid_image" = "เลือกรูปภาพที่ถูกต้องที่ Primuse สามารถประมวลผลได้";

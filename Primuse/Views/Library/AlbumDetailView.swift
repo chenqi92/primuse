@@ -30,6 +30,8 @@ struct AlbumDetailView: View {
 
     @State private var showNoScraperSourceAlert = false
     @State private var showArtworkEditor = false
+    @State private var coverReadAlbumID: String?
+    @State private var coverReadToast = PMToastPresenter()
     /// 「批量编辑标签」:整张专辑的歌一起改同一项(流派、年份、专辑名…),不用先进多选。
     @State private var showsBatchTagEditor = false
     @State private var showsRestoreFileTagsConfirmation = false
@@ -251,6 +253,35 @@ struct AlbumDetailView: View {
         .task(id: songs.map(\.id)) {
             await loadAppleMusicCompletion()
         }
+        .pmToastHost(coverReadToast)
+        .onChange(of: album.id) { _, _ in
+            coverReadAlbumID = nil
+            coverReadToast.dismissAll()
+        }
+        .task(id: coverReadAlbumID) {
+            guard let id = coverReadAlbumID, id == album.id else { return }
+            defer { if coverReadAlbumID == id { coverReadAlbumID = nil } }
+            coverReadToast.show(.init(key: id, message: String(localized: "scraping_album_covers"),
+                                      showsProgress: true, duration: nil))
+            do {
+                let found = try await sourceManager.rereadAlbumCover(albumID: id, in: library)
+                try Task.checkCancellation()
+                coverReadToast.show(.init(key: id, message: found
+                    ? String(localized: "reread_album_cover_done") : String(localized: "reread_album_cover_not_found"),
+                    systemImage: found ? "checkmark" : "photo"))
+            } catch {
+                if Task.isCancelled || error is CancellationError {
+                    coverReadToast.dismiss(key: id)
+                } else {
+                    coverReadToast.show(.init(key: id, message: error.localizedDescription,
+                                              systemImage: "exclamationmark.circle", tone: .error))
+                }
+            }
+        }
+    }
+
+    private var canRereadAlbumCover: Bool {
+        coverReadAlbumID == nil && !songs.isEmpty
     }
 
     /// 工具栏里有自己的「⋯」时(普通 iPhone/iPad)确认框挂在它上面;
@@ -476,6 +507,13 @@ struct AlbumDetailView: View {
                 } label: {
                     Label("artwork_edit", systemImage: "photo.badge.plus")
                 }
+                Button {
+                    coverReadAlbumID = album.id
+                } label: {
+                    Label("reread_album_cover", systemImage: "arrow.clockwise")
+                }
+                .disabled(!canRereadAlbumCover)
+                .accessibilityIdentifier("albumDetail.rereadCover")
                 if !songs.isEmpty {
                     Button {
                         showsBatchTagEditor = true
@@ -974,6 +1012,8 @@ struct AlbumDetailView: View {
             .init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
                 showArtworkEditor = true
             },
+            .init(icon: "arrow.clockwise", title: String(localized: "reread_album_cover"),
+                  enabled: canRereadAlbumCover) { coverReadAlbumID = album.id },
             .init(icon: "square.and.pencil", title: String(localized: "batch_edit_title"),
                   enabled: !songs.isEmpty) {
                 showsBatchTagEditor = true

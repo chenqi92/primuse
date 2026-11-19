@@ -291,6 +291,82 @@ struct RemoteMetadataReadPolicyTests {
         ) == RemoteMetadataReadPolicy.maximumHeadByteCount)
     }
 
+    @Test("An album cover beyond the scan limit can be read without downloading padding or audio")
+    func rereadFLACArtworkBeyondScanLimit() async throws {
+        let padding = 6 * 1024 * 1024
+        var head = Data("fLaC".utf8)
+        head.append(flacBlockHeader(type: 1, length: padding, isLast: false))
+        let nextBlock = Int64(head.count + padding)
+        let picture = Data([0, 0, 0, 3]) + Data(repeating: 0x4a, count: 5 * 1024 * 1024)
+        let metadata = flacBlockHeader(type: 6, length: picture.count, isLast: true) + picture
+        var reads: [Range<Int64>] = []
+        let cover = try await RemoteMetadataReadPolicy.readFLACArtwork(
+            head: head, fileSize: nextBlock + Int64(metadata.count) + 32_000_000,
+            fetch: { offset, size in
+                let range = offset..<(offset + size)
+                reads.append(range)
+                guard range.lowerBound >= nextBlock, range.upperBound <= nextBlock + Int64(metadata.count)
+                else { throw URLError(.badServerResponse) }
+                let start = Int(offset - nextBlock)
+                return metadata.subdata(in: start..<(start + Int(size)))
+            }, decodePicture: { $0 }
+        )
+        #expect(cover == picture)
+        #expect(reads.count == 2)
+        #expect(reads.first?.upperBound == reads.last?.lowerBound)
+    }
+
+    @Test("A front cover wins over another picture and a truncated range is retryable")
+    func rereadFLACArtworkSelectsFrontAndReportsTruncation() async throws {
+        let back = Data([0, 0, 0, 4]) + Data(repeating: 0x42, count: 32)
+        let front = Data([0, 0, 0, 3]) + Data(repeating: 0x46, count: 32)
+        var file = Data("fLaC".utf8)
+        file.append(flacBlockHeader(type: 6, length: back.count, isLast: false) + back)
+        file.append(flacBlockHeader(type: 6, length: front.count, isLast: true) + front)
+        let cover = try await RemoteMetadataReadPolicy.readFLACArtwork(
+            head: file, fileSize: Int64(file.count),
+            fetch: { _, _ in throw URLError(.resourceUnavailable) }, decodePicture: { $0 }
+        )
+        #expect(cover == front)
+        let piecemeal = try await RemoteMetadataReadPolicy.readFLACArtwork(
+            head: file.prefix(10), fileSize: Int64(file.count),
+            fetch: { offset, length in
+                let start = Int(offset)
+                return file.subdata(in: start..<(start + min(9, Int(length))))
+            }, decodePicture: { $0 }
+        )
+        #expect(piecemeal == front)
+        await #expect(throws: URLError.self) {
+            try await RemoteMetadataReadPolicy.readFLACArtwork(
+                head: file.prefix(10), fileSize: Int64(file.count),
+                fetch: { _, _ in Data() }, decodePicture: { $0 }
+            )
+        }
+    }
+
+    @Test("The display byte budget can reach a small cover past padding and defers oversized pictures")
+    func displayFLACArtworkSkipsPaddingWithinBudget() async throws {
+        let padding = 6 * 1024 * 1024
+        let head = Data("fLaC".utf8) + flacBlockHeader(type: 1, length: padding, isLast: false)
+        let pictureStart = Int64(head.count + padding)
+        for size in [800, 8 * 1024 * 1024] {
+            let header = flacBlockHeader(type: 6, length: size, isLast: true)
+            var transferred: Int64 = 0
+            let result = try await RemoteMetadataReadPolicy.readFLACArtwork(
+                head: head, fileSize: pictureStart + 4 + Int64(size), maximumFetchedBytes: 1024,
+                maximumRequests: 3, fetch: { offset, length in
+                    #expect(offset == pictureStart)
+                    transferred += length
+                    var bytes = header
+                    bytes.append(Data(repeating: 0, count: Int(length) - header.count))
+                    return bytes
+                }, decodePicture: { $0 }
+            )
+            #expect(transferred <= 1024)
+            #expect(result?.count == (size <= 1024 ? size : nil))
+        }
+    }
+
     @Test("A truncated MP3 duration is corrected without replacing a Xing duration")
     func truncatedMP3DurationCorrection() {
         #expect(RemoteMetadataReadPolicy.correctedMP3Duration(

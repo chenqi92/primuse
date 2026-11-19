@@ -466,6 +466,101 @@ final class ListeningWidgetArtworkCacheTests: XCTestCase {
     }
 }
 
+@MainActor
+final class AlbumCoverRereadTests: XCTestCase {
+    private actor Requests {
+        var paths: [String] = []
+        func record(_ path: String) { paths.append(path) }
+    }
+
+    private func song(_ id: String, album: String = "selected", source: String = "drive",
+                      path: String? = nil, reference: String? = nil) -> Song {
+        Song(id: id, title: id, albumID: album, fileFormat: .flac, filePath: path ?? id,
+             sourceID: source, coverArtFileName: reference)
+    }
+
+    private func png() throws -> Data {
+        let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+            NSColor.systemBlue.setFill()
+            rect.fill()
+            return true
+        }
+        return try XCTUnwrap(image.platformPNGData())
+    }
+
+    func testReadsOnlySelectedAlbumAndReusesRecoveredCover() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = MetadataAssetStore(storageDirectory: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ArtworkFetchService(assetStore: store)
+        let image = try png()
+        let requests = Requests()
+        let songs = [song("unrelated", album: "other"), song("first", path: "disc1"),
+                     song("cue", path: "disc1"), song("cover", path: "disc2"), song("later")]
+        for _ in 0..<2 {
+            let found = try await service.rereadAlbumCover(
+                albumID: "selected", songs: songs, isCurrent: { _ in true }, readLocalFile: { _ in .unavailable },
+                readReference: { _, _ in XCTFail("No source references"); return nil },
+                readRemoteFile: { song in
+                    await requests.record(song.filePath)
+                    return song.filePath == "disc2" ? image : nil
+                }
+            )
+            XCTAssertTrue(found)
+        }
+        let paths = await requests.paths
+        XCTAssertEqual(paths, ["disc1", "disc2"])
+        let saved = await store.cachedAlbumCover(forAlbumID: "selected")
+        XCTAssertTrue(ArtworkImageCompatibility.isCompleteImage(try XCTUnwrap(saved)))
+        XCTAssertFalse(store.hasAlbumCover(forAlbumID: "other"))
+    }
+
+    func testAccountFailureStopsOnlyThatSourceAndAllowsRetry() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = MetadataAssetStore(storageDirectory: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = ArtworkFetchService(assetStore: store)
+        let songs = [song("a", reference: "one"), song("b", reference: "two"), song("c", source: "nas")]
+        let requests = Requests()
+        for failure: Error in [CloudDriveError.apiError(430, "membership required"),
+                               HTTPResponseFailure(statusCode: 429, retryAfter: 60)] {
+            do {
+                _ = try await service.rereadAlbumCover(
+                    albumID: "selected", songs: songs, isCurrent: { _ in true }, readLocalFile: { _ in .unavailable },
+                    readReference: { _, ref in await requests.record(ref); throw failure },
+                    readRemoteFile: { song in await requests.record(song.filePath); return nil }
+                )
+                XCTFail("A provider error must reach the album menu")
+            } catch {
+                XCTAssertEqual(error.localizedDescription, failure.localizedDescription)
+            }
+        }
+        let paths = await requests.paths
+        XCTAssertEqual(paths, ["one", "c", "one", "c"])
+        XCTAssertFalse(store.hasAlbumCover(forAlbumID: "selected"))
+    }
+
+    func testReadsNativeFLACPictureBeyondAutomaticScanLimit() async throws {
+        let image = try png()
+        let size = UInt32(image.count).bigEndian
+        let picture = Data([0, 0, 0, 3]) + Data(repeating: 0, count: 24)
+            + withUnsafeBytes(of: size) { Data($0) } + image
+        var file = Data("fLaC".utf8) + Data([1, 0x50, 0, 0]) + Data(repeating: 0, count: 0x500000)
+        let length = UInt32(picture.count).bigEndian
+        file.append(0x86)
+        file.append(withUnsafeBytes(of: length) { Data($0.dropFirst()) })
+        file.append(picture)
+        let contents = file
+        var track = song("track")
+        track.fileSize = Int64(contents.count)
+        let found = try await ArtworkFetchService.embeddedAlbumCover(for: track) { offset, length in
+            let start = Int(offset)
+            return contents.subdata(in: start..<(start + Int(length)))
+        }
+        XCTAssertEqual(found, image)
+    }
+}
+
 final class ArtworkRefreshClockTests: XCTestCase {
     func testConcurrentCachedReadsResolveTheRefreshPathOnlyOnce() throws {
         let root = try directory()

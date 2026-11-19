@@ -880,6 +880,9 @@
 "artwork_choose_song" = "Escolha entre músicas";
 "artwork_choose_folder_image" = "Escolher da pasta do álbum";
 "artwork_folder_images_empty" = "Não há imagens na pasta do álbum.";
+"reread_album_cover" = "Recarregar capa do álbum";
+"reread_album_cover_done" = "A capa do álbum está pronta";
+"reread_album_cover_not_found" = "Nenhuma capa foi encontrada para este álbum";
 "artwork_edit" = "Alterar capa";
 "artwork_editor_title" = "Escolher capa";
 "artwork_invalid_image" = "Escolha uma imagem válida que o Primuse possa processar.";

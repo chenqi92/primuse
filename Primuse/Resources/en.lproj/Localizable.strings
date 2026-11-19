@@ -3115,6 +3115,9 @@
 "lyrics_converter_lrc_help" = "LRC; word timing is kept as enhanced LRC";
 "lyrics_converter_ttml_help" = "Apple Music-compatible TTML";
 "lyrics_converter_txt_help" = "Plain text without timing";
+"reread_album_cover" = "Reload Album Artwork";
+"reread_album_cover_done" = "Album artwork is ready";
+"reread_album_cover_not_found" = "No artwork was found for this album";
 "artwork_edit" = "Change Artwork";
 "artwork_editor_title" = "Choose Artwork";
 "artwork_artist_from_apple_music" = "Get from Apple Music";

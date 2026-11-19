@@ -3344,6 +3344,9 @@
 "lyrics_converter_lrc_help" = "LRC; Wortzeiten bleiben als erweitertes LRC erhalten";
 "lyrics_converter_ttml_help" = "Mit Apple Music kompatibles TTML";
 "lyrics_converter_txt_help" = "Klartext ohne Zeitangaben";
+"reread_album_cover" = "Albumcover erneut laden";
+"reread_album_cover_done" = "Das Albumcover ist bereit";
+"reread_album_cover_not_found" = "Für dieses Album wurde kein Cover gefunden";
 "artwork_edit" = "Cover ändern";
 "artwork_editor_title" = "Cover auswählen";
 "artwork_artist_from_apple_music" = "Aus Apple Music laden";

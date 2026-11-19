@@ -785,7 +785,8 @@ struct CachedArtworkView: View {
     private var loadIdentity: String {
         let refIdentity = coverRef ?? ""
         let sourceIdentity = "\(sourceID ?? "")|\(filePath ?? "")|\(fileFormat?.rawValue ?? "")"
-        return "\(cacheKey)#ref\(refIdentity)#src\(sourceIdentity)#rev\(revisionToken)#inv\(cacheInvalidationRevision)"
+        let albumRevision = albumID.map { Self.memoryRevisions.key(songID: $0, reference: nil) } ?? ""
+        return "\(cacheKey)#ref\(refIdentity)#src\(sourceIdentity)#rev\(revisionToken)#inv\(cacheInvalidationRevision)\(albumRevision)"
     }
 
     private var artworkContentIdentity: String {
@@ -2344,19 +2345,7 @@ struct CachedArtworkView: View {
         ref: String?,
         filePath: String?
     ) -> Bool {
-        guard let ref, let filePath, ref.contains("/") else { return false }
-        let refName = (ref as NSString).lastPathComponent
-        let refBase = (refName as NSString).deletingPathExtension.lowercased()
-        guard PrimuseConstants.folderCoverNames.contains(refBase) else { return false }
-
-        let refDir = (ref as NSString).deletingLastPathComponent
-        let songDir = (filePath as NSString).deletingLastPathComponent
-        guard refDir.caseInsensitiveCompare(songDir) == .orderedSame else { return false }
-
-        let dirName = (songDir as NSString).lastPathComponent
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return ["music", "音乐", "songs", "audio", "media", "downloads"].contains(dirName)
+        SourceArtworkPolicy.shouldIgnoreGenericFolderCover(ref: ref, filePath: filePath)
     }
 
     // MARK: - Source Fetch
@@ -2586,6 +2575,14 @@ struct CachedArtworkView: View {
     }
 
     // MARK: - Static helpers
+
+    static func invalidateAlbumCover(_ albumID: String) {
+        memoryRevisions.invalidate(albumID)
+        for bucket in Bucket.allCases {
+            memoryCache.removeObject(forKey: "album_\(albumID)@\(bucket.rawValue)" as NSString)
+        }
+        postArtworkInvalidation(token: albumID)
+    }
 
     static func invalidateCache(for fileName: String) {
         memoryRevisions.invalidate(fileName)

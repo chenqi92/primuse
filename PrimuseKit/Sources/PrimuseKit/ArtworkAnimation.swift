@@ -557,6 +557,22 @@ public enum StoredArtworkOrigin: String, CaseIterable, Sendable {
 }
 
 public enum SourceArtworkPolicy {
+    public static func shouldIgnoreGenericFolderCover(ref: String?, filePath: String?) -> Bool {
+        guard let ref, let filePath, ref.contains("/") else { return false }
+        let refName = (ref as NSString).lastPathComponent
+        let refBase = (refName as NSString).deletingPathExtension.lowercased()
+        guard PrimuseConstants.folderCoverNames.contains(refBase) else { return false }
+
+        let refDir = (ref as NSString).deletingLastPathComponent
+        let songDir = (filePath as NSString).deletingLastPathComponent
+        guard refDir.caseInsensitiveCompare(songDir) == .orderedSame else { return false }
+
+        let dirName = (songDir as NSString).lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["music", "音乐", "songs", "audio", "media", "downloads"].contains(dirName)
+    }
+
     public static let maximumAge: TimeInterval = 24 * 60 * 60
 
     /// 服务端源自己编的封面引用（不带「/」、也不是网址）。认不出来的会被当成本机封面文件名：

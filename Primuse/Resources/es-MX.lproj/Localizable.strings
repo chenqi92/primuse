@@ -880,6 +880,9 @@
 "artwork_choose_song" = "Elegir entre canciones";
 "artwork_choose_folder_image" = "Elegir de la carpeta del álbum";
 "artwork_folder_images_empty" = "No hay imágenes en la carpeta del álbum.";
+"reread_album_cover" = "Volver a cargar la portada";
+"reread_album_cover_done" = "La portada del álbum está lista";
+"reread_album_cover_not_found" = "No se encontró ninguna portada para este álbum";
 "artwork_edit" = "Cambiar portada";
 "artwork_editor_title" = "Elegir portada";
 "artwork_invalid_image" = "Elija una imagen válida que Primuse pueda procesar.";

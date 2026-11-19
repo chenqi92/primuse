@@ -1638,6 +1638,11 @@ extension MusicSourceConnector {
                     session: SourceArtworkDataTransport.session,
                     maxBytes: maximumBytes
                 )
+                if let http = result.1 as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                    let failure = HTTPResponseFailure(statusCode: http.statusCode,
+                                                      retryAfter: HTTPResponseFailure.retryDelay(from: http))
+                    if failure.isRateLimitFailure { throw failure }
+                }
                 guard let http = result.1 as? HTTPURLResponse,
                       (200...299).contains(http.statusCode),
                       result.0.isEmpty == false else {

@@ -3946,6 +3946,9 @@ final class MetadataBackfillService {
             fileExtension: parserExtension,
             isExplicitReread: false
         ) == .isoBaseMedia
+        var locatedPicture: Data?
+        var additionalPictureBytes = 0
+        var skippedIncompleteHead = false
         while data.count < fileLimit {
             try Task.checkCancellation()
             let wanted: Int?
@@ -3953,6 +3956,19 @@ final class MetadataBackfillService {
                 wanted = FileMetadataReader.id3TagByteCount(in: data)
             } else if parserExtension == "flac" {
                 wanted = RemoteMetadataReadPolicy.expandedFLACReadSize(fileSize: song.fileSize, currentData: data)
+                if let wanted, wanted > fileLimit, song.fileSize > 0, !sourceIgnoresRange {
+                    // 连续读到上限也读不完整个块。把剩下的展示预算用在图片上，跳过填充。
+                    skippedIncompleteHead = true
+                    locatedPicture = try await RemoteMetadataReadPolicy.readFLACArtwork(
+                        head: data, fileSize: song.fileSize, maximumFetchedBytes: fileLimit - data.count,
+                        maximumRequests: 3, fetch: { offset, length in
+                            let bytes = try await fetch(offset, length)
+                            additionalPictureBytes += bytes.count
+                            return bytes
+                        }, decodePicture: FileMetadataReader.completeFLACPicture
+                    )
+                    break
+                }
             } else if isISOBaseMedia {
                 wanted = RemoteMetadataReadPolicy.expandedISOBaseMediaReadSize(
                     fileSize: song.fileSize,
@@ -3982,7 +3998,8 @@ final class MetadataBackfillService {
             fileExtension: song.fileFormat.rawValue,
             fallbackTitle: MediaMetadataTextRepair.fileNameTitle(from: song.filePath) ?? song.title
         )
-        if let cover = metadata.coverArtData, !cover.isEmpty,
+        let inspectedByteCount = data.count + additionalPictureBytes
+        if let cover = locatedPicture ?? metadata.coverArtData, !cover.isEmpty,
            let reference = await MetadataAssetStore.shared.storeAttributedCover(
             cover,
             songID: song.id,
@@ -3991,12 +4008,12 @@ final class MetadataBackfillService {
             return DeferredArtworkReadResult(
                 coverReference: reference,
                 awaitsPlayback: false,
-                inspectedByteCount: data.count
+                inspectedByteCount: inspectedByteCount
             )
         }
         return DeferredArtworkReadResult(
             coverReference: nil,
-            awaitsPlayback: boundedArtworkMissAwaitsPlayback(
+            awaitsPlayback: skippedIncompleteHead || boundedArtworkMissAwaitsPlayback(
                 song: song,
                 parserExtension: parserExtension,
                 inspectedHead: data,
@@ -4005,7 +4022,7 @@ final class MetadataBackfillService {
                 tailUnreadable: false,
                 byteLimit: limit
             ),
-            inspectedByteCount: data.count
+            inspectedByteCount: inspectedByteCount
         )
     }
 
