@@ -1260,11 +1260,12 @@ enum FileMetadataReader {
         tailData: Data?,
         fileExtension: String
     ) {
-        if let parsed = EmbeddedTagMetadataParser.parse(
+        let parsed = EmbeddedTagMetadataParser.parse(
             head: headData,
             tail: tailData,
             fileExtension: fileExtension
-        ) {
+        )
+        if let parsed {
             apply(parsed, to: &metadata)
         }
         if let id3 = EmbeddedTagMetadataParser.embeddedID3Data(
@@ -1272,7 +1273,17 @@ enum FileMetadataReader {
             tail: tailData,
             fileExtension: fileExtension
         ) {
-            applyID3Fallback(to: &metadata, data: id3)
+            if parsed != nil, ["wav", "wave"].contains(fileExtension.lowercased()) {
+                // RIFF INFO has no reliable text encoding. Prefer the explicitly
+                // encoded ID3 fields when the file carries both sets of tags.
+                var tagged = Metadata(duration: metadata.duration)
+                applyID3Fallback(to: &tagged, data: id3)
+                if tagged.artist != nil { metadata.sourceArtistNames = nil }
+                tagged.fillMissing(from: metadata)
+                metadata = tagged
+            } else {
+                applyID3Fallback(to: &metadata, data: id3)
+            }
         }
     }
 

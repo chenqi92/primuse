@@ -436,6 +436,68 @@ struct EmbeddedTagMetadataParserTests {
         #expect(extracted == id3)
     }
 
+    @Test(arguments: ["ID3 ", "id3 "])
+    func locatesWaveInfoAndID3WithoutReadingPCM(id: String) async throws {
+        let pcm = Data(repeating: 0xa5, count: 900_001)
+        let tag = makeID3v23Title("月台回声")
+        let info = makeRIFFInfo([("IART", "潮汐乐团"), ("IPRD", "渡口")])
+        let wave = makeRIFFWave(chunks: [
+            makeRIFFChunk("data", pcm), info, makeRIFFChunk(id, tag), makeRIFFChunk("JUNK", pcm)
+        ])
+        let tags = try await EmbeddedTagMetadataParser.waveMetadataFile(
+            head: wave.prefix(256 * 1024), fileSize: Int64(wave.count)
+        ) { offset, length in
+            #expect(offset >= 20 + pcm.count)
+            #expect(length < 256)
+            return wave.subdata(in: Int(offset)..<Int(offset + min(length, 7)))
+        }
+        let file = try #require(tags)
+        let metadata = EmbeddedTagMetadataParser.parse(head: file, fileExtension: "wav")
+        #expect(metadata?.artist == "潮汐乐团")
+        #expect(metadata?.albumTitle == "渡口")
+        #expect(EmbeddedTagMetadataParser.embeddedID3Data(head: file, fileExtension: "wav") == tag)
+    }
+
+    @Test func decodesLegacyRIFFInfoFieldsTogether() throws {
+        var info = Data("INFO".utf8)
+        for (id, value) in [("INAM", "告白气球"), ("IART", "周杰伦"),
+                            ("IPRD", "CARNIVAL(2024来日纪念)CD1")] {
+            let bytes = try #require(value.data(using: TextEncodingRepair.gb18030))
+            info.append(makeRIFFChunk(id, bytes + Data([0])))
+        }
+        let wave = makeRIFFWave(chunks: [makeRIFFChunk("LIST", info)])
+        let parsed = EmbeddedTagMetadataParser.parse(head: wave, fileExtension: "wav")
+        #expect(parsed?.title == "告白气球")
+        #expect(parsed?.artist == "周杰伦")
+        #expect(parsed?.albumTitle == "CARNIVAL(2024来日纪念)CD1")
+    }
+
+    @Test func skipsOversizedWaveChunkAndRejectsOutOfBoundsLengths() async throws {
+        let tag = makeID3v23Title("Valid tag")
+        let oversized = 40 * 1024 * 1024
+        let end = makeRIFFChunk("id3 ", tag)
+        // A sparse fixture: the first tag's body must never be requested.
+        var head = Data("RIFF".utf8)
+        appendUInt32LE(12 + oversized + end.count, to: &head)
+        head.append(contentsOf: "WAVEID3 ".utf8)
+        appendUInt32LE(oversized, to: &head)
+        let endOffset = head.count + oversized
+        head.append(contentsOf: [0x49, 0x44, 0x33, 3])
+        let size = Int64(endOffset + end.count)
+        let result = try await EmbeddedTagMetadataParser.waveMetadataFile(head: head, fileSize: size) { offset, length in
+            try #require(offset >= Int64(endOffset) && offset + length <= size)
+            let start = Int(offset) - endOffset
+            return end.subdata(in: start..<(start + Int(length)))
+        }
+        let located = try #require(result)
+        #expect(EmbeddedTagMetadataParser.embeddedID3Data(head: located, fileExtension: "wav") == tag)
+        let invalid = try await EmbeddedTagMetadataParser.waveMetadataFile(head: head, fileSize: size - 1) { _, _ in
+            Issue.record("truncated RIFF must not request an out-of-file chunk")
+            return Data()
+        }
+        #expect(invalid == nil)
+    }
+
     @Test func normalizesAdditionalScannerAliases() {
         #expect(AudioFormat.from(fileExtension: "OGA") == .ogg)
         #expect(AudioFormat.from(fileExtension: "WAVE") == .wav)

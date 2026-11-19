@@ -1818,6 +1818,29 @@ final class MetadataBackfillService {
             defaults.set(true, forKey: bareSourceArtworkKey)
         }
 
+        let waveChunkRepairKey = "primuse.backfillState.v2026_11_waveTagChunks"
+        if !defaults.bool(forKey: waveChunkRepairKey) {
+            let remoteFiles = backfillableSourceIDs().subtracting(directFileSourceIDs())
+                .subtracting(containerCodecOnlySourceIDs())
+            let retryIDs = Set(library.songs.lazy.filter { song in
+                song.fileFormat == .wav && remoteFiles.contains(song.sourceID)
+                    && !song.isCueTrack && song.userMetadataEditedAt == nil
+                    && (!Self.hasVisibleContent(song.artistName) || !Self.hasVisibleContent(song.albumTitle)
+                        || Self.needsEmbeddedArtworkBackfill(song))
+                    && (self.titleCheckedIDs.contains(song.id) || self.failedSongIDs.contains(song.id)
+                        || self.artworkGivenUpIDs.contains(song.id))
+            }.map(\.id))
+            if !retryIDs.isEmpty {
+                discardPersistedSongIDs(retryIDs)
+                artworkGivenUpIDs.subtract(retryIDs)
+                deferredArtworkIDs.subtract(retryIDs)
+                playbackArtworkIDs.subtract(retryIDs)
+                scheduleStatePersistence()
+                markQueueDirty()
+            }
+            defaults.set(true, forKey: waveChunkRepairKey)
+        }
+
         // Older capacity cleanup erased the cover reference as well as its
         // bytes. Only already-inspected, artwork-only rows move to on-play
         // recovery; unfinished titles, durations and other tags keep their queue.
@@ -6144,7 +6167,7 @@ final class MetadataBackfillService {
         )
         let needsSecondaryArtistRange = needsArtistInspection
             && metadata.artist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-            && (tailStrategy == .isoBaseMedia || tailStrategy == .mp3ID3)
+            && (tailStrategy == .isoBaseMedia || tailStrategy == .mp3ID3 || parserExtension == "wav")
         let needsSecondaryArtworkRange = tailStrategy == .isoBaseMedia
             && Self.needsEmbeddedArtworkBackfill(song)
             && metadata.coverArtFileName == nil && metadata.coverArtData == nil
@@ -6260,7 +6283,14 @@ final class MetadataBackfillService {
                     if needsArtistInspection { artistInspectionCompleted = true }
                     boundedTailInspected = true
                 } else if tailStrategy == .containerID3 {
-                    let tailData = try await fetchRange(offset: -Self.fallbackTailBytes, length: Self.fallbackTailBytes)
+                    let tailData: Data
+                    if !request.directFile, let tags = try await EmbeddedTagMetadataParser.waveMetadataFile(
+                        head: metadataInputData, fileSize: song.fileSize, fetch: fetchRange
+                    ) {
+                        tailData = tags
+                    } else {
+                        tailData = try await fetchRange(offset: -Self.fallbackTailBytes, length: Self.fallbackTailBytes)
+                    }
                     metadata = await extractMetadata(
                         from: metadataInputData,
                         id3TailData: tailData,

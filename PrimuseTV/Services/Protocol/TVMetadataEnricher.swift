@@ -548,15 +548,17 @@ enum TVMetadataEnricher {
                     id3TailData: tagData
                 )
                 metadata.fillMissing(from: tagMetadata)
+            } else if let waveTags = try? await EmbeddedTagMetadataParser.waveMetadataFile(
+                head: head, fileSize: total, fetch: { try await reader.read(offset: $0, length: $1) }
+            ) {
+                try Task.checkCancellation()
+                metadata = await FileMetadataReader.read(from: head, fileExtension: ext, id3TailData: waveTags)
             } else if id3ContainerTailFormats.contains(ext) {
                 let tailSize = min(
                     total,
                     Int64(RemoteMetadataReadPolicy.initialContainerTailByteCount)
                 )
-                if let tail = try? await reader.read(
-                    offset: max(0, total - tailSize),
-                    length: tailSize
-                ) {
+                if let tail = try? await reader.read(offset: total - tailSize, length: tailSize) {
                     try Task.checkCancellation()
                     let tailMetadata = await FileMetadataReader.read(
                         from: head,

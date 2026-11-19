@@ -821,12 +821,80 @@ public enum EmbeddedTagMetadataParser {
 
     // MARK: - RIFF/AIFF text
 
+    /// Builds a small RIFF containing just the tag chunks missing from the prefix.
+    /// RIFF chunk lengths let a range reader skip PCM and padding without searching
+    /// the audio for an ID3 signature.
+    public static func waveMetadataFile(
+        head: Data, fileSize: Int64,
+        fetch: (Int64, Int64) async throws -> Data
+    ) async throws -> Data? {
+        guard head.count >= 12, head.starts(with: "RIFF".utf8),
+              head[8..<12].elementsEqual("WAVE".utf8) else { return nil }
+        let end = Int64(readUInt32LE(head, at: 4)) + 8
+        guard end > head.count, end <= fileSize else { return nil }
+
+        func read(at offset: Int64, count: Int) async throws -> Data {
+            let start = Int(offset)
+            let cachedEnd = min(start + count, head.count)
+            var bytes = start < cachedEnd ? head.subdata(in: start..<cachedEnd) : Data()
+            // A provider may cap a successful range response below its requested length.
+            var attempts = 0
+            while bytes.count < count {
+                guard attempts < 64 else { throw URLError(.badServerResponse) }
+                attempts += 1
+                try Task.checkCancellation()
+                let missing = count - bytes.count
+                let part = try await fetch(offset + Int64(bytes.count), Int64(missing))
+                guard !part.isEmpty, part.count <= missing else { throw URLError(.badServerResponse) }
+                bytes.append(part)
+            }
+            return bytes
+        }
+
+        var offset: Int64 = 12
+        var chunks = Data()
+        let maximumTagBytes = 32 * 1024 * 1024
+        for _ in 0..<64 {
+            try Task.checkCancellation()
+            guard offset <= end - 8 else { break }
+            let header = try await read(at: offset, count: Int(min(12, end - offset)))
+            let length = readUInt32LE(header, at: 4)
+            let body = offset + 8
+            let next = body + Int64(length)
+            guard next <= end else { break }
+            offset = next + Int64(length % 2)
+            guard next > head.count, length > 0,
+                  length + 9 <= maximumTagBytes - chunks.count else { continue }
+            let id = ascii(header, at: 0, count: 4)
+            let isInfo = id == "LIST" && length >= 4 && header.suffix(4).elementsEqual("INFO".utf8)
+            guard isInfo || id == "id3 " || id == "ID3 " else { continue }
+            let prefixLength = min(length, header.count - 8)
+            chunks.append(header.prefix(8 + prefixLength))
+            if prefixLength < length {
+                chunks.append(try await read(at: body + Int64(prefixLength), count: length - prefixLength))
+            }
+            if !length.isMultiple(of: 2) { chunks.append(0) }
+        }
+        guard !chunks.isEmpty else { return nil }
+        var result = Data("RIFF".utf8)
+        var size = UInt32(4 + chunks.count).littleEndian
+        withUnsafeBytes(of: &size) { result.append(contentsOf: $0) }
+        result.append(contentsOf: "WAVE".utf8)
+        result.append(chunks)
+        // Some writers also append legacy tags outside RIFF, including ID3v1 or APEv2.
+        if end < fileSize {
+            let count = min(fileSize - end, Int64(RemoteMetadataReadPolicy.initialContainerTailByteCount))
+            result.append(try await fetch(fileSize - count, count))
+        }
+        return result
+    }
+
     private static func parseRIFFInfo(_ data: Data) -> EmbeddedTagMetadata? {
         guard data.count >= 12,
               data.prefix(4).elementsEqual(Data("RIFF".utf8)),
               data[8..<12].elementsEqual(Data("WAVE".utf8)) else { return nil }
         var cursor = 12
-        var values: [String: [String]] = [:]
+        var fields: [(key: String, value: Data)] = []
         while cursor + 8 <= data.count {
             guard let identifier = ascii(data, at: cursor, count: 4) else { break }
             let length = readUInt32LE(data, at: cursor + 4)
@@ -842,15 +910,18 @@ public enum EmbeddedTagMetadataParser {
                     let valueStart = infoCursor + 8
                     let valueEnd = valueStart + valueLength
                     guard valueEnd <= bodyEnd else { break }
-                    if let value = decodedNullTerminatedText(
-                        data.subdata(in: valueStart..<valueEnd)
-                    ) {
-                        values[normalizedKey(key), default: []].append(value)
+                    let bytes = data[valueStart..<valueEnd].prefix(while: { $0 != 0 })
+                    if !bytes.isEmpty {
+                        fields.append((normalizedKey(key), Data(bytes)))
                     }
                     infoCursor = valueEnd + (valueLength.isMultiple(of: 2) ? 0 : 1)
                 }
             }
             cursor = bodyEnd + (length.isMultiple(of: 2) ? 0 : 1)
+        }
+        var values: [String: [String]] = [:]
+        for (field, decoded) in zip(fields, TextEncodingRepair.decodeTagValues(fields.map(\.value))) {
+            if let decoded { values[field.key, default: []].append(decoded) }
         }
         let result = metadata(from: values)
         return result.isEmpty ? nil : result

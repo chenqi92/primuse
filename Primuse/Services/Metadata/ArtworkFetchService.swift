@@ -186,6 +186,10 @@ actor ArtworkFetchService {
         let session = FileMetadataReader.RangeReadSession()
         if let cover = await session.read(from: head, fileExtension: ext).coverArtData { return cover }
         guard size > head.count else { return nil }
+        if let tags = try await EmbeddedTagMetadataParser.waveMetadataFile(head: head, fileSize: size, fetch: fetch),
+           let cover = await session.read(from: head, fileExtension: ext, id3TailData: tags).coverArtData {
+            return cover
+        }
         if strategy == .dsfOffset, let offset = EmbeddedTagMetadataParser.dsfMetadataOffset(in: head),
            offset >= 0, offset <= size - 10 {
             let header = try await fetch(offset, 10)

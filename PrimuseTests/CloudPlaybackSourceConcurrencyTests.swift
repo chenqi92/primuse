@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import Network
 import PrimuseKit
+import UIKit
 import XCTest
 @testable import Primuse
 
@@ -2415,6 +2416,80 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     }
 
     @MainActor
+    func testBaiduWaveBackfillRecoversPreviouslyMissedTagsAndLargeCover() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let jpeg = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).jpegData(
+            withCompressionQuality: 0.9
+        ) { _ in }
+        // Valid JPEG comment segments bring the picture itself past the old 4 MiB ceiling.
+        let comment = Data([0xff, 0xfe, 0xfd, 0xea]) + Data(repeating: 65, count: 65_000)
+        var cover = Data(jpeg.prefix(2))
+        for _ in 0..<65 { cover.append(comment) }
+        cover.append(jpeg.dropFirst(2))
+        let payload = Self.makeWaveFixture(
+            middleCover: cover, mimeType: "image/jpeg",
+            tags: [
+                ("TIT2", "纸船"), ("TPE1", "湖畔三重奏"), ("TALB", "夜渡"),
+                ("TPE2", "港湾乐团"), ("TRCK", "7/15"), ("TYER", "2024")
+            ],
+            info: [
+                ("INAM", try XCTUnwrap("旧歌名".data(using: TextEncodingRepair.gb18030))),
+                ("IART", Data("Former Artist".utf8)), ("IPRT", Data("1/15".utf8)),
+                ("IGNR", Data("Jazz".utf8))
+            ]
+        )
+        let source = MusicSource(id: UUID().uuidString, name: "Baidu fixture", type: .baiduPan)
+        let path = "721009"
+        let connector = CompleteArtworkFixtureConnector(sourceID: source.id, payloads: [path: payload], localURLs: [:])
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        await library.whenReady()
+        let song = Song(id: UUID().uuidString, title: "07 Track", duration: 266, fileFormat: .wav,
+                        filePath: path, sourceID: source.id, fileSize: Int64(payload.count))
+        library.addSongs([song], affectedSourceIDs: [source.id])
+        await library.waitForPendingIndex()
+        let state = directory.appendingPathComponent("backfill")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        for marker in ["title-checked", "artist-checked", "album-artist-checked", "artwork-givenup"] {
+            try JSONEncoder().encode([song.id]).write(to: state.appendingPathComponent("backfill-\(marker).json"))
+        }
+        let defaults = UserDefaults.standard
+        let repair = "primuse.backfillState.v2026_11_waveTagChunks"
+        let mode = MetadataBackfillExecutionPolicy.readingModeDefaultsKey
+        let previousRepair = defaults.object(forKey: repair)
+        let previousMode = defaults.object(forKey: mode)
+        defaults.removeObject(forKey: repair)
+        defaults.set(MetadataReadingMode.automatic.rawValue, forKey: mode)
+        defer {
+            defaults.set(previousRepair, forKey: repair)
+            defaults.set(previousMode, forKey: mode)
+        }
+        let backfill = MetadataBackfillService(
+            library: library, sourceManager: manager, backfillableSourceIDs: { [source.id] },
+            offlineReadableSourceIDs: { [source.id] }, storageDirectory: state
+        )
+        defer { backfill.stop() }
+        backfill.start()
+        await backfill.waitUntilIdle()
+        let recovered = try XCTUnwrap(library.song(id: song.id))
+        XCTAssertEqual(recovered.title, "纸船")
+        XCTAssertEqual(recovered.artistName, "湖畔三重奏")
+        XCTAssertEqual(recovered.albumTitle, "夜渡")
+        XCTAssertEqual(recovered.albumArtistName, "港湾乐团")
+        XCTAssertEqual(recovered.trackNumber, 7)
+        XCTAssertEqual(recovered.year, 2024)
+        XCTAssertEqual(recovered.genre, "Jazz")
+        XCTAssertGreaterThan(recovered.duration, 260)
+        XCTAssertNotNil(recovered.coverArtFileName)
+        let storedCover = await MetadataAssetStore.shared.cachedCoverData(forSongID: song.id)
+        XCTAssertEqual(storedCover?.count, cover.count)
+        XCTAssertTrue(storedCover == cover)
+        let downloads = await connector.localURLRequestCount(for: path)
+        XCTAssertEqual(downloads, 0)
+    }
+
+    @MainActor
     func testSynologyBackfillRecoversEmbeddedCoverForDurationCompleteChapter() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -3778,7 +3853,10 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         )
     }
 
-    private static func makeWaveFixture(middleCover: Data?) -> Data {
+    private static func makeWaveFixture(
+        middleCover: Data?, mimeType: String = "image/png", tags: [(String, String)] = [],
+        info: [(String, Data)] = []
+    ) -> Data {
         func appendUInt16LE(_ value: UInt16, to data: inout Data) {
             var little = value.littleEndian
             withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
@@ -3817,13 +3895,21 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
 
         if let middleCover {
             var picturePayload = Data([0])
-            picturePayload.append(Data("image/png".utf8))
+            picturePayload.append(Data(mimeType.utf8))
             picturePayload.append(contentsOf: [0, 3, 0])
             picturePayload.append(middleCover)
             var pictureFrame = Data("APIC".utf8)
             appendUInt32BE(UInt32(picturePayload.count), to: &pictureFrame)
             pictureFrame.append(contentsOf: [0, 0])
             pictureFrame.append(picturePayload)
+            for (key, value) in tags {
+                var text = Data([1, 0xff, 0xfe])
+                for unit in value.utf16 { appendUInt16LE(unit, to: &text) }
+                pictureFrame.append(contentsOf: key.utf8)
+                appendUInt32BE(UInt32(text.count), to: &pictureFrame)
+                pictureFrame.append(contentsOf: [0, 0])
+                pictureFrame.append(text)
+            }
             var id3 = Data([0x49, 0x44, 0x33, 3, 0, 0])
             id3.append(contentsOf: syncSafe(pictureFrame.count))
             id3.append(pictureFrame)
@@ -3835,6 +3921,20 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             wave.append(Data("JUNK".utf8))
             appendUInt32LE(UInt32(trailingByteCount), to: &wave)
             wave.append(Data(repeating: 0, count: trailingByteCount))
+        }
+
+        if !info.isEmpty {
+            var list = Data("INFO".utf8)
+            for (key, value) in info {
+                list.append(contentsOf: key.utf8)
+                appendUInt32LE(UInt32(value.count + 1), to: &list)
+                list.append(value)
+                list.append(0)
+                if value.count.isMultiple(of: 2) { list.append(0) }
+            }
+            wave.append(contentsOf: "LIST".utf8)
+            appendUInt32LE(UInt32(list.count), to: &wave)
+            wave.append(list)
         }
 
         var riffSize = UInt32(wave.count - 8).littleEndian
