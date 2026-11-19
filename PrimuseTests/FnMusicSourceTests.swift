@@ -41,6 +41,56 @@ final class FnMusicSourceTests: XCTestCase {
         }
     }
 
+    func testWholeImageTracksAcrossPagesKeepTheirOwnTitlesAndOriginalFilename() async throws {
+        let source = makeSource()
+        let host = await source.sourceID
+        FnMusicSourceURLProtocol.setCatalog(count: 51, maximumPageSize: 50, host: host)
+        let image = ["duration": 3_358_000, "path": "/音乐/夜航 24K.wav"] as [String: Any]
+        for (index, ordinal, length) in [(0, 3, 1_158_000), (49, 1, 1_000_000), (50, 2, 1_200_000)] {
+            FnMusicSourceURLProtocol.setCatalogRow([
+                "guid": "movement-\(ordinal)", "title": "夜航第\(ordinal)乐章",
+                "album": ["guid": "album-0", "name": "夜航"], "trackNo": ordinal,
+                "isCue": true, "duration": length, "audioSpec": image
+            ], at: index, host: host)
+        }
+        var movements: [ConnectorScannedSong] = []
+        for try await item in try await source.scanSongs(from: "/") where item.song.isCueTrack {
+            movements.append(item)
+        }
+        XCTAssertEqual(movements.map(\.song.title), ["夜航第1乐章", "夜航第2乐章", "夜航第3乐章"])
+        XCTAssertEqual(movements.map(\.song.cueStartTime), [0, 1_000, 2_200])
+        XCTAssertEqual(movements.map(\.song.cueEndTime), [1_000, 2_200, 3_358])
+        XCTAssertEqual(Set(movements.map(\.song.id)).count, 3)
+        for item in movements {
+            let indexedFile = try XCTUnwrap(item.providerHierarchyItems.last)
+            XCTAssertEqual(indexedFile.displayName, "夜航 24K.wav")
+            XCTAssertEqual(indexedFile.path, item.song.filePath)
+        }
+        await source.disconnect()
+    }
+
+    func testSingleCatalogCueRowRecoversOtherMovementsFromAlbumDetails() async throws {
+        let source = makeSource()
+        let host = await source.sourceID
+        let image: [String: Any] = ["duration": 120_000, "path": "/disc/image.wav"]
+        func movement(_ number: Int, path: String? = nil) -> [String: Any] {
+            ["guid": "movement-\(number)", "title": "Movement \(number)", "duration": 60_000,
+             "isCue": true, "trackNo": number, "album": ["guid": "album-0", "name": "Album"],
+             "audioSpec": path.map { ["path": $0, "duration": 60_000] } ?? image]
+        }
+        FnMusicSourceURLProtocol.setCatalog(count: 1, maximumPageSize: 2_000, host: host)
+        var onlyListedMovement = movement(2)
+        onlyListedMovement["startTime"] = 60
+        FnMusicSourceURLProtocol.setCatalogRow(onlyListedMovement, at: 0, host: host)
+        FnMusicSourceURLProtocol.setAlbumTracks([movement(3, path: "/other/image.wav"), movement(2), movement(1)], host: host)
+        var songs: [Song] = []
+        for try await item in try await source.scanSongs(from: "/") { songs.append(item.song) }
+        XCTAssertEqual(songs.map(\.title), ["Movement 1", "Movement 2"])
+        XCTAssertEqual(songs.map(\.cueStartTime), [0, 60])
+        XCTAssertEqual(songs.map(\.cueEndTime), [60, 120])
+        await source.disconnect()
+    }
+
     func testInteractiveDiagnosticsPublishStepsAndContinueAfterFailedRoute() async {
         let source = diagnosticSource(type: .fnMusic)
         let local = InteractiveDiagnosticConnector(sourceID: source.id)
@@ -1781,6 +1831,8 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
         var role = "member"
         var trackDeletionCode = 0
         var trackDeletionBodies: [Data] = []
+        var catalogRows: [Int: [String: Any]] = [:]
+        var albumTracks: [[String: Any]] = []
         var catalogCount = 0
         var maximumPageSize = 2_000
         var catalogPageSizes: [String: [Int]] = [:]
@@ -1830,6 +1882,12 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
             states[host]?.catalogCount = count
             states[host]?.maximumPageSize = maximumPageSize
         }
+    }
+    static func setAlbumTracks(_ tracks: [[String: Any]], host: String) {
+        lock.withLock { states[host]?.albumTracks = tracks }
+    }
+    static func setCatalogRow(_ row: [String: Any], at index: Int, host: String) {
+        lock.withLock { states[host]?.catalogRows[index] = row }
     }
     static func pageSizes(path: String, host: String) -> [Int] {
         lock.withLock { states[host]?.catalogPageSizes[path] ?? [] }
@@ -1889,6 +1947,8 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
             case "delete" where url.path.contains("/folder-view/"):
                 state.trackDeletionBodies.append(body)
                 return (200, jsonHeaders, json(["code": state.trackDeletionCode, "msg": "", "data": NSNull()]))
+            case "list" where url.path.contains("/track/album-detail/list"):
+                return (200, jsonHeaders, json(["code": 0, "data": ["list": state.albumTracks, "total": state.albumTracks.count]]))
             case "list" where url.path.contains("/track/list") || url.path.contains("/album/list"):
                 let isAlbum = url.path.contains("/album/list")
                 let path = isAlbum ? "/album/list" : "/track/list"
@@ -1902,6 +1962,7 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
                     if isAlbum {
                         return ["guid": "album-\(index)", "artists": [["name": "Album artist \(index)"]]]
                     }
+                    if let row = state.catalogRows[index] { return row }
                     return ["guid": "s\(index)", "title": "Song \(index)", "extension": "flac",
                             "album": ["guid": "album-\(index)", "name": "Album \(index)"]]
                 }

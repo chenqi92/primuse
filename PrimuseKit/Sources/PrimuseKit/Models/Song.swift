@@ -1455,7 +1455,8 @@ public extension Song {
     var isSACDTrack: Bool { fileFormat == .sacdISO && isCueTrack && sacdTrackNumber != nil }
 
     var isCueTrack: Bool {
-        cueSheetPath?.isEmpty == false && cueStartTime != nil
+        guard let cueSheetPath, !cueSheetPath.isEmpty else { return false }
+        return cueStartTime != nil || cueSheetPath.hasPrefix("/fnmusic/cue/")
     }
 
     var cueSegmentDuration: TimeInterval? {

@@ -1758,7 +1758,8 @@ actor ConnectorScanner {
         // blind on existing rows.
         let revisionAdded = incoming.revision != nil && existing.revision == nil
         let mtimeAdded = incoming.lastModified != nil && existing.lastModified == nil
-        let cueChanged = existing.cueStartTime != incoming.cueStartTime
+        let cueChanged = existing.cueSheetPath != incoming.cueSheetPath
+            || existing.cueStartTime != incoming.cueStartTime
             || existing.cueEndTime != incoming.cueEndTime
             || existing.title != incoming.title
             || existing.artistName != incoming.artistName

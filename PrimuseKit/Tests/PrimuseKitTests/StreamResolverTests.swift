@@ -1223,7 +1223,7 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     #expect(!filenameFallback.hasUsableCatalogTitle)
     #expect(missing.title == "Unknown")
     #expect(!missing.hasUsableCatalogTitle)
-    #expect(placeholder.title == "Unknown")
+    #expect(placeholder.title == "Real Looking Filename.flac")
     #expect(!placeholder.hasUsableCatalogTitle)
 }
 
@@ -1269,6 +1269,45 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     #expect(song.cueStartTime == 12.5)
     #expect(song.cueEndTime == 42.75)
     #expect(song.coverArtFileName == "fnmusic-cover/cue-cover?revision=1725000000")
+}
+
+@Test func fnMusicWholeImageRowsKeepTrackIdentityAndReconstructOnlyCompleteTimelines() throws {
+    func row(_ number: Int, _ duration: Int, start: Double? = nil) throws -> FnMusicCatalogTrack {
+        var json: [String: Any] = [
+            "guid": "cue-\(number)", "title": "Movement \(number)", "isCue": true,
+            "trackNo": number, "duration": duration,
+            "audioSpec": ["path": "/music/夜航/夜航 24K.wav", "duration": 3_358_000],
+        ]
+        json["startTime"] = start
+        return try #require(FnMusicCatalogTrack(json: json))
+    }
+
+    let opening = try row(1, 153_250)
+    let middle = try row(2, 177_750)
+    let finale = try row(3, 3_027_000)
+    var image = FnMusicCueTrackGroups()
+    for track in [finale, opening, middle] { _ = image.buffer(track) }
+    let songs = try image.resolvedTracks().map { try #require($0.makeSong(sourceID: "nas")) }
+    #expect(Set(songs.map(\.id)).count == 3)
+    #expect(songs.map(\.title) == ["Movement 1", "Movement 2", "Movement 3"])
+    #expect(songs.map(\.cueStartTime) == [0, 153.25, 331])
+    #expect(songs.map(\.cueEndTime) == [153.25, 331, 3_358])
+    #expect(songs.map(\.duration) == [153.25, 177.75, 3_027])
+    #expect(songs[1].filePath == "/fnmusic/tracks/cue-2.wav")
+    #expect(middle.sourceFileName == "夜航 24K.wav")
+
+    var incomplete = FnMusicCueTrackGroups()
+    _ = incomplete.buffer(middle)
+    let standalone = try #require(incomplete.resolvedTracks().first?.makeSong(sourceID: "nas"))
+    #expect(standalone.isCueTrack)
+    #expect(standalone.cueStartTime == nil)
+    #expect(standalone.duration == 177.75)
+    #expect(standalone.id == songs[1].id)
+
+    let last = try #require(row(3, 3_027_000, start: 331).makeSong(sourceID: "nas"))
+    #expect(last.cueStartTime == 331)
+    #expect(last.cueEndTime == 3_358)
+    #expect(last.duration == 3_027)
 }
 
 // MARK: - 云盘:响应解析 + 请求构造

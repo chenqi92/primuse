@@ -1186,7 +1186,10 @@ final class ScanService {
         guard let index = syncStates[song.sourceID]?.index else { return nil }
         // Opaque file-ID providers use the ID as their stable key. Path-based
         // providers use the scanner's normalized path key instead.
-        for key in [song.filePath, "path:\(song.filePath.lowercased())"] {
+        let keys = FnMusicAPIProtocol.trackGUID(from: song.filePath) != nil
+            ? ["hierarchy-song:\(song.id)"]
+            : [song.filePath, "path:\(song.filePath.lowercased())"]
+        for key in keys {
             guard let item = index[key],
                   !item.isDirectory, item.path == song.filePath,
                   item.songIDs.contains(song.id),

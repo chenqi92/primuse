@@ -37,6 +37,85 @@ public struct FnMusicCatalogPage: Sendable {
     }
 }
 
+/// The list can omit CUE indexes while giving each GUID its own duration and the same
+/// physical file path. Only reconstruct a timeline when the complete image is accounted for.
+public struct FnMusicCueTrackGroups: Sendable {
+    private var images: [String: [FnMusicCatalogTrack]] = [:]
+    private var imageOrder: [String] = []
+
+    public init() {}
+
+    public mutating func buffer(_ track: FnMusicCatalogTrack) -> Bool {
+        guard track.isCue, let path = track.imagePath, !path.isEmpty else { return false }
+        if images[path] == nil { imageOrder.append(path) }
+        images[path, default: []].append(track)
+        return true
+    }
+
+    /// Some catalogue listings expose only part of an image. The album page can supply the
+    /// missing GUIDs. Match the actual file as albums may contain unrelated discs or editions.
+    public func resolvedCatalog(using library: FnMusicLibraryClient) async throws
+        -> (tracks: [FnMusicCatalogTrack], complete: Bool) {
+        let initial = resolvedTracks()
+        var albums = Set(initial.lazy.filter { $0.cueStartTime == nil }.compactMap(\.albumGUID))
+        for group in images.values {
+            guard let image = group.first?.imageDurationMilliseconds,
+                  group.allSatisfy({ $0.imageDurationMilliseconds == image && $0.durationMilliseconds != nil }) else { continue }
+            let listedDuration = group.reduce(0.0) { $0 + Double($1.durationMilliseconds ?? 0) }
+            if Double(image) - listedDuration > 1_000.0 / 75 {
+                albums.formUnion(group.compactMap(\.albumGUID))
+            }
+        }
+        guard !albums.isEmpty else { return (initial, true) }
+        var groups = self
+        var knownIDs = Set(initial.map(\.guid))
+        var complete = true
+        for album in albums.sorted() {
+            try Task.checkCancellation()
+            do {
+                for track in try await library.albumTracks(id: album) {
+                    guard track.isCue, let path = track.imagePath,
+                          let group = images[path], group.contains(where: { $0.albumGUID == album }) else { continue }
+                    if knownIDs.insert(track.guid).inserted {
+                        groups.images[path, default: []].append(track)
+                    } else if track.cueStartTime != nil,
+                              let i = group.firstIndex(where: { $0.guid == track.guid && $0.cueStartTime == nil }) {
+                        groups.images[path]?[i] = track
+                    }
+                }
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
+                complete = false
+            }
+        }
+        return (groups.resolvedTracks(), complete)
+    }
+
+    public func resolvedTracks() -> [FnMusicCatalogTrack] {
+        imageOrder.flatMap { path -> [FnMusicCatalogTrack] in
+            let tracks = images[path] ?? []
+            guard tracks.contains(where: { $0.cueStartTime == nil }),
+                  let imageDuration = tracks.first?.imageDurationMilliseconds,
+                  tracks.allSatisfy({ $0.imageDurationMilliseconds == imageDuration }) else { return tracks }
+            let ordered = tracks.sorted { ($0.cueTrackIndex ?? $0.trackNumber ?? 0) < ($1.cueTrackIndex ?? $1.trackNumber ?? 0) }
+            var resolved: [FnMusicCatalogTrack] = []
+            var elapsed = 0.0
+            for (index, var track) in ordered.enumerated() {
+                guard (track.cueTrackIndex ?? track.trackNumber) == index + 1,
+                      let milliseconds = track.durationMilliseconds, milliseconds > 0 else { return tracks }
+                let start = track.cueStartTime ?? elapsed
+                guard abs(start - elapsed) <= 1.0 / 75 else { return tracks }
+                track.cueStartTime = start
+                elapsed = track.cueEndTime ?? (start + Double(milliseconds) / 1_000)
+                track.cueEndTime = elapsed
+                resolved.append(track)
+            }
+            guard abs(elapsed - Double(imageDuration) / 1_000) <= 1.0 / 75 else { return tracks }
+            return resolved
+        }
+    }
+}
+
 /// A track returned by `/music/api/v1/track/list`.
 public struct FnMusicCatalogTrack: Sendable {
     public let guid: String
@@ -50,6 +129,9 @@ public struct FnMusicCatalogTrack: Sendable {
     public let discNumber: Int?
     public let trackNumber: Int?
     public let durationMilliseconds: Int?
+    fileprivate let imageDurationMilliseconds: Int?
+    fileprivate let imagePath: String?
+    public let sourceFileName: String?
     public let isCue: Bool
     public let createdAt: Int?
     public let updatedAt: Int?
@@ -66,8 +148,8 @@ public struct FnMusicCatalogTrack: Sendable {
     public let bitDepth: Int?
     /// 服务端报的音轨编码(`aac`、`alac`…),M4A 靠它分无损与有损。
     public let codecName: String?
-    public let cueStartTime: TimeInterval?
-    public let cueEndTime: TimeInterval?
+    public fileprivate(set) var cueStartTime: TimeInterval?
+    public fileprivate(set) var cueEndTime: TimeInterval?
     public let cueTrackIndex: Int?
 
     public init?(json: [String: Any]) {
@@ -76,34 +158,51 @@ public struct FnMusicCatalogTrack: Sendable {
             keys: ["guid", "id", "trackGUID", "trackGuid", "songId"]
         ) else { return nil }
         self.guid = guid
+        let audio = fnMusicObject(json["audioSpec"])
+        let album = fnMusicObject(json["album"])
+        let albumID = fnMusicFirstNonemptyString(album, keys: ["guid", "id"])
+            ?? fnMusicFirstNonemptyString(json, keys: ["albumGUID", "albumGuid", "albumId"])
+        self.albumGUID = albumID
+        let path = fnMusicNonemptyString(audio?["path"]) ?? fnMusicNonemptyString(json["path"])
+        self.isCue = fnMusicBool(json["isCue"]) == true || fnMusicNonemptyString(json["cueSheet"]) != nil
+        self.imagePath = isCue ? path.flatMap { path in
+            // A bare filename can repeat in unrelated folders. Scope it to the album when possible.
+            if path.contains("/") || path.contains("\\") { return path }
+            return albumID.map { $0 + "\u{1F}" + path }
+        } : nil
+        self.sourceFileName = Self.fileName(from: path) ?? Self.fileName(from: fnMusicNonemptyString(json["filename"]))
         let catalogTitle = fnMusicFirstNonemptyString(
             json,
             keys: ["title", "trackTitle", "name"]
         )
-        self.title = catalogTitle
-            ?? fnMusicNonemptyString(json["filename"])
-            ?? "Unknown"
-        self.hasUsableCatalogTitle = ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
-            catalogTitle
-        )
+        self.hasUsableCatalogTitle = ServerCatalogMetadataInspectionPolicy.hasUsableTitle(catalogTitle)
+        self.title = (hasUsableCatalogTitle ? catalogTitle : nil) ?? sourceFileName ?? catalogTitle ?? "Unknown"
         self.discNumber = fnMusicInt(json["discNo"])
         self.cueTrackIndex = fnMusicInt(json["trackIndex"])
             ?? fnMusicInt(json["cueTrackIndex"])
         self.trackNumber = fnMusicInt(json["trackNo"]) ?? cueTrackIndex
-        self.isCue = fnMusicBool(json["isCue"])
-            ?? (fnMusicNonemptyString(json["cueSheet"]) != nil)
         self.createdAt = fnMusicInt(json["createdAt"])
         self.updatedAt = fnMusicInt(json["updatedAt"])
-        self.cueStartTime = fnMusicDouble(json["startTime"])
-            ?? fnMusicDouble(json["cueStartTime"])
-        self.cueEndTime = fnMusicDouble(json["endTime"])
-            ?? fnMusicDouble(json["cueEndTime"])
+        let start = fnMusicDouble(json["startTime"]) ?? fnMusicDouble(json["cueStartTime"])
+        let end = fnMusicDouble(json["endTime"]) ?? fnMusicDouble(json["cueEndTime"])
+        let segmentMilliseconds = fnMusicInt(json["duration"]).flatMap { $0 > 0 ? $0 : nil }
+        let segmentSeconds = segmentMilliseconds.map { Double($0) / 1_000 }
+        let imageMilliseconds = fnMusicInt(audio?["duration"]).flatMap { $0 > 0 ? $0 : nil }
+        self.imageDurationMilliseconds = imageMilliseconds
+        self.cueStartTime = start.flatMap { $0 >= 0 ? $0 : nil }
+        if isCue, let start = cueStartTime {
+            let inferredEnd = segmentSeconds.map { start + $0 }
+            self.cueEndTime = end.flatMap { $0 > start ? $0 : nil } ?? inferredEnd.flatMap { candidate in
+                guard let imageMilliseconds else { return candidate }
+                let imageEnd = Double(imageMilliseconds) / 1_000
+                return candidate <= imageEnd + 1.0 / 75 ? min(candidate, imageEnd) : nil
+            }
+        } else {
+            self.cueEndTime = nil
+        }
 
-        let album = fnMusicObject(json["album"])
         self.year = fnMusicInt(json["year"]) ?? fnMusicInt(album?["originalReleaseYear"])
         self.coverID = fnMusicCoverID(json) ?? fnMusicCoverID(album)
-        self.albumGUID = fnMusicFirstNonemptyString(album, keys: ["guid", "id"])
-            ?? fnMusicFirstNonemptyString(json, keys: ["albumGUID", "albumGuid", "albumId"])
         self.albumName = fnMusicFirstNonemptyString(album, keys: ["name", "title"])
             ?? fnMusicNonemptyString(json["album"])
 
@@ -154,17 +253,14 @@ public struct FnMusicCatalogTrack: Sendable {
             ? objectGenreNames
             : (!stringGenreNames.isEmpty ? stringGenreNames : directGenreName.map { [$0] } ?? [])
 
-        let audio = fnMusicObject(json["audioSpec"])
-        let audioDuration = fnMusicInt(audio?["duration"]) ?? 0
-        if isCue,
-           let cueStartTime,
-           let cueEndTime,
-           cueEndTime > cueStartTime {
-            self.durationMilliseconds = Int(((cueEndTime - cueStartTime) * 1_000).rounded())
+        if isCue {
+            if let start = cueStartTime, let end = cueEndTime {
+                self.durationMilliseconds = Int(exactly: ((end - start) * 1_000).rounded()) ?? segmentMilliseconds
+            } else {
+                self.durationMilliseconds = segmentMilliseconds
+            }
         } else {
-            self.durationMilliseconds = audioDuration != 0
-                ? audioDuration
-                : fnMusicInt(json["duration"])
+            self.durationMilliseconds = imageDurationMilliseconds ?? segmentMilliseconds
         }
         let audioPathExtension = fnMusicNonemptyString(audio?["path"])
             .flatMap { fnMusicNonemptyString(($0 as NSString).pathExtension) }
@@ -179,6 +275,7 @@ public struct FnMusicCatalogTrack: Sendable {
             fnMusicNonemptyString(json["format"]),
             audioPathExtension,
             rootPathExtension,
+            sourceFileName.map { ($0 as NSString).pathExtension },
         ]
             .lazy
             .compactMap(fnMusicPlayableAudioExtension)
@@ -206,10 +303,6 @@ public struct FnMusicCatalogTrack: Sendable {
         let coverReference = coverID.map {
             FnMusicAPIProtocol.coverReference(coverID: $0, revision: revisionTimestamp)
         }
-        let hasValidCueRange = isCue
-            && cueStartTime != nil
-            && cueEndTime != nil
-            && cueEndTime! > cueStartTime!
         return Song(
             id: Self.hash("\(sourceID):fnmusic:\(guid)"),
             title: title,
@@ -236,15 +329,31 @@ public struct FnMusicCatalogTrack: Sendable {
             lastModified: Self.date(fromUnixTimestamp: revisionTimestamp),
             dateAdded: addedDate ?? Date(),
             coverArtFileName: coverReference,
-            cueSheetPath: hasValidCueRange ? "/fnmusic/cue/\(guid).cue" : nil,
-            cueStartTime: hasValidCueRange ? cueStartTime : nil,
-            cueEndTime: hasValidCueRange ? cueEndTime : nil,
+            cueSheetPath: isCue ? "/fnmusic/cue/\(guid).cue" : nil,
+            cueStartTime: isCue ? cueStartTime : nil,
+            cueEndTime: isCue ? cueEndTime : nil,
             revision: "fnmusic:\(updatedAt ?? 0):\(fileSize)",
             audioCodec: ContainerAudioCodecPolicy.storedCodec(
                 ContainerAudioCodecPolicy.codec(named: codecName), container: format
             ),
             serverDateAdded: addedDate
         )
+    }
+
+    private static func fileName(from path: String?) -> String? {
+        guard let path else { return nil }
+        // A filesystem name may contain a literal "#" or "?". Only URL paths have a query or fragment.
+        let filePath: String
+        if path.contains("://") {
+            guard let url = URLComponents(string: path) else { return nil }
+            filePath = url.path
+        } else {
+            filePath = path
+        }
+        let name = (filePath.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent
+        guard !name.isEmpty, name != "/", name != ".", name != "..",
+              name.rangeOfCharacter(from: .controlCharacters) == nil else { return nil }
+        return name
     }
 
     private static func hash(_ value: String) -> String {

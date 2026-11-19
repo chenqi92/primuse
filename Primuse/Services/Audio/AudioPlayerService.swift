@@ -7189,8 +7189,9 @@ final class AudioPlayerService {
         let formatRequiresCompleteLocalFile = FileFormatRouter.requiresCompleteLocalFile(fileFormat)
         let cueStart = song.cueStartTime
         let cueEnd = song.cueEndTime
+        let hasUnlocatedCueTrack = song.isCueTrack && cueStart == nil
         return { [weak self] resolved in
-            guard resolved > 0 else { return }
+            guard resolved > 0, !hasUnlocatedCueTrack else { return }
             if cueStart == nil, AudioDurationPolicy.shouldIgnoreResolvedDuration(
                 resolved: resolved,
                 stored: storedDuration,

@@ -227,6 +227,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                     // A NAS still indexing new uploads moves the total and the
                     // rows under the walk; see `CatalogWalkDriftTracker`.
                     var walk = CatalogWalkDriftTracker()
+                    var cueGroups = FnMusicCueTrackGroups()
                     while true {
                         try Task.checkCancellation()
                         let result = try await self.trackPage(page: page, size: pageSize)
@@ -257,6 +258,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                         for track in result.tracks {
                             try Task.checkCancellation()
                             guard walk.admit(track.guid) else { continue }
+                            if cueGroups.buffer(track) { continue }
                             let scanned = try self.scannedSong(
                                 from: track,
                                 albumArtistName: track.albumGUID.flatMap { albumArtists[$0] }
@@ -269,7 +271,16 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                         }
                         page += 1
                     }
-                    self.recordCatalogDrift(walk.driftObserved)
+                    let cueCatalog = try await cueGroups.resolvedCatalog(using: self.libraryClient)
+                    let cueAlbumArtists = await self.albumArtistNames(for: cueCatalog.tracks)
+                    for track in cueCatalog.tracks {
+                        try Task.checkCancellation()
+                        continuation.yield(try self.scannedSong(
+                            from: track,
+                            albumArtistName: track.albumGUID.flatMap { cueAlbumArtists[$0] }
+                        ))
+                    }
+                    self.recordCatalogDrift(walk.driftObserved || !cueCatalog.complete)
                     continuation.finish()
                 } catch {
                     Task.isCancelled
@@ -322,7 +333,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         }
         return ConnectorScannedSong(
             song: song,
-            displayName: "\(track.title).\(suffix)",
+            displayName: track.sourceFileName ?? "\(track.title).\(suffix)",
             titleMetadataInspected: track.hasUsableCatalogTitle,
             folderLocation: libraryFolderLocation(for: track, albumArtistName: albumArtistName)
         )

@@ -15217,6 +15217,7 @@ extension View {
 }
 
 struct SongInfoSheet: View {
+    @Environment(ScanService.self) private var scanService
     let song: Song
     private var contentMetadata: SongContentMetadata? {
         (library.song(id: song.id) ?? song).contentMetadata
@@ -15238,7 +15239,10 @@ struct SongInfoSheet: View {
     }
 
     private var displayPath: String? {
-        SongPathPresentationPolicy.displayPath(
+        if FnMusicAPIProtocol.trackGUID(from: song.filePath) != nil {
+            return scanService.sourceFileName(for: song)
+        }
+        return SongPathPresentationPolicy.displayPath(
             filePath: song.filePath,
             sourceID: song.sourceID,
             sourceType: sourcesStore.source(id: song.sourceID)?.type

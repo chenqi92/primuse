@@ -25,6 +25,7 @@ struct TagEditorView: View {
     var onNavigate: ((Song) -> Void)? = nil
 
     @Environment(MusicLibrary.self) private var library
+    @Environment(ScanService.self) private var scanService
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(\.dismiss) private var dismiss
@@ -367,7 +368,10 @@ struct TagEditorView: View {
     }
 
     private var fileNameDisplay: String {
-        (initialSong.filePath as NSString).lastPathComponent
+        if FnMusicAPIProtocol.trackGUID(from: initialSong.filePath) != nil {
+            return scanService.sourceFileName(for: initialSong) ?? ""
+        }
+        return (initialSong.filePath as NSString).lastPathComponent
     }
 
     private var requestedRenameStem: String? {
@@ -1065,7 +1069,7 @@ struct TagEditorView: View {
 
                     macReadOnlyField(String(localized: "tag_editor_field_file_size"), value: macFileSizeText)
                     macReadOnlyField(String(localized: "tag_editor_field_duration"), value: macDurationText)
-                    macReadOnlyField(String(localized: "tag_editor_field_location"), value: song.filePath, monospace: true)
+                    macReadOnlyField(String(localized: "tag_editor_field_location"), value: FnMusicAPIProtocol.trackGUID(from: song.filePath) == nil ? song.filePath : fileNameDisplay, monospace: true)
 
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "info.circle")

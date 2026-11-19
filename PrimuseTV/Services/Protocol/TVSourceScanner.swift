@@ -2600,7 +2600,18 @@ final class TVSourceScanner {
         var received = 0
         var walk = CatalogWalkDriftTracker()
         var songs: [Song] = []
+        var cueGroups = FnMusicCueTrackGroups()
         defer { if walk.driftObserved { catalogDriftObserved = true } }
+
+        func append(_ track: FnMusicCatalogTrack) async throws {
+            guard let song = track.makeSong(sourceID: source.id) else {
+                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.trackMissingFormat", track.title))
+            }
+            songs.append(song)
+            try await onSong(song)
+            indexed = songs.count
+            currentFile = track.title
+        }
 
         while true {
             try Task.checkCancellation()
@@ -2627,13 +2638,7 @@ final class TVSourceScanner {
             for track in result.tracks {
                 try Task.checkCancellation()
                 guard walk.admit(track.guid) else { continue }
-                guard let song = track.makeSong(sourceID: source.id) else {
-                    throw FnMusicServiceError.invalidResponse(PMString("error.catalog.trackMissingFormat", track.title))
-                }
-                songs.append(song)
-                try await onSong(song)
-                indexed = songs.count
-                currentFile = track.title
+                if !cueGroups.buffer(track) { try await append(track) }
             }
 
             received += result.rawCount
@@ -2646,6 +2651,12 @@ final class TVSourceScanner {
             page += 1
         }
 
+        let cueCatalog = try await cueGroups.resolvedCatalog(using: client.library)
+        if !cueCatalog.complete { catalogDriftObserved = true }
+        for track in cueCatalog.tracks {
+            try Task.checkCancellation()
+            try await append(track)
+        }
         return songs
     }
 

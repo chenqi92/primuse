@@ -165,6 +165,15 @@ public struct FnMusicLibraryClient: Sendable {
         return catalog
     }
 
+    func albumTracks(id: String) async throws -> [FnMusicCatalogTrack] {
+        let rows: Rows<Track> = try await pages(
+            path: "/track/album-detail/list", query: [URLQueryItem(name: "albumGUID", value: id)],
+            parse: Track.init
+        )
+        guard rows.listed == rows.items.count else { throw Self.invalidResponse("Incomplete album track list") }
+        return rows.items.compactMap(\.catalog)
+    }
+
     public func favorites(diagnosticLogger: (@Sendable (String) -> Void)? = nil) async throws -> [String] {
         try await favoriteSnapshot(diagnosticLogger: diagnosticLogger).trackIDs
     }

@@ -7017,6 +7017,8 @@ final class MetadataBackfillService {
         let mergedDuration: TimeInterval = if bare.isCueTrack,
                                               let start = bare.cueStartTime {
             max(0, (bare.cueEndTime ?? metadata.duration) - start)
+        } else if bare.isCueTrack {
+            bare.duration
         } else {
             metadata.duration > 0 ? metadata.duration : bare.duration
         }
