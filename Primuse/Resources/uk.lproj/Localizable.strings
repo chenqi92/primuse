@@ -7697,3 +7697,8 @@
 "source_move_error_cue" = "Цей файл не можна перемістити окремо від його CUE-файлу. Перемістіть усю папку.";
 "source_moved_format" = "Переміщено до «%@»";
 "server_admin_disabled" = "Вимкнено";
+
+"queue_bookmark_save" = "Зберегти закладку черги";
+"queue_bookmark_remove" = "Видалити закладку черги";
+"queue_bookmarks_title" = "Закладки черг";
+"queue_bookmark_error" = "Не вдалося прочитати або зберегти закладку. Спробуйте ще раз.";

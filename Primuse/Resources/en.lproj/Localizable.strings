@@ -7552,3 +7552,8 @@
 "source_move_error_cue" = "This file can’t be moved separately from its CUE sheet. Move the folder instead.";
 "source_moved_format" = "Moved to “%@”";
 "server_admin_disabled" = "Disabled";
+
+"queue_bookmark_save" = "Save Queue Bookmark";
+"queue_bookmark_remove" = "Remove Queue Bookmark";
+"queue_bookmarks_title" = "Queue Bookmarks";
+"queue_bookmark_error" = "Could not read or save this queue bookmark. Please try again.";

@@ -365,6 +365,7 @@ struct MacHomeView: View {
             emptyState
                 .pmAppearFade(.contentAppear)
         }
+        if showContinueSpaces { QueueBookmarksSection() }
         ForEach(MacHomeSectionLayout.decodeOrder(sectionOrderRawValue)) { section in
             dashboardSection(section, hasContent: hasContent)
         }

@@ -7791,3 +7791,8 @@
 "source_move_error_cue" = "Diese Datei kann nicht getrennt von ihrem CUE-Sheet verschoben werden. Verschiebe den gesamten Ordner.";
 "source_moved_format" = "Nach „%@“ verschoben";
 "server_admin_disabled" = "Deaktiviert";
+
+"queue_bookmark_save" = "Warteschlange merken";
+"queue_bookmark_remove" = "Lesezeichen entfernen";
+"queue_bookmarks_title" = "Gemerkte Warteschlangen";
+"queue_bookmark_error" = "Das Lesezeichen konnte nicht gelesen oder gespeichert werden. Bitte erneut versuchen.";

@@ -7697,3 +7697,8 @@
 "source_move_error_cue" = "Tego pliku nie można przenieść niezależnie od jego arkusza CUE. Przenieś cały folder.";
 "source_moved_format" = "Przeniesiono do „%@”";
 "server_admin_disabled" = "Wyłączony";
+
+"queue_bookmark_save" = "Zapisz zakładkę kolejki";
+"queue_bookmark_remove" = "Usuń zakładkę kolejki";
+"queue_bookmarks_title" = "Zakładki kolejek";
+"queue_bookmark_error" = "Nie można odczytać ani zapisać zakładki. Spróbuj ponownie.";

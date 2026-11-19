@@ -322,6 +322,7 @@ extension AudioPlayerService {
         }
         remembersMusicQueue = (plan.remembersMusicQueue ?? (plan.queueSongIDs.count > 1))
             && listeningSpace(of: prepared.entries[plan.currentIndex].song) == .music
+        queueIdentity = plan.queueIdentity ?? UUID()
         queueEntries = prepared.entries
         currentIndex = plan.currentIndex
         // Apply these while currentSong is nil so restoring an Apple Music
@@ -531,7 +532,8 @@ extension AudioPlayerService {
             radioStationOrderIDs: isLiveRadio ? radioStationOrder.map(\.id) : nil,
             podcastQueue: podcastQueue.isEmpty ? nil : podcastQueue,
             eachTrackStop: eachTrackStop,
-            remembersMusicQueue: remembersMusicQueue
+            remembersMusicQueue: remembersMusicQueue,
+            queueIdentity: queueIdentity
         )
         // 只有在协调器确认这一代(或更顶掉它的更新一代)真的落盘之后, 才允许
         // 后续的空状态清空旧快照: 写失败时上一次启动留下的有效快照必须保留。

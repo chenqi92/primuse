@@ -7697,3 +7697,8 @@
 "source_move_error_cue" = "يتعذّر نقل هذا الملف بشكل منفصل عن ورقة CUE الخاصة به. انقل المجلد بأكمله.";
 "source_moved_format" = "نُقل إلى «%@»";
 "server_admin_disabled" = "معطّل";
+
+"queue_bookmark_save" = "حفظ إشارة قائمة التشغيل";
+"queue_bookmark_remove" = "إزالة إشارة قائمة التشغيل";
+"queue_bookmarks_title" = "إشارات قوائم التشغيل";
+"queue_bookmark_error" = "تعذرت قراءة الإشارة أو حفظها. حاول مرة أخرى.";

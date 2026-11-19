@@ -7791,3 +7791,8 @@
 "source_move_error_cue" = "이 파일은 CUE 시트와 따로 이동할 수 없습니다. 폴더 전체를 이동하세요.";
 "source_moved_format" = "‘%@’(으)로 이동함";
 "server_admin_disabled" = "비활성화됨";
+
+"queue_bookmark_save" = "대기열 북마크 저장";
+"queue_bookmark_remove" = "대기열 북마크 삭제";
+"queue_bookmarks_title" = "대기열 북마크";
+"queue_bookmark_error" = "북마크를 읽거나 저장할 수 없습니다. 다시 시도해 주세요.";

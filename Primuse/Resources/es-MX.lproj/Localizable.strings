@@ -7697,3 +7697,8 @@
 "source_move_error_cue" = "Este archivo no se puede mover por separado de su hoja CUE. Mueve toda la carpeta.";
 "source_moved_format" = "Se movió a “%@”";
 "server_admin_disabled" = "Desactivado";
+
+"queue_bookmark_save" = "Guardar marcador de cola";
+"queue_bookmark_remove" = "Quitar marcador de cola";
+"queue_bookmarks_title" = "Marcadores de cola";
+"queue_bookmark_error" = "No se pudo leer o guardar el marcador. Inténtalo de nuevo.";

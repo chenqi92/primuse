@@ -7697,3 +7697,8 @@
 "source_move_error_cue" = "इस फ़ाइल को इसकी CUE शीट से अलग नहीं ले जाया जा सकता। पूरा फ़ोल्डर ले जाएँ।";
 "source_moved_format" = "“%@” में ले जाया गया";
 "server_admin_disabled" = "अक्षम";
+
+"queue_bookmark_save" = "क्यू बुकमार्क सहेजें";
+"queue_bookmark_remove" = "क्यू बुकमार्क हटाएँ";
+"queue_bookmarks_title" = "क्यू बुकमार्क";
+"queue_bookmark_error" = "बुकमार्क पढ़ा या सहेजा नहीं जा सका। फिर से कोशिश करें।";

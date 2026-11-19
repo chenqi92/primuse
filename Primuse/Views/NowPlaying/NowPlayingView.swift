@@ -11651,6 +11651,7 @@ struct NowPlayingView: View {
         let face = controlFace(action)
         let notice = unavailableNotice(for: action)
         let isDisabled = (face.requiresSong && player.currentSong == nil)
+            || (action == .queueBookmark && (!player.canBookmarkCurrentQueue || player.queueBookmarkStore.isBusy))
             || (libraryActions.isBusy && (action == .like || action == .addToPlaylist))
         let button = Button {
             if let notice {
@@ -12092,6 +12093,12 @@ struct NowPlayingView: View {
                 label: String(localized: "queue_play_mode"),
                 isActive: mode != .sequential || behavior.isActive
             )
+        case .queueBookmark:
+            return NowPlayingControlFace(
+                symbol: player.isCurrentQueueBookmarked ? "bookmark.fill" : "bookmark",
+                label: String(localized: player.isCurrentQueueBookmarked ? "queue_bookmark_remove" : "queue_bookmark_save"),
+                isActive: player.isCurrentQueueBookmarked, isToggle: true, requiresSong: true
+            )
         case .abRepeat:
             return abRepeatFace
         case .sleepTimer:
@@ -12219,6 +12226,7 @@ struct NowPlayingView: View {
 
     private func performControl(_ action: NowPlayingControlAction, style: NowPlayingControlStyle) {
         switch action {
+        case .queueBookmark: Task { await player.toggleCurrentQueueBookmark() }
         case .like: toggleLikedCurrent()
         case .dislike: player.toggleDislikeForCurrentSong()
         case .lyrics: toggleLyricsForLayout()

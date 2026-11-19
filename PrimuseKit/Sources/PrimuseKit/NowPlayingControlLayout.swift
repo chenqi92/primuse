@@ -25,6 +25,7 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
     case playMode
     /// A-B 循环:点一下设 A、再点设 B,在一首歌里反复放这一段。
     case abRepeat
+    case queueBookmark
 
     public var id: String { rawValue }
 
@@ -53,7 +54,7 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
         case .dislike, .sleepTimer, .equalizer, .playbackSpeed, .karaoke,
              .fullScreen, .addToPlaylist, .share, .cast:
             true
-        case .like, .lyrics, .airPlay, .queue, .shuffle, .repeatMode, .playMode, .abRepeat:
+        case .like, .lyrics, .airPlay, .queue, .shuffle, .repeatMode, .playMode, .abRepeat, .queueBookmark:
             false
         }
     }

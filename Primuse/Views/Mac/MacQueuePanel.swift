@@ -65,6 +65,7 @@ struct MacQueuePanel: View {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         // currentIndex 在切歌/换队列瞬间可能越界, 钳到合法区间,
                         // 否则下面构造 Range 时 lowerBound > upperBound 会 trap。
+                        QueueBookmarkButton(player: player)
                         let cur = min(max(player.currentIndex, 0), entries.count - 1)
                         let currentEntryID = entries[cur].id
 

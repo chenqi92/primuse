@@ -7792,3 +7792,8 @@
 "source_move_error_cue" = "このファイルは CUE シートと別々に移動できません。フォルダごと移動してください。";
 "source_moved_format" = "「%@」に移動しました";
 "server_admin_disabled" = "無効";
+
+"queue_bookmark_save" = "キューをブックマーク";
+"queue_bookmark_remove" = "キューのブックマークを削除";
+"queue_bookmarks_title" = "キューのブックマーク";
+"queue_bookmark_error" = "ブックマークを読み込むか保存できませんでした。もう一度お試しください。";

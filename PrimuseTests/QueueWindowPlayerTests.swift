@@ -62,8 +62,118 @@ final class QueueWindowPlayerTests: XCTestCase {
             playbackSettings: PlaybackSettingsStore(defaults: defaults),
             playbackSessionStore: PlaybackSessionStore(url: sessionDirectory.appendingPathComponent("session.json")),
             musicSessionMemoryStore: musicMemory,
+            queueBookmarkStore: QueueBookmarkStore(directory: sessionDirectory.appendingPathComponent("bookmarks")),
             activateAudioSession: { _ in XCTFail("Queue tests must not start audio") }
         )
+    }
+
+    @MainActor
+    func testBookmarkRestoresDuplicateOccurrenceAndExactShuffleCheckpointAfterQueueEdits() async throws {
+        let catalog = songs(5)
+        let player = try await makePlayer(librarySongs: catalog)
+        player.setQueue([catalog[0], catalog[1], catalog[0], catalog[2]], startAt: 2)
+        player.currentSong = catalog[0]
+        player.currentTime = 64
+        player.shuffleEnabled = true
+        player.shuffledIndices = [1, 2, 0, 3]
+        player.shufflePosition = 1
+        player.pendingNextShuffleIndices = [3, 0, 2, 1]
+        await player.toggleCurrentQueueBookmark()
+        let id = player.queueIdentity
+        XCTAssertTrue(player.isCurrentQueueBookmarked)
+        player.appendToQueue([catalog[4]])
+        player.currentTime = 100
+        player.setQueue([catalog[3]])
+        player.currentSong = catalog[3]
+        XCTAssertFalse(player.isCurrentQueueBookmarked)
+        let restored = await player.resumeQueueBookmark(id, startPlayback: false)
+        XCTAssertTrue(restored)
+        XCTAssertEqual(player.queue.map(\.id), ["s0", "s1", "s0", "s2"])
+        XCTAssertEqual(player.currentIndex, 2)
+        XCTAssertEqual(player.currentTime, 64)
+        XCTAssertEqual(player.shuffledIndices, [1, 2, 0, 3])
+        XCTAssertEqual(player.shufflePosition, 1)
+        XCTAssertEqual(player.pendingNextShuffleIndices, [3, 0, 2, 1])
+        XCTAssertEqual(player.queueIdentity, id)
+        XCTAssertTrue(player.isCurrentQueueBookmarked)
+        await player.toggleCurrentQueueBookmark()
+        XCTAssertTrue(player.queueBookmarkStore.bookmarks.isEmpty)
+    }
+
+    @MainActor
+    func testBookmarksKeepIndependentLargeQueueContinuationsAcrossRestart() async throws {
+        let catalog = songs(2_500)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        cleanups.append { try? FileManager.default.removeItem(at: directory) }
+        let player = try await makePlayer(librarySongs: catalog, sessionDirectory: directory)
+        let order = player.shufflePlayOrder(catalog)
+        player.shuffleEnabled = true
+        player.setQueue(order, startAt: 1_200)
+        player.currentSong = order[1_200]
+        player.currentTime = 35
+        let expected = player.queue.map(\.id)
+        let expectedShuffle = player.shuffledIndices
+        let expectedPosition = player.shufflePosition
+        let continuation = player.queueContinuation
+        await player.toggleCurrentQueueBookmark()
+        let firstID = player.queueIdentity
+        player.setQueue([catalog[8], catalog[9]])
+        player.currentSong = catalog[8]
+        await player.toggleCurrentQueueBookmark()
+        XCTAssertEqual(player.queueBookmarkStore.bookmarks.count, 2)
+        let reloaded = try await makePlayer(librarySongs: catalog, sessionDirectory: directory)
+        await reloaded.queueBookmarkStore.whenReady()
+        XCTAssertEqual(reloaded.queueBookmarkStore.bookmarks.count, 2)
+        let restored = await reloaded.resumeQueueBookmark(firstID, startPlayback: false)
+        XCTAssertTrue(restored)
+        XCTAssertEqual(reloaded.queue.map(\.id), expected)
+        XCTAssertEqual(reloaded.queueContinuation, continuation)
+        XCTAssertEqual(reloaded.shuffledIndices, expectedShuffle)
+        XCTAssertEqual(reloaded.shufflePosition, expectedPosition)
+        XCTAssertEqual(reloaded.currentTime, 35)
+        XCTAssertTrue(reloaded.isCurrentQueueBookmarked)
+    }
+
+    @MainActor
+    func testColdLaunchKeepsBookmarkIdentityWithoutChangingSavedCheckpoint() async throws {
+        let catalog = songs(3)
+        let player = try await makePlayer(librarySongs: catalog)
+        player.setQueue(catalog, startAt: 1)
+        player.currentSong = catalog[1]
+        player.currentTime = 20
+        await player.toggleCurrentQueueBookmark()
+        let id = player.queueIdentity
+        player.currentTime = 55
+        player.persistPlaybackSession(flushImmediately: true)
+        let reloaded = try await makePlayer(librarySongs: catalog,
+                                           sessionDirectory: player.playbackSessionStore.url.deletingLastPathComponent())
+        await reloaded.restorePlaybackSessionIfAvailable(startupSourceIDs: ["local-source"])
+        await reloaded.queueBookmarkStore.whenReady()
+        XCTAssertEqual(reloaded.currentTime, 55)
+        XCTAssertEqual(reloaded.queueIdentity, id)
+        XCTAssertTrue(reloaded.isCurrentQueueBookmarked)
+        let checkpoint = try await reloaded.queueBookmarkStore.memory(id: id)
+        XCTAssertEqual(checkpoint.snapshot.currentTime, 20)
+    }
+
+    @MainActor
+    func testBookmarkSkipsUnavailableCurrentSongInSavedShuffleOrder() async throws {
+        var catalog = songs(5)
+        catalog[0].sourceID = "unavailable"
+        let player = try await makePlayer(librarySongs: catalog)
+        player.setQueue(catalog)
+        player.currentSong = catalog[0]
+        player.shuffleEnabled = true
+        player.shuffledIndices = [2, 0, 4, 1, 3]
+        player.shufflePosition = 1
+        await player.toggleCurrentQueueBookmark()
+        let id = player.queueIdentity
+        player.library?.updateDisabledSourceIDs(["unavailable"])
+        let restored = await player.resumeQueueBookmark(id, startPlayback: false)
+        XCTAssertTrue(restored)
+        XCTAssertEqual(player.currentSong?.id, "s4")
+        XCTAssertEqual(player.currentTime, 0)
+        XCTAssertTrue(player.isCurrentQueueBookmarked)
     }
 
     @MainActor

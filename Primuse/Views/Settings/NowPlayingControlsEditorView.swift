@@ -2458,6 +2458,7 @@ extension NowPlayingControlAction {
         case .cast: "hifispeaker"
         case .playMode: "list.number"
         case .abRepeat: "selection.pin.in.out"
+        case .queueBookmark: "bookmark"
         }
     }
 
@@ -2480,6 +2481,7 @@ extension NowPlayingControlAction {
         case .cast: "cast_to_device"
         case .playMode: "queue_play_mode"
         case .abRepeat: "ab_repeat"
+        case .queueBookmark: "queue_bookmark_save"
         }
     }
 }

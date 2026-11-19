@@ -731,6 +731,8 @@ final class AudioPlayerService {
     @ObservationIgnored var artistNameConfiguration: ArtistNameConfiguration
     let playbackSessionStore: PlaybackSessionStore
     let musicSessionMemoryStore: MusicSessionMemoryStore
+    var queueIdentity = UUID()
+    let queueBookmarkStore: QueueBookmarkStore
     var remembersMusicQueue = false
     /// 快照仍然在主 actor 上采集, 但 JSON 编码与原子写交给这个协调器在后台
     /// 完成。它用递增的 generation 合并请求: 只有最新的状态会落盘, 更新的
@@ -1881,6 +1883,7 @@ final class AudioPlayerService {
         playbackSettings: PlaybackSettingsStore = PlaybackSettingsStore(),
         playbackSessionStore: PlaybackSessionStore = PlaybackSessionStore(),
         musicSessionMemoryStore: MusicSessionMemoryStore = .shared,
+        queueBookmarkStore: QueueBookmarkStore = .shared,
         activateAudioSession: @escaping @MainActor (Bool) throws -> Void = {
             try AudioSessionManager.shared.requirePlaybackSession(reacquiringLocalRouteFocus: $0)
         }
@@ -1892,6 +1895,7 @@ final class AudioPlayerService {
         self.playbackSettings = playbackSettings
         self.playbackSessionStore = playbackSessionStore
         self.musicSessionMemoryStore = musicSessionMemoryStore
+        self.queueBookmarkStore = queueBookmarkStore
         self.playbackSessionPersistence = PlaybackSessionPersistenceCoordinator(
             store: playbackSessionStore
         )

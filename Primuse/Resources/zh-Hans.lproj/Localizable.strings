@@ -7884,3 +7884,8 @@
 "source_move_error_cue" = "此文件无法与 CUE 分轨表分开移动。请移动整个文件夹。";
 "source_moved_format" = "已移到“%@”";
 "server_admin_disabled" = "已停用";
+
+"queue_bookmark_save" = "保存队列书签";
+"queue_bookmark_remove" = "取消队列书签";
+"queue_bookmarks_title" = "队列书签";
+"queue_bookmark_error" = "无法读取或保存队列书签，请重试。";

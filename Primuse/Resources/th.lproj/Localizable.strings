@@ -7697,3 +7697,8 @@
 "source_move_error_cue" = "ไม่สามารถย้ายไฟล์นี้แยกจากชีต CUE ได้ โปรดย้ายทั้งโฟลเดอร์";
 "source_moved_format" = "ย้ายไปที่ “%@” แล้ว";
 "server_admin_disabled" = "ปิดใช้งาน";
+
+"queue_bookmark_save" = "บันทึกบุ๊กมาร์กคิว";
+"queue_bookmark_remove" = "ลบบุ๊กมาร์กคิว";
+"queue_bookmarks_title" = "บุ๊กมาร์กคิว";
+"queue_bookmark_error" = "ไม่สามารถอ่านหรือบันทึกบุ๊กมาร์กได้ โปรดลองอีกครั้ง";

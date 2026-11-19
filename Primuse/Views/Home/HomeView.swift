@@ -2448,6 +2448,9 @@ struct HomeView: View {
             if showContinueSpaces, showsCrossSpace {
                 HomeContinueSpacesRow(books: books.inProgress, openSpace: openSpace)
             }
+            if showContinueSpaces, activeHomeFilter == nil || activeHomeFilter == .music {
+                QueueBookmarksSection()
+            }
         case .startListening:
             // 音乐的区块: 「全部」与筛到音乐时都在。
             if showStartListening {

@@ -7768,3 +7768,8 @@
 "source_move_error_cue" = "此檔案無法與 CUE 分軌表分開移動。請移動整個檔案夾。";
 "source_moved_format" = "已移到「%@」";
 "server_admin_disabled" = "已停用";
+
+"queue_bookmark_save" = "儲存佇列書籤";
+"queue_bookmark_remove" = "取消佇列書籤";
+"queue_bookmarks_title" = "佇列書籤";
+"queue_bookmark_error" = "無法讀取或儲存佇列書籤，請再試一次。";

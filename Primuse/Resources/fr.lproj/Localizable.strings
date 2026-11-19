@@ -7791,3 +7791,8 @@
 "source_move_error_cue" = "Ce fichier ne peut pas être déplacé séparément de sa feuille CUE. Déplacez le dossier entier.";
 "source_moved_format" = "Déplacé vers « %@ »";
 "server_admin_disabled" = "Désactivé";
+
+"queue_bookmark_save" = "Enregistrer la file en signet";
+"queue_bookmark_remove" = "Supprimer le signet";
+"queue_bookmarks_title" = "Files enregistrées";
+"queue_bookmark_error" = "Impossible de lire ou enregistrer ce signet. Veuillez réessayer.";

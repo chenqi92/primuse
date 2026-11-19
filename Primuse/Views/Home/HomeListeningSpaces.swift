@@ -1115,3 +1115,97 @@ struct HomeSpotlightManagementView: View {
     }
     #endif
 }
+
+struct QueueBookmarkButton: View {
+    let player: AudioPlayerService
+
+    var body: some View {
+        if player.canBookmarkCurrentQueue {
+            Button {
+                Task { await player.toggleCurrentQueueBookmark() }
+            } label: {
+                Label(LocalizedStringKey(player.isCurrentQueueBookmarked ? "queue_bookmark_remove" : "queue_bookmark_save"),
+                      systemImage: player.isCurrentQueueBookmarked ? "bookmark.fill" : "bookmark")
+                    .font(.subheadline)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            .disabled(player.queueBookmarkStore.isBusy)
+            .accessibilityIdentifier("queueBookmarkToggle")
+        }
+    }
+}
+
+struct QueueBookmarksSection: View {
+    @Environment(AudioPlayerService.self) private var player
+    @State private var showsAll = false
+
+    var body: some View {
+        let bookmarks = player.queueBookmarkStore.bookmarks
+        if !bookmarks.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("queue_bookmarks_title").font(.title3.weight(.bold))
+                    Spacer()
+                    Button("see_all") { showsAll = true }
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 12) {
+                        ForEach(bookmarks.prefix(6)) { bookmark in
+                            bookmarkButton(bookmark).frame(width: 156)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .sheet(isPresented: $showsAll) {
+                NavigationStack {
+                    List(bookmarks) { bookmark in bookmarkButton(bookmark) }
+                        .navigationTitle("queue_bookmarks_title")
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("close") { showsAll = false }
+                            }
+                        }
+                }
+                #if os(macOS)
+                .frame(minWidth: 500, minHeight: 400)
+                #endif
+            }
+        }
+    }
+
+    private func bookmarkButton(_ bookmark: QueueBookmarkSummary) -> some View {
+        Button {
+            Task { if await player.resumeQueueBookmark(bookmark.id) { showsAll = false } }
+        } label: {
+            HStack(spacing: 10) {
+                CachedArtworkView(coverRef: bookmark.coverRef, songID: bookmark.songID,
+                                  size: 48, sourceID: bookmark.sourceID)
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(bookmark.title).font(.subheadline.weight(.medium)).lineLimit(2)
+                    Text(ChapterTimeFormatter.string(from: bookmark.position))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("queue_bookmark_remove", role: .destructive) {
+                if player.queueBookmarkStore.bookmarks.count == 1 { showsAll = false }
+                Task { await player.removeQueueBookmark(bookmark.id) }
+            }
+        }
+        .swipeActions {
+            Button("queue_bookmark_remove", role: .destructive) {
+                if player.queueBookmarkStore.bookmarks.count == 1 { showsAll = false }
+                Task { await player.removeQueueBookmark(bookmark.id) }
+            }
+        }
+    }
+}

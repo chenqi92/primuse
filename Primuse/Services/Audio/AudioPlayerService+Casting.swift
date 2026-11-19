@@ -2280,6 +2280,7 @@ extension AudioPlayerService {
                !isMusicQueue || (queueContinuation?.requestedIDs ?? queueEntries.map(\.song.id)) != requestedIDs {
                 rememberCurrentMusicQueue()
             }
+            queueIdentity = UUID()
             remembersMusicQueue = isMusicQueue
             if isMusicQueue { musicSessionMemoryStore.excludeActiveQueue(requestedIDs) }
         }

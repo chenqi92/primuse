@@ -245,6 +245,7 @@ struct QueueView: View {
                 // keeps long queues responsive while preserving one continuous
                 // scroll surface.
                 LazyVStack(alignment: .leading, spacing: heightClass.value(18, compact: 10)) {
+                    QueueBookmarkButton(player: player)
                     let currentIndex = min(max(player.currentIndex, 0), entries.count - 1)
                     let currentEntry = entries[currentIndex]
                     queueSection(title: "now_playing") {

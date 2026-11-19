@@ -226,7 +226,7 @@ extension AudioPlayerService {
             shufflePosition: shuffleEnabled ? (shuffleAnchorPosition ?? shufflePosition) : 0,
             pendingNextShuffleIndices: pendingNextShuffleIndices, repeatMode: repeatMode,
             isAtTrackEnd: isAtTrackEnd, queueContinuationToken: queueContinuation?.token,
-            eachTrackStop: eachTrackStop, remembersMusicQueue: true
+            eachTrackStop: eachTrackStop, remembersMusicQueue: true, queueIdentity: queueIdentity
         )
         musicSessionMemoryStore.save(.init(
             snapshot: snapshot, title: song.title, subtitle: song.artistName,
@@ -245,6 +245,7 @@ extension AudioPlayerService {
             return
         }
         rememberCurrentMusicQueue()
+        queueIdentity = UUID()
         remembersMusicQueue = false
     }
 
@@ -300,9 +301,19 @@ extension AudioPlayerService {
     /// their order. Preparation cannot overwrite a newer transport request.
     @discardableResult
     func resumeMusicSession(startPlayback: Bool = true) async -> Bool {
-        guard let memory = musicSessionMemoryStore.memory, let library else { return false }
+        guard let memory = musicSessionMemoryStore.memory else { return false }
+        return await restoreMusicQueueMemory(memory, startPlayback: startPlayback)
+    }
+
+    @discardableResult
+    func restoreMusicQueueMemory(_ memory: MusicSessionMemoryStore.Memory, startPlayback: Bool) async -> Bool {
+        guard let library else { return false }
+        queueRequestToken &+= 1
         let requestToken = queueRequestToken
         let advanceGeneration = playbackAdvancePolicy.generation
+        await library.whenReady()
+        guard queueRequestToken == requestToken,
+              playbackAdvancePolicy.generation == advanceGeneration else { return false }
         let lookup = library.historySongLookup()
         let disabledSourceIDs = library.disabledSourceIDs
         let prepared = await Task.detached(priority: .userInitiated) { () -> (PlaybackSessionRestorationPlan, [Song], QueueContinuation?)? in
@@ -318,10 +329,11 @@ extension AudioPlayerService {
                 return !disabledSourceIDs.contains(song.sourceID)
             }
             if !canStart(snapshot.currentIndex) {
-                guard let index = QueueTraversalPolicy.nextAvailableIndex(
-                    queueCount: snapshot.queueSongIDs.count, after: snapshot.currentIndex,
-                    wraps: true, isAvailable: canStart
-                ) else { return nil }
+                let order = snapshot.shuffleEnabled && !snapshot.shuffledIndices.isEmpty
+                    ? snapshot.shuffledIndices : Array(snapshot.queueSongIDs.indices)
+                let position = order.firstIndex(of: snapshot.currentIndex) ?? 0
+                let candidates = Array(order.dropFirst(position + 1)) + Array(order.prefix(position + 1))
+                guard let index = candidates.first(where: canStart) else { return nil }
                 snapshot.currentIndex = index
                 snapshot.currentSongID = snapshot.queueSongIDs[index]
                 snapshot.currentTime = 0
@@ -348,7 +360,8 @@ extension AudioPlayerService {
         shuffledIndices = plan.shuffledIndices
         shufflePosition = plan.shufflePosition
         pendingNextShuffleIndices = plan.pendingNextShuffleIndices
-        remembersMusicQueue = true
+        remembersMusicQueue = plan.remembersMusicQueue ?? (songs.count > 1)
+        queueIdentity = plan.queueIdentity ?? UUID()
         stagePausedHandoff(song: songs[plan.currentIndex], at: plan.currentTime)
         isRestoringPlaybackSession = false
         persistPlaybackSession()
@@ -435,5 +448,187 @@ extension AudioPlayerService {
         appendToQueue(songs)
         plog("🎚️ Music memory queued after the book: \(songs.count) songs")
         return true
+    }
+}
+
+struct QueueBookmarkSummary: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    let title: String
+    let subtitle: String?
+    let coverRef: String?
+    let songID: String
+    let sourceID: String
+    let position: TimeInterval
+    let savedAt: Date
+}
+
+/// Only the small index is resident. Each checkpoint owns its continuation;
+/// advancing the active queue cannot consume another bookmark's pending IDs.
+private actor QueueBookmarkFiles {
+    let directory: URL
+    private var index: [QueueBookmarkSummary]?
+
+    init(directory: URL) { self.directory = directory }
+
+    func load() throws -> [QueueBookmarkSummary] {
+        if let index { return index }
+        let url = directory.appendingPathComponent("index.json")
+        let loaded = FileManager.default.fileExists(atPath: url.path)
+            ? try JSONDecoder().decode([QueueBookmarkSummary].self, from: Data(contentsOf: url)) : []
+        index = loaded
+        return loaded
+    }
+
+    func memory(id: UUID) throws -> MusicSessionMemoryStore.Memory {
+        try JSONDecoder().decode(MusicSessionMemoryStore.Memory.self, from: Data(contentsOf: file(id)))
+    }
+
+    func save(_ memory: MusicSessionMemoryStore.Memory, id: UUID) throws -> [QueueBookmarkSummary] {
+        var next = try load().filter { $0.id != id }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONEncoder().encode(memory).write(to: file(id), options: .atomic)
+        next.insert(.init(id: id, title: memory.title, subtitle: memory.subtitle, coverRef: memory.coverRef,
+                          songID: memory.songID, sourceID: memory.sourceID, position: memory.snapshot.currentTime,
+                          savedAt: memory.savedAt), at: 0)
+        try writeIndex(next)
+        return next
+    }
+
+    func remove(id: UUID) throws -> [QueueBookmarkSummary] {
+        let next = try load().filter { $0.id != id }
+        try writeIndex(next)
+        // An orphan after interrupted cleanup is harmless and never shown.
+        try? FileManager.default.removeItem(at: file(id))
+        return next
+    }
+
+    private func file(_ id: UUID) -> URL { directory.appendingPathComponent(id.uuidString + ".json") }
+
+    private func writeIndex(_ value: [QueueBookmarkSummary]) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONEncoder().encode(value).write(to: directory.appendingPathComponent("index.json"), options: .atomic)
+        index = value
+    }
+}
+
+@MainActor @Observable
+final class QueueBookmarkStore {
+    static let shared = QueueBookmarkStore()
+    private(set) var bookmarks: [QueueBookmarkSummary] = []
+    private(set) var isBusy = false
+    @ObservationIgnored private let files: QueueBookmarkFiles
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
+    #if os(iOS)
+    @ObservationIgnored private var backgroundWrite: UIBackgroundTaskIdentifier = .invalid
+    #endif
+
+    init(directory: URL = PlaybackSessionStore().url.deletingLastPathComponent().appendingPathComponent("queue-bookmarks")) {
+        let files = QueueBookmarkFiles(directory: directory)
+        self.files = files
+        loadTask = Task { [weak self] in
+            do { self?.bookmarks = try await files.load() }
+            catch { plog("Queue bookmark index load failed: \(error.localizedDescription)") }
+        }
+    }
+
+    func whenReady() async { await loadTask?.value }
+
+    func memory(id: UUID) async throws -> MusicSessionMemoryStore.Memory {
+        await whenReady()
+        return try await files.memory(id: id)
+    }
+
+    func save(_ memory: MusicSessionMemoryStore.Memory, id: UUID) async throws {
+        await whenReady()
+        guard !isBusy else { return }
+        isBusy = true
+        beginWrite()
+        defer { isBusy = false; endWrite() }
+        bookmarks = try await files.save(memory, id: id)
+    }
+
+    private func beginWrite() {
+        #if os(iOS)
+        backgroundWrite = UIApplication.shared.beginBackgroundTask(withName: "Queue bookmark") { [weak self] in
+            Task { @MainActor in self?.endWrite() }
+        }
+        #endif
+    }
+
+    private func endWrite() {
+        #if os(iOS)
+        guard backgroundWrite != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundWrite)
+        backgroundWrite = .invalid
+        #endif
+    }
+
+    func remove(id: UUID) async throws {
+        await whenReady()
+        guard !isBusy else { return }
+        isBusy = true
+        beginWrite()
+        defer { isBusy = false; endWrite() }
+        bookmarks = try await files.remove(id: id)
+    }
+}
+
+extension AudioPlayerService {
+    var canBookmarkCurrentQueue: Bool {
+        guard let song = currentSong, listeningSpace(of: song) == .music,
+              queueEntries.indices.contains(currentIndex) else { return false }
+        return queueEntries[currentIndex].song.id == song.id
+    }
+
+    var isCurrentQueueBookmarked: Bool { queueBookmarkStore.bookmarks.contains { $0.id == queueIdentity } }
+
+    func toggleCurrentQueueBookmark() async {
+        let requestedQueue = queueIdentity
+        await queueBookmarkStore.whenReady()
+        guard requestedQueue == queueIdentity, canBookmarkCurrentQueue,
+              !queueBookmarkStore.isBusy, let song = currentSong else { return }
+        do {
+            if isCurrentQueueBookmarked {
+                try await queueBookmarkStore.remove(id: queueIdentity)
+                return
+            }
+            let time = isPlaying ? interpolatedTime() : currentTime
+            let snapshot = PlaybackSessionSnapshot(
+                queueSongIDs: queueEntries.map(\.song.id), currentSongID: song.id,
+                currentIndex: currentIndex, currentTime: max(0, time.isFinite ? time : 0),
+                duration: duration, wasPlaying: false, shuffleEnabled: shuffleEnabled,
+                shuffledIndices: shuffleEnabled ? shuffledIndices : [],
+                shufflePosition: shuffleEnabled ? (shuffleAnchorPosition ?? shufflePosition) : 0,
+                pendingNextShuffleIndices: pendingNextShuffleIndices, repeatMode: repeatMode,
+                isAtTrackEnd: isAtTrackEnd, queueContinuationToken: queueContinuation?.token,
+                eachTrackStop: eachTrackStop, remembersMusicQueue: remembersMusicQueue, queueIdentity: queueIdentity
+            )
+            try await queueBookmarkStore.save(.init(
+                snapshot: snapshot, title: song.title, subtitle: song.artistName,
+                coverRef: song.coverArtFileName, songID: song.id, sourceID: song.sourceID,
+                savedAt: Date(), continuation: queueContinuation
+            ), id: queueIdentity)
+        } catch { showPlaybackError(String(localized: "queue_bookmark_error")) }
+    }
+
+    func removeQueueBookmark(_ id: UUID) async {
+        do { try await queueBookmarkStore.remove(id: id) }
+        catch { showPlaybackError(String(localized: "queue_bookmark_error")) }
+    }
+
+    @discardableResult
+    func resumeQueueBookmark(_ id: UUID, startPlayback: Bool = true) async -> Bool {
+        queueRequestToken &+= 1
+        let token = queueRequestToken
+        let generation = playbackAdvancePolicy.generation
+        do {
+            let memory = try await queueBookmarkStore.memory(id: id)
+            guard token == queueRequestToken, generation == playbackAdvancePolicy.generation else { return false }
+            return await restoreMusicQueueMemory(memory, startPlayback: startPlayback)
+        } catch {
+            guard token == queueRequestToken else { return false }
+            showPlaybackError(String(localized: "queue_bookmark_error"))
+            return false
+        }
     }
 }

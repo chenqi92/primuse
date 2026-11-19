@@ -33,6 +33,7 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
     public var eachTrackStop: EachTrackStop?
     /// False for single-song requests, even after autoplay adds more songs.
     public var remembersMusicQueue: Bool?
+    public var queueIdentity: UUID?
 
     public init(
         version: Int = PlaybackSessionSnapshot.currentVersion,
@@ -54,7 +55,8 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
         radioStationOrderIDs: [String]? = nil,
         podcastQueue: [Song]? = nil,
         eachTrackStop: EachTrackStop? = nil,
-        remembersMusicQueue: Bool? = nil
+        remembersMusicQueue: Bool? = nil,
+        queueIdentity: UUID? = nil
     ) {
         self.version = version
         self.queueSongIDs = queueSongIDs
@@ -76,6 +78,7 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
         self.podcastQueue = podcastQueue
         self.eachTrackStop = eachTrackStop
         self.remembersMusicQueue = remembersMusicQueue
+        self.queueIdentity = queueIdentity
     }
 }
 
@@ -180,6 +183,7 @@ public struct PlaybackSessionRestorationPlan: Equatable, Sendable {
     public var shouldStartPlayback: Bool
     public var eachTrackStop: EachTrackStop? = nil
     public var remembersMusicQueue: Bool? = nil
+    public var queueIdentity: UUID? = nil
 }
 
 public enum PlaybackSessionRestorationPolicy {
@@ -267,7 +271,8 @@ public enum PlaybackSessionRestorationPolicy {
             isAtTrackEnd: snapshot.isAtTrackEnd,
             shouldStartPlayback: false,
             eachTrackStop: snapshot.repeatMode == .off ? snapshot.eachTrackStop : nil,
-            remembersMusicQueue: snapshot.remembersMusicQueue
+            remembersMusicQueue: snapshot.remembersMusicQueue,
+            queueIdentity: snapshot.queueIdentity
         )
     }
 

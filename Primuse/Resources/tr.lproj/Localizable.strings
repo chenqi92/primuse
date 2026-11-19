@@ -7697,3 +7697,8 @@
 "source_move_error_cue" = "Bu dosya CUE dosyasından ayrı taşınamaz. Klasörün tamamını taşıyın.";
 "source_moved_format" = "“%@” klasörüne taşındı";
 "server_admin_disabled" = "Devre dışı";
+
+"queue_bookmark_save" = "Kuyruk yer imini kaydet";
+"queue_bookmark_remove" = "Kuyruk yer imini kaldır";
+"queue_bookmarks_title" = "Kuyruk yer imleri";
+"queue_bookmark_error" = "Yer imi okunamadı veya kaydedilemedi. Lütfen tekrar deneyin.";
