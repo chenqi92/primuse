@@ -60,6 +60,12 @@ enum XorZlibLyricsDecoder {
 
             let absoluteStarts = pieces.compactMap { safeAdd(lineStart, $0.offsetRel) }
             guard absoluteStarts.count == pieces.count else { continue }
+            // 有些来源的署名行带着倒退的字时间。保留整行文字及行时间，
+            // 仅放弃这一行的字时间，避免整份已下载歌词在保存校验时被拒绝。
+            guard !zip(absoluteStarts, absoluteStarts.dropFirst()).contains(where: { $0 > $1 }) else {
+                wordOut.append("[\(fmt(lineStart))]\(plain)")
+                continue
+            }
             var wordLine = "[\(fmt(lineStart))]"
             for (piece, absoluteStart) in zip(pieces, absoluteStarts) {
                 wordLine += "<\(fmt(absoluteStart))>\(piece.text)"

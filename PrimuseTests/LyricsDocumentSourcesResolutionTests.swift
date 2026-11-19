@@ -11,6 +11,35 @@ import XCTest
 /// rewrites exactly one file, byte for byte, only while it is unchanged.
 final class LyricsDocumentSourcesResolutionTests: XCTestCase {
     @MainActor
+    func testSourceLyricsLoadDisplaysConcurrentCacheWinner() async {
+        let song = song()
+        let store = MetadataAssetStore.shared
+        let lines = [LyricLine(timestamp: 1, text: "Source lyrics")]
+        let first = await LyricsLoader.persistLoadedSourceLyrics(lines, forSongID: song.id, cachedDocument: nil)
+        XCTAssertTrue(first.didWrite)
+        let second = await LyricsLoader.persistLoadedSourceLyrics(lines, forSongID: song.id, cachedDocument: nil)
+        XCTAssertFalse(second.didWrite)
+        XCTAssertEqual(second.lines.map(\.text), ["Source lyrics"])
+        await store.invalidateCaches(forSongIDs: [song.id])
+    }
+
+    @MainActor
+    func testSourceLyricsLoadPreservesAndDisplaysConcurrentEdit() async {
+        let song = song()
+        let store = MetadataAssetStore.shared
+        let original = [LyricLine(timestamp: 1, text: "Original")]
+        _ = await store.cacheLyrics(original, forSongID: song.id, force: true)
+        let edited = [LyricLine(timestamp: 2, text: "Edited")]
+        _ = await store.cacheLyrics(edited, forSongID: song.id, force: true)
+        let result = await LyricsLoader.persistLoadedSourceLyrics(original, forSongID: song.id, cachedDocument: original)
+        XCTAssertFalse(result.didWrite)
+        XCTAssertEqual(result.lines.map(\.text), ["Edited"])
+        let stored = await store.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(stored?.map(\.text), ["Edited"])
+        await store.invalidateCaches(forSongIDs: [song.id])
+    }
+
+    @MainActor
     func testAppleMusicWithoutEmbeddedLyricsFallsBackOnline() async {
         let item = song()
         let expected = [LyricLine(timestamp: 1, text: "Lanterns drift across the bay")]

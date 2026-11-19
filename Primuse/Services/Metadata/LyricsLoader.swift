@@ -535,20 +535,11 @@ enum LyricsLoader {
                     )
                     guard !Task.isCancelled else { return [] }
                 }
-                let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
-                    parsed,
-                    forSongID: song.id,
-                    expectedFingerprint: cacheSnapshot.map(
-                        LyricsDocumentFingerprint.init(lines:)
-                    ),
-                    force: false
+                let persisted = await persistLoadedSourceLyrics(
+                    parsed, forSongID: song.id, cachedDocument: cacheSnapshot
                 )
                 guard !Task.isCancelled else { return [] }
-                guard wrote else {
-                    return await MetadataAssetStore.shared.cachedLyrics(
-                        forSongID: song.id
-                    ) ?? []
-                }
+                guard persisted.didWrite else { return persisted.lines }
                 logLoaded(parsed, song: song, tier: "Tier3")
                 let displayed = parsed
                 Task { @MainActor in
@@ -597,6 +588,22 @@ enum LyricsLoader {
         guard !Task.isCancelled else { return [] }
         // 手动编辑或另一处加载可能在请求期间写入歌词，以最新缓存为准。
         return await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? online ?? []
+    }
+
+    /// 另一个加载器或编辑器已写入时，显示缓存中胜出的文档；写入被拒不代表没有歌词。
+    static func persistLoadedSourceLyrics(
+        _ lines: [LyricLine],
+        forSongID songID: String,
+        cachedDocument: [LyricLine]?
+    ) async -> (lines: [LyricLine], didWrite: Bool) {
+        let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+            lines,
+            forSongID: songID,
+            expectedFingerprint: cachedDocument.map(LyricsDocumentFingerprint.init(lines:)),
+            force: false
+        )
+        if wrote { return (lines, true) }
+        return (await MetadataAssetStore.shared.cachedLyrics(forSongID: songID) ?? [], false)
     }
 
     /// 普通源确实没有歌词时的最后一站：Tier4 在线兜底，拿不到就按原样返回空。

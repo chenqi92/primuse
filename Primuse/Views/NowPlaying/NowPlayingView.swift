@@ -12735,18 +12735,13 @@ struct NowPlayingView: View {
                     return
                 }
 
-                let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
-                    parsed,
-                    forSongID: songID,
-                    expectedFingerprint: currentCache.map(
-                        LyricsDocumentFingerprint.init(lines:)
-                    ),
-                    force: false
+                let persisted = await LyricsLoader.persistLoadedSourceLyrics(
+                    parsed, forSongID: songID, cachedDocument: currentCache
                 )
-                if !wrote {
-                    // 写入被「不降级」拦截 (现存字级, NAS 是行级 sidecar 自动
-                    // 写回的) —— UI 保持原 cache 显示, 不切到行级。
-                    plog(String(format: "📜 lyrics refresh '%@' SKIP downgrade (%.0fms, cache word-level kept)", songTitle, Date().timeIntervalSince(tier3Start) * 1000))
+                if !persisted.didWrite {
+                    if !persisted.lines.isEmpty {
+                        setLyricsIfCurrent(persisted.lines, for: song, loadRevision: loadRevision)
+                    }
                     return
                 }
                 if isRefresh {

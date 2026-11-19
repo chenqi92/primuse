@@ -5,6 +5,69 @@ import PrimuseKit
 @testable import Primuse
 
 final class NativeScraperHTTPTests: XCTestCase {
+    @MainActor
+    func testRelativeLyricsWithBackwardsCreditTimingRemainWritable() async throws {
+        let source = """
+        [0,1000]<0,1000,0>Title
+        [1168,707]<0,101,0>Credit <101,101,0>A<202,0,0>B<177,200,0>C<377,330,0>D
+        [2000,1000]<0,500,0>First <500,500,0>line
+        """
+        let converted = XorZlibLyricsDecoder.relativeOffsetToA2(source)
+        let lines = LyricsContentParser.parseText(converted.wordLevel)
+        XCTAssertEqual(lines.map(\.text), ["Title", "Credit ABCD", "First line"])
+        XCTAssertEqual(lines.map(\.isWordLevel), [true, false, true])
+        XCTAssertEqual(lines[1].timestamp, 1.17, accuracy: 0.001)
+        XCTAssertTrue(LyricsContentParser.validateEditableText(LyricsContentParser.serialize(lines)).isValid)
+        XCTAssertEqual(lines[2].syllables?.map(\.start), [2, 2.5])
+        // Raw editor input still rejects a backwards word timeline.
+        XCTAssertFalse(LyricsContentParser.validateEditableText(
+            "[00:01.000]<00:01.200>A<00:01.177>B<00:02.000>"
+        ).isValid)
+        await assertLocalLyricsSaveAndReload(lines)
+    }
+
+    @MainActor
+    func testLiveRelativeLyricsCanBeSaved() async throws {
+        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_LIVE_RELATIVE_LYRICS"] else {
+            throw XCTSkip("Live source verification is opt-in")
+        }
+        let text = try String(contentsOfFile: path, encoding: .utf8)
+        let converted = XorZlibLyricsDecoder.relativeOffsetToA2(text)
+        let lines = LyricsContentParser.parseText(converted.wordLevel)
+        XCTAssertGreaterThan(lines.count, 40)
+        XCTAssertGreaterThan(lines.filter(\.isWordLevel).count, 40)
+        let validation = LyricsContentParser.validateEditableText(LyricsContentParser.serialize(lines))
+        XCTAssertTrue(validation.isValid, "Invalid rows: \(validation.issues.map(\.lineNumber))")
+        print("LIVE_RELATIVE_LYRICS lines=\(lines.count) wordLines=\(lines.filter(\.isWordLevel).count)")
+        await assertLocalLyricsSaveAndReload(lines)
+    }
+
+    @MainActor
+    private func assertLocalLyricsSaveAndReload(_ lines: [LyricLine]) async {
+        let song = Song(id: UUID().uuidString, title: "Fixture", fileFormat: .flac,
+                        filePath: "/Music/fixture.flac", sourceID: AppleMusicLibraryIdentity.sourceID)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        var library: MusicLibrary? = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        library?.addSongs([song])
+        let manager = SourceManager(sourcesProvider: { [] })
+        let outcome = await LyricsWriteback.save(
+            text: LyricsContentParser.serialize(lines), for: song,
+            mode: .localOnly(reason: nil), allowRemoval: false, structuredLines: lines,
+            sourceManager: manager, library: library!
+        )
+        XCTAssertTrue(outcome.succeeded, outcome.errorMessage ?? "")
+        let reloaded = await LyricsLoader.load(
+            for: outcome.updatedSong, sourceManager: manager, allowsAutomaticOnlineLyrics: false
+        )
+        XCTAssertEqual(reloaded.map(\.text), lines.map(\.text))
+        XCTAssertEqual(reloaded.map(\.isWordLevel), lines.map(\.isWordLevel))
+        await MetadataAssetStore.shared.invalidateCaches(forSongIDs: [song.id])
+        _ = await library?.persistNowAndWait()
+        await library?.waitForPendingIndex()
+        library = nil
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     func testLiveLyricsWithImportedJSONBundle() async throws {
         guard let path = ProcessInfo.processInfo.environment["PRIMUSE_LIVE_LYRICS_BUNDLE"] else {
             throw XCTSkip("Live source verification is opt-in")
