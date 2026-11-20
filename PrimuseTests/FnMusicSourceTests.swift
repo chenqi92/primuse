@@ -885,6 +885,24 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertEqual(sidecarAttempts, 0)
     }
 
+    /// 115 这类按条目 ID 寻址的网盘,歌曲路径就是 ID,按名字猜出来的 `<ID>.lrc` 不可能存在;
+    /// 以前每首还要白发十几次限频请求,去重清理的库记录一直等不到删除(PM-TR0559)。
+    func testSidecarCleanupSkipsSourcesAddressedByItemID() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("OpaqueSidecar-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: UUID().uuidString, name: "115", type: .pan115)
+        let song = Song(id: "removed", title: "Song", fileFormat: .flac, filePath: "pickcode123", sourceID: source.id)
+        let connector = try DuplicateDeletionFixtureConnector(sourceID: source.id, root: root.appendingPathComponent("files"), paths: [song.filePath])
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        XCTAssertFalse(SourceManager.guessesSidecarPaths(for: source))
+        XCTAssertTrue(SourceManager.guessesSidecarPaths(for: MusicSource(id: "share", name: "Share", type: .webdav)))
+        await manager.deleteSidecars(for: [song], retaining: [])
+        let lyricsAttempts = await connector.attempts(for: "pickcode123.lrc")
+        let coverAttempts = await connector.attempts(for: "pickcode123-cover.jpg")
+        XCTAssertEqual(lyricsAttempts, 0)
+        XCTAssertEqual(coverAttempts, 0)
+    }
+
     func testDeletionMissingDetectionRejectsAmbiguousProviderMessages() {
         XCTAssertFalse(SourceManager.isMissingFileError(SourceError.connectionFailed("Account not found or access denied")))
         XCTAssertFalse(SourceManager.isMissingFileError(NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES))))

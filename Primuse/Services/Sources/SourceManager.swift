@@ -10897,7 +10897,7 @@ final class SourceManager {
             return await Self.performSourceFileDeletion(
                 for: song,
                 connector: conn,
-                deleteSidecars: deleteSidecars
+                deleteSidecars: deleteSidecars && Self.guessesSidecarPaths(for: source)
             )
         } catch {
             var result = SongFileDeletionResult()
@@ -10978,6 +10978,7 @@ final class SourceManager {
                 continue
             }
 
+            let sidecarSongIDs = Self.guessesSidecarPaths(for: source) ? deleteSidecarsForSongIDs : []
             let batchSize = max(1, conn.preferredDeleteBatchSize)
             if batchSize > 1 {
                 // Cloud providers such as Baidu expose a real batch recycle-bin
@@ -11001,7 +11002,7 @@ final class SourceManager {
                         // succeeded, a missing/locked sidecar must never keep a
                         // dead song in the library. Batch them best-effort.
                         let sidecarPaths = Array(Set(chunk
-                            .filter { deleteSidecarsForSongIDs.contains($0.id) }
+                            .filter { sidecarSongIDs.contains($0.id) }
                             .flatMap { Self.sidecarPathsToDelete(for: $0) }))
                         for sidecarStart in stride(from: 0, to: sidecarPaths.count, by: batchSize) {
                             let sidecarEnd = min(sidecarStart + batchSize, sidecarPaths.count)
@@ -11025,7 +11026,7 @@ final class SourceManager {
                                 let result = await Self.performSourceFileDeletion(
                                     for: song,
                                     connector: conn,
-                                    deleteSidecars: deleteSidecarsForSongIDs.contains(song.id),
+                                    deleteSidecars: sidecarSongIDs.contains(song.id),
                                     connectFirst: false
                                 )
                                 outcomeBySongID[song.id] = SongFileDeletionOutcome(
@@ -11060,7 +11061,7 @@ final class SourceManager {
                     let result = await Self.performSourceFileDeletion(
                         for: song,
                         connector: conn,
-                        deleteSidecars: deleteSidecarsForSongIDs.contains(song.id),
+                        deleteSidecars: sidecarSongIDs.contains(song.id),
                         connectFirst: false
                     )
                     outcomeBySongID[song.id] = SongFileDeletionOutcome(song: song, result: result)
@@ -11097,6 +11098,13 @@ final class SourceManager {
         return false
     }
 
+    /// 同名歌词、封面这些旁挂文件是按歌曲路径猜出来的。路径是网盘条目 ID 的来源(115、123、
+    /// 阿里、Google Drive、OneDrive 等)猜出来的只会是 `<ID>.lrc` 这种不存在的路径,每首还要
+    /// 白白请求十几次:115 上清 1200 首重复歌要发上万次限频请求,库记录一直等不到删除(PM-TR0559)。
+    nonisolated static func guessesSidecarPaths(for source: MusicSource) -> Bool {
+        !source.type.usesOpaqueDirectoryIdentifiers
+    }
+
     func deleteSidecars(for songs: [Song], retaining retainedSongs: [Song]) async {
         guard !songs.isEmpty else { return }
         let selectedIDs = await Task.detached(priority: .utility) {
@@ -11105,7 +11113,7 @@ final class SourceManager {
         guard !selectedIDs.isEmpty, let sources = try? await sourcesProvider() else { return }
         let sourcesByID = Dictionary(sources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for song in songs where selectedIDs.contains(song.id) {
-            guard let source = sourcesByID[song.sourceID] else { continue }
+            guard let source = sourcesByID[song.sourceID], Self.guessesSidecarPaths(for: source) else { continue }
             let connector = connector(for: source)
             do {
                 try await connector.connect()

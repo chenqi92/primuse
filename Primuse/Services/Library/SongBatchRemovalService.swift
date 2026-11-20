@@ -226,7 +226,12 @@ final class SongBatchRemovalService {
             removable = SourceFileDeletionPolicy.affectedSongs(deleting: removable, in: catalogue)
             let removedIDs = Set(removable.map(\.id))
             let deletedFiles = outcomes.filter { $0.result.shouldRemoveLibraryRecord }.map(\.song)
-            await sourceManager.deleteSidecars(for: deletedFiles, retaining: catalogue.filter { !removedIDs.contains($0.id) })
+            let retainedSongs = catalogue.filter { !removedIDs.contains($0.id) }
+            // 旁挂文件只是顺带清理,不挡库记录落地(网盘上逐个删可能要很久)。
+            let sourceManager = self.sourceManager
+            Task { @MainActor in
+                await sourceManager.deleteSidecars(for: deletedFiles, retaining: retainedSongs)
+            }
         }
         await player.prepareQueueForRemovingSongs(withIDs: Set(removable.map(\.id)))
         commit(

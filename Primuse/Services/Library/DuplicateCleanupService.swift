@@ -295,14 +295,6 @@ final class DuplicateCleanupService {
                 plog("⚠️ Duplicate cleanup source deletion failures: \(failureCount) (\(failedSongs.count) songs retained in library)")
             }
 
-            // A selected copy may have survived a permission failure. Plan
-            // sidecars only after the actual audio outcomes are known.
-            let removedIDs = Set(removableSongs.map(\.id))
-            await self.sourceManager.deleteSidecars(
-                for: removableSongs,
-                retaining: self.library.songs.filter { !removedIDs.contains($0.id) }
-            )
-
             // `primuseSongsRemoved` now performs cache cleanup once for this
             // whole batch. The previous path deleted caches per song here and
             // then deleted the same caches again from that notification.
@@ -320,6 +312,19 @@ final class DuplicateCleanupService {
             self.lastSourceFailures = failuresBySource.values.sorted { $0.source.name < $1.source.name }
             self.lastFailedTitles = self.lastSourceFailures.flatMap { $0.songs.map(\.title) }
             self.completionRevision &+= 1
+
+            // 同名歌词、封面这些旁挂文件只是顺带清理,放在库记录落地之后、不挡进度:
+            // 网盘上逐个删可能要很久,以前要等它们全删完才删库记录,App 一退后台
+            // 记录就永远留着,下次打开重复歌又回来了(PM-TR0559)。保留哪些旁挂文件
+            // 要看落地后的库(某首没删掉的副本可能还在用同一份歌词)。
+            if !removableSongs.isEmpty {
+                let removedSongs = removableSongs
+                let retainedSongs = self.library.songs
+                let sourceManager = self.sourceManager
+                Task { @MainActor in
+                    await sourceManager.deleteSidecars(for: removedSongs, retaining: retainedSongs)
+                }
+            }
 
             if outcomes.count < songs.count {
                 self.progress = nil
