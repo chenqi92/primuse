@@ -7984,3 +7984,11 @@
 "player_carousel_face_lyrics_summary" = "整页滚动歌词";
 "player_carousel_now_playing_strip" = "显示正在播放条";
 "player_carousel_now_playing_strip_footer" = "两侧各面底部那一条显示当前歌曲和播放、下一首键。关掉后页面更简洁，可点右上角的返回键或滑回播放器。";
+"apple_music_restriction_cloud_only" = "仅云端";
+"apple_music_restriction_subscription" = "需要订阅";
+"apple_music_restriction_cloud_only_title" = "只在云端";
+"apple_music_restriction_cloud_only_message" = "这首歌还没下载到这台设备。在“音乐”App 里下载后就能播放，开通 Apple Music 也可以直接播放。";
+"apple_music_restriction_subscription_title" = "需要 Apple Music 订阅";
+"apple_music_restriction_subscription_message" = "这首歌要有 Apple Music 订阅才能在 Primuse 里播放。";
+"apple_music_subscribe_action" = "开通 Apple Music";
+"apple_music_restricted_songs_footer_format" = "其中 %lld 首只在云端或带版权保护，要有 Apple Music 订阅才能在 Primuse 里播放。";

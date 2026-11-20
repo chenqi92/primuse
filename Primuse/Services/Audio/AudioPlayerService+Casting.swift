@@ -2209,6 +2209,18 @@ extension AudioPlayerService {
             sourceManager?.recheckPlaybackSourceNow(songs[selectedIndex].sourceID)
             selectedIndex = playableIndex
         }
+        // 系统音乐库里没订阅放不了的歌(整张播放的第一首、随机抽到的)不拿来起播,
+        // 从后面第一首能放的开始;列表里点它本身会先弹说明,走不到这里。
+        if appleMusicPlaybackRestriction(for: songs[selectedIndex]) != nil,
+           let playableIndex = QueueTraversalPolicy.nextAvailableIndex(
+               queueCount: songs.count,
+               after: selectedIndex,
+               wraps: true,
+               isAvailable: { isSongAvailableForNewPlayback(songs[$0]) }
+           ) {
+            plog("⏭️ Queue start moved past Apple Music subscription-only song index=\(selectedIndex)→\(playableIndex)")
+            selectedIndex = playableIndex
+        }
         let selectedSong = songs[selectedIndex]
         let transportCanBePreserved = !isAppleMusicMode || isPrimuseManagingAppleMusicQueue
         let decision = QueueSelectionPlaybackPolicy.decision(
@@ -2818,6 +2830,10 @@ extension AudioPlayerService {
         let song = queueEntries[index].song
         guard isSourceEnabledForPlayback(song.sourceID) else {
             showPlaybackError(String(localized: "playback_error_source_disabled"))
+            return
+        }
+        if let restriction = appleMusicPlaybackRestriction(for: song) {
+            showPlaybackError(restriction.alertMessage)
             return
         }
         if isSongBlockedByUnreachableSource(song) {

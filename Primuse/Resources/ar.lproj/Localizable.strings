@@ -7797,3 +7797,11 @@
 "player_carousel_face_lyrics_summary" = "كلمات تتحرك مع التشغيل على الصفحة كلها";
 "player_carousel_now_playing_strip" = "إظهار شريط «قيد التشغيل الآن»";
 "player_carousel_now_playing_strip_footer" = "الشريط أسفل الأوجه الجانبية يعرض الأغنية الحالية وزرّي التشغيل والتالي. عند إيقافه تصبح الصفحة أبسط، ويمكنك العودة إلى المشغّل بزر الرجوع في الأعلى أو بالسحب.";
+"apple_music_restriction_cloud_only" = "في السحابة فقط";
+"apple_music_restriction_subscription" = "يتطلب اشتراكًا";
+"apple_music_restriction_cloud_only_title" = "في السحابة فقط";
+"apple_music_restriction_cloud_only_message" = "هذه الأغنية غير مُنزّلة على هذا الجهاز. نزّلها في تطبيق الموسيقى لتشغيلها هنا، أو اشترك في Apple Music لتشغيلها فورًا.";
+"apple_music_restriction_subscription_title" = "يتطلب اشتراكًا في Apple Music";
+"apple_music_restriction_subscription_message" = "تحتاج هذه الأغنية إلى اشتراك في Apple Music لتشغيلها في Primuse.";
+"apple_music_subscribe_action" = "الاشتراك في Apple Music";
+"apple_music_restricted_songs_footer_format" = "منها %lld في السحابة فقط أو محمية، وتحتاج إلى اشتراك في Apple Music لتشغيلها في Primuse.";

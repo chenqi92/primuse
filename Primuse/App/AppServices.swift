@@ -1799,7 +1799,11 @@ final class AppServices {
         self.spotlightIndex = SpotlightIndexService()
         let amService = AppleMusicService(playbackSettings: playbackSettings, library: library)
         self.appleMusic = amService
-        self.appleMusicLibrary = AppleMusicLibraryService(library: library, appleMusic: amService)
+        let amLibrary = AppleMusicLibraryService(library: library, appleMusic: amService)
+        self.appleMusicLibrary = amLibrary
+        player.appleMusicPlaybackRestrictionProvider = { [weak amLibrary] song in
+            amLibrary?.activePlaybackRestriction(for: song)
+        }
         amService.onPlaybackEnded = { [weak player] requestID in
             player?.handleAppleMusicPlaybackEnded(requestID: requestID)
         }

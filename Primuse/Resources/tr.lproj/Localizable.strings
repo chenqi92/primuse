@@ -7797,3 +7797,11 @@
 "player_carousel_face_lyrics_summary" = "Şarkıyla birlikte akan tam sayfa sözler";
 "player_carousel_now_playing_strip" = "Şu an çalıyor çubuğunu göster";
 "player_carousel_now_playing_strip_footer" = "Yan yüzlerin altındaki çubuk, çalan şarkıyı oynat ve sonraki düğmeleriyle gösterir. Daha sade bir sayfa için kapatın; oynatıcıya dönmek için sağ üstteki geri düğmesine dokunun veya geri kaydırın.";
+"apple_music_restriction_cloud_only" = "Yalnızca bulutta";
+"apple_music_restriction_subscription" = "Abonelik gerekli";
+"apple_music_restriction_cloud_only_title" = "Yalnızca bulutta";
+"apple_music_restriction_cloud_only_message" = "Bu şarkı bu aygıta indirilmemiş. Burada çalmak için Müzik uygulamasında indirin ya da hemen çalmak için Apple Music'e abone olun.";
+"apple_music_restriction_subscription_title" = "Apple Music aboneliği gerekli";
+"apple_music_restriction_subscription_message" = "Bu şarkıyı Primuse'ta çalmak için Apple Music aboneliği gerekir.";
+"apple_music_subscribe_action" = "Apple Music'e abone ol";
+"apple_music_restricted_songs_footer_format" = "Bunlardan %lld tanesi yalnızca bulutta ya da korumalı; Primuse'ta çalmak için Apple Music aboneliği gerekir.";

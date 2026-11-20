@@ -7892,3 +7892,11 @@
 "player_carousel_face_lyrics_summary" = "画面いっぱいに流れる歌詞";
 "player_carousel_now_playing_strip" = "再生中バーを表示";
 "player_carousel_now_playing_strip_footer" = "両側の面の下部に、再生中の曲と再生・次へボタンのバーを表示します。オフにすると画面がすっきりします。プレーヤーに戻るには右上の戻るボタンをタップするか、スワイプして戻ります。";
+"apple_music_restriction_cloud_only" = "クラウドのみ";
+"apple_music_restriction_subscription" = "サブスクリプションが必要";
+"apple_music_restriction_cloud_only_title" = "クラウドにのみあります";
+"apple_music_restriction_cloud_only_message" = "この曲はこのデバイスにダウンロードされていません。ミュージックアプリでダウンロードすると再生できます。Apple Music に登録すればそのまま再生することもできます。";
+"apple_music_restriction_subscription_title" = "Apple Music のサブスクリプションが必要です";
+"apple_music_restriction_subscription_message" = "この曲を Primuse で再生するには Apple Music のサブスクリプションが必要です。";
+"apple_music_subscribe_action" = "Apple Music に登録";
+"apple_music_restricted_songs_footer_format" = "このうち %lld 曲はクラウドにのみあるか保護されているため、Primuse で再生するには Apple Music のサブスクリプションが必要です。";

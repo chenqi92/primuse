@@ -7868,3 +7868,11 @@
 "player_carousel_face_lyrics_summary" = "整頁捲動歌詞";
 "player_carousel_now_playing_strip" = "顯示正在播放列";
 "player_carousel_now_playing_strip_footer" = "兩側各面底部那一條顯示目前歌曲和播放、下一首鍵。關掉後頁面更簡潔，可點右上角的返回鍵或滑回播放器。";
+"apple_music_restriction_cloud_only" = "僅雲端";
+"apple_music_restriction_subscription" = "需要訂閱";
+"apple_music_restriction_cloud_only_title" = "只在雲端";
+"apple_music_restriction_cloud_only_message" = "這首歌還沒下載到這台裝置。在「音樂」App 裡下載後就能播放，訂閱 Apple Music 也可以直接播放。";
+"apple_music_restriction_subscription_title" = "需要 Apple Music 訂閱";
+"apple_music_restriction_subscription_message" = "這首歌需要 Apple Music 訂閱才能在 Primuse 裡播放。";
+"apple_music_subscribe_action" = "訂閱 Apple Music";
+"apple_music_restricted_songs_footer_format" = "其中 %lld 首只在雲端或有版權保護，需要 Apple Music 訂閱才能在 Primuse 裡播放。";

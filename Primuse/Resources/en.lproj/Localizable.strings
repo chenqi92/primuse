@@ -7652,3 +7652,11 @@
 "player_carousel_face_lyrics_summary" = "Full-page lyrics that scroll along";
 "player_carousel_now_playing_strip" = "Show Now Playing Bar";
 "player_carousel_now_playing_strip_footer" = "The bar at the bottom of the side faces shows the current song with play and next buttons. Turn it off for a cleaner page; to get back to the player, tap the back button at the top right or swipe back.";
+"apple_music_restriction_cloud_only" = "Cloud only";
+"apple_music_restriction_subscription" = "Subscription required";
+"apple_music_restriction_cloud_only_title" = "Cloud Only";
+"apple_music_restriction_cloud_only_message" = "This song isn't downloaded to this device. Download it in the Music app to play it here, or subscribe to Apple Music to play it right away.";
+"apple_music_restriction_subscription_title" = "Apple Music Subscription Required";
+"apple_music_restriction_subscription_message" = "This song needs an Apple Music subscription to play in Primuse.";
+"apple_music_subscribe_action" = "Subscribe to Apple Music";
+"apple_music_restricted_songs_footer_format" = "Of these, %lld are cloud-only or copy-protected and need an Apple Music subscription to play in Primuse.";

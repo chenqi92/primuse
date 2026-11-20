@@ -206,7 +206,8 @@ struct MacQueuePanel: View {
             ),
             allowsRemoval: player.canRemoveUpcomingQueueEntries
                 && entry.id.queueEntryID != currentEntryID,
-            unreachable: isUnreachable(entry.entry.song)
+            unreachable: isUnreachable(entry.entry.song),
+            restriction: player.appleMusicPlaybackRestriction(for: entry.entry.song)
         )
     }
 
@@ -265,7 +266,8 @@ struct MacQueuePanel: View {
                           dimmed: Bool = false,
                           reorderID: QueueReorderOccurrenceID? = nil,
                           allowsRemoval: Bool = false,
-                          unreachable: Bool = false) -> some View {
+                          unreachable: Bool = false,
+                          restriction: AppleMusicPlaybackRestriction? = nil) -> some View {
         let song = displayedSong ?? entry.song
         let isDropTarget = dropTarget == reorderID && reorderID != nil
         let accessibilityLabel = [ordinal.formatted(), song.title, library.artistDisplayName(for: song)]
@@ -290,9 +292,13 @@ struct MacQueuePanel: View {
                         .foregroundStyle(isPlaying ? PMColor.brand : PMColor.text)
                         .lineLimit(1)
                 }
-                if unreachable {
-                    // Playback steps over this entry until its source answers.
-                    Label("song_row_source_unreachable", systemImage: "wifi.slash")
+                if unreachable || restriction != nil {
+                    // Playback steps over this entry until its source answers
+                    // (or, for a subscription-only Apple Music row, until there is one).
+                    Label(
+                        unreachable ? String(localized: "song_row_source_unreachable") : restriction?.rowLabel ?? "",
+                        systemImage: unreachable ? "wifi.slash" : restriction?.rowSystemImage ?? "lock"
+                    )
                         .font(.system(size: 10.5))
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)
@@ -348,7 +354,7 @@ struct MacQueuePanel: View {
             y: isDropTarget ? 2 : 0
         )
         .pmAnimation(.list, value: isDropTarget)
-        .opacity(dimmed || unreachable ? 0.52 : 1)
+        .opacity(dimmed || unreachable || restriction != nil ? 0.52 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
         // 拖起这一行时渲染进独立的拖拽预览宿主, 那里不继承按类型注入的可观察

@@ -248,6 +248,51 @@ final class PlaybackSourceAvailabilityTests: XCTestCase {
     }
 
     @MainActor
+    func testQueueTraversalSkipsAppleMusicSongsThatNeedASubscriptionUntilOneIsActive() throws {
+        let suite = "apple-music-subscription-only-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        let player = AudioPlayerService(
+            library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Queue traversal must not activate audio") }
+        )
+        let appleMusic = AppleMusicLibraryService.systemSourceID
+        let songs = [
+            Song(id: "current", title: "Current", duration: 180, fileFormat: .flac,
+                 filePath: "/current.flac", sourceID: "local-source"),
+            Song(id: "cloud", title: "Cloud", duration: 180, fileFormat: .aac,
+                 filePath: "1001", sourceID: appleMusic),
+            Song(id: "next", title: "Next", duration: 180, fileFormat: .flac,
+                 filePath: "/next.flac", sourceID: "local-source"),
+            Song(id: "imported", title: "Imported", duration: 180, fileFormat: .aac,
+                 filePath: "1002", sourceID: appleMusic)
+        ]
+        var restrictedIDs: Set<String> = ["cloud", "next"]
+        player.appleMusicPlaybackRestrictionProvider = { song in
+            restrictedIDs.contains(song.id) ? .cloudOnly : nil
+        }
+        player.setQueue(songs, startAt: 0)
+
+        XCTAssertEqual(player.appleMusicPlaybackRestriction(for: songs[1]), .cloudOnly)
+        XCTAssertFalse(player.isSongAvailableForNewPlayback(songs[1]))
+        // Only system-library rows are asked: another source's song is never restricted.
+        XCTAssertNil(player.appleMusicPlaybackRestriction(for: songs[2]))
+        XCTAssertTrue(player.isSongAvailableForNewPlayback(songs[2]))
+        XCTAssertEqual(player.nextQueueTraversalTarget()?.queueIndex, 2)
+        XCTAssertEqual(player.queueEntries.map(\.song.id), songs.map(\.id))
+
+        // A subscription makes the row playable again in place.
+        restrictedIDs = []
+        XCTAssertTrue(player.isSongAvailableForNewPlayback(songs[1]))
+        XCTAssertEqual(player.nextQueueTraversalTarget()?.queueIndex, 1)
+    }
+
+    @MainActor
     func testUnavailableSourceCountsDownOnlyWhenAnotherSourceCanPlay() async throws {
         let suite = "unavailable-source-skip-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

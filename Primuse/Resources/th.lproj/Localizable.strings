@@ -7797,3 +7797,11 @@
 "player_carousel_face_lyrics_summary" = "เนื้อเพลงเต็มหน้าที่เลื่อนตามเพลง";
 "player_carousel_now_playing_strip" = "แสดงแถบกำลังเล่น";
 "player_carousel_now_playing_strip_footer" = "แถบด้านล่างของหน้าด้านข้างจะแสดงเพลงปัจจุบันพร้อมปุ่มเล่นและถัดไป ปิดไว้เพื่อให้หน้าดูโล่งขึ้น กลับไปที่เครื่องเล่นได้ด้วยปุ่มย้อนกลับที่มุมขวาบนหรือปัดกลับ";
+"apple_music_restriction_cloud_only" = "อยู่บนคลาวด์เท่านั้น";
+"apple_music_restriction_subscription" = "ต้องสมัครสมาชิก";
+"apple_music_restriction_cloud_only_title" = "อยู่บนคลาวด์เท่านั้น";
+"apple_music_restriction_cloud_only_message" = "เพลงนี้ยังไม่ได้ดาวน์โหลดไว้ในอุปกรณ์นี้ ดาวน์โหลดในแอปเพลงแล้วจะเล่นได้ หรือสมัคร Apple Music เพื่อเล่นได้ทันที";
+"apple_music_restriction_subscription_title" = "ต้องสมัครสมาชิก Apple Music";
+"apple_music_restriction_subscription_message" = "เพลงนี้ต้องสมัครสมาชิก Apple Music จึงจะเล่นใน Primuse ได้";
+"apple_music_subscribe_action" = "สมัคร Apple Music";
+"apple_music_restricted_songs_footer_format" = "ในจำนวนนี้มี %lld เพลงที่อยู่บนคลาวด์เท่านั้นหรือมีการป้องกัน ต้องสมัครสมาชิก Apple Music จึงจะเล่นใน Primuse ได้";

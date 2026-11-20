@@ -724,6 +724,8 @@ final class AudioPlayerService {
     let library: MusicLibrary?
     @ObservationIgnored private weak var playbackMetadataBackfill: MetadataBackfillService?
     @ObservationIgnored var playbackMetadataSourceType: ((String) -> MusicSourceType?)?
+    /// 系统音乐库里没订阅放不了的歌(只在云端、带版权保护)。由 AppServices 接上 Apple Music 资料库。
+    @ObservationIgnored var appleMusicPlaybackRestrictionProvider: ((Song) -> AppleMusicPlaybackRestriction?)?
     @ObservationIgnored private var playbackMetadataTask: Task<Void, Never>?
     @ObservationIgnored private var playbackMetadataTaskIdentity: PlaybackMetadataIdentity?
     @ObservationIgnored private var playbackMetadataTaskToken: UUID?

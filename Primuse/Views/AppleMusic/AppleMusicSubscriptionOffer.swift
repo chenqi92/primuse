@@ -1,5 +1,6 @@
 #if os(iOS) || os(macOS)
 import MusicKit
+import PrimuseKit
 import SwiftUI
 
 /// 把系统的 Apple Music 订阅页接进来。
@@ -38,6 +39,36 @@ private struct AppleMusicSubscriptionOfferModifier: ViewModifier {
             options.itemID = MusicItemID(rawValue: rawID)
         }
         return options
+    }
+}
+/// 系统音乐库里没订阅放不了的歌在界面上的说法：列表行的短标记、点它时的说明。
+extension AppleMusicPlaybackRestriction {
+    var rowLabel: String {
+        switch self {
+        case .cloudOnly: String(localized: "apple_music_restriction_cloud_only")
+        case .subscriptionRequired: String(localized: "apple_music_restriction_subscription")
+        }
+    }
+
+    var rowSystemImage: String {
+        switch self {
+        case .cloudOnly: "icloud"
+        case .subscriptionRequired: "lock"
+        }
+    }
+
+    var alertTitle: String {
+        switch self {
+        case .cloudOnly: String(localized: "apple_music_restriction_cloud_only_title")
+        case .subscriptionRequired: String(localized: "apple_music_restriction_subscription_title")
+        }
+    }
+
+    var alertMessage: String {
+        switch self {
+        case .cloudOnly: String(localized: "apple_music_restriction_cloud_only_message")
+        case .subscriptionRequired: String(localized: "apple_music_restriction_subscription_message")
+        }
     }
 }
 #endif

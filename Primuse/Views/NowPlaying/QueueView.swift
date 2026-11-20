@@ -419,6 +419,7 @@ struct QueueView: View {
             allowsRemoval: player.canRemoveUpcomingQueueEntries
                 && presentation.id.queueEntryID != currentEntry.id,
             unreachable: isUnreachable(presentation.entry.song),
+            restriction: player.appleMusicPlaybackRestriction(for: presentation.entry.song),
             offersStopPoint: true
         )
     }
@@ -454,6 +455,7 @@ struct QueueView: View {
         reorderID: QueueReorderOccurrenceID? = nil,
         allowsRemoval: Bool = false,
         unreachable: Bool = false,
+        restriction: AppleMusicPlaybackRestriction? = nil,
         offersStopPoint: Bool = false
     ) -> some View {
         let song = displayedSong ?? entry.song
@@ -500,9 +502,13 @@ struct QueueView: View {
                         .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
                         .lineLimit(1)
                 }
-                if unreachable {
-                    // Playback steps over this entry until its source answers.
-                    Label("song_row_source_unreachable", systemImage: "wifi.slash")
+                if unreachable || restriction != nil {
+                    // Playback steps over this entry until its source answers
+                    // (or, for a subscription-only Apple Music row, until there is one).
+                    Label(
+                        unreachable ? String(localized: "song_row_source_unreachable") : restriction?.rowLabel ?? "",
+                        systemImage: unreachable ? "wifi.slash" : restriction?.rowSystemImage ?? "lock"
+                    )
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -571,7 +577,7 @@ struct QueueView: View {
             y: isDropTarget ? 3 : 0
         )
         .pmAnimation(.list, value: isDropTarget)
-        .opacity(dimmed || unreachable ? 0.58 : 1)
+        .opacity(dimmed || unreachable || restriction != nil ? 0.58 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
         // 拖起这一行时, SwiftUI 会把它渲染进一个独立的预览宿主。那个宿主不继承

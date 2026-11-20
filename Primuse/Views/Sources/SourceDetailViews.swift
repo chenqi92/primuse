@@ -735,6 +735,8 @@ struct AppleMusicSourcePage: View {
                 #endif
             } header: {
                 Text("source_apple_music_sync_section")
+            } footer: {
+                AppleMusicRestrictedSongsNote()
             }
 
             Section {
@@ -846,6 +848,19 @@ private struct AppleMusicSourceMetrics: View {
     private var lastSyncedAt: Date? {
         if case .done(_, let at) = appleMusicLibrary.state { return at }
         return appleMusicLibrary.syncHistory.previousCompletedAt
+    }
+}
+
+/// 「已同步 N 首」里有几首没订阅放不了(只在云端、带版权保护)。这些歌照样留在曲库里,
+/// 跟“音乐”App 里本机能放的数目对不上时由这一句解释;一首都没有或者有订阅时不显示。
+private struct AppleMusicRestrictedSongsNote: View {
+    @Environment(AppleMusicLibraryService.self) private var appleMusicLibrary
+
+    var body: some View {
+        let count = appleMusicLibrary.activeRestrictedLibrarySongCount
+        if count > 0 {
+            Text(String(format: String(localized: "apple_music_restricted_songs_footer_format"), count))
+        }
     }
 }
 

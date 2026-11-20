@@ -7797,3 +7797,11 @@
 "player_carousel_face_lyrics_summary" = "Текст на всю сторінку, що прокручується разом із піснею";
 "player_carousel_now_playing_strip" = "Показувати панель «Зараз грає»";
 "player_carousel_now_playing_strip_footer" = "Панель унизу бічних сторінок показує поточну пісню з кнопками відтворення та наступного треку. Вимкніть її, щоб сторінка була чистішою; повернутися до плеєра можна кнопкою «Назад» праворуч угорі або свайпом назад.";
+"apple_music_restriction_cloud_only" = "Лише в хмарі";
+"apple_music_restriction_subscription" = "Потрібна передплата";
+"apple_music_restriction_cloud_only_title" = "Лише в хмарі";
+"apple_music_restriction_cloud_only_message" = "Цю пісню не завантажено на цей пристрій. Завантажте її в програмі «Музика», щоб слухати тут, або оформіть передплату Apple Music, щоб слухати одразу.";
+"apple_music_restriction_subscription_title" = "Потрібна передплата Apple Music";
+"apple_music_restriction_subscription_message" = "Для відтворення цієї пісні в Primuse потрібна передплата Apple Music.";
+"apple_music_subscribe_action" = "Передплатити Apple Music";
+"apple_music_restricted_songs_footer_format" = "З них %lld лише в хмарі або захищені й потребують передплати Apple Music для відтворення в Primuse.";

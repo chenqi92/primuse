@@ -41,6 +41,7 @@ struct SongRowView: View {
     /// 封面多大、字多大。极简模式的列表行封面更大，副标题前带音质标。
     @Environment(\.songRowStyle) private var rowStyle
     @Environment(\.locale) private var locale
+    @Environment(\.openURL) private var openURL
     /// 所在的分类页左右滑动翻页（极简导航「音乐」下面）：横划归翻页，这一行不再左右滑出入队。
     @Environment(\.songRowSwipeYieldsToSectionPaging) private var swipeYieldsToSectionPaging
 
@@ -108,6 +109,8 @@ struct SongRowView: View {
     /// Title of the "this source cannot be reached" alert; nil while hidden.
     @State private var unreachableSourceNoticeTitle: String?
     @State private var isRetryingUnreachableSource = false
+    /// 点了一首没订阅放不了的系统音乐库歌曲时弹的说明。
+    @State private var appleMusicNotice: AppleMusicPlaybackRestriction?
     @State private var tagReadMessage: String?
     @State private var presentedShareSong: Song?
     @State private var hasMountedPresentations = false
@@ -140,6 +143,12 @@ struct SongRowView: View {
         // that finished caching while it streamed is known to the disk alone,
         // and playback asks the disk, so the row has to ask it as well.
         return !sourceManager.hasUsableCachedAudioForPlayback(song)
+    }
+
+    /// 系统音乐库里要订阅才能放、账号现在放不了的歌(只在云端、带版权保护):置灰,
+    /// 点了说明原因。只有这个源的行会去读,订阅一变跟着变。
+    private var appleMusicRestriction: AppleMusicPlaybackRestriction? {
+        player.appleMusicPlaybackRestriction(for: song)
     }
 
     /// 高解析与 DSD 才标：无损太常见，标出来只是噪音。
@@ -209,7 +218,7 @@ struct SongRowView: View {
             || showLyricsEditor || showSimilarSongs || deleteErrorMessage != nil
             || cueRemovalTarget != nil || showLocalRemovalConfirm || localRemovalErrorMessage != nil
             || sourceCheckMessage != nil || tagReadMessage != nil || presentedShareSong != nil
-            || unreachableSourceNoticeTitle != nil
+            || unreachableSourceNoticeTitle != nil || appleMusicNotice != nil
     }
 
     // Untouched rows avoid building every presentation host during scrolling.
@@ -342,15 +351,30 @@ struct SongRowView: View {
             Text(sourceCheckMessage ?? "")
         }
         .alert(
-            unreachableSourceNoticeTitle ?? "",
+            appleMusicNotice?.alertTitle ?? unreachableSourceNoticeTitle ?? "",
             isPresented: Binding(
-                get: { unreachableSourceNoticeTitle != nil },
-                set: { if !$0 { unreachableSourceNoticeTitle = nil } }
+                get: { unreachableSourceNoticeTitle != nil || appleMusicNotice != nil },
+                set: {
+                    if !$0 {
+                        unreachableSourceNoticeTitle = nil
+                        appleMusicNotice = nil
+                    }
+                }
             )
         ) {
+            if appleMusicNotice == .cloudOnly,
+               let url = AppServices.shared.appleMusicLibrary.catalogURL(for: song) {
+                Button(String(localized: "apple_music_open_in_app")) { openURL(url) }
+            }
+            if appleMusicNotice != nil,
+               AppServices.shared.appleMusic.libraryAccess?.canBecomeSubscriber == true {
+                Button(String(localized: "apple_music_subscribe_action")) {
+                    AppServices.shared.appleMusic.requestSubscriptionOffer(forItemID: nil)
+                }
+            }
             Button(String(localized: "done"), role: .cancel) {}
         } message: {
-            Text("song_source_unreachable_alert_message")
+            Text(appleMusicNotice?.alertMessage ?? String(localized: "song_source_unreachable_alert_message"))
         }
         .alert(
             String(localized: "reread_song_tags"),
@@ -392,7 +416,8 @@ struct SongRowView: View {
     private var standardRowContent: some View {
         let offline = offlineSnapshot
         let unreachable = isUnreachableNow
-        let unreachableDimming: Double = unreachable ? 0.45 : 1
+        let restriction = unreachable ? nil : appleMusicRestriction
+        let unreachableDimming: Double = unreachable || restriction != nil ? 0.45 : 1
         // 够宽时专辑与时长从副标题里挪到 Spacer 之后的对齐列；两者只能出现一次。
         // 列在整份列表里要占同样的位置，所以读取中、时长还没回填的行也照样占位，
         // 只是内容为空——否则徽标与 ⋯ 会一行一个位置。
@@ -503,16 +528,12 @@ struct SongRowView: View {
                         if style.showsQualityBadge, let qualityBadge {
                             SongRowQualityBadge(text: qualityBadge)
                         }
-                        if unreachable {
-                            if isRetryingUnreachableSource {
-                                ProgressView()
-                                    .scaleEffect(0.55)
-                                    .frame(width: 12, height: 12)
-                            } else {
-                                Image(systemName: "wifi.slash")
-                                    .font(.caption2)
-                            }
-                            Text("song_row_source_unreachable")
+                        if unreachable || restriction != nil {
+                            SongRowPlaybackStatus(
+                                isUnreachable: unreachable,
+                                isRetrying: isRetryingUnreachableSource,
+                                restriction: restriction
+                            )
                         }
                         if song.isStandaloneMusicVideo {
                             Image(systemName: "play.rectangle.fill")
@@ -525,7 +546,7 @@ struct SongRowView: View {
                         let album = showAlbum && !showsAlbumColumn ? song.albumTitle : nil
                         // 独立 MV 时长可能尚未回填, 不显示 0:00
                         let durationInSubtitle = showsDuration && !showsDurationColumn && song.duration > 0
-                        let leadsWithStatus = song.isStandaloneMusicVideo || unreachable
+                        let leadsWithStatus = song.isStandaloneMusicVideo || unreachable || restriction != nil
                         if let artist {
                             if leadsWithStatus { Text("·") }
                             Text(artist)
@@ -590,6 +611,7 @@ struct SongRowView: View {
 
     private var rowContent: some View {
         let unreachable = isUnreachableNow
+        let restriction = unreachable ? nil : appleMusicRestriction
         return Group {
             switch listAppearance {
             case .list:
@@ -602,7 +624,8 @@ struct SongRowView: View {
                     ordinal: trackNumber ?? 1,
                     isPlaying: isPlaying,
                     isLoading: isPlaying && player.showsLoadingIndicator,
-                    isUnavailable: unreachable,
+                    isUnavailable: unreachable || restriction != nil,
+                    restriction: restriction,
                     isReadingDetails: isReadingDetails
                 )
             case .artwork:
@@ -613,7 +636,8 @@ struct SongRowView: View {
                     ordinal: trackNumber ?? 1,
                     isPlaying: isPlaying,
                     isLoading: isPlaying && player.showsLoadingIndicator,
-                    isUnavailable: unreachable,
+                    isUnavailable: unreachable || restriction != nil,
+                    restriction: restriction,
                     isReadingDetails: isReadingDetails
                 )
             }
@@ -655,7 +679,7 @@ struct SongRowView: View {
                 (library.song(id: song.id) ?? song).contentMetadata?.isExplicit == true
                     ? String(localized: "content_explicit") : nil,
                 library.artistDisplayName(for: song),
-                unreachable ? String(localized: "song_row_source_unreachable") : nil
+                unreachable ? String(localized: "song_row_source_unreachable") : restriction?.rowLabel
             ]
                 .compactMap { $0 }
                 .joined(separator: " — ")
@@ -666,15 +690,18 @@ struct SongRowView: View {
         .gesture(TapGesture().onEnded {
             if !song.isPlayable {
                 showBareAlert = true
+            } else if !isUnreachableNow, let restriction = appleMusicRestriction {
+                appleMusicNotice = restriction
             } else {
                 retryUnreachableSource()
             }
-        }, isEnabled: !song.isPlayable || (unreachable && selection?.isActive != true))
+        }, isEnabled: !song.isPlayable || ((unreachable || restriction != nil) && selection?.isActive != true))
     }
 
     /// 点这一行开播时的触感。多选时点行只是勾选；播不了、源连不上时点行是弹说明、重连，都不震。
     private func rowTapFeedback() {
-        guard selection?.isActive != true, song.isPlayable, !isUnreachableNow else { return }
+        guard selection?.isActive != true, song.isPlayable, !isUnreachableNow,
+              appleMusicRestriction == nil else { return }
         PMHaptics.songRowTapped()
     }
 
@@ -2237,6 +2264,33 @@ private struct SongRowQualityBadge: View {
             .padding(.vertical, 1)
             .background(Self.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
             .fixedSize()
+    }
+}
+
+/// 副标题最前面说明这首现在为什么放不了：源连不上，或者系统音乐库里没订阅放不了。
+private struct SongRowPlaybackStatus: View {
+    let isUnreachable: Bool
+    let isRetrying: Bool
+    let restriction: AppleMusicPlaybackRestriction?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if isUnreachable {
+                if isRetrying {
+                    ProgressView()
+                        .scaleEffect(0.55)
+                        .frame(width: 12, height: 12)
+                } else {
+                    Image(systemName: "wifi.slash")
+                        .font(.caption2)
+                }
+                Text("song_row_source_unreachable")
+            } else if let restriction {
+                Image(systemName: restriction.rowSystemImage)
+                    .font(.caption2)
+                Text(verbatim: restriction.rowLabel)
+            }
+        }
     }
 }
 

@@ -220,6 +220,13 @@ final class AppleMusicLibraryService {
     /// to readable, non-cloud, non-DRM assets. MusicKit may identify these rows
     /// with a library ID, signed decimal persistent ID, or hexadecimal ID.
     private var subscriptionIndependentLocalFileIDs: Set<String> = []
+    /// 媒体库里只在云端、不带版权保护的条目（下载下来就是本机文件），各种 ID 写法都收。
+    @ObservationIgnored private var downloadableCloudItemIDs: Set<String> = []
+    /// 最近一次完整同步里要订阅才能放的行（曲库歌曲 ID → 原因）。账号能放目录内容时为空；
+    /// 行仍留在曲库里，没订阅时列表置灰、播放跳过。
+    private(set) var playbackRestrictions: [String: AppleMusicPlaybackRestriction] = [:]
+    /// 其中属于资料库「歌曲」的条数，和「已同步 N 首」同一口径。
+    private(set) var restrictedLibrarySongCount = 0
     /// Direct single-song playback can resolve a MusicKit row before the first
     /// full sync. Load device provenance separately so that cold playback does
     /// not classify an imported item with an empty trust set.
@@ -343,6 +350,7 @@ final class AppleMusicLibraryService {
         songArtworkItemGenerations.removeAll()
         playlistArtworkCache.removeAll()
         subscriptionIndependentLocalFileIDs.removeAll()
+        downloadableCloudItemIDs.removeAll()
         hasLoadedLocalFileProvenance = false
         hasCompletedLibrarySnapshot = false
         lastSyncedDeviceLibraryModificationDate = nil
@@ -790,6 +798,7 @@ final class AppleMusicLibraryService {
         syncHistory.clear(defaults: defaults)
         invalidateAccountCaches()
         CollectionOnlySongStore.shared.replace([], forSourceID: Self.systemSourceID)
+        applyPlaybackRestrictions([:], librarySongIDs: [])
         // 搜索结果同属这个源:源没了, 搜索里也不该再留着 Apple Music 的条目。
         appleMusic.clearCatalogSearchResults()
         UserDefaults.standard.removeObject(forKey: Self.syncedStorefrontKey)
@@ -1435,19 +1444,10 @@ final class AppleMusicLibraryService {
         let matchedLocalFileIDs = identifiers.all.intersection(
             subscriptionIndependentLocalFileIDs
         )
-        let hasConfirmedLocalFile = AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
+        let source = Self.resolvePlaybackSource(
             itemID: song.id.rawValue,
-            playParameterIDs: identifiers.genericPlayParameterIDs,
-            persistentIDs: identifiers.persistentIDs,
-            confirmedLibraryIDs: identifiers.confirmedLibraryIDs,
-            confirmedLocalFileIDs: matchedLocalFileIDs
-        )
-        let source = AppleMusicPlaybackSourceResolver.resolve(
-            itemID: song.id.rawValue,
-            explicitCatalogIDs: identifiers.explicitCatalogIDs,
-            genericPlayParameterIDs: identifiers.genericPlayParameterIDs,
-            confirmedLibraryIDs: identifiers.confirmedLibraryIDs,
-            confirmedLocalFileIDs: hasConfirmedLocalFile ? matchedLocalFileIDs : []
+            identifiers: identifiers,
+            subscriptionIndependentLocalFileIDs: subscriptionIndependentLocalFileIDs
         )
         let libraryFlag = identifiers.declaresLibraryItem.map(String.init) ?? "missing"
         let hasSongKind = identifiers.mediaKinds.contains {
@@ -1464,6 +1464,87 @@ final class AppleMusicLibraryService {
                 + "source=\(source)"
         )
         return source
+    }
+
+    private nonisolated static func resolvePlaybackSource(
+        itemID: String,
+        identifiers: MusicItemIdentifiers,
+        subscriptionIndependentLocalFileIDs: Set<String>
+    ) -> AppleMusicPlaybackSource {
+        let matchedLocalFileIDs = identifiers.all.intersection(subscriptionIndependentLocalFileIDs)
+        let hasConfirmedLocalFile = AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
+            itemID: itemID,
+            playParameterIDs: identifiers.genericPlayParameterIDs,
+            persistentIDs: identifiers.persistentIDs,
+            confirmedLibraryIDs: identifiers.confirmedLibraryIDs,
+            confirmedLocalFileIDs: matchedLocalFileIDs
+        )
+        return AppleMusicPlaybackSourceResolver.resolve(
+            itemID: itemID,
+            explicitCatalogIDs: identifiers.explicitCatalogIDs,
+            genericPlayParameterIDs: identifiers.genericPlayParameterIDs,
+            confirmedLibraryIDs: identifiers.confirmedLibraryIDs,
+            confirmedLocalFileIDs: hasConfirmedLocalFile ? matchedLocalFileIDs : []
+        )
+    }
+
+    // MARK: - Subscription-only rows
+
+    /// 这首歌现在因为没订阅放不了的原因；能放（含还没查过订阅）时为 nil。
+    /// 读的是同步时定性的结果和当前订阅状态，订阅一变行的样子跟着变。
+    func activePlaybackRestriction(for song: PrimuseKit.Song) -> AppleMusicPlaybackRestriction? {
+        guard song.sourceID == Self.systemSourceID,
+              let restriction = playbackRestrictions[song.id] else { return nil }
+        return AppleMusicPlaybackRestrictionPolicy.activeRestriction(
+            restriction,
+            canPlayCatalogContent: appleMusic.libraryAccess?.canPlayCatalogContent
+        )
+    }
+
+    /// 「已同步 N 首」里现在放不了的条数。
+    var activeRestrictedLibrarySongCount: Int {
+        guard restrictedLibrarySongCount > 0,
+              appleMusic.libraryAccess?.canPlayCatalogContent == false else { return 0 }
+        return restrictedLibrarySongCount
+    }
+
+    /// 和起播前的订阅检查同一个判断，逐首解 PlayParameters，放在后台、跟整库映射一样排队读媒体库。
+    @concurrent
+    private nonisolated static func classifyPlaybackRestrictions(
+        for musicKitSongs: [MusicKit.Song],
+        subscriptionIndependentLocalFileIDs: Set<String>,
+        downloadableCloudItemIDs: Set<String>
+    ) async -> [String: AppleMusicPlaybackRestriction] {
+        await AppleMusicMediaLibraryGate.run {
+            var restrictions: [String: AppleMusicPlaybackRestriction] = [:]
+            for song in musicKitSongs {
+                let itemID = song.id.rawValue
+                let identifiers = musicItemIdentifiers(for: song)
+                let source = resolvePlaybackSource(
+                    itemID: itemID,
+                    identifiers: identifiers,
+                    subscriptionIndependentLocalFileIDs: subscriptionIndependentLocalFileIDs
+                )
+                guard let restriction = AppleMusicPlaybackRestrictionPolicy.restriction(
+                    for: source,
+                    isDownloadableCloudItem: !identifiers.all.isDisjoint(with: downloadableCloudItemIDs)
+                ) else { continue }
+                restrictions[primuseSongID(forItemID: itemID)] = restriction
+            }
+            return restrictions
+        }
+    }
+
+    private func applyPlaybackRestrictions(
+        _ restrictions: [String: AppleMusicPlaybackRestriction],
+        librarySongIDs: Set<String>
+    ) {
+        let count = AppleMusicPlaybackRestrictionPolicy.restrictedCount(restrictions, among: librarySongIDs)
+        if playbackRestrictions != restrictions { playbackRestrictions = restrictions }
+        if restrictedLibrarySongCount != count { restrictedLibrarySongCount = count }
+        guard !restrictions.isEmpty else { return }
+        let cloudOnly = restrictions.values.reduce(0) { $0 + ($1 == .cloudOnly ? 1 : 0) }
+        plog("🎵 Apple Music subscription-only rows: library=\(count) all=\(restrictions.count) cloudOnly=\(cloudOnly)")
     }
 
     private nonisolated static func diagnosticIDType(_ value: String) -> String {
@@ -1716,6 +1797,27 @@ final class AppleMusicLibraryService {
             let playlistOnlySongs = userPlaylists.map {
                 collectionOnlySongs(for: $0, librarySongIDs: librarySongIDs)
             } ?? []
+            // 没订阅时放不了的行(只在云端、带版权保护)照样入库，只记下来给列表置灰、播放跳过。
+            let restrictions: [String: AppleMusicPlaybackRestriction]?
+            switch AppleMusicPlaybackRestrictionPolicy.update(
+                syncMode: fetchResult.syncMode,
+                canPlayCatalogContent: access.canPlayCatalogContent
+            ) {
+            case .recompute:
+                let playlistOnlyMusicKitSongs: [MusicKit.Song] = playlistOnlySongs.compactMap {
+                    songCache[$0.filePath]
+                }
+                restrictions = await Self.classifyPlaybackRestrictions(
+                    for: allMusicKitSongs + playlistOnlyMusicKitSongs,
+                    subscriptionIndependentLocalFileIDs: subscriptionIndependentLocalFileIDs,
+                    downloadableCloudItemIDs: downloadableCloudItemIDs
+                )
+                guard syncGeneration == generation, !Task.isCancelled else { return }
+            case .clear:
+                restrictions = [:]
+            case .keep:
+                restrictions = nil
+            }
             if userPlaylists != nil {
                 // 先换分类输入再加歌: 加歌触发的那次重建就已经把它们留在
                 // 歌单里, 不进歌曲 / 专辑 / 艺人列表。
@@ -1730,6 +1832,9 @@ final class AppleMusicLibraryService {
             let prepared = await library.prepareIncomingSongsOffMain(songs + playlistOnlySongs)
             guard syncGeneration == generation, !Task.isCancelled else { return }
             commitLibrarySongs(prepared, librarySongIDs: songs.map(\.id), syncMode: fetchResult.syncMode)
+            if let restrictions {
+                applyPlaybackRestrictions(restrictions, librarySongIDs: librarySongIDs)
+            }
 
             probeLocalFileDetails()
 
@@ -1985,6 +2090,7 @@ final class AppleMusicLibraryService {
             Self.loadSubscriptionIndependentLocalFileIDs()
         }
         subscriptionIndependentLocalFileIDs = result.ids
+        downloadableCloudItemIDs = result.downloadableCloudIDs
         replaceLocalFiles(result.files)
         hasLoadedLocalFileProvenance = result.isAuthorized
         plog(
@@ -2016,6 +2122,7 @@ final class AppleMusicLibraryService {
     #if os(iOS)
     private nonisolated static func loadSubscriptionIndependentLocalFileIDs() -> (
         ids: Set<String>,
+        downloadableCloudIDs: Set<String>,
         files: [AppleMusicLocalFile],
         totalCount: Int,
         eligibleCount: Int,
@@ -2027,11 +2134,12 @@ final class AppleMusicLibraryService {
     ) {
         let authorizationStatus = MPMediaLibrary.authorizationStatus()
         guard authorizationStatus == .authorized else {
-            return ([], [], 0, 0, 0, 0, 0, String(describing: authorizationStatus), false)
+            return ([], [], [], 0, 0, 0, 0, 0, String(describing: authorizationStatus), false)
         }
 
         let items = MPMediaQuery.songs().items ?? []
         var confirmedIDs = Set<String>()
+        var downloadableCloudIDs = Set<String>()
         var files: [AppleMusicLocalFile] = []
         var eligibleCount = 0
         var cloudCount = 0
@@ -2042,6 +2150,14 @@ final class AppleMusicLibraryService {
             if item.isCloudItem { cloudCount += 1 }
             if item.hasProtectedAsset { protectedCount += 1 }
             if !hasAssetURL { noAssetCount += 1 }
+            if AppleMusicPlaybackRestrictionPolicy.isDownloadableCloudItem(
+                isCloudItem: item.isCloudItem,
+                hasProtectedAsset: item.hasProtectedAsset
+            ) {
+                downloadableCloudIDs.formUnion(
+                    AppleMusicLocalFileIdentity.playbackIdentifiers(forPersistentID: item.persistentID)
+                )
+            }
             guard AppleMusicLocalMediaEligibility.isSubscriptionIndependent(
                 mediaTypeContainsMusic: item.mediaType.contains(.music),
                 hasAssetURL: hasAssetURL,
@@ -2076,6 +2192,7 @@ final class AppleMusicLibraryService {
         }
         return (
             confirmedIDs,
+            downloadableCloudIDs,
             files,
             items.count,
             eligibleCount,

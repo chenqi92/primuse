@@ -292,6 +292,8 @@ private struct SongTimelineLabels: View {
     let isUnavailable: Bool
     let titleLines: Int
     let layoutDirection: LayoutDirection
+    /// 放不了是因为系统音乐库里没订阅（而不是源连不上）时的原因。
+    var restriction: AppleMusicPlaybackRestriction? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -304,7 +306,10 @@ private struct SongTimelineLabels: View {
                 SongContentRatingBadge(song: song)
             }
             if isUnavailable {
-                Label("song_row_source_unreachable", systemImage: "wifi.slash")
+                Label(
+                    restriction?.rowLabel ?? String(localized: "song_row_source_unreachable"),
+                    systemImage: restriction?.rowSystemImage ?? "wifi.slash"
+                )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -470,6 +475,8 @@ struct SongTimelineRowContent: View {
     var isPlaying = false
     var isLoading = false
     var isUnavailable = false
+    /// 放不了是因为系统音乐库里没订阅时的原因，标签跟着换。
+    var restriction: AppleMusicPlaybackRestriction? = nil
     var isReadingDetails = false
     /// 非 nil 时在多选：节点换成勾选圈，不显示离线角标。
     var isSelected: Bool? = nil
@@ -557,7 +564,8 @@ struct SongTimelineRowContent: View {
             .songTimelinePlaced(geometry.artwork.offsetBy(dx: -origin.x, dy: -origin.y))
             SongTimelineLabels(
                 song: song, title: title, artist: artist, isUnavailable: isUnavailable,
-                titleLines: geometry.isSingleColumn ? 3 : 2, layoutDirection: layoutDirection
+                titleLines: geometry.isSingleColumn ? 3 : 2, layoutDirection: layoutDirection,
+                restriction: restriction
             )
             .opacity(contentOpacity)
             .songTimelinePlaced(geometry.labels.offsetBy(dx: -origin.x, dy: -origin.y))
@@ -582,6 +590,8 @@ struct SongArtworkRowContent: View {
     var isPlaying = false
     var isLoading = false
     var isUnavailable = false
+    /// 放不了是因为系统音乐库里没订阅时的原因，标签跟着换。
+    var restriction: AppleMusicPlaybackRestriction? = nil
     var isReadingDetails = false
     /// 非 nil 时在多选：节点换成勾选圈，不显示离线角标。
     var isSelected: Bool? = nil
@@ -659,7 +669,8 @@ struct SongArtworkRowContent: View {
             .overlay(alignment: .topLeading) {
                 SongTimelineLabels(
                     song: song, title: title, artist: artist, isUnavailable: isUnavailable,
-                    titleLines: geometry.isSingleColumn ? 2 : 1, layoutDirection: layoutDirection
+                    titleLines: geometry.isSingleColumn ? 2 : 1, layoutDirection: layoutDirection,
+                    restriction: restriction
                 )
                 .opacity(contentOpacity)
                 .songTimelinePlaced(geometry.labels.offsetBy(dx: -geometry.card.minX, dy: -geometry.card.minY))

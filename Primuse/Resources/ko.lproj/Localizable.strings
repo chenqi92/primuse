@@ -7891,3 +7891,11 @@
 "player_carousel_face_lyrics_summary" = "화면 가득 흐르는 가사";
 "player_carousel_now_playing_strip" = "재생 중 막대 표시";
 "player_carousel_now_playing_strip_footer" = "양옆 화면 아래쪽에 현재 곡과 재생, 다음 버튼이 있는 막대를 표시합니다. 끄면 화면이 더 깔끔해지며, 플레이어로 돌아가려면 오른쪽 위의 뒤로 버튼을 누르거나 다시 쓸어 넘기세요.";
+"apple_music_restriction_cloud_only" = "클라우드 전용";
+"apple_music_restriction_subscription" = "구독 필요";
+"apple_music_restriction_cloud_only_title" = "클라우드에만 있음";
+"apple_music_restriction_cloud_only_message" = "이 곡은 이 기기에 다운로드되어 있지 않습니다. 음악 앱에서 다운로드하면 재생할 수 있고, Apple Music을 구독하면 바로 재생할 수도 있습니다.";
+"apple_music_restriction_subscription_title" = "Apple Music 구독 필요";
+"apple_music_restriction_subscription_message" = "이 곡을 Primuse에서 재생하려면 Apple Music 구독이 필요합니다.";
+"apple_music_subscribe_action" = "Apple Music 구독하기";
+"apple_music_restricted_songs_footer_format" = "이 중 %lld곡은 클라우드에만 있거나 보호되어 있어 Primuse에서 재생하려면 Apple Music 구독이 필요합니다.";

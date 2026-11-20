@@ -7797,3 +7797,11 @@
 "player_carousel_face_lyrics_summary" = "पूरे पेज पर गाने के साथ चलते बोल";
 "player_carousel_now_playing_strip" = "‘अभी चल रहा है’ बार दिखाएँ";
 "player_carousel_now_playing_strip_footer" = "बगल वाले पेजों के नीचे की बार में मौजूदा गाना और चलाएँ व अगला बटन दिखते हैं। इसे बंद करने से पेज ज़्यादा साफ़ दिखता है; प्लेयर पर लौटने के लिए ऊपर दाईं ओर वापस बटन दबाएँ या वापस स्वाइप करें।";
+"apple_music_restriction_cloud_only" = "केवल क्लाउड में";
+"apple_music_restriction_subscription" = "सदस्यता ज़रूरी";
+"apple_music_restriction_cloud_only_title" = "केवल क्लाउड में";
+"apple_music_restriction_cloud_only_message" = "यह गाना इस डिवाइस पर डाउनलोड नहीं है। यहाँ चलाने के लिए इसे संगीत ऐप में डाउनलोड करें, या तुरंत चलाने के लिए Apple Music की सदस्यता लें।";
+"apple_music_restriction_subscription_title" = "Apple Music सदस्यता ज़रूरी";
+"apple_music_restriction_subscription_message" = "इस गाने को Primuse में चलाने के लिए Apple Music सदस्यता चाहिए।";
+"apple_music_subscribe_action" = "Apple Music की सदस्यता लें";
+"apple_music_restricted_songs_footer_format" = "इनमें से %lld गाने केवल क्लाउड में हैं या सुरक्षित हैं, और Primuse में चलाने के लिए Apple Music सदस्यता चाहिए।";

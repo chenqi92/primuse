@@ -361,6 +361,7 @@ extension AudioPlayerService {
     /// stays eligible and a changed network path immediately expires old
     /// reachability evidence, including when moving between two Wi-Fi networks.
     func isSongAvailableForNewPlayback(_ song: Song) -> Bool {
+        guard appleMusicPlaybackRestriction(for: song) == nil else { return false }
         let isUnreachable = sourceManager?.isSourceKnownUnavailableForPlayback(song.sourceID) == true
         return PlaybackSourceAvailabilityPolicy.allowsPlayback(
             isSourceEnabled: isSourceEnabledForPlayback(song.sourceID),
@@ -368,6 +369,13 @@ extension AudioPlayerService {
             hasUsableLocalAudio: isUnreachable
                 && sourceManager?.hasUsableCachedAudioForPlayback(song) == true
         )
+    }
+
+    /// 系统音乐库里这首歌要订阅才能放、而账号现在放不了的原因。队列照样留着它,
+    /// 往下走、随机、整张播放时跳过;订阅一开又能放。
+    func appleMusicPlaybackRestriction(for song: Song) -> AppleMusicPlaybackRestriction? {
+        guard song.sourceID == AppleMusicLibraryService.systemSourceID else { return nil }
+        return appleMusicPlaybackRestrictionProvider?(song)
     }
 
     /// Nothing can start this song right now: its source has no address that

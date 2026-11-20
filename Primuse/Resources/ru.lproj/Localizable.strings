@@ -7797,3 +7797,11 @@
 "player_carousel_face_lyrics_summary" = "Текст во всю страницу, который прокручивается вместе с песней";
 "player_carousel_now_playing_strip" = "Показывать панель «Сейчас играет»";
 "player_carousel_now_playing_strip_footer" = "Панель внизу боковых страниц показывает текущую песню с кнопками воспроизведения и следующего трека. Выключите её, чтобы страница была чище; вернуться к плееру можно кнопкой «Назад» справа вверху или свайпом обратно.";
+"apple_music_restriction_cloud_only" = "Только в облаке";
+"apple_music_restriction_subscription" = "Нужна подписка";
+"apple_music_restriction_cloud_only_title" = "Только в облаке";
+"apple_music_restriction_cloud_only_message" = "Эта песня не загружена на это устройство. Загрузите её в приложении «Музыка», чтобы слушать здесь, или оформите подписку Apple Music, чтобы слушать сразу.";
+"apple_music_restriction_subscription_title" = "Нужна подписка Apple Music";
+"apple_music_restriction_subscription_message" = "Для воспроизведения этой песни в Primuse нужна подписка Apple Music.";
+"apple_music_subscribe_action" = "Оформить Apple Music";
+"apple_music_restricted_songs_footer_format" = "Из них %lld только в облаке или защищены и требуют подписки Apple Music для воспроизведения в Primuse.";

@@ -7797,3 +7797,11 @@
 "player_carousel_face_lyrics_summary" = "Letra em tela cheia que acompanha a música";
 "player_carousel_now_playing_strip" = "Mostrar barra Reproduzindo";
 "player_carousel_now_playing_strip_footer" = "A barra na parte de baixo das faces laterais mostra a música atual com os botões de reproduzir e próxima. Desative para uma página mais limpa; para voltar ao player, toque no botão de voltar no canto superior direito ou deslize de volta.";
+"apple_music_restriction_cloud_only" = "Só na nuvem";
+"apple_music_restriction_subscription" = "Requer assinatura";
+"apple_music_restriction_cloud_only_title" = "Só na nuvem";
+"apple_music_restriction_cloud_only_message" = "Esta música não foi baixada neste dispositivo. Baixe-a no app Música para reproduzi-la aqui ou assine o Apple Music para reproduzi-la na hora.";
+"apple_music_restriction_subscription_title" = "Requer assinatura do Apple Music";
+"apple_music_restriction_subscription_message" = "Esta música precisa de uma assinatura do Apple Music para tocar no Primuse.";
+"apple_music_subscribe_action" = "Assinar o Apple Music";
+"apple_music_restricted_songs_footer_format" = "Destas, %lld estão só na nuvem ou protegidas e precisam de uma assinatura do Apple Music para tocar no Primuse.";

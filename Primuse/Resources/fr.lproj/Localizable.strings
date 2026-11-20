@@ -7891,3 +7891,11 @@
 "player_carousel_face_lyrics_summary" = "Paroles défilantes en pleine page";
 "player_carousel_now_playing_strip" = "Afficher la barre En cours de lecture";
 "player_carousel_now_playing_strip_footer" = "La barre en bas des faces latérales affiche le morceau en cours avec les boutons Lecture et Suivant. Désactivez-la pour une page plus épurée ; pour revenir au lecteur, touchez le bouton Retour en haut à droite ou balayez en sens inverse.";
+"apple_music_restriction_cloud_only" = "Dans le cloud uniquement";
+"apple_music_restriction_subscription" = "Abonnement requis";
+"apple_music_restriction_cloud_only_title" = "Uniquement dans le cloud";
+"apple_music_restriction_cloud_only_message" = "Ce morceau n’est pas téléchargé sur cet appareil. Téléchargez-le dans l’app Musique pour le lire ici, ou abonnez-vous à Apple Music pour le lire tout de suite.";
+"apple_music_restriction_subscription_title" = "Abonnement Apple Music requis";
+"apple_music_restriction_subscription_message" = "Ce morceau nécessite un abonnement Apple Music pour être lu dans Primuse.";
+"apple_music_subscribe_action" = "S’abonner à Apple Music";
+"apple_music_restricted_songs_footer_format" = "Parmi eux, %lld sont uniquement dans le cloud ou protégés et nécessitent un abonnement Apple Music pour être lus dans Primuse.";
