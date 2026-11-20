@@ -436,6 +436,11 @@ final class FolderPlaylistTests: XCTestCase {
         }
         try writeTitle("Cedar", to: track)
         try writeTitle("Cedar", to: other)
+        // Model a provider whose entire file revision stayed unchanged. On a
+        // local volume ctime normally reveals this edit even in automatic mode.
+        var stale = try XCTUnwrap(library.storedSong(id: song.id))
+        stale.revision = try await connector.metadataWritebackState(for: stale.filePath).revision
+        library.replaceSong(stale)
         for (mode, expectedTitle) in [(SourceSyncMode.automatic, "Amber"), (.deep, "Cedar")] {
             XCTAssertTrue(scan.rescanFolder(
                 of: source, request: .init(directoryCandidates: ["/Album", "/"]), mode: mode,

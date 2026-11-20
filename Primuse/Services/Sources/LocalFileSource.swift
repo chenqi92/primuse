@@ -273,6 +273,96 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         return try await Self.detachedWritebackState(probe)
     }
 
+    /// A visible row needs only the attributes of its own file. A presenter
+    /// notification can force a read on providers that preserve all dates.
+    func refreshedLocalSong(_ song: Song, notified: Bool) async throws -> Song? {
+        guard song.sourceID == sourceID, !song.isCueTrack, !song.isDiscImageTrack, !song.isStreamDescriptor else { return nil }
+        let url = try resolvedURL(for: song.filePath, allowRoot: false)
+        let observation = try LocalAudioObservation(url)
+        guard observation.isReadable else { return nil }
+        let sameSizeAndDate = Self.localRevision(size: song.fileSize, modifiedDate: song.lastModified)
+            == Self.localRevision(size: observation.size, modifiedDate: observation.modified)
+        let existingBase = song.revision?.components(separatedBy: "|").first
+        let sidecars = SidecarHints(
+            coverPath: song.coverArtFileName.flatMap { $0.hasPrefix("/") ? $0 : nil },
+            lyricsPath: song.lyricsFileName.flatMap { $0.hasPrefix("/") ? $0 : nil },
+            mvPath: song.mvPath
+        )
+        let revision: String
+        if sameSizeAndDate, let existingBase, existingBase.hasPrefix("local:") {
+            revision = Self.stampedRevision(existingBase, changed: observation.changed)
+        } else {
+            // Structural/sidecar events reconcile their folder separately. For
+            // one changed audio file, stat only the sidecars belonging to it.
+            let siblings = [sidecars.coverPath, sidecars.lyricsPath, sidecars.mvPath].compactMap { path -> String? in
+                guard let path, path != song.filePath, path.hasPrefix("/"),
+                      let url = try? resolvedURL(for: path, allowRoot: false) else { return nil }
+                return (try? Self.remoteFileItem(for: url, path: path))?.revision
+            }
+            let audioRevision = Self.localRevision(size: observation.size, modifiedDate: observation.modified)
+            revision = Self.stampedRevision(Self.compositeRevision([audioRevision] + siblings), changed: observation.changed)
+        }
+        guard notified || !sameSizeAndDate || !EmbeddedMetadataRemoteFileState.revisionMatches(song, current: revision) else { return nil }
+        let item = RemoteFileItem(name: url.lastPathComponent, path: song.filePath, isDirectory: false,
+                                  size: observation.size, modifiedDate: observation.modified,
+                                  sidecarHints: sidecars, revision: revision)
+        return try await readUpdatedSong(song, item: item, url: url, observation: observation)
+    }
+
+    private struct LocalAudioObservation: Equatable {
+        let size: Int64
+        let modified: Date?
+        let changed: Date?
+        let isReadable: Bool
+
+        init(_ url: URL) throws {
+            // URLs from directory listings cache their resource values.
+            let values = try URL(fileURLWithPath: url.path).resourceValues(forKeys: [
+                .isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .attributeModificationDateKey,
+                .ubiquitousItemDownloadingStatusKey,
+            ])
+            size = Int64(values.fileSize ?? 0)
+            modified = values.contentModificationDate
+            changed = values.attributeModificationDate
+            isReadable = values.isRegularFile == true && size >= LocalFileSource.minimumReadableAudioBytes
+                && (values.ubiquitousItemDownloadingStatus == nil || values.ubiquitousItemDownloadingStatus == .current)
+        }
+    }
+
+    private func readUpdatedSong(_ existing: Song, item: RemoteFileItem, url: URL,
+                                 observation: LocalAudioObservation) async throws -> Song? {
+        guard observation.isReadable, observation.size == item.size, observation.modified == item.modifiedDate,
+              let baseRevision = item.revision?.components(separatedBy: "|").first,
+              Self.stampedRevision(baseRevision, changed: observation.changed) == item.revision,
+              var base = buildBareScannedSong(from: item)?.song else { return nil }
+        base.id = existing.id
+        base.dateAdded = existing.dateAdded
+        base.lyricsText = existing.lyricsText
+        base.artistArtworkFileName = existing.artistArtworkFileName
+        var metadata = await metadataService.loadMetadata(
+            for: url, allowOnlineFetch: false, fallbackTitle: base.title, discoverSidecars: false
+        )
+        if !metadata.hasTechnicalProperties, Self.ffmpegMetadataProbeExtensions.contains(url.pathExtension.lowercased()),
+           let info = try? await ffmpegDecoder.fileInfo(for: url), info.duration > 0 {
+            metadata.duration = info.duration
+            metadata.sampleRate = info.sampleRate.finiteInt()
+            metadata.bitDepth = info.bitDepth
+            metadata.bitRate = info.bitRate
+            metadata.hasTechnicalProperties = true
+        }
+        try Task.checkCancellation()
+        guard try LocalAudioObservation(url) == observation,
+              metadata.hasEmbeddedDescriptiveMetadata || metadata.hasTechnicalProperties else { return nil }
+        if base.coverArtFileName != nil || StoredArtworkOrigin.preservesLocalChoice(existing.coverArtFileName) {
+            metadata.coverArtData = nil
+        }
+        metadata = await metadataService.storingEmbeddedAssets(in: metadata, cacheKey: existing.id,
+                                                               storesLyrics: base.lyricsFileName == nil)
+        let updated = MetadataBackfillService.mergeSong(bare: base, metadata: metadata,
+                                                       restrictsToBareRows: true, sourceFileName: item.name)
+        return SongUserMetadataPolicy.preservingUserEdits(from: existing, in: updated)
+    }
+
     /// What a writeback state check needs from the actor; the sibling listing
     /// itself then runs without it.
     private struct WritebackProbe: Sendable {
@@ -306,6 +396,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             .isRegularFileKey,
             .fileSizeKey,
             .contentModificationDateKey,
+            .attributeModificationDateKey,
         ])
         guard values.isRegularFile == true else { throw SourceError.fileNotFound(probe.path) }
         let size = Int64(values.fileSize ?? 0)
@@ -319,7 +410,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         return EmbeddedMetadataRemoteFileState(
             fileSize: size,
             modifiedDate: values.contentModificationDate,
-            revision: revision
+            revision: revision.map { stampedRevision($0, changed: values.attributeModificationDate) },
+            isLocalFileRevision: true
         )
     }
 
@@ -737,7 +829,19 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                             ))
                             continue
                         }
-                        if let scanned = self.buildBareScannedSong(from: item) {
+                        if let existing = existingByID[physicalID] {
+                            let url = try self.resolvedURL(for: item.path, allowRoot: false)
+                            if let observation = try? LocalAudioObservation(url),
+                               let updated = try? await self.readUpdatedSong(existing, item: item, url: url, observation: observation) {
+                                continuation.yield(ConnectorScannedSong(song: updated, displayName: item.name,
+                                                                        titleMetadataInspected: true))
+                            } else {
+                                try Task.checkCancellation()
+                                // Keep the last readable version while a provider is replacing or downloading the file.
+                                continuation.yield(ConnectorScannedSong(song: existing, displayName: item.name,
+                                                                        titleMetadataInspected: false))
+                            }
+                        } else if let scanned = self.buildBareScannedSong(from: item) {
                             continuation.yield(scanned.carryingSongIdentity(physicalID))
                         }
                     }
@@ -781,9 +885,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     ) async throws -> LocalScanInventory {
         let keys: Set<URLResourceKey> = [
             .isDirectoryKey, .isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
-            .isSymbolicLinkKey,
+            .isSymbolicLinkKey, .attributeModificationDateKey,
         ]
         var filesByParent: [String: [RemoteFileItem]] = [:]
+        var attributeDates: [String: Date] = [:]
         var cueURLsByPath: [String: URL] = [:]
         // Directories whose listed path is already canonical. The walk starts
         // at a canonical root and reaches a directory before its contents, so
@@ -808,6 +913,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 revision: Self.localRevision(size: size, modifiedDate: values.contentModificationDate)
             )
             filesByParent[parentPath, default: []].append(item)
+            attributeDates[item.path] = values.attributeModificationDate
             if PrimuseConstants.supportedVirtualTrackExtensions.contains(url.pathExtension.lowercased()) {
                 cueURLsByPath[item.path] = url
             }
@@ -887,7 +993,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                     size: decorated.size,
                     modifiedDate: decorated.modifiedDate,
                     sidecarHints: decorated.sidecarHints,
-                    revision: revision
+                    revision: Self.stampedRevision(revision, changed: attributeDates[item.path])
                 ))
             }
         }
@@ -1434,7 +1540,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         return candidate
     }
 
-    private nonisolated static func generateID(sourceID: String, path: String) -> String {
+    nonisolated static func generateID(sourceID: String, path: String) -> String {
         let input = "\(sourceID):\(path)"
         let hash = SHA256.hash(data: Data(input.utf8))
         return hash.map { String(format: "%02x", $0) }.joined()
@@ -1469,14 +1575,21 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     private nonisolated static func fingerprintMatches(existing: Song, item: RemoteFileItem) -> Bool {
-        if let revision = item.revision, let existingRevision = existing.revision {
-            return revision == existingRevision
+        if item.revision != nil, existing.revision != nil {
+            return EmbeddedMetadataRemoteFileState.revisionMatches(existing, current: item.revision)
         }
+        if let revision = item.revision, revision.contains("|"),
+           !EmbeddedMetadataRemoteFileState.revisionMatches(existing, current: revision) { return false }
         guard existing.fileSize == item.size else { return false }
         if let lhs = existing.lastModified, let rhs = item.modifiedDate {
             return abs(lhs.timeIntervalSince(rhs)) < 0.001
         }
         return true
+    }
+
+    private nonisolated static func stampedRevision(_ base: String, changed: Date?) -> String {
+        guard let changed else { return base }
+        return base + "|" + String(changed.timeIntervalSinceReferenceDate.bitPattern, radix: 16)
     }
 
     private nonisolated static func metadataTitleRepairKey(

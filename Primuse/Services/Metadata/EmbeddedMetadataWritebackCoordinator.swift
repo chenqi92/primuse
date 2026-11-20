@@ -16,17 +16,20 @@ struct EmbeddedMetadataRemoteFileState: Sendable, Equatable {
     /// services expose this separately from their content fingerprint (for
     /// example Dropbox `rev` and OneDrive `eTag`).
     let replacementToken: String?
+    let isLocalFileRevision: Bool
 
     init(
         fileSize: Int64,
         modifiedDate: Date?,
         revision: String?,
-        replacementToken: String? = nil
+        replacementToken: String? = nil,
+        isLocalFileRevision: Bool = false
     ) {
         self.fileSize = fileSize
         self.modifiedDate = modifiedDate
         self.revision = revision
         self.replacementToken = replacementToken
+        self.isLocalFileRevision = isLocalFileRevision
     }
 
     func matches(_ other: Self) -> Bool {
@@ -55,9 +58,9 @@ struct EmbeddedMetadataRemoteFileState: Sendable, Equatable {
     }
 
     func matchesScannedSong(_ song: Song) -> Bool {
-        if let songRevision = song.revision {
+        if let scanned = song.revision {
             guard let revision else { return false }
-            return songRevision == revision
+            return isLocalFileRevision ? Self.revisionMatches(song, current: revision) : scanned == revision
         }
         return matchesScannedAudio(song)
     }
@@ -78,6 +81,16 @@ struct EmbeddedMetadataRemoteFileState: Sendable, Equatable {
         }
         guard let songDate = song.lastModified, let modifiedDate else { return false }
         return abs(songDate.timeIntervalSince(modifiedDate)) < 1
+    }
+
+    static func revisionMatches(_ song: Song, current: String?) -> Bool {
+        if song.revision == current { return true }
+        // Older local scans stored the size/mtime/sidecar digest alone.
+        // A change predating import does not require rereading the library on upgrade.
+        guard let current, current.hasPrefix("local:"), let separator = current.firstIndex(of: "|"),
+              song.revision == nil || song.revision == String(current[..<separator]),
+              let bits = UInt64(current[current.index(after: separator)...], radix: 16) else { return false }
+        return Date(timeIntervalSinceReferenceDate: Double(bitPattern: bits)) <= song.dateAdded
     }
 
     /// 冲突日志用：只说哪一项对不上，不带 ETag 原文与路径。

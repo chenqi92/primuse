@@ -540,6 +540,10 @@ struct LocalReferenceRefreshPolicyTests {
             bookmarkedSourceIDs: ["active", "disabled", "deleted", "remote"],
             automaticRefreshEnabledSourceIDs: ["active", "disabled", "deleted", "remote"]
         ) == ["active"])
+        #expect(LocalReferenceRefreshPolicy.monitoredSourceIDs(
+            in: [active, copied], bookmarkedSourceIDs: [active.id], additionalRootSourceIDs: [copied.id],
+            automaticRefreshEnabledSourceIDs: [active.id, copied.id]
+        ) == [active.id, copied.id])
     }
 
     @Test func automaticRefreshOffDoesNotMonitorBookmarkedFolders() {

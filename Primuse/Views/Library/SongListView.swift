@@ -6262,6 +6262,7 @@ private struct LibraryFolderNormalToolbarMenu: View {
 /// model for one song, and only this subtree re-evaluates; the parent List no
 /// longer observes Song values or per-row source/backfill state.
 private struct IOSSongListRow: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
@@ -6330,6 +6331,11 @@ private struct IOSSongListRow: View {
             }
         }
         .songLocationRow(song.id, assignsScrollID: false, appearance: appearance)
+        .task(id: scenePhase == .active ? song.id : nil) {
+            guard scenePhase == .active, sourcesStore.source(id: song.sourceID)?.type == .local else { return }
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            backfill.verifyVisibleLocalFile?(song)
+        }
         // 时间线与封面只有卡片、封面与节点算这一行：邻居伸过来的大封面落在这一行空着的半边，点的是邻居。
         .songListRowHitRegion(appearance)
         .onTapGesture {

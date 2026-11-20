@@ -2018,6 +2018,9 @@ final class AudioPlayerService {
     }
 
     private func playbackMetadataSongDidChange(from oldSong: Song?, to newSong: Song?) {
+        if let newSong, oldSong?.id != newSong.id {
+            playbackMetadataBackfill?.verifyVisibleLocalFile?(newSong)
+        }
         let oldIdentity = oldSong.map(PlaybackMetadataIdentity.init)
         let newIdentity = newSong.map(PlaybackMetadataIdentity.init)
         if oldIdentity != newIdentity, let oldIdentity {

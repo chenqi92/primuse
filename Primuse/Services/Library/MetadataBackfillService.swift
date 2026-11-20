@@ -313,6 +313,7 @@ final class MetadataBackfillService {
     /// 这些歌读标签这边不会再去读了:读好写进了曲库,或者读不出、文件不在。后台在线补全在等它们
     /// (见 `willReadTags(of:)`)。
     @ObservationIgnored var tagReadsConcludedHandler: ((Set<String>) -> Void)?
+    @ObservationIgnored var verifyVisibleLocalFile: ((Song) -> Void)?
     @ObservationIgnored private var peerCoverSweepTask: Task<Void, Never>?
 
     private struct PeerCoverGroup: Codable, Sendable {
@@ -7002,7 +7003,7 @@ final class MetadataBackfillService {
         )
     }
 
-    private nonisolated static func mergeSong(
+    nonisolated static func mergeSong(
         bare: Song,
         metadata: MetadataService.SongMetadata,
         restrictsToBareRows isBareOnlySource: Bool,

@@ -861,18 +861,20 @@ final class ServerCatalogAutoRefreshCoordinator {
 
     func automaticWorkIsAllowed(
         requiresNetwork: Bool = true,
-        continuingScanInBackground: Bool = false
+        continuingScanInBackground: Bool = false,
+        allowsSteadyPlayback: Bool = false
     ) -> Bool {
         workEligibility(
             for: .retry, requiresNetwork: requiresNetwork,
-            continuingScanInBackground: continuingScanInBackground
+            continuingScanInBackground: continuingScanInBackground, allowsSteadyPlayback: allowsSteadyPlayback
         ) == .allowed
     }
 
     private func workEligibility(
         for trigger: ServerCatalogRefreshTrigger,
         requiresNetwork: Bool = true,
-        continuingScanInBackground: Bool = false
+        continuingScanInBackground: Bool = false,
+        allowsSteadyPlayback: Bool = false
     ) -> ServerCatalogRefreshEligibility {
         let network = NetworkMonitor.shared
         return ServerCatalogRefreshWorkPolicy.eligibility(
@@ -884,7 +886,7 @@ final class ServerCatalogAutoRefreshCoordinator {
             isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
             hasSeriousThermalPressure: Self.hasSeriousThermalPressure,
             availableDiskBytes: Self.availableDiskBytes(),
-            isPlaybackBusy: player.isPlaybackActive || player.isLoading,
+            isPlaybackBusy: player.isLoading || (player.isPlaybackActive && !allowsSteadyPlayback),
             requiresNetwork: requiresNetwork,
             continuingScanInBackground: continuingScanInBackground
         )
@@ -1768,6 +1770,10 @@ final class AppServices {
             library: library,
             scanService: scanService,
             scraperService: scraper,
+            currentSong: { [weak player] in player?.currentSong },
+            fileWorkAllowed: { [weak serverCatalogAutoRefresh] in
+                serverCatalogAutoRefresh?.automaticWorkIsAllowed(requiresNetwork: false, allowsSteadyPlayback: true) ?? false
+            },
             automaticRefreshEnabled: { [weak serverCatalogAutoRefresh] sourceID in
                 serverCatalogAutoRefresh?.isEnabled(for: sourceID) ?? false
             },
@@ -1776,6 +1782,9 @@ final class AppServices {
             }
         )
         self.localReferenceRefresh = localReferenceRefresh
+        metadataBackfill.verifyVisibleLocalFile = { [weak localReferenceRefresh] song in
+            localReferenceRefresh?.verifyWhenVisible(song)
+        }
         serverCatalogAutoRefresh.automaticRefreshPreferencesDidChangeHandler = { [weak localReferenceRefresh] in
             localReferenceRefresh?.refreshPreferences()
         }
