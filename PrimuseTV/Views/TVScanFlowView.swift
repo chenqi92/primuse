@@ -499,7 +499,10 @@ struct TVScanFlowView: View {
                     loading = false
                     return
                 }
-                plog("📂 TV scan picker list failed depth=\(parentPaths.count) error=\(type(of: error))")
+                let nsError = error as NSError
+                let underlying = (nsError.userInfo[NSUnderlyingErrorKey] as? NSError)
+                    .map { " underlying=\($0.domain)/\($0.code)" } ?? ""
+                plog("📂 TV scan picker list failed depth=\(parentPaths.count) error=\(type(of: error)) domain=\(nsError.domain) code=\(nsError.code)\(underlying)")
                 entries = []
                 // 服务端要验证码时直接把用户送进输入页 —— 先报一条错、再让他退出去
                 // 长按菜单里找「两步验证登录」,是上一版最让人困惑的地方。

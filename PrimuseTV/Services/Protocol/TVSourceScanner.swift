@@ -941,8 +941,9 @@ actor TVSMBLister: TVDirectoryLister {
         let hostPart = (host.contains(":") && !host.hasPrefix("[")) ? "[\(host)]" : host
         guard let url = URL(string: "smb://\(hostPart):\(port)") else { return nil }
         serverURL = url
-        let user = (cred?.username ?? source.username ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let pass = (cred?.password ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // 和 iOS 的 SMBSource 一样:用户名去掉两端空白,密码原样用(密码里的空格也是密码)。
+        let user = NetworkCredentialPolicy.username(cred?.username ?? source.username ?? "")
+        let pass = NetworkCredentialPolicy.password(cred?.password ?? "")
         let isGuest = user.isEmpty && pass.isEmpty
         credential = URLCredential(user: isGuest ? "guest" : user, password: pass, persistence: .forSession)
         configuredShare = (source.shareName ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
