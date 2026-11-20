@@ -237,7 +237,13 @@ final class SpokenTranscriptGenerator {
             setPhase(.finishing)
             let lines = LyricsDocumentSource.transcript.stamped(SpokenTranscriptLayout.lines(from: result))
             guard !lines.isEmpty else { throw Failure.noSpeech }
+            let replaced = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
             _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: true)
+            // 换掉的是服务器上的外部文字稿:用户明确要的这份固定下来,后台核对不再把服务器那份换回来(#461)。
+            if SpokenTranscriptPrecedencePolicy.pinsGeneratedTranscript(replacing: replaced),
+               let candidate = await MetadataAssetStore.shared.rememberLyricsCandidate(lines, forSongID: song.id) {
+                _ = await MetadataAssetStore.shared.selectLyricsCandidate(candidate.id, forSongID: song.id)
+            }
             remember(Record(engine: engine, localeIdentifier: localeIdentifier, generatedAt: Date()), for: song.id)
             partial = nil
             NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)

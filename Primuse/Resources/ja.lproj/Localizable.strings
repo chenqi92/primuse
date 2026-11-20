@@ -7918,3 +7918,16 @@
 "artwork_apply_to_songs_kept_local_format" = "%d 曲の新しいカバーはファイルに書き込めず、Primuse にのみ保存されました。";
 "server_playlist_reorder_read_only" = "スマートプレイリストまたは他のユーザーのプレイリストのため、サーバーが並べ替えを許可していません。";
 "server_playlist_reorder_changed" = "このプレイリストはサーバー上で変更されたばかりです。最新の内容に更新したので、もう一度並べ替えてください。";
+"transcript_reload_from_server" = "サーバのテキストを再読み込み";
+"transcript_server_reload_success" = "サーバからテキストを読み込みました。";
+"transcript_server_reload_unchanged" = "サーバのテキストは表示中のものと同じです。";
+"transcript_server_reload_unreadable" = "サーバにテキストファイルが登録されていますが、内容を読み取れませんでした（空のファイル、認識できない形式、または 32 MB 超）。現在のテキストは変更していません。";
+"transcript_server_reload_failed_kept" = "サーバに接続できず、テキストを再読み込みできませんでした。手元のテキストはそのままで、オフラインでも引き続き読めます。";
+"transcript_server_reload_unsupported" = "この音楽ソースはテキストファイルを提供していません。";
+"transcript_server_reload_missing_rescanned" = "この章のテキストはサーバにありません。Audiobookshelf にこの本を再スキャンしてもらいましたが、見つかりませんでした。テキストは音声と同じフォルダに、音声と同じファイル名で拡張子だけ変えて置いてください（例：chapter01.mp3 に対して chapter01.vtt）。VTT、SRT、LRC、ELRC、TTML などの形式に対応しています。";
+"transcript_server_reload_missing_not_permitted" = "この章のテキストはまだサーバに登録されていません。フォルダに追加したファイルは Audiobookshelf がこの本を再スキャンするまで表示されませんが、このアカウントにはスキャンの権限がありません。管理者アカウントで Audiobookshelf の Web 画面からこの本を開いて「スキャン」を選び、もう一度読み込んでください。テキストは音声と同じフォルダに、同じファイル名で拡張子だけ変えて置きます。";
+"transcript_server_reload_missing_failed" = "この章のテキストはまだサーバに登録されておらず、この本の再スキャンも依頼できませんでした。Audiobookshelf の Web 画面からこの本を開いて「スキャン」を選び、もう一度読み込んでください。テキストは音声と同じフォルダに、同じファイル名で拡張子だけ変えて置きます。";
+"transcript_server_reload_missing_single_file" = "この本はライブラリの最上位にある単一の音声ファイルのため、Audiobookshelf は隣にあるファイルを含めません。音声とテキストを同じフォルダに入れてスキャンしてから読み込んでください。";
+"transcript_server_replace_title" = "サーバのテキストに切り替えますか？";
+"transcript_server_replace_message" = "この章のテキストはあなたが編集または読み込んだものです。サーバのものに切り替えても、「歌詞を編集」の「歌詞ソース」から元に戻せます。";
+"transcript_server_replace_action" = "サーバのテキストに切り替え";

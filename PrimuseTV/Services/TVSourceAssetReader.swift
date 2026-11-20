@@ -48,6 +48,8 @@ actor TVSourceAssetReader {
     private var audiobookshelfClients: [String: CachedAudiobookshelfClient] = [:]
 
     private var audiobookshelfItems: [String: AudiobookshelfCatalogItem] = [:]
+    /// 为找文字稿向服务端重新取过条目的时刻:音频旁边没登记文字稿的书隔一阵才再取(#461)。
+    private var audiobookshelfTranscriptCheckedAt: [String: Date] = [:]
 
     /// 把本机这首歌的位置报到 Audiobookshelf(整本书的时间轴由条目的文件布局换算)。
     func reportAudiobookshelfProgress(
@@ -382,6 +384,11 @@ actor TVSourceAssetReader {
                         .preferredLyrics(trackPath: path)
                     result = text.flatMap { $0.isEmpty ? nil : $0 }.map(ServerLyricsReadResult.content) ?? .absent
                 } catch { continue }
+            } else if routed.type == .audiobookshelf {
+                guard let reference = AudiobookshelfAPIProtocol.trackReference(from: path) else { return .absent }
+                do {
+                    result = try await audiobookshelfTranscript(reference: reference, source: routed, credential: credential)
+                } catch { continue }
             } else if routed.type == .synologyAudioStation {
                 guard let id = SynologyAudioStationAPI.songID(fromTrackPath: path) else { return .unavailable }
                 do {
@@ -403,6 +410,53 @@ actor TVSourceAssetReader {
             return result
         }
         return .unavailable
+    }
+
+    /// Audiobookshelf 音频旁边同名的外部文字稿(#461),和 iPhone 同一套挑法、同一套时间换算
+    /// (`AudiobookshelfServiceClient.transcriptDocument`)。手上的条目里没有时,隔一阵再取一次条目看看。
+    private func audiobookshelfTranscript(
+        reference: AudiobookshelfAPIProtocol.TrackReference,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> ServerLyricsReadResult {
+        let client = audiobookshelfClient(for: source, credential: credential)
+        var refreshed = false
+        var item = audiobookshelfItems[reference.itemID]
+        if item?.listsLibraryFiles != true {
+            item = try await fetchAudiobookshelfTranscriptItem(reference.itemID, client: client)
+            refreshed = true
+        }
+        while let current = item {
+            switch try await client.transcriptDocument(
+                for: reference,
+                in: current,
+                maximumBytes: LyricsSidecarTargetPolicy.maximumSpokenWordReadByteCount
+            ) {
+            case .document(_, let text):
+                return .content(text)
+            case .stale where !refreshed:
+                break
+            case .absent where !refreshed && audiobookshelfTranscriptCheckedAt[reference.itemID].map({
+                Date().timeIntervalSince($0) >= 10 * 60
+            }) ?? true:
+                break
+            case .stale, .absent:
+                return .absent
+            }
+            item = try await fetchAudiobookshelfTranscriptItem(reference.itemID, client: client)
+            refreshed = true
+        }
+        return .absent
+    }
+
+    private func fetchAudiobookshelfTranscriptItem(
+        _ id: String,
+        client: AudiobookshelfServiceClient
+    ) async throws -> AudiobookshelfCatalogItem? {
+        let item = try await client.item(id: id)
+        audiobookshelfTranscriptCheckedAt[id] = Date()
+        audiobookshelfItems[id] = item
+        return item
     }
 
     /// Subsonic 一族的接口不给编码:按 `ContainerCodecProbe` 要的那几段经原文件流(`format=raw`)

@@ -7823,3 +7823,16 @@
 "artwork_apply_to_songs_kept_local_format" = "Yeni kapak %d şarkının dosyalarına yazılamadı; yalnızca Primuse'da kayıtlı.";
 "server_playlist_reorder_read_only" = "Bu akıllı bir çalma listesi veya başka bir kullanıcıya ait, bu yüzden sunucu sırasının değiştirilmesine izin vermiyor.";
 "server_playlist_reorder_changed" = "Bu çalma listesi sunucuda az önce değişti. Artık en son hali gösteriliyor; lütfen yeniden sıralayın.";
+"transcript_reload_from_server" = "Metni sunucudan yeniden yükle";
+"transcript_server_reload_success" = "Metin sunucudan yüklendi.";
+"transcript_server_reload_unchanged" = "Sunucudaki metin gösterilenle aynı.";
+"transcript_server_reload_unreadable" = "Sunucuda bir metin dosyası kayıtlı ancak okunamadı (boş, tanınmayan biçimde ya da 32 MB'tan büyük). Mevcut metin değişmedi.";
+"transcript_server_reload_failed_kept" = "Sunucuya bağlanılamadı, metin yeniden yüklenmedi. Elinizdeki metin değişmedi ve çevrimdışı da kullanılabilir.";
+"transcript_server_reload_unsupported" = "Bu müzik kaynağı metin dosyası sunmuyor.";
+"transcript_server_reload_missing_rescanned" = "Bu bölüm için sunucuda metin yok. Audiobookshelf kitabı yeniden taradı ama bulamadı. Metni ses dosyasıyla aynı klasöre, aynı dosya adıyla ve farklı uzantıyla koyun (örneğin chapter01.mp3 yanında chapter01.vtt). VTT, SRT, LRC, ELRC, TTML ve benzeri biçimler desteklenir.";
+"transcript_server_reload_missing_not_permitted" = "Sunucu bu bölüm için henüz metin kaydetmedi. Klasöre yeni eklenen dosyalar ancak Audiobookshelf kitabı yeniden taradıktan sonra görünür ve bu hesabın tarama başlatma izni yok. Bir yöneticiden kitabı Audiobookshelf web arayüzünde açıp “Tara”yı seçmesini isteyin, sonra yeniden yükleyin. Metin, ses dosyasıyla aynı klasörde, aynı dosya adıyla ve farklı uzantıyla durmalıdır.";
+"transcript_server_reload_missing_failed" = "Sunucu bu bölüm için henüz metin kaydetmedi ve kitabı yeniden taraması istenemedi. Kitabı Audiobookshelf web arayüzünde açıp “Tara”yı seçin, sonra yeniden yükleyin. Metin, ses dosyasıyla aynı klasörde, aynı dosya adıyla ve farklı uzantıyla durmalıdır.";
+"transcript_server_reload_missing_single_file" = "Bu kitap, kütüphanenin kök klasöründeki tek bir ses dosyası; bu yüzden Audiobookshelf yanındaki dosyaları saymaz. Sesi ve metnini aynı klasöre koyun, tarayın ve yeniden yükleyin.";
+"transcript_server_replace_title" = "Sunucudaki metin kullanılsın mı?";
+"transcript_server_replace_message" = "Bu bölümün metnini siz düzenlediniz veya içe aktardınız. Sunucudakine geçtikten sonra da “Şarkı sözlerini düzenle” › “Şarkı Sözü Kaynakları” bölümünden geri dönebilirsiniz.";
+"transcript_server_replace_action" = "Sunucudakini kullan";

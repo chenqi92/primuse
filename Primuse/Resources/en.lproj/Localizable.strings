@@ -7678,3 +7678,16 @@
 "artwork_apply_to_songs_kept_local_format" = "The new artwork wasn’t written to the files of %d songs; it’s saved only in Primuse.";
 "server_playlist_reorder_read_only" = "This playlist is a smart playlist or belongs to another user, so the server doesn't allow reordering it.";
 "server_playlist_reorder_changed" = "This playlist just changed on the server. It now shows the latest version, so please reorder it again.";
+"transcript_reload_from_server" = "Reload Transcript from Server";
+"transcript_server_reload_success" = "Loaded the transcript from the server.";
+"transcript_server_reload_unchanged" = "The transcript on the server matches the one shown.";
+"transcript_server_reload_unreadable" = "The server lists a transcript file, but it couldn’t be read (it’s empty, in a format Primuse doesn’t recognize, or larger than 32 MB). The current transcript is unchanged.";
+"transcript_server_reload_failed_kept" = "Couldn’t reach the server, so the transcript wasn’t reloaded. The transcript you have is unchanged and still works offline.";
+"transcript_server_reload_unsupported" = "This music source doesn’t provide transcript files.";
+"transcript_server_reload_missing_rescanned" = "There’s no transcript for this chapter on the server. Audiobookshelf rescanned the book and still found none. Put the transcript in the same folder as the audio, with the same file name and a different extension (for example chapter01.vtt next to chapter01.mp3). VTT, SRT, LRC, ELRC, TTML and similar formats are supported.";
+"transcript_server_reload_missing_not_permitted" = "The server hasn’t registered a transcript for this chapter yet. Files added to the folder only show up after Audiobookshelf rescans the book, and this account isn’t allowed to start a scan. Ask an admin to open the book in the Audiobookshelf web app and choose Scan, then reload. The transcript must be in the same folder as the audio, with the same file name and a different extension.";
+"transcript_server_reload_missing_failed" = "The server hasn’t registered a transcript for this chapter yet, and asking it to rescan the book didn’t work. Open the book in the Audiobookshelf web app and choose Scan, then reload. The transcript must be in the same folder as the audio, with the same file name and a different extension.";
+"transcript_server_reload_missing_single_file" = "This book is a single audio file at the root of the library, so Audiobookshelf doesn’t count the files next to it. Put the audio and its transcript together in a folder, scan, then reload.";
+"transcript_server_replace_title" = "Use the Server’s Transcript?";
+"transcript_server_replace_message" = "You edited or imported this chapter’s transcript. After switching to the server’s copy, you can still switch back under Edit Lyrics › Lyrics Sources.";
+"transcript_server_replace_action" = "Use Server Transcript";

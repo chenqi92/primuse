@@ -58,6 +58,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var isScrapingCurrentSong = false
     @State private var sourceLyricsReloadAlertMessage: String?
     @State private var sourceLyricsReloadingSongID: String?
+    /// 「重新读取服务器文字稿」碰上用户自己编辑、导入的那份时问一句(#461)。
+    @State private var serverTranscriptReplaceSong: Song?
     /// 用 Button + Popover 自己画菜单,不用 SwiftUI Menu。原因:
     /// SwiftUI Menu + .borderlessButton 在 macOS 上落到 NSPopUpButton,
     /// 它的 hit test 只覆盖可见图标,玻璃圆环空白区会穿透到下层(歌词)。
@@ -172,7 +174,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             Button("done", role: .cancel) {}
         } message: { Text(scrapeAlertMessage ?? "") }
         .alert(
-            String(localized: "lyrics_reload_from_source"),
+            String(localized: isSpokenWord ? "transcript_reload_from_server" : "lyrics_reload_from_source"),
             isPresented: Binding(
                 get: { sourceLyricsReloadAlertMessage != nil },
                 set: { if !$0 { sourceLyricsReloadAlertMessage = nil } }
@@ -182,6 +184,10 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         } message: {
             Text(sourceLyricsReloadAlertMessage ?? "")
         }
+        .modifier(SpokenTranscriptSourcePresentations(
+            replaceSong: $serverTranscriptReplaceSong,
+            onConfirmReplace: { reloadServerTranscript(song: $0, replacingUserTranscript: true) }
+        ))
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         .cueTrackRemovalConfirmation($cueRemovalTarget, using: batchRemoval)
         .songFileDeletionConfirmation($deletionTarget, using: batchRemoval, perform: confirmDeleteCurrentSong)
@@ -490,7 +496,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             }
             if canReloadLyricsFromSource {
                 menuRow(
-                    title: "lyrics_reload_from_source",
+                    title: isSpokenWord ? "transcript_reload_from_server" : "lyrics_reload_from_source",
                     symbol: "arrow.clockwise.circle",
                     disabled: isReloadingLyricsFromSource
                 ) {
@@ -1309,9 +1315,41 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         sourceLyricsReloadingSongID == player.currentSong?.id
     }
 
+    /// 有声内容的「重新读取服务器文字稿」(#461):没登记的请服务端扫描,用户自己的那份问过再换。
+    private func reloadServerTranscript(song: Song, replacingUserTranscript: Bool) {
+        guard sourceLyricsReloadingSongID != song.id else { return }
+        let sourceType = sourcesStore.source(id: song.sourceID)?.type
+        sourceLyricsReloadingSongID = song.id
+        Task { @MainActor in
+            let outcome = await ServerTranscriptReload.run(
+                for: song,
+                sourceType: sourceType,
+                sourceManager: sourceManager,
+                cachedDocument: nil,
+                replacingUserTranscript: replacingUserTranscript
+            )
+            if sourceLyricsReloadingSongID == song.id {
+                sourceLyricsReloadingSongID = nil
+            }
+            guard LyricsAuthoritativeSourcePolicy.shouldApply(
+                responseForSongID: song.id,
+                currentlyPlayingSongID: player.currentSong?.id
+            ) else { return }
+            if outcome == .needsReplaceConfirmation {
+                serverTranscriptReplaceSong = song
+            } else {
+                sourceLyricsReloadAlertMessage = outcome.message
+            }
+        }
+    }
+
     private func reloadLyricsFromSource() {
         guard !isReloadingLyricsFromSource,
               let song = player.currentSong else { return }
+        if isSpokenWord {
+            reloadServerTranscript(song: song, replacingUserTranscript: false)
+            return
+        }
         let sourceType = sourcesStore.source(id: song.sourceID)?.type
         guard LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType) else {
             sourceLyricsReloadAlertMessage = String(

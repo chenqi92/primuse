@@ -797,6 +797,11 @@ final class TVLyricsLoadingPolicyTests: XCTestCase {
         XCTAssertEqual(TVLyricsLoadingPolicy.strategy(for: .fnMusic), .fnMusicService)
         XCTAssertEqual(TVLyricsLoadingPolicy.strategy(for: .smb), .sourceFile)
     }
+
+    /// Audiobookshelf 的文字稿是音频旁边同名的外部文件,经服务端的文件接口读,不按路径猜 `.lrc`(#461)。
+    func testAudiobookshelfReadsServerTranscripts() {
+        XCTAssertEqual(TVLyricsLoadingPolicy.strategy(for: .audiobookshelf), .audiobookshelfService)
+    }
 }
 
 @MainActor

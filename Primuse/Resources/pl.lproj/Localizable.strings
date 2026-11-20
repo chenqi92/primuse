@@ -7823,3 +7823,16 @@
 "artwork_apply_to_songs_kept_local_format" = "Nowej okładki nie zapisano w plikach %d utworów; jest zapisana tylko w Primuse.";
 "server_playlist_reorder_read_only" = "To inteligentna playlista lub playlista innego użytkownika, więc serwer nie pozwala zmieniać jej kolejności.";
 "server_playlist_reorder_changed" = "Ta playlista właśnie zmieniła się na serwerze. Teraz widać jej najnowszą wersję – ustaw kolejność ponownie.";
+"transcript_reload_from_server" = "Wczytaj ponownie transkrypcję z serwera";
+"transcript_server_reload_success" = "Wczytano transkrypcję z serwera.";
+"transcript_server_reload_unchanged" = "Transkrypcja na serwerze jest taka sama jak wyświetlana.";
+"transcript_server_reload_unreadable" = "Serwer ma zarejestrowany plik transkrypcji, ale nie udało się go odczytać (jest pusty, ma nierozpoznany format albo przekracza 32 MB). Obecna transkrypcja się nie zmieniła.";
+"transcript_server_reload_failed_kept" = "Nie udało się połączyć z serwerem, transkrypcja nie została wczytana ponownie. Dotychczasowa się nie zmieniła i działa także offline.";
+"transcript_server_reload_unsupported" = "To źródło muzyki nie udostępnia plików transkrypcji.";
+"transcript_server_reload_missing_rescanned" = "Na serwerze nie ma transkrypcji tego rozdziału. Audiobookshelf ponownie przeskanował książkę i nic nie znalazł. Umieść transkrypcję w tym samym folderze co nagranie, pod tą samą nazwą pliku z innym rozszerzeniem (na przykład chapter01.vtt obok chapter01.mp3). Obsługiwane są VTT, SRT, LRC, ELRC, TTML i podobne formaty.";
+"transcript_server_reload_missing_not_permitted" = "Serwer nie zarejestrował jeszcze transkrypcji tego rozdziału. Nowe pliki w folderze pojawiają się dopiero po ponownym skanowaniu książki przez Audiobookshelf, a to konto nie może uruchomić skanowania. Poproś administratora, aby otworzył książkę w interfejsie WWW Audiobookshelf i wybrał „Skanuj”, a potem wczytaj ponownie. Transkrypcja musi leżeć w tym samym folderze co nagranie, pod tą samą nazwą pliku z innym rozszerzeniem.";
+"transcript_server_reload_missing_failed" = "Serwer nie zarejestrował jeszcze transkrypcji tego rozdziału, a prośba o ponowne skanowanie książki się nie powiodła. Otwórz książkę w interfejsie WWW Audiobookshelf, wybierz „Skanuj” i wczytaj ponownie. Transkrypcja musi leżeć w tym samym folderze co nagranie, pod tą samą nazwą pliku z innym rozszerzeniem.";
+"transcript_server_reload_missing_single_file" = "Ta książka to pojedynczy plik audio w katalogu głównym biblioteki, więc Audiobookshelf nie bierze pod uwagę plików obok niego. Umieść nagranie i transkrypcję razem w folderze, przeskanuj i wczytaj ponownie.";
+"transcript_server_replace_title" = "Użyć transkrypcji z serwera?";
+"transcript_server_replace_message" = "Transkrypcja tego rozdziału została przez Ciebie edytowana lub zaimportowana. Po przejściu na wersję z serwera nadal możesz wrócić do swojej w „Edytuj tekst” › „Źródła tekstu”.";
+"transcript_server_replace_action" = "Użyj wersji z serwera";

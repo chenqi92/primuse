@@ -328,8 +328,9 @@ public actor LyricsSourceRefreshCoordinator {
 public enum LyricsAuthoritativeSourcePolicy {
     public static func supportsServerDocument(_ sourceType: MusicSourceType?) -> Bool {
         switch sourceType {
+        // Audiobookshelf 给的是音频旁边同名的外部文字稿(#461)。
         case .jellyfin, .emby, .subsonic, .navidrome, .airsonic, .gonic, .zspace,
-             .fnMusic, .daoliyu, .songloft, .synologyAudioStation:
+             .fnMusic, .daoliyu, .songloft, .synologyAudioStation, .audiobookshelf:
             true
         default:
             false

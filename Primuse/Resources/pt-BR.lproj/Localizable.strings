@@ -7823,3 +7823,16 @@
 "artwork_apply_to_songs_kept_local_format" = "A nova capa não foi gravada nos arquivos de %d músicas; ela está salva só no Primuse.";
 "server_playlist_reorder_read_only" = "Esta playlist é inteligente ou pertence a outro usuário, então o servidor não permite mudar a ordem.";
 "server_playlist_reorder_changed" = "Esta playlist acabou de mudar no servidor. Agora ela mostra a versão mais recente; reordene de novo.";
+"transcript_reload_from_server" = "Recarregar transcrição do servidor";
+"transcript_server_reload_success" = "A transcrição foi carregada do servidor.";
+"transcript_server_reload_unchanged" = "A transcrição do servidor é igual à exibida.";
+"transcript_server_reload_unreadable" = "O servidor registra um arquivo de transcrição, mas não foi possível lê-lo (está vazio, tem formato não reconhecido ou passa de 32 MB). A transcrição atual não foi alterada.";
+"transcript_server_reload_failed_kept" = "Não foi possível acessar o servidor, então a transcrição não foi recarregada. A que você já tem continua igual e funciona offline.";
+"transcript_server_reload_unsupported" = "Esta origem de música não oferece arquivos de transcrição.";
+"transcript_server_reload_missing_rescanned" = "Não há transcrição deste capítulo no servidor. O Audiobookshelf escaneou o livro de novo e não encontrou nenhuma. Coloque a transcrição na mesma pasta do áudio, com o mesmo nome de arquivo e outra extensão (por exemplo, chapter01.vtt ao lado de chapter01.mp3). VTT, SRT, LRC, ELRC, TTML e formatos parecidos são compatíveis.";
+"transcript_server_reload_missing_not_permitted" = "O servidor ainda não registrou uma transcrição para este capítulo. Arquivos novos na pasta só aparecem depois que o Audiobookshelf escaneia o livro de novo, e esta conta não tem permissão para escanear. Peça a um administrador para abrir o livro no site do Audiobookshelf e escolher “Escanear”; depois recarregue. A transcrição precisa estar na mesma pasta do áudio, com o mesmo nome de arquivo e outra extensão.";
+"transcript_server_reload_missing_failed" = "O servidor ainda não registrou uma transcrição para este capítulo, e não deu certo pedir que ele escaneasse o livro de novo. Abra o livro no site do Audiobookshelf, escolha “Escanear” e recarregue. A transcrição precisa estar na mesma pasta do áudio, com o mesmo nome de arquivo e outra extensão.";
+"transcript_server_reload_missing_single_file" = "Este livro é um único arquivo de áudio na raiz da biblioteca, então o Audiobookshelf não considera os arquivos ao lado dele. Coloque o áudio e a transcrição juntos em uma pasta, escaneie e recarregue.";
+"transcript_server_replace_title" = "Usar a transcrição do servidor?";
+"transcript_server_replace_message" = "Você editou ou importou a transcrição deste capítulo. Depois de trocar pela do servidor, ainda dá para voltar em “Editar letras” › “Origens das letras”.";
+"transcript_server_replace_action" = "Usar a do servidor";

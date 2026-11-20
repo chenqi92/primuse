@@ -270,6 +270,8 @@ enum TVLyricsLoadingStrategy: Equatable, Sendable {
     case songloftService
     case synologyAudioStationService
     case mediaServer
+    /// Audiobookshelf 音频旁边同名的外部文字稿(#461)。
+    case audiobookshelfService
     case sourceFile
 }
 
@@ -281,6 +283,7 @@ enum TVLyricsLoadingPolicy {
         if sourceType == .songloft { return .songloftService }
         if sourceType == .synologyAudioStation { return .synologyAudioStationService }
         if [.jellyfin, .emby, .plex].contains(sourceType) { return .mediaServer }
+        if sourceType == .audiobookshelf { return .audiobookshelfService }
         return .sourceFile
     }
 }
@@ -2753,7 +2756,7 @@ final class TVPlaybackCoordinator {
             if case .content(let text) = await readSubsonicServerLyrics(for: song.filePath, source: source, credential: credential) {
                 lines = LyricsContentParser.parse(text)
             }
-        case .daoLiYuService, .songloftService, .synologyAudioStationService, .mediaServer:
+        case .daoLiYuService, .songloftService, .synologyAudioStationService, .mediaServer, .audiobookshelfService:
             if case .content(let text) = await TVSourceAssetReader.shared.lyrics(path: song.filePath, source: source, credential: credential) {
                 lines = LyricsContentParser.parse(text)
             }
@@ -2835,7 +2838,7 @@ final class TVPlaybackCoordinator {
                     plog("🎬 TV Feiniu Music lyrics fetch failed '\(song.title)': \(error)")
                 }
                 return
-            case .daoLiYuService, .songloftService, .synologyAudioStationService, .mediaServer:
+            case .daoLiYuService, .songloftService, .synologyAudioStationService, .mediaServer, .audiobookshelfService:
                 let result = await TVSourceAssetReader.shared.lyrics(
                     path: song.filePath, source: source, credential: credential
                 )

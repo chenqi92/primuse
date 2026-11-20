@@ -8010,3 +8010,16 @@
 "artwork_apply_to_songs_kept_local_format" = "%d 首歌的新封面没写进文件，只保存在 Primuse。";
 "server_playlist_reorder_read_only" = "这是智能歌单或其他用户的歌单，服务器不允许调整顺序。";
 "server_playlist_reorder_changed" = "服务器上的这个歌单刚有改动，已换成最新内容，请重新调整顺序。";
+"transcript_reload_from_server" = "重新读取服务器文字稿";
+"transcript_server_reload_success" = "已从服务器读入文字稿。";
+"transcript_server_reload_unchanged" = "服务器上的文字稿和现在显示的一样。";
+"transcript_server_reload_unreadable" = "服务器上登记着文字稿文件，但读不出内容（文件是空的、格式认不出或超过 32 MB）。现在的文字稿没有改动。";
+"transcript_server_reload_failed_kept" = "没能连上服务器，文字稿没有重新读取。已有的文字稿没有改动，离线也能接着看。";
+"transcript_server_reload_unsupported" = "这个音乐源不提供文字稿文件。";
+"transcript_server_reload_missing_rescanned" = "服务器上没有这一章的文字稿。已请 Audiobookshelf 重新扫描这本书，仍然没有找到。文字稿要和音频放在同一个文件夹，文件名与音频相同、只是扩展名不同（例如 chapter01.mp3 对应 chapter01.vtt），支持 VTT、SRT、LRC、ELRC、TTML 等格式。";
+"transcript_server_reload_missing_not_permitted" = "服务器还没有登记这一章的文字稿。新放进文件夹的文件要等 Audiobookshelf 重新扫描这本书后才看得到，而这个账号没有扫描权限：请用管理员账号在 Audiobookshelf 网页里打开这本书点「扫描」，再回来读取一次。文字稿要和音频放在同一个文件夹，文件名与音频相同、只是扩展名不同。";
+"transcript_server_reload_missing_failed" = "服务器还没有登记这一章的文字稿，请它重新扫描这本书也没有成功。可以在 Audiobookshelf 网页里打开这本书点「扫描」，再回来读取一次。文字稿要和音频放在同一个文件夹，文件名与音频相同、只是扩展名不同。";
+"transcript_server_reload_missing_single_file" = "这本书是资料库根目录下的单个音频文件，Audiobookshelf 不会把它旁边的文件算进来。把音频和文字稿一起放进一个文件夹，扫描后再读取。";
+"transcript_server_replace_title" = "换成服务器上的文字稿？";
+"transcript_server_replace_message" = "这一章的文字稿是你编辑或导入的。换成服务器上的之后，原来那份仍可以在「编辑歌词」的「歌词来源」里换回来。";
+"transcript_server_replace_action" = "换成服务器上的";

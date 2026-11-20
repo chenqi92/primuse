@@ -20,6 +20,8 @@ actor AudiobookshelfSource: RefreshingMetadataSongConnector, ServerLibraryListin
     private var observedLibraries: [ServerLibraryDescriptor]?
     /// 扫描时记下的条目(文件布局、章节),章节与进度换算要用;没有的播放时再取一次。
     private var itemCache: [String: AudiobookshelfCatalogItem] = [:]
+    /// 为找文字稿向服务端重新取过条目的时刻(#461)。音频旁边没登记文字稿的书隔一阵才再取一次。
+    private var transcriptItemFetchedAt: [String: Date] = [:]
 
     init(
         sourceID: String,
@@ -300,7 +302,7 @@ actor AudiobookshelfSource: RefreshingMetadataSongConnector, ServerLibraryListin
     }
 
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
-        // 只有章节本身有数据;播放页按同目录规则来要的 `<章节>.lrc` 这里没有。
+        // 只有章节本身有数据;旁边的文字稿经 `readServerLyrics` 按服务端登记的文件读。
         guard AudiobookshelfAPIProtocol.trackReference(from: path) != nil else {
             throw SourceError.fileNotFound(path)
         }
@@ -487,5 +489,105 @@ extension AudiobookshelfSource: ServerChapterProvidingConnector {
               case .file(let ino) = reference.kind else { return [] }
         guard let item = try await catalogItem(id: reference.itemID) else { return [] }
         return item.chapters(forIno: ino)
+    }
+}
+
+// MARK: - 外部文字稿(#461)
+
+extension AudiobookshelfSource: ServerTranscriptFileConnector {
+    /// 和有声内容别的文字稿读取一样的上限(几十小时的书,文字稿常有十几 MB)。
+    private static let transcriptByteLimit = LyricsSidecarTargetPolicy.maximumSpokenWordReadByteCount
+    /// 条目里没登记文字稿时,隔这么久才再向服务端取一次条目看看。
+    private static let transcriptRecheckInterval: TimeInterval = 10 * 60
+
+    func fetchServerLyrics(for path: String) async -> String? {
+        guard case .content(let text) = await readServerLyrics(for: path) else { return nil }
+        return text
+    }
+
+    /// 音频旁边同名的文字稿(.vtt、.srt、.lrc、.ttml……),时间是这个文件自己的。
+    /// 新放进文件夹的文件要服务端扫描后才登记:手上的条目里没有时,隔一阵再取一次条目看看。
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        guard let reference = AudiobookshelfAPIProtocol.trackReference(from: path) else { return .absent }
+        do {
+            try await connect()
+            let initial = try await transcriptItem(id: reference.itemID)
+            guard var item = initial.item else { return .absent }
+            // 刚向服务端取回来的条目不再取第二遍。
+            var refreshed = initial.isFresh
+            while true {
+                switch try await client.transcriptDocument(
+                    for: reference,
+                    in: item,
+                    maximumBytes: Self.transcriptByteLimit
+                ) {
+                case .document(let fileName, let text):
+                    plog("📜 audiobookshelf transcript '\(fileName)' for item \(reference.itemID)")
+                    return .content(text)
+                case .stale where !refreshed:
+                    break
+                case .absent where !refreshed && shouldRecheckTranscripts(itemID: reference.itemID):
+                    break
+                case .stale, .absent:
+                    return .absent
+                }
+                guard let fresh = try await fetchTranscriptItem(id: reference.itemID) else { return .absent }
+                item = fresh
+                refreshed = true
+            }
+        } catch {
+            if !(error is CancellationError) {
+                plog("⚠️ audiobookshelf transcript read failed: \(error.localizedDescription)")
+            }
+            return .unavailable
+        }
+    }
+
+    func prepareServerTranscriptReload(for path: String) async -> ServerTranscriptRegistration {
+        guard let reference = AudiobookshelfAPIProtocol.trackReference(from: path) else {
+            return .missing(.failed)
+        }
+        do {
+            try await connect()
+            guard let item = try await fetchTranscriptItem(id: reference.itemID) else { return .missing(.failed) }
+            if !item.transcriptFiles(for: reference.kind).isEmpty { return .registered }
+            if item.isSingleFileItem { return .missing(.singleFileItem) }
+            switch try await client.scanItem(id: reference.itemID) {
+            case .scanned:
+                guard let scanned = try await fetchTranscriptItem(id: reference.itemID) else { return .missing(.rescanned) }
+                return scanned.transcriptFiles(for: reference.kind).isEmpty ? .missing(.rescanned) : .registered
+            case .notPermitted:
+                return .missing(.notPermitted)
+            case .failed(let status):
+                plog("⚠️ audiobookshelf scan of item \(reference.itemID) failed: HTTP \(status)")
+                return .missing(.failed)
+            }
+        } catch {
+            return .unavailable
+        }
+    }
+
+    func serverAudioFileName(for path: String) async -> String? {
+        guard let reference = AudiobookshelfAPIProtocol.trackReference(from: path),
+              let item = try? await catalogItem(id: reference.itemID) else { return nil }
+        return item.audioFile(for: reference.kind)?.fileName
+    }
+
+    /// 找文字稿用的条目:手上的带着文件清单就用它,精简形态的(看不出旁边有什么文件)再取一次。
+    private func transcriptItem(id: String) async throws -> (item: AudiobookshelfCatalogItem?, isFresh: Bool) {
+        if let cached = itemCache[id], cached.listsLibraryFiles { return (cached, false) }
+        return (try await fetchTranscriptItem(id: id), true)
+    }
+
+    private func fetchTranscriptItem(id: String) async throws -> AudiobookshelfCatalogItem? {
+        let item = try await client.item(id: id)
+        transcriptItemFetchedAt[id] = Date()
+        itemCache[id] = item
+        return item
+    }
+
+    private func shouldRecheckTranscripts(itemID: String) -> Bool {
+        guard let fetchedAt = transcriptItemFetchedAt[itemID] else { return true }
+        return Date().timeIntervalSince(fetchedAt) >= Self.transcriptRecheckInterval
     }
 }

@@ -7917,3 +7917,16 @@
 "artwork_apply_to_songs_kept_local_format" = "Das neue Cover wurde bei %d Songs nicht in die Dateien geschrieben und ist nur in Primuse gesichert.";
 "server_playlist_reorder_read_only" = "Diese Playlist ist eine intelligente Playlist oder gehört einem anderen Benutzer, daher erlaubt der Server keine neue Reihenfolge.";
 "server_playlist_reorder_changed" = "Diese Playlist wurde gerade auf dem Server geändert. Jetzt wird der neueste Stand angezeigt – bitte ordne sie erneut.";
+"transcript_reload_from_server" = "Transkript vom Server neu laden";
+"transcript_server_reload_success" = "Das Transkript wurde vom Server geladen.";
+"transcript_server_reload_unchanged" = "Das Transkript auf dem Server entspricht dem angezeigten.";
+"transcript_server_reload_unreadable" = "Auf dem Server ist eine Transkriptdatei eingetragen, sie ließ sich aber nicht lesen (leer, unbekanntes Format oder größer als 32 MB). Das aktuelle Transkript bleibt unverändert.";
+"transcript_server_reload_failed_kept" = "Der Server ist nicht erreichbar, das Transkript wurde nicht neu geladen. Das vorhandene Transkript bleibt unverändert und ist auch offline lesbar.";
+"transcript_server_reload_unsupported" = "Diese Musikquelle stellt keine Transkriptdateien bereit.";
+"transcript_server_reload_missing_rescanned" = "Für dieses Kapitel gibt es auf dem Server kein Transkript. Audiobookshelf hat das Buch erneut gescannt und keines gefunden. Lege das Transkript in denselben Ordner wie die Audiodatei, mit demselben Dateinamen und anderer Endung (zum Beispiel chapter01.vtt neben chapter01.mp3). Unterstützt werden VTT, SRT, LRC, ELRC, TTML und ähnliche Formate.";
+"transcript_server_reload_missing_not_permitted" = "Der Server hat für dieses Kapitel noch kein Transkript eingetragen. Neu in den Ordner gelegte Dateien erscheinen erst, wenn Audiobookshelf das Buch erneut scannt, und dieses Konto darf keinen Scan starten. Bitte jemanden mit Administratorkonto, das Buch in der Audiobookshelf-Weboberfläche zu öffnen und „Scannen“ zu wählen, und lade dann erneut. Das Transkript muss im selben Ordner wie die Audiodatei liegen, mit demselben Dateinamen und anderer Endung.";
+"transcript_server_reload_missing_failed" = "Der Server hat für dieses Kapitel noch kein Transkript eingetragen, und die Bitte um einen erneuten Scan hat nicht geklappt. Öffne das Buch in der Audiobookshelf-Weboberfläche, wähle „Scannen“ und lade dann erneut. Das Transkript muss im selben Ordner wie die Audiodatei liegen, mit demselben Dateinamen und anderer Endung.";
+"transcript_server_reload_missing_single_file" = "Dieses Buch ist eine einzelne Audiodatei im Stammordner der Mediathek, daher zählt Audiobookshelf die Dateien daneben nicht dazu. Lege Audiodatei und Transkript gemeinsam in einen Ordner, scanne und lade dann erneut.";
+"transcript_server_replace_title" = "Transkript vom Server verwenden?";
+"transcript_server_replace_message" = "Du hast das Transkript dieses Kapitels bearbeitet oder importiert. Nach dem Wechsel zur Fassung vom Server kannst du unter „Songtext bearbeiten“ › „Songtextquellen“ wieder zurückwechseln.";
+"transcript_server_replace_action" = "Transkript vom Server verwenden";

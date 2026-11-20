@@ -73,6 +73,8 @@ public struct AudiobookshelfAudioFile: Sendable, Equatable {
     public let size: Int64
     public let fileExtension: String
     public let fileName: String?
+    /// 相对条目文件夹的路径(书分了 `CD1/`、`CD2/` 这类子文件夹时带着它);旧版本不给。
+    public let relPath: String?
     public let tagTitle: String?
     public let trackNumber: Int?
     public let discNumber: Int?
@@ -88,6 +90,7 @@ public struct AudiobookshelfAudioFile: Sendable, Equatable {
         let metadata = json["metadata"] as? [String: Any]
         let filename = absNonemptyString(metadata?["filename"])
         self.fileName = filename
+        self.relPath = absNonemptyString(metadata?["relPath"])
         let ext = absNonemptyString(metadata?["ext"])
             ?? filename.map { "." + ($0 as NSString).pathExtension }
             ?? ""
@@ -102,7 +105,7 @@ public struct AudiobookshelfAudioFile: Sendable, Equatable {
     }
 
     public init(ino: String, index: Int, duration: TimeInterval, size: Int64 = 0, fileExtension: String,
-                fileName: String? = nil, tagTitle: String? = nil, trackNumber: Int? = nil,
+                fileName: String? = nil, relPath: String? = nil, tagTitle: String? = nil, trackNumber: Int? = nil,
                 discNumber: Int? = nil, bitRate: Int? = nil, excluded: Bool = false) {
         self.ino = ino
         self.index = index
@@ -110,11 +113,52 @@ public struct AudiobookshelfAudioFile: Sendable, Equatable {
         self.size = size
         self.fileExtension = fileExtension
         self.fileName = fileName
+        self.relPath = relPath
         self.tagTitle = tagTitle
         self.trackNumber = trackNumber
         self.discNumber = discNumber
         self.bitRate = bitRate
         self.excluded = excluded
+    }
+}
+
+/// 条目文件夹里的一个文件。服务端把文件夹里的文件都登记在 `libraryFiles` 里(音频、封面、
+/// 旁边放的字幕和文字稿……),经 `/api/items/{id}/file/{ino}` 鉴权后能读原始内容。
+/// 新放进文件夹的文件要等服务端扫描过这一本才会出现在这里。
+public struct AudiobookshelfLibraryFile: Sendable, Equatable {
+    public let ino: String
+    public let fileName: String
+    /// 相对条目文件夹的路径;没给时当作就在条目文件夹里。
+    public let relPath: String
+    public let size: Int64
+
+    public init(ino: String, fileName: String, relPath: String? = nil, size: Int64 = 0) {
+        self.ino = ino
+        self.fileName = fileName
+        self.relPath = relPath ?? fileName
+        self.size = size
+    }
+
+    public init?(json: [String: Any]) {
+        let metadata = json["metadata"] as? [String: Any]
+        guard let ino = absIDString(json["ino"]),
+              let fileName = absNonemptyString(metadata?["filename"]) else { return nil }
+        self.init(
+            ino: ino,
+            fileName: fileName,
+            relPath: absNonemptyString(metadata?["relPath"]),
+            size: absInt64(metadata?["size"]) ?? 0
+        )
+    }
+
+    /// 所在的子文件夹(相对条目文件夹),就在条目文件夹里时为空串。
+    public var directory: String { Self.directory(ofRelativePath: relPath) }
+
+    static func directory(ofRelativePath path: String) -> String {
+        let trimmed = path.replacingOccurrences(of: "\\", with: "/")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let slash = trimmed.lastIndex(of: "/") else { return "" }
+        return String(trimmed[..<slash])
     }
 }
 
@@ -205,6 +249,12 @@ public struct AudiobookshelfCatalogItem: Sendable, Equatable {
     public let mediaIsComplete: Bool
     /// 精简形态里报的音频文件数,用来判断是不是真的没有文件。
     public let reportedAudioFileCount: Int?
+    /// 条目文件夹里登记过的全部文件,找音频旁边的文字稿用。
+    public let libraryFiles: [AudiobookshelfLibraryFile]
+    /// 这份 JSON 里有没有 `libraryFiles`。精简形态没有,这时看不出旁边有没有文字稿。
+    public let listsLibraryFiles: Bool
+    /// 资料库根目录下单个音频文件成的一本(`isFile`):没有自己的文件夹,旁边的文件不归它。
+    public let isSingleFileItem: Bool
 
     public init?(json: [String: Any]) {
         guard let id = absNonemptyString(json["id"]) else { return nil }
@@ -253,6 +303,10 @@ public struct AudiobookshelfCatalogItem: Sendable, Equatable {
                 return lhs.index < rhs.index
             } ?? []
         self.reportedAudioFileCount = absInt(media["numAudioFiles"]) ?? absInt(media["numTracks"])
+        let listedFiles = json["libraryFiles"] as? [[String: Any]]
+        self.listsLibraryFiles = listedFiles != nil
+        self.libraryFiles = listedFiles?.compactMap(AudiobookshelfLibraryFile.init(json:)) ?? []
+        self.isSingleFileItem = (json["isFile"] as? Bool) ?? false
         switch self.mediaType {
         case .book:
             self.mediaIsComplete = media["audioFiles"] != nil
@@ -336,6 +390,47 @@ public struct AudiobookshelfCatalogItem: Sendable, Equatable {
     /// 文件在书里的后缀,拼歌曲路径用。
     public func fileExtension(forIno ino: String) -> String? {
         audioFiles.first { $0.ino == ino }?.fileExtension
+    }
+
+    // MARK: 外部文字稿(#461)
+
+    /// 一首对应的音频文件:书里的一个文件,或播客一集的音频。
+    public func audioFile(for kind: AudiobookshelfAPIProtocol.TrackKind) -> AudiobookshelfAudioFile? {
+        switch kind {
+        case .file(let ino):
+            return audioFiles.first { $0.ino == ino }
+        case .episode(let id):
+            return episodes.first { $0.id == id }?.audioFile
+        }
+    }
+
+    /// 和这首的音频在同一个文件夹、同名(不算扩展名)的文字稿文件,按读取顺序排:
+    /// 同名的在前、`<名>.<语言>.vtt` 这类带语言的在后(`LyricsSidecarSelectionPolicy.documents`)。
+    /// `.vtt`、`.srt`、`.lrc`、`.ttml` 等能读的歌词格式都算。
+    public func transcriptFiles(for kind: AudiobookshelfAPIProtocol.TrackKind) -> [AudiobookshelfLibraryFile] {
+        guard let audio = audioFile(for: kind), let audioName = audio.fileName else { return [] }
+        let directory = AudiobookshelfLibraryFile.directory(ofRelativePath: audio.relPath ?? audioName)
+        let siblings = libraryFiles.filter {
+            $0.directory.compare(directory, options: [.caseInsensitive]) == .orderedSame
+        }
+        guard !siblings.isEmpty else { return [] }
+        let baseName = (audioName as NSString).deletingPathExtension
+        return LyricsSidecarSelectionPolicy.documents(baseName: baseName, names: siblings.map(\.fileName))
+            .map { siblings[$0] }
+    }
+
+    /// 多文件有声书里一个文件在整本书时间轴上的时间窗:按整本书时间写的文字稿据此换成这个文件
+    /// 自己的时间,不把前面几个文件的时长加进来。单文件的书和播客单集没有,为 nil。
+    public func transcriptSegment(for kind: AudiobookshelfAPIProtocol.TrackKind) -> CueTrackLyricsTimelinePolicy.Segment? {
+        guard mediaType == .book, audioFiles.count > 1,
+              case .file(let ino) = kind,
+              let track = track(forIno: ino), track.duration > 0 else { return nil }
+        let isLast = tracks.last?.ino == ino
+        return CueTrackLyricsTimelinePolicy.Segment(
+            start: track.startOffset,
+            end: isLast ? nil : track.startOffset + track.duration,
+            duration: track.duration
+        )
     }
 
     /// 服务端的一条进度展开到本机的条目上。书:所在文件得到文件内的位置,它之前的文件算听完,
@@ -547,6 +642,23 @@ public struct AudiobookshelfMediaProgress: Sendable, Equatable {
         self.isFinished = (json["isFinished"] as? Bool) ?? false
         self.lastUpdate = absDate(json["lastUpdate"])
     }
+}
+
+/// 读一首的外部文字稿的结果。
+public enum AudiobookshelfTranscriptRead: Sendable, Equatable {
+    case document(fileName: String, text: String)
+    /// 音频旁边没有登记同名的文字稿。
+    case absent
+    /// 条目里登记着,服务端却一份都取不到了(改名、删除、重新扫描后换了 ino)。
+    case stale
+}
+
+/// 请服务端重新扫描一本的结果。
+public enum AudiobookshelfItemScanOutcome: Sendable, Equatable {
+    case scanned
+    /// 账号不是管理员,服务端不让扫描。
+    case notPermitted
+    case failed(Int)
 }
 
 public struct AudiobookshelfCatalogPage: Sendable {
@@ -1029,6 +1141,87 @@ public actor AudiobookshelfServiceClient {
             }
             guard data.count <= maximumBytes else { return nil }
             return data
+        }
+        throw AudiobookshelfServiceError.authenticationFailed
+    }
+
+    // MARK: Transcripts (#461)
+
+    /// 条目文件夹里一个文件的原始内容(文字稿、字幕这类小文件)。文件已不在服务端(404)时为 nil;
+    /// 比 `maximumBytes` 大的不要,也为 nil。
+    public func libraryFileData(itemID: String, ino: String, maximumBytes: Int) async throws -> Data? {
+        guard maximumBytes > 0 else { return nil }
+        let path = "/api/items/\(AudiobookshelfAPIProtocol.encodedPathComponent(itemID))/file/\(AudiobookshelfAPIProtocol.encodedPathComponent(ino))"
+        for attempt in 0...1 {
+            let request = try await authenticatedRequest(path: path, headers: ["Accept": "*/*"])
+            let (data, response) = try await transport.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.missingHTTPResponse"))
+            }
+            if Self.isAuthenticationFailure(http.statusCode) {
+                if attempt == 0, try await recoverSession(after: request) { continue }
+                throw AudiobookshelfServiceError.authenticationFailed
+            }
+            if http.statusCode == 404 { return nil }
+            guard (200...299).contains(http.statusCode) else {
+                throw AudiobookshelfServiceError.badServerResponse(http.statusCode)
+            }
+            return data.count <= maximumBytes ? data : nil
+        }
+        throw AudiobookshelfServiceError.authenticationFailed
+    }
+
+    /// 一首的外部文字稿:音频旁边同名的几份(`AudiobookshelfCatalogItem.transcriptFiles`)
+    /// 都读回来,按时间轴精度挑一份,多文件有声书再换成这个文件自己的时间
+    /// (`AudiobookshelfTranscriptPolicy`)。登记着的文件一份都取不到时回 `.stale`,
+    /// 调用方重新取一次条目再来。
+    public func transcriptDocument(
+        for reference: AudiobookshelfAPIProtocol.TrackReference,
+        in item: AudiobookshelfCatalogItem,
+        maximumBytes: Int
+    ) async throws -> AudiobookshelfTranscriptRead {
+        let files = item.transcriptFiles(for: reference.kind)
+            .filter { $0.size <= Int64(maximumBytes) }
+            .prefix(AudiobookshelfTranscriptPolicy.maximumComparedDocuments)
+        guard !files.isEmpty else { return .absent }
+        var documents: [AudiobookshelfTranscriptPolicy.Document] = []
+        var missing = 0
+        for file in files {
+            try Task.checkCancellation()
+            guard let data = try await libraryFileData(itemID: item.id, ino: file.ino, maximumBytes: maximumBytes) else {
+                missing += 1
+                continue
+            }
+            guard let text = TextEncodingRepair.decodeTextFile(data)?.text,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            documents.append(.init(fileName: file.fileName, text: text))
+        }
+        if documents.isEmpty { return missing == files.count ? .stale : .absent }
+        guard let picked = AudiobookshelfTranscriptPolicy.pick(
+            documents,
+            segment: item.transcriptSegment(for: reference.kind)
+        ) else { return .absent }
+        return .document(fileName: picked.fileName, text: picked.text)
+    }
+
+    /// 请服务端重新扫描这一本:新放进文件夹的字幕、文字稿要扫描后才登记进 `libraryFiles`。
+    /// 只有管理员账号能扫描,别的账号服务端回 403。
+    public func scanItem(id: String) async throws -> AudiobookshelfItemScanOutcome {
+        let path = "/api/items/\(AudiobookshelfAPIProtocol.encodedPathComponent(id))/scan"
+        for attempt in 0...1 {
+            var request = try await authenticatedRequest(path: path)
+            request.httpMethod = "POST"
+            let (_, response) = try await transport.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.missingHTTPResponse"))
+            }
+            if http.statusCode == 401 {
+                if attempt == 0, try await recoverSession(after: request) { continue }
+                throw AudiobookshelfServiceError.authenticationFailed
+            }
+            if http.statusCode == 403 { return .notPermitted }
+            guard (200...299).contains(http.statusCode) else { return .failed(http.statusCode) }
+            return .scanned
         }
         throw AudiobookshelfServiceError.authenticationFailed
     }

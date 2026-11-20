@@ -99,6 +99,7 @@ public enum SubtitleLyricsParser {
             cues.append(cue)
         }
         guard !cues.isEmpty else { return [] }
+        if let wordLines = wordPerCueLines(cues) { return wordLines }
 
         // Only YouTube-style rolling captions repeat their previous line; a
         // real lyric document with a repeated chorus must keep both rows. The
@@ -507,6 +508,59 @@ public enum SubtitleLyricsParser {
             endTimestamp: cue.end,
             voice: voice
         )
+    }
+
+    // MARK: - Word-per-cue transcripts
+
+    /// 转写工具(whisper 一类)导出的逐词字幕一个 cue 只有一个词。一词一行既没法读,也没有
+    /// 逐词高亮:这种文档按句子并成行,每个 cue 是这一行里的一个词,时间照 cue 的起止(#461)。
+    /// 分行规则和本机生成的文字稿一样(`SpokenTranscriptLayout`)。
+    private static func wordPerCueLines(_ cues: [Cue]) -> [LyricLine]? {
+        guard cues.count >= minimumWordCueCount else { return nil }
+        var wordCount = 0
+        var durations: [TimeInterval] = []
+        for cue in cues {
+            guard cue.payload.count == 1,
+                  cue.payload[0].marks.isEmpty,
+                  isSingleWord(cue.payload[0].characters) else { continue }
+            wordCount += 1
+            if let end = cue.end { durations.append(end - cue.start) }
+        }
+        guard Double(wordCount) >= Double(cues.count) * minimumWordCueShare,
+              !durations.isEmpty else { return nil }
+        // 一个词念不了多久;一句一个 cue、句子又碰巧没有空格(中文)的字幕 cue 长得多。
+        let medianDuration = durations.sorted()[durations.count / 2]
+        guard medianDuration <= maximumWordCueDuration else { return nil }
+        let words = cues.map { cue in
+            AIAudioTranscriptionWord(
+                text: cue.payload.map(\.text).joined(separator: " "),
+                startTime: cue.start,
+                endTime: cue.end ?? (cue.start + inferredTailDuration)
+            )
+        }
+        let lines = AIAudioTranscriptionLyricsFormatter.document(
+            from: AIAudioTranscriptionResult(words: words),
+            maximumLineLength: SpokenTranscriptLayout.maximumLineLength,
+            maximumLineDuration: SpokenTranscriptLayout.maximumLineDuration
+        ).lyricLines()
+        return lines.isEmpty ? nil : lines
+    }
+
+    private static let minimumWordCueCount = 3
+    private static let minimumWordCueShare = 0.9
+    private static let maximumWordCueDuration: TimeInterval = 1.5
+
+    /// 一个词:中间没有空白,不长;汉字、假名、谚文一个词不过几个字。
+    private static func isSingleWord(_ characters: [Character]) -> Bool {
+        guard !characters.isEmpty, !characters.contains(where: \.isWhitespace) else { return false }
+        let isCJK = characters.contains { character in
+            character.unicodeScalars.contains { scalar in
+                (0x2E80...0x9FFF).contains(scalar.value)
+                    || (0xAC00...0xD7AF).contains(scalar.value)
+                    || (0xF900...0xFAFF).contains(scalar.value)
+            }
+        }
+        return characters.count <= (isCJK ? 4 : 24)
     }
 
     /// The document's first singer reads as the lead. Only a second distinct

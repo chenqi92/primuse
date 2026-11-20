@@ -2964,11 +2964,41 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
 
 private struct RoutedAudiobookshelfConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLibraryListingConnector, ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector,
-    ServerListeningProgressConnector, ServerChapterProvidingConnector {
+    ServerListeningProgressConnector, ServerChapterProvidingConnector, ServerTranscriptFileConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func fetchServerLyrics(for path: String) async -> String? {
+        try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else { return nil }
+            return await provider.fetchServerLyrics(for: path)
+        }
+    }
+
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        (try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else {
+                return .unavailable
+            }
+            return await provider.readServerLyrics(for: path)
+        }) ?? .unavailable
+    }
+
+    func prepareServerTranscriptReload(for path: String) async -> ServerTranscriptRegistration {
+        (try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerTranscriptFileConnector else { return .unavailable }
+            return await provider.prepareServerTranscriptReload(for: path)
+        }) ?? .unavailable
+    }
+
+    func serverAudioFileName(for path: String) async -> String? {
+        try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerTranscriptFileConnector else { return nil }
+            return await provider.serverAudioFileName(for: path)
+        }
+    }
 
     func fetchServerListeningProgress(for songPaths: [String]) async throws -> [ServerListeningProgress] {
         try await routing.withRead { connector in

@@ -22,12 +22,14 @@ enum LyricsLoader {
     /// never enters the title-based online scraping path used by ordinary
     /// first-load fallback, so an explicit source reload cannot mis-attribute
     /// another song's lyrics.
+    /// - Parameter replacingUserTranscript: 用户确认过用服务器上的换掉自己编辑、导入的那份(#461)。
     static func refreshFromSource(
         for song: Song,
         sourceType: MusicSourceType?,
         sourceManager: SourceManager,
         cachedDocument: [LyricLine]? = nil,
-        trigger: LyricsSourceRefreshTrigger
+        trigger: LyricsSourceRefreshTrigger,
+        replacingUserTranscript: Bool = false
     ) async -> LyricsSourceRefreshResult {
         guard LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType) else {
             return .unsupported
@@ -48,7 +50,8 @@ enum LyricsLoader {
             for: song,
             server: server,
             cachedDocument: cachedDocument,
-            trigger: trigger
+            trigger: trigger,
+            replacingUserTranscript: replacingUserTranscript && trigger == .explicit
         )
     }
 
@@ -85,7 +88,8 @@ enum LyricsLoader {
         for song: Song,
         server: any ServerLyricsConnector,
         cachedDocument: [LyricLine]? = nil,
-        trigger: LyricsSourceRefreshTrigger
+        trigger: LyricsSourceRefreshTrigger,
+        replacingUserTranscript: Bool = false
     ) async -> LyricsSourceRefreshResult {
         guard server.serverLyricsCapabilities.canRead else { return .unsupported }
 
@@ -95,9 +99,12 @@ enum LyricsLoader {
         } else {
             currentDocument = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
         }
-        guard currentDocument?.first?.documentIsLocalOverride != true else {
+        guard currentDocument?.first?.documentIsLocalOverride != true || replacingUserTranscript else {
             return .failedPreservingCache
         }
+        // 有声内容的文字稿:服务器上的外部稿换掉本机生成的,哪怕生成的是逐字的(#461)。
+        let supersedesCachedDocument = SpokenTranscriptPrecedencePolicy
+            .automaticServerDecision(current: currentDocument) == .replace
         let songID = song.id
         let sourcePath = song.filePath
         let capturedFingerprint = currentDocument.map {
@@ -147,7 +154,7 @@ enum LyricsLoader {
                     lines,
                     forSongID: songID,
                     expectedFingerprint: capturedFingerprint,
-                    force: trigger != .automatic,
+                    force: trigger != .automatic || supersedesCachedDocument,
                     preservingSelection: trigger != .explicit
                 )
                 if wrote {

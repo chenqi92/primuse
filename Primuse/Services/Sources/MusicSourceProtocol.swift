@@ -2876,6 +2876,36 @@ extension ServerLyricsConnector {
     }
 }
 
+/// 手动「重新读取服务器文字稿」前,服务端那边准备的结果(#461)。
+enum ServerTranscriptRegistration: Equatable, Sendable {
+    /// 服务端登记着这首音频旁边的文字稿。
+    case registered
+    /// 服务端没有登记。附带请它重新扫描这一本的结果。
+    case missing(ServerTranscriptRescan)
+    /// 连不上服务端。
+    case unavailable
+}
+
+enum ServerTranscriptRescan: Equatable, Sendable {
+    /// 扫描过了,仍然没有。
+    case rescanned
+    /// 账号没有扫描权限(只有管理员能扫描)。
+    case notPermitted
+    /// 扫描请求没有成功。
+    case failed
+    /// 资料库根目录下单个音频文件成的一本:旁边的文件不归它,扫描也登记不上。
+    case singleFileItem
+}
+
+/// 音乐源服务器上和音频同目录、同名的外部文字稿(Audiobookshelf,#461)。平时的读取走
+/// `ServerLyricsConnector.readServerLyrics`;这里是手动重新读取和批量导入另外要的两件事。
+protocol ServerTranscriptFileConnector: ServerLyricsConnector {
+    /// 重新向服务端取这一本;音频旁边没登记文字稿时请服务端扫描一次再看。
+    func prepareServerTranscriptReload(for path: String) async -> ServerTranscriptRegistration
+    /// 这首的音频在服务端的文件名(歌曲路径是合成的),批量导入按它对文件名。
+    func serverAudioFileName(for path: String) async -> String?
+}
+
 protocol RemoteCoverSidecarLocating: MusicSourceConnector {
     func existingCoverSidecar(for path: String) async throws -> RemoteFileItem?
 }

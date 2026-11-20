@@ -7823,3 +7823,16 @@
 "artwork_apply_to_songs_kept_local_format" = "لم تُكتب صورة الغلاف الجديدة في ملفات %d أغنية؛ وهي محفوظة في Primuse فقط.";
 "server_playlist_reorder_read_only" = "قائمة التشغيل هذه ذكية أو تخص مستخدمًا آخر، لذا لا يسمح الخادم بتغيير ترتيبها.";
 "server_playlist_reorder_changed" = "تغيّرت قائمة التشغيل هذه على الخادم للتو. تُعرض الآن أحدث نسخة منها، لذا أعد ترتيبها من جديد.";
+"transcript_reload_from_server" = "إعادة تحميل النص من الخادم";
+"transcript_server_reload_success" = "تم تحميل النص من الخادم.";
+"transcript_server_reload_unchanged" = "النص على الخادم مطابق للنص المعروض.";
+"transcript_server_reload_unreadable" = "يسجّل الخادم ملف نص، لكن تعذّرت قراءته (فارغ أو بتنسيق غير معروف أو أكبر من 32 ميغابايت). لم يتغيّر النص الحالي.";
+"transcript_server_reload_failed_kept" = "تعذّر الاتصال بالخادم، فلم يُعَد تحميل النص. النص الموجود لم يتغيّر ويمكن قراءته دون اتصال.";
+"transcript_server_reload_unsupported" = "مصدر الموسيقى هذا لا يوفّر ملفات نصوص.";
+"transcript_server_reload_missing_rescanned" = "لا يوجد نص لهذا الفصل على الخادم. أعاد Audiobookshelf فحص الكتاب ولم يجد أي نص. ضع النص في المجلد نفسه الذي فيه الصوت، بالاسم نفسه وامتداد مختلف (مثل chapter01.vtt بجانب chapter01.mp3). التنسيقات المدعومة: VTT وSRT وLRC وELRC وTTML وما يشبهها.";
+"transcript_server_reload_missing_not_permitted" = "لم يسجّل الخادم بعدُ نصًا لهذا الفصل. لا تظهر الملفات المضافة إلى المجلد إلا بعد أن يعيد Audiobookshelf فحص الكتاب، وهذا الحساب لا يملك صلاحية بدء الفحص. اطلب من مسؤول أن يفتح الكتاب في واجهة Audiobookshelf على الويب ويختار «فحص»، ثم أعد التحميل. يجب أن يكون النص في مجلد الصوت نفسه، بالاسم نفسه وامتداد مختلف.";
+"transcript_server_reload_missing_failed" = "لم يسجّل الخادم بعدُ نصًا لهذا الفصل، ولم ينجح طلب إعادة فحص الكتاب. افتح الكتاب في واجهة Audiobookshelf على الويب واختر «فحص»، ثم أعد التحميل. يجب أن يكون النص في مجلد الصوت نفسه، بالاسم نفسه وامتداد مختلف.";
+"transcript_server_reload_missing_single_file" = "هذا الكتاب ملف صوتي واحد في جذر المكتبة، لذا لا يحتسب Audiobookshelf الملفات المجاورة له. ضع الصوت ونصه معًا في مجلد، ثم افحصه وأعد التحميل.";
+"transcript_server_replace_title" = "استخدام النص الموجود على الخادم؟";
+"transcript_server_replace_message" = "لقد حرّرت نص هذا الفصل أو استوردته. بعد التبديل إلى نسخة الخادم يمكنك الرجوع إلى نسختك من «تحرير كلمات الأغاني» › «مصادر كلمات الأغاني».";
+"transcript_server_replace_action" = "استخدام نسخة الخادم";

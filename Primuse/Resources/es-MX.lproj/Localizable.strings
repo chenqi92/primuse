@@ -7823,3 +7823,16 @@
 "artwork_apply_to_songs_kept_local_format" = "La nueva portada no se escribió en los archivos de %d canciones; solo está guardada en Primuse.";
 "server_playlist_reorder_read_only" = "Esta playlist es inteligente o pertenece a otro usuario, así que el servidor no permite cambiar su orden.";
 "server_playlist_reorder_changed" = "Esta playlist acaba de cambiar en el servidor. Ahora se muestra la versión más reciente; vuelve a ordenarla.";
+"transcript_reload_from_server" = "Volver a cargar transcripción del servidor";
+"transcript_server_reload_success" = "Se cargó la transcripción desde el servidor.";
+"transcript_server_reload_unchanged" = "La transcripción del servidor es igual a la que se muestra.";
+"transcript_server_reload_unreadable" = "El servidor tiene registrado un archivo de transcripción, pero no se pudo leer (está vacío, tiene un formato no reconocido o pesa más de 32 MB). La transcripción actual no cambió.";
+"transcript_server_reload_failed_kept" = "No se pudo conectar con el servidor y la transcripción no se volvió a cargar. La que tienes no cambió y sigue disponible sin conexión.";
+"transcript_server_reload_unsupported" = "Este origen de música no ofrece archivos de transcripción.";
+"transcript_server_reload_missing_rescanned" = "No hay transcripción de este capítulo en el servidor. Audiobookshelf volvió a escanear el libro y no encontró ninguna. Coloca la transcripción en la misma carpeta que el audio, con el mismo nombre de archivo y otra extensión (por ejemplo, chapter01.vtt junto a chapter01.mp3). Se admiten VTT, SRT, LRC, ELRC, TTML y formatos similares.";
+"transcript_server_reload_missing_not_permitted" = "El servidor todavía no registra una transcripción para este capítulo. Los archivos nuevos en la carpeta solo aparecen después de que Audiobookshelf vuelve a escanear el libro, y esta cuenta no tiene permiso para escanear. Pide a un administrador que abra el libro en la web de Audiobookshelf y elija “Escanear”; después vuelve a cargar. La transcripción debe estar en la misma carpeta que el audio, con el mismo nombre de archivo y otra extensión.";
+"transcript_server_reload_missing_failed" = "El servidor todavía no registra una transcripción para este capítulo y no se pudo pedirle que volviera a escanear el libro. Abre el libro en la web de Audiobookshelf, elige “Escanear” y vuelve a cargar. La transcripción debe estar en la misma carpeta que el audio, con el mismo nombre de archivo y otra extensión.";
+"transcript_server_reload_missing_single_file" = "Este libro es un solo archivo de audio en la raíz de la biblioteca, así que Audiobookshelf no cuenta los archivos que están junto a él. Pon el audio y su transcripción juntos en una carpeta, escanea y vuelve a cargar.";
+"transcript_server_replace_title" = "¿Usar la transcripción del servidor?";
+"transcript_server_replace_message" = "Editaste o importaste la transcripción de este capítulo. Después de cambiar a la del servidor, puedes volver a la tuya en “Editar letras” › “Orígenes de letras”.";
+"transcript_server_replace_action" = "Usar la del servidor";

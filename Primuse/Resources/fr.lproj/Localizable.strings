@@ -7917,3 +7917,16 @@
 "artwork_apply_to_songs_kept_local_format" = "La nouvelle pochette n'a pas été écrite dans les fichiers de %d morceaux ; elle est enregistrée uniquement dans Primuse.";
 "server_playlist_reorder_read_only" = "Cette playlist est une playlist intelligente ou appartient à un autre utilisateur ; le serveur n'autorise pas à en changer l'ordre.";
 "server_playlist_reorder_changed" = "Cette playlist vient d'être modifiée sur le serveur. Sa dernière version est maintenant affichée ; réorganisez-la à nouveau.";
+"transcript_reload_from_server" = "Recharger la transcription du serveur";
+"transcript_server_reload_success" = "La transcription a été chargée depuis le serveur.";
+"transcript_server_reload_unchanged" = "La transcription du serveur est identique à celle affichée.";
+"transcript_server_reload_unreadable" = "Le serveur indique un fichier de transcription, mais il n’a pas pu être lu (vide, format non reconnu ou plus de 32 Mo). La transcription actuelle n’a pas changé.";
+"transcript_server_reload_failed_kept" = "Impossible de joindre le serveur, la transcription n’a pas été rechargée. Celle que vous avez reste inchangée et lisible hors connexion.";
+"transcript_server_reload_unsupported" = "Cette source musicale ne fournit pas de fichiers de transcription.";
+"transcript_server_reload_missing_rescanned" = "Il n’y a pas de transcription pour ce chapitre sur le serveur. Audiobookshelf a réanalysé le livre sans en trouver. Placez la transcription dans le même dossier que l’audio, avec le même nom de fichier et une autre extension (par exemple chapter01.vtt à côté de chapter01.mp3). Les formats VTT, SRT, LRC, ELRC, TTML et similaires sont pris en charge.";
+"transcript_server_reload_missing_not_permitted" = "Le serveur n’a pas encore enregistré de transcription pour ce chapitre. Les fichiers ajoutés au dossier n’apparaissent qu’après une nouvelle analyse du livre par Audiobookshelf, et ce compte n’a pas le droit d’en lancer une. Demandez à un administrateur d’ouvrir le livre dans l’interface web d’Audiobookshelf et de choisir « Analyser », puis rechargez. La transcription doit se trouver dans le même dossier que l’audio, avec le même nom de fichier et une autre extension.";
+"transcript_server_reload_missing_failed" = "Le serveur n’a pas encore enregistré de transcription pour ce chapitre, et la demande de nouvelle analyse du livre a échoué. Ouvrez le livre dans l’interface web d’Audiobookshelf, choisissez « Analyser », puis rechargez. La transcription doit se trouver dans le même dossier que l’audio, avec le même nom de fichier et une autre extension.";
+"transcript_server_reload_missing_single_file" = "Ce livre est un seul fichier audio à la racine de la bibliothèque : Audiobookshelf ne compte donc pas les fichiers placés à côté. Mettez l’audio et sa transcription ensemble dans un dossier, lancez une analyse, puis rechargez.";
+"transcript_server_replace_title" = "Utiliser la transcription du serveur ?";
+"transcript_server_replace_message" = "Vous avez modifié ou importé la transcription de ce chapitre. Après être passé à celle du serveur, vous pourrez revenir en arrière dans « Modifier les paroles » › « Sources des paroles ».";
+"transcript_server_replace_action" = "Utiliser celle du serveur";

@@ -7917,3 +7917,16 @@
 "artwork_apply_to_songs_kept_local_format" = "%d곡의 새 커버를 파일에 기록하지 못해 Primuse에만 저장했습니다.";
 "server_playlist_reorder_read_only" = "스마트 플레이리스트이거나 다른 사용자의 플레이리스트이므로 서버에서 순서 변경을 허용하지 않습니다.";
 "server_playlist_reorder_changed" = "서버에서 이 플레이리스트가 방금 바뀌었습니다. 최신 내용으로 바꿨으니 순서를 다시 정해 주세요.";
+"transcript_reload_from_server" = "서버 텍스트 다시 불러오기";
+"transcript_server_reload_success" = "서버에서 텍스트를 불러왔습니다.";
+"transcript_server_reload_unchanged" = "서버의 텍스트가 지금 표시된 것과 같습니다.";
+"transcript_server_reload_unreadable" = "서버에 텍스트 파일이 등록되어 있지만 내용을 읽을 수 없습니다(빈 파일이거나 인식할 수 없는 형식이거나 32MB를 넘습니다). 현재 텍스트는 바뀌지 않았습니다.";
+"transcript_server_reload_failed_kept" = "서버에 연결하지 못해 텍스트를 다시 불러오지 못했습니다. 기존 텍스트는 그대로이며 오프라인에서도 계속 볼 수 있습니다.";
+"transcript_server_reload_unsupported" = "이 음악 소스는 텍스트 파일을 제공하지 않습니다.";
+"transcript_server_reload_missing_rescanned" = "서버에 이 챕터의 텍스트가 없습니다. Audiobookshelf에 이 책을 다시 스캔하도록 요청했지만 찾지 못했습니다. 텍스트는 오디오와 같은 폴더에, 오디오와 같은 파일 이름에 확장자만 다르게 두세요(예: chapter01.mp3에 대해 chapter01.vtt). VTT, SRT, LRC, ELRC, TTML 등의 형식을 지원합니다.";
+"transcript_server_reload_missing_not_permitted" = "서버에 아직 이 챕터의 텍스트가 등록되지 않았습니다. 폴더에 새로 넣은 파일은 Audiobookshelf가 이 책을 다시 스캔해야 보이는데, 이 계정에는 스캔 권한이 없습니다. 관리자 계정으로 Audiobookshelf 웹에서 이 책을 열고 ‘스캔’을 누른 다음 다시 불러오세요. 텍스트는 오디오와 같은 폴더에 같은 파일 이름으로, 확장자만 다르게 두어야 합니다.";
+"transcript_server_reload_missing_failed" = "서버에 아직 이 챕터의 텍스트가 등록되지 않았고, 책을 다시 스캔하도록 요청하는 것도 실패했습니다. Audiobookshelf 웹에서 이 책을 열고 ‘스캔’을 누른 다음 다시 불러오세요. 텍스트는 오디오와 같은 폴더에 같은 파일 이름으로, 확장자만 다르게 두어야 합니다.";
+"transcript_server_reload_missing_single_file" = "이 책은 보관함 최상위에 있는 단일 오디오 파일이라 Audiobookshelf가 옆에 있는 파일을 포함하지 않습니다. 오디오와 텍스트를 한 폴더에 넣고 스캔한 다음 다시 불러오세요.";
+"transcript_server_replace_title" = "서버의 텍스트로 바꿀까요?";
+"transcript_server_replace_message" = "이 챕터의 텍스트는 직접 편집하거나 가져온 것입니다. 서버의 텍스트로 바꾼 뒤에도 ‘가사 편집’의 ‘가사 소스’에서 다시 되돌릴 수 있습니다.";
+"transcript_server_replace_action" = "서버 텍스트로 바꾸기";
