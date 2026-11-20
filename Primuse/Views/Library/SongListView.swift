@@ -1847,17 +1847,37 @@ struct SongListView: View {
                 descriptionKey: "no_songs_desc",
                 systemImage: "music.note"
             )
-        } else if (!songs.isEmpty && requiresSortedSnapshot && listCache.isEmpty)
-                    || (showsFolderBrowser && !folderCache.hasIndex) {
+        } else {
+            #if os(iOS)
+            // 工具栏、页内查找和极简页头挂在转圈与列表共同的这一层：推入的第一帧（列表还在排序，或刚从
+            // 缓存摆上）就带着它们，换成列表时也不动。挂在列表上时第一帧还是转圈，导航栏要等推入动画走完
+            // 才补上按钮和查找框。页头要挂在查找框外面，才排在它上面。
+            preparedContent
+                .toolbar {
+                    iosToolbar
+                }
+                .libraryPageFind(text: $searchText, prompt: "filter_songs_placeholder")
+                .minimalPageHeader { minimalHeader }
+            #else
+            preparedContent
+            #endif
+        }
+    }
+
+    /// 排序、分目录还没好：先转圈，好了换成列表。
+    private var isPreparingList: Bool {
+        (!songs.isEmpty && requiresSortedSnapshot && listCache.isEmpty)
+            || (showsFolderBrowser && !folderCache.hasIndex)
+    }
+
+    @ViewBuilder
+    private var preparedContent: some View {
+        if isPreparingList {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .pmAppearFade(.contentAppear)
-                #if os(iOS)
-                // 极简模式下页头先摆上：换到这一页时上面不是空的，排好序、分好目录再把下面换成列表。
-                .minimalPageHeader { loadingMinimalHeader }
-                #if DEBUG
+                #if os(iOS) && DEBUG
                 .onAppear { LibrarySectionSwitchTrace.mark("songs loading") }
-                #endif
                 #endif
         } else {
             // 成对分支各自淡入，不做交叉淡入：转圈与整张表要是在过渡期同时留在布局里，
@@ -1879,17 +1899,19 @@ struct SongListView: View {
     }
 
     #if os(iOS)
-    /// 还在排序、分目录时的页头：就是列表出来后的那个页头，只是播放键先不能点，数量先按整库的歌数写
-    /// （筛了「已下载」时先空着），换成列表时这一行不动。
-    private var loadingMinimalHeader: some View {
-        SongListMinimalHeader(
+    /// 极简模式根页没有导航栏：工具栏里的这些操作排成页头。还在排序、分目录时就是列表出来后的那个页头，
+    /// 只是播放键先不能点，数量先按整库的歌数写（筛了「已下载」时先空着），换成列表时这一行不动。
+    private var minimalHeader: SongListMinimalHeader {
+        let isPreparing = isPreparingList
+        let preparingCount = songFilter == .all
+            ? "\(songs.count.formatted()) \(String(localized: "songs_count"))"
+            : " "
+        return SongListMinimalHeader(
             toolbarMenu: toolbarMenu, selection: selection,
             progress: sortProgress,
-            countText: songFilter == .all
-                ? "\(songs.count.formatted()) \(String(localized: "songs_count"))"
-                : " ",
-            canPlay: false,
-            canShuffle: false,
+            countText: isPreparing ? preparingCount : songCountText,
+            canPlay: !isPreparing && !showsFolderBrowser && filteredProjection.playableCount > 0,
+            canShuffle: !isPreparing && !showsFolderBrowser && filteredProjection.playableCount > 1,
             browseMode: $browseMode,
             folderBlocker: folderBrowseBlocker,
             resolveFolderBlocker: resolveFolderBrowseBlocker,
@@ -1897,9 +1919,9 @@ struct SongListView: View {
             filter: $songFilter,
             manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
             folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil,
-            orderedIDs: { [] },
-            onPlay: {},
-            onShuffle: {}
+            orderedIDs: { isPreparing ? [] : batchOrderedSongIDs },
+            onPlay: playVisibleSongs,
+            onShuffle: shuffleVisibleSongs
         )
     }
     #endif
@@ -1975,30 +1997,6 @@ struct SongListView: View {
             updateListInteraction(for: newPhase)
         }
         .modifier(SongListAppearancePreference())
-        .toolbar {
-            iosToolbar
-        }
-        .libraryPageFind(text: $searchText, prompt: "filter_songs_placeholder")
-        // 极简模式根页没有导航栏：工具栏里的这些操作排成页头。
-        .minimalPageHeader {
-            SongListMinimalHeader(
-                toolbarMenu: toolbarMenu, selection: selection,
-                progress: sortProgress,
-                countText: songCountText,
-                canPlay: !showsFolderBrowser && filteredProjection.playableCount > 0,
-                canShuffle: !showsFolderBrowser && filteredProjection.playableCount > 1,
-                browseMode: $browseMode,
-                folderBlocker: folderBrowseBlocker,
-                resolveFolderBlocker: resolveFolderBrowseBlocker,
-                sortOrder: $sortOrder,
-                filter: $songFilter,
-                manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
-                folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil,
-                orderedIDs: { batchOrderedSongIDs },
-                onPlay: playVisibleSongs,
-                onShuffle: shuffleVisibleSongs
-            )
-        }
         #if DEBUG
         // 截图用：`PRIMUSE_DEBUG_EDIT=songs` 打开歌曲页就进多选（看多选态的页头与底栏）。
         .task {
@@ -3155,11 +3153,19 @@ struct SongListView: View {
             isEditing: selection.isActive,
             titled: verticalBarEdge != nil,
             contains: { id in
-                showsFolderBrowser && listCache.isEmpty
-                    ? (folderCache.index?.nodeID(containingSongID: id) != nil)
-                    : listCache.contains(songID: id)
+                if !listCache.isEmpty { return listCache.contains(songID: id) }
+                if showsFolderBrowser, let index = folderCache.index {
+                    return index.nodeID(containingSongID: id) != nil
+                }
+                // 列表还在排序、目录还在分（刚推入这一页）：先按这一页的范围认，工具栏一开始就是排好后的那几颗键。
+                return pageScopeContains(id)
             },
-            isVisible: { id in showsFolderBrowser || filteredProjection.rows.contains { $0.id == id } }
+            isVisible: { id in
+                showsFolderBrowser
+                    // 还没排好时没有筛选就算在列表里：定位请求留着，列表出来再滚过去。
+                    || (listCache.isEmpty && folderBrowseBlocker == nil)
+                    || filteredProjection.rows.contains { $0.id == id }
+            }
         ) { songID, clearsFilters in
             if clearsFilters {
                 searchText = ""
@@ -3172,6 +3178,16 @@ struct SongListView: View {
                 #endif
             }
             locateSong(songID)
+        }
+    }
+
+    /// 这一页的范围里有没有这首：可见、算音乐，按音乐源看的页还要是这个源的。列表排好以前用它。
+    private func pageScopeContains(_ songID: String) -> Bool {
+        guard !library.nonMusicSongIDs.contains(songID),
+              let song = library.unobservedVisibleSong(id: songID) else { return false }
+        switch scope {
+        case .library: return true
+        case .source(let sourceID): return song.sourceID == sourceID
         }
     }
 
