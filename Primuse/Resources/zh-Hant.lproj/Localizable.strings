@@ -7892,3 +7892,5 @@
 "tag_editor_metadata_writeback_kept_local" = "變更已儲存在 Primuse，音樂來源上仍是原來的樣子。";
 "tag_editor_metadata_writeback_kept_local_retry" = "變更已儲存在 Primuse，音樂來源上仍是原來的標籤；音樂來源能連上時會自動再寫一次。";
 "artwork_apply_to_songs_kept_local_format" = "%d 首歌的新封面沒寫進檔案，只儲存在 Primuse。";
+"server_playlist_reorder_read_only" = "這是智慧型播放列表或其他使用者的播放列表，伺服器不允許調整順序。";
+"server_playlist_reorder_changed" = "伺服器上的這個播放列表剛有變動，已換成最新內容，請重新調整順序。";

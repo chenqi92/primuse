@@ -1071,6 +1071,191 @@ final class ServerPlaylistDescriptionTests: XCTestCase {
         XCTAssertEqual(reloaded.playlist(id: local.id)?.descriptionText, "Local edit")
     }
 
+    private func names(_ fixture: PlaylistDescriptionHTTPFixture) -> [String] {
+        fixture.requests.compactMap { $0.url?.lastPathComponent }
+    }
+
+    func testReorderRewritesKnownServersWithOneCreatePlaylistCall() async throws {
+        let fixture = PlaylistDescriptionHTTPFixture(rows: ["song.a-1", "song.a-2", "song.a-1"])
+        let (connector, session) = makeSource(fixture)
+        defer { session.invalidateAndCancel() }
+        let current = try await connector.serverPlaylistForReordering(id: "list.a-42")
+        let ordered = ["song.a-2", "song.a-1", "song.a-1"]
+        let result = try await connector.reorderServerPlaylist(
+            id: "list.a-42", expectedTrackIDs: current.trackIDs, orderedTrackIDs: ordered
+        )
+        guard case .updated(let playlist) = result else { return XCTFail("Expected confirmed update") }
+        XCTAssertEqual(playlist.trackIDs, ordered)
+        XCTAssertEqual(fixture.trackIDs, ordered)
+        XCTAssertFalse(names(fixture).contains("updatePlaylist.view"))
+        let index = try XCTUnwrap(names(fixture).firstIndex(of: "createPlaylist.view"))
+        let write = fixture.requests[index]
+        XCTAssertEqual(write.httpMethod ?? "GET", "GET")
+        let form = fixture.forms[index]
+        XCTAssertEqual(form.filter { $0.name == "playlistId" }.compactMap(\.value), ["list.a-42"])
+        XCTAssertEqual(form.filter { $0.name == "songId" }.compactMap(\.value), ordered)
+        XCTAssertNil(form.first { $0.name == "name" })
+    }
+
+    func testReorderPostsTheTrackListWhenTheServerAcceptsForms() async throws {
+        let rows = (1...400).map { "song.long-\($0)" }
+        let fixture = PlaylistDescriptionHTTPFixture(rows: rows, acceptsFormPost: true)
+        let (connector, session) = makeSource(fixture)
+        defer { session.invalidateAndCancel() }
+        let ordered = Array(rows.reversed())
+        let result = try await connector.reorderServerPlaylist(
+            id: "list.a-42", expectedTrackIDs: rows, orderedTrackIDs: ordered
+        )
+        guard case .updated(let playlist) = result else { return XCTFail("Expected confirmed update") }
+        XCTAssertEqual(playlist.trackIDs, ordered)
+        let index = try XCTUnwrap(names(fixture).firstIndex(of: "createPlaylist.view"))
+        let write = fixture.requests[index]
+        XCTAssertEqual(write.httpMethod, "POST")
+        let urlQuery = URLComponents(url: try XCTUnwrap(write.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertNil(urlQuery.first { $0.name == "songId" })
+        XCTAssertEqual(fixture.forms[index].filter { $0.name == "songId" }.compactMap(\.value), ordered)
+    }
+
+    func testReorderMovesBatchesToTheEndOnUnknownOrLongGetOnlyServers() async throws {
+        // 自报别的类型: 不信 createPlaylist 的替换语义。
+        let fixture = PlaylistDescriptionHTTPFixture(rows: ["a", "b", "c", "d"], serverType: "other-server")
+        let (connector, session) = makeSource(fixture, type: .subsonic)
+        defer { session.invalidateAndCancel() }
+        let result = try await connector.reorderServerPlaylist(
+            id: "list.a-42", expectedTrackIDs: ["a", "b", "c", "d"], orderedTrackIDs: ["d", "a", "b", "c"]
+        )
+        guard case .updated(let playlist) = result else { return XCTFail("Expected confirmed update") }
+        XCTAssertEqual(playlist.trackIDs, ["d", "a", "b", "c"])
+        XCTAssertFalse(names(fixture).contains("createPlaylist.view"))
+        let writes = fixture.forms.enumerated().filter { names(fixture)[$0.offset] == "updatePlaylist.view" }.map(\.element)
+        XCTAssertEqual(writes.count, 1)
+        XCTAssertEqual(writes.first?.filter { $0.name == "songIndexToRemove" }.compactMap(\.value), ["2", "1", "0"])
+        XCTAssertEqual(writes.first?.filter { $0.name == "songIdToAdd" }.compactMap(\.value), ["a", "b", "c"])
+
+        // 认得出的服务器, 但整份放不进网址又不收表单: 也退回按批挪动。
+        let rows = (1...400).map { "song.long-\($0)" }
+        let long = PlaylistDescriptionHTTPFixture(rows: rows)
+        let (longConnector, longSession) = makeSource(long)
+        defer { longSession.invalidateAndCancel() }
+        let ordered = [rows[399]] + rows.dropLast()
+        let longResult = try await longConnector.reorderServerPlaylist(
+            id: "list.a-42", expectedTrackIDs: rows, orderedTrackIDs: ordered
+        )
+        guard case .updated(let longPlaylist) = longResult else { return XCTFail("Expected confirmed update") }
+        XCTAssertEqual(longPlaylist.trackIDs, ordered)
+        XCTAssertFalse(names(long).contains("createPlaylist.view"))
+        XCTAssertEqual(names(long).filter { $0 == "updatePlaylist.view" }.count, 8)
+        for request in long.requests { XCTAssertLessThan(request.url?.absoluteString.utf8.count ?? 0, 6_000) }
+    }
+
+    func testReorderNeverWritesOverAChangedSmartOrDeniedPlaylist() async throws {
+        let rows = ["song.a-1", "song.a-2"]
+        let reversed = ["song.a-2", "song.a-1"]
+        for mode in [PlaylistDescriptionHTTPFixture.Mode.success, .smart, .rejected, .forbidden, .mismatch, .timeout] {
+            let fixture = PlaylistDescriptionHTTPFixture(mode: mode)
+            let (connector, session) = makeSource(fixture)
+            defer { session.invalidateAndCancel() }
+            if mode == .success {
+                // 别处刚加了一首: 排序依据的那份已经不是服务器上的了。
+                fixture.replaceRows(rows + ["song.elsewhere"])
+                let result = try await connector.reorderServerPlaylist(
+                    id: "list.a-42", expectedTrackIDs: rows, orderedTrackIDs: reversed
+                )
+                guard case .changed(let latest) = result else { return XCTFail("Expected changed playlist") }
+                XCTAssertEqual(latest.trackIDs, rows + ["song.elsewhere"])
+                XCTAssertEqual(fixture.trackIDs, rows + ["song.elsewhere"])
+                // 交上来的不是同一批曲目: 一个请求都不发。
+                let before = fixture.requests.count
+                do {
+                    _ = try await connector.reorderServerPlaylist(
+                        id: "list.a-42", expectedTrackIDs: rows, orderedTrackIDs: ["song.a-2", "song.a-2"]
+                    )
+                    XCTFail("Unexpected write")
+                } catch {}
+                XCTAssertEqual(fixture.requests.count, before)
+                continue
+            }
+            do {
+                let result = try await connector.reorderServerPlaylist(
+                    id: "list.a-42", expectedTrackIDs: rows, orderedTrackIDs: reversed
+                )
+                guard case .readOnly = result else { return XCTFail("Expected read-only for \(mode)") }
+                XCTAssertTrue([.smart, .rejected, .forbidden].contains(mode))
+            } catch {
+                XCTAssertTrue([.mismatch, .timeout].contains(mode), "\(mode): \(error)")
+            }
+            if mode == .smart { XCTAssertFalse(names(fixture).contains("createPlaylist.view")) }
+            XCTAssertEqual(fixture.trackIDs, rows)
+        }
+    }
+
+    func testReorderServiceShowsTheNewOrderAndRollsBackWhenTheServerFails() async throws {
+        for mode in [PlaylistDescriptionHTTPFixture.Mode.success, .timeout, .rejected] {
+            for changedElsewhere in mode == .success ? [false, true] : [false] {
+                let fixture = PlaylistDescriptionHTTPFixture(mode: mode)
+                let (connector, session) = makeSource(fixture)
+                defer { session.invalidateAndCancel() }
+                let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                let library = MusicLibrary(storageDirectory: root)
+                let sources = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+                let source = MusicSource(id: await connector.sourceID, name: "Server", type: .navidrome,
+                                         host: "primary.invalid", useSsl: true, connectionConfiguration: .init(
+                                            localEndpoint: .init(host: "primary.invalid", port: 443, useSsl: true),
+                                            publicEndpoint: .init(host: "secondary.invalid", port: 443, useSsl: true)))
+                sources.add(source)
+                let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+                let songs = ["song.a-1", "song.a-2"].map {
+                    Song(id: "local-" + $0, title: $0, duration: 60, fileFormat: .mp3,
+                         filePath: "/songs/" + $0 + ".mp3", sourceID: source.id)
+                }
+                library.addSongs(songs)
+                await library.waitForPendingIndex()
+                let snapshot = try await connector.fetchServerPlaylists()
+                _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library)
+                let playlistID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "list.a-42")
+                XCTAssertEqual(library.songIDs(forPlaylist: playlistID), songs.map(\.id))
+                XCTAssertNotNil(ServerPlaylistReorderService.source(for: playlistID, sourcesStore: sources))
+
+                let request = try XCTUnwrap(ServerPlaylistReorderService.begin(
+                    playlistID: playlistID, listedOrder: [songs[1].id, songs[0].id],
+                    library: library, sourcesStore: sources
+                ))
+                // 写服务器之前就按新先后显示; 上一次没写完时不接下一次。
+                XCTAssertEqual(library.songIDs(forPlaylist: playlistID), [songs[1].id, songs[0].id])
+                XCTAssertNil(ServerPlaylistReorderService.begin(
+                    playlistID: playlistID, listedOrder: [songs[0].id, songs[1].id],
+                    library: library, sourcesStore: sources
+                ))
+                if changedElsewhere {
+                    // 别处又加了一份重复项: 成员没变, 但不是排序时依据的那份。
+                    fixture.replaceRows(["song.a-1", "song.a-2", "song.a-2"])
+                }
+                do {
+                    try await ServerPlaylistReorderService.commit(request, library: library, sourceManager: manager)
+                    XCTAssertTrue(mode == .success && !changedElsewhere)
+                    XCTAssertEqual(fixture.trackIDs, ["song.a-2", "song.a-1"])
+                    XCTAssertEqual(library.songIDs(forPlaylist: playlistID), [songs[1].id, songs[0].id])
+                } catch {
+                    XCTAssertFalse(names(fixture).contains("createPlaylist.view") && mode == .success)
+                    if changedElsewhere {
+                        XCTAssertEqual(error as? ServerPlaylistReorderError, .changedOnServer)
+                        XCTAssertEqual(fixture.trackIDs, ["song.a-1", "song.a-2", "song.a-2"])
+                    } else if mode == .rejected {
+                        XCTAssertEqual(error as? ServerPlaylistReorderError, .readOnly)
+                        XCTAssertNil(ServerPlaylistReorderService.source(for: playlistID, sourcesStore: sources))
+                    }
+                    XCTAssertEqual(library.songIDs(forPlaylist: playlistID), songs.map(\.id))
+                }
+                // 写完(不论成败)就能接下一次; 服务器拒绝过的歌单不再给入口。
+                let next = ServerPlaylistReorderService.begin(
+                    playlistID: playlistID, listedOrder: Array(library.songIDs(forPlaylist: playlistID).reversed()),
+                    library: library, sourcesStore: sources
+                )
+                XCTAssertEqual(next == nil, mode == .rejected)
+            }
+        }
+    }
+
     private func makeSource(_ fixture: PlaylistDescriptionHTTPFixture, type: MusicSourceType = .navidrome)
         -> (SubsonicSource, URLSession) {
         let host = UUID().uuidString.lowercased() + ".invalid"
@@ -1086,14 +1271,48 @@ final class ServerPlaylistDescriptionTests: XCTestCase {
 private final class PlaylistDescriptionHTTPFixture: @unchecked Sendable {
     enum Mode { case success, rejected, mismatch, readOnly, smart, emptyDetail, duplicateRows, badEntry, forbidden, timeout, unauthorized }
     let mode: Mode
+    /// ping 里自报的服务器类型; nil 时连 OpenSubsonic 也不报(老 Subsonic / Airsonic)。
+    let serverType: String?
+    /// `getOpenSubsonicExtensions` 里带不带 formPost。
+    let acceptsFormPost: Bool
     private let lock = NSLock()
     private var recorded: [URLRequest] = []
+    private var recordedForms: [[URLQueryItem]] = []
     private var comment = "服务器简介"
     var requests: [URLRequest] { lock.withLock { recorded } }
+    /// 每个请求的全部参数: 网址里的加上 POST 表单里的, 与 `requests` 一一对应。
+    var forms: [[URLQueryItem]] { lock.withLock { recordedForms } }
+    var trackIDs: [String] { lock.withLock { rows } }
     private var rows: [String]
-    init(mode: Mode = .success) {
+    init(mode: Mode = .success, rows: [String]? = nil, serverType: String? = "navidrome", acceptsFormPost: Bool = false) {
         self.mode = mode
-        rows = mode == .duplicateRows ? ["unmatched", "target", "other", "target"] : ["song.a-1", "song.a-2"]
+        self.serverType = serverType
+        self.acceptsFormPost = acceptsFormPost
+        self.rows = rows ?? (mode == .duplicateRows ? ["unmatched", "target", "other", "target"] : ["song.a-1", "song.a-2"])
+    }
+    /// 模拟别处(网页端、别的设备)改了服务器上的歌单。
+    func replaceRows(_ rows: [String]) { lock.withLock { self.rows = rows } }
+    static func formItems(_ request: URLRequest) -> [URLQueryItem] {
+        var items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        var body = request.httpBody
+        if body == nil, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                data.append(buffer, count: count)
+            }
+            body = data
+        }
+        if let body, let text = String(data: body, encoding: .utf8), !text.isEmpty {
+            var parts = URLComponents()
+            parts.percentEncodedQuery = text.replacingOccurrences(of: "+", with: "%20")
+            items += parts.queryItems ?? []
+        }
+        return items
     }
     func query(_ request: URLRequest) -> [String: String] {
         var parts = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
@@ -1102,9 +1321,16 @@ private final class PlaylistDescriptionHTTPFixture: @unchecked Sendable {
             .compactMap { item in item.value.map { (item.name, $0) } }, uniquingKeysWith: { _, rhs in rhs })
     }
     func response(_ request: URLRequest) -> Data {
-        lock.withLock {
+        let form = Self.formItems(request)
+        return lock.withLock {
             recorded.append(request)
-            var body: [String: Any] = ["status": "ok", "version": "1.16.1", "type": "navidrome", "openSubsonic": true]
+            recordedForms.append(form)
+            func values(_ name: String) -> [String] { form.filter { $0.name == name }.compactMap(\.value) }
+            var body: [String: Any] = ["status": "ok", "version": "1.16.1"]
+            if let serverType {
+                body["type"] = serverType
+                body["openSubsonic"] = true
+            }
             var playlist: [String: Any] = ["id": "list.a-42", "name": "List", "comment": comment,
                 "owner": mode == .readOnly ? "another-user" : "qa", "readonly": mode == .smart, "songCount": rows.count,
                 "entry": rows.map { ["id": $0] }]
@@ -1120,11 +1346,17 @@ private final class PlaylistDescriptionHTTPFixture: @unchecked Sendable {
             case "updatePlaylist.view":
                 if mode == .rejected { body = ["status": "failed", "error": ["code": 50, "message": "Denied"]] }
                 else if mode != .mismatch {
-                    let indices = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?
-                        .filter { $0.name == "songIndexToRemove" }.compactMap { $0.value.flatMap(Int.init) } ?? []
+                    let indices = values("songIndexToRemove").compactMap(Int.init)
                     rows = rows.enumerated().compactMap { indices.contains($0.offset) ? nil : $0.element }
+                        + values("songIdToAdd")
                     comment = query(request)["comment"] ?? comment
                 }
+            case "createPlaylist.view":
+                if mode == .rejected { body = ["status": "failed", "error": ["code": 50, "message": "Denied"]] }
+                else if values("playlistId") == ["list.a-42"], mode != .mismatch { rows = values("songId") }
+            case "getOpenSubsonicExtensions.view":
+                let extensions: [[String: Any]] = acceptsFormPost ? [["name": "formPost", "versions": [1]]] : []
+                body["openSubsonicExtensions"] = extensions
             default: body = ["status": "failed", "error": ["code": 70, "message": "Unknown method"]]
             }
             return try! JSONSerialization.data(withJSONObject: ["subsonic-response": body])
@@ -1142,7 +1374,7 @@ private final class PlaylistDescriptionHTTPProtocol: URLProtocol, @unchecked Sen
         guard let url = request.url, let fixture = Self.lock.withLock({ Self.fixtures[url.host ?? ""] }) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
         }
-        let isWrite = url.lastPathComponent == "updatePlaylist.view"
+        let isWrite = ["updatePlaylist.view", "createPlaylist.view"].contains(url.lastPathComponent)
         if isWrite, fixture.mode == .timeout {
             client?.urlProtocol(self, didFailWithError: URLError(.timedOut))
             return

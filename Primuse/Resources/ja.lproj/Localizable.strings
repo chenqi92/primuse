@@ -7916,3 +7916,5 @@
 "tag_editor_metadata_writeback_kept_local" = "変更は Primuse に保存されましたが、音楽ソース側は変更されていません。";
 "tag_editor_metadata_writeback_kept_local_retry" = "変更は Primuse に保存されましたが、音楽ソース側は元のタグのままです。ソースに接続できるようになると自動で書き込み直します。";
 "artwork_apply_to_songs_kept_local_format" = "%d 曲の新しいカバーはファイルに書き込めず、Primuse にのみ保存されました。";
+"server_playlist_reorder_read_only" = "スマートプレイリストまたは他のユーザーのプレイリストのため、サーバーが並べ替えを許可していません。";
+"server_playlist_reorder_changed" = "このプレイリストはサーバー上で変更されたばかりです。最新の内容に更新したので、もう一度並べ替えてください。";

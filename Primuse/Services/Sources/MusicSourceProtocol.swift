@@ -2610,6 +2610,41 @@ protocol ServerPlaylistRemovingConnector: MusicSourceConnector {
     func removeFromServerPlaylist(id: String, itemIDs: Set<String>) async throws -> ServerPlaylistRemovalResult
 }
 
+enum ServerPlaylistReorderResult: Sendable {
+    /// 服务器已按新先后保存, 带着回读核对过的明细。
+    case updated(ServerPlaylist)
+    /// 智能歌单或别人的歌单, 当前账户改不了, 没有写。
+    case readOnly(ServerPlaylist)
+    /// 服务器上的明细和排序时依据的不一样了(别处刚加、删或排过), 没有写。
+    case changed(ServerPlaylist)
+}
+
+/// 服务器歌单换先后(#449, Subsonic 系)。只换先后, 交上去的必须是服务器眼下明细的一个排列,
+/// 写完回读核对; 不支持的写法由连接器自己退回别的写法, 不让调用方分辨服务器版本。
+protocol ServerPlaylistReorderingConnector: MusicSourceConnector {
+    /// 排序前读一次明细, 先后原样; 有读不出的条目时报错, 不拿残缺的明细去重写。
+    func serverPlaylistForReordering(id: String) async throws -> ServerPlaylist
+    /// 把 `expectedTrackIDs`(排序时读到的明细)换成 `orderedTrackIDs` 的先后。写之前再读一次,
+    /// 和 `expectedTrackIDs` 不完全一样就不写、返回 `.changed`。
+    func reorderServerPlaylist(
+        id: String,
+        expectedTrackIDs: [String],
+        orderedTrackIDs: [String]
+    ) async throws -> ServerPlaylistReorderResult
+}
+
+enum ServerPlaylistReorderError: LocalizedError, Equatable {
+    case readOnly
+    case changedOnServer
+
+    var errorDescription: String? {
+        switch self {
+        case .readOnly: String(localized: "server_playlist_reorder_read_only")
+        case .changedOnServer: String(localized: "server_playlist_reorder_changed")
+        }
+    }
+}
+
 /// 在服务端新建一个空歌单(Subsonic `createPlaylist`、Emby / Jellyfin `POST /Playlists`、
 /// Audio Station `create`)。加歌仍走 `appendToServerPlaylist`, 去重、分批与回读确认都在那一步;
 /// 返回的歌单 id 与 `fetchServerPlaylists` 里的同一套, 能直接派生本地镜像。

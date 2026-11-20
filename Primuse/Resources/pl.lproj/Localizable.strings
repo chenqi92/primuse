@@ -7821,3 +7821,5 @@
 "tag_editor_metadata_writeback_kept_local" = "Zmiany zapisano w Primuse, ale w źródle muzyki nic się nie zmieniło.";
 "tag_editor_metadata_writeback_kept_local_retry" = "Zmiany zapisano w Primuse, ale źródło muzyki nadal ma stare tagi. Primuse zapisze je ponownie automatycznie, gdy źródło będzie dostępne.";
 "artwork_apply_to_songs_kept_local_format" = "Nowej okładki nie zapisano w plikach %d utworów; jest zapisana tylko w Primuse.";
+"server_playlist_reorder_read_only" = "To inteligentna playlista lub playlista innego użytkownika, więc serwer nie pozwala zmieniać jej kolejności.";
+"server_playlist_reorder_changed" = "Ta playlista właśnie zmieniła się na serwerze. Teraz widać jej najnowszą wersję – ustaw kolejność ponownie.";

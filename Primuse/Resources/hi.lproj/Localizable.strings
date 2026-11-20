@@ -7821,3 +7821,5 @@
 "tag_editor_metadata_writeback_kept_local" = "आपके बदलाव Primuse में सहेजे गए हैं, लेकिन म्यूज़िक स्रोत में कुछ नहीं बदला।";
 "tag_editor_metadata_writeback_kept_local_retry" = "आपके बदलाव Primuse में सहेजे गए हैं, लेकिन म्यूज़िक स्रोत में अभी पुराने टैग हैं। स्रोत उपलब्ध होते ही Primuse उन्हें अपने-आप फिर से लिखेगा।";
 "artwork_apply_to_songs_kept_local_format" = "%d गानों की फ़ाइलों में नया कवर नहीं लिखा जा सका; यह सिर्फ़ Primuse में सहेजा गया है।";
+"server_playlist_reorder_read_only" = "यह स्मार्ट प्लेलिस्ट है या किसी अन्य उपयोगकर्ता की है, इसलिए सर्वर इसका क्रम बदलने की अनुमति नहीं देता।";
+"server_playlist_reorder_changed" = "यह प्लेलिस्ट अभी-अभी सर्वर पर बदली गई है। अब इसका नया रूप दिख रहा है, कृपया क्रम फिर से बदलें।";

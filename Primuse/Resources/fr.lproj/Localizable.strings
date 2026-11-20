@@ -7915,3 +7915,5 @@
 "tag_editor_metadata_writeback_kept_local" = "Vos modifications sont enregistrées dans Primuse, mais la source musicale n'a pas changé.";
 "tag_editor_metadata_writeback_kept_local_retry" = "Vos modifications sont enregistrées dans Primuse, mais la source musicale garde les anciens tags. Primuse les réécrira automatiquement dès que la source sera accessible.";
 "artwork_apply_to_songs_kept_local_format" = "La nouvelle pochette n'a pas été écrite dans les fichiers de %d morceaux ; elle est enregistrée uniquement dans Primuse.";
+"server_playlist_reorder_read_only" = "Cette playlist est une playlist intelligente ou appartient à un autre utilisateur ; le serveur n'autorise pas à en changer l'ordre.";
+"server_playlist_reorder_changed" = "Cette playlist vient d'être modifiée sur le serveur. Sa dernière version est maintenant affichée ; réorganisez-la à nouveau.";

@@ -7676,3 +7676,5 @@
 "tag_editor_metadata_writeback_kept_local" = "Your changes are saved in Primuse, but the music source is unchanged.";
 "tag_editor_metadata_writeback_kept_local_retry" = "Your changes are saved in Primuse, but the music source still has the old tags. Primuse writes them again automatically once the source is reachable.";
 "artwork_apply_to_songs_kept_local_format" = "The new artwork wasn’t written to the files of %d songs; it’s saved only in Primuse.";
+"server_playlist_reorder_read_only" = "This playlist is a smart playlist or belongs to another user, so the server doesn't allow reordering it.";
+"server_playlist_reorder_changed" = "This playlist just changed on the server. It now shows the latest version, so please reorder it again.";

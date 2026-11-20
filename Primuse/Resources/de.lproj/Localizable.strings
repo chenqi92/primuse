@@ -7915,3 +7915,5 @@
 "tag_editor_metadata_writeback_kept_local" = "Deine Änderungen sind in Primuse gesichert, in der Musikquelle hat sich aber nichts geändert.";
 "tag_editor_metadata_writeback_kept_local_retry" = "Deine Änderungen sind in Primuse gesichert, die Musikquelle hat aber noch die alten Tags. Sobald die Quelle erreichbar ist, schreibt Primuse sie automatisch erneut.";
 "artwork_apply_to_songs_kept_local_format" = "Das neue Cover wurde bei %d Songs nicht in die Dateien geschrieben und ist nur in Primuse gesichert.";
+"server_playlist_reorder_read_only" = "Diese Playlist ist eine intelligente Playlist oder gehört einem anderen Benutzer, daher erlaubt der Server keine neue Reihenfolge.";
+"server_playlist_reorder_changed" = "Diese Playlist wurde gerade auf dem Server geändert. Jetzt wird der neueste Stand angezeigt – bitte ordne sie erneut.";

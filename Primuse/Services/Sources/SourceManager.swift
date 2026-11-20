@@ -2446,7 +2446,8 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTra
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ServerCatalogEnrichingConnector, ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistDescriptionConnector,
-    ServerPlaylistCreatingConnector, ServerPlaylistRemovingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
+    ServerPlaylistCreatingConnector, ServerPlaylistRemovingConnector, ServerPlaylistReorderingConnector,
+    ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector,
     ServerCollectionFavoriteConnector, ServerAlbumRatingConnector, ServerLibraryListingConnector,
     ServerInsightReadingConnector {
@@ -2454,6 +2455,26 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTra
         try await routing.withMutation { connector in
             guard let provider = connector as? any ServerPlaylistRemovingConnector else { throw URLError(.unsupportedURL) }
             return try await provider.removeFromServerPlaylist(id: id, itemIDs: itemIDs)
+        }
+    }
+
+    func serverPlaylistForReordering(id: String) async throws -> ServerPlaylist {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerPlaylistReorderingConnector else { throw URLError(.unsupportedURL) }
+            return try await provider.serverPlaylistForReordering(id: id)
+        }
+    }
+
+    func reorderServerPlaylist(
+        id: String,
+        expectedTrackIDs: [String],
+        orderedTrackIDs: [String]
+    ) async throws -> ServerPlaylistReorderResult {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerPlaylistReorderingConnector else { throw URLError(.unsupportedURL) }
+            return try await provider.reorderServerPlaylist(
+                id: id, expectedTrackIDs: expectedTrackIDs, orderedTrackIDs: orderedTrackIDs
+            )
         }
     }
 
@@ -15800,6 +15821,36 @@ final class SourceManager {
         guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope),
               let provider = connector(for: source) as? any ServerPlaylistRemovingConnector else { throw CancellationError() }
         let result = try await provider.removeFromServerPlaylist(id: id, itemIDs: Set(itemIDs))
+        try Task.checkCancellation()
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope) else { throw CancellationError() }
+        return result
+    }
+
+    /// 重排服务器歌单前读一次明细(#449)。源在请求途中被停用、删除或换了账户时按取消处理。
+    func serverPlaylistForReordering(id: String, source: MusicSource) async throws -> ServerPlaylist {
+        guard source.type.isSubsonicFamily else { throw CancellationError() }
+        let scope = Self.audioCacheScopeSignature(for: source)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope),
+              let provider = connector(for: source) as? any ServerPlaylistReorderingConnector else { throw CancellationError() }
+        let playlist = try await provider.serverPlaylistForReordering(id: id)
+        try Task.checkCancellation()
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope) else { throw CancellationError() }
+        return playlist
+    }
+
+    func reorderServerPlaylist(
+        id: String,
+        expectedTrackIDs: [String],
+        orderedTrackIDs: [String],
+        source: MusicSource
+    ) async throws -> ServerPlaylistReorderResult {
+        guard source.type.isSubsonicFamily else { throw CancellationError() }
+        let scope = Self.audioCacheScopeSignature(for: source)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope),
+              let provider = connector(for: source) as? any ServerPlaylistReorderingConnector else { throw CancellationError() }
+        let result = try await provider.reorderServerPlaylist(
+            id: id, expectedTrackIDs: expectedTrackIDs, orderedTrackIDs: orderedTrackIDs
+        )
         try Task.checkCancellation()
         guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope) else { throw CancellationError() }
         return result

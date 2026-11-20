@@ -7821,3 +7821,5 @@
 "tag_editor_metadata_writeback_kept_local" = "Değişiklikleriniz Primuse'da kayıtlı, ancak müzik kaynağında bir şey değişmedi.";
 "tag_editor_metadata_writeback_kept_local_retry" = "Değişiklikleriniz Primuse'da kayıtlı, ancak müzik kaynağında hâlâ eski etiketler var. Kaynağa ulaşılabildiğinde Primuse bunları otomatik olarak yeniden yazar.";
 "artwork_apply_to_songs_kept_local_format" = "Yeni kapak %d şarkının dosyalarına yazılamadı; yalnızca Primuse'da kayıtlı.";
+"server_playlist_reorder_read_only" = "Bu akıllı bir çalma listesi veya başka bir kullanıcıya ait, bu yüzden sunucu sırasının değiştirilmesine izin vermiyor.";
+"server_playlist_reorder_changed" = "Bu çalma listesi sunucuda az önce değişti. Artık en son hali gösteriliyor; lütfen yeniden sıralayın.";

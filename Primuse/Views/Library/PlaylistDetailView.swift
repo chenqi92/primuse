@@ -91,6 +91,33 @@ struct PlaylistDetailView: View {
         allowsManualMembership || removalSource?.id == song.sourceID
     }
 
+    /// Subsonic 系服务器上的歌单: 拖动排序、置顶写回服务器(#449)。
+    private var reorderSource: MusicSource? {
+        allowsManualMembership ? nil : ServerPlaylistReorderService.source(for: playlist.id, sourcesStore: sourcesStore)
+    }
+
+    /// 能拖动排序、置顶: 用户歌单在本机改, 服务器歌单写回服务器。
+    private var allowsReordering: Bool {
+        allowsManualMembership || reorderSource != nil
+    }
+
+    /// 服务器歌单换先后: 本机先按新先后显示, 写服务器没成就换回来并说明原因。返回有没有开始写。
+    @discardableResult
+    private func reorderOnServer(_ listedOrder: [String]) -> Bool {
+        guard let request = ServerPlaylistReorderService.begin(
+            playlistID: playlist.id, listedOrder: listedOrder, library: library, sourcesStore: sourcesStore
+        ) else { return false }
+        Task {
+            do {
+                try await ServerPlaylistReorderService.commit(request, library: library, sourceManager: sourceManager)
+            } catch is CancellationError {
+            } catch {
+                showScrapeFeedback(SourceErrorPresentation.userFacingDescription(error), systemImage: "exclamationmark.circle", color: .red)
+            }
+        }
+        return true
+    }
+
     private func removeSongs(_ songs: [Song]) {
         if allowsManualMembership {
             library.remove(songIDs: songs.map(\.id), fromPlaylist: playlist.id)
@@ -130,7 +157,7 @@ struct PlaylistDetailView: View {
     }
 
     private func beginSongReordering() {
-        guard allowsManualMembership else { return }
+        guard allowsReordering else { return }
         let entries = displayEntries
         guard entries.count > 1 else { return }
         selection.deactivate()
@@ -140,12 +167,15 @@ struct PlaylistDetailView: View {
 
     private func finishSongReordering() {
         defer { songOrderDraft = nil }
-        guard let songOrderDraft,
-              let currentPlaylist, currentPlaylist.allowsManualSongMembership,
+        guard let songOrderDraft, let currentPlaylist,
               let order = songOrderDraft.changedOrder(
                 availableIDs: Set(library.entries(forPlaylist: playlist.id).map(\.id))
               ) else { return }
-        library.reorderPlaylistSongs(playlistID: playlist.id, listedOrder: order)
+        if currentPlaylist.allowsManualSongMembership {
+            library.reorderPlaylistSongs(playlistID: playlist.id, listedOrder: order)
+        } else if reorderSource == nil || !reorderOnServer(order) {
+            return
+        }
         displaySortRawValue = ""
     }
 
@@ -301,7 +331,7 @@ struct PlaylistDetailView: View {
                 Text("playlist_order_title")
             }
         }
-        if allowsManualMembership {
+        if allowsReordering {
             Button("playlist_reorder", systemImage: "line.3.horizontal") {
                 beginSongReordering()
             }
@@ -503,7 +533,7 @@ struct PlaylistDetailView: View {
             orderedIDs: { selectableSongIDs },
             resolve: { library.song(id: $0) },
             onRemoveFromPlaylist: { removeSongs($0) },
-            onMoveToTop: allowsManualMembership ? { pinSongs($0) } : nil
+            onMoveToTop: allowsReordering ? { pinSongs($0) } : nil
         )
         .onChange(of: findText) { _, _ in
             guard selection.isActive, !selection.isEmpty else { return }
@@ -843,9 +873,9 @@ struct PlaylistDetailView: View {
         }
 
         Section {
-            // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
-            // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
-            if allowsManualMembership {
+            // 用户歌单在本机重排; 服务器歌单只有能写回服务器的(Subsonic 系)给入口,
+            // 别的镜像下次同步会被覆盖, 重排白做。
+            if allowsReordering {
                 Button {
                     beginSongReordering()
                 } label: {
@@ -1710,7 +1740,7 @@ struct PlaylistDetailView: View {
         middle.append(.init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
             showArtworkEditor = true
         })
-        if allowsManualMembership {
+        if allowsReordering {
             middle.append(.init(icon: "arrow.up.arrow.down", title: String(localized: "playlist_reorder"),
                                 enabled: displayEntries.count >= 2) {
                 beginSongReordering()
@@ -2105,17 +2135,32 @@ struct PlaylistDetailView: View {
     }
     #endif
 
-    /// 能置顶的歌单(用户歌单与「我喜欢」)里眼下置顶的歌; 镜像与文件夹歌单为 nil。
+    /// 能置顶的歌单(用户歌单与「我喜欢」)里眼下置顶的歌; 能写回顺序的服务器歌单置顶就是挪到最前,
+    /// 没有「已置顶」的歌, 为空; 别的镜像与文件夹歌单为 nil。
     private var pinnedSongIDSet: Set<String>? {
-        allowsManualMembership ? Set(library.pinnedSongIDs(forPlaylist: playlist.id)) : nil
+        if allowsManualMembership { return Set(library.pinnedSongIDs(forPlaylist: playlist.id)) }
+        return reorderSource == nil ? nil : []
     }
 
     /// 置顶(#412): 不管眼下按什么排, 置顶的歌都排在最上面, 不再把列表换回歌单顺序。
+    /// 服务器歌单没有置顶标记, 置顶就是在服务器上把这几首挪到最前(彼此先后不变), 列表换回歌单顺序才看得见。
     private func pinSongs(_ songIDs: [String]) {
+        if !allowsManualMembership {
+            let entryIDs = library.entries(forPlaylist: playlist.id).map(\.id)
+            let listed = PlaylistMemberOrderPolicy.movingToTop(entryIDs, selected: songIDs)
+            guard listed != entryIDs, reorderOnServer(listed) else { return }
+            displaySortRawValue = ""
+            showMovedToTopFeedback(count: songIDs.count)
+            return
+        }
         guard library.pinSongs(songIDs, inPlaylist: playlist.id) else { return }
-        let message = songIDs.count == 1
+        showMovedToTopFeedback(count: songIDs.count)
+    }
+
+    private func showMovedToTopFeedback(count: Int) {
+        let message = count == 1
             ? String(localized: "playlist_moved_to_top_one")
-            : String(format: String(localized: "playlist_moved_to_top_format"), songIDs.count)
+            : String(format: String(localized: "playlist_moved_to_top_format"), count)
         showScrapeFeedback(message, systemImage: "checkmark", color: .accentColor, isCompact: true)
     }
 

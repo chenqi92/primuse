@@ -20,7 +20,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     NetworkAdaptiveTranscodingConnector, TemporaryAudioProcessingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector, ServerCatalogEnrichingConnector,
-    ServerPlaylistConnector, ServerPlaylistRemovingConnector, ServerPlaylistCreatingConnector, ServerPlaylistDescriptionConnector,
+    ServerPlaylistConnector, ServerPlaylistRemovingConnector, ServerPlaylistReorderingConnector,
+    ServerPlaylistCreatingConnector, ServerPlaylistDescriptionConnector,
     ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerListeningStatsConnector, ServerRatingConnector, MediaServerWritebackConnector,
     ServerLibraryListingConnector {
@@ -360,6 +361,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
         serverType = ping.type
         isOpenSubsonic = ping.openSubsonic ?? false
+        formPostSupport = nil
         isConnected = true
         verifiedRouteGeneration = routeGeneration
     }
@@ -2077,6 +2079,140 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
     }
 
+    // MARK: - Server playlist reordering (#449)
+
+    private var pendingReorders = Set<String>()
+    /// OpenSubsonic `formPost`: 参数可以放进 POST 表单。nil 是这次连接还没问过。
+    private var formPostSupport: Bool?
+    /// 写操作走 GET 时网址的长度上限。常见反代(nginx、Apache)按 8 KB 截请求行, 留出余量。
+    private static let maximumMutationURLLength = 6_000
+    /// `updatePlaylist` 一次挪动的条数: 下标和 id 一起放进网址也不会超长。
+    private static let playlistMoveBatchSize = 50
+
+    func serverPlaylistForReordering(id: String) async throws -> ServerPlaylist {
+        guard !id.isEmpty, id != Self.starredPlaylistID else { throw ServerPlaylistReorderError.readOnly }
+        try await connect()
+        return try await serverPlaylistDetail(id: id, summary: nil, requiresExactOrder: true)
+    }
+
+    /// `updatePlaylist` 只能追加和按下标删, 换先后用 `createPlaylist?playlistId=` 整份重写;
+    /// 认不出服务器、或整份放不进网址又不收表单时, 退回 `updatePlaylist` 一批批「删掉再加到末尾」。
+    /// 两条路交上去的都只是同一批曲目换了先后, 写完回读, 一项不差才算成功。
+    func reorderServerPlaylist(
+        id: String,
+        expectedTrackIDs: [String],
+        orderedTrackIDs: [String]
+    ) async throws -> ServerPlaylistReorderResult {
+        guard !id.isEmpty, id != Self.starredPlaylistID, !orderedTrackIDs.contains(""),
+              ServerPlaylistReorderPolicy.isPermutation(orderedTrackIDs, of: expectedTrackIDs)
+        else { throw SourceError.fileNotFound(id) }
+        guard pendingReorders.insert(id).inserted else { throw URLError(.resourceUnavailable) }
+        defer { pendingReorders.remove(id) }
+        try await connect()
+        // 紧挨着写之前再读一次: 和排序时读到的有一项不同(别处刚加、删或排过)就不写。
+        let current = try await serverPlaylistDetail(id: id, summary: nil, requiresExactOrder: true)
+        guard current.trackIDs == expectedTrackIDs else { return .changed(current) }
+        if current.isSmartPlaylist { return .readOnly(current) }
+        guard orderedTrackIDs != current.trackIDs else { return .updated(current) }
+        let accepted: Bool
+        do {
+            accepted = try await writePlaylistOrder(id: id, from: current.trackIDs, to: orderedTrackIDs)
+        } catch let error as SubsonicHTTPStatusError where error.statusCode == 403 {
+            accepted = false
+        }
+        guard accepted else { return .readOnly(current.withReadOnly(true)) }
+        let refreshed = try await serverPlaylistDetail(id: id, summary: nil, requiresExactOrder: true)
+        guard refreshed.trackIDs == orderedTrackIDs else {
+            throw SourceError.connectionFailed(String(localized: "metadata_writeback_media_readback_mismatch"))
+        }
+        return .updated(refreshed)
+    }
+
+    /// `createPlaylist` 带上 `playlistId` 按规范是整份替换, 但不是每家都这么做(有的实现把歌追加
+    /// 在后面, 歌单就翻了一倍)。只对确认过替换语义的服务器用它; 自报了别的类型的一律不用。
+    private var replacesPlaylistOnCreate: Bool {
+        if let serverType = serverType?.lowercased(), !serverType.isEmpty {
+            return ["navidrome", "gonic", "airsonic", "airsonic-advanced"].contains(serverType)
+        }
+        return [.navidrome, .gonic, .airsonic].contains(sourceType)
+    }
+
+    /// 返回 false: 服务器明确拒绝(错误码 50), 当前账户改不了这张歌单。
+    private func writePlaylistOrder(id: String, from current: [String], to ordered: [String]) async throws -> Bool {
+        if replacesPlaylistOnCreate {
+            let query = [URLQueryItem(name: "playlistId", value: id)]
+                + ordered.map { URLQueryItem(name: "songId", value: $0) }
+            if await supportsFormPost() {
+                do {
+                    let response: EmptyContainer = try await formPostResponseJSON("createPlaylist", form: query)
+                    return try Self.playlistWriteAccepted(response)
+                } catch let error as SubsonicHTTPStatusError where [404, 405, 413, 415, 501].contains(error.statusCode) {
+                    // 服务器声明收表单, 反代却不放行 POST: 这次连接里不再试, 退回下面的写法。
+                    formPostSupport = false
+                }
+            }
+            if let url = buildRESTURL(method: "createPlaylist", query: query),
+               url.absoluteString.utf8.count <= Self.maximumMutationURLLength {
+                let response: EmptyContainer = try await responseJSON("createPlaylist", query: query)
+                return try Self.playlistWriteAccepted(response)
+            }
+        }
+        guard let steps = ServerPlaylistReorderPolicy.moveToEndSteps(
+            from: current, to: ordered, batchSize: Self.playlistMoveBatchSize
+        ) else { throw SourceError.fileNotFound(id) }
+        // 每一步在同一个请求里删掉一批、再按新先后加回末尾, 中途停下也一首不丢; 每步都回读核对,
+        // 服务器没按预期处理就不再往下挪。
+        for step in steps {
+            try Task.checkCancellation()
+            let query = [URLQueryItem(name: "playlistId", value: id)]
+                + step.removedIndices.map { URLQueryItem(name: "songIndexToRemove", value: String($0)) }
+                + step.appendedIDs.map { URLQueryItem(name: "songIdToAdd", value: $0) }
+            let response: EmptyContainer = try await responseJSON("updatePlaylist", query: query)
+            guard try Self.playlistWriteAccepted(response) else { return false }
+            let after = try await serverPlaylistDetail(id: id, summary: nil, requiresExactOrder: true)
+            guard after.trackIDs == step.expectedTrackIDs else {
+                throw SourceError.connectionFailed(String(localized: "metadata_writeback_media_readback_mismatch"))
+            }
+        }
+        return true
+    }
+
+    private static func playlistWriteAccepted(_ response: EmptyContainer) throws -> Bool {
+        guard response.status == "ok" else {
+            if response.error?.code == 50 { return false }
+            throw error(from: response.error)
+        }
+        return true
+    }
+
+    /// 只有 OpenSubsonic 服务器能问; 问不到按不支持算, 照旧走 GET。
+    private func supportsFormPost() async -> Bool {
+        if let formPostSupport { return formPostSupport }
+        var supported = false
+        if isOpenSubsonic {
+            let container: OpenSubsonicExtensionsContainer? = try? await requestJSON("getOpenSubsonicExtensions")
+            supported = container?.openSubsonicExtensions?.contains { $0.name == "formPost" } == true
+        }
+        formPostSupport = supported
+        return supported
+    }
+
+    /// OpenSubsonic `formPost`: 认证参数照旧放在网址里, 其余参数放进表单, 长歌单也不会撑爆网址。
+    private func formPostResponseJSON<C: SubsonicResponseContainer>(_ method: String, form: [URLQueryItem]) async throws -> C {
+        guard let url = buildRESTURL(method: method, query: []) else {
+            throw SourceError.connectionFailed("Invalid URL for \(method)")
+        }
+        var components = URLComponents()
+        components.queryItems = form
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data((FormSafeQueryURLBuilder.percentEncodedQuery(from: components) ?? "").utf8)
+        let (data, response) = try await TrustedHTTPTransport.data(for: request, session: session)
+        try validateHTTPStatus(response)
+        return try Self.decodedResponse(data)
+    }
+
     func updateServerPlaylistDescription(id: String, description: String) async throws -> ServerPlaylist {
         guard !id.isEmpty, id != Self.starredPlaylistID else {
             throw ServerPlaylistAppendError.readOnly
@@ -2944,6 +3080,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             (data, response) = try await TrustedHTTPTransport.data(from: url, session: session)
         }
         try validateHTTPStatus(response)
+        return try Self.decodedResponse(data)
+    }
+
+    private static func decodedResponse<C: SubsonicResponseContainer>(_ data: Data) throws -> C {
         let decoder = JSONDecoder()
         let envelope: Envelope<C>
         do {
@@ -3309,6 +3449,15 @@ private struct PingContainer: SubsonicResponseContainer {
 private struct EmptyContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
+}
+
+private struct OpenSubsonicExtensionsContainer: SubsonicResponseContainer {
+    struct Extension: Decodable {
+        let name: String?
+    }
+    let status: String
+    let error: SubsonicError?
+    let openSubsonicExtensions: [Extension]?
 }
 
 private struct MediaSharesContainer: SubsonicResponseContainer {

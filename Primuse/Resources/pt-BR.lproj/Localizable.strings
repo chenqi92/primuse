@@ -7821,3 +7821,5 @@
 "tag_editor_metadata_writeback_kept_local" = "Suas alterações estão salvas no Primuse, mas a fonte de música não mudou.";
 "tag_editor_metadata_writeback_kept_local_retry" = "Suas alterações estão salvas no Primuse, mas a fonte de música ainda tem as tags antigas. O Primuse vai gravá-las de novo automaticamente quando a fonte estiver acessível.";
 "artwork_apply_to_songs_kept_local_format" = "A nova capa não foi gravada nos arquivos de %d músicas; ela está salva só no Primuse.";
+"server_playlist_reorder_read_only" = "Esta playlist é inteligente ou pertence a outro usuário, então o servidor não permite mudar a ordem.";
+"server_playlist_reorder_changed" = "Esta playlist acabou de mudar no servidor. Agora ela mostra a versão mais recente; reordene de novo.";

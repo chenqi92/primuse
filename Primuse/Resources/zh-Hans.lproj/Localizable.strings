@@ -8008,3 +8008,5 @@
 "tag_editor_metadata_writeback_kept_local" = "修改已保存在 Primuse，音乐源上还是原来的样子。";
 "tag_editor_metadata_writeback_kept_local_retry" = "修改已保存在 Primuse，音乐源上还是原来的标签；音乐源能连上时会自动再写一次。";
 "artwork_apply_to_songs_kept_local_format" = "%d 首歌的新封面没写进文件，只保存在 Primuse。";
+"server_playlist_reorder_read_only" = "这是智能歌单或其他用户的歌单，服务器不允许调整顺序。";
+"server_playlist_reorder_changed" = "服务器上的这个歌单刚有改动，已换成最新内容，请重新调整顺序。";

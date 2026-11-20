@@ -7821,3 +7821,5 @@
 "tag_editor_metadata_writeback_kept_local" = "Tus cambios están guardados en Primuse, pero la fuente de música no cambió.";
 "tag_editor_metadata_writeback_kept_local_retry" = "Tus cambios están guardados en Primuse, pero la fuente de música conserva las etiquetas anteriores. Primuse volverá a escribirlas automáticamente cuando la fuente esté disponible.";
 "artwork_apply_to_songs_kept_local_format" = "La nueva portada no se escribió en los archivos de %d canciones; solo está guardada en Primuse.";
+"server_playlist_reorder_read_only" = "Esta playlist es inteligente o pertenece a otro usuario, así que el servidor no permite cambiar su orden.";
+"server_playlist_reorder_changed" = "Esta playlist acaba de cambiar en el servidor. Ahora se muestra la versión más reciente; vuelve a ordenarla.";

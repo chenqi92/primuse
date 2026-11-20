@@ -7821,3 +7821,5 @@
 "tag_editor_metadata_writeback_kept_local" = "تم حفظ تغييراتك في Primuse، لكن مصدر الموسيقى لم يتغير.";
 "tag_editor_metadata_writeback_kept_local_retry" = "تم حفظ تغييراتك في Primuse، لكن مصدر الموسيقى لا يزال يحمل الوسوم القديمة. سيعيد Primuse كتابتها تلقائيًا عندما يصبح المصدر متاحًا.";
 "artwork_apply_to_songs_kept_local_format" = "لم تُكتب صورة الغلاف الجديدة في ملفات %d أغنية؛ وهي محفوظة في Primuse فقط.";
+"server_playlist_reorder_read_only" = "قائمة التشغيل هذه ذكية أو تخص مستخدمًا آخر، لذا لا يسمح الخادم بتغيير ترتيبها.";
+"server_playlist_reorder_changed" = "تغيّرت قائمة التشغيل هذه على الخادم للتو. تُعرض الآن أحدث نسخة منها، لذا أعد ترتيبها من جديد.";

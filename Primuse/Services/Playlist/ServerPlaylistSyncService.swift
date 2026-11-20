@@ -181,6 +181,107 @@ enum ServerPlaylistRemovalService {
     }
 }
 
+/// 服务器歌单换先后写回服务器(#449): 拖动排序与置顶都走这里, 目前只有 Subsonic 系。
+/// 本机先按新先后显示, 服务器确认后用回读的明细落地; 没写成就换回原来的先后并说明原因,
+/// 服务器上的歌单在别处刚改过时不写, 换成服务器上最新的内容。
+@MainActor
+enum ServerPlaylistReorderService {
+    struct Request {
+        fileprivate let playlistID: String
+        fileprivate let serverPlaylistID: String
+        fileprivate let source: MusicSource
+        fileprivate let listedOrder: [String]
+        fileprivate let previous: [String]
+        fileprivate let shown: [String]
+    }
+
+    /// 正在写回的镜像歌单。上一次还没写完时不接下一次, 免得两次按各自读到的明细互相覆盖。
+    private static var inFlight = Set<String>()
+
+    /// 能换先后的服务器歌单所属的源。智能歌单、别人的歌单(最近一次同步判为只读)不给入口。
+    static func source(for playlistID: String, sourcesStore: SourcesStore) -> MusicSource? {
+        guard !ServerPlaylistMirror.readOnlyPlaylistIDs.contains(playlistID) else { return nil }
+        return ServerPlaylistRemovalService.source(for: playlistID, sourcesStore: sourcesStore)
+    }
+
+    /// 先在本机按新先后显示。`listedOrder` 是面板里列出来的成员(歌与置灰占位)的新先后,
+    /// 没列出来的原位不动。先后没变、或上一次还在写时返回 nil, 什么都不做。
+    static func begin(playlistID: String, listedOrder: [String], library: MusicLibrary,
+                      sourcesStore: SourcesStore) -> Request? {
+        guard let source = source(for: playlistID, sourcesStore: sourcesStore),
+              let serverPlaylistID = ServerPlaylistWritebackPolicy.serverPlaylistID(
+                fromMirrorPlaylistID: playlistID, sourceID: source.id
+              ) else { return nil }
+        let previous = library.rawSongIDs(forPlaylist: playlistID)
+        let shown = PlaylistMemberOrderPolicy.reordered(previous, listedOrder: listedOrder)
+        guard shown != previous, !inFlight.contains(playlistID),
+              library.reorderMirrorPlaylistSongs(playlistID: playlistID, from: previous, to: shown) else { return nil }
+        inFlight.insert(playlistID)
+        return Request(playlistID: playlistID, serverPlaylistID: serverPlaylistID, source: source,
+                       listedOrder: listedOrder, previous: previous, shown: shown)
+    }
+
+    /// 写服务器。没写成时抛错, 本机已换回原来的先后(或换成了服务器上最新的内容)。
+    static func commit(_ request: Request, library: MusicLibrary, sourceManager: SourceManager) async throws {
+        defer { inFlight.remove(request.playlistID) }
+        var settled = false
+        func settle(_ playlist: ServerPlaylist) {
+            ServerPlaylistMirror.applyAppended(playlist, source: request.source, library: library)
+            settled = true
+        }
+        let context = "Server playlists source=\(LogRedactionPolicy.digest(request.source.id)) playlist=\(LogRedactionPolicy.digest(request.serverPlaylistID)) stage=reorder"
+        do {
+            let current = try await sourceManager.serverPlaylistForReordering(
+                id: request.serverPlaylistID, source: request.source
+            )
+            let positions = await ServerPlaylistMirror.memberIDsByPosition(
+                of: current, source: request.source, library: library, preferring: Set(request.previous)
+            )
+            try Task.checkCancellation()
+            // 本机排序依据的那份和服务器眼下的不是同一批(含重复项的次数)时不整份重写: 别处刚加的歌
+            // 会被冲掉。换成服务器上最新的内容, 让用户照着它重新排。
+            guard ServerPlaylistReorderPolicy.serverMatchesMirror(
+                serverTrackIDs: current.trackIDs,
+                serverMemberIDs: positions,
+                recorded: ServerPlaylistMirror.appliedTrackMultiset(for: request.playlistID),
+                mirrorMemberIDs: request.previous
+            ) else {
+                plog("\(context) result=changed tracks=\(current.trackIDs.count)")
+                settle(current)
+                throw ServerPlaylistReorderError.changedOnServer
+            }
+            guard let order = ServerPlaylistReorderPolicy.reorderedPositions(
+                memberIDs: positions, listedOrder: request.listedOrder
+            ) else {
+                settle(current)
+                return
+            }
+            let ordered = order.map { current.trackIDs[$0] }
+            switch try await sourceManager.reorderServerPlaylist(
+                id: request.serverPlaylistID, expectedTrackIDs: current.trackIDs,
+                orderedTrackIDs: ordered, source: request.source
+            ) {
+            case .updated(let refreshed):
+                settle(refreshed)
+                plog("\(context) result=complete tracks=\(refreshed.trackIDs.count)")
+            case .readOnly(let latest):
+                plog("\(context) result=read-only")
+                settle(latest)
+                throw ServerPlaylistReorderError.readOnly
+            case .changed(let latest):
+                plog("\(context) result=changed tracks=\(latest.trackIDs.count)")
+                settle(latest)
+                throw ServerPlaylistReorderError.changedOnServer
+            }
+        } catch {
+            if !settled {
+                library.reorderMirrorPlaylistSongs(playlistID: request.playlistID, from: request.shown, to: request.previous)
+            }
+            throw error
+        }
+    }
+}
+
 /// 歌单里的一首, 换到目标服务器上之后的样子。
 struct ServerPlaylistCopyEntry: Identifiable, Sendable {
     let id: Int

@@ -16,6 +16,20 @@ enum ServerPlaylistMirror {
     private(set) static var readOnlyPlaylistIDs: Set<String> = []
     private static var writeRevision: UInt64 = 0
     private static var confirmedWriteRevisions: [String: UInt64] = [:]
+    /// 每张镜像最近一次照着落地的服务器明细摘要(多重集, 重复项算次数)。重排写回前拿它和服务器
+    /// 眼下的明细比(#449); 只放内存, 冷启动后到第一次同步之前没有, 那时只比成员。
+    private static var appliedTrackMultisets: [String: ServerPlaylistReorderPolicy.TrackMultiset] = [:]
+
+    static func appliedTrackMultiset(for localID: String) -> ServerPlaylistReorderPolicy.TrackMultiset? {
+        appliedTrackMultisets[localID]
+    }
+
+    /// 成员照着这份明细整份换过时记下; 只换了封面、或沿用了旧成员时这份明细就不是镜像的依据了。
+    fileprivate static func recordApplied(_ serverPlaylist: ServerPlaylist, localID: String, replacedMembers: Bool) {
+        appliedTrackMultisets[localID] = replacedMembers
+            ? ServerPlaylistReorderPolicy.TrackMultiset(serverPlaylist.trackIDs)
+            : nil
+    }
 
     private static func applyDescription(_ playlist: ServerPlaylist, localID: String, library: MusicLibrary) {
         if let description = playlist.descriptionText {
@@ -225,6 +239,7 @@ enum ServerPlaylistMirror {
                     coverArtPath: serverPlaylist.coverArtReference
                 )
                 plog("\(playlistContext) stage=match result=metadata-only reason=no-local-match local_matched_ids=\(prepared.indexedTrackCount) retained_existing=\(previousIDs.contains(localID))")
+                recordApplied(serverPlaylist, localID: localID, replacedMembers: false)
                 continue
             }
 
@@ -235,6 +250,7 @@ enum ServerPlaylistMirror {
                 pendingEntries: entry.pendingEntries,
                 preservingExistingSongs: songIDs.isEmpty && serverHasTracks
             )
+            recordApplied(serverPlaylist, localID: localID, replacedMembers: !(songIDs.isEmpty && serverHasTracks))
             result.matchedTrackCount += songIDs.count
 
             plog("\(playlistContext) stage=match result=applied matched_unique=\(songIDs.count) playlist_only=\(entry.playlistOnlySongs.count) missing=\(entry.missingCount) pending=\(entry.pendingEntries.count) hidden_manual=\(suppressedIDs.contains(localID))")
@@ -403,6 +419,7 @@ enum ServerPlaylistMirror {
                     playlistID: localID,
                     coverArtPath: serverPlaylist.coverArtReference
                 )
+                ServerPlaylistMirror.recordApplied(serverPlaylist, localID: localID, replacedMembers: false)
                 return
             }
             // 同步途中一个歌单一个歌单地加, 整库重建合并到延后维护里, 收尾的 `apply` 再立即重建。
@@ -411,13 +428,15 @@ enum ServerPlaylistMirror {
                 sourceID: source.id,
                 indexMaintenance: .deferredIncremental
             )
+            let preservesExisting = entry.songIDs.isEmpty && ServerPlaylistMirror.serverHasTracks(serverPlaylist)
             library.replaceMirrorPlaylistSongs(
                 playlistID: localID,
                 songIDs: entry.memberIDs,
                 coverArtPath: serverPlaylist.coverArtReference,
                 pendingEntries: entry.pendingEntries,
-                preservingExistingSongs: entry.songIDs.isEmpty && ServerPlaylistMirror.serverHasTracks(serverPlaylist)
+                preservingExistingSongs: preservesExisting
             )
+            ServerPlaylistMirror.recordApplied(serverPlaylist, localID: localID, replacedMembers: !preservesExisting)
         }
     }
 
@@ -434,6 +453,81 @@ enum ServerPlaylistMirror {
         )] = writeRevision
         // 新建的落地器没有整源对照, 只为这一张引用到的曲目对一遍。
         ProgressiveApplier(source: source, library: library).apply(serverPlaylist)
+    }
+
+    /// 服务器明细每一项在这张镜像里是哪个成员(歌或置灰占位), 与明细逐位对应, 规则和落地时相同。
+    /// 一项有几个说得通的成员时(按 id 对上的歌、置灰占位、跨源按标题对上的歌)用镜像眼下用着的那个:
+    /// 加歌、移歌后只按 id 落地, 整轮同步还会按标题补对, 两种落地方式不能被当成内容变了。
+    static func memberIDsByPosition(
+        of serverPlaylist: ServerPlaylist,
+        source: MusicSource,
+        library: MusicLibrary,
+        preferring members: Set<String>
+    ) async -> [String] {
+        let songs = library.songs
+        let matchingSongs = library.visibleSongs
+        let sourceID = source.id
+        let sourceType = source.type
+        let worker = Task.detached(priority: .userInitiated) {
+            ServerPlaylistMirror.positionMembers(
+                serverPlaylist, sourceID: sourceID, sourceType: sourceType, songs: songs,
+                matchingSongs: matchingSongs, preferring: members
+            )
+        }
+        return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+    }
+
+    nonisolated private static func positionMembers(
+        _ playlist: ServerPlaylist,
+        sourceID: String,
+        sourceType: MusicSourceType,
+        songs: [Song],
+        matchingSongs: [Song],
+        preferring members: Set<String>
+    ) -> [String] {
+        let index = serverItemIndex(sourceID: sourceID, songs: songs, wanting: referencedItemIDs(in: [playlist]))
+        let metadata = Dictionary(playlist.tracks.compactMap { track in
+            track.externalID.map { ($0, track) }
+        }, uniquingKeysWith: { first, _ in first })
+        func pendingID(_ trackID: String) -> String {
+            PlaylistPendingEntry.idPrefix + ServerPlaylistIdentity.playlistID(sourceID: sourceID, serverPlaylistID: trackID)
+        }
+        var result: [String?] = []
+        result.reserveCapacity(playlist.trackIDs.count)
+        for (offset, trackID) in playlist.trackIDs.enumerated() {
+            // 读不出 id 的项各占一个不会和别人重名的位置, 原位不动。
+            guard !trackID.isEmpty else {
+                result.append("\u{1}unreadable-\(offset)")
+                continue
+            }
+            let pending = pendingID(trackID)
+            if let direct = index[trackID] ?? playlist.playableSongs[trackID]?.id {
+                result.append(members.contains(direct) || !members.contains(pending) ? direct : pending)
+            } else {
+                result.append(members.contains(pending) ? pending : nil)
+            }
+        }
+        // 剩下的是镜像里没有它的置灰占位、也没有按 id 对上的: 落地时会去别的源按标题找。
+        let unresolved = result.indices.filter { result[$0] == nil }
+        if !unresolved.isEmpty {
+            let entries = unresolved.map { offset -> PlaylistPendingEntry in
+                let trackID = playlist.trackIDs[offset]
+                let track = metadata[trackID]
+                return PlaylistPendingEntry(
+                    id: pendingID(trackID),
+                    title: track?.title ?? "", artists: track?.artists ?? [], album: track?.album,
+                    duration: track?.duration, origin: sourceType.rawValue, externalID: trackID, serverSourceID: sourceID
+                )
+            }
+            let subjects = entries.map {
+                ExternalTrackMatchPolicy.Subject(title: $0.title, artists: $0.artists, duration: $0.duration)
+            }
+            let matcher = PlaylistEntryMatcher(songs: matchingSongs, matching: subjects, isCancelled: { Task.isCancelled })
+            for (offset, entry) in zip(unresolved, entries) {
+                result[offset] = matcher.matchServerEntry(entry)?.id ?? entry.id
+            }
+        }
+        return result.map { $0 ?? "" }
     }
 
     /// 刚在服务端建好的歌单先落一个空镜像: 接下来加歌要是失败了, 再复制一次会认出这个同名

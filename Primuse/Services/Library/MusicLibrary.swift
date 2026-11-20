@@ -11296,6 +11296,23 @@ final class MusicLibrary {
         if !pendingEntries.isEmpty { schedulePlaylistPendingResolution() }
     }
 
+    /// 服务器歌单换先后(#449): 写服务器之前先按新先后显示, 服务器确认后由回读的明细落地;
+    /// 没写成时调用方再用它换回原来的先后。只换先后: 镜像眼下的成员不是 `expected`(期间同步
+    /// 换过)、或两份不是同一批成员时什么都不动, 返回 false。
+    @discardableResult
+    func reorderMirrorPlaylistSongs(playlistID: String, from expected: [String], to orderedIDs: [String]) -> Bool {
+        guard MirrorPlaylistIdentity.isMirrorPlaylist(playlistID),
+              let index = allPlaylists.firstIndex(where: { $0.id == playlistID && !$0.isDeleted }),
+              expected != orderedIDs, playlistSongIDs[playlistID] == expected,
+              ServerPlaylistReorderPolicy.isPermutation(orderedIDs, of: expected) else { return false }
+        playlistSongIDs[playlistID] = orderedIDs
+        allPlaylists[index].updatedAt = Date()
+        sortPlaylists()
+        persistSnapshot(after: Self.snapshotDelay(forPlaylistID: playlistID))
+        notifyPlaylistsChanged([playlistID])
+        return true
+    }
+
     private func replacePlaylistSongsUnchecked(
         playlistID: String,
         songIDs: [String],
