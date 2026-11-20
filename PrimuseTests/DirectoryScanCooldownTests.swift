@@ -8,6 +8,128 @@ import XCTest
 @testable import Primuse
 
 final class DirectoryScanCooldownTests: XCTestCase {
+    func testDiscFormatErrorsAllowResumeAndIncrementalScanToFinish() async throws {
+        let folder = "/Music/Discs"
+        let path = folder + "/Archive.iso"
+        let items = ["Archive.iso", "Uncatalogued.iso", "Data.iso", "Single.flac"].map {
+            RemoteFileItem(name: $0, path: folder + "/" + $0, isDirectory: false,
+                           size: 600 * 2048, modifiedDate: nil, parentPath: folder)
+        }
+        let tracks = [1, 2].map { (number: Int) in
+            Song(id: "disc-\(number)", title: "Saved track \(number)", fileFormat: .sacdISO,
+                 filePath: path, sourceID: "source", cueSheetPath: path,
+                 cueStartTime: 0, sacdTrackNumber: number)
+        }
+        let connector = IncrementalReconciliationTestConnector(listings: [folder: items]) { path, offset, length in
+            var sector = Data(repeating: 0, count: Int(length))
+            if path.hasSuffix("/Data.iso") {
+                if offset == 16 * 2048 {
+                    sector.replaceSubrange(0..<6, with: [1] + Array("CD001".utf8))
+                    sector[129] = 4 // ISO 9660 with an unsupported 1024-byte logical block.
+                }
+                return sector
+            }
+            if offset == 510 * 2048 {
+                sector.replaceSubrange(0..<8, with: "SACDMTOC".utf8)
+                sector[8] = 1 // No playable area in this master table.
+            }
+            return sector
+        }
+        let scanner = ConnectorScanner(connector: connector, sourceID: "source")
+        let checkpoint = SourceScanResumeState(pendingDirectories: [folder])
+        var last: ConnectorScanner.ScanUpdate?
+        for try await update in await scanner.scan(directories: ["/Music"], existingSongs: tracks, resumeState: checkpoint) {
+            last = update
+        }
+        let final = try XCTUnwrap(last)
+        XCTAssertEqual(final.resumeState?.pendingDirectories, [])
+        XCTAssertEqual(final.songs.filter { $0.filePath == path }, tracks)
+        XCTAssertEqual(final.songs.map(\.filePath).sorted(), [path, path, folder + "/Single.flac"])
+        let index = await scanner.syncIndexSnapshot()
+        XCTAssertEqual(index["path:" + path.lowercased()]?.songIDs, tracks.map(\.id))
+
+        let delta = try await scanner.reconcileChangedDirectories(
+            [folder], deletedStableKeys: [], existingSongs: final.songs,
+            existingIndex: index, scanEpoch: 2, requiresCompleteListings: true
+        )
+        XCTAssertEqual(delta.songs, final.songs)
+        XCTAssertEqual(delta.index["path:" + path.lowercased()]?.songIDs, tracks.map(\.id))
+    }
+
+    func testIncompleteSACDTableReadKeepsDirectoryPending() async throws {
+        let item = RemoteFileItem(name: "Archive.iso", path: "/Music/Archive.iso", isDirectory: false,
+                                  size: 600 * 2048, modifiedDate: nil)
+        let connector = IncrementalReconciliationTestConnector(listings: ["/Music": [item]]) { _, offset, length in
+            if offset == 520 * 2048 { return Data() }
+            var sector = Data(repeating: 0, count: Int(length))
+            if offset == 510 * 2048 {
+                sector.replaceSubrange(0..<8, with: "SACDMTOC".utf8)
+                sector[8] = 1
+                sector.replaceSubrange(64..<68, with: [0, 0, 2, 8]) // Area TOC at sector 520.
+            }
+            return sector
+        }
+        let scanner = ConnectorScanner(connector: connector, sourceID: "source")
+        var checkpoint: SourceScanResumeState?
+        do {
+            for try await update in await scanner.scan(directories: ["/Music"]) {
+                checkpoint = update.resumeState
+            }
+            XCTFail("An incomplete range read must remain retryable")
+        } catch SACDISOReader.Failure.truncated {
+            XCTAssertEqual(checkpoint?.pendingDirectories, ["/Music"])
+        }
+    }
+
+    func testWebDAVDiscReadFailureCanResumeWithoutLosingSiblingSongs() async throws {
+        let folder = "/Music/Discs"
+        let listings = [folder: ["Disc.iso", "Single.flac"].map {
+            RemoteFileItem(name: $0, path: folder + "/" + $0, isDirectory: false,
+                           size: 600 * 2048, modifiedDate: nil)
+        }]
+        let saved = Song(id: "prior-track", title: "Saved track", fileFormat: .sacdISO,
+                         filePath: folder + "/Disc.iso", sourceID: "source",
+                         cueSheetPath: folder + "/Disc.iso", cueStartTime: 0, sacdTrackNumber: 1)
+        let failures: [any Error] = [
+            RemoteMetadataHTTPStatusError(service: "WebDAV", statusCode: 403),
+            RemoteMetadataHTTPStatusError(service: "WebDAV", statusCode: 404),
+            URLError(.networkConnectionLost)
+        ]
+        for failure in failures {
+            let interrupted = IncrementalReconciliationTestConnector(listings: listings) { _, _, _ in throw failure }
+            var state: SourceScanResumeState?
+            do {
+                for try await update in await ConnectorScanner(connector: interrupted, sourceID: "source")
+                    .scan(directories: [folder], existingSongs: [saved]) {
+                    state = update.resumeState
+                }
+                XCTFail("A failed file read must leave the directory available for retry")
+            } catch {
+                if let httpError = failure as? RemoteMetadataHTTPStatusError {
+                    XCTAssertEqual((error as? RemoteMetadataHTTPStatusError)?.statusCode, httpError.statusCode)
+                } else {
+                    XCTAssertEqual((error as? URLError)?.code, .networkConnectionLost)
+                }
+            }
+            let checkpoint = try XCTUnwrap(state)
+            XCTAssertEqual(checkpoint.pendingDirectories, [folder])
+            let recovered = IncrementalReconciliationTestConnector(listings: listings) { _, offset, length in
+                var data = Data(repeating: 0, count: Int(length))
+                if offset == 510 * 2048 { data.replaceSubrange(0..<8, with: "SACDMTOC".utf8) }
+                return data
+            }
+            var final: ConnectorScanner.ScanUpdate?
+            for try await update in await ConnectorScanner(connector: recovered, sourceID: "source")
+                .scan(directories: [folder], existingSongs: [saved], resumeState: checkpoint) {
+                final = update
+            }
+            let result = try XCTUnwrap(final)
+            XCTAssertEqual(result.songs.filter { $0.id == saved.id }, [saved])
+            XCTAssertEqual(result.songs.map(\.filePath).sorted(), [saved.filePath, folder + "/Single.flac"])
+            XCTAssertEqual(result.resumeState?.pendingDirectories, [])
+        }
+    }
+
     /// 走查每个目录交一份断点快照,之后接着往下记。交出去的快照不能被之后的写入改到;
     /// 从中途任何一份快照续扫,得到的索引与歌曲和一口气走完的完全一样;快照写进断点
     /// (段文件)再读回来也照样能续。
@@ -624,7 +746,15 @@ private actor IncrementalReconciliationTestConnector: MusicSourceConnector {
     private(set) var listCount = 0
     private(set) var fileReadCount = 0
 
-    init(listings: [String: [RemoteFileItem]]) { self.listings = listings }
+    let readRange: (@Sendable (String, Int64, Int64) throws -> Data)?
+    init(listings: [String: [RemoteFileItem]], readRange: (@Sendable (String, Int64, Int64) throws -> Data)? = nil) {
+        self.listings = listings
+        self.readRange = readRange
+    }
+    func fetchMetadataRange(path: String, offset: Int64, length: Int64, intent: MetadataRangeReadIntent) async throws -> Data {
+        guard let readRange else { return try await fetchRange(path: path, offset: offset, length: length, priority: .background) }
+        return try readRange(path, offset, length)
+    }
     func connect() async throws { }
     func disconnect() async { }
     func listFiles(at path: String) async throws -> [RemoteFileItem] {

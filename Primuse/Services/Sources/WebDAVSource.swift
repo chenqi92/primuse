@@ -1524,7 +1524,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
                 requestedOffset: offset,
                 requestedLength: length
             ) != nil else {
-                throw SourceError.connectionFailed("Invalid WebDAV Content-Range response")
+                throw URLError(.cannotParseResponse)
             }
             return data
         case 200:
@@ -1534,7 +1534,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
                 requestedOffset: offset,
                 requestedLength: length
             ) else {
-                throw SourceError.connectionFailed("WebDAV server ignored the byte Range request")
+                throw URLError(.badServerResponse)
             }
             return data
         default:

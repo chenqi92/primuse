@@ -61,7 +61,7 @@ final class RemoteMediaHTTPErrorTests: XCTestCase {
             let source = MusicSource(id: UUID().uuidString, name: "WebDAV seek", type: .webdav)
             let failureOffset = Int64((startPlaying ? 14 : 10) * 1_024 * 1_024)
             let target = startPlaying ? Double(failureOffset - 44 - 32_768) / 192_000 : 75
-            let connector = SeekReadFailureConnector(sourceID: source.id, failureOffset: failureOffset)
+            let connector = SeekReadFailureConnector(sourceID: source.id, failureOffset: failureOffset, webDAV: makeWebDAV())
             let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -276,7 +276,12 @@ final class RemoteMediaHTTPErrorTests: XCTestCase {
                 )
                 XCTFail("An HTTP success status must not bypass media and Range validation")
             } catch {
-                XCTAssertTrue(error is SourceError, "Unexpected error: \(error)")
+                if contentType == "text/html" {
+                    XCTAssertTrue(error is SourceError, "Unexpected error: \(error)")
+                } else {
+                    XCTAssertEqual((error as? URLError)?.code, .badServerResponse)
+                    XCTAssertFalse(CloudPlaybackSource.isConnectivityFailure(error))
+                }
                 XCTAssertFalse(error is RemoteMediaHTTPError)
             }
         }
@@ -380,12 +385,14 @@ private actor SeekReadFailureConnector: MusicSourceConnector {
     nonisolated let sourceID: String
     nonisolated let payload: Data
     private let failureOffset: Int64
+    private let webDAV: WebDAVSource
     private(set) var failedReads = 0
     private(set) var completeReads = 0
 
-    init(sourceID: String, failureOffset: Int64) {
+    init(sourceID: String, failureOffset: Int64, webDAV: WebDAVSource) {
         self.sourceID = sourceID
         self.failureOffset = failureOffset
+        self.webDAV = webDAV
         // Muted PCM fixture: enough uncached data to seek beyond the read-ahead window.
         let byteCount = 120 * 48_000 * 4
         var data = Data("RIFF".utf8)
@@ -426,7 +433,14 @@ private actor SeekReadFailureConnector: MusicSourceConnector {
             completeReads += 1
         } else if offset >= failureOffset, offset < 20 * 1_024 * 1_024 {
             failedReads += 1
-            throw SourceError.connectionFailed("Invalid WebDAV Content-Range response")
+            let response = HTTPURLResponse(
+                url: URL(string: "https://media-errors.invalid/music.wav")!,
+                statusCode: 206, httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "audio/wav", "Content-Range": "bytes 0-3/4"]
+            )!
+            return try await webDAV.validateStrictRangeResponse(
+                response, data: Data(repeating: 0, count: 4), path: path, offset: offset, length: length
+            )
         }
         guard offset >= 0, offset < payload.count, length > 0 else { return Data() }
         return payload.subdata(in: Int(offset)..<min(payload.count, Int(offset + length)))

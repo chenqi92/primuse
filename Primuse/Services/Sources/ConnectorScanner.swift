@@ -216,6 +216,7 @@ actor ConnectorScanner {
         )
         var songsByID = existingByID
         let existingIDsByPath = uniqueSongIDsByPath(existingSongs)
+        lazy var discTracksByPath = existingDiscTracksByPath(existingSongs)
         // 紧凑索引直接改:第一次改动时才拷一份(与 `reconciliationBaseline` 分开),
         // 不展开成字典。
         var index = existingIndex
@@ -294,7 +295,8 @@ actor ConnectorScanner {
                 for id in entry.songIDs { songsByID[id] = nil }
             }
 
-            let cueTracks = try await loadCueTracks(from: siblings)
+            let cueListing = try await loadCueTracks(from: siblings)
+            let cueTracks = cueListing.tracks
             for directoryItem in siblings where directoryItem.isDirectory {
                 try validateStableIdentity(
                     for: directoryItem,
@@ -338,6 +340,12 @@ actor ConnectorScanner {
                 let oldEntry = reconciliationBaseline[stableKey]
                 let ext = Self.lowercasedExtension(item.name)
 
+                if cueListing.invalidDiscPaths.contains(item.path) {
+                    let tracks = retainedDiscTracks(item, priorEntry: oldEntry, byPath: discTracksByPath)
+                    for song in tracks { songsByID[song.id] = song }
+                    recordSyncItem(item, songIDs: tracks.map(\.id), seenEpoch: scanEpoch, in: &index)
+                    continue
+                }
                 if ext == "iso", cueTracks[item.path]?.isEmpty != false { continue }
                 if PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
                     let preferredID = oldEntry?.songIDs.count == 1
@@ -556,6 +564,7 @@ actor ConnectorScanner {
                     // on large cloud trees).
                     let totalCount = 0
                     var allSongs = existingSongs
+                    lazy var discTracksByPath = existingDiscTracksByPath(existingSongs)
                     var existingByID = IndexedSongSnapshot(
                         existingSongs,
                         matchingOriginalPathsForSourceID: connector is any SongScanningConnector ? nil : sourceID
@@ -945,7 +954,8 @@ actor ConnectorScanner {
                                 // Keep directory I/O moving while CUE/STRM reads process this result.
                                 // Admitted children stay pending until consumed, including on cancellation.
                                 if listingConcurrency > 1 { enqueueListings(&group) }
-                                let cueTracksByAudioPath = try await loadCueTracks(from: siblings)
+                                let cueListing = try await loadCueTracks(from: siblings)
+                                let cueTracksByAudioPath = cueListing.tracks
                                 for rawItem in siblings where !rawItem.isDirectory {
                                     if Self.isArtistArtworkCandidate(rawItem.name) {
                                         try validateStableIdentity(
@@ -962,6 +972,7 @@ actor ConnectorScanner {
                                     }
                                     guard let item = Self.scannableItem(rawItem, index: sidecarIndex) else { continue }
                                     if Self.lowercasedExtension(item.name) == "iso",
+                                       !cueListing.invalidDiscPaths.contains(item.path),
                                        cueTracksByAudioPath[item.path]?.isEmpty != false { continue }
                                     try Task.checkCancellation()
 
@@ -995,6 +1006,17 @@ actor ConnectorScanner {
                                     let priorEntry = identityMatch?.item
                                     if let identityKey = identityMatch?.key {
                                         claimedIdentityKeys.insert(identityKey)
+                                    }
+                                    if cueListing.invalidDiscPaths.contains(item.path) {
+                                        let tracks = retainedDiscTracks(item, priorEntry: priorEntry, byPath: discTracksByPath)
+                                        let ids = tracks.map(\.id)
+                                        walk.insertSongIDs(ids)
+                                        recordSyncItem(item, songIDs: ids, seenEpoch: scanEpoch, in: &walk)
+                                        for song in tracks where existingByID[song.id] != song {
+                                            if let index = allSongIndexByID[song.id] { allSongs[index] = song }
+                                            recordRow(song, for: song.id)
+                                        }
+                                        continue
                                     }
                                     let preferredSongID: String? = {
                                         guard priorEntry?.songIDs.count == 1,
@@ -1463,8 +1485,30 @@ actor ConnectorScanner {
         let track: CueTrack
     }
 
-    private func loadCueTracks(from siblings: [RemoteFileItem]) async throws -> [String: [CueTrackDescriptor]] {
-        var result: [String: [CueTrackDescriptor]] = [:]
+    private func existingDiscTracksByPath(_ songs: [Song]) -> [String: [Song]] {
+        Dictionary(grouping: songs.lazy.filter { $0.sourceID == self.sourceID && $0.isDiscImageTrack }, by: \.filePath)
+    }
+
+    private func retainedDiscTracks(
+        _ item: RemoteFileItem, priorEntry: SourceSyncIndexedItem?, byPath: [String: [Song]]
+    ) -> [Song] {
+        let oldPath = priorEntry?.path ?? item.path
+        guard oldPath != item.path, let movedTracks = byPath[oldPath] else { return byPath[item.path] ?? [] }
+        return movedTracks.map { track in
+            var moved = track
+            moved.filePath = item.path
+            if moved.cueSheetPath == oldPath { moved.cueSheetPath = item.path }
+            return moved
+        }
+    }
+
+    private struct CueListing {
+        var tracks: [String: [CueTrackDescriptor]] = [:]
+        var invalidDiscPaths: Set<String> = []
+    }
+
+    private func loadCueTracks(from siblings: [RemoteFileItem]) async throws -> CueListing {
+        var result = CueListing()
         var externalSheets: [ISOAlbumMetadataPolicy.Sidecar] = []
         let ordered = siblings.filter {
             !$0.isDirectory && PrimuseConstants.supportedVirtualTrackExtensions.contains(
@@ -1476,9 +1520,17 @@ actor ConnectorScanner {
         for cueItem in ordered {
             let cue: CueSheet
             if Self.lowercasedExtension(cueItem.name) == "iso" {
-                guard let parsed = try await ISOAudioReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [connector] offset, length in
-                    try await connector.fetchMetadataRange(path: cueItem.path, offset: offset, length: length)
-                }) else { continue }
+                let parsed: CueSheet
+                do {
+                    guard let sheet = try await ISOAudioReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [connector] offset, length in
+                        try await connector.fetchMetadataRange(path: cueItem.path, offset: offset, length: length)
+                    }) else { continue }
+                    parsed = sheet
+                } catch where ISOAudioReader.isDiscFormatError(error) {
+                    result.invalidDiscPaths.insert(cueItem.path)
+                    plog("Skipping ISO track scan for \(cueItem.path): \(error)")
+                    continue
+                }
                 let tagged = try await SACDMetadataXML.loading(
                     into: parsed, imageFileName: cueItem.name,
                     files: siblings.filter { !$0.isDirectory }.map { .init(name: $0.name, path: $0.path, size: $0.size) }
@@ -1506,7 +1558,7 @@ actor ConnectorScanner {
                 }
                 for track in cueFile.tracks where track.type == "AUDIO" && track.startTime != nil {
                     let identity = CueTrackIdentity(sheet: cue, track: track)
-                    result[audioItem.path, default: []].append(CueTrackDescriptor(
+                    result.tracks[audioItem.path, default: []].append(CueTrackDescriptor(
                         cuePath: cueItem.path,
                         cueName: cueItem.name,
                         albumTitle: identity.albumTitle,

@@ -85,6 +85,7 @@ public enum SACDISOReader {
         // Prefer the stereo programme; use the multichannel programme only when no stereo area exists.
         let groups = [[be32(master, 64), be32(master, 68)], [be32(master, 72), be32(master, 76)]]
         var multichannel: Disc?
+        var incompleteRead = false
         for candidates in groups {
             for sector in candidates where sector > 0 {
                 do {
@@ -115,11 +116,13 @@ public enum SACDISOReader {
                     if multichannel == nil { multichannel = disc }
                     break
                 } catch is CancellationError { throw CancellationError() }
+                catch Failure.truncated { incompleteRead = true }
                 catch is Failure { continue }
                 catch { throw error }
             }
         }
         if let multichannel { return multichannel }
+        if incompleteRead { throw Failure.truncated }
         throw Failure.invalidTable
     }
 

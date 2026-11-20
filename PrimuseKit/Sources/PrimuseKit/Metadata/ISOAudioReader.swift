@@ -30,6 +30,18 @@ public struct ISOAudioTrack: Codable, Hashable, Sendable {
 public enum ISOAudioReader {
     public typealias Read = SACDISOReader.Read
 
+    /// A complete read established that this image's structure or audio format cannot be scanned.
+    public static func isDiscFormatError(_ error: Error) -> Bool {
+        switch error {
+        case SACDISOReader.Failure.invalidTable, is DVDAudioReader.Failure,
+             DiscImageFileSystem.Failure.invalidDirectory, DiscImageFileSystem.Failure.unsupportedLayout,
+             DiscImageFileSystem.Failure.excessiveSize:
+            return true
+        default:
+            return false
+        }
+    }
+
     public static func localSheet(url: URL) async throws -> CueSheet? {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
