@@ -26,6 +26,8 @@ SIDE = 1024
 MAC_MARK_SIDE = 128
 TV_MARK_SIDE = 192
 SOFT_NOTE_GREEN = (51, 217, 79)
+SOFT_NOTE_DARK_TOP = (24, 33, 27)
+SOFT_NOTE_DARK_BOTTOM = (9, 13, 10)
 
 _ys, _xs = np.mgrid[0:SIDE, 0:SIDE] / SIDE - 0.5
 _BASIS = np.stack(
@@ -161,10 +163,16 @@ def soft_note_alpha() -> np.ndarray:
     return clear_edges(luma_alpha(load("20-soft-note-dark"), 1, 100, 170))
 
 
-def soft_note_artwork(*, tinted: bool = False) -> Image.Image:
+def soft_note_artwork(*, tinted: bool = False, dark: bool = False) -> Image.Image:
     alpha = soft_note_alpha()[..., None]
-    background = np.array((0, 0, 0) if tinted else SOFT_NOTE_GREEN)
-    pixels = background * (1 - alpha) + 255 * alpha
+    if dark:
+        # 深色版和其他几款一样换成近黑底、图形用品牌色；底色上浅下深，带一点绿。
+        fade = np.linspace(0, 1, alpha.shape[0])[:, None, None]
+        background = np.array(SOFT_NOTE_DARK_TOP) * (1 - fade) + np.array(SOFT_NOTE_DARK_BOTTOM) * fade
+        pixels = background * (1 - alpha) + np.array(SOFT_NOTE_GREEN) * alpha
+    else:
+        background = np.array((0, 0, 0) if tinted else SOFT_NOTE_GREEN)
+        pixels = background * (1 - alpha) + 255 * alpha
     return Image.fromarray(pixels.round().astype(np.uint8))
 
 

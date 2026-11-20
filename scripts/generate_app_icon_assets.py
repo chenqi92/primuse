@@ -83,7 +83,8 @@ def save_direct_ios_assets(
 ) -> tuple[Image.Image, Image.Image]:
     if icon_name == "AppIcon20":
         from generate_brand_marks import soft_note_artwork
-        any_icon = dark_icon = soft_note_artwork()
+        any_icon = soft_note_artwork()
+        dark_icon = soft_note_artwork(dark=True)
         tinted_icon = soft_note_artwork(tinted=True)
     any_icon = any_icon.convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
     dark_icon = dark_icon.convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)

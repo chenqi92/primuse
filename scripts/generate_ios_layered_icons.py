@@ -49,7 +49,10 @@ def save_icon(icon_name: str, light_name: str, dark_name: str, mono: Image.Image
     assets = folder / "Assets"
     assets.mkdir(parents=True, exist_ok=True)
     for filename, source in [("Light.png", light_name), ("Dark.png", dark_name)]:
-        artwork = soft_note_artwork() if icon_name == "AppIcon20" else Image.open(RAW_DIR / source)
+        if icon_name == "AppIcon20":
+            artwork = soft_note_artwork(dark=filename == "Dark.png")
+        else:
+            artwork = Image.open(RAW_DIR / source)
         artwork.convert("RGB").resize(
             (1024, 1024), Image.Resampling.LANCZOS
         ).save(assets / filename, optimize=True)
