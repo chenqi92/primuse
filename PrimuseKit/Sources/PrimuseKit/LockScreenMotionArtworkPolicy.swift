@@ -223,7 +223,74 @@ public struct LockScreenWallpaperRegion: Equatable, Sendable {
     }
 }
 
-/// 铺满锁屏时尽量放到可见区域正中的那一点。坐标是占素材宽高的比例，原点在左上角。
+/// 封面里找到的主体：人脸和主要物体。
+///
+/// 只用来判断「居中裁会不会把主体裁出去」，不用来定中心。显著性检测的框又松又偏（注意力显著性的框
+/// 普遍偏左，对称的标志、正中的人像都会被拉向一边），按框的中心取景，好好的居中构图就被挪歪了。
+/// 人脸框最准：有像样的人脸就只认人脸，没有才认物体。
+public struct LockScreenWallpaperSubjects: Equatable, Sendable {
+    public static let none = LockScreenWallpaperSubjects()
+    /// 比最大那张脸小这么多的脸（背景里的路人）不算主体。
+    static let faceAreaShare = 0.3
+    /// 「面积 × 置信度」不到最大那块这么多的物体（反光点、角落的小字）不算主体。
+    static let objectWeightShare = 0.25
+    /// 主体四周至少留出的边，占整幅的比例。
+    static let minimumMargin = 0.04
+    /// 人脸再按自己的大小多留一圈，别贴着画面边。
+    static let faceMarginShare = 0.15
+
+    public var faces: [LockScreenWallpaperRegion]
+    public var objects: [LockScreenWallpaperRegion]
+
+    public init(faces: [LockScreenWallpaperRegion] = [], objects: [LockScreenWallpaperRegion] = []) {
+        self.faces = faces
+        self.objects = objects
+    }
+
+    /// 要整块留在画面里的范围（含留边、裁到 0～1）；没有能用的主体就是 nil。
+    var keptBounds: (x: ClosedRange<Double>, y: ClosedRange<Double>)? {
+        let usableFaces = faces.compactMap(Self.usable)
+        if let largest = usableFaces.map({ $0.width * $0.height }).max() {
+            let kept = usableFaces.filter { $0.width * $0.height >= largest * Self.faceAreaShare }
+            return Self.bounds(of: kept, marginShare: Self.faceMarginShare)
+        }
+        let usableObjects = objects.compactMap(Self.usable)
+        guard let heaviest = usableObjects.map(Self.weight).max() else { return nil }
+        let kept = usableObjects.filter { Self.weight($0) >= heaviest * Self.objectWeightShare }
+        return Self.bounds(of: kept, marginShare: 0)
+    }
+
+    /// 裁到 0～1 以后还有面积、置信度为正的区域才算。
+    private static func usable(_ region: LockScreenWallpaperRegion) -> LockScreenWallpaperRegion? {
+        guard [region.x, region.y, region.width, region.height, region.confidence].allSatisfy(\.isFinite),
+              region.confidence > 0 else { return nil }
+        let minX = max(0, region.x), maxX = min(1, region.x + region.width)
+        let minY = max(0, region.y), maxY = min(1, region.y + region.height)
+        guard maxX > minX, maxY > minY else { return nil }
+        return LockScreenWallpaperRegion(
+            x: minX, y: minY, width: maxX - minX, height: maxY - minY, confidence: region.confidence
+        )
+    }
+
+    private static func weight(_ region: LockScreenWallpaperRegion) -> Double {
+        region.width * region.height * region.confidence
+    }
+
+    private static func bounds(
+        of regions: [LockScreenWallpaperRegion],
+        marginShare: Double
+    ) -> (x: ClosedRange<Double>, y: ClosedRange<Double>)? {
+        guard let minX = regions.map(\.x).min(),
+              let maxX = regions.map({ $0.x + $0.width }).max(),
+              let minY = regions.map(\.y).min(),
+              let maxY = regions.map({ $0.y + $0.height }).max() else { return nil }
+        let marginX = max(minimumMargin, marginShare * (maxX - minX))
+        let marginY = max(minimumMargin, marginShare * (maxY - minY))
+        return (max(0, minX - marginX)...min(1, maxX + marginX), max(0, minY - marginY)...min(1, maxY + marginY))
+    }
+}
+
+/// 铺满锁屏时放到画面正中的那一点。坐标是占素材宽高的比例，原点在左上角。
 public struct LockScreenWallpaperFocus: Equatable, Sendable {
     public static let center = LockScreenWallpaperFocus(x: 0.5, y: 0.5)
 
@@ -235,24 +302,22 @@ public struct LockScreenWallpaperFocus: Equatable, Sendable {
         self.y = Self.clamped(y)
     }
 
-    /// 按画面里的显著区域取景：各块中心按「面积 × 置信度」加权平均；没有能用的区域就取正中。
-    public init(regions: [LockScreenWallpaperRegion]) {
-        var totalWeight = 0.0
-        var sumX = 0.0
-        var sumY = 0.0
-        for region in regions {
-            guard [region.x, region.y, region.width, region.height, region.confidence].allSatisfy(\.isFinite),
-                  region.width > 0, region.height > 0, region.confidence > 0 else { continue }
-            let weight = region.width * region.height * region.confidence
-            totalWeight += weight
-            sumX += (region.x + region.width / 2) * weight
-            sumY += (region.y + region.height / 2) * weight
+    /// 一条边上的取景。`window` 是画面占素材的比例，返回画面中心在素材上的位置：
+    /// 从正中出发，主体放得进画面就挪到刚好整块放进为止，原来的构图尽量不动；
+    /// 主体比画面还宽、怎么都放不全时，画面留在主体范围里、尽量靠正中。
+    static func windowCenter(keeping kept: ClosedRange<Double>?, window: Double) -> Double {
+        guard let kept, window.isFinite, window > 0, window < 1 else { return 0.5 }
+        let half = window / 2
+        let lower: Double
+        let upper: Double
+        if kept.upperBound - kept.lowerBound <= window {
+            lower = kept.upperBound - half
+            upper = kept.lowerBound + half
+        } else {
+            lower = kept.lowerBound + half
+            upper = kept.upperBound - half
         }
-        guard totalWeight > 0 else {
-            self = .center
-            return
-        }
-        self.init(x: sumX / totalWeight, y: sumY / totalWeight)
+        return min(max(0.5, lower), upper)
     }
 
     private static func clamped(_ value: Double) -> Double {
@@ -262,11 +327,11 @@ public struct LockScreenWallpaperFocus: Equatable, Sendable {
 
 /// 封面放进锁屏 3:4 位时的构图：像设成壁纸那样铺满整个锁屏。
 ///
-/// 锁屏拿 3:4 那份按屏幕宽高比居中裁两侧再铺满整屏（iPhone 竖屏约 0.46，3:4 画面左右各裁掉近两成）。
-/// 素材等比放大到盖满看得见的那一段：方形封面高度占满整屏、两侧裁掉一半左右，看得见的那一段对准
-/// 画面主体（`LockScreenWallpaperFocus`），人脸、主要物体不被裁出去。锁屏看不见的两侧边角素材可能
-/// 盖不到，那里垫一层同一素材的模糊底：系统万一不按这个比例裁，露出来的也是同色的底而不是黑边。
-/// 像素坐标以左上角为原点。
+/// 素材等比放大到盖满画面：方形封面高度占满，两侧各裁掉一成多。锁屏按屏幕宽度显示整张 3:4 画面
+/// （#460 的真机截图：iPhone 上看得见的正好是整张画面的宽度，并没有再按屏幕宽高比裁两侧），
+/// 所以取景以整张画面为准：默认居中、保留原来的构图，只有人脸或主要物体会被裁出去时才挪，
+/// 挪到刚好整块放进为止（`LockScreenWallpaperSubjects`）。比画面窄的素材盖不满两侧，那里垫一层
+/// 同一素材的模糊底，至少保证按屏幕宽高比算的那一段里没有空边。像素坐标以左上角为原点。
 public struct LockScreenWallpaperLayout: Equatable, Sendable {
     /// 构图常量改了就加一，缓存和 artworkID 跟着换新。1 是「模糊底 + 完整方形」，2 起是铺满。
     public static let compositionVersion = 2
@@ -285,21 +350,22 @@ public struct LockScreenWallpaperLayout: Equatable, Sendable {
     public let imageHeight: Int
     public let imageX: Int
     public let imageY: Int
-    /// 锁屏裁完以后看得见的宽度占画面高度的千分比。
+    /// 按屏幕宽高比算的那一段宽度占画面高度的千分比。
     public let visibleWidthPermille: Int
+    /// 放到画面正中的那一点（占素材宽高的比例）。
     public let focus: LockScreenWallpaperFocus
 
     /// - Parameters:
     ///   - sourceWidth/sourceHeight: 素材的像素尺寸。看得见的那一段里素材不放大，画面高度跟着它定，
     ///     长边不超过 `maximumLongEdge`。
     ///   - visibleWidthRatio: 屏幕竖屏宽 ÷ 高；nil 或不合理时用 `fallbackVisibleWidthRatio`。
-    ///     比 3:4 还宽的屏幕（iPad）锁屏不裁两侧，按整幅宽算。
-    ///   - focus: 取景点，放到看得见的那一段正中；靠边时收回到不露边为止。
+    ///     比 3:4 还宽的屏幕（iPad）按整幅宽算。
+    ///   - subjects: 画面里的人脸和主要物体，取景时尽量不裁掉它们。
     public init?(
         sourceWidth: Double,
         sourceHeight: Double,
         visibleWidthRatio: Double?,
-        focus: LockScreenWallpaperFocus = .center,
+        subjects: LockScreenWallpaperSubjects = .none,
         maximumLongEdge: Int = MotionCoverImportLimits.maximumLongEdge
     ) {
         guard sourceWidth.isFinite, sourceHeight.isFinite, sourceWidth >= 16, sourceHeight >= 16 else { return nil }
@@ -321,14 +387,25 @@ public struct LockScreenWallpaperLayout: Equatable, Sendable {
         let scaledWidth = Self.roundedUp(sourceWidth * scale)
         let scaledHeight = Self.roundedUp(sourceHeight * scale)
 
-        // 水平：取景点放到画面中线，再收回到看得见的那一段两边都还有素材为止。
-        let visibleLeft = Int(((canvasWidth - visibleWidth) / 2).rounded(.down))
-        let visibleRight = Int(((canvasWidth + visibleWidth) / 2).rounded(.up))
-        let lowestX = visibleRight - scaledWidth
-        let highestX = visibleLeft
+        // 取景以整张画面为准：从正中出发，只为放进主体才挪。
+        let kept = subjects.keptBounds
+        let focus = LockScreenWallpaperFocus(
+            x: LockScreenWallpaperFocus.windowCenter(keeping: kept?.x, window: canvasWidth / Double(scaledWidth)),
+            y: LockScreenWallpaperFocus.windowCenter(keeping: kept?.y, window: canvasHeight / Double(scaledHeight))
+        )
+        // 水平：素材盖得满画面就不露边；比画面窄时退回到按屏幕宽高比算的那一段不露边。
         let desiredX = Int((canvasWidth / 2 - focus.x * Double(scaledWidth)).rounded())
+        let lowestX: Int
+        let highestX: Int
+        if scaledWidth >= size.width {
+            lowestX = size.width - scaledWidth
+            highestX = 0
+        } else {
+            lowestX = Int(((canvasWidth + visibleWidth) / 2).rounded(.up)) - scaledWidth
+            highestX = Int(((canvasWidth - visibleWidth) / 2).rounded(.down))
+        }
         let x = lowestX <= highestX ? min(max(desiredX, lowestX), highestX) : (lowestX + highestX) / 2
-        // 垂直：素材至少和画面一样高，同样对准取景点、上下不露边。
+        // 垂直：素材至少和画面一样高，上下不露边。
         let desiredY = Int((canvasHeight / 2 - focus.y * Double(scaledHeight)).rounded())
         let y = min(max(desiredY, size.height - scaledHeight), 0)
 

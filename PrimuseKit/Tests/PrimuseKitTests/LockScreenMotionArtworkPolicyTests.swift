@@ -95,48 +95,130 @@ struct LockScreenMotionArtworkPolicyTests {
         #expect(phone.coversCanvas)
     }
 
-    @Test func wallpaperLayoutMovesTheVisibleBandTowardsTheSubject() throws {
-        let center = try #require(LockScreenWallpaperLayout(
-            sourceWidth: 1_080, sourceHeight: 1_080, visibleWidthRatio: 0.46
-        ))
-        let left = try #require(LockScreenWallpaperLayout(
-            sourceWidth: 1_080, sourceHeight: 1_080, visibleWidthRatio: 0.46,
-            focus: LockScreenWallpaperFocus(x: 0.25, y: 0.5)
-        ))
-        let right = try #require(LockScreenWallpaperLayout(
-            sourceWidth: 1_080, sourceHeight: 1_080, visibleWidthRatio: 0.46,
-            focus: LockScreenWallpaperFocus(x: 0.75, y: 0.5)
-        ))
-        // 主体偏左：素材往右挪，左边那部分进到看得见的地方；偏右反之。
+    @Test func wallpaperLayoutKeepsTheCompositionWhenTheSubjectAlreadyFits() throws {
+        let center = try #require(squareWallpaper())
+        #expect(center.imageX == -135 && center.focus == .center)
+        // #460：对称的标志比画面还宽，物体框又松，居中裁才是对的，不能被框拉歪。
+        let logo = try #require(squareWallpaper(LockScreenWallpaperSubjects(objects: [
+            LockScreenWallpaperRegion(x: 0.10, y: 0.26, width: 0.80, height: 0.52, confidence: 0.74),
+        ])))
+        #expect(logo.imageX == center.imageX)
+        // 人脸稍偏一点但居中裁也放得下：不挪。
+        let offCenterFace = try #require(squareWallpaper(LockScreenWallpaperSubjects(faces: [
+            LockScreenWallpaperRegion(x: 0.30, y: 0.30, width: 0.15, height: 0.15, confidence: 0.8),
+        ])))
+        #expect(offCenterFace.imageX == center.imageX)
+        // 人脸只在两边各一张、怎么都放不全：留在正中。
+        let apart = try #require(squareWallpaper(LockScreenWallpaperSubjects(faces: [
+            LockScreenWallpaperRegion(x: 0.0, y: 0.3, width: 0.2, height: 0.3),
+            LockScreenWallpaperRegion(x: 0.8, y: 0.3, width: 0.2, height: 0.3),
+        ])))
+        #expect(apart.imageX == center.imageX)
+        // 构图没变，缓存和 artworkID 也不变。
+        #expect(logo.signature == center.signature)
+    }
+
+    @Test func wallpaperLayoutMovesOnlyAsFarAsTheSubjectNeeds() throws {
+        let center = try #require(squareWallpaper())
+        // 人脸贴左边：素材往右挪到人脸（含留边）刚好进画面，画面不露边、不用垫底。
+        let left = try #require(squareWallpaper(LockScreenWallpaperSubjects(faces: [
+            LockScreenWallpaperRegion(x: 0.05, y: 0.3, width: 0.25, height: 0.25),
+        ])))
         #expect(left.imageX > center.imageX)
-        #expect(right.imageX < center.imageX)
-        // 主体在 1/4 处：正好落在画面中线上。
-        #expect(abs(Double(left.imageX) + 0.25 * Double(left.imageWidth) - Double(left.width) / 2) <= 1)
-        for layout in [left, right] {
-            expectFillsVisibleBand(layout, ratio: 0.46)
-        }
-        // 主体贴边时收回到看得见的那一段不露边为止。
-        for x in [0.0, 1.0] {
-            let edge = try #require(LockScreenWallpaperLayout(
-                sourceWidth: 1_080, sourceHeight: 1_080, visibleWidthRatio: 0.46,
-                focus: LockScreenWallpaperFocus(x: x, y: 0.5)
-            ))
+        // 留边按脸宽的 0.15 与 0.04 取大：左边留到 0.01，正好落在画面左边缘。
+        #expect(abs(Double(left.imageX) + 0.01 * Double(left.imageWidth)) <= 1)
+        #expect(left.coversCanvas)
+        // 贴着两边的脸：挪到底也只到素材边缘为止，不露出模糊底。
+        for x in [0.0, 0.82] {
+            let edge = try #require(squareWallpaper(LockScreenWallpaperSubjects(faces: [
+                LockScreenWallpaperRegion(x: x, y: 0.3, width: 0.18, height: 0.2),
+            ])))
+            #expect(edge.imageX != center.imageX)
+            #expect(edge.coversCanvas)
             expectFillsVisibleBand(edge, ratio: 0.46)
-            // 锁屏看不见的边角盖不到，要垫底。
-            #expect(!edge.coversCanvas)
+            let faceLeft = Double(edge.imageX) + x * Double(edge.imageWidth)
+            #expect(faceLeft >= 0 && faceLeft + 0.18 * Double(edge.imageWidth) <= Double(edge.width) + 1)
         }
-        // 取景点不同就是不同的构图。
-        #expect(left.signature != center.signature && right.signature != center.signature)
+        // 主体比画面还宽又偏右：画面留在主体范围里、尽量靠正中，左边缘对齐主体（含留边）的左边。
+        let wide = try #require(squareWallpaper(LockScreenWallpaperSubjects(objects: [
+            LockScreenWallpaperRegion(x: 0.2, y: 0.2, width: 0.8, height: 0.6),
+        ])))
+        #expect(wide.imageX < center.imageX)
+        #expect(abs(Double(wide.imageX) + 0.16 * Double(wide.imageWidth)) <= 1)
+        // 构图不同就是不同的缓存。
+        #expect(left.signature != center.signature)
+    }
+
+    @Test func wallpaperSubjectsPreferFacesAndIgnoreMinorRegions() throws {
+        let center = try #require(squareWallpaper())
+        // 有脸就只认脸：边上的大物体不拉动取景。
+        let faceOverObject = try #require(squareWallpaper(LockScreenWallpaperSubjects(
+            faces: [LockScreenWallpaperRegion(x: 0.45, y: 0.3, width: 0.1, height: 0.1)],
+            objects: [LockScreenWallpaperRegion(x: 0.0, y: 0.0, width: 0.3, height: 1.0)]
+        )))
+        #expect(faceOverObject.imageX == center.imageX)
+        // 背景里的小脸不算主体。
+        let crowd = try #require(squareWallpaper(LockScreenWallpaperSubjects(faces: [
+            LockScreenWallpaperRegion(x: 0.4, y: 0.3, width: 0.2, height: 0.2),
+            LockScreenWallpaperRegion(x: 0.9, y: 0.1, width: 0.05, height: 0.05),
+        ])))
+        #expect(crowd.imageX == center.imageX)
+        // 反光点这类又小又淡的物体不算主体。
+        let glint = try #require(squareWallpaper(LockScreenWallpaperSubjects(objects: [
+            LockScreenWallpaperRegion(x: 0.3, y: 0.3, width: 0.4, height: 0.4, confidence: 1),
+            LockScreenWallpaperRegion(x: 0.0, y: 0.1, width: 0.1, height: 0.1, confidence: 0.2),
+        ])))
+        #expect(glint.imageX == center.imageX)
+        // 不合法的区域不算；越界的框裁回 0～1 再用。
+        let broken = try #require(squareWallpaper(LockScreenWallpaperSubjects(
+            faces: [
+                LockScreenWallpaperRegion(x: .nan, y: 0, width: 1, height: 1),
+                LockScreenWallpaperRegion(x: 0.5, y: 0.5, width: 0, height: 0.2),
+            ],
+            objects: [LockScreenWallpaperRegion(x: 0.0, y: 0.0, width: 0.2, height: 0.2, confidence: 0)]
+        )))
+        #expect(broken.imageX == center.imageX)
+        let outside = try #require(squareWallpaper(LockScreenWallpaperSubjects(faces: [
+            LockScreenWallpaperRegion(x: -0.1, y: 0.3, width: 0.2, height: 0.2),
+        ])))
+        #expect(outside.imageX == 0 && outside.coversCanvas)
+    }
+
+    @Test func wallpaperWindowCenterMovesFromTheMiddleOnlyWhenNeeded() {
+        typealias Focus = LockScreenWallpaperFocus
+        #expect(Focus.windowCenter(keeping: nil, window: 0.75) == 0.5)
+        #expect(Focus.windowCenter(keeping: 0.0...0.2, window: 1) == 0.5)
+        #expect(Focus.windowCenter(keeping: 0.0...0.2, window: .nan) == 0.5)
+        // 放得下：挪到刚好放进。
+        #expect(abs(Focus.windowCenter(keeping: 0.1...0.3, window: 0.46) - 0.33) < 1e-9)
+        #expect(abs(Focus.windowCenter(keeping: 0.7...0.9, window: 0.46) - 0.67) < 1e-9)
+        #expect(Focus.windowCenter(keeping: 0.3...0.6, window: 0.46) == 0.5)
+        // 放不下：留在主体范围里、尽量靠正中。
+        #expect(Focus.windowCenter(keeping: 0.0...1.0, window: 0.46) == 0.5)
+        #expect(abs(Focus.windowCenter(keeping: 0.4...1.0, window: 0.46) - 0.63) < 1e-9)
+        #expect(LockScreenWallpaperFocus(x: -1, y: 2) == LockScreenWallpaperFocus(x: 0, y: 1))
     }
 
     @Test func wallpaperLayoutHandlesNonSquareCovers() throws {
-        // 竖封面：高度占满，宽度至少盖住看得见的那一段；上下按取景点挪、不露边。
+        // 竖封面：高度占满，宽度至少盖住按屏幕宽高比算的那一段；上下不露边。
         let tall = try #require(LockScreenWallpaperLayout(
             sourceWidth: 900, sourceHeight: 1_600, visibleWidthRatio: 0.46,
-            focus: LockScreenWallpaperFocus(x: 0.5, y: 0.1)
+            subjects: LockScreenWallpaperSubjects(faces: [LockScreenWallpaperRegion(x: 0.4, y: 0, width: 0.2, height: 0.1)])
         ))
         expectFillsVisibleBand(tall, ratio: 0.46)
         #expect(tall.imageY <= 0 && tall.imageY + tall.imageHeight >= tall.height)
+        // 很窄的竖图要放大到盖住那一段，上下就有富余：脸在最上面时往下挪到脸进画面为止。
+        let narrow = try #require(LockScreenWallpaperLayout(
+            sourceWidth: 400, sourceHeight: 1_600, visibleWidthRatio: 0.46,
+            subjects: LockScreenWallpaperSubjects(faces: [LockScreenWallpaperRegion(x: 0.3, y: 0, width: 0.4, height: 0.1)])
+        ))
+        let narrowCentered = try #require(LockScreenWallpaperLayout(
+            sourceWidth: 400, sourceHeight: 1_600, visibleWidthRatio: 0.46
+        ))
+        #expect(narrow.imageHeight > narrow.height)
+        #expect(narrow.imageY > narrowCentered.imageY)
+        #expect(narrow.imageY <= 0 && narrow.imageY >= -1)
+        #expect(narrow.imageY + narrow.imageHeight >= narrow.height)
         // 横封面：高度占满，左右裁掉更多。
         let wide = try #require(LockScreenWallpaperLayout(
             sourceWidth: 1_920, sourceHeight: 1_080, visibleWidthRatio: 0.46
@@ -156,10 +238,10 @@ struct LockScreenMotionArtworkPolicyTests {
         ))
         #expect(fallback == LockScreenWallpaperLayout(sourceWidth: 1_080, sourceHeight: 1_080, visibleWidthRatio: .nan))
         #expect(fallback == LockScreenWallpaperLayout(sourceWidth: 1_080, sourceHeight: 1_080, visibleWidthRatio: 0))
-        // 比 3:4 还宽的屏幕（iPad）锁屏不裁两侧：整幅都要盖满。
+        // 比 3:4 还宽的屏幕（iPad）按整幅宽算：主体贴边也整幅盖满。
         let wide = try #require(LockScreenWallpaperLayout(
             sourceWidth: 1_080, sourceHeight: 1_080, visibleWidthRatio: 0.9,
-            focus: LockScreenWallpaperFocus(x: 0, y: 0.5)
+            subjects: LockScreenWallpaperSubjects(faces: [LockScreenWallpaperRegion(x: 0, y: 0.3, width: 0.1, height: 0.1)])
         ))
         #expect(wide.visibleWidthPermille == 750)
         #expect(wide.coversCanvas)
@@ -183,23 +265,6 @@ struct LockScreenMotionArtworkPolicyTests {
             sourceWidth: 4_000, sourceHeight: 4_000, visibleWidthRatio: 0.46, maximumLongEdge: 1_920
         ))
         #expect(still.height == 1_920 && still.width == 1_440)
-    }
-
-    @Test func wallpaperFocusWeighsSalientRegionsByAreaAndConfidence() {
-        #expect(LockScreenWallpaperFocus(regions: []) == .center)
-        let face = LockScreenWallpaperRegion(x: 0.1, y: 0.2, width: 0.2, height: 0.2)
-        let single = LockScreenWallpaperFocus(regions: [face])
-        #expect(abs(single.x - 0.2) < 1e-9 && abs(single.y - 0.3) < 1e-9)
-        // 大的、置信度高的那块分量重。
-        let big = LockScreenWallpaperRegion(x: 0.6, y: 0.4, width: 0.4, height: 0.4, confidence: 1)
-        let faint = LockScreenWallpaperRegion(x: 0, y: 0, width: 0.1, height: 0.1, confidence: 0.2)
-        let mixed = LockScreenWallpaperFocus(regions: [big, faint])
-        #expect(mixed.x > 0.75 && mixed.y > 0.55)
-        // 不合法的区域不算，越界的坐标收回到 0～1。
-        let broken = LockScreenWallpaperRegion(x: .nan, y: 0, width: 1, height: 1)
-        let empty = LockScreenWallpaperRegion(x: 0.5, y: 0.5, width: 0, height: 0.2)
-        #expect(LockScreenWallpaperFocus(regions: [broken, empty]) == .center)
-        #expect(LockScreenWallpaperFocus(x: -1, y: 2) == LockScreenWallpaperFocus(x: 0, y: 1))
     }
 
     @Test func operatingSystemThresholdIsVersion26() {
@@ -306,6 +371,11 @@ struct LockScreenMotionArtworkPolicyTests {
     }
 
     /// 锁屏按屏幕比例居中裁两侧以后看得见的那一段，整段都是素材，没有露出垫底或黑边。
+    /// 1080 见方的封面放进 iPhone 竖屏：画面 810×1080，素材 1080×1080，居中时 imageX = -135。
+    private func squareWallpaper(_ subjects: LockScreenWallpaperSubjects = .none) -> LockScreenWallpaperLayout? {
+        LockScreenWallpaperLayout(sourceWidth: 1_080, sourceHeight: 1_080, visibleWidthRatio: 0.46, subjects: subjects)
+    }
+
     private func expectFillsVisibleBand(_ layout: LockScreenWallpaperLayout, ratio: Double) {
         let visible = min(Double(layout.width), min(0.75, ratio) * Double(layout.height))
         let visibleLeft = (Double(layout.width) - visible) / 2

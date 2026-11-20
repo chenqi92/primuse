@@ -21,7 +21,7 @@ import AppKit
 /// 低电量、低数据、发热、减少动态效果时它自己退回预览图；App 不做任何持续的解码。
 ///
 /// 锁屏只把 3:4 那份铺成全屏背景，1:1 只显示成方块。所以 iPhone、iPad 上开着「锁屏全屏封面」时，
-/// 方形素材除了原样放 1:1 位，还按壁纸铺法合成一份 3:4（放大铺满、对准画面主体，见
+/// 方形素材除了原样放 1:1 位，还按壁纸铺法合成一份 3:4（放大铺满、尽量居中且不裁掉主体，见
 /// `LockScreenWallpaperLayout`）放 3:4 位；没有动态素材的歌拿静态封面合成一段静止的 3:4 画面。
 /// 都等系统真来要视频时才合成并缓存。Mac 上没有锁屏全屏封面，方形素材照旧只放 1:1 位。
 @MainActor
@@ -614,7 +614,7 @@ extension LockScreenMotionArtworkPublisher {
                     sourceWidth: Double(image.width),
                     sourceHeight: Double(image.height),
                     visibleWidthRatio: composition.visibleWidthRatio,
-                    focus: wallpaperFocus(of: image),
+                    subjects: wallpaperSubjects(of: image),
                     maximumLongEdge: stillWallpaperLongEdge
                   ),
                   let composed = LockScreenWallpaperComposer.previewImage(from: image, layout: layout),
@@ -667,13 +667,13 @@ extension LockScreenMotionArtworkPublisher {
                     video: originalVideo
                 ))
             case .squareInTall:
-                // 只有方形素材会走到这里，宽高都按短边算；取景点按首帧找画面主体。
+                // 只有方形素材会走到这里，宽高都按短边算；按首帧找画面主体。
                 guard let composition,
                       let layout = LockScreenWallpaperLayout(
                         sourceWidth: Double(sourceSide),
                         sourceHeight: Double(sourceSide),
                         visibleWidthRatio: composition.visibleWidthRatio,
-                        focus: wallpaperFocus(of: firstFrame)
+                        subjects: wallpaperSubjects(of: firstFrame)
                       ),
                       let preview = LockScreenWallpaperComposer.previewImage(from: firstFrame, layout: layout)
                 else { continue }
@@ -733,24 +733,29 @@ extension LockScreenMotionArtworkPublisher {
         ] as CFDictionary)
     }
 
-    /// 铺满锁屏时对准哪里：系统的注意力显著性检测找出人脸、主要物体所在的区域；找不出来取正中。
-    nonisolated private static func wallpaperFocus(of image: CGImage) -> LockScreenWallpaperFocus {
-        let request = VNGenerateAttentionBasedSaliencyImageRequest()
+    /// 铺满锁屏时不能裁掉的主体：人脸和主要物体。不用注意力显著性：它的框又松又普遍偏左，
+    /// 对称的封面也会被挪歪（#460）。两项检测一次跑完，哪项失败就当那项没找到。
+    nonisolated private static func wallpaperSubjects(of image: CGImage) -> LockScreenWallpaperSubjects {
+        let objectRequest = VNGenerateObjectnessBasedSaliencyImageRequest()
+        let faceRequest = VNDetectFaceRectanglesRequest()
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        guard (try? handler.perform([request])) != nil,
-              let objects = request.results?.first?.salientObjects,
-              !objects.isEmpty else { return .center }
-        return LockScreenWallpaperFocus(regions: objects.map { object in
-            // Vision 的框是归一化坐标、原点在左下；取景按原点在左上算。
-            let box = object.boundingBox
-            return LockScreenWallpaperRegion(
+        try? handler.perform([objectRequest, faceRequest])
+        // Vision 的框是归一化坐标、原点在左下；取景按原点在左上算。
+        func region(_ box: CGRect, confidence: Float) -> LockScreenWallpaperRegion {
+            LockScreenWallpaperRegion(
                 x: Double(box.minX),
                 y: Double(1 - box.maxY),
                 width: Double(box.width),
                 height: Double(box.height),
-                confidence: Double(object.confidence)
+                confidence: Double(confidence)
             )
-        })
+        }
+        return LockScreenWallpaperSubjects(
+            faces: (faceRequest.results ?? []).map { region($0.boundingBox, confidence: $0.confidence) },
+            objects: (objectRequest.results?.first?.salientObjects ?? []).map {
+                region($0.boundingBox, confidence: $0.confidence)
+            }
+        )
     }
 
     /// 合成好的静态壁纸存成 JPEG：交给系统的预览图和之后写视频都从它来，内存里不留整张位图。
@@ -919,8 +924,8 @@ private actor LockScreenMotionArtworkConverter {
 
 // MARK: - Wallpaper composition
 
-/// 合成锁屏用的 3:4 壁纸画面（构图见 `LockScreenWallpaperLayout`）：素材放大铺满、对准画面主体，
-/// 锁屏看不见的边角盖不到时垫一层同一素材的模糊底。预览图和视频每一帧走同一个 `compose`，
+/// 合成锁屏用的 3:4 壁纸画面（构图见 `LockScreenWallpaperLayout`）：素材放大铺满、尽量居中且不裁掉主体，
+/// 比画面窄、盖不满两侧时垫一层同一素材的模糊底。预览图和视频每一帧走同一个 `compose`，
 /// 预览和视频第一帧一致。只在系统来要视频时合成一次、写进缓存：逐帧在 GPU 上合成，
 /// 内存里只有当前一帧，编码用 HEVC。
 enum LockScreenWallpaperComposer {
