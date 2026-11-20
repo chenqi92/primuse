@@ -620,10 +620,10 @@ struct HomeFolderBrowser: View {
         #endif
     }
 
-    private func locateCurrentButton(titled: Bool = false) -> some View {
+    private var locateCurrentButton: some View {
         LocateCurrentSongButton(
             isEditing: isEditingFolders,
-            titled: titled,
+            titled: verticalBarEdge != nil,
             contains: { songID in model.index?.nodeID(containingSongID: songID) != nil }
         ) { songID, _ in
             guard let index = model.index,
@@ -815,20 +815,19 @@ struct HomeFolderBrowser: View {
         }
         .toolbar {
             if let node {
-                if #available(iOS 27.0, *), verticalBarEdge != nil {
-                    ToolbarOverflowMenu { folderMoreItems(node) }
-                } else {
-                    ToolbarItem(placement: .primaryAction) {
-                        Menu {
-                            folderMoreItems(node)
-                        } label: {
-                            Label("a11y_more_actions", systemImage: "ellipsis")
-                        }
-                        .accessibilityIdentifier("homeFolder.more")
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    locateCurrentButton
+                    pinButton(node.id, titled: verticalBarEdge != nil)
+                    Menu {
+                        folderMoreItems(node)
+                    } label: {
+                        PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: verticalBarEdge != nil)
                     }
+                    .accessibilityLabel("a11y_more_actions")
+                    .accessibilityIdentifier("homeFolder.more")
                 }
             } else {
-                ToolbarItem(placement: .primaryAction) { locateCurrentButton(titled: verticalBarEdge != nil) }
+                ToolbarItem(placement: .primaryAction) { locateCurrentButton }
                 if !usesInlineControls {
                     ToolbarItem(placement: .primaryAction) { EditButton() }
                 }
@@ -849,10 +848,6 @@ struct HomeFolderBrowser: View {
                 playFolder(node.id, shuffle: true)
             }
             .disabled(node.descendantSongCount == 0)
-        }
-        Section {
-            locateCurrentButton(titled: true)
-            pinButton(node.id, titled: true)
         }
         albumMetadataButton(node)
         cacheMenuButton(node)
@@ -1104,7 +1099,7 @@ struct HomeFolderBrowser: View {
                 } else {
                     // 定位、搜索、收藏、排序、更多同一种 32 高的玻璃键(`MacControlTier.header`);
                     // 原来是没有底的图标、系统的无边框菜单和系统的强调色按钮混在一排。
-                    locateCurrentButton()
+                    locateCurrentButton
                     MacControlIconButton(systemImage: "magnifyingglass", help: "search_title") {
                         guard let index = model.index else { return }
                         let context = LibrarySearchScope.folder(
@@ -1169,7 +1164,7 @@ struct HomeFolderBrowser: View {
                     .lineLimit(1)
                     .layoutPriority(1)
                 Spacer()
-                locateCurrentButton()
+                locateCurrentButton
                 if model.index != nil, !children.isEmpty || !pins.isEmpty {
                     Menu {
                         HomeFolderSongOrderMenuItems(order: songOrderBinding)

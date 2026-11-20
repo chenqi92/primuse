@@ -259,3 +259,140 @@ struct PMToolbarItemLabel: View {
         }
     }
 }
+
+#if os(iOS)
+@MainActor
+@Observable
+final class PMToolbarMenuState {
+    enum Presentation {
+        case closed, shortcuts, menu
+    }
+
+    var presentation = Presentation.closed
+    var anchorBottom: CGFloat = 0
+    var alignment: Alignment = .trailing
+
+    func dismiss() {
+        pmWithAnimation(.control) { presentation = .closed }
+    }
+}
+
+struct PMToolbarMoreButton: View {
+    let menu: PMToolbarMenuState
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    @State private var bottom: CGFloat = 0
+
+    var body: some View {
+        Button {
+            menu.anchorBottom = bottom
+            menu.alignment = verticalBarEdge == .leading ? .leading : .trailing
+            pmWithAnimation(.control) {
+                menu.presentation = menu.presentation == .menu ? .closed : .menu
+            }
+        } label: {
+            Label("a11y_more_actions", systemImage: "ellipsis")
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { edge in
+            bottom = edge
+            if menu.presentation != .closed { menu.anchorBottom = edge }
+        }
+        .accessibilityIdentifier("toolbar.actions.more")
+        .accessibilityAction(.escape, menu.dismiss)
+        .onDisappear { menu.dismiss() }
+    }
+}
+
+struct PMToolbarShortcuts<Content: View>: View {
+    let actionCount: Int
+    let menu: PMToolbarMenuState
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        if actionCount != 4 {
+            content()
+        } else if menu.presentation != .closed {
+            content()
+                .transition(.offset(x: 10).combined(with: .opacity))
+                .simultaneousGesture(TapGesture().onEnded {
+                    menu.presentation = .shortcuts
+                })
+        }
+    }
+}
+
+struct PMExpandableToolbar<Actions: View, Primary: View>: ToolbarContent {
+    let actionCount: Int
+    let menu: PMToolbarMenuState
+    @ViewBuilder let actions: () -> Actions
+    @ViewBuilder let primary: (_ usesMoreButton: Bool) -> Primary
+
+    var body: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            PMToolbarShortcuts(actionCount: actionCount, menu: menu, content: actions)
+            primary(actionCount == 4)
+        }
+        .pmHighVisibilityPriority()
+    }
+}
+
+extension View {
+    /// 菜单挂在页面上，让上方的原生工具栏保持可点。
+    func pmToolbarMenu<Items: View>(_ menu: PMToolbarMenuState, @ViewBuilder items: @escaping () -> Items) -> some View {
+        overlay {
+            if menu.presentation == .menu {
+                GeometryReader { proxy in
+                    let frame = proxy.frame(in: .global)
+                    let width = min(310, max(0, frame.width - 16))
+                    let top = min(max(0, menu.anchorBottom - frame.minY + 8), max(0, frame.height - 120))
+                    let menuRows = VStack(alignment: .leading, spacing: 2) { items() }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .buttonStyle(PMToolbarMenuRowStyle(menu: menu))
+                        .toggleStyle(.switch)
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(.primary)
+                    ZStack(alignment: .topLeading) {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { menu.dismiss() }
+                            .accessibilityHidden(true)
+                        ViewThatFits(in: .vertical) {
+                            menuRows
+                            ScrollView { menuRows }.scrollBounceBehavior(.basedOnSize)
+                        }
+                        .frame(width: width)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
+                        .accessibilityAction(.escape, menu.dismiss)
+                        .transition(.scale(scale: 0.94, anchor: .topTrailing).combined(with: .opacity))
+                        .frame(maxWidth: .infinity, alignment: menu.alignment)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                    }
+                    .padding(.top, top)
+                }
+                .transition(.opacity)
+            }
+        }
+    }
+}
+
+private struct PMToolbarMenuRowStyle: PrimitiveButtonStyle {
+    let menu: PMToolbarMenuState
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button(role: configuration.role) {
+            menu.dismiss()
+            configuration.trigger()
+        } label: {
+            configuration.label
+                .foregroundStyle(configuration.role == .destructive ? Color.red : Color.primary)
+                .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                .padding(.horizontal, 8)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+#endif

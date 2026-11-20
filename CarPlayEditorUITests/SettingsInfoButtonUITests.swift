@@ -255,24 +255,23 @@ final class SettingsInfoButtonUITests: XCTestCase {
         for (page, scope) in [("radio", "stations"), ("podcasts", "podcasts"), ("spokenWord", "audiobooks")] {
             app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "section:" + page
             app.launch()
-            let menuID = switch scope {
-            case "stations": "radio.more"
-            case "podcasts": "podcast.more"
-            default: "sharing.menu." + scope
+            if scope != "audiobooks" {
+                let bar = app.navigationBars[scope == "stations" ? "电台" : "播客"]
+                let expand = bar.buttons["toolbar.actions.more"]
+                XCTAssertTrue(bar.waitForExistence(timeout: 80))
+                if scope == "stations", expand.exists {
+                    XCTAssertFalse(bar.buttons["sharing.menu." + scope].exists)
+                    expand.tap()
+                } else {
+                    XCTAssertFalse(expand.exists)
+                }
             }
-            let menu = app.buttons[menuID]
+            let menu = app.buttons["sharing.menu." + scope]
             XCTAssertTrue(menu.waitForExistence(timeout: 80), app.debugDescription)
-            if scope != "audiobooks" {
-                XCTAssertTrue(app.navigationBars.buttons[scope == "stations" ? "添加电台" : "podcast.add"].exists)
-                XCTAssertFalse(app.navigationBars.buttons["分享与导入"].exists)
-            }
             menu.tap()
-            if scope != "audiobooks" {
-                app.buttons["分享与导入"].tap()
-            }
             XCTAssertTrue(app.buttons["导入分享文件"].waitForExistence(timeout: 5))
             XCTAssertTrue(app.buttons["接收附近分享"].exists)
-            XCTAssertTrue(app.buttons["输入导入码"].exists)
+            XCTAssertTrue(app.buttons["sharing.importCode"].exists)
             XCTAssertFalse(app.buttons["settings.backup.export"].exists)
             attach(app, "sharing-menu-" + scope)
             app.buttons["导入分享文件"].tap()

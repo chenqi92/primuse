@@ -61,7 +61,6 @@ struct PlaylistDetailView: View {
     @State private var isViewVisible = false
     @State private var selection = SongSelectionModel()
     @State private var songLocation = SongListLocation()
-    @State private var filteredLocationTarget: String?
     @State private var sortedSongsCache = PlaylistSortedSongsCache()
     /// nil = 尚未选择；空串 = 用户选择了歌单顺序，不能用默认排序覆盖。
     @AppStorage private var displaySortRawValue: String?
@@ -77,6 +76,7 @@ struct PlaylistDetailView: View {
     @State private var findText = ""
     #if os(iOS)
     @State private var isFindPresented = false
+    @State private var toolbarMenu = PMToolbarMenuState()
     #endif
 
     private var allowsManualMembership: Bool {
@@ -454,29 +454,16 @@ struct PlaylistDetailView: View {
         .songLocationReader(songLocation, revision: displayEntries.map(\.id))
         #endif
         .onDisappear { songLocation.cancel() }
-        // 菜单选中后即关闭，清除筛选的确认框需要挂在歌单页上。
-        .filteredSongLocationAlert($filteredLocationTarget) { songID in
-            guard songs.contains(where: { $0.id == songID }) else { return }
-            findText = ""
-            #if os(iOS)
-            isFindPresented = false
-            #endif
-            songLocation.locate(songID)
-        }
         #if os(iOS)
         .minimalNavigationDetail()
         .librarySearchContext {
             LibrarySearchScope(title: currentPlaylist?.name ?? playlist.name, songIDs: Set(songs.map(\.id)))
         }
         #endif
-        // 这两个确认框平时挂在工具栏的「⋯」上（见 playlistMoreToolbarItem）；
-        // 系统竖栏的溢出菜单和 Mac 头部菜单没有本页的视图可挂，才由整页弹。
+        #if os(macOS)
         .confirmationDialog(
             "playlist_export_choose_format",
-            isPresented: Binding(
-                get: { !moreMenuHostsDialogs && showExportFormats },
-                set: { showExportFormats = $0 }
-            ),
+            isPresented: $showExportFormats,
             titleVisibility: .visible
         ) {
             exportFormatActions
@@ -484,7 +471,7 @@ struct PlaylistDetailView: View {
         .confirmationDialog(
             String(localized: "playlist_remove_offline_confirm_title"),
             isPresented: Binding(
-                get: { !moreMenuHostsDialogs && pendingOfflineRemoval != nil },
+                get: { pendingOfflineRemoval != nil },
                 set: { if !$0 { pendingOfflineRemoval = nil } }
             ),
             titleVisibility: .visible,
@@ -494,6 +481,7 @@ struct PlaylistDetailView: View {
         } message: { removal in
             Text(verbatim: removal.message)
         }
+        #endif
         .alert("playlist_remove_offline_none", isPresented: $showsNoOfflineDownloads) {
             Button("ok", role: .cancel) {}
         }
@@ -706,36 +694,35 @@ struct PlaylistDetailView: View {
         #endif
         #if os(iOS)
         .libraryDetailFind(isPresented: $isFindPresented, text: $findText, prompt: "playlist_find_prompt")
-        #endif
         .toolbar {
-            #if os(iOS)
-            if verticalBarEdge != nil {
-                // 系统竖栏(iPhone Duo):「⋯」里的动作并进系统溢出菜单,和竖栏里别的按钮收在一处。
-                if #available(iOS 27.0, *) {
-                    ToolbarOverflowMenu {
-                        HiddenWhileSelectingSongs(selection: selection) {
-                            playlistMoreMenuContent
-                        }
-                        SongSelectionOptionsToolbarItem(
-                            selection: selection,
-                            orderedIDs: { selectableSongIDs },
-                            asOverflowItems: true
-                        )
-                    }
-                }
+            if selection.isActive {
+                SongSelectionToolbarItems(selection: selection, orderedIDs: { selectableSongIDs }, titled: verticalBarEdge != nil)
             } else {
-                playlistMoreToolbarItem
+                let locate = locateCurrentButton
+                PMExpandableToolbar(actionCount: locate.targetID(player: player, library: library) == nil ? 3 : 4, menu: toolbarMenu) {
+                    locate
+                    Button {
+                        pmWithAnimation(.control) { isFindPresented = true }
+                    } label: {
+                        PMToolbarItemLabel("playlist_find_prompt", systemImage: "magnifyingglass", titled: verticalBarEdge != nil)
+                    }
+                    .disabled(songs.isEmpty && pendingEntryCount == 0)
+                    .accessibilityIdentifier("playlistDetail.find")
+                    Menu {
+                        sortMenuOptions
+                    } label: {
+                        PMToolbarItemLabel("sort_by", systemImage: "arrow.up.arrow.down.circle", titled: verticalBarEdge != nil)
+                    }
+                    .disabled(songs.count < 2)
+                    .accessibilityLabel(Text("sort_by"))
+                    .accessibilityIdentifier("playlistDetail.sort")
+                } primary: { usesMoreButton in
+                    playlistMoreMenuButton(usesMoreButton: usesMoreButton)
+                }
             }
-            SongSelectionToolbarItems(
-                selection: selection,
-                orderedIDs: { selectableSongIDs },
-                titled: verticalBarEdge != nil,
-                includesOptions: verticalBarEdge == nil
-            )
-            #else
-            playlistMoreToolbarItem
-            #endif
         }
+        .pmToolbarMenu(toolbarMenu) { playlistMoreMenuContent }
+        #endif
         .sheet(item: $exportShareItem) { item in
             ShareSheet(items: [item.url])
         }
@@ -763,27 +750,21 @@ struct PlaylistDetailView: View {
         }
     }
 
-    /// 工具栏里那颗「⋯」。
-    @ToolbarContentBuilder
-    private var playlistMoreToolbarItem: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            HiddenWhileSelectingSongs(selection: selection) {
-                playlistMoreMenuButton
+    #if os(iOS)
+    private func playlistMoreMenuButton(usesMoreButton: Bool) -> some View {
+        Group {
+            if usesMoreButton {
+                PMToolbarMoreButton(menu: toolbarMenu)
+            } else {
+                Menu {
+                    playlistMoreMenuContent
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel(Text("a11y_more_actions"))
+                .accessibilityIdentifier("playlistDetail.more")
             }
         }
-    }
-
-    private var playlistMoreMenuButton: some View {
-        Menu {
-            playlistMoreMenuContent
-        } label: {
-            Image(systemName: "ellipsis")
-        }
-        // Do not disable the whole menu for an empty playlist. Actions
-        // that require tracks already carry their own disabled state,
-        // while exporting or deleting the playlist must remain usable.
-        .accessibilityLabel(Text("a11y_more_actions"))
-        .accessibilityIdentifier("playlistDetail.more")
         // 菜单里「导出」「移除离线下载」的确认框挂在这颗「⋯」上，从按钮长出来。
         .confirmationDialog(
             "playlist_export_choose_format",
@@ -807,15 +788,7 @@ struct PlaylistDetailView: View {
         }
     }
 
-    /// 工具栏里有自己的「⋯」时(普通 iPhone/iPad)确认框挂在它上面;
-    /// 系统竖栏(iPhone Duo)把菜单收进系统溢出菜单、Mac 用头部菜单，这两种退回整页。
-    private var moreMenuHostsDialogs: Bool {
-        #if os(iOS)
-        verticalBarEdge == nil
-        #else
-        false
-        #endif
-    }
+    #endif
 
     @ViewBuilder
     private var exportFormatActions: some View {
@@ -868,22 +841,6 @@ struct PlaylistDetailView: View {
             }
             .disabled(songs.isEmpty)
         }
-
-        #if os(iOS)
-        Section {
-            locateCurrentButton
-            Button("playlist_find_prompt", systemImage: "magnifyingglass") {
-                pmWithAnimation(.control) { isFindPresented = true }
-            }
-            .disabled(songs.isEmpty && pendingEntryCount == 0)
-            .accessibilityIdentifier("playlistDetail.find")
-            Menu("sort_by", systemImage: "arrow.up.arrow.down.circle") {
-                sortMenuOptions
-            }
-            .disabled(songs.count < 2)
-            .accessibilityIdentifier("playlistDetail.sort")
-        }
-        #endif
 
         Section {
             // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
@@ -2313,21 +2270,25 @@ struct PlaylistDetailView: View {
         }
     }
 
-    private var locateCurrentButton: some View {
-        LocateCurrentSongAction(
+    private var locateCurrentButton: LocateCurrentSongButton {
+        LocateCurrentSongButton(
             isEditing: selection.isActive || isReorderingSongs,
-            titled: true,
-            contains: { id in songs.contains { $0.id == id } }
-        ) { songID in
-            let isVisible = displayEntries.contains { entry in
-                if case .song(let song) = entry { return song.id == songID }
-                return false
+            titled: verticalBarEdge != nil,
+            contains: { id in songs.contains { $0.id == id } },
+            isVisible: { id in
+                displayEntries.contains { entry in
+                    if case .song(let song) = entry { return song.id == id }
+                    return false
+                }
             }
-            if isVisible {
-                songLocation.locate(songID)
-            } else {
-                filteredLocationTarget = songID
+        ) { songID, clearsFilters in
+            if clearsFilters {
+                findText = ""
+                #if os(iOS)
+                isFindPresented = false
+                #endif
             }
+            songLocation.locate(songID)
         }
     }
 

@@ -22,6 +22,9 @@ struct RadioStationsView: View {
     @State private var pendingInsecureStation: RadioStation?
     /// 管理态 —— 设计上用「先选后做」的多选替代每行一个 ⋯ 菜单。
     /// 进入即编辑态，没有中间的"看着像可选但没勾选圈"的过渡。
+    #if os(iOS)
+    @State private var toolbarMenu = PMToolbarMenuState()
+    #endif
     @State private var isManaging = false
     @State private var selection: Set<String> = []
     @State private var showDeleteConfirm = false
@@ -133,6 +136,7 @@ struct RadioStationsView: View {
         .toolbar { toolbarContent }
         #if os(iOS)
         .minimalPageHeader { minimalHeader }
+        .pmToolbarMenu(toolbarMenu) { radioAddItems }
         #endif
         // 进列表时给还没有台标的电台排一次自动发现。重复进入是安全的 ——
         // 已有台标的、正在找的、还在退避期的都会被服务自己挡掉。
@@ -485,42 +489,24 @@ struct RadioStationsView: View {
             HStack(spacing: 4) {
                 MinimalPageTitle("radio_title")
                 Spacer(minLength: 8)
-                MinimalHeaderActions {
+                MinimalExpandableFindActions(otherActionCount: store.stations.isEmpty ? 3 : 4, menu: toolbarMenu) {
                     MinimalPageFindButton()
-                    radioAddMenu
-                    radioMoreMenu
-                        .accessibilityIdentifier("radio.minimal.more")
+                    shareMenu
+                    radioManageButton
+                    radioLayoutToggle(titled: false)
+                } primary: { usesMoreButton in
+                    radioToolbarPrimary(usesMoreButton)
                 }
             }
         }
     }
     #endif
 
-    private var shareSelectionForMenu: ListeningShareSelection {
-        .init(
-            title: navigationTitleText, stations: isManaging ? selectedStations : visibleStations
-        )
-    }
-
     private var shareMenu: some View {
-        ListeningShareMenu(scope: .stations, selection: shareSelectionForMenu)
-            .tint(RadioSpacePalette.accent)
-    }
-
-    private var radioMoreMenu: some View {
-        ListeningShareMenu(scope: .stations, selection: shareSelectionForMenu, moreMenuImage: "ellipsis") {
-            radioManageButton
-            radioLayoutToggle
-            if !store.stations.isEmpty {
-                Button("radio_priority_sort_by_name", systemImage: "arrow.up.arrow.down") {
-                    store.sortStationsByName()
-                }
-                Button("home_spotlight_manage_radio", systemImage: "house") {
-                    showingHomeSpotlight = true
-                }
-            }
-        }
-        .accessibilityIdentifier("radio.more")
+        ListeningShareMenu(scope: .stations, selection: .init(
+            title: navigationTitleText, stations: isManaging ? selectedStations : visibleStations
+        ))
+        .tint(RadioSpacePalette.accent)
     }
 
     /// 导航栏按钮默认跟 App 的主题色(可能跟着封面变),这一页的按钮跟电台自己的颜色。
@@ -556,9 +542,18 @@ struct RadioStationsView: View {
             radioManageMenuItem
             #endif
         } else {
-            ToolbarItem(placement: .primaryAction) { radioAddMenu.tint(RadioSpacePalette.accent) }
-                .pmHighVisibilityPriority()
-            ToolbarItem(placement: .primaryAction) { radioMoreMenu.tint(RadioSpacePalette.accent) }
+            #if os(iOS)
+            PMExpandableToolbar(actionCount: store.stations.isEmpty ? 3 : 4, menu: toolbarMenu) {
+                shareMenu
+                radioManageButton.tint(RadioSpacePalette.accent)
+                radioLayoutToggle(titled: verticalBarEdge != nil).tint(RadioSpacePalette.accent)
+            } primary: { usesMoreButton in
+                radioToolbarPrimary(usesMoreButton).tint(RadioSpacePalette.accent)
+            }
+            #else
+            ToolbarItem(placement: .primaryAction) { shareMenu }
+            radioStandardToolbarGroup
+            #endif
         }
     }
 
@@ -617,6 +612,18 @@ struct RadioStationsView: View {
             )
         } else {
             Text("radio_manage_delete_confirm_message")
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var radioStandardToolbarGroup: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            radioManageButton
+                .tint(RadioSpacePalette.accent)
+            radioLayoutToggle(titled: verticalBarEdge != nil)
+                .tint(RadioSpacePalette.accent)
+            radioAddMenu
+                .tint(RadioSpacePalette.accent)
         }
     }
 
@@ -704,36 +711,63 @@ struct RadioStationsView: View {
 
     /// 版式一共就两种，展开一个菜单去点其中一个不如按一下直接换。
     /// 图标画的是「点下去会变成的那种」，当前是哪种交给旁白报。
-    private var radioLayoutToggle: some View {
+    private func radioLayoutToggle(titled: Bool) -> some View {
         Button {
             layoutModeRaw = alternateLayoutMode.rawValue
         } label: {
-            Label(String(localized: alternateLayoutMode.titleKey), systemImage: alternateLayoutMode.icon)
+            PMToolbarItemLabel(
+                verbatim: String(localized: alternateLayoutMode.titleKey),
+                systemImage: alternateLayoutMode.icon,
+                titled: titled
+            )
         }
         .accessibilityLabel(Text(String(localized: alternateLayoutMode.titleKey)))
         .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
         .accessibilityIdentifier("radioLayoutMode.toggle")
     }
 
-    /// 添加电台、批量添加、订阅与新建文件夹。
+    #if os(iOS)
+    @ViewBuilder
+    private func radioToolbarPrimary(_ usesMoreButton: Bool) -> some View {
+        if usesMoreButton {
+            PMToolbarMoreButton(menu: toolbarMenu)
+        } else {
+            radioAddMenu
+        }
+    }
+    #endif
+
     private var radioAddMenu: some View {
         Menu {
-            Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
-                showingBatchAdd = true
-            }
-            Button("radio_add", systemImage: "plus") {
-                showingNewStation = true
-            }
-            Button("radio_subscriptions_add", systemImage: "arrow.triangle.2.circlepath") {
-                subscriptionsStartAdding = true
-                showingSubscriptions = true
-            }
-            Divider()
-            Button("radio_folder_new", systemImage: "folder.badge.plus") {
-                beginPrompt(.createFolder(assigning: []))
-            }
+            radioAddItems
         } label: {
             Label("radio_add", systemImage: "plus")
+        }
+    }
+
+    @ViewBuilder
+    private var radioAddItems: some View {
+        Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
+            showingBatchAdd = true
+        }
+        Button("radio_add", systemImage: "plus") {
+            showingNewStation = true
+        }
+        Button("radio_subscriptions_add", systemImage: "arrow.triangle.2.circlepath") {
+            subscriptionsStartAdding = true
+            showingSubscriptions = true
+        }
+        Divider()
+        Button("radio_folder_new", systemImage: "folder.badge.plus") {
+            beginPrompt(.createFolder(assigning: []))
+        }
+        if !store.stations.isEmpty {
+            Button("radio_priority_sort_by_name", systemImage: "arrow.up.arrow.down") {
+                store.sortStationsByName()
+            }
+            Button("home_spotlight_manage_radio", systemImage: "house") {
+                showingHomeSpotlight = true
+            }
         }
     }
 

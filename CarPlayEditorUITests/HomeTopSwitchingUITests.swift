@@ -116,9 +116,12 @@ final class HomeTopSwitchingUITests: XCTestCase {
             }
         }
         try XCTSkipUnless(visibleRows.count == 2, "Requires two visible playable song rows")
-        let more = app.buttons["songList.more"]
-        if more.isHittable {
+        let more = app.buttons["toolbar.actions.more"].firstMatch
+        let directMore = app.buttons["songList.more"]
+        if more.exists {
             more.tap()
+        } else if directMore.isHittable {
+            directMore.tap()
         } else {
             visibleRows[1].press(forDuration: 1)
         }

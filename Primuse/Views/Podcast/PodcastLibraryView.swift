@@ -14,6 +14,7 @@ struct PodcastLibraryView: View {
     }
     #else
     @State private var navigation = PodcastNavigationModel()
+    @State private var toolbarMenu = PMToolbarMenuState()
     /// 「在本页里找」: 按节目名、作者、文件夹与标签筛已订阅的节目。
     @State private var findText = ""
 
@@ -55,10 +56,16 @@ struct PodcastLibraryView: View {
                     HStack(spacing: 4) {
                         MinimalPageTitle("listening_space_podcast")
                         Spacer(minLength: 8)
-                        MinimalHeaderActions {
+                        MinimalExpandableFindActions(otherActionCount: 3, menu: toolbarMenu) {
                             MinimalPageFindButton()
+                            PodcastShareMenu(navigation: navigation)
                             PodcastAddMenu(navigation: navigation)
-                            PodcastMoreMenu(navigation: navigation, systemImage: "ellipsis")
+                        } primary: { usesMoreButton in
+                            if usesMoreButton {
+                                PMToolbarMoreButton(menu: toolbarMenu)
+                            } else {
+                                PodcastMoreMenu(navigation: navigation, systemImage: "ellipsis")
+                            }
                         }
                     }
                     MinimalSpokenSwitcher(current: .podcasts)
@@ -67,6 +74,7 @@ struct PodcastLibraryView: View {
                 }
             }
         }
+        .pmToolbarMenu(toolbarMenu) { PodcastMoreMenu(navigation: navigation).items }
         .refreshable { await PodcastStore.shared.refreshAll() }
         .podcastNavigationDestinations(navigation)
     }
@@ -190,6 +198,7 @@ private struct PodcastNavigationDestinations: ViewModifier {
 }
 
 /// 右上角:「+」(发现、按地址添加、导入 OPML)和「…」(刷新、导出、设置)。
+#if os(iOS)
 struct PodcastLibraryToolbar: ToolbarContent {
     let navigation: PodcastNavigationModel
 
@@ -206,17 +215,22 @@ struct PodcastLibraryToolbar: ToolbarContent {
                     .tint(ListeningSpace.podcast.tint)
             }
         } else {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .topBarTrailing) {
+                PodcastShareMenu(navigation: navigation)
+                    .tint(ListeningSpace.podcast.tint)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 PodcastAddMenu(navigation: navigation)
                     .tint(ListeningSpace.podcast.tint)
             }
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .topBarTrailing) {
                 PodcastMoreMenu(navigation: navigation)
                     .tint(ListeningSpace.podcast.tint)
             }
         }
     }
 }
+#endif
 
 /// 「+」:发现、按地址添加、导入 OPML。工具栏与极简页头共用。
 struct PodcastAddMenu: View {
@@ -250,21 +264,25 @@ struct PodcastAddMenu: View {
     }
 }
 
-#if os(macOS)
 struct PodcastShareMenu: View {
     let navigation: PodcastNavigationModel
+    #if os(macOS)
+    /// 见 `ListeningShareMenu.macHeaderLabel`。
     var macHeaderLabel = false
-
+    #endif
     var body: some View {
-        ListeningShareMenu(scope: .podcasts, selection: navigation.libraryShareSelection, macHeaderLabel: macHeaderLabel)
+        #if os(macOS)
+        ListeningShareMenu(scope: .podcasts, selection: selection, macHeaderLabel: macHeaderLabel)
+        #else
+        ListeningShareMenu(scope: .podcasts, selection: selection)
+        #endif
     }
-}
-#endif
 
-private extension PodcastNavigationModel {
-    var libraryShareSelection: ListeningShareSelection {
-        .init(title: ListeningShareText.string("podcasts"),
-              podcasts: organizer.isSelecting ? organizer.selectedShows : PodcastStore.shared.shows)
+    private var selection: ListeningShareSelection {
+        .init(
+            title: ListeningShareText.string("podcasts"),
+            podcasts: navigation.organizer.isSelecting ? navigation.organizer.selectedShows : PodcastStore.shared.shows
+        )
     }
 }
 
@@ -276,34 +294,41 @@ struct PodcastMoreMenu: View {
     private var store: PodcastStore { PodcastStore.shared }
 
     var body: some View {
-        ListeningShareMenu(scope: .podcasts, selection: navigation.libraryShareSelection, moreMenuImage: systemImage) {
-            Button {
-                Task { await store.refreshAll() }
-            } label: {
-                Label("podcast_refresh_all", systemImage: "arrow.clockwise")
-            }
-            .disabled(store.shows.isEmpty || store.isRefreshingAll)
-            if !store.shows.isEmpty {
-                // 选几档一起归进文件夹、贴标签或退订。
-                Button {
-                    navigation.organizer.beginSelecting()
-                } label: {
-                    Label("batch_select", systemImage: "checkmark.circle")
-                }
-                .accessibilityIdentifier("podcast.select")
-                ShareLink(item: PodcastOPMLDocument(), preview: SharePreview(String(localized: "podcast_export_opml"))) {
-                    Label("podcast_export_opml", systemImage: "square.and.arrow.up")
-                }
-            }
-            Divider()
-            PodcastSectionsEditorButton(navigation: navigation)
-            Button {
-                navigation.showsSettings = true
-            } label: {
-                Label("podcast_settings", systemImage: "gearshape")
-            }
+        Menu {
+            items
+        } label: {
+            Label("more", systemImage: systemImage)
         }
         .accessibilityIdentifier("podcast.more")
+    }
+
+    @ViewBuilder
+    var items: some View {
+        Button {
+            Task { await store.refreshAll() }
+        } label: {
+            Label("podcast_refresh_all", systemImage: "arrow.clockwise")
+        }
+        .disabled(store.shows.isEmpty || store.isRefreshingAll)
+        if !store.shows.isEmpty {
+            // 选几档一起归进文件夹、贴标签或退订。
+            Button {
+                navigation.organizer.beginSelecting()
+            } label: {
+                Label("batch_select", systemImage: "checkmark.circle")
+            }
+            .accessibilityIdentifier("podcast.select")
+            ShareLink(item: PodcastOPMLDocument(), preview: SharePreview(String(localized: "podcast_export_opml"))) {
+                Label("podcast_export_opml", systemImage: "square.and.arrow.up")
+            }
+        }
+        Divider()
+        PodcastSectionsEditorButton(navigation: navigation)
+        Button {
+            navigation.showsSettings = true
+        } label: {
+            Label("podcast_settings", systemImage: "gearshape")
+        }
     }
 }
 

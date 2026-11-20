@@ -578,7 +578,7 @@ struct ListeningShareReceiveView: View {
     }
 }
 
-struct ListeningShareMenu<MoreActions: View>: View {
+struct ListeningShareMenu: View {
     enum Scope: String { case settings, stations, podcasts, audiobooks }
     let scope: Scope
     var selection: ListeningShareSelection?
@@ -587,20 +587,6 @@ struct ListeningShareMenu<MoreActions: View>: View {
     /// 调用处再配 `.macControlMenuStyle()`; 不给时是系统的菜单按钮(设置页)。
     var macHeaderLabel = false
     #endif
-    private let moreMenuImage: String?
-    private let moreActions: () -> MoreActions
-
-    init(scope: Scope, selection: ListeningShareSelection? = nil, macHeaderLabel: Bool = false,
-         moreMenuImage: String? = nil, @ViewBuilder moreActions: @escaping () -> MoreActions = { EmptyView() }) {
-        self.scope = scope
-        self.selection = selection
-        #if os(macOS)
-        self.macHeaderLabel = macHeaderLabel
-        #endif
-        self.moreMenuImage = moreMenuImage
-        self.moreActions = moreActions
-    }
-
     @State private var outgoing: ListeningShareSelection?
     @State private var importFile = false
     @State private var importsCode = false
@@ -617,7 +603,7 @@ struct ListeningShareMenu<MoreActions: View>: View {
             || !selection.bookSongs.isEmpty || selection.bookURL != nil
     }
 
-    private var shareMenu: some View {
+    var body: some View {
         Menu {
             if scope == .settings {
                 Button("settings_backup_export", systemImage: "square.and.arrow.up") { backupAction = .export }
@@ -655,21 +641,6 @@ struct ListeningShareMenu<MoreActions: View>: View {
             #endif
         }
         .accessibilityIdentifier("sharing.menu." + scope.rawValue)
-    }
-
-    var body: some View {
-        Group {
-            if let moreMenuImage {
-                Menu {
-                    moreActions()
-                    Section { shareMenu }
-                } label: {
-                    Label("a11y_more_actions", systemImage: moreMenuImage)
-                }
-            } else {
-                shareMenu
-            }
-        }
         .sheet(item: $outgoing) { ListeningShareExportView(selection: $0) }
         .sheet(isPresented: $receive) { ListeningShareReceiveView() }
         .sheet(isPresented: $importsCode) { ListeningShareCodeImportView() }

@@ -1088,6 +1088,23 @@ struct MinimalHeaderActions<Content: View>: View {
     }
 }
 
+/// 查找按钮由页面注册，按当前实际可见的按钮数决定是否显示折叠箭头。
+struct MinimalExpandableFindActions<Content: View, Primary: View>: View {
+    let otherActionCount: Int
+    let menu: PMToolbarMenuState
+    @ViewBuilder let content: () -> Content
+    @ViewBuilder let primary: (_ usesMoreButton: Bool) -> Primary
+    @Environment(MinimalPageFindState.self) private var findState: MinimalPageFindState?
+
+    var body: some View {
+        let actionCount = otherActionCount + (findState?.isAvailable == true ? 1 : 0)
+        MinimalHeaderActions {
+            PMToolbarShortcuts(actionCount: actionCount, menu: menu, content: content)
+            primary(actionCount == 4)
+        }
+    }
+}
+
 struct MinimalHeaderIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         MinimalHeaderIconButtonBody(configuration: configuration)
