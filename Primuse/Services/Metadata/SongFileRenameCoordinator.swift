@@ -102,7 +102,10 @@ enum SongFileRenameCoordinator {
         }
         guard !plan.moves.isEmpty else { return SongFileRenameResult(song: song) }
         let originalState = try await connector.metadataWritebackState(for: song.filePath)
-        guard originalState.matchesScannedSong(song) else {
+        guard originalState.matchesScannedSong(
+            song,
+            revisionFoldsSidecarFingerprints: type(of: connector).revisionFoldsSidecarFingerprints
+        ) else {
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
         var states: [String: EmbeddedMetadataRemoteFileState] = [:]

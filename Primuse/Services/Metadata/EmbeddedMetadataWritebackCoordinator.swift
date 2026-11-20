@@ -59,6 +59,20 @@ struct EmbeddedMetadataRemoteFileState: Sendable, Equatable {
             guard let revision else { return false }
             return songRevision == revision
         }
+        return matchesScannedAudio(song)
+    }
+
+    /// 本机文件夹源的 revision 还并着同名封面、歌词、MV 文件的指纹(见
+    /// `EmbeddedMetadataWritebackAdapter.revisionFoldsSidecarFingerprints`)。刮削、存歌词在歌旁边
+    /// 写了这些文件之后，库里记的 revision 就旧了；写回、改名动的只是音频本身，音频还是扫描时
+    /// 那一份(大小、修改时间都对得上)就不算冲突。音频真被别处改过照旧拒绝。
+    func matchesScannedSong(_ song: Song, revisionFoldsSidecarFingerprints: Bool) -> Bool {
+        if matchesScannedSong(song) { return true }
+        return revisionFoldsSidecarFingerprints && song.revision != nil && matchesScannedAudio(song)
+    }
+
+    /// 音频本身(大小、修改时间)还是库里记的那一份。
+    func matchesScannedAudio(_ song: Song) -> Bool {
         guard song.fileSize > 0, fileSize > 0, fileSize == song.fileSize else {
             return false
         }
@@ -160,6 +174,8 @@ private extension EmbeddedMetadataWritebackStage {
 /// writeback transaction deliberately lives outside individual connectors so
 /// providers cannot accidentally omit conflict checks or remote verification.
 protocol EmbeddedMetadataWritebackAdapter: MusicSourceConnector {
+    /// 扫描时记进歌曲 revision 的，除了音频本身还有同名封面、歌词、MV 文件的指纹。
+    static var revisionFoldsSidecarFingerprints: Bool { get }
     func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState
     func replaceMetadataFile(
         at path: String,
@@ -185,6 +201,8 @@ struct EmbeddedMetadataReplacementReadbackError: LocalizedError {
 }
 
 extension EmbeddedMetadataWritebackAdapter {
+    static var revisionFoldsSidecarFingerprints: Bool { false }
+
     func invalidateMetadataWritebackCache(for path: String) async {}
 
     func replaceMetadataFileReturningPath(
@@ -273,9 +291,15 @@ enum EmbeddedMetadataWritebackCoordinator {
         guard initialState.hasReliableConflictGuard else {
             throw EmbeddedMetadataCoordinatedWritebackError.invalidRemoteState
         }
-        guard initialState.matchesScannedSong(original) else {
-            plog("⚠️ Writeback conflict stage=scanned source=\(sourceName) \(initialState.mismatchSummary(againstScanned: original))")
-            throw EmbeddedMetadataCoordinatedWritebackError.conflict
+        if !initialState.matchesScannedSong(original) {
+            guard initialState.matchesScannedSong(
+                original,
+                revisionFoldsSidecarFingerprints: Adapter.revisionFoldsSidecarFingerprints
+            ) else {
+                plog("⚠️ Writeback conflict stage=scanned source=\(sourceName) \(initialState.mismatchSummary(againstScanned: original))")
+                throw EmbeddedMetadataCoordinatedWritebackError.conflict
+            }
+            plog("Writeback: only the cover/lyrics files beside the audio changed since the scan source=\(sourceName); audio unchanged, continuing")
         }
 
         await adapter.invalidateMetadataWritebackCache(for: original.filePath)

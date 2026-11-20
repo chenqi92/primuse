@@ -4,6 +4,9 @@ import Foundation
 import PrimuseKit
 
 actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWritebackAdapter, PathFileRenameConnector {
+    /// 扫描把同名封面、歌词、MV 文件的指纹并进 Song.revision(`localCompositeRevision`)。
+    static let revisionFoldsSidecarFingerprints = true
+
     let sourceID: String
     nonisolated let supportsSidecarWriting: Bool
     private var basePath: URL

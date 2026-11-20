@@ -544,6 +544,13 @@ final class MusicScraperService {
         songs.map { song in
             guard let live = library.storedSong(id: song.id) else { return song }
             var song = song
+            // 刮削不改文件本身，文件身份以库里那一行为准：拿来刮的是开刮时的快照(可见集还可能是
+            // 扫描提交前的旧行)，整行写回会把已经更新过的身份倒回去，之后嵌封面、改标签都被判成
+            // 「源文件在编辑期间已发生变化」。单曲刮削在调用前已经这样做了，整批和后台补全同样要。
+            song.filePath = live.filePath
+            song.fileSize = live.fileSize
+            song.lastModified = live.lastModified
+            song.revision = live.revision
             if preservingExistingArtwork, live.coverArtFileName?.isEmpty == false,
                replacingArtworkReferences[song.id] != live.coverArtFileName {
                 song.coverArtFileName = live.coverArtFileName

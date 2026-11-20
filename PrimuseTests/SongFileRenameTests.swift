@@ -243,6 +243,39 @@ final class SongFileRenameTests: XCTestCase {
         await connector.disconnect()
     }
 
+    /// 本机文件夹源的 revision 并着同名封面、歌词的指纹。刮削在歌旁边写了封面、歌词文件之后，
+    /// 嵌封面、改标签、改名不能因此把音频当成被改过；音频真被别处改了照旧算冲突。
+    func testLocalWritebackIgnoresSidecarsWrittenSinceTheScanButNotAudioChanges() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data(repeating: 0x2A, count: 2048).write(to: directory.appendingPathComponent("song.mp3"))
+        let connector = LocalFileSource(sourceID: UUID().uuidString, basePath: directory)
+        try await connector.connect()
+        var scanned: [Song] = []
+        for try await row in try await connector.scanSongs(from: "/") { scanned.append(row.song) }
+        var song = try XCTUnwrap(scanned.first)
+        let initial = try await connector.metadataWritebackState(for: song.filePath)
+        song.fileSize = initial.fileSize
+        song.lastModified = initial.modifiedDate
+        song.revision = initial.revision
+        XCTAssertNotNil(song.revision)
+        XCTAssertTrue(initial.matchesScannedSong(song))
+
+        try Data([1, 2, 3]).write(to: directory.appendingPathComponent("song-cover.jpg"))
+        try Data("[00:01.00]Paper lights".utf8).write(to: directory.appendingPathComponent("song.lrc"))
+        let afterSidecars = try await connector.metadataWritebackState(for: song.filePath)
+        XCTAssertFalse(afterSidecars.matchesScannedSong(song), "The local fingerprint folds the new sidecars in")
+        XCTAssertTrue(LocalFileSource.revisionFoldsSidecarFingerprints)
+        XCTAssertTrue(afterSidecars.matchesScannedSong(song, revisionFoldsSidecarFingerprints: true))
+        XCTAssertFalse(afterSidecars.matchesScannedSong(song, revisionFoldsSidecarFingerprints: false))
+
+        try Data(repeating: 0x2B, count: 4096).write(to: directory.appendingPathComponent("song.mp3"))
+        let afterAudioChange = try await connector.metadataWritebackState(for: song.filePath)
+        XCTAssertFalse(afterAudioChange.matchesScannedSong(song, revisionFoldsSidecarFingerprints: true))
+        await connector.disconnect()
+    }
+
     func testRemoteRescanDistinguishesNewFileAtPreviousName() async throws {
         let connector = RenameFixture()
         let scanner = ConnectorScanner(connector: connector, sourceID: connector.sourceID)

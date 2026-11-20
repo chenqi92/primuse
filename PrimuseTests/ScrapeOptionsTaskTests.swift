@@ -213,6 +213,29 @@ final class ExistingCoverScrapeTests: XCTestCase {
         }
     }
 
+    /// 整批刮削拿来刮的是开刮时的快照。写回库里时文件身份要跟库里那一行走，
+    /// 否则会把嵌封面后记下的新身份倒回去，之后的写回都判成源文件已变化。
+    func testPublicationKeepsTheLibrarysCurrentFileIdentity() async throws {
+        try await withFixture { _, _, song, root in
+            let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+            var latest = song
+            latest.fileSize = 4_096
+            latest.lastModified = Date(timeIntervalSince1970: 1_800_000_000)
+            latest.revision = "after-embed"
+            library.addSongs([latest])
+            var pending = song
+            pending.year = 2026
+            pending.fileSize = 2_048
+            pending.revision = "before-embed"
+            let result = MusicScraperService.rebasedOntoLatestUserEdits([pending], in: library)[0]
+            XCTAssertEqual(result.year, 2026)
+            XCTAssertEqual(result.filePath, latest.filePath)
+            XCTAssertEqual(result.fileSize, 4_096)
+            XCTAssertEqual(result.lastModified, latest.lastModified)
+            XCTAssertEqual(result.revision, "after-embed")
+        }
+    }
+
     private func withFixture(
         _ body: (MusicScraperService, CoverScrapeProbe, Song, URL) async throws -> Void
     ) async throws {
