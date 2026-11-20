@@ -693,14 +693,17 @@ public enum LargeQueueRequestPlanner {
 /// full cycle still plays every requested song before the queue wraps.
 public struct QueueContinuation: Codable, Equatable, Sendable {
     public let token: String
+    /// A disk-backed whole-library request holds candidate IDs until each window is resolved.
+    public let musicSourceIDs: Set<String>?
     public private(set) var requestedIDs: [String]
     public private(set) var nextOffset: Int
     /// Songs before the window (`requestedIDs[0..<leadingEnd]`).
     public private(set) var leadingEnd: Int
     public private(set) var leadingOffset: Int
 
-    public init(token: String = UUID().uuidString, requestedIDs: [String], window: Range<Int>) {
+    public init(token: String = UUID().uuidString, requestedIDs: [String], window: Range<Int>, musicSourceIDs: Set<String>? = nil) {
         self.token = token
+        self.musicSourceIDs = musicSourceIDs
         self.requestedIDs = requestedIDs
         nextOffset = min(window.upperBound, requestedIDs.count)
         leadingEnd = max(0, min(window.lowerBound, requestedIDs.count))
@@ -708,8 +711,9 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
     }
 
     /// Restores a stored continuation; offsets are clamped to the IDs.
-    init(token: String, requestedIDs: [String], nextOffset: Int, leadingEnd: Int, leadingOffset: Int) {
+    init(token: String, requestedIDs: [String], nextOffset: Int, leadingEnd: Int, leadingOffset: Int, musicSourceIDs: Set<String>? = nil) {
         self.token = token
+        self.musicSourceIDs = musicSourceIDs
         self.requestedIDs = requestedIDs
         self.nextOffset = max(0, min(nextOffset, requestedIDs.count))
         self.leadingEnd = max(0, min(leadingEnd, requestedIDs.count))
@@ -804,6 +808,7 @@ public struct QueueContinuationStore: Sendable {
 
     private struct State: Codable {
         let token: String
+        let musicSourceIDs: Set<String>?
         let nextOffset: Int
         let leadingEnd: Int
         let leadingOffset: Int
@@ -822,7 +827,8 @@ public struct QueueContinuationStore: Sendable {
                 requestedIDs: ids,
                 nextOffset: state.nextOffset,
                 leadingEnd: state.leadingEnd,
-                leadingOffset: state.leadingOffset
+                leadingOffset: state.leadingOffset,
+                musicSourceIDs: state.musicSourceIDs
             )
         }
         return try? JSONDecoder().decode(QueueContinuation.self, from: data)
@@ -853,6 +859,7 @@ public struct QueueContinuationStore: Sendable {
         }
         let state = State(
             token: continuation.token,
+            musicSourceIDs: continuation.musicSourceIDs,
             nextOffset: continuation.nextOffset,
             leadingEnd: continuation.leadingEnd,
             leadingOffset: continuation.leadingOffset,
@@ -923,19 +930,24 @@ public struct QueueContinuationStore: Sendable {
     }
 
     private func loadIDs(count: Int, fingerprint: UInt64) -> [String]? {
-        guard let data = try? Data(contentsOf: idsURL),
+        guard let data = try? Data(contentsOf: idsURL, options: .mappedIfSafe),
               let headerEnd = data.firstIndex(of: 10),
               String(decoding: data[data.startIndex..<headerEnd], as: UTF8.self)
                 == Self.header(count: count, fingerprint: fingerprint) else { return nil }
-        var ids: [String] = []
-        ids.reserveCapacity(count)
-        var lineStart = data.index(after: headerEnd)
-        while lineStart < data.endIndex, let lineEnd = data[lineStart...].firstIndex(of: 10) {
-            ids.append(String(decoding: data[lineStart..<lineEnd], as: UTF8.self))
-            lineStart = data.index(after: lineEnd)
+        return data.withUnsafeBytes { raw -> [String]? in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            guard let base = bytes.baseAddress, count >= 0, count <= bytes.count - headerEnd - 1 else { return nil }
+            let end = base + bytes.count
+            var line = base + headerEnd + 1
+            var ids: [String] = []
+            ids.reserveCapacity(count)
+            while line < end, let newline = memchr(line, 10, line.distance(to: end)) {
+                let separator = UnsafeRawPointer(newline).assumingMemoryBound(to: UInt8.self)
+                ids.append(String(decoding: UnsafeBufferPointer(start: line, count: line.distance(to: separator)), as: UTF8.self))
+                line = separator + 1
+            }
+            return ids.count == count && line == end ? ids : nil
         }
-        guard ids.count == count else { return nil }
-        return ids
     }
 }
 

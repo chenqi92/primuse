@@ -5243,6 +5243,22 @@ final class MusicLibrary {
         return isReady || Task.isCancelled ? nil : result
     }
 
+    func prepareStartupContinuation(_ request: QueueContinuation, repeatsAll: Bool) async -> PreparedQueueRequest<Song>? {
+        if let sources = request.musicSourceIDs {
+            return await prepareStartupPlayback(shuffled: false, sourceIDs: sources, continuing: request)
+        }
+        var remainder = request
+        var items: [Song] = []
+        while items.count < QueueWindowPolicy.refillBatch {
+            let ids = remainder.takeNext(maxCount: QueueWindowPolicy.refillBatch - items.count, repeatsAll: repeatsAll)
+            guard !ids.isEmpty else { break }
+            guard let rows = await prepareStartupSavedQueue(ids: ids) else { return nil }
+            let disabled = disabledPlaybackSourceIDs
+            items.append(contentsOf: ids.compactMap { rows[$0] }.filter { !disabled.contains($0.sourceID) })
+        }
+        return PreparedQueueRequest(items: items, selectedIndex: 0, continuation: remainder.isExhausted ? nil : remainder)
+    }
+
     private struct StartupPlaybackRules: Decodable {
         let playlistSongIDs: [String: [String]]?
         let deletedSongIdentities: [String]?
@@ -5294,6 +5310,54 @@ final class MusicLibrary {
         snapshot.playlistSongIDs = rules?.playlistSongIDs
         snapshot.deletedSongIdentities = rules?.deletedSongIdentities
         return try applyingSnapshotDelta(to: snapshot, at: url, fingerprint: fingerprint, playbackRulesOnly: true)
+    }
+
+    func prepareStartupPlayback(
+        shuffled: Bool, startingWith firstID: String? = nil, sourceIDs: Set<String>,
+        preference: ShufflePreference = .uniform, localPlayCounts: [String: Int] = [:],
+        continuing: QueueContinuation? = nil
+    ) async -> PreparedQueueRequest<Song>? {
+        guard !isReady else { return nil }
+        let snapshot = snapshotURL
+        let directory = snapshot.deletingLastPathComponent()
+        let sources = sourceIDs.subtracting(preparingDisabledSourceIDs ?? disabledSourceIDs)
+        let prefixes = Dictionary(uniqueKeysWithValues: sources.map { ($0, sourceIdentityResolver?($0) ?? $0) })
+        let classification = SpokenWordStore.shared.classificationSnapshot
+        let worker = Task.detached(priority: .userInitiated) { () throws -> PreparedQueueRequest<Song>? in
+            let baseStamp = Self.snapshotFingerprint(at: snapshot)
+            let deltaURL = SnapshotDelta.url(for: snapshot)
+            let deltaStamp = Self.snapshotFingerprint(at: deltaURL)
+            let rules = try Self.playbackRules(at: snapshot)
+            let membership = rules.playlistSongIDs ?? [:]
+            let disliked = Set(membership[Self.dislikedSongsPlaylistID] ?? []).subtracting(membership[Self.likedSongsPlaylistID] ?? [])
+            let tombstones = Set(rules.deletedSongIdentities ?? [])
+            let exclusions = try Self.startupSongExclusions(directory: directory, sourcePrefixes: prefixes)
+            let result = try IncrementalSongPageReader.playbackWindow(
+                at: directory.appendingPathComponent("library-songs.sqlite").path, sources: sources,
+                minimumMigration: Self.loadedSongMigrationVersion, shuffled: shuffled, startingWith: firstID,
+                excluding: disliked, preference: preference, localPlayCounts: localPlayCounts,
+                linkedNext: Set(membership[Self.shuffleLinkNextPlaylistID] ?? []),
+                linkedPrevious: Set(membership[Self.shuffleLinkPreviousPlaylistID] ?? []),
+                continuing: continuing,
+                isVisible: { song in
+                    LibrarySongAdmissionPolicy.verdict(for: song, prefix: prefixes[song.sourceID],
+                        tombstones: tombstones, deviceExclusions: exclusions) == .admitted
+                },
+                isMusic: { song in
+                    !classification.collectionOnlySongIDs.contains(song.id) && classification.kind(
+                        songID: song.id, sourceID: song.sourceID, filePath: song.filePath,
+                        genre: song.genre, serverLibraryID: song.serverLibraryID
+                    ) == .music
+                }
+            )
+            guard baseStamp == Self.snapshotFingerprint(at: snapshot), deltaStamp == Self.snapshotFingerprint(at: deltaURL)
+            else { throw IncrementalSongPageError.snapshotChanged }
+            return result
+        }
+        let result = await withTaskCancellationHandler { try? await worker.value } onCancel: { worker.cancel() }
+        guard !Task.isCancelled, !isReady, classification == SpokenWordStore.shared.classificationSnapshot,
+              sources == sourceIDs.subtracting(preparingDisabledSourceIDs ?? disabledSourceIDs) else { return nil }
+        return result
     }
 
     func prepareStartupSongPage(
@@ -12041,6 +12105,11 @@ final class MusicLibrary {
         let disliked = dislikedSongIDs
         guard !disliked.isEmpty else { return musicSongs.map(\.id) }
         return musicSongs.compactMap { disliked.contains($0.id) ? nil : $0.id }
+    }
+
+    func isWholeLibraryPlaybackSong(id: String) -> Bool {
+        !nonMusicSongIDs.contains(id) && !visibleContentClassification.collectionOnlySongIDs.contains(id)
+            && !dislikedSongIDs.contains(id)
     }
 
     func toggleDisliked(songID: String) {

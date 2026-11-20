@@ -928,7 +928,13 @@ final class AudioPlayerService {
     /// The rest of a request too large to install at once (see
     /// `QueueWindowPolicy`); topped up into `queueEntries` as playback nears
     /// the end of the window.
-    @ObservationIgnored var queueContinuation: QueueContinuation?
+    @ObservationIgnored var queueContinuation: QueueContinuation? {
+        didSet {
+            queueContinuationReadTask?.cancel()
+            queueContinuationReadTask = nil
+        }
+    }
+    @ObservationIgnored var queueContinuationReadTask: Task<Void, Never>?
     @ObservationIgnored var queueContinuationWriteTask: Task<Void, Never>?
     /// Up Next entries the player added itself once a music queue ran out
     /// (#166); the queue list shows them under an "autoplay" divider.
@@ -1884,6 +1890,7 @@ final class AudioPlayerService {
         self.playbackSettings = playbackSettings
         self.playbackSessionStore = playbackSessionStore
         self.musicSessionMemoryStore = musicSessionMemoryStore
+        musicSessionMemoryStore.bindStartupLibrary(library)
         self.queueBookmarkStore = queueBookmarkStore
         self.playbackSessionPersistence = PlaybackSessionPersistenceCoordinator(
             store: playbackSessionStore

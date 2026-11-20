@@ -62,6 +62,56 @@ final class LibraryStartupPreparationTests: XCTestCase {
         XCTAssertFalse(library.isReady)
     }
 
+    func testPlayAllAndShuffleResolveMusicWhileTheLibraryStaysUnpublished() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        var songs = (0..<460).map { Self.makeSong(id: "music-\($0)", sourceID: $0 == 21 ? "disabled" : "music") }
+        songs[200].filePath = "/Books/book.m4b"
+        songs[202].filePath = ""
+        songs[202].duration = 0
+        songs[6].albumID = "linked-album"
+        songs[7].albumID = "linked-album"
+        songs[6].trackNumber = 1
+        songs[7].trackNumber = 2
+        songs[7].serverPlayCount = 80
+        try store.replaceAll(with: songs)
+        try store.markMigrationCompleted(version: 10)
+        let rules: [String: Any] = [
+            "playlistSongIDs": [MusicLibrary.likedSongsPlaylistID: ["music-3"],
+                                MusicLibrary.dislikedSongsPlaylistID: ["music-2", "music-3"],
+                                MusicLibrary.shuffleLinkNextPlaylistID: ["music-6"]],
+            "deletedSongIdentities": ["music:\(songs[201].filePath)"]
+        ]
+        try JSONSerialization.data(withJSONObject: rules).write(to: directory.appendingPathComponent("library-cache.json"))
+        try JSONEncoder().encode(SongLocalRemovalLedger(identities: ["music:\(songs[203].filePath)"]))
+            .write(to: directory.appendingPathComponent("library-device-local-excluded-songs.json"))
+        let library = MusicLibrary.makePreparing(storageDirectory: directory, disabledSourceIDs: ["disabled"])
+        let expected = songs.enumerated().filter { ![2, 21, 200, 201, 202, 203].contains($0.offset) }.map(\.element.id)
+        for preference: ShufflePreference? in [nil, .uniform, .frequentArtists] {
+            let ordered = preference == nil
+            let prepared = await library.prepareStartupPlayback(shuffled: !ordered, startingWith: ordered ? nil : "music-6",
+                sourceIDs: ["music", "disabled"], preference: preference ?? .uniform, localPlayCounts: ["music-7": 10])
+            let first = try XCTUnwrap(prepared)
+            XCTAssertEqual(first.items.count, IncrementalSongPageReader.pageSize)
+            if !ordered { XCTAssertEqual(first.items.prefix(2).map(\.id), ["music-6", "music-7"]) }
+            let tail = try XCTUnwrap(first.continuation)
+            let file = QueueContinuationStore(url: directory.appendingPathComponent("continuation.json"))
+            file.save(tail)
+            let saved = try XCTUnwrap(file.load())
+            XCTAssertEqual(saved.musicSourceIDs, ["music"])
+            let next = await library.prepareStartupPlayback(shuffled: false, sourceIDs: ["music"], continuing: saved)
+            let remainder = try XCTUnwrap(next)
+            XCTAssertNil(remainder.continuation)
+            let result = (first.items + remainder.items).map(\.id)
+            if ordered { XCTAssertEqual(result, expected) }
+            XCTAssertEqual(result.count, expected.count)
+            XCTAssertEqual(Set(result), Set(expected))
+            XCTAssertFalse(library.isReady)
+            XCTAssertTrue(library.songs.isEmpty)
+        }
+    }
+
     func testStartupBrowseReadsOnlyTheRequestedAlbumAndArtistRows() async throws {
         let directory = try Self.makeStorageDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

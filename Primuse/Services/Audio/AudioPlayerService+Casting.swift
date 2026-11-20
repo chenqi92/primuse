@@ -2186,6 +2186,11 @@ extension AudioPlayerService {
         )
     }
 
+    func play(prepared: PreparedQueueRequest<Song>, caller: String = #fileID, callerLine: Int = #line) async {
+        await play(queue: prepared.items, startingAt: prepared.selectedIndex,
+                   preparedContinuation: prepared.continuation, caller: caller, callerLine: callerLine)
+    }
+
     private func play(
         queue songs: [Song],
         startingAt index: Int,

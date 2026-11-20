@@ -220,9 +220,12 @@ extension AudioPlayerService {
             }
             // 有匹配的续接记录就原样沿用(补过的窗口本来就会超过千首);
             // 只有旧版本整库存成的队列才重切成窗口加后续。
-            let restored = QueueWindowPolicy.restoring(snapshot, savedContinuation: continuationStore.load())
+            let continuationRead = snapshot.queueContinuationToken.map { _ in
+                Task.detached(priority: .userInitiated) { continuationStore.load() }
+            }
+            let fitsWindow = snapshot.queueSongIDs.count <= QueueWindowPolicy.windowLimit
+            let restored = QueueWindowPolicy.restoring(snapshot, savedContinuation: fitsWindow ? nil : await continuationRead?.value)
             snapshot = restored.snapshot
-            let continuation = restored.continuation
             let reshapedLegacyQueue = restored.reshapedLegacyQueue
             let loadFinishedAt = ProcessInfo.processInfo.systemUptime
 
@@ -266,6 +269,11 @@ extension AudioPlayerService {
             }
             guard entries.count == plan.queueSongIDs.count,
                   entries.indices.contains(plan.currentIndex) else { return nil }
+            // A saved window can resolve its songs while the tail's ID file is being read.
+            var continuation = restored.continuation
+            if fitsWindow, let saved = await continuationRead?.value, saved.token == snapshot.queueContinuationToken {
+                continuation = saved
+            }
             return PreparedPlaybackSessionRestore(
                 plan: plan,
                 entries: entries,

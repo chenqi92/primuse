@@ -157,6 +157,62 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
+    func testColdRememberedQueueIsActionableAndRestoresTheSelectedOccurrenceBeforePublication() async throws {
+        var catalog = songs(5)
+        catalog[1].sourceID = "disabled"
+        let player = try await makePlayer(librarySongs: catalog, startsPreparing: true)
+        let library = try XCTUnwrap(player.library)
+        library.updateDisabledSourceIDs(["disabled"])
+        let identity = UUID()
+        let snapshot = PlaybackSessionSnapshot(queueSongIDs: ["s2", "s1", "s2", "missing", "s4"], currentSongID: "s2",
+            currentIndex: 2, currentTime: 42, duration: 180, wasPlaying: false, shuffleEnabled: true,
+            shuffledIndices: [1, 2, 4, 0, 3], shufflePosition: 1, repeatMode: .all, isAtTrackEnd: false,
+            queueIdentity: identity)
+        player.musicSessionMemoryStore.save(.init(snapshot: snapshot, title: "Two", songID: "s2", sourceID: "local-source",
+                                                 savedAt: Date()))
+        _ = await player.musicSessionMemoryStore.startupRead?.value
+        XCTAssertTrue(player.hasPlayableRememberedMusicSession)
+        XCTAssertEqual(ListeningIntentService.shared.resumeSongCount(player: player), 3)
+        let restored = await player.resumeMusicSession(startPlayback: false)
+        XCTAssertTrue(restored)
+        XCTAssertFalse(library.isReady)
+        XCTAssertEqual(player.queue.map(\.id), ["s2", "s1", "s2", "s4"])
+        XCTAssertEqual(player.currentIndex, 2)
+        XCTAssertEqual(player.currentTime, 42)
+        XCTAssertEqual(player.shuffledIndices, [1, 2, 3, 0])
+        XCTAssertEqual(player.shufflePosition, 1)
+        XCTAssertEqual(player.queueIdentity, identity)
+        XCTAssertEqual(player.repeatMode, .all)
+    }
+
+    @MainActor
+    func testColdRefillKeepsTheCurrentSongAndDoesNotOverwriteANewerQueue() async throws {
+        let catalog = songs(750)
+        let player = try await makePlayer(librarySongs: catalog, startsPreparing: true)
+        let library = try XCTUnwrap(player.library)
+        for scope: Set<String>? in [nil, ["local-source"]] {
+            player.setQueue(Array(catalog.prefix(12)), startAt: 9)
+            player.currentSong = catalog[9]
+            player.currentTime = 28
+            player.setQueueContinuation(.init(requestedIDs: catalog.map(\.id), window: 0..<12, musicSourceIDs: scope))
+            player.refillQueueFromContinuationIfNeeded()
+            await player.queueContinuationReadTask?.value
+            XCTAssertEqual(player.queueCount, 12 + QueueWindowPolicy.refillBatch)
+            XCTAssertEqual(player.queuedSong(at: 12)?.id, catalog[12].id)
+            XCTAssertEqual(player.currentIndex, 9)
+            XCTAssertEqual(player.currentTime, 28)
+            player.currentIndex = player.queueCount - 1
+            player.refillQueueFromContinuationIfNeeded()
+            let obsolete = player.queueContinuationReadTask
+            player.setQueue([catalog[3]])
+            await obsolete?.value
+            XCTAssertEqual(player.queue.map(\.id), [catalog[3].id])
+            XCTAssertNil(player.queueContinuation)
+        }
+        XCTAssertFalse(library.isReady)
+    }
+
+    @MainActor
     func testBookmarkSkipsUnavailableCurrentSongInSavedShuffleOrder() async throws {
         var catalog = songs(5)
         catalog[0].sourceID = "unavailable"

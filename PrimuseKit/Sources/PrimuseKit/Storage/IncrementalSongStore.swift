@@ -425,6 +425,152 @@ public final class IncrementalSongPageReader: @unchecked Sendable {
         }
     }
 
+    /// Plan against identifiers first. Only candidates for the live window need song payloads.
+    public static func playbackWindow(
+        at path: String, sources: Set<String>, minimumMigration: Int, shuffled: Bool,
+        startingWith firstID: String? = nil, excluding excludedIDs: Set<String>,
+        preference: ShufflePreference = .uniform, localPlayCounts: [String: Int] = [:],
+        linkedNext: Set<String> = [], linkedPrevious: Set<String> = [],
+        continuing: QueueContinuation? = nil,
+        isVisible: (Song) -> Bool, isMusic: (Song) -> Bool
+    ) throws -> PreparedQueueRequest<Song>? {
+        guard !sources.isEmpty else { return PreparedQueueRequest(items: [], selectedIndex: 0, continuation: nil) }
+        return try connection(at: path).read { db in
+            try Task.checkCancellation()
+            let state = try IncrementalSongStore.startupState(in: db)
+            guard state.isAuthoritative, state.completedMigrationVersion >= minimumMigration else {
+                throw IncrementalSongPageError.unavailable
+            }
+            func readWindow(_ request: QueueContinuation, limit: Int) throws -> PreparedQueueRequest<Song> {
+                var remainder = request
+                var items: [Song] = []
+                while items.count < limit {
+                    try Task.checkCancellation()
+                    var next = remainder
+                    let ids = next.takeNext(maxCount: max(pageSize, limit - items.count), repeatsAll: false)
+                    guard !ids.isEmpty else { break }
+                    let selected = ids.filter { $0 == firstID || !excludedIDs.contains($0) }
+                    let candidates = try songs(ids: selected, sources: sources, in: db)
+                        .filter { $0.isPlayable && isVisible($0) && isMusic($0) }
+                    let room = limit - items.count
+                    if candidates.count <= room {
+                        items.append(contentsOf: candidates)
+                        remainder = next
+                    } else {
+                        let eligible = Set(candidates.map(\.id))
+                        var kept = 0
+                        for (offset, id) in ids.enumerated() where eligible.contains(id) {
+                            kept += 1
+                            if kept == room {
+                                _ = remainder.takeNext(maxCount: offset + 1, repeatsAll: false)
+                                break
+                            }
+                        }
+                        items.append(contentsOf: candidates.prefix(room))
+                    }
+                }
+                return PreparedQueueRequest(items: items, selectedIndex: 0, continuation: remainder.isExhausted ? nil : remainder)
+            }
+            if let continuing { return try readWindow(continuing, limit: QueueWindowPolicy.refillBatch) }
+            // Often all sources are enabled. In that case the ordering index covers the entire query.
+            let storedSources = try Set(String.fetchAll(db, sql: "SELECT DISTINCT sourceID FROM librarySongRecords"))
+            let restrictSources = !storedSources.isSubset(of: sources)
+            let placeholders = sources.map { _ in "?" }.joined(separator: ",")
+            let predicate = restrictSources ? " WHERE sourceID IN (\(placeholders))" : ""
+            let sql = "SELECT id FROM librarySongRecords" + predicate + (shuffled ? "" : " ORDER BY orderKey, id")
+            let cursor = try String.fetchCursor(db, sql: sql, arguments: restrictSources ? StatementArguments(sources.sorted()) : [])
+            var ids: [String] = []
+            while let id = try cursor.next() {
+                if ids.count.isMultiple(of: 1024) { try Task.checkCancellation() }
+                if !excludedIDs.contains(id), id != firstID { ids.append(id) }
+            }
+            var links = ShuffleLinkGraph.empty
+            var candidates: [String: ShuffleCandidate] = [:]
+            var counts = ShufflePlayCounts.empty
+            if shuffled, preference != .uniform || !linkedNext.isEmpty || !linkedPrevious.isEmpty {
+                (links, candidates, counts) = try shuffleFacts(
+                    in: db, sources: sources, predicate: predicate, arguments: restrictSources ? StatementArguments(sources.sorted()) : [],
+                    preference: preference, localPlayCounts: localPlayCounts, linkedNext: linkedNext, linkedPrevious: linkedPrevious,
+                    isVisible: isVisible, isMusic: isMusic
+                )
+            }
+            func shuffle(_ values: [String]) -> [String] {
+                guard preference != .uniform else { return values.shuffled() }
+                return WeightedShufflePolicy.shuffled(values, preference: preference, counts: counts) { id in
+                    candidates[id] ?? ShuffleCandidate(songID: id, artistKey: nil, serverPlayCount: nil)
+                }
+            }
+            if shuffled && links.isEmpty {
+                if preference == .uniform { ids.shuffle() } else { ids = shuffle(ids) }
+            }
+            if let firstID { ids.insert(firstID, at: 0) }
+            if !links.isEmpty {
+                ids = ShuffleLinkPolicy.shuffled(ids, graph: links, id: { $0 }, leading: firstID, shuffle: shuffle)
+            }
+            let request = QueueContinuation(requestedIDs: ids, window: 0..<0, musicSourceIDs: sources)
+            return try readWindow(request, limit: pageSize)
+        }
+    }
+
+    private static func shuffleFacts(
+        in db: Database, sources: Set<String>, predicate: String, arguments: StatementArguments,
+        preference: ShufflePreference, localPlayCounts: [String: Int],
+        linkedNext: Set<String>, linkedPrevious: Set<String>,
+        isVisible: (Song) -> Bool, isMusic: (Song) -> Bool
+    ) throws -> (ShuffleLinkGraph, [String: ShuffleCandidate], ShufflePlayCounts) {
+        let marked = linkedNext.union(linkedPrevious)
+        let linkedAlbums = Set(try songs(ids: Array(marked), sources: sources, in: db).compactMap(\.albumID))
+        guard !linkedAlbums.isEmpty || preference != .uniform else { return (.empty, [:], .empty) }
+        // Ask SQLite only for the fields this shuffle setting needs. Full payloads are resolved
+        // only for the marked albums and for counted tracks used in an artist's total.
+        func field(_ key: String, needed: Bool) -> String {
+            needed ? "json_extract(CAST(payload AS TEXT), '$.\(key)') AS \(key)" : "NULL AS \(key)"
+        }
+        let fields = [
+            field("albumID", needed: !linkedAlbums.isEmpty),
+            field("serverPlayCount", needed: preference != .uniform),
+            field("artistID", needed: preference.weighsArtists),
+            field("artistName", needed: preference.weighsArtists)
+        ]
+        let rows = try Row.fetchCursor(db, sql: "SELECT id, " + fields.joined(separator: ",") + " FROM librarySongRecords" + predicate,
+                                       arguments: arguments)
+        var albumTracks: [String: [String]] = [:]
+        var candidates: [String: ShuffleCandidate] = [:]
+        var countedIDs: [String] = []
+        var resolver = ShuffleArtistKeyResolver()
+        var index = 0
+        while let row = try rows.next() {
+            if index.isMultiple(of: 1024) { try Task.checkCancellation() }
+            index += 1
+            let id: String = row["id"]
+            if let album: String = row["albumID"], linkedAlbums.contains(album) { albumTracks[album, default: []].append(id) }
+            let plays: Int? = row["serverPlayCount"]
+            if preference.weighsArtists || (plays ?? 0) > 0 {
+                let key = resolver.artistKey(artistName: row["artistName"], artistID: row["artistID"])
+                candidates[id] = ShuffleCandidate(songID: id, artistKey: key, serverPlayCount: plays)
+                if preference.weighsArtists, (plays ?? 0) > 0 || localPlayCounts[id] != nil { countedIDs.append(id) }
+            }
+        }
+        var counted: [ShuffleCandidate] = []
+        for start in stride(from: 0, to: countedIDs.count, by: 400) {
+            let batch = countedIDs[start..<min(start + 400, countedIDs.count)]
+            for song in try songs(ids: Array(batch), sources: sources, in: db) where isVisible(song) {
+                if let candidate = candidates[song.id] { counted.append(candidate) }
+            }
+        }
+        var next: [String: String] = [:], previous: [String: String] = [:]
+        for ids in albumTracks.values {
+            let album = try songs(ids: ids, sources: sources, in: db).filter { isVisible($0) && isMusic($0) }
+            let sorted = AlbumTrackOrder.sorted(album)
+            for (left, right) in zip(sorted, sorted.dropFirst()) where left.isPlayable && right.isPlayable {
+                if linkedNext.contains(left.id) { next[left.id] = right.id }
+                if linkedPrevious.contains(right.id) { previous[right.id] = left.id }
+            }
+        }
+        return (ShuffleLinkGraph(nextLinks: next, previousLinks: previous), candidates,
+                ShufflePlayCounts(localCounts: localPlayCounts, countedSongs: counted))
+    }
+
     public init(path: String, sourceIDs: Set<String>? = nil) throws {
         database = try Self.connection(at: path)
         allowedSources = sourceIDs

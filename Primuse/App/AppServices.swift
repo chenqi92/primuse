@@ -3693,19 +3693,13 @@ final class AppServices {
         #endif
         let deadline = timeout.map { ContinuousClock.now.advanced(by: $0) }
         if player.playbackSessionRestoreLifecycle.phase == .pending {
-            // 资料库没装好就恢复, 队列里的歌一首也对不上, 这次启动唯一一次
-            // 恢复就白白用掉了。
-            if let timeout {
-                guard await musicLibrary.whenReady(timeout: timeout) else { return false }
-            } else {
-                await musicLibrary.whenReady()
+            let sources = Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
+            let stations = radioStationsStore.allStations
+            Task {
+                await player.restorePlaybackSessionIfAvailable(startupSourceIDs: sources, radioStations: stations)
             }
-            await player.restorePlaybackSessionIfAvailable(
-                startupSourceIDs: Set(sourcesStore.sources.filter(\.isEnabled).map(\.id)),
-                radioStations: radioStationsStore.allStations
-            )
         }
-        while player.playbackSessionRestoreLifecycle.phase == .restoring,
+        while player.playbackSessionRestoreLifecycle.phase == .pending || player.playbackSessionRestoreLifecycle.phase == .restoring,
               !Task.isCancelled,
               deadline.map({ ContinuousClock.now < $0 }) ?? true {
             try? await Task.sleep(for: .milliseconds(100))

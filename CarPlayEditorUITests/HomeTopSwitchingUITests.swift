@@ -3,6 +3,53 @@ import XCTest
 
 @MainActor
 final class LibraryLaunchPerformanceUITests: XCTestCase {
+    func testColdResumeAndShuffleOnInstalledMusicLibrary() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["PRIMUSE_INSTALLED_LIBRARY_AUDIT"] == "1",
+                          "Requires an installed music library and an unfinished music queue")
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        let arguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+                         "-primuse.navigation.mode.v1", "standard", "-primuse.navigation.selectedTab.v1", "0",
+                         "-primuse.navigation.sidebarItem.v1", "home", "-primuse.home.filter", "music",
+                         "-primuse.playback.autoplayOnLaunch", "NO", "-primuse.home.showStartListening", "YES",
+                         "-primuse.home.heroStyle.v1", "carousel"]
+        app.launchEnvironment["PRIMUSE_NO_NOTIFICATION_PROMPT"] = "1"
+        app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "home"
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            app.launchEnvironment = [:]
+            app.launchArguments = []
+            app.launch()
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 12))
+        }
+        for resume in [true, false] {
+            app.terminate()
+            app.launchArguments = arguments + ["-primuse.home.showHero", resume ? "NO" : "YES"]
+            let start = ProcessInfo.processInfo.systemUptime
+            app.launch()
+            let button = resume ? app.buttons["home.startListening.builtin:resume"].firstMatch
+                : app.buttons.matching(NSPredicate(format: "identifier == %@ OR label IN %@",
+                    "library.startup.shuffleAll", ["随机播放", "随机", "随机播放全部"])).firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 15))
+            let appeared = ProcessInfo.processInfo.systemUptime
+            button.tap()
+            let pause = app.buttons["暂停"].firstMatch
+            var enabledSince: TimeInterval?
+            let playable = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                let now = ProcessInfo.processInfo.systemUptime
+                guard pause.exists && pause.isEnabled && pause.isHittable else { enabledSince = nil; return false }
+                if enabledSince == nil { enabledSince = now }
+                return now - (enabledSince ?? now) >= 2
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [playable], timeout: 50), .completed)
+            let active = try XCTUnwrap(enabledSince)
+            print(String(format: "COLD_QUEUE action=%@ launchToControl=%.3f controlToPauseEnabled=%.3f",
+                         resume ? "resume" : "shuffle", appeared - start, active - appeared))
+            pause.tap()
+            XCTAssertTrue(app.buttons["播放"].firstMatch.waitForExistence(timeout: 8))
+        }
+    }
+
     func testInstalledLibraryShowsPlaybackAndSpaceControlsDuringLaunch() throws {
         guard ProcessInfo.processInfo.environment["PRIMUSE_INSTALLED_LIBRARY_AUDIT"] == "1" else {
             throw XCTSkip("Requires a selected device with an existing library")

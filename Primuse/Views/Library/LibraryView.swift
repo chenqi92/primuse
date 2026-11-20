@@ -240,6 +240,11 @@ struct LibraryStartupPlaybackIntent: Equatable {
 @MainActor
 @Observable
 final class LibraryStartupPlaybackCoordinator {
+    private enum Selection {
+        case disk(PreparedQueueRequest<Song>)
+        case published
+    }
+
     struct Request: Equatable {
         let id = UUID()
         let shuffled: Bool
@@ -276,19 +281,40 @@ final class LibraryStartupPlaybackCoordinator {
 
     func start(
         shuffled: Bool, library: MusicLibrary, player: AudioPlayerService,
-        sourceIDs: Set<String>, currentSourceIDs: @escaping @MainActor () -> Set<String>
+        sourceIDs: Set<String>, startingWith firstID: String? = nil,
+        currentSourceIDs: @escaping @MainActor () -> Set<String>
     ) {
         guard isVisible, isActive else { return }
         player.registerPlayIntent()
+        let started = ContinuousClock.now
         request(
             shuffled: shuffled, intent: Self.intent(of: player), sourceIDs: sourceIDs,
-            prepare: { await library.whenReady(timeout: .seconds(60)) ? () : nil },
+            prepare: { () -> Selection? in
+                while !library.isReady && !Task.isCancelled {
+                    let preference = shuffled ? player.playbackSettings.shufflePreference : .uniform
+                    guard let page = await library.prepareStartupPlayback(shuffled: shuffled, startingWith: firstID,
+                        sourceIDs: sourceIDs, preference: preference,
+                        localPlayCounts: preference == .uniform ? [:] : ShufflePlayCountStore.shared.localPlayCounts())
+                    else { break }
+                    if !shuffled || preference == player.playbackSettings.shufflePreference { return .disk(page) }
+                }
+                return await library.whenReady(timeout: .seconds(60)) ? .published : nil
+            },
             currentIntent: { Self.intent(of: player) }, currentSourceIDs: currentSourceIDs
-        ) { _ in
-            let ids = library.musicSongIDsExcludingDisliked
-            guard !ids.isEmpty else { return }
-            player.shuffleEnabled = false
-            await player.play(queueIDs: ids, order: shuffled ? .shuffled : .asGiven)
+        ) { selection in
+            if case .disk(let queue) = selection, !library.isReady {
+                guard !queue.items.isEmpty else { return }
+                plog("🎶 Startup queue window=\(queue.items.count) shuffled=\(shuffled) prepare=\(started.duration(to: .now))")
+                player.shuffleEnabled = false
+                await player.play(prepared: queue)
+            } else {
+                var ids = library.musicSongIDsExcludingDisliked
+                if let firstID { ids.insert(firstID, at: 0) }
+                guard !ids.isEmpty else { return }
+                let order: LargeQueueRequestOrder = shuffled ? .shuffled : .asGiven
+                player.shuffleEnabled = false
+                await player.play(queueIDs: ids, order: firstID != nil ? .shuffledAfterStart : order)
+            }
         }
     }
 

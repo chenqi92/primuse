@@ -100,12 +100,7 @@ final class ShufflePlayCountStore {
         )
         if let cached, cached.key == key { return cached.counts }
 
-        var local = history.playCountsBySongID
-        #if !os(tvOS)
-        if let archived, archived.clearedAt == history.clearedAt, !archived.counts.isEmpty {
-            local.merge(archived.counts, uniquingKeysWith: +)
-        }
-        #endif
+        let local = localPlayCounts(history: history)
         var counted: [ShuffleCandidate] = []
         if let library {
             counted = serverCountedSongs(in: library)
@@ -119,6 +114,17 @@ final class ShufflePlayCountStore {
         let counts = ShufflePlayCounts(localCounts: local, countedSongs: counted)
         cached = (key, counts)
         return counts
+    }
+
+    func localPlayCounts(history: PlayHistoryStore = .shared) -> [String: Int] {
+        var local = history.playCountsBySongID
+        #if !os(tvOS)
+        loadArchivedCountsIfNeeded(history: history)
+        if let archived, archived.clearedAt == history.clearedAt {
+            local.merge(archived.counts, uniquingKeysWith: +)
+        }
+        #endif
+        return local
     }
 
     private func serverCountedSongs(in library: MusicLibrary) -> [ShuffleCandidate] {

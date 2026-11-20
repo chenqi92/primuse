@@ -287,13 +287,25 @@ extension AudioPlayerService {
               !isInstallingMedleyQueue,
               let library,
               queueEntries.indices.contains(currentIndex) else { return }
-        let upcoming: Int
-        if shuffleEnabled, let anchor = shuffleAnchorPosition {
-            upcoming = max(0, shuffledIndices.count - 1 - anchor)
-        } else {
-            upcoming = max(0, queueEntries.count - 1 - currentIndex)
+        guard QueueWindowPolicy.shouldRefill(upcomingCount: upcomingQueueCount) else { return }
+        if !library.isReady {
+            guard queueContinuationReadTask == nil else { return }
+            let request = continuation
+            let repeatsAll = repeatMode == .all
+            queueContinuationReadTask = Task { [weak self] in
+                if let page = await library.prepareStartupContinuation(request, repeatsAll: repeatsAll) {
+                    guard !Task.isCancelled, let self else { return }
+                    self.appendContinuation(page.items, remainder: page.continuation)
+                    return
+                }
+                // An old or changing database may not offer an authoritative read yet.
+                let ready = await library.whenReady(timeout: .seconds(60))
+                guard !Task.isCancelled, let self else { return }
+                self.queueContinuationReadTask = nil
+                if ready { self.refillQueueFromContinuationIfNeeded() }
+            }
+            return
         }
-        guard QueueWindowPolicy.shouldRefill(upcomingCount: upcoming) else { return }
 
         var additions: [Song] = []
         while additions.count < QueueWindowPolicy.refillBatch {
@@ -304,10 +316,22 @@ extension AudioPlayerService {
             guard !ids.isEmpty else { break }
             for id in ids {
                 guard let song = library.unobservedVisibleSong(id: id), song.isPlayable else { continue }
+                if let sources = continuation.musicSourceIDs,
+                   !sources.contains(song.sourceID) || !library.isWholeLibraryPlaybackSong(id: id) { continue }
                 additions.append(song)
             }
         }
-        queueContinuation = continuation.isExhausted ? nil : continuation
+        appendContinuation(additions, remainder: continuation.isExhausted ? nil : continuation)
+    }
+
+    private var upcomingQueueCount: Int {
+        if shuffleEnabled, let anchor = shuffleAnchorPosition { return max(0, shuffledIndices.count - 1 - anchor) }
+        return max(0, queueEntries.count - 1 - currentIndex)
+    }
+
+    private func appendContinuation(_ additions: [Song], remainder: QueueContinuation?) {
+        let upcoming = upcomingQueueCount
+        queueContinuation = remainder
         persistQueueContinuation()
         guard !additions.isEmpty else { return }
 
@@ -354,7 +378,7 @@ extension AudioPlayerService {
     }
 
     func isSourceEnabledForPlayback(_ sourceID: String) -> Bool {
-        library?.disabledSourceIDs.contains(sourceID) != true
+        library?.disabledPlaybackSourceIDs.contains(sourceID) != true
     }
 
     /// Keep durable queue order intact during an outage. Complete local audio

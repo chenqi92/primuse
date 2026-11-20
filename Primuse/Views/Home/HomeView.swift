@@ -3939,7 +3939,12 @@ struct HomeView: View {
     /// 半透明、也不能被整组挡住点按。
     private var initialLoadingView: some View {
         let width = loadingSkeletonContentWidth
-        let sections = loadingSkeletonSections
+        let placeholders = loadingSkeletonSections
+        let hasResume = showStartListening && ListeningIntentService.shared.resumeSongCount(player: player) != nil
+        let hasSavedQueue = showContinueSpaces && (player.hasPlayableRememberedMusicSession || !player.queueBookmarkStore.bookmarks.isEmpty)
+        let sections = homeSectionOrder.filter {
+            placeholders.contains($0) || ($0 == .startListening && hasResume) || ($0 == .continueSpaces && hasSavedQueue)
+        }
         let layout = usesTwoColumnHome
             ? AnyLayout(HomeTwoColumnSectionsLayout(spacing: 24))
             : AnyLayout(HomeSingleColumnSectionsLayout(spacing: 24))
@@ -3947,13 +3952,22 @@ struct HomeView: View {
             if showHero {
                 heroLoadingPlaceholder
             }
-            LoadingSkeletonGroup {
-                layout {
-                    ForEach(sections) { section in
-                        HomeLoadingSkeletonSection(
-                            block: loadingSkeletonBlock(for: section, contentWidth: width),
-                            surface: homeCardSurface
-                        )
+            layout {
+                ForEach(sections) { section in
+                    if section == .startListening && hasResume {
+                        StartListeningShelf(arrangement: startListeningArrangement(homeLayout.style(for: section)))
+                    } else if section == .continueSpaces && hasSavedQueue {
+                        if activeHomeFilter == nil {
+                            HomeContinueSpacesRow(books: [], openSpace: openSpace)
+                        }
+                        QueueBookmarksSection()
+                    } else {
+                        LoadingSkeletonGroup {
+                            HomeLoadingSkeletonSection(
+                                block: loadingSkeletonBlock(for: section, contentWidth: width),
+                                surface: homeCardSurface
+                            )
+                        }
                     }
                 }
             }
@@ -5830,7 +5844,12 @@ struct HomeView: View {
     /// 先放这一首,其余音乐随机接在后面(顶部封面轮播)。同 `playLibrary`,只把 id 交出去,
     /// 过滤与打乱在后台做;这一首在整库里还会再出现一次,排队时只留开头那次。
     private func playLibraryShuffled(startingWith song: Song) {
-        guard library.isReady else { playSong(song); return }
+        guard library.isReady else {
+            SiriMediaInteractionDonor.donate(song: song)
+            startupPlayback.start(shuffled: true, library: library, player: player,
+                sourceIDs: startupSourceIDs, startingWith: song.id, currentSourceIDs: { startupSourceIDs })
+            return
+        }
         // 点的这一首照放; 后面整库接上的不含不喜欢的歌(#193)。
         let ids = library.musicSongIDsExcludingDisliked
         guard !ids.isEmpty else { return }

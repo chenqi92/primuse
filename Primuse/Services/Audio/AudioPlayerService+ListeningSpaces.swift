@@ -22,7 +22,12 @@ final class MusicSessionMemoryStore {
     }
 
     static let shared = MusicSessionMemoryStore()
-    private(set) var memory: Memory?
+    private(set) var memory: Memory? {
+        didSet { prepareStartupWindow() }
+    }
+    private(set) var startupPlayableCounts: [String: Int] = [:]
+    @ObservationIgnored private weak var startupLibrary: MusicLibrary?
+    @ObservationIgnored private(set) var startupRead: Task<[String: Song]?, Never>?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let url: URL
     @ObservationIgnored private var revision = 0
@@ -66,6 +71,35 @@ final class MusicSessionMemoryStore {
         revision &+= 1
         self.memory = memory
         enqueueWrite(memory)
+    }
+
+    func bindStartupLibrary(_ library: MusicLibrary?) {
+        startupLibrary = library
+        prepareStartupWindow()
+        guard let library, !library.isReady else { return }
+        library.onReady { [weak self, weak library] in
+            if self?.startupLibrary === library { self?.prepareStartupWindow() }
+        }
+    }
+
+    private func prepareStartupWindow() {
+        startupRead?.cancel()
+        startupRead = nil
+        startupPlayableCounts = [:]
+        guard let library = startupLibrary, !library.isReady, let memory else { return }
+        startupRead = Task { [weak self] in
+            let ids = await Task.detached(priority: .userInitiated) {
+                QueueWindowPolicy.restoring(memory.snapshot, savedContinuation: memory.continuation).snapshot.queueSongIDs
+            }.value
+            guard !Task.isCancelled, let rows = await library.prepareStartupSavedQueue(ids: ids),
+                  !Task.isCancelled else { return nil }
+            var counts: [String: Int] = [:]
+            for id in ids {
+                if let song = rows[id] { counts[song.sourceID, default: 0] += 1 }
+            }
+            self?.startupPlayableCounts = counts
+            return rows
+        }
     }
 
     /// Older versions also saved the active queue here. It can arrive from disk
@@ -261,6 +295,10 @@ extension AudioPlayerService {
     /// remaining IDs are resolved when playback actually needs another window.
     var rememberedMusicSessionPlayableCount: Int {
         guard let memory = musicSessionMemoryStore.memory, let library else { return 0 }
+        if !library.isReady {
+            let disabled = library.disabledPlaybackSourceIDs
+            return musicSessionMemoryStore.startupPlayableCounts.reduce(0) { disabled.contains($1.key) ? $0 : $0 + $1.value }
+        }
         return memory.snapshot.queueSongIDs.reduce(0) { count, songID in
             library.visibleSong(id: songID)?.isPlayable == true ? count + 1 : count
         }
@@ -268,6 +306,7 @@ extension AudioPlayerService {
 
     var hasPlayableRememberedMusicSession: Bool {
         guard let memory = musicSessionMemoryStore.memory, let library else { return false }
+        if !library.isReady { return rememberedMusicSessionPlayableCount > 0 }
         return memory.snapshot.queueSongIDs.contains {
             library.visibleSong(id: $0)?.isPlayable == true
         }
@@ -279,6 +318,7 @@ extension AudioPlayerService {
     @discardableResult
     func resumeStoppedMusicQueue() async -> Bool {
         guard currentSong != nil, !isPlaying, queueEntries.indices.contains(currentIndex) else { return false }
+        plog("▶️ Resume installed queue count=\(queueEntries.count) index=\(currentIndex) time=\(currentTime) libraryReady=\(library?.isReady == true)")
         if isSourceEnabledForPlayback(queueEntries[currentIndex].song.sourceID) {
             resume()
             return true
@@ -308,19 +348,35 @@ extension AudioPlayerService {
     @discardableResult
     func restoreMusicQueueMemory(_ memory: MusicSessionMemoryStore.Memory, startPlayback: Bool) async -> Bool {
         guard let library else { return false }
+        let started = ContinuousClock.now
+        registerPlayIntent()
         queueRequestToken &+= 1
         let requestToken = queueRequestToken
         let advanceGeneration = playbackAdvancePolicy.generation
-        await library.whenReady()
-        guard queueRequestToken == requestToken,
+        let commandGeneration = castingCommandGeneration
+        let restored = await Task.detached(priority: .userInitiated) {
+            QueueWindowPolicy.restoring(memory.snapshot, savedContinuation: memory.continuation)
+        }.value
+        var savedRows: [String: Song]?
+        if !library.isReady {
+            if let live = musicSessionMemoryStore.memory, live.snapshot.queueSongIDs == memory.snapshot.queueSongIDs,
+               live.savedAt == memory.savedAt, let read = musicSessionMemoryStore.startupRead {
+                savedRows = await read.value
+            } else {
+                savedRows = await library.prepareStartupSavedQueue(ids: restored.snapshot.queueSongIDs)
+            }
+            if savedRows == nil { await library.whenReady() }
+        }
+        guard !Task.isCancelled, queueRequestToken == requestToken, castingCommandGeneration == commandGeneration,
               playbackAdvancePolicy.generation == advanceGeneration else { return false }
-        let lookup = library.historySongLookup()
-        let disabledSourceIDs = library.disabledSourceIDs
+        let lookup = library.isReady ? library.historySongLookup() : nil
+        let diskRows = savedRows
+        let disabledSourceIDs = library.disabledPlaybackSourceIDs
         let prepared = await Task.detached(priority: .userInitiated) { () -> (PlaybackSessionRestorationPlan, [Song], QueueContinuation?)? in
-            let restored = QueueWindowPolicy.restoring(memory.snapshot, savedContinuation: memory.continuation)
             var snapshot = restored.snapshot
             let byID = Dictionary(snapshot.queueSongIDs.compactMap { id -> (String, Song)? in
-                guard let song = lookup.song(id: id), song.isPlayable else { return nil }
+                let resolved = lookup == nil ? diskRows?[id] : lookup?.song(id: id)
+                guard let song = resolved, song.isPlayable else { return nil }
                 return (id, song)
             }, uniquingKeysWith: { first, _ in first })
             let canStart: (Int) -> Bool = { index in
@@ -344,7 +400,8 @@ extension AudioPlayerService {
             ) else { return nil }
             return (plan, plan.queueSongIDs.compactMap { byID[$0] }, restored.continuation)
         }.value
-        guard queueRequestToken == requestToken,
+        guard !Task.isCancelled, queueRequestToken == requestToken, castingCommandGeneration == commandGeneration,
+              library.disabledPlaybackSourceIDs == disabledSourceIDs,
               playbackAdvancePolicy.generation == advanceGeneration else { return false }
         guard let (plan, songs, continuation) = prepared else {
             showPlaybackError(String(localized: "playback_error_source_disabled"))
@@ -365,6 +422,7 @@ extension AudioPlayerService {
         stagePausedHandoff(song: songs[plan.currentIndex], at: plan.currentTime)
         isRestoringPlaybackSession = false
         persistPlaybackSession()
+        plog("▶️ Resume saved queue count=\(songs.count) index=\(plan.currentIndex) time=\(plan.currentTime) libraryReady=\(library.isReady) prepare=\(started.duration(to: .now))")
         if startPlayback { resume() }
         return true
     }
