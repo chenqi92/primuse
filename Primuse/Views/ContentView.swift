@@ -1874,7 +1874,6 @@ struct ContentView: View {
                         )
                     }
                 }
-                .minimalDockLegacyBackdrop()
                 // miniPlayerVisible 是派生量, 翻转由播放状态决定, 调用点包不住动画
                 // 事务, 曲线只能附在过渡本身上。
                 .pmSlideTransition(edge: .bottom, motion: .panel)
@@ -3990,9 +3989,9 @@ struct LegacyNowPlayingAccessory: View {
     }
 }
 
-/// 自绘迷你播放条的底板。iPad 侧栏与极简导航挂不了系统的 tabViewBottomAccessory,
+/// iPad 自绘迷你播放条的底板。iPad 侧栏(普通与极简模式共用这块板)挂不了系统的 tabViewBottomAccessory,
 /// iOS 26 起用 Liquid Glass 与系统附件保持一致(降低透明度由系统自己处理);
-/// 更早的系统退回磨砂 + 细描边 + 投影,降低透明度时换实色底。
+/// 更早的系统退回磨砂 + 细描边 + 投影,降低透明度时换实色底。手机极简停靠条见 `MinimalDockGlass`。
 private struct NowPlayingAccessorySurface<S: InsettableShape>: ViewModifier {
     let shape: S
     let legacyMaterial: Material
@@ -4049,7 +4048,8 @@ private extension View {
 }
 
 /// 极简模式底部的停靠播放条：封面、标题与进度、一颗辅助键、实心圆的大播放键。
-/// 圆角板浮在屏幕底边上方，两侧留出一点边。
+/// 底子和普通模式同一系统上的迷你条一个样子(`MinimalDockGlass` / `MinimalDockLegacyStrip`):
+/// iOS 26 起是浮在底边上方的玻璃胶囊，两侧留出一点边；更早的系统是一整条磨砂铺到屏幕底边。
 struct MinimalNowPlayingAccessory: View {
     var onTap: () -> Void
     var onShowQueue: () -> Void
@@ -4057,41 +4057,77 @@ struct MinimalNowPlayingAccessory: View {
     /// 固定条高跟随 Dynamic Type。
     @ScaledMetric(relativeTo: .body) private var contentHeight: CGFloat = 50
 
+    /// 传输键的命中区(圆形播放键的直径)。
+    private static let controlSize: CGFloat = 44
+
     var body: some View {
         // 手机横屏下条子收窄并靠向尾侧:横贯七百多点的一条厚板会把本来就只剩三百多点
         // 的版面压得更死,让开之后左侧内容在播放条旁边仍然看得见。
         let barWidth = heightClass.value(620, compact: 420)
         let barAlignment = heightClass.pick(Alignment.center, compact: .trailing)
-        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        let rowHeight = heightClass.value(contentHeight, compact: 42)
+        let verticalPadding = heightClass.value(8, compact: 5)
+        let artworkSize = heightClass.value(48, compact: 40)
+        // 胶囊两头是半圆：圆形播放键离尾端和离上下边一样远，和胶囊同心；封面是圆角方块，
+        // 离头端多留两点，四个角不贴着弧线。
+        let trailingPadding = max(4, (rowHeight - Self.controlSize) / 2 + verticalPadding)
+        let leadingPadding = max(8, (rowHeight - artworkSize) / 2 + verticalPadding + 2)
         return HStack(spacing: 4) {
             MiniPlayerSwipeContent(
                 onTap: onTap,
-                artworkSize: heightClass.value(48, compact: 40),
+                artworkSize: artworkSize,
                 artworkCornerRadius: 10,
                 artworkTrailingSpacing: 12,
                 titleFont: .callout,
                 showsSubtitle: true,
-                contentHeight: heightClass.value(contentHeight, compact: 42),
+                contentHeight: rowHeight,
                 showsProgress: true
             )
             MinimalDockTransportControls(onShowQueue: onShowQueue)
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 6)
-        .padding(.vertical, heightClass.value(8, compact: 5))
+        .padding(.leading, leadingPadding)
+        .padding(.trailing, trailingPadding)
+        .padding(.vertical, verticalPadding)
         .frame(maxWidth: barWidth)
-        .nowPlayingAccessorySurface(
-            shape,
-            legacyMaterial: .regularMaterial,
-            legacyStrokeOpacity: 0.08,
-            legacyShadow: (opacity: 0.16, radius: 14, y: 6)
-        )
-        .contentShape(shape)
+        .modifier(MinimalDockGlass())
+        .contentShape(Capsule())
         .background(NowPlayingCapsuleProbe())
         .frame(maxWidth: .infinity, alignment: barAlignment)
         .padding(.horizontal, 12)
         .padding(.top, heightClass.value(6, compact: 4))
         .padding(.bottom, heightClass.value(8, compact: 4))
+        .modifier(MinimalDockLegacyStrip())
+    }
+}
+
+/// 极简停靠条在 iOS 26 起的底：和普通模式标签栏上方的系统底部附件同一种 Liquid Glass、同一个胶囊形状，
+/// 高光、描边、投影、深浅色与降低透明度都由系统按同一套处理。更早的系统上什么也不加，底由
+/// `MinimalDockLegacyStrip` 铺。
+private struct MinimalDockGlass: ViewModifier {
+    func body(content: Content) -> some View {
+        if LegacyBottomChromeDebug.isForced {
+            content
+        } else if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: Capsule())
+        } else {
+            content
+        }
+    }
+}
+
+/// 26 以前的极简停靠条照普通模式的迷你条退回：普通模式那里是标签栏上方一整条 ultraThin 磨砂
+/// (`LegacyNowPlayingAccessory`)，下面接着标签栏；极简模式底下没有标签栏，这一整条磨砂直接铺到
+/// 屏幕底边，列表从它底下透出来。只有这一层材质：再垫一层材质，条上用 `.secondary` 的第二行
+/// (迷你歌词、歌手、章节)整行画不出来。降低透明度时系统把材质换成实色。
+private struct MinimalDockLegacyStrip: ViewModifier {
+    func body(content: Content) -> some View {
+        if LegacyBottomChromeDebug.isForced {
+            content.background(.ultraThinMaterial)
+        } else if #available(iOS 26.0, *) {
+            content
+        } else {
+            content.background(.ultraThinMaterial)
+        }
     }
 }
 
