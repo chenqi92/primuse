@@ -191,7 +191,7 @@ struct ImmersivePlayerView: View {
         )
     }
 
-    var body: some View {
+    private var stageSurface: some View {
         GeometryReader { geometry in
             let safeArea = stageSafeArea(geometry.safeAreaInsets, size: geometry.size)
             let metrics = ImmersiveStageMetrics(
@@ -325,7 +325,10 @@ struct ImmersivePlayerView: View {
         .persistentSystemOverlays(.hidden)
         .opacity(hasEntered ? 1 : 0)
         .scaleEffect(hasEntered ? 1 : 1.012)
-        .onAppear {
+    }
+
+    private var rotatingStage: some View {
+        stageSurface.onAppear {
             FullscreenPlayerEffectSync.shared.install()
             if isSceneActive {
                 refreshArtworkInputs()
@@ -379,7 +382,10 @@ struct ImmersivePlayerView: View {
         .onChange(of: rotationModeRawValue) { _, _ in
             if !rotationMode.isEnabled { rotator.reset() }
         }
-        .background {
+    }
+
+    private var playbackStage: some View {
+        rotatingStage.background {
             Color.clear.task(id: kineticAlignmentKey) {
                 requestKineticWordAlignmentIfNeeded()
             }
@@ -418,7 +424,10 @@ struct ImmersivePlayerView: View {
             exitAmbientRest()
             revealChrome()
         }
-        .onChange(of: isSceneActive) { _, isActive in
+    }
+
+    var body: some View {
+        playbackStage.onChange(of: isSceneActive) { _, isActive in
             if !isActive { discPosition.endDrag() }
             handleSceneActivityChange(isActive: isActive)
         }

@@ -46,7 +46,8 @@ struct MacNowPlayingView: View {
     private var lyricsColors = PlayerLyricsColors()
 
     /// 显示与机翻用的那份：关掉「显示歌词自带的译文」时去掉文件带的译文。
-    @State private var lyrics: [LyricLine] = []
+    @State private var lyricsDocument = PlayerLyricsDocument([])
+    private var lyrics: [LyricLine] { lyricsDocument.lines }
     /// 读到的原文档，开关变化时从它重新得出 `lyrics`。
     @State private var loadedLyrics: [LyricLine] = []
     @State private var commentSongID: String?
@@ -1281,7 +1282,7 @@ struct MacNowPlayingView: View {
                         }
                     } else {
                         lyricsInfoBadges
-                        let isDuet = KaraokeDuetGatePolicy.hasDuetParts(lyrics)
+                        let isDuet = lyricsDocument.isDuet
                         // 提示点各占一行、和歌词行同在一个 ForEach 里:惰性堆栈里还没建出来的行
                         // 也能按这个身份滚过去。没轮到的提示点收起,不显示也不占位置。
                         // `scrollTo` 找目标时从第一格起逐格往后看:格子上不挂 `.id`,每格先只包一层,
@@ -1758,7 +1759,7 @@ struct MacNowPlayingView: View {
         if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
             KaraokeLineView(
                 line: line,
-                isDuet: KaraokeDuetGatePolicy.hasDuetParts(lyrics),
+                isDuet: lyricsDocument.isDuet,
                 fontSize: fontSize,
                 weight: weight,
                 activeStyle: lyricsColors.style(defaultColor: playerPrimaryColor, isActive: isActive, layoutDirection: lyricLayoutDirection),
@@ -2309,8 +2310,8 @@ struct MacNowPlayingView: View {
         )
         if lyrics != newLyrics {
             lyricsTranslationRevision &+= 1
+            lyricsDocument = PlayerLyricsDocument(newLyrics)
         }
-        lyrics = newLyrics
         commentSongID = player.currentSong?.id
         commentAnchors = LyricLineCommentAnchor.index(loaded)
         let resolvedDirection = LyricWritingDirectionPolicy.resolve(in: newLyrics)
@@ -2332,7 +2333,7 @@ struct MacNowPlayingView: View {
             mode: mode
         )
         let shouldSimulate = simulatesWordLyrics
-            && !lyrics.contains(where: \.containsWordLevelContent)
+            && !lyricsDocument.summary.isWordLevel
             && !isSpokenWord
         let alignmentService = WordLyricsAlignmentService.shared
         let overlay = shouldSimulate

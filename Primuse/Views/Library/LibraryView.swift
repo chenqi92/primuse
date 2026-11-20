@@ -282,9 +282,9 @@ final class LibraryStartupPlaybackCoordinator {
         player.registerPlayIntent()
         request(
             shuffled: shuffled, intent: Self.intent(of: player), sourceIDs: sourceIDs,
-            whenReady: { await library.whenReady(timeout: .seconds(60)) },
+            prepare: { await library.whenReady(timeout: .seconds(60)) ? () : nil },
             currentIntent: { Self.intent(of: player) }, currentSourceIDs: currentSourceIDs
-        ) {
+        ) { _ in
             let ids = library.musicSongIDsExcludingDisliked
             guard !ids.isEmpty else { return }
             player.shuffleEnabled = false
@@ -292,21 +292,21 @@ final class LibraryStartupPlaybackCoordinator {
         }
     }
 
-    func request(
+    func request<Selection>(
         shuffled: Bool, intent: LibraryStartupPlaybackIntent, sourceIDs: Set<String>,
-        whenReady: @escaping @MainActor () async -> Bool,
+        prepare: @escaping @MainActor () async -> Selection?,
         currentIntent: @escaping @MainActor () -> LibraryStartupPlaybackIntent,
         currentSourceIDs: @escaping @MainActor () -> Set<String>,
-        play: @escaping @MainActor () async -> Void
+        play: @escaping @MainActor (Selection) async -> Void
     ) {
         cancel()
         guard isVisible, isActive else { return }
         let request = Request(shuffled: shuffled, intent: intent, sourceIDs: sourceIDs)
         pending = request
         task = Task { [weak self] in
-            let ready = await whenReady()
+            let selection = await prepare()
             guard let self, self.pending?.id == request.id else { return }
-            guard ready, !Task.isCancelled, self.isVisible, self.isActive,
+            guard let selection, !Task.isCancelled, self.isVisible, self.isActive,
                   currentIntent() == request.intent, currentSourceIDs() == request.sourceIDs else {
                 self.cancel()
                 return
@@ -314,7 +314,7 @@ final class LibraryStartupPlaybackCoordinator {
             // Consume before invoking playback; its own intent changes must not cancel the accepted action.
             self.pending = nil
             self.task = nil
-            await play()
+            await play(selection)
         }
     }
 }

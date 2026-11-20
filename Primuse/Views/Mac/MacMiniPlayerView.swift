@@ -25,7 +25,8 @@ struct MacMiniPlayerView: View {
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
-    @State private var lyrics: [LyricLine] = []
+    @State private var lyricsDocument = PlayerLyricsDocument([])
+    private var lyrics: [LyricLine] { lyricsDocument.lines }
     @State private var currentIndex: Int = -1
     /// 对唱两人时间重叠时同时在唱的几行(`currentIndex` 是其中最早开口的那一行);只有一行在唱时为 nil。
     @State private var concurrentLyricRows: LyricActiveRows?
@@ -99,7 +100,7 @@ struct MacMiniPlayerView: View {
         .task(id: lyricsLoadTaskIdentity) {
             let identity = lyricsLoadTaskIdentity
             if player.isLiveRadio {
-                lyrics = []
+                lyricsDocument = PlayerLyricsDocument([])
             } else {
                 await refreshLyrics()
             }
@@ -583,7 +584,8 @@ struct MacMiniPlayerView: View {
                         }
                     } else {
                         Spacer().frame(height: 30)
-                        ForEach(Array(lyrics.enumerated()), id: \.element.id) { i, line in
+                        let indexedLines = lyrics.indices.lazy.map { [lyrics] i in (i, lyrics[i]) }
+                        ForEach(indexedLines, id: \.1.id) { i, line in
                             let active = i == currentIndex || concurrentLyricRows?.contains(i) == true
                             miniLyricLine(line: line, index: i, isActive: active)
                                 .id(line.id)
@@ -721,7 +723,7 @@ struct MacMiniPlayerView: View {
         if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
             KaraokeLineView(
                 line: line,
-                isDuet: KaraokeDuetGatePolicy.hasDuetParts(lyrics),
+                isDuet: lyricsDocument.isDuet,
                 fontSize: fontSize,
                 weight: weight,
                 activeStyle: lyricsColors.style(defaultColor: .primary, isActive: isActive, opacity: isActive ? 1 : 0.72, layoutDirection: lyricLayoutDirection),
@@ -751,7 +753,7 @@ struct MacMiniPlayerView: View {
         if let pendingLyricsOverride,
            pendingLyricsOverride.songID == player.currentSong?.id {
             self.pendingLyricsOverride = nil
-            lyrics = pendingLyricsOverride.lyrics
+            lyricsDocument = PlayerLyricsDocument(pendingLyricsOverride.lyrics)
             _ = updateIndex(time: player.currentTime)
             return
         }
@@ -761,16 +763,16 @@ struct MacMiniPlayerView: View {
 
     private func reloadLyrics() async {
         guard let song = player.currentSong else {
-            lyrics = []; currentIndex = -1; return
+            lyricsDocument = PlayerLyricsDocument([]); currentIndex = -1; return
         }
-        lyrics = []; currentIndex = -1
+        lyricsDocument = PlayerLyricsDocument([]); currentIndex = -1
         let loaded = await LyricsLoader.loadForDisplay(
             for: song,
             sourceManager: sourceManager,
             sourceType: sourcesStore.source(id: song.sourceID)?.type
         )
         guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
-        lyrics = loaded
+        lyricsDocument = PlayerLyricsDocument(loaded)
         _ = updateIndex(time: player.currentTime)
     }
 

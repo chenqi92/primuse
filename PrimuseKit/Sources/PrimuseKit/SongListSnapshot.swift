@@ -772,8 +772,6 @@ public enum SongListSnapshotBuilder {
         )
     }
 
-    /// A cooperative merge sort lets a rapid order switch stop obsolete CPU
-    /// work. Swift's standard `sort` has no cancellation points once started.
     public static func buildCancellable(
         songs: [Song],
         order: LibrarySongSortOrder,
@@ -988,60 +986,34 @@ public enum SongListSnapshotBuilder {
         guard songs.count > 1 else { return Array(songs.indices) }
 
         var titleKeys: [LibraryCollationPolicy.Key] = []
+        var timeKeys: [TimeInterval] = []
         if order.criterion == .title {
             titleKeys.reserveCapacity(songs.count)
             for index in songs.indices {
                 if index.isMultiple(of: 1_024) { try checkCancellation() }
                 titleKeys.append(LibraryCollationPolicy.songTitleKey(for: songs[index].title))
             }
-        }
-
-        var source = Array(songs.indices)
-        var destination = source
-        var width = 1
-        while width < source.count {
-            try checkCancellation()
-            var lowerBound = 0
-            while lowerBound < source.count {
-                if lowerBound.isMultiple(of: 4_096) {
-                    try checkCancellation()
-                }
-                let midpoint = min(lowerBound + width, source.count)
-                let upperBound = min(lowerBound + (width * 2), source.count)
-                var left = lowerBound
-                var right = midpoint
-
-                for destinationIndex in lowerBound..<upperBound {
-                    if destinationIndex.isMultiple(of: 2_048) {
-                        try checkCancellation()
-                    }
-                    if left >= midpoint {
-                        destination[destinationIndex] = source[right]
-                        right += 1
-                    } else if right >= upperBound {
-                        destination[destinationIndex] = source[left]
-                        left += 1
-                    } else if isOrderedBefore(
-                        source[right],
-                        source[left],
-                        songs: songs,
-                        titleKeys: titleKeys,
-                        order: order,
-                        sortValues: sortValues
-                    ) {
-                        destination[destinationIndex] = source[right]
-                        right += 1
-                    } else {
-                        destination[destinationIndex] = source[left]
-                        left += 1
-                    }
-                }
-                lowerBound = upperBound
+        } else if order.criterion == .dateAdded || order.criterion == .duration {
+            let usesDate = order.criterion == .dateAdded
+            timeKeys.reserveCapacity(songs.count)
+            for index in songs.indices {
+                if index.isMultiple(of: 1_024) { try checkCancellation() }
+                let song = songs[index]
+                timeKeys.append(usesDate ? song.dateAdded.timeIntervalSinceReferenceDate
+                    : (song.duration.isFinite ? max(0, song.duration) : 0))
             }
-            swap(&source, &destination)
-            width *= 2
         }
-        return source
+
+        var indices = Array(songs.indices)
+        var comparisons = 0
+        try indices.sort { lhs, rhs in
+            comparisons += 1
+            if comparisons.isMultiple(of: 2_048) { try checkCancellation() }
+            return isOrderedBefore(lhs, rhs, songs: songs, titleKeys: titleKeys,
+                                   timeKeys: timeKeys, order: order, sortValues: sortValues)
+        }
+        try checkCancellation()
+        return indices
     }
 
     private static func isOrderedBefore(
@@ -1049,6 +1021,7 @@ public enum SongListSnapshotBuilder {
         _ rhsIndex: Int,
         songs: [Song],
         titleKeys: [LibraryCollationPolicy.Key],
+        timeKeys: [TimeInterval],
         order: LibrarySongSortOrder,
         sortValues: SongListSortValues
     ) -> Bool {
@@ -1077,14 +1050,10 @@ public enum SongListSnapshotBuilder {
                 }
                 return AlbumTrackOrder.isOrderedBefore(lhs, rhs)
             }
-        case .dateAdded:
-            if lhs.dateAdded != rhs.dateAdded {
-                return lhs.dateAdded > rhs.dateAdded
-            }
-            comparison = .orderedSame
-        case .dateAddedOldest:
-            if lhs.dateAdded != rhs.dateAdded {
-                return lhs.dateAdded < rhs.dateAdded
+        case .dateAdded, .dateAddedOldest, .duration, .durationDescending:
+            let left = timeKeys[lhsIndex], right = timeKeys[rhsIndex]
+            if left != right {
+                return order.isAscending ? left < right : left > right
             }
             comparison = .orderedSame
         case .sourceDate, .sourceDateOldest:
@@ -1100,13 +1069,6 @@ public enum SongListSnapshotBuilder {
             }
         case .format, .formatDescending:
             comparison = lhs.fileFormat.displayName.compare(rhs.fileFormat.displayName)
-        case .duration, .durationDescending:
-            let lhsDuration = lhs.duration.isFinite ? max(0, lhs.duration) : 0
-            let rhsDuration = rhs.duration.isFinite ? max(0, rhs.duration) : 0
-            if lhsDuration != rhsDuration {
-                return order.isAscending ? lhsDuration < rhsDuration : lhsDuration > rhsDuration
-            }
-            comparison = .orderedSame
         case .playCount, .playCountDescending:
             let lhsCount = sortValues.playCountsBySongID[lhs.id, default: 0]
             let rhsCount = sortValues.playCountsBySongID[rhs.id, default: 0]

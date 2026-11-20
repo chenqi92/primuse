@@ -583,7 +583,7 @@ actor MacWidgetPlaybackPublisher {
         )
         state.save()
 
-        let signature = timelineSignature(for: state) + "|" + (nextCoverKey ?? "")
+        let signature = AudioPlayerService.widgetTimelineSignature(for: state) + "|" + (nextCoverKey ?? "")
         if recentAlbumsChanged || signature != context.lastTimelineSignature {
             WidgetCenter.shared.reloadAllTimelines()
             pdiag("[WidgetCover] reload seq=\(request.sequence) song=\(request.currentSong?.id ?? "-") cover=\(coverName ?? "-") playing=\(request.isPlaying)")
@@ -689,24 +689,6 @@ actor MacWidgetPlaybackPublisher {
             songID: song.id,
             listeningSpace: listeningSpace == .radio ? nil : listeningSpace
         )
-    }
-
-    private nonisolated static func timelineSignature(for state: PlaybackState) -> String {
-        [
-            state.currentSongID ?? "",
-            state.songTitle ?? "",
-            state.artistName ?? "",
-            state.albumTitle ?? "",
-            state.coverImageName ?? "",
-            state.isPlaying ? "1" : "0",
-            state.playbackKind?.rawValue ?? PlaybackKind.track.rawValue,
-            state.radioStationID ?? "",
-            state.repeatMode?.rawValue ?? RepeatMode.off.rawValue,
-            state.isLiked == true ? "1" : "0",
-            String(state.currentTime.rounded().finiteInt()),
-            String(state.duration.rounded().finiteInt()),
-            AudioPlayerService.spokenWordSignature(state.spokenWord),
-        ].joined(separator: "|")
     }
 }
 #endif
@@ -3699,48 +3681,13 @@ final class AudioPlayerService {
             if let profile { recordInspectedContainerCodec(sampleEntry: profile.codecFourCC, for: song) }
         } else if sourceManager != nil || isExternalURLItem(song) {
             do {
-                var head = Data()
-                for probeSize in RemoteMetadataReadPolicy.containerTailReadSizes(
-                    fileSize: song.fileSize
-                ) {
-                    let desiredHeadSize = min(Int64(probeSize), song.fileSize)
-                    if Int64(head.count) < desiredHeadSize {
-                        let newBytes = try await fetchSystemAudioMetadataRange(
-                            for: song,
-                            url: url,
-                            offset: Int64(head.count),
-                            length: desiredHeadSize - Int64(head.count)
-                        )
-                        guard !newBytes.isEmpty else { break }
-                        head.append(newBytes)
-                    }
-
-                    var profiles = ISOBaseMediaAudioProfileParser.parse(head: head)
-                    if profiles.isEmpty, Int64(probeSize) < song.fileSize {
-                        do {
-                            let tail = try await fetchSystemAudioMetadataRange(
-                                for: song,
-                                url: url,
-                                offset: -Int64(probeSize),
-                                length: Int64(probeSize)
-                            )
-                            profiles = ISOBaseMediaAudioProfileParser.parse(head: head, tail: tail)
-                        } catch MetadataRangeReadError.suffixRangeUnsupported {
-                            // Some DLNA endpoints ignore suffix ranges. Keep
-                            // growing the bounded prefix before falling back to
-                            // the established PCM path.
-                            continue
-                        }
-                    }
-                    if let resolved = profiles.first(where: \.prefersSystemMediaPlayback)
-                        ?? profiles.first {
-                        if let audio = profiles.first {
-                            recordInspectedContainerCodec(sampleEntry: audio.codecFourCC, for: song)
-                        }
-                        return resolved.prefersSystemMediaPlayback ? resolved : nil
-                    }
+                let profiles = try await ISOBaseMediaAudioProfileParser.readRemote(fileSize: song.fileSize) { offset, length in
+                    try await self.fetchSystemAudioMetadataRange(for: song, url: url, offset: offset, length: length)
                 }
-                profile = nil
+                if let audio = profiles.first {
+                    recordInspectedContainerCodec(sampleEntry: audio.codecFourCC, for: song)
+                }
+                profile = profiles.first(where: \.prefersSystemMediaPlayback)
             } catch {
                 plog("System audio profile probe fell back to PCM: \(error.localizedDescription)")
                 profile = nil

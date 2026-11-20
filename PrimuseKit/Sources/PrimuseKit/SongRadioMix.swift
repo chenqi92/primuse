@@ -105,10 +105,14 @@ public enum SongRadioMixPolicy {
                 if let seedArtist, artist(id) == seedArtist { rank += 1 }
                 return rank
             }
-            let ordered = heldBack.enumerated()
-                .map { (offset: $0.offset, id: $0.element, rank: closeness($0.element)) }
-                .sorted { $0.rank != $1.rank ? $0.rank < $1.rank : $0.offset < $1.offset }
-            picked.append(contentsOf: ordered.prefix(limit - picked.count).map(\.id))
+            var ranked: [(offset: Int, id: String, rank: Int)] = heldBack.enumerated().map { offset, id in
+                (offset, id, closeness(id))
+            }
+            ranked.sort { lhs, rhs in
+                if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
+                return lhs.offset < rhs.offset
+            }
+            picked.append(contentsOf: ranked.prefix(limit - picked.count).map(\.id))
         }
         return spacedOut(picked, after: seedArtist, artist: artist)
     }

@@ -85,6 +85,18 @@ public struct LyricsDocumentSummary: Sendable, Equatable {
     }
 }
 
+public struct PlayerLyricsDocument: Sendable {
+    public let lines: [LyricLine]
+    public let summary: LyricsDocumentSummary
+    public let isDuet: Bool
+
+    public init(_ lines: [LyricLine]) {
+        self.lines = lines
+        summary = LyricsDocumentSummary(lines: lines)
+        isDuet = KaraokeDuetGatePolicy.hasDuetParts(lines)
+    }
+}
+
 /// Checks text typed into the raw editor of one lyric file before it is
 /// written back over that file. The file keeps its format: the text has to
 /// read as the kind of document its extension says, and has to hold lyrics.

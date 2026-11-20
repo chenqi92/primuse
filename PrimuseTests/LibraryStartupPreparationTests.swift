@@ -34,6 +34,34 @@ private final class PersistenceBarrierRecorder {
 @MainActor
 final class LibraryStartupPreparationTests: XCTestCase {
 
+    func testIndexedSearchReturnsOnlyCurrentPlayableMusicBeforeLibraryReadiness() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        var songs = ["keep", "book", "disabled", "deleted", "hidden", "homophone", "stale"].map { id in
+            var song = Self.makeSong(id: id, sourceID: id == "disabled" ? "off" : "on")
+            song.title = id == "homophone" ? "微广" : "Copper bridge 微光"
+            return song
+        }
+        songs[1].filePath = "/Books/bridge.m4b"
+        let index = LibrarySearchIndex(storageDirectory: directory.appendingPathComponent("search"))
+        await index.applyChanges(upserts: songs, deletingIDs: [], generation: 1)
+        try store.replaceAll(with: Array(songs.dropLast()))
+        try store.markMigrationCompleted(version: 10)
+        let rules = ["deletedSongIdentities": ["on:\(songs[3].filePath)"]]
+        try JSONEncoder().encode(rules).write(to: directory.appendingPathComponent("library-cache.json"))
+        try JSONEncoder().encode(SongLocalRemovalLedger(identities: ["on:\(songs[4].filePath)"]))
+            .write(to: directory.appendingPathComponent("library-device-local-excluded-songs.json"))
+        let library = MusicLibrary.makePreparing(storageDirectory: directory, disabledSourceIDs: ["off"])
+        let result = await index.search(query: "Copper", snapshot: library.searchSongSnapshot(startupSourceIDs: ["on", "off"]),
+                                        albums: [], metadataRevisionKey: "cold", matchKinds: [.metadata])
+        XCTAssertEqual(try XCTUnwrap(result).output.songResults.map(\.id), ["keep"])
+        let short = await index.search(query: "光", snapshot: library.searchSongSnapshot(startupSourceIDs: ["on", "off"]),
+                                       albums: [], metadataRevisionKey: "cold", matchKinds: [.metadata, .fuzzy])
+        XCTAssertEqual(try XCTUnwrap(short).output.songResults.map(\.id), ["keep"])
+        XCTAssertFalse(library.isReady)
+    }
+
     func testStartupBrowseReadsOnlyTheRequestedAlbumAndArtistRows() async throws {
         let directory = try Self.makeStorageDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

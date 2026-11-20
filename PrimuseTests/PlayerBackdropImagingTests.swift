@@ -1745,7 +1745,7 @@ private struct PlayerCoverLyricsProbeView: View {
         }
         .modifier(PlayerLyricsViewportOverlay(isActive: true, isVisible: fixture.visible,
                                              prewarmsLyrics: true) { _ in
-            LyricsScrollView(lyrics: lyrics, lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
+            LyricsScrollView(document: PlayerLyricsDocument(lyrics), lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
                 isResolvingLyrics: false, player: player, songID: "switch-lyrics",
                 isSceneActive: true, presentation: fixture.presentation, preparesHiddenPosition: true,
                 isScrapingCurrentSong: false, canTranscribeAudio: false,
@@ -1784,7 +1784,7 @@ private struct PlayerRotationProbeView: View {
             }
             .modifier(PlayerLyricsViewportOverlay(isActive: true) { _ in
                 LyricsScrollView(
-                    lyrics: lyrics, lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
+                    document: PlayerLyricsDocument(lyrics), lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
                     isResolvingLyrics: false, player: player, songID: "rotation-lyrics",
                     isSceneActive: true, isScrapingCurrentSong: false, canTranscribeAudio: false,
                     isScrapeActionUnavailable: true, onAutomaticScrape: {}, onTranscribeAudio: {},

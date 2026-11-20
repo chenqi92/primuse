@@ -39,7 +39,8 @@ struct DesktopLyricsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 设置里选的歌词字体(#332);工具条上的按钮与标签照旧是系统字体。
     @Environment(\.lyricsTypeface) private var lyricsTypeface
-    @State private var lyrics: [LyricLine] = []
+    @State private var lyricsDocument = PlayerLyricsDocument([])
+    private var lyrics: [LyricLine] { lyricsDocument.lines }
     @State private var currentIndex: Int = -1
     @State private var lyricsLoadRevision: UInt = 0
     @State private var pendingLyricsOverride: PendingLyricsOverride?
@@ -438,7 +439,7 @@ struct DesktopLyricsView: View {
         if line.isWordLevel {
             KaraokeLineView(
                 line: line,
-                isDuet: KaraokeDuetGatePolicy.hasDuetParts(lyrics),
+                isDuet: lyricsDocument.isDuet,
                 fontSize: size,
                 weight: weight,
                 activeColor: color,
@@ -866,7 +867,7 @@ struct DesktopLyricsView: View {
         if let pendingLyricsOverride,
            pendingLyricsOverride.songID == player.currentSong?.id {
             self.pendingLyricsOverride = nil
-            lyrics = pendingLyricsOverride.lyrics
+            lyricsDocument = PlayerLyricsDocument(pendingLyricsOverride.lyrics)
             _ = updateIndex(time: player.currentTime)
             return
         }
@@ -875,15 +876,15 @@ struct DesktopLyricsView: View {
     }
 
     private func reloadLyrics() async {
-        guard let song = player.currentSong else { lyrics = []; currentIndex = -1; return }
-        lyrics = []; currentIndex = -1
+        guard let song = player.currentSong else { lyricsDocument = PlayerLyricsDocument([]); currentIndex = -1; return }
+        lyricsDocument = PlayerLyricsDocument([]); currentIndex = -1
         let loaded = await LyricsLoader.loadForDisplay(
             for: song,
             sourceManager: sourceManager,
             sourceType: sourcesStore.source(id: song.sourceID)?.type
         )
         guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
-        lyrics = loaded
+        lyricsDocument = PlayerLyricsDocument(loaded)
         _ = updateIndex(time: player.currentTime)
     }
 

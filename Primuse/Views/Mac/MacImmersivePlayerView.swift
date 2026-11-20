@@ -195,7 +195,7 @@ struct MacImmersivePlayerView: View {
             : ImmersiveStagePalette.ink
     }
 
-    var body: some View {
+    private var stageSurface: some View {
         GeometryReader { geometry in
             let metrics = ImmersiveStageMetrics(size: geometry.size, safeArea: geometry.safeAreaInsets, prefersWide: true)
 
@@ -321,7 +321,10 @@ struct MacImmersivePlayerView: View {
         .macPlaybackErrorFeedback()
         .environment(\.colorScheme, presentationEffect.prefersLightContent ? .light : .dark)
         .nowPlayingLibraryActionAlert(libraryActions)
-        .alert(Text("karaoke_title"), isPresented: $showsKaraokeUnavailable) {
+    }
+
+    private var interactiveStage: some View {
+        stageSurface.alert(Text("karaoke_title"), isPresented: $showsKaraokeUnavailable) {
             Button("done", role: .cancel) {}
         } message: {
             Text("karaoke_unavailable_apple_music")
@@ -346,7 +349,10 @@ struct MacImmersivePlayerView: View {
                 beginExitFullScreen()
             }
         }
-        .onAppear {
+    }
+
+    private var visibleStage: some View {
+        interactiveStage.onAppear {
             activatePresentation()
             acceptsKeyInput = true
             FullscreenPlayerEffectSync.shared.install()
@@ -391,7 +397,10 @@ struct MacImmersivePlayerView: View {
         .task(id: lyricObservationIdentity) {
             await observeLyricPlayback()
         }
-        .onChange(of: presentationEffect) { _, value in
+    }
+
+    private var rotatingStage: some View {
+        visibleStage.onChange(of: presentationEffect) { _, value in
             discPosition.endDrag()
             if isStageReady { updateVisualizer(for: value) }
             refreshFlowNeighbors()
@@ -441,7 +450,10 @@ struct MacImmersivePlayerView: View {
                 refreshFlowNeighbors()
             }
         }
-        .onChange(of: player.isPlaying) { _, playing in
+    }
+
+    var body: some View {
+        rotatingStage.onChange(of: player.isPlaying) { _, playing in
             if playing {
                 updateVisualizer(for: presentationEffect)
                 scheduleChromeHide()

@@ -778,7 +778,7 @@ extension AudioPlayerService {
         publishWidgetLyricsIfNeeded(coverImageName: coverName)
         #endif
 
-        let timelineSignature = widgetTimelineSignature(for: state)
+        let timelineSignature = Self.widgetTimelineSignature(for: state)
         if recentAlbumsChanged || artworkStyleChanged || timelineSignature != lastWidgetTimelineSignature {
             lastWidgetTimelineSignature = timelineSignature
             WidgetCenter.shared.reloadAllTimelines()
@@ -977,8 +977,8 @@ extension AudioPlayerService {
         return song.displayArtistName(configuration: artistNameConfiguration)
     }
 
-    private func widgetTimelineSignature(for state: PlaybackState) -> String {
-        [
+    nonisolated static func widgetTimelineSignature(for state: PlaybackState) -> String {
+        let fields: [String] = [
             state.currentSongID ?? "",
             state.songTitle ?? "",
             state.artistName ?? "",
@@ -992,7 +992,8 @@ extension AudioPlayerService {
             String(state.currentTime.rounded().finiteInt()),
             String(state.duration.rounded().finiteInt()),
             Self.spokenWordSignature(state.spokenWord)
-        ].joined(separator: "|")
+        ]
+        return fields.joined(separator: "|")
     }
 
     /// The now-playing widget's view of the book, gated like the rest of the
@@ -1009,18 +1010,22 @@ extension AudioPlayerService {
 
     /// The parts of the book the widget draws, coarse enough that position
     /// saves inside a chapter do not each reload the timelines.
-    nonisolated static func spokenWordSignature(_ info: SpokenWordPlaybackInfo?) -> String {
+    private nonisolated static func spokenWordSignature(_ info: SpokenWordPlaybackInfo?) -> String {
         guard let info else { return "" }
-        return [
+        let percentText = info.bookFraction.map { fraction in
+            String(Int((fraction * 100).rounded()))
+        } ?? ""
+        let fields: [String] = [
             String(info.skipBackwardSeconds),
             String(info.skipForwardSeconds),
             info.bookTitle ?? "",
             info.bookAuthor ?? "",
             info.partIndex.map(String.init) ?? "",
             info.partCount.map(String.init) ?? "",
-            info.bookFraction.map { String(Int(($0 * 100).rounded())) } ?? "",
+            percentText,
             info.bookID ?? "",
-        ].joined(separator: ",")
+        ]
+        return fields.joined(separator: ",")
     }
 }
 

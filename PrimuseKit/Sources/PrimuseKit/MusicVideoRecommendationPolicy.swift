@@ -17,6 +17,40 @@ public enum MusicVideoRecommendationPolicy {
         }
     }
 
+    public struct Request: Equatable, Sendable {
+        private let catalogRevision: UInt64
+        private let favoriteArtistIDs: [String]
+        private let recentlyPlayedIDs: Set<String>
+        private let day: Int
+        private let limit: Int
+
+        public init(catalogRevision: UInt64, favoriteArtistIDs: [String], recentlyPlayedIDs: Set<String>,
+                    day: Int, limit: Int) {
+            self.catalogRevision = catalogRevision
+            self.favoriteArtistIDs = favoriteArtistIDs
+            self.recentlyPlayedIDs = recentlyPlayedIDs
+            self.day = day
+            self.limit = limit
+        }
+
+        @concurrent
+        public func picks(from songs: [Song], now: Date) async -> [Song] {
+            guard limit > 0, !songs.isEmpty, !Task.isCancelled else { return [] }
+            let ids = MusicVideoRecommendationPolicy.recommended(
+                songs.map { Candidate(id: $0.id, artistID: $0.artistID, dateAdded: $0.dateAdded) },
+                favoriteArtistIDs: favoriteArtistIDs, recentlyPlayedIDs: recentlyPlayedIDs,
+                now: now, day: day, limit: limit
+            )
+            var missing = Set(ids)
+            var picksByID: [String: Song] = [:]
+            for song in songs where missing.remove(song.id) != nil {
+                picksByID[song.id] = song
+                if missing.isEmpty { break }
+            }
+            return ids.compactMap { picksByID[$0] }
+        }
+    }
+
     /// 同一位艺人在前面最多出几支。
     public static let perArtistLimit = 2
     /// 加进来多少天以内算新的。
@@ -36,14 +70,13 @@ public enum MusicVideoRecommendationPolicy {
     ) -> [String] {
         guard limit > 0, !candidates.isEmpty else { return [] }
         var affinity: [String: Double] = [:]
-        let favorites = favoriteArtistIDs.reduce(into: [String]()) { result, id in
-            if !result.contains(id) { result.append(id) }
-        }
+        var seenArtists: Set<String> = []
+        let favorites = favoriteArtistIDs.filter { seenArtists.insert($0).inserted }
         for (index, id) in favorites.enumerated() {
             affinity[id] = 1 + 3 * (1 - Double(index) / Double(max(favorites.count, 1)))
         }
 
-        let scored = candidates.map { candidate -> (Candidate, Double) in
+        var scored = candidates.map { candidate -> (candidate: Candidate, score: Double) in
             var score = candidate.artistID.flatMap { affinity[$0] } ?? 0
             let age = now.timeIntervalSince(candidate.dateAdded)
             if age >= 0, age < freshnessWindow {
@@ -56,8 +89,9 @@ public enum MusicVideoRecommendationPolicy {
             score += jitter(id: candidate.id, day: day)
             return (candidate, score)
         }
-        .sorted { lhs, rhs in
-            lhs.1 != rhs.1 ? lhs.1 > rhs.1 : lhs.0.id < rhs.0.id
+        scored.sort { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            return lhs.candidate.id < rhs.candidate.id
         }
 
         var picked: [String] = []

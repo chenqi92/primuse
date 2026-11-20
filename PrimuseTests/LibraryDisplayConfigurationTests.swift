@@ -4175,7 +4175,7 @@ final class LibraryStartupNavigationTests: XCTestCase {
         var plays: [Bool] = []
         for shuffled in [false, true] {
             coordinator.request(shuffled: shuffled, intent: intent, sourceIDs: ["nas"],
-                whenReady: { await gate.wait() }, currentIntent: { intent }, currentSourceIDs: { ["nas"] }) {
+                prepare: { await gate.wait() ? shuffled : nil }, currentIntent: { intent }, currentSourceIDs: { ["nas"] }) { shuffled in
                     plays.append(shuffled)
                 }
         }
@@ -4198,7 +4198,7 @@ final class LibraryStartupNavigationTests: XCTestCase {
             let intent = LibraryStartupPlaybackIntent(commandGeneration: 0, queueRequest: 0, playID: nil)
             var plays = 0
             coordinator.request(shuffled: false, intent: intent, sourceIDs: ["nas"],
-                whenReady: { await gate.wait() }, currentIntent: { intent }, currentSourceIDs: { ["nas"] }) {
+                prepare: { await gate.wait() ? true : nil }, currentIntent: { intent }, currentSourceIDs: { ["nas"] }) { _ in
                     plays += 1
                 }
             await drain()
@@ -4224,7 +4224,7 @@ final class LibraryStartupNavigationTests: XCTestCase {
             var sources: Set<String> = ["nas"]
             var plays = 0
             coordinator.request(shuffled: false, intent: intent, sourceIDs: sources,
-                whenReady: { await gate.wait() }, currentIntent: { intent }, currentSourceIDs: { sources }) {
+                prepare: { await gate.wait() ? true : nil }, currentIntent: { intent }, currentSourceIDs: { sources }) { _ in
                     plays += 1
                 }
             await drain()
@@ -4246,8 +4246,8 @@ final class LibraryStartupNavigationTests: XCTestCase {
         coordinator.setContext(isVisible: true, isActive: true)
         let intent = LibraryStartupPlaybackIntent(commandGeneration: 0, queueRequest: 0, playID: nil)
         var plays = 0
-        coordinator.request(shuffled: false, intent: intent, sourceIDs: ["nas"], whenReady: { false },
-            currentIntent: { intent }, currentSourceIDs: { ["nas"] }) { plays += 1 }
+        coordinator.request(shuffled: false, intent: intent, sourceIDs: ["nas"], prepare: { nil as Bool? },
+            currentIntent: { intent }, currentSourceIDs: { ["nas"] }) { _ in plays += 1 }
         await drain()
         XCTAssertNil(coordinator.pending)
         XCTAssertEqual(plays, 0)

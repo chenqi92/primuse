@@ -179,17 +179,23 @@ public enum SpokenWordWidgetPolicy {
     /// saves every 15 s change none of these most of the time, so comparing
     /// signatures keeps the widget from being reloaded on each save.
     public static func signature(of books: [SpokenWordShelfSnapshot.Book]) -> String {
-        books.map { book in
-            [
+        let entries = books.map { book in
+            let percent = Int((book.fractionComplete * 100).rounded())
+            let remainingMinutesText = book.remaining.map { seconds in
+                String(Int((seconds / 60).rounded()))
+            } ?? ""
+            let fields: [String] = [
                 book.id,
                 book.title,
                 book.author ?? "",
                 book.coverImageName ?? "",
-                String(Int((book.fractionComplete * 100).rounded())),
-                book.remaining.map { String(Int(($0 / 60).rounded())) } ?? "",
+                String(percent),
+                remainingMinutesText,
                 book.partIndex.map(String.init) ?? "",
                 String(book.partCount),
-            ].joined(separator: "\u{1F}")
-        }.joined(separator: "\u{1E}")
+            ]
+            return fields.joined(separator: "\u{1F}")
+        }
+        return entries.joined(separator: "\u{1E}")
     }
 }

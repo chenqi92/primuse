@@ -58,6 +58,67 @@ struct ISOBaseMediaAudioProfileParserTests {
         ).isEmpty)
     }
 
+    @Test("Playback requests only the missing end of a large front moov")
+    func remoteFrontMovie() async throws {
+        let seed = mediaFile(codec: "mp4a", channels: 6)
+        let ftyp = seed.prefix(20)
+        let moov = atom("moov", payload: atom("free", payload: Data(repeating: 0, count: 400_000)) + seed.dropFirst(28))
+        let file = ftyp + moov + atom("mdat", payload: Data(repeating: 0, count: 1_100_000))
+        let source = RangeSource(file)
+        let profiles = try await ISOBaseMediaAudioProfileParser.readRemote(fileSize: Int64(file.count)) { offset, length in
+            try await source.fetch(offset, length)
+        }
+        #expect(profiles.first?.channelCount == 6)
+        #expect(await source.offsets == [0, 262_144])
+        #expect(await source.bytesRead == Int64(ftyp.count + moov.count))
+    }
+
+    @Test("An mdat points to the small trailing audio description")
+    func remoteTrailingMovie() async throws {
+        let seed = mediaFile(codec: "alac", channels: 2)
+        let moov = seed.dropFirst(20)
+        let file = seed.prefix(20) + atom("mdat", payload: Data(repeating: 0, count: 900_000)) + moov
+        let source = RangeSource(file)
+        let profiles = try await ISOBaseMediaAudioProfileParser.readRemote(fileSize: Int64(file.count)) { offset, length in
+            try await source.fetch(offset, length)
+        }
+        #expect(profiles.first?.codecFourCC == "alac")
+        #expect(profiles.first?.prefersSystemMediaPlayback == false)
+        #expect(await source.offsets == [0, -Int64(moov.count)])
+    }
+
+    @Test("Sources without suffix support can still return a trailing audio description through the prefix")
+    func suffixUnsupported() async throws {
+        let seed = mediaFile(codec: "ec-3", channels: 6)
+        let file = seed.prefix(20) + atom("mdat", payload: Data(repeating: 0, count: 400_000)) + seed.dropFirst(20)
+        let source = RangeSource(file, rejectsSuffix: true)
+        let profiles = try await ISOBaseMediaAudioProfileParser.readRemote(fileSize: Int64(file.count)) { offset, length in
+            try await source.fetch(offset, length)
+        }
+        #expect(profiles.first?.codecFourCC == "ec-3")
+        #expect(await source.offsets == [0, -Int64(seed.count - 20), 262_144])
+    }
+
+    private actor RangeSource {
+        let data: Data
+        let rejectsSuffix: Bool
+        private(set) var offsets: [Int64] = []
+        private(set) var bytesRead: Int64 = 0
+
+        init(_ data: Data, rejectsSuffix: Bool = false) {
+            self.data = data
+            self.rejectsSuffix = rejectsSuffix
+        }
+
+        func fetch(_ offset: Int64, _ length: Int64) throws -> Data {
+            offsets.append(offset)
+            if rejectsSuffix && offset < 0 { throw MetadataRangeReadError.suffixRangeUnsupported }
+            bytesRead += length
+            let start = offset < 0 ? data.count + Int(offset) : Int(offset)
+            return data.subdata(in: start..<(start + Int(length)))
+        }
+    }
+
     private func mediaFile(
         codec: String,
         channels: UInt16,

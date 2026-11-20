@@ -257,7 +257,7 @@ struct MacContentView: View {
         }
     }
 
-    private var mainContent: some View {
+    private var windowLayout: some View {
         VStack(spacing: 0) {
             if !isFullScreenNowPlaying {
                 PMTitleBar(
@@ -297,8 +297,6 @@ struct MacContentView: View {
                         onOpenLibrarySongs: { selectRoute(.section(.songs)) }
                     )
                         .background(PMColor.bg.ignoresSafeArea())
-                        // 挂在这里而不是 body 那条长修饰链上: 那条链再加一个
-                        // onReceive 就超出类型检查的时间上限。
                         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenSpokenWordBook)) { note in
                             openSpokenWordBook(note.object as? String)
                         }
@@ -490,7 +488,10 @@ struct MacContentView: View {
         // 会被顶出上边界只剩半截 —— 被裁掉的正好是这 33 点。
         .ignoresSafeArea(.container, edges: isWindowFullScreen ? [] : .top)
         .pmLogFrame("root")
-        .sheet(isPresented: $showInitialOnboarding) {
+    }
+
+    private var windowPresentations: some View {
+        windowLayout.sheet(isPresented: $showInitialOnboarding) {
             OnboardingView()
                 .frame(minWidth: 720, minHeight: 560)
         }
@@ -543,7 +544,10 @@ struct MacContentView: View {
             Text(lyricsScrapeAlertMessage ?? "")
         }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
-        .task {
+    }
+
+    private var libraryCommands: some View {
+        windowPresentations.task {
             restorePersistedRouteIfNeeded()
             MainWindowOpener.register(openWindow)
             if !hasSeenOnboarding && sourcesStore.sources.isEmpty {
@@ -569,7 +573,10 @@ struct MacContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseSidebarRequestNewAIPlaylist)) { _ in
             showAIPlaylistEditor = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .primuseRequestExpandNowPlaying)) { note in
+    }
+
+    private var mainContent: some View {
+        libraryCommands.onReceive(NotificationCenter.default.publisher(for: .primuseRequestExpandNowPlaying)) { note in
             let animated = note.userInfo?[PrimuseNowPlayingExpansion.animatedKey] as? Bool ?? true
             if animated {
                 pmWithAnimation(.panel) {

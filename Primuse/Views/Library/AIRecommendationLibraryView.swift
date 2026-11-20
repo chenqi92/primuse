@@ -245,6 +245,10 @@ struct AIRecommendationLibraryView: View {
     }
 
     private var pageContent: some View {
+        let videoRequest = MusicVideoRecommendationPolicy.Request(
+            catalogRevision: library.musicVideoContentRevision, favoriteArtistIDs: localResults.compactMap(\.song.artistID),
+            recentlyPlayedIDs: [], day: HomeHeroRecommendationPolicy.dayStamp(Date()), limit: 10
+        )
         #if os(macOS)
         let showsIndicators = false
         #else
@@ -276,7 +280,11 @@ struct AIRecommendationLibraryView: View {
         }
         // iPhone Duo 竖栏：推荐卡片和按钮停在竖栏左侧。
         .pmExtendsUnderVerticalBar()
-        .task(id: musicVideoRefreshKey) { refreshMusicVideoPicks() }
+        .task(id: videoRequest) {
+            let next = await videoRequest.picks(from: library.musicVideoSongs, now: Date())
+            guard !Task.isCancelled else { return }
+            musicVideoPicks = next
+        }
         .task(id: mixCardSongs.map(\.id)) { tintProvider.prepare(mixCardSongs) }
         .sheet(item: $playlistSong) { song in
             AddToPlaylistSheet(song: song)
@@ -588,36 +596,6 @@ struct AIRecommendationLibraryView: View {
             .pmStopsAtVerticalBar()
         }
         .accessibilityIdentifier("library.recommendations.musicVideos")
-    }
-
-    private var musicVideoRefreshKey: String {
-        [
-            String(library.musicVideoSongs.count),
-            library.musicVideoSongs.first?.id ?? "",
-            localResults.prefix(12).map(\.song.id).joined(separator: ","),
-            String(HomeHeroRecommendationPolicy.dayStamp(Date())),
-        ].joined(separator: "#")
-    }
-
-    private func refreshMusicVideoPicks() {
-        let videos = library.musicVideoSongs
-        guard !videos.isEmpty else {
-            if !musicVideoPicks.isEmpty { musicVideoPicks = [] }
-            return
-        }
-        var seen = Set<String>()
-        let artistIDs = localResults.compactMap(\.song.artistID).filter { seen.insert($0).inserted }
-        let byID = Dictionary(videos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let ids = MusicVideoRecommendationPolicy.recommended(
-            videos.map { .init(id: $0.id, artistID: $0.artistID, dateAdded: $0.dateAdded) },
-            favoriteArtistIDs: artistIDs,
-            recentlyPlayedIDs: [],
-            now: Date(),
-            day: HomeHeroRecommendationPolicy.dayStamp(Date()),
-            limit: 10
-        )
-        let next = ids.compactMap { byID[$0] }
-        if next.map(\.id) != musicVideoPicks.map(\.id) { musicVideoPicks = next }
     }
 
     private var recommendationControls: some View {

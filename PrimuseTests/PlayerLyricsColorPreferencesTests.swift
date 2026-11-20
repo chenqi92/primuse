@@ -47,7 +47,7 @@ final class LyricsCascadeScrollTests: XCTestCase {
         let translations = Dictionary(uniqueKeysWithValues: lines.map { ($0.id, "这是一行译文，用来验证长短句切换时的定位。") })
         func lyricsView(defaults: UserDefaults) -> some View {
             LyricsScrollView(
-                lyrics: lines, lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
+                document: PlayerLyricsDocument(lines), lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
                 isResolvingLyrics: false, player: player, songID: "cascade-regression",
                 commentSongID: nil, commentAnchors: [:],
                 isSceneActive: true, isScrapingCurrentSong: false, canTranscribeAudio: false,
@@ -136,7 +136,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
             )
         }
         let content = LyricsScrollView(
-            lyrics: lines, lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
+            document: PlayerLyricsDocument(lines), lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
             isResolvingLyrics: false, player: player, songID: "interlude-focus",
             commentSongID: nil, commentAnchors: [:],
             isSceneActive: true, isScrapingCurrentSong: false, canTranscribeAudio: false,
@@ -497,7 +497,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         }
         let presentation = SimulatedWordLyricsPolicy.presentation(of: lines, enabled: true)
         let content = LyricsScrollView(
-            lyrics: presentation.lines, showsSimulatedWordTiming: presentation.isSimulated,
+            document: PlayerLyricsDocument(presentation.lines), showsSimulatedWordTiming: presentation.isSimulated,
             lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
             isResolvingLyrics: false, player: player, songID: "simulated-mid-song",
             commentSongID: nil, commentAnchors: [:],

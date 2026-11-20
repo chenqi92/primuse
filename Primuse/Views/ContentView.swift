@@ -1265,7 +1265,7 @@ struct LibraryStartupSongPreview: View {
                 List {
                     ForEach(pages) { page in
                         ForEach(page.content.songs) { song in
-                            songRow(song).onAppear {
+                            LibraryStartupSongRow(song: song, play: play).onAppear {
                                 if song.id == page.content.songs.last?.id, page.id == pages.last?.id,
                                    page.content.next != nil { requestedPage = page.id + 1 }
                                 else if song.id == page.content.songs.first?.id, page.id == pages.first?.id,
@@ -1306,8 +1306,13 @@ struct LibraryStartupSongPreview: View {
             }
         }
     }
+}
 
-    private func songRow(_ song: PrimuseKit.Song) -> some View {
+private struct LibraryStartupSongRow: View {
+    let song: PrimuseKit.Song
+    let play: (PrimuseKit.Song) -> Void
+
+    var body: some View {
         Button { play(song) } label: {
             HStack(spacing: 12) {
                 CachedArtworkView(
@@ -1330,6 +1335,11 @@ struct LibraryStartupSongPreview: View {
     }
 }
 
+struct LibraryStartupSearchResults {
+    let matches: [LibrarySearchResult]
+    let play: (PrimuseKit.Song, LibrarySearchResult) -> Void
+}
+
 struct LibraryReadyContent<Content: View>: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
@@ -1338,6 +1348,7 @@ struct LibraryReadyContent<Content: View>: View {
     @State private var startupPlayback = LibraryStartupPlaybackCoordinator()
     @State private var isVisible = false
     var startupSection: LibrarySection? = nil
+    var startupSearch: LibraryStartupSearchResults? = nil
     @ViewBuilder let content: () -> Content
 
     private var sourceIDs: Set<String> {
@@ -1359,8 +1370,19 @@ struct LibraryReadyContent<Content: View>: View {
                 content()
             } else {
                 Group {
-                    if startupSection == .songs {
-                        LibraryStartupSongPreview(sourceIDs: sourceIDs, play: playStartupSong)
+                    if let startupSearch, !startupSearch.matches.isEmpty {
+                        List {
+                            ForEach(startupSearch.matches) { result in
+                                if sourceIDs.contains(result.song.sourceID) {
+                                    LibraryStartupSongRow(song: result.song) { playStartupSong($0, searchResult: result) }
+                                }
+                            }
+                            ProgressView("library_preparing")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .listStyle(.plain)
+                    } else if startupSection == .songs {
+                        LibraryStartupSongPreview(sourceIDs: sourceIDs) { playStartupSong($0) }
                             .id(sourceIDs)
                     } else if startupSection == .albums || startupSection == .artists, let startupSection {
                         LibraryStartupBrowsePreview(section: startupSection)
@@ -1403,17 +1425,20 @@ struct LibraryReadyContent<Content: View>: View {
         .onChange(of: startupSection) { _, _ in startupPlayback.cancel() }
     }
 
-    private func playStartupSong(_ song: PrimuseKit.Song) {
+    private func playStartupSong(_ song: PrimuseKit.Song, searchResult: LibrarySearchResult? = nil) {
+        guard sourceIDs.contains(song.sourceID), song.isPlayable else { return }
         player.registerPlayIntent()
-        startupPlayback.request(
-            shuffled: false, intent: LibraryStartupPlaybackCoordinator.intent(of: player),
-            sourceIDs: sourceIDs,
-            whenReady: { await library.whenReady(timeout: .seconds(60)) },
-            currentIntent: { LibraryStartupPlaybackCoordinator.intent(of: player) },
-            currentSourceIDs: { sourceIDs }
-        ) {
-            guard let current = library.visibleSong(id: song.id), current.isPlayable else { return }
-            await player.play(song: current)
+        startupPlayback.request(shuffled: false, intent: LibraryStartupPlaybackCoordinator.intent(of: player),
+            sourceIDs: sourceIDs, prepare: {
+                await library.prepareStartupMusicMatches(ids: [song.id], sourceIDs: sourceIDs)[song.id]
+            }, currentIntent: { LibraryStartupPlaybackCoordinator.intent(of: player) }, currentSourceIDs: { sourceIDs }
+        ) { current in
+            guard current.isPlayable, sourceIDs.contains(current.sourceID) else { return }
+            if let searchResult, let startupSearch {
+                startupSearch.play(current, searchResult)
+            } else {
+                await player.play(song: current)
+            }
         }
     }
 }
@@ -1752,12 +1777,10 @@ struct ContentView: View {
             .environment(\.minimalNavigationDetailScope, .library)
             .environment(\.librarySearchTab, 1)
         case .search:
-            LibraryReadyContent {
-                SearchView(searchText: $searchText, scope: $searchScope,
-                           activatesSearchField: $searchFieldActivationRequested,
-                           requestsResultLayoutEditor: $searchLayoutEditorRequested,
-                           contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
-            }
+            SearchView(searchText: $searchText, scope: $searchScope,
+                       activatesSearchField: $searchFieldActivationRequested,
+                       requestsResultLayoutEditor: $searchLayoutEditorRequested,
+                       contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
             .id("primuse.tab.search")
             .environment(\.minimalNavigationDetailScope, .search)
         case .settings:
@@ -2101,11 +2124,9 @@ struct ContentView: View {
         case .libraryMusicVideos:
             librarySubpane(title: "library_music_videos_title") { MusicVideoLibraryView() }
         case .search:
-            LibraryReadyContent {
-                SearchView(searchText: $searchText, scope: $searchScope,
-                           activatesSearchField: $searchFieldActivationRequested,
-                           contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
-            }
+            SearchView(searchText: $searchText, scope: $searchScope,
+                       activatesSearchField: $searchFieldActivationRequested,
+                       contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
         case .settings:
             SettingsView(scraperSettingsRoute: $scraperSettingsRoute)
         }

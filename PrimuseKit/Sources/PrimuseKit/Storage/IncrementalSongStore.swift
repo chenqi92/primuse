@@ -415,6 +415,16 @@ public final class IncrementalSongPageReader: @unchecked Sendable {
         try connection(at: path).read(IncrementalSongStore.startupState(in:))
     }
 
+    public static func savedQueueSongs(at path: String, ids: [String], minimumMigration: Int) throws -> [Song] {
+        try connection(at: path).read { db in
+            let state = try IncrementalSongStore.startupState(in: db)
+            guard state.isAuthoritative, state.completedMigrationVersion >= minimumMigration else {
+                throw IncrementalSongPageError.unavailable
+            }
+            return try songs(ids: ids, sources: nil, in: db)
+        }
+    }
+
     public init(path: String, sourceIDs: Set<String>? = nil) throws {
         database = try Self.connection(at: path)
         allowedSources = sourceIDs

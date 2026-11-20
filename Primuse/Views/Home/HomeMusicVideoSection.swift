@@ -28,19 +28,12 @@ struct HomeMusicVideoSection<Trailing: View>: View {
     @State private var picks: [Song] = []
     @State private var playlistSong: Song?
 
-    private var refreshKey: String {
-        [
-            String(library.musicVideoSongs.count),
-            library.musicVideoSongs.first?.id ?? "",
-            favoriteArtistIDs.prefix(12).joined(separator: ","),
-            String(recentlyPlayedIDs.count),
-            String(limit),
-            String(HomeHeroRecommendationPolicy.dayStamp(Date())),
-        ].joined(separator: "#")
-    }
-
     var body: some View {
         let width = HomeMusicVideoMetrics.cardWidth(usesPadMetrics: usesPadMetrics)
+        let request = MusicVideoRecommendationPolicy.Request(
+            catalogRevision: library.musicVideoContentRevision, favoriteArtistIDs: favoriteArtistIDs,
+            recentlyPlayedIDs: recentlyPlayedIDs, day: HomeHeroRecommendationPolicy.dayStamp(Date()), limit: limit
+        )
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("home_section_music_videos")
@@ -90,7 +83,11 @@ struct HomeMusicVideoSection<Trailing: View>: View {
             .allowsHitTesting(isInteractive)
             .accessibilityIdentifier("home.musicVideos.shelf")
         }
-        .task(id: refreshKey) { refresh() }
+        .task(id: request) {
+            let next = await request.picks(from: library.musicVideoSongs, now: Date())
+            guard !Task.isCancelled else { return }
+            picks = next
+        }
         .sheet(item: $playlistSong) { song in
             AddToPlaylistSheet(song: song)
         }
@@ -112,20 +109,6 @@ struct HomeMusicVideoSection<Trailing: View>: View {
         return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 2)
     }
 
-    private func refresh() {
-        let songs = library.musicVideoSongs
-        let byID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let ids = MusicVideoRecommendationPolicy.recommended(
-            songs.map { .init(id: $0.id, artistID: $0.artistID, dateAdded: $0.dateAdded) },
-            favoriteArtistIDs: favoriteArtistIDs,
-            recentlyPlayedIDs: recentlyPlayedIDs,
-            now: Date(),
-            day: HomeHeroRecommendationPolicy.dayStamp(Date()),
-            limit: limit
-        )
-        let next = ids.compactMap { byID[$0] }
-        if next.map(\.id) != picks.map(\.id) { picks = next }
-    }
 }
 
 /// 首页 MV 列表的一行:左边一小块画面(带时长),右边歌名、艺人。点一行从它开始放。

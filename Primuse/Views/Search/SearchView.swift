@@ -530,13 +530,22 @@ private enum MacSearchResultFilter: Hashable {
 
 private struct SearchLibraryRevisionObserver: View {
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sources
     let onRevisionChange: () -> Void
+
+    private var startupSources: Set<String> {
+        library.isReady ? [] : Set(sources.sources.filter(\.isEnabled).map(\.id))
+    }
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .onChange(of: library.searchRevision) { _, _ in onRevisionChange() }
             .onChange(of: library.lyricsSearchRevision) { _, _ in onRevisionChange() }
+            .onChange(of: library.isReady) { _, _ in onRevisionChange() }
+            .onChange(of: startupSources) { _, _ in
+                if !library.isReady { onRevisionChange() }
+            }
     }
 }
 
@@ -1508,6 +1517,16 @@ struct SearchView: View {
         Task { @MainActor in isSearchFieldPresented = true }
     }
 
+    #if os(iOS)
+    private var startupSearch: LibraryStartupSearchResults? {
+        guard !library.isReady else { return nil }
+        let matches = scope == nil && renderedQuery == searchText ? searchResults : []
+        return LibraryStartupSearchResults(matches: matches) { current, match in
+            playResolvedSong(current, lyricsHint: match.lyricSnippet, matchKind: match.matchKind)
+        }
+    }
+    #endif
+
     private var iosSearchContent: some View {
         VStack(spacing: 0) {
             #if os(iOS)
@@ -1517,11 +1536,19 @@ struct SearchView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, heightClass.value(10, compact: 4))
             }
-            if resultDisplayMode == .tabs, !searchText.isEmpty, !resultTabLayout.sections.isEmpty {
+            if library.isReady, resultDisplayMode == .tabs, !searchText.isEmpty, !resultTabLayout.sections.isEmpty {
                 resultTabs
             }
             #endif
-            iosSearchResults
+            Group {
+                #if os(iOS)
+                LibraryReadyContent(startupSearch: startupSearch) {
+                    iosSearchResults
+                }
+                #else
+                iosSearchResults
+                #endif
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // 一滑结果就收起键盘，搜索词留在框里，点搜索框再弹出来。
                 .scrollDismissesKeyboard(.immediately)
@@ -4510,7 +4537,12 @@ struct SearchView: View {
         let matchKinds = layout.matchKinds
         // 全局搜索只在音乐里找歌: 有声条目按书列在自己那一组, 不混进歌曲结果。
         // 在某个歌单 / 文件夹范围里搜时, 范围里有什么就找什么。
-        let searchSnapshot = library.searchSongSnapshot(musicOnly: !scopedSearch)
+        #if os(iOS)
+        let startupSourceIDs = library.isReady || scopedSearch ? nil : Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
+        #else
+        let startupSourceIDs: Set<String>? = nil
+        #endif
+        let searchSnapshot = library.searchSongSnapshot(musicOnly: !scopedSearch, startupSourceIDs: startupSourceIDs)
         let visibleLookup = scopedSearch ? library.visibleSongLookup() : nil
         let scopeSnapshot = scope
         let albumsSnapshot = scopedSearch || !layout.shows(.albums) ? [] : library.visibleAlbums
@@ -4610,6 +4642,7 @@ struct SearchView: View {
             keywordArtists = []
             if renderedQuery != query { collectionResults = [] }
             renderedQuery = query
+            if startupSourceIDs != nil { return }
             let songsFinishedAt = ProcessInfo.processInfo.systemUptime
             let catalog = await workCoordinator.catalogIndex.search(
                 query: query, albums: albumsSnapshot, artists: artistsSnapshot,
@@ -4666,6 +4699,7 @@ struct SearchView: View {
     }
 
     private func performSemanticSearch(query: String) {
+        guard library.isReady else { return }
         #if DEBUG
         if performDebugSemanticSearch(query: query) { return }
         #endif
@@ -5007,6 +5041,10 @@ struct SearchView: View {
 
     private func playSong(_ song: PrimuseKit.Song, lyricsHint: String? = nil, matchKind: LibrarySearchMatchKind? = nil) {
         guard let song = SearchPlaybackSelectionPolicy.currentSong(for: song, in: library) else { return }
+        playResolvedSong(song, lyricsHint: lyricsHint, matchKind: matchKind)
+    }
+
+    private func playResolvedSong(_ song: PrimuseKit.Song, lyricsHint: String?, matchKind: LibrarySearchMatchKind?) {
         guard let insertedIndex = player.insertNextInQueue([song]) else { return }
         // 歌词命中: 让 NowPlayingView 加载完歌词后自动 seek 到那行;
         // 同时打开全屏 NowPlayingView 让用户能立刻看到上下文。

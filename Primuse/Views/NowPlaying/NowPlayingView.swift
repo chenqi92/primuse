@@ -2216,7 +2216,7 @@ struct NowPlayingView: View {
     @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
     private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
     @State private var usesSimulatedWordTiming = false
-    @State private var romanizedPresentedLyrics: [LyricLine] = []
+    @State private var romanizedLyricsDocument = PlayerLyricsDocument([])
     @State private var romanizedLyricsWritingDirection: LyricWritingDirection = .natural
     @State private var lyricPosterComposer: LyricPosterComposer?
     @State private var lyricsWritingDirection: LyricWritingDirection = .natural
@@ -4632,7 +4632,7 @@ struct NowPlayingView: View {
         consumeAutomaticScrapeCompletion()
     }
 
-    var body: some View {
+    private var playerCanvas: some View {
         GeometryReader { geo in
             let safeInsets = resolvedSafeAreaInsets(for: geo)
             #if DEBUG && os(iOS)
@@ -4938,7 +4938,7 @@ struct NowPlayingView: View {
                     ImmersivePlayerView(
                         // 从转轮进来时可能是临时指定的效果(见 `immersiveEffectBinding`)。
                         effect: immersiveEffectBinding,
-                        lyrics: romanizedPresentedLyrics,
+                        lyrics: romanizedLyricsDocument.lines,
                         showsSimulatedWordTiming: usesSimulatedWordTiming,
                         lyricCompanions: {
                             LyricsScrollView.companionTexts(
@@ -5134,7 +5134,10 @@ struct NowPlayingView: View {
             }
         }
         #endif
-        .onChange(of: isVisualSceneActive) { _, isActive in
+    }
+
+    private var playerObservingLyrics: some View {
+        playerCanvas.onChange(of: isVisualSceneActive) { _, isActive in
             if isActive {
                 if isLyricsImmersive, immersiveControlsState.isVisible {
                     scheduleImmersiveControlsAutoHide()
@@ -5183,10 +5186,13 @@ struct NowPlayingView: View {
             lyricsLoadRevision &+= 1
             setLyrics(lines)
         }
+    }
+
+    private var libraryPresentations: some View {
         // 这里弹出的面板都套 `playerPresentationColorScheme`:「播放页始终用深色」时弹出页整页一起深色。
         // 专辑、书、播客节目、电台这几张资料库页面和有声内容的目录面板、音乐的播放队列套
         // `playerLibraryPagePresentation`,照 App 的外观画。
-        .sheet(isPresented: $showQueue) {
+        playerObservingLyrics.sheet(isPresented: $showQueue) {
             QueueView(player: player)
                 .queueSheetPresentation()
                 .playerLibraryPagePresentation()
@@ -5280,7 +5286,10 @@ struct NowPlayingView: View {
             )
             .playerPresentationColorScheme()
         }
-        .sheet(isPresented: $showSongInfo) {
+    }
+
+    private var mediaPresentations: some View {
+        libraryPresentations.sheet(isPresented: $showSongInfo) {
             if let song = player.currentSong {
                 SongInfoSheet(song: song)
                     .songInfoPresentationStyle()
@@ -5399,7 +5408,6 @@ struct NowPlayingView: View {
                 dismissMusicVideoFullScreenIfNeeded()
             }
             // 换到环境音时收起歌词:环境音的版式里没有歌词区,留着的歌词态会盖在它上面。
-            // 放在这个已有的回调里,不在整条修饰链上再加一环(那条链已到类型检查的上限)。
             if player.currentItemIsAmbient, showLyrics || isLyricsImmersive {
                 showLyrics = false
                 isLyricsImmersive = false
@@ -5418,7 +5426,10 @@ struct NowPlayingView: View {
             dismissMusicVideoFullScreen()
         }
         #endif
-        .sheet(item: Binding(
+    }
+
+    private var playbackTools: some View {
+        mediaPresentations.sheet(item: Binding(
             get: { radioDetailStationID.map(RadioDetailSheetID.init) },
             set: { radioDetailStationID = $0?.id }
         )) { item in
@@ -5442,7 +5453,10 @@ struct NowPlayingView: View {
         .medleyDataUsageConfirmation(pendingSongs: $pendingMedleySongs) { songs in
             Task { await player.playMedley(songs) }
         }
-        .alert(
+    }
+
+    var body: some View {
+        playbackTools.alert(
             controlNotice?.title ?? "",
             isPresented: Binding(
                 get: { controlNotice != nil },
@@ -6852,7 +6866,7 @@ struct NowPlayingView: View {
     /// 封面模式那一行歌词用的那份:和歌词页一样按罗马音设置换过(「只显示罗马音」时正文是罗马音);
     /// 换好的那份还没出来时先用原来的。
     private var lyricPreviewLines: [LyricLine] {
-        romanizedPresentedLyrics.isEmpty ? lyrics : romanizedPresentedLyrics
+        romanizedLyricsDocument.lines.isEmpty ? lyrics : romanizedLyricsDocument.lines
     }
 
     /// 竖屏封面模式进度条上面正在唱的那一句(或按设置的几行), 点一下进歌词页。
@@ -10655,7 +10669,7 @@ struct NowPlayingView: View {
         onBackgroundTap backgroundTapOverride: (() -> Void)? = nil
     ) -> some View {
         LyricsScrollView(
-            lyrics: romanizedPresentedLyrics,
+            document: romanizedLyricsDocument,
             showsSimulatedWordTiming: usesSimulatedWordTiming,
             lyricsWritingDirection: romanizedLyricsWritingDirection,
             lyricsRevision: lyricsRevision,
@@ -13063,12 +13077,12 @@ struct NowPlayingView: View {
         )
         usesSimulatedWordTiming = timed.isSimulated
         let merged = WordLyricsLiveMergePolicy.merge(
-            displayed: romanizedPresentedLyrics,
+            displayed: romanizedLyricsDocument.lines,
             updated: timed.lines,
             playbackTime: player.interpolatedTime(),
             isPlaying: player.isPlaying
         )
-        if merged != romanizedPresentedLyrics { romanizedPresentedLyrics = merged }
+        if merged != romanizedLyricsDocument.lines { romanizedLyricsDocument = PlayerLyricsDocument(merged) }
         if shouldSimulate, let song = player.currentSong {
             let capturedSourceManager = sourceManager
             alignmentService.alignIfNeeded(
@@ -18312,7 +18326,8 @@ struct LyricsScrollView: View, @MainActor Equatable {
             && lhs.lyrics == rhs.lyrics
     }
 
-    let lyrics: [LyricLine]
+    let document: PlayerLyricsDocument
+    private var lyrics: [LyricLine] { document.lines }
     var showsSimulatedWordTiming = false
     let lyricsWritingDirection: LyricWritingDirection
     let lyricsRevision: UInt
@@ -18489,9 +18504,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
     }
 
-    private var hasWordLevelLyrics: Bool {
-        lyrics.contains(where: \.containsWordLevelContent)
-    }
+    private var hasWordLevelLyrics: Bool { document.summary.isWordLevel }
 
     /// 带逐字时间的行要不要一个字一个字地亮。文字稿在设置里关掉了逐字高亮时整句亮:
     /// 外层换成按句的列表还不够,行里也得画成整句,不然正在念的那一句照样逐字扫过去。
@@ -18499,9 +18512,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
         !isSpokenWordTranscript || spokenWordTranscriptHighlightsWords
     }
 
-    private var hasSynchronizedLyrics: Bool {
-        lyrics.contains { $0.isSynchronized }
-    }
+    private var hasSynchronizedLyrics: Bool { document.summary.isSynchronized }
 
     private var lyricsAlignment: PlayerLyricsAlignment {
         PlayerLyricsAlignment(rawValue: lyricsAlignmentRawValue) ?? .defaultValue
@@ -18523,9 +18534,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
     }
 
     /// 整首有两个声部（TTML 的 ttm:agent、LYS/QRC 的对唱标记）时按声部分左右。
-    private var isDuetLyrics: Bool {
-        KaraokeDuetGatePolicy.hasDuetParts(lyrics)
-    }
+    private var isDuetLyrics: Bool { document.isDuet }
 
     /// 对唱时每一行按声部摆到一侧；不是对唱就是用户选的对齐方式。
     private func duetAlignment(for line: LyricLine, isDuet: Bool) -> PlayerLyricsAlignment {
@@ -19649,9 +19658,12 @@ struct LyricsScrollView: View, @MainActor Equatable {
         textWidth: CGFloat,
         activity: @escaping (Int) -> RowActivity
     ) -> some View {
+        let entries = lyrics.indices.lazy.map { [lyrics] index in
+            LyricRowEntry(index: index, line: lyrics[index])
+        }
         if usesLazyRows {
             let placeholderHeight = lazyRowPlaceholderHeight
-            ForEach(lyrics.indices.map { LyricRowEntry(index: $0, line: lyrics[$0]) }) { entry in
+            ForEach(entries) { entry in
                 DeferredLyricRowCell(
                     isLive: lazyRowFloor.map { entry.index >= $0 } == true,
                     placeholderHeight: placeholderHeight
@@ -19666,11 +19678,11 @@ struct LyricsScrollView: View, @MainActor Equatable {
                 }
             }
         } else {
-            ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
+            ForEach(entries, id: \.line.id) { entry in
                 lyricRowCell(
-                    index: index,
-                    line: line,
-                    activity: activity(index),
+                    index: entry.index,
+                    line: entry.line,
+                    activity: activity(entry.index),
                     isDuet: isDuet,
                     textWidth: textWidth
                 )

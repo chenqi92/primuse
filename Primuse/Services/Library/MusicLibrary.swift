@@ -856,10 +856,18 @@ struct LibraryIndexedSearchOutput: Sendable {
 struct LibrarySearchSongSnapshot: Sendable {
     let songs: [Song]
     let lookup: (@Sendable (String) -> Song?)?
+    fileprivate let startupLookup: (@Sendable (Set<String>) async -> [String: Song])?
 
     init(_ songs: [Song], lookup: (@Sendable (String) -> Song?)? = nil) {
         self.songs = songs
         self.lookup = lookup
+        self.startupLookup = nil
+    }
+
+    init(startupLookup: @escaping @Sendable (Set<String>) async -> [String: Song]) {
+        self.songs = []
+        self.lookup = nil
+        self.startupLookup = startupLookup
     }
 
     fileprivate func matches(ids: Set<String>, excluding excluded: Set<String>) throws -> [String: Song] {
@@ -1442,7 +1450,7 @@ actor LibrarySearchIndex {
         // Mutation paths update the persistent index directly. A query must
         // remain an FTS read even while crash recovery is pending; SearchView
         // listens for the completion notification and reruns automatically.
-        lastMetadataRevisionKey = metadataRevisionKey
+        if snapshot.startupLookup == nil { lastMetadataRevisionKey = metadataRevisionKey }
 
         do {
             var metadataIDs: [String] = []
@@ -1452,6 +1460,7 @@ actor LibrarySearchIndex {
 
             let wantsAlbums = albumLimit > 0 && !albums.isEmpty
             let searchesMetadata = wantsAlbums || matchKinds.contains(.metadata) || matchKinds.contains(.fuzzy)
+            let shortHan = trimmed.count < 3 && Self.containsHan(trimmed)
             if searchesMetadata, trimmed.count >= 3 {
                 let ids = try Self.matchingSongIDs(
                     pool: pool,
@@ -1461,7 +1470,17 @@ actor LibrarySearchIndex {
                     limit: songLimit * 2
                 )
                 Self.appendUnique(ids, to: &metadataIDs, seen: &seenMetadata)
-            } else if searchesMetadata, Self.containsHan(trimmed) {
+            } else if searchesMetadata, shortHan, snapshot.startupLookup != nil {
+                // Trigrams need three characters. Use indexed syllables to find candidates,
+                // then rank only rows that contain the original characters.
+                if let pinyin = PinyinTransformer.pinyin(trimmed) {
+                    let phrase = Self.normalizedLatinQuery(pinyin).spaced
+                    if !phrase.isEmpty {
+                        metadataIDs = try Self.matchingSongIDs(pool: pool, ftsTable: "metadataPinyinFts",
+                            stateTable: "metadataSearchState", pattern: Self.quotedFTS(phrase), limit: songLimit * 2)
+                    }
+                }
+            } else if searchesMetadata, shortHan {
                 metadataIDs = try Self.shortMetadataIDs(
                     in: snapshot.songs, query: trimmed, excluding: excluded, limit: songLimit * 2
                 )
@@ -1579,7 +1598,18 @@ actor LibrarySearchIndex {
             }
 
             let matchedIDs = Set(metadataIDs).union(pathIDs).union(lyricHits.map(\.songID))
-            let matches = try snapshot.matches(ids: matchedIDs, excluding: excluded)
+            let matches: [String: Song]
+            if let startupLookup = snapshot.startupLookup {
+                let candidates = matchedIDs.subtracting(excluded)
+                matches = candidates.isEmpty ? [:] : await startupLookup(candidates)
+                if shortHan {
+                    metadataIDs = try Self.shortMetadataIDs(in: metadataIDs.compactMap { matches[$0] },
+                        query: trimmed, excluding: excluded, limit: songLimit * 2)
+                }
+            } else {
+                matches = try snapshot.matches(ids: matchedIDs, excluding: excluded)
+            }
+            try Task.checkCancellation()
             var ranked: [LibrarySearchResult] = []
             ranked.reserveCapacity(min(
                 songLimit * 2,
@@ -1671,7 +1701,7 @@ actor LibrarySearchIndex {
         if let revisionKey, lastMetadataRevisionKey == revisionKey { return true }
 
         do {
-            let existing = try Self.metadataStates(in: pool)
+            let existing = try await Self.metadataStates(in: pool)
             let songIDs = Set(songs.map(\.id))
             let removed = existing.compactMap { songIDs.contains($0.key) ? nil : $0.value.id }
             try await writeMetadataBatches(songs: songs, removed: removed, existing: existing, pool: pool)
@@ -1698,7 +1728,7 @@ actor LibrarySearchIndex {
 
         do {
             let requestedIDs = Set(upserts.map(\.id)).union(deletingIDs)
-            let existing = try Self.metadataStates(songIDs: requestedIDs, in: pool)
+            let existing = try await Self.metadataStates(songIDs: requestedIDs, in: pool)
             let removed = deletingIDs.compactMap { existing[$0]?.id }
             try await writeMetadataBatches(songs: upserts, removed: removed, existing: existing, pool: pool)
             lastMetadataRevisionKey = nil
@@ -1819,7 +1849,7 @@ actor LibrarySearchIndex {
     private func synchronizeLyrics(songs: [Song]) async -> Bool {
         guard let pool = dbPool else { return false }
         do {
-            var existing = try Self.lyricsStates(in: pool)
+            var existing = try await Self.lyricsStates(in: pool)
             let visibleIDs = Set(songs.map(\.id))
             let store = assetStore
             let localFiles = songs.count >= Self.lyricsInventoryMinimumCount ? store.lyricsSearchFileNames() : nil
@@ -1904,7 +1934,7 @@ actor LibrarySearchIndex {
         guard let pool = dbPool else { return false }
         do {
             let requestedIDs = Set(upserts.map(\.id)).union(deletingIDs)
-            let existing = try Self.lyricsStates(songIDs: requestedIDs, in: pool)
+            let existing = try await Self.lyricsStates(songIDs: requestedIDs, in: pool)
             let store = assetStore
             let localFiles = upserts.count >= Self.lyricsInventoryMinimumCount ? store.lyricsSearchFileNames() : nil
             for start in stride(from: 0, to: upserts.count, by: Self.lyricsBatchSize) {
@@ -1958,12 +1988,12 @@ actor LibrarySearchIndex {
         }
     }
 
-    private struct StoredMetadataState {
+    private struct StoredMetadataState: Sendable {
         let id: Int64
         let fingerprint: String
     }
 
-    private struct StoredLyricsState {
+    private struct StoredLyricsState: Sendable {
         let id: Int64
         let signature: String
     }
@@ -1997,8 +2027,8 @@ actor LibrarySearchIndex {
         let compact: String
     }
 
-    private static func metadataStates(in pool: DatabasePool) throws -> [String: StoredMetadataState] {
-        try pool.read { db in
+    private static func metadataStates(in pool: DatabasePool) async throws -> [String: StoredMetadataState] {
+        try await pool.read { db in
             var result: [String: StoredMetadataState] = [:]
             let rows = try Row.fetchCursor(db, sql: "SELECT id, songID, fingerprint FROM metadataSearchState")
             while let row = try rows.next() {
@@ -2015,9 +2045,9 @@ actor LibrarySearchIndex {
     private static func metadataStates(
         songIDs: Set<String>,
         in pool: DatabasePool
-    ) throws -> [String: StoredMetadataState] {
+    ) async throws -> [String: StoredMetadataState] {
         guard !songIDs.isEmpty else { return [:] }
-        return try pool.read { db in
+        return try await pool.read { db in
             var result: [String: StoredMetadataState] = [:]
             result.reserveCapacity(songIDs.count)
             let ids = Array(songIDs)
@@ -2039,8 +2069,8 @@ actor LibrarySearchIndex {
         }
     }
 
-    private static func lyricsStates(in pool: DatabasePool) throws -> [String: StoredLyricsState] {
-        try pool.read { db in
+    private static func lyricsStates(in pool: DatabasePool) async throws -> [String: StoredLyricsState] {
+        try await pool.read { db in
             let rows = try Row.fetchAll(db, sql: "SELECT id, songID, signature FROM lyricsSearchDocuments")
             return Dictionary(uniqueKeysWithValues: rows.map { row in
                 let id: Int64 = row["id"]
@@ -2054,9 +2084,9 @@ actor LibrarySearchIndex {
     private static func lyricsStates(
         songIDs: Set<String>,
         in pool: DatabasePool
-    ) throws -> [String: StoredLyricsState] {
+    ) async throws -> [String: StoredLyricsState] {
         guard !songIDs.isEmpty else { return [:] }
-        return try pool.read { db in
+        return try await pool.read { db in
             var result: [String: StoredLyricsState] = [:]
             result.reserveCapacity(songIDs.count)
             let ids = Array(songIDs)
@@ -5181,6 +5211,89 @@ final class MusicLibrary {
     ) async -> [Song]? {
         await prepareStartupSongPage(ids: ids, sourceIDs: sourceIDs, browseIfMissing: fallbackToFirstPage,
                                      musicOnly: musicOnly)?.songs
+    }
+
+    var disabledPlaybackSourceIDs: Set<String> { preparingDisabledSourceIDs ?? disabledSourceIDs }
+
+    /// A remembered queue keeps disabled sources in their saved positions. Playback chooses
+    /// an enabled starting song, so re-enabling a source can recover the rest of the queue.
+    func prepareStartupSavedQueue(ids: [String]) async -> [String: Song]? {
+        guard !isReady else { return nil }
+        let directory = snapshotURL.deletingLastPathComponent()
+        let worker = Task.detached(priority: .userInitiated) { () throws -> [Song] in
+            try IncrementalSongPageReader.savedQueueSongs(at: directory.appendingPathComponent("library-songs.sqlite").path,
+                ids: ids, minimumMigration: Self.loadedSongMigrationVersion)
+        }
+        let rows = await withTaskCancellationHandler { try? await worker.value } onCancel: { worker.cancel() }
+        guard let rows, !Task.isCancelled, !isReady else { return nil }
+        let prefixes = Dictionary(uniqueKeysWithValues: Set(rows.map(\.sourceID)).map { ($0, sourceIdentityResolver?($0) ?? $0) })
+        let snapshot = snapshotURL
+        let filtered = Task.detached(priority: .userInitiated) { () throws -> [String: Song] in
+            let exclusions = try Self.startupSongExclusions(directory: directory, sourcePrefixes: prefixes)
+            let tombstones = Set(try Self.playbackRules(at: snapshot).deletedSongIdentities ?? [])
+            var result: [String: Song] = [:]
+            for song in rows where song.isPlayable {
+                try Task.checkCancellation()
+                if LibrarySongAdmissionPolicy.verdict(for: song, prefix: prefixes[song.sourceID],
+                    tombstones: tombstones, deviceExclusions: exclusions) == .admitted { result[song.id] = song }
+            }
+            return result
+        }
+        let result = await withTaskCancellationHandler { try? await filtered.value } onCancel: { filtered.cancel() }
+        return isReady || Task.isCancelled ? nil : result
+    }
+
+    private struct StartupPlaybackRules: Decodable {
+        let playlistSongIDs: [String: [String]]?
+        let deletedSongIdentities: [String]?
+
+        private enum CodingKeys: CodingKey { case playlistSongIDs, deletedSongIdentities }
+        private enum Playlist: String, CodingKey, CaseIterable {
+            case liked = "primuse.system.liked"
+            case disliked = "primuse.system.disliked"
+            case next = "primuse.system.shuffleLinkNext"
+            case previous = "primuse.system.shuffleLinkPrevious"
+        }
+
+        init(from decoder: Decoder) throws {
+            let fields = try decoder.container(keyedBy: CodingKeys.self)
+            deletedSongIdentities = try fields.decodeIfPresent([String].self, forKey: .deletedSongIdentities)
+            if fields.contains(.playlistSongIDs), try !fields.decodeNil(forKey: .playlistSongIDs) {
+                let lists = try fields.nestedContainer(keyedBy: Playlist.self, forKey: .playlistSongIDs)
+                var membership: [String: [String]] = [:]
+                for key in Playlist.allCases {
+                    membership[key.rawValue] = try lists.decodeIfPresent([String].self, forKey: key)
+                }
+                playlistSongIDs = membership
+            } else {
+                playlistSongIDs = nil
+            }
+        }
+    }
+
+    private struct StartupPlaybackRulesMirror: Decodable {
+        let formatVersion: Int
+        let snapshotFingerprint: SnapshotFileFingerprint?
+        let snapshot: StartupPlaybackRules
+    }
+
+    private nonisolated static func playbackRules(at url: URL) throws -> Snapshot {
+        let fingerprint = snapshotFingerprint(at: url)
+        var snapshot = Snapshot(songs: [], playlists: [])
+        let mirrorURL = url.deletingLastPathComponent().appendingPathComponent("library-startup-cache.plist")
+        let rules: StartupPlaybackRules?
+        if let data = try? Data(contentsOf: mirrorURL, options: .mappedIfSafe),
+           let mirror = try? PropertyListDecoder().decode(StartupPlaybackRulesMirror.self, from: data),
+           mirror.formatVersion == startupCacheFormatVersion, mirror.snapshotFingerprint == fingerprint {
+            rules = mirror.snapshot
+        } else if fingerprint != nil {
+            rules = try JSONDecoder().decode(StartupPlaybackRules.self, from: Data(contentsOf: url, options: .mappedIfSafe))
+        } else {
+            rules = nil
+        }
+        snapshot.playlistSongIDs = rules?.playlistSongIDs
+        snapshot.deletedSongIdentities = rules?.deletedSongIdentities
+        return try applyingSnapshotDelta(to: snapshot, at: url, fingerprint: fingerprint, playbackRulesOnly: true)
     }
 
     func prepareStartupSongPage(
@@ -8749,7 +8862,13 @@ final class MusicLibrary {
         VisibleSongLookup(indexByID: visibleSongIndexByID, songs: visibleSongsLookupReference.value)
     }
 
-    func searchSongSnapshot(musicOnly: Bool = true) -> LibrarySearchSongSnapshot {
+    func searchSongSnapshot(musicOnly: Bool = true, startupSourceIDs: Set<String>? = nil) -> LibrarySearchSongSnapshot {
+        if !isReady, musicOnly, let startupSourceIDs {
+            return LibrarySearchSongSnapshot(startupLookup: { [weak self] ids in
+                guard let self else { return [:] }
+                return await self.prepareStartupMusicMatches(ids: ids, sourceIDs: startupSourceIDs)
+            })
+        }
         let rows = musicOnly ? musicSongs : visibleSongs
         let visible = visibleSongLookup()
         guard visible.indexByID.count == visible.songs.count else { return LibrarySearchSongSnapshot(rows) }
@@ -8758,6 +8877,25 @@ final class MusicLibrary {
         return LibrarySearchSongSnapshot(rows) { id in
             guard !nonMusic.contains(id), !collectionOnly.contains(id) else { return nil }
             return visible.song(id: id)
+        }
+    }
+
+    func prepareStartupMusicMatches(ids: Set<String>, sourceIDs: Set<String>) async -> [String: Song] {
+        guard !ids.isEmpty, !sourceIDs.isEmpty, !Task.isCancelled else { return [:] }
+        let savedRows = await prepareStartupSavedQueue(ids: Array(ids))
+        guard !Task.isCancelled else { return [:] }
+        let rows: [String: Song]
+        if isReady {
+            rows = ids.reduce(into: [:]) { $0[$1] = visibleSong(id: $1) }
+        } else {
+            rows = savedRows ?? [:]
+        }
+        let enabled = sourceIDs.subtracting(disabledPlaybackSourceIDs)
+        let classification = SpokenWordStore.shared.classificationSnapshot
+        return rows.filter { id, song in
+            song.isPlayable && enabled.contains(song.sourceID) && !classification.collectionOnlySongIDs.contains(id)
+                && classification.kind(songID: id, sourceID: song.sourceID, filePath: song.filePath,
+                                       genre: song.genre, serverLibraryID: song.serverLibraryID) == .music
         }
     }
 
@@ -19169,16 +19307,18 @@ final class MusicLibrary {
             snapshotURL.deletingLastPathComponent().appendingPathComponent("library-cache.delta.plist")
         }
 
-        func applying(to baseSnapshot: Snapshot) throws -> Snapshot {
+        func applying(to baseSnapshot: Snapshot, playbackRulesOnly: Bool = false) throws -> Snapshot {
             var result = baseSnapshot
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             func apply<Value: Decodable>(_ key: String, _ path: WritableKeyPath<Snapshot, Value>) throws {
+                if playbackRulesOnly && key != "playlistSongIDs" && key != "deletedSongIdentities" { return }
                 if let data = values[key] {
                     result[keyPath: path] = try decoder.decode(Value.self, from: data)
                 }
             }
             func applyDictionary<Value: Codable & Sendable>(_ key: String, _ path: WritableKeyPath<Snapshot, [String: Value]?>) throws {
+                if playbackRulesOnly && key != "playlistSongIDs" { return }
                 guard let data = dictionaryValues?[key] else { return }
                 result[keyPath: path] = try decoder.decode(DictionaryDelta<Value>.self, from: data)
                     .applying(to: result[keyPath: path])
@@ -19339,13 +19479,13 @@ final class MusicLibrary {
     }
 
     private nonisolated static func applyingSnapshotDelta(
-        to snapshot: Snapshot, at url: URL, fingerprint: SnapshotFileFingerprint?
+        to snapshot: Snapshot, at url: URL, fingerprint: SnapshotFileFingerprint?, playbackRulesOnly: Bool = false
     ) throws -> Snapshot {
         let deltaURL = SnapshotDelta.url(for: url)
         guard FileManager.default.fileExists(atPath: deltaURL.path) else { return snapshot }
         let delta = try PropertyListDecoder().decode(SnapshotDelta.self, from: Data(contentsOf: deltaURL, options: .mappedIfSafe))
         guard delta.base == fingerprint else { return snapshot }
-        return try delta.applying(to: snapshot)
+        return try delta.applying(to: snapshot, playbackRulesOnly: playbackRulesOnly)
     }
 
     /// 外部合并必须读到增量状态；正常传输仍由内存导出包含歌曲的快照。

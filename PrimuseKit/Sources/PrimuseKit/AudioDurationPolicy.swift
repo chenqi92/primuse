@@ -200,6 +200,62 @@ public struct ISOBaseMediaAudioProfile: Equatable, Sendable {
 }
 
 public enum ISOBaseMediaAudioProfileParser {
+    public static func readRemote(
+        fileSize: Int64,
+        fetch: @Sendable (Int64, Int64) async throws -> Data
+    ) async throws -> [ISOBaseMediaAudioProfile] {
+        var head = Data()
+        for size in RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: fileSize) {
+            try Task.checkCancellation()
+            if head.count < size {
+                let bytes = try await fetch(Int64(head.count), Int64(size - head.count))
+                guard !bytes.isEmpty else { break }
+                head.append(bytes)
+            }
+            var profiles = parse(head: head)
+            if !profiles.isEmpty { return profiles }
+
+            let walk = ISOBaseMediaTopLevelBoxWalk(
+                head: head, fileSize: fileSize,
+                maximumMoovByteCount: Int64(RemoteMetadataReadPolicy.maximumHeadByteCount)
+            )
+            // A front moov can declare its exact end before its sample descriptions arrive.
+            if case .foundMoov(let offset, let length) = walk.step {
+                let end = offset + length
+                let start = Int64(head.count)
+                if end > start, end <= Int64(RemoteMetadataReadPolicy.maximumHeadByteCount),
+                   let rest = try? await fetch(start, end - start), rest.count == end - start {
+                    head.append(rest)
+                    profiles = parse(head: head)
+                    if !profiles.isEmpty { return profiles }
+                }
+            }
+            try Task.checkCancellation()
+            guard Int64(size) < fileSize else { continue }
+            do {
+                // An mdat header often points directly to a small trailing moov.
+                if case .needsHeader(let offset, _) = walk.step, fileSize - offset < Int64(size) {
+                    let length = fileSize - offset
+                    do {
+                        let tail = try await fetch(-length, length)
+                        profiles = parse(head: head, tail: tail)
+                        if !profiles.isEmpty { return profiles }
+                    } catch MetadataRangeReadError.suffixRangeUnsupported {
+                        continue
+                    } catch {
+                        try Task.checkCancellation()
+                    }
+                }
+                let tail = try await fetch(-Int64(size), Int64(size))
+                profiles = parse(head: head, tail: tail)
+                if !profiles.isEmpty { return profiles }
+            } catch MetadataRangeReadError.suffixRangeUnsupported {
+                continue
+            }
+        }
+        return []
+    }
+
     public static func parse(head: Data, tail: Data = Data()) -> [ISOBaseMediaAudioProfile] {
         guard let metadataFile = ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(
             head: head,
