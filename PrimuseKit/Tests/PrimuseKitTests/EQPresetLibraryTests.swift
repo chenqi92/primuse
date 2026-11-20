@@ -8,6 +8,28 @@ struct EQPresetLibraryTests {
     private let dac = EQOutputDevice(id: "usb:dac", name: "DAC", kind: .usb)
     private let curve: [Float] = [1, 2, 3, 4, 5, 4, 3, 2, 1, 0]
 
+    @Test func playerSymbolFollowsTheOutputDevice() {
+        func symbol(_ name: String, _ kind: EQOutputDevice.Kind) -> String? {
+            EQOutputDevice(id: name, name: name, kind: kind).playerSymbolName
+        }
+        #expect(speaker.playerSymbolName == nil)
+        #expect(symbol("陈琦的AirPods Pro", .bluetooth) == "airpodspro")
+        #expect(symbol("AirPods Max", .bluetooth) == "airpodsmax")
+        #expect(symbol("Someone’s AirPods", .bluetooth) == "airpods")
+        #expect(symbol("Beats Studio Pro", .bluetooth) == "beats.headphones")
+        #expect(symbol("WH-1000XM5", .bluetooth) == "headphones")
+        #expect(symbol("JBL Flip 6 Speaker", .bluetooth) == "hifispeaker")
+        #expect(symbol("客厅音箱", .bluetooth) == "hifispeaker")
+        #expect(symbol("Headphones", .headphones) == "headphones")
+        #expect(symbol("客厅 HomePod mini", .airPlay) == "homepodmini")
+        #expect(symbol("HomePod", .airPlay) == "homepod")
+        #expect(symbol("Living Room Apple TV", .airPlay) == "appletv")
+        #expect(symbol("客厅", .airPlay) == "airplayaudio")
+        #expect(symbol("CarPlay", .carAudio) == "car")
+        #expect(symbol("TV", .hdmi) == "tv")
+        #expect(dac.playerSymbolName == "cable.connector")
+    }
+
     @Test func namesAreTrimmedCollapsedAndCapped() {
         #expect(EQPresetLibrary.normalizedName("  My \n  Buds  ") == "My Buds")
         #expect(EQPresetLibrary.normalizedName("   ") == nil)

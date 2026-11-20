@@ -15993,7 +15993,31 @@ struct AddToPlaylistSheet: View {
 }
 
 #if os(iOS)
-struct AirPlayButton: UIViewRepresentable {
+/// 隔空播放键。点按和弹出的选择器都是系统的 `AVRoutePickerView`;声音此刻从认得出的设备出来时
+/// (AirPods、HomePod、车载、有线耳机……),把系统那颗图标着成透明(点按范围不变),在原处画这台设备的
+/// 图标,像系统「音乐」那样一眼看出在用哪台。手机扬声器和认不出型号的隔空播放设备照旧是系统那颗。
+struct AirPlayButton: View {
+    /// 旁边已经写着当前设备(声音面板那张卡)时传 false,键上照旧是系统那颗,不重复画同一个图标。
+    var showsDeviceGlyph = true
+
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        let device = showsDeviceGlyph ? NowPlayingOutputDevice.current(player) : nil
+        let symbol = device?.playerSymbolName.flatMap { $0 == "airplayaudio" ? nil : $0 }
+        SystemRoutePicker(drawsGlyph: symbol == nil)
+            .overlay {
+                if let symbol {
+                    AirPlayDeviceGlyph(symbol: symbol)
+                }
+            }
+            .accessibilityValue(Text(verbatim: symbol == nil ? "" : device?.eqDisplayName ?? ""))
+    }
+}
+
+/// 系统投放键本身。`drawsGlyph` 为 false 时图标着成透明,上面另画设备图标。
+private struct SystemRoutePicker: UIViewRepresentable {
+    let drawsGlyph: Bool
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
@@ -16009,11 +16033,61 @@ struct AirPlayButton: UIViewRepresentable {
     }
 
     private func applyAppearance(to view: AVRoutePickerView) {
+        guard drawsGlyph else {
+            view.tintColor = .clear
+            view.activeTintColor = .clear
+            return
+        }
+        let tint = AirPlayButtonTint(colorScheme: colorScheme, contrast: colorSchemeContrast)
+        view.tintColor = tint.idle
+        view.activeTintColor = tint.active
+    }
+}
+
+/// 投放键的两档颜色:平时淡一些,声音投到别的设备上时亮起来(和系统那颗的 tint / activeTint 一致)。
+/// UIKit `withAlphaComponent` 是替换透明度不是相乘,所以平时那档是同一个颜色换成 0.52(增强对比 0.72)。
+private struct AirPlayButtonTint {
+    let idle: UIColor
+    let active: UIColor
+
+    init(colorScheme: ColorScheme, contrast: ColorSchemeContrast) {
         let foreground = colorScheme == .light
-            ? UIColor.black.withAlphaComponent(colorSchemeContrast == .increased ? 0.96 : 0.88)
+            ? UIColor.black.withAlphaComponent(contrast == .increased ? 0.96 : 0.88)
             : UIColor.white
-        view.tintColor = foreground.withAlphaComponent(colorSchemeContrast == .increased ? 0.72 : 0.52)
-        view.activeTintColor = foreground
+        idle = foreground.withAlphaComponent(contrast == .increased ? 0.72 : 0.52)
+        active = foreground
+    }
+}
+
+/// 盖在透明的系统投放键上的设备图标。字号按 `airplayaudio` 撑满这一框时的字号算:系统那颗图标按框
+/// 等比缩放,同一字号下各个 SF Symbol 视觉上一样大,换成 AirPods、HomePod 也和原来那颗一般大。
+private struct AirPlayDeviceGlyph: View {
+    let symbol: String
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
+    /// `airplayaudio` 在 100pt 时的外框。
+    private static let referenceSize: CGSize = UIImage(
+        systemName: "airplayaudio",
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 100)
+    )?.size ?? CGSize(width: 100, height: 100)
+
+    static func pointSize(fitting size: CGSize) -> CGFloat {
+        let reference = referenceSize
+        guard reference.width > 0, reference.height > 0, size.width > 0, size.height > 0 else { return 17 }
+        return 100 * min(size.width / reference.width, size.height / reference.height)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            Image(systemName: symbol)
+                .font(.system(size: Self.pointSize(fitting: proxy.size)))
+                .foregroundStyle(Color(uiColor: AirPlayButtonTint(colorScheme: colorScheme, contrast: colorSchemeContrast).active))
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 #else
@@ -16022,6 +16096,7 @@ struct AirPlayButton: UIViewRepresentable {
 /// (Mac 用 MacNowPlayingView), 这里给一个能编译的占位空视图, 避免 import
 /// 链断开。真用到再走 AVRoutePickerView (NSView) 适配。
 struct AirPlayButton: View {
+    var showsDeviceGlyph = true
     var body: some View { Color.clear.frame(width: 44, height: 44) }
 }
 #endif
@@ -20682,9 +20757,7 @@ struct NowPlayingStatusLine: View {
     @Environment(AudioPlayerService.self) private var player
 
     #if DEBUG
-    /// 取证用:模拟器没有耳机,`PRIMUSE_DEBUG_STATUS_OUTPUT=<设备名>` 冒充连着这台蓝牙设备;
-    /// `PRIMUSE_DEBUG_SLEEP_MINUTES=<分钟>` 一出现就开一个睡眠定时。
-    private static let debugOutputName = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_STATUS_OUTPUT"]
+    /// 取证用:`PRIMUSE_DEBUG_SLEEP_MINUTES=<分钟>` 一出现就开一个睡眠定时。冒充输出设备见 `NowPlayingOutputDevice`。
     private static let debugSleepMinutes = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SLEEP_MINUTES"]
         .flatMap(Int.init)
     #endif
@@ -20775,33 +20848,35 @@ struct NowPlayingStatusLine: View {
         if let renderer = player.castingRenderer {
             return Output(symbol: "hifispeaker", name: renderer.friendlyName)
         }
-        #if DEBUG
-        if let name = Self.debugOutputName {
-            return Output(symbol: Self.symbol(for: EQOutputDevice(id: name, name: name, kind: .bluetooth)), name: name)
-        }
-        #endif
-        guard let device = player.equalizerService.currentOutputDevice,
-              device.kind != .builtInSpeaker else { return nil }
+        guard let device = NowPlayingOutputDevice.current(player),
+              let symbol = device.playerSymbolName else { return nil }
         let name = device.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
-        return Output(symbol: Self.symbol(for: device), name: name)
+        return Output(symbol: symbol, name: name)
     }
+}
 
-    private static func symbol(for device: EQOutputDevice) -> String {
-        switch device.kind {
-        case .airPlay: return "airplayaudio"
-        case .carAudio: return "car"
-        case .hdmi: return "tv"
-        case .usb: return "cable.connector"
-        case .headphones, .bluetooth:
-            let name = device.name.lowercased()
-            if name.contains("airpods max") { return "airpodsmax" }
-            if name.contains("airpods pro") { return "airpodspro" }
-            if name.contains("airpods") { return "airpods" }
-            if name.contains("beats") { return "beats.headphones" }
-            return "headphones"
-        case .builtInSpeaker, .other: return "hifispeaker"
+/// 播放页上用的「声音此刻从哪台设备出来」:隔空播放键的图标与底部状态行都读这里。
+enum NowPlayingOutputDevice {
+    #if DEBUG
+    /// 取证用:模拟器没有耳机,`PRIMUSE_DEBUG_STATUS_OUTPUT=<设备名>` 冒充连着这台蓝牙设备,
+    /// 写成 `airplay:<设备名>` 冒充隔空播放到这台。
+    private static let debugDevice: EQOutputDevice? = {
+        guard let raw = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_STATUS_OUTPUT"], !raw.isEmpty else { return nil }
+        if raw.hasPrefix("airplay:") {
+            let name = String(raw.dropFirst("airplay:".count))
+            return EQOutputDevice(id: raw, name: name, kind: .airPlay)
         }
+        return EQOutputDevice(id: raw, name: raw, kind: .bluetooth)
+    }()
+    #endif
+
+    @MainActor
+    static func current(_ player: AudioPlayerService) -> EQOutputDevice? {
+        #if DEBUG
+        if let debugDevice { return debugDevice }
+        #endif
+        return player.equalizerService.currentOutputDevice
     }
 }
 

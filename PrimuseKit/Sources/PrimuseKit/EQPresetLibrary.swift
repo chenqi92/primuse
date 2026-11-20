@@ -26,6 +26,39 @@ public struct EQOutputDevice: Codable, Hashable, Sendable, Identifiable {
 
     /// iPhone 的扬声器与听筒是同一台设备的两个出口,合成一个身份。
     public static let builtInID = "builtin"
+
+    /// 播放页上代表这台设备的 SF Symbol:隔空播放键换成它,底部状态行写设备名时配它。
+    /// 系统不告诉 App 设备型号,只能按名字认几种常见的(AirPods、Beats、HomePod、Apple TV、音箱),
+    /// 认不出按种类给。手机自己的扬声器是 nil;隔空播放认不出型号时是 `airplayaudio`
+    /// (HomePod、Apple TV 默认按房间起名,多半认不出)。
+    public var playerSymbolName: String? {
+        let lowered = name.lowercased()
+        switch kind {
+        case .builtInSpeaker:
+            return nil
+        case .airPlay:
+            if lowered.contains("homepod mini") { return "homepodmini" }
+            if lowered.contains("homepod") { return "homepod" }
+            if lowered.contains("apple tv") || lowered.contains("appletv") { return "appletv" }
+            return "airplayaudio"
+        case .headphones, .bluetooth:
+            if lowered.contains("airpods max") { return "airpodsmax" }
+            if lowered.contains("airpods pro") { return "airpodspro" }
+            if lowered.contains("airpods") { return "airpods" }
+            if lowered.contains("beats") { return "beats.headphones" }
+            let speakerWords = ["speaker", "soundbar", "soundlink", "音箱", "音響", "喇叭"]
+            if kind == .bluetooth, speakerWords.contains(where: lowered.contains) { return "hifispeaker" }
+            return "headphones"
+        case .usb:
+            return "cable.connector"
+        case .carAudio:
+            return "car"
+        case .hdmi:
+            return "tv"
+        case .other:
+            return "hifispeaker"
+        }
+    }
 }
 
 /// 某台输出设备连上时自动换上的预设。

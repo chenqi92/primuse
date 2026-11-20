@@ -918,7 +918,7 @@ private struct NowPlayingCarouselOutputCard: View {
         let device = player.equalizerService.currentOutputDevice
         let castingName = player.castingRenderer?.friendlyName
         return HStack(spacing: 12) {
-            Image(systemName: castingName != nil ? "hifispeaker.fill" : (device?.kind.eqSymbolName ?? "speaker.wave.2"))
+            Image(systemName: castingName != nil ? "hifispeaker.fill" : (device?.playerSymbolName ?? "speaker.wave.2"))
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(NowPlayingCarouselPanel.sound.tint)
                 .frame(width: 36, height: 36)
@@ -936,7 +936,8 @@ private struct NowPlayingCarouselOutputCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
 
-            AirPlayButton()
+            // 左边已经画着这台设备,键上照旧是系统那颗。
+            AirPlayButton(showsDeviceGlyph: false)
                 .frame(width: 36, height: 36)
                 .accessibilityLabel(Text("player_controls_action_airplay"))
 
