@@ -611,10 +611,12 @@ extension AudioPlayerService {
     }
 
     /// Artwork extraction can finish after playback has already attempted its
-    /// initial lookup. Retry the system Now Playing artwork once the song-ID
-    /// cache becomes available without treating it as an explicit replacement.
-    func retryNowPlayingArtwork(afterCachingSongID songID: String) {
-        guard currentSong?.id == songID else { return }
+    /// initial lookup. Apple Music stores imported art under a separate key.
+    func retryNowPlayingArtwork(afterCachingSongID cacheKey: String) {
+        guard let currentSong,
+              cacheKey == currentSong.id || (currentSong.sourceID == AppleMusicLibraryIdentity.sourceID
+                  && cacheKey == AppleMusicLibraryService.importedArtworkCacheKey(songID: currentSong.id))
+        else { return }
         nowPlayingArtworkCache.removeObject(forKey: Self.systemArtworkCacheKey(for: currentSong) as NSString)
         updateNowPlayingArtworkIfNeeded(
             forceReload: true,

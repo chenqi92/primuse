@@ -1311,16 +1311,15 @@ final class AppleMusicLibraryService {
         return lines
     }
 
-    /// MusicKit 没给封面的资料库歌曲改用系统那份封面(#77): 先要媒体库条目自己的封面(只有 iOS),
-    /// 再读导入文件里内嵌的封面。没订阅的用户只有同步、导入进「音乐」App 的歌, MusicKit 常常不给
-    /// 它们封面。MusicKit 有封面时返回 nil —— 那张由 `ArtworkImage` 画, 不必再进媒体库查一遍。
-    /// 取到的按歌存进封面缓存, 之后直接读盘; 在「音乐」App 里换了封面要等这份缓存被清掉才跟上。
-    func importedArtworkData(songID: String, amID: String) async -> Data? {
+    /// 先读导入封面缓存，再查系统媒体条目及已匹配的音频文件。能使用 ArtworkImage
+    /// 的调用方在 MusicKit 已提供封面时跳过后两步。
+    func importedArtworkData(songID: String, amID: String, skipIfMusicKitArtworkExists: Bool = true) async -> Data? {
         let cacheKey = Self.importedArtworkCacheKey(songID: songID)
         if let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: cacheKey) {
             return cached
         }
-        guard !amID.isEmpty, await musicKitArtwork(amID: amID) == nil, !Task.isCancelled else { return nil }
+        guard !amID.isEmpty, !Task.isCancelled else { return nil }
+        if skipIfMusicKitArtworkExists, await musicKitArtwork(amID: amID) != nil { return nil }
         // 整库那遍 MPMediaQuery 由同步来做; 这里只用已经对上的文件, 没对上就按条目 id 去问媒体库。
         let file = library.song(id: songID).flatMap { localFile(for: $0) }
             ?? localFileIDsBySongID[songID].flatMap { localFiles[$0] }
@@ -1341,7 +1340,7 @@ final class AppleMusicLibraryService {
     private nonisolated static let importedArtworkPixels = 1024
 
     /// 跟按歌曲 id 存的封面分开放, 不和别的路径写的镜像混在一起。
-    private nonisolated static func importedArtworkCacheKey(songID: String) -> String {
+    nonisolated static func importedArtworkCacheKey(songID: String) -> String {
         "apple-music-imported-artwork:" + songID
     }
 

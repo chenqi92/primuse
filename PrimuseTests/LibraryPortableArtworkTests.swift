@@ -837,6 +837,91 @@ final class LibraryPortableArtworkTests: XCTestCase {
         }
     }
 
+    func testAppleMusicNowPlayingPublishesImportedCoverWithOrWithoutMusicKitReference() async throws {
+        try await withArtworkPlayer { player, root, _ in
+            let assets = MetadataAssetStore.shared
+            let url = root.appendingPathComponent("imported.mp3")
+            try writeMP3(withEmbeddedCover: image(color: .green, width: 1024, height: 1024), to: url)
+            let file = AppleMusicLocalFile(
+                identity: AppleMusicImportedFile(persistentID: 1, title: "Imported song", artist: nil, album: nil, duration: nil),
+                assetURL: url, libraryDetails: AppleMusicLocalFileDetails()
+            )
+            let embedded = await AppleMusicLocalFileReader.artworkData(persistentIDs: [], file: file, maximumPixels: 1024)
+            let cover = try XCTUnwrap(embedded)
+            for reference in [nil, "musicKit://artwork/imported"] as [String?] {
+                let itemID = "imported-" + UUID().uuidString
+                let song = Song(id: AppleMusicLibraryService.primuseSongID(forItemID: itemID),
+                                title: "Imported song", fileFormat: .mp3, filePath: itemID,
+                                sourceID: AppleMusicLibraryIdentity.sourceID, coverArtFileName: reference)
+                let importedKey = AppleMusicLibraryService.importedArtworkCacheKey(songID: song.id)
+                defer { assets.invalidateCoverCacheSync(forSongID: importedKey) }
+                await assets.cacheCover(cover, forSongID: importedKey)
+
+                player.currentSong = song
+                player.updateNowPlayingInfo()
+                player.updateNowPlayingArtworkIfNeeded()
+                try await waitForSystemArtwork(player, songID: song.id)
+                let artwork = try XCTUnwrap(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
+                XCTAssertEqual(artwork.bounds.size, CGSize(width: 768, height: 768))
+                let bitmap = try XCTUnwrap(artwork.image(at: artwork.bounds.size)?.cgImage)
+                let pixel = try rgb(bitmap, x: bitmap.width / 2, y: bitmap.height / 2)
+                XCTAssertGreaterThan(pixel.1, 240)
+                XCTAssertLessThan(pixel.0, 15)
+                let mirror = await assets.cachedCoverData(forSongID: song.id)
+                XCTAssertNil(mirror)
+            }
+        }
+    }
+
+    func testAppleMusicNowPlayingRecoversLateImportedCoverWithoutReopeningPlayer() async throws {
+        try await withArtworkPlayer { player, _, _ in
+            let itemID = "imported-" + UUID().uuidString
+            let song = Song(id: AppleMusicLibraryService.primuseSongID(forItemID: itemID),
+                            title: "Late imported cover", fileFormat: .aac, filePath: itemID,
+                            sourceID: AppleMusicLibraryIdentity.sourceID)
+            player.currentSong = song
+            player.updateNowPlayingInfo()
+            player.updateNowPlayingArtworkIfNeeded()
+            await player.nowPlayingArtworkLoadTask?.value
+            XCTAssertNil(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork])
+
+            let importedKey = AppleMusicLibraryService.importedArtworkCacheKey(songID: song.id)
+            defer { MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: importedKey) }
+            await MetadataAssetStore.shared.cacheCover(try image(color: .green), forSongID: importedKey)
+            try await waitForSystemArtwork(player, songID: song.id)
+        }
+    }
+
+    func testAppleMusicSystemArtworkPrefersSelectedCoverAndIgnoresStaleSongMirror() async throws {
+        let assets = MetadataAssetStore.shared
+        let itemID = "imported-" + UUID().uuidString
+        var song = Song(id: AppleMusicLibraryService.primuseSongID(forItemID: itemID),
+                        title: "Imported song", fileFormat: .aac, filePath: itemID,
+                        sourceID: AppleMusicLibraryIdentity.sourceID)
+        let importedKey = AppleMusicLibraryService.importedArtworkCacheKey(songID: song.id)
+        let selectedData = try image(color: .blue)
+        let contentID = SHA256.hash(data: selectedData).map { String(format: "%02x", $0) }.joined()
+        let selectedFile = assets.customArtworkDirectoryURL.appendingPathComponent(contentID + ".jpg")
+        let alreadyStored = FileManager.default.fileExists(atPath: selectedFile.path)
+        defer {
+            for key in [song.id, importedKey] { assets.invalidateCoverCacheSync(forSongID: key) }
+            if !alreadyStored { try? FileManager.default.removeItem(at: selectedFile) }
+        }
+        await assets.cacheCover(try image(color: .red), forSongID: song.id)
+        let missing = await AppleMusicSongArtwork.image(for: song, pixelSize: 128, mirrorsIntoSongCache: false)
+        XCTAssertNil(missing)
+
+        await assets.cacheCover(try image(color: .green), forSongID: importedKey)
+        let reference = await assets.storeAttributedCover(selectedData, songID: song.id, origin: .selected)
+        song.coverArtFileName = try XCTUnwrap(reference)
+        let selected = await AppleMusicSongArtwork.image(for: song, pixelSize: 128, mirrorsIntoSongCache: false)
+        let bitmap = try XCTUnwrap(selected?.cgImage)
+        let pixel = try rgb(bitmap, x: bitmap.width / 2, y: bitmap.height / 2)
+        XCTAssertGreaterThan(pixel.2, 240)
+        XCTAssertLessThan(pixel.0, 15)
+        XCTAssertLessThan(pixel.1, 15)
+    }
+
     func testLocalNowPlayingPublishesSidecarAndSwitchesToUncachedCover() async throws {
         try await withArtworkPlayer { player, root, sourceID in
             let songs = ["red", "blue"].map {
@@ -931,18 +1016,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
             let music = root.appendingPathComponent("Music", isDirectory: true)
             try FileManager.default.createDirectory(at: music, withIntermediateDirectories: true)
             try image(color: .red).write(to: music.appendingPathComponent("cover.jpg"))
-            var payload = Data([0]) + Data("image/png".utf8) + Data([0, 3, 0])
-            payload.append(try image(color: .green))
-            let length = UInt32(payload.count)
-            var frame = Data("APIC".utf8)
-            frame.append(contentsOf: [UInt8(length >> 24), UInt8((length >> 16) & 255), UInt8((length >> 8) & 255), UInt8(length & 255), 0, 0])
-            frame.append(payload)
-            let count = frame.count
-            var file = Data([0x49, 0x44, 0x33, 3, 0, 0,
-                             UInt8((count >> 21) & 127), UInt8((count >> 14) & 127), UInt8((count >> 7) & 127), UInt8(count & 127)])
-            file.append(frame)
-            file.append(Data(repeating: 0, count: 4_096))
-            try file.write(to: music.appendingPathComponent("embedded.mp3"))
+            try writeMP3(withEmbeddedCover: image(color: .green), to: music.appendingPathComponent("embedded.mp3"))
             for reference in [nil, "missing-cache.jpg", "/Music/cover.jpg"] as [String?] {
                 let song = Song(id: UUID().uuidString, title: "Embedded cover", fileFormat: .mp3,
                                 filePath: "/Music/embedded.mp3", sourceID: sourceID, coverArtFileName: reference)
@@ -965,6 +1039,21 @@ final class LibraryPortableArtworkTests: XCTestCase {
                 XCTAssertLessThan(pixel[0], 15)
             }
         }
+    }
+
+    private func writeMP3(withEmbeddedCover cover: Data, to url: URL) throws {
+        var payload = Data([0]) + Data("image/png".utf8) + Data([0, 3, 0])
+        payload.append(cover)
+        let length = UInt32(payload.count)
+        var frame = Data("APIC".utf8)
+        frame.append(contentsOf: [UInt8(length >> 24), UInt8((length >> 16) & 255), UInt8((length >> 8) & 255), UInt8(length & 255), 0, 0])
+        frame.append(payload)
+        let count = frame.count
+        var file = Data([0x49, 0x44, 0x33, 3, 0, 0,
+                         UInt8((count >> 21) & 127), UInt8((count >> 14) & 127), UInt8((count >> 7) & 127), UInt8(count & 127)])
+        file.append(frame)
+        file.append(Data(repeating: 0, count: 4_096))
+        try file.write(to: url)
     }
 
     private func waitForSystemArtwork(_ player: AudioPlayerService, songID: String) async throws {
@@ -2097,14 +2186,14 @@ final class LibraryPortableArtworkTests: XCTestCase {
         return url
     }
 
-    private func image(jpeg: Bool = false, color: UIColor = .red, width: Int = 32) throws -> Data {
+    private func image(jpeg: Bool = false, color: UIColor = .red, width: Int = 32, height: Int = 16) throws -> Data {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let rendered = UIGraphicsImageRenderer(
-            size: CGSize(width: width, height: 16), format: format
+            size: CGSize(width: width, height: height), format: format
         ).image { context in
             color.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: width, height: 16))
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         }
         return try XCTUnwrap(jpeg ? rendered.jpegData(compressionQuality: 0.8) : rendered.pngData())
     }

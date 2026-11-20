@@ -93,10 +93,7 @@ actor CarPlayAppleMusicArtwork {
     }
 }
 
-/// Apple Music 歌的封面优先使用用户在 Primuse 选择的本地图，其余读取官方封面。
-/// 资料库歌的官方引用是 MusicKit 专用的 `musicKit://`, 本地封面库里不会有它,
-/// 也没有连接器可问: 先用 MusicKit 缓存给的地址或歌曲自带的公网地址, 都没有再查资料库接口换成公网地址。
-/// CarPlay、手表、小组件和系统「正在播放」共用, 所以不限平台。
+/// 为系统「正在播放」、CarPlay、手表和小组件解析 Apple Music 封面位图。
 @MainActor
 enum AppleMusicSongArtwork {
     /// 手表、小组件和系统「正在播放」传 `mirrorsIntoSongCache: false`: 按 songID 存进封面库会发
@@ -114,8 +111,22 @@ enum AppleMusicSongArtwork {
         let reference = AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: song.filePath)?.artwork?
             .url(width: pixelSize, height: pixelSize)?.absoluteString
         if let image = await bitmap(references: [reference, song.coverArtFileName], pixelSize: pixelSize, songID: songID) { return image }
+        if let image = await importedImage(for: song, pixelSize: pixelSize) { return image }
+        guard !Task.isCancelled else { return nil }
         let libraryReference = await CarPlayAppleMusicArtwork.shared.reference(kind: .songs, id: song.filePath, pixelSize: pixelSize)
         return await bitmap(references: [libraryReference], pixelSize: pixelSize, songID: songID)
+    }
+
+    @concurrent
+    private static func importedImage(for song: Song, pixelSize: Int) async -> PlatformImage? {
+        // ArtworkImage 能画 musicKit://，系统媒体控件需要解码后的位图。
+        guard !Task.isCancelled,
+              let data = await AppServices.shared.appleMusicLibrary.importedArtworkData(
+                  songID: song.id, amID: song.filePath, skipIfMusicKitArtworkExists: false
+              ), !Task.isCancelled,
+              let image = PlayerBackdropImaging.decodedImage(data: data, maxPixel: pixelSize)
+        else { return nil }
+        return PlatformImage.fromCGImage(image)
     }
 
     static func bitmap(references: [String?], pixelSize: Int, songID: String? = nil) async -> PlatformImage? {
