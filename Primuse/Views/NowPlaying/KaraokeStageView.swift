@@ -1639,6 +1639,8 @@ private struct KaraokeNotice: View {
 /// 卡拉OK的歌词比播放页大、停留久，暗幕在中段再加深一点。
 struct KaraokeStageBackdrop: View {
     let isPlaying: Bool
+    /// 为假时氛围色停在当前那一帧不流动(转轮里这一面不在眼前、或正在翻页)。
+    var isVisible = true
 
     @Environment(ThemeService.self) private var theme
     @Environment(\.scenePhase) private var scenePhase
@@ -1666,7 +1668,7 @@ struct KaraokeStageBackdrop: View {
                 primaryOpacity: primaryOpacity,
                 secondaryOpacity: secondaryOpacity,
                 hasArtworkPalette: hasArtwork,
-                isVisible: true,
+                isVisible: isVisible,
                 isSceneActive: scenePhase == .active,
                 isPlaying: isPlaying,
                 paletteVibrancy: hasArtwork ? theme.artworkVibrancy : 0,

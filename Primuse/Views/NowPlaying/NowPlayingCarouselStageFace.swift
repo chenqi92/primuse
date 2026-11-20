@@ -112,7 +112,11 @@ struct NowPlayingCarouselStageFace: View {
         .background {
             // 整面一张氛围底(与舞台里歌词那块同一套封面取色):顶上转轮那一行、舞台、底下全屏效果一排连成一片。
             // 原来这里是一张固定的紫黑渐变,舞台又自己铺了一层封面色,转到这一面时顶上那一行和下面断成两截。
-            KaraokeStageBackdrop(isPlaying: player.isPlaying)
+            NowPlayingCarouselStageBackdrop(
+                state: state,
+                isExposed: context.isSurfaceExposed,
+                isPlaying: player.isPlaying
+            )
         }
         .environment(\.colorScheme, .dark)
         .animation(.easeInOut(duration: 0.3), value: showsStage)
@@ -299,4 +303,21 @@ struct NowPlayingCarouselEffectShelfView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
+
+/// 舞台整面那张氛围底:只在停稳在这一面、播放页露着、转轮没在转时才慢慢流动。预先挂着(在屏幕外)、
+/// 拖进拖出、转到位途中都停在当前那一帧,和播放页自己的背景拖动时停下一样,不和翻页抢渲染。
+/// 转轮的拖动状态只在这一层读,舞台本身不跟着按下、松手重算。
+private struct NowPlayingCarouselStageBackdrop: View {
+    let state: NowPlayingCarouselState
+    let isExposed: Bool
+    let isPlaying: Bool
+
+    var body: some View {
+        KaraokeStageBackdrop(
+            isPlaying: isPlaying,
+            isVisible: isExposed && !state.isDragging && !state.isSettling
+        )
+    }
+}
+
 #endif

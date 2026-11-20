@@ -165,6 +165,8 @@ extension NowPlayingCarouselCard {
 ///
 /// 拖动、松手转到位都不走 SwiftUI 的动画:手指拖动时直接写 `offset`,松手后自己开一个 80–120Hz 的
 /// CADisplayLink 按弹簧逐帧写(SwiftUI 的属性动画在 iPhone 上只有 60Hz,见 `PlayerOverlayMotion`)。
+/// 拖动中这条链接也开着:没有谁要高刷时 iPhone 的屏幕按默认的 60Hz 走,跟手的这一段就比松手后那一段、
+/// 比系统的滚动明显不顺。拖动中链接不写偏移(偏移照旧由手势回调当场写),只让屏幕按高刷走。
 /// 逐帧变的 `offset` 只有页的位移、转盘和底下那层玻璃读,转轮本身、各面的内容和整页播放器都不跟着重算。
 @MainActor
 @Observable
@@ -217,6 +219,10 @@ final class NowPlayingCarouselState {
     @ObservationIgnored private var link: CADisplayLink?
     /// 最近一帧的显示时刻;中途换目标时按这一刻的速度接着走。
     @ObservationIgnored private var lastFrameTime: CFTimeInterval?
+    #if DEBUG
+    /// 诊断模式下拖动、转到位各记一行实际帧率(链接回调次数与手势送来的位移次数),真机上看跟手那一段到没到高刷。
+    @ObservationIgnored private var motionStats: NowPlayingCarouselMotionStats?
+    #endif
 
     var isAwayFromPlayer: Bool { settledPage != .player }
 
@@ -253,6 +259,11 @@ final class NowPlayingCarouselState {
             if !neighbors.isSubset(of: warmPanels) { warmPanels.formUnion(neighbors) }
         }
         gestureBaseOffset = offset
+        // 跟手这一段也让屏幕按 80–120Hz 刷(见类型说明),松手后同一条链接接着推弹簧。
+        startLink()
+        #if DEBUG
+        beginMotionStats("drag")
+        #endif
     }
 
     /// 拖动中。`translation` 是手指的横向位移(已换成「往右为正」),两端外有阻尼。
@@ -264,7 +275,12 @@ final class NowPlayingCarouselState {
             pageWidth: pageWidth,
             pageCount: pages.count
         )
-        offset = position - Double(index)
+        let dragged = position - Double(index)
+        guard dragged != offset else { return }
+        offset = dragged
+        #if DEBUG
+        motionStats?.touches += 1
+        #endif
     }
 
     /// 松手:按拖过的距离与惯性挑停在哪一页(一次最多一页),弹簧从手指的速度起步,手感连着,
@@ -447,6 +463,9 @@ final class NowPlayingCarouselState {
         run = NowPlayingCarouselOffsetRun(from: offset, to: target, initialVelocity: velocity, spring: spring)
         if !isSettling { isSettling = true }
         startLink()
+        #if DEBUG
+        beginMotionStats("settle")
+        #endif
     }
 
     /// 转到位:刚离开的那一页紧挨着停着的这一页就留着(往回翻不用重挂),不相邻的预挂面卸下;
@@ -464,8 +483,12 @@ final class NowPlayingCarouselState {
     fileprivate func advance(_ link: CADisplayLink) {
         let time = link.targetTimestamp
         lastFrameTime = time
+        #if DEBUG
+        motionStats?.frames += 1
+        #endif
         guard var run = self.run else {
-            stopLink()
+            // 拖动中链接只为让屏幕按高刷走,偏移由手势回调写;不拖了又没有要转的就停。
+            if !isDragging { stopLink() }
             return
         }
         // 第一帧从上一次上屏的时刻起算,换页那一下慢了也不会跳过开头。
@@ -503,8 +526,46 @@ final class NowPlayingCarouselState {
         link?.invalidate()
         link = nil
         lastFrameTime = nil
+        #if DEBUG
+        endMotionStats()
+        #endif
+    }
+
+    #if DEBUG
+    /// 换一段(拖动 → 转到位)时先把上一段记下来。
+    private func beginMotionStats(_ phase: String) {
+        endMotionStats()
+        motionStats = NowPlayingCarouselMotionStats(phase: phase, start: CACurrentMediaTime())
+    }
+
+    private func endMotionStats() {
+        guard let stats = motionStats else { return }
+        motionStats = nil
+        stats.log()
+    }
+    #endif
+}
+
+#if DEBUG
+/// 一段拖动或转到位的帧数。诊断模式(`FrameHitchMonitor` 在跑)才记,记法同播放页展开的 `player motion`。
+private struct NowPlayingCarouselMotionStats {
+    let phase: String
+    let start: CFTimeInterval
+    var frames = 0
+    /// 拖动中手势送来、真的挪了位置的次数。
+    var touches = 0
+
+    @MainActor
+    func log() {
+        let elapsed = CACurrentMediaTime() - start
+        guard elapsed > 0.1, FrameHitchMonitor.shared.isRunning else { return }
+        plog(String(
+            format: "🩺 carousel %@ %.0f fps (%d frames, %.0f moves/s, %.2fs)",
+            phase, Double(frames) / elapsed, frames, Double(touches) / elapsed, elapsed
+        ))
     }
 }
+#endif
 
 /// 一段弹簧:偏移从 `from` 走到 `from + delta`,`startTime` 在第一帧上填。离终点与速度都小于阈值就算到位;
 /// `Spring.settlingDuration` 把速度也压到同一阈值,要多等一截,只当兜底的上限。
@@ -798,6 +859,10 @@ struct NowPlayingCarouselContainer<Center: View>: View {
             // 进全屏时面里的双指张开、滑杆还按着就被整页卸下,没机会说「松开了」;重新装上时一律当作没在调。
             state.isControlEditing = false
             if isActive { state.resume(in: pages) }
+        }
+        .onDisappear {
+            // 手指还按着就被整个拿掉(进全屏、收起):手势没有结束回调,停在原处,拖动中开着的显示链接也跟着停。
+            if state.isDragging { state.settle(on: state.settledPage, animated: false) }
         }
         .task(id: WarmUpKey(
             settledPage: state.settledPage,
@@ -1122,6 +1187,8 @@ struct NowPlayingCarouselDial: View {
     /// 名字两边留的空。
     private static let titlePadding: CGFloat = 12
     private static let titleFont = Font.system(size: 13, weight: .semibold, design: .rounded)
+    /// 图标最大时(当前页、整条长全)的字号;其余时候按比例缩小。
+    private static let iconMaximumSize: CGFloat = 15
     /// 停在播放器上时整条往上挪多少:整条从安全区下 4 点排起,收矮后图标中心在 4 + 9 点,
     /// 挪到把手中心(安全区下 8.5 点);下沿落在 17.5 点,离封面上沿还有 3.5 点。
     static let restingLift: CGFloat = topInset + restingSlotHeight / 2 - 8.5
@@ -1133,8 +1200,10 @@ struct NowPlayingCarouselDial: View {
                 let reveal = titleReveal(page: page, emphasis: emphasis)
                 Button { onSelect(index) } label: {
                     ZStack {
+                        // 字号固定,大小靠缩放:逐帧改字号每帧都要重新排、重新画这几个符号,缩放只改图层变换。
                         Image(systemName: page.panel?.symbolName ?? "music.note")
-                            .font(.system(size: 11 + 4 * emphasis * chrome, weight: .semibold))
+                            .font(.system(size: Self.iconMaximumSize, weight: .semibold))
+                            .scaleEffect(CGFloat(11 + 4 * emphasis * chrome) / Self.iconMaximumSize)
                             .opacity(1 - reveal)
                         if let panel = page.panel {
                             Text(panel.titleKey)
