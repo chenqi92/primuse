@@ -658,6 +658,16 @@
 "scraper_sources_footer" = "拖拽调整顺序。刮削时按从上到下的顺序依次尝试，找到结果即停止。歌词不是逐字时，会再问后面最多两个源，有更细的就用更细的。";
 "scraper_options" = "选项";
 "only_fill_missing" = "仅补全缺失字段";
+"scrape_review_keep" = "保留当前值";
+"scrape_review_previous" = "上一个候选";
+"scrape_review_next" = "下一个候选";
+"scrape_field_rules" = "刮削规则";
+"tv_scrape_album_rules_format" = "按刮削规则更新这张专辑的 %d 首歌。";
+"scrape_rule_fill" = "仅补缺失";
+"scrape_rule_overwrite" = "覆盖";
+"scrape_preferred_source" = "首选来源";
+"scrape_source_order" = "按刮削源顺序";
+"scrape_rules_all_fields" = "批量设置字段";
 "reset_scraper_defaults" = "恢复默认设置";
 "scrape_actions" = "刮削操作";
 "scrape_missing_metadata" = "刮削缺失元数据";
@@ -7382,6 +7392,8 @@
 
 "player_simulated_word_lyrics" = "模拟逐字歌词";
 "lyrics_simulated_word_badge" = "模拟逐字";
+"word_alignment_model_title" = "高精度对齐模型";
+"word_alignment_model_remove_confirm" = "移除高精度对齐模型？";
 
 "explore_word_lyrics" = "探索逐字歌词";
 "explore_word_lyrics_footer" = "默认关闭。开启后，播放时会自动从已启用的歌词来源查找逐字歌词，并优先显示找到的逐字歌词，即使歌曲已有普通歌词。此功能独立于“找不到歌词时自动在线获取”开关；如需停止自动查找逐字歌词，请关闭本开关。";

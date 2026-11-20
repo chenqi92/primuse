@@ -1,4 +1,5 @@
 import Foundation
+import os
 import PrimuseKit
 
 enum SidecarMetadataLoader {
@@ -137,6 +138,43 @@ enum SidecarMetadataLoader {
     /// Loads and parses lyrics for a given audio file
     static func loadLyrics(for audioURL: URL) -> [LyricLine]? {
         guard let lyricsURL = findLyrics(for: audioURL) else { return nil }
-        return try? LyricsParser.parse(from: lyricsURL)
+        return loadLyrics(at: lyricsURL)
+    }
+
+    private struct DirectoryLyricsIndex {
+        let directory: URL
+        let modified: Date
+        let index: LanguageTaggedLyricsIndex
+    }
+
+    private static let lastDirectory = OSAllocatedUnfairLock<DirectoryLyricsIndex?>(initialState: nil)
+
+    /// A scan reads many songs from one directory. Reuse its names until the directory changes.
+    private static func lyricsIndex(in directory: URL) -> LanguageTaggedLyricsIndex? {
+        let modified = try? directory.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        if let modified, let cached = lastDirectory.withLock({ $0 }),
+           cached.directory == directory, cached.modified == modified { return cached.index }
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return nil }
+        let index = LanguageTaggedLyricsIndex(fileNames: names)
+        if let modified {
+            lastDirectory.withLock { $0 = DirectoryLyricsIndex(directory: directory, modified: modified, index: index) }
+        }
+        return index
+    }
+
+    static func loadLyrics(at url: URL) -> [LyricLine]? {
+        guard let primary = try? LyricsParser.parse(from: url) else { return nil }
+        let name = url.lastPathComponent
+        let directory = url.deletingLastPathComponent()
+        guard LyricsSidecarSelectionPolicy.chineseLRCName(forPrimary: name) != nil,
+              let index = lyricsIndex(in: directory),
+              let companion = index.translationTrack(forPrimary: name, baseName: url.deletingPathExtension().lastPathComponent)
+        else { return primary }
+        let translationURL = directory.appendingPathComponent(companion)
+        guard let values = try? translationURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+              values.isRegularFile == true, let size = values.fileSize,
+              size > 0, size <= LyricsSidecarTargetPolicy.maximumContentByteCount,
+              let translation = try? LyricsParser.parse(from: translationURL) else { return primary }
+        return LyricsTranslationTrackPolicy.merging(primary: primary, translation: translation, companionFileName: companion) ?? primary
     }
 }

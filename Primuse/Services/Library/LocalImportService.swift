@@ -1070,7 +1070,7 @@ enum LocalImportService {
 
     /// 导入是一个目录一个目录走下来的, 所以带语言后缀的字幕索引只按"当前目录"
     /// 建一次。让每个文件各列一次目录, 大文件夹的开销就是平方级的。
-    private struct LanguageTaggedSidecarCache {
+    struct LanguageTaggedSidecarCache {
         private var directoryPath: String?
         private var cached = LanguageTaggedLyricsIndex(fileNames: [])
 
@@ -1090,7 +1090,7 @@ enum LocalImportService {
     /// 规则(同名 .lrc; 同名 MV; 同名 / `<曲名>-cover` / 目录级 cover.jpg 三档封面)定位
     /// 源文件, 统一改名成目标音频的 base(歌词→`<base>.lrc`, 封面→
     /// `<base>-cover.<原扩展>`, MV→`<base>.<原扩展>`), 这样即便音频重名被追加了序号 sidecar 仍能命中。
-    private static func copySidecarsAtomically(
+    static func copySidecarsAtomically(
         forAudio srcURL: URL,
         audioDest: URL,
         transaction: LocalImportFileTransaction,
@@ -1126,39 +1126,17 @@ enum LocalImportService {
             }
         }
 
-        if let lrc = SidecarMetadataLoader.findLyrics(for: srcURL) {
-            // 同名歌词统一改名成目标音频的 base, 之后按同名就能读回。
-            importSidecar(lrc, destinationName: "\(destBase).\(lrc.pathExtension)")
-        } else {
-            // 带语言后缀的字幕要看整个目录, 缓存按目录建: 枚举器是一个目录一个
-            // 目录往下走的, 所以一份清单能服务同目录里的每一个导入项。
-            let taggedIndex = taggedSidecars.index(for: srcURL.deletingLastPathComponent())
-            if let tagged = SidecarMetadataLoader.findLanguageTaggedLyrics(
-                for: srcURL,
-                index: taggedIndex
-            ), let components = LyricsSidecarSelectionPolicy.languageTaggedComponents(
-                ofSidecarNamed: tagged.lastPathComponent
-            ) {
-                // 语言后缀要跟着进沙箱: 丢掉它就分不出原声轨和机翻轨, 译文也
-                // 无从知道自己是哪种语言。
-                importSidecar(
-                    tagged,
-                    destinationName: "\(destBase).\(components.tag).\(tagged.pathExtension)"
-                )
-                if let companionName = taggedIndex.translationTrack(
-                    forPrimary: tagged.lastPathComponent,
-                    baseName: components.baseName
-                ), let companion = LyricsSidecarSelectionPolicy.languageTaggedComponents(
-                    ofSidecarNamed: companionName
-                ) {
-                    let companionURL = srcURL.deletingLastPathComponent()
-                        .appendingPathComponent(companionName)
-                    importSidecar(
-                        companionURL,
-                        destinationName:
-                            "\(destBase).\(companion.tag).\(companionURL.pathExtension)"
-                    )
-                }
+        let sourceDirectory = srcURL.deletingLastPathComponent()
+        let sourceBase = srcURL.deletingPathExtension().lastPathComponent
+        let index = taggedSidecars.index(for: sourceDirectory)
+        if let lyrics = SidecarMetadataLoader.findLyrics(for: srcURL)
+            ?? SidecarMetadataLoader.findLanguageTaggedLyrics(for: srcURL, index: index) {
+            // Preserve language suffixes when a duplicate audio name is renamed during import.
+            let suffix = lyrics.lastPathComponent.dropFirst(sourceBase.count)
+            importSidecar(lyrics, destinationName: destBase + suffix)
+            if let name = index.translationTrack(forPrimary: lyrics.lastPathComponent, baseName: sourceBase) {
+                importSidecar(sourceDirectory.appendingPathComponent(name),
+                            destinationName: destBase + name.dropFirst(sourceBase.count))
             }
         }
         if let cover = SidecarMetadataLoader.findCoverArt(for: srcURL) {

@@ -538,6 +538,7 @@ final class KaraokeSeparationService {
                 }
                 plog("🎤 Karaoke: \(logID) stage=write ready elapsed=\(String(format: "%.2f", Date().timeIntervalSince(writeStartedAt)))s")
                 self.songStates[song.id] = .ready
+                WordLyricsAlignmentService.shared.notifyVocalStemReady(for: song)
                 plog("🎤 Karaoke: separated \(logID)… in \(String(format: "%.1f", Date().timeIntervalSince(startedAt)))s")
             } catch {
                 guard self.jobIDs[song.id] == jobID else { return }

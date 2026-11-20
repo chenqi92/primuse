@@ -130,6 +130,7 @@ final class MusicScraperService {
         let song: Song
         let coverData: Data?
         let lyrics: [LyricLine]?
+        var review = ScrapeReviewCatalog()
     }
 
     struct SingleScrapeCompletion: Sendable {
@@ -378,12 +379,12 @@ final class MusicScraperService {
     func startSingleScrape(
         song: Song,
         in library: MusicLibrary,
-        dryRun: Bool = false
+        dryRun: Bool = false, parts: ScrapeParts = .all
     ) -> SingleScrapeStartResult {
         let purpose: SingleSongScrapePurpose = dryRun ? .metadataPreview : .metadataApply
         let key = SingleSongScrapeKey(songID: song.id, purpose: purpose)
-        return startManagedSingleScrape(key: key, in: library) { [self] in
-            try await performSingleScrape(song: song, in: library, dryRun: dryRun)
+        return startManagedSingleScrape(key: key, in: library, parts: parts) { [self] in
+            try await performSingleScrape(song: song, in: library, dryRun: dryRun, parts: parts)
         }
     }
 
@@ -410,13 +411,14 @@ final class MusicScraperService {
 
     func consumeSingleScrapeCompletion(
         songID: String,
-        purposes: [SingleSongScrapePurpose]
+        purposes: [SingleSongScrapePurpose],
+        matching runID: UUID? = nil
     ) -> SingleScrapeCompletion? {
         for purpose in purposes {
             let key = SingleSongScrapeKey(songID: songID, purpose: purpose)
-            guard let completion = pendingSingleScrapeCompletions.removeValue(forKey: key) else {
-                continue
-            }
+            guard let completion = pendingSingleScrapeCompletions[key],
+                  runID == nil || completion.activity.runID == runID else { continue }
+            pendingSingleScrapeCompletions[key] = nil
             singleScrapeCompletionOrder.removeAll { $0 == key }
             return completion
         }
@@ -426,6 +428,7 @@ final class MusicScraperService {
     private func startManagedSingleScrape(
         key: SingleSongScrapeKey,
         in library: MusicLibrary,
+        parts: ScrapeParts? = nil,
         operation: @escaping @MainActor @Sendable () async throws -> SingleScrapeResult
     ) -> SingleScrapeStartResult {
         guard !isScraping else {
@@ -447,7 +450,7 @@ final class MusicScraperService {
             break
         }
 
-        guard ScraperAvailability.hasEnabledSource(for: key.purpose.requestedParts) else {
+        guard ScraperAvailability.hasEnabledSource(for: parts ?? key.purpose.requestedParts) else {
             plog("MusicScraperService: no enabled scraper source, single scrape aborted")
             return .noScraperSource
         }
@@ -526,12 +529,14 @@ final class MusicScraperService {
     /// 刮削结果是按开始时取的那一行算的。那之后这首歌又被手改过(本机,或别的设备同步来的),
     /// 手改的字段以库里现在的为准,不能拿旧行盖回去、把标记也抹掉。
     static func rebasedOntoLatestUserEdits(
-        _ songs: [Song], in library: MusicLibrary, preservingExistingArtwork: Bool = false
+        _ songs: [Song], in library: MusicLibrary, preservingExistingArtwork: Bool = false,
+        replacingArtworkReferences: [String: String] = [:]
     ) -> [Song] {
         songs.map { song in
             guard let live = library.storedSong(id: song.id) else { return song }
             var song = song
-            if preservingExistingArtwork, live.coverArtFileName?.isEmpty == false {
+            if preservingExistingArtwork, live.coverArtFileName?.isEmpty == false,
+               replacingArtworkReferences[song.id] != live.coverArtFileName {
                 song.coverArtFileName = live.coverArtFileName
             }
             guard let liveMarker = live.userMetadataEditedAt,
@@ -562,27 +567,13 @@ final class MusicScraperService {
     private func performSingleScrape(
         song: Song,
         in library: MusicLibrary,
-        dryRun: Bool
+        dryRun: Bool, parts: ScrapeParts
     ) async throws -> SingleScrapeResult {
         await sidecarCircuitBreaker.resetIdleUnavailableSources()
 
-        var processed = try await processedSongWithAssets(song, forceRescrape: true, storeAssets: !dryRun)
-        // 服务端曲库的歌自动刮削不取歌词(以服务端为准)。刮削页的预览是用户自己点的,
-        // 应用前逐项勾选, 照样按启用的歌词源取一份; 否则服务端的歌词不全时这里永远
-        // 「没有可更新的」(#211)。
-        if dryRun, processed?.lyricsLines?.isEmpty != false,
-           await sourceManager.isServerLibrarySource(for: song) {
-            let seed = processed?.song ?? song
-            let lyrics = await fetchOnlineLyrics(
-                title: seed.title,
-                artist: seed.artistName,
-                album: seed.albumTitle,
-                duration: seed.duration > 0 ? seed.duration : nil
-            )
-            if let lyrics, !lyrics.isEmpty {
-                processed = ProcessedResult(song: seed, coverData: processed?.coverData, lyricsLines: lyrics)
-            }
-        }
+        let settings = ScraperSettings.load()
+        let processed = try await processedSongWithAssets(song, forceRescrape: true, storeAssets: !dryRun,
+                                                        parts: parts, settings: settings, collectingReview: dryRun)
         guard let result = processed else {
             return SingleScrapeResult(
                 originalSong: song,
@@ -774,7 +765,7 @@ final class MusicScraperService {
             originalSong: song,
             song: updatedSong,
             coverData: result.coverData,
-            lyrics: result.lyricsLines
+            lyrics: result.lyricsLines, review: result.review
         )
     }
 
@@ -817,6 +808,10 @@ final class MusicScraperService {
             album: album,
             duration: duration
         )
+    }
+
+    func fieldReview(for song: Song, query: String, parts: ScrapeParts, searchLimit: Int) async -> ScrapeReviewCatalog {
+        await metadataService.fieldReview(for: song, query: query, parts: parts, searchLimit: searchLimit)
     }
 
     func manualLyricsCandidates(
@@ -864,6 +859,9 @@ final class MusicScraperService {
         in library: MusicLibrary,
         dryRun: Bool
     ) async -> SingleScrapeResult {
+        let request = ScraperSettings.load().request(for: song, parts: .lyrics, force: true)
+        let unchanged = SingleScrapeResult(originalSong: song, song: song, coverData: nil, lyrics: nil)
+        guard request.fields.contains(.lyrics) else { return unchanged }
         let fetched = await fetchOnlineLyrics(
             title: song.title,
             artist: song.artistName,
@@ -888,8 +886,10 @@ final class MusicScraperService {
             )
         }
 
-        await MetadataAssetStore.shared.cacheLyrics(lyrics, forSongID: song.id, force: true)
-        var updated = song
+        var updated = library.storedSong(id: song.id) ?? song
+        guard request.overwrites.contains(.lyrics) || updated.lyricsFileName?.isEmpty != false,
+              await MetadataAssetStore.shared.cacheLyrics(lyrics, forSongID: song.id, force: request.overwrites.contains(.lyrics))
+        else { return unchanged }
         updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
         library.replaceSong(updated)
         return SingleScrapeResult(
@@ -1286,7 +1286,8 @@ final class MusicScraperService {
             }
 
             let settings = ScraperSettings.load()
-            let onlyFillMissing = settings.onlyFillMissingFields && !forceRescrape
+            let coverRule = settings.fieldRules.request(parts: .cover, overwriteByDefault: forceRescrape || !settings.onlyFillMissingFields)
+            let overwriteCover = coverRule.overwrites.contains(.cover)
             let remoteMetadataSeeds = Self.preferredRemoteMetadataSeeds(in: songs)
 
             var pendingSongUpdates: [Song] = []
@@ -1352,7 +1353,7 @@ final class MusicScraperService {
                         song,
                         forceRescrape: forceRescrape,
                         remoteIdentitySeed: remoteIdentitySeed,
-                        parts: parts
+                        parts: parts, settings: settings
                     ) else {
                         guard !Task.isCancelled else { return }
                         processedCount += 1
@@ -1366,20 +1367,8 @@ final class MusicScraperService {
                     // 只补歌词 / 只补封面:其余部分刮到了也换回原值。
                     var updatedSong = ScrapeApplyPolicy.restricted(result.song, to: parts, original: song)
 
-                    // Determine which assets should be committed based on fill/overwrite mode.
-                    let shouldWriteCover: Bool
-                    let shouldWriteLyrics: Bool
-                    if onlyFillMissing {
-                        // Only write if the song was missing cover/lyrics before
-                        shouldWriteCover = parts.contains(.cover)
-                            && song.coverArtFileName == nil && result.coverData != nil
-                        shouldWriteLyrics = parts.contains(.lyrics)
-                            && song.lyricsFileName == nil && result.lyricsLines != nil
-                    } else {
-                        // Overwrite mode: write if we got new data
-                        shouldWriteCover = parts.contains(.cover) && result.coverData != nil
-                        shouldWriteLyrics = parts.contains(.lyrics) && (result.lyricsLines?.isEmpty == false)
-                    }
+                    let shouldWriteCover = result.coverData != nil
+                    let shouldWriteLyrics = result.lyricsLines?.isEmpty == false
 
                     // 重新刮削时占位 hash ref 与现存 ref 相同 → updatedSong == song, 但
                     // 仍可能刮到了新封面/歌词。只要本次模式会落盘新资产, 就进入写回分支,
@@ -1395,7 +1384,7 @@ final class MusicScraperService {
                         let sidecarLyricsLines = sidecarSettings.lyricsEnabled ? lyricsLines : nil
 
                         if let coverData {
-                            if let reference = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: updatedSong.id, origin: onlyFillMissing ? .scraped : .selected) {
+                            if let reference = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: updatedSong.id, origin: overwriteCover ? .selected : .scraped) {
                                 updatedSong.coverArtFileName = reference
                                 CachedArtworkView.invalidateCache(for: updatedSong.id)
                             } else {
@@ -1567,7 +1556,7 @@ final class MusicScraperService {
             // Phase 2: Scrape album and artist covers
             guard !Task.isCancelled else { return }
             // 只补歌词的一轮不碰专辑 / 艺人封面。
-            guard parts.contains(.cover) else { return }
+            guard parts.contains(.cover), coverRule.fields.contains(.cover) else { return }
 
             let assetStore = MetadataAssetStore.shared
             let isWholeVisibleLibrary = Set(songs.map(\.id)) == Set(library.visibleSongs.map(\.id))
@@ -1592,11 +1581,11 @@ final class MusicScraperService {
                 targetIDs = resumedTargetIDs
             } else {
                 let albumIDs = albumsInScope.compactMap { album -> String? in
-                    guard forceRescrape || !Self.albumHasArtwork(album.id, in: library) else { return nil }
+                    guard overwriteCover || !Self.albumHasArtwork(album.id, in: library) else { return nil }
                     return Self.albumArtworkTargetID(album.id)
                 }
                 let artistIDs = artistsInScope.compactMap { artist -> String? in
-                    guard forceRescrape || !assetStore.hasArtistImage(forArtistID: artist.id) else { return nil }
+                    guard overwriteCover || !assetStore.hasArtistImage(forArtistID: artist.id) else { return nil }
                     return Self.artistArtworkTargetID(artist.id)
                 }
                 targetIDs = albumIDs + artistIDs
@@ -1604,7 +1593,7 @@ final class MusicScraperService {
 
             let targetIDSet = Set(targetIDs)
             var availableIDs = Set<String>()
-            if !forceRescrape {
+            if !overwriteCover {
                 for targetID in targetIDs {
                     if Self.isArtworkAvailable(targetID: targetID, in: assetStore, library: library) {
                         availableIDs.insert(targetID)
@@ -1615,12 +1604,12 @@ final class MusicScraperService {
             let albumsNeedingCover = albumsInScope.filter { album in
                 let targetID = Self.albumArtworkTargetID(album.id)
                 return targetIDSet.contains(targetID)
-                    && (forceRescrape || !availableIDs.contains(targetID))
+                    && (overwriteCover || !availableIDs.contains(targetID))
             }
             let artistsNeedingImage = artistsInScope.filter { artist in
                 let targetID = Self.artistArtworkTargetID(artist.id)
                 return targetIDSet.contains(targetID)
-                    && (forceRescrape || !availableIDs.contains(targetID))
+                    && (overwriteCover || !availableIDs.contains(targetID))
             }
             let pendingTargetIDs = Set(
                 albumsNeedingCover.map { Self.albumArtworkTargetID($0.id) }
@@ -1642,7 +1631,7 @@ final class MusicScraperService {
                 in: library,
                 albumsNeedingCover: albumsNeedingCover,
                 artistsNeedingImage: artistsNeedingImage,
-                forceRescrape: forceRescrape
+                forceRescrape: overwriteCover
             )
         }
         return .started(runID: runID, songCount: logicalSongCount)
@@ -1956,6 +1945,7 @@ final class MusicScraperService {
     }
 
     struct ProcessedResult {
+        var review = ScrapeReviewCatalog()
         let song: Song
         let coverData: Data?
         let lyricsLines: [LyricLine]?
@@ -1967,12 +1957,13 @@ final class MusicScraperService {
 
     func processedSongForBatch(
         _ song: Song, forceRescrape: Bool, remoteIdentitySeed: Song? = nil, parts: ScrapeParts = .all,
-        sleep: ((TimeInterval) async throws -> Void)? = nil
+        settings: ScraperSettings = .load(), sleep: ((TimeInterval) async throws -> Void)? = nil
     ) async throws -> ProcessedResult? {
         for attempt in 0..<3 {
             try Task.checkCancellation()
             let result = try await processedSongWithAssets(song, forceRescrape: forceRescrape,
-                                                          storeAssets: false, remoteIdentitySeed: remoteIdentitySeed)
+                                                          storeAssets: false, remoteIdentitySeed: remoteIdentitySeed,
+                                                          parts: parts, settings: settings)
             guard let result, !result.unavailableParts.intersection(parts).isEmpty else { return result }
             guard attempt < 2 else { throw BatchScrapeSourceUnavailable() }
             if let sleep { try await sleep(max(1, result.retryAfter)) }
@@ -2070,7 +2061,10 @@ final class MusicScraperService {
         _ song: Song,
         forceRescrape: Bool,
         storeAssets: Bool = true,
-        remoteIdentitySeed: Song? = nil
+        remoteIdentitySeed: Song? = nil,
+        parts: ScrapeParts = .all,
+        settings: ScraperSettings = .load(),
+        collectingReview: Bool = false
     ) async throws -> ProcessedResult? {
         // 服务端曲库源(Subsonic/Navidrome、Jellyfin/Emby/Plex): 元数据以服务端为
         // 权威, 自动刮削只「补空缺、绝不覆盖」。不读(可能转码的)音频流 —— 用歌曲
@@ -2078,27 +2072,26 @@ final class MusicScraperService {
         // genre。封面(getCoverArt)/歌词(getLyricsBySongId)由服务端提供, 不让在线
         // 刮削用脏标题错配盖掉, 因此不补 cover/lyrics。即使是「重新刮削」(forceRescrape)
         // 也只补空缺, 不覆盖已有值。
-        if await sourceManager.isServerLibrarySource(for: song) {
-            let needsMeta = (song.artistName?.isEmpty ?? true)
-                || (song.albumTitle?.isEmpty ?? true)
-                || song.year == nil
-                || (song.genre?.isEmpty ?? true)
-            guard needsMeta else { return nil }
-            let metadata = await metadataService.fillMissingOnline(
-                title: song.title,
-                artist: song.artistName,
-                album: song.albumTitle,
-                year: song.year,
-                genre: song.genre,
-                duration: song.duration
-            )
-            let merged = filledServerSong(song, with: metadata)
+        let server = await sourceManager.isServerLibrarySource(for: song)
+        if server && !collectingReview {
+            var request = settings.request(for: song, parts: parts.intersection(.metadata), fillOnly: true)
+            request.fields.remove(.title)
+            guard !request.fields.isEmpty else { return nil }
+            let metadata = await metadataService.fillMissingOnline(seed: song, title: song.title,
+                                                                  request: request, settings: settings)
+            var merged = song
+            merged.applyScrapeFields(request.merging(song.scrapeFields, candidate: .init(metadata.scrapeFields)))
             guard merged != song || !metadata.unavailableScrapeParts.isEmpty else { return nil }
             return ProcessedResult(song: merged, coverData: nil, lyricsLines: nil,
                                    unavailableParts: metadata.unavailableScrapeParts, retryAfter: metadata.scrapeRetryAfter)
         }
 
         let fallbackTitle = await resolvedScrapeFallbackTitle(for: song)
+        let filenameTitle = song.title == Self.pathBaseName(for: song) && song.userMetadataEditedAt == nil
+        let request = collectingReview ? settings.reviewFields(for: song, parts: parts)
+            : settings.request(for: song, parts: parts, force: forceRescrape,
+                                       titleIsPlaceholder: filenameTitle && settings.fieldRules[.title].mode == .inherit)
+        guard !request.fields.isEmpty else { return nil }
         let sourceSupportsRangeStreaming = await sourceManager.songSupportsRangeStreaming(song)
         let shouldResolvePlaybackURL = ScrapeAudioMaterializationPolicy.shouldResolvePlaybackURL(
             sourceSupportsRangeStreaming: sourceSupportsRangeStreaming,
@@ -2111,15 +2104,9 @@ final class MusicScraperService {
         // even though scraping only needs the scanned/backfilled identity.
         // MusicKit identities are not file paths. Scrape their known catalogue
         // fields directly and keep the result in Primuse's metadata store.
-        let fileURL = song.sourceID != AppleMusicLibraryIdentity.sourceID && shouldResolvePlaybackURL
+        let fileURL = !server && song.sourceID != AppleMusicLibraryIdentity.sourceID && shouldResolvePlaybackURL
             ? try await sourceManager.resolveURL(for: song)
             : nil
-        let placeholderTitle = fileURL?.deletingPathExtension().lastPathComponent ?? fallbackTitle
-
-        guard forceRescrape || needsScrape(song: song, placeholderTitle: placeholderTitle) else {
-            return nil
-        }
-
         // trustedSource: false —— scrape 路径下 online 结果可能错配,
         // 不让 loadMetadata 直接写 hash cache。等 sidecar 写到 source
         // 成功后再回写 cache（在 scrapeSingle / startScraping 的 Task 里做）。
@@ -2135,7 +2122,8 @@ final class MusicScraperService {
                 trustedSource: false,
                 fallbackTitle: fallbackTitle,
                 forceOnlineRefresh: forceRescrape,
-                existingCoverReference: song.coverArtFileName
+                existingCoverReference: song.coverArtFileName,
+                scrapeRequest: request, scraperSettings: settings, librarySong: song, collectingReview: collectingReview
             )
         } else {
             // Range/HTTP-backed sources resolve to a streaming URL, not a
@@ -2152,46 +2140,38 @@ final class MusicScraperService {
                 : MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
                     title: identitySeed.title, artist: identitySeed.artistName, fileStem: fallbackTitle
                 )
-            var seededMetadata = await metadataService.fillMissingOnline(
-                title: correctedTitle ?? (identitySeed.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? fallbackTitle
-                    : identitySeed.title),
-                artist: identitySeed.artistName,
-                album: identitySeed.albumTitle,
-                year: identitySeed.year,
-                genre: identitySeed.genre,
-                duration: identitySeed.duration,
-                needsCover: forceRescrape || song.coverArtFileName == nil,
-                needsLyrics: forceRescrape || song.lyricsFileName == nil,
-                forceMetadataRefresh: forceRescrape,
-                overwriteMetadata: forceRescrape
+            let searchTitle = identitySeed.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            metadata = await metadataService.fillMissingOnline(
+                seed: identitySeed, title: correctedTitle ?? (searchTitle.isEmpty ? fallbackTitle : searchTitle),
+                request: request, settings: settings, collectingReview: collectingReview
             )
-            seededMetadata.duration = identitySeed.duration
-            seededMetadata.sampleRate = identitySeed.sampleRate
-            seededMetadata.bitRate = identitySeed.bitRate
-            seededMetadata.bitDepth = identitySeed.bitDepth
-            metadata = seededMetadata
         }
-        let merged = mergedSong(
-            song,
-            with: metadata,
-            placeholderTitle: placeholderTitle,
-            forceRescrape: forceRescrape
+        var applied = request
+        if fileURL?.isFileURL == true, metadata.embeddedTitle == nil, !metadata.hasMatchedTitle,
+           !song.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            applied.fields.remove(.title)
+        }
+        let merged = mergedSong(song, with: metadata, request: applied)
+        return ProcessedResult(
+            review: metadata.review, song: merged, coverData: request.fields.contains(.cover) ? metadata.coverArtData : nil,
+            lyricsLines: request.fields.contains(.lyrics) ? metadata.lyrics : nil,
+            unavailableParts: metadata.unavailableScrapeParts, retryAfter: metadata.scrapeRetryAfter
         )
-        return ProcessedResult(song: merged, coverData: metadata.coverArtData, lyricsLines: metadata.lyrics,
-                               unavailableParts: metadata.unavailableScrapeParts, retryAfter: metadata.scrapeRetryAfter)
     }
 
     private func runBackgroundEnrichment(in library: MusicLibrary) async {
         isBackgroundEnriching = true
 
         var pendingSongUpdates: [Song] = []
+        var replacingArtworkReferences: [String: String] = [:]
         @MainActor func publishPendingSongUpdates() {
             guard !pendingSongUpdates.isEmpty else { return }
             library.replaceSongs(Self.rebasedOntoLatestUserEdits(
-                pendingSongUpdates, in: library, preservingExistingArtwork: true
+                pendingSongUpdates, in: library, preservingExistingArtwork: true,
+                replacingArtworkReferences: replacingArtworkReferences
             ))
             pendingSongUpdates.removeAll(keepingCapacity: true)
+            replacingArtworkReferences.removeAll(keepingCapacity: true)
         }
 
         defer {
@@ -2255,44 +2235,51 @@ final class MusicScraperService {
             }
 
             do {
-                guard let result = try await processedSongWithAssets(song, forceRescrape: false) else {
+                let settings = ScraperSettings.load()
+                guard let result = try await processedSongWithAssets(song, forceRescrape: false, settings: settings) else {
                     continue
                 }
                 guard !Task.isCancelled else { return }
 
-                if result.song != song {
+                if result.song != song || result.coverData != nil || result.lyricsLines?.isEmpty == false {
                     // processedSongWithAssets 用 trustedSource:false, merged song 里的
                     // coverArtFileName/lyricsFileName 只是占位 hash ref, 文件还没落盘。
                     // 必须在 replaceSong 前把 coverData/lyricsLines 真正写进 hash cache,
                     // 否则库里的 ref 会指向不存在的文件, 且数据被丢弃。
                     var enrichedSong = result.song
-                    let existingCover = library.storedSong(id: song.id)?.coverArtFileName ?? song.coverArtFileName
-                    if existingCover?.isEmpty != false, let coverData = result.coverData,
+                    let latest = library.storedSong(id: song.id) ?? song
+                    let existingCover = latest.coverArtFileName
+                    let replaceCover = settings.fieldRules[.cover].mode == .overwrite && existingCover == song.coverArtFileName
+                    var coverCached = false
+                    if existingCover?.isEmpty != false || replaceCover, let coverData = result.coverData,
                        let reference = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: enrichedSong.id, origin: .scraped) {
                         enrichedSong.coverArtFileName = reference
+                        coverCached = true
+                        if replaceCover { replacingArtworkReferences[song.id] = existingCover }
                         CachedArtworkView.invalidateCache(for: enrichedSong.id)
                     } else {
                         // 没拿到新封面、或者图存不下 —— 别把占位 ref 持久化, 退回原始 ref。
                         enrichedSong.coverArtFileName = existingCover
                     }
                     var lyricsCached = false
-                    if let lyricsLines = result.lyricsLines, !lyricsLines.isEmpty {
-                        lyricsCached = await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: enrichedSong.id, force: false)
+                    let replaceLyrics = settings.fieldRules[.lyrics].mode == .overwrite && latest.lyricsFileName == song.lyricsFileName
+                    if latest.lyricsFileName?.isEmpty != false || replaceLyrics, let lyricsLines = result.lyricsLines, !lyricsLines.isEmpty {
+                        lyricsCached = await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: enrichedSong.id, force: replaceLyrics)
                     }
                     if lyricsCached {
                         enrichedSong.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: enrichedSong.id)
                     } else {
-                        enrichedSong.lyricsFileName = song.lyricsFileName
+                        enrichedSong.lyricsFileName = latest.lyricsFileName
                     }
 
                     guard !Task.isCancelled else { return }
-                    if enrichedSong != song {
+                    if enrichedSong != song || coverCached || lyricsCached {
                         pendingSongUpdates.append(enrichedSong)
                         await writeBackToMediaServerIfSupported(
                             original: song,
                             updated: enrichedSong,
-                            coverData: result.coverData,
-                            lyricsLines: result.lyricsLines
+                            coverData: coverCached ? result.coverData : nil,
+                            lyricsLines: lyricsCached ? result.lyricsLines : nil
                         )
                         guard !Task.isCancelled else { return }
                         if pendingSongUpdates.count >= Self.songPublicationBatchSize {
@@ -2355,41 +2342,7 @@ final class MusicScraperService {
     }
 
     private nonisolated static func shouldBackgroundEnrich(_ song: Song, settings: ScraperSettings) -> Bool {
-        if settings.onlyFillMissingFields == false {
-            return true
-        }
-
-        return song.artistName?.isEmpty ?? true
-            || song.albumTitle?.isEmpty ?? true
-            || song.year == nil
-            || song.genre?.isEmpty ?? true
-            || song.coverArtFileName == nil
-            || song.lyricsFileName == nil
-    }
-
-    private func processedSong(_ song: Song, forceRescrape: Bool) async throws -> Song? {
-        guard let result = try await processedSongWithAssets(song, forceRescrape: forceRescrape) else {
-            return nil
-        }
-        return result.song
-    }
-
-    private func needsScrape(song: Song, placeholderTitle: String) -> Bool {
-        let settings = ScraperSettings.load()
-
-        let needsTitle = song.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || song.title == placeholderTitle
-        let needsArtist = (song.artistName?.isEmpty ?? true)
-        let needsAlbum = (song.albumTitle?.isEmpty ?? true)
-        let needsYear = song.year == nil
-        let needsGenre = (song.genre?.isEmpty ?? true)
-        let needsCover = song.coverArtFileName == nil
-        let needsLyrics = song.lyricsFileName == nil
-
-        if settings.onlyFillMissingFields == false {
-            return true
-        }
-
-        return needsTitle || needsArtist || needsAlbum || needsYear || needsGenre || needsCover || needsLyrics
+        !settings.request(for: song, checkingAssetCache: false).fields.isEmpty
     }
 
     private func resolvedScrapeFallbackTitle(for song: Song) async -> String {
@@ -2533,105 +2486,22 @@ final class MusicScraperService {
             || looksLikeCompactMixedCaseID
     }
 
-    /// 服务端源专用的严格「只补空缺」合并 —— 只填 nil/空 的
-    /// artist/album/year/genre/track/disc。标题、时长、采样率等服务端权威字段
-    /// 一律不动; 封面/歌词也不碰(由服务端提供)。
-    private func filledServerSong(_ song: Song, with m: MetadataService.SongMetadata) -> Song {
-        var s = song
-        if (s.artistName?.isEmpty ?? true), let v = m.artist, !v.isEmpty {
-            s.artistName = v
-            s.sourceArtistNames = m.sourceArtistNames
-        }
-        if (s.albumTitle?.isEmpty ?? true), let v = m.albumTitle, !v.isEmpty { s.albumTitle = v }
-        if s.albumArtistName?.isEmpty != false {
-            s.albumArtistName = AlbumGroupingPolicy.resolvedAlbumArtistName(
-                albumArtistName: m.albumArtist,
-                trackArtistName: s.artistName
-            )
-        }
-        if s.year == nil { s.year = m.year }
-        if (s.genre?.isEmpty ?? true), let v = m.genre, !v.isEmpty { s.genre = v }
-        if s.trackNumber == nil { s.trackNumber = m.trackNumber }
-        if s.discNumber == nil { s.discNumber = m.discNumber }
-        return s
-    }
-
-    private func mergedSong(
-        _ song: Song,
-        with metadata: MetadataService.SongMetadata,
-        placeholderTitle: String,
-        forceRescrape: Bool
-    ) -> Song {
-        let settings = ScraperSettings.load()
-        let onlyFillMissing = settings.onlyFillMissingFields && !forceRescrape
-
-        let titleNeedsUpdate = song.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || song.title == placeholderTitle
-        let artistNeedsUpdate = song.artistName == nil || song.artistName?.isEmpty == true
-        let albumNeedsUpdate = song.albumTitle == nil || song.albumTitle?.isEmpty == true
-        let yearNeedsUpdate = song.year == nil
-        let genreNeedsUpdate = song.genre == nil || song.genre?.isEmpty == true
-        let coverNeedsUpdate = song.coverArtFileName == nil || onlyFillMissing == false
-        let lyricsNeedsUpdate = song.lyricsFileName == nil || onlyFillMissing == false
-        let candidateTitle = onlyFillMissing
-            ? (titleNeedsUpdate ? metadata.title : song.title)
-            : metadata.title
-        let scrapedTitle = candidateTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? song.title
-            : candidateTitle
-        // A CUE row is a virtual track inside a shared physical audio file.
-        // File/online metadata describes that physical image and must not turn
-        // every segment into the same basename during a forced library scrape.
-        // Keep the CUE sheet's non-empty title/artist/album identity while still
-        // allowing missing optional values and artwork/lyrics to be filled.
-        let resolvedTitle = ScrapeCueIdentityPolicy.resolvedTitle(
-            original: song.title,
-            scraped: scrapedTitle,
-            isCueTrack: song.isCueTrack
-        )
-
-        // Mutate the original value instead of reconstructing Song. Besides
-        // being safer when the model gains fields, this preserves CUE virtual
-        // track boundaries and ReplayGain/search metadata during scraping.
+    private func mergedSong(_ song: Song, with metadata: MetadataService.SongMetadata,
+                            request: ScrapeFieldRequest) -> Song {
         var merged = song
-        merged.title = resolvedTitle
-        let scrapedAlbum = onlyFillMissing
-            ? (albumNeedsUpdate ? metadata.albumTitle ?? song.albumTitle : song.albumTitle)
-            : (metadata.albumTitle ?? song.albumTitle)
-        merged.albumTitle = ScrapeCueIdentityPolicy.resolvedOptionalText(
-            original: song.albumTitle,
-            scraped: scrapedAlbum,
-            isCueTrack: song.isCueTrack
-        )
-        let scrapedArtist = onlyFillMissing
-            ? (artistNeedsUpdate ? metadata.artist ?? song.artistName : song.artistName)
-            : (metadata.artist ?? song.artistName)
-        merged.artistName = ScrapeCueIdentityPolicy.resolvedOptionalText(
-            original: song.artistName,
-            scraped: scrapedArtist,
-            isCueTrack: song.isCueTrack
-        )
-        if merged.artistName != song.artistName {
-            merged.sourceArtistNames = metadata.sourceArtistNames
+        var tags = request.merging(song.scrapeFields, candidate: .init(metadata.scrapeFields))
+        if tags.artist != song.artistName { tags.sourceArtistNames = metadata.sourceArtistNames }
+        if song.isCueTrack {
+            tags = ScrapeCueIdentityPolicy.protectingCueIdentity(tags, original: song.scrapeFields)
         }
-        let scrapedAlbumArtist = onlyFillMissing && song.albumArtistName?.isEmpty == false
-            ? song.albumArtistName
-            : AlbumGroupingPolicy.updatedAlbumArtistName(
-                existingAlbumArtistName: song.albumArtistName,
-                previousTrackArtistName: song.artistName,
-                updatedTrackArtistName: merged.artistName,
-                incomingAlbumArtistName: metadata.albumArtist
-            )
-        let resolvedAlbumArtist = ScrapeCueIdentityPolicy.resolvedOptionalText(
-            original: song.albumArtistName,
-            scraped: scrapedAlbumArtist,
-            isCueTrack: song.isCueTrack
-        )
-        merged.albumArtistName = AlbumGroupingPolicy.resolvedAlbumArtistName(
-            albumArtistName: resolvedAlbumArtist,
-            trackArtistName: merged.artistName
-        )
-        merged.trackNumber = song.trackNumber ?? metadata.trackNumber
-        merged.discNumber = song.discNumber ?? metadata.discNumber
+        merged.applyScrapeFields(tags)
+        if request.fields.contains(.cover) {
+            merged.coverArtFileName = metadata.coverArtFileName ?? song.coverArtFileName
+        }
+        if request.fields.contains(.lyrics) {
+            merged.lyricsFileName = metadata.lyricsFileName ?? song.lyricsFileName
+        }
+        guard !request.fields.isDisjoint(with: ScrapeField.tags) else { return merged }
         // File metadata describes the physical image. It must never replace a
         // CUE virtual track's segment duration with the whole album duration.
         if !song.isCueTrack, metadata.duration > 0 {
@@ -2649,27 +2519,7 @@ final class MusicScraperService {
         if let bitDepth = metadata.bitDepth, bitDepth > 0 {
             merged.bitDepth = bitDepth
         }
-        merged.genre = onlyFillMissing
-            ? (genreNeedsUpdate ? metadata.genre ?? song.genre : song.genre)
-            : (metadata.genre ?? song.genre)
-        merged.year = onlyFillMissing
-            ? (yearNeedsUpdate ? metadata.year ?? song.year : song.year)
-            : (metadata.year ?? song.year)
-        merged.coverArtFileName = coverNeedsUpdate
-            ? (metadata.coverArtFileName ?? song.coverArtFileName)
-            : song.coverArtFileName
-        merged.lyricsFileName = lyricsNeedsUpdate
-            ? (metadata.lyricsFileName ?? song.lyricsFileName)
-            : song.lyricsFileName
         merged.mvPath = metadata.mvPath ?? song.mvPath
-        // CUE 分轨归在哪张专辑由 CUE 表决定:CUE 里没写的专辑艺术家、碟号也不从刮削结果补,
-        // 否则整张专辑会按每一首各自对上的结果散开。
-        if song.isCueTrack {
-            merged.applyScrapeFields(ScrapeCueIdentityPolicy.protectingCueAlbumGrouping(
-                merged.scrapeFields,
-                original: song.scrapeFields
-            ))
-        }
         return merged
     }
 

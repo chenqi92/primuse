@@ -55,6 +55,14 @@ actor MetadataService {
         /// The connector exposed a complete local file. Metadata parsers may
         /// still inspect only the format-defined tag regions of that file.
         var hasCompleteFileAccess = false
+        var review = ScrapeReviewCatalog()
+        var hasMatchedTitle = false
+
+        var scrapeFields: ScrapedMetadataMergePolicy.Fields {
+            .init(title: title, artist: artist, sourceArtistNames: sourceArtistNames,
+                  albumTitle: albumTitle, albumArtist: albumArtist, year: year, genre: genre,
+                  trackNumber: trackNumber, discNumber: discNumber)
+        }
     }
 
     /// Load metadata with priority: embedded → verified sidecar → online
@@ -73,7 +81,11 @@ actor MetadataService {
         forceOnlineRefresh: Bool = false,
         existingCoverReference: String? = nil,
         discoverSidecars: Bool = true,
-        storesLyrics: Bool = true
+        storesLyrics: Bool = true,
+        scrapeRequest: ScrapeFieldRequest? = nil,
+        scraperSettings: ScraperSettings? = nil,
+        librarySong: Song? = nil,
+        collectingReview: Bool = false
     ) async -> SongMetadata {
         // 1. Read embedded metadata
         let embedded = await FileMetadataReader.read(from: url)
@@ -180,7 +192,7 @@ actor MetadataService {
         var sidecarSupersedesEmbeddedLyrics = false
         if discoverSidecars,
            let lyricsURL = SidecarMetadataLoader.findLyrics(for: url) {
-            let parsed = try? LyricsParser.parse(from: lyricsURL)
+            let parsed = SidecarMetadataLoader.loadLyrics(at: lyricsURL)
             sidecarSupersedesEmbeddedLyrics = embedded.lyricsText != nil && parsed?.isEmpty == false
             if embedded.lyricsText == nil || parsed?.isEmpty == false {
                 result.lyricsFileName = lyricsURL.lastPathComponent
@@ -204,26 +216,17 @@ actor MetadataService {
         }
 
         // 3. Try online sources as fallback
-        let fieldsAreMissing = result.artist?.isEmpty != false
-            || result.albumTitle?.isEmpty != false
-            || result.year == nil
-            || result.genre?.isEmpty != false
-        let needsMetadata = ScrapeMetadataApplicationPolicy.shouldRequestMetadata(
-            fieldsAreMissing: fieldsAreMissing,
-            forceRefresh: forceOnlineRefresh
-        )
-        let preservesExistingCover = !forceOnlineRefresh && existingCoverReference?.isEmpty == false
-        let needsCover = !preservesExistingCover && (forceOnlineRefresh || result.coverArtData == nil)
-        let needsLyrics = forceOnlineRefresh || result.lyrics == nil
-
-        if allowOnlineFetch && (needsMetadata || needsCover || needsLyrics) {
-            await fetchOnlineMetadata(
-                for: &result,
-                needsMetadata: needsMetadata,
-                needsCover: needsCover,
-                needsLyrics: needsLyrics,
-                overwriteMetadata: forceOnlineRefresh
+        let preservesExistingCover = existingCoverReference?.isEmpty == false
+            && !(scrapeRequest?.overwrites.contains(.cover) ?? forceOnlineRefresh)
+        if allowOnlineFetch {
+            let settings = scraperSettings ?? ScraperSettings.load()
+            let requested = scrapeRequest ?? settings.fieldRules.request(overwriteByDefault: forceOnlineRefresh)
+            if scrapeRequest != nil { result.albumArtist = embedded.albumArtist }
+            let online = collectingReview ? requested : requested.needed(
+                for: result.scrapeFields, hasCover: preservesExistingCover || result.coverArtData != nil,
+                hasLyrics: result.lyrics?.isEmpty == false, titleIsPlaceholder: trustedEmbeddedTitle == nil
             )
+            await fetchOnlineMetadata(for: &result, request: online, settings: settings, librarySong: librarySong, collectingReview: collectingReview)
         }
 
         // A cached audio file may have no neighbouring image even though the
@@ -379,47 +382,17 @@ actor MetadataService {
         return result
     }
 
-    /// 只用已知元数据查在线源补缺,**不读音频文件**。给服务端曲库源
-    /// (Subsonic/Navidrome 等)用 —— 它们 title/artist/album 由服务端权威提供,
-    /// 既不该为读 embedded tag 去拉(可能转码的)音频流, 也只补空缺字段。
-    /// `needsCover`/`needsLyrics` 默认 false: 服务端源的封面/歌词由服务端
-    /// (getCoverArt / getLyricsBySongId)提供, 不让在线刮削用脏标题错配盖掉。
-    func fillMissingOnline(
-        title: String,
-        artist: String?,
-        album: String?,
-        year: Int?,
-        genre: String?,
-        duration: TimeInterval,
-        needsCover: Bool = false,
-        needsLyrics: Bool = false,
-        forceMetadataRefresh: Bool = false,
-        overwriteMetadata: Bool = false
-    ) async -> SongMetadata {
+    /// Range-backed and server libraries already supply a search identity without reading audio.
+    func fillMissingOnline(seed: Song, title: String, request: ScrapeFieldRequest,
+                           settings: ScraperSettings, collectingReview: Bool = false) async -> SongMetadata {
         var result = SongMetadata(
-            title: title,
-            artist: artist,
-            albumTitle: album,
-            year: year,
-            genre: genre,
-            duration: duration
+            title: title, artist: seed.artistName, sourceArtistNames: seed.sourceArtistNames,
+            albumTitle: seed.albumTitle, albumArtist: seed.albumArtistName,
+            trackNumber: seed.trackNumber, discNumber: seed.discNumber,
+            year: seed.year, genre: seed.genre, duration: seed.duration,
+            sampleRate: seed.sampleRate, bitRate: seed.bitRate, bitDepth: seed.bitDepth
         )
-        let fieldsAreMissing = (artist?.isEmpty ?? true)
-            || (album?.isEmpty ?? true)
-            || year == nil
-            || (genre?.isEmpty ?? true)
-        let needsMetadata = ScrapeMetadataApplicationPolicy.shouldRequestMetadata(
-            fieldsAreMissing: fieldsAreMissing,
-            forceRefresh: forceMetadataRefresh
-        )
-        guard needsMetadata || needsCover || needsLyrics else { return result }
-        await fetchOnlineMetadata(
-            for: &result,
-            needsMetadata: needsMetadata,
-            needsCover: needsCover,
-            needsLyrics: needsLyrics,
-            overwriteMetadata: overwriteMetadata
-        )
+        await fetchOnlineMetadata(for: &result, request: request, settings: settings, collectingReview: collectingReview)
         return result
     }
 
@@ -452,6 +425,10 @@ actor MetadataService {
         return scrapeResult.lyrics
     }
 
+    func fieldReview(for song: Song, query: String, parts: ScrapeParts, searchLimit: Int) async -> ScrapeReviewCatalog {
+        await scraperManager.review(for: song, query: query, settings: .load(), parts: parts, searchLimit: searchLimit)
+    }
+
     func manualLyricsCandidates(
         title: String,
         artist: String?,
@@ -469,45 +446,37 @@ actor MetadataService {
 
     private func fetchOnlineMetadata(
         for result: inout SongMetadata,
-        needsMetadata: Bool,
-        needsCover: Bool,
-        needsLyrics: Bool,
-        overwriteMetadata: Bool = false
+        request: ScrapeFieldRequest,
+        settings: ScraperSettings,
+        librarySong: Song? = nil,
+        collectingReview: Bool = false
     ) async {
-        let settings = ScraperSettings.load()
-
+        guard !request.fields.isEmpty else { return }
+        let tags = request.fields.intersection(ScrapeField.tags)
+        let segment = librarySong?.isCueTrack == true
+        let seedTitle = (segment || result.embeddedTitle == nil) && librarySong?.title.isEmpty == false
+            ? librarySong?.title : nil
         let scrapeResult = await scraperManager.scrapeMetadata(
-            title: result.title,
-            artist: result.artist,
-            album: result.albumTitle,
-            duration: result.duration,
+            title: seedTitle ?? result.title,
+            artist: segment ? librarySong?.artistName : (result.artist ?? librarySong?.artistName),
+            album: segment ? librarySong?.albumTitle : (result.albumTitle ?? librarySong?.albumTitle),
+            duration: segment || result.duration <= 0 ? (librarySong?.duration ?? result.duration) : result.duration,
             needs: ScraperManager.ScrapeNeeds(
-                metadata: needsMetadata,
-                cover: needsCover,
-                lyrics: needsLyrics
+                metadata: !tags.isEmpty,
+                cover: request.fields.contains(.cover),
+                lyrics: request.fields.contains(.lyrics),
+                metadataFields: tags
             ),
-            settings: settings
+            settings: settings, collectingReview: collectingReview
         )
 
+        result.review = scrapeResult.review
         result.unavailableScrapeParts = scrapeResult.unavailableParts
         result.scrapeRetryAfter = scrapeResult.retryAfter
         // Apply metadata from detail. 合并规则与 Apple TV 共用 (`ScrapedMetadataMergePolicy`)。
         if let detail = scrapeResult.detail {
-            let merged = ScrapedMetadataMergePolicy.merged(
-                ScrapedMetadataMergePolicy.Fields(
-                    title: result.title,
-                    artist: result.artist,
-                    sourceArtistNames: result.sourceArtistNames,
-                    albumTitle: result.albumTitle,
-                    albumArtist: result.albumArtist,
-                    year: result.year,
-                    genre: result.genre,
-                    trackNumber: result.trackNumber,
-                    discNumber: result.discNumber
-                ),
-                with: ScrapedMetadataMergePolicy.Candidate(detail),
-                overwrite: overwriteMetadata
-            )
+            let merged = request.merging(result.scrapeFields, candidate: .init(detail))
+            result.hasMatchedTitle = request.fields.contains(.title) && !detail.title.isEmpty
             result.title = merged.title
             result.artist = merged.artist
             result.sourceArtistNames = merged.sourceArtistNames

@@ -5131,6 +5131,8 @@ struct NowPlayingView: View {
         .onChange(of: player.currentItemIsSpokenWord) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: lyricRomanizationOverlay) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: LyricsRomanizationSettingsStore.shared.displayMode) { _, _ in refreshRomanizedLyrics() }
+        .onChange(of: WordLyricsAlignmentService.shared.alignmentRevision) { _, _ in refreshRomanizedLyrics() }
+        .onChange(of: WordLyricsAlignmentService.shared.modelRevision) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: isResolvingLyrics) { _, _ in rememberSpokenWordTextPresence() }
         .onChange(of: scraperService.singleScrapeCompletionRevision) { _, _ in
             consumeAutomaticScrapeCompletion()
@@ -12417,7 +12419,7 @@ struct NowPlayingView: View {
            LyricsLoader.usesAudioCacheSidecar(for: song),
            let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
-           let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
+           let parsed = SidecarMetadataLoader.loadLyrics(at: lrcURL), !parsed.isEmpty {
             guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
             await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
             plog(String(format: "📜 loadLyrics '%@' Tier2 hit (audio cache sidecar) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, parsed.count))
@@ -12565,8 +12567,8 @@ struct NowPlayingView: View {
         let songTitle = song.title
         let isRefresh = currentCache != nil
         let missKey = Self.lyricsSidecarMissKey(for: song)
-        let opaqueAddresses = sourcesStore.source(id: song.sourceID)?.type
-            .usesOpaqueDirectoryIdentifiers ?? false
+        let sourceType = sourcesStore.source(id: song.sourceID)?.type
+        let needsListedLyricsName = sourceType?.usesOpaqueDirectoryIdentifiers == true || sourceType == .nfs
 
         Task {
             // Tier 3 的出口有十来个, 统一在这里收尾: 首次加载的占位只能由这次
@@ -12655,7 +12657,7 @@ struct NowPlayingView: View {
                 // 旁边只有 .ttml 等别的格式就读空。这类源照歌词来源页的规则列目录找「使用中」
                 // 那份, 按实际大小读, 播放和来源页读的是同一份文件(#208)。
                 let listedFile: LyricsLoader.AuthoritativeLyricsFile?
-                if opaqueAddresses, connector is any LyricsSidecarTargetResolving {
+                if needsListedLyricsName, connector is any LyricsSidecarTargetResolving {
                     guard let file = try await LyricsLoader.authoritativeLyricsFile(
                         for: song,
                         connector: connector
@@ -12755,16 +12757,17 @@ struct NowPlayingView: View {
                     return
                 }
 
-                // 只有 `<歌名>.<语言>-orig.vtt` 这类原声轨才可能有译文轨。先按
-                // 文件名判断, 免得每首歌都为此多列一次目录; refresh 也要走同一条
-                // 合并, 否则每次刷新都会把译文再抹掉一遍。
-                if let tagged = LyricsSidecarSelectionPolicy.languageTaggedComponents(
-                    ofSidecarNamed: documentName
-                ), LyricsSidecarSelectionPolicy.marksOriginalTrack(tagged.tag),
-                   let track = await LyricsLoader.translationTrack(
-                       for: song,
-                       connector: connector
-                   ) {
+                let translation: LyricsSidecarTranslation?
+                if let listedFile {
+                    translation = listedFile.translation
+                } else if LyricsSidecarSelectionPolicy.canHaveTranslationTrack(documentName) {
+                    translation = await LyricsLoader.translationTrack(
+                        for: song, primaryName: documentName, connector: connector
+                    )
+                } else {
+                    translation = nil
+                }
+                if let track = translation {
                     parsed = await LyricsLoader.mergingTranslationTrack(
                         into: parsed,
                         track: track,
@@ -13005,13 +13008,37 @@ struct NowPlayingView: View {
             overlay: lyricRomanizationOverlay,
             mode: mode
         )
+        let shouldSimulate = simulatesWordLyrics
+            && !presentedLyrics.contains(where: \.containsWordLevelContent)
+            && !player.currentItemIsSpokenWord
+        let alignmentService = WordLyricsAlignmentService.shared
+        let overlay = shouldSimulate
+            ? alignmentService.overlay(for: player.currentSong, lines: display)
+            : nil
         let timed = SimulatedWordLyricsPolicy.presentation(
             of: display,
-            enabled: simulatesWordLyrics && !presentedLyrics.contains(where: \.containsWordLevelContent),
-            isSpokenWord: player.currentItemIsSpokenWord
+            enabled: shouldSimulate,
+            isSpokenWord: player.currentItemIsSpokenWord,
+            overlay: overlay
         )
         usesSimulatedWordTiming = timed.isSimulated
-        if timed.lines != romanizedPresentedLyrics { romanizedPresentedLyrics = timed.lines }
+        let merged = WordLyricsLiveMergePolicy.merge(
+            displayed: romanizedPresentedLyrics,
+            updated: timed.lines,
+            playbackTime: player.interpolatedTime(),
+            isPlaying: player.isPlaying
+        )
+        if merged != romanizedPresentedLyrics { romanizedPresentedLyrics = merged }
+        if shouldSimulate, let song = player.currentSong {
+            let capturedSourceManager = sourceManager
+            alignmentService.alignIfNeeded(
+                song: song,
+                lines: display,
+                playbackTime: player.interpolatedTime()
+            ) {
+                await WordLyricsAlignmentService.localAudioFile(for: song, sourceManager: capturedSourceManager)
+            }
+        }
         let direction = mode == .romanizationOnly && display != presentedLyrics
             ? LyricWritingDirectionPolicy.resolve(in: display)
             : lyricsWritingDirection

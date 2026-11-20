@@ -2767,10 +2767,8 @@ final class TVPlaybackCoordinator {
                 }
             }
             for path in paths where lines.isEmpty {
-                var document = song; document.filePath = path
-                if let text = try? await fetchLyricText(song: document, source: source, credential: credential, requestID: nil) {
-                    lines = LyricsContentParser.parse(text)
-                }
+                lines = (try? await readSourceLyrics(at: path, for: song, source: source, credential: credential,
+                                                     requestID: nil, store: store)) ?? []
             }
         }
         guard !Task.isCancelled, store.sourcesStore.source(id: source.id) == source else { return [] }
@@ -2917,17 +2915,9 @@ final class TVPlaybackCoordinator {
             var lines: [LyricLine] = []
             var linesPath: String?
             for lrcPath in lrcPaths where lines.isEmpty {
-                var lrcSong = song
-                lrcSong.filePath = lrcPath
                 do {
-                    if let text = try await self.fetchLyricText(
-                        song: lrcSong,
-                        source: source,
-                        credential: credential,
-                        requestID: requestID
-                    ), !text.isEmpty {
-                        lines = LyricsParser.parse(text)
-                    }
+                    lines = try await self.readSourceLyrics(at: lrcPath, for: song, source: source,
+                                                            credential: credential, requestID: requestID, store: store)
                     try self.ensureCurrent(requestID, store: store)
                     if !lines.isEmpty { linesPath = lrcPath }
                 } catch is CancellationError {
@@ -3086,10 +3076,10 @@ final class TVPlaybackCoordinator {
               cached.first?.documentIsLocalOverride != true else { return }
         let reference = song.lyricsFileName ?? ""
         let checkedReference = await MetadataAssetStore.shared.sourceRecheckReference(forSongID: song.id)
-        let rechecksTiming = EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cached)
-            && checkedReference != reference
+        let rechecksTiming = checkedReference != reference && EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cached)
+        let rechecksLRC = EmbeddedLyricsPrecedencePolicy.rechecksLRCCompanion(reference: reference, cached: cached)
         let embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id)
-        guard rechecksTiming || embedded != nil,
+        guard rechecksTiming || rechecksLRC || embedded != nil,
               sourceLyricsRecheckedSongIDs.insert(song.id).inserted else { return }
         // 连不上、没读完就换了歌、缓存正被别处改写都不算核对过,下次播放再核对。
         var settled = false
@@ -3099,6 +3089,7 @@ final class TVPlaybackCoordinator {
         let cachedFingerprint = LyricsDocumentFingerprint(lines: cached)
         do {
             var documentPath: String?
+            var rechecksCompanion = false
             if let files = await lyricsDirectoryFiles(for: song, source: source, store: store) {
                 try ensureCurrent(requestID, store: store)
                 let names = files.map(\.name)
@@ -3126,21 +3117,24 @@ final class TVPlaybackCoordinator {
                 case .item(let index): documentPath = files[index].path
                 case .conflict, .none: documentPath = documents.first.map { files[$0].path }
                 }
+                if rechecksLRC, let documentPath {
+                    let name = (documentPath as NSString).lastPathComponent
+                    rechecksCompanion = LyricsSidecarSelectionPolicy.translationTrack(
+                        forPrimary: name, baseName: baseName, names: names
+                    ) != nil || cached.contains { $0.manualTranslation?.source == .bilingualLRC }
+                }
             } else {
                 documentPath = Self.automaticallyPickedLyricsPath(for: song, source: source)
                     ?? Self.storedLyricsReference(of: song)
                     ?? Self.guessedLyricsPath(for: song, source: source, credential: credential)
             }
-            guard rechecksTiming, let documentPath else {
+            guard rechecksTiming || rechecksCompanion, let documentPath else {
                 settled = true
                 return
             }
-            var documentSong = song
-            documentSong.filePath = documentPath
-            guard let text = try await fetchLyricText(
-                song: documentSong, source: source, credential: credential, requestID: requestID
-            ), !text.isEmpty else { return }
-            let lines = LyricsParser.parse(text)
+            let lines = try await readSourceLyrics(at: documentPath, for: song, source: source, credential: credential,
+                                                   requestID: requestID, store: store)
+            guard !lines.isEmpty else { return }
             let link = EmbeddedLyricsPrecedencePolicy.sourceDocumentLink(
                 reference: Self.storedLyricsReference(of: song),
                 isPinned: LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil
@@ -3225,14 +3219,9 @@ final class TVPlaybackCoordinator {
                 continue
             }
             guard file.size <= Int64(Self.maximumLyricsDocumentBytes) else { continue }
-            var documentSong = song
-            documentSong.filePath = file.path
-            documentSong.lyricsFileName = file.name
-            guard let text = try? await fetchLyricText(
-                song: documentSong, source: source, credential: credential, requestID: requestID
-            ), !text.isEmpty else { continue }
-            let lines = LyricsParser.parse(text)
-            guard !lines.isEmpty else { continue }
+            guard let lines = try? await readSourceLyrics(at: file.path, for: song, source: source, credential: credential,
+                                                          requestID: requestID, store: store),
+                  !lines.isEmpty else { continue }
             levels[index] = LyricsTimingLevel(lines: lines)
             parsed[index] = lines
         }
@@ -3440,6 +3429,29 @@ final class TVPlaybackCoordinator {
             }
         }
         return .unavailable
+    }
+
+    private func readSourceLyrics(at path: String, for song: Song, source: MusicSource,
+                                  credential: SourceCredential?, requestID: UUID?, store: TVStore) async throws -> [LyricLine] {
+        var document = song
+        document.filePath = path
+        let name = (path as NSString).lastPathComponent
+        document.lyricsFileName = name
+        guard let text = try await fetchLyricText(song: document, source: source, credential: credential,
+                                                  requestID: requestID) else { return [] }
+        let lines = LyricsParser.parseDocument(text, fileName: name)
+        guard !lines.isEmpty, LyricsSidecarSelectionPolicy.chineseLRCName(forPrimary: name) != nil,
+              let files = await lyricsDirectoryFiles(for: song, source: source, store: store),
+              let index = LyricsSidecarSelectionPolicy.translationTrack(forPrimary: name,
+                    baseName: (name as NSString).deletingPathExtension, names: files.map(\.name)) else { return lines }
+        document.filePath = files[index].path
+        document.lyricsFileName = files[index].name
+        let translated = try? await fetchLyricText(song: document, source: source, credential: credential, requestID: requestID)
+        try Task.checkCancellation()
+        if let requestID { try ensureCurrent(requestID, store: store) }
+        guard let translated else { return lines }
+        return LyricsTranslationTrackPolicy.merging(primary: lines, translation: LyricsParser.parse(translated),
+                                                   companionFileName: files[index].name) ?? lines
     }
 
     /// 取歌词文本:协议直连源用 reader 直读小文件;HTTP/云盘走 StreamResolver 解 URL 下载。

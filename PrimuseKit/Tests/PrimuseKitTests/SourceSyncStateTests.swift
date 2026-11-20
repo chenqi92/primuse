@@ -1460,6 +1460,20 @@ struct SidecarDirectoryIndexTests {
         #expect(index.sameNameMusicVideo(basename: "track")?.sidecarName == "track.mp4")
     }
 
+    @Test("A changed Chinese LRC invalidates its original's scan fingerprint")
+    func chineseLRCFingerprint() {
+        let files = [sidecarItem("Pier.flac"), sidecarItem("Pier.lrc")]
+        let before = SidecarDirectoryIndex(files)
+        let paired = SidecarDirectoryIndex(files + [sidecarItem("Pier.zh.lrc", revision: "1")])
+        let edited = SidecarDirectoryIndex(files + [sidecarItem("Pier.zh.lrc", revision: "2")])
+        let paths = ["/Music/Pier.lrc"]
+        #expect(paired.chineseLRCTranslation(forPrimary: "Pier.lrc")?.sidecarName == "Pier.zh.lrc")
+        #expect(paired.snapshotFingerprint(selectedPaths: paths) != before.snapshotFingerprint(selectedPaths: paths))
+        #expect(paired.snapshotFingerprint(selectedPaths: paths) != edited.snapshotFingerprint(selectedPaths: paths))
+        let collision = SidecarDirectoryIndex(files + [sidecarItem("Pier.ZH.flac"), sidecarItem("Pier.zh.lrc")])
+        #expect(collision.chineseLRCTranslation(forPrimary: "Pier.lrc") == nil)
+    }
+
     @Test("Language-tagged subtitles are the last lyric tier")
     func languageTaggedLyricsLookup() {
         let exact = SidecarDirectoryIndex(

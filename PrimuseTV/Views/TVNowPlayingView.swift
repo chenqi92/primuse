@@ -181,6 +181,11 @@ struct TVNowPlayingView: View {
             enabled: simulatesWordLyrics,
             isSpokenWord: store.currentItemIsSpokenWord
         )
+        TVSimulatedWordLyrics.alignIfNeeded(
+            for: store,
+            lines: store.lyrics,
+            enabled: simulatesWordLyrics && !simulatedWordWindows.isEmpty
+        )
     }
 
     private var showsSimulatedWordTiming: Bool {
@@ -210,6 +215,8 @@ struct TVNowPlayingView: View {
         .onChange(of: store.lyricsRevision, initial: true) { _, _ in refreshSimulatedWordWindows() }
         .onChange(of: simulatesWordLyrics) { _, _ in refreshSimulatedWordWindows() }
         .onChange(of: store.currentItemIsSpokenWord) { _, _ in refreshSimulatedWordWindows() }
+        .onChange(of: WordLyricsAlignmentService.shared.alignmentRevision) { _, _ in refreshSimulatedWordWindows() }
+        .onChange(of: WordLyricsAlignmentService.shared.modelRevision) { _, _ in refreshSimulatedWordWindows() }
         .onAppear {
             // 播放页整页重建时全屏效果跟着被收掉,不经过 onChange(showImmersive)。
             pdiag("tv nowPlaying appear showImmersive=\(showImmersive)")
@@ -1655,8 +1662,14 @@ struct TVNowPlayingView: View {
     private func lyricLine(index i: Int, current cur: Int?, isDuet: Bool, interludeActive: Bool) -> some View {
         // 按「罗马音显示」换过正文或附属罗马音；当前行、时间仍按原来那一行。
         let source = TVLyricsRomanizationController.shared.displayLine(store.lyrics[i], songID: store.currentSongID)
+        let _ = WordLyricsAlignmentService.shared.alignmentRevision
+        let alignmentOverlay = showsSimulatedWordTiming
+            ? TVSimulatedWordLyrics.overlay(for: store, lines: store.lyrics)
+            : nil
         let ln = TVSimulatedWordLyrics.displayLine(
-            source, window: showsSimulatedWordTiming ? simulatedWordWindows[source.id] : nil
+            source,
+            window: showsSimulatedWordTiming ? simulatedWordWindows[source.id] : nil,
+            overlay: alignmentOverlay
         )
         let isTrailing = LyricDuetLayoutPolicy.side(for: ln.voice, preferred: .leading, isDuet: isDuet) == .trailing
         let textAlignment: TextAlignment = isTrailing ? .trailing : .leading

@@ -64,6 +64,21 @@ struct LyricsTranslationTrackPolicyTests {
         LyricLine(timestamp: timestamp, text: text, isSynchronized: true)
     }
 
+    @Test("A missing Chinese LRC row keeps later translations at their own timestamps")
+    func mergesSeparateLRC() throws {
+        let original = LyricsContentParser.parse("[00:01.00]霧を折りたたむ\n[00:03.00]波止場に墨をひく\n[00:05.00]硝子を起こす")
+        let chinese = LyricsContentParser.parse("[00:01.02]把雾折起\n[00:05.00]唤醒玻璃")
+        let merged = try #require(LyricsTranslationTrackPolicy.merging(
+            primary: original, translation: chinese, companionFileName: "Glass Harbor.zh.lrc"
+        ))
+        #expect(merged.map(\.text) == original.map(\.text))
+        let display = LyricBundledTranslationPolicy.presentation(of: merged, showsBundledTranslations: true)
+        #expect(display.hasBundledTranslations)
+        #expect(display.lines.map { LyricCompanionTextPolicy.translation(for: $0, translatedText: nil) }
+            == ["把雾折起", nil, "唤醒玻璃"])
+        #expect(merged.first?.manualTranslation?.languageCode == "zh")
+    }
+
     @Test("The translated track becomes the line under each sung line")
     func mergesIdenticallyTimedTracks() throws {
         let primary = SubtitleLyricsParser.parse(originalTrack)

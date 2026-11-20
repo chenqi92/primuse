@@ -195,19 +195,21 @@ public enum ImmersiveKineticLyricsPolicy {
         }
         guard let lineStart, let lineEnd,
               lineStart.isFinite, lineEnd.isFinite, lineEnd > lineStart else { return [] }
-        let pieces = units(in: text)
-        guard !pieces.isEmpty else { return [] }
-        // 唱满整行不现实：句尾常有拖音或换气，最后一个字留一截。
-        let span = (lineEnd - lineStart) * 0.85
-        let weights = pieces.map { piece in
-            Double(max(piece.filter { !$0.isWhitespace && !$0.isPunctuation }.count, 1))
-        }
-        let total = weights.reduce(0, +)
-        var cursor = lineStart
-        return pieces.indices.map { index in
-            let duration = span * weights[index] / total
-            defer { cursor += duration }
-            return Token(text: pieces[index], start: cursor, end: cursor + duration)
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        let window = KaraokeLineWindow(
+            lineIndex: 0,
+            lineID: "",
+            voice: .primary,
+            start: lineStart,
+            end: lineEnd,
+            hasExplicitEnd: false
+        )
+        let swept = ProsodySweepAligner.sweepLine(
+            LyricLine(id: "", timestamp: lineStart, text: text, isSynchronized: true),
+            window: window
+        )
+        return (swept.syllables ?? []).map { syllable in
+            Token(text: syllable.text, start: syllable.start, end: max(syllable.end, syllable.start))
         }
     }
 
@@ -273,63 +275,11 @@ public enum ImmersiveKineticLyricsPolicy {
         }
     }
 
-    /// 按字切开：汉字、假名一个字一段，其余连着的字母算一个词（词中间的撇号、连字符不断开）；
+    /// 按统一分词器切开：汉字、假名、韩文一个字一段，其余连着的字母算一个词（词中间的撇号、连字符不断开）；
     /// 空白和标点跟在前一段后面，开头的标点并进第一段。
     public static func units(in text: String) -> [String] {
-        var units: [String] = []
-        var pendingPrefix = ""
-        // 上一个字符是夹在字母中间的撇号或连字符：下一个字母接着这个词。
-        var joinsNextLetter = false
-        for character in text {
-            if joinsNextLetter, isWordCharacter(character), !units.isEmpty {
-                units[units.count - 1].append(character)
-                joinsNextLetter = false
-                continue
-            }
-            joinsNextLetter = false
-            if !isWordCharacter(character), !isIdeographic(character) {
-                if units.isEmpty {
-                    pendingPrefix.append(character)
-                } else {
-                    let previous = units[units.count - 1].last
-                    units[units.count - 1].append(character)
-                    joinsNextLetter = wordJoiners.contains(character) && previous.map(isWordCharacter) == true
-                }
-                continue
-            }
-            if isWordCharacter(character),
-               let lastCharacter = units.last?.last,
-               isWordCharacter(lastCharacter) {
-                units[units.count - 1].append(character)
-            } else {
-                units.append(pendingPrefix + String(character))
-                pendingPrefix = ""
-            }
-        }
-        if !pendingPrefix.isEmpty {
-            if units.isEmpty {
-                let trimmed = pendingPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { units.append(pendingPrefix) }
-            } else {
-                units[units.count - 1].append(pendingPrefix)
-            }
-        }
-        return units
-    }
-
-    private static let wordJoiners: Set<Character> = ["'", "\u{2019}", "-", "\u{2010}"]
-
-    /// 拼成词的字符：字母、数字这类，不含空白、标点、符号，也不含一个字一段的汉字和假名。
-    private static func isWordCharacter(_ character: Character) -> Bool {
-        !character.isWhitespace && !character.isPunctuation && !character.isSymbol && !isIdeographic(character)
-    }
-
-    private static func isIdeographic(_ character: Character) -> Bool {
-        character.unicodeScalars.contains { scalar in
-            (0x3040...0x30FF).contains(scalar.value)
-                || (0x3400...0x9FFF).contains(scalar.value)
-                || (0xF900...0xFAFF).contains(scalar.value)
-        }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        return WordTimingUnitSplitter.splitPieces(of: text)
     }
 
     // MARK: - 每个字此刻的样子

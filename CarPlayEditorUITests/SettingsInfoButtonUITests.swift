@@ -2,6 +2,87 @@ import XCTest
 
 @MainActor
 final class SettingsInfoButtonUITests: XCTestCase {
+    func testFieldReviewSwipesPreviewsProtectsEditsAndSavesSelectedAlbum() {
+        continueAfterFailure = false
+        let app = settingsApp("scraping.fieldRules")
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "scrapeFieldReview"
+        app.launchArguments += ["-singleSongScrapeParts", "7"]
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            let normal = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+            normal.launch()
+            let home = normal.tabBars.buttons.element(boundBy: 0)
+            if home.waitForExistence(timeout: 12) { home.tap() }
+            XCTAssertTrue(normal.buttons["home.spaceFilter.music"].waitForExistence(timeout: 20))
+        }
+        app.launch()
+        let open = app.buttons["scrape.fixture.open"]
+        XCTAssertTrue(open.waitForExistence(timeout: 35))
+        open.tap()
+        let save = app.buttons["scrape.review.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 15))
+        attach(app, "scrape-field-review")
+        let album = app.descendants(matching: .any).matching(identifier: "scrape.review.album").firstMatch
+        let start = album.coordinate(withNormalizedOffset: .init(dx: 0.86, dy: 0.76))
+        let end = album.coordinate(withNormalizedOffset: .init(dx: 0.10, dy: 0.76))
+        start.press(forDuration: 0.1, thenDragTo: end)
+        let harbor = app.staticTexts["Harbor Edition"]
+        XCTAssertTrue(harbor.waitForExistence(timeout: 5))
+        app.buttons["scrape.review.cover.previous"].tap()
+        app.navigationBars.firstMatch.swipeDown()
+        XCTAssertTrue(save.isHittable)
+        app.buttons["取消"].firstMatch.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["继续编辑"].tap()
+        XCTAssertTrue(harbor.isHittable)
+
+        let nextLyrics = app.buttons["scrape.review.lyrics.next"]
+        if !nextLyrics.isHittable { app.scrollViews.firstMatch.swipeUp() }
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "逐字")).firstMatch.exists)
+        XCTAssertTrue(nextLyrics.isEnabled)
+        nextLyrics.tap()
+        XCTAssertTrue(app.staticTexts["Cobalt windows"].waitForExistence(timeout: 5))
+        let preview = app.buttons["scrape.review.lyrics.preview"].firstMatch
+        preview.tap()
+        XCTAssertTrue(app.staticTexts["And one last light"].waitForExistence(timeout: 5))
+        attach(app, "scrape-field-lyrics-preview")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "纯文本")).firstMatch.exists)
+        app.buttons["完成"].firstMatch.tap()
+        let previousLyrics = app.buttons["scrape.review.lyrics.previous"]
+        previousLyrics.tap()
+        previousLyrics.tap()
+        save.tap()
+        XCTAssertTrue(open.waitForExistence(timeout: 12))
+        XCTAssertEqual(app.staticTexts["scrape.fixture.saved"].label, "Harbor Edition")
+    }
+
+    func testScrapeSourceRulesExposeFieldModesAndSourcePreference() {
+        continueAfterFailure = false
+        let app = settingsApp("scraping.fieldRules")
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            let normal = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+            normal.launch()
+            let home = normal.tabBars.buttons.element(boundBy: 0)
+            if home.waitForExistence(timeout: 8) { home.tap() }
+            XCTAssertTrue(normal.buttons["home.spaceFilter.music"].waitForExistence(timeout: 20))
+        }
+        app.launch()
+        let rules = app.buttons["scraping.fieldRules"]
+        XCTAssertTrue(rules.waitForExistence(timeout: 30))
+        rules.tap()
+        let year = app.buttons["scraping.rule.year"]
+        XCTAssertTrue(year.waitForExistence(timeout: 8))
+        year.tap()
+        XCTAssertTrue(app.navigationBars["年份"].waitForExistence(timeout: 8))
+        for label in ["跳过", "仅补缺失", "覆盖"] {
+            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch.exists)
+        }
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "按刮削源顺序")).firstMatch.exists)
+    }
+
     func testPartialRadioSharingKeepsAvailableItemsAcrossOfflineAndOnlineModes() {
         continueAfterFailure = false
         let app = sharingFixtureApp()

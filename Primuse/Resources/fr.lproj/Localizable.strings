@@ -888,6 +888,16 @@
 "scraper_sources_footer" = "Faites glisser pour réorganiser. Les sources sont essayées de haut en bas jusqu'à ce qu'une correspondance soit trouvée. Si les paroles ne sont pas synchronisées mot à mot, jusqu’à deux autres sources sont consultées pour une version plus précise.";
 "scraper_options" = "Options";
 "only_fill_missing" = "Compléter uniquement les champs manquants";
+"scrape_review_keep" = "Conserver la valeur actuelle";
+"scrape_review_previous" = "Option précédente";
+"scrape_review_next" = "Option suivante";
+"scrape_field_rules" = "Règles de récupération";
+"tv_scrape_album_rules_format" = "Appliquer vos règles de récupération aux %d titres de cet album.";
+"scrape_rule_fill" = "Compléter les champs vides";
+"scrape_rule_overwrite" = "Remplacer";
+"scrape_preferred_source" = "Source préférée";
+"scrape_source_order" = "Ordre des sources";
+"scrape_rules_all_fields" = "Régler tous les champs";
 "reset_scraper_defaults" = "Rétablir les réglages par défaut";
 "scrape_actions" = "Actions de récupération";
 "scrape_missing_metadata" = "Récupérer les métadonnées manquantes";
@@ -7289,6 +7299,8 @@
 
 "player_simulated_word_lyrics" = "Simuler les paroles mot à mot";
 "lyrics_simulated_word_badge" = "Synchronisation simulée";
+"word_alignment_model_title" = "Modèle d’alignement haute précision";
+"word_alignment_model_remove_confirm" = "Supprimer le modèle d’alignement haute précision ?";
 
 "explore_word_lyrics" = "Rechercher des paroles synchronisées mot à mot";
 "explore_word_lyrics_footer" = "Désactivé par défaut. Une fois activé, recherche automatiquement des paroles synchronisées mot à mot dans les sources de paroles activées pendant la lecture et les affiche en priorité, même si le morceau possède déjà des paroles classiques. Ce réglage est indépendant de « Chercher les paroles en ligne si absentes ». Désactivez cette option pour arrêter la recherche automatique de paroles synchronisées mot à mot.";

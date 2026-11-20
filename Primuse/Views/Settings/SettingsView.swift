@@ -604,6 +604,8 @@ struct LyricsAppearanceSections: View {
                 .settingsAnchor("lyrics.simulatedWordTiming")
                 .accessibilityIdentifier("simulatedWordLyricsToggle")
 
+            WordAlignmentModelSettingsRow(isSimulationEnabled: simulatesWordLyrics)
+
             Toggle(isOn: $showsLyricsSource) {
                 SettingsInfoLabel("player_lyrics_source_badge") {
                     Text("player_lyrics_source_badge_description")
@@ -684,24 +686,6 @@ private struct PlayerAppearanceSettingsView: View {
     private var lockScreenAnimatedArtwork = PlayerAppearancePreferences.lockScreenAnimatedArtworkByDefault
     @AppStorage(PlayerAppearancePreferences.lockScreenFullScreenArtworkKey)
     private var lockScreenFullScreenArtwork = PlayerAppearancePreferences.lockScreenFullScreenArtworkByDefault
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
-    private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceSourceKey)
-    private var motionArtworkServiceSource = ""
-    private var motionArtworkServiceBinding: Binding<Bool> {
-        Binding(
-            get: {
-                motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
-                    motionArtworkServiceSource,
-                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints.isEmpty
-                ) == .custom
-            },
-            set: {
-                motionArtworkServiceEnabled = $0
-                if $0 { motionArtworkServiceSource = MotionArtworkServiceSource.custom.rawValue }
-            }
-        )
-    }
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.showsReplayGainBadgeKey)
@@ -803,25 +787,6 @@ private struct PlayerAppearanceSettingsView: View {
                         }
                     }
                     .settingsAnchor("appearance.lockScreenFullScreenArtwork")
-                }
-            }
-
-            Section {
-                Toggle(isOn: motionArtworkServiceBinding) {
-                    SettingsInfoLabel("motion_artwork_service_enabled") {
-                        Text("motion_artwork_service_description")
-                    }
-                }
-                .settingsAnchor("appearance.motionArtworkService")
-                // 服务地址改在刮削源页的「动态封面源」里管：可以有几个，和别的刮削源一样排序、单独开关。
-                NavigationLink(value: SettingsDestination.page(.scraping, "scraping.motionArtworkSources")) {
-                    LabeledContent {
-                        Text(verbatim: MotionArtworkSourceStyle.summary(
-                            AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints
-                        ))
-                    } label: {
-                        Text("motion_artwork_sources")
-                    }
                 }
             }
 
@@ -1605,12 +1570,6 @@ enum MotionArtworkSourceStyle {
     static let iconName = "sparkles.rectangle.stack"
     static let tint = Color(red: 0.56, green: 0.36, blue: 0.96)
 
-    /// 配了几个地址；播放页设置里那一行的右侧、Mac 播放页设置里那一行的小字。
-    static func summary(_ list: MotionArtworkEndpointList) -> String {
-        guard !list.isEmpty else { return String(localized: "lyrics_server_none") }
-        return String(format: String(localized: "lyrics_server_count_format"), list.endpoints.count)
-    }
-
     static func message(for rejection: MotionArtworkEndpointRejection) -> String {
         switch rejection {
         case .invalid: String(localized: "invalid_url")
@@ -1629,79 +1588,21 @@ enum MotionArtworkSourceStyle {
     }
 }
 
-/// 刮削源页里的「动态封面源」一节：在线动态封面服务和别的刮削源一样排序、单独开关，
-/// 按列表顺序问，前一个没有或出错就问下一个。总开关也放一份在这里，不必回播放页设置去开。
-private struct MotionArtworkSourcesSection: View {
-    @Binding var isReordering: Bool
-    let onAdd: () -> Void
-
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
-    private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceSourceKey)
-    private var motionArtworkServiceSource = ""
-
-    private var serviceBinding: Binding<Bool> {
-        Binding(
-            get: {
-                motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
-                    motionArtworkServiceSource,
-                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints.isEmpty
-                ) == .custom
-            },
-            set: {
-                motionArtworkServiceEnabled = $0
-                if $0 { motionArtworkServiceSource = MotionArtworkServiceSource.custom.rawValue }
-            }
-        )
-    }
-
+/// Standalone service URLs saved before scraper manifests also appear in the source list.
+private struct StandaloneArtworkSources: View {
     var body: some View {
-        let endpoints = AnimatedArtworkPreferences.shared.motionArtworkEndpoints.endpoints
-        Section {
-            Toggle(isOn: serviceBinding) {
-                SettingsInfoLabel("motion_artwork_service_enabled") {
-                    Text("motion_artwork_service_description")
+        let endpoints = AnimatedArtworkPreferences.shared.standaloneMotionArtworkEndpoints
+        ForEach(endpoints) { endpoint in
+            row(endpoint)
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        MotionArtworkSourceStyle.update { $0.remove(id: endpoint.id) }
+                    } label: { Image(systemName: "trash") }
                 }
-            }
-
-            if endpoints.isEmpty && AnimatedArtworkPreferences.shared.builtInMotionArtworkEndpoints.isEmpty {
-                Text("lyrics_server_none")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(endpoints) { endpoint in
-                    row(endpoint)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                MotionArtworkSourceStyle.update { $0.remove(id: endpoint.id) }
-                            } label: {
-                                Image(systemName: "trash")
-                            }
-                        }
-                }
-                .onMove { offsets, destination in
-                    MotionArtworkSourceStyle.update { $0.move(fromOffsets: offsets, toOffset: destination) }
-                }
-            }
-
-            Button(action: onAdd) {
-                Label("motion_artwork_source_add", systemImage: "plus.circle")
-            }
-        } header: {
-            HStack {
-                Text("motion_artwork_sources")
-                Spacer()
-                if endpoints.count > 1 {
-                    Button(isReordering ? String(localized: "done") : String(localized: "reorder")) {
-                        pmWithAnimation(.list) { isReordering.toggle() }
-                    }
-                    .font(.caption)
-                    .textCase(nil)
-                }
-            }
-        } footer: {
-            Text("motion_artwork_sources_footer")
         }
-        .settingsAnchor("scraping.motionArtworkSources")
+        .onMove { offsets, destination in
+            AnimatedArtworkPreferences.shared.moveStandaloneEndpoints(from: offsets, to: destination)
+        }
     }
 
     private func row(_ endpoint: MotionArtworkEndpoint) -> some View {
@@ -1738,10 +1639,8 @@ private struct MotionArtworkSourcesSection: View {
             Spacer(minLength: 8)
 
             Toggle("", isOn: Binding(
-                get: { endpoint.isEnabled },
-                set: { isOn in
-                    MotionArtworkSourceStyle.update { $0.setEnabled(isOn, id: endpoint.id) }
-                }
+                get: { endpoint.isEnabled && AnimatedArtworkPreferences.shared.isMotionArtworkServiceOn },
+                set: { AnimatedArtworkPreferences.shared.setStandaloneEndpoint(endpoint.id, enabled: $0) }
             ))
             .labelsHidden()
         }
@@ -1750,7 +1649,7 @@ private struct MotionArtworkSourcesSection: View {
 
 /// 添加动态封面源：名称可以不填（用地址的主机名），地址要过与取封面时同一条校验，
 /// 受限的主机、重复的地址都加不进去。
-private struct MotionArtworkSourceEditorSheet: View {
+struct MotionArtworkSourceEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var url = ""
@@ -1800,8 +1699,9 @@ private struct MotionArtworkSourceEditorSheet: View {
         let preferences = AnimatedArtworkPreferences.shared
         var list = preferences.motionArtworkEndpoints
         switch list.add(name: name, url: url) {
-        case .success:
+        case .success(let endpoint):
             preferences.setMotionArtworkEndpoints(list)
+            preferences.setStandaloneEndpoint(endpoint.id, enabled: true)
             dismiss()
         case .failure(let reason):
             rejection = reason
@@ -1846,6 +1746,7 @@ struct MetadataScrapingView: View {
     @State private var lyricsServerStore = LyricsAPIServerStore.shared
     @State private var libraryTidySongs: BatchSongSelection?
     @State private var showsMotionArtworkSourceEditor = false
+    @State private var showsScrapeRules = false
 
 
     var body: some View {
@@ -1926,8 +1827,8 @@ struct MetadataScrapingView: View {
                         }
 
                         Toggle("", isOn: Binding(
-                            get: { source.isEnabled },
-                            set: { _ in scraperSettings.toggleSource(id: source.id) }
+                            get: { scraperSettings.isSourceEnabled(source) },
+                            set: { scraperSettings.setSourceEnabled($0, id: source.id) }
                         ))
                         .labelsHidden()
                     }
@@ -1967,6 +1868,26 @@ struct MetadataScrapingView: View {
                     }
                 }
                 .onMove { scraperSettings.reorderSources(fromOffsets: $0, toOffset: $1) }
+                StandaloneArtworkSources()
+                Button { showsScrapeRules = true } label: {
+                    Label("scrape_field_rules", systemImage: "slider.horizontal.3")
+                }
+                .accessibilityIdentifier("scraping.fieldRules")
+                .settingsAnchor("scraping.fieldRules")
+                Menu {
+                    Button("import_scraper_source") {
+                        importText = ""
+                        importFileText = nil
+                        importError = nil
+                        importPreview = nil
+                        importAutomaticallyUpdates = false
+                        showImportSheet = true
+                    }
+                    Button("motion_artwork_source_add") { showsMotionArtworkSourceEditor = true }
+                } label: {
+                    Label("import_scraper_source", systemImage: "plus.circle")
+                }
+                .settingsAnchor("scraping.import")
             } header: {
                 HStack {
                     Text("scraper_sources")
@@ -1981,31 +1902,6 @@ struct MetadataScrapingView: View {
             }
 
             Section {
-                Button {
-                    importText = ""
-                    importFileText = nil
-                    importError = nil
-                    importPreview = nil
-                    importAutomaticallyUpdates = false
-                    showImportSheet = true
-                } label: {
-                    Label("import_scraper_source", systemImage: "plus.circle")
-                }
-            } header: {
-                Text("custom_sources")
-            } footer: {
-                Text("import_scraper_footer")
-            }
-            .settingsAnchor("scraping.import")
-
-            MotionArtworkSourcesSection(isReordering: $isReordering) {
-                showsMotionArtworkSourceEditor = true
-            }
-
-            Section {
-                Toggle("only_fill_missing", isOn: $settings.onlyFillMissingFields)
-                .settingsAnchor("scraping.onlyMissing")
-
                 Toggle(isOn: $settings.autoFetchOnlineLyrics) {
                     SettingsInfoLabel("auto_online_lyrics") {
                         Text("auto_online_lyrics_footer")
@@ -2143,6 +2039,9 @@ struct MetadataScrapingView: View {
             LyricsAPIServersView()
         }
         // 挂在页面上而不是那一节上：Form 的节是懒加载的。
+        .sheet(isPresented: $showsScrapeRules) {
+            ScrapeRulesEditor(settings: scraperSettings)
+        }
         .sheet(isPresented: $showsMotionArtworkSourceEditor) {
             MotionArtworkSourceEditorSheet()
         }

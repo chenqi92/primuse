@@ -402,7 +402,7 @@ enum LyricsLoader {
            usesAudioCacheSidecar(for: song),
            let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
-           let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
+           let parsed = SidecarMetadataLoader.loadLyrics(at: lrcURL), !parsed.isEmpty {
             guard !Task.isCancelled else { return [] }
             let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                 parsed,
@@ -525,8 +525,6 @@ enum LyricsLoader {
             guard !Task.isCancelled else { return [] }
             if !parsed.isEmpty {
                 if let translation = lyricsFile.translation {
-                    // The `-orig` track stays the sung line; its companion
-                    // becomes the translation under each of those lines.
                     parsed = await mergingTranslationTrack(
                         into: parsed,
                         track: translation,
@@ -690,9 +688,10 @@ enum LyricsLoader {
         let embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id)
         let reference = song.lyricsFileName ?? ""
         let checkedReference = await MetadataAssetStore.shared.sourceRecheckReference(forSongID: song.id)
-        let rechecksCache = EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cachedDocument)
-            && checkedReference != reference
-        guard rechecksCache || embedded != nil,
+        let rechecksTiming = checkedReference != reference
+            && EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cachedDocument)
+        let rechecksLRC = EmbeddedLyricsPrecedencePolicy.rechecksLRCCompanion(reference: reference, cached: cachedDocument)
+        guard rechecksTiming || rechecksLRC || embedded != nil,
               sourceDocumentRecheckKeys.insert(recheckKey).inserted else { return nil }
         // 连不上、读到一半、缓存正被别处改写都不算核对过。
         var settled = false
@@ -715,7 +714,10 @@ enum LyricsLoader {
                 evaluatesTimingFirst: true,
                 maximumSize: readLimit
             ) {
-                guard rechecksCache else {
+                // A previously checked LRC needs no second download when the directory
+                // still has no companion and the cache contains only the original.
+                guard rechecksTiming || (rechecksLRC && (lyricsFile.translation != nil
+                    || cachedDocument.contains(where: { $0.manualTranslation?.source == .bilingualLRC }))) else {
                     settled = true
                     return nil
                 }
@@ -737,6 +739,14 @@ enum LyricsLoader {
                     reference: song.lyricsFileName,
                     isPinned: LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil
                 )
+                if let translation = lyricsFile.translation {
+                    parsed = await mergingTranslationTrack(
+                        into: parsed,
+                        track: translation,
+                        connector: connector,
+                        maximumSize: readLimit
+                    )
+                }
                 guard EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(
                     cached: cachedDocument,
                     with: parsed,
@@ -745,14 +755,6 @@ enum LyricsLoader {
                     await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
                     settled = true
                     return nil
-                }
-                if let translation = lyricsFile.translation {
-                    parsed = await mergingTranslationTrack(
-                        into: parsed,
-                        track: translation,
-                        connector: connector,
-                        maximumSize: readLimit
-                    )
                 }
                 replacement = parsed
                 forced = false
@@ -985,7 +987,10 @@ enum LyricsLoader {
             levels: levels
         )
         store.setAutomaticPick(preferred.map { documents[$0].name }, forSongID: song.id)
-        guard let preferred, let lines = parsedDocuments[preferred] else { return nil }
+        guard let preferred, var lines = parsedDocuments[preferred] else { return nil }
+        if let companion = documents[preferred].translation {
+            lines = await mergingTranslationTrack(into: lines, track: companion, connector: connector)
+        }
         plog("📜 LyricsLoader '\(song.title)' prefers \(documents[preferred].name) by timing")
         return (documents[preferred].name, lines)
     }
@@ -1048,13 +1053,10 @@ enum LyricsLoader {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// A subtitle track that translates the document being loaded.
-    typealias TranslationTrack = (path: String, fileName: String, size: Int64)
-
     struct AuthoritativeLyricsFile: Sendable {
         let path: String
         let size: Int64
-        let translation: TranslationTrack?
+        let translation: LyricsSidecarTranslation?
         let fileName: String
         /// 这次列目录看到的这首歌的全部歌词文件; 后台比时间轴时直接用, 不再列一次。
         let documents: [LyricsSidecarDocument]
@@ -1168,11 +1170,11 @@ enum LyricsLoader {
             && LyricsDocumentPinStore.shared.effectiveFileName(forSongID: song.id) != nil
     }
 
-    private static func translationTrack(in target: LyricsSidecarTarget) -> TranslationTrack? {
+    static func translationTrack(in target: LyricsSidecarTarget) -> LyricsSidecarTranslation? {
         guard let path = target.translationPath,
               let fileName = target.translationFileName,
               let size = target.translationSize else { return nil }
-        return (path, fileName, size)
+        return LyricsSidecarTranslation(path: path, fileName: fileName, size: size)
     }
 
     /// The companion track of the song's current document, for a caller that
@@ -1181,10 +1183,11 @@ enum LyricsLoader {
     /// document's own name — whether one can exist at all.
     static func translationTrack(
         for song: Song,
+        primaryName: String,
         connector: any MusicSourceConnector
-    ) async -> TranslationTrack? {
-        guard let target = try? await lyricsSidecarTarget(for: song, connector: connector),
-              target.exists else { return nil }
+    ) async -> LyricsSidecarTranslation? {
+        guard let target = try? await lyricsSidecarTarget(for: song, connector: connector, request: .named(primaryName)),
+              target.exists, target.fileName.caseInsensitiveCompare(primaryName) == .orderedSame else { return nil }
         return translationTrack(in: target)
     }
 
@@ -1194,7 +1197,7 @@ enum LyricsLoader {
     /// way.
     static func mergingTranslationTrack(
         into primary: [LyricLine],
-        track: TranslationTrack,
+        track: LyricsSidecarTranslation,
         connector: any MusicSourceConnector,
         maximumSize: Int = LyricsSidecarTargetPolicy.maximumContentByteCount
     ) async -> [LyricLine] {
@@ -1218,13 +1221,10 @@ enum LyricsLoader {
                   LyricsParser.decodeText(data, label: track.fileName).map { LyricsParser.parse($0) }
               }).value,
               !translation.isEmpty else { return primary }
-        let languageCode = LyricsSidecarSelectionPolicy
-            .languageTaggedComponents(ofSidecarNamed: track.fileName)
-            .flatMap { LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: $0.tag) }
         return LyricsTranslationTrackPolicy.merging(
             primary: primary,
             translation: translation,
-            languageCode: languageCode
+            companionFileName: track.fileName
         ) ?? primary
     }
 }

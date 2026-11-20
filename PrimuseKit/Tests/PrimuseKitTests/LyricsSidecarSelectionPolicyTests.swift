@@ -387,6 +387,26 @@ struct LyricsSidecarSelectionPolicyTests {
         #expect(guarded.bestMatch(baseName: "Track") == nil)
     }
 
+    @Test("An exact-name LRC pairs only with its own Chinese translation")
+    func separateChineseLRCFiles() {
+        let bases = ["Glass Harbor", "Glass Harbor II", "Ink. Moon"]
+        let names = bases.flatMap { ["\($0).flac", "\($0).lrc", "\($0).zh.lrc"] }.reversed()
+        let listing = Array(names)
+        let index = LanguageTaggedLyricsIndex(fileNames: listing, preferredLanguages: ["en"])
+        for base in bases {
+            let primary = base + ".lrc"
+            let translated = base + ".zh.lrc"
+            #expect(index.translationTrack(forPrimary: primary, baseName: base) == translated)
+            let track = LyricsSidecarSelectionPolicy.translationTrack(forPrimary: primary, baseName: base,
+                                                                      names: listing, preferredLanguages: ["en"])
+            #expect(track.map { listing[$0] } == translated)
+            #expect(LyricsSidecarSelectionPolicy.documents(baseName: base, names: listing).map { listing[$0] } == [primary])
+        }
+        let owned = listing + ["Glass Harbor.ZH.MP3"]
+        #expect(LyricsSidecarSelectionPolicy.translationTrack(forPrimary: "Glass Harbor.lrc",
+                                                              baseName: "Glass Harbor", names: owned) == nil)
+    }
+
     @Test("The original track's companion is the one the listener can read")
     func choosesTranslationTrackByPreferredLanguage() {
         let names = ["Song.mp3", "Song.en-orig.vtt", "Song.zh-Hans.vtt", "Song.fr.vtt"]

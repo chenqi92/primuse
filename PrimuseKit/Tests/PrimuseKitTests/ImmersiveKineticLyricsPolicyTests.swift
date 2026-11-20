@@ -16,14 +16,16 @@ struct ImmersiveKineticLyricsPolicyTests {
         #expect(Policy.units(in: "  ").isEmpty)
     }
 
-    @Test func lineTimedLyricsSpreadTheLineByCharacterCount() {
+    @Test func lineTimedLyricsSpreadTheLineByUnifiedProsody() {
         let tokens = Policy.tokens(text: "ab cdef", syllables: nil, lineStart: 10, lineEnd: 12)
         #expect(tokens.map(\.text) == ["ab ", "cdef"])
         #expect(tokens[0].start == 10)
-        // 唱满 85%：2 秒里的 1.7 秒按 2 : 4 分。
-        #expect(abs(tokens[0].end - (10 + 1.7 / 3)) < 1e-9)
+        #expect(tokens[0].end > tokens[0].start)
         #expect(abs(tokens[1].start - tokens[0].end) < 1e-9)
-        #expect(abs(tokens[1].end - 11.7) < 1e-9)
+        // 统一走 ProsodySweepAligner：末词带轻微尾音保持且不超出 92% 行窗。
+        #expect(tokens[1].end > tokens[1].start)
+        #expect(tokens[1].end <= 11.84 + 1e-6)
+        #expect((tokens[1].end - tokens[1].start) > (tokens[0].end - tokens[0].start))
     }
 
     @Test func untimedLyricsHaveNoTokens() {

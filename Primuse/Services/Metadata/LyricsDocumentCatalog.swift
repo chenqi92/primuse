@@ -12,8 +12,7 @@ enum LyricsDocumentCatalog {
         /// Whether the raw editor may write this file back. A read-only
         /// format on an ID-addressed drive has no address a save could use.
         let isEditable: Bool
-        /// The machine-translated track that rides under an `-orig` subtitle.
-        let translation: LyricsSidecarDocument?
+        let translation: LyricsSidecarTranslation?
         var candidate: LyricsSourceCollection.Candidate? = nil
 
         var id: String { document.path }
@@ -181,23 +180,15 @@ enum LyricsDocumentCatalog {
                     name: target.fileName,
                     path: path,
                     size: target.existingSize ?? 0,
-                    modifiedDate: nil
+                    modifiedDate: nil, translation: LyricsLoader.translationTrack(in: target)
                 )]
             }
             let activeName = target.exists ? target.fileName : nil
             let sourceIsWritable = await sourceManager.supportsSidecarWriting(for: song)
             let opaqueAddresses = sourcesStore.source(id: song.sourceID)?.type
                 .usesOpaqueDirectoryIdentifiers ?? false
-            let baseName = target.songBaseName
-                ?? ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
-            let names = documents.map(\.name)
             let entries = documents.map { document in
                 let format = LyricsDocumentFormat(fileName: document.name)
-                let translation = LyricsSidecarSelectionPolicy.translationTrack(
-                    forPrimary: document.name,
-                    baseName: baseName,
-                    names: names
-                ).map { documents[$0] }
                 return Entry(
                     document: document,
                     format: format,
@@ -207,7 +198,7 @@ enum LyricsDocumentCatalog {
                     isEditable: sourceIsWritable
                         && format != nil
                         && (!opaqueAddresses || format?.isSerializable == true),
-                    translation: translation
+                    translation: document.translation
                 )
             }
             let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
@@ -225,7 +216,10 @@ enum LyricsDocumentCatalog {
                let active = entries.first(where: \.isActive) {
                 if let cached, !cached.isEmpty {
                     if let content = try? await read(active.document, for: song, sourceManager: sourceManager) {
-                        let lines = LyricsParser.parse(content.text)
+                        var lines = LyricsParser.parse(content.text)
+                        if let track = active.translation {
+                            lines = await LyricsLoader.mergingTranslationTrack(into: lines, track: track, connector: connector)
+                        }
                         if !lines.isEmpty, !EmbeddedLyricsPrecedencePolicy.sameDocument(cached, lines) {
                             listed = listed.activating(nil)
                         }
@@ -370,12 +364,10 @@ enum LyricsDocumentCatalog {
         sourceManager: SourceManager
     ) async throws {
         var lines = lines
-        if let translation = entry.translation,
+        if let track = entry.translation,
            let connector = try? await sourceManager.auxiliaryConnector(for: song) {
             lines = await LyricsLoader.mergingTranslationTrack(
-                into: lines,
-                track: (path: translation.path, fileName: translation.name, size: translation.size),
-                connector: connector,
+                into: lines, track: track, connector: connector,
                 maximumSize: LyricsSidecarTargetPolicy.maximumReadByteCount(for: song)
             )
         }

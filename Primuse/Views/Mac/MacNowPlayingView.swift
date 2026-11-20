@@ -467,6 +467,8 @@ struct MacNowPlayingView: View {
         .onChange(of: isSpokenWord) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: lyricRomanizationOverlay) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: LyricsRomanizationSettingsStore.shared.displayMode) { _, _ in refreshRomanizedLyrics() }
+        .onChange(of: WordLyricsAlignmentService.shared.alignmentRevision) { _, _ in refreshRomanizedLyrics() }
+        .onChange(of: WordLyricsAlignmentService.shared.modelRevision) { _, _ in refreshRomanizedLyrics() }
         .onCachedLyricsChanged(songID: player.isLiveRadio ? nil : player.currentSong?.id) { songID, lines in
             pendingLyricsOverride = PendingLyricsOverride(songID: songID, lyrics: lines)
             lyricsLoadRevision &+= 1
@@ -2324,13 +2326,37 @@ struct MacNowPlayingView: View {
             overlay: lyricRomanizationOverlay,
             mode: mode
         )
+        let shouldSimulate = simulatesWordLyrics
+            && !lyrics.contains(where: \.containsWordLevelContent)
+            && !isSpokenWord
+        let alignmentService = WordLyricsAlignmentService.shared
+        let overlay = shouldSimulate
+            ? alignmentService.overlay(for: player.currentSong, lines: display)
+            : nil
         let timed = SimulatedWordLyricsPolicy.presentation(
             of: display,
-            enabled: simulatesWordLyrics && !lyrics.contains(where: \.containsWordLevelContent),
-            isSpokenWord: isSpokenWord
+            enabled: shouldSimulate,
+            isSpokenWord: isSpokenWord,
+            overlay: overlay
         )
         usesSimulatedWordTiming = timed.isSimulated
-        if timed.lines != romanizedLyrics { romanizedLyrics = timed.lines }
+        let merged = WordLyricsLiveMergePolicy.merge(
+            displayed: romanizedLyrics,
+            updated: timed.lines,
+            playbackTime: player.interpolatedTime(),
+            isPlaying: player.isPlaying
+        )
+        if merged != romanizedLyrics { romanizedLyrics = merged }
+        if shouldSimulate, let song = player.currentSong {
+            let capturedSourceManager = sourceManager
+            alignmentService.alignIfNeeded(
+                song: song,
+                lines: display,
+                playbackTime: player.interpolatedTime()
+            ) {
+                await WordLyricsAlignmentService.localAudioFile(for: song, sourceManager: capturedSourceManager)
+            }
+        }
         let direction = mode == .romanizationOnly && display != lyrics
             ? LyricWritingDirectionPolicy.resolve(in: display)
             : lyricsWritingDirection

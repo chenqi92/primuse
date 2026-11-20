@@ -888,6 +888,16 @@
 "scraper_sources_footer" = "드래그하여 순서를 변경합니다. 일치하는 항목을 찾을 때까지 위에서 아래 순서로 소스를 시도합니다. 가사가 단어 단위로 동기화되지 않았다면 더 정밀한 가사를 찾기 위해 최대 두 개의 소스를 더 확인합니다.";
 "scraper_options" = "옵션";
 "only_fill_missing" = "비어 있는 필드만 채우기";
+"scrape_review_keep" = "현재 값 유지";
+"scrape_review_previous" = "이전 후보";
+"scrape_review_next" = "다음 후보";
+"scrape_field_rules" = "메타데이터 수집 규칙";
+"tv_scrape_album_rules_format" = "이 앨범의 노래 %d곡에 수집 규칙을 적용합니다.";
+"scrape_rule_fill" = "빈 필드 채우기";
+"scrape_rule_overwrite" = "덮어쓰기";
+"scrape_preferred_source" = "선호 소스";
+"scrape_source_order" = "소스 순서";
+"scrape_rules_all_fields" = "모든 필드 설정";
 "reset_scraper_defaults" = "기본값으로 재설정";
 "scrape_actions" = "가져오기 작업";
 "scrape_missing_metadata" = "누락된 메타데이터 가져오기";
@@ -7289,6 +7299,8 @@
 
 "player_simulated_word_lyrics" = "단어별 가사 효과 시뮬레이션";
 "lyrics_simulated_word_badge" = "시뮬레이션 타이밍";
+"word_alignment_model_title" = "고정밀 정렬 모델";
+"word_alignment_model_remove_confirm" = "고정밀 정렬 모델을 제거하시겠습니까?";
 
 "explore_word_lyrics" = "단어별 동기화 가사 찾기";
 "explore_word_lyrics_footer" = "기본값은 꺼짐입니다. 켜면 재생 중에 활성화된 가사 소스에서 단어별 동기화 가사를 자동으로 검색하고, 기존 일반 가사가 있어도 검색된 가사를 우선 표시합니다. 이 기능은 “가사가 없으면 온라인에서 자동으로 가져오기” 설정과 별개입니다. 단어별 동기화 가사의 자동 검색을 중지하려면 이 설정을 끄세요.";

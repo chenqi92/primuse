@@ -124,30 +124,40 @@ struct KaraokeLyricsPolicyTests {
         #expect(KaraokeLeadInPolicy.leadIn(windows: windows, at: 44) == nil)
     }
 
-    @Test("Line-level rows get an even sweep that restores the text")
+    @Test("Line-level rows get a prosody sweep that restores the text and caps long gaps")
     func sweep() throws {
-        let window = KaraokeLineWindow(lineIndex: 0, lineID: "a", voice: .primary, start: 10, end: 20)
+        let inferredWindow = KaraokeLineWindow(lineIndex: 0, lineID: "a", voice: .primary, start: 10, end: 20)
         let latin = KaraokeSweepPolicy.sweepLine(
             LyricLine(id: "a", timestamp: 10, text: "hello big world"),
-            window: window
+            window: inferredWindow
         )
         let syllables = try #require(latin.syllables)
         #expect(syllables.map(\.text) == ["hello ", "big ", "world"])
         #expect(syllables.map(\.text).joined() == "hello big world")
         #expect(syllables.first?.start == 10)
-        #expect(abs((syllables.last?.end ?? 0) - 19.2) < 1e-9)
+        // A 3-word inferred line before a 10-second gap caps its singing span instead of crawling to 19.2 s.
+        #expect((syllables.last?.end ?? 0) > 12.0 && (syllables.last?.end ?? 0) < 16.0)
         #expect(syllables.allSatisfy { $0.endTiming == .inferred })
+
+        let explicitWindow = KaraokeLineWindow(
+            lineIndex: 0, lineID: "e", voice: .primary, start: 10, end: 14, hasExplicitEnd: true
+        )
+        let explicit = KaraokeSweepPolicy.sweepLine(
+            LyricLine(id: "e", timestamp: 10, text: "hello big world", endTimestamp: 14),
+            window: explicitWindow
+        )
+        #expect(abs((explicit.syllables?.last?.end ?? 0) - 13.84) < 1e-6)
 
         let cjk = KaraokeSweepPolicy.sweepLine(
             LyricLine(id: "b", timestamp: 10, text: "你好 世界"),
-            window: window
+            window: inferredWindow
         )
         #expect(cjk.syllables?.map(\.text) == ["你", "好 ", "世", "界"])
 
         let timed = LyricLine(id: "c", timestamp: 10, text: "x", syllables: [
             LyricSyllable(text: "x", start: 10, end: 11),
         ])
-        #expect(KaraokeSweepPolicy.sweepLine(timed, window: window) == timed)
+        #expect(KaraokeSweepPolicy.sweepLine(timed, window: inferredWindow) == timed)
     }
 
     @Test("Duet gate keeps the partner's vocal and removes the user's")

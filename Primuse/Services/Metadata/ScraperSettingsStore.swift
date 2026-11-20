@@ -7,22 +7,26 @@ struct ScraperSettings: Codable, Sendable {
 
     var sources: [ScraperSourceConfig]
     var onlyFillMissingFields: Bool
+    var fieldRules: ScrapeFieldRules
     /// 本地/网盘等普通源确实没有歌词时，播放时自动按启用顺序向在线歌词源取一次。
     var autoFetchOnlineLyrics: Bool
 
     init(
         sources: [ScraperSourceConfig]? = nil,
         onlyFillMissingFields: Bool = true,
-        autoFetchOnlineLyrics: Bool = true
+        autoFetchOnlineLyrics: Bool = true,
+        fieldRules: ScrapeFieldRules = .init()
     ) {
         self.sources = sources ?? ScraperSourceConfig.defaultSources()
         self.onlyFillMissingFields = onlyFillMissingFields
+        self.fieldRules = fieldRules
         self.autoFetchOnlineLyrics = autoFetchOnlineLyrics
     }
 
     private enum CodingKeys: String, CodingKey {
         case sources
         case onlyFillMissingFields
+        case fieldRules
         case autoFetchOnlineLyrics
     }
 
@@ -31,6 +35,7 @@ struct ScraperSettings: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.sources = try container.decode([ScraperSourceConfig].self, forKey: .sources)
         self.onlyFillMissingFields = try container.decode(Bool.self, forKey: .onlyFillMissingFields)
+        self.fieldRules = try container.decodeIfPresent(ScrapeFieldRules.self, forKey: .fieldRules) ?? .init()
         self.autoFetchOnlineLyrics = try container.decodeIfPresent(Bool.self, forKey: .autoFetchOnlineLyrics) ?? true
     }
 
@@ -38,6 +43,7 @@ struct ScraperSettings: Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(sources, forKey: .sources)
         try container.encode(onlyFillMissingFields, forKey: .onlyFillMissingFields)
+        try container.encode(fieldRules, forKey: .fieldRules)
         try container.encode(autoFetchOnlineLyrics, forKey: .autoFetchOnlineLyrics)
     }
 
@@ -154,23 +160,52 @@ struct ScraperSettings: Codable, Sendable {
         sources.filter(\.isEnabled).sorted { $0.priority < $1.priority }
     }
 
-    var builtInMotionArtworkEndpoints: [MotionArtworkEndpoint] {
+    func request(for song: Song, parts: ScrapeParts = .all, force: Bool = false,
+                 fillOnly: Bool = false, titleIsPlaceholder: Bool = false, checkingAssetCache: Bool = true) -> ScrapeFieldRequest {
+        var result = fieldRules.request(parts: parts, overwriteByDefault: force || !onlyFillMissingFields, fillOnly: fillOnly)
+            .needed(for: song.scrapeFields, hasCover: song.coverArtFileName?.isEmpty == false,
+                    hasLyrics: song.lyricsFileName?.isEmpty == false, titleIsPlaceholder: titleIsPlaceholder)
+        if checkingAssetCache {
+            let assets = MetadataAssetStore.shared
+            if result.fields.contains(.cover), !result.overwrites.contains(.cover),
+               assets.hasReadableCoverFile(named: assets.expectedCoverFileName(for: song.id)) { result.fields.remove(.cover) }
+            if result.fields.contains(.lyrics), !result.overwrites.contains(.lyrics),
+               assets.hasCachedLyricsFile(forSongID: song.id) { result.fields.remove(.lyrics) }
+        }
+        return result
+    }
+
+    func orderedSources(for field: ScrapeField) -> [ScraperSourceConfig] {
+        var ordered = enabledSources
+        if let preferred = fieldRules[field].preferredSource,
+           let index = ordered.firstIndex(where: { $0.type.rawValue == preferred }) {
+            let first = ordered.remove(at: index)
+            ordered.insert(first, at: 0)
+        }
+        return ordered
+    }
+
+    var configuredMotionArtworkEndpoints: [MotionArtworkEndpoint] {
         sources.sorted { $0.priority < $1.priority }.compactMap { source in
-            guard source.type.isBuiltIn, case .custom(let id) = source.type,
+            guard case .custom(let id) = source.type,
                   let config = ScraperConfigStore.shared.config(for: id),
-                  let endpoint = config.dynamicCover else { return nil }
-            return MotionArtworkEndpoint(id: "builtin-" + id, name: config.name,
+                  config.isDeleted != true, let endpoint = config.dynamicCover else { return nil }
+            return MotionArtworkEndpoint(id: (source.type.isBuiltIn ? "builtin-" : "scraper:") + id, name: config.name,
                 url: endpoint.url, isEnabled: source.isEnabled, scraperID: id)
         }
     }
 
     /// 刮削入口放行时数的源：默认开着的 AMLL 只在只找歌词的请求里算。
     func gateSourceCount(for parts: ScrapeParts) -> Int {
-        ScraperSourceGatePolicy.usableSourceCount(
+        let allowed = fieldRules.request(parts: parts, overwriteByDefault: false).fields
+            .reduce(into: ScrapeParts()) { $0.formUnion($1.part) }
+        return ScraperSourceGatePolicy.usableSourceCount(
             enabledSourcesOnByDefault: enabledSources.filter {
-                $0.type.supportsMetadata || $0.type.supportsCover || $0.type.supportsLyrics
+                (allowed.contains(.metadata) && $0.type.supportsMetadata)
+                    || (allowed.contains(.cover) && $0.type.supportsCover)
+                    || (allowed.contains(.lyrics) && $0.type.supportsLyrics)
             }.map(\.type.isEnabledByDefault),
-            for: parts
+            for: allowed
         )
     }
 
@@ -283,6 +318,7 @@ final class ScraperSettingsStore {
     /// 行里不带 Cookie（加载时已搬进钥匙串），界面判断有没有 Cookie 看 `cookieSourceIDs`。
     var sources: [ScraperSourceConfig] { didSet { persist() } }
     var onlyFillMissingFields: Bool { didSet { persist() } }
+    var fieldRules: ScrapeFieldRules { didSet { persist() } }
     var autoFetchOnlineLyrics: Bool { didSet { persist() } }
     /// 钥匙串里存着 Cookie 的源（按行 id）。Cookie 改动不经 `sources`，界面靠这个集合刷新。
     private(set) var cookieSourceIDs: Set<String> = []
@@ -296,6 +332,7 @@ final class ScraperSettingsStore {
         let settings = ScraperSettings.loadPersistingReconciliation(defaults: defaults)
         self.sources = settings.sources.sorted { $0.priority < $1.priority }
         self.onlyFillMissingFields = settings.onlyFillMissingFields
+        self.fieldRules = settings.fieldRules
         self.autoFetchOnlineLyrics = settings.autoFetchOnlineLyrics
         self.cookieSourceIDs = Self.sourceIDsWithCookie(in: self.sources)
 
@@ -313,6 +350,7 @@ final class ScraperSettingsStore {
         defer { suppressPersist = false }
         sources = settings.sources.sorted { $0.priority < $1.priority }
         onlyFillMissingFields = settings.onlyFillMissingFields
+        fieldRules = settings.fieldRules
         autoFetchOnlineLyrics = settings.autoFetchOnlineLyrics
         cookieSourceIDs = Self.sourceIDsWithCookie(in: sources)
     }
@@ -353,22 +391,30 @@ final class ScraperSettingsStore {
 
     /// 同 `ScraperSettings.gateSourceCount(for:)`，UI 读这一份以便开关变化时刷新。
     func gateSourceCount(for parts: ScrapeParts) -> Int {
-        ScraperSourceGatePolicy.usableSourceCount(
-            enabledSourcesOnByDefault: enabledSources.filter {
-                $0.type.supportsMetadata || $0.type.supportsCover || $0.type.supportsLyrics
-            }.map(\.type.isEnabledByDefault),
-            for: parts
-        )
+        snapshot().gateSourceCount(for: parts)
+    }
+
+    func isSourceEnabled(_ source: ScraperSourceConfig) -> Bool {
+        guard source.type.supportsDynamicCover, !source.type.supportsMetadata,
+              !source.type.supportsCover, !source.type.supportsLyrics else { return source.isEnabled }
+        guard source.isEnabled, AnimatedArtworkPreferences.motionSourcesAreEnabled(in: defaults) else { return false }
+        guard case .custom(let configID) = source.type else { return true }
+        let saved = MotionArtworkEndpointList(data: defaults.data(forKey: PlayerAppearancePreferences.motionArtworkEndpointsKey))
+        return !saved.endpoints.contains { $0.scraperID == configID && !$0.isEnabled }
     }
 
     func toggleSource(id: String) {
+        guard let source = sources.first(where: { $0.id == id }) else { return }
+        setSourceEnabled(!isSourceEnabled(source), id: id)
+    }
+
+    func setSourceEnabled(_ enabled: Bool, id: String) {
         guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
-        sources[index].isEnabled.toggle()
-        if sources[index].isEnabled, sources[index].type.isBuiltIn, sources[index].type.supportsDynamicCover {
-            defaults.set(true, forKey: PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
-            defaults.set(MotionArtworkServiceSource.custom.rawValue,
-                forKey: PlayerAppearancePreferences.motionArtworkServiceSourceKey)
+        let type = sources[index].type
+        if case .custom(let configID) = type, type.supportsDynamicCover {
+            AnimatedArtworkPreferences.setEndpointEnabled(enabled, id: id, scraperID: configID, in: defaults)
         }
+        sources[index].isEnabled = enabled
     }
 
     func reorderSources(fromOffsets: IndexSet, toOffset: Int) {
@@ -454,6 +500,7 @@ final class ScraperSettingsStore {
         for i in defaults.indices { defaults[i].priority = i }
         sources = defaults
         onlyFillMissingFields = true
+        fieldRules = .init()
         autoFetchOnlineLyrics = true
     }
 
@@ -461,7 +508,8 @@ final class ScraperSettingsStore {
         ScraperSettings(
             sources: sources,
             onlyFillMissingFields: onlyFillMissingFields,
-            autoFetchOnlineLyrics: autoFetchOnlineLyrics
+            autoFetchOnlineLyrics: autoFetchOnlineLyrics,
+            fieldRules: fieldRules
         )
     }
 

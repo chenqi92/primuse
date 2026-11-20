@@ -547,23 +547,24 @@ struct ImmersiveKineticAccentTests {
     }
 
     @Test func lineTimedWordsFollowTheHeardOnsets() {
-        // 逐行歌词按字数摊开：十个字、每 0.3 秒一个，句尾 13 秒。
+        // 逐行歌词经统一韵律切分：十个字在 3.5 秒窗口内单调展开。
         let even = Lyrics.tokens(text: "一二三四五六七八九十", syllables: nil, lineStart: 10, lineEnd: 10 + 3.0 / 0.85)
         #expect(even.count == 10)
         let end = even.map(\.end).max()!
+        let step = even[1].start - even[0].start
         // 先唱得快（0.15 秒一个），后面拖长：字跟着起音的快慢走。
-        let onsets: [TimeInterval] = [10.15, 10.3, 10.45, 10.6, 11.5, 12.4]
+        let onsets: [TimeInterval] = [10.15, 10.35, 10.50, 10.65, 11.5, 12.4]
         let timed = Lyrics.rhythmTokens(even, onsets: onsets)
         #expect(timed[0].start == 10)
         #expect(abs(timed[1].start - 10.15) < 1e-9)
-        #expect(abs(timed[2].start - 10.3) < 1e-9)
-        // 不比按字数摊开的时刻早一个字以上：第四个字的起音（10.45）太早，等到第三个字的时刻。
+        #expect(abs(timed[2].start - 10.35) < 1e-9)
+        // 不比按韵律摊开的时刻早一个字以上：第四个字的起音（10.50）太早，等到第三个字的时刻。
         #expect(abs(timed[3].start - even[2].start) < 1e-9)
         // 起音隔得久时字照样往下走（最晚拖一个半字），整句仍在句尾前唱完。
         for index in timed.indices.dropFirst() {
             #expect(timed[index].start >= timed[index - 1].start + Lyrics.rhythmMinimumGap - 1e-9)
             #expect(timed[index].start >= even[index - 1].start - 1e-9)
-            #expect(timed[index].start <= max(even[index].start + 0.3 * Lyrics.rhythmLag, timed[index - 1].start + Lyrics.rhythmMinimumGap) + 1e-9)
+            #expect(timed[index].start <= max(even[index].start + step * Lyrics.rhythmLag + 0.05, timed[index - 1].start + Lyrics.rhythmMinimumGap) + 1e-9)
         }
         #expect(timed.last!.start <= end - Lyrics.rhythmMinimumGap + 1e-9)
         // 退场时刻不变（最后一个字的句尾）。

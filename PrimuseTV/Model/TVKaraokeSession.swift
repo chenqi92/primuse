@@ -122,6 +122,7 @@ final class TVKaraokeSession {
     @ObservationIgnored private var wordTimingTask: Task<Void, Never>?
     @ObservationIgnored private var wordTimingGeneration = UUID()
     @ObservationIgnored private var vocalOnsets: [KaraokeOnset]?
+    @ObservationIgnored private var appliedWordOverlay: WordLyricsTimingOverlay?
     @ObservationIgnored private var vocalAssist = KaraokeVocalAssistPolicy()
     @ObservationIgnored private var lastMicReading: Date?
     @ObservationIgnored private var loopJumpIssuedAt: Date?
@@ -233,6 +234,7 @@ final class TVKaraokeSession {
         }
         followLoop()
         applySettings()
+        updateUnifiedWordTiming()
         let nextMono = store.engine.karaokeProcessor.isEffectivelyMono
         if isEffectivelyMono != nextMono {
             isEffectivelyMono = nextMono
@@ -285,6 +287,7 @@ final class TVKaraokeSession {
             if !carrying {
                 cancelWordTiming()
                 vocalOnsets = nil
+                appliedWordOverlay = nil
                 pairedOriginal = nil
                 instrumentalCompanion = nil
                 lyricsBorrowedFromTitle = nil
@@ -370,7 +373,30 @@ final class TVKaraokeSession {
     }
 
     private func buildStageLines() {
-        stageLyrics = KaraokeLyricsSnapshot(lines: lyrics, onsets: vocalOnsets)
+        stageLyrics = KaraokeLyricsSnapshot(lines: lyrics, onsets: vocalOnsets, overlay: appliedWordOverlay)
+    }
+
+    /// Consumes the unified `WordLyricsAlignmentService` overlay on Apple TV
+    /// (shared with TV Now Playing and TV Immersive views).
+    private func updateUnifiedWordTiming() {
+        let source = isPlayingInstrumental ? pairedOriginal : currentSong
+        guard let source,
+              !lyrics.isEmpty,
+              lyrics.contains(where: { $0.isSynchronized && !$0.isWordLevel }) else { return }
+        let service = WordLyricsAlignmentService.shared
+        let overlay = service.overlay(for: source, lines: lyrics)
+        if overlay != appliedWordOverlay {
+            appliedWordOverlay = overlay
+            buildStageLines()
+        }
+        let localURL = store.engine.replayGainFileURL
+        service.alignIfNeeded(
+            song: source,
+            lines: lyrics,
+            playbackTime: store.interpolatedTime()
+        ) {
+            localURL.map { KaraokeAudioFile(url: $0) }
+        }
     }
 
     private func cancelWordTiming() {

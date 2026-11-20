@@ -2592,6 +2592,16 @@
 "onboarding_welcome_title" = "เพลงของคุณ เซิร์ฟเวอร์ของคุณ";
 "online" = "ออนไลน์";
 "only_fill_missing" = "เติมเฉพาะฟิลด์ที่ขาดหายไป";
+"scrape_review_keep" = "เก็บค่าปัจจุบัน";
+"scrape_review_previous" = "ตัวเลือกก่อนหน้า";
+"scrape_review_next" = "ตัวเลือกถัดไป";
+"scrape_field_rules" = "กฎการดึงข้อมูลเมตา";
+"tv_scrape_album_rules_format" = "ใช้กฎการดึงข้อมูลกับเพลง %d เพลงในอัลบั้มนี้";
+"scrape_rule_fill" = "เติมเฉพาะช่องว่าง";
+"scrape_rule_overwrite" = "เขียนทับ";
+"scrape_preferred_source" = "แหล่งข้อมูลที่ต้องการ";
+"scrape_source_order" = "ลำดับแหล่งข้อมูล";
+"scrape_rules_all_fields" = "ตั้งค่าทุกช่อง";
 "open" = "เปิด";
 "open_folder" = "เปิดโฟลเดอร์";
 "open_keychain_settings" = "เปิดการตั้งค่าพวงกุญแจ";
@@ -7195,6 +7205,8 @@
 
 "player_simulated_word_lyrics" = "จำลองเนื้อเพลงทีละคำ";
 "lyrics_simulated_word_badge" = "จังหวะจำลอง";
+"word_alignment_model_title" = "โมเดลจัดตำแหน่งความแม่นยำสูง";
+"word_alignment_model_remove_confirm" = "ลบโมเดลจัดตำแหน่งความแม่นยำสูงหรือไม่?";
 
 "explore_word_lyrics" = "ค้นหาเนื้อเพลงที่ซิงค์รายคำ";
 "explore_word_lyrics_footer" = "ปิดไว้ตามค่าเริ่มต้น เมื่อเปิด ระหว่างเล่นจะค้นหาเนื้อเพลงที่ซิงค์รายคำจากแหล่งเนื้อเพลงที่เปิดใช้งานโดยอัตโนมัติ และเลือกแสดงเนื้อเพลงที่พบก่อนเนื้อเพลงทั่วไปที่มีอยู่ ฟังก์ชันนี้แยกจาก “ดึงเนื้อเพลงออนไลน์อัตโนมัติเมื่อไม่พบ” หากต้องการหยุดการค้นหาเนื้อเพลงที่ซิงค์รายคำโดยอัตโนมัติ ให้ปิดตัวเลือกนี้";

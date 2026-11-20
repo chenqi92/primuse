@@ -303,6 +303,13 @@ struct TVImmersivePlayerView: View {
             enabled: simulatesWordLyrics,
             isSpokenWord: store.currentItemIsSpokenWord
         )
+        let needsAlignment = (simulatesWordLyrics && !simulatedWordWindows.isEmpty)
+            || (presentationEffect == .kineticLyrics && !store.currentItemIsSpokenWord)
+        TVSimulatedWordLyrics.alignIfNeeded(
+            for: store,
+            lines: store.lyrics,
+            enabled: needsAlignment
+        )
     }
 
     private var showsSimulatedWordTiming: Bool {
@@ -484,6 +491,9 @@ struct TVImmersivePlayerView: View {
         .onChange(of: store.lyricsRevision, initial: true) { _, _ in refreshSimulatedWordWindows() }
         .onChange(of: simulatesWordLyrics) { _, _ in refreshSimulatedWordWindows() }
         .onChange(of: store.currentItemIsSpokenWord) { _, _ in refreshSimulatedWordWindows() }
+        .onChange(of: effectRawValue) { _, _ in refreshSimulatedWordWindows() }
+        .onChange(of: WordLyricsAlignmentService.shared.alignmentRevision) { _, _ in refreshSimulatedWordWindows() }
+        .onChange(of: WordLyricsAlignmentService.shared.modelRevision) { _, _ in refreshSimulatedWordWindows() }
         .onAppear {
             FullscreenPlayerEffectSync.shared.install()
             presentationActivity.handle(.appeared)
@@ -1208,11 +1218,19 @@ struct TVImmersivePlayerView: View {
         let lower = max(0, index - 1)
         let upper = min(store.lyrics.count, index + 4)
         let romanization = TVLyricsRomanizationController.shared
+        let wantsOverlay = showsSimulatedWordTiming
+            || (presentationEffect == .kineticLyrics && !store.currentItemIsSpokenWord)
+        if wantsOverlay { _ = WordLyricsAlignmentService.shared.alignmentRevision }
+        let alignmentOverlay = wantsOverlay
+            ? TVSimulatedWordLyrics.overlay(for: store, lines: store.lyrics)
+            : nil
         return (lower..<upper).compactMap { position in
             // 按「罗马音显示」换过正文或附属罗马音；时间仍按原来那一行。
             let source = romanization.displayLine(store.lyrics[position], songID: store.currentSongID)
             let line = TVSimulatedWordLyrics.displayLine(
-                source, window: showsSimulatedWordTiming ? simulatedWordWindows[source.id] : nil
+                source,
+                window: showsSimulatedWordTiming ? simulatedWordWindows[source.id] : nil,
+                overlay: alignmentOverlay
             )
             let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }

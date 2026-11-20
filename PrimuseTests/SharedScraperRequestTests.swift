@@ -401,11 +401,33 @@ final class SharedScraperRequestTests: XCTestCase {
         loaded.sources[motionIndex].isEnabled = false
         loaded.save(defaults: defaults)
         XCTAssertEqual(ScraperSettings.load(defaults: defaults).sources.filter { $0.type == .custom("m8tec") }.count, 1)
-        XCTAssertEqual(ScraperSettings.load(defaults: defaults).builtInMotionArtworkEndpoints.first?.isEnabled, false)
+        XCTAssertEqual(ScraperSettings.load(defaults: defaults).configuredMotionArtworkEndpoints.first?.isEnabled, false)
 
         defaults.removeObject(forKey: ScraperSettings.defaultsKey)
         defaults.set(try JSONEncoder().encode(saved), forKey: "primuse_scraper_settings_v2")
-        XCTAssertEqual(ScraperSettings.load(defaults: defaults).builtInMotionArtworkEndpoints.first?.isEnabled, true)
+        XCTAssertEqual(ScraperSettings.load(defaults: defaults).configuredMotionArtworkEndpoints.first?.isEnabled, true)
+    }
+
+    @MainActor
+    func testEnablingOneMotionSourceFromDisabledServiceKeepsTheOthersOff() throws {
+        let suite = "motion-selected-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var list = MotionArtworkEndpointList()
+        let first = try list.add(name: "First", url: "https://first.example/motion").get()
+        _ = try list.add(name: "Second", url: "https://second.example/motion").get()
+        defaults.set(list.encodedData(), forKey: PlayerAppearancePreferences.motionArtworkEndpointsKey)
+        defaults.set(false, forKey: PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
+        let store = ScraperSettingsStore(defaults: defaults)
+        let preferences = AnimatedArtworkPreferences(defaults: defaults)
+        let source = try XCTUnwrap(store.sources.first { $0.type == .custom("m8tec") })
+        preferences.setStandaloneEndpoint(first.id, enabled: true)
+        XCTAssertEqual(preferences.activeMotionArtworkEndpoints.map(\.id), [first.id])
+        XCTAssertFalse(store.isSourceEnabled(source))
+        store.toggleSource(id: source.id)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+        XCTAssertTrue(store.isSourceEnabled(source))
+        XCTAssertEqual(preferences.activeMotionArtworkEndpoints.map(\.scraperID), ["m8tec", nil])
     }
 
     @MainActor
@@ -436,7 +458,7 @@ final class SharedScraperRequestTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(false, forKey: PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
         let preferences = AnimatedArtworkPreferences(defaults: defaults)
-        XCTAssertEqual(preferences.builtInMotionArtworkEndpoints.first?.isEnabled, true)
+        XCTAssertEqual(preferences.configuredMotionArtworkEndpoints.first?.isEnabled, true)
         XCTAssertFalse(preferences.isMotionArtworkServiceOn)
         XCTAssertTrue(preferences.activeMotionArtworkEndpoints.isEmpty)
     }
@@ -1296,7 +1318,7 @@ final class SharedScraperRequestTests: XCTestCase {
         let fixture = ScraperHTTPFixture { request in
             switch request.url?.path {
             case "/api/get":
-                return .init(body: Data(#"{"syncedLyrics":"[00:10.00]Hello\n[03:10.00]World"}"#.utf8))
+                return .init(body: Data(#"{"syncedLyrics":"[00:10.00]Paper towers\n[03:10.00]Meet the quay","plainLyrics":"Paper towers\nMeet the quay"}"#.utf8))
             case "/v1/lyrics/search":
                 return .init(body: SharedScraperRequestTests.amllSearchBody([(7, "Song", "Artist")]))
             case "/v1/lyrics/get":
@@ -1313,15 +1335,38 @@ final class SharedScraperRequestTests: XCTestCase {
             return lrclib
         })
         // LRCLIB 排在前面、只给逐行：再问后面的 AMLL，拿到逐字就用逐字。
+        var settings = ScraperSettings(sources: [
+            .init(id: "lrclib", type: .lrclib, isEnabled: true, priority: 0),
+            .init(id: "amll", type: .amll, isEnabled: true, priority: 1)
+        ])
+        let needs = ScraperManager.ScrapeNeeds(metadata: false, cover: false, lyrics: true)
         let result = await manager.scrapeMetadata(title: "Song", artist: "Artist", album: nil, duration: 269,
-            needs: .init(metadata: false, cover: false, lyrics: true), settings: .init(sources: [
-                .init(id: "lrclib", type: .lrclib, isEnabled: true, priority: 0),
-                .init(id: "amll", type: .amll, isEnabled: true, priority: 1)
-            ]))
+                                                  needs: needs, settings: settings)
         XCTAssertEqual(result.lyrics?.count, 2)
         XCTAssertTrue(result.lyrics?.allSatisfy(\.isWordLevel) ?? false)
         XCTAssertTrue(result.errors.isEmpty)
         XCTAssertEqual(fixture.requests.map(\.url?.path), ["/api/get", "/v1/lyrics/search", "/v1/lyrics/get"])
+        settings.fieldRules[.lyrics].preferredSource = MusicScraperType.lrclib.rawValue
+        let preferred = await manager.scrapeMetadata(title: "Song", artist: "Artist", album: nil, duration: 269,
+                                                     needs: needs, settings: settings, collectingReview: true)
+        XCTAssertEqual(preferred.lyrics?.count, 2)
+        XCTAssertFalse(preferred.lyrics?.first?.isWordLevel ?? true)
+        let options = preferred.review.options[.lyrics] ?? []
+        XCTAssertEqual(options.count, 3)
+        XCTAssertEqual(preferred.review.recommended[.lyrics], options.first?.id)
+        let variants = options.compactMap { option -> ScrapeReviewLyrics? in
+            if case .lyrics(let value) = option.value { return value }
+            return nil
+        }
+        XCTAssertEqual(variants.map(\.summary.isWordLevel), [false, false, true])
+        XCTAssertEqual(variants.map(\.summary.isSynchronized), [true, false, true])
+        XCTAssertEqual(variants.map(\.format), ["LRC", nil, "TTML"])
+        settings.fieldRules[.lyrics].mode = .skip
+        let requestCount = fixture.requests.count
+        let skipped = await manager.scrapeMetadata(title: "Song", artist: "Artist", album: nil, duration: 269,
+                                                   needs: needs, settings: settings)
+        XCTAssertNil(skipped.lyrics)
+        XCTAssertEqual(requestCount, fixture.requests.count)
     }
 
     func testTimingPickAsksTwoMoreSourcesAndKeepsWhatItHas() async {
@@ -2260,6 +2305,169 @@ private struct CoverResourceProbe: MusicScraper {
     func getDetail(externalId: String) async throws -> ScraperDetail? { nil }
     func getCoverArt(externalId: String) async throws -> [ScraperCoverResult] {
         [ScraperCoverResult(source: .itunes, coverUrl: "https://images.test/front-500")]
+    }
+    func getLyrics(externalId: String) async throws -> ScraperLyricsResult? { nil }
+}
+
+final class ScrapeFieldAggregationTests: XCTestCase {
+    private let apple = ScraperSourceConfig(id: "apple", type: .itunes, isEnabled: true, priority: 0)
+    private let brainz = ScraperSourceConfig(id: "brainz", type: .musicBrainz, isEnabled: true, priority: 1)
+
+    private func detail(_ source: MusicScraperType, album: String = "Paper Roads") -> ScraperDetail {
+        .init(externalId: "track", source: source, title: "Copper Sky", artist: "North Quay",
+              album: album, durationMs: 180_000)
+    }
+
+    private func scrape(_ first: ScraperDetail, _ second: ScraperDetail, settings: ScraperSettings,
+                        fields: Set<ScrapeField>) async -> ScraperDetail? {
+        let manager = ScraperManager(scraperFactory: { source in
+            FieldDetailFixture(detail: source.type == first.source ? first : second)
+        })
+        return await manager.scrapeMetadata(
+            title: "Copper Sky", artist: "North Quay", album: "Paper Roads", duration: 180,
+            needs: .init(metadata: true, cover: false, lyrics: false, metadataFields: fields),
+            settings: settings
+        ).detail
+    }
+
+    func testPreferredFieldUsesSecondSourceAndFallsBackForMissingValues() async throws {
+        var first = detail(.itunes)
+        first.year = 2020
+        first.genres = ["Folk"]
+        var second = detail(.musicBrainz)
+        second.genres = ["Chamber folk"]
+        second.trackNumber = 8
+        var settings = ScraperSettings(sources: [apple, brainz])
+        settings.fieldRules[.genre].preferredSource = brainz.type.rawValue
+        settings.fieldRules[.year].preferredSource = brainz.type.rawValue
+        let result = await scrape(first, second, settings: settings, fields: [.genre, .track, .year])
+        XCTAssertEqual(result?.genres, ["Chamber folk"])
+        XCTAssertEqual(result?.year, 2020)
+        XCTAssertEqual(result?.trackNumber, 8)
+        let disabled = ScraperSettings(sources: [apple], fieldRules: settings.fieldRules)
+        let fallback = await scrape(first, second, settings: disabled, fields: [.genre])
+        XCTAssertEqual(fallback?.genres, ["Folk"])
+    }
+
+    func testReviewCollectsLaterSourcesAndRebasesOnlyExplicitFieldChoices() async throws {
+        var first = detail(.itunes)
+        first.genres = ["Harbor folk"]
+        first.year = 2016
+        var second = detail(.musicBrainz)
+        second.genres = ["Chamber folk"]
+        second.year = 2018
+        let fixtures = [first.source.rawValue: first, second.source.rawValue: second]
+        let manager = ScraperManager(scraperFactory: { FieldDetailFixture(detail: fixtures[$0.type.rawValue]!) })
+        var settings = ScraperSettings(sources: [apple, brainz], onlyFillMissingFields: false)
+        settings.fieldRules[.genre].preferredSource = brainz.type.rawValue
+        settings.fieldRules[.year].mode = .fillMissing
+        settings.fieldRules[.track].mode = .skip
+        let song = Song(id: "review-song", title: "Copper Sky", albumTitle: "Paper Roads", artistName: "North Quay",
+                        duration: 180, fileFormat: .flac, filePath: "song.flac", sourceID: "test", year: 2001)
+        let review = await manager.review(for: song, query: "Copper Sky North Quay", settings: settings, parts: .metadata)
+        let allowed = settings.reviewFields(for: song, parts: .metadata)
+        var draft = ScrapeReviewDraft(song: song, catalog: review, request: allowed, defaults: settings.request(for: song, parts: .metadata))
+        XCTAssertEqual(draft.choices(for: .genre).map(\.id), ["Chamber folk", "Harbor folk"])
+        XCTAssertEqual(draft.selected[.genre], "Chamber folk")
+        XCTAssertNil(draft.selected[.year])
+        XCTAssertFalse(draft.fields.contains(.track))
+        XCTAssertFalse(draft.isEdited)
+        draft.select("2018", for: .year)
+        draft.select("unavailable", for: .genre)
+        var latest = song
+        latest.title = "Edited during review"
+        XCTAssertEqual(draft.proposedTags(on: latest).title, latest.title)
+        XCTAssertEqual(draft.proposedTags(on: latest).genre, "Chamber folk")
+        XCTAssertEqual(draft.proposedTags(on: latest).year, 2018)
+        XCTAssertTrue(draft.isEdited)
+        draft.select(nil, for: .year)
+        XCTAssertFalse(draft.isEdited)
+        XCTAssertEqual(draft.proposedTags(on: latest).year, 2001)
+    }
+
+    func testReviewKeepsDistinctCoverChoicesAndDownloadsOnlyTheRecommendation() async throws {
+        var first = detail(.itunes)
+        var second = detail(.musicBrainz)
+        let fullCover = "https://art.example/front.png"
+        first.coverUrl = "https://art.example/thumbnail.png"
+        second.coverUrl = "https://art.example/alternate.png"
+        let fixtures = [first.source.rawValue: first, second.source.rawValue: second]
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNYu+MRAARdAkiYxAhaAAAAAElFTkSuQmCC"))
+        let requests = ReviewCoverRequests()
+        let manager = ScraperManager(scraperFactory: { config in
+            FieldDetailFixture(detail: fixtures[config.type.rawValue]!, coverURLs: config.type == .itunes ? [fullCover] : [])
+        }, imageDownloader: { url, _ in await requests.record(url); return png })
+        let result = await manager.scrapeMetadata(title: first.title, artist: first.artist, album: first.album, duration: 180,
+            needs: .init(metadata: true, cover: true, lyrics: false, metadataFields: [.album]),
+            settings: ScraperSettings(sources: [apple, brainz]), collectingReview: true)
+        let requested = await requests.urls
+        XCTAssertEqual(requested, [fullCover])
+        XCTAssertEqual(result.review.recommended[.cover], fullCover)
+        let choices = try XCTUnwrap(result.review.options[.cover])
+        XCTAssertEqual(choices.map(\.id), [fullCover, second.coverUrl!])
+        guard case .cover(let secondCover) = choices[1].value else { return XCTFail("Missing second artwork") }
+        XCTAssertNil(secondCover.data)
+        XCTAssertEqual(secondCover.config?.id, brainz.id)
+    }
+
+    func testDifferentReleaseCannotSupplyTrackAndWrongArtistCannotSupplyGenre() async throws {
+        let first = detail(.itunes)
+        var otherRelease = detail(.musicBrainz, album: "City Compilation")
+        otherRelease.trackNumber = 13
+        let settings = ScraperSettings(sources: [apple, brainz])
+        let result = await scrape(first, otherRelease, settings: settings, fields: [.track])
+        XCTAssertNil(result?.trackNumber)
+        var compilation = detail(.itunes, album: "City Compilation")
+        compilation.trackNumber = 12
+        compilation.coverUrl = "https://art.example/compilation.jpg"
+        let compilations = await scrape(compilation, otherRelease, settings: settings, fields: [.track, .album])
+        XCTAssertNil(compilations?.trackNumber)
+        XCTAssertNil(compilations?.album)
+        XCTAssertNil(compilations?.coverUrl)
+        var otherArtist = detail(.musicBrainz)
+        otherArtist.artist = "Harbor Quartet"
+        otherArtist.genres = ["Jazz"]
+        let differentSong = await scrape(first, otherArtist, settings: settings, fields: [.genre])
+        XCTAssertNil(differentSong?.genres)
+    }
+
+    func testLegacySettingsAndExplicitFillSurviveRefreshAndRoundTrip() throws {
+        var settings = ScraperSettings(sources: [apple, brainz], onlyFillMissingFields: false)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+        legacy.removeValue(forKey: "fieldRules")
+        settings = try JSONDecoder().decode(ScraperSettings.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertFalse(settings.onlyFillMissingFields)
+        settings.fieldRules[.title].mode = .skip
+        settings.fieldRules[.genre].mode = .fillMissing
+        settings.fieldRules[.year] = .init(mode: .overwrite, preferredSource: brainz.type.rawValue)
+        let loaded = try JSONDecoder().decode(ScraperSettings.self, from: JSONEncoder().encode(settings))
+        let song = Song(id: "a", title: "Copper Sky", fileFormat: .flac, filePath: "Copper Sky.flac",
+                        sourceID: "local", genre: "Folk", year: 2020)
+        let request = loaded.request(for: song, force: true)
+        XCTAssertFalse(request.fields.contains(.title))
+        XCTAssertFalse(request.fields.contains(.genre))
+        XCTAssertTrue(request.overwrites.contains(.year))
+        XCTAssertEqual(loaded.orderedSources(for: .year).map(\.id), ["brainz", "apple"])
+        XCTAssertFalse(loaded.request(for: song, force: true, fillOnly: true).fields.contains(.year))
+    }
+}
+
+private actor ReviewCoverRequests {
+    var urls: [String] = []
+    func record(_ url: String) { urls.append(url) }
+}
+
+private struct FieldDetailFixture: MusicScraper {
+    let detail: ScraperDetail
+    var coverURLs: [String] = []
+    var type: MusicScraperType { detail.source }
+    func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
+        .init(items: [.init(externalId: detail.externalId, source: type, title: detail.title, artist: detail.artist,
+                           album: detail.album, durationMs: detail.durationMs)], source: type)
+    }
+    func getDetail(externalId: String) async throws -> ScraperDetail? { detail }
+    func getCoverArt(externalId: String) async throws -> [ScraperCoverResult] {
+        coverURLs.map { ScraperCoverResult(source: type, coverUrl: $0) }
     }
     func getLyrics(externalId: String) async throws -> ScraperLyricsResult? { nil }
 }

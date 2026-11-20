@@ -658,6 +658,16 @@
 "scraper_sources_footer" = "Drag to reorder. Sources are tried from top to bottom until a match is found. For lyrics that aren’t word-synced, up to two more sources are checked for a finer version.";
 "scraper_options" = "Options";
 "only_fill_missing" = "Only Fill Missing Fields";
+"scrape_review_keep" = "Keep current";
+"scrape_review_previous" = "Previous option";
+"scrape_review_next" = "Next option";
+"scrape_field_rules" = "Scraping Rules";
+"tv_scrape_album_rules_format" = "Apply your scraping rules to the %d songs on this album.";
+"scrape_rule_fill" = "Fill missing";
+"scrape_rule_overwrite" = "Overwrite";
+"scrape_preferred_source" = "Preferred source";
+"scrape_source_order" = "Source order";
+"scrape_rules_all_fields" = "Set all fields";
 "reset_scraper_defaults" = "Reset to Defaults";
 "scrape_actions" = "Scrape Actions";
 "scrape_missing_metadata" = "Scrape Missing Metadata";
@@ -7050,6 +7060,8 @@
 
 "player_simulated_word_lyrics" = "Simulate Word-by-Word Lyrics";
 "lyrics_simulated_word_badge" = "Simulated Timing";
+"word_alignment_model_title" = "High-Accuracy Alignment Model";
+"word_alignment_model_remove_confirm" = "Remove High-Accuracy Alignment Model?";
 
 "explore_word_lyrics" = "Explore Word-Synced Lyrics";
 "explore_word_lyrics_footer" = "Off by default. When enabled, playback automatically searches enabled lyrics sources for word-synced lyrics and displays them in preference to existing regular lyrics. This is independent of “Fetch Lyrics Online When Missing”. To stop automatic word-synced lyrics searches, turn this option off.";

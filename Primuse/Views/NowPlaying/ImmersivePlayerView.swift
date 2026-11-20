@@ -378,6 +378,9 @@ struct ImmersivePlayerView: View {
             if !rotationMode.isEnabled { rotator.reset() }
         }
         .background {
+            Color.clear.task(id: kineticAlignmentKey) {
+                requestKineticWordAlignmentIfNeeded()
+            }
             ImmersiveLibraryCountObserver {
                 if isSceneActive { refreshGallerySongs() }
             }
@@ -1271,31 +1274,62 @@ struct ImmersivePlayerView: View {
         LyricPlaybackPositionPolicy.shouldFollowPlayback(in: lyrics)
     }
 
+    private var kineticAlignmentKey: String {
+        "\(player.currentSong?.id ?? "")|\(presentationEffect.rawValue)|\(lyrics.count)|\(WordLyricsAlignmentService.shared.modelRevision)"
+    }
+
+    private func requestKineticWordAlignmentIfNeeded() {
+        guard presentationEffect == .kineticLyrics,
+              !player.currentItemIsSpokenWord,
+              !lyrics.contains(where: \.containsWordLevelContent),
+              let song = player.currentSong else { return }
+        let capturedSourceManager = sourceManager
+        WordLyricsAlignmentService.shared.alignIfNeeded(
+            song: song,
+            lines: lyrics,
+            playbackTime: player.interpolatedTime()
+        ) {
+            await WordLyricsAlignmentService.localAudioFile(for: song, sourceManager: capturedSourceManager)
+        }
+    }
+
     private var lyricWindow: [ImmersiveStageLyric] {
         guard let index = activeLyricIndex,
               lyrics.indices.contains(index) else { return [] }
         let lower = max(0, index - 1)
         let upper = min(lyrics.count, index + 4)
+        // 动态歌词即使关闭「模拟逐字」也逐字动效，统一复用同一份高精度音频/CTC 对齐结果。
+        let kineticOverlay: WordLyricsTimingOverlay?
+        if presentationEffect == .kineticLyrics,
+           !player.currentItemIsSpokenWord,
+           !lyrics.contains(where: \.containsWordLevelContent) {
+            _ = WordLyricsAlignmentService.shared.alignmentRevision
+            kineticOverlay = WordLyricsAlignmentService.shared.overlay(for: player.currentSong, lines: lyrics)
+        } else {
+            kineticOverlay = nil
+        }
         return (lower..<upper).compactMap { position in
-            let text = lyrics[position].text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let line = lyrics[position]
+            let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
+            let resolvedSyllables = line.syllables ?? kineticOverlay?.syllables(for: line)
             return ImmersiveStageLyric(
                 id: position,
                 text: text,
                 isActive: position == index,
                 offset: position - index,
-                syllables: lyrics[position].syllables,
-                startTime: lyrics[position].isSynchronized ? lyrics[position].timestamp : nil,
+                syllables: resolvedSyllables,
+                startTime: line.isSynchronized ? line.timestamp : nil,
                 endTime: immersiveLineEnd(at: position),
                 writingDirection: LyricWritingDirectionPolicy.resolvePresentationDirection(
-                    for: lyrics[position],
+                    for: line,
                     documentFallback: lyricsWritingDirection
                 ),
                 background: ImmersiveStageBackgroundLyric.rows(
-                    for: lyrics[position],
+                    for: line,
                     documentFallback: lyricsWritingDirection
                 ),
-                companions: lyricCompanions(lyrics[position])
+                companions: lyricCompanions(line)
             )
         }
     }

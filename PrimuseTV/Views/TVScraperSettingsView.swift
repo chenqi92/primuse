@@ -11,6 +11,7 @@ struct TVScraperSettingsView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var showImport = false
+    @State private var showsRules = false
 
     private var settings: ScraperSettingsStore { store.scraperSettings }
 
@@ -42,6 +43,7 @@ struct TVScraperSettingsView: View {
         .tvFullScreenCover(isPresented: $showImport) {
             TVScraperImportView().environment(store)
         }
+        .tvFullScreenCover(isPresented: $showsRules) { ScrapeRulesEditor(settings: settings) }
         .onAppear {
             #if DEBUG
             // 截图:TV_SCREEN=settings 配 TV_SCRAPER_IMPORT=1 直接打开导入页。
@@ -81,15 +83,6 @@ struct TVScraperSettingsView: View {
                     set: { settings.autoFetchOnlineLyrics = $0 }
                 )
             )
-            TVAIDivider()
-            TVAIToggleRow(
-                icon: "square.and.pencil",
-                title: String(localized: "only_fill_missing"),
-                isOn: Binding(
-                    get: { settings.onlyFillMissingFields },
-                    set: { settings.onlyFillMissingFields = $0 }
-                )
-            )
         }
     }
 
@@ -97,10 +90,21 @@ struct TVScraperSettingsView: View {
 
     private var sourcesSection: some View {
         let sources = settings.sources
+        let artwork = AnimatedArtworkPreferences.shared
         return TVAISection(title: String(localized: "scraper_sources")) {
+            TVAIActionRow(icon: "slider.horizontal.3", title: String(localized: "scrape_field_rules")) {
+                showsRules = true
+            }
+            TVAIDivider()
             ForEach(Array(sources.enumerated()), id: \.element.id) { index, source in
                 if index > 0 { TVAIDivider() }
                 sourceRow(source, index: index, count: sources.count)
+            }
+            ForEach(artwork.standaloneMotionArtworkEndpoints) { endpoint in
+                TVAIDivider()
+                TVAIToggleRow(icon: "photo.on.rectangle.angled", title: endpoint.name,
+                              isOn: Binding(get: { endpoint.isEnabled && artwork.isMotionArtworkServiceOn },
+                                            set: { artwork.setStandaloneEndpoint(endpoint.id, enabled: $0) }))
             }
             TVAIDivider()
             TVAIActionRow(
@@ -112,7 +116,8 @@ struct TVScraperSettingsView: View {
     }
 
     private func sourceRow(_ source: ScraperSourceConfig, index: Int, count: Int) -> some View {
-        HStack(spacing: 10) {
+        let enabled = settings.isSourceEnabled(source)
+        return HStack(spacing: 10) {
             TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: { settings.toggleSource(id: source.id) }) { focused in
                 HStack(spacing: 18) {
                     Circle()
@@ -131,20 +136,20 @@ struct TVScraperSettingsView: View {
                     }
                     .layoutPriority(1)
                     Spacer(minLength: 12)
-                    ZStack(alignment: source.isEnabled ? .trailing : .leading) {
-                        Capsule().fill(source.isEnabled ? AnyShapeStyle(TVColor.brand)
+                    ZStack(alignment: enabled ? .trailing : .leading) {
+                        Capsule().fill(enabled ? AnyShapeStyle(TVColor.brand)
                                                         : AnyShapeStyle(TVColor.surfaceStrong))
                             .frame(width: 62, height: 34)
                         Circle().fill(.white).frame(width: 28, height: 28).padding(3)
                     }
-                    .animation(.easeOut(duration: 0.18), value: source.isEnabled)
+                    .animation(.easeOut(duration: 0.18), value: enabled)
                 }
                 .padding(.horizontal, 22).padding(.vertical, 16)
                 .frame(maxWidth: .infinity)
                 .background(focused ? TVColor.surfaceStrong : .clear)
             }
             .accessibilityLabel(Text(verbatim: source.displayName))
-            .accessibilityValue(Text(source.isEnabled
+            .accessibilityValue(Text(enabled
                 ? PMString("ext.tv.sources.status.enabled")
                 : PMString("ext.tv.sources.status.disabled")))
 

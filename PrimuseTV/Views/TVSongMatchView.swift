@@ -10,43 +10,20 @@ struct TVSongMatchTarget: Identifiable, Hashable {
 
 // MARK: - 单曲匹配
 
-/// Apple TV 的「匹配信息」:用遥控器键盘改搜索词,在启用的刮削源里搜候选,选一条看
-/// 预览,勾选标签 / 封面 / 歌词后应用。候选排序与详情合并和 iPhone 刮削页同一套规则;
-/// 结果只写这台 Apple TV,不写回音乐源。
 struct TVSongMatchView: View {
     let songID: String
 
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-
-    private enum SearchState: Equatable {
-        case idle
-        case searching
-        case finished
-        /// 一个能按关键词搜的刮削源都没启用。
-        case noSource
-    }
-
-    private enum Field: Hashable { case query }
-
     @State private var query = ""
-    @State private var candidates: [TVScrapeCandidate] = []
-    @State private var searchState: SearchState = .idle
+    @State private var draft: ScrapeReviewDraft?
+    @State private var images = ScrapeReviewImages()
+    @State private var isSearching = false
+    @State private var isSaving = false
     @State private var searchTask: Task<Void, Never>?
-    @State private var previewTask: Task<Void, Never>?
-    @State private var loadingCandidateID: String?
-    @State private var preview: TVScrapePreview?
-    @State private var previewImage: UIImage?
-    /// 勾选要应用的标签字段。CUE 分轨默认一项不勾(见 `ScrapeTagField.defaultSelection`)。
-    @State private var selectedTagFields: Set<ScrapeTagField> = []
-    @State private var applyCover = false
-    @State private var applyLyrics = false
-    @State private var isApplying = false
     @State private var notice: String?
-    @State private var didStart = false
-    @State private var debugOpensFirstCandidate = false
-    @State private var debugAppliesPreview = false
-    @FocusState private var focusedField: Field?
+    @State private var pendingDiscard: (() -> Void)?
+    @State private var showsDiscard = false
 
     private var song: Song? { store.library.song(id: songID) }
 
@@ -55,518 +32,110 @@ struct TVSongMatchView: View {
         ZStack {
             TVAmbientBackdrop(tint: colors.primary, tint2: colors.secondary, strength: 0.4)
             TVColor.bg.opacity(0.5).ignoresSafeArea()
-            card
-                .padding(.horizontal, 90)
-                .padding(.vertical, 50)
+            VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("tv_scrape_match_title").tvFont(.pageTitle)
+                        if let song {
+                            Text(verbatim: [song.title, song.artistName].compactMap { $0 }.joined(separator: " · "))
+                                .tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                        }
+                    }
+                    Spacer()
+                    TVPillButton(title: String(localized: "cancel"), systemImage: "xmark") { protect { dismiss() } }
+                    TVPillButton(title: String(localized: "save"), systemImage: "checkmark", style: .solid, action: save)
+                        .disabled(isSaving || isSearching || draft?.hasChanges != true)
+                }.focusSection()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 30) {
+                        HStack(spacing: 18) {
+                            TVTextFieldBox {
+                                TextField("search_query", text: $query).onSubmit { protect(search) }
+                            }
+                            TVPillButton(title: String(localized: "search_title"), systemImage: "magnifyingglass") { protect(search) }
+                                .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+                        }.focusSection()
+                        if isSearching { ProgressView("scrape_candidates_searching") }
+                        if let notice { Text(verbatim: notice).foregroundStyle(TVColor.textMuted) }
+                        if let binding = Binding($draft), let song {
+                            ScrapeFieldReviewView(draft: binding, images: images) {
+                                TVArtworkView(coverKey: song.albumID ?? song.id, artist: song.artistName ?? "",
+                                    album: song.albumTitle ?? "", songID: song.id, coverRef: song.coverArtFileName,
+                                    tint: TVColor.brand, tint2: TVColor.brandSecondary, glyph: "music.note", size: 190, radius: 10)
+                            }.disabled(isSearching)
+                        }
+                    }.padding(24)
+                }
+                Text("tv_scrape_local_only_note").tvFont(.caption).foregroundStyle(TVColor.textMuted)
+            }
+            .disabled(isSaving)
+            .padding(48)
+            .frame(maxWidth: 1320)
+            .tvPanel(radius: 26)
+            .padding(.vertical, 45)
         }
-        .onAppear(perform: start)
-        .onExitCommand(perform: handleExit)
-        .onDisappear {
-            searchTask?.cancel()
-            previewTask?.cancel()
+        .task {
+            guard let song, query.isEmpty else { return }
+            query = TVMetadataScrapeService.suggestedQuery(title: song.title, artist: song.artistName)
+            #if DEBUG
+            if let text = ProcessInfo.processInfo.environment["TV_SCRAPE_DEBUG_QUERY"], !text.isEmpty { query = text }
+            #endif
+            search()
+        }
+        .onDisappear { searchTask?.cancel() }
+        .onExitCommand { protect { dismiss() } }
+        .alert("lyrics_sources_discard_title", isPresented: $showsDiscard) {
+            Button("lyrics_editor_keep_editing", role: .cancel) { pendingDiscard = nil }
+            Button("lyrics_sources_discard", role: .destructive) {
+                let action = pendingDiscard
+                pendingDiscard = nil
+                action?()
+            }
         }
         .accessibilityIdentifier("tv.scrape.match")
     }
 
-    private var card: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            Rectangle().fill(TVColor.divider)
-                .frame(height: 1)
-                .padding(.top, 24).padding(.bottom, 26)
-
-            Group {
-                if let preview {
-                    previewContent(preview)
-                } else {
-                    searchContent
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
-
-            footer
-        }
-        .padding(.horizontal, 60).padding(.vertical, 46)
-        .frame(maxWidth: 1320, maxHeight: .infinity, alignment: .topLeading)
-        .tvPanel(radius: 26)
-    }
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: 24) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(String(localized: "tv_scrape_match_title"))
-                    .tvFont(.pageTitle)
-                    .foregroundStyle(TVColor.text)
-                Text(verbatim: songLine)
-                    .tvFont(.caption)
-                    .foregroundStyle(TVColor.textMuted)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-            TVPillButton(title: String(localized: "cancel"), systemImage: "xmark") { dismiss() }
-        }
-        .focusSection()
-    }
-
-    private var songLine: String {
-        guard let song else { return "" }
-        return [song.title, song.artistName, song.albumTitle]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
-    }
-
-    private var footer: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Image(systemName: notice == nil ? "appletv" : "exclamationmark.circle")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(notice == nil ? TVColor.textFaint : TVColor.warn)
-            Text(notice ?? String(localized: "tv_scrape_local_only_note"))
-                .tvFont(.caption)
-                .foregroundStyle(notice == nil ? TVColor.textFaint : TVColor.warn)
-                .lineLimit(2)
-        }
-        .padding(.top, 20)
-    }
-
-    // MARK: 搜索
-
-    private var searchContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            fieldLabel(String(localized: "search_query"), icon: "magnifyingglass", active: focusedField == .query)
-            HStack(spacing: 18) {
-                TVTextFieldBox {
-                    TextField("", text: $query)
-                        .focused($focusedField, equals: .query)
-                        .submitLabel(.search)
-                        .onSubmit(search)
-                        .accessibilityLabel(Text(String(localized: "search_query")))
-                }
-                TVPillButton(
-                    title: String(localized: "search_title"),
-                    systemImage: "magnifyingglass",
-                    style: .solid,
-                    action: search
-                )
-                .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            .focusSection()
-
-            searchResults
-                .padding(.top, 22)
-        }
-    }
-
-    @ViewBuilder
-    private var searchResults: some View {
-        switch searchState {
-        case .idle:
-            EmptyView()
-        case .searching:
-            HStack(spacing: 16) {
-                ProgressView()
-                Text(String(localized: "scrape_candidates_searching"))
-                    .tvFont(.caption)
-                    .foregroundStyle(TVColor.textMuted)
-            }
-            .padding(.top, 10)
-        case .noSource:
-            statusLine(
-                String(localized: "scraper_no_source_message"),
-                icon: "exclamationmark.triangle",
-                tint: TVColor.warn
-            )
-        case .finished where candidates.isEmpty:
-            statusLine(
-                String(localized: "scrape_candidates_empty") + " · " + String(localized: "no_scrape_results_desc"),
-                icon: "magnifyingglass"
-            )
-        case .finished:
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(candidates) { candidate in
-                        candidateRow(candidate)
-                    }
-                }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 8)
-            }
-            .focusSection()
-        }
-    }
-
-    private func candidateRow(_ candidate: TVScrapeCandidate) -> some View {
-        let isLoading = loadingCandidateID == candidate.id
-        let detail = detailText(for: candidate)
-        return TVFocusButton(radius: 16, scale: 1.01, lift: 0, action: { select(candidate) }) { focused in
-            HStack(spacing: 22) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(verbatim: candidate.item.title)
-                        .tvFont(.rowTitle)
-                        .foregroundStyle(TVColor.text)
-                        .lineLimit(1)
-                    Text(verbatim: detail.isEmpty ? " " : detail)
-                        .tvFont(.caption)
-                        .foregroundStyle(TVColor.textFaint)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 12)
-                ProgressView()
-                    .opacity(isLoading ? 1 : 0)
-                VStack(alignment: .trailing, spacing: 6) {
-                    if candidate.lyrics == nil {
-                        Text(verbatim: candidate.confidence.formatted(.percent.precision(.fractionLength(0))))
-                            .tvFont(.caption, weight: .semibold)
-                            .foregroundStyle(confidenceTint(candidate.confidence))
-                    }
-                    Text(verbatim: candidate.sourceName)
-                        .tvFont(.meta)
-                        .foregroundStyle(focused ? TVColor.text : TVColor.textMuted)
-                        .lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 22).padding(.vertical, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .accessibilityLabel(Text(verbatim: candidate.item.title))
-        .accessibilityValue(Text(verbatim: detail))
-    }
-
-    private func detailText(for candidate: TVScrapeCandidate) -> String {
-        var parts: [String] = []
-        if let artist = candidate.item.artist, !artist.isEmpty { parts.append(artist) }
-        if let album = candidate.item.album, !album.isEmpty { parts.append(album) }
-        if let year = candidate.item.year, year > 0 { parts.append(String(year)) }
-        if let ms = candidate.item.durationMs, ms > 0 { parts.append(TVFmt.time(Double(ms) / 1000)) }
-        if let lyrics = candidate.lyrics {
-            parts.append(String(format: String(localized: "lyrics_server_test_ok_format"), lyrics.count))
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private func confidenceTint(_ confidence: Double) -> Color {
-        if confidence >= 0.8 { return TVColor.ok }
-        if confidence >= 0.5 { return TVColor.text }
-        return TVColor.textFaint
-    }
-
-    // MARK: 预览
-
-    private func previewContent(_ preview: TVScrapePreview) -> some View {
-        VStack(alignment: .leading, spacing: 28) {
-            HStack(alignment: .top, spacing: 44) {
-                coverView
-                VStack(alignment: .leading, spacing: 4) {
-                    fieldRow(.title, String(localized: "title_label"), preview,
-                             preview.original.title, preview.proposed.title)
-                    fieldRow(.artist, String(localized: "artist_label"), preview,
-                             preview.original.artist, preview.proposed.artist)
-                    fieldRow(.album, String(localized: "album_label"), preview,
-                             preview.original.albumTitle, preview.proposed.albumTitle)
-                    fieldRow(.year, String(localized: "year_label"), preview,
-                             preview.original.year.map { String($0) }, preview.proposed.year.map { String($0) })
-                    fieldRow(.genre, String(localized: "genre_label"), preview,
-                             preview.original.genre, preview.proposed.genre)
-                    fieldRow(.track, String(localized: "track_label"), preview,
-                             preview.original.trackNumber.map { String($0) },
-                             preview.proposed.trackNumber.map { String($0) })
-                    fieldRow(.disc, String(localized: "disc_label"), preview,
-                             preview.original.discNumber.map { String($0) },
-                             preview.proposed.discNumber.map { String($0) })
-                    // 与上面各行对齐:行内边距 12 + 勾选图标 28 + 间距 18。
-                    lyricsSummary(preview.lyrics)
-                        .padding(.leading, 58)
-                        .padding(.top, 6)
-                }
-                .focusSection()
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            HStack(spacing: 18) {
-                optionToggle("photo", String(localized: "cover"),
-                             isOn: $applyCover, isAvailable: preview.coverData != nil)
-                optionToggle("text.quote", String(localized: "lyrics_word"),
-                             isOn: $applyLyrics, isAvailable: preview.lyrics?.isEmpty == false)
-            }
-            .focusSection()
-
-            HStack(spacing: 18) {
-                TVPillButton(
-                    title: String(localized: "apply_changes"),
-                    systemImage: "checkmark",
-                    style: .solid,
-                    action: apply
-                )
-                .disabled(isApplying || !(hasSelectedTagChange(preview) || applyCover || applyLyrics))
-                TVPillButton(
-                    title: String(localized: "back_to_results"),
-                    systemImage: "chevron.left",
-                    action: backToResults
-                )
-            }
-            .focusSection()
-        }
-    }
-
-    private var coverView: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(TVColor.surface)
-            if let previewImage {
-                Image(uiImage: previewImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                VStack(spacing: 12) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 52, weight: .regular))
-                        .foregroundStyle(TVColor.textGhost)
-                    Text(String(localized: "tv_scrape_no_cover"))
-                        .tvFont(.caption)
-                        .foregroundStyle(TVColor.textFaint)
-                }
-            }
-        }
-        .frame(width: 320, height: 320)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .accessibilityHidden(true)
-    }
-
-    /// 一项标签:有变化时整行可以按下勾选 / 取消,没变化时只显示现值。
-    @ViewBuilder
-    private func fieldRow(
-        _ field: ScrapeTagField,
-        _ label: String,
-        _ preview: TVScrapePreview,
-        _ current: String?,
-        _ proposed: String?
-    ) -> some View {
-        let changed = field.differs(preview.original, preview.proposed)
-        let selected = changed && selectedTagFields.contains(field)
-        if changed {
-            TVFocusButton(radius: 12, scale: 1.0, lift: 0, ring: false, action: {
-                if selectedTagFields.contains(field) {
-                    selectedTagFields.remove(field)
-                } else {
-                    selectedTagFields.insert(field)
-                }
-            }) { focused in
-                fieldRowContent(label, current, proposed, changed: true, selected: selected)
-                    .background(focused ? TVColor.surfaceStrong : .clear, in: .rect(cornerRadius: 12))
-            }
-            .accessibilityLabel(Text(verbatim: label))
-            .accessibilityValue(Text(verbatim: displayValue(proposed)))
-            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        } else {
-            fieldRowContent(label, current, proposed, changed: false, selected: false)
-        }
-    }
-
-    private func fieldRowContent(
-        _ label: String,
-        _ current: String?,
-        _ proposed: String?,
-        changed: Bool,
-        selected: Bool
-    ) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 18) {
-            // 没变化的行也留出勾选图标的位置,各行的字段名对齐。
-            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(selected ? TVColor.brand : TVColor.textFaint)
-                .opacity(changed ? 1 : 0)
-                .frame(width: 28)
-            Text(label)
-                .tvFont(.caption)
-                .foregroundStyle(TVColor.textFaint)
-                .frame(width: 150, alignment: .leading)
-            Text(verbatim: displayValue(current))
-                .tvFont(.body)
-                .foregroundStyle(changed ? TVColor.textMuted : TVColor.text)
-                .lineLimit(1)
-            if changed {
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(TVColor.textFaint)
-                Text(verbatim: displayValue(proposed))
-                    .tvFont(.body, weight: .semibold)
-                    .foregroundStyle(selected ? TVColor.brand : TVColor.textMuted)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func hasSelectedTagChange(_ preview: TVScrapePreview) -> Bool {
-        selectedTagFields.contains { $0.differs(preview.original, preview.proposed) }
-    }
-
-    private func lyricsSummary(_ lyrics: [LyricLine]?) -> some View {
-        let text: String
-        if let lyrics, !lyrics.isEmpty {
-            let lines = String(format: String(localized: "tv_scrape_lyrics_lines_format"), lyrics.count)
-            text = lyrics.contains(where: \.isWordLevel)
-                ? lines + String(localized: "scrape_word_level_suffix")
-                : lines
-        } else {
-            text = String(localized: "tv_scrape_no_lyrics")
-        }
-        return HStack(alignment: .firstTextBaseline, spacing: 18) {
-            Text(String(localized: "lyrics_word"))
-                .tvFont(.caption)
-                .foregroundStyle(TVColor.textFaint)
-                .frame(width: 150, alignment: .leading)
-            Text(verbatim: text)
-                .tvFont(.body)
-                .foregroundStyle(lyrics?.isEmpty == false ? TVColor.text : TVColor.textMuted)
-        }
-    }
-
-    private func optionToggle(
-        _ icon: String,
-        _ title: String,
-        isOn: Binding<Bool>,
-        isAvailable: Bool
-    ) -> some View {
-        TVSwitchRow(icon: icon, title: title, isOn: isOn, maxWidth: 380)
-            .disabled(!isAvailable)
-            .opacity(isAvailable ? 1 : 0.45)
-    }
-
-    private func displayValue(_ value: String?) -> String {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? String(localized: "scrape_value_empty") : trimmed
-    }
-
-    // MARK: 动作
-
-    private func start() {
-        guard !didStart, let song else { return }
-        didStart = true
-        query = TVMetadataScrapeService.suggestedQuery(title: song.title, artist: song.artistName)
-        #if DEBUG
-        // 截图 / 取证:演示曲库在线搜不到东西,可以换一个搜索词;要看预览页再让它自动选第一条。
-        let environment = ProcessInfo.processInfo.environment
-        if let debugQuery = environment["TV_SCRAPE_DEBUG_QUERY"], !debugQuery.isEmpty {
-            query = debugQuery
-        }
-        debugOpensFirstCandidate = environment["TV_SCRAPE_DEBUG_PREVIEW"] == "1"
-            || environment["TV_SCRAPE_DEBUG_PREVIEW"] == "apply"
-        debugAppliesPreview = environment["TV_SCRAPE_DEBUG_PREVIEW"] == "apply"
-        #endif
-        focusedField = .query
-        search()
+    private func protect(_ action: @escaping () -> Void) {
+        guard !isSaving else { return }
+        if draft?.isEdited == true { pendingDiscard = action; showsDiscard = true } else { action() }
     }
 
     private func search() {
-        guard let song else { return }
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard let song, !text.isEmpty, !isSaving else { return }
         searchTask?.cancel()
-        previewTask?.cancel()
-        loadingCandidateID = nil
+        let settings = ScraperSettings.load()
+        let request = settings.reviewFields(for: song, parts: .all)
+        guard !request.fields.isEmpty, store.scraperSettings.gateSourceCount(for: .all) > 0 else {
+            isSearching = false
+            notice = String(localized: "scraper_no_source_message")
+            return
+        }
+        isSearching = true
         notice = nil
-        searchState = .searching
-        let scraper = store.metadataScraper
         searchTask = Task { @MainActor in
-            let outcome = await scraper.searchCandidates(for: song, query: text)
+            let catalog = await store.metadataScraper.fieldReview(for: song, query: text, settings: settings)
             guard !Task.isCancelled else { return }
-            candidates = outcome.candidates
-            searchState = outcome.searchedSourceCount == 0 ? .noSource : .finished
-            if debugOpensFirstCandidate, let first = candidates.first {
-                debugOpensFirstCandidate = false
-                select(first)
-            }
+            isSearching = false
+            if catalog.options.isEmpty { notice = String(localized: "scrape_no_changes"); return }
+            draft = ScrapeReviewDraft(song: song, catalog: catalog, request: request, defaults: settings.request(for: song))
         }
     }
 
-    private func select(_ candidate: TVScrapeCandidate) {
-        guard loadingCandidateID == nil, let song else { return }
-        loadingCandidateID = candidate.id
+    private func save() {
+        guard let draft, draft.hasChanges, !isSaving else { return }
+        isSaving = true
         notice = nil
-        let scraper = store.metadataScraper
-        previewTask?.cancel()
-        previewTask = Task { @MainActor in
-            do {
-                let result = try await scraper.preview(candidate, for: song)
-                guard !Task.isCancelled else { return }
-                loadingCandidateID = nil
-                // 下载回来的不是能显示的图片(错误页、残缺文件)就当没有封面,也不能应用。
-                let image = result.coverData.flatMap(UIImage.init(data:))
-                previewImage = image
-                selectedTagFields = ScrapeTagField.defaultSelection(
-                    original: result.original,
-                    proposed: result.proposed,
-                    isCueTrack: song.isCueTrack
-                )
-                // CUE 分轨共用整张专辑的封面,单首换封面默认不勾。
-                applyCover = image != nil && !song.isCueTrack
-                applyLyrics = result.lyrics?.isEmpty == false
-                preview = image == nil ? result.droppingCover() : result
-                if debugAppliesPreview {
-                    debugAppliesPreview = false
-                    apply()
-                }
-            } catch {
-                guard !Task.isCancelled else { return }
-                loadingCandidateID = nil
-                notice = String(localized: "scrape_song_failed")
-            }
-        }
-    }
-
-    private func apply() {
-        guard let preview, !isApplying else { return }
-        isApplying = true
-        notice = nil
-        let scraper = store.metadataScraper
-        let (fields, cover, lyrics) = (selectedTagFields, applyCover, applyLyrics)
         Task { @MainActor in
-            let changed = await scraper.apply(preview, fields: fields, cover: cover, lyrics: lyrics)
-            isApplying = false
-            if changed {
-                dismiss()
-            } else {
-                notice = String(localized: "scrape_no_changes")
-            }
+            defer { isSaving = false }
+            do {
+                let data: Data?
+                if let cover = draft.cover { data = try await images.data(for: cover) } else { data = nil }
+                if await store.metadataScraper.apply(draft, coverData: data) {
+                    dismiss()
+                } else { notice = String(localized: "scrape_song_failed") }
+            } catch { notice = error.localizedDescription }
         }
-    }
-
-    private func backToResults() {
-        preview = nil
-        previewImage = nil
-        notice = nil
-    }
-
-    private func handleExit() {
-        if preview != nil {
-            backToResults()
-        } else {
-            dismiss()
-        }
-    }
-
-    private func fieldLabel(_ title: String, icon: String, active: Bool) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon).font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(active ? TVColor.brand : TVColor.textFaint)
-                .frame(width: 26)
-            Text(title)
-                .tvFont(.caption)
-                .foregroundStyle(active ? TVColor.text : TVColor.textFaint)
-        }
-        .padding(.bottom, 10)
-    }
-
-    private func statusLine(_ text: String, icon: String, tint: Color = TVColor.textMuted) -> some View {
-        Label(text, systemImage: icon)
-            .tvFont(.caption)
-            .foregroundStyle(tint)
-            .padding(.top, 10)
     }
 }
 
@@ -647,6 +216,9 @@ struct TVAlbumScrapeView: View {
     }
 
     private var bodyText: String {
+        if store.scraperSettings.fieldRules != ScrapeFieldRules() {
+            return String(format: String(localized: "tv_scrape_album_rules_format"), trackCount)
+        }
         let format = store.scraperSettings.onlyFillMissingFields
             ? String(localized: "tv_scrape_album_body_fill_format")
             : String(localized: "tv_scrape_album_body_overwrite_format")

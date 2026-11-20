@@ -1127,6 +1127,12 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
         return usable[choice].item
     }
 
+    public func chineseLRCTranslation(forPrimary name: String) -> Item? {
+        guard let companion = LyricsSidecarSelectionPolicy.chineseLRCName(forPrimary: name),
+              !audioBasenames.contains((companion as NSString).deletingPathExtension.lowercased()) else { return nil }
+        return firstItemByLowercasedName[companion.lowercased()]?.item
+    }
+
     public func sameNameMusicVideo(basename: String) -> Item? {
         let base = basename.lowercased()
         for fileExtension in PrimuseConstants.supportedMusicVideoExtensions {
@@ -1148,7 +1154,12 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
         selectedPaths: [String?],
         includingCueTrackLyrics: Bool = false
     ) -> String? {
-        let paths = Set(selectedPaths.compactMap { $0 })
+        var paths = Set(selectedPaths.compactMap { $0 })
+        for path in selectedPaths.compactMap({ $0 }) {
+            if let item = firstItemByPath[path], let companion = chineseLRCTranslation(forPrimary: item.sidecarName) {
+                paths.insert(companion.sidecarPath)
+            }
+        }
         var components = paths.sorted().map { path in
             Self.fingerprintComponent(
                 for: path,

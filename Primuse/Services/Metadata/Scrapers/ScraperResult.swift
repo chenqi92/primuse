@@ -40,6 +40,20 @@ struct ScraperDetail: Sendable {
     var genres: [String]?
     var coverUrl: String?
     var artistAliases: [String] = []
+
+    func hasTag(_ field: ScrapeField) -> Bool {
+        switch field {
+        case .title: !title.isEmpty
+        case .artist: artist != nil
+        case .album: album != nil
+        case .albumArtist: albumArtist != nil
+        case .year: year != nil
+        case .track: trackNumber != nil
+        case .disc: discNumber != nil
+        case .genre: genres?.isEmpty == false
+        case .cover, .lyrics: false
+        }
+    }
 }
 
 extension ScrapedMetadataMergePolicy.Candidate {
@@ -83,6 +97,7 @@ struct ScraperCoverResult: Sendable {
 }
 
 struct ScrapeResult: Sendable {
+    var review = ScrapeReviewCatalog()
     var detail: ScraperDetail?
     var coverData: Data?
     var lyrics: [PrimuseKit.LyricLine]?

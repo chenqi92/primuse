@@ -2592,6 +2592,16 @@
 "onboarding_welcome_title" = "Sua música, seus servidores";
 "online" = "on-line";
 "only_fill_missing" = "Preencher apenas campos faltantes";
+"scrape_review_keep" = "Manter o valor atual";
+"scrape_review_previous" = "Opção anterior";
+"scrape_review_next" = "Próxima opção";
+"scrape_field_rules" = "Regras de busca de metadados";
+"tv_scrape_album_rules_format" = "Aplicar suas regras de busca às %d músicas deste álbum.";
+"scrape_rule_fill" = "Preencher campos vazios";
+"scrape_rule_overwrite" = "Sobrescrever";
+"scrape_preferred_source" = "Fonte preferida";
+"scrape_source_order" = "Ordem das fontes";
+"scrape_rules_all_fields" = "Configurar todos os campos";
 "open" = "Abrir";
 "open_folder" = "Abrir pasta";
 "open_keychain_settings" = "Abra as configurações do Keychain";
@@ -7195,6 +7205,8 @@
 
 "player_simulated_word_lyrics" = "Simular letras palavra por palavra";
 "lyrics_simulated_word_badge" = "Sincronização simulada";
+"word_alignment_model_title" = "Modelo de alinhamento de alta precisão";
+"word_alignment_model_remove_confirm" = "Remover o modelo de alinhamento de alta precisão?";
 
 "explore_word_lyrics" = "Explorar letras sincronizadas por palavra";
 "explore_word_lyrics_footer" = "Desativado por padrão. Quando ativado, busca automaticamente letras sincronizadas por palavra nas fontes habilitadas durante a reprodução e as exibe com prioridade, mesmo que a música já tenha letras comuns. Esta função é independente de “Buscar letras online quando faltarem”. Para interromper a busca automática de letras sincronizadas por palavra, desative esta opção.";

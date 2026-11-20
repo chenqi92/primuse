@@ -2592,6 +2592,16 @@
 "onboarding_welcome_title" = "Twoja muzyka, Twoje serwery";
 "online" = "w Internecie";
 "only_fill_missing" = "Wypełnij tylko brakujące pola";
+"scrape_review_keep" = "Zachowaj obecną wartość";
+"scrape_review_previous" = "Poprzednia opcja";
+"scrape_review_next" = "Następna opcja";
+"scrape_field_rules" = "Reguły pobierania metadanych";
+"tv_scrape_album_rules_format" = "Zastosuj reguły pobierania do utworów na tym albumie (%d).";
+"scrape_rule_fill" = "Uzupełnij braki";
+"scrape_rule_overwrite" = "Nadpisz";
+"scrape_preferred_source" = "Preferowane źródło";
+"scrape_source_order" = "Kolejność źródeł";
+"scrape_rules_all_fields" = "Ustaw wszystkie pola";
 "open" = "Otwarte";
 "open_folder" = "Otwórz folder";
 "open_keychain_settings" = "Otwórz ustawienia Keychain";
@@ -7195,6 +7205,8 @@
 
 "player_simulated_word_lyrics" = "Symuluj tekst słowo po słowie";
 "lyrics_simulated_word_badge" = "Symulowana synchronizacja";
+"word_alignment_model_title" = "Precyzyjny model synchronizacji";
+"word_alignment_model_remove_confirm" = "Usunąć precyzyjny model synchronizacji?";
 
 "explore_word_lyrics" = "Szukaj tekstów synchronizowanych słowo po słowie";
 "explore_word_lyrics_footer" = "Domyślnie wyłączone. Po włączeniu podczas odtwarzania automatycznie wyszukuje w aktywnych źródłach teksty synchronizowane słowo po słowie i wyświetla je w pierwszej kolejności, nawet jeśli utwór ma już zwykły tekst. Ta funkcja działa niezależnie od ustawienia „Pobieraj brakujące teksty z sieci”. Aby zatrzymać automatyczne wyszukiwanie tekstów synchronizowanych słowo po słowie, wyłącz tę opcję.";

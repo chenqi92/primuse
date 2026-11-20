@@ -643,6 +643,11 @@ struct TVSettingsView: View {
                     }
                 )
             )
+            if LyricsAlignmentModel.isSystemSupported,
+               simulatesWordLyrics || WordLyricsAlignmentService.shared.modelState != .notDownloaded {
+                settingDivider
+                wordAlignmentModelRow
+            }
             settingDivider
             toggleRow(
                 "ellipsis",
@@ -1059,6 +1064,43 @@ struct TVSettingsView: View {
                 NotificationCenter.default.post(name: .primuseTVSiriRadioCatalogDidChange, object: nil)
             }
         }
+    }
+
+    @ViewBuilder
+    private var wordAlignmentModelRow: some View {
+        let service = WordLyricsAlignmentService.shared
+        let title = String(localized: "word_alignment_model_title")
+        let state = service.modelState
+        let status: String = switch state {
+        case .ready:
+            String(localized: "lyrics_translation_local_ready")
+        case .downloading(let fraction):
+            fraction.formatted(.percent.precision(.fractionLength(0)))
+        case .failed:
+            service.modelFailureReason ?? String(localized: "lyrics_translation_local_retry")
+        case .notDownloaded, .unsupportedSystem:
+            String(
+                format: String(localized: "lyrics_translation_local_download_size_format"),
+                LyricsAlignmentModel.formattedDownloadSize
+            )
+        }
+        let trailing: String = switch state {
+        case .ready: "trash"
+        case .downloading: "hourglass"
+        case .failed: "arrow.clockwise"
+        case .notDownloaded, .unsupportedSystem: "arrow.down.circle"
+        }
+        navRow("cpu", title, status, trailing: trailing) {
+            switch state {
+            case .notDownloaded, .failed:
+                service.downloadModel()
+            case .ready:
+                Task { await service.removeModel() }
+            case .downloading, .unsupportedSystem:
+                break
+            }
+        }
+        .task { await service.refreshAvailability() }
     }
 
     private func navRow(_ icon: String, _ title: String, _ value: String,

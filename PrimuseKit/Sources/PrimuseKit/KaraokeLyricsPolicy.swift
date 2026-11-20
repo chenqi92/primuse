@@ -25,13 +25,24 @@ public struct KaraokeLineWindow: Equatable, Sendable {
     public var voice: LyricVoice
     public var start: TimeInterval
     public var end: TimeInterval
+    /// Whether `end` came from an explicit line end timestamp rather than being inferred
+    /// from the next line's start or the maximum-duration cap.
+    public var hasExplicitEnd: Bool
 
-    public init(lineIndex: Int, lineID: String, voice: LyricVoice, start: TimeInterval, end: TimeInterval) {
+    public init(
+        lineIndex: Int,
+        lineID: String,
+        voice: LyricVoice,
+        start: TimeInterval,
+        end: TimeInterval,
+        hasExplicitEnd: Bool = false
+    ) {
         self.lineIndex = lineIndex
         self.lineID = lineID
         self.voice = voice
         self.start = start
         self.end = end
+        self.hasExplicitEnd = hasExplicitEnd
     }
 
     public func contains(_ time: TimeInterval) -> Bool {
@@ -52,12 +63,22 @@ public struct KaraokeLyricsSnapshot: Equatable, Sendable {
     public let hasDuetParts: Bool
     public let usesInferredWordTiming: Bool
 
-    public init(lines: [LyricLine] = [], onsets: [KaraokeOnset]? = nil) {
+    public init(
+        lines: [LyricLine] = [],
+        onsets: [KaraokeOnset]? = nil,
+        overlay: WordLyricsTimingOverlay? = nil
+    ) {
         let windows = KaraokeLineWindowPolicy.windows(in: lines)
         let byIndex = Dictionary(uniqueKeysWithValues: windows.map { ($0.lineIndex, $0) })
         var inferred = false
         self.lines = lines.enumerated().map { index, line in
             guard let window = byIndex[index] else { return line }
+            if let overlay, let syllables = overlay.syllables(for: line) {
+                var timed = line
+                timed.syllables = syllables
+                inferred = inferred || overlay.tier.isAudioBacked
+                return timed
+            }
             if let onsets, let timed = KaraokeWordTimingPolicy.timedLine(line, window: window, onsets: onsets) {
                 inferred = true
                 return timed
@@ -104,12 +125,14 @@ public enum KaraokeLineWindowPolicy {
                 $0.isSynchronized && $0.timestamp > start + 0.002
             })?.timestamp
             let end = resolvedEnd(of: line, nextStart: nextStart)
+            let hasExplicitEnd = line.endTime.map { $0 > line.timestamp } ?? false
             result.append(KaraokeLineWindow(
                 lineIndex: index,
                 lineID: line.id,
                 voice: line.voice,
                 start: start,
-                end: max(start + minimumLineDuration, end)
+                end: max(start + minimumLineDuration, end),
+                hasExplicitEnd: hasExplicitEnd
             ))
         }
         return result
@@ -181,88 +204,20 @@ public enum KaraokeLeadInPolicy {
 }
 
 public enum KaraokeSweepPolicy {
-    /// Gives a line-level row evenly spread word timing across its window so
+    /// Gives a line-level row prosody-weighted word timing across its window so
     /// the stage can sweep it like a word-timed row. Word-timed rows are
     /// returned unchanged.
     public static func sweepLine(_ line: LyricLine, window: KaraokeLineWindow) -> LyricLine {
-        if let syllables = line.syllables, !syllables.isEmpty { return line }
-        let units = sweepUnits(of: line.text)
-        guard !units.isEmpty else { return line }
-
-        // Leave a short tail so the last word lands before the row ends.
-        let duration = max(0.2, (window.end - window.start) * 0.92)
-        let weights = units.map { unit in
-            Double(max(1, unit.filter { !$0.isWhitespace }.count))
-        }
-        let totalWeight = weights.reduce(0, +)
-        var cursor = window.start
-        var syllables: [LyricSyllable] = []
-        syllables.reserveCapacity(units.count)
-        for (unit, weight) in zip(units, weights) {
-            let length = duration * weight / totalWeight
-            syllables.append(LyricSyllable(
-                text: unit,
-                start: cursor,
-                end: cursor + length,
-                endTiming: .inferred
-            ))
-            cursor += length
-        }
-        var result = line
-        result.syllables = syllables
-        return result
+        ProsodySweepAligner.sweepLine(line, window: window)
     }
 
-    /// Splits text into sweep units: one per CJK/kana/hangul character, one
-    /// per space-separated word elsewhere. Trailing spaces stay attached so
-    /// joining the units restores the original text.
+    /// Splits text into unified sweep units via `WordTimingUnitSplitter`.
     static func sweepUnits(of text: String) -> [String] {
-        var units: [String] = []
-        var current = ""
-        for character in text {
-            if character.isWhitespace {
-                // Spaces trail whatever came before them.
-                if current.isEmpty, !units.isEmpty {
-                    units[units.count - 1].append(character)
-                } else {
-                    current.append(character)
-                }
-                continue
-            }
-            if isIdeographicUnit(character) {
-                if !current.isEmpty { units.append(current); current = "" }
-                units.append(String(character))
-                continue
-            }
-            if let last = current.last, last.isWhitespace {
-                units.append(current)
-                current = ""
-            }
-            current.append(character)
-        }
-        if !current.isEmpty {
-            if current.allSatisfy(\.isWhitespace), !units.isEmpty {
-                units[units.count - 1] += current
-            } else {
-                units.append(current)
-            }
-        }
-        return units
+        WordTimingUnitSplitter.splitPieces(of: text)
     }
 
     static func isIdeographicUnit(_ character: Character) -> Bool {
-        guard let scalar = character.unicodeScalars.first else { return false }
-        switch scalar.value {
-        case 0x3040...0x30FF, // Hiragana, Katakana
-             0x3400...0x4DBF, // CJK Extension A
-             0x4E00...0x9FFF, // CJK Unified
-             0xAC00...0xD7AF, // Hangul syllables
-             0xF900...0xFAFF, // CJK Compatibility
-             0x20000...0x2FA1F:
-            return true
-        default:
-            return false
-        }
+        WordTimingUnitSplitter.isIdeographicUnit(character)
     }
 }
 
@@ -420,22 +375,42 @@ public enum SimulatedWordLyricsPolicy {
     public struct Presentation: Equatable, Sendable {
         public let lines: [LyricLine]
         public let isSimulated: Bool
+        public let tier: WordTimingTier?
+
+        public init(lines: [LyricLine], isSimulated: Bool, tier: WordTimingTier? = nil) {
+            self.lines = lines
+            self.isSimulated = isSimulated
+            self.tier = tier
+        }
     }
 
     public static func presentation(
         of lines: [LyricLine],
         enabled: Bool = false,
-        isSpokenWord: Bool = false
+        isSpokenWord: Bool = false,
+        overlay: WordLyricsTimingOverlay? = nil
     ) -> Presentation {
         var displayed = lines
         var isSimulated = false
+        var appliedTier: WordTimingTier?
         for window in windows(in: lines, enabled: enabled, isSpokenWord: isSpokenWord) {
             let line = lines[window.lineIndex]
-            let timed = KaraokeSweepPolicy.sweepLine(line, window: window)
-            displayed[window.lineIndex] = timed
-            isSimulated = isSimulated || timed.isWordLevel
+            if let overlay, let aligned = overlay.syllables(for: line) {
+                var timed = line
+                timed.syllables = aligned
+                displayed[window.lineIndex] = timed
+                isSimulated = true
+                appliedTier = max(appliedTier ?? overlay.tier, overlay.tier)
+            } else {
+                let timed = KaraokeSweepPolicy.sweepLine(line, window: window)
+                displayed[window.lineIndex] = timed
+                if timed.isWordLevel {
+                    isSimulated = true
+                    if appliedTier == nil { appliedTier = .textProsody }
+                }
+            }
         }
-        return Presentation(lines: displayed, isSimulated: isSimulated)
+        return Presentation(lines: displayed, isSimulated: isSimulated, tier: appliedTier)
     }
 
     public static func windows(

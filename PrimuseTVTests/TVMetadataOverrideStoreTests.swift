@@ -65,5 +65,26 @@ final class TVMetadataOverrideStoreTests: XCTestCase {
             .appendingPathComponent(TVMetadataOverrideStore.contentName(of: cover))
         XCTAssertFalse(FileManager.default.fileExists(atPath: copy.path))
     }
+
+    func testMixedRulesReplayOnlyChangedFieldsAfterReload() async throws {
+        let original = ScrapedMetadataMergePolicy.Fields(title: "Copper Sky", year: 1999)
+        var local = original
+        local.genre = "Folk"
+        local.year = 2024
+        var request = ScrapeFieldRequest()
+        request.fields = [.year, .genre]
+        request.overwrites = [.year]
+        let store = TVMetadataOverrideStore(directory: directory)
+        await store.record(songID: "song", kind: .filledMissing, editedAt: Date(), fields: local,
+                           cover: nil, lyrics: nil, fieldRequest: request, originalFields: original)
+        let entries = await TVMetadataOverrideStore(directory: directory).allEntries()
+        let entry = try XCTUnwrap(entries.first)
+        let incoming = ScrapedMetadataMergePolicy.Fields(title: "New catalogue title", year: 2001, genre: "Jazz")
+        let replay = entry.effectiveRequest.needed(for: incoming, hasCover: false, hasLyrics: false)
+        let restored = replay.merging(incoming, candidate: .init(try XCTUnwrap(entry.fields)))
+        XCTAssertEqual(restored.year, 2024)
+        XCTAssertEqual(restored.genre, "Jazz")
+        XCTAssertEqual(restored.title, incoming.title)
+    }
 }
 #endif

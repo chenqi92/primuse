@@ -21,9 +21,9 @@ final class AnimatedArtworkPreferences {
     private(set) var animatedArtworkEnabled: Bool
     private(set) var animatedArtworkUnmeteredOnly: Bool
     private(set) var motionArtworkServiceEnabled: Bool
-    /// 动态封面源（刮削源页里单独一节），列表顺序就是优先级。
+    /// 旧版单独保存的服务地址及其启用状态。
     private(set) var motionArtworkEndpoints: MotionArtworkEndpointList
-    private(set) var builtInMotionArtworkEndpoints: [MotionArtworkEndpoint]
+    private(set) var configuredMotionArtworkEndpoints: [MotionArtworkEndpoint]
     private(set) var motionArtworkServiceSource: String
     private(set) var importedMotionArtworkRevision = 0
     @ObservationIgnored private let defaults: UserDefaults
@@ -36,7 +36,7 @@ final class AnimatedArtworkPreferences {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         scraperSettingsData = defaults.data(forKey: ScraperSettings.defaultsKey)
-        builtInMotionArtworkEndpoints = ScraperSettings.load(defaults: defaults).builtInMotionArtworkEndpoints
+        configuredMotionArtworkEndpoints = ScraperSettings.load(defaults: defaults).configuredMotionArtworkEndpoints
         Self.migrateLegacyMotionArtworkEndpoint(in: defaults)
         animatedArtworkEnabled = Self.bool(
             PlayerAppearancePreferences.animatedArtworkEnabledKey,
@@ -64,6 +64,7 @@ final class AnimatedArtworkPreferences {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.importedMotionArtworkRevision &+= 1
+                self.configuredMotionArtworkEndpoints = ScraperSettings.load(defaults: self.defaults).configuredMotionArtworkEndpoints
                 var list = self.motionArtworkEndpoints
                 for endpoint in list.endpoints {
                     guard let id = endpoint.scraperID, changedIDs.contains(id) else { continue }
@@ -95,8 +96,8 @@ final class AnimatedArtworkPreferences {
         let scraperData = defaults.data(forKey: ScraperSettings.defaultsKey)
         if scraperSettingsData != scraperData {
             scraperSettingsData = scraperData
-            let builtIns = ScraperSettings.load(defaults: defaults).builtInMotionArtworkEndpoints
-            if builtInMotionArtworkEndpoints != builtIns { builtInMotionArtworkEndpoints = builtIns }
+            let builtIns = ScraperSettings.load(defaults: defaults).configuredMotionArtworkEndpoints
+            if configuredMotionArtworkEndpoints != builtIns { configuredMotionArtworkEndpoints = builtIns }
         }
         let enabled = Self.bool(
             PlayerAppearancePreferences.animatedArtworkEnabledKey,
@@ -126,12 +127,63 @@ final class AnimatedArtworkPreferences {
         if motionArtworkServiceSource != source { motionArtworkServiceSource = source }
     }
 
+    var standaloneMotionArtworkEndpoints: [MotionArtworkEndpoint] {
+        motionArtworkEndpoints.endpoints.filter { $0.scraperID == nil }
+    }
+
     var allMotionArtworkEndpoints: MotionArtworkEndpointList {
-        let builtInIDs = Set(builtInMotionArtworkEndpoints.compactMap(\.scraperID))
-        let custom = motionArtworkEndpoints.endpoints.filter { endpoint in
-            endpoint.scraperID.map { !builtInIDs.contains($0) } ?? true
+        let saved = motionArtworkEndpoints.endpoints
+        let configured = configuredMotionArtworkEndpoints.map { source in
+            var endpoint = source
+            if saved.contains(where: { $0.scraperID == source.scraperID && !$0.isEnabled }) {
+                endpoint.isEnabled = false
+            }
+            return endpoint
         }
-        return MotionArtworkEndpointList(endpoints: builtInMotionArtworkEndpoints + custom)
+        return MotionArtworkEndpointList(endpoints: configured + standaloneMotionArtworkEndpoints)
+    }
+
+    static func motionSourcesAreEnabled(in defaults: UserDefaults) -> Bool {
+        bool(PlayerAppearancePreferences.motionArtworkServiceEnabledKey,
+             default: PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault, in: defaults)
+            && MotionArtworkServiceSource.resolved(defaults.string(forKey: PlayerAppearancePreferences.motionArtworkServiceSourceKey) ?? "",
+                                                  hasConfiguredEndpoints: true) == .custom
+    }
+
+    static func setEndpointEnabled(_ enabled: Bool, id: String, scraperID: String?, in defaults: UserDefaults) {
+        migrateLegacyMotionArtworkEndpoint(in: defaults)
+        let key = PlayerAppearancePreferences.motionArtworkEndpointsKey
+        let saved = MotionArtworkEndpointList(data: defaults.data(forKey: key))
+        var list = saved
+        let enableService = enabled && !motionSourcesAreEnabled(in: defaults)
+        if enableService {
+            // When the removed master switch was off, enabling one row must leave the other rows off.
+            for source in ScraperSettings.load(defaults: defaults).configuredMotionArtworkEndpoints {
+                if let scraperID = source.scraperID {
+                    list.updateScraper(id: scraperID, name: source.name, url: source.url)
+                }
+            }
+            for endpoint in list.endpoints { list.setEnabled(false, id: endpoint.id) }
+        }
+        let endpointID = scraperID.flatMap { value in list.endpoints.first { $0.scraperID == value }?.id } ?? id
+        list.setEnabled(enabled, id: endpointID)
+        if list != saved { defaults.set(list.encodedData(), forKey: key) }
+        if enableService {
+            defaults.set(true, forKey: PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
+            defaults.set(MotionArtworkServiceSource.custom.rawValue, forKey: PlayerAppearancePreferences.motionArtworkServiceSourceKey)
+        }
+    }
+
+    func setStandaloneEndpoint(_ id: String, enabled: Bool) {
+        Self.setEndpointEnabled(enabled, id: id, scraperID: nil, in: defaults)
+        refresh()
+    }
+
+    func moveStandaloneEndpoints(from offsets: IndexSet, to destination: Int) {
+        var standalone = MotionArtworkEndpointList(endpoints: standaloneMotionArtworkEndpoints)
+        standalone.move(fromOffsets: offsets, toOffset: destination)
+        let configured = motionArtworkEndpoints.endpoints.filter { $0.scraperID != nil }
+        setMotionArtworkEndpoints(.init(endpoints: configured + standalone.endpoints))
     }
 
     /// 总开关与用户选择的来源共同决定在线查询是否开启。

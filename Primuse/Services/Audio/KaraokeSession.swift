@@ -284,14 +284,14 @@ final class KaraokeSession {
     /// Ticks (50 ms) of continuous pause before a take is closed, so a
     /// resume that is still settling does not end it.
     private static let recordingPauseTicks = 40
-    @ObservationIgnored private var wordTimingSongID: String?
+    @ObservationIgnored private var appliedWordOverlay: WordLyricsTimingOverlay?
     @ObservationIgnored private var vocalAssist = KaraokeVocalAssistPolicy()
     /// A jump back to the loop start is on its way; the playhead still
     /// reads past the end until it lands.
     @ObservationIgnored private var loopJumpIssuedAt: Date?
     /// Headphones: the returning original cannot reach the microphone.
     @ObservationIgnored private var assistRouteAllows = false
-    @ObservationIgnored private var wordTimingTask: Task<Void, Never>?
+    @ObservationIgnored private var observedAlignmentRevision: UInt = 0
 
     /// The switch only reads as on when it can take effect or is on its way:
     /// with the model gone (never fetched, or deleted) it starts off. A model
@@ -495,9 +495,7 @@ final class KaraokeSession {
         vocalAssist.reset()
         loop = nil
         instrumentalCompanion = nil
-        wordTimingTask?.cancel()
-        wordTimingTask = nil
-        wordTimingSongID = nil
+        appliedWordOverlay = nil
         isPlayingInstrumental = false
         lyricsBorrowedFromTitle = nil
         companionTask?.cancel()
@@ -790,40 +788,44 @@ final class KaraokeSession {
 
     private func applyLyrics(_ loaded: [LyricLine]) {
         lyrics = loaded
-        buildStageLines(onsets: nil)
-        wordTimingSongID = nil
+        appliedWordOverlay = nil
+        buildStageLines(overlay: nil)
         rebuildScorer()
+        updateWordTiming()
     }
 
-    /// Word-timed rows stay as authored; line-level rows are swept evenly,
-    /// or on the vocal's syllable onsets when the AI stem is available.
-    private func buildStageLines(onsets: [KaraokeOnset]?) {
-        stageLyrics = KaraokeLyricsSnapshot(lines: lyrics, onsets: onsets)
+    /// Word-timed rows stay as authored; line-level rows share the unified
+    /// `WordLyricsAlignmentService` timing (CTC forced alignment -> upgraded DSP -> prosody).
+    private func buildStageLines(overlay: WordLyricsTimingOverlay?) {
+        stageLyrics = KaraokeLyricsSnapshot(lines: lyrics, overlay: overlay)
     }
 
-    /// Once per song, when its AI stem exists and the lyrics are line-level.
+    /// Keeps line-level karaoke stage rows synced with the unified alignment service
+    /// (upgrades automatically as soon as local audio DSP, CTC model or HTDemucs stem finishes).
     private func updateWordTiming() {
-        guard aiSeparationEnabled,
-              let song = player.currentSong,
+        guard let song = player.currentSong,
               song.id == songID,
-              wordTimingSongID != song.id,
-              wordTimingTask == nil,
               !lyrics.isEmpty,
               lyrics.contains(where: { $0.isSynchronized && !$0.isWordLevel }) else { return }
-        // A backing track borrows the original's lyrics and its stem.
+        // A backing track borrows the original's lyrics and its audio/stem.
         let source = isPlayingInstrumental ? pairedOriginal : song
-        guard let source, separation.state(for: source) == .ready else { return }
-        let expectedSongID = songID
-        let expectedLyrics = lyrics
-        wordTimingTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let onsets = await self.separation.onsets(for: source)
-            self.wordTimingTask = nil
-            guard self.songID == expectedSongID, self.lyrics == expectedLyrics else { return }
-            self.wordTimingSongID = expectedSongID
-            if let onsets, !onsets.isEmpty {
-                self.buildStageLines(onsets: onsets)
-            }
+        guard let source else { return }
+
+        let service = WordLyricsAlignmentService.shared
+        let currentOverlay = service.overlay(for: source, lines: lyrics)
+        if currentOverlay != appliedWordOverlay {
+            appliedWordOverlay = currentOverlay
+            buildStageLines(overlay: currentOverlay)
+        }
+        observedAlignmentRevision = service.alignmentRevision
+
+        let capturedSourceManager = player.sourceManager
+        service.alignIfNeeded(
+            song: source,
+            lines: lyrics,
+            playbackTime: player.interpolatedTime()
+        ) {
+            await WordLyricsAlignmentService.localAudioFile(for: source, sourceManager: capturedSourceManager)
         }
     }
 

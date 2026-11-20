@@ -17,110 +17,65 @@ final class ScrapeContentSelectionTests: XCTestCase {
 
         let reopened = ScrapeContentPreferences(defaults: try XCTUnwrap(UserDefaults(suiteName: suite)))
         XCTAssertEqual(reopened.parts, .lyrics)
-        let original = song()
-        let candidate = changedSong(original)
-        let preview = ScrapeOptionsView.ScrapePreview(
-            updatedSong: candidate, coverData: Data([1, 2, 3]),
-            lyricsLines: [LyricLine(timestamp: 0, text: "Lyrics")], includesMetadata: true
-        )
-        XCTAssertEqual(preview.scrapedTitle, "New title")
-        XCTAssertTrue(preview.hasCover)
-        XCTAssertTrue(preview.hasLyrics)
-        var selection = ScrapePreviewSelection(
-            original: original, updated: preview.updatedSong, preferredParts: reopened.parts,
-            hasCover: preview.hasCover, hasLyrics: preview.hasLyrics
-        )
-        XCTAssertFalse(selection.hasMetadata)
-        XCTAssertFalse(selection.cover)
-        XCTAssertTrue(selection.lyrics)
-
-        selection.cover = true
-        selection.title = true
-        selection.lyrics = false
-        XCTAssertTrue(selection.cover)
-        XCTAssertTrue(selection.hasMetadata)
+        var draft = review(original: song(), defaults: reopened.parts)
+        XCTAssertEqual(Set(draft.selected.keys), [.lyrics])
+        draft.select("New title", for: .title)
+        draft.select("embedded", for: .cover)
+        draft.select(nil, for: .lyrics)
+        XCTAssertEqual(Set(draft.selected.keys), [.title, .cover])
         XCTAssertEqual(ScrapeContentPreferences(defaults: defaults).parts, .lyrics)
-        let nextSong = ScrapePreviewSelection(
-            original: song(id: "next-song"), updated: candidate, preferredParts: reopened.parts,
-            hasCover: true, hasLyrics: true
-        )
-        XCTAssertFalse(nextSong.hasMetadata)
-        XCTAssertFalse(nextSong.cover)
-        XCTAssertTrue(nextSong.lyrics)
-
+        XCTAssertEqual(Set(review(original: song(id: "next-song"), defaults: reopened.parts).selected.keys), [.lyrics])
         preferences.binding(for: .lyrics).wrappedValue = false
         XCTAssertTrue(ScrapeContentPreferences(defaults: defaults).parts.isEmpty)
     }
 
     func testEveryContentCombinationControlsOnlyInitialSelection() {
-        let original = song()
-        let candidate = changedSong(original)
-        for rawValue in 0...ScrapeParts.all.rawValue {
-            let parts = ScrapeParts(rawValue: rawValue)
-            let selection = ScrapePreviewSelection(
-                original: original, updated: candidate, preferredParts: parts,
-                hasCover: true, hasLyrics: true
-            )
-            XCTAssertEqual(selection.title, parts.contains(.metadata))
-            XCTAssertEqual(selection.artist, parts.contains(.metadata))
-            XCTAssertEqual(selection.album, parts.contains(.metadata))
-            XCTAssertEqual(selection.year, parts.contains(.metadata))
-            XCTAssertEqual(selection.track, parts.contains(.metadata))
-            XCTAssertEqual(selection.disc, parts.contains(.metadata))
-            XCTAssertEqual(selection.genre, parts.contains(.metadata))
-            XCTAssertEqual(selection.cover, parts.contains(.cover))
-            XCTAssertEqual(selection.lyrics, parts.contains(.lyrics))
+        for raw in 0...ScrapeParts.all.rawValue {
+            let parts = ScrapeParts(rawValue: raw)
+            let draft = review(original: song(), defaults: parts)
+            for field in ScrapeField.allCases {
+                XCTAssertEqual(draft.selected[field] != nil, parts.contains(field.part), field.rawValue)
+            }
         }
     }
 
     func testUnchangedOrUnavailableResultsStayUnselected() {
         let original = song()
-        let preview = ScrapeOptionsView.ScrapePreview(
-            updatedSong: original, coverData: nil, lyricsLines: [], includesMetadata: true
-        )
-        let selection = ScrapePreviewSelection(
-            original: original, updated: preview.updatedSong, preferredParts: .all,
-            hasCover: preview.hasCover, hasLyrics: preview.hasLyrics
-        )
-        XCTAssertFalse(selection.hasMetadata)
-        XCTAssertFalse(selection.cover)
-        XCTAssertFalse(selection.lyrics)
+        var catalog = ScrapeReviewCatalog()
+        catalog.addText(original.title, field: .title, source: "Archive")
+        catalog.recommended[.title] = original.title
+        catalog.includeLocalResults(original: original, updated: original, fields: Set(ScrapeField.allCases), cover: nil, lyrics: [])
+        let request = ScraperSettings().reviewFields(for: original, parts: .all)
+        let draft = ScrapeReviewDraft(song: original, catalog: catalog, request: request, defaults: request)
+        XCTAssertFalse(draft.hasChanges)
+        XCTAssertTrue(draft.choices(for: .title).isEmpty)
+        XCTAssertNil(draft.cover)
+        XCTAssertNil(draft.lyrics)
     }
 
     func testAppleMusicAllowsAllFieldsWhileCueKeepsAlbumIdentity() {
         var original = song()
-        let candidate = changedSong(original)
         original.sourceID = AppleMusicLibraryIdentity.sourceID
-        let appleMusic = ScrapePreviewSelection(
-            original: original, updated: candidate, preferredParts: .all,
-            hasCover: true, hasLyrics: true
-        )
-        XCTAssertTrue(appleMusic.title)
-        XCTAssertTrue(appleMusic.artist)
-        XCTAssertTrue(appleMusic.album)
-        XCTAssertTrue(appleMusic.year)
-        XCTAssertTrue(appleMusic.track)
-        XCTAssertTrue(appleMusic.disc)
-        XCTAssertTrue(appleMusic.genre)
-        XCTAssertTrue(appleMusic.cover)
-        XCTAssertTrue(appleMusic.lyrics)
-
+        XCTAssertEqual(Set(review(original: original, defaults: .all).selected.keys), Set(ScrapeField.allCases))
         original = song()
         original.cueSheetPath = "/album.cue"
         original.cueStartTime = 0
-        let cue = ScrapePreviewSelection(
-            original: original, updated: candidate, preferredParts: .all,
-            hasCover: true, hasLyrics: true
-        )
-        XCTAssertTrue(cue.title)
-        XCTAssertTrue(cue.year)
-        XCTAssertTrue(cue.genre)
-        XCTAssertTrue(cue.lyrics)
-        XCTAssertFalse(cue.artist)
-        XCTAssertFalse(cue.album)
-        XCTAssertFalse(cue.track)
-        XCTAssertFalse(cue.disc)
-        XCTAssertFalse(cue.cover)
+        var cue = review(original: original, defaults: .all)
+        XCTAssertEqual(Set(cue.selected.keys), [.title, .year, .genre, .lyrics])
+        cue.select("Album", for: .album)
+        XCTAssertNil(cue.proposedTags(on: original).albumTitle)
+        cue.select("embedded", for: .cover)
+        XCTAssertNotNil(cue.cover)
+    }
+
+    private func review(original: Song, defaults: ScrapeParts) -> ScrapeReviewDraft {
+        let settings = ScraperSettings(onlyFillMissingFields: false)
+        let request = settings.reviewFields(for: original, parts: .all)
+        var catalog = ScrapeReviewCatalog()
+        catalog.includeLocalResults(original: original, updated: changedSong(original), fields: request.fields, cover: Data([1]),
+                                    lyrics: [LyricLine(timestamp: 1, text: "At the corner of the quay")])
+        return ScrapeReviewDraft(song: original, catalog: catalog, request: request,
+                                defaults: settings.request(for: original, parts: defaults, checkingAssetCache: false))
     }
 
     private func song(id: String = "song") -> Song {
@@ -132,6 +87,7 @@ final class ScrapeContentSelectionTests: XCTestCase {
         candidate.title = "New title"
         candidate.artistName = "Artist"
         candidate.albumTitle = "Album"
+        candidate.albumArtistName = "Harbor Quartet"
         candidate.year = 2026
         candidate.trackNumber = 2
         candidate.discNumber = 1
@@ -142,6 +98,35 @@ final class ScrapeContentSelectionTests: XCTestCase {
 
 @MainActor
 final class ExistingCoverScrapeTests: XCTestCase {
+    func testForcedBatchAndSinglePreviewHonorExplicitRulesOnLocalAndCatalogSongs() async throws {
+        try await withFixture { service, probe, original, _ in
+            var settings = ScraperSettings.load()
+            for field in ScrapeField.allCases { settings.fieldRules[field].mode = .skip }
+            settings.fieldRules[.year].mode = .overwrite
+            settings.fieldRules[.genre].mode = .fillMissing
+            var song = original
+            song.year = 1999
+            song.genre = "Folk"
+            let batch = try await service.processedSongForBatch(song, forceRescrape: true, settings: settings)
+            XCTAssertEqual(batch?.song.year, 2026)
+            XCTAssertEqual(batch?.song.genre, "Folk")
+            XCTAssertEqual(batch?.song.albumArtistName, song.albumArtistName)
+            XCTAssertNil(batch?.coverData)
+            XCTAssertNil(batch?.lyricsLines)
+
+            song.sourceID = AppleMusicLibraryIdentity.sourceID
+            song.genre = nil
+            let preview = try await service.processedSongWithAssets(song, forceRescrape: true,
+                                                                   storeAssets: false, settings: settings)
+            XCTAssertEqual(preview?.song.genre, "Ambient")
+            XCTAssertEqual(preview?.song.year, 2026)
+            let covers = await probe.coverRequests
+            XCTAssertEqual(covers, 0)
+            let skipped = try await service.processedSongForBatch(song, forceRescrape: true, parts: .cover, settings: settings)
+            XCTAssertNil(skipped)
+        }
+    }
+
     func testAutomaticScrapeKeepsSourceCoverWhenLocalAudioCopyHasNoImage() async throws {
         try await withFixture { service, probe, song, _ in
             let processed = try await service.processedSongWithAssets(song, forceRescrape: false)
@@ -212,6 +197,17 @@ final class ExistingCoverScrapeTests: XCTestCase {
             )[0]
             XCTAssertEqual(result.coverArtFileName, latest.coverArtFileName)
             XCTAssertEqual(result.year, 2026)
+            let expected = try XCTUnwrap(latest.coverArtFileName)
+            let replacement = MusicScraperService.rebasedOntoLatestUserEdits(
+                [pending], in: library, preservingExistingArtwork: true,
+                replacingArtworkReferences: [song.id: expected]
+            )[0]
+            XCTAssertEqual(replacement.coverArtFileName, pending.coverArtFileName)
+            let stale = MusicScraperService.rebasedOntoLatestUserEdits(
+                [pending], in: library, preservingExistingArtwork: true,
+                replacingArtworkReferences: [song.id: "old-cover.jpg"]
+            )[0]
+            XCTAssertEqual(stale.coverArtFileName, expected)
             XCTAssertEqual(MusicScraperService.rebasedOntoLatestUserEdits([pending], in: library)[0].coverArtFileName,
                            pending.coverArtFileName, "Explicit replacement must retain its existing semantics")
         }

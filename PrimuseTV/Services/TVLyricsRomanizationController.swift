@@ -129,12 +129,49 @@ enum TVSimulatedWordLyrics {
         return Dictionary(windows.map { ($0.lineID, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
-    static func displayLine(_ line: TVLyricLine, window: KaraokeLineWindow?) -> TVLyricLine {
-        guard let window, line.syllables.isEmpty else { return line }
-        let timed = KaraokeSweepPolicy.sweepLine(sourceLine(line), window: window)
+    @MainActor
+    static func overlay(for store: TVStore, lines: [TVLyricLine]) -> WordLyricsTimingOverlay? {
+        guard let songID = store.currentSongID,
+              let song = store.library.song(id: songID) else { return nil }
+        return WordLyricsAlignmentService.shared.overlay(for: song, lines: lines.map(sourceLine))
+    }
+
+    @MainActor
+    static func alignIfNeeded(for store: TVStore, lines: [TVLyricLine], enabled: Bool) {
+        guard enabled,
+              !store.currentItemIsSpokenWord,
+              let songID = store.currentSongID,
+              let song = store.library.song(id: songID) else { return }
+        let sourceLines = lines.map(sourceLine)
+        let localURL = store.engine.replayGainFileURL
+        WordLyricsAlignmentService.shared.alignIfNeeded(
+            song: song,
+            lines: sourceLines,
+            playbackTime: store.interpolatedTime()
+        ) {
+            localURL.map { KaraokeAudioFile(url: $0) }
+        }
+    }
+
+    static func displayLine(
+        _ line: TVLyricLine,
+        window: KaraokeLineWindow?,
+        overlay: WordLyricsTimingOverlay? = nil
+    ) -> TVLyricLine {
+        guard line.syllables.isEmpty else { return line }
+        let src = sourceLine(line)
+        let resolvedSyllables: [LyricSyllable]?
+        if let overlay, let aligned = overlay.syllables(for: src) {
+            resolvedSyllables = aligned
+        } else if let window {
+            resolvedSyllables = KaraokeSweepPolicy.sweepLine(src, window: window).syllables
+        } else {
+            return line
+        }
+        guard let resolvedSyllables, !resolvedSyllables.isEmpty else { return line }
         return TVLyricLine(
             id: line.id, time: line.time, text: line.text, isSynchronized: line.isSynchronized,
-            syllables: (timed.syllables ?? []).map {
+            syllables: resolvedSyllables.map {
                 TVSyllable(w: $0.text, start: $0.start, end: $0.end, endTiming: $0.endTiming)
             },
             translation: line.translation, romanization: line.romanization,

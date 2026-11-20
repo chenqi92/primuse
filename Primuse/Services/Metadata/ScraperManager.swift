@@ -34,6 +34,7 @@ actor ScraperManager {
         var metadata: Bool = true
         var cover: Bool = true
         var lyrics: Bool = true
+        var metadataFields = ScrapeField.tags
     }
 
     private struct RankedMetadataDetail {
@@ -156,10 +157,18 @@ actor ScraperManager {
         needs: ScrapeNeeds,
         settings: ScraperSettings,
         requiresWordTiming: Bool = false,
+        collectingReview: Bool = false,
+        searchLimit: Int = 15,
         lyricsProgress: (@Sendable (String, Int, Int) async -> Void)? = nil
     ) async -> ScrapeResult {
         var result = ScrapeResult(errors: [])
+        var reviewDetails: [RankedMetadataDetail] = []
+        var reviewItems: [String: [ScraperSearchItem]] = [:]
         let enabledSources = settings.enabledSources
+        var needs = needs
+        needs.metadataFields = needs.metadataFields.filter { settings.fieldRules[$0].mode != .skip }
+        needs.cover = needs.cover && settings.fieldRules[.cover].mode != .skip
+        needs.lyrics = needs.lyrics && settings.fieldRules[.lyrics].mode != .skip
 
         // Clean title for search; also split "歌手 - 标题" 文件名(云盘无标签歌曲常见)
         // 推出 effectiveArtist,避免用整串脏标题去搜导致错配。
@@ -173,16 +182,33 @@ actor ScraperManager {
             return result
         }
 
-        // Rank the returned rows inside each provider, then continue to the next
-        // provider only while the best trusted detail is still sparse. This
-        // fixes provider-first selection without multiplying every bulk scrape
-        // into an unconditional all-source request fan-out.
-        if needs.metadata {
-            var selectedDetail: RankedMetadataDetail?
+        if needs.metadata && !needs.metadataFields.isEmpty {
+            var matches: [RankedMetadataDetail] = []
             var additionalCandidates: [PendingMetadataCandidate] = []
             let metadataSources = enabledSources.enumerated().filter { $0.element.type.supportsMetadata }
+            let availableTypes = Set(metadataSources.map { $0.element.type.rawValue })
+            let preferredTypes = Set(needs.metadataFields.compactMap { settings.fieldRules[$0].preferredSource })
+                .intersection(availableTypes)
+            var visitedTypes: Set<String> = []
+            var complete = false
+
+            func collect(_ match: RankedMetadataDetail) {
+                matches.append(match)
+                let merged = Self.aggregate(matches, album: album, rules: settings.fieldRules)
+                result.detail = merged
+                let strongIdentity = matches.contains {
+                    $0.detail.source == merged.source && $0.detail.externalId == merged.externalId
+                        && $0.rank.titleMatchLevel == 2
+                        && ($0.rank.durationTier == .unavailable || ($0.rank.durationDeltaMs ?? Int.max) < 5_000)
+                }
+                complete = strongIdentity && preferredTypes.isSubset(of: visitedTypes)
+                    && ScraperIdentity.albumTier(album, merged.album) == 0
+                    && needs.metadataFields.allSatisfy { merged.hasTag($0) }
+            }
 
             metadataSourceLoop: for (sourceOrder, config) in metadataSources {
+                guard !Task.isCancelled else { return result }
+                visitedTypes.insert(config.type.rawValue)
                 if await isBackingOff(config) || isCircuitOpen(config) {
                     plog("🔍 Skipping \(config.type.displayName) metadata — temporarily unavailable")
                     await recordUnavailable(config, part: .metadata, result: &result)
@@ -192,7 +218,7 @@ actor ScraperManager {
                     plog("🔍 Scraping metadata from \(config.type.displayName) for '\(cleanedTitle)'")
                     let scraper = getScraper(for: config)
                     let searchResult = try await scraper.search(
-                        query: cleanedTitle, artist: effectiveArtist, album: nil, limit: Self.autoScrapeLimit
+                        query: cleanedTitle, artist: effectiveArtist, album: nil, limit: searchLimit
                     )
                     plog("🔍 \(config.type.displayName) returned \(searchResult.items.count) results")
                     // Reject unsafe automatic identities before truncating the
@@ -212,9 +238,10 @@ actor ScraperManager {
                         title: cleanedTitle,
                         artist: effectiveArtist,
                         durationMs: durationMs(duration),
-                        maxCount: Self.autoMetadataCandidatesPerSource, album: album, writtenTitle: title
+                        maxCount: collectingReview ? searchLimit : Self.autoMetadataCandidatesPerSource, album: album, writtenTitle: title
                     )
-                    let confidentCandidates = rankedItems.enumerated().map { searchOrder, item in
+                    if collectingReview { reviewItems[config.id] = rankedItems }
+                    let confidentCandidates = rankedItems.prefix(Self.autoMetadataCandidatesPerSource).enumerated().map { searchOrder, item in
                         PendingMetadataCandidate(
                             config: config,
                             item: item,
@@ -243,8 +270,8 @@ actor ScraperManager {
                             durationMs: durationMs(duration),
                             writtenTitle: title
                         ) {
-                            selectedDetail = Self.preferredDetail(rankedDetail, current: selectedDetail)
-                            if Self.isSufficientMetadata(selectedDetail) {
+                            collect(rankedDetail)
+                            if complete && !collectingReview {
                                 break metadataSourceLoop
                             }
                         }
@@ -269,7 +296,7 @@ actor ScraperManager {
             // fields; their second or third detail can be much richer than the
             // server's first row. Try a small globally ranked fallback set only
             // when every provider's primary detail is still insufficient.
-            if !Self.isSufficientMetadata(selectedDetail) {
+            if !complete || collectingReview {
                 let fallbackCandidates = additionalCandidates.sorted(by: Self.isPreferred)
                 for candidate in fallbackCandidates.prefix(Self.autoMetadataExtraDetailFetchLimit) {
                     if await isBackingOff(candidate.config) || isCircuitOpen(candidate.config) { continue }
@@ -281,8 +308,8 @@ actor ScraperManager {
                             durationMs: durationMs(duration),
                             writtenTitle: title
                         ) {
-                            selectedDetail = Self.preferredDetail(rankedDetail, current: selectedDetail)
-                            if Self.isSufficientMetadata(selectedDetail) { break }
+                            collect(rankedDetail)
+                            if complete && !collectingReview { break }
                         }
                     } catch {
                         if isCancellation(error) { return result }
@@ -293,7 +320,21 @@ actor ScraperManager {
                     }
                 }
             }
-            result.detail = selectedDetail?.detail
+            if collectingReview {
+                reviewDetails = matches.sorted { Self.isPreferred($0, over: $1) }
+                for field in needs.metadataFields {
+                    for config in settings.orderedSources(for: field) {
+                        for match in reviewDetails where match.detail.source == config.type {
+                            result.review.addText(field.text(in: match.detail.reviewTags), field: field, source: config.displayName)
+                        }
+                        for item in reviewItems[config.id] ?? [] {
+                            let tags = Self.mergedDetail(nil, searchItem: item).reviewTags
+                            result.review.addText(field.text(in: tags), field: field, source: config.displayName)
+                        }
+                    }
+                    if let best = result.detail { result.review.recommended[field] = field.text(in: best.reviewTags) }
+                }
+            }
             if let detail = result.detail, detail.source.isBuiltIn {
                 // Only a confidence-checked identity can repair a filename title
                 // or supply the source's localized artist spelling to lyrics.
@@ -304,7 +345,8 @@ actor ScraperManager {
 
         // Scrape cover from first successful source
         if needs.cover {
-            for config in enabledSources where config.type.supportsCover {
+            let coverAlbum = result.detail?.album ?? album
+            for config in settings.orderedSources(for: .cover) where config.type.supportsCover {
                 if await isBackingOff(config) || isCircuitOpen(config) {
                     await recordUnavailable(config, part: .cover, result: &result)
                     continue
@@ -312,34 +354,36 @@ actor ScraperManager {
                 do {
                     let scraper = getScraper(for: config)
 
-                    // If we already have a detail with cover URL from the same source, use it
-                    if let detail = result.detail, detail.source == config.type, let coverUrl = detail.coverUrl {
-                        if let data = try await downloadCoverResource(url: coverUrl, config: config, result: &result) {
+                    if collectingReview {
+                        let details = reviewDetails.filter { $0.detail.source == config.type }.map { Self.searchItem(from: $0.detail) }
+                        let items: [ScraperSearchItem]
+                        if let searched = reviewItems[config.id] {
+                            items = details + searched
+                        } else {
+                            items = try await scraper.search(query: cleanedTitle, artist: effectiveArtist, album: nil, limit: searchLimit).items
                             registerSuccess(config)
-                            result.coverData = data
-                            break
                         }
+                        try await collectReviewCovers(from: items, title: cleanedTitle, writtenTitle: title, artist: effectiveArtist,
+                                                      durationMs: durationMs(duration), album: coverAlbum, limit: searchLimit,
+                                                      config: config, result: &result)
+                        continue
                     }
-
-                    // Otherwise search and get cover
-                    let searchResult = try await scraper.search(
-                        query: cleanedTitle, artist: effectiveArtist, album: nil, limit: Self.autoScrapeLimit
-                    )
-                    registerSuccess(config)
-                    if let best = Self.bestMatch(
-                        in: searchResult.items,
-                        title: cleanedTitle,
-                        artist: effectiveArtist,
-                        durationMs: durationMs(duration),
-                        writtenTitle: title, album: album
-                    ) {
-                        let covers = try await scraper.getCoverArt(externalId: best.externalId)
+                    if let detail = result.detail, detail.source == config.type, let url = detail.coverUrl,
+                       let data = try await downloadCoverResource(url: url, config: config, result: &result) {
                         registerSuccess(config)
-                        if let coverUrl = covers.first?.coverUrl,
-                           let data = try await downloadCoverResource(url: coverUrl, config: config, result: &result) {
-                            result.coverData = data
-                            break
-                        }
+                        result.coverData = data
+                        break
+                    }
+                    let items = try await scraper.search(query: cleanedTitle, artist: effectiveArtist, album: nil, limit: searchLimit).items
+                    registerSuccess(config)
+                    guard let best = Self.bestMatch(in: items.filter { ScraperIdentity.albumTier(coverAlbum, $0.album) != 2 },
+                        title: cleanedTitle, artist: effectiveArtist, durationMs: durationMs(duration), writtenTitle: title, album: coverAlbum) else { continue }
+                    let covers = try await scraper.getCoverArt(externalId: best.externalId)
+                    registerSuccess(config)
+                    if let url = covers.first?.coverUrl ?? best.coverUrl,
+                       let data = try await downloadCoverResource(url: url, config: config, result: &result) {
+                        result.coverData = data
+                        break
                     }
                 } catch {
                     if isCancellation(error) { return result }
@@ -357,10 +401,12 @@ actor ScraperManager {
         if needs.lyrics {
             plog("🎤 Lyrics tier: needs.lyrics=true, enabled sources w/ supportsLyrics: \(enabledSources.filter { $0.type.supportsLyrics }.map { $0.type.displayName })")
             var pick = OnlineLyricsTimingPick<[LyricLine]>()
-            let lyricsSources = enabledSources.filter { $0.type.supportsLyrics }
+            var preferredLyricsFound = false
+            let lyricsSources = settings.orderedSources(for: .lyrics).filter { $0.type.supportsLyrics }
             for (index, config) in lyricsSources.enumerated() {
                 guard !Task.isCancelled else { return result }
-                guard requiresWordTiming ? pick.level != .word : pick.wantsNextSource else { break }
+                let stillChoosing = !preferredLyricsFound && (requiresWordTiming ? pick.level != .word : pick.wantsNextSource)
+                guard stillChoosing || collectingReview else { break }
                 if await isBackingOff(config) || isCircuitOpen(config) {
                     plog("🎤 Skipping \(config.type.displayName) lyrics — temporarily unavailable")
                     await recordUnavailable(config, part: .lyrics, result: &result)
@@ -387,6 +433,9 @@ actor ScraperManager {
                         registerSuccess(config)
                         if let lyricsResult = fetchedLyrics, lyricsResult.hasLyrics {
                             sourceLyrics = parseLyrics(lyricsResult)
+                            if collectingReview, let sourceLyrics {
+                                addReviewLyrics(sourceLyrics, from: lyricsResult, sourceName: config.displayName, to: &result.review)
+                            }
                         }
                     } else {
                         // Standard search → getLyrics flow
@@ -394,7 +443,7 @@ actor ScraperManager {
                         // 用第一个行级 fallback。这样同源内 score 相同的几个
                         // 候选(常见: title+duration 都接近)能挑到带逐字的版本。
                         let searchResult = try await scraper.search(
-                            query: cleanedTitle, artist: effectiveArtist, album: nil, limit: Self.autoScrapeLimit
+                            query: cleanedTitle, artist: effectiveArtist, album: nil, limit: searchLimit
                         )
                         registerSuccess(config)
                         let titleCompatibleItems = searchResult.items.filter {
@@ -418,10 +467,13 @@ actor ScraperManager {
                                       lyricsResult.hasLyrics else { continue }
                                 hasLyricsCount += 1
                                 guard let parsed = parseLyrics(lyricsResult), !parsed.isEmpty else { continue }
+                                if collectingReview {
+                                    addReviewLyrics(parsed, from: lyricsResult, sourceName: config.displayName, to: &result.review)
+                                }
                                 if parsed.contains(where: { $0.isWordLevel }) {
                                     plog("🎤 [\(config.type.displayName)] picked WORD-level lyrics from '\(candidate.title)' (\(parsed.count) lines)")
-                                    sourceLyrics = parsed
-                                    break
+                                    if sourceLyrics == nil { sourceLyrics = parsed }
+                                    if !collectingReview { break }
                                 } else if lineLevelFallback == nil {
                                     lineLevelFallback = parsed
                                 }
@@ -449,8 +501,13 @@ actor ScraperManager {
                     result.errors.append("[\(config.type.displayName)] lyrics: \(error.localizedDescription)")
                 }
                 // `result.lyrics` 跟着选中的那份走，后面的源被取消时提前返回也带着它。
-                if pick.record(sourceLyrics) {
+                if stillChoosing, pick.record(sourceLyrics) {
                     result.lyrics = requiresWordTiming && pick.level != .word ? nil : pick.lyrics
+                    if !requiresWordTiming, sourceLyrics?.isEmpty == false,
+                       settings.fieldRules[.lyrics].preferredSource == config.type.rawValue {
+                        preferredLyricsFound = true
+                        if !collectingReview { break }
+                    }
                     let level = pick.level.map { "\($0)" } ?? "-"
                     plog("🎤 [\(config.type.displayName)] picked \(level)-timed lyrics\(pick.extraSourcesAsked > 0 ? " over the earlier source" : "")")
                 }
@@ -458,6 +515,7 @@ actor ScraperManager {
                     plog("🎤 Lyrics are not word-timed yet — the next lyrics source may be asked (\(pick.extraSourcesAsked)/\(OnlineLyricsTimingPick<[LyricLine]>.extraSourceLimit) extra)")
                 }
             }
+            if collectingReview, let lines = result.lyrics { result.review.recommended[.lyrics] = LyricsDocumentFingerprint(lines: lines).rawValue }
             if result.lyrics == nil {
                 plog("🎤 Lyrics tier: NO source returned lyrics, result.lyrics=nil")
             }
@@ -465,18 +523,32 @@ actor ScraperManager {
             plog("🎤 Lyrics tier: needs.lyrics=false, skipped")
         }
 
-        if result.detail != nil { result.unavailableParts.remove(.metadata) }
+        if let detail = result.detail, needs.metadataFields.contains(where: detail.hasTag) {
+            result.unavailableParts.remove(.metadata)
+        }
         if result.coverData != nil { result.unavailableParts.remove(.cover) }
         if result.lyrics != nil { result.unavailableParts.remove(.lyrics) }
         return result
     }
 
+    func review(for song: Song, query: String, settings: ScraperSettings, parts: ScrapeParts, searchLimit: Int = 20) async -> ScrapeReviewCatalog {
+        let seed = Self.searchTitleArtist(song.title, artist: song.artistName, preservingVersionMarkers: true)
+        let identity = Self.lyricsLookupIdentity(query: query, title: seed.title, artist: seed.artist)
+        let sameRecording = ScraperIdentity.titleMatches(seed.title, identity.title)
+            && (identity.artist == nil || seed.artist == nil || ScraperIdentity.artistMatches(seed.artist, identity.artist))
+        let fields = settings.reviewFields(for: song, parts: parts).fields
+        let tags = fields.intersection(ScrapeField.tags)
+        let result = await scrapeMetadata(title: identity.title, artist: identity.artist, album: sameRecording ? song.albumTitle : nil,
+            duration: sameRecording && song.duration > 0 ? song.duration : nil,
+            needs: .init(metadata: !tags.isEmpty, cover: fields.contains(.cover), lyrics: fields.contains(.lyrics), metadataFields: tags),
+            settings: settings, collectingReview: true, searchLimit: min(100, max(1, searchLimit)))
+        return result.review
+    }
+
     /// Fetch enough search rows to let local identity and completeness ranking
     /// recover richer matches that providers place below promoted first rows.
-    private static let autoScrapeLimit = 15
     private static let autoMetadataCandidatesPerSource = 3
     private static let autoMetadataExtraDetailFetchLimit = 4
-    private static let sufficientMetadataCompleteness = 7
 
     private nonisolated func durationMs(_ d: TimeInterval?) -> Int? {
         guard let d, d > 0 else { return nil }
@@ -679,30 +751,68 @@ actor ScraperManager {
         )
     }
 
-    private static func preferredDetail(
-        _ candidate: RankedMetadataDetail,
-        current: RankedMetadataDetail?
-    ) -> RankedMetadataDetail {
-        guard let current else { return candidate }
-        return isPreferred(candidate, over: current) ? candidate : current
-    }
-
-    private static func isSufficientMetadata(_ detail: RankedMetadataDetail?) -> Bool {
-        guard let detail, detail.albumTier == 0 else { return false }
-        let rank = detail.rank
-        guard
-              rank.titleMatchLevel == 2,
-              rank.metadataCompleteness >= sufficientMetadataCompleteness else {
-            return false
+    private static func aggregate(_ matches: [RankedMetadataDetail], album: String?,
+                                  rules: ScrapeFieldRules) -> ScraperDetail {
+        // Each detail already passed the query's identity check. Also compare donors against
+        // one recording: a title-only search can independently match two different singers.
+        let ranked = matches.sorted { isPreferred($0, over: $1) }
+        let anchor = ranked[0].detail
+        let compatible = ranked.filter { match in
+            let donor = match.detail
+            if donor.source == anchor.source && donor.externalId == anchor.externalId { return true }
+            guard ScraperIdentity.titleMatches(anchor.title, donor.title) else { return false }
+            let bothArtists = anchor.artist?.isEmpty == false && donor.artist?.isEmpty == false
+            let sameArtist = ScraperIdentity.artistMatches(anchor.artist, donor.artist, aliases: donor.artistAliases)
+                || ScraperIdentity.artistMatches(donor.artist, anchor.artist, aliases: anchor.artistAliases)
+            if bothArtists && !sameArtist { return false }
+            if let lhs = anchor.durationMs, let rhs = donor.durationMs {
+                return abs(lhs - rhs) < 2_000
+            }
+            return sameArtist
         }
-        switch rank.durationTier {
-        case .close:
-            return (rank.durationDeltaMs ?? Int.max) < 5_000
-        case .unavailable:
-            return true
-        case .plausible, .unknown, .mismatch:
-            return false
+        let albumRule = rules[.album]
+        let preferredAlbum = compatible.first {
+            albumRule.mode != .skip && $0.detail.source.rawValue == albumRule.preferredSource && $0.detail.album != nil
+        }?.detail.album
+        let release = preferredText(album, fallback: preferredAlbum) ?? anchor.album
+            ?? compatible.lazy.compactMap { $0.detail.album }.first
+        // Prefer the source order within a recording. The best-ranked candidate in each
+        // source stays first. A release-specific tag must belong to the chosen release.
+        let ordered = compatible.sorted {
+            if $0.sourceOrder != $1.sourceOrder { return $0.sourceOrder < $1.sourceOrder }
+            return isPreferred($0, over: $1)
         }
+        func value<T>(_ field: ScrapeField, _ read: (ScraperDetail) -> T?) -> T? {
+            let preferred = rules[field].preferredSource
+            var fallback: T?
+            for match in ordered {
+                let detail = match.detail
+                switch field {
+                case .album, .albumArtist, .year, .disc, .track:
+                    if let release, ScraperIdentity.albumTier(release, detail.album) != 0 {
+                        // With no evidence of the requested release, a different pressing's
+                        // date, track and disc numbers cannot be inferred from the recording.
+                        continue
+                    }
+                default: break
+                }
+                guard let candidate = read(detail) else { continue }
+                if preferred == nil || preferred == detail.source.rawValue { return candidate }
+                if fallback == nil { fallback = candidate }
+            }
+            return fallback
+        }
+        return ScraperDetail(
+            externalId: anchor.externalId, source: anchor.source,
+            title: value(.title, { $0.title }) ?? anchor.title,
+            artist: value(.artist, { $0.artist }),
+            albumArtist: value(.albumArtist, { $0.albumArtist }), album: value(.album, { $0.album }),
+            year: value(.year, { $0.year }), trackNumber: value(.track, { $0.trackNumber }),
+            discNumber: value(.disc, { $0.discNumber }), durationMs: anchor.durationMs,
+            genres: value(.genre, { $0.genres }),
+            coverUrl: ScraperIdentity.albumTier(release, anchor.album) == 2 ? nil : anchor.coverUrl,
+            artistAliases: anchor.artistAliases
+        )
     }
 
     private static func isPreferred(
@@ -961,6 +1071,54 @@ actor ScraperManager {
         try await imageDownloader(url, sourceConfig)
     }
 
+    private func collectReviewCovers(from items: [ScraperSearchItem], title: String, writtenTitle: String, artist: String?,
+                                    durationMs: Int?, album: String?, limit: Int, config: ScraperSourceConfig,
+                                    result: inout ScrapeResult) async throws {
+        let compatible = items.filter {
+            Self.isConfidentAutoMatch($0, title: title, artist: artist, durationMs: durationMs, writtenTitle: writtenTitle)
+        }
+        var seenIDs: Set<String> = []
+        let ranked = Self.topMatches(in: compatible, title: title, artist: artist, durationMs: durationMs,
+                                     maxCount: compatible.count, album: album, writtenTitle: writtenTitle)
+            .filter { seenIDs.insert($0.externalId).inserted }.prefix(limit)
+        let best = ranked.first { ScraperIdentity.albumTier(album, $0.album) != 2 }
+        var seenURLs: Set<String> = []
+        for item in ranked {
+            try Task.checkCancellation()
+            let sameRelease = ScraperIdentity.albumTier(album, item.album) != 2
+            var urls: [String] = []
+            if item.externalId == best?.externalId {
+                do {
+                    urls = try await getScraper(for: config).getCoverArt(externalId: item.externalId).map(\.coverUrl)
+                    registerSuccess(config)
+                } catch {
+                    if isCancellation(error) { throw error }
+                    await recordResourceFailure(error, config: config, part: .cover, result: &result)
+                }
+            }
+            // A search thumbnail and the full artwork for the same release are one choice.
+            let originals = urls.filter { !$0.isEmpty }
+            for url in originals where seenURLs.insert(url).inserted {
+                try await addReviewCover(url, sameRelease: sameRelease, config: config, result: &result)
+            }
+            if originals.isEmpty || (sameRelease && result.coverData == nil),
+               let url = item.coverUrl, !url.isEmpty, seenURLs.insert(url).inserted {
+                try await addReviewCover(url, sameRelease: sameRelease, config: config, result: &result)
+            }
+        }
+    }
+
+    private func addReviewCover(_ url: String, sameRelease: Bool, config: ScraperSourceConfig,
+                                result: inout ScrapeResult) async throws {
+        if sameRelease, result.coverData == nil {
+            guard let data = try await downloadCoverResource(url: url, config: config, result: &result) else { return }
+            result.coverData = data
+            result.review.addCover(url, config: config, data: data)
+        } else {
+            result.review.addCover(url, config: config)
+        }
+    }
+
     /// 刮削时下载一张封面。下不来(超时、服务器出错)只算这一首在这个源没有封面,
     /// 见 `recordResourceFailure`;这个地址半小时内不再请求。取消照常抛出。
     private func downloadCoverResource(url: String, config: ScraperSourceConfig,
@@ -996,6 +1154,15 @@ actor ScraperManager {
     }
 
     /// 在线歌词源取回的歌词都从这里解析,顺手记下是哪个源(#357):自动取、手动挑候选都一样。
+    private func addReviewLyrics(_ lines: [LyricLine], from result: ScraperLyricsResult, sourceName: String,
+                                 to review: inout ScrapeReviewCatalog) {
+        review.addLyrics(lines, source: sourceName, raw: result.lrcContent ?? result.plainText)
+        if let text = result.plainText, let timed = result.lrcContent, !timed.isEmpty, text != timed,
+           let plain = parseLyrics(.init(source: result.source, plainText: text)) {
+            review.addLyrics(plain, source: sourceName, raw: text)
+        }
+    }
+
     private func parseLyrics(_ result: ScraperLyricsResult) -> [LyricLine]? {
         let parsed: [LyricLine]?
         if let lrc = result.lrcContent, !lrc.isEmpty {

@@ -4347,6 +4347,8 @@ private struct MacSTScrapingView: View {
     @State private var showLyricsServersSheet = false
     @State private var libraryTidySongs: BatchSongSelection?
     @State private var showsPendingWritebacks = false
+    @State private var showsScrapeRules = false
+    @State private var showsArtworkEditor = false
     @Environment(AudioPlayerService.self) private var player
 
     var body: some View {
@@ -4367,28 +4369,28 @@ private struct MacSTScrapingView: View {
                 }
             }
 
+            MacStandaloneArtworkSources()
             MacSTGroup {
-                MacSTRow(Lz("Custom Source"), hint: Lz("META-03 · Paste JSON or Import from URL"), divider: false) {
-                    MacSTButton(title: Lz("Import"), systemImage: "square.and.arrow.down") {
-                        beginImport()
+                MacSTRow(String(localized: "scrape_field_rules")) {
+                    MacSTButton(title: Lz("Configure"), systemImage: "slider.horizontal.3") { showsScrapeRules = true }
+                }
+                .settingsAnchor("scraping.fieldRules")
+                MacSTRow(Lz("Custom Source"), divider: false) {
+                    Menu(String(localized: "import_scraper_source")) {
+                        Button("import_scraper_source") { beginImport() }
+                        Button("motion_artwork_source_add") { showsArtworkEditor = true }
                     }
+                    .fixedSize()
                 }
                 .settingsAnchor("scraping.import")
             }
         }
         .settingsAnchor("scraping.sources")
+        .sheet(isPresented: $showsScrapeRules) { ScrapeRulesEditor(settings: scraperSettings) }
+        .sheet(isPresented: $showsArtworkEditor) { MotionArtworkSourceEditorSheet() }
 
-        MacMotionArtworkSourcesSection()
-
-        MacSTSection(Lz("Matching Strategy"), hint: Lz("META-04 · Filling only missing fields won't overwrite metadata you've edited manually")) {
+        MacSTSection(String(localized: "scraper_options")) {
             MacSTGroup {
-                MacSTRow(Lz("Fill Missing Fields Only"), hint: Lz("When on, keeps existing title, artist, album, and cover"), divider: false) {
-                    MacSTToggle(isOn: Binding(
-                        get: { scraperSettings.onlyFillMissingFields },
-                        set: { scraperSettings.onlyFillMissingFields = $0 }
-                    ))
-                }
-                .settingsAnchor("scraping.onlyMissing")
                 MacSTRow(Lz("Auto-Fetch Online Lyrics"), hint: Lz("When a song has no lyrics locally or in its source, ask the enabled lyrics sources once")) {
                     MacSTToggle(isOn: Binding(
                         get: { scraperSettings.autoFetchOnlineLyrics },
@@ -4624,15 +4626,8 @@ private struct MacSTScrapingView: View {
 
     private func sourceEnabledBinding(_ source: ScraperSourceConfig) -> Binding<Bool> {
         Binding(
-            get: {
-                scraperSettings.sources.first(where: { $0.id == source.id })?.isEnabled ?? source.isEnabled
-            },
-            set: { newValue in
-                var sources = scraperSettings.sources
-                guard let index = sources.firstIndex(where: { $0.id == source.id }) else { return }
-                sources[index].isEnabled = newValue
-                scraperSettings.sources = sources
-            }
+            get: { scraperSettings.isSourceEnabled(source) },
+            set: { scraperSettings.setSourceEnabled($0, id: source.id) }
         )
     }
 
@@ -4737,138 +4732,20 @@ private struct MacSTScrapingView: View {
 
 // MARK: Motion artwork sources
 
-/// 刮削源页里的「动态封面源」：在线动态封面服务和别的刮削源一样拖动排序、单独开关，
-/// 按列表顺序问，前一个没有或出错就问下一个。总开关也放一份在这里，不必回播放页设置去开。
-private struct MacMotionArtworkSourcesSection: View {
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
-    private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceSourceKey)
-    private var motionArtworkServiceSource = ""
-    @State private var newName = ""
-    @State private var newURL = ""
-    @State private var rejection: MotionArtworkEndpointRejection?
-
-    private var serviceBinding: Binding<Bool> {
-        Binding(
-            get: {
-                motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
-                    motionArtworkServiceSource,
-                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints.isEmpty
-                ) == .custom
-            },
-            set: {
-                motionArtworkServiceEnabled = $0
-                if $0 { motionArtworkServiceSource = MotionArtworkServiceSource.custom.rawValue }
-            }
-        )
-    }
-
+private struct MacStandaloneArtworkSources: View {
     var body: some View {
-        let endpoints = AnimatedArtworkPreferences.shared.motionArtworkEndpoints.endpoints
-        MacSTSection(
-            String(localized: "motion_artwork_sources"),
-            hint: String(localized: "motion_artwork_sources_footer")
-        ) {
-            MacSTGroup {
-                MacSTRow(
-                    String(localized: "motion_artwork_service_enabled"),
-                    hint: String(localized: "motion_artwork_service_description"),
-                    divider: false
-                ) {
-                    MacSTToggle(isOn: serviceBinding)
-                }
-            }
-
-            if !endpoints.isEmpty {
-                VStack(spacing: 4) {
-                    ForEach(Array(endpoints.enumerated()), id: \.element.id) { index, endpoint in
-                        MacMotionArtworkSourceRow(
-                            endpoint: endpoint,
-                            index: index,
-                            count: endpoints.count,
-                            isEnabled: enabledBinding(endpoint),
-                            move: { offsets, destination in
-                                MotionArtworkSourceStyle.update {
-                                    $0.move(fromOffsets: offsets, toOffset: destination)
-                                }
-                            },
-                            remove: {
-                                MotionArtworkSourceStyle.update { $0.remove(id: endpoint.id) }
-                            }
-                        )
-                    }
-                }
-            }
-
-            newSourceRow
-        }
-        .settingsAnchor("scraping.motionArtworkSources")
-    }
-
-    private func enabledBinding(_ endpoint: MotionArtworkEndpoint) -> Binding<Bool> {
-        Binding(
-            get: {
-                AnimatedArtworkPreferences.shared.motionArtworkEndpoints.endpoints
-                    .first(where: { $0.id == endpoint.id })?.isEnabled ?? endpoint.isEnabled
-            },
-            set: { isOn in
-                MotionArtworkSourceStyle.update { $0.setEnabled(isOn, id: endpoint.id) }
-            }
-        )
-    }
-
-    /// 列表末尾的空白行：填好名称（可不填）和地址后回车或点「添加」才进入列表。
-    private var newSourceRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: "plus")
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(PMColor.textFaint)
-                    .frame(width: 16)
-                MacLyricsServerField(
-                    text: $newName,
-                    prompt: String(localized: "source_name"),
-                    monospaced: false
-                )
-                .frame(width: 150)
-                .onSubmit { addSource() }
-                MacLyricsServerField(
-                    text: $newURL,
-                    prompt: "https://artwork.example.com/v1/lookup",
-                    monospaced: true
-                )
-                .onSubmit { addSource() }
-                MacSTButton(title: String(localized: "add"), systemImage: "plus") { addSource() }
-                    .disabled(newURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            if let rejection {
-                Text(verbatim: MotionArtworkSourceStyle.message(for: rejection))
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(PMColor.bad)
-                    .padding(.leading, 24)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(PMColor.bgElev.opacity(0.6), in: .rect(cornerRadius: 6))
-        .overlay {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, style: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
-        }
-        .onChange(of: newURL) { _, _ in rejection = nil }
-    }
-
-    private func addSource() {
-        guard !newURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        var list = AnimatedArtworkPreferences.shared.motionArtworkEndpoints
-        switch list.add(name: newName, url: newURL) {
-        case .success:
-            AnimatedArtworkPreferences.shared.setMotionArtworkEndpoints(list)
-            newName = ""
-            newURL = ""
-            rejection = nil
-        case .failure(let reason):
-            rejection = reason
+        let preferences = AnimatedArtworkPreferences.shared
+        let endpoints = preferences.standaloneMotionArtworkEndpoints
+        ForEach(Array(endpoints.enumerated()), id: \.element.id) { index, endpoint in
+            MacMotionArtworkSourceRow(
+                endpoint: endpoint, index: index, count: endpoints.count,
+                isEnabled: Binding(
+                    get: { endpoint.isEnabled && preferences.isMotionArtworkServiceOn },
+                    set: { preferences.setStandaloneEndpoint(endpoint.id, enabled: $0) }
+                ),
+                move: { preferences.moveStandaloneEndpoints(from: $0, to: $1) },
+                remove: { MotionArtworkSourceStyle.update { $0.remove(id: endpoint.id) } }
+            )
         }
     }
 }
@@ -6329,6 +6206,13 @@ private struct MacSTLyricsView: View {
                             .accessibilityIdentifier("simulatedWordLyricsToggle")
                     }
                     .settingsAnchor("lyrics.simulatedWordTiming")
+                    if LyricsAlignmentModel.isSystemSupported,
+                       simulatesWordLyrics || WordLyricsAlignmentService.shared.modelState != .notDownloaded {
+                        MacSTRow(String(localized: "word_alignment_model_title")) {
+                            wordAlignmentModelControl
+                        }
+                        .task { await WordLyricsAlignmentService.shared.refreshAvailability() }
+                    }
                     MacSTRow(
                         String(localized: "player_lyrics_source_badge"),
                         hint: String(localized: "player_lyrics_source_badge_description"),
@@ -6461,6 +6345,43 @@ private struct MacSTLyricsView: View {
                 destructive: true
             ) {
                 Task { await localTranslation.removeModel(pack) }
+            }
+        case .unsupportedSystem:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var wordAlignmentModelControl: some View {
+        let service = WordLyricsAlignmentService.shared
+        switch service.modelState {
+        case .notDownloaded:
+            MacSTButton(
+                title: String(
+                    format: String(localized: "lyrics_translation_local_download_size_format"),
+                    LyricsAlignmentModel.formattedDownloadSize
+                ),
+                systemImage: "arrow.down.circle"
+            ) {
+                service.downloadModel()
+            }
+        case .downloading(let fraction):
+            ProgressView(value: fraction)
+                .frame(width: 140)
+        case .failed:
+            MacSTButton(
+                title: String(localized: "lyrics_translation_local_retry"),
+                systemImage: "arrow.clockwise"
+            ) {
+                service.downloadModel()
+            }
+        case .ready:
+            MacSTButton(
+                title: String(localized: "lyrics_translation_local_remove"),
+                systemImage: "trash",
+                destructive: true
+            ) {
+                Task { await service.removeModel() }
             }
         case .unsupportedSystem:
             EmptyView()
@@ -7876,24 +7797,6 @@ private struct MacSTThemeView: View {
     private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
     @AppStorage(PlayerAppearancePreferences.lockScreenAnimatedArtworkKey)
     private var lockScreenAnimatedArtwork = PlayerAppearancePreferences.lockScreenAnimatedArtworkByDefault
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
-    private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
-    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceSourceKey)
-    private var motionArtworkServiceSource = ""
-    private var motionArtworkServiceBinding: Binding<Bool> {
-        Binding(
-            get: {
-                motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
-                    motionArtworkServiceSource,
-                    hasConfiguredEndpoints: !AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints.isEmpty
-                ) == .custom
-            },
-            set: {
-                motionArtworkServiceEnabled = $0
-                if $0 { motionArtworkServiceSource = MotionArtworkServiceSource.custom.rawValue }
-            }
-        )
-    }
     private var swatches: [(hex: String, name: String, sub: String, color: Color)] {
         AppThemePreferences.swatchesWithoutMonochrome.map { swatch in
             (
@@ -8216,22 +8119,6 @@ private struct MacSTThemeView: View {
                             .disabled(!animatedArtworkEnabled)
                     }
                     .settingsAnchor("appearance.lockScreenAnimatedArtwork")
-                }
-                MacSTRow(
-                    String(localized: "motion_artwork_service_enabled"),
-                    hint: String(localized: "motion_artwork_service_description")
-                ) {
-                    MacSTToggle(isOn: motionArtworkServiceBinding)
-                }
-                .settingsAnchor("appearance.motionArtworkService")
-                // 服务地址改在刮削页的「动态封面源」里管：可以有几个，和别的刮削源一样排序、单独开关。
-                MacSTRow(
-                    String(localized: "motion_artwork_sources"),
-                    hint: MotionArtworkSourceStyle.summary(AnimatedArtworkPreferences.shared.allMotionArtworkEndpoints)
-                ) {
-                    MacSTButton(title: Lz("Configure"), systemImage: "slider.horizontal.3") {
-                        SettingsNavigation.shared.open("scraping.motionArtworkSources")
-                    }
                 }
                 MacSTRow(
                     String(localized: "player_volume_bar")

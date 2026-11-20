@@ -91,49 +91,27 @@ public enum LyricsSidecarSelectionPolicy {
         return bestIndex
     }
 
-    /// The machine-translated companion of an `-orig` track, as an index into
-    /// `names`. yt-dlp writes the sung language plus one track per requested
-    /// language off the same cue list, so the translated track belongs under
-    /// the original's lines rather than beside it as a second document.
+    /// A separate Chinese LRC translates the exact-name original.
+    public static func chineseLRCName(forPrimary name: String) -> String? {
+        guard fileExtension(of: name) == "lrc" else { return nil }
+        return (name as NSString).deletingPathExtension + ".zh.lrc"
+    }
+
+    public static func canHaveTranslationTrack(_ name: String) -> Bool {
+        chineseLRCName(forPrimary: name) != nil
+            || languageTaggedComponents(ofSidecarNamed: name).map { marksOriginalTrack($0.tag) } == true
+    }
+
     public static func translationTrack(
         forPrimary primaryName: String,
         baseName: String,
         names: [String],
         preferredLanguages: [String] = Locale.preferredLanguages
     ) -> Int? {
-        guard let primary = languageTaggedComponents(ofSidecarNamed: primaryName),
-              primary.baseName.caseInsensitiveCompare(baseName) == .orderedSame,
-              marksOriginalTrack(primary.tag) else { return nil }
-
-        var audioStems: Set<String> = []
-        var candidates: [(index: Int, tag: String, stem: String)] = []
-        for (index, name) in names.enumerated() {
-            let fileExtension = fileExtension(of: name)
-            if PrimuseConstants.supportedAudioExtensions.contains(fileExtension)
-                || PrimuseConstants.supportedStreamDescriptorExtensions.contains(fileExtension) {
-                audioStems.insert((name as NSString).deletingPathExtension.lowercased())
-                continue
-            }
-            guard name.caseInsensitiveCompare(primaryName) != .orderedSame,
-                  let components = languageTaggedComponents(ofSidecarNamed: name),
-                  components.baseName.caseInsensitiveCompare(baseName) == .orderedSame else {
-                continue
-            }
-            candidates.append((
-                index: index,
-                tag: components.tag,
-                stem: (name as NSString).deletingPathExtension.lowercased()
-            ))
-        }
-        // Same guard as the main document: `Track.it.vtt` beside
-        // `Track.it.flac` is that song's own sidecar, not a translation.
-        let usable = candidates.filter { !audioStems.contains($0.stem) }
-        guard let choice = translationTrackIndex(
-            originalTag: primary.tag,
-            tags: usable.map(\.tag),
-            preferredLanguages: preferredLanguages
-        ) else { return nil }
-        return usable[choice].index
+        guard canHaveTranslationTrack(primaryName) else { return nil }
+        let index = LanguageTaggedLyricsIndex(fileNames: names, preferredLanguages: preferredLanguages)
+        guard let name = index.translationTrack(forPrimary: primaryName, baseName: baseName) else { return nil }
+        return names.firstIndex(of: name)
     }
 
     /// The tag in the spelling `LyricManualTranslation.languageCode` is
@@ -522,19 +500,26 @@ public struct LanguageTaggedLyricsIndex: Sendable {
     }
 
     private let candidatesByBaseName: [String: [Candidate]]
+    private let chineseLRCByName: [String: String]
     private let audioStems: Set<String>
     private let preferredLanguages: [String]
 
-    public var isEmpty: Bool { candidatesByBaseName.isEmpty }
+    public var isEmpty: Bool { candidatesByBaseName.isEmpty && chineseLRCByName.isEmpty }
 
     public init(fileNames: [String], preferredLanguages: [String] = Locale.preferredLanguages) {
         var candidatesByBaseName: [String: [Candidate]] = [:]
+        var chineseLRCByName: [String: String] = [:]
         var audioStems: Set<String> = []
         for name in fileNames {
             let fileExtension = (name as NSString).pathExtension.lowercased()
             if PrimuseConstants.supportedAudioExtensions.contains(fileExtension)
                 || PrimuseConstants.supportedStreamDescriptorExtensions.contains(fileExtension) {
                 audioStems.insert((name as NSString).deletingPathExtension.lowercased())
+                continue
+            }
+            if name.lowercased().hasSuffix(".zh.lrc") {
+                let key = name.lowercased()
+                chineseLRCByName[key] = min(name, chineseLRCByName[key] ?? name)
                 continue
             }
             guard let components = LyricsSidecarSelectionPolicy
@@ -548,6 +533,7 @@ public struct LanguageTaggedLyricsIndex: Sendable {
             )
         }
         self.candidatesByBaseName = candidatesByBaseName
+        self.chineseLRCByName = chineseLRCByName
         self.audioStems = audioStems
         self.preferredLanguages = preferredLanguages
     }
@@ -567,6 +553,11 @@ public struct LanguageTaggedLyricsIndex: Sendable {
     /// The file name, in its listed spelling, of the track that translates
     /// `primaryName`.
     public func translationTrack(forPrimary primaryName: String, baseName: String) -> String? {
+        if let companion = LyricsSidecarSelectionPolicy.chineseLRCName(forPrimary: primaryName) {
+            guard (primaryName as NSString).deletingPathExtension.caseInsensitiveCompare(baseName) == .orderedSame,
+                  !audioStems.contains((companion as NSString).deletingPathExtension.lowercased()) else { return nil }
+            return chineseLRCByName[companion.lowercased()]
+        }
         guard let primary = LyricsSidecarSelectionPolicy
                 .languageTaggedComponents(ofSidecarNamed: primaryName),
               primary.baseName.caseInsensitiveCompare(baseName) == .orderedSame,
@@ -605,9 +596,21 @@ public enum LyricsTranslationTrackPolicy {
     private static let minimumCoverage = 0.6
 
     public static func merging(
+        primary: [LyricLine], translation: [LyricLine], companionFileName: String
+    ) -> [LyricLine]? {
+        if companionFileName.lowercased().hasSuffix(".zh.lrc") {
+            return merging(primary: primary, translation: translation, languageCode: "zh", source: .bilingualLRC)
+        }
+        let language = LyricsSidecarSelectionPolicy.languageTaggedComponents(ofSidecarNamed: companionFileName)
+            .flatMap { LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: $0.tag) }
+        return merging(primary: primary, translation: translation, languageCode: language)
+    }
+
+    public static func merging(
         primary: [LyricLine],
         translation: [LyricLine],
-        languageCode: String?
+        languageCode: String?,
+        source: LyricManualTranslationSource = .embeddedField
     ) -> [LyricLine]? {
         guard !primary.isEmpty,
               !translation.isEmpty,
@@ -618,14 +621,7 @@ public enum LyricsTranslationTrackPolicy {
             originalLines: primary,
             translatedLines: translation,
             translationLanguageCode: languageCode,
-            // `.embeddedField` is the provenance of a translation the source
-            // document itself carried, which is exactly what this is: it
-            // survives a re-read of the source the way an embedded
-            // `TRANSLATEDLYRICS` field does, and a save that can serialize it
-            // turns it into bilingual LRC. A new case would have neither, and
-            // an older build could not decode a cached or synced document
-            // that carried it.
-            source: .embeddedField,
+            source: source,
             makePreferred: true,
             timestampTolerance: timestampTolerance
         )
@@ -785,6 +781,14 @@ public enum EmbeddedLyricsPrecedencePolicy {
             && LyricsTimingLevel(lines: cached) < .word
     }
 
+    private static let lrcSource = LyricsDocumentSource(kind: .file, identifier: "lrc")
+
+    /// The companion can be added after the primary was cached, even for a word-timed LRC.
+    public static func rechecksLRCCompanion(reference: String, cached: [LyricLine]) -> Bool {
+        LyricsDocumentSource.of(cached) == lrcSource
+            || (reference as NSString).pathExtension.lowercased() == "lrc"
+    }
+
     /// 源里读出来的歌词换不换掉缓存或正在显示的那份:时间轴更细才换,用户改过的不换。
     public static func sourceDocumentReplaces(cached: [LyricLine], with source: [LyricLine]) -> Bool {
         cached.first?.documentIsLocalOverride != true
@@ -822,7 +826,13 @@ public enum EmbeddedLyricsPrecedencePolicy {
         switch link {
         case .pinned: return true
         case .referenced: return sourceLevel >= cachedLevel
-        case .none: return sourceLevel > cachedLevel
+        case .none:
+            if sourceLevel > cachedLevel { return true }
+            // A materialized LRC cache can have a JSON reference. Update the companion
+            // when the original timeline and text still identify the same file.
+            return sourceLevel == cachedLevel && LyricsDocumentSource.of(cached) == lrcSource
+                && LyricsDocumentSource.of(source) == lrcSource && cached.count == source.count
+                && zip(cached, source).allSatisfy { $0.timestamp == $1.timestamp && $0.text == $1.text }
         }
     }
 

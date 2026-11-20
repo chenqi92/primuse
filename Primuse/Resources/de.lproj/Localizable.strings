@@ -888,6 +888,16 @@
 "scraper_sources_footer" = "Zum Umsortieren ziehen. Die Quellen werden von oben nach unten durchprobiert, bis ein Treffer gefunden wird. Sind die Liedtexte nicht wortgenau, werden bis zu zwei weitere Quellen nach einer genaueren Fassung gefragt.";
 "scraper_options" = "Optionen";
 "only_fill_missing" = "Nur fehlende Felder ausfüllen";
+"scrape_review_keep" = "Aktuellen Wert behalten";
+"scrape_review_previous" = "Vorherige Option";
+"scrape_review_next" = "Nächste Option";
+"scrape_field_rules" = "Regeln für den Metadatenabruf";
+"tv_scrape_album_rules_format" = "Die Abrufregeln auf die %d Titel dieses Albums anwenden.";
+"scrape_rule_fill" = "Fehlende Werte ergänzen";
+"scrape_rule_overwrite" = "Überschreiben";
+"scrape_preferred_source" = "Bevorzugte Quelle";
+"scrape_source_order" = "Quellenreihenfolge";
+"scrape_rules_all_fields" = "Alle Felder festlegen";
 "reset_scraper_defaults" = "Auf Standardwerte zurücksetzen";
 "scrape_actions" = "Abruf-Aktionen";
 "scrape_missing_metadata" = "Fehlende Metadaten abrufen";
@@ -7289,6 +7299,8 @@
 
 "player_simulated_word_lyrics" = "Wortweise Liedtexte simulieren";
 "lyrics_simulated_word_badge" = "Simuliertes Timing";
+"word_alignment_model_title" = "Hochpräzises Ausrichtungsmodell";
+"word_alignment_model_remove_confirm" = "Hochpräzises Ausrichtungsmodell entfernen?";
 
 "explore_word_lyrics" = "Wortsynchrone Liedtexte suchen";
 "explore_word_lyrics_footer" = "Standardmäßig deaktiviert. Wenn aktiviert, werden während der Wiedergabe die eingeschalteten Liedtextquellen automatisch nach wortsynchronen Liedtexten durchsucht. Gefundene Texte werden bevorzugt angezeigt, auch wenn bereits normale Liedtexte vorhanden sind. Diese Funktion ist unabhängig von „Fehlende Songtexte online abrufen“. Deaktiviere diese Option, um die automatische Suche nach wortsynchronen Liedtexten zu beenden.";

@@ -285,14 +285,33 @@ private struct ExternalDisplayLyricsReload: ViewModifier {
 /// (见 `ImmersivePlayerView.presentsOnExternalDisplay`)。效果在设置里单独选，没选过跟着播放页。
 struct ExternalDisplayImmersiveView: View {
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(ExternalDisplayContentMode.effectStorageKey) private var effectRawValue = ""
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var playerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
+    private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
 
     @State private var lyrics: [LyricLine] = []
     @State private var lyricsLoadRevision: UInt = 0
     @State private var isResolvingLyrics = true
+
+    private var displayedLyrics: (lines: [LyricLine], isSimulated: Bool) {
+        let shouldSimulate = simulatesWordLyrics
+            && !lyrics.contains(where: \.containsWordLevelContent)
+            && !player.currentItemIsSpokenWord
+        guard shouldSimulate else { return (lyrics, false) }
+        _ = WordLyricsAlignmentService.shared.alignmentRevision
+        let overlay = WordLyricsAlignmentService.shared.overlay(for: player.currentSong, lines: lyrics)
+        let timed = SimulatedWordLyricsPolicy.presentation(
+            of: lyrics,
+            enabled: true,
+            isSpokenWord: player.currentItemIsSpokenWord,
+            overlay: overlay
+        )
+        return (timed.lines, timed.isSimulated)
+    }
 
     private var effect: Binding<FullscreenPlayerEffect> {
         Binding(
@@ -307,13 +326,15 @@ struct ExternalDisplayImmersiveView: View {
     }
 
     var body: some View {
+        let presentation = displayedLyrics
         ImmersivePlayerView(
             effect: effect,
-            lyrics: lyrics,
+            lyrics: presentation.lines,
+            showsSimulatedWordTiming: presentation.isSimulated,
             lyricCompanions: {
                 LyricsScrollView.companionTexts(for: $0, translatedTextByLineID: [:])
             },
-            lyricsWritingDirection: LyricWritingDirectionPolicy.resolve(in: lyrics),
+            lyricsWritingDirection: LyricWritingDirectionPolicy.resolve(in: presentation.lines),
             isResolvingLyrics: isResolvingLyrics,
             // 外接屏不接受触摸，系统可能一直把它当成「在前台但不活跃」；退到后台才停下来。
             isSceneActive: scenePhase != .background,
@@ -323,9 +344,26 @@ struct ExternalDisplayImmersiveView: View {
             presentsOnExternalDisplay: true
         )
         .task(id: player.currentSong?.id) { await loadLyrics() }
+        .onChange(of: simulatesWordLyrics) { _, _ in triggerExternalAlignmentIfNeeded() }
+        .onChange(of: lyrics.count) { _, _ in triggerExternalAlignmentIfNeeded() }
         .modifier(ExternalDisplayLyricsReload(songID: player.currentSong?.id) {
             Task { await loadLyrics() }
         })
+    }
+
+    private func triggerExternalAlignmentIfNeeded() {
+        guard simulatesWordLyrics,
+              !player.currentItemIsSpokenWord,
+              !lyrics.contains(where: \.containsWordLevelContent),
+              let song = player.currentSong else { return }
+        let capturedSourceManager = sourceManager
+        WordLyricsAlignmentService.shared.alignIfNeeded(
+            song: song,
+            lines: lyrics,
+            playbackTime: player.interpolatedTime()
+        ) {
+            await WordLyricsAlignmentService.localAudioFile(for: song, sourceManager: capturedSourceManager)
+        }
     }
 
     private func loadLyrics() async {

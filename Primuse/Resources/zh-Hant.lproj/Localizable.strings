@@ -636,6 +636,16 @@
 "scraper_sources_footer" = "拖曳調整順序。刮削時按從上到下的順序依序嘗試，找到結果即停止。歌詞不是逐字時，會再問後面最多兩個來源，有更細的就用更細的。";
 "scraper_options" = "選項";
 "only_fill_missing" = "僅補齊缺少欄位";
+"scrape_review_keep" = "保留目前的值";
+"scrape_review_previous" = "上一個候選";
+"scrape_review_next" = "下一個候選";
+"scrape_field_rules" = "刮削規則";
+"tv_scrape_album_rules_format" = "依擷取規則更新這張專輯的 %d 首歌。";
+"scrape_rule_fill" = "僅補缺漏";
+"scrape_rule_overwrite" = "覆寫";
+"scrape_preferred_source" = "優先來源";
+"scrape_source_order" = "依刮削來源順序";
+"scrape_rules_all_fields" = "批次設定欄位";
 "reset_scraper_defaults" = "還原預設設定";
 "scrape_actions" = "刮削操作";
 "scrape_missing_metadata" = "刮削缺少的中繼資料";
@@ -7266,6 +7276,8 @@
 
 "player_simulated_word_lyrics" = "模擬逐字歌詞";
 "lyrics_simulated_word_badge" = "模擬逐字";
+"word_alignment_model_title" = "高精度對齊模型";
+"word_alignment_model_remove_confirm" = "移除高精度對齊模型？";
 
 "explore_word_lyrics" = "探索逐字歌詞";
 "explore_word_lyrics_footer" = "預設關閉。開啟後，播放時會自動從已啟用的歌詞來源尋找逐字歌詞，並優先顯示找到的逐字歌詞，即使歌曲已有一般歌詞。此功能獨立於「找不到歌詞時自動線上取得」開關；如需停止自動尋找逐字歌詞，請關閉本開關。";

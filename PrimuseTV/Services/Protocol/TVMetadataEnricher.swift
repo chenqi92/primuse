@@ -841,6 +841,13 @@ enum TVMetadataEnricher {
                 lyricLines = []
             }
         }
+        if let linesDocument,
+           let companion = sidecars.chineseLRCTranslation(forPrimary: linesDocument.name),
+           let translation = try? await readLyricsSidecar(companion, readerPool: readerPool) {
+            lyricLines = LyricsTranslationTrackPolicy.merging(
+                primary: lyricLines, translation: translation, companionFileName: companion.name
+            ) ?? lyricLines
+        }
         if trackLyrics != nil || sourceDocument != nil {
             if let embeddedLyrics, !embeddedLyrics.isEmpty {
                 await MetadataAssetStore.shared.storeEmbeddedFallbackLyrics(embeddedLyrics, forSongID: output.id)

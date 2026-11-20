@@ -889,6 +889,16 @@
 "scraper_sources_footer" = "ドラッグして並べ替えできます。一致が見つかるまで上から順に試されます。歌詞が単語単位で同期していない場合は、より細かい歌詞を求めて後ろの最大 2 つのソースにも問い合わせます。";
 "scraper_options" = "オプション";
 "only_fill_missing" = "欠落しているフィールドのみ補完";
+"scrape_review_keep" = "現在の値を保持";
+"scrape_review_previous" = "前の候補";
+"scrape_review_next" = "次の候補";
+"scrape_field_rules" = "メタデータ取得ルール";
+"tv_scrape_album_rules_format" = "このアルバムの %d 曲に取得ルールを適用します。";
+"scrape_rule_fill" = "空欄のみ補完";
+"scrape_rule_overwrite" = "上書き";
+"scrape_preferred_source" = "優先する取得元";
+"scrape_source_order" = "取得元の順序";
+"scrape_rules_all_fields" = "全項目を一括設定";
 "reset_scraper_defaults" = "デフォルトに戻す";
 "scrape_actions" = "取得アクション";
 "scrape_missing_metadata" = "欠落メタデータを取得";
@@ -7290,6 +7300,8 @@
 
 "player_simulated_word_lyrics" = "単語ごとの歌詞表示をシミュレート";
 "lyrics_simulated_word_badge" = "擬似タイミング";
+"word_alignment_model_title" = "高精度アライメントモデル";
+"word_alignment_model_remove_confirm" = "高精度アライメントモデルを削除しますか？";
 
 "explore_word_lyrics" = "単語同期の歌詞を探す";
 "explore_word_lyrics_footer" = "初期設定ではオフです。オンにすると、再生中に有効な歌詞ソースから単語同期の歌詞を自動的に探し、通常の歌詞がすでにある曲でも、見つかった単語同期の歌詞を優先して表示します。この機能は「歌詞がないときはオンラインで自動取得」とは独立しています。単語同期の歌詞の自動検索を止めるには、この設定をオフにしてください。";

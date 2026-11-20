@@ -867,6 +867,8 @@ targets:
       - path: Primuse/Views/NowPlaying/SpokenChapterGenerationSheet.swift
       - path: Primuse/Utilities/KeychainService.swift
       - path: Primuse/Views/Settings/AISettingsView.swift
+      - path: Primuse/Views/Settings/ScrapeRulesEditor.swift
+      - path: Primuse/Views/NowPlaying/ScrapeFieldReviewView.swift
       - path: Primuse/Views/Settings/BuiltInAIConsentSheet.swift
       - path: Primuse/Services/Radio/RadioLiveStreamSource.swift
       - path: Primuse/Services/Radio/RadioFLACAudioDecoder.swift
@@ -886,6 +888,7 @@ targets:
       # 翻译设置、缓存与译前准备与 iOS / macOS 同一份实现。
       - path: Primuse/Services/Lyrics/LocalLyricsTranslationEngine.swift
       - path: Primuse/Services/Lyrics/LocalLyricsTranslationService.swift
+      - path: Primuse/Services/Lyrics/WordLyricsAlignmentService.swift
       - path: Primuse/Services/Lyrics/LyricsTranslationCache.swift
       - path: Primuse/Services/Lyrics/LyricsTranslationSettings.swift
       # 歌词罗马音:设置、本机生成、结果缓存与 Google Cloud / 智能功能请求,与 iOS / macOS 同一份。

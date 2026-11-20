@@ -1028,12 +1028,19 @@ enum RemoteDirectoryTransportErrorPolicy {
 }
 
 /// One of a song's lyric files as the directory listing shows it.
+struct LyricsSidecarTranslation: Sendable, Equatable {
+    let path: String
+    let fileName: String
+    let size: Int64
+}
+
 struct LyricsSidecarDocument: Sendable, Equatable {
     let name: String
     /// Address `fetchRange` reads it at.
     let path: String
     let size: Int64
     let modifiedDate: Date?
+    var translation: LyricsSidecarTranslation? = nil
 }
 
 struct LyricsSidecarTarget: Sendable, Equatable {
@@ -1205,16 +1212,17 @@ enum LyricsSidecarTargetPolicy {
     /// lyric sources page shows them.
     static func documents(baseName: String, in items: [RemoteFileItem]) -> [LyricsSidecarDocument] {
         let candidates = uniqueFiles(in: items)
-        return LyricsSidecarSelectionPolicy.documents(
-            baseName: baseName,
-            names: candidates.map(\.name)
-        ).map { index in
-            let item = candidates[index]
+        let names = candidates.map(\.name)
+        let documents = LyricsSidecarSelectionPolicy.documents(baseName: baseName, names: names)
+        guard !documents.isEmpty else { return [] }
+        let index = LanguageTaggedLyricsIndex(fileNames: names)
+        return documents.map { position in
+            let item = candidates[position]
+            let companion = index.translationTrack(forPrimary: item.name, baseName: baseName)
+                .flatMap { name in candidates.first { $0.name == name } }
             return LyricsSidecarDocument(
-                name: item.name,
-                path: item.path,
-                size: item.size,
-                modifiedDate: item.modifiedDate
+                name: item.name, path: item.path, size: item.size, modifiedDate: item.modifiedDate,
+                translation: companion.map { LyricsSidecarTranslation(path: $0.path, fileName: $0.name, size: $0.size) }
             )
         }
     }

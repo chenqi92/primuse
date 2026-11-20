@@ -2592,6 +2592,16 @@
 "onboarding_welcome_title" = "आपका संगीत, आपके सर्वर";
 "online" = "ऑनलाइन";
 "only_fill_missing" = "केवल छूटे हुए फ़ील्ड भरें";
+"scrape_review_keep" = "मौजूदा मान रखें";
+"scrape_review_previous" = "पिछला विकल्प";
+"scrape_review_next" = "अगला विकल्प";
+"scrape_field_rules" = "मेटाडेटा खोज के नियम";
+"tv_scrape_album_rules_format" = "इस एल्बम के %d गानों पर अपने स्क्रैपिंग नियम लागू करें।";
+"scrape_rule_fill" = "खाली फ़ील्ड भरें";
+"scrape_rule_overwrite" = "बदलें";
+"scrape_preferred_source" = "पसंदीदा स्रोत";
+"scrape_source_order" = "स्रोतों का क्रम";
+"scrape_rules_all_fields" = "सभी फ़ील्ड सेट करें";
 "open" = "खुला";
 "open_folder" = "फ़ोल्डर खोलें";
 "open_keychain_settings" = "किचेन सेटिंग्स खोलें";
@@ -7195,6 +7205,8 @@
 
 "player_simulated_word_lyrics" = "शब्द-दर-शब्द गीत का अनुकरण";
 "lyrics_simulated_word_badge" = "अनुमानित समय";
+"word_alignment_model_title" = "उच्च-सटीकता संरेखण मॉडल";
+"word_alignment_model_remove_confirm" = "क्या उच्च-सटीकता संरेखण मॉडल हटाएं?";
 
 "explore_word_lyrics" = "शब्द-सिंक बोल खोजें";
 "explore_word_lyrics_footer" = "डिफ़ॉल्ट रूप से बंद है। चालू होने पर, प्लेबैक के दौरान सक्षम लिरिक्स स्रोतों में शब्द-दर-शब्द सिंक किए गए लिरिक्स अपने-आप खोजे जाते हैं और उन्हें प्राथमिकता से दिखाया जाता है, भले ही गाने के सामान्य लिरिक्स पहले से मौजूद हों। यह सुविधा “लिरिक्स न होने पर ऑनलाइन लाएं” से स्वतंत्र है। शब्द-दर-शब्द सिंक किए गए लिरिक्स की अपने-आप खोज रोकने के लिए इस विकल्प को बंद करें।";

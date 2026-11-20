@@ -362,6 +362,16 @@
 "up_next" = "Sıradaki";
 "lyrics_translation_cached" = "Önbelleğe Alınmış Girişler";
 "only_fill_missing" = "Yalnızca Eksik Alanları Doldurun";
+"scrape_review_keep" = "Geçerli değeri koru";
+"scrape_review_previous" = "Önceki seçenek";
+"scrape_review_next" = "Sonraki seçenek";
+"scrape_field_rules" = "Üst veri toplama kuralları";
+"tv_scrape_album_rules_format" = "Bu albümdeki %d şarkıya veri alma kurallarınızı uygulayın.";
+"scrape_rule_fill" = "Eksikleri doldur";
+"scrape_rule_overwrite" = "Üzerine yaz";
+"scrape_preferred_source" = "Tercih edilen kaynak";
+"scrape_source_order" = "Kaynak sırası";
+"scrape_rules_all_fields" = "Tüm alanları ayarla";
 "source_diag_advice_timeout_title" = "Bağlantı zaman aşımı";
 "Apple Music · Denied" = "Apple Music · Reddedildi";
 "cloud_authorizing_step2" = "Oturum açın ve müzik dosyalarını okuma iznini onaylayın";
@@ -7195,6 +7205,8 @@
 
 "player_simulated_word_lyrics" = "Sözcük sözcük şarkı sözü simülasyonu";
 "lyrics_simulated_word_badge" = "Simüle zamanlama";
+"word_alignment_model_title" = "Yüksek Hassasiyetli Hizalama Modeli";
+"word_alignment_model_remove_confirm" = "Yüksek hassasiyetli hizalama modeli kaldırılsın mı?";
 
 "explore_word_lyrics" = "Kelime Eşzamanlı Şarkı Sözlerini Ara";
 "explore_word_lyrics_footer" = "Varsayılan olarak kapalıdır. Açıldığında, çalma sırasında etkin şarkı sözü kaynaklarında kelime eşzamanlı sözleri otomatik olarak arar ve şarkının normal sözleri zaten bulunsa bile bulunan sözleri öncelikli olarak gösterir. Bu özellik “Eksik Şarkı Sözlerini İnternetten Al” ayarından bağımsızdır. Kelime eşzamanlı sözlerin otomatik aranmasını durdurmak için bu seçeneği kapatın.";

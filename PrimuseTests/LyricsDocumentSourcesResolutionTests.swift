@@ -326,6 +326,53 @@ final class LyricsDocumentSourcesResolutionTests: XCTestCase {
         XCTAssertFalse(missing.exists)
     }
 
+    func testImportKeepsChineseLRCWithRenamedAudio() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let destination = root.appendingPathComponent("Imported", isDirectory: true)
+        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        let audio = root.appendingPathComponent("Paper Pier.flac")
+        let renamed = destination.appendingPathComponent("Paper Pier (2).flac")
+        let primary = Data("[00:03.00]Fold a silver sail".utf8)
+        let chinese = Data("[00:03.00]折起一面银帆".utf8)
+        try primary.write(to: root.appendingPathComponent("Paper Pier.lrc"))
+        try chinese.write(to: root.appendingPathComponent("Paper Pier.zh.lrc"))
+        let transaction = LocalImportFileTransaction(destinationDirectory: destination)
+        try transaction.prepareAndCleanStaging()
+        var index = LocalImportService.LanguageTaggedSidecarCache()
+        let copied = LocalImportService.copySidecarsAtomically(
+            forAudio: audio, audioDest: renamed, transaction: transaction, taggedSidecars: &index
+        )
+        XCTAssertEqual(Set(copied.map { $0.url.lastPathComponent }), ["Paper Pier (2).lrc", "Paper Pier (2).zh.lrc"])
+        XCTAssertEqual(try Data(contentsOf: destination.appendingPathComponent("Paper Pier (2).lrc")), primary)
+        XCTAssertEqual(try Data(contentsOf: destination.appendingPathComponent("Paper Pier (2).zh.lrc")), chinese)
+        let lines = try XCTUnwrap(SidecarMetadataLoader.loadLyrics(for: renamed))
+        XCTAssertEqual(lines.first?.text, "Fold a silver sail")
+        XCTAssertEqual(lines.first?.manualTranslation?.text, "折起一面银帆")
+    }
+
+    @MainActor
+    func testChineseLRCAppearsAfterOriginalWasCachedAndChecked() async throws {
+        var song = song()
+        song.lyricsFileName = "/Music/Night Changes.lrc"
+        let primary = "[00:02.00]Silver folds at dawn\n[00:08.00]Glass bells sail away"
+        let (manager, store) = recheckFixture([
+            "Night Changes.lrc": Data(primary.utf8),
+            "Night Changes.zh.lrc": Data("[00:02.00]银光折入黎明\n[00:08.00]玻璃铃扬帆远去".utf8),
+        ])
+        let cached = LyricsParser.parseDocument(primary, fileName: "Night Changes.lrc")
+        let songID = song.id
+        defer { Task { await store.invalidateCaches(forSongIDs: [songID]) } }
+        _ = await store.cacheLyrics(cached, forSongID: songID, force: true)
+        await store.recordSourceRecheck(reference: "/Music/Night Changes.lrc", forSongID: songID)
+        let refreshed = await LyricsLoader.recheckSourceDocument(for: song, sourceManager: manager, cachedDocument: cached)
+        XCTAssertEqual(refreshed?.map { $0.manualTranslation?.text }, ["银光折入黎明", "玻璃铃扬帆远去"])
+        let stored = await store.cachedLyrics(forSongID: songID)
+        XCTAssertEqual(stored?.map(\.text), cached.map(\.text))
+        XCTAssertEqual(stored?.last?.manualTranslation?.languageCode, "zh")
+    }
+
     func testSeveralFilesWithoutAPickReadTheFinerTimedOne() async throws {
         let song = song()
         let fixture = connector(["Night Changes.lrc": lrc, "Night Changes.yrc": yrc])
