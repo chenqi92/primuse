@@ -125,9 +125,9 @@ enum LocalLyricsTranslationModel {
         #endif
         #if canImport(BackgroundAssets)
         if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *),
-           BackgroundAssetsPrerequisites.isSatisfied,
-           AssetPackManager.shared.assetPackIsAvailableLocally(withID: pack.assetPackID) {
-            return try? AssetPackManager.shared.url(for: FilePath(path))
+           let manager = BackgroundAssetsPrerequisites.manager,
+           manager.assetPackIsAvailableLocally(withID: pack.assetPackID) {
+            return try? manager.url(for: FilePath(path))
         }
         #endif
         return nil
@@ -137,8 +137,7 @@ enum LocalLyricsTranslationModel {
     static func download(_ modelPack: Pack, progress: @escaping @Sendable (Double) -> Void) async throws -> Located {
         if let located = locate(modelPack) { return located }
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
-            let manager = AssetPackManager.shared
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), let manager = BackgroundAssetsPrerequisites.manager {
             let pack = try await AppleHostedAssetPackResolver.assetPack(withID: modelPack.assetPackID, manager: manager)
             let watcher = Task {
                 for await update in manager.statusUpdates(forAssetPackWithID: modelPack.assetPackID) {
@@ -157,8 +156,8 @@ enum LocalLyricsTranslationModel {
 
     static func remove(_ pack: Pack) async {
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
-            try? await AssetPackManager.shared.remove(assetPackWithID: pack.assetPackID)
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), let manager = BackgroundAssetsPrerequisites.manager {
+            try? await manager.remove(assetPackWithID: pack.assetPackID)
         }
         #endif
     }
@@ -176,6 +175,44 @@ enum LocalLyricsTranslationModel {
 /// Debug 下设 `PRIMUSE_ASSET_PACKS=1` 可放开来联调。
 enum BackgroundAssetsPrerequisites {
     static let isSatisfied: Bool = evaluate()
+
+    #if canImport(BackgroundAssets)
+    @available(iOS 26.4, macOS 26.4, tvOS 26.4, *)
+    static let manager: AssetPackManager? = {
+        guard isSatisfied else { return nil }
+        #if os(macOS)
+        guard let marker = initializationMarker else { return nil }
+        return initializeOnce(marker: marker) { AssetPackManager.shared }
+        #else
+        return AssetPackManager.shared
+        #endif
+    }()
+    #endif
+
+    #if os(macOS)
+    private static let initializationMarker: URL? = {
+        guard let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+              let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        return directory.appendingPathComponent("Primuse/asset-manager-\(build)-\(os.majorVersion).\(os.minorVersion).\(os.patchVersion).pending")
+    }()
+
+    // 框架可能在首次获取单例时终止进程。标记只覆盖这一条调用，升级后可重新尝试。
+    static func initializeOnce<T>(marker: URL, initialize: () -> T) -> T? {
+        do {
+            try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: marker, options: .withoutOverwriting)
+        } catch {
+            plog("BackgroundAssets: skipping asset manager initialization (\((error as NSError).code))")
+            return nil
+        }
+        let result = initialize()
+        try? FileManager.default.removeItem(at: marker)
+        return result
+    }
+    #endif
 
     private static func evaluate() -> Bool {
         #if os(macOS)
@@ -220,6 +257,18 @@ enum BackgroundAssetsPrerequisites {
             plog("⚠️ BackgroundAssets: bundle ID or BAAppGroupID unavailable, asset packs disabled")
             return false
         }
+        #if os(macOS)
+        guard let groups = entitlements?["com.apple.security.application-groups"] as? [String],
+              groups.contains(groupID),
+              FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID) != nil else {
+            plog("BackgroundAssets: signed app group is unavailable")
+            return false
+        }
+        guard let marker = initializationMarker, !FileManager.default.fileExists(atPath: marker.path) else {
+            plog("BackgroundAssets: previous asset manager initialization did not finish")
+            return false
+        }
+        #endif
         return true
     }
 
@@ -294,6 +343,7 @@ final class LocalLyricsTranslationService {
     @ObservationIgnored private var locatedPacks: [Pack: LocalLyricsTranslationModel.Located] = [:]
     @ObservationIgnored private var downloadTasks: [Pack: Task<Void, Never>] = [:]
     @ObservationIgnored private let runner = LocalLyricsTranslationRunner()
+    @ObservationIgnored private var hasCheckedAvailability = false
     @ObservationIgnored private var availabilityRefresh: Task<Void, Never>?
     @ObservationIgnored private var availabilityRevisions: [Pack: UInt] = [:]
     @ObservationIgnored private var removingPacks: Set<Pack> = []
@@ -301,15 +351,12 @@ final class LocalLyricsTranslationService {
 
     init(
         isSupported: Bool = LocalLyricsTranslationModel.isSystemSupported,
-        refreshOnInit: Bool = true,
         locatePack: @escaping @Sendable (Pack) -> LocalLyricsTranslationModel.Located? = LocalLyricsTranslationModel.locate
     ) {
         self.locatePack = locatePack
         for pack in Pack.allCases {
             states[pack] = isSupported ? .notDownloaded : .unsupportedSystem
         }
-        guard isSupported, refreshOnInit else { return }
-        Task { await refreshAvailability() }
     }
 
     func modelState(for pack: Pack) -> ModelState { states[pack] ?? .unsupportedSystem }
@@ -328,7 +375,10 @@ final class LocalLyricsTranslationService {
         let revisions = availabilityRevisions
         let locate = locatePack
         let task = Task {
-            defer { availabilityRefresh = nil }
+            defer {
+                hasCheckedAvailability = true
+                availabilityRefresh = nil
+            }
             let found = await Task.detached(priority: .utility) {
                 Dictionary(uniqueKeysWithValues: packs.compactMap { pack in
                     locate(pack).map { (pack, $0) }
@@ -451,6 +501,10 @@ final class LocalLyricsTranslationService {
                 continue
             default:
                 break
+            }
+            if !hasCheckedAvailability {
+                await refreshAvailability()
+                guard isCurrent(), !Task.isCancelled else { return outcome }
             }
             let directions = route.localDirections
             let packs = directions.map(Pack.containing)

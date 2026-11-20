@@ -49,8 +49,8 @@ enum KaraokeVocalModel {
         if debugOverrideURL != nil { return true }
         #endif
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
-            return AssetPackManager.shared.assetPackIsAvailableLocally(withID: assetPackID)
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), let manager = BackgroundAssetsPrerequisites.manager {
+            return manager.assetPackIsAvailableLocally(withID: assetPackID)
         }
         #endif
         return false
@@ -68,9 +68,9 @@ enum KaraokeVocalModel {
         #endif
         #if canImport(BackgroundAssets)
         if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *),
-           BackgroundAssetsPrerequisites.isSatisfied,
-           AssetPackManager.shared.assetPackIsAvailableLocally(withID: assetPackID) {
-            let url = try AssetPackManager.shared.url(for: FilePath(modelDirectory))
+           let manager = BackgroundAssetsPrerequisites.manager,
+           manager.assetPackIsAvailableLocally(withID: assetPackID) {
+            let url = try manager.url(for: FilePath(modelDirectory))
             let fileManager = FileManager.default
             let missing = requiredModelFiles.filter {
                 !fileManager.fileExists(atPath: url.appendingPathComponent($0).path)
@@ -90,8 +90,7 @@ enum KaraokeVocalModel {
     static func download(progress: @escaping @Sendable (Double) -> Void) async throws {
         if isAvailableLocally() { return }
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
-            let manager = AssetPackManager.shared
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), let manager = BackgroundAssetsPrerequisites.manager {
             let pack = try await AppleHostedAssetPackResolver.assetPack(withID: assetPackID, manager: manager)
             let watcher = Task {
                 for await update in manager.statusUpdates(forAssetPackWithID: assetPackID) {
@@ -110,8 +109,8 @@ enum KaraokeVocalModel {
 
     static func remove() async {
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
-            try? await AssetPackManager.shared.remove(assetPackWithID: assetPackID)
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), let manager = BackgroundAssetsPrerequisites.manager {
+            try? await manager.remove(assetPackWithID: assetPackID)
         }
         #endif
     }
@@ -280,7 +279,15 @@ final class KaraokeSeparationService {
         case background
     }
 
-    private(set) var modelState: ModelState
+    @ObservationIgnored private lazy var initialModelState: ModelState = {
+        guard KaraokeVocalModel.isSystemSupported else { return .unsupportedSystem }
+        return KaraokeVocalModel.isAvailableLocally() ? .ready : .notDownloaded
+    }()
+    private var updatedModelState: ModelState?
+    private(set) var modelState: ModelState {
+        get { updatedModelState ?? initialModelState }
+        set { updatedModelState = newValue }
+    }
     /// Why the last model download failed, shown under the retry button.
     private(set) var modelFailureReason: String?
     /// Songs whose separation is paused, and why.
@@ -325,11 +332,6 @@ final class KaraokeSeparationService {
     nonisolated static let modelSampleRate = KaraokeDemucsLayout.standard.sampleRate
 
     private init() {
-        if !KaraokeVocalModel.isSystemSupported {
-            modelState = .unsupportedSystem
-        } else {
-            modelState = KaraokeVocalModel.isAvailableLocally() ? .ready : .notDownloaded
-        }
         NotificationCenter.default.addObserver(
             forName: .primuseMemoryPressure,
             object: nil,

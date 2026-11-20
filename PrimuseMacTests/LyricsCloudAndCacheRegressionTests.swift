@@ -1,8 +1,67 @@
 import CloudKit
 import Foundation
+import os
 import PrimuseKit
 import XCTest
 @testable import Primuse
+
+@MainActor
+final class MacLyricsAssetAvailabilityTests: XCTestCase {
+    func testReadingPlaybackStateAndUnsupportedLyricsDoNotProbeAssetPacks() async {
+        let probe = expectation(description: "The resource manager stays unused")
+        probe.isInverted = true
+        let service = LocalLyricsTranslationService(isSupported: true) { _ in
+            probe.fulfill()
+            return nil
+        }
+        XCTAssertEqual(service.modelRevision, 0)
+        XCTAssertEqual(service.modelState, .notDownloaded)
+        let group = LyricTranslationGroup(id: "it", sourceLanguageCode: "it", candidates: [
+            .init(id: "line", text: "La luna piega la carta", sourceLanguageCode: "it")
+        ])
+        let outcome = await service.translate(groups: [group], targetLanguageCode: "de", systemTranslator: nil,
+                                              isCurrent: { true }, onTranslation: { _, _ in })
+        XCTAssertEqual(outcome.unsupportedGroups, [group])
+        await fulfillment(of: [probe], timeout: 0.2)
+    }
+
+    func testOfflineRouteDiscoversExistingPacksOnceBeforeRequestingDownload() async {
+        let probes = OSAllocatedUnfairLock(initialState: [LocalLyricsTranslationModel.Pack]())
+        let service = LocalLyricsTranslationService(isSupported: true) { pack in
+            probes.withLock { $0.append(pack) }
+            return nil
+        }
+        let group = LyricTranslationGroup(id: "en", sourceLanguageCode: "en", candidates: [
+            .init(id: "line", text: "The paper moon keeps time", sourceLanguageCode: "en")
+        ])
+        for _ in 0..<2 {
+            let outcome = await service.translate(groups: [group], targetLanguageCode: "fa", systemTranslator: nil,
+                                                  isCurrent: { true }, onTranslation: { _, _ in })
+            XCTAssertEqual(outcome.groupsNeedingModel, [group])
+        }
+        let lookedUp = probes.withLock { $0 }
+        XCTAssertTrue(lookedUp.contains(.persian))
+        XCTAssertEqual(Set(lookedUp).count, lookedUp.count)
+    }
+
+    func testInterruptedManagerInitializationIsSkippedAndSuccessfulLoadClearsMarker() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let marker = directory.appendingPathComponent("current.pending")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data().write(to: marker)
+        XCTAssertNil(BackgroundAssetsPrerequisites.initializeOnce(marker: marker) {
+            XCTFail("The same build must not re-enter an interrupted framework initializer")
+            return 1
+        })
+        let upgraded = directory.appendingPathComponent("upgraded.pending")
+        XCTAssertEqual(BackgroundAssetsPrerequisites.initializeOnce(marker: upgraded) {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: upgraded.path))
+            return 2
+        }, 2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: upgraded.path))
+    }
+}
 
 @MainActor
 final class LyricsCacheObserverTests: XCTestCase {

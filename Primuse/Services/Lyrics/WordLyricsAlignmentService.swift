@@ -82,9 +82,9 @@ enum LyricsAlignmentModel {
         #endif
         #if canImport(BackgroundAssets)
         if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *),
-           BackgroundAssetsPrerequisites.isSatisfied,
-           AssetPackManager.shared.assetPackIsAvailableLocally(withID: assetPackID) {
-            return try? AssetPackManager.shared.url(for: FilePath(path))
+           let manager = BackgroundAssetsPrerequisites.manager,
+           manager.assetPackIsAvailableLocally(withID: assetPackID) {
+            return try? manager.url(for: FilePath(path))
         }
         #endif
         return nil
@@ -93,8 +93,7 @@ enum LyricsAlignmentModel {
     static func download(progress: @escaping @Sendable (Double) -> Void) async throws -> Located {
         if let located = locate() { return located }
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
-            let manager = AssetPackManager.shared
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), let manager = BackgroundAssetsPrerequisites.manager {
             let pack = try await AppleHostedAssetPackResolver.assetPack(withID: assetPackID, manager: manager)
             let watcher = Task {
                 for await update in manager.statusUpdates(forAssetPackWithID: assetPackID) {
@@ -113,8 +112,8 @@ enum LyricsAlignmentModel {
 
     static func remove() async {
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
-            try? await AssetPackManager.shared.remove(assetPackWithID: assetPackID)
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), let manager = BackgroundAssetsPrerequisites.manager {
+            try? await manager.remove(assetPackWithID: assetPackID)
         }
         #endif
     }
@@ -718,6 +717,7 @@ final class WordLyricsAlignmentService {
 
     @ObservationIgnored private var locatedModel: LyricsAlignmentModel.Located?
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
+    @ObservationIgnored private var hasRequestedAvailability = false
     @ObservationIgnored private var availabilityRefresh: Task<Void, Never>?
     @ObservationIgnored private var isRemovingModel = false
     @ObservationIgnored private var availabilityRevision: UInt = 0
@@ -735,14 +735,12 @@ final class WordLyricsAlignmentService {
     private init() {
         let supported = LyricsAlignmentModel.isSystemSupported
         modelState = supported ? .notDownloaded : .unsupportedSystem
-        if supported {
-            Task { await refreshAvailability() }
-        }
     }
 
     // MARK: - Model Pack Lifecycle
 
     func refreshAvailability() async {
+        hasRequestedAvailability = true
         guard LyricsAlignmentModel.isSystemSupported, !isRemovingModel else { return }
         if let task = availabilityRefresh {
             await task.value
@@ -842,6 +840,15 @@ final class WordLyricsAlignmentService {
               !lines.contains(where: \.containsWordLevelContent),
               lines.contains(where: { $0.isSynchronized && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
             return
+        }
+        if !hasRequestedAvailability {
+            hasRequestedAvailability = true
+            Task {
+                await refreshAvailability()
+                if locatedModel != nil {
+                    alignIfNeeded(song: song, lines: lines, playbackTime: playbackTime, audioFile: audioFile)
+                }
+            }
         }
         let songKey = Self.songCacheKey(for: song)
         let fingerprint = WordLyricsTimingOverlay.fingerprint(for: lines)

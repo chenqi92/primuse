@@ -91,7 +91,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             mode: settings.mode,
             systemPreparationRequestRevision: settings.systemPreparationRequestRevision,
             exposesRemoteConfiguration: intelligence.shouldExposeRemoteConfiguration,
-            localModelRevision: localTranslation.modelRevision,
+            localModelRevision: settings.isEnabled ? localTranslation.modelRevision : 0,
             intelligentReadiness: settings.mode == .intelligentWithSystemFallback
                 ? intelligence.lyricsAITranslationReadiness : nil,
             baiduRevision: settings.mode == .baidu ? BaiduTranslateAccount.shared.revision : nil,

@@ -1745,6 +1745,9 @@ private struct MacSTIntelligenceView: View {
             } else {
             tabPicker
             statusCard
+                .task(id: lyricsTranslation.isEnabled) {
+                    if lyricsTranslation.isEnabled { await LocalLyricsTranslationService.shared.refreshAvailability() }
+                }
             switch tab {
             case .features:
                 defaultEngineSection
@@ -6346,10 +6349,10 @@ private struct MacSTLyricsView: View {
                 }
             }
         }
-        .task {
-            await localTranslation.refreshAvailability()
-            await languageCatalog.refresh()
+        .task(id: settings.isEnabled) {
+            if settings.isEnabled { await localTranslation.refreshAvailability() }
         }
+        .task { await languageCatalog.refresh() }
         .sheet(isPresented: $showTranscriptionSettings) {
             GoogleLyricsTranscriptionSettingsView(presentedAsSheet: true)
         }

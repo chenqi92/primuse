@@ -39,7 +39,7 @@ final class LyricsSettingsLoadingTests: XCTestCase {
         let release = DispatchSemaphore(value: 0)
         let calls = LyricsSettingsProbeCalls()
         defer { release.signal() }
-        let service = LocalLyricsTranslationService(isSupported: true, refreshOnInit: false) { pack in
+        let service = LocalLyricsTranslationService(isSupported: true) { pack in
             if calls.record(pack.rawValue) == 1 {
                 started.fulfill()
                 _ = release.wait(timeout: .now() + 5)
@@ -64,7 +64,7 @@ final class LyricsSettingsLoadingTests: XCTestCase {
 
     func testUnsupportedSystemsDoNotQueryAssetPacks() async {
         let calls = LyricsSettingsProbeCalls()
-        let service = LocalLyricsTranslationService(isSupported: false, refreshOnInit: false) { pack in
+        let service = LocalLyricsTranslationService(isSupported: false) { pack in
             calls.record(pack.rawValue)
             return nil
         }
