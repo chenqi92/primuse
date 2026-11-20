@@ -1546,11 +1546,14 @@ final class TVStore {
         plog("TV album layout order=\(order.rawValue) albums=\(albums.count) sections=\(layout.sections.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
     }
 
-    /// 专辑墙排好时的修订号。「喜欢」的内容还跟着喜欢的增减变,两边都算进去。
-    private func albumBrowseRevision(_ order: LibraryAlbumBrowseOrder) -> Int {
-        order == .liked
-            ? libraryContentRevision &* 1_000_003 &+ LibraryFavoritesStore.shared.revision
-            : libraryContentRevision
+    /// 歌曲的标签先入库，专辑索引稍后发布。专辑墙要跟随后一次更新才能显示新的年份。
+    func albumBrowseRevision(_ order: LibraryAlbumBrowseOrder) -> Int {
+        let albums = library.visibleAlbumsRevision
+        switch order {
+        case .artist, .title, .year: return albums
+        case .recentlyAdded: return albums &+ libraryContentRevision
+        case .liked: return albums &+ LibraryFavoritesStore.shared.revision
+        }
     }
 
     /// 喜欢的专辑 / 艺人（最近喜欢的在前）。按曲库修订号与喜欢的修订号记住，首页每次重绘

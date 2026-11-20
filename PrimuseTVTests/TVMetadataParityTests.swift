@@ -323,6 +323,97 @@ final class TVMetadataParityTests: XCTestCase {
         XCTAssertEqual(updated.title, "Correct library title")
     }
 
+    func testAlbumYearSurvivesAnUndatedFirstTrack() {
+        let first = song()
+        var dated = song()
+        dated.year = 1986
+        var otherEdition = song()
+        otherEdition.year = 2019
+        let albums = MusicLibrary.computeAlbumsAndArtists(songs: [first, dated, otherEdition]).albums
+        XCTAssertEqual(albums.count, 1)
+        XCTAssertEqual(albums.first?.year, 1986)
+        XCTAssertNil(MusicLibrary.computeAlbumsAndArtists(songs: [first]).albums.first?.year)
+    }
+
+    func testCueWithoutReleaseDateUsesFileYearAndKeepsExplicitSheetYear() {
+        var track = song()
+        track.cueSheetPath = "/Album.cue"
+        track.cueStartTime = 0
+        var metadata = FileMetadataReader.Metadata()
+        metadata.year = 1986
+        var cached = TVMetadataEnricher.applying(metadata, to: track, duration: 200)
+        XCTAssertEqual(cached.year, 1986)
+        XCTAssertEqual(TVScanPipelinePolicy.reconciledSkeleton(existing: cached, candidate: track).year, 1986)
+        track.year = 1990
+        XCTAssertEqual(TVMetadataEnricher.applying(metadata, to: track, duration: 200).year, 1990)
+        XCTAssertEqual(TVScanPipelinePolicy.reconciledSkeleton(existing: cached, candidate: track).year, 1990)
+        cached.userMetadataEditedAt = Date()
+        cached.year = 1975
+        XCTAssertEqual(TVScanPipelinePolicy.reconciledSkeleton(existing: cached, candidate: track).year, 1975)
+    }
+
+    func testDSFPrefixProvidesFullDurationForBothBitOrders() async {
+        let rate: UInt32 = 5_644_800
+        let samples = UInt64(rate) * 1000 + UInt64(rate) / 2
+        let channelBytes = ((samples + 32_767) / 32_768) * 4096
+        for order: UInt32 in [1, 8] {
+            var header = Data("DSD ".utf8)
+            func appendLE<T: FixedWidthInteger>(_ value: T) {
+                withUnsafeBytes(of: value.littleEndian) { header.append(contentsOf: $0) }
+            }
+            appendLE(UInt64(28))
+            appendLE(92 + channelBytes * 2)
+            appendLE(UInt64(0))
+            header.append(contentsOf: "fmt ".utf8)
+            appendLE(UInt64(52))
+            for field: UInt32 in [1, 0, 2, 2, rate, order] { appendLE(field) }
+            appendLE(samples)
+            appendLE(UInt32(4096))
+            appendLE(UInt32(0))
+
+            let metadata = await FileMetadataReader.read(from: header, fileExtension: "dsf")
+            XCTAssertEqual(metadata.duration, 1000.5)
+            XCTAssertEqual(metadata.sampleRate, Int(rate))
+            XCTAssertEqual(metadata.bitDepth, 1)
+            XCTAssertNil(AudioStreamHeaderParser.parse(header.prefix(64), container: .dsf))
+            header.replaceSubrange(56..<60, with: [0, 0, 0, 0])
+            XCTAssertNil(AudioStreamHeaderParser.parse(header, container: .dsf))
+        }
+    }
+
+    func testLegacyInspectionsRetryMissingDSFDurationAndFLACYearOnce() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let dsf = Song(id: "dsf", title: "Track", fileFormat: .dsf, filePath: "/one.dsf",
+                       sourceID: "source", dateAdded: .distantPast)
+        var flac = Song(id: "flac", title: "Track", duration: 42, fileFormat: .flac,
+                        filePath: "/two.flac", sourceID: "source", dateAdded: .distantPast)
+        var dated = flac
+        dated.id = "dated"
+        dated.year = 1986
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        var legacy: [String: [String: String]] = [:]
+        for song in [dsf, flac, dated] {
+            let key = TVScanPipelinePolicy.hash32(song.sourceID + "\u{0}" + song.id)
+            legacy[key] = ["metadata": TVScanPipelinePolicy.hash32("1:" + (try encoder.encode(song)).base64EncodedString())]
+        }
+        try encoder.encode(legacy).write(to: url)
+        let inspections = TVMetadataInspectionStore(url: url)
+        for song in [dsf, flac, dated] {
+            let current = await inspections.isCurrent(song)
+            XCTAssertEqual(current, song.id == dated.id)
+        }
+        await inspections.record(flac, complete: true)
+        await inspections.flush()
+        let reopened = TVMetadataInspectionStore(url: url)
+        let missingTagAlreadyChecked = await reopened.isCurrent(flac)
+        XCTAssertTrue(missingTagAlreadyChecked)
+        flac.fileSize += 1
+        let changedFile = await reopened.isCurrent(flac)
+        XCTAssertFalse(changedFile)
+    }
+
     func testMetadataRefreshPreservesUserIdentityAndUpdatesTechnicalFields() {
         var original = song()
         original.userMetadataEditedAt = Date()

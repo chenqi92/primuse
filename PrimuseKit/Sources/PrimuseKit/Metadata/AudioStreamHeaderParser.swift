@@ -29,6 +29,7 @@ public struct AudioStreamHeaderInfo: Equatable, Sendable {
 /// 混合(有损)模式,MKA 里可能是 FLAC 也可能是 Opus。CAF 也在这里读,省得只靠 AVFoundation。
 public enum AudioStreamHeaderParser {
     public static func parse(_ data: Data, container: AudioFormat) -> AudioStreamHeaderInfo? {
+        if container == .dsf { return parseDSF(data) }
         let bytes = [UInt8](data.prefix(maximumInspectedByteCount))
         switch container {
         case .wma: return parseASF(bytes)
@@ -42,6 +43,27 @@ public enum AudioStreamHeaderParser {
 
     /// 编码信息都在文件最前面;多给的字节不看。
     static let maximumInspectedByteCount = 4 * 1024 * 1024
+
+    // MARK: - DSF
+
+    private static func parseDSF(_ data: Data) -> AudioStreamHeaderInfo? {
+        let header = Array(data.prefix(80))
+        guard header.count == 80, header[0..<4].elementsEqual("DSD ".utf8),
+              readUInt64LE(header, 4) == 28,
+              header[28..<32].elementsEqual("fmt ".utf8), readUInt64LE(header, 32) == 52,
+              readUInt32LE(header, 40) == 1, readUInt32LE(header, 44) == 0,
+              let channels = readUInt32LE(header, 52), (1...6).contains(channels),
+              let rate = readUInt32LE(header, 56), rate > 0,
+              let bitOrder = readUInt32LE(header, 60), bitOrder == 1 || bitOrder == 8,
+              let samples = readUInt64LE(header, 64), samples > 0,
+              let fileSize = readUInt64LE(header, 12), fileSize >= 92,
+              (samples - 1) / 8 < (fileSize - 92) / UInt64(channels) else { return nil }
+        // fmt 的样本数按单声道计，末块补零和文件尾的 ID3 都不计入时长。
+        let duration = Double(samples) / Double(rate)
+        guard duration < Double(Int.max) else { return nil }
+        return AudioStreamHeaderInfo(sampleRate: Int(rate), bitDepth: 1,
+                                     channelCount: Int(channels), duration: duration)
+    }
 
     // MARK: - ASF (WMA)
 

@@ -205,6 +205,10 @@ public enum TVScanPipelinePolicy {
             result.cueSheetPath = candidate.cueSheetPath
             result.cueStartTime = candidate.cueStartTime
             result.cueEndTime = candidate.cueEndTime
+            if candidate.isCueTrack, !candidate.isDiscImageTrack, existing.userMetadataEditedAt == nil,
+               let sheetYear = candidate.year, sheetYear > 0 {
+                result.year = sheetYear
+            }
             result.sacdTrackNumber = candidate.sacdTrackNumber
             result.isoAudioTrack = candidate.isoAudioTrack
             if let video = candidate.mvPath { result.mvPath = video }

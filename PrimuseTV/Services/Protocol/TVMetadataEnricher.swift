@@ -643,8 +643,10 @@ enum TVMetadataEnricher {
             )
             output.trackNumber = metadata.trackNumber ?? output.trackNumber
             output.discNumber = metadata.discNumber ?? output.discNumber
-            output.year = metadata.year ?? output.year
             output.genre = metadata.genre ?? output.genre
+        }
+        if let year = metadata.year, !song.isCueTrack || (song.year ?? 0) <= 0 {
+            output.year = year
         }
         output.contentMetadata = SongContentMetadata.merging(previous: output.contentMetadata, incoming: metadata.contentMetadata)
         output.bitRate = metadata.bitRate ?? output.bitRate

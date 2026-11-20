@@ -279,8 +279,8 @@ struct TVLibraryView: View {
             albumOrder: wallOrder,
             artistMode: artistBrowseMode,
             hidesSingleOnlyAlbumArtists: hidesSingleOnlyAlbumArtists,
-            revision: store.libraryBrowseRevision,
-            favoritesRevision: wallOrder == .liked ? LibraryFavoritesStore.shared.revision : 0
+            revision: filter == .albums || filter == .years
+                ? store.albumBrowseRevision(wallOrder) : store.libraryBrowseRevision
         )) {
             switch filter {
             case .albums, .years: await store.prepareAlbumBrowseLayout(wallOrder)
@@ -527,8 +527,6 @@ struct TVLibraryView: View {
         let artistMode: ArtistBrowseMode
         let hidesSingleOnlyAlbumArtists: Bool
         let revision: Int
-        /// 按「喜欢」排时，点了 / 取消喜欢也要重排。
-        let favoritesRevision: Int
     }
 
     /// 当前网格的首字母分段;没有(其他筛选、按年份 / 最近添加)时不显示字母栏。

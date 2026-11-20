@@ -373,7 +373,7 @@ enum FileMetadataReader {
            streamHeaderContainers.contains(container) {
             applyStreamHeaderFallback(
                 to: &metadata,
-                data: readPrefix(from: url, byteCount: streamHeaderReadLimit),
+                data: container == .dsf ? signaturePrefix : readPrefix(from: url, byteCount: streamHeaderReadLimit),
                 fileExtension: fileExtension
             )
         }
@@ -660,12 +660,12 @@ enum FileMetadataReader {
 
     /// 编码写在文件头里、AVFoundation 又打不开的容器(CAF 它能打开,这里再核对一遍)。
     /// APE 的头里还有总样本数,远端只读首尾两段时靠它出时长。
-    private static let streamHeaderContainers: Set<AudioFormat> = [.wma, .wv, .caf, .mka, .webm, .ape]
+    private static let streamHeaderContainers: Set<AudioFormat> = [.wma, .wv, .caf, .mka, .webm, .ape, .dsf]
     private static let streamHeaderReadLimit = 1024 * 1024
     /// 查实际位深时读多少音频帧。24 bit 立体声一帧 4096 样本补零后大约十几 KB,够看几十帧。
     static let flacFrameInspectionByteCount = 1024 * 1024
 
-    /// WMA 的 WMA Lossless、WavPack 的混合模式、CAF / Matroska 里的编码、APE 的时长。只补缺的值。
+    /// DSF 文件头给出整首的 DSD 采样参数；其余容器只补读取器缺少的字段。
     private static func applyStreamHeaderFallback(
         to metadata: inout Metadata,
         data: Data,
@@ -674,6 +674,12 @@ enum FileMetadataReader {
         guard let container = AudioFormat.from(fileExtension: fileExtension),
               streamHeaderContainers.contains(container),
               let info = AudioStreamHeaderParser.parse(data, container: container) else { return }
+        if container == .dsf {
+            metadata.duration = info.duration
+            metadata.sampleRate = info.sampleRate
+            metadata.bitDepth = info.bitDepth
+            return
+        }
         if metadata.audioCodec == nil { metadata.audioCodec = info.codec }
         if (metadata.sampleRate ?? 0) <= 0, let rate = info.sampleRate { metadata.sampleRate = rate }
         if (metadata.bitDepth ?? 0) <= 0, let depth = info.bitDepth { metadata.bitDepth = depth }

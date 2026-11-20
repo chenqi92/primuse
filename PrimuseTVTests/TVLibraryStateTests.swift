@@ -322,6 +322,27 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertEqual(fixture.library.preferredArtworkSong(forAlbumID: albumID)?.id, withCover.id)
     }
 
+    func testYearWallRefreshesWhenAlbumIndexFinishesAfterSongBackfill() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        var track = fixture.song("year-wall")
+        track.artistName = "Artist"
+        track.albumTitle = "Album"
+        fixture.library.addSongs([track])
+        await fixture.library.waitForPendingIndex()
+        track.year = 1986
+        fixture.library.replaceSongs([track], maintenance: .deferred)
+
+        let store = fixture.store()
+        await store.prepareAlbumBrowseLayout(.year)
+        XCTAssertEqual(store.albumBrowseLayout(.year)?.items.first?.year, 0)
+        await fixture.library.waitForPendingIndex()
+        XCTAssertEqual(fixture.library.visibleAlbums.first?.year, 1986)
+        await store.prepareAlbumBrowseLayout(.year)
+        XCTAssertEqual(store.albumBrowseLayout(.year)?.items.first?.year, 1986)
+        XCTAssertEqual(store.albumBrowseLayout(.year)?.sections.first?.bucket, "decade-1980")
+    }
+
     func testCollectionPlaybackStartsSelectedSongAndKeepsCollectionQueue() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

@@ -10,7 +10,6 @@ enum TVPlaybackMetadataPolicy {
 
 actor TVMetadataInspectionStore {
     static let shared = TVMetadataInspectionStore()
-    static let parserVersion = 1
 
     private struct Entry: Codable {
         let metadata: String
@@ -105,7 +104,16 @@ actor TVMetadataInspectionStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let data = (try? encoder.encode(inspected)) ?? Data()
-        return TVScanPipelinePolicy.hash32("\(Self.parserVersion):" + data.base64EncodedString())
+        return TVScanPipelinePolicy.hash32("\(Self.parserVersion(for: song)):" + data.base64EncodedString())
+    }
+
+    /// 旧记录可能把缺失的时长或年份记成已读。只让受影响的行重读一次，
+    /// 确实没有年份的文件在新版本读完后仍可命中缓存。
+    private static func parserVersion(for song: Song) -> Int {
+        if song.fileFormat == .dsf, !song.duration.isFinite || song.duration <= 0 { return 2 }
+        let canRecoverYear = song.fileFormat == .flac || (song.isCueTrack && !song.isDiscImageTrack)
+        if canRecoverYear, (song.year ?? 0) <= 0, song.userMetadataEditedAt == nil { return 2 }
+        return 1
     }
 
     private static func sidecarSignature(_ song: Song, sidecars: SidecarDirectoryIndex<TVDirEntry>) -> String {

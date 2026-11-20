@@ -18780,10 +18780,11 @@ final class MusicLibrary {
         }
 
         // Albums ── 只 group 有 albumTitle 的歌曲。Every song gets its album's
-        // slot (or -1); per album the first song supplies year/genre/source.
+        // slot (or -1); per album the first song supplies genre/source.
         var slotByIdentity: [AlbumGroupingIdentity: Int] = [:]
         var albumIdentities: [AlbumGroupingIdentity] = []
         var albumFirstSong: [Int] = []
+        var albumYears: [Int?] = []
         var albumSongCount: [Int] = []
         var albumDuration: [TimeInterval] = []
         var albumSlotBySong = [Int32](repeating: -1, count: songs.count)
@@ -18803,10 +18804,14 @@ final class MusicLibrary {
                 slotByIdentity[identity] = slot
                 albumIdentities.append(identity)
                 albumFirstSong.append(offset)
+                albumYears.append(nil)
                 albumSongCount.append(0)
                 albumDuration.append(0)
             }
             albumSlotBySong[offset] = Int32(slot)
+            if albumYears[slot] == nil, let year = song.year, year > 0 {
+                albumYears[slot] = year
+            }
             albumSongCount[slot] += 1
             albumDuration[slot] += song.duration.sanitizedDuration
         }
@@ -18830,7 +18835,7 @@ final class MusicLibrary {
                 title: identity.albumTitle,
                 artistID: albumArtistID,
                 artistName: identity.artistName,
-                year: first.year,
+                year: albumYears[slot],
                 genre: first.genre,
                 songCount: albumSongCount[slot],
                 totalDuration: albumDuration[slot],
@@ -19075,7 +19080,7 @@ final class MusicLibrary {
                 title: identity.albumTitle,
                 artistID: artistID(named: identity.artistName),
                 artistName: identity.artistName,
-                year: groupedSongs.first?.year,
+                year: groupedSongs.lazy.compactMap(\.year).first { $0 > 0 },
                 genre: groupedSongs.first?.genre,
                 songCount: groupedSongs.count,
                 totalDuration: totalDuration,
