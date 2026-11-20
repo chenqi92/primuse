@@ -7811,3 +7811,7 @@
 "spoken_word_voice_boost" = "تعزيز الصوت";
 "spoken_word_voice_boost_desc" = "عند تشغيل الكتب الصوتية والبودكاست يُبرَز صوت المتحدث: تُرفع الحلقات الهادئة، ويصبح مستوى الصوت متقاربًا بين الحلقات، ويتضح الحوار دون أن تعلو المقاطع الصاخبة فجأة. لا تتأثر الموسيقى. لا تعمل مع بودكاست الفيديو أو عند البث إلى جهاز آخر.";
 "home_section_recently_added_songs" = "الأغاني المضافة مؤخرًا";
+"lyrics_font_language_with_font_format" = "%1$@ (%2$@)";
+"lyrics_font_language_overrides_format" = "الخطوط المختارة لـ %@ لا تتغير مع الخط الافتراضي.";
+"lyrics_font_language_unavailable_format" = "«%2$@» المختار لـ %1$@ غير متاح على هذا الجهاز، لذا يُستخدم الخط الافتراضي.";
+"lyrics_font_use_default_for_all" = "استخدام الخط الافتراضي للكل";

@@ -7905,3 +7905,7 @@
 "spoken_word_voice_boost" = "Stimmverstärkung";
 "spoken_word_voice_boost_desc" = "Hebt bei Hörbüchern und Podcasts die Stimme hervor: Leise Folgen werden angehoben, die Lautstärke wird zwischen Folgen ausgeglichen und Dialoge werden klarer, ohne dass laute Stellen übersteuern. Musik bleibt unverändert. Gilt nicht für Video-Podcasts und beim Streamen auf andere Geräte.";
 "home_section_recently_added_songs" = "Zuletzt hinzugefügte Titel";
+"lyrics_font_language_with_font_format" = "%1$@ (%2$@)";
+"lyrics_font_language_overrides_format" = "Die Schriften für %@ ändern sich nicht mit der Standardschrift.";
+"lyrics_font_language_unavailable_format" = "„%2$@“ für %1$@ ist auf diesem Gerät nicht verfügbar, daher wird die Standardschrift verwendet.";
+"lyrics_font_use_default_for_all" = "Überall Standardschrift verwenden";

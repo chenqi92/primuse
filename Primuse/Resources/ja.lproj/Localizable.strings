@@ -7906,3 +7906,7 @@
 "spoken_word_voice_boost" = "ボイスブースト";
 "spoken_word_voice_boost_desc" = "オーディオブックやポッドキャストで声を聞き取りやすくします。音量の小さい番組を持ち上げ、エピソードごとの音量差をそろえ、会話をはっきりさせます。大きな音で急に音が割れることもありません。音楽には影響しません。ビデオポッドキャストや他のデバイスへのキャスト中は使えません。";
 "home_section_recently_added_songs" = "最近追加した曲";
+"lyrics_font_language_with_font_format" = "%1$@（%2$@）";
+"lyrics_font_language_overrides_format" = "%@は個別にフォントを選んでいるため、デフォルトのフォントを変えても変わりません。";
+"lyrics_font_language_unavailable_format" = "%1$@に選んだ「%2$@」はこのデバイスで使えないため、デフォルトのフォントで表示しています。";
+"lyrics_font_use_default_for_all" = "すべてデフォルトのフォントにする";

@@ -7811,3 +7811,7 @@
 "spoken_word_voice_boost" = "Ses Güçlendirme";
 "spoken_word_voice_boost_desc" = "Sesli kitap ve podcast’lerde sesi öne çıkarır: kısık yayınlar yükseltilir, bölümler arasındaki ses düzeyi dengelenir ve diyaloglar netleşir; yüksek yerler aniden patlamaz. Müzik etkilenmez. Video podcast’lerde ve başka bir cihaza yayın yaparken çalışmaz.";
 "home_section_recently_added_songs" = "Son Eklenen Şarkılar";
+"lyrics_font_language_with_font_format" = "%1$@ (%2$@)";
+"lyrics_font_language_overrides_format" = "%@ için seçilen yazı tipleri varsayılan yazı tipiyle birlikte değişmez.";
+"lyrics_font_language_unavailable_format" = "%1$@ için seçilen “%2$@” bu aygıtta kullanılamıyor, bu yüzden varsayılan yazı tipi kullanılıyor.";
+"lyrics_font_use_default_for_all" = "Tümünde varsayılan yazı tipini kullan";

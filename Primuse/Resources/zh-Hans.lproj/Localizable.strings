@@ -7998,3 +7998,7 @@
 "spoken_word_voice_boost" = "语音增强";
 "spoken_word_voice_boost_desc" = "播放有声书和播客时突出人声：小声的节目会被拉起来，各期节目音量更一致，对白更清楚，大声处也不会爆音。音乐不受影响。视频播客、投放到其他设备时不生效。";
 "home_section_recently_added_songs" = "最近添加的歌曲";
+"lyrics_font_language_with_font_format" = "%1$@（%2$@）";
+"lyrics_font_language_overrides_format" = "%@单独选了字体，不跟默认字体走。";
+"lyrics_font_language_unavailable_format" = "%1$@选的「%2$@」这台设备上用不了，先用默认字体显示。";
+"lyrics_font_use_default_for_all" = "都改用默认字体";

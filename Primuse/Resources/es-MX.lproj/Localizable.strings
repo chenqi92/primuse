@@ -7811,3 +7811,7 @@
 "spoken_word_voice_boost" = "Realce de voz";
 "spoken_word_voice_boost_desc" = "Destaca la voz en audiolibros y podcasts: sube los programas con volumen bajo, iguala el volumen entre episodios y aclara los diálogos sin que las partes fuertes saturen. La música no cambia. No se aplica a podcasts en video ni al transmitir a otro dispositivo.";
 "home_section_recently_added_songs" = "Canciones agregadas recientemente";
+"lyrics_font_language_with_font_format" = "%1$@ (%2$@)";
+"lyrics_font_language_overrides_format" = "Las fuentes elegidas para %@ no cambian con la fuente predeterminada.";
+"lyrics_font_language_unavailable_format" = "“%2$@”, elegida para %1$@, no está disponible en este dispositivo, así que se usa la fuente predeterminada.";
+"lyrics_font_use_default_for_all" = "Usar la fuente predeterminada en todos";

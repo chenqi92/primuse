@@ -7905,3 +7905,7 @@
 "spoken_word_voice_boost" = "음성 강화";
 "spoken_word_voice_boost_desc" = "오디오북과 팟캐스트에서 목소리를 또렷하게 해 줍니다. 소리가 작은 방송은 키우고, 에피소드마다 음량을 고르게 맞추며, 큰 소리도 갑자기 터지지 않게 합니다. 음악에는 영향을 주지 않습니다. 비디오 팟캐스트나 다른 기기로 전송할 때는 적용되지 않습니다.";
 "home_section_recently_added_songs" = "최근 추가한 노래";
+"lyrics_font_language_with_font_format" = "%1$@(%2$@)";
+"lyrics_font_language_overrides_format" = "%@에는 따로 고른 글꼴이 있어 기본 글꼴을 바꿔도 바뀌지 않습니다.";
+"lyrics_font_language_unavailable_format" = "%1$@에 고른 ‘%2$@’은(는) 이 기기에서 쓸 수 없어 기본 글꼴로 표시합니다.";
+"lyrics_font_use_default_for_all" = "모두 기본 글꼴 사용";

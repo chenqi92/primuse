@@ -1353,8 +1353,10 @@ final class PlayerTypographyAndTrackTests: XCTestCase {
         XCTAssertEqual(multilingual.resolved(for: nil).family, original.family)
         XCTAssertNotEqual(LyricsFlowMeasurementKey(typeface: original), LyricsFlowMeasurementKey(typeface: multilingual))
         let available = multilingual
-        multilingual.unavailableLanguageFonts = [.chinese]
-        XCTAssertEqual(multilingual.resolved(for: .chinese).font(size: 26), Font.system(size: 26, weight: .regular))
+        // 这台设备上画不出来的单独字体不进 languageFonts:这种文字跟默认字体走,不退回系统字体。
+        multilingual.languageFonts[.chinese] = nil
+        XCTAssertEqual(multilingual.resolved(for: .chinese).font(size: 26), original.font(size: 26))
+        XCTAssertNotEqual(multilingual.resolved(for: .chinese).font(size: 26), Font.system(size: 26, weight: .regular))
         XCTAssertEqual(multilingual.resolved(for: .latin).font(size: 26), PlayerTextFont.builtin(.georgia).font(size: 26))
         XCTAssertNotEqual(LyricsFlowMeasurementKey(typeface: available), LyricsFlowMeasurementKey(typeface: multilingual))
     }

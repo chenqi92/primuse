@@ -691,6 +691,11 @@ struct DesktopLyricsView: View {
             settingsRow(icon: "textformat.size.larger", title: "lyrics_font_larger") {
                 fontScale = min(maxScale, fontScale + 0.15)
             }
+            // 换哪种字体在设置里(和播放页、歌词岛共用),这里直接打开那一项。
+            settingsRow(icon: "textformat", title: "transcript_font") {
+                settingsShown = false
+                SettingsWindowController.shared.show(settingID: "lyrics.font")
+            }
 
             Divider().padding(.vertical, 3)
 

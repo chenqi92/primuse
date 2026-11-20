@@ -263,9 +263,21 @@ extension PlayerTextFontLibrary {
     }
 }
 
-/// 导入字体的入口与结果提示,挂在有导入按钮的视图上:iPhone / iPad 打开文件选择;Mac 由按钮直接弹打开面板
-/// (`PlayerTextFontImportPanel`),选好或拖进来的文件放进 `pendingURLs` 交给这里导入。
-/// 导入成功的选中第一个;有读不出、导入过、用不了的文件时逐个说明。
+/// 导入一批字体文件,得出要选中的那一个(导入成功的第一个,按家族代表)。iPhone / iPad 经下面的修饰符调用;
+/// Mac 由字体选择器直接调用,不经视图状态(见 `PlayerTextFontPicker.importOnMac`)。
+enum PlayerTextFontImportFlow {
+    @MainActor
+    static func run(_ urls: [URL]) async -> (font: PlayerTextFont?, report: PlayerTextFontImportReport) {
+        let library = PlayerTextFontLibrary.shared
+        let report = await library.importFonts(from: urls)
+        let font = report.importedPostScriptNames.first.map { library.pickerFont(for: .imported(postScriptName: $0)) }
+        return (font, report)
+    }
+}
+
+#if os(iOS)
+/// iPhone / iPad 导入字体的入口与结果提示,挂在有导入按钮的视图上:打开文件选择,选好的文件放进 `pendingURLs`
+/// 交给这里导入。导入成功的选中第一个;有读不出、导入过、用不了的文件时逐个说明。
 struct PlayerTextFontImportModifier: ViewModifier {
     @Binding var isPresented: Bool
     @Binding var pendingURLs: [URL]
@@ -275,7 +287,6 @@ struct PlayerTextFontImportModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            #if os(iOS)
             .fileImporter(
                 isPresented: $isPresented,
                 allowedContentTypes: [.font],
@@ -284,7 +295,6 @@ struct PlayerTextFontImportModifier: ViewModifier {
                 guard case let .success(urls) = result, !urls.isEmpty else { return }
                 pendingURLs = urls
             }
-            #endif
             .onChange(of: pendingURLs) { _, urls in
                 guard !urls.isEmpty else { return }
                 pendingURLs = []
@@ -305,19 +315,20 @@ struct PlayerTextFontImportModifier: ViewModifier {
     }
 
     private func run(_ urls: [URL]) async {
-        let library = PlayerTextFontLibrary.shared
-        let outcome = await library.importFonts(from: urls)
-        if let first = outcome.importedPostScriptNames.first {
-            onImported(library.pickerFont(for: .imported(postScriptName: first)))
+        let outcome = await PlayerTextFontImportFlow.run(urls)
+        if let font = outcome.font {
+            onImported(font)
         }
-        if outcome.hasProblems {
-            report = outcome
+        if outcome.report.hasProblems {
+            report = outcome.report
         }
     }
 }
+#endif
 
 #if os(macOS)
-/// Mac 上导入字体用的打开面板(和别处选文件一样直接弹,不经 SwiftUI 的文件选择,弹层收起也不影响)。
+/// Mac 上导入字体用的打开面板与结果提示框(和别处选文件一样直接弹,不经 SwiftUI 的文件选择与提示,
+/// 「更多」里的弹层收起也不影响)。
 enum PlayerTextFontImportPanel {
     @MainActor
     static func chooseFiles() -> [URL] {
@@ -327,6 +338,16 @@ enum PlayerTextFontImportPanel {
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.font]
         return panel.runModal() == .OK ? panel.urls : []
+    }
+
+    /// 有读不出、导入过、用不了的文件时逐个说明。
+    @MainActor
+    static func showProblems(_ report: PlayerTextFontImportReport) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "transcript_reader_font_import_failed_title")
+        alert.informativeText = report.message
+        alert.addButton(withTitle: String(localized: "ok"))
+        alert.runModal()
     }
 }
 #endif

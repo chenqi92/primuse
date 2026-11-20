@@ -7811,3 +7811,7 @@
 "spoken_word_voice_boost" = "Wzmocnienie głosu";
 "spoken_word_voice_boost_desc" = "Wydobywa głos w audiobookach i podcastach: ciche audycje są podgłaśniane, głośność wyrównuje się między odcinkami, a dialogi są wyraźniejsze bez nagłych przesterów w głośnych momentach. Muzyka pozostaje bez zmian. Nie działa w podcastach wideo ani podczas przesyłania na inne urządzenie.";
 "home_section_recently_added_songs" = "Ostatnio dodane utwory";
+"lyrics_font_language_with_font_format" = "%1$@ (%2$@)";
+"lyrics_font_language_overrides_format" = "Czcionki wybrane dla: %@ nie zmieniają się razem z czcionką domyślną.";
+"lyrics_font_language_unavailable_format" = "Czcionka „%2$@” wybrana dla: %1$@ nie jest dostępna na tym urządzeniu, więc używana jest czcionka domyślna.";
+"lyrics_font_use_default_for_all" = "Użyj czcionki domyślnej wszędzie";

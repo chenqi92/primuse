@@ -7666,3 +7666,7 @@
 "spoken_word_voice_boost" = "Voice Boost";
 "spoken_word_voice_boost_desc" = "Brings voices forward in audiobooks and podcasts: quiet shows are lifted, loudness evens out from episode to episode, and dialogue is clearer without loud moments blasting. Music isn't affected. Doesn't apply to video podcasts or when casting to another device.";
 "home_section_recently_added_songs" = "Recently Added Songs";
+"lyrics_font_language_with_font_format" = "%1$@ (%2$@)";
+"lyrics_font_language_overrides_format" = "Fonts chosen for %@ don’t change with the default font.";
+"lyrics_font_language_unavailable_format" = "“%2$@”, chosen for %1$@, isn’t available on this device, so the default font is used.";
+"lyrics_font_use_default_for_all" = "Use Default Font for All";

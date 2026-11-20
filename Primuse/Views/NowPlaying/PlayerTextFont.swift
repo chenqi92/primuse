@@ -69,6 +69,12 @@ enum PlayerTextFont: Hashable, Identifiable {
     @MainActor
     var title: Text { Text(verbatim: localizedTitle) }
 
+    /// 存着的选中值叫什么;认不出来的(新版本才有的内置字体)照原样写。
+    @MainActor
+    static func title(ofSelection rawValue: String) -> String {
+        PlayerTextFont(rawValue: rawValue)?.localizedTitle ?? rawValue
+    }
+
     /// 字体块上的样字:中文字体写「字」,日文「あ」,韩文「가」,其余 Aa。
     @MainActor
     var sample: String {
@@ -355,6 +361,11 @@ final class PlayerTextFontLibrary {
         }
     }
 
+    /// 按存着的选中值查;认不出来的(新版本才有的内置字体)算画不出来。
+    func isAvailable(selection rawValue: String) -> Bool {
+        PlayerTextFont(rawValue: rawValue).map { isAvailable($0) } ?? false
+    }
+
     /// 这台设备上现在就能显示的几种内置字体(电视上用:那边没有下载、导入入口,西文字体也未必都装着)。
     func installedFonts() -> [PlayerTextFont] {
         PlayerTextFont.Builtin.allCases.filter { builtin in
@@ -500,8 +511,9 @@ struct LyricsTypeface: Equatable {
     var family: PlayerTextFont = .system
     var isAvailable = true
     var weightSelection: PlayerLyricsWeight = .automatic
+    /// 单独选了字体、而且这台设备上画得出来的几种文字。画不出来的(别的设备导入、这台没有,还没下好)
+    /// 不在这里,跟默认字体走(`LyricsFontFallbackPolicy`)。
     var languageFonts: [LyricsFontLanguage: PlayerTextFont] = [:]
-    var unavailableLanguageFonts: Set<LyricsFontLanguage> = []
 
     static let system = LyricsTypeface()
 
@@ -513,7 +525,7 @@ struct LyricsTypeface: Equatable {
         guard let language, let font = languageFonts[language] else { return self }
         var result = self
         result.family = font
-        result.isAvailable = !unavailableLanguageFonts.contains(language)
+        result.isAvailable = true
         return result
     }
 
@@ -550,18 +562,20 @@ struct LyricsTypefaceProvider: ViewModifier {
     func body(content: Content) -> some View {
         let family = PlayerTextFont(rawValue: rawValue) ?? .system
         let preferences = LyricsLanguageFontPreferences(rawValue: languageFontsRawValue)
-        let languageFonts = Dictionary(uniqueKeysWithValues: LyricsFontLanguage.allCases.compactMap { language in
-            preferences[language].flatMap(PlayerTextFont.init(rawValue:)).map { (language, $0) }
-        })
         let library = PlayerTextFontLibrary.shared
-        let fonts = [family] + LyricsFontLanguage.allCases.compactMap { languageFonts[$0] }
+        let languageFonts = LyricsFontFallbackPolicy
+            .drawableLanguageFonts(in: preferences) { library.isAvailable(selection: $0) }
+            .compactMapValues(PlayerTextFont.init(rawValue:))
+        // 单独选的字体还没下好也照样去下,下好之前这种文字先跟默认字体。
+        let fonts = [family] + preferences.overriddenLanguages.compactMap {
+            preferences[$0].flatMap(PlayerTextFont.init(rawValue:))
+        }
         content
             .environment(\.lyricsTypeface, LyricsTypeface(
                 family: family,
-                isAvailable: PlayerTextFontLibrary.shared.isAvailable(family),
+                isAvailable: library.isAvailable(family),
                 weightSelection: .resolved(weightRawValue),
-                languageFonts: languageFonts,
-                unavailableLanguageFonts: Set(languageFonts.compactMap { library.isAvailable($0.value) ? nil : $0.key })
+                languageFonts: languageFonts
             ))
             .task(id: fonts) {
                 for font in fonts { library.prepare(font) }
@@ -705,8 +719,11 @@ struct LyricsLanguageFontPicker: View {
     @AppStorage(PlayerAppearancePreferences.lyricsWeightKey) private var weight = PlayerLyricsWeight.automatic.rawValue
     @State private var language: LyricsFontLanguage?
 
+    /// 改哪一种文字在建这个 Binding 时就定下:Mac「更多」里的字体弹层在导入字体弹出打开面板时会被收起,
+    /// 导入完才写选中值,那时这一页的状态已经不在了。
     private var selection: Binding<String> {
-        Binding(get: {
+        let language = self.language
+        return Binding(get: {
             guard let language else { return defaultFont }
             return LyricsLanguageFontPreferences(rawValue: languageFonts)[language] ?? defaultFont
         }, set: { value in
@@ -723,11 +740,12 @@ struct LyricsLanguageFontPicker: View {
     }
 
     var body: some View {
+        let preferences = LyricsLanguageFontPreferences(rawValue: languageFonts)
         VStack(alignment: .leading, spacing: 12) {
             Picker("lyrics_font_language", selection: $language) {
                 Text("lyrics_font_default").tag(nil as LyricsFontLanguage?)
                 ForEach(LyricsFontLanguage.allCases, id: \.self) { language in
-                    Text(verbatim: language.title).tag(Optional(language))
+                    Text(verbatim: Self.title(of: language, in: preferences)).tag(Optional(language))
                 }
             }
             .pickerStyle(.menu)
@@ -747,7 +765,64 @@ struct LyricsLanguageFontPicker: View {
             ) {
                 Text(verbatim: message).font(.footnote).foregroundStyle(.secondary)
             }
+            if language == nil {
+                LyricsLanguageFontOverridesNote(preferences: preferences) {
+                    var cleared = LyricsLanguageFontPreferences(rawValue: languageFonts)
+                    cleared.removeAllLanguageFonts()
+                    languageFonts = cleared.rawValue
+                    CloudKVSSync.shared.markChanged(key: LyricsFontLanguage.preferencesKey)
+                }
+            }
         }
+    }
+
+    /// 语言菜单里单独选了字体的那几种带上字体名,不用一个个点进去才知道哪几种不跟默认字体。
+    static func title(of language: LyricsFontLanguage, in preferences: LyricsLanguageFontPreferences) -> String {
+        guard let selection = preferences[language] else { return language.title }
+        return String(
+            format: String(localized: "lyrics_font_language_with_font_format"),
+            language.title,
+            PlayerTextFont.title(ofSelection: selection)
+        )
+    }
+}
+
+/// 默认字体下面交代单独选了字体的几种文字(在别的设备上选的也一样,随 iCloud 同步过来):改默认字体时
+/// 它们不跟着变;其中这台设备上用不了的(别的设备导入、这台没有)先跟默认字体显示。可以一下都改回默认字体。
+private struct LyricsLanguageFontOverridesNote: View {
+    let preferences: LyricsLanguageFontPreferences
+    let onUseDefaultForAll: () -> Void
+
+    var body: some View {
+        let library = PlayerTextFontLibrary.shared
+        let fonts = LyricsFontFallbackPolicy.languageFonts(in: preferences) { library.isAvailable(selection: $0) }
+        if !fonts.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Group {
+                    Text(verbatim: summary(of: fonts))
+                    ForEach(fonts.filter { !$0.isAvailable }, id: \.language) { font in
+                        Text(verbatim: String(
+                            format: String(localized: "lyrics_font_language_unavailable_format"),
+                            font.language.title,
+                            PlayerTextFont.title(ofSelection: font.selection)
+                        ))
+                    }
+                }
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                Button("lyrics_font_use_default_for_all", action: onUseDefaultForAll)
+                    .buttonStyle(.borderless)
+            }
+            .font(.footnote)
+        }
+    }
+
+    private func summary(of fonts: [LyricsFontFallbackPolicy.LanguageFont]) -> String {
+        let items = fonts.map { LyricsLanguageFontPicker.title(of: $0.language, in: preferences) }
+        return String(
+            format: String(localized: "lyrics_font_language_overrides_format"),
+            ListFormatter.localizedString(byJoining: items)
+        )
     }
 }
 
@@ -772,7 +847,7 @@ struct LyricsWeightPicker: View {
     }
 }
 
-/// 按组排的字体块:常用、手写与书法、日文与韩文、西文花体各一排横滑,最后是「我导入的」和导入按钮。
+/// 按组排的字体块:常用、手写与书法、日文与韩文、西文花体各一排横滑(Mac 上按宽度折行),最后是「我导入的」和导入按钮。
 /// 每块用那种字体写个样字,要下载的标朵云、下载中画一圈进度、失败标个感叹号。点一块就选中它,
 /// 还没下的顺手开始下;失败过的再点一次重试。导入的字体长按(Mac 右键)可以删除。
 struct PlayerTextFontPicker: View {
@@ -780,8 +855,10 @@ struct PlayerTextFontPicker: View {
     /// 样字的字重,跟用它的地方一样(文稿照所选字重,歌词是半粗)。
     var sampleWeight: Font.Weight = .regular
 
+    #if os(iOS)
     @State private var showsImporter = false
     @State private var pendingImportURLs: [URL] = []
+    #endif
     @State private var showsMissingExplanation = false
     @State private var previewsReady = false
     @ScaledMetric(relativeTo: .caption) private var chipTitleHeight: CGFloat = 18
@@ -830,16 +907,17 @@ struct PlayerTextFontPicker: View {
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
             guard !files.isEmpty, !library.isImporting else { return false }
-            pendingImportURLs = files
+            importOnMac(files)
             return true
         }
-        #endif
+        #else
         .modifier(PlayerTextFontImportModifier(
             isPresented: $showsImporter,
             pendingURLs: $pendingImportURLs
         ) { font in
             selection = font.rawValue
         })
+        #endif
     }
 
     private func group<Chips: View>(
@@ -851,6 +929,17 @@ struct PlayerTextFontPicker: View {
             Text(verbatim: title)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
+            #if os(macOS)
+            // Mac 上鼠标滚轮横着滚不动、横向滚动条又藏着,一排放不下的字体就点不到:按宽度折行全部摆出来。
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 92), spacing: 10, alignment: .top)],
+                alignment: .leading,
+                spacing: 10
+            ) {
+                chips()
+            }
+            .padding(.vertical, 2)
+            #else
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 10) {
                     chips()
@@ -858,6 +947,7 @@ struct PlayerTextFontPicker: View {
                 .padding(.vertical, 2)
             }
             .frame(height: 54 + chipTitleHeight)
+            #endif
             if let footnote {
                 Text(verbatim: footnote)
                     .font(.caption)
@@ -961,12 +1051,25 @@ struct PlayerTextFontPicker: View {
 
     private func beginImport() {
         #if os(macOS)
-        let urls = PlayerTextFontImportPanel.chooseFiles()
-        if !urls.isEmpty { pendingImportURLs = urls }
+        importOnMac(PlayerTextFontImportPanel.chooseFiles())
         #else
         showsImporter = true
         #endif
     }
+
+    #if os(macOS)
+    /// Mac 上导入不经这一页的状态:「更多」里的字体弹层在打开面板弹出来时会被收起,挂在弹层上的待导入文件
+    /// 与结果提示跟着没了,选好文件也没反应。导入成功的选中第一个,有问题的文件用系统提示框逐个说明。
+    private func importOnMac(_ urls: [URL]) {
+        guard !urls.isEmpty, !library.isImporting else { return }
+        let selection = $selection
+        Task {
+            let outcome = await PlayerTextFontImportFlow.run(urls)
+            if let font = outcome.font { selection.wrappedValue = font.rawValue }
+            if outcome.report.hasProblems { PlayerTextFontImportPanel.showProblems(outcome.report) }
+        }
+    }
+    #endif
 
     private static var importedFootnote: String {
         #if os(macOS)
@@ -1028,7 +1131,12 @@ private struct PlayerTextFontChipStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            #if os(macOS)
+            // 折行的网格里每块撑满一格,上下几排对齐。
+            .frame(minWidth: 64, maxWidth: .infinity)
+            #else
             .frame(minWidth: 64)
+            #endif
             .padding(.vertical, 8)
             .padding(.horizontal, 6)
             .background(

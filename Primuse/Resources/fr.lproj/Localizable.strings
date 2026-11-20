@@ -7905,3 +7905,7 @@
 "spoken_word_voice_boost" = "Renforcement de la voix";
 "spoken_word_voice_boost_desc" = "Met la voix en avant dans les livres audio et les podcasts : les émissions trop discrètes sont remontées, le volume s’équilibre d’un épisode à l’autre et les dialogues sont plus clairs, sans que les passages forts saturent. La musique n’est pas modifiée. Ne s’applique pas aux podcasts vidéo ni à la diffusion vers un autre appareil.";
 "home_section_recently_added_songs" = "Titres ajoutés récemment";
+"lyrics_font_language_with_font_format" = "%1$@ (%2$@)";
+"lyrics_font_language_overrides_format" = "Les polices choisies pour %@ ne suivent pas la police par défaut.";
+"lyrics_font_language_unavailable_format" = "« %2$@ », choisie pour %1$@, n’est pas disponible sur cet appareil : la police par défaut est utilisée.";
+"lyrics_font_use_default_for_all" = "Utiliser la police par défaut partout";

@@ -6194,7 +6194,11 @@ private struct MacSTLyricsView: View {
                         MacSTSlider(
                             value: Binding(
                                 get: { lyricsFontScale * 100 },
-                                set: { lyricsFontScale = $0 / 100 }
+                                set: {
+                                    lyricsFontScale = $0 / 100
+                                    // 和 iPhone 设置一样推上 iCloud;播放页没打开时没有别处替它推。
+                                    CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
+                                }
                             ),
                             in: 70...180,
                             formatter: { String(format: "%.0f%%", $0) }
@@ -6205,7 +6209,10 @@ private struct MacSTLyricsView: View {
                     MacSTRow(String(localized: "lyrics_translation_font_follows_original")) {
                         MacSTToggle(isOn: Binding(
                             get: { lyricsTranslationFontScale <= 0 },
-                            set: { lyricsTranslationFontScale = $0 ? 0 : lyricsFontScale }
+                            set: {
+                                lyricsTranslationFontScale = $0 ? 0 : lyricsFontScale
+                                CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsTranslationFontScale)
+                            }
                         ))
                         .accessibilityLabel(Text("lyrics_translation_font_follows_original"))
                     }
@@ -6215,7 +6222,10 @@ private struct MacSTLyricsView: View {
                             MacSTSlider(
                                 value: Binding(
                                     get: { lyricsTranslationFontScale * 100 },
-                                    set: { lyricsTranslationFontScale = $0 / 100 }
+                                    set: {
+                                        lyricsTranslationFontScale = $0 / 100
+                                        CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsTranslationFontScale)
+                                    }
                                 ),
                                 in: 70...180,
                                 formatter: { String(format: "%.0f%%", $0) }

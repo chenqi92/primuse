@@ -56,6 +56,73 @@ struct LyricsLanguageFontTests {
         #expect(preferences[.korean] == "imported:Kept")
         #expect(preferences[.latin] == "georgia")
     }
+
+    @Test func overriddenLanguagesFollowFixedOrderAndClearTogether() {
+        var preferences = LyricsLanguageFontPreferences()
+        #expect(preferences.overriddenLanguages.isEmpty)
+        preferences[.korean] = "nanumPen"
+        preferences[.chinese] = "kaiti"
+        #expect(preferences.overriddenLanguages == [.chinese, .korean])
+        preferences.removeAllLanguageFonts()
+        #expect(preferences.overriddenLanguages.isEmpty)
+        #expect(LyricsLanguageFontPreferences(rawValue: preferences.rawValue) == LyricsLanguageFontPreferences())
+    }
+}
+
+@Suite("Lyrics font fallback across devices")
+struct LyricsFontFallbackPolicyTests {
+    /// 这台设备上有的:内置的几种,和这台导入过的一种。
+    private static let onThisDevice: Set<String> = ["kaiti", "georgia", "system", "imported:LocalFont"]
+    private static func available(_ selection: String) -> Bool { onThisDevice.contains(selection) }
+
+    @Test("A language font this device can draw keeps drawing it")
+    func availableLanguageFontsAreDrawn() {
+        var preferences = LyricsLanguageFontPreferences()
+        preferences[.chinese] = "kaiti"
+        preferences[.latin] = "imported:LocalFont"
+        let drawable = LyricsFontFallbackPolicy.drawableLanguageFonts(in: preferences, isAvailable: Self.available)
+        #expect(drawable == [.chinese: "kaiti", .latin: "imported:LocalFont"])
+    }
+
+    @Test("A font imported on another device follows the default font instead of locking that script to the system font")
+    func missingImportFollowsDefault() {
+        var preferences = LyricsLanguageFontPreferences()
+        preferences[.chinese] = "imported:PhoneOnlyFont"
+        preferences[.latin] = "georgia"
+        let drawable = LyricsFontFallbackPolicy.drawableLanguageFonts(in: preferences, isAvailable: Self.available)
+        #expect(drawable[.chinese] == nil)
+        #expect(drawable[.latin] == "georgia")
+    }
+
+    @Test("Fonts still downloading, or added by a newer version, follow the default until they can be drawn")
+    func notYetDrawableFollowsDefault() {
+        var preferences = LyricsLanguageFontPreferences()
+        preferences[.japanese] = "klee"
+        preferences[.korean] = "fontFromNewerVersion"
+        #expect(LyricsFontFallbackPolicy.drawableLanguageFonts(in: preferences, isAvailable: Self.available).isEmpty)
+        let afterDownload = LyricsFontFallbackPolicy.drawableLanguageFonts(in: preferences) { $0 == "klee" }
+        #expect(afterDownload == [.japanese: "klee"])
+    }
+
+    @Test("Choosing the system font for one script is an explicit choice, not a fallback")
+    func explicitSystemFontIsKept() {
+        var preferences = LyricsLanguageFontPreferences()
+        preferences[.chinese] = "system"
+        #expect(LyricsFontFallbackPolicy.drawableLanguageFonts(in: preferences, isAvailable: Self.available) == [.chinese: "system"])
+    }
+
+    @Test("Settings list every script with its own font, in a fixed order, with whether this device can draw it")
+    func languageFontsForTheSettingsNote() {
+        var preferences = LyricsLanguageFontPreferences()
+        preferences[.korean] = "imported:PhoneOnlyFont"
+        preferences[.chinese] = "kaiti"
+        let listed = LyricsFontFallbackPolicy.languageFonts(in: preferences, isAvailable: Self.available)
+        #expect(listed == [
+            .init(language: .chinese, selection: "kaiti", isAvailable: true),
+            .init(language: .korean, selection: "imported:PhoneOnlyFont", isAvailable: false),
+        ])
+        #expect(LyricsFontFallbackPolicy.languageFonts(in: LyricsLanguageFontPreferences(), isAvailable: Self.available).isEmpty)
+    }
 }
 
 @Suite("Player text font selection")

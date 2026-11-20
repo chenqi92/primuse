@@ -7882,3 +7882,7 @@
 "spoken_word_voice_boost" = "語音增強";
 "spoken_word_voice_boost_desc" = "播放有聲書和 Podcast 時突出人聲：小聲的節目會被拉起來，各集節目音量更一致，對白更清楚，大聲處也不會爆音。音樂不受影響。影片 Podcast、投放到其他裝置時不會生效。";
 "home_section_recently_added_songs" = "最近加入的歌曲";
+"lyrics_font_language_with_font_format" = "%1$@（%2$@）";
+"lyrics_font_language_overrides_format" = "%@單獨選了字體，不跟預設字體走。";
+"lyrics_font_language_unavailable_format" = "%1$@選的「%2$@」這台裝置上用不了，先用預設字體顯示。";
+"lyrics_font_use_default_for_all" = "都改用預設字體";

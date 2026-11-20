@@ -1226,21 +1226,25 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     }
 
     private var lyricsFontPickerPopover: some View {
+        // 字体块按宽度折行,一排四块。
         ScrollView {
             LyricsLanguageFontPicker()
                 .padding(16)
         }
-        .frame(width: 380, height: 460)
+        .frame(width: 460, height: 520)
         .focusEffectDisabled()
     }
 
     private func fontPickerRow(_ title: LocalizedStringKey, value: Double, translation: Bool = false) -> some View {
         let current = translation ? lyricsTranslationFontScale : lyricsFontScale
         return Button {
+            // 播放页没打开时(底栏、迷你播放器的「更多」)没有别处替它推上 iCloud。
             if translation {
                 lyricsTranslationFontScale = value
+                CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsTranslationFontScale)
             } else {
                 lyricsFontScale = value
+                CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
             }
             fontPickerShown = false
         } label: {

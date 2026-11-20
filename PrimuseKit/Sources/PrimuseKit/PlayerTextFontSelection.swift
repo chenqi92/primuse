@@ -82,6 +82,59 @@ public struct LyricsLanguageFontPreferences: Equatable, Sendable {
             return !names.contains(name)
         }
     }
+
+    /// 单独选了字体的几种文字,按 `LyricsFontLanguage.allCases` 的先后。
+    public var overriddenLanguages: [LyricsFontLanguage] {
+        LyricsFontLanguage.allCases.filter { self[$0] != nil }
+    }
+
+    /// 几种文字都改回跟默认字体。
+    public mutating func removeAllLanguageFonts() {
+        values.removeAll()
+    }
+}
+
+/// 歌词里每种文字最终画哪一个字体(#332 按语言选字体)。选中值随 iCloud 同步,字体本身未必跟着来:
+/// 别的设备上导入的字体这台没有,要下载的字体这台还没下好。
+public enum LyricsFontFallbackPolicy {
+    /// 单独选了字体的一种文字,连同这台设备上现在能不能画出它。
+    public struct LanguageFont: Equatable, Sendable {
+        public var language: LyricsFontLanguage
+        public var selection: String
+        public var isAvailable: Bool
+
+        public init(language: LyricsFontLanguage, selection: String, isAvailable: Bool) {
+            self.language = language
+            self.selection = selection
+            self.isAvailable = isAvailable
+        }
+    }
+
+    /// 单独选了字体的几种文字(按 `LyricsFontLanguage.allCases` 的先后)。设置里默认字体下面据此交代:
+    /// 这几种不跟着默认字体变,其中这台设备上用不了的先跟默认字体显示。
+    public static func languageFonts(
+        in preferences: LyricsLanguageFontPreferences,
+        isAvailable: (String) -> Bool
+    ) -> [LanguageFont] {
+        preferences.overriddenLanguages.compactMap { language in
+            guard let selection = preferences[language] else { return nil }
+            return LanguageFont(language: language, selection: selection, isAvailable: isAvailable(selection))
+        }
+    }
+
+    /// 真正按自己选的字体画的几种文字。这台设备上用不了的(别的设备导入、这台没有,还没下好,
+    /// 新版本才有的内置字体)不在里面,跟默认字体走 —— 不直接退回系统字体,否则在这台设备上
+    /// 怎么改默认字体,这种文字都不变。默认字体自己用不了时由调用方再退回系统字体。
+    public static func drawableLanguageFonts(
+        in preferences: LyricsLanguageFontPreferences,
+        isAvailable: (String) -> Bool
+    ) -> [LyricsFontLanguage: String] {
+        var result: [LyricsFontLanguage: String] = [:]
+        for font in languageFonts(in: preferences, isAvailable: isAvailable) where font.isAvailable {
+            result[font.language] = font.selection
+        }
+        return result
+    }
 }
 
 /// 歌词与文稿字体的选中值(#332)。内置的字体存它自己的名字(和只有内置字体时存的一样,老的设置照样认);
