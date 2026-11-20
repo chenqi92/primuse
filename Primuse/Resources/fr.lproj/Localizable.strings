@@ -7904,3 +7904,4 @@
 "spoken_word_smart_speed_saved" = "Temps gagné";
 "spoken_word_voice_boost" = "Renforcement de la voix";
 "spoken_word_voice_boost_desc" = "Met la voix en avant dans les livres audio et les podcasts : les émissions trop discrètes sont remontées, le volume s’équilibre d’un épisode à l’autre et les dialogues sont plus clairs, sans que les passages forts saturent. La musique n’est pas modifiée. Ne s’applique pas aux podcasts vidéo ni à la diffusion vers un autre appareil.";
+"home_section_recently_added_songs" = "Titres ajoutés récemment";

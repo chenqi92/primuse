@@ -199,6 +199,8 @@ struct PersistedHomeSnapshot: Codable, Sendable {
     let recommendations: [PersistedHomeRecommendation]
     var heroSeed: UInt64? = nil
     var showsExternalAlbums: Bool? = nil
+    /// 「最近添加的歌曲」那几首,最新的在前。旧快照没有这一项。
+    var recentlyAddedSongIDs: [String]? = nil
 }
 
 actor HomeInitialSnapshotCacheStore {
@@ -2224,6 +2226,7 @@ struct HomeView: View {
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded: Bool = true
     /// 「MV」一排:曲库里有 MV 才出现,所以默认开着。
     @AppStorage("primuse.home.showMusicVideos") private var showMusicVideos: Bool = true
+    @AppStorage("primuse.home.showRecentlyAddedSongs") private var showRecentlyAddedSongs: Bool = true
     @AppStorage(RecentlyAddedAlbumPolicy.showsExternalAlbumsKey) private var showsExternalAlbums = false
     @AppStorage("primuse.home.showContinueListening") private var showContinueListening: Bool = true
     @AppStorage("primuse.home.showQuickAccess") private var showQuickAccess: Bool = true
@@ -2250,6 +2253,7 @@ struct HomeView: View {
         "primuse.home.showTopArtists": true,
         "primuse.home.showRecentlyAdded": true,
         "primuse.home.showMusicVideos": true,
+        "primuse.home.showRecentlyAddedSongs": true,
         "primuse.home.showContinueListening": true,
         "primuse.home.showQuickAccess": true,
         "primuse.home.showPlaylists": true,
@@ -2427,6 +2431,7 @@ struct HomeView: View {
         var recentSongs: [Song] = []
         var heroCoverSongs: [Song] = []
         var recentlyAddedAlbums: [HomeAlbumTile] = []
+        var recentlyAddedSongs: [Song] = []
         var topArtists: [Artist] = []
         var topArtistsHasHistory = false
         var playlists: [HomePlaylistTile] = []
@@ -2438,6 +2443,7 @@ struct HomeView: View {
         let heroCoverSongs: [Song]
         let recentlyAddedAlbums: [HomeAlbumTile]
         let forYouResults: [MusicDiscoveryResult]
+        var recentlyAddedSongs: [Song] = []
     }
 
     private var homeSectionOrder: [HomeSectionKind] {
@@ -2590,6 +2596,10 @@ struct HomeView: View {
             if showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty || !library.visibleAlbums.isEmpty {
                 HomeDeferredSection { recentlyAddedAlbumsSection(style) }
             }
+        case .recentlyAddedSongs:
+            if showRecentlyAddedSongs, !model.snapshot.recentlyAddedSongs.isEmpty {
+                HomeDeferredSection { recentlyAddedSongsSection(style) }
+            }
         case .stats:
             if showStatsGlimpse, let summary = model.snapshot.statsGlimpse {
                 HomeDeferredSection { statsGlimpseSection(summary) }
@@ -2602,6 +2612,7 @@ struct HomeView: View {
                 HomeDeferredSection {
                     HomeMusicVideoSection(
                         limit: limit,
+                        style: style,
                         usesPadMetrics: usesPadMetrics,
                         favoriteArtistIDs: favoriteArtistIDs,
                         recentlyPlayedIDs: recentIDs,
@@ -2634,6 +2645,8 @@ struct HomeView: View {
     /// 快照的取数上限。必须不小于设置里能调到的最大值,否则用户调大了也不会
     /// 多出内容,看起来就像设置没生效。
     nonisolated static let recentlyAddedAlbumPoolLimit = 24
+    /// 「最近添加的歌曲」最多摆 30 首(条目数上限),播放键排进队列的也是这些。
+    nonisolated static let recentlyAddedSongPoolLimit = 30
     nonisolated static let playlistPoolLimit = 20
     nonisolated static let topArtistPoolLimit = 20
 
@@ -2685,6 +2698,7 @@ struct HomeView: View {
         case .stats: showStatsGlimpse
         case .radio: showRadioOnHome
         case .musicVideos: showMusicVideos
+        case .recentlyAddedSongs: showRecentlyAddedSongs
         }
     }
 
@@ -2707,6 +2721,7 @@ struct HomeView: View {
         case .stats: showStatsGlimpse = visible
         case .radio: showRadioOnHome = visible
         case .musicVideos: showMusicVideos = visible
+        case .recentlyAddedSongs: showRecentlyAddedSongs = visible
         }
     }
 
@@ -3662,7 +3677,8 @@ struct HomeView: View {
         let snapshot = makeHomeSnapshot(
             forYouResults: showForYou ? (payload?.forYouResults ?? []) : [],
             heroCoverSongs: payload?.heroCoverSongs ?? Self.provisionalHeroCoverSongs(from: library.musicSongs),
-            recentlyAddedAlbums: payload?.recentlyAddedAlbums ?? []
+            recentlyAddedAlbums: payload?.recentlyAddedAlbums ?? [],
+            recentlyAddedSongs: payload?.recentlyAddedSongs ?? []
         )
         publishInitialHomeSnapshot(snapshot, signature: signature)
 
@@ -3703,7 +3719,8 @@ struct HomeView: View {
         var seen: Set<String> = []
         let selected = Array(snapshot.recentSongIDs.prefix(30)) + Array(snapshot.heroSongIDs.prefix(20))
             + snapshot.recommendations.prefix(30).map(\.songID)
-        return (selected + snapshot.recentlyAddedAlbums.prefix(recentlyAddedAlbumPoolLimit).compactMap(\.artworkSongID))
+        return (selected + snapshot.recentlyAddedAlbums.prefix(recentlyAddedAlbumPoolLimit).compactMap(\.artworkSongID)
+            + (snapshot.recentlyAddedSongIDs ?? []).prefix(recentlyAddedSongPoolLimit))
             .filter { seen.insert($0).inserted }
     }
 
@@ -3744,7 +3761,8 @@ struct HomeView: View {
             forYouResults: showForYou ? Array((payload?.forYouResults ?? []).prefix(30)) : [],
             recentSongs: (persisted?.recentSongIDs.prefix(30) ?? []).compactMap { byID[$0] },
             heroCoverSongs: savedHero.isEmpty ? provisionalHeroCoverSongs(from: music) : Array(savedHero.prefix(20)),
-            recentlyAddedAlbums: payload?.recentlyAddedAlbums ?? []
+            recentlyAddedAlbums: payload?.recentlyAddedAlbums ?? [],
+            recentlyAddedSongs: payload?.recentlyAddedSongs ?? []
         )
     }
 
@@ -3801,7 +3819,10 @@ struct HomeView: View {
         return InitialHomeSnapshotPayload(
             heroCoverSongs: heroCoverSongs,
             recentlyAddedAlbums: recentlyAddedAlbums,
-            forYouResults: recommendations
+            forYouResults: recommendations,
+            recentlyAddedSongs: (persisted.recentlyAddedSongIDs ?? []).prefix(recentlyAddedSongPoolLimit).compactMap {
+                songForID($0)
+            }
         )
     }
 
@@ -3830,7 +3851,8 @@ struct HomeView: View {
                 )
             },
             heroSeed: nextHero.seed,
-            showsExternalAlbums: signature.showsExternalAlbums
+            showsExternalAlbums: signature.showsExternalAlbums,
+            recentlyAddedSongIDs: model.snapshot.recentlyAddedSongs.map(\.id)
         )
         let capturedAt = ContinuousClock.now
         Task(priority: .utility) {
@@ -3902,6 +3924,8 @@ struct HomeView: View {
             return library.hasSpokenWordContent
         case .musicVideos:
             return library.hasMusicVideoContent
+        case .recentlyAddedSongs:
+            return !library.musicSongs.isEmpty
         default:
             return true
         }
@@ -4032,8 +4056,34 @@ struct HomeView: View {
         case .stats:
             return .init(.card(height: 66), hasHeader: false)
         case .musicVideos:
-            let width = HomeMusicVideoMetrics.cardWidth(usesPadMetrics: usesPadMetrics)
-            return .init(.row(card: CGSize(width: width, height: width * 9 / 16 + 46), artwork: nil, circular: false, rows: 1, spacing: 14, inset: 20))
+            let count = sectionItemCount(.musicVideos, HomeSectionLayoutPolicy.defaultItemCount(for: .musicVideos))
+            switch style {
+            case .grid:
+                // 两列 16:9 画面加两行字,估成整宽卡片一行行叠下来。
+                let cardHeight = (contentWidth - 40 - 12) / 2 * 9 / 16 + 46
+                let rows = min(3, max(1, (count + 1) / 2))
+                return .init(.card(height: CGFloat(rows) * cardHeight + CGFloat(rows - 1) * 18))
+            case .list:
+                return .init(.list(rows: min(count, 6), rowHeight: 88, artwork: 72, spacing: 0, filled: false))
+            case .carousel:
+                let width = HomeMusicVideoMetrics.cardWidth(usesPadMetrics: usesPadMetrics)
+                return .init(.row(card: CGSize(width: width, height: width * 9 / 16 + 46), artwork: nil, circular: false, rows: 1, spacing: 14, inset: 20))
+            }
+        case .recentlyAddedSongs:
+            switch style {
+            case .carousel:
+                let width: CGFloat = usesPadMetrics ? 300 : 250
+                return .init(.row(card: CGSize(width: width, height: 60), artwork: nil, circular: false, rows: rows, spacing: 10, inset: 20))
+            case .list:
+                let count = min(sectionItemCount(.recentlyAddedSongs, recentlyAddedSongsFallbackCount(.list)), 8)
+                return .init(.list(rows: count, rowHeight: 61, artwork: 48, spacing: 0, filled: false))
+            case .grid:
+                // 同 `HomeRecentlyAddedSongsSection.gridColumns`:手机竖屏固定三列。
+                let count = usesPadMetrics
+                    ? columns(minimum: 130, spacing: 14)
+                    : heightClass.isCompact ? columns(minimum: 110, spacing: 14) : 3
+                return .init(.grid(columns: count, rows: gridRows(.recentlyAddedSongs, fallback: recentlyAddedSongsFallbackCount(.grid), columns: count), circular: false))
+            }
         }
     }
 
@@ -4134,6 +4184,9 @@ struct HomeView: View {
         let retainedRecentlyAddedAlbums = model.snapshot.recentlyAddedAlbums.filter {
             library.visibleAlbum(id: $0.id) != nil
         }
+        let retainedRecentlyAddedSongs = model.snapshot.recentlyAddedSongs.filter {
+            library.unobservedVisibleSong(id: $0.id) != nil
+        }
         let recommendationInput = showForYou
             ? MusicDiscoveryEngine.recommendationSnapshot(in: library)
             : nil
@@ -4146,7 +4199,8 @@ struct HomeView: View {
         let snapshot = makeHomeSnapshot(
             forYouResults: retainedRecommendations,
             heroCoverSongs: retainedHeroCovers,
-            recentlyAddedAlbums: retainedRecentlyAddedAlbums
+            recentlyAddedAlbums: retainedRecentlyAddedAlbums,
+            recentlyAddedSongs: retainedRecentlyAddedSongs
         )
         model.snapshot = snapshot
         model.signature = signature
@@ -4267,13 +4321,16 @@ struct HomeView: View {
             guard homeSnapshotSignature == signature else { return }
             // 首页正文都读同一个 snapshot，写一次整页重新描述。冷启动时先画的是上次
             // 存下的样子，后台算完多半一模一样，这时不写，免得刚开始滚动就整页重算。
+            let recentlyAddedSongs = Array(payload.5.lazy.filter(\.isPlayable).prefix(Self.recentlyAddedSongPoolLimit))
             if model.snapshot.heroCoverSongs != payload.0
                 || model.snapshot.recentlyAddedAlbums != payload.1
-                || model.snapshot.recentSongs != payload.3 {
+                || model.snapshot.recentSongs != payload.3
+                || model.snapshot.recentlyAddedSongs.map(\.id) != recentlyAddedSongs.map(\.id) {
                 var snapshot = model.snapshot
                 snapshot.heroCoverSongs = payload.0
                 snapshot.recentlyAddedAlbums = payload.1
                 snapshot.recentSongs = payload.3
+                snapshot.recentlyAddedSongs = recentlyAddedSongs
                 model.snapshot = snapshot
             }
             model.preparedNextHero = (heroSeeds.next, payload.4)
@@ -4343,7 +4400,8 @@ struct HomeView: View {
     private func makeHomeSnapshot(
         forYouResults: [MusicDiscoveryResult],
         heroCoverSongs: [Song],
-        recentlyAddedAlbums: [HomeAlbumTile]
+        recentlyAddedAlbums: [HomeAlbumTile],
+        recentlyAddedSongs: [Song]
     ) -> HomeSnapshot {
         let snapshotStartedAt = Date()
         let recentSongs = makeRecentSongs()
@@ -4373,6 +4431,7 @@ struct HomeView: View {
             recentSongs: recentSongs,
             heroCoverSongs: heroCoverSongs,
             recentlyAddedAlbums: recentlyAddedAlbums,
+            recentlyAddedSongs: recentlyAddedSongs,
             topArtists: topArtists,
             topArtistsHasHistory: !topArtistHistory.isEmpty,
             playlists: playlistTiles,
@@ -5449,6 +5508,30 @@ struct HomeView: View {
                 // iPhone Duo 竖栏:最右一列封面伸进竖栏,系统的玻璃胶囊浮在上面。
                 .pmCoversExtendUnderVerticalBar()
             }
+        }
+    }
+
+    /// 「最近添加的歌曲」:摆出来几首按排布给默认值(列表六首、横排两行十二首、网格三列三行),
+    /// 界面编辑里调过就照调的;播放键与点歌排进队列的是整份(最多 30 首)。
+    private func recentlyAddedSongsSection(_ style: HomeSectionLayoutStyle) -> some View {
+        let pool = model.snapshot.recentlyAddedSongs
+        let shown = Array(pool.prefix(sectionItemCount(.recentlyAddedSongs, recentlyAddedSongsFallbackCount(style))))
+        return HomeRecentlyAddedSongsSection(
+            songs: shown,
+            queue: pool,
+            style: style,
+            rows: carouselRowCount(.recentlyAddedSongs, itemCount: shown.count),
+            usesPadMetrics: usesPadMetrics,
+            isCompactHeight: heightClass.isCompact,
+            isInteractive: !editorMode
+        )
+    }
+
+    private func recentlyAddedSongsFallbackCount(_ style: HomeSectionLayoutStyle) -> Int {
+        switch style {
+        case .list: usesPadMetrics ? 8 : 6
+        case .carousel: HomeSectionLayoutPolicy.defaultItemCount(for: .recentlyAddedSongs)
+        case .grid: usesPadMetrics ? 12 : 9
         }
     }
 

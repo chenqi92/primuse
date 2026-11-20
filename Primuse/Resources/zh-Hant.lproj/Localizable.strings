@@ -7881,3 +7881,4 @@
 "spoken_word_smart_speed_saved" = "已節省";
 "spoken_word_voice_boost" = "語音增強";
 "spoken_word_voice_boost_desc" = "播放有聲書和 Podcast 時突出人聲：小聲的節目會被拉起來，各集節目音量更一致，對白更清楚，大聲處也不會爆音。音樂不受影響。影片 Podcast、投放到其他裝置時不會生效。";
+"home_section_recently_added_songs" = "最近加入的歌曲";

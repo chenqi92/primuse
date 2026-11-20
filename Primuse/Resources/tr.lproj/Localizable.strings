@@ -7810,3 +7810,4 @@
 "spoken_word_smart_speed_saved" = "Kazanılan süre";
 "spoken_word_voice_boost" = "Ses Güçlendirme";
 "spoken_word_voice_boost_desc" = "Sesli kitap ve podcast’lerde sesi öne çıkarır: kısık yayınlar yükseltilir, bölümler arasındaki ses düzeyi dengelenir ve diyaloglar netleşir; yüksek yerler aniden patlamaz. Müzik etkilenmez. Video podcast’lerde ve başka bir cihaza yayın yaparken çalışmaz.";
+"home_section_recently_added_songs" = "Son Eklenen Şarkılar";

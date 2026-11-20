@@ -7810,3 +7810,4 @@
 "spoken_word_smart_speed_saved" = "Zaoszczędzony czas";
 "spoken_word_voice_boost" = "Wzmocnienie głosu";
 "spoken_word_voice_boost_desc" = "Wydobywa głos w audiobookach i podcastach: ciche audycje są podgłaśniane, głośność wyrównuje się między odcinkami, a dialogi są wyraźniejsze bez nagłych przesterów w głośnych momentach. Muzyka pozostaje bez zmian. Nie działa w podcastach wideo ani podczas przesyłania na inne urządzenie.";
+"home_section_recently_added_songs" = "Ostatnio dodane utwory";

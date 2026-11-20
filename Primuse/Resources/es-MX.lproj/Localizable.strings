@@ -7810,3 +7810,4 @@
 "spoken_word_smart_speed_saved" = "Tiempo ahorrado";
 "spoken_word_voice_boost" = "Realce de voz";
 "spoken_word_voice_boost_desc" = "Destaca la voz en audiolibros y podcasts: sube los programas con volumen bajo, iguala el volumen entre episodios y aclara los diálogos sin que las partes fuertes saturen. La música no cambia. No se aplica a podcasts en video ni al transmitir a otro dispositivo.";
+"home_section_recently_added_songs" = "Canciones agregadas recientemente";

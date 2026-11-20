@@ -7904,3 +7904,4 @@
 "spoken_word_smart_speed_saved" = "Gesparte Zeit";
 "spoken_word_voice_boost" = "Stimmverstärkung";
 "spoken_word_voice_boost_desc" = "Hebt bei Hörbüchern und Podcasts die Stimme hervor: Leise Folgen werden angehoben, die Lautstärke wird zwischen Folgen ausgeglichen und Dialoge werden klarer, ohne dass laute Stellen übersteuern. Musik bleibt unverändert. Gilt nicht für Video-Podcasts und beim Streamen auf andere Geräte.";
+"home_section_recently_added_songs" = "Zuletzt hinzugefügte Titel";

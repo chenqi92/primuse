@@ -21,6 +21,7 @@ extension HomeSectionKind {
         case .listeningRanking: return LocalizedStringKey(HomeDiscoveryText.string("ranking"))
         case .topArtists: return "home_section_top_artists"
         case .recentlyAdded: return LocalizedStringKey(HomeDiscoveryText.string("recent_albums"))
+        case .recentlyAddedSongs: return "home_section_recently_added_songs"
         case .stats: return "stats_title"
         case .musicVideos: return "home_section_music_videos"
         }
@@ -46,6 +47,7 @@ enum HomeSectionConfiguration {
         .playlists,
         .topArtists,
         .recentlyAdded,
+        .recentlyAddedSongs,
         .stats,
     ]
 
@@ -98,6 +100,11 @@ enum HomeSectionConfiguration {
             if let anchor = known.firstIndex(of: .forYou) ?? known.firstIndex(of: .recentlyAdded),
                seen.insert(.musicVideos).inserted {
                 known.insert(.musicVideos, at: anchor + 1)
+            }
+            // 「最近添加的歌曲」紧跟在「最近添加」专辑后面,没有就排到最后。
+            if let anchor = known.firstIndex(of: .recentlyAdded),
+               seen.insert(.recentlyAddedSongs).inserted {
+                known.insert(.recentlyAddedSongs, at: anchor + 1)
             }
         }
         let missing = defaultOrder.filter { seen.insert($0).inserted }

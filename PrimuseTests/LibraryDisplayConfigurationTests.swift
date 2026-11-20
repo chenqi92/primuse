@@ -537,6 +537,14 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         XCTAssertEqual(Set(decoded), Set(HomeSectionKind.allCases))
     }
 
+    func testRecentlyAddedSongsJoinBesideRecentlyAddedAlbumsInAStoredOrder() {
+        let stored = HomeSectionConfiguration.defaultOrder.filter { $0 != .recentlyAddedSongs }
+        let decoded = HomeSectionConfiguration.decode(HomeSectionConfiguration.encode(stored))
+        let albums = try? XCTUnwrap(decoded.firstIndex(of: .recentlyAdded))
+        XCTAssertEqual(decoded.firstIndex(of: .recentlyAddedSongs), albums.map { $0 + 1 })
+        XCTAssertEqual(Set(decoded), Set(HomeSectionKind.allCases))
+    }
+
     func testStartListeningJoinsRightAfterContinueSpacesInAStoredOrder() {
         let stored: [HomeSectionKind] = [.forYou, .continueSpaces, .albumPick, .continueListening]
             + HomeSectionConfiguration.defaultOrder.filter {

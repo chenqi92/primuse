@@ -7997,3 +7997,4 @@
 "spoken_word_smart_speed_saved" = "已节省";
 "spoken_word_voice_boost" = "语音增强";
 "spoken_word_voice_boost_desc" = "播放有声书和播客时突出人声：小声的节目会被拉起来，各期节目音量更一致，对白更清楚，大声处也不会爆音。音乐不受影响。视频播客、投放到其他设备时不生效。";
+"home_section_recently_added_songs" = "最近添加的歌曲";

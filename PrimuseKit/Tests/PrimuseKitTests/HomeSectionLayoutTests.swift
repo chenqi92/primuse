@@ -164,11 +164,27 @@ struct HomeSectionLayoutTests {
         #expect(HomeSectionLayoutPolicy.supportsCoverSize(.recentlyAdded, style: .carousel))
         #expect(!HomeSectionLayoutPolicy.supportsCoverSize(.recentlyAdded, style: .grid))
         for section in [HomeSectionKind.startListening, .albumPick, .continueListening, .quickAccess,
-                        .forYou, .listeningRanking, .topArtists, .stats, .musicVideos] {
+                        .forYou, .listeningRanking, .topArtists, .stats, .musicVideos, .recentlyAddedSongs] {
             for style in HomeSectionLayoutStyle.allCases {
                 #expect(!HomeSectionLayoutPolicy.supportsCoverSize(section, style: style))
             }
         }
+    }
+
+    @Test("最近添加的歌曲与 MV 都能换排布;MV 横排只有一行")
+    func recentSongsAndMusicVideoLayouts() {
+        #expect(HomeSectionLayoutPolicy.supportedStyles(for: .recentlyAddedSongs) == [.carousel, .list, .grid])
+        #expect(HomeSectionLayoutPolicy.defaultStyle(for: .recentlyAddedSongs) == .carousel)
+        #expect(HomeSectionLayoutPolicy.defaultRows(for: .recentlyAddedSongs) == 2)
+        #expect(HomeSectionLayoutPolicy.rowsRange(for: .recentlyAddedSongs, style: .carousel) == 1...3)
+        #expect(HomeSectionLayoutPolicy.rowsRange(for: .recentlyAddedSongs, style: .list) == nil)
+        #expect(HomeSectionLayoutPolicy.itemCountRange(for: .recentlyAddedSongs) == 4...30)
+        #expect(HomeSectionLayoutConfiguration().rowCount(for: .recentlyAddedSongs) == 2)
+
+        #expect(HomeSectionLayoutPolicy.isConfigurable(.musicVideos))
+        #expect(HomeSectionLayoutPolicy.defaultStyle(for: .musicVideos) == .carousel)
+        #expect(HomeSectionLayoutPolicy.rowsRange(for: .musicVideos, style: .carousel) == nil)
+        #expect(HomeSectionLayoutPolicy.itemCountRange(for: .musicVideos) == 3...24)
     }
 
     @Test("列数与封面大小随整份配置存取;老存档没有这两项照常解出来")

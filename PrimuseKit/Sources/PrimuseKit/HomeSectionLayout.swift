@@ -26,6 +26,8 @@ public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendab
     case listeningRanking
     case topArtists
     case recentlyAdded
+    /// 「最近添加的歌曲」:最近入库的歌,一键从最新的一首放起。
+    case recentlyAddedSongs
     case stats
     /// 「MV」:按常听的艺人、新加的挑几支 MV 横着排。曲库里没有 MV 时不出现。
     case musicVideos
@@ -60,6 +62,7 @@ public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendab
         case .listeningRanking: "chart.bar.fill"
         case .topArtists: "music.mic"
         case .recentlyAdded: "clock.badge.checkmark"
+        case .recentlyAddedSongs: "music.note"
         case .stats: "chart.bar.xaxis"
         case .musicVideos: "play.rectangle.fill"
         }
@@ -108,12 +111,15 @@ public enum HomeSectionLayoutPolicy {
         case .playlists: [.list, .carousel, .grid]
         case .topArtists: [.carousel, .grid]
         case .recentlyAdded: [.grid, .carousel, .list]
+        case .recentlyAddedSongs: [.carousel, .list, .grid]
+        // 横排是一张张宽卡;网格两列铺开;列表左边小画面、右边歌名。
+        case .musicVideos: [.carousel, .grid, .list]
         case .quickAccess: [.grid, .carousel]
         case .folders: [.list, .grid, .carousel]
         case .listeningRanking: [.list, .carousel]
         // 意图一多,横着滑找不到想要的那张:默认两列(iPad 四列)铺开,横排留作选项。
         case .startListening: [.grid, .carousel]
-        case .continueSpaces, .albumPick, .radio, .booksInProgress, .audiobooks, .podcasts, .stats, .musicVideos: []
+        case .continueSpaces, .albumPick, .radio, .booksInProgress, .audiobooks, .podcasts, .stats: []
         }
     }
 
@@ -133,13 +139,14 @@ public enum HomeSectionLayoutPolicy {
     ) -> ClosedRange<Int>? {
         guard style == .carousel, supportedStyles(for: section).contains(.carousel) else { return nil }
         // 排行的货架靠大数字读名次,叠成多行之后名次是先横着数还是先竖着数就说不清了。
-        guard section != .listeningRanking else { return nil }
+        // MV 卡一张就有半屏宽,叠成多行一块就占掉大半屏。
+        guard section != .listeningRanking, section != .musicVideos else { return nil }
         return 1...3
     }
 
-    /// 继续听原本就是双行,换成「横排 + 行数」之后默认值要维持原样。
+    /// 继续听原本就是双行,换成「横排 + 行数」之后默认值要维持原样。最近添加的歌曲是同样的小条,也是两行。
     public static func defaultRows(for section: HomeSectionKind) -> Int {
-        section == .continueListening ? 2 : 1
+        section == .continueListening || section == .recentlyAddedSongs ? 2 : 1
     }
 
     /// 手机横屏下横排最多铺几行。
@@ -167,6 +174,7 @@ public enum HomeSectionLayoutPolicy {
         case .playlists: 3...20
         case .topArtists: 4...20
         case .recentlyAdded: 4...24
+        case .recentlyAddedSongs: 4...30
         case .forYou: 3...12
         // 列表:展开后最多列到第几名,调到 5 及以下就是不提供展开。横排:货架铺到第几名。
         case .listeningRanking: 0...20
@@ -195,6 +203,7 @@ public enum HomeSectionLayoutPolicy {
         case .playlists: 4
         case .topArtists: 8
         case .recentlyAdded: 6
+        case .recentlyAddedSongs: 12
         case .forYou: 5
         case .listeningRanking: 20
         case .radio: 12
@@ -222,7 +231,7 @@ public enum HomeSectionLayoutPolicy {
         case .playlists, .folders: style != .list
         case .recentlyAdded: style == .carousel
         case .startListening, .albumPick, .continueListening, .quickAccess, .forYou,
-             .listeningRanking, .topArtists, .stats, .musicVideos: false
+             .listeningRanking, .topArtists, .stats, .musicVideos, .recentlyAddedSongs: false
         }
     }
 

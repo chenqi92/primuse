@@ -591,6 +591,7 @@
 		3CDB8064F940AB74D0726BED /* ExternalTrackMatchPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7901837A48E8B1B42DEEBA64 /* ExternalTrackMatchPolicy.swift */; };
 		3CEA30AE4DAD728B6773785F /* HomeAlbumPickSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2087CDDC9E8EA429B2D9C94 /* HomeAlbumPickSection.swift */; };
 		2AB54A9437B0FF5BEA9CBD2E /* HomeMusicVideoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10801CB91C3C9D50873325B9 /* HomeMusicVideoSection.swift */; };
+		FF4625DE85E59EBF0E0E8973 /* HomeRecentlyAddedSongsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11911306A979C47A46968D3C /* HomeRecentlyAddedSongsSection.swift */; };
 		3CF543644D92999854C9D295 /* MedleyHighlightStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDFAE4E9CD3F8118D030E1EF /* MedleyHighlightStore.swift */; };
 		3CFA06900328789D67C6D30E /* PlayerStatusBarAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70ED09A58D609AB344A780B /* PlayerStatusBarAppearance.swift */; };
 		3D1DA00DD7C175B998EB06AB /* AutoEq-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = A7F771F08417B362E09CB48E /* AutoEq-LICENSE.txt */; };
@@ -1326,6 +1327,7 @@
 		86647F6C5324A24DEEFB727E /* OperationCancellationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CEBA275253A5F2B114FAAC9 /* OperationCancellationPolicy.swift */; };
 		867AEA11F26D4956EA342660 /* HomeAlbumPickSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2087CDDC9E8EA429B2D9C94 /* HomeAlbumPickSection.swift */; };
 		1A3EF423D6DE8638F3F7C9D1 /* HomeMusicVideoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10801CB91C3C9D50873325B9 /* HomeMusicVideoSection.swift */; };
+		A3884A29D252B545725D502D /* HomeRecentlyAddedSongsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11911306A979C47A46968D3C /* HomeRecentlyAddedSongsSection.swift */; };
 		867D38156A86C64639EC2C11 /* ListeningMood.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0CD42878698B7234B3A7A6 /* ListeningMood.swift */; };
 		86A07EF4CED5BB79ED890765 /* TVPlaybackPrefetch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5098C0B68845BCD185C89B /* TVPlaybackPrefetch.swift */; };
 		86AA26C64AE2790C752F4645 /* AIRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 059B8717F4BD77194FDB5F80 /* AIRequestQuotaTests.swift */; };
@@ -3852,6 +3854,7 @@
 		A1F6D71AD2F05173FB3084C7 /* LastFmProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastFmProvider.swift; sourceTree = "<group>"; };
 		A2087CDDC9E8EA429B2D9C94 /* HomeAlbumPickSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeAlbumPickSection.swift; sourceTree = "<group>"; };
 		10801CB91C3C9D50873325B9 /* HomeMusicVideoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeMusicVideoSection.swift; sourceTree = "<group>"; };
+		11911306A979C47A46968D3C /* HomeRecentlyAddedSongsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeRecentlyAddedSongsSection.swift; sourceTree = "<group>"; };
 		A21E401E5CA220CBD12A804E /* ListeningStatsPayloadCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningStatsPayloadCache.swift; sourceTree = "<group>"; };
 		A231BC160FFDDA890692D36A /* SpotlightIndexPlanning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotlightIndexPlanning.swift; sourceTree = "<group>"; };
 		A3024D172840BEE722BD53FF /* CloudPlaybackSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPlaybackSource.swift; sourceTree = "<group>"; };
@@ -4775,6 +4778,7 @@
 			children = (
 				A2087CDDC9E8EA429B2D9C94 /* HomeAlbumPickSection.swift */,
 				10801CB91C3C9D50873325B9 /* HomeMusicVideoSection.swift */,
+				11911306A979C47A46968D3C /* HomeRecentlyAddedSongsSection.swift */,
 				09162255A250ACB54D607FA4 /* HomeDiscoveryModel.swift */,
 				D193CFC6EA53C8CC4DB668EF /* HomeFoldersSection.swift */,
 				17E404D4638787229DC81095 /* HomeForYouSection.swift */,
@@ -8456,6 +8460,7 @@
 				DD201E086AF711E4D3F34119 /* GuangYaSource.swift in Sources */,
 				3CEA30AE4DAD728B6773785F /* HomeAlbumPickSection.swift in Sources */,
 				2AB54A9437B0FF5BEA9CBD2E /* HomeMusicVideoSection.swift in Sources */,
+				FF4625DE85E59EBF0E0E8973 /* HomeRecentlyAddedSongsSection.swift in Sources */,
 				C2E29DE1D474D35D4742D02D /* HomeDiscoveryModel.swift in Sources */,
 				9B7F2B5D35C992AA95A93735 /* HomeFoldersSection.swift in Sources */,
 				7C79048A9955A27D0B866308 /* HomeForYouSection.swift in Sources */,
@@ -9346,6 +9351,7 @@
 				6F7789BD834850AFCF14F44B /* GuangYaSource.swift in Sources */,
 				867AEA11F26D4956EA342660 /* HomeAlbumPickSection.swift in Sources */,
 				1A3EF423D6DE8638F3F7C9D1 /* HomeMusicVideoSection.swift in Sources */,
+				A3884A29D252B545725D502D /* HomeRecentlyAddedSongsSection.swift in Sources */,
 				DE124BF8F7E0731A1266A557 /* HomeDiscoveryModel.swift in Sources */,
 				8DB09314546C2B60BB2EF852 /* HomeFoldersSection.swift in Sources */,
 				884C3119A61DE634E6721FCB /* HomeForYouSection.swift in Sources */,
