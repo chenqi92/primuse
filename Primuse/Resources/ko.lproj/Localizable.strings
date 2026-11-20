@@ -7881,3 +7881,6 @@
 "music_videos_latest" = "최신 뮤직비디오";
 "music_videos_all" = "모든 뮤직비디오";
 "home_section_music_videos" = "추천 뮤직비디오";
+"library_recommendations_songs_title" = "추천 노래";
+"library_recommendations_mix_title" = "당신을 위한 선곡";
+"library_recommendations_music_videos" = "추천 뮤직비디오";

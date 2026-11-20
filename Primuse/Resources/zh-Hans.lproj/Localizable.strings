@@ -7974,3 +7974,6 @@
 "music_videos_latest" = "最新 MV";
 "music_videos_all" = "全部 MV";
 "home_section_music_videos" = "MV 推荐";
+"library_recommendations_songs_title" = "推荐歌曲";
+"library_recommendations_mix_title" = "为你挑选";
+"library_recommendations_music_videos" = "推荐 MV";

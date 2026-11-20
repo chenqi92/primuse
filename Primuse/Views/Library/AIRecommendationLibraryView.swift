@@ -46,6 +46,7 @@ struct AIRecommendationLibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(CoverTintProvider.self) private var tintProvider
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
     private var customIntentsRawValue = ""
@@ -64,6 +65,9 @@ struct AIRecommendationLibraryView: View {
     @State private var loadMoreFailed = false
     @State private var preparedLocalContentRevision: String?
     @State private var streamedQueueSongIDs: [String]?
+    /// 「推荐 MV」那一排:按这一页推荐出来的歌里的艺人挑。
+    @State private var musicVideoPicks: [Song] = []
+    @State private var playlistSong: Song?
     #if os(macOS)
     @State private var showsSongDiscovery = false
     /// 给了就是 Mac 窗口右侧的推荐面板: 一行标题带全部播放与关闭, 歌单成一列紧凑的行。
@@ -248,15 +252,23 @@ struct AIRecommendationLibraryView: View {
         #endif
         return ScrollView(.vertical, showsIndicators: showsIndicators) {
             LazyVStack(alignment: .leading, spacing: platformSectionSpacing) {
-                hero
-                recommendationControls
-                if showsSongDiscoveryEntry {
-                    songDiscoveryEntry
-                }
+                mixCard
+                pageControls
                 if showsActionableStatus {
                     statusPanel
                 }
+                if !musicVideoPicks.isEmpty {
+                    musicVideoShelf
+                }
+                Text("library_recommendations_songs_title")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(platformPrimaryTextColor)
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.top, 2)
                 recommendationGrid
+                if showsSongDiscoveryEntry {
+                    songDiscoveryEntry
+                }
             }
             .padding(.horizontal, platformHorizontalPadding)
             .padding(.top, platformTopPadding)
@@ -264,40 +276,348 @@ struct AIRecommendationLibraryView: View {
         }
         // iPhone Duo 竖栏：推荐卡片和按钮停在竖栏左侧。
         .pmExtendsUnderVerticalBar()
+        .task(id: musicVideoRefreshKey) { refreshMusicVideoPicks() }
+        .task(id: mixCardSongs.map(\.id)) { tintProvider.prepare(mixCardSongs) }
+        .sheet(item: $playlistSong) { song in
+            AddToPlaylistSheet(song: song)
+        }
     }
 
-    private var hero: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 7) {
-                Label("library_recommendations_eyebrow", systemImage: "sparkles")
-                    .font(.caption.weight(.bold))
-                    .textCase(.uppercase)
-                    .tracking(0.8)
-                    .foregroundStyle(platformAccentColor)
-
-                Text("library_recommendations_title")
-                    .font(platformTitleFont)
-                    .foregroundStyle(platformPrimaryTextColor)
-
+    /// 页头那张卡:推荐出来的前几首拼成封面,底色从它们的封面取色、慢慢流动;下面全部播放、随机、重新生成。
+    private var mixCard: some View {
+        let songs = mixCardSongs
+        let palettes = songs.compactMap { tintProvider.palette(forSongID: $0.id) }
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        let playable = displayedResults.map(\.song).filteredPlayable()
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label("library_recommendations_title", systemImage: "sparkles")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .labelStyle(.titleAndIcon)
+                    Text(verbatim: mixTitle)
+                        .font(platformTitleFont)
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                    Text(verbatim: mixSubtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.78))
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                mixCollage(songs)
             }
-            Spacer(minLength: 12)
-            Button(action: playAll) {
-                #if os(macOS)
-                // Mac 上和资料库其他页的页头主操作同一种键(32 高、圆角 8)。
-                Label("play_all", systemImage: "play.fill")
-                    .macControlChrome(.prominent, tint: platformAccentColor)
-                #else
-                Label("play_all", systemImage: "play.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 14)
-                    .frame(height: 36)
-                    .foregroundStyle(Color.white)
-                    .background(platformAccentColor, in: Capsule())
-                #endif
+            HStack(spacing: 10) {
+                Button(action: playAll) {
+                    Label("play_all", systemImage: "play.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 18)
+                        .frame(height: 38)
+                        .foregroundStyle(.black)
+                        .background(.white, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(playable.isEmpty)
+                Button(action: shufflePlay) {
+                    mixCircleIcon("shuffle")
+                }
+                .buttonStyle(.plain)
+                .disabled(playable.isEmpty)
+                .accessibilityLabel(Text("shuffle"))
+                Spacer(minLength: 0)
+                if intelligence.isPersonalizedRecommendationsConfigured {
+                    Button {
+                        Task { await refresh(forceAIRefresh: true) }
+                    } label: {
+                        Group {
+                            if aiRecommendation.isStreaming {
+                                ProgressView().controlSize(.small).tint(.white)
+                                    .frame(width: 38, height: 38)
+                                    .background(.white.opacity(0.2), in: Circle())
+                            } else {
+                                mixCircleIcon("arrow.clockwise")
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(aiRecommendation.isStreaming || aiRecommendation.retryAvailableAt != nil || isLoadingMore)
+                    .accessibilityLabel(Text("ai_recommendation_refresh"))
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(displayedResults.map(\.song).filteredPlayable().isEmpty)
         }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            CoverFlowBackdrop(palettes: palettes, isAnimating: scenePhase == .active)
+                .overlay {
+                    LinearGradient(
+                        colors: [.black.opacity(0.12), .black.opacity(0.42)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+        }
+        .clipShape(shape)
+        .overlay { shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5) }
+        .shadow(color: .black.opacity(0.14), radius: 16, y: 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("library.recommendations.mix")
+    }
+
+    private func mixCircleIcon(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(width: 38, height: 38)
+            .background(.white.opacity(0.2), in: Circle())
+            .contentShape(Circle())
+    }
+
+    /// 右上角四张封面拼成一格;不够四首时只放第一张。
+    @ViewBuilder
+    private func mixCollage(_ songs: [Song]) -> some View {
+        let side: CGFloat = 92
+        Group {
+            if songs.count >= 4 {
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        mixArtwork(songs[0], side: side / 2)
+                        mixArtwork(songs[1], side: side / 2)
+                    }
+                    HStack(spacing: 0) {
+                        mixArtwork(songs[2], side: side / 2)
+                        mixArtwork(songs[3], side: side / 2)
+                    }
+                }
+            } else if let song = songs.first {
+                mixArtwork(song, side: side)
+            } else {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.white.opacity(0.16))
+                    .overlay {
+                        Image(systemName: "sparkles")
+                            .font(.title2)
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+            }
+        }
+        .frame(width: side, height: side)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
+        .accessibilityHidden(true)
+    }
+
+    private func mixArtwork(_ song: Song, side: CGFloat) -> some View {
+        CachedArtworkView(
+            coverRef: song.coverArtFileName,
+            songID: song.id,
+            size: side,
+            cornerRadius: 0,
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            fileFormat: song.fileFormat
+        )
+        .frame(width: side, height: side)
+    }
+
+    private var mixCardSongs: [Song] {
+        Array(displayedResults.prefix(4).map(\.song))
+    }
+
+    /// 选了方向写方向,选了场景写场景,都没选时就叫「为你挑选」。
+    private var mixTitle: String {
+        if effectiveSelectedIntentID != AIRecommendationIntentSelectionPolicy.defaultSelectionID {
+            return selectedIntent.title
+        }
+        if recommendationScene != .automatic {
+            return recommendationScene.localizedName
+        }
+        return String(localized: "library_recommendations_mix_title")
+    }
+
+    private var mixSubtitle: String {
+        let count = displayedResults.count
+        guard count > 0 else { return String(localized: "library_recommendations_eyebrow") }
+        let artists = displayedResults.prefix(6).compactMap { library.artistDisplayName(for: $0.song) }
+        var seen = Set<String>()
+        let names = artists.filter { seen.insert($0).inserted }.prefix(3)
+        let countText = String(format: String(localized: "home_hero_song_count_format"), count)
+        return names.isEmpty ? countText : countText + " · " + names.joined(separator: "、")
+    }
+
+    /// 页面上的场景与选歌方向:一行胶囊,第一颗是选歌方向(点开挑),后面是场景。选了方向时下面写一句说明。
+    private var pageControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    Menu {
+                        intentMenuContent
+                    } label: {
+                        let hasIntent = effectiveSelectedIntentID != AIRecommendationIntentSelectionPolicy.defaultSelectionID
+                        HStack(spacing: 5) {
+                            Image(systemName: "slider.horizontal.3")
+                            if hasIntent {
+                                Text(verbatim: selectedIntent.title).lineLimit(1)
+                            } else {
+                                Text("library_recommendations_theme").lineLimit(1)
+                            }
+                            Image(systemName: "chevron.down")
+                                .font(.caption2.weight(.bold))
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(hasIntent ? Color.white : platformAccentColor)
+                        .padding(.horizontal, 13)
+                        .frame(height: 32)
+                        .background(hasIntent ? platformAccentColor : platformAccentColor.opacity(0.12), in: Capsule())
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
+
+                    Rectangle()
+                        .fill(platformDividerColor)
+                        .frame(width: 0.5, height: 20)
+
+                    ForEach(AIRecommendationScene.allCases, id: \.self) { scene in
+                        let isSelected = recommendationScene == scene
+                        Button {
+                            recommendationSceneRawValue = scene.rawValue
+                        } label: {
+                            Label(scene.localizedName, systemImage: sceneIcon(scene))
+                                .labelStyle(.titleAndIcon)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(isSelected ? Color.white : platformPrimaryTextColor)
+                                .padding(.horizontal, 13)
+                                .frame(height: 32)
+                                .background(isSelected ? platformAccentColor : platformChipBackground, in: Capsule())
+                                .overlay {
+                                    if !isSelected {
+                                        Capsule().stroke(platformDividerColor, lineWidth: 0.5)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    }
+                }
+            }
+            .pmStopsAtVerticalBar()
+
+            if effectiveSelectedIntentID != AIRecommendationIntentSelectionPolicy.defaultSelectionID {
+                Text(verbatim: selectedIntent.detail)
+                    .font(.caption)
+                    .foregroundStyle(platformSecondaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func sceneIcon(_ scene: AIRecommendationScene) -> String {
+        switch scene {
+        case .automatic: "sparkles"
+        case .driving: "car.fill"
+        case .focus: "brain.head.profile"
+        case .workout: "figure.run"
+        case .relaxation: "leaf.fill"
+        case .bedtime: "moon.stars.fill"
+        }
+    }
+
+    /// 选歌方向的菜单内容:不加方向在最上面,其余分一段。页面胶囊和 Mac 面板共用。
+    @ViewBuilder
+    private var intentMenuContent: some View {
+        Button {
+            selectIntent(AIRecommendationIntentSelectionPolicy.defaultSelectionID)
+        } label: {
+            if effectiveSelectedIntentID
+                == AIRecommendationIntentSelectionPolicy.defaultSelectionID {
+                // 选中项只靠勾选图标表达；macOS 27 起菜单默认隐藏图标。
+                Label("library_recommendations_theme_none", systemImage: "checkmark")
+                    .labelStyle(.titleAndIcon)
+            } else {
+                Text("library_recommendations_theme_none")
+            }
+        }
+        let selectableChoices = intentChoices.filter {
+            $0.id != AIRecommendationIntentSelectionPolicy.defaultSelectionID
+        }
+        if !selectableChoices.isEmpty {
+            Divider()
+            ForEach(selectableChoices) { choice in
+                Button {
+                    selectIntent(choice.id)
+                } label: {
+                    if effectiveSelectedIntentID == choice.id {
+                        Label {
+                            Text(verbatim: choice.title)
+                        } icon: {
+                            Image(systemName: "checkmark")
+                        }
+                        .labelStyle(.titleAndIcon)
+                    } else {
+                        Text(verbatim: choice.title)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 「推荐 MV」:这一页推荐出来的歌里有哪些艺人,就先挑他们的 MV。
+    private var musicVideoShelf: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("library_recommendations_music_videos")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(platformPrimaryTextColor)
+                .accessibilityAddTraits(.isHeader)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(musicVideoPicks) { song in
+                        MusicVideoCard(
+                            song: song,
+                            play: { MusicVideoPlayback.play(song, in: musicVideoPicks, player: player) },
+                            addToPlaylist: { playlistSong = song }
+                        )
+                        .frame(width: platformMusicVideoCardWidth)
+                    }
+                }
+                .padding(.bottom, 4)
+            }
+            .pmStopsAtVerticalBar()
+        }
+        .accessibilityIdentifier("library.recommendations.musicVideos")
+    }
+
+    private var musicVideoRefreshKey: String {
+        [
+            String(library.musicVideoSongs.count),
+            library.musicVideoSongs.first?.id ?? "",
+            localResults.prefix(12).map(\.song.id).joined(separator: ","),
+            String(HomeHeroRecommendationPolicy.dayStamp(Date())),
+        ].joined(separator: "#")
+    }
+
+    private func refreshMusicVideoPicks() {
+        let videos = library.musicVideoSongs
+        guard !videos.isEmpty else {
+            if !musicVideoPicks.isEmpty { musicVideoPicks = [] }
+            return
+        }
+        var seen = Set<String>()
+        let artistIDs = localResults.compactMap(\.song.artistID).filter { seen.insert($0).inserted }
+        let byID = Dictionary(videos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let ids = MusicVideoRecommendationPolicy.recommended(
+            videos.map { .init(id: $0.id, artistID: $0.artistID, dateAdded: $0.dateAdded) },
+            favoriteArtistIDs: artistIDs,
+            recentlyPlayedIDs: [],
+            now: Date(),
+            day: HomeHeroRecommendationPolicy.dayStamp(Date()),
+            limit: 10
+        )
+        let next = ids.compactMap { byID[$0] }
+        if next.map(\.id) != musicVideoPicks.map(\.id) { musicVideoPicks = next }
     }
 
     private var recommendationControls: some View {
@@ -308,40 +628,7 @@ struct AIRecommendationLibraryView: View {
                     .foregroundStyle(platformPrimaryTextColor)
                 Spacer()
                 Menu {
-                    Button {
-                        selectIntent(AIRecommendationIntentSelectionPolicy.defaultSelectionID)
-                    } label: {
-                        if effectiveSelectedIntentID
-                            == AIRecommendationIntentSelectionPolicy.defaultSelectionID {
-                            // 选中项只靠勾选图标表达；macOS 27 起菜单默认隐藏图标。
-                            Label("library_recommendations_theme_none", systemImage: "checkmark")
-                                .labelStyle(.titleAndIcon)
-                        } else {
-                            Text("library_recommendations_theme_none")
-                        }
-                    }
-                    let selectableChoices = intentChoices.filter {
-                        $0.id != AIRecommendationIntentSelectionPolicy.defaultSelectionID
-                    }
-                    if !selectableChoices.isEmpty {
-                        Divider()
-                        ForEach(selectableChoices) { choice in
-                            Button {
-                                selectIntent(choice.id)
-                            } label: {
-                                if effectiveSelectedIntentID == choice.id {
-                                    Label {
-                                        Text(verbatim: choice.title)
-                                    } icon: {
-                                        Image(systemName: "checkmark")
-                                    }
-                                    .labelStyle(.titleAndIcon)
-                                } else {
-                                    Text(verbatim: choice.title)
-                                }
-                            }
-                        }
-                    }
+                    intentMenuContent
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "slider.horizontal.3")
@@ -635,13 +922,14 @@ struct AIRecommendationLibraryView: View {
         }
     }
 
+    /// 推荐出来的歌,一行一首:封面、序号和歌名、艺人,下面一行写推荐理由。宽画布上分两栏。
     private var recommendationResultsGrid: some View {
         LazyVGrid(
             columns: [
-                GridItem(.adaptive(minimum: platformCardMinimumWidth, maximum: 480), spacing: 14),
+                GridItem(.adaptive(minimum: platformRowMinimumWidth, maximum: 640), spacing: 24, alignment: .top),
             ],
             alignment: .leading,
-            spacing: 14
+            spacing: 0
         ) {
             // 网格嵌在页面的 LazyVStack 里，异步渲染帧会在别的线程上现建格子，见 `LazyItemCell`。
             ForEach(Array(displayedResults.enumerated()), id: \.element.id) { @Sendable index, result in
@@ -649,14 +937,110 @@ struct AIRecommendationLibraryView: View {
                     Button {
                         play(result.song)
                     } label: {
-                        recommendationCard(result, ordinal: index + 1)
+                        recommendationRow(result, ordinal: index + 1)
                     }
                     .buttonStyle(.plain)
-                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                    .contextMenu { rowMenu(result.song) }
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
         }
         .animation(.snappy(duration: 0.28), value: aiRecommendation.orderedSongIDs)
+    }
+
+    @ViewBuilder
+    private func rowMenu(_ song: Song) -> some View {
+        Button { play(song) } label: { Label("play", systemImage: "play.fill") }
+            .disabled(!song.isPlayable)
+        Button {
+            _ = player.insertNextInQueue([song])
+        } label: {
+            Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+        }
+        .disabled(!song.isPlayable)
+        Button {
+            player.appendToQueue([song])
+        } label: {
+            Label("add_to_queue", systemImage: "text.badge.plus")
+        }
+        .disabled(!song.isPlayable)
+        Button {
+            playlistSong = song
+        } label: {
+            Label("add_to_playlist", systemImage: "music.note.list")
+        }
+    }
+
+    private func recommendationRow(_ result: MusicDiscoveryResult, ordinal: Int) -> some View {
+        let song = result.song
+        let isCurrent = player.currentSong?.id == song.id
+        return HStack(alignment: .center, spacing: 12) {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: platformRowArtworkSize,
+                cornerRadius: 8,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat
+            )
+            .frame(width: platformRowArtworkSize, height: platformRowArtworkSize)
+            .shadow(color: .black.opacity(0.1), radius: 3, y: 2)
+
+            VStack(alignment: .leading, spacing: 2) {
+                SongRowNumberedTitle(number: ordinal, title: song.title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(isCurrent ? platformAccentColor : platformPrimaryTextColor)
+                    .lineLimit(1)
+                Text(
+                    verbatim: library.artistDisplayName(for: song)
+                        ?? String(localized: "unknown_artist")
+                )
+                    .font(.subheadline)
+                    .foregroundStyle(platformSecondaryTextColor)
+                    .lineLimit(1)
+                if let reason = aiRecommendation.reason(for: song.id) {
+                    Label(reason, systemImage: "sparkles")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
+                        .foregroundStyle(platformAccentColor)
+                        .lineLimit(2)
+                        .padding(.top, 1)
+                } else {
+                    Text(String(localized: String.LocalizationValue(result.primaryReason.localizationKey)))
+                        .font(.caption)
+                        .foregroundStyle(platformSecondaryTextColor.opacity(0.85))
+                        .lineLimit(1)
+                        .padding(.top, 1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isCurrent {
+                Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "pause.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(platformAccentColor)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.vertical, 9)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(platformDividerColor)
+                .frame(height: 0.5)
+                .padding(.leading, platformRowArtworkSize + 12)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func shufflePlay() {
+        let queue = player.shufflePlayOrder(displayedResults.map(\.song).filteredPlayable())
+        guard let first = queue.first else { return }
+        player.shuffleEnabled = true
+        // 打乱了的队列不再跟着 AI 一首首写出来的顺序往后追加。
+        streamedQueueSongIDs = nil
+        SiriMediaInteractionDonor.donate(song: first)
+        Task { await player.play(queue: queue, startingAt: 0) }
     }
 
     #if os(macOS)
@@ -773,55 +1157,27 @@ struct AIRecommendationLibraryView: View {
         LoadingSkeletonGroup {
             LazyVGrid(
                 columns: [
-                    GridItem(
-                        .adaptive(minimum: platformCardMinimumWidth, maximum: 480),
-                        spacing: 14
-                    ),
+                    GridItem(.adaptive(minimum: platformRowMinimumWidth, maximum: 640), spacing: 24, alignment: .top),
                 ],
                 alignment: .leading,
-                spacing: 14
+                spacing: 0
             ) {
-                ForEach(0..<6, id: \.self) { @Sendable index in
+                ForEach(0..<8, id: \.self) { @Sendable index in
                     LazyItemCell {
-                        HStack(spacing: 13) {
+                        HStack(spacing: 12) {
                             recommendationSkeletonBlock(
-                                width: platformArtworkSize,
-                                height: platformArtworkSize,
-                                cornerRadius: 12
+                                width: platformRowArtworkSize,
+                                height: platformRowArtworkSize,
+                                cornerRadius: 8
                             )
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                recommendationSkeletonBlock(
-                                    width: 78 + CGFloat((index % 3) * 12),
-                                    height: 10
-                                )
-                                recommendationSkeletonBlock(
-                                    height: 18
-                                )
-                                    .frame(
-                                        maxWidth: 156 + CGFloat((index % 2) * 28),
-                                        alignment: .leading
-                                    )
-                                recommendationSkeletonBlock(width: 112, height: 13)
-                                Spacer(minLength: 0)
-                                recommendationSkeletonBlock(width: 64, height: 11)
+                            VStack(alignment: .leading, spacing: 7) {
+                                recommendationSkeletonBlock(width: 140 + CGFloat((index % 3) * 26), height: 13)
+                                recommendationSkeletonBlock(width: 90 + CGFloat((index % 2) * 20), height: 11)
+                                recommendationSkeletonBlock(width: 170, height: 9)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Spacer(minLength: 0)
                         }
-                        .padding(12)
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: platformArtworkSize + 24,
-                            alignment: .leading
-                        )
-                        .background(
-                            platformCardBackground,
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(platformDividerColor, lineWidth: 0.5)
-                        }
+                        .padding(.vertical, 9)
                     }
                 }
             }
@@ -845,68 +1201,6 @@ struct AIRecommendationLibraryView: View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(platformSkeletonFill)
             .frame(width: width, height: height)
-    }
-
-    private func recommendationCard(_ result: MusicDiscoveryResult, ordinal: Int) -> some View {
-        let song = result.song
-        return HStack(spacing: 13) {
-            CachedArtworkView(
-                coverRef: song.coverArtFileName,
-                songID: song.id,
-                size: platformArtworkSize,
-                cornerRadius: 12,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                fileFormat: song.fileFormat
-            )
-            .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
-
-            VStack(alignment: .leading, spacing: 5) {
-                if let reason = aiRecommendation.reason(for: song.id) {
-                    Label(reason, systemImage: "sparkles")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(platformAccentColor)
-                        .lineLimit(2)
-                } else {
-                    Text(String(localized: String.LocalizationValue(result.primaryReason.localizationKey)))
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(platformSecondaryTextColor)
-                        .lineLimit(1)
-                }
-                SongRowNumberedTitle(number: ordinal, title: song.title)
-                    .font(.headline)
-                    .foregroundStyle(platformPrimaryTextColor)
-                    .lineLimit(2)
-                Text(
-                    verbatim: library.artistDisplayName(for: song)
-                        ?? String(localized: "unknown_artist")
-                )
-                    .font(.subheadline)
-                    .foregroundStyle(platformSecondaryTextColor)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Label("play", systemImage: "play.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(platformPrimaryTextColor)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: platformArtworkSize + 24, alignment: .leading)
-        .background(platformCardBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(alignment: .leading) {
-            if aiRecommendation.reason(for: song.id) != nil {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(platformAccentColor)
-                    .frame(width: 3)
-                    .padding(.vertical, 12)
-            }
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(platformDividerColor, lineWidth: 0.5)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     @MainActor
@@ -1116,8 +1410,9 @@ struct AIRecommendationLibraryView: View {
     private var platformHorizontalPadding: CGFloat { PMSpace.xxxl }
     private var platformTopPadding: CGFloat { PMSpace.l24 }
     private var platformSectionSpacing: CGFloat { PMSpace.l }
-    private var platformCardMinimumWidth: CGFloat { 300 }
-    private var platformArtworkSize: CGFloat { 88 }
+    private var platformRowMinimumWidth: CGFloat { 340 }
+    private var platformRowArtworkSize: CGFloat { 52 }
+    private var platformMusicVideoCardWidth: CGFloat { 260 }
     private var platformTitleFont: Font { PMFont.pageTitle(28) }
     private var platformAccentColor: Color { PMColor.brand }
     private var platformPrimaryTextColor: Color { PMColor.text }
@@ -1130,8 +1425,9 @@ struct AIRecommendationLibraryView: View {
     private var platformHorizontalPadding: CGFloat { 20 }
     private var platformTopPadding: CGFloat { 16 }
     private var platformSectionSpacing: CGFloat { 16 }
-    private var platformCardMinimumWidth: CGFloat { 300 }
-    private var platformArtworkSize: CGFloat { 96 }
+    private var platformRowMinimumWidth: CGFloat { 320 }
+    private var platformRowArtworkSize: CGFloat { 54 }
+    private var platformMusicVideoCardWidth: CGFloat { 230 }
     private var platformTitleFont: Font { .title.bold() }
     private var platformAccentColor: Color { .accentColor }
     private var platformPrimaryTextColor: Color { .primary }

@@ -7787,3 +7787,6 @@
 "music_videos_latest" = "Новый клип";
 "music_videos_all" = "Все клипы";
 "home_section_music_videos" = "Клипы для вас";
+"library_recommendations_songs_title" = "Рекомендуемые треки";
+"library_recommendations_mix_title" = "Подборка для вас";
+"library_recommendations_music_videos" = "Рекомендуемые клипы";

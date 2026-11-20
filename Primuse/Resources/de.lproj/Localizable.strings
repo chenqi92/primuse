@@ -7881,3 +7881,6 @@
 "music_videos_latest" = "Neuestes Musikvideo";
 "music_videos_all" = "Alle Musikvideos";
 "home_section_music_videos" = "Musikvideos für dich";
+"library_recommendations_songs_title" = "Empfohlene Titel";
+"library_recommendations_mix_title" = "Für dich ausgewählt";
+"library_recommendations_music_videos" = "Empfohlene Musikvideos";

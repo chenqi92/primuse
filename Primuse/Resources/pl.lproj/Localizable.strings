@@ -7787,3 +7787,6 @@
 "music_videos_latest" = "Najnowszy teledysk";
 "music_videos_all" = "Wszystkie teledyski";
 "home_section_music_videos" = "Teledyski dla Ciebie";
+"library_recommendations_songs_title" = "Polecane utwory";
+"library_recommendations_mix_title" = "Wybrane dla Ciebie";
+"library_recommendations_music_videos" = "Polecane teledyski";

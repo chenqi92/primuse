@@ -7787,3 +7787,6 @@
 "music_videos_latest" = "नवीनतम म्यूज़िक वीडियो";
 "music_videos_all" = "सभी म्यूज़िक वीडियो";
 "home_section_music_videos" = "आपके लिए म्यूज़िक वीडियो";
+"library_recommendations_songs_title" = "सुझाए गए गाने";
+"library_recommendations_mix_title" = "आपके लिए चुना गया";
+"library_recommendations_music_videos" = "सुझाए गए म्यूज़िक वीडियो";

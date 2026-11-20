@@ -7858,3 +7858,6 @@
 "music_videos_latest" = "最新 MV";
 "music_videos_all" = "全部 MV";
 "home_section_music_videos" = "MV 推薦";
+"library_recommendations_songs_title" = "推薦歌曲";
+"library_recommendations_mix_title" = "為你挑選";
+"library_recommendations_music_videos" = "推薦 MV";

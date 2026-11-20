@@ -7787,3 +7787,6 @@
 "music_videos_latest" = "أحدث فيديو موسيقي";
 "music_videos_all" = "كل الفيديوهات الموسيقية";
 "home_section_music_videos" = "فيديوهات موسيقية لك";
+"library_recommendations_songs_title" = "أغانٍ مقترحة";
+"library_recommendations_mix_title" = "مختارة لك";
+"library_recommendations_music_videos" = "فيديوهات موسيقية مقترحة";

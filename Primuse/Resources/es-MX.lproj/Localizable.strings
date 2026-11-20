@@ -7787,3 +7787,6 @@
 "music_videos_latest" = "Video musical más reciente";
 "music_videos_all" = "Todos los videos musicales";
 "home_section_music_videos" = "Videos musicales para ti";
+"library_recommendations_songs_title" = "Canciones recomendadas";
+"library_recommendations_mix_title" = "Elegido para ti";
+"library_recommendations_music_videos" = "Videos musicales recomendados";

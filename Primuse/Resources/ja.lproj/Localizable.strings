@@ -7882,3 +7882,6 @@
 "music_videos_latest" = "最新のミュージックビデオ";
 "music_videos_all" = "すべてのミュージックビデオ";
 "home_section_music_videos" = "おすすめのミュージックビデオ";
+"library_recommendations_songs_title" = "おすすめの曲";
+"library_recommendations_mix_title" = "あなたへのセレクト";
+"library_recommendations_music_videos" = "おすすめのミュージックビデオ";

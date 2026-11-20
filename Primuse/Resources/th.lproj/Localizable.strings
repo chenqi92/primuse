@@ -7787,3 +7787,6 @@
 "music_videos_latest" = "มิวสิกวิดีโอล่าสุด";
 "music_videos_all" = "มิวสิกวิดีโอทั้งหมด";
 "home_section_music_videos" = "มิวสิกวิดีโอสำหรับคุณ";
+"library_recommendations_songs_title" = "เพลงแนะนำ";
+"library_recommendations_mix_title" = "คัดมาเพื่อคุณ";
+"library_recommendations_music_videos" = "มิวสิกวิดีโอแนะนำ";

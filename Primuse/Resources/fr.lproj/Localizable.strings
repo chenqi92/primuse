@@ -7881,3 +7881,6 @@
 "music_videos_latest" = "Dernier clip";
 "music_videos_all" = "Tous les clips";
 "home_section_music_videos" = "Clips pour vous";
+"library_recommendations_songs_title" = "Morceaux recommandés";
+"library_recommendations_mix_title" = "Choisi pour vous";
+"library_recommendations_music_videos" = "Clips recommandés";

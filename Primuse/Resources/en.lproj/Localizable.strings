@@ -7642,3 +7642,6 @@
 "music_videos_latest" = "Latest Music Video";
 "music_videos_all" = "All Music Videos";
 "home_section_music_videos" = "Music Videos for You";
+"library_recommendations_songs_title" = "Recommended Songs";
+"library_recommendations_mix_title" = "Picked for You";
+"library_recommendations_music_videos" = "Recommended Music Videos";
