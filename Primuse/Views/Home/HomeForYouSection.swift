@@ -991,7 +991,7 @@ struct MacHomeForYouSection: View {
             MacHomeDetailLink(album: album) {
                 AlbumArtworkView(album: album, size: 78, cornerRadius: PMRadius.m)
             }
-            .help(Text("go_to_album"))
+            .pmScrollingHelp(Text("go_to_album"))
 
             PMScrollingButton { playAlbum(pick.albumID) } label: {
                 VStack(alignment: .leading, spacing: 4) {

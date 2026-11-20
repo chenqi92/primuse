@@ -252,6 +252,51 @@ struct PMScrollingButton<Label: View>: View {
     }
 }
 
+extension View {
+    /// 跟着页面一起滚动的内容上的悬停提示。macOS 15 上不登记提示区域，只留给旁白的说明，
+    /// 原因见 `ScrollingControlSurfacePolicy`（#380）。
+    @ViewBuilder
+    func pmScrollingHelp(_ text: Text) -> some View {
+        #if os(macOS)
+        if PMScrollingControls.registersPointerRegions {
+            help(text)
+        } else {
+            accessibilityHint(text)
+        }
+        #else
+        help(text)
+        #endif
+    }
+
+    /// 跟着页面一起滚动的内容上的悬停回调。macOS 15 上不登记，原因同 `pmScrollingHelp`。
+    @ViewBuilder
+    func pmScrollingOnHover(perform action: @escaping (Bool) -> Void) -> some View {
+        #if os(macOS)
+        if PMScrollingControls.registersPointerRegions {
+            onHover(perform: action)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
+    /// 跟着页面一起滚动的卡片的悬停抬起。macOS 15 上不登记，原因同 `pmScrollingHelp`。
+    @ViewBuilder
+    func pmScrollingHoverLift(scale: CGFloat = 1.02, cornerRadius: CGFloat? = nil) -> some View {
+        #if os(macOS)
+        if PMScrollingControls.registersPointerRegions {
+            pmHoverLift(scale: scale, cornerRadius: cornerRadius)
+        } else {
+            self
+        }
+        #else
+        pmHoverLift(scale: scale, cornerRadius: cornerRadius)
+        #endif
+    }
+}
+
 #if os(macOS)
 enum PMScrollingControls {
     /// 滚动内容里的卡片用不用系统按钮。调试时 `PRIMUSE_DEBUG_LEGACY_POINTER_REGIONS=1` 在新系统上也走点按那条路。
@@ -259,6 +304,10 @@ enum PMScrollingControls {
         macOSMajorVersion: macOSMajorVersion,
         forcesLegacy: forcesLegacy
     ) == .button
+
+    /// 滚动内容里登记不登记悬停提示、悬停回调这类指针区域。和按钮同一个分界，进程内不变，
+    /// 视图结构不会在运行中来回切换。
+    static let registersPointerRegions: Bool = usesButtons
 
     /// 滚动期间暂停滚动内容的点按判定，停下后恢复。只在老系统上开，原因见 `ScrollingControlSurfacePolicy`。
     static let pausesHitTestingWhileScrolling: Bool = ScrollingControlSurfacePolicy.pausesHitTestingWhileScrolling(

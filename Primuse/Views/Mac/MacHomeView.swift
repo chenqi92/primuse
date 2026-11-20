@@ -30,12 +30,14 @@ struct MacHomeDashboardScroll<Content: View>: View {
     }
 }
 
-/// 首页卡片上进专辑、进艺人的那一下。macOS 26 起是 value 式 `NavigationLink`;
+/// 首页卡片上进专辑、艺人、歌单的那一下。macOS 26 起是 value 式 `NavigationLink`;
 /// macOS 15 上是点按面,由详情栈收到通知后压栈(标题栏、播放页进专辑也走这条),原因见 `PMScrollingButton`。
 struct MacHomeDetailLink<Label: View>: View {
     private enum Target {
         case album(Album)
         case artist(Artist)
+        case playlist(Playlist)
+        case smartPlaylist(SmartPlaylist)
     }
 
     private let target: Target
@@ -51,6 +53,16 @@ struct MacHomeDetailLink<Label: View>: View {
         self.label = label()
     }
 
+    init(playlist: Playlist, @ViewBuilder label: () -> Label) {
+        target = .playlist(playlist)
+        self.label = label()
+    }
+
+    init(smartPlaylist: SmartPlaylist, @ViewBuilder label: () -> Label) {
+        target = .smartPlaylist(smartPlaylist)
+        self.label = label()
+    }
+
     var body: some View {
         if PMScrollingControls.usesButtons {
             switch target {
@@ -59,6 +71,12 @@ struct MacHomeDetailLink<Label: View>: View {
                     .buttonStyle(.plain)
             case .artist(let artist):
                 NavigationLink(value: artist) { label }
+                    .buttonStyle(.plain)
+            case .playlist(let playlist):
+                NavigationLink(value: playlist) { label }
+                    .buttonStyle(.plain)
+            case .smartPlaylist(let playlist):
+                NavigationLink(value: playlist) { label }
                     .buttonStyle(.plain)
             }
         } else {
@@ -72,6 +90,10 @@ struct MacHomeDetailLink<Label: View>: View {
             NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)
         case .artist(let artist):
             NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
+        case .playlist(let playlist):
+            NotificationCenter.default.post(name: .primuseDetailOpenPlaylist, object: playlist)
+        case .smartPlaylist(let playlist):
+            NotificationCenter.default.post(name: .primuseDetailOpenPlaylist, object: playlist)
         }
     }
 }
@@ -974,7 +996,7 @@ struct MacHomeView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityLabel(Text("later"))
             }
-            .help(Text("later"))
+            .pmScrollingHelp(Text("later"))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -1206,7 +1228,7 @@ struct MacHomeView: View {
                     .frame(width: 30, height: 30)
                     .background(PMColor.glassBtn, in: Circle())
             }
-            .help(Text("home_section_view_all"))
+            .pmScrollingHelp(Text("home_section_view_all"))
             .accessibilityLabel(Text("home_section_view_all"))
 
             PMScrollingButton {
@@ -1218,7 +1240,7 @@ struct MacHomeView: View {
                     .frame(width: 34, height: 34)
                     .background(PMColor.brand, in: Circle())
             }
-            .help(Text(isActive ? "pause" : "play"))
+            .pmScrollingHelp(Text(isActive ? "pause" : "play"))
             .accessibilityLabel(Text(isActive ? "pause" : "play"))
         }
         .padding(PMSpace.m14)
@@ -1787,7 +1809,7 @@ struct MacHomeView: View {
                         .contentShape(Rectangle())
                 }
                 .foregroundStyle(PMColor.brand)
-                .help(Text("home_play_recently_added"))
+                .pmScrollingHelp(Text("home_play_recently_added"))
                 .contextMenu {
                     Button("play", systemImage: "play.fill") { playRecentlyAdded(shuffled: false) }
                     Button("shuffle", systemImage: "shuffle") { playRecentlyAdded(shuffled: true) }
@@ -1809,7 +1831,7 @@ struct MacHomeView: View {
                     .foregroundStyle(PMColor.brand)
                     .contentShape(Rectangle())
                 }
-                .help(Text("home_section_view_all"))
+                .pmScrollingHelp(Text("home_section_view_all"))
             }
         }
     }
@@ -2122,7 +2144,7 @@ private struct MacHomeSourceStatusCard: View {
                 indeterminate: scraperService.totalCount == 0
             )
         } else if backfill.failedCount > 0 {
-            Button { backfill.retryFailed() } label: {
+            PMScrollingButton { backfill.retryFailed() } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.clockwise").foregroundStyle(PMColor.bad)
                     Text(String(format: String(localized: "backfill_retry_failed"), backfill.failedCount))
@@ -2130,7 +2152,6 @@ private struct MacHomeSourceStatusCard: View {
                         .foregroundStyle(PMColor.textMuted)
                 }
             }
-            .buttonStyle(.plain)
         } else {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(PMColor.ok)
@@ -2686,10 +2707,10 @@ private struct MacHomeResumeTile<Artwork: View>: View {
             .overlay { shape.strokeBorder(Color.white.opacity(isHovered ? 0.2 : 0.1), lineWidth: 0.5) }
             .contentShape(shape)
         }
-        .onHover { hovering in
+        .pmScrollingOnHover { hovering in
             pmWithAnimation(.hover) { isHovered = hovering }
         }
-        .help(Text("home_continue_spaces_hint"))
+        .pmScrollingHelp(Text("home_continue_spaces_hint"))
         .accessibilityElement(children: .combine)
         .accessibilityHint(Text("home_continue_spaces_hint"))
     }
@@ -2827,8 +2848,8 @@ private struct MacHomeBooksStrip: View {
             .frame(width: MacHomeShelfCardMetrics.side, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .pmHoverLift()
-        .help(Text("spoken_word_continue"))
+        .pmScrollingHoverLift()
+        .pmScrollingHelp(Text("spoken_word_continue"))
     }
 }
 

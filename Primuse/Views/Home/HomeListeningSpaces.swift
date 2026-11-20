@@ -1148,7 +1148,10 @@ struct QueueBookmarksSection: View {
                 HStack {
                     Text("queue_bookmarks_title").font(.title3.weight(.bold))
                     Spacer()
-                    Button("see_all") { showsAll = true }
+                    // 跟着首页一起滚动:macOS 15 上不能用系统按钮,原因见 `PMScrollingButton`。
+                    PMScrollingButton { showsAll = true } label: {
+                        Text("see_all").foregroundStyle(Color.accentColor)
+                    }
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 12) {
@@ -1177,7 +1180,7 @@ struct QueueBookmarksSection: View {
     }
 
     private func bookmarkButton(_ bookmark: QueueBookmarkSummary) -> some View {
-        Button {
+        PMScrollingButton {
             Task { if await player.resumeQueueBookmark(bookmark.id) { showsAll = false } }
         } label: {
             HStack(spacing: 10) {
@@ -1194,7 +1197,6 @@ struct QueueBookmarksSection: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .contextMenu {
             Button("queue_bookmark_remove", role: .destructive) {
                 if player.queueBookmarkStore.bookmarks.count == 1 { showsAll = false }
@@ -1311,9 +1313,9 @@ struct RecentPlaybackSection: View {
     @ViewBuilder
     private func link(_ tile: Tile) -> some View {
         switch tile.content {
+        // 跟着首页一起滚动:macOS 15 上不能用系统按钮和 NavigationLink,原因见 `PMScrollingButton`。
         case .song(let song):
-            Button { Task { await player.play(queue: [song]) } } label: { label(tile.content) }
-                .buttonStyle(.plain)
+            PMScrollingButton { Task { await player.play(queue: [song]) } } label: { label(tile.content) }
         case .album(let album):
             #if os(macOS)
             MacHomeDetailLink(album: album) { label(tile.content) }
@@ -1321,9 +1323,17 @@ struct RecentPlaybackSection: View {
             NavigationLink(value: album) { label(tile.content) }.buttonStyle(.plain)
             #endif
         case .playlist(let playlist):
+            #if os(macOS)
+            MacHomeDetailLink(playlist: playlist) { label(tile.content) }
+            #else
             NavigationLink(value: playlist) { label(tile.content) }.buttonStyle(.plain)
+            #endif
         case .smartPlaylist(let playlist):
+            #if os(macOS)
+            MacHomeDetailLink(smartPlaylist: playlist) { label(tile.content) }
+            #else
             NavigationLink(value: playlist) { label(tile.content) }.buttonStyle(.plain)
+            #endif
         case .artist(let artist):
             #if os(macOS)
             MacHomeDetailLink(artist: artist) { label(tile.content) }

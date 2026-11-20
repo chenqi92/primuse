@@ -389,6 +389,9 @@ enum MacFrameCommit {
 extension Notification.Name {
     static let primuseDetailOpenAlbum = Notification.Name("primuse.detail.openAlbum")
     static let primuseDetailOpenArtist = Notification.Name("primuse.detail.openArtist")
+    /// 把一张歌单压进详情栈(object 是 `Playlist` 或 `SmartPlaylist`)。macOS 15 首页的点按面用它,
+    /// 新系统上首页直接用 `NavigationLink`。
+    static let primuseDetailOpenPlaylist = Notification.Name("primuse.detail.openPlaylist")
     static let primuseSelectScrobble = Notification.Name("primuse.route.scrobble")
     /// 跳到「歌单」总览 (删除当前歌单后用)。主容器同时会清掉详情栈, 避免栈里
     /// 还压着刚删掉那张歌单的空详情。

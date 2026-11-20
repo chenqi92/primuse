@@ -111,6 +111,15 @@ struct MacDetailContainer: View {
             }
             pushArtist(artist)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenPlaylist)) { note in
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            if let playlist = note.object as? Playlist {
+                withTransaction(transaction) { path.append(playlist) }
+            } else if let playlist = note.object as? SmartPlaylist {
+                withTransaction(transaction) { path.append(playlist) }
+            }
+        }
     }
 
     @ViewBuilder

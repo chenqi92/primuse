@@ -106,7 +106,7 @@ struct MacHomePodcastsStrip: View {
             .frame(width: MacHomeShelfCardMetrics.side, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .pmHoverLift()
+        .pmScrollingHoverLift()
         .podcastEpisodeContextMenu(episode, continuing: continuing)
     }
 }

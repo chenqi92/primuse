@@ -124,7 +124,7 @@ struct MacHomeAlbumPickHero<Resume: View>: View {
                     AlbumArtworkView(album: album, size: 240, cornerRadius: PMRadius.l)
                         .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
                 }
-                .help(Text("go_to_album"))
+                .pmScrollingHelp(Text("go_to_album"))
                 .contextMenu { menu }
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -207,7 +207,7 @@ struct MacHomeAlbumPickHero<Resume: View>: View {
                     .foregroundStyle(.white)
                     .contentShape(Circle())
             }
-            .help(Text(title))
+            .pmScrollingHelp(Text(title))
             .accessibilityLabel(Text(title))
         } else {
             PMScrollingButton(action: action) {
