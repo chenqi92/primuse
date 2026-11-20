@@ -7793,5 +7793,7 @@
 "dup_audition_play" = "Ouvir esta cópia";
 "dup_audition_stop" = "Parar de ouvir";
 "queue_show_earlier %lld" = "Mostrar %lld anteriores";
+"player_carousel_face_lyrics" = "Letras";
+"player_carousel_face_lyrics_summary" = "Letra em tela cheia que acompanha a música";
 "player_carousel_now_playing_strip" = "Mostrar barra Reproduzindo";
 "player_carousel_now_playing_strip_footer" = "A barra na parte de baixo das faces laterais mostra a música atual com os botões de reproduzir e próxima. Desative para uma página mais limpa; para voltar ao player, toque no botão de voltar no canto superior direito ou deslize de volta.";

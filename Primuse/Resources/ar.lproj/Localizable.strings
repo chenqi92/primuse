@@ -7793,5 +7793,7 @@
 "dup_audition_play" = "الاستماع إلى هذه النسخة";
 "dup_audition_stop" = "إيقاف الاستماع";
 "queue_show_earlier %lld" = "إظهار %lld أغنية سابقة";
+"player_carousel_face_lyrics" = "كلمات الأغاني";
+"player_carousel_face_lyrics_summary" = "كلمات تتحرك مع التشغيل على الصفحة كلها";
 "player_carousel_now_playing_strip" = "إظهار شريط «قيد التشغيل الآن»";
 "player_carousel_now_playing_strip_footer" = "الشريط أسفل الأوجه الجانبية يعرض الأغنية الحالية وزرّي التشغيل والتالي. عند إيقافه تصبح الصفحة أبسط، ويمكنك العودة إلى المشغّل بزر الرجوع في الأعلى أو بالسحب.";

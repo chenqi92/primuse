@@ -81,6 +81,7 @@ extension NowPlayingCarouselPanel {
         case .explore: "player_carousel_face_explore"
         case .upNext: "player_carousel_face_up_next"
         case .stage: "player_carousel_face_stage"
+        case .lyrics: "player_carousel_face_lyrics"
         }
     }
 
@@ -90,6 +91,7 @@ extension NowPlayingCarouselPanel {
         case .explore: String(localized: "player_carousel_face_explore")
         case .upNext: String(localized: "player_carousel_face_up_next")
         case .stage: String(localized: "player_carousel_face_stage")
+        case .lyrics: String(localized: "player_carousel_face_lyrics")
         }
     }
 
@@ -100,6 +102,7 @@ extension NowPlayingCarouselPanel {
         case .explore: "player_carousel_face_explore_summary"
         case .upNext: "player_carousel_face_up_next_summary"
         case .stage: "player_carousel_face_stage_summary"
+        case .lyrics: "player_carousel_face_lyrics_summary"
         }
     }
 
@@ -109,6 +112,8 @@ extension NowPlayingCarouselPanel {
         case .explore: "sparkles"
         case .upNext: "list.bullet.indent"
         case .stage: "music.mic"
+        // 和播放页的歌词键同一个图标。
+        case .lyrics: "text.bubble"
         }
     }
 
@@ -119,6 +124,7 @@ extension NowPlayingCarouselPanel {
         case .explore: Color(red: 1.0, green: 0.60, blue: 0.20)
         case .upNext: Color(red: 0.20, green: 0.72, blue: 0.58)
         case .stage: Color(red: 1.0, green: 0.30, blue: 0.48)
+        case .lyrics: Color(red: 0.62, green: 0.42, blue: 1.0)
         }
     }
 }
@@ -727,9 +733,9 @@ struct NowPlayingCarouselContainer<Center: View>: View {
         self.center = center()
     }
 
-    /// 这一刻转得到的排布:当前这首一张卡都没有的面临时跳过。
+    /// 这一刻转得到的排布:当前这首一张卡都没有的面临时跳过(歌词那一面不分卡片,不跳)。
     private var visibleConfiguration: NowPlayingCarouselConfiguration {
-        configuration.skippingPanels { cardSettings.visibleCards(on: $0, in: cardContext).isEmpty }
+        configuration.visible(cardSettings: cardSettings, in: cardContext)
     }
 
     private var direction: CGFloat { layoutDirection == .rightToLeft ? -1 : 1 }
@@ -876,7 +882,7 @@ struct NowPlayingCarouselContainer<Center: View>: View {
         }
         #if DEBUG
         .task {
-            // 取证:`PRIMUSE_DEBUG_CAROUSEL_FACE=sound|explore|upNext|stage` 让播放页一出现就停在那一面。
+            // 取证:`PRIMUSE_DEBUG_CAROUSEL_FACE=sound|explore|upNext|stage|lyrics` 让播放页一出现就停在那一面。
             guard let name = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_CAROUSEL_FACE"],
                   let face = NowPlayingCarouselPanel(rawValue: name) else { return }
             try? await Task.sleep(for: .seconds(2))
@@ -1140,6 +1146,9 @@ private struct NowPlayingCarouselDialHost: View {
 }
 
 /// 两侧的面按 (面, 状态, 深浅) 比较:转轮因为拖动、换页重算时,面里的内容不跟着重算。
+///
+/// 歌词那一面例外:里面的歌词、译文、罗马音是播放页自己的状态,换歌、译文到了都得跟着换,按这几样比较拦不住旧的。
+/// 它每次跟着转轮重算(只在换页、按下松手时,不逐帧),里面的歌词列表按自己的输入比较,没变就不重算。
 private struct NowPlayingCarouselPanelSlot: View, Equatable {
     struct Key: Equatable {
         let panel: NowPlayingCarouselPanel
@@ -1150,7 +1159,9 @@ private struct NowPlayingCarouselPanelSlot: View, Equatable {
     let key: Key
     let make: () -> AnyView
 
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.key == rhs.key }
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.key == rhs.key && lhs.key.panel != .lyrics
+    }
 
     var body: some View { make() }
 }
@@ -1296,6 +1307,8 @@ struct NowPlayingCarouselPanelPage<Content: View>: View {
     let safeInsets: EdgeInsets
     let appearance: NowPlayingAppearance
     var showsNowPlayingStrip = true
+    /// 双指张开进全屏。歌词那一面不进:双指缩放在歌词上是调字号。
+    var expandsOnPinch = true
     let onExpand: () -> Void
     let onReturnToPlayer: () -> Void
     @ViewBuilder let content: Content
@@ -1331,7 +1344,7 @@ struct NowPlayingCarouselPanelPage<Content: View>: View {
         .padding(.leading, safeInsets.leading)
         .padding(.trailing, safeInsets.trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .nowPlayingCarouselPinchToExpand(onExpand)
+        .nowPlayingCarouselPinchToExpand(onExpand, expands: expandsOnPinch)
     }
 }
 
@@ -1412,6 +1425,8 @@ struct NowPlayingCarouselFaceBackground: View {
 
 private struct NowPlayingCarouselPinchToExpand: ViewModifier {
     let onExpand: () -> Void
+    /// 为假时不进全屏,只照样告诉转轮「两根手指按着」(面里的内容自己用双指,比如歌词缩放)。
+    var expands = true
 
     @Environment(\.nowPlayingCarouselControlEditing) private var reportsControlEditing
     @GestureState private var isPinching = false
@@ -1425,7 +1440,7 @@ private struct NowPlayingCarouselPinchToExpand: ViewModifier {
                 MagnifyGesture(minimumScaleDelta: 0.02)
                     .updating($isPinching) { _, pinching, _ in pinching = true }
                     .onChanged { value in
-                        guard !hasFired,
+                        guard expands, !hasFired,
                               NowPlayingCarouselFullscreenPolicy.pinchCommits(magnification: Double(value.magnification))
                         else { return }
                         hasFired = true
@@ -1448,9 +1463,9 @@ private struct NowPlayingCarouselPinchToExpand: ViewModifier {
 }
 
 extension View {
-    /// 在转轮的面上双指张开过了门槛就进全屏,一次手势只进一次。
-    func nowPlayingCarouselPinchToExpand(_ onExpand: @escaping () -> Void) -> some View {
-        modifier(NowPlayingCarouselPinchToExpand(onExpand: onExpand))
+    /// 在转轮的面上双指张开过了门槛就进全屏,一次手势只进一次。`expands` 为假时只挡住两指按着时的翻页。
+    func nowPlayingCarouselPinchToExpand(_ onExpand: @escaping () -> Void, expands: Bool = true) -> some View {
+        modifier(NowPlayingCarouselPinchToExpand(onExpand: onExpand, expands: expands))
     }
 }
 

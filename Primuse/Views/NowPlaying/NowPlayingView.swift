@@ -2276,7 +2276,7 @@ struct NowPlayingView: View {
     /// 系统竖栏在哪一侧(iPhone Duo 等);没有竖栏的设备与 Xcode 27.0 构建为 nil。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(\.playerNavigationAction) private var openAppPage
-    /// 播放页转轮(默认关):左右滑动转到调音、发现、接下来、舞台几面(见 `NowPlayingCarouselContainer`)。
+    /// 播放页转轮(默认关):左右滑动转到调音、发现、接下来、舞台、歌词几面(见 `NowPlayingCarouselContainer`)。
     @AppStorage(NowPlayingCarouselConfiguration.enabledStorageKey)
     private var carouselEnabled = NowPlayingCarouselConfiguration.enabledByDefault
     @AppStorage(NowPlayingCarouselConfiguration.storageKey) private var carouselStorage = ""
@@ -4317,6 +4317,17 @@ struct NowPlayingView: View {
         #endif
     }
 
+    /// 转轮停稳在歌词那一面:译文、罗马音和打开歌词页时一样算。交给常驻任务在它自己的 body 里读,
+    /// 整页的 body 不读转轮停在哪儿。
+    private var carouselLyricsFaceProbe: () -> Bool {
+        #if os(iOS)
+        let state = carouselState
+        return { state.restingPage == .panel(.lyrics) }
+        #else
+        return { false }
+        #endif
+    }
+
     #if os(iOS)
     private var carouselConfiguration: NowPlayingCarouselConfiguration {
         .decode(carouselStorage)
@@ -4443,6 +4454,29 @@ struct NowPlayingView: View {
                     onReturnToPlayer: returnToPlayer,
                     onPresentEffect: { effect in presentCarouselEffect(effect) }
                 )
+            )
+        case .lyrics:
+            // 和播放页的歌词同一套列表、译文与罗马音。停稳在这一面、播放页露着时才跟着播放滚动,
+            // 预先挂着、拖进来的途中只提前定位到当前句。点空白回播放器(播放页上点空白是回封面);
+            // 双指缩放是调歌词字号,不进全屏。
+            return AnyView(
+                NowPlayingCarouselPanelPage(
+                    panel: panel,
+                    side: side,
+                    safeInsets: safeInsets,
+                    appearance: appearance,
+                    expandsOnPinch: false,
+                    onExpand: expand,
+                    onReturnToPlayer: returnToPlayer
+                ) {
+                    lyricsScrollView(
+                        collapsesChromeOnScroll: false,
+                        showsReaderButton: false,
+                        isVisible: context.isSurfaceExposed,
+                        prewarmsPosition: true,
+                        onBackgroundTap: returnToPlayer
+                    )
+                }
             )
         }
     }
@@ -4706,10 +4740,12 @@ struct NowPlayingView: View {
                 // 歌词翻译由这层常驻的零尺寸视图负责，歌词面板与全屏舞台只读结果。
                 // 全屏打开时普通播放页整棵树会被卸载：任务若挂在歌词面板上，进全屏
                 // 就会被取消，全屏里切歌也没有人再算新一首的译文，只能退出再进。
-                // 首次展示才激活；同一首歌切回封面时保留任务及译文。
+                // 首次展示才激活；同一首歌切回封面时保留任务及译文。转轮停在歌词那一面也算展示。
+                let showsCarouselLyricsFace = carouselLyricsFaceProbe
                 PlayerRetainedLyricsTask(identity: lyricTaskSubject,
-                                         isActive: { [lyricsPresentation, isFullscreenPlayerPresented] in
+                                         isActive: { [lyricsPresentation, isFullscreenPlayerPresented, showsCarouselLyricsFace] in
                                              lyricsPresentation.isVisible || isFullscreenPlayerPresented
+                                                 || showsCarouselLyricsFace()
                                          }) {
                     Color.clear
                         .frame(width: 0, height: 0)
@@ -4736,8 +4772,8 @@ struct NowPlayingView: View {
                 let keepsRomanizationActive = isFullscreenPlayerPresented
                     || LyricsRomanizationSettingsStore.shared.displayMode == .romanizationOnly
                 PlayerRetainedLyricsTask(identity: lyricTaskSubject,
-                    isActive: { [lyricsPresentation] in
-                        lyricsPresentation.isVisible || keepsRomanizationActive
+                    isActive: { [lyricsPresentation, showsCarouselLyricsFace] in
+                        lyricsPresentation.isVisible || keepsRomanizationActive || showsCarouselLyricsFace()
                     }) {
                     Color.clear
                         .frame(width: 0, height: 0)
@@ -10615,7 +10651,8 @@ struct NowPlayingView: View {
         showsReaderButton: Bool = true,
         isVisible: Bool = true,
         prewarmsPosition: Bool = false,
-        presentation: NowPlayingLyricsPresentation? = nil
+        presentation: NowPlayingLyricsPresentation? = nil,
+        onBackgroundTap backgroundTapOverride: (() -> Void)? = nil
     ) -> some View {
         LyricsScrollView(
             lyrics: romanizedPresentedLyrics,
@@ -10637,7 +10674,10 @@ struct NowPlayingView: View {
             onAutomaticScrape: { startAutomaticLyricsScrape() },
             onTranscribeAudio: { openAudioTranscriptionEditor() },
             onBackgroundTap: {
-                if isLyricsImmersive {
+                if let backgroundTapOverride {
+                    // 转轮里歌词那一面:点空白回播放器。
+                    backgroundTapOverride()
+                } else if isLyricsImmersive {
                     // ScrollView owns the reliable surface gesture. Routing the
                     // immersive tap through it avoids the scroll recognizer
                     // swallowing the outer ZStack tap after chrome auto-hides.

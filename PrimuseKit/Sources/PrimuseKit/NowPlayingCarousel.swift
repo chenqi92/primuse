@@ -3,7 +3,8 @@ import Foundation
 /// 播放页「转轮」里播放器两侧的一面。播放器本身永远在中间,不在这里面。
 ///
 /// 每一面按「用途」把几样功能排成一页卡片:调音管这首歌听起来怎样,发现从这首歌出发,
-/// 接下来管怎么往下放,舞台换个方式听。只在 iPhone / iPad 的音乐播放页上出现;macOS 与 tvOS 不做转轮。
+/// 接下来管怎么往下放,舞台换个方式听;歌词那一面不分卡片,整页就是滚动歌词。
+/// 只在 iPhone / iPad 的音乐播放页上出现;macOS 与 tvOS 不做转轮。
 public enum NowPlayingCarouselPanel: String, CaseIterable, Codable, Sendable, Identifiable {
     /// 调音:均衡器、音效、速度与音调、输出与音质。
     case sound
@@ -13,12 +14,25 @@ public enum NowPlayingCarouselPanel: String, CaseIterable, Codable, Sendable, Id
     case upNext
     /// 舞台:卡拉 OK 与全屏效果。
     case stage
+    /// 歌词:整页滚动歌词(和播放页的歌词同一套)。不在默认排布里,用户在设置里自己加。
+    case lyrics
 
     public var id: String { rawValue }
 
-    /// 这一面能放的卡片,按面里从上到下的顺序。
+    /// 这一面能放的卡片,按面里从上到下的顺序。歌词那一面没有卡片。
     public var cards: [NowPlayingCarouselCard] {
         NowPlayingCarouselCard.allCases.filter { $0.panel == self }
+    }
+
+    /// 这一面由卡片组成:卡片全关、或当前这首一张都用不了时转动会跳过它。不分卡片的面(歌词)一直在。
+    public var usesCards: Bool {
+        self != .lyrics
+    }
+
+    /// 在设置里添加(没指定位置)时放在紧挨播放器的那一格,而不是最外面:歌词是播放器的另一种看法,
+    /// 加上就是为了从播放器一滑就到。
+    public var addsNextToPlayer: Bool {
+        self == .lyrics
     }
 
     /// 旧版六个单功能页的存储名并进哪一面(配置升级用)。不认识的返回 nil。
@@ -151,6 +165,8 @@ public struct NowPlayingCarouselConfiguration: Equatable, Sendable {
     public static let storageKey = "primuse.player.carousel.layout"
     public static let maximumPanelsPerSide = 4
 
+    /// 没改过排布时的样子。歌词那一面不放进来:已经在用转轮、从没改过排布的人(存储为空)读到的就是这一份,
+    /// 加进来会让他们原来紧挨播放器的那一面被挤开。
     public static let `default` = NowPlayingCarouselConfiguration(
         leading: [.sound, .explore],
         trailing: [.upNext, .stage]
@@ -239,15 +255,24 @@ public struct NowPlayingCarouselConfiguration: Equatable, Sendable {
         )
     }
 
+    /// 按卡片设置与当前这首跳过空面后的排布;不分卡片的面(歌词)不跳过。
+    public func visible(
+        cardSettings: NowPlayingCarouselCardSettings,
+        in context: NowPlayingCarouselCardContext
+    ) -> NowPlayingCarouselConfiguration {
+        skippingPanels { $0.usesCards && cardSettings.visibleCards(on: $0, in: context).isEmpty }
+    }
+
     // MARK: 编辑
 
     /// 把一面放到某一边的 `index`(越界就放到最外面)。原来在哪儿都先拿走;那一边满了就不动。
+    /// 没给 `index` 时放到最外面;`addsNextToPlayer` 的面(歌词)放到紧挨播放器的那一格。
     public mutating func insert(_ panel: NowPlayingCarouselPanel, on side: Side, at index: Int? = nil) {
         var leading = self.leading.filter { $0 != panel }
         var trailing = self.trailing.filter { $0 != panel }
         let target = side == .leading ? leading : trailing
         guard target.count < Self.maximumPanelsPerSide else { return }
-        let position = min(max(index ?? target.count, 0), target.count)
+        let position = min(max(index ?? (panel.addsNextToPlayer ? 0 : target.count), 0), target.count)
         if side == .leading {
             leading.insert(panel, at: position)
         } else {
@@ -522,6 +547,9 @@ public enum NowPlayingCarouselFullscreenPolicy {
         case .panel(.explore):
             if hasAlbum { return .albumPage }
             return hasArtist ? .artistPage : .selectedEffect
+        case .panel(.lyrics):
+            // 和播放器一样进用户选定的全屏(原生效果时是全屏歌词),不临时换效果。
+            return .selectedEffect
         }
     }
 

@@ -71,7 +71,8 @@ struct NowPlayingCarouselSettingsView: View {
                 Text("player_carousel_now_playing_strip_footer")
             }
 
-            ForEach(NowPlayingCarouselPanel.allCases) { panel in
+            // 歌词那一面不分卡片,没有这一节。
+            ForEach(NowPlayingCarouselPanel.allCases.filter(\.usesCards)) { panel in
                 cardSection(panel)
             }
 

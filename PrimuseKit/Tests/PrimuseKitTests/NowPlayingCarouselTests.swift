@@ -6,14 +6,57 @@ import Testing
 struct NowPlayingCarouselConfigurationTests {
     private typealias Configuration = NowPlayingCarouselConfiguration
 
-    @Test("默认关闭,没改过时左边调音、发现,右边接下来、舞台")
+    @Test("默认关闭,没改过时左边调音、发现,右边接下来、舞台;歌词不在默认排布里")
     func defaults() {
         #expect(Configuration.enabledByDefault == false)
         #expect(Configuration.decode("") == .default)
         #expect(Configuration.decode("   ") == .default)
         #expect(Configuration.default.leading == [.sound, .explore])
         #expect(Configuration.default.trailing == [.upNext, .stage])
-        #expect(Configuration.default.unassigned.isEmpty)
+        #expect(Configuration.default.unassigned == [.lyrics])
+    }
+
+    @Test("老用户存下的排布读回来不变,歌词只出现在可添加的里")
+    func existingLayoutsKeepTheirOrder() {
+        let customized = Configuration.decode("explore|stage,upNext")
+        #expect(customized.leading == [.explore])
+        #expect(customized.trailing == [.stage, .upNext])
+        #expect(customized.unassigned == [.sound, .lyrics])
+        // 旧版六页的名字照旧并进四个面,不会冒出歌词。
+        let legacy = Configuration.decode("equalizer,similarSongs|queue,karaoke")
+        #expect(legacy.side(of: .lyrics) == nil)
+        #expect(NowPlayingCarouselPanel.migrated(legacyName: "lyrics") == nil)
+    }
+
+    @Test("歌词加到哪一边都紧挨播放器,也能存下读回、换顺序")
+    func lyricsPanel() {
+        var configuration = Configuration.default
+        configuration.insert(.lyrics, on: .trailing)
+        #expect(configuration.trailing == [.lyrics, .upNext, .stage])
+        #expect(configuration.pages == [
+            .panel(.explore), .panel(.sound), .player, .panel(.lyrics), .panel(.upNext), .panel(.stage)
+        ])
+        #expect(configuration.storageValue == "sound,explore|lyrics,upNext,stage")
+        #expect(Configuration.decode(configuration.storageValue) == configuration)
+
+        configuration.insert(.lyrics, on: .leading)
+        #expect(configuration.leading == [.lyrics, .sound, .explore])
+        #expect(configuration.trailing == [.upNext, .stage])
+
+        // 给了位置就照位置放;别的面没给位置时照旧放到最外面。
+        configuration.insert(.lyrics, on: .trailing, at: 2)
+        #expect(configuration.trailing == [.upNext, .stage, .lyrics])
+        configuration.remove(.sound)
+        configuration.insert(.sound, on: .trailing)
+        #expect(configuration.trailing == [.upNext, .stage, .lyrics, .sound])
+
+        configuration.move(on: .trailing, fromOffsets: IndexSet(integer: 2), toOffset: 0)
+        #expect(configuration.trailing == [.lyrics, .upNext, .stage, .sound])
+
+        // 一边满了加不进去。
+        var full = Configuration(leading: [], trailing: [.sound, .explore, .upNext, .stage])
+        full.insert(.lyrics, on: .trailing)
+        #expect(full.side(of: .lyrics) == nil)
     }
 
     @Test("存下来的文本能原样读回,两边都空也照存")
@@ -86,7 +129,7 @@ struct NowPlayingCarouselConfigurationTests {
         configuration.remove(.sound)
         #expect(configuration.leading == [.stage])
         #expect(configuration.side(of: .sound) == nil)
-        #expect(configuration.unassigned == [.sound, .explore, .upNext])
+        #expect(configuration.unassigned == [.sound, .explore, .upNext, .lyrics])
 
         var full = Configuration(leading: [.sound, .explore, .upNext, .stage], trailing: [])
         #expect(!full.canAdd(to: .leading))
@@ -121,12 +164,15 @@ struct NowPlayingCarouselConfigurationTests {
 struct NowPlayingCarouselCardTests {
     private typealias Settings = NowPlayingCarouselCardSettings
 
-    @Test("每张卡只属于一面,四个面都有卡")
+    @Test("每张卡只属于一面,四个面都有卡,歌词那一面不分卡片")
     func cardsBelongToOnePanel() {
         #expect(NowPlayingCarouselPanel.sound.cards == [.equalizer, .audioEffects, .speedAndPitch, .outputAndQuality])
         #expect(NowPlayingCarouselPanel.explore.cards == [.album, .artist, .similarSongs])
         #expect(NowPlayingCarouselPanel.upNext.cards == [.playbackModes, .queue])
         #expect(NowPlayingCarouselPanel.stage.cards == [.karaoke, .fullscreenEffects])
+        #expect(NowPlayingCarouselPanel.lyrics.cards.isEmpty)
+        #expect(!NowPlayingCarouselPanel.lyrics.usesCards)
+        #expect(NowPlayingCarouselPanel.allCases.filter(\.usesCards) == [.sound, .explore, .upNext, .stage])
         let all = NowPlayingCarouselPanel.allCases.flatMap(\.cards)
         #expect(all.count == NowPlayingCarouselCard.allCases.count)
         #expect(Set(all).count == all.count)
@@ -171,8 +217,23 @@ struct NowPlayingCarouselCardTests {
             settings.visibleCards(on: $0, in: appleMusic).isEmpty
         }.pages
         #expect(pages == [.panel(.explore), .player, .panel(.upNext), .panel(.stage)])
+        #expect(NowPlayingCarouselConfiguration.default.visible(cardSettings: settings, in: appleMusic).pages == pages)
         // 本机的歌照样有调音。
         #expect(!settings.visibleCards(on: .sound, in: .init()).isEmpty)
+    }
+
+    @Test("歌词那一面没有卡片也不跳过;卡片全关的面照旧跳过")
+    func lyricsPanelNeverSkipped() {
+        var settings = Settings()
+        for card in NowPlayingCarouselCard.allCases { settings.setEnabled(false, for: card) }
+        let configuration = NowPlayingCarouselConfiguration(leading: [.sound], trailing: [.lyrics, .upNext])
+        let local = NowPlayingCarouselCardContext()
+        #expect(configuration.visible(cardSettings: settings, in: local).pages == [.player, .panel(.lyrics)])
+        let appleMusic = NowPlayingCarouselCardContext(isAppleMusic: true, isCasting: true)
+        #expect(configuration.visible(cardSettings: Settings(), in: appleMusic).pages == [
+            .panel(.sound), .player, .panel(.lyrics), .panel(.upNext)
+        ])
+        #expect(settings.visibleCards(on: .lyrics, in: local).isEmpty)
     }
 }
 
@@ -193,6 +254,8 @@ struct NowPlayingCarouselFullscreenTests {
         #expect(destination(.panel(.explore)) == .albumPage)
         #expect(destination(.panel(.explore), album: false) == .artistPage)
         #expect(destination(.panel(.explore), album: false, artist: false) == .selectedEffect)
+        #expect(destination(.panel(.lyrics)) == .selectedEffect)
+        #expect(destination(.panel(.lyrics), karaoke: false, album: false, artist: false) == .selectedEffect)
     }
 
     @Test("转横屏只在打开了自动全屏时才进,去向同样按面区分")

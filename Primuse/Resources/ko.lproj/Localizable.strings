@@ -7887,5 +7887,7 @@
 "dup_audition_play" = "이 사본 미리 듣기";
 "dup_audition_stop" = "미리 듣기 중지";
 "queue_show_earlier %lld" = "이전 %lld곡 보기";
+"player_carousel_face_lyrics" = "가사";
+"player_carousel_face_lyrics_summary" = "화면 가득 흐르는 가사";
 "player_carousel_now_playing_strip" = "재생 중 막대 표시";
 "player_carousel_now_playing_strip_footer" = "양옆 화면 아래쪽에 현재 곡과 재생, 다음 버튼이 있는 막대를 표시합니다. 끄면 화면이 더 깔끔해지며, 플레이어로 돌아가려면 오른쪽 위의 뒤로 버튼을 누르거나 다시 쓸어 넘기세요.";
