@@ -42,7 +42,7 @@ struct SourceDetailPage: View {
 
 // MARK: - 详情页共用的弹出页
 
-/// 诊断、编辑连接、连接与选目录:三个详情页都要。
+/// 诊断、编辑连接、连接与选目录:几个详情页都要。
 struct SourceDetailSheets: ViewModifier {
     let source: MusicSource
     let actions: SourceDetailActions
@@ -69,8 +69,6 @@ struct SourceDetailSheets: ViewModifier {
                         presented = nil
                     }
                     .onAppear { connectionWasOpen = true }
-                case .storage:
-                    SourceStorageSheet(source: source)
                 }
             }
     }
@@ -97,7 +95,6 @@ enum SourceDetailSheet: String, Identifiable {
     case diagnostics
     case edit
     case connection
-    case storage
 
     var id: String { rawValue }
 }
@@ -115,44 +112,6 @@ extension View {
             presented: presented,
             onConnectionChanged: onConnectionChanged
         ))
-    }
-}
-
-// MARK: - 本机占用胶囊
-
-/// 详情页右上角:这个源在本机占了多少,点开分类清理。
-struct SourceStorageCapsule: View {
-    let sourceID: String
-    /// 本机占用页关上时由 true 变回去,重新量一次(刚清理过)。
-    var isSheetClosed = true
-    let action: () -> Void
-
-    @Environment(SourceManager.self) private var sourceManager
-    @Environment(MusicLibrary.self) private var library
-    @State private var bytes: Int64?
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: "internaldrive")
-                if let bytes {
-                    Text(SourceByteText.string(bytes))
-                        .monospacedDigit()
-                }
-            }
-        }
-        .accessibilityLabel(Text(verbatim: String(
-            format: String(localized: "source_storage_capsule_label_format"),
-            bytes.map(SourceByteText.string) ?? "…"
-        )))
-        .task(id: "\(sourceID)-\(isSheetClosed)") {
-            guard isSheetClosed else { return }
-            let usage = await sourceManager.sourceStorageUsage(
-                sourceID: sourceID,
-                songs: library.visibleSongs(forSourceID: sourceID)
-            )
-            bytes = usage.totalBytes
-        }
     }
 }
 
@@ -272,9 +231,11 @@ struct SourceBannerBox<Content: View>: View {
 
 // MARK: - 头部
 
-/// 详情页最上面:图标、类型、地址、线路。名字已经在导航栏上,这里不再写一遍。
+/// 详情页最上面:图标、类型、地址,右边是这个源在本机占了多少,下面是线路。
+/// 名字已经在导航栏上,这里不再写一遍。
 struct SourceDetailHeader: View {
     let source: MusicSource
+    var storage: SourceStorageUsageModel?
 
     @Environment(SourceManager.self) private var sourceManager
 
@@ -301,7 +262,10 @@ struct SourceDetailHeader: View {
                         .truncationMode(.middle)
                 }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            if let storage {
+                SourceStorageHeaderValue(model: storage)
+            }
         }
         .accessibilityElement(children: .combine)
 
@@ -432,11 +396,19 @@ struct SourceOverviewPage: View {
     @State private var adminAccess: ServerAdmin.Access?
     @State private var adminUserCount: Int?
     @State private var showsUsers = false
+    @State private var storage: SourceStorageUsageModel
+    @State private var toasts = PMToastPresenter()
+
+    init(source: MusicSource, actions: SourceDetailActions) {
+        self.source = source
+        self.actions = actions
+        _storage = State(initialValue: SourceStorageUsageModel(sourceID: source.id))
+    }
 
     var body: some View {
         List {
             Section {
-                SourceDetailHeader(source: source)
+                SourceDetailHeader(source: source, storage: storage)
                 SourceOverviewMetrics(source: source)
             }
             .listRowSeparator(.hidden)
@@ -474,6 +446,8 @@ struct SourceOverviewPage: View {
                 }
             }
 
+            SourceStorageSection(model: storage) { toasts.show($0) }
+
             Section {
                 SourceDeviceRows(
                     source: source,
@@ -500,7 +474,6 @@ struct SourceOverviewPage: View {
         #endif
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                SourceStorageCapsule(sourceID: source.id, isSheetClosed: sheet == nil) { sheet = .storage }
                 Menu {
                     Button { sheet = .edit } label: { Label("edit", systemImage: "pencil") }
                     Button { actions.scan(source, .deep) } label: {
@@ -512,6 +485,8 @@ struct SourceOverviewPage: View {
             }
         }
         .sourceDetailSheets(source: source, actions: actions, presented: $sheet)
+        .sourceStorageUsage(storage, songCount: source.songCount)
+        .pmToastHost(toasts)
         .navigationDestination(isPresented: $showsMetadata) { SourceMetadataStatusView(source: source) }
         .navigationDestination(isPresented: $showsLocalRemovals) { SourceLocalRemovalsView(source: source) }
         .navigationDestination(isPresented: $showsUsers) {
@@ -733,13 +708,19 @@ struct AppleMusicSourcePage: View {
     @Environment(AppleMusicLibraryService.self) private var appleMusicLibrary
     @AppStorage(AppleMusicFeatureSettings.catalogSearchEnabledKey) private var catalogSearchEnabled = true
     @AppStorage(AppleMusicFeatureSettings.autoAddToSmartPlaylistsKey) private var autoAddToSmartPlaylists = false
-    @State private var sheet: SourceDetailSheet?
     @State private var isAuthorizing = false
+    @State private var storage: SourceStorageUsageModel
+    @State private var toasts = PMToastPresenter()
+
+    init(source: MusicSource) {
+        self.source = source
+        _storage = State(initialValue: SourceStorageUsageModel(sourceID: source.id))
+    }
 
     var body: some View {
         List {
             Section {
-                SourceDetailHeader(source: source)
+                SourceDetailHeader(source: source, storage: storage)
                 AppleMusicSourceMetrics(source: source)
             }
             .listRowSeparator(.hidden)
@@ -780,6 +761,8 @@ struct AppleMusicSourcePage: View {
                 Text("source_apple_music_in_primuse_section")
             }
 
+            SourceStorageSection(model: storage) { toasts.show($0) }
+
             Section {
                 Button(action: openSystemSettings) {
                     SourceNavigationRow(title: String(localized: "open_system_settings"), systemImage: "gear")
@@ -791,12 +774,8 @@ struct AppleMusicSourcePage: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                SourceStorageCapsule(sourceID: source.id, isSheetClosed: sheet == nil) { sheet = .storage }
-            }
-        }
-        .sheet(item: $sheet) { _ in SourceStorageSheet(source: source) }
+        .sourceStorageUsage(storage, songCount: source.songCount)
+        .pmToastHost(toasts)
     }
 
     @ViewBuilder

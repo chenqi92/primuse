@@ -4505,14 +4505,19 @@ final class SourceManager {
         for candidate in candidates {
             guard !Task.isCancelled, !wasCancelled else { wasCancelled = true; break }
             let routeTitle: String
-            switch candidate?.kind {
-            case .localAddress: routeTitle = String(localized: "source_connection_local")
-            case .publicAddress: routeTitle = String(localized: "source_connection_public_direct")
-            case .alternative:
-                routeTitle = candidate?.endpoint?.displayDescription ?? String(localized: "source_connection_route")
-            case .vendorRemote:
-                routeTitle = source.type == .fnMusic ? "FN Connect" : "QuickConnect"
-            case nil: routeTitle = source.type.displayName
+            // 卡片上给线路起过名字(或内网、公网的默认叫法)时,诊断里也这么叫。
+            if let candidate, let label = SourceRouteNaming.label(for: candidate, in: source) {
+                routeTitle = label.localizedTitle
+            } else {
+                switch candidate?.kind {
+                case .localAddress: routeTitle = String(localized: "source_connection_local")
+                case .publicAddress: routeTitle = String(localized: "source_connection_public_direct")
+                case .alternative:
+                    routeTitle = candidate?.endpoint?.displayDescription ?? String(localized: "source_connection_route")
+                case .vendorRemote:
+                    routeTitle = source.type == .fnMusic ? "FN Connect" : "QuickConnect"
+                case nil: routeTitle = source.type.displayName
+                }
             }
             func title(_ stage: String) -> String { "\(routeTitle) · \(stage)" }
             var available = configurationPassed

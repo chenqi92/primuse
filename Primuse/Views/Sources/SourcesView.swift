@@ -105,13 +105,13 @@ struct SourceUnreachableNotice: View {
 /// Presents adaptive routes as distinct, comparable endpoints instead of one
 /// long subtitle. The highlighted segment is device-local runtime state and is
 /// never persisted or synced with the source configuration.
+///
+/// 上面一行是「连接线路」和现在选的那条的名字(自动、内网、公网……),点开选线路、给线路换名字;
+/// 菜单里只写名字,地址写在下面的格子里,长地址不会在菜单里折成好几行。
 struct SourceConnectionRouteStrip: View {
     let source: MusicSource
     let activeKind: SourceConnectionCandidateKind?
     let lastSuccessfulKind: SourceConnectionCandidateKind?
-    @Environment(SourcesStore.self) private var sourceStore
-    @Environment(SourceManager.self) private var sourceManager
-    @Environment(ScanService.self) private var scanService
 
     private var candidates: [SourceConnectionCandidate] {
         let usable = source.connectionCandidates
@@ -120,43 +120,58 @@ struct SourceConnectionRouteStrip: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        // 读一下名字表,改名之后整条跟着重画。
+        let _ = SourceRouteLabelStore.shared.labels
+        VStack(alignment: .leading, spacing: 8) {
             if source.configuredConnectionCandidates.count > 1 {
-                Picker("source_connection_route", selection: Binding(
-                    get: { source.connectionConfiguration?.effectiveSelectedRoute },
-                    set: selectRoute
-                )) {
-                    Text("source_address_transport_automatic").tag(nil as SourceConnectionCandidateKind?)
-                    ForEach(source.configuredConnectionCandidates) { candidate in
-                        Text(verbatim: address(for: candidate)).tag(Optional(candidate.kind))
+                HStack(spacing: 8) {
+                    Text("source_connection_route")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Menu {
+                        SourceRouteMenuContent(source: source)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(verbatim: selectionTitle)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .contentShape(Rectangle())
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.borderless)
+                    .fixedSize()
+                }
+            }
+            // 地址放得下就并排；放不下改成一条一行，长地址折行，不从中间截掉。
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 7) {
+                    ForEach(candidates) { candidate in
+                        routeSegment(candidate, wrapsAddress: false)
                     }
                 }
-                .pickerStyle(.menu)
-            }
-            HStack(spacing: 7) {
-                ForEach(candidates) { candidate in
-                    routeSegment(candidate)
+                VStack(spacing: 7) {
+                    ForEach(candidates) { candidate in
+                        routeSegment(candidate, wrapsAddress: true)
+                    }
                 }
             }
         }
         .accessibilityElement(children: .contain)
     }
 
-    private func selectRoute(_ kind: SourceConnectionCandidateKind?) {
-        guard let current = sourceStore.source(id: source.id),
-              let configuration = current.connectionConfiguration,
-              configuration.effectiveSelectedRoute != kind,
-              kind == nil || current.configuredConnectionCandidates.contains(where: { $0.kind == kind }) else { return }
-        sourceStore.update(source.id) { row in
-            row.connectionConfiguration?.clearLegacyRouteRestriction()
-            row.connectionConfiguration?.selectedRoute = kind
-            row = row.projectingPreferredConnectionForLegacy()
+    private var selectionTitle: String {
+        guard let selected = source.connectionConfiguration?.effectiveSelectedRoute,
+              let route = source.configuredConnectionCandidates.first(where: { $0.kind == selected }) else {
+            return String(localized: "source_address_transport_automatic")
         }
-        scanService.removeSynologyAPI(for: source.id)
-        Task { await sourceManager.refreshConnector(for: source.id) }
+        return SourceRouteNaming.name(for: route, in: source)
     }
 
-    private func routeSegment(_ candidate: SourceConnectionCandidate) -> some View {
+    private func routeSegment(_ candidate: SourceConnectionCandidate, wrapsAddress: Bool) -> some View {
         let presentation = SourceConnectionRoutePresentationState.resolve(
             candidate: candidate.kind,
             active: activeKind,
@@ -165,11 +180,12 @@ struct SourceConnectionRouteStrip: View {
         let isActive = presentation == .active
         let isRecent = presentation == .recent
         let isHighlighted = isActive || isRecent
+        let tint = SourceRouteNaming.tint(for: candidate, in: source)
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 5) {
-                Image(systemName: iconName(for: candidate.kind))
+                Image(systemName: SourceRouteNaming.systemImage(for: candidate, in: source))
                     .font(.system(size: 11, weight: .semibold))
-                Text(title(for: candidate.kind))
+                Text(verbatim: SourceRouteNaming.name(for: candidate, in: source))
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
                 Spacer(minLength: 3)
@@ -179,7 +195,6 @@ struct SourceConnectionRouteStrip: View {
                         Text("current")
                     }
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
                     .fixedSize()
                 } else if isRecent {
                     HStack(spacing: 3) {
@@ -191,39 +206,35 @@ struct SourceConnectionRouteStrip: View {
                     .fixedSize()
                 }
             }
-            .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+            .foregroundStyle(tint)
 
             Text(address(for: candidate))
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(wrapsAddress ? 3 : 1)
                 .truncationMode(.middle)
-                .allowsTightening(true)
+                .fixedSize(horizontal: !wrapsAddress, vertical: false)
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            isHighlighted ? Color.accentColor.opacity(isActive ? 0.11 : 0.065) : Color.primary.opacity(0.045),
+            tint.opacity(isHighlighted ? (isActive ? 0.13 : 0.08) : 0.05),
             in: RoundedRectangle(cornerRadius: 10, style: .continuous)
         )
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
-                    isHighlighted ? Color.accentColor.opacity(isActive ? 0.32 : 0.18) : Color.primary.opacity(0.075),
+                    isHighlighted ? tint.opacity(isActive ? 0.34 : 0.2) : Color.primary.opacity(0.075),
                     lineWidth: 0.8
                 )
         }
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contextMenu {
+            SourceRouteRenamePicker(source: source, route: candidate)
+        }
         .pmAnimation(.hover, value: presentation)
         .accessibilityElement(children: .combine)
-    }
-
-    private func title(for kind: SourceConnectionCandidateKind) -> LocalizedStringKey {
-        SourceConnectionRouteText.title(for: kind, sourceType: source.type)
-    }
-
-    private func iconName(for kind: SourceConnectionCandidateKind) -> String {
-        SourceConnectionRouteText.iconName(for: kind)
     }
 
     private func address(for candidate: SourceConnectionCandidate) -> String {
@@ -1014,20 +1025,24 @@ struct SourcesContentView: View {
         // 卡片:点进去是什么和现在走的线路、几个数字、一行状态,底下是自动刷新和主按钮。
         // 其余(目录、读取标签、本机移除、隐藏歌单)都在点进去的那一页。
         return VStack(alignment: .leading, spacing: 14) {
-            Button {
-                openedSource = SourceDetailRoute(source: source)
-            } label: {
-                VStack(alignment: .leading, spacing: 14) {
-                    SourceCardHeader(
-                        source: source,
-                        openHint: sourceCardOpenHint(for: source),
-                        showsAccount: showsAccount
-                    )
-                    sourceCardMetrics(source, dirs: dirs)
-                }
-                .contentShape(Rectangle())
+            // 不用 Button 包着:头上那颗线路标签自己能点(换线路),套在按钮里就点不到了。
+            VStack(alignment: .leading, spacing: 14) {
+                SourceCardHeader(
+                    source: source,
+                    openHint: sourceCardOpenHint(for: source),
+                    showsAccount: showsAccount
+                )
+                sourceCardMetrics(source, dirs: dirs)
             }
-            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                openedSource = SourceDetailRoute(source: source)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                openedSource = SourceDetailRoute(source: source)
+            }
             .accessibilityIdentifier("sources.card.\(source.id)")
 
             if source.type == .googleDrive {
@@ -3096,9 +3111,9 @@ private struct SourceCardHeader: View {
     }
 }
 
-/// 类型 · 线路 地址。有几条线路的源写正在用的那条(连上了图标换强调色),
-/// 只有一个地址的写地址。同类型、同地址的源不止一个时把账号带上才分得开:
-/// 账号跟类型单起一行,地址那行不被挤得截掉主机名。
+/// 类型 · 线路。有线路的源只写线路的名字(带颜色的小标签,点一下换下一条),不再跟一截
+/// 被省略号截断、看不清的地址;没配线路的老源写地址。同类型、同地址的源不止一个时把账号带上
+/// 才分得开:账号跟类型单起一行。
 private struct SourceCardConnectionLine: View {
     let source: MusicSource
     let showsAccount: Bool
@@ -3109,43 +3124,30 @@ private struct SourceCardConnectionLine: View {
         let route = route
         Group {
             if let account {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(verbatim: "\(source.type.displayName) · \(account)")
                         .truncationMode(.middle)
-                    if route != nil || plainAddress != nil {
-                        addressLine(route: route, showsType: false)
+                    if let route {
+                        SourceRouteChip(source: source, route: route)
+                    } else if let address = plainAddress {
+                        Text(verbatim: address).truncationMode(.middle)
                     }
                 }
             } else {
-                addressLine(route: route, showsType: true)
+                HStack(spacing: 5) {
+                    Text(source.type.displayName).fixedSize()
+                    if let route {
+                        SourceRouteChip(source: source, route: route)
+                    } else if let address = plainAddress {
+                        Text(verbatim: "·").fixedSize()
+                        Text(verbatim: address).truncationMode(.middle)
+                    }
+                }
             }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
         .lineLimit(1)
-    }
-
-    private func addressLine(route: SourceConnectionCandidate?, showsType: Bool) -> some View {
-        HStack(spacing: 4) {
-            if showsType {
-                Text(source.type.displayName).fixedSize()
-            }
-            if let route {
-                if showsType { Text(verbatim: "·").fixedSize() }
-                HStack(spacing: 3) {
-                    Image(systemName: SourceConnectionRouteText.iconName(for: route.kind))
-                        .imageScale(.small)
-                    Text(SourceConnectionRouteText.title(for: route.kind, sourceType: source.type))
-                }
-                .foregroundStyle(isActive(route) ? Color.accentColor : Color.secondary)
-                .fixedSize()
-                Text(verbatim: SourceConnectionRouteText.address(for: route, sourceType: source.type))
-                    .truncationMode(.middle)
-            } else if let address = plainAddress {
-                if showsType { Text(verbatim: "·").fixedSize() }
-                Text(verbatim: address).truncationMode(.middle)
-            }
-        }
     }
 
     private var route: SourceConnectionCandidate? {
@@ -3156,11 +3158,6 @@ private struct SourceCardConnectionLine: View {
             lastSuccessful: sourceManager.lastSuccessfulConnectionRoutes[source.id],
             selected: configuration.effectiveSelectedRoute
         )
-    }
-
-    private func isActive(_ route: SourceConnectionCandidate) -> Bool {
-        sourceManager.activeConnectionRoutes[source.id] == route.kind
-            && !sourceManager.unreachablePlaybackSourceIDs.contains(source.id)
     }
 
     private var plainAddress: String? {

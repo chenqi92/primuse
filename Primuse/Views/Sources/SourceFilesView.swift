@@ -53,9 +53,12 @@ final class SourceFilesModel {
     /// 离开后过一会儿还不在,才算真的退出了文件页。
     @ObservationIgnored var isRootVisible = false
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    /// 这个源在本机占了多少:根页头上的大小和下面「本机占用」一段共用。
+    let storage: SourceStorageUsageModel
 
     init(sourceID: String) {
         self.sourceID = sourceID
+        storage = SourceStorageUsageModel(sourceID: sourceID)
     }
 
     var isEditingScope: Bool { scopeEditingBaseline != nil }
@@ -170,6 +173,7 @@ struct SourceFilesRootPage: View {
             model: model,
             actions: actions
         )
+        .sourceStorageUsage(model.storage, songCount: source.songCount)
         .onAppear {
             guard startsScopeEditing, !appliedInitialScopeEditing,
                   SourceFolderPage.canEditScope(source) else { return }
@@ -214,6 +218,8 @@ struct SourceFolderPage: View {
     /// 这个源能不能直接改名、删除目录(本机、WebDAV、SMB)。
     @State private var canMutateFolders = false
     @State private var folderAction: SourceFolderAction?
+    /// 根页只列已添加的目录时不去列整个源;点「管理」要勾选时才列。
+    @State private var hasRequestedListing = false
 
     private var current: MusicSource {
         sourcesStore.source(id: source.id) ?? source
@@ -238,6 +244,14 @@ struct SourceFolderPage: View {
         model.isEditingScope && Self.canEditScope(current)
     }
 
+    /// 根页只列已添加的音乐目录,不再把整个源列出来、用蓝色灰色分在不在扫描范围里;
+    /// 点「管理」才列出全部、就地勾选。整个都扫的源(本机等)、选了根目录的源照旧列全部。
+    private var showsSelectedDirectoriesOnly: Bool {
+        guard location.isRoot, !isEditingScope, Self.canEditScope(current) else { return false }
+        let rootScope = SourceFolderScope.resolve(path: location.path, ancestors: location.ancestors, source: current)
+        return !rootScope.isScanned
+    }
+
     var body: some View {
         let current = current
         let scope = SourceFolderScope.resolve(
@@ -248,6 +262,7 @@ struct SourceFolderPage: View {
             if location.isRoot {
                 SourceFilesRootHeader(
                     source: current,
+                    storage: model.storage,
                     onDiagnose: { sheet = .diagnostics },
                     onScan: { actions.scan(current, .automatic) },
                     onOpenMetadata: { showsMetadata = true },
@@ -257,7 +272,7 @@ struct SourceFolderPage: View {
             }
             if isEditingScope {
                 scopeEditingSection
-            } else {
+            } else if !showsSelectedDirectoriesOnly {
                 Section {
                     SourceFolderScopeBanner(
                         scope: scope,
@@ -269,7 +284,14 @@ struct SourceFolderPage: View {
                     )
                 }
             }
-            listingSections(scope: scope, isEditingScope: isEditingScope)
+            if showsSelectedDirectoriesOnly {
+                selectedDirectoriesSection
+            } else {
+                listingSections(scope: scope, isEditingScope: isEditingScope)
+            }
+            if location.isRoot, !isEditingScope {
+                SourceStorageSection(model: model.storage) { toasts.show($0) }
+            }
         }
         #if os(iOS)
         .listStyle(.insetGrouped)
@@ -283,7 +305,11 @@ struct SourceFolderPage: View {
             guard !hasAppeared else { return }
             hasAppeared = true
             if location.isRoot { model.refresh(library: library, countsFolders: countsFolders) }
-            load()
+            if !showsSelectedDirectoriesOnly { load() }
+        }
+        .onChange(of: showsSelectedDirectoriesOnly) { _, selectedOnly in
+            // 点了「管理」、要勾选了,这时才列整个源。
+            if !selectedOnly, !hasRequestedListing { load() }
         }
         .onDisappear {
             loadTask?.cancel()
@@ -335,7 +361,7 @@ struct SourceFolderPage: View {
         }
         .sourceDetailSheets(source: current, actions: actions, presented: $sheet) {
             // 重新连过或改过地址:读不出来的这一层再列一次。
-            load()
+            reloadListingIfShown()
         }
         .sourceFolderActions(source: current, action: $folderAction) { message in
             fileDidChange()
@@ -500,7 +526,6 @@ struct SourceFolderPage: View {
             }
         } else {
             ToolbarItemGroup(placement: .primaryAction) {
-                SourceStorageCapsule(sourceID: current.id, isSheetClosed: sheet == nil) { sheet = .storage }
                 Menu {
                     Section {
                         Button { actions.scan(current, .automatic) } label: {
@@ -538,6 +563,116 @@ struct SourceFolderPage: View {
             }
         }
     }
+
+    // MARK: 已添加的目录
+
+    /// 根页上「音乐目录」一段:只列已添加的目录,点进去浏览;右上角「管理」列出整个源、就地勾选。
+    /// 一个都没加时是一句提示和「选择目录」。
+    @ViewBuilder
+    private var selectedDirectoriesSection: some View {
+        let directories = current.scannedDirectories
+        Section {
+            if directories.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 30, weight: .regular))
+                        .foregroundStyle(.secondary)
+                    Text("source_files_scope_none")
+                        .font(.subheadline.weight(.medium))
+                    Button(action: manageDirectories) {
+                        Label("source_files_choose_directories", systemImage: "checklist")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .prominentLabelOnAccent()
+                    .controlSize(.small)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 18)
+            } else {
+                ForEach(directories, id: \.self) { path in
+                    selectedDirectoryRow(path)
+                }
+            }
+        } header: {
+            HStack(alignment: .firstTextBaseline) {
+                Text("source_files_music_directories")
+                Spacer(minLength: 8)
+                if !directories.isEmpty {
+                    Button(action: manageDirectories) {
+                        Text("source_files_manage_directories")
+                            .font(.subheadline.weight(.semibold))
+                            .textCase(nil)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("source.files.manageDirectories")
+                }
+            }
+        }
+        #if DEBUG
+        .task { openDebugSelectedDirectoryIfRequested(directories) }
+        #endif
+    }
+
+    private func selectedDirectoryLocation(_ path: String) -> SourceFolderLocation {
+        let title = scopeTitle(for: path) ?? path
+        return SourceFolderLocation(path: path, title: title, ancestors: [location.path])
+    }
+
+    private func selectedDirectoryRow(_ path: String) -> some View {
+        let target = selectedDirectoryLocation(path)
+        let count = countsFolders ? model.index.songCount(inFolder: path) : nil
+        return Button {
+            openedFolder = target
+        } label: {
+            SourceFolderRow(
+                name: target.title,
+                songCount: count,
+                scope: .included,
+                showsOutside: false,
+                detail: selectedDirectoryDetail(path)
+            )
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            if ScanService.supportsFolderRescan(current) {
+                Button { scanHere(target) } label: {
+                    Label("source_files_scan_here", systemImage: "arrow.clockwise")
+                }
+            }
+            if let count, count > 0 {
+                Button { playFolder(path) } label: {
+                    Label("source_files_play_folder", systemImage: "play")
+                }
+            }
+            if current.type.itemPathsCarryFileNames {
+                Button { copyPath(path) } label: {
+                    Label("source_files_copy_path", systemImage: "doc.on.doc")
+                }
+            }
+        }
+    }
+
+    /// 目录名下面那行路径:只有套了几层的才写(`/home/admin/Hi-Res`),顶层的 `/music` 和名字重复就不写。
+    /// 按 ID 寻址的网盘路径是 ID,也不写。
+    private func selectedDirectoryDetail(_ path: String) -> String? {
+        guard current.type.itemPathsCarryFileNames else { return nil }
+        return path.split(separator: "/").count > 1 ? path : nil
+    }
+
+    #if DEBUG
+    /// 调试构建:根页只列已添加目录时,`PRIMUSE_DEBUG_SOURCE_FOLDER=<名字>` 点进名字对得上的那个目录。
+    private func openDebugSelectedDirectoryIfRequested(_ directories: [String]) {
+        guard !debugTargetsOpened,
+              let name = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SOURCE_FOLDER"],
+              let path = directories.first(where: { scopeTitle(for: $0) == name }) else { return }
+        debugTargetsOpened = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            openedFolder = selectedDirectoryLocation(path)
+        }
+    }
+    #endif
 
     // MARK: 勾选扫描目录
 
@@ -721,6 +856,7 @@ struct SourceFolderPage: View {
     // MARK: 动作
 
     private func load() {
+        hasRequestedListing = true
         loadTask?.cancel()
         let source = current
         let path = SourceDirectorySelectionPolicy.connectorPath(for: source.type, browserPath: location.path)
@@ -770,18 +906,13 @@ struct SourceFolderPage: View {
 
     #if DEBUG
     /// 调试构建的无人值守截图:`PRIMUSE_DEBUG_SOURCE_FOLDER=<名字>` 在根页点进这个子目录,
-    /// `PRIMUSE_DEBUG_SOURCE_FILE=<名字片段>` 打开第一个名字里带它的文件,
-    /// `PRIMUSE_DEBUG_SOURCE_SHEET=storage` 在根页打开本机占用页。
+    /// `PRIMUSE_DEBUG_SOURCE_FILE=<名字片段>` 打开第一个名字里带它的文件。
     private func openDebugTargetsIfRequested(_ listing: SourceFileBrowserPolicy.Listing) {
         guard !debugTargetsOpened else { return }
         debugTargetsOpened = true
         let env = ProcessInfo.processInfo.environment
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.5))
-            if location.isRoot, env["PRIMUSE_DEBUG_SOURCE_SHEET"] == "storage" {
-                sheet = .storage
-                return
-            }
             if location.isRoot, await runDebugFolderOperationIfRequested(listing, env: env) {
                 return
             }
@@ -847,12 +978,22 @@ struct SourceFolderPage: View {
 
     private func reload() async {
         model.refresh(library: library, countsFolders: countsFolders)
+        if location.isRoot {
+            await model.storage.reload(sourceManager: sourceManager, library: library)
+        }
+        guard !showsSelectedDirectoriesOnly else { return }
         load()
         await loadTask?.value
     }
 
     private func fileDidChange() {
         model.refresh(library: library, countsFolders: countsFolders)
+        reloadListingIfShown()
+    }
+
+    /// 根页只列已添加的目录时没有要重列的。
+    private func reloadListingIfShown() {
+        guard !showsSelectedDirectoriesOnly else { return }
         load()
     }
 
@@ -928,6 +1069,7 @@ struct SourceFolderPage: View {
 
 private struct SourceFilesRootHeader: View {
     let source: MusicSource
+    let storage: SourceStorageUsageModel
     let onDiagnose: () -> Void
     let onScan: () -> Void
     let onOpenMetadata: () -> Void
@@ -936,7 +1078,7 @@ private struct SourceFilesRootHeader: View {
 
     var body: some View {
         Section {
-            SourceDetailHeader(source: source)
+            SourceDetailHeader(source: source, storage: storage)
             SourceStatusBanners(
                 source: source,
                 onDiagnose: onDiagnose,
@@ -1036,6 +1178,8 @@ private struct SourceFolderRow: View {
     let scope: SourceFolderScope
     /// 按 ID 寻址的源认不出子目录在不在范围里,不写「不扫描」。
     let showsOutside: Bool
+    /// 根页「音乐目录」里写上完整路径,同名的目录分得开。
+    var detail: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1051,6 +1195,13 @@ private struct SourceFolderRow: View {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+                if let detail {
+                    Text(verbatim: detail)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
             Spacer(minLength: 8)
