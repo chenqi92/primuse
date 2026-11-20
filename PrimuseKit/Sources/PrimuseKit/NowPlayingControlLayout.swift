@@ -29,11 +29,9 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
 
     public var id: String { rawValue }
 
-    /// 隔空播放用的是系统那颗必须直接点的按钮,收不进「更多」菜单,所以只能挪位置、不能拿掉。
-    public var isRequiredOnPage: Bool { self == .airPlay }
-
     /// 能不能放在播放键那一行的两端。隔空播放不放那里:手机横屏窄的时候两端会让出来,
-    /// 它一让就找不到了。
+    /// 它又是系统那颗必须直接点的按钮、补不进「更多」,一让就找不到了。
+    /// (它可以整个拿掉:那是用户自己不要,拿掉后在控制中心、锁屏上切换输出。)
     public var fitsTransportEdge: Bool { self != .airPlay }
 
     /// 「更多」里本来没有、只能靠页面上那颗键点到的几样。没摆在页面上时补进「更多」。
@@ -258,12 +256,12 @@ public enum NowPlayingControlSurface: Equatable, Sendable {
     /// 竖屏(含桌面半折的下半屏):三个单格和最下面那一排都在。
     case portrait
     /// 手机横屏:顶上那排圆钮放底栏和歌名旁的按钮;歌词在右栏,全屏有自己那颗键。那一排窄到放不下底栏
-    /// 那一串时左边一组只摆 `leadingLimit` 颗(AirPlay 总在)。
+    /// 那一串时左边一组只摆 `leadingLimit` 颗(摆着 AirPlay 时它不让)。
     case compactLandscape(showsTransportEdges: Bool, leadingLimit: Int = .max)
     /// iPad 横屏左栏:歌词常驻右栏,底栏不放歌词键。
     case wideLandscape
     /// iPhone Duo 竖栏那一列:中间一组放底栏除 AirPlay 外的按钮(高度不够时只放前 `middleLimit` 颗),
-    /// 下面一组是歌名旁那一格、AirPlay、全屏效果、锁和更多。高度不够时歌名旁那一格会收进「更多」。
+    /// 下面一组是歌名旁那一格、AirPlay(页面上摆着它时)、全屏效果、锁和更多。高度不够时歌名旁那一格会收进「更多」。
     case toolColumn(showsTransportEdges: Bool, headerOverflows: Bool, middleLimit: Int = .max)
     /// 全屏歌词:顶上那排只有歌名旁那一格跟配置走(原来的心形位置),底座只有播放键。
     /// 别的按钮这里本来就不出现,不往「更多」里补。
@@ -288,7 +286,7 @@ public enum NowPlayingControlSurface: Equatable, Sendable {
         case .portrait, .portraitLyrics: []
         case .compactLandscape: [.lyrics, .fullScreen]
         case .wideLandscape: [.lyrics]
-        case .toolColumn: [.airPlay, .fullScreen]
+        case .toolColumn: [.fullScreen]
         case .immersiveLyrics, .configuredImmersiveLyrics:
             [.lyrics, .queue, .shuffle, .repeatMode, .airPlay, .fullScreen]
         }
@@ -474,32 +472,26 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     // MARK: 改
 
     /// 能不能把 `action` 放到 `position`(`nil` 是空出这一格、从这一排拿掉这一颗)。放进去的按钮原来在
-    /// 别处时两处对调;隔空播放不能因此被挤掉,也不能被换到两端。底栏「添到最后」时按钮从原处挪过来,
-    /// 原处空着。颗数上限由编辑页按设备宽度管,这里不限。
+    /// 别处时两处对调;原来不在页面上时,这一处原来的按钮就拿掉了(隔空播放也一样)。只有一种挡下来:
+    /// 隔空播放会因此落到两端。底栏「添到最后」时按钮从原处挪过来,原处空着。颗数上限由编辑页按设备宽度管,
+    /// 这里不限。
     public func canPlace(_ action: NowPlayingControlAction?, at position: NowPlayingControlPosition) -> Bool {
+        let current: NowPlayingControlAction?
         switch position {
         case .slot(let slot):
             guard NowPlayingControlSlot.single.contains(slot) else { return false }
-            let current = actions[slot]
+            current = actions[slot]
             guard action != current else { return true }
             if let action, slot.isTransportEdge, !action.fitsTransportEdge { return false }
-            guard current?.isRequiredOnPage == true else { return true }
-            // 这一格现在是隔空播放:只有新按钮原来也在页面上(而且不在两端)时,两处对调才留得住它。
-            guard let action, let from = self.position(of: action) else { return false }
-            if case .slot(let fromSlot) = from { return !fromSlot.isTransportEdge }
-            return true
         case .bar(let index):
             guard index >= 0, index <= bar.count else { return false }
             guard index < bar.count else { return action != nil }
-            let current = bar[index]
+            current = bar[index]
             guard action != current else { return true }
-            guard let action else { return !current.isRequiredOnPage }
-            switch self.position(of: action) {
-            case nil: return !current.isRequiredOnPage
-            case .bar: return true
-            case .slot(let fromSlot): return !(current.isRequiredOnPage && fromSlot.isTransportEdge)
-            }
         }
+        // 这一处原来的按钮会被换到新按钮原来那一处:那一处是两端时,它得放得进两端。
+        guard let current, let action, case .slot(let fromSlot)? = self.position(of: action) else { return true }
+        return !fromSlot.isTransportEdge || current.fitsTransportEdge
     }
 
     /// 放不进去时原样返回。
@@ -616,8 +608,8 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         }
     }
 
-    /// 这一排归一之后的样子:认不出的名字留在原位,认得的只留实际摆出来的那些(重复的、被单格占了的去掉,
-    /// 隔空播放补回来的也算进去)。改这一排都从它出发。
+    /// 这一排归一之后的样子:认不出的名字留在原位,认得的只留实际摆出来的那些(重复的、被单格占了的去掉)。
+    /// 改这一排都从它出发。
     private var barEntries: [BarEntry] {
         Self.resolve(stored: stored, storedBar: storedBar).bar
     }
@@ -663,8 +655,8 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         return NowPlayingControlLayout(stored: stored, storedBar: storedBar, hiddenStatus: hiddenStatus, hiddenMenu: hiddenMenu, statusOrder: storedStatusOrder)
     }
 
-    /// 没存的单格取默认;同一个按钮出现两次只留前面那处(单格先于底栏);隔空播放不在页面上(别处改坏、
-    /// 或别的版本允许拿掉)时补进这一排的正中。
+    /// 没存的单格取默认;同一个按钮出现两次只留前面那处(单格先于底栏)。隔空播放不在页面上就是拿掉了,
+    /// 不再补回来;没升级的设备读到时自己会补进这一排正中,在那边照旧看得见。
     private static func resolve(
         stored: [String: String],
         storedBar: [String]?
@@ -696,11 +688,6 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
             }
             bar.append(entry)
         }
-        if !seen.contains(.airPlay) {
-            // 插在认得的那几颗正中那一颗前面:只剩歌词与队列时回到两者中间,和默认一样。
-            let known = bar.indices.filter { bar[$0].action != nil }
-            bar.insert(BarEntry(.airPlay), at: known.isEmpty ? bar.count : known[known.count / 2])
-        }
         return (result, bar)
     }
 
@@ -720,7 +707,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
 
     /// 手机横屏顶上那排圆钮:左边一组放底栏的按钮(歌词在右栏、全屏有自己那颗键,不放),
     /// 隔空播放排在这一组最后,和原来的样子一致;右边歌名旁那一格。左边一组最多 `leadingLimit` 颗,
-    /// 多出来的从后往前让掉,AirPlay 不让。
+    /// 多出来的从后往前让掉,AirPlay 不让(它补不进「更多」)。
     public func compactLandscapeChrome(
         leadingLimit: Int = .max
     ) -> (leading: [NowPlayingControlAction], trailing: NowPlayingControlAction?) {
@@ -737,13 +724,14 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         bar.filter { $0 != .lyrics }
     }
 
-    /// iPhone Duo 竖栏那一列:中间一组(底栏里除 AirPlay 外的按钮,最多 `middleLimit` 颗)和下面一组里歌名旁那一格。
+    /// iPhone Duo 竖栏那一列:中间一组(底栏里除 AirPlay 外的按钮,最多 `middleLimit` 颗)、下面一组里歌名旁那一格,
+    /// 以及下面一组要不要放 AirPlay(它在底栏或歌名旁摆着时放在下面一组的固定位置)。
     public func toolColumnGroups(
         middleLimit: Int = .max
-    ) -> (middle: [NowPlayingControlAction], header: NowPlayingControlAction?) {
+    ) -> (middle: [NowPlayingControlAction], header: NowPlayingControlAction?, airPlay: Bool) {
         let middle = Array(bar.filter { $0 != .airPlay }.prefix(max(0, middleLimit)))
         let header = actions[.header].flatMap { $0 == .airPlay || $0 == .fullScreen ? nil : $0 }
-        return (middle, header)
+        return (middle, header, placedActions.contains(.airPlay))
     }
 
     /// 全屏歌词顶上那排原来心形的位置。
@@ -772,6 +760,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
             let groups = toolColumnGroups(middleLimit: middleLimit)
             visible.formUnion(groups.middle)
             if let header = groups.header, !headerOverflows { visible.insert(header) }
+            if groups.airPlay { visible.insert(.airPlay) }
         case .immersiveLyrics:
             if let action = immersiveLyricsAction() { visible.insert(action) }
         case .portraitLyrics(let headerExtra):

@@ -6441,16 +6441,14 @@
 "player_controls_radio_items_header" = "最下面一排";
 "player_controls_radio_items_footer" = "按住拖动可以换顺序，关掉的项不在电台页上显示。";
 "player_controls_radio_info" = "音质信息";
-"player_controls_radio_airplay_required" = "电台页没有「更多」菜单，AirPlay 要一直留在页面上，才能随时切换输出设备。";
 "player_controls_radio_volume_footer" = "播放器设置里的「音量条」关掉时，电台页也不显示。";
-"player_controls_airplay_required" = "AirPlay 只能挪位置、不能拿掉：选页面上另一颗按钮，它会和 AirPlay 对调。";
 "player_controls_airplay_edge" = "AirPlay 不能放在播放键两侧：手机横屏窄的时候两侧会让出来，它就找不到了。";
 "player_controls_slot_header" = "歌名旁";
 "player_controls_slot_leading_edge" = "播放键左侧";
 "player_controls_slot_trailing_edge" = "播放键右侧";
 "player_controls_bar_title" = "最下面那一排";
 "player_controls_bar_header %lld %lld" = "最下面那一排（%1$lld/%2$lld）";
-"player_controls_bar_footer %lld" = "这台设备一排最多放 %lld 个，按顺序从左到右排开：一个居中，两个分在两头，再多就平均铺开。按住拖动换顺序，左滑拿掉；AirPlay 只能挪位置，不能拿掉。";
+"player_controls_bar_footer %lld" = "这台设备一排最多放 %lld 个，按顺序从左到右排开：一个居中，两个分在两头，再多就平均铺开。按住拖动换顺序，左滑拿掉；拿掉 AirPlay 后，可以在控制中心切换输出设备。";
 "player_controls_bar_add" = "添加按钮";
 "player_controls_bar_position %lld" = "最下面那一排第 %lld 个";
 "player_controls_bar_remove" = "从这一排拿掉";

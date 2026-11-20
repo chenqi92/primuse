@@ -6254,16 +6254,14 @@
 "player_controls_radio_items_header" = "Fileira inferior";
 "player_controls_radio_items_footer" = "Toque e segure para reordenar. Itens desativados não aparecem na tela de rádio.";
 "player_controls_radio_info" = "Informações da transmissão";
-"player_controls_radio_airplay_required" = "A tela de rádio não tem menu Mais, então o AirPlay fica sempre visível para trocar o dispositivo de saída.";
 "player_controls_radio_volume_footer" = "Quando “Controle deslizante de volume” está desativado nos ajustes do player, ele também some da tela de rádio.";
-"player_controls_airplay_required" = "O AirPlay pode ser movido, mas não removido. Escolha outro botão da página e ele troca de lugar com o AirPlay.";
 "player_controls_airplay_edge" = "O AirPlay não pode ficar ao lado dos botões de reprodução: quando o iPhone na horizontal é estreito, esses lugares somem e o AirPlay ficaria inacessível.";
 "player_controls_slot_header" = "Ao lado do título";
 "player_controls_slot_leading_edge" = "À esquerda da reprodução";
 "player_controls_slot_trailing_edge" = "À direita da reprodução";
 "player_controls_bar_title" = "Fileira de baixo";
 "player_controls_bar_header %lld %lld" = "Fileira de baixo (%1$lld/%2$lld)";
-"player_controls_bar_footer %lld" = "Neste dispositivo cabem até %lld botões em uma fileira, da esquerda para a direita: um fica no centro, dois nas pontas e mais se distribuem por igual. Toque e segure para arrastar e mudar a ordem; deslize para a esquerda para remover um. O AirPlay pode ser movido, mas não removido.";
+"player_controls_bar_footer %lld" = "Neste dispositivo cabem até %lld botões em uma fileira, da esquerda para a direita: um fica no centro, dois nas pontas e mais se distribuem por igual. Toque e segure para arrastar e mudar a ordem; deslize para a esquerda para remover um. Se remover o AirPlay, troque o dispositivo de saída pela Central de Controle.";
 "player_controls_bar_add" = "Adicionar botão";
 "player_controls_bar_position %lld" = "Fileira de baixo, botão %lld";
 "player_controls_bar_remove" = "Remover da fileira";

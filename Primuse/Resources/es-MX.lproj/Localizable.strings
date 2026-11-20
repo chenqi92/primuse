@@ -6254,16 +6254,14 @@
 "player_controls_radio_items_header" = "Fila inferior";
 "player_controls_radio_items_footer" = "Mantén presionado y arrastra para reordenar. Los elementos desactivados no aparecen en la pantalla de radio.";
 "player_controls_radio_info" = "Información de la transmisión";
-"player_controls_radio_airplay_required" = "La pantalla de radio no tiene menú Más, así que AirPlay siempre está visible para cambiar el dispositivo de salida.";
 "player_controls_radio_volume_footer" = "Si «Control deslizante de volumen» está desactivado en los ajustes del reproductor, tampoco aparece en la pantalla de radio.";
-"player_controls_airplay_required" = "AirPlay se puede mover, pero no quitar. Elige otro botón de la página y cambiará de lugar con AirPlay.";
 "player_controls_airplay_edge" = "AirPlay no puede ir junto a los botones de reproducción: cuando el iPhone en horizontal es angosto, esos lugares se quitan y AirPlay desaparecería.";
 "player_controls_slot_header" = "Junto al título";
 "player_controls_slot_leading_edge" = "A la izquierda de reproducción";
 "player_controls_slot_trailing_edge" = "A la derecha de reproducción";
 "player_controls_bar_title" = "Fila inferior";
 "player_controls_bar_header %lld %lld" = "Fila inferior (%1$lld/%2$lld)";
-"player_controls_bar_footer %lld" = "En este dispositivo caben hasta %lld botones en una fila, ordenados de izquierda a derecha: uno va al centro, dos a los extremos y más se reparten de forma uniforme. Mantén presionado y arrastra para cambiar el orden; desliza a la izquierda para quitar uno. AirPlay se puede mover, pero no quitar.";
+"player_controls_bar_footer %lld" = "En este dispositivo caben hasta %lld botones en una fila, ordenados de izquierda a derecha: uno va al centro, dos a los extremos y más se reparten de forma uniforme. Mantén presionado y arrastra para cambiar el orden; desliza a la izquierda para quitar uno. Si quitas AirPlay, cambia el dispositivo de salida desde el Centro de control.";
 "player_controls_bar_add" = "Agregar botón";
 "player_controls_bar_position %lld" = "Fila inferior, botón %lld";
 "player_controls_bar_remove" = "Quitar de la fila";

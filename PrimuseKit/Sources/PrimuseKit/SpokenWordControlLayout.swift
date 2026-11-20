@@ -18,7 +18,8 @@ public enum SpokenWordControlTile: String, CaseIterable, Codable, Hashable, Iden
     case contents
     /// 播客后面排着的单集。书没有队列可看,不出这一块。
     case upNext
-    /// 隔空播放。默认不在这一排(在右上角);打开后右上角那颗不再出现。
+    /// 隔空播放。默认不在这一排(在右上角);打开后右上角那颗不再出现。右上角那颗另有开关
+    /// (`showsAirPlay`),两样都关就整个不要了。
     case airPlay
     /// 文字稿键。默认在播放键旁边(两侧那两格选「自动」时);打开后挪到这一排,这一条没有文字稿时不出现。
     case transcript
@@ -197,6 +198,8 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
     public private(set) var order: [SpokenWordControlTile]
     public private(set) var hidden: Set<SpokenWordControlTile>
     public private(set) var showsLike: Bool
+    /// 右上角(或标题旁)那颗隔空播放。挪进了功能块那一排时看那一块的开关,和喜欢一样。
+    public private(set) var showsAirPlay: Bool
     public private(set) var showsTranscriptToggle: Bool
     public private(set) var showsChapterButtons: Bool
     /// 功能块只放图标还是带说明文字。
@@ -232,6 +235,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             order: defaultOrder(for: kind),
             hidden: defaultHidden(for: kind),
             showsLike: true,
+            showsAirPlay: true,
             showsTranscriptToggle: true,
             showsChapterButtons: true,
             tileLabelStyle: .iconAndText,
@@ -246,6 +250,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         order: [SpokenWordControlTile],
         hidden: Set<SpokenWordControlTile>,
         showsLike: Bool,
+        showsAirPlay: Bool,
         showsTranscriptToggle: Bool,
         showsChapterButtons: Bool,
         tileLabelStyle: SpokenWordTileLabelStyle,
@@ -257,6 +262,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         self.order = Self.completedOrder(order, kind: kind)
         self.hidden = hidden.filter { $0.isAvailable(for: kind) }
         self.showsLike = showsLike
+        self.showsAirPlay = showsAirPlay
         self.showsTranscriptToggle = showsTranscriptToggle
         self.showsChapterButtons = showsChapterButtons
         self.tileLabelStyle = tileLabelStyle
@@ -275,6 +281,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         var order: [String]?
         var hidden: [String]?
         var showsLike: Bool?
+        var showsAirPlay: Bool?
         var showsTranscriptToggle: Bool?
         var showsChapterButtons: Bool?
         /// `SpokenWordTileLabelStyle.rawValue`;认不出的(别的版本新加的)按默认。
@@ -300,6 +307,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             order: order,
             hidden: hidden,
             showsLike: stored.showsLike ?? true,
+            showsAirPlay: stored.showsAirPlay ?? true,
             showsTranscriptToggle: stored.showsTranscriptToggle ?? true,
             showsChapterButtons: stored.showsChapterButtons ?? true,
             tileLabelStyle: stored.labelStyle.flatMap(SpokenWordTileLabelStyle.init(rawValue:)) ?? .iconAndText,
@@ -315,6 +323,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             order: order.map(\.rawValue),
             hidden: order.filter { hidden.contains($0) }.map(\.rawValue),
             showsLike: showsLike ? nil : false,
+            showsAirPlay: showsAirPlay ? nil : false,
             showsTranscriptToggle: showsTranscriptToggle ? nil : false,
             showsChapterButtons: showsChapterButtons ? nil : false,
             labelStyle: tileLabelStyle == .iconAndText ? nil : tileLabelStyle.rawValue,
@@ -338,6 +347,12 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
 
     public func isShown(_ tile: SpokenWordControlTile) -> Bool {
         tile.isAvailable(for: kind) && !hidden.contains(tile)
+    }
+
+    /// 页面上要不要有隔空播放:右上角那颗开着,或者挪进了功能块那一排。没有那一排的版面
+    /// (手机横屏、iPhone Duo 竖栏)按这个摆,挪进那一排的不会因为右上角关着就找不到。
+    public var keepsAirPlay: Bool {
+        showsAirPlay || isShown(.airPlay)
     }
 
     /// 「更多」里这一项要不要出现。页面上藏起来后补进菜单的喜欢、文字稿、书签、「接下来」
@@ -429,13 +444,14 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         }
 
         // 挪进下面那一排的投放、喜欢、「更多」,右上角不再放;这个版面没有那一排时还在右上角。
+        // 投放两处都关了就不放(补不进「更多」,在控制中心、锁屏上切换输出)。
         return SpokenWordResolvedControls(
             leadingSide: leading,
             trailingSide: trailing,
             partRow: partRow,
             showsInnerChapters: showsInnerChapters,
             tiles: tiles,
-            headerShowsAirPlay: !tiles.contains(.airPlay),
+            headerShowsAirPlay: keepsAirPlay && !tiles.contains(.airPlay),
             headerShowsLike: showsLike && !placed.contains(.like) && !tiles.contains(.like),
             headerShowsMore: !placed.contains(.more) && !tiles.contains(.more)
         )
@@ -490,6 +506,12 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
     public func settingShowsLike(_ shows: Bool) -> SpokenWordControlLayout {
         var copy = self
         copy.showsLike = shows
+        return copy
+    }
+
+    public func settingShowsAirPlay(_ shows: Bool) -> SpokenWordControlLayout {
+        var copy = self
+        copy.showsAirPlay = shows
         return copy
     }
 

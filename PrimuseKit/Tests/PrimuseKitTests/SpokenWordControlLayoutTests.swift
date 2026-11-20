@@ -301,6 +301,31 @@ import Testing
         // 老配置里没有隔空播放这一块:照默认留在右上角。
         let old = Layout.decode(#"{"order":["contents","speed","sleepTimer","bookmark"]}"#, kind: .audiobook)
         #expect(!old.isShown(.airPlay))
+        #expect(old.showsAirPlay && old.keepsAirPlay)
+    }
+
+    @Test func airPlayCanBeTurnedOff() {
+        let book = Layout.default(for: .audiobook)
+        let portrait = Self.bookPortrait(transcript: false)
+        let noTiles = Context(hasTranscript: false, hasTiles: false)
+        // 右上角那颗关掉、也没挪进那一排:哪种版面都不放。
+        let off = book.settingShowsAirPlay(false)
+        #expect(!off.keepsAirPlay)
+        #expect(!off.resolved(in: portrait).headerShowsAirPlay)
+        #expect(!off.resolved(in: noTiles).headerShowsAirPlay)
+        #expect(!off.isDefault)
+        #expect(off.encoded().contains(#""showsAirPlay":false"#))
+        #expect(Layout.decode(off.encoded(), kind: .audiobook) == off)
+        #expect(off.settingShowsAirPlay(true).isDefault)
+        // 挪进了那一排:那一排在时摆在那里;没有那一排的版面照样在右上角,不会因为右上角关着就没了。
+        let inTiles = off.settingTile(.airPlay, shown: true)
+        #expect(inTiles.keepsAirPlay)
+        #expect(inTiles.resolved(in: portrait).tiles.contains(.airPlay))
+        #expect(!inTiles.resolved(in: portrait).headerShowsAirPlay)
+        #expect(inTiles.resolved(in: noTiles).headerShowsAirPlay)
+        // 播客同样。
+        let podcast = Layout.default(for: .podcast).settingShowsAirPlay(false)
+        #expect(!podcast.resolved(in: noTiles).headerShowsAirPlay)
     }
 
     @Test func placingSwapsAndDeduplicates() {

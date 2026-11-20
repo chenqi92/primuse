@@ -6109,16 +6109,14 @@
 "player_controls_radio_items_header" = "Bottom Row";
 "player_controls_radio_items_footer" = "Touch and hold to reorder. Items that are off don’t appear on the radio screen.";
 "player_controls_radio_info" = "Stream Info";
-"player_controls_radio_airplay_required" = "The radio screen has no More menu, so AirPlay always stays on screen for switching output devices.";
 "player_controls_radio_volume_footer" = "When Volume Slider is off in Player settings, it’s hidden on the radio screen too.";
-"player_controls_airplay_required" = "AirPlay can be moved but not removed. Choose another button on the page and it swaps places with AirPlay.";
 "player_controls_airplay_edge" = "AirPlay can’t go beside the playback buttons: when landscape iPhone is narrow, those spots are dropped and AirPlay would disappear.";
 "player_controls_slot_header" = "Next to Title";
 "player_controls_slot_leading_edge" = "Left of Playback";
 "player_controls_slot_trailing_edge" = "Right of Playback";
 "player_controls_bar_title" = "Bottom Row";
 "player_controls_bar_header %lld %lld" = "Bottom Row (%1$lld/%2$lld)";
-"player_controls_bar_footer %lld" = "This device fits up to %lld buttons in a row, laid out left to right: one sits in the middle, two go to the ends, and more spread out evenly. Touch and hold to drag them into a new order; swipe left to remove one. AirPlay can be moved but not removed.";
+"player_controls_bar_footer %lld" = "This device fits up to %lld buttons in a row, laid out left to right: one sits in the middle, two go to the ends, and more spread out evenly. Touch and hold to drag them into a new order; swipe left to remove one. If you remove AirPlay, switch output devices from Control Center.";
 "player_controls_bar_add" = "Add Button";
 "player_controls_bar_position %lld" = "Bottom Row, Button %lld";
 "player_controls_bar_remove" = "Remove from Row";

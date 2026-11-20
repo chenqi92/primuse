@@ -6348,16 +6348,14 @@
 "player_controls_radio_items_header" = "Untere Reihe";
 "player_controls_radio_items_footer" = "Halten und ziehen, um die Reihenfolge zu ändern. Ausgeschaltete Einträge erscheinen nicht in der Radioansicht.";
 "player_controls_radio_info" = "Streaminfo";
-"player_controls_radio_airplay_required" = "Die Radioansicht hat kein „Mehr“-Menü, deshalb bleibt AirPlay immer sichtbar, damit du das Ausgabegerät wechseln kannst.";
 "player_controls_radio_volume_footer" = "Ist „Lautstärkeregler“ in den Player-Einstellungen aus, wird er auch in der Radioansicht ausgeblendet.";
-"player_controls_airplay_required" = "AirPlay kann verschoben, aber nicht entfernt werden. Wähle eine andere Taste auf der Seite, dann tauscht sie den Platz mit AirPlay.";
 "player_controls_airplay_edge" = "AirPlay kann nicht neben die Wiedergabetasten: Wenn das iPhone im Querformat zu schmal ist, fallen diese Plätze weg und AirPlay wäre nicht mehr zu finden.";
 "player_controls_slot_header" = "Neben dem Titel";
 "player_controls_slot_leading_edge" = "Links der Wiedergabe";
 "player_controls_slot_trailing_edge" = "Rechts der Wiedergabe";
 "player_controls_bar_title" = "Untere Reihe";
 "player_controls_bar_header %lld %lld" = "Untere Reihe (%1$lld/%2$lld)";
-"player_controls_bar_footer %lld" = "Auf diesem Gerät passen bis zu %lld Tasten in eine Reihe, von links nach rechts angeordnet: eine sitzt in der Mitte, zwei an den Enden, mehr verteilen sich gleichmäßig. Halte gedrückt und ziehe, um die Reihenfolge zu ändern; streiche nach links, um eine zu entfernen. AirPlay lässt sich verschieben, aber nicht entfernen.";
+"player_controls_bar_footer %lld" = "Auf diesem Gerät passen bis zu %lld Tasten in eine Reihe, von links nach rechts angeordnet: eine sitzt in der Mitte, zwei an den Enden, mehr verteilen sich gleichmäßig. Halte gedrückt und ziehe, um die Reihenfolge zu ändern; streiche nach links, um eine zu entfernen. Wenn du AirPlay entfernst, wechselst du das Ausgabegerät im Kontrollzentrum.";
 "player_controls_bar_add" = "Taste hinzufügen";
 "player_controls_bar_position %lld" = "Untere Reihe, Taste %lld";
 "player_controls_bar_remove" = "Aus der Reihe entfernen";

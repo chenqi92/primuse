@@ -6254,16 +6254,14 @@
 "player_controls_radio_items_header" = "الصف السفلي";
 "player_controls_radio_items_footer" = "المس مع الاستمرار ثم اسحب لتغيير الترتيب. لا تظهر العناصر المتوقفة في شاشة الراديو.";
 "player_controls_radio_info" = "معلومات البث";
-"player_controls_radio_airplay_required" = "لا تحتوي شاشة الراديو على قائمة «المزيد»، لذا يبقى AirPlay ظاهرًا دائمًا لتبديل جهاز الإخراج.";
 "player_controls_radio_volume_footer" = "عند إيقاف «منزلق الصوت» في إعدادات المشغّل، يُخفى في شاشة الراديو أيضًا.";
-"player_controls_airplay_required" = "يمكن نقل AirPlay لكن لا يمكن إزالته. اختر زرًا آخر في الصفحة وسيتبادل مكانه مع AirPlay.";
 "player_controls_airplay_edge" = "لا يمكن وضع AirPlay بجانب أزرار التشغيل: عندما يضيق iPhone في الوضع الأفقي تُزال تلك الأماكن فيختفي AirPlay.";
 "player_controls_slot_header" = "بجانب العنوان";
 "player_controls_slot_leading_edge" = "يسار التشغيل";
 "player_controls_slot_trailing_edge" = "يمين التشغيل";
 "player_controls_bar_title" = "الصف السفلي";
 "player_controls_bar_header %lld %lld" = "الصف السفلي (%1$lld/%2$lld)";
-"player_controls_bar_footer %lld" = "يتسع الصف على هذا الجهاز لما يصل إلى %lld أزرار تُرتَّب بالتسلسل: الزر الواحد في المنتصف، والزران على الطرفين، وما زاد يتوزع بالتساوي. المس مطولًا واسحب لتغيير الترتيب، واسحب الصف جانبًا لإزالة زر. يمكن نقل AirPlay لكن لا يمكن إزالته.";
+"player_controls_bar_footer %lld" = "يتسع الصف على هذا الجهاز لما يصل إلى %lld أزرار تُرتَّب بالتسلسل: الزر الواحد في المنتصف، والزران على الطرفين، وما زاد يتوزع بالتساوي. المس مطولًا واسحب لتغيير الترتيب، واسحب الصف جانبًا لإزالة زر. إذا أزلت AirPlay، يمكنك تبديل جهاز الإخراج من مركز التحكم.";
 "player_controls_bar_add" = "إضافة زر";
 "player_controls_bar_position %lld" = "الصف السفلي، الزر %lld";
 "player_controls_bar_remove" = "إزالة من الصف";

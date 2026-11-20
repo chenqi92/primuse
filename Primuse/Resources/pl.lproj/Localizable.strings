@@ -6254,16 +6254,14 @@
 "player_controls_radio_items_header" = "Dolny rząd";
 "player_controls_radio_items_footer" = "Przytrzymaj i przeciągnij, aby zmienić kolejność. Wyłączone pozycje nie pojawiają się na ekranie radia.";
 "player_controls_radio_info" = "Informacje o strumieniu";
-"player_controls_radio_airplay_required" = "Ekran radia nie ma menu Więcej, dlatego AirPlay zawsze zostaje na ekranie, aby można było zmienić urządzenie wyjściowe.";
 "player_controls_radio_volume_footer" = "Gdy „Suwak głośności” jest wyłączony w ustawieniach odtwarzacza, nie ma go też na ekranie radia.";
-"player_controls_airplay_required" = "AirPlay można przenieść, ale nie usunąć. Wybierz inny przycisk ze strony, a zamieni się miejscem z AirPlay.";
 "player_controls_airplay_edge" = "AirPlay nie może stać obok przycisków odtwarzania: gdy iPhone w poziomie jest za wąski, te miejsca znikają, a z nimi AirPlay.";
 "player_controls_slot_header" = "Obok tytułu";
 "player_controls_slot_leading_edge" = "Na lewo od odtwarzania";
 "player_controls_slot_trailing_edge" = "Na prawo od odtwarzania";
 "player_controls_bar_title" = "Dolny rząd";
 "player_controls_bar_header %lld %lld" = "Dolny rząd (%1$lld/%2$lld)";
-"player_controls_bar_footer %lld" = "Na tym urządzeniu w rzędzie mieści się do %lld przycisków, ułożonych od lewej do prawej: jeden stoi na środku, dwa na końcach, a więcej rozkłada się równomiernie. Przytrzymaj i przeciągnij, aby zmienić kolejność; przesuń w lewo, aby usunąć. AirPlay można przenieść, ale nie usunąć.";
+"player_controls_bar_footer %lld" = "Na tym urządzeniu w rzędzie mieści się do %lld przycisków, ułożonych od lewej do prawej: jeden stoi na środku, dwa na końcach, a więcej rozkłada się równomiernie. Przytrzymaj i przeciągnij, aby zmienić kolejność; przesuń w lewo, aby usunąć. Po usunięciu AirPlay urządzenie wyjściowe zmienisz w centrum sterowania.";
 "player_controls_bar_add" = "Dodaj przycisk";
 "player_controls_bar_position %lld" = "Dolny rząd, przycisk %lld";
 "player_controls_bar_remove" = "Usuń z rzędu";

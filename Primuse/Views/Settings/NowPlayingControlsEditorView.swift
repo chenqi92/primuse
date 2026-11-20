@@ -1160,7 +1160,7 @@ private struct SlotChoiceRow: View {
 }
 
 /// 音乐播放页最下面那一排:一颗一行,点了换按钮,按住拖动换顺序,左滑拿掉;最后一行添加,加满这台设备
-/// 一排放得下的颗数就不能再加。AirPlay 只能挪、不能拿掉。封面界面与歌词界面(单独摆按钮时)共用。
+/// 一排放得下的颗数就不能再加。AirPlay 也能拿掉(拿掉后在控制中心切换输出)。封面界面与歌词界面(单独摆按钮时)共用。
 private struct NowPlayingBarSection: View {
     let bar: [NowPlayingControlAction]
     let capacity: Int
@@ -1176,10 +1176,9 @@ private struct NowPlayingBarSection: View {
                     title: action.editorTitleKey,
                     symbol: action.editorSymbol,
                     value: nil,
-                    badge: action.isRequiredOnPage ? "lock.fill" : nil,
                     isEnabled: isEnabled
                 ) { select(.bar(index)) }
-                .deleteDisabled(!isEnabled || action.isRequiredOnPage)
+                .deleteDisabled(!isEnabled)
                 .moveDisabled(!isEnabled)
             }
             .onMove { move($0, $1) }
@@ -1666,6 +1665,13 @@ private struct SpokenWordControlsSections: View {
             )) {
                 Label("player_controls_action_like", systemImage: "heart")
             }
+            // 右上角那颗投放;挪进了功能块那一排时那一块另有开关,两样都关才整个不要。
+            Toggle(isOn: Binding(
+                get: { layout.showsAirPlay },
+                set: { storage = layout.settingShowsAirPlay($0).encoded() }
+            )) {
+                Label("player_controls_action_airplay", systemImage: "airplayaudio")
+            }
             Toggle(isOn: Binding(
                 get: { layout.showsTranscriptToggle },
                 set: { storage = layout.settingShowsTranscriptToggle($0).encoded() }
@@ -1821,10 +1827,9 @@ private struct SpokenWordSlotPicker: View {
 
 // MARK: - 电台
 
-/// 电台播放页最下面那一排:按住拖动排序、开关显隐;隔空播放不能关(点了说明原因)。另有音量条开关。
+/// 电台播放页最下面那一排:按住拖动排序、开关显隐(隔空播放也能关)。另有音量条开关。
 private struct RadioControlsSections: View {
     @Binding var storage: String
-    @State private var showsAirPlayNote = false
 
     private var layout: NowPlayingRadioControlLayout { .decode(storage) }
 
@@ -1844,37 +1849,14 @@ private struct RadioControlsSections: View {
 
         Section {
             ForEach(layout.order) { item in
-                if item.isRequired {
-                    Button {
-                        showsAirPlayNote = true
-                    } label: {
-                        HStack {
-                            Label {
-                                Text(item.editorTitleKey)
-                                    .foregroundStyle(.primary)
-                            } icon: {
-                                Image(systemName: item.editorSymbol)
-                            }
-                            Spacer()
-                            Image(systemName: "lock.fill")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityValue(Text("a11y_value_on"))
-                    .accessibilityHint(Text("player_controls_radio_airplay_required"))
-                } else {
-                    Toggle(isOn: Binding(
-                        get: { layout.isShown(item) },
-                        set: { storage = layout.settingItem(item, shown: $0).encoded() }
-                    )) {
-                        Label {
-                            Text(item.editorTitleKey)
-                        } icon: {
-                            Image(systemName: item.editorSymbol)
-                        }
+                Toggle(isOn: Binding(
+                    get: { layout.isShown(item) },
+                    set: { storage = layout.settingItem(item, shown: $0).encoded() }
+                )) {
+                    Label {
+                        Text(item.editorTitleKey)
+                    } icon: {
+                        Image(systemName: item.editorSymbol)
                     }
                 }
             }
@@ -1901,11 +1883,6 @@ private struct RadioControlsSections: View {
                 storage = ""
             }
             .disabled(layout.isDefault)
-        }
-        .alert(Text("player_controls_title"), isPresented: $showsAirPlayNote) {
-            Button("done", role: .cancel) {}
-        } message: {
-            Text("player_controls_radio_airplay_required")
         }
     }
 }
@@ -2266,7 +2243,7 @@ extension NowPlayingMenuItem {
 // MARK: - 挑按钮
 
 /// 给一个位置挑按钮。已经在别处的按钮选了就两处对调;给最下面那一排添一颗时,已经在别处的挪过来、原处空着。
-/// 隔空播放只能挪、不能拿掉,也不放在播放键两侧。不能选的项照样能点,点了说明原因。
+/// 隔空播放不放在播放键两侧。不能选的项照样能点,点了说明原因。
 private struct NowPlayingControlPicker: View {
     let position: NowPlayingControlPosition
     let layout: NowPlayingControlLayout
@@ -2331,7 +2308,8 @@ private struct NowPlayingControlPicker: View {
             if isAllowed {
                 onPick(action)
             } else {
-                blockedReason = blockedReasonKey(for: action)
+                // 只有一种挡下来的情况:隔空播放会被放到(或换到)播放键两侧。
+                blockedReason = "player_controls_airplay_edge"
             }
         } label: {
             HStack(spacing: 12) {
@@ -2363,20 +2341,6 @@ private struct NowPlayingControlPicker: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
-    }
-
-    /// 两种挡下来的情况:隔空播放会被换到播放键两侧,或者会从页面上消失。
-    private func blockedReasonKey(for action: NowPlayingControlAction?) -> LocalizedStringKey {
-        if action == .airPlay, case .slot(let slot) = position, slot.isTransportEdge {
-            return "player_controls_airplay_edge"
-        }
-        if layout.action(at: position) == .airPlay,
-           let action,
-           case .slot(let slot)? = layout.position(of: action),
-           slot.isTransportEdge {
-            return "player_controls_airplay_edge"
-        }
-        return "player_controls_airplay_required"
     }
 }
 

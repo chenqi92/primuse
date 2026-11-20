@@ -6254,16 +6254,14 @@
 "player_controls_radio_items_header" = "नीचे की पंक्ति";
 "player_controls_radio_items_footer" = "क्रम बदलने के लिए दबाकर रखें और खींचें। बंद किए गए आइटम रेडियो स्क्रीन पर नहीं दिखते।";
 "player_controls_radio_info" = "स्ट्रीम जानकारी";
-"player_controls_radio_airplay_required" = "रेडियो स्क्रीन पर \"और\" मेन्यू नहीं है, इसलिए आउटपुट डिवाइस बदलने के लिए AirPlay हमेशा स्क्रीन पर रहता है।";
 "player_controls_radio_volume_footer" = "प्लेयर सेटिंग में \"वॉल्यूम स्लाइडर\" बंद होने पर यह रेडियो स्क्रीन पर भी नहीं दिखता।";
-"player_controls_airplay_required" = "AirPlay को हटाया नहीं जा सकता, सिर्फ़ खिसकाया जा सकता है। पेज पर कोई दूसरा बटन चुनें, वह AirPlay से जगह बदल लेगा।";
 "player_controls_airplay_edge" = "AirPlay को प्लेबैक बटनों के बगल में नहीं रखा जा सकता: लैंडस्केप iPhone संकरा होने पर वे जगहें हट जाती हैं और AirPlay गायब हो जाता।";
 "player_controls_slot_header" = "शीर्षक के पास";
 "player_controls_slot_leading_edge" = "प्लेबैक के बाएँ";
 "player_controls_slot_trailing_edge" = "प्लेबैक के दाएँ";
 "player_controls_bar_title" = "नीचे की पंक्ति";
 "player_controls_bar_header %lld %lld" = "नीचे की पंक्ति (%1$lld/%2$lld)";
-"player_controls_bar_footer %lld" = "इस डिवाइस पर एक पंक्ति में ज़्यादा से ज़्यादा %lld बटन आते हैं, बाएँ से दाएँ क्रम में: एक हो तो बीच में, दो हों तो दोनों किनारों पर, और ज़्यादा हों तो बराबर फैल जाते हैं। क्रम बदलने के लिए दबाकर रखें और खींचें; हटाने के लिए बाईं ओर स्वाइप करें। AirPlay की जगह बदली जा सकती है, पर उसे हटाया नहीं जा सकता।";
+"player_controls_bar_footer %lld" = "इस डिवाइस पर एक पंक्ति में ज़्यादा से ज़्यादा %lld बटन आते हैं, बाएँ से दाएँ क्रम में: एक हो तो बीच में, दो हों तो दोनों किनारों पर, और ज़्यादा हों तो बराबर फैल जाते हैं। क्रम बदलने के लिए दबाकर रखें और खींचें; हटाने के लिए बाईं ओर स्वाइप करें। AirPlay हटाने पर आउटपुट डिवाइस कंट्रोल सेंटर से बदलें।";
 "player_controls_bar_add" = "बटन जोड़ें";
 "player_controls_bar_position %lld" = "नीचे की पंक्ति, बटन %lld";
 "player_controls_bar_remove" = "इस पंक्ति से हटाएँ";

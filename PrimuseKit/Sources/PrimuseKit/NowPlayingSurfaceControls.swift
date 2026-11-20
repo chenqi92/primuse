@@ -88,7 +88,7 @@ public struct NowPlayingLyricsPageControls: Equatable, Sendable {
         usesOwnButtons ? cover.replacingActions(with: ownButtons) : cover
     }
 
-    /// 歌词页顶上多出来那一格能放什么:隔空播放不放这里(它必须留在单格或最下面那一排里),
+    /// 歌词页顶上多出来那一格能放什么:隔空播放不放这里(它摆在单格或最下面那一排里,顶上再放一颗就重复了),
     /// 歌词键在歌词页上就是「回到封面」,顶上的小封面已经管这件事。
     public static func allowsHeaderExtra(_ action: NowPlayingControlAction) -> Bool {
         action != .airPlay && action != .lyrics
@@ -382,9 +382,6 @@ public enum NowPlayingRadioControlItem: String, CaseIterable, Codable, Hashable,
     case sleepTimer
 
     public var id: String { rawValue }
-
-    /// 隔空播放是系统那颗必须直接点的按钮,电台页又没有「更多」,不能藏。
-    public var isRequired: Bool { self == .airPlay }
 }
 
 /// 电台播放页最下面那一排的顺序与显隐,以及要不要显示音量条。
@@ -402,7 +399,7 @@ public struct NowPlayingRadioControlLayout: Equatable, Sendable {
 
     private init(order: [Item], hidden: Set<Item>, showsVolumeBar: Bool) {
         self.order = Self.completedOrder(order)
-        self.hidden = hidden.filter { !$0.isRequired }
+        self.hidden = hidden
         self.showsVolumeBar = showsVolumeBar
     }
 
@@ -442,8 +439,8 @@ public struct NowPlayingRadioControlLayout: Equatable, Sendable {
     /// 页面上按顺序摆哪几项。
     public var visibleItems: [Item] { order.filter(isShown) }
 
+    /// 隔空播放也能藏:电台页没有「更多」,藏了就在控制中心、锁屏上切换输出。
     public func settingItem(_ item: Item, shown: Bool) -> NowPlayingRadioControlLayout {
-        guard !item.isRequired else { return self }
         var copy = self
         if shown { copy.hidden.remove(item) } else { copy.hidden.insert(item) }
         return copy

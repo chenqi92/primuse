@@ -6348,16 +6348,14 @@
 "player_controls_radio_items_header" = "Rangée du bas";
 "player_controls_radio_items_footer" = "Touchez longuement pour réorganiser. Les éléments désactivés n’apparaissent pas sur l’écran Radio.";
 "player_controls_radio_info" = "Infos du flux";
-"player_controls_radio_airplay_required" = "L’écran Radio n’a pas de menu Plus : AirPlay reste toujours affiché pour changer d’appareil de sortie.";
 "player_controls_radio_volume_footer" = "Quand « Curseur de volume » est désactivé dans les réglages du lecteur, il est aussi masqué sur l’écran Radio.";
-"player_controls_airplay_required" = "AirPlay peut être déplacé mais pas retiré. Choisissez un autre bouton de la page : il échangera sa place avec AirPlay.";
 "player_controls_airplay_edge" = "AirPlay ne peut pas aller à côté des boutons de lecture : quand l’iPhone en paysage est étroit, ces emplacements disparaissent et AirPlay serait introuvable.";
 "player_controls_slot_header" = "À côté du titre";
 "player_controls_slot_leading_edge" = "À gauche de la lecture";
 "player_controls_slot_trailing_edge" = "À droite de la lecture";
 "player_controls_bar_title" = "Rangée du bas";
 "player_controls_bar_header %lld %lld" = "Rangée du bas (%1$lld/%2$lld)";
-"player_controls_bar_footer %lld" = "Cet appareil peut afficher jusqu’à %lld boutons sur une rangée, de gauche à droite : un seul se place au centre, deux aux extrémités, davantage se répartissent régulièrement. Maintenez le doigt puis faites glisser pour changer l’ordre ; balayez vers la gauche pour en retirer un. AirPlay peut être déplacé mais pas retiré.";
+"player_controls_bar_footer %lld" = "Cet appareil peut afficher jusqu’à %lld boutons sur une rangée, de gauche à droite : un seul se place au centre, deux aux extrémités, davantage se répartissent régulièrement. Maintenez le doigt puis faites glisser pour changer l’ordre ; balayez vers la gauche pour en retirer un. Si vous retirez AirPlay, changez d’appareil de sortie depuis le centre de contrôle.";
 "player_controls_bar_add" = "Ajouter un bouton";
 "player_controls_bar_position %lld" = "Rangée du bas, bouton %lld";
 "player_controls_bar_remove" = "Retirer de la rangée";

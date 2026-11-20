@@ -6254,16 +6254,14 @@
 "player_controls_radio_items_header" = "Alt Sıra";
 "player_controls_radio_items_footer" = "Sırayı değiştirmek için basılı tutup sürükleyin. Kapalı öğeler radyo ekranında görünmez.";
 "player_controls_radio_info" = "Yayın Bilgisi";
-"player_controls_radio_airplay_required" = "Radyo ekranında Daha Fazla menüsü olmadığından çıkış aygıtını değiştirebilmeniz için AirPlay her zaman ekranda kalır.";
 "player_controls_radio_volume_footer" = "Çalar ayarlarında “Ses Düzeyi Kaydırıcısı” kapalıyken radyo ekranında da gösterilmez.";
-"player_controls_airplay_required" = "AirPlay taşınabilir ama kaldırılamaz. Sayfadaki başka bir düğmeyi seçin, AirPlay ile yer değiştirir.";
 "player_controls_airplay_edge" = "AirPlay oynatma düğmelerinin yanına konamaz: yatay iPhone dar olduğunda bu yerler kaldırılır ve AirPlay kaybolur.";
 "player_controls_slot_header" = "Başlığın Yanında";
 "player_controls_slot_leading_edge" = "Oynatmanın Solunda";
 "player_controls_slot_trailing_edge" = "Oynatmanın Sağında";
 "player_controls_bar_title" = "Alt Sıra";
 "player_controls_bar_header %lld %lld" = "Alt Sıra (%1$lld/%2$lld)";
-"player_controls_bar_footer %lld" = "Bu aygıtta bir sıraya en fazla %lld düğme sığar ve soldan sağa dizilir: bir tane ortada, iki tane uçlarda durur, daha fazlası eşit aralıkla yayılır. Sırayı değiştirmek için basılı tutup sürükleyin; birini kaldırmak için sola kaydırın. AirPlay taşınabilir ama kaldırılamaz.";
+"player_controls_bar_footer %lld" = "Bu aygıtta bir sıraya en fazla %lld düğme sığar ve soldan sağa dizilir: bir tane ortada, iki tane uçlarda durur, daha fazlası eşit aralıkla yayılır. Sırayı değiştirmek için basılı tutup sürükleyin; birini kaldırmak için sola kaydırın. AirPlay’i kaldırırsanız çıkış aygıtını Denetim Merkezi’nden değiştirebilirsiniz.";
 "player_controls_bar_add" = "Düğme Ekle";
 "player_controls_bar_position %lld" = "Alt Sıra, %lld. düğme";
 "player_controls_bar_remove" = "Sıradan Kaldır";

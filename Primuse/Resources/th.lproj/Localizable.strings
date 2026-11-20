@@ -6254,16 +6254,14 @@
 "player_controls_radio_items_header" = "แถวล่างสุด";
 "player_controls_radio_items_footer" = "แตะค้างแล้วลากเพื่อจัดลำดับ รายการที่ปิดไว้จะไม่แสดงในหน้าวิทยุ";
 "player_controls_radio_info" = "ข้อมูลสตรีม";
-"player_controls_radio_airplay_required" = "หน้าวิทยุไม่มีเมนูเพิ่มเติม AirPlay จึงอยู่บนหน้าจอเสมอเพื่อใช้เปลี่ยนอุปกรณ์เอาต์พุต";
 "player_controls_radio_volume_footer" = "เมื่อปิด \"ตัวเลื่อนระดับเสียง\" ในการตั้งค่าเครื่องเล่น หน้าวิทยุจะไม่แสดงด้วย";
-"player_controls_airplay_required" = "ย้าย AirPlay ได้แต่เอาออกไม่ได้ เลือกปุ่มอื่นบนหน้า แล้วปุ่มนั้นจะสลับที่กับ AirPlay";
 "player_controls_airplay_edge" = "วาง AirPlay ข้างปุ่มเล่นไม่ได้ เพราะเมื่อ iPhone แนวนอนแคบ ตำแหน่งเหล่านั้นจะถูกตัดออกและ AirPlay จะหายไป";
 "player_controls_slot_header" = "ข้างชื่อเพลง";
 "player_controls_slot_leading_edge" = "ซ้ายของปุ่มเล่น";
 "player_controls_slot_trailing_edge" = "ขวาของปุ่มเล่น";
 "player_controls_bar_title" = "แถวล่างสุด";
 "player_controls_bar_header %lld %lld" = "แถวล่างสุด (%1$lld/%2$lld)";
-"player_controls_bar_footer %lld" = "อุปกรณ์นี้วางปุ่มได้สูงสุด %lld ปุ่มต่อแถว เรียงจากซ้ายไปขวา: ปุ่มเดียวอยู่ตรงกลาง สองปุ่มอยู่สองข้าง มากกว่านั้นกระจายห่างเท่ากัน แตะค้างแล้วลากเพื่อเปลี่ยนลำดับ ปัดซ้ายเพื่อเอาออก AirPlay ย้ายได้แต่เอาออกไม่ได้";
+"player_controls_bar_footer %lld" = "อุปกรณ์นี้วางปุ่มได้สูงสุด %lld ปุ่มต่อแถว เรียงจากซ้ายไปขวา: ปุ่มเดียวอยู่ตรงกลาง สองปุ่มอยู่สองข้าง มากกว่านั้นกระจายห่างเท่ากัน แตะค้างแล้วลากเพื่อเปลี่ยนลำดับ ปัดซ้ายเพื่อเอาออก ถ้าเอา AirPlay ออก เปลี่ยนอุปกรณ์เสียงออกได้จากศูนย์ควบคุม";
 "player_controls_bar_add" = "เพิ่มปุ่ม";
 "player_controls_bar_position %lld" = "แถวล่างสุด ปุ่มที่ %lld";
 "player_controls_bar_remove" = "เอาออกจากแถวนี้";

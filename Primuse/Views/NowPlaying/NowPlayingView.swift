@@ -3647,11 +3647,16 @@ struct NowPlayingView: View {
         let spacing = 12.0
         let capsulePadding = 4.0
         let navigationCount = openAppPage == nil ? 1 : 3
+        // 下面一组的投放:音乐看「播放页按钮」里摆没摆 AirPlay,有声内容看右上角那颗或功能块里开没开。
+        let showsColumnAirPlay = music
+            ? musicControlLayout.placedActions.contains(.airPlay)
+            : spokenWordControlLayout.keepsAirPlay
         // 中间一组:音乐按「播放页按钮」底栏那一串(去掉 AirPlay,默认歌词与队列);有声内容是文字稿与目录。
         // 那一串长到整列按最小的键(34,同 `columnFit`)也排不下时只摆前几颗,其余进「更多」:
-        // 上面一组是收起、搜索与设置,下面一组至少留投放与更多两颗。
+        // 上面一组是收起、搜索与设置,下面一组至少留投放(摆着时)与更多。
         let middleLimit = music
-            ? max(0, Int(((segment.length - spacing * 2 - capsulePadding * 6) / 34).rounded(.down)) - navigationCount - 2)
+            ? max(0, Int(((segment.length - spacing * 2 - capsulePadding * 6) / 34).rounded(.down))
+                - navigationCount - (showsColumnAirPlay ? 2 : 1))
             : Int.max
         let columnGroups = musicControlLayout.toolColumnGroups(middleLimit: middleLimit)
         let middleCount = music ? columnGroups.middle.count : (showsTextToggle ? 2 : 1)
@@ -3665,7 +3670,7 @@ struct NowPlayingView: View {
             length: segment.length,
             groups: [navigationCount]
                 + (middleCount > 0 ? [middleCount] : [])
-                + [(music ? 1 : 0) + (headerAction != nil ? 1 : 0) + 2 + (offersLock ? 1 : 0)],
+                + [(music ? 1 : 0) + (headerAction != nil ? 1 : 0) + (showsColumnAirPlay ? 2 : 1) + (offersLock ? 1 : 0)],
             droppable: droppable,
             spacing: spacing,
             capsulePadding: capsulePadding
@@ -3740,9 +3745,11 @@ struct NowPlayingView: View {
                         controlButton(headerAction, style: .column(itemSize))
                     }
 
-                    AirPlayButton()
-                        .frame(width: itemSize * 0.62, height: itemSize * 0.62)
-                        .frame(width: itemSize, height: itemSize)
+                    if showsColumnAirPlay {
+                        AirPlayButton()
+                            .frame(width: itemSize * 0.62, height: itemSize * 0.62)
+                            .frame(width: itemSize, height: itemSize)
+                    }
 
                     if music, !overflow.effect {
                         immersiveEffectButton(glass: .barColumn(itemSize: itemSize))
@@ -7260,7 +7267,9 @@ struct NowPlayingView: View {
                     }
                 }
 
-                compactLandscapeAirPlayButton
+                if spokenWordControlLayout.keepsAirPlay {
+                    compactLandscapeAirPlayButton
+                }
 
                 // 文字稿那一页空着时进度就画在那一页上,这里不再重复。
                 if !(showLyrics && lyrics.isEmpty) {

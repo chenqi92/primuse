@@ -76,31 +76,57 @@ import Testing
         #expect(decoded.action(in: .header) == .airPlay)
     }
 
-    @Test func airPlayCanMoveButNeverLeaveThePage() {
+    @Test func airPlayCanBeRemovedLikeAnyOtherButton() {
         let base = Layout.default
-        #expect(!base.canPlace(nil, at: .bar(1)))
-        #expect(!base.canPlace(.sleepTimer, at: .bar(1)))
-        #expect(base.placing(.sleepTimer, at: .bar(1)) == base)
-        // 和页面上另一处对调可以。
-        #expect(base.canPlace(.queue, at: .bar(1)))
+        // 左滑拿掉:这一排只剩歌词与队列,页面上不再有隔空播放,读回来也不会补回来。
+        #expect(base.canPlace(nil, at: .bar(1)))
+        let removed = base.placing(nil, at: .bar(1))
+        #expect(removed.bar == [.lyrics, .queue])
+        #expect(!removed.placedActions.contains(.airPlay))
+        #expect(removed.position(of: .airPlay) == nil)
+        #expect(!removed.isDefault)
+        let decoded = Layout.decode(removed.encoded())
+        #expect(decoded == removed)
+        #expect(!decoded.placedActions.contains(.airPlay))
+        // 没升级的设备读旧版三格:中间空着,它们自己会把隔空播放补回正中。
+        #expect(removed.encoded().contains(#""barCenter":"""#))
+        // 换上一颗原来不在页面上的按钮,隔空播放就拿掉了。
+        #expect(base.placing(.sleepTimer, at: .bar(1)).bar == [.lyrics, .sleepTimer, .queue])
+        // 再添回来放在最后。
+        #expect(removed.placing(.airPlay, at: .bar(2)).bar == [.lyrics, .queue, .airPlay])
+        // 和页面上另一处对调照旧。
         #expect(base.placing(.queue, at: .bar(1)).bar == [.lyrics, .queue, .airPlay])
-        #expect(base.canPlace(.like, at: .bar(1)))
         let toHeader = base.placing(.like, at: .bar(1))
         #expect(toHeader.action(in: .header) == .airPlay)
         // 换到两端不行:两端在手机横屏会让出来。
         #expect(!base.canPlace(.airPlay, at: .slot(.leadingEdge)))
         #expect(!base.canPlace(.shuffle, at: .bar(1)))
-        // 自己挪到别处可以。
+        #expect(base.placing(.shuffle, at: .bar(1)) == base)
+        // 歌名旁是隔空播放时也能空出来、换别的。
         let moved = base.placing(.airPlay, at: .slot(.header))
-        #expect(moved.action(in: .header) == .airPlay)
         #expect(moved.bar == [.lyrics, .like, .queue])
-        #expect(base.placing(.airPlay, at: .bar(3)).bar == [.lyrics, .queue, .airPlay])
-        // 歌名旁是隔空播放时,只有从这一排换上来的才能顶替它。
-        #expect(!moved.canPlace(nil, at: .slot(.header)))
-        #expect(!moved.canPlace(.share, at: .slot(.header)))
-        #expect(moved.canPlace(.queue, at: .slot(.header)))
+        #expect(moved.canPlace(nil, at: .slot(.header)))
+        #expect(moved.placing(.share, at: .slot(.header)).position(of: .airPlay) == nil)
+        #expect(!moved.canPlace(.repeatMode, at: .slot(.header)))
         // 旧版底栏那三个名字不是位置。
         #expect(!base.canPlace(.share, at: .slot(.barLeading)))
+    }
+
+    @Test func removedAirPlayLeavesEverySurface() {
+        let layout = Layout.default.placing(nil, at: .bar(1))
+        #expect(layout.compactLandscapeChrome().leading == [.queue])
+        #expect(layout.wideLandscapeBar() == [.queue])
+        #expect(!layout.toolColumnGroups().airPlay)
+        #expect(Layout.default.toolColumnGroups().airPlay)
+        let column = NowPlayingControlSurface.toolColumn(showsTransportEdges: true, headerOverflows: false)
+        #expect(!layout.visibleActions(on: column).contains(.airPlay))
+        #expect(Layout.default.visibleActions(on: column).contains(.airPlay))
+        // 在歌名旁时竖栏那一列照样有它(放在下面一组的固定位置,不当作歌名旁那一格)。
+        let header = Layout.default.placing(.airPlay, at: .slot(.header))
+        #expect(header.toolColumnGroups().airPlay)
+        #expect(header.toolColumnGroups().header == nil)
+        // 隔空播放补不进「更多」:拿掉后菜单不多出东西。
+        #expect(layout.menuFallback(on: .portrait) == Layout.default.menuFallback(on: .portrait))
     }
 
     @Test func slotsCanBeLeftEmpty() {
@@ -161,16 +187,14 @@ import Testing
         let layout = Layout.decode(raw)
         #expect(layout.action(in: .header) == .queue)
         #expect(layout.action(in: .leadingEdge) == nil)
-        #expect(layout.bar == [.lyrics, .airPlay, .sleepTimer])
-        guard case .bar = layout.position(of: .airPlay) else {
-            Issue.record("AirPlay should be back in the bar")
-            return
-        }
+        // 两端放不了隔空播放,这一排里又没有:当作拿掉了,不再补回来。
+        #expect(layout.bar == [.lyrics, .sleepTimer])
+        #expect(layout.position(of: .airPlay) == nil)
         let values = NowPlayingControlSlot.single.compactMap { layout.action(in: $0) } + layout.bar
         #expect(values.count == Set(values).count)
-        // 旧版三格里丢了隔空播放:补回正中。
+        // 旧版三格里中间换成了别的:照存的读,不再硬塞隔空播放。
         let legacy = Layout.decode(#"{"slots":{"barCenter":"sleepTimer"}}"#)
-        #expect(legacy.bar == [.lyrics, .airPlay, .sleepTimer, .queue])
+        #expect(legacy.bar == [.lyrics, .sleepTimer, .queue])
     }
 
     @Test func statusItemsToggleAndRoundTrip() {

@@ -227,13 +227,15 @@ import Testing
         #expect(Layout.default.showsVolumeBar)
     }
 
-    @Test func itemsCanBeHiddenAndMovedButAirPlayStays() {
+    @Test func itemsCanBeHiddenAndMovedIncludingAirPlay() {
         let layout = Layout.default
             .settingItem(.info, shown: false)
             .settingItem(.airPlay, shown: false)
             .movingItems(fromOffsets: IndexSet(integer: 4), toOffset: 0)
-        #expect(layout.visibleItems == [.sleepTimer, .airPlay, .share, .history])
+        #expect(layout.visibleItems == [.sleepTimer, .share, .history])
+        #expect(!layout.isShown(.airPlay))
         #expect(Layout.decode(layout.encoded()) == layout)
+        #expect(layout.settingItem(.airPlay, shown: true).visibleItems == [.sleepTimer, .airPlay, .share, .history])
     }
 
     @Test func volumeBarAndMissingItems() {

@@ -6349,16 +6349,14 @@
 "player_controls_radio_items_header" = "最下段";
 "player_controls_radio_items_footer" = "長押ししてドラッグすると順番を変えられます。オフにした項目はラジオ画面に表示されません。";
 "player_controls_radio_info" = "ストリーム情報";
-"player_controls_radio_airplay_required" = "ラジオ画面には「その他」メニューがないため、出力先を切り替えられるよう AirPlay は常に画面に表示されます。";
 "player_controls_radio_volume_footer" = "プレーヤー設定の「音量スライダー」がオフのときは、ラジオ画面にも表示されません。";
-"player_controls_airplay_required" = "AirPlay は移動できますが、外すことはできません。画面上の別のボタンを選ぶと AirPlay と入れ替わります。";
 "player_controls_airplay_edge" = "AirPlay は再生ボタンの両側に置けません。横向きの iPhone で幅が狭いとその場所が省かれ、AirPlay が見つからなくなるためです。";
 "player_controls_slot_header" = "曲名の横";
 "player_controls_slot_leading_edge" = "再生ボタンの左";
 "player_controls_slot_trailing_edge" = "再生ボタンの右";
 "player_controls_bar_title" = "下段";
 "player_controls_bar_header %lld %lld" = "下段（%1$lld/%2$lld）";
-"player_controls_bar_footer %lld" = "このデバイスでは 1 列に最大 %lld 個まで置けます。左から順に並び、1 個なら中央、2 個なら両端、それ以上は均等に広がります。長押ししてドラッグすると順番を変えられ、左にスワイプすると外せます。AirPlay は移動できますが、外せません。";
+"player_controls_bar_footer %lld" = "このデバイスでは 1 列に最大 %lld 個まで置けます。左から順に並び、1 個なら中央、2 個なら両端、それ以上は均等に広がります。長押ししてドラッグすると順番を変えられ、左にスワイプすると外せます。AirPlay を外した場合は、コントロールセンターで出力先を切り替えられます。";
 "player_controls_bar_add" = "ボタンを追加";
 "player_controls_bar_position %lld" = "下段の %lld 番目";
 "player_controls_bar_remove" = "この列から外す";
