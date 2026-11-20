@@ -120,6 +120,25 @@ struct GuangYaAPIProtocolTests {
         #expect(page.entries.isEmpty)
     }
 
+    @Test("零值字段被省略的空目录也解成空页", arguments: [
+        #"{"code":0,"msg":"success[0]","data":{}}"#,
+        #"{"code":0,"msg":"success[0]","data":null}"#,
+        #"{"code":0,"msg":"success[0]"}"#,
+        #"{"code":0,"msg":"success[0]","data":{"list":null}}"#,
+    ])
+    func parsesEmptyDirectoryWithOmittedFields(json: String) throws {
+        let page = try #require(GuangYaAPIProtocol.parseFileList(Data(json.utf8)))
+        #expect(page.total == 0)
+        #expect(page.entries.isEmpty)
+    }
+
+    @Test("说有条目却没给列表时仍算解析失败,不能当成空目录")
+    func rejectsMissingListWithPositiveTotal() {
+        let json = #"{"code":0,"msg":"success[0]","data":{"total":12}}"#
+        #expect(GuangYaAPIProtocol.parseFileList(Data(json.utf8)) == nil)
+        #expect(GuangYaAPIProtocol.describeFileListShape(Data(json.utf8)) == "code=0 data_keys=total total=12 list=missing")
+    }
+
     @Test("坏条目只跳过自己,不让整页解析失败")
     func skipsUnparsableEntriesInsteadOfFailingPage() throws {
         let json = """

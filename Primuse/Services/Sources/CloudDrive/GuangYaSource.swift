@@ -84,6 +84,7 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
             }
             let data = try await authedGET(url, notFoundPath: path)
             guard let listPage = GuangYaAPIProtocol.parseFileList(data) else {
+                plog("⚠️ GuangYa file list unreadable page=\(page) \(GuangYaAPIProtocol.describeFileListShape(data))")
                 throw CloudDriveError.invalidResponse
             }
             let countBeforePage = items.count

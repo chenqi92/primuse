@@ -391,10 +391,16 @@ public enum GuangYaAPIProtocol {
     }
 
     public static func parseFileList(_ data: Data) -> FileListPage? {
-        guard let payload = successPayload(data) else { return nil }
+        guard let json = jsonObject(data), intValue(json["code"]) == ResultCode.success else { return nil }
+        // 开放平台会省略零值字段:空目录可能回 {"total":0}、{}、data 为 null 或干脆不带 data。
+        // 业务码成功又没有条目、也没说有条目时就是空页。
+        guard let payload = json["data"] as? [String: Any] else {
+            return json["data"] == nil || json["data"] is NSNull ? FileListPage(total: 0, entries: []) : nil
+        }
         guard let list = payload["list"] as? [[String: Any]] else {
-            // 空目录可能直接返回 {"total":0} 而没有 list 字段。
-            guard let total = intValue(payload["total"]), total == 0 else { return nil }
+            // 说了有条目却没给列表,对不上:当成解析失败,不能当空目录(扫描会据此删歌)。
+            let total = intValue(payload["total"]) ?? 0
+            guard total == 0 else { return nil }
             return FileListPage(total: 0, entries: [])
         }
         let entries = list.compactMap(parseFileEntry)
@@ -404,6 +410,28 @@ public enum GuangYaAPIProtocol {
         // 条目时才当成应答不可用。
         guard !entries.isEmpty || list.isEmpty else { return nil }
         return FileListPage(total: intValue(payload["total"]) ?? entries.count, entries: entries)
+    }
+
+    /// 列表应答解不开时记日志用的形状说明:业务码、data 的类型与键、total、list 条数和首条的键。
+    /// 不带文件名和 ID。
+    public static func describeFileListShape(_ data: Data) -> String {
+        guard let json = jsonObject(data) else { return "bytes=\(data.count) json=false" }
+        var parts = ["code=\(intValue(json["code"]).map(String.init) ?? "nil")"]
+        switch json["data"] {
+        case nil: parts.append("data=missing")
+        case is NSNull: parts.append("data=null")
+        case let payload as [String: Any]:
+            parts.append("data_keys=\(payload.keys.sorted().joined(separator: ","))")
+            parts.append("total=\(intValue(payload["total"]).map(String.init) ?? "nil")")
+            if let list = payload["list"] as? [[String: Any]] {
+                parts.append("list=\(list.count)")
+                if let first = list.first { parts.append("first_keys=\(first.keys.sorted().joined(separator: ","))") }
+            } else {
+                parts.append("list=\(payload["list"] == nil ? "missing" : "not-array")")
+            }
+        case let other?: parts.append("data_type=\(type(of: other))")
+        }
+        return parts.joined(separator: " ")
     }
 
     /// 是否还要继续翻下一页。
