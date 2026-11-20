@@ -33,3 +33,8 @@ the appearance: full-color Light/Dark artwork has no glass or specular effect,
 while Mono provides the glass glyph for tinted and clear appearances.
 `python3 IconDesign/test_layered_icons.py -v` checks the native renderings and
 compiled resource layers with Xcode’s Icon Composer and asset tools.
+
+The Mac app uses the same `AppIconPrimary.icon` as its bundle icon, so macOS 26
+and later switch it with the system icon style; for macOS 15, actool renders a
+flat fallback from it. Alternate icons on the Mac are runtime Dock images drawn
+from their light previews.

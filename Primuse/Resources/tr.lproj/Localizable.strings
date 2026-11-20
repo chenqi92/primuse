@@ -1779,7 +1779,7 @@
 "onboarding_guide_player_queue" = "Sıra: basılı tutup sürükleyerek sıradaki şarkıların sırasını değiştirin";
 "onboarding_guide_player_more" = "Diğer: DLNA cihazlarına yayınlayın, uyku zamanlayıcısı kurun veya şarkı sözü posteri paylaşın";
 "app_icon" = "Uygulama Simgesi";
-"app_icon_dock_hint" = "Primuse çalışırken gösterilecek Dock simgesini seçin. Çıktıktan sonra da kullanmak için Finder’da ayarlayın.";
+"app_icon_style_hint" = "Varsayılan simge, macOS 26 ve sonrasında sistemin simge stilini (koyu, şeffaf veya renkli) izler. Diğer simgeler yalnızca Primuse çalışırken Dock’ta görünür ve açık renkli kalır. Çıktıktan sonra da kullanmak için Finder’da ayarlayın.";
 "app_icon_finder_setup" = "Çıktıktan Sonra Simgeyi Koru…";
 "app_icon_finder_setup_title" = "Çıktıktan Sonra Simgeyi Koru";
 "app_icon_finder_step_export" = "1. Seçili simgeyi dışa aktarın.";

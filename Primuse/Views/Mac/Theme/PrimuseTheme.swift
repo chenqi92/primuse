@@ -1880,7 +1880,7 @@ struct BrandMonogram: View {
 
 /// 运行时应用 Dock 图标并持久化选择；退出后的图标由用户在 Finder 中设置。
 struct MacAppIcon: Identifiable, Equatable, Sendable {
-    /// 稳定标识。"" = 默认 (用 bundle 自带的 AppIcon-Mac)。
+    /// 稳定标识。"" = 默认 (用包里的 AppIconPrimary.icon，由系统显示)。
     let id: String
     /// 资源目录里的预览 imageset 名 (universal, 含明暗变体)。
     let previewAsset: String
@@ -1913,24 +1913,24 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
 
     static var available: [MacAppIcon] { all + [hidden] }
 
-    /// 包里的 Mac 图标集 (`ASSETCATALOG_COMPILER_APPICON_NAME`)。未在 Finder 设置自定
-    /// 图标时，App 没运行、刚启动还没轮到我们的代码时，Dock 显示它，只有浅色一张。
-    static let bundleIconName = "AppIcon-Mac"
+    /// 运行时盖到 Dock 上的图。默认图标返回 nil，交还给系统：包里的 `AppIconPrimary.icon`
+    /// 由系统按「图标与小组件样式」显示浅色、深色、透明或着色，启动、退出都是同一张，不会跳。
+    ///
+    /// 备选图标只能运行时覆盖 (macOS 没有换包图标的接口)，而 App 读不到系统的图标样式
+    /// (没有公开接口)，所以一律用浅色版，见 `dockIconImage(for:)`。
+    @MainActor
+    static func runtimeDockImage(for icon: MacAppIcon) -> NSImage? {
+        icon.id.isEmpty ? nil : dockIconImage(for: icon)
+    }
 
-    /// 交给 `applicationIconImage` 的 Dock 图标。**一律是浅色版, 不跟 App 的明暗模式走。**
+    /// 备选图标的 Dock 图与导出的 .icns。**一律是浅色版, 不跟 App 的明暗模式走。**
     ///
-    /// Dock 在启动前和退出后显示的是包里那张 (只有浅色); macOS 26 起图标要不要变深
-    /// 由系统「图标与小组件样式」单独决定, 默认样式在深色模式下也是浅色图标。运行时如果按
-    /// App 明暗换成深色版, 深色模式下每次启动都会从浅色跳成深色、退出再跳回来。
-    ///
-    /// 默认图标直接取包里那套 (从资源目录读, 不经系统图标缓存), 和启动前 Dock 上那张
-    /// 逐像素一致；备选图标从预览资源渲染，用户可导出同款并在 Finder 中设置退出后的图标。
+    /// macOS 26 起图标深浅由系统「图标与小组件样式」单独决定，默认样式在深色模式下也是
+    /// 浅色图标。运行时如果按 App 明暗换成深色版，深色模式下每次启动都会从浅色跳成深色、
+    /// 退出再跳回来。从预览资源渲染，用户可导出同款并在 Finder 中设置退出后的图标。
     @MainActor
     static func dockIconImage(for icon: MacAppIcon) -> NSImage? {
-        if icon.id.isEmpty, let bundled = Bundle.main.image(forResource: bundleIconName) {
-            return bundled
-        }
-        return dockIconImage(previewAsset: icon.previewAsset, appearance: NSAppearance(named: .aqua))
+        dockIconImage(previewAsset: icon.previewAsset, appearance: NSAppearance(named: .aqua))
     }
 
     enum ExportError: LocalizedError {
@@ -2250,15 +2250,15 @@ final class MacUIPreferences {
         }
     }
 
-    /// 换运行时 Dock 图标。**包括默认图标在内，一律显式覆盖。**
+    /// 换运行时 Dock 图标。选默认图标时置 nil，让系统按包里的 `.icon` 和图标样式显示
+    /// (运行时覆盖会盖掉系统的深色/透明/着色版本)。
     ///
-    /// 试过「选默认图标时就不覆盖（置 nil）」，实测 Dock 会显示一张过期的图标：nil 让 Dock
-    /// 回到系统图标缓存里的那张，开发构建和换过默认图标的版本上缓存经常不刷新。默认图标
-    /// 改为从资源目录直接取包里那套，绕开缓存，又和启动前 Dock 上那张一致。
+    /// 开发构建原地覆盖安装、构建号不变时，系统图标缓存可能还是旧图，`killall Dock` 可刷新；
+    /// App Store / TestFlight 每次更新换构建号并重新登记，不受影响。
     ///
-    /// 不跟明暗模式重画，原因见 `MacAppIcon.dockIconImage(for:)`。
+    /// 备选图标不跟明暗模式重画，原因见 `MacAppIcon.dockIconImage(for:)`。
     func applyAppIcon() {
-        NSApp.applicationIconImage = MacAppIcon.dockIconImage(for: MacAppIcon.option(for: appIconID))
+        NSApp.applicationIconImage = MacAppIcon.runtimeDockImage(for: MacAppIcon.option(for: appIconID))
         NotificationCenter.default.post(name: .primuseAppIconChanged, object: nil)
     }
 }

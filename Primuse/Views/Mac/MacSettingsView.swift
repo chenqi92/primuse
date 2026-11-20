@@ -8450,7 +8450,7 @@ private struct MacSTThemeView: View {
         MacPlayerBackdropSettingsSection()
 
         MacSTSection(String(localized: "app_icon"),
-                     hint: String(localized: "app_icon_dock_hint")) {
+                     hint: String(localized: "app_icon_style_hint")) {
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4),
                 spacing: 16
@@ -8461,10 +8461,13 @@ private struct MacSTThemeView: View {
                     }
                 }
             }
-            MacSTButton(title: String(localized: "app_icon_finder_setup"), systemImage: "square.and.arrow.up") {
-                iconForFinderSetup = MacAppIcon.option(for: preferences.appIconID)
+            // 默认图标就是包里的图标，退出后本来就在；在访达里贴图反而会盖掉系统的深色/着色版本。
+            if !preferences.appIconID.isEmpty {
+                MacSTButton(title: String(localized: "app_icon_finder_setup"), systemImage: "square.and.arrow.up") {
+                    iconForFinderSetup = MacAppIcon.option(for: preferences.appIconID)
+                }
+                .padding(.horizontal, 14)
             }
-            .padding(.horizontal, 14)
         }
         .sheet(item: $iconForFinderSetup) { icon in
             MacAppIconFinderSetupSheet(icon: icon)

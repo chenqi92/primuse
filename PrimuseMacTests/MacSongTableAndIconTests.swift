@@ -123,12 +123,17 @@ final class MacSongTableAndIconTests: XCTestCase {
         XCTAssertEqual(NSApp.applicationIconImage.tiffRepresentation, light)
     }
 
-    /// 默认图标要和启动前 Dock 上那张是同一套：直接用包里的图标集，而不是从预览图放大重画。
-    func testDefaultDockIconIsTheBundledIconSet() throws {
-        let bundled = try XCTUnwrap(Bundle.main.image(forResource: MacAppIcon.bundleIconName))
-        let dock = try XCTUnwrap(MacAppIcon.dockIconImage(for: MacAppIcon.option(for: "")))
-        XCTAssertEqual(dock.tiffRepresentation, bundled.tiffRepresentation)
-        XCTAssertTrue(dock.representations.contains { $0.pixelsWide >= 1024 })
+    /// 默认图标不在运行时覆盖，交给系统按包里的 `.icon` 和图标样式显示；备选图标照旧覆盖。
+    func testDefaultIconLeavesDockToSystem() throws {
+        let preferences = MacUIPreferences.shared
+        let previousIcon = preferences.appIconID
+        defer { preferences.appIconID = previousIcon }
+        XCTAssertNil(MacAppIcon.runtimeDockImage(for: MacAppIcon.option(for: "")))
+        preferences.appIconID = "AppIcon19"
+        let alternate = try XCTUnwrap(MacAppIcon.runtimeDockImage(for: MacAppIcon.option(for: "AppIcon19")))
+        XCTAssertEqual(NSApp.applicationIconImage.tiffRepresentation, alternate.tiffRepresentation)
+        preferences.appIconID = ""
+        XCTAssertNotEqual(NSApp.applicationIconImage.tiffRepresentation, alternate.tiffRepresentation)
     }
 
     func testExportedIconsIncludeStandardAndRetinaRepresentations() throws {

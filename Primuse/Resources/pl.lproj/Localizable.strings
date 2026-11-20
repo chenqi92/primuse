@@ -803,7 +803,7 @@
 "anonymous_login_hint" = "Nazwa użytkownika i hasło nie są używane; zapisane dane logowania zostaną usunięte przy zapisie";
 "api_key" = "Klucz API";
 "app_icon" = "Ikona aplikacji";
-"app_icon_dock_hint" = "Wybierz ikonę Docka wyświetlaną podczas działania Primuse. Aby zachować ją po zamknięciu aplikacji, ustaw ją w Finderze.";
+"app_icon_style_hint" = "Domyślna ikona dopasowuje się do systemowego stylu ikon (ciemny, przezroczysty lub barwiony) w systemie macOS 26 i nowszym. Pozostałe ikony są widoczne w Docku tylko podczas działania Primuse i pozostają jasne. Aby zachować ikonę po zamknięciu aplikacji, ustaw ją w Finderze.";
 "app_icon_finder_setup" = "Zachowaj ikonę po zamknięciu…";
 "app_icon_finder_setup_title" = "Zachowaj ikonę po zamknięciu";
 "app_icon_finder_step_export" = "1. Wyeksportuj wybraną ikonę.";

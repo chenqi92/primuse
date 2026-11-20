@@ -603,6 +603,9 @@ targets:
     resources:
       - path: Primuse/Resources
       - path: Primuse/Resources-macOS
+      # 和 iPhone 共用同一份 Icon Composer 图标：macOS 26 起按系统图标样式切换深色/透明/着色，
+      # 更早的系统用 actool 从它渲染的平面图标。
+      - path: Primuse/Resources-iOS/AppIcons/AppIconPrimary.icon
     dependencies:
       - sdk: DeviceCheck.framework
       - package: GRDB
@@ -729,7 +732,7 @@ targets:
           - "_https._tcp."
     settings:
       base:
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon-Mac
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIconPrimary
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES
         # Universal Purchase: 跟 iOS 共用同一个 bundle ID,这样上传后会

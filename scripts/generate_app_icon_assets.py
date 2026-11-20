@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 from generate_flat_brand_assets import main as save_flat_brand_assets
 
 
@@ -14,7 +14,6 @@ DESIGN_DIR = ROOT / "IconDesign" / "AppIcons2026"
 RAW_DIR = DESIGN_DIR / "raw"
 IOS_ASSETS = ROOT / "Primuse" / "Resources" / "Assets.xcassets"
 IOS_PRIMARY_ICON_NAME = "AppIconPrimary"
-MAC_ICONSET = IOS_ASSETS / "AppIcon-Mac.appiconset"
 WATCH_ICONSET = ROOT / "PrimuseWatch" / "Resources" / "Assets.xcassets" / "AppIcon.appiconset"
 
 EXACT_ICONS = [
@@ -106,37 +105,8 @@ def save_direct_ios_assets(
     return any_icon, dark_icon
 
 
-def rounded_mac_master(source: Image.Image) -> Image.Image:
-    canvas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
-    body_size = 824
-    body = source.resize((body_size, body_size), Image.Resampling.LANCZOS).convert("RGBA")
-    mask = Image.new("L", (body_size, body_size), 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (0, 0, body_size - 1, body_size - 1),
-        radius=185,
-        fill=255,
-    )
-    body.putalpha(mask)
-    canvas.alpha_composite(body, ((1024 - body_size) // 2, (1024 - body_size) // 2))
-    return canvas
-
-
-def save_mac_and_watch(mac_icon: Image.Image, watch_icon: Image.Image) -> None:
-    mac_master = rounded_mac_master(mac_icon)
-    mac_sizes = {
-        "icon_16x16.png": 16,
-        "icon_16x16@2x.png": 32,
-        "icon_32x32.png": 32,
-        "icon_32x32@2x.png": 64,
-        "icon_128x128.png": 128,
-        "icon_128x128@2x.png": 256,
-        "icon_256x256.png": 256,
-        "icon_256x256@2x.png": 512,
-        "icon_512x512.png": 512,
-        "icon_512x512@2x.png": 1024,
-    }
-    for filename, side in mac_sizes.items():
-        mac_master.resize((side, side), Image.Resampling.LANCZOS).save(MAC_ICONSET / filename, optimize=True)
+def save_watch(watch_icon: Image.Image) -> None:
+    # The Mac app uses the iOS AppIconPrimary.icon; actool renders its macOS 15 fallback.
     watch_icon.save(WATCH_ICONSET / "AppIcon.png", optimize=True)
 
 
@@ -195,7 +165,7 @@ def main() -> None:
     assert set(rendered_icons) == set(CATALOG_ORDER)
     light_icons = [rendered_icons[name][0] for name in CATALOG_ORDER]
     dark_icons = [rendered_icons[name][1] for name in CATALOG_ORDER]
-    save_mac_and_watch(rendered_icons["AppIcon"][0], rendered_icons["AppIcon"][0])
+    save_watch(rendered_icons["AppIcon"][0])
     save_flat_brand_assets()
     save_contact_sheet(light_icons)
     save_appearance_sheet(light_icons, dark_icons)

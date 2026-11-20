@@ -1801,6 +1801,7 @@
 		B99C6369B3A2C508A5382E56 /* ScrobbleRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5AEA62DA6DCCE70D8C4B5B /* ScrobbleRequestTests.swift */; };
 		BA11936C1571CF99810066CA /* KaraokeVocalReducerUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C3FFB11853B2B7F713CDF18 /* KaraokeVocalReducerUnit.swift */; };
 		BA6C247278C46711ECE02B19 /* AppIconPrimary.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0C6DBCC2480F1607676C8F97 /* AppIconPrimary.icon */; };
+		2E0F235733790454FAE51BEC /* AppIconPrimary.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0C6DBCC2480F1607676C8F97 /* AppIconPrimary.icon */; };
 		BA734D2754207F90FB81DC54 /* MiniPlayerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8BE745FB20EDEA78E90EEF /* MiniPlayerWindowController.swift */; };
 		BA7BB6BF3CFA4264F0043282 /* CoverWallLayoutPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10CA5C8C87E7D225B1919EF /* CoverWallLayoutPolicy.swift */; };
 		BA97287E4483EAD0F3AF06FD /* SettingsActionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F07A220780BCFB3D8E6F4EF /* SettingsActionService.swift */; };
@@ -7354,6 +7355,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2E0F235733790454FAE51BEC /* AppIconPrimary.icon in Resources */,
 				3CC3AC224BCD7B4E099DC198 /* AppShortcuts.xcstrings in Resources */,
 				5B6CB118CEB161FBC2A9C0CF /* Assets.xcassets in Resources */,
 				B261BB62D19335080DF6E342 /* AudioCalibration.strings in Resources */,
@@ -10509,7 +10511,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 28EE6B136CE82FFC872F9E86 /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Mac";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconPrimary;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/PrimuseMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -10875,7 +10877,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 63D1E2C3BE30F68AD3F01632 /* Debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Mac";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconPrimary;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/PrimuseMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
