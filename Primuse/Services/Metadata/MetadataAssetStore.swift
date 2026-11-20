@@ -1000,7 +1000,7 @@ actor MetadataAssetStore {
     }
 
     nonisolated static func normalizedCachedLyrics(_ lines: [LyricLine]) -> [LyricLine] {
-        LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(
+        LyricVoiceTimelinePolicy.separatingLegacyOverlapGroups(
             in: LyricBilingualPairingPolicy.normalizingCachedLines(
                 lines.map { LyricTextEntityPolicy.decoded($0) }
             )
@@ -1105,7 +1105,7 @@ actor MetadataAssetStore {
             guard let data = try? Data(contentsOf: url),
                   let lines = try? JSONDecoder().decode([LyricLine].self, from: data),
                   !LossyDecodedLyricsRepair.isDamaged(lines) else { continue }
-            return LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(
+            return LyricVoiceTimelinePolicy.separatingLegacyOverlapGroups(
                 in: lines.map { LyricTextEntityPolicy.decoded($0) }
             )
         }

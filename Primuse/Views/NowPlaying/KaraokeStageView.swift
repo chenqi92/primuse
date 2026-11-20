@@ -320,6 +320,10 @@ struct KaraokeLyricsStage: View {
         let windows = snapshot.windows
         let activeIndex = KaraokeLineWindowPolicy.activeWindowIndex(in: windows, at: time)
         let focusIndex = snapshot.focusedWindowIndex(at: time)
+        // 对唱两人时间重叠时,上一行是另一声部、还没唱完:和当前行一样大、一起扫。
+        let previousIsSinging = activeIndex.flatMap {
+            KaraokeLineWindowPolicy.concurrentPartnerIndex(before: $0, in: windows, at: time)
+        } != nil
         let previous = focusIndex.flatMap { snapshot.row(at: $0 - 1) }
         let current = focusIndex.flatMap { snapshot.row(at: $0) }
         let next = focusIndex.flatMap { snapshot.row(at: $0 + 1) }
@@ -330,7 +334,7 @@ struct KaraokeLyricsStage: View {
             let rowWidth = min(proxy.size.width, Self.maxWidth)
             VStack(spacing: heightClass.value(18, compact: 10)) {
                 if let previous {
-                    row(previous, role: .previous, rowWidth: rowWidth)
+                    row(previous, role: previousIsSinging ? .current : .previous, rowWidth: rowWidth)
                 }
                 KaraokeLeadInDots(leadIn: leadIn)
                 if let current {
@@ -342,6 +346,7 @@ struct KaraokeLyricsStage: View {
             }
             .frame(maxWidth: Self.maxWidth)
             .animation(.easeInOut(duration: 0.35), value: focusIndex)
+            .animation(.easeInOut(duration: 0.35), value: previousIsSinging)
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }

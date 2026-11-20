@@ -28,6 +28,8 @@ struct ExternalDisplayNowPlayingView: View {
     @State private var lyrics: [LyricLine] = []
     @State private var lyricsLoadRevision: UInt = 0
     @State private var currentLyricIndex = -1
+    /// 对唱两人时间重叠时同时在唱的几行(`currentLyricIndex` 是其中最早开口的那一行);只有一行在唱时为 nil。
+    @State private var concurrentLyricRows: LyricActiveRows?
     @AppStorage(AppThemePreferences.ambientStrengthKey)
     private var ambientStrength = AppThemePreferences.defaultAmbientStrength
 
@@ -176,20 +178,23 @@ struct ExternalDisplayNowPlayingView: View {
         let index = currentLyricIndex
         let lower = max(0, index - 2)
         let upper = min(lyrics.count, index + 6)
+        // 对唱分左右(和 iPhone 歌词页同一规则):主声部靠左,另一声部靠右。
+        let isDuet = KaraokeDuetGatePolicy.hasDuetParts(lyrics)
 
         return VStack(alignment: .leading, spacing: 22) {
             ForEach(Array(lower..<upper), id: \.self) { realIndex in
                 let line = lyrics[realIndex]
-                let current = realIndex == index
+                let current = realIndex == index || concurrentLyricRows?.contains(realIndex) == true
                 let distance = abs(realIndex - index)
-                VStack(alignment: .leading, spacing: 6) {
+                let isTrailing = LyricDuetLayoutPolicy.side(for: line.voice, preferred: .leading, isDuet: isDuet) == .trailing
+                VStack(alignment: isTrailing ? .trailing : .leading, spacing: 6) {
                     lyricsTypeface.text(line.text, size: current ? 42 : 28, weight: current ? .bold : .semibold)
                         .currentLyricColor(
                             current ? Color.white : Color.white.opacity(max(0.18, 0.58 - Double(distance) * 0.14)),
                             isActive: current
                         )
                         .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+                        .multilineTextAlignment(isTrailing ? .trailing : .leading)
                         .minimumScaleFactor(0.74)
                         .shadow(color: current ? theme.accentColor.opacity(0.42) : .clear, radius: 18)
 
@@ -203,10 +208,11 @@ struct ExternalDisplayNowPlayingView: View {
                                 Color.white.opacity(isBackgroundActive ? 0.82 : 0.38)
                             )
                             .lineLimit(2)
-                            .multilineTextAlignment(.leading)
+                            .multilineTextAlignment(isTrailing ? .trailing : .leading)
                             .minimumScaleFactor(0.74)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: isTrailing ? .trailing : .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -216,14 +222,18 @@ struct ExternalDisplayNowPlayingView: View {
     private func updateLyricIndex(for time: TimeInterval) {
         guard !lyrics.isEmpty else {
             currentLyricIndex = -1
+            concurrentLyricRows = nil
             return
         }
-        let nextIndex = LyricPlaybackPositionPolicy.activeLineIndex(
-            in: lyrics,
-            at: time
-        ) ?? -1
+        // 对唱两人同时在唱时停在最早开口的那一行,另一行一起亮着。
+        let rows = LyricConcurrentVoicePolicy.activeRows(in: lyrics, at: time)
+        let nextIndex = rows?.anchor ?? -1
+        let concurrent = rows?.isConcurrent == true ? rows : nil
         if nextIndex != currentLyricIndex {
             currentLyricIndex = nextIndex
+        }
+        if concurrent != concurrentLyricRows {
+            concurrentLyricRows = concurrent
         }
     }
 

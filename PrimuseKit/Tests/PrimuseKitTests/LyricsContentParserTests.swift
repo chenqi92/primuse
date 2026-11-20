@@ -1158,8 +1158,8 @@ struct LyricsContentParserTests {
         ))
     }
 
-    @Test("Overlapping TTML agents share one row but keep independent word timelines")
-    func groupsStructuredOverlappingVoices() throws {
+    @Test("Overlapping TTML agents stay on their own rows and keep independent word timelines")
+    func keepsStructuredOverlappingVoicesApart() throws {
         let content = """
         <?xml version="1.0" encoding="UTF-8"?>
         <tt xmlns="http://www.w3.org/ns/ttml"
@@ -1170,7 +1170,7 @@ struct LyricsContentParserTests {
               <span begin="11s" end="14s">voice</span>
             </p>
             <p begin="11.5s" end="13.5s" ttm:agent="v2">
-              <span begin="11.5s" end="12.2s">Backing </span>
+              <span begin="11.5s" end="12.2s">Partner </span>
               <span begin="12.2s" end="13.5s">voice</span>
             </p>
             <p begin="14s" end="16s" ttm:agent="v1">Next line</p>
@@ -1179,36 +1179,65 @@ struct LyricsContentParserTests {
         """
 
         let lines = LyricsContentParser.parse(content)
-        let background = try #require(lines.first?.background?.first)
 
-        #expect(lines.count == 2)
-        #expect(lines[0].voice == .primary)
-        #expect(background.voice == .secondary)
-        #expect(background.timestamp == 11.5)
-        #expect(background.endTimestamp == 13.5)
-        #expect(background.syllables?.map(\.start) == [11.5, 12.2])
-        #expect(LyricVoiceTimelinePolicy.isActive(background, at: 12.5))
-        #expect(!LyricVoiceTimelinePolicy.isActive(background, at: 13.5))
-        #expect(LyricPlaybackPositionPolicy.activeLineIndex(in: lines, at: 12.5) == 0)
+        #expect(lines.count == 3)
+        #expect(lines.allSatisfy { $0.background == nil })
+        #expect(lines.map(\.voice) == [.primary, .secondary, .primary])
+        #expect(lines[1].timestamp == 11.5)
+        #expect(lines[1].endTimestamp == 13.5)
+        #expect(lines[1].syllables?.map(\.start) == [11.5, 12.2])
+        #expect(LyricConcurrentVoicePolicy.activeRows(in: lines, at: 12.5)?.rows == [0, 1])
+        #expect(LyricConcurrentVoicePolicy.activeRows(in: lines, at: 12.5)?.anchor == 0)
+        #expect(LyricConcurrentVoicePolicy.activeRows(in: lines, at: 14.5)?.rows == [2])
 
         let roundTrip = LyricsContentParser.parse(LyricsContentParser.serializeTTML(lines))
         #expect(LyricsContentParser.areSemanticallyEquivalent(lines, roundTrip))
     }
 
-    @Test("Legacy line-level voice caches infer overlap without treating parentheses as voices")
-    func groupsLegacyStructuredVoiceCache() throws {
+    @Test("TTML x-bg backing vocals still nest under their lead line")
+    func keepsBackingVocalsNested() throws {
+        let content = """
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+          <head><metadata>
+            <ttm:agent xml:id="v1" type="person"/>
+            <ttm:agent xml:id="v2" type="person"/>
+          </metadata></head>
+          <body><div>
+            <p begin="10s" end="14s" ttm:agent="v1">
+              <span begin="10s" end="12s">Lead</span>
+              <span ttm:role="x-bg" begin="12s" end="15s">
+                <span begin="12s" end="15s">(echo)</span>
+              </span>
+            </p>
+            <p begin="20s" end="22s" ttm:agent="v2">Partner</p>
+          </div></body>
+        </tt>
+        """
+
+        let lines = LyricsContentParser.parse(content)
+        let backing = try #require(lines.first?.background?.first)
+
+        #expect(lines.count == 2)
+        #expect(backing.voice == .secondary)
+        #expect(backing.isBackingVocal)
+        #expect(LyricVoiceTimelinePolicy.separatingLegacyOverlapGroups(in: lines) == lines)
+
+        let cached = try JSONDecoder().decode([LyricLine].self, from: JSONEncoder().encode(lines))
+        #expect(cached == lines)
+        #expect(LyricVoiceTimelinePolicy.separatingLegacyOverlapGroups(in: cached) == cached)
+    }
+
+    @Test("Legacy line-level voice caches stay sequential rows")
+    func keepsLegacyLineLevelVoiceCacheSequential() throws {
         let cached = [
             LyricLine(timestamp: 10, text: "Lead", voice: .primary),
-            LyricLine(timestamp: 11, text: "Backing", voice: .secondary),
+            LyricLine(timestamp: 11, text: "Partner", voice: .secondary),
             LyricLine(timestamp: 14, text: "Next", voice: .primary),
         ]
 
-        let grouped = LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: cached)
-        let background = try #require(grouped.first?.background?.first)
-
-        #expect(grouped.count == 2)
-        #expect(background.text == "Backing")
-        #expect(background.endTimestamp == 14)
+        #expect(LyricVoiceTimelinePolicy.separatingLegacyOverlapGroups(in: cached) == cached)
+        // Without written line ends nobody is known to still be singing.
+        #expect(LyricConcurrentVoicePolicy.activeRows(in: cached, at: 12)?.rows == [1])
     }
 
     @Test("Adjacent same-timestamp bilingual LRC keeps authored translations")

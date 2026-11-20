@@ -27,6 +27,8 @@ struct MacMiniPlayerView: View {
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = -1
+    /// 对唱两人时间重叠时同时在唱的几行(`currentIndex` 是其中最早开口的那一行);只有一行在唱时为 nil。
+    @State private var concurrentLyricRows: LyricActiveRows?
     @State private var lyricsLoadRevision: UInt = 0
     /// 最近一次真正跑完的歌词加载对应的世代。跟当前世代不一致就说明还在加载。
     @State private var settledLyricsIdentity: LyricsLoadTaskIdentity?
@@ -582,7 +584,7 @@ struct MacMiniPlayerView: View {
                     } else {
                         Spacer().frame(height: 30)
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { i, line in
-                            let active = i == currentIndex
+                            let active = i == currentIndex || concurrentLyricRows?.contains(i) == true
                             miniLyricLine(line: line, index: i, isActive: active)
                                 .id(line.id)
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -594,7 +596,7 @@ struct MacMiniPlayerView: View {
                                         .accessibilityAddTraits(.isButton)
                                         .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
                                 }
-                                .animation(.easeInOut(duration: 0.25), value: currentIndex)
+                                .animation(.easeInOut(duration: 0.25), value: concurrentLyricRows ?? .single(currentIndex))
                         }
                         Spacer().frame(height: 60)
                     }
@@ -774,15 +776,19 @@ struct MacMiniPlayerView: View {
 
     @discardableResult
     private func updateIndex(time: TimeInterval) -> Int? {
-        guard let index = LyricPlaybackPositionPolicy.activeLineIndex(
+        // 对唱两人同时在唱时停在最早开口的那一行,另一行一起亮着。
+        guard let rows = LyricConcurrentVoicePolicy.activeRows(
             in: lyrics,
             at: time
         ) else {
             if currentIndex != -1 { currentIndex = -1 }
+            if concurrentLyricRows != nil { concurrentLyricRows = nil }
             return nil
         }
-        if currentIndex != index { currentIndex = index }
-        return index
+        let concurrent = rows.isConcurrent ? rows : nil
+        if concurrentLyricRows != concurrent { concurrentLyricRows = concurrent }
+        if currentIndex != rows.anchor { currentIndex = rows.anchor }
+        return rows.anchor
     }
 
     private func seekToLyricLine(_ line: LyricLine) {

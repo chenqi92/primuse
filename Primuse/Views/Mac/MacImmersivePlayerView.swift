@@ -71,6 +71,8 @@ struct MacImmersivePlayerView: View {
     @State private var showsEffectPicker = false
     @State private var scrubPreview: TimeInterval?
     @State private var activeLyricIndex: Int?
+    /// 对唱两人时间重叠时同时在唱的几行(`activeLyricIndex` 是其中最早开口的那一行);只有一行在唱时为 nil。
+    @State private var concurrentLyricRows: LyricActiveRows?
     @State private var lyricInterlude = false
     @State private var isPresentationActive = false
     @State private var isWindowVisible = false
@@ -1418,7 +1420,7 @@ struct MacImmersivePlayerView: View {
             return ImmersiveStageLyric(
                 id: position,
                 text: text,
-                isActive: position == index,
+                isActive: position == index || concurrentLyricRows?.contains(position) == true,
                 offset: position - index,
                 syllables: resolvedSyllables,
                 startTime: line.isSynchronized ? line.timestamp : nil,
@@ -1479,6 +1481,7 @@ struct MacImmersivePlayerView: View {
     private func observeLyricPlayback() async {
         guard isRenderingActive else { return }
         activeLyricIndex = nil
+        concurrentLyricRows = nil
         lyricInterlude = false
         guard hasSynchronizedLyrics else { return }
 
@@ -1488,11 +1491,14 @@ struct MacImmersivePlayerView: View {
         while !Task.isCancelled {
             guard isRenderingActive else { return }
             let playbackTime = lyricPlaybackTime
-            let index = LyricPlaybackPositionPolicy.activeLineIndex(
+            // 对唱两人同时在唱时停在最早开口的那一行,另一行一起亮着。
+            let rows = LyricConcurrentVoicePolicy.activeRows(
                 in: lyrics,
                 at: playbackTime,
                 lookahead: lookahead
             )
+            let index = rows?.anchor
+            let concurrent = rows?.isConcurrent == true ? rows : nil
             let isInterlude: Bool
             if lyricsMotionEnabled,
                let index,
@@ -1505,6 +1511,7 @@ struct MacImmersivePlayerView: View {
             }
 
             if activeLyricIndex != index { activeLyricIndex = index }
+            if concurrentLyricRows != concurrent { concurrentLyricRows = concurrent }
             if lyricInterlude != isInterlude { lyricInterlude = isInterlude }
 
             #if DEBUG

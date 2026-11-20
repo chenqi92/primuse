@@ -172,6 +172,20 @@ public enum KaraokeLineWindowPolicy {
         }
         return nil
     }
+
+    /// 对唱两人时间重叠时,和 `index` 那一行同时在唱的前一行:另一声部、两行此刻都还没唱完。
+    public static func concurrentPartnerIndex(
+        before index: Int,
+        in windows: [KaraokeLineWindow],
+        at time: TimeInterval
+    ) -> Int? {
+        guard windows.indices.contains(index), index > 0 else { return nil }
+        let partner = index - 1
+        guard windows[partner].voice != windows[index].voice,
+              windows[partner].contains(time),
+              windows[index].contains(time) else { return nil }
+        return partner
+    }
 }
 
 /// Countdown dots shown before the singer's next entry.

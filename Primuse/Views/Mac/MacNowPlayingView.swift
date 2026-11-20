@@ -54,6 +54,8 @@ struct MacNowPlayingView: View {
     @State private var commentPresentation: LyricCommentPresentation?
     @State private var lyricsWritingDirection: LyricWritingDirection = .natural
     @State private var currentIndex: Int = -1
+    /// 对唱两人时间重叠时同时在唱的几行(`currentIndex` 是其中最早开口、滚动对准的那一行);只有一行在唱时为 nil。
+    @State private var concurrentLyricRows: LyricActiveRows?
     /// 正在走的那段前奏或间奏的提示点;不在间奏里(或关掉了提示点)是 nil。滚动停在它上面。
     @State private var activeInterludeAnchor: MacLyricsScrollAnchor?
     @State private var activeBackgroundLineIDs: Set<String> = []
@@ -1291,7 +1293,8 @@ struct MacNowPlayingView: View {
                                     macLyricLine(
                                         line: line,
                                         index: i,
-                                        isActive: activeInterludeAnchor == nil && i == currentIndex,
+                                        isActive: activeInterludeAnchor == nil
+                                            && (i == currentIndex || concurrentLyricRows?.contains(i) == true),
                                         fontSize: lyricLayoutFontSize,
                                         isDuet: isDuet
                                     )
@@ -1715,7 +1718,7 @@ struct MacNowPlayingView: View {
         .scaleEffect(visualScale, anchor: isTrailing ? .trailing : .leading)
         .animation(
             .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
-            value: currentIndex
+            value: concurrentLyricRows ?? .single(currentIndex)
         )
         .frame(maxWidth: .infinity, alignment: frameAlignment)
         .environment(\.layoutDirection, lyricLayoutDirection)
@@ -2271,12 +2274,14 @@ struct MacNowPlayingView: View {
         guard let song = player.currentSong else {
             installLyrics([])
             currentIndex = -1
+            concurrentLyricRows = nil
             activeInterludeAnchor = nil
             return
         }
         // 先清掉上一首的内容,避免在异步加载途中显示「上首歌的歌词」。
         installLyrics([])
         currentIndex = -1
+        concurrentLyricRows = nil
         activeInterludeAnchor = nil
 
         let loaded = await LyricsLoader.load(
@@ -2369,6 +2374,7 @@ struct MacNowPlayingView: View {
     private func updateIndex(time: TimeInterval, animated: Bool = true) -> MacLyricsScrollAnchor? {
         updateActiveBackgroundLines(at: time)
         let index: Int
+        var concurrent: LyricActiveRows? = nil
         let interlude: MacLyricsScrollAnchor?
         switch LyricPlaybackPositionPolicy.scrollTarget(
             in: lyrics,
@@ -2376,7 +2382,10 @@ struct MacNowPlayingView: View {
             lookahead: lyricsLookahead
         ) {
         case .line(let line)?:
-            index = line
+            // 对唱两人时间重叠时几行同时在唱:都亮着,滚动对准最早开口的那一行(和 iPhone 歌词页同一套)。
+            let rows = LyricConcurrentVoicePolicy.rows(aroundFrontier: line, in: lyrics, at: time)
+            index = rows.anchor
+            concurrent = rows.isConcurrent ? rows : nil
             interlude = nil
         case .interlude(let line)?:
             index = line
@@ -2392,6 +2401,7 @@ struct MacNowPlayingView: View {
             index = -1
             interlude = nil
         }
+        if concurrentLyricRows != concurrent { concurrentLyricRows = concurrent }
         if activeInterludeAnchor != interlude {
             let update = {
                 if currentIndex != index { currentIndex = index }

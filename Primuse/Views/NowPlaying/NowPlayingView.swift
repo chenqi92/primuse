@@ -18360,6 +18360,9 @@ struct LyricsScrollView: View, @MainActor Equatable {
     /// 高度还把歌词整体往下推, 跟着手指的那几帧整页重排, 看着就是一卡。
     @State private var userScrollStartOffsetY: CGFloat?
     @State private var currentLineIndex = -1
+    /// 对唱两人时间重叠时同时在唱的几行(`currentLineIndex` 是其中最早开口、滚动对准的那一行);
+    /// 只有一行在唱时为 nil。
+    @State private var concurrentRows: LyricActiveRows?
     @State private var commentPresentation: LyricCommentPresentation?
     /// 正在显示的间奏提示点:第一句前的前奏,或跟在某一句后面的那一段。
     @State private var activeInterlude: ActiveInterludeMarker? = nil
@@ -18550,6 +18553,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
                 reduceMotion: reduceMotion,
                 onClearSynchronizedState: {
                     if currentLineIndex != -1 { currentLineIndex = -1 }
+                    if concurrentRows != nil { concurrentRows = nil }
                     if activeInterlude != nil { activeInterlude = nil }
                 },
                 onPollTick: { disableAnimations in
@@ -18568,6 +18572,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
         .onChange(of: songID) { _, _ in
             // 换歌后先等待新歌首句时间戳，再恢复高亮与自动滚动。
             currentLineIndex = -1
+            concurrentRows = nil
             activeInterlude = nil
             lastLyricRowTapAt = .distantPast
             lastSurfaceLongPressAt = .distantPast
@@ -19672,7 +19677,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
             // snapping the row style before scrolling it.
             .animation(
                 .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
-                value: currentLineIndex
+                value: rowActivityKey
             )
             .onGeometryChange(for: CGFloat.self) { proxy in
                 Self.rowAnchorY(proxy.frame(in: .named(Self.lyricsContentSpace)))
@@ -19763,7 +19768,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
         visualScale: CGFloat = 1,
         rowAlignment: PlayerLyricsAlignment
     ) -> some View {
-        let isActive = activeInterlude == nil && index == currentLineIndex
+        let isActive = activeInterlude == nil && isSingingRow(index)
         let fontSize = Self.lyricsLayoutBaseSize * CGFloat(effectiveLyricsScale)
         let companionFontSize = Self.lyricsLayoutBaseSize * CGFloat(effectiveCompanionScale) * 0.65
         // weight 在统一动效模式下固定 .semibold。active 行已有 scale + opacity
@@ -19811,7 +19816,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
                                 dimmedByAmbient
                                     ? appearance.secondary
                                     : isActive ? appearance.secondary
-                                    : (index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
+                                    : isPastRow(index)
                                         ? appearance.primary.opacity(appearance.pastLyricOpacity * 0.72)
                                         : appearance.primary.opacity(appearance.futureLyricOpacity * 0.72)
                             )
@@ -19959,7 +19964,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
             let inactiveOpacity: Double = dimmedByAmbient ? appearance.inactiveSyllableOpacity
                 : (isActive
                     ? appearance.inactiveSyllableOpacity
-                    : ((index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
+                    : (isPastRow(index)
                         ? appearance.pastLyricOpacity
                         : appearance.futureLyricOpacity))
             let activeOpacity: Double = dimmedByAmbient ? 1.0
@@ -20014,7 +20019,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
             return AnyShapeStyle(appearance.primary)
         }
         return AnyShapeStyle(
-            (index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
+            isPastRow(index)
                 ? appearance.primary.opacity(appearance.pastLyricOpacity)
                 : appearance.primary.opacity(appearance.futureLyricOpacity)
         )
@@ -20024,6 +20029,22 @@ struct LyricsScrollView: View, @MainActor Equatable {
     private struct RowActivity {
         var opacity: Double
         var scale: Double
+    }
+
+    /// 这一行此刻在唱:当前句,或对唱两人时间重叠时同时在唱的另一行。
+    private func isSingingRow(_ index: Int) -> Bool {
+        index == currentLineIndex || concurrentRows?.contains(index) == true
+    }
+
+    /// 这一行已经唱过。间奏里停着的那一句也算唱过;对唱时夹在同时在唱的两行之间、已经唱完的也算。
+    private func isPastRow(_ index: Int) -> Bool {
+        if index == currentLineIndex { return activeInterlude != nil }
+        return concurrentRows?.hasPassed(index) ?? (index < currentLineIndex)
+    }
+
+    /// 各行明暗、大小跟着变的那个值:当前句,以及同时在唱的几行。
+    private var rowActivityKey: LyricActiveRows {
+        concurrentRows ?? .single(currentLineIndex)
     }
 
     /// 字级模式专用。scale 只在 active 切换时离散变化 (1.0 ↔ lyricsActiveVisualScale),
@@ -20038,12 +20059,12 @@ struct LyricsScrollView: View, @MainActor Equatable {
             LyricVoiceTimelinePolicy.isActive($0, at: player.currentTime)
         } ?? false
         return RowActivity(
-            opacity: activeInterlude == nil && (index == currentLineIndex || hasActiveBackground)
+            opacity: activeInterlude == nil && (isSingingRow(index) || hasActiveBackground)
                 ? 1.0
-                : ((index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
+                : (isPastRow(index)
                     ? appearance.pastLyricOpacity
                     : appearance.futureLyricOpacity) * cascadeDepthOpacity(forRow: index),
-            scale: activeInterlude == nil && index == currentLineIndex ? Self.lyricsActiveVisualScale : 1.0
+            scale: activeInterlude == nil && isSingingRow(index) ? Self.lyricsActiveVisualScale : 1.0
         )
     }
 
@@ -20056,13 +20077,13 @@ struct LyricsScrollView: View, @MainActor Equatable {
         guard index >= 0, index < lyrics.count else {
             return RowActivity(opacity: appearance.futureLyricOpacity, scale: 1.0)
         }
-        let isActive = activeInterlude == nil && (index == currentLineIndex
+        let isActive = activeInterlude == nil && (isSingingRow(index)
             || (lyrics[index].background?.contains {
                 LyricVoiceTimelinePolicy.isActive($0, at: player.currentTime)
             } ?? false))
         let opacity = isActive
             ? 1.0
-            : ((index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
+            : (isPastRow(index)
                 ? appearance.pastLyricOpacity
                 : appearance.futureLyricOpacity) * cascadeDepthOpacity(forRow: index)
         return RowActivity(
@@ -20086,7 +20107,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
     private func inactiveLyricBlurRadius(for index: Int) -> CGFloat {
         CGFloat(LyricDepthEffectPolicy.blurRadius(
             forRow: index,
-            activeRow: currentLineIndex,
+            activeRow: isSingingRow(index) ? index : currentLineIndex,
             isEnabled: (blursInactiveLyrics || usesCascadeStyle)
                 && !reduceTransparency
                 && !isManuallyBrowsingLyrics
@@ -20145,6 +20166,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
     ) -> LyricsScrollTarget? {
         guard hasSynchronizedLyrics else {
             if currentLineIndex != -1 { currentLineIndex = -1 }
+            if concurrentRows != nil { concurrentRows = nil }
             if activeInterlude != nil { activeInterlude = nil }
             return nil
         }
@@ -20162,6 +20184,7 @@ struct LyricsScrollView: View, @MainActor Equatable {
         ) else {
             let clearActiveLine = {
                 if currentLineIndex != -1 { currentLineIndex = -1 }
+                if concurrentRows != nil { concurrentRows = nil }
                 if activeInterlude != nil { activeInterlude = nil }
             }
             if disableAnimations {
@@ -20175,14 +20198,18 @@ struct LyricsScrollView: View, @MainActor Equatable {
         }
 
         let activeIndex: Int
+        var concurrent: LyricActiveRows? = nil
         let interlude: ActiveInterludeMarker?
         let scrollTarget: LyricsScrollTarget?
         switch position {
         case .line(let index):
             guard lyrics.indices.contains(index) else { return nil }
-            activeIndex = index
+            // 对唱两人时间重叠时几行同时在唱:都亮着,滚动对准最早开口的那一行,好让它们都在视野里。
+            let rows = LyricConcurrentVoicePolicy.rows(aroundFrontier: index, in: lyrics, at: time)
+            activeIndex = rows.anchor
+            concurrent = rows.isConcurrent ? rows : nil
             interlude = nil
-            scrollTarget = .line(id: lyrics[index].id)
+            scrollTarget = .line(id: lyrics[rows.anchor].id)
         case .interlude(let index):
             guard lyrics.indices.contains(index) else { return nil }
             activeIndex = index
@@ -20204,6 +20231,9 @@ struct LyricsScrollView: View, @MainActor Equatable {
         let update = {
             if currentLineIndex != activeIndex {
                 currentLineIndex = activeIndex
+            }
+            if concurrentRows != concurrent {
+                concurrentRows = concurrent
             }
             if activeInterlude != interlude {
                 activeInterlude = interlude

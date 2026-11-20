@@ -825,7 +825,11 @@ struct DesktopLyricsView: View {
 
     private var activeStructuredBackgroundLines: [LyricLine] {
         let time = player.currentTime
-        return lyrics.flatMap { $0.background ?? [] }.filter {
+        // 对唱两人时间重叠时,另一声部还没唱完的那一句也一起显示在当前句下面。
+        let partners = LyricConcurrentVoicePolicy.activeRows(in: lyrics, at: time)?.rows
+            .filter { $0 != currentIndex && lyrics.indices.contains($0) }
+            .map { lyrics[$0] } ?? []
+        return partners + lyrics.flatMap { $0.background ?? [] }.filter {
             LyricVoiceTimelinePolicy.isActive($0, at: time)
         }
     }

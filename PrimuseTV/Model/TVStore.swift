@@ -6249,6 +6249,29 @@ final class TVStore {
         )
     }
 
+    /// 已经知道最近开唱的那一句时,补上对唱时同时在唱的另一行(Kit `LyricConcurrentVoicePolicy`,和 iPhone、Mac 同一套)。
+    func lyricActiveRows(aroundFrontier index: Int, at time: TimeInterval) -> LyricActiveRows {
+        LyricConcurrentVoicePolicy.rows(
+            aroundFrontier: index,
+            in: lyrics,
+            at: time,
+            timestamp: \.time,
+            end: \.endTime,
+            voice: \.voice
+        )
+    }
+
+    /// 这一句的逐字扫光什么时候让位:下一组开唱时;对唱时另一声部开口而这一句还没唱完,就唱到自己的行末。
+    func lyricHandoverTime(afterLine index: Int) -> TimeInterval? {
+        LyricConcurrentVoicePolicy.deactivationTime(
+            afterLine: index,
+            in: lyrics,
+            timestamp: \.time,
+            end: \.endTime,
+            voice: \.voice
+        )
+    }
+
     /// 某一句后面那段够长的间奏;没有就是 nil。播放页每列一行都要问一次,所以不在这里再查
     /// `lyricsFollowPlayback`(整份歌词扫一遍),由调用方先查一次。
     func lyricInterludeWindow(afterLine index: Int) -> LyricPlaybackPositionPolicy.InterludeWindow? {

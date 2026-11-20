@@ -1057,6 +1057,10 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
     public var voice: LyricVoice
     /// 背景和声子行（同一时间窗内附唱）。`background` 内的 background 应永远为 nil。
     public var background: [LyricLine]?
+    /// 这一行是写在某一句里面的和声(TTML `x-bg`、LYS/QRC 的和声标记),只出现在 `background` 里。
+    /// 旧版本还把和主唱时间重叠的另一声部整句并进过 `background`,那些没有这个标记;
+    /// 读旧缓存时据此把它们拆回成自己的一行(见 `LyricVoiceTimelinePolicy.separatingLegacyOverlapGroups`)。
+    public var isBackingVocal: Bool
     /// Leading LRC/ELRC document metadata such as `[ti:]`, `[ar:]` and
     /// `[by:]`. Only the first parsed lyric line carries this value so the
     /// existing line-oriented cache and CloudKit snapshot remain compatible
@@ -1104,7 +1108,8 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         alternateManualTranslations: [LyricManualTranslation] = [],
         romanization: String? = nil,
         romanizationSyllables: [LyricSyllable]? = nil,
-        documentSource: LyricsDocumentSource? = nil
+        documentSource: LyricsDocumentSource? = nil,
+        isBackingVocal: Bool = false
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -1122,6 +1127,7 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         self.romanization = romanization
         self.romanizationSyllables = romanizationSyllables
         self.documentSource = documentSource
+        self.isBackingVocal = isBackingVocal
     }
 
     /// 行结束时间。结构化行末与最后一字取较晚者；普通 LRC 无信息，外部仍需靠下一行推断。
@@ -1143,78 +1149,73 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
     }
 }
 
-/// Keeps explicitly identified overlapping singers on independent timelines
-/// while exposing only primary rows to ordinary playback positioning. Plain
-/// LRC/ELRC lines remain untouched because those formats carry no voice role.
+/// 不同声部各走各的时间轴。TTML 里两个 `ttm:agent` 时间重叠时(对唱里一人还没唱完另一人
+/// 已经开口,或两人同时唱)各自仍是独立的一行,此刻谁在唱由
+/// `LyricConcurrentVoicePolicy` 判定;只有写在一句里面的和声(`x-bg`)才收进那一句的 `background`。
 public enum LyricVoiceTimelinePolicy {
-    public static func groupingOverlappingSecondaryLines(
-        in lines: [LyricLine]
-    ) -> [LyricLine] {
-        guard lines.contains(where: { $0.voice == .secondary }) else { return lines }
+    /// 旧版本读 TTML(和读缓存)时,把和主唱时间重叠的另一声部整句并进了主唱那一行的
+    /// `background`,缓存里存的就是并过的样子。读出来时把认得出是独立一句的拆回成自己的一行:
+    /// 只看对唱的歌词(另一声部还有自己的行),只看没有 `isBackingVocal` 标记的子行,
+    /// 并且它和主唱同时开口、同时唱完,或唱到主唱那一句结束以后——写在一句里面的和声不会这样。
+    /// 认不出的照旧留作和声。新解析的歌词没有这种子行,原样返回。
+    public static func separatingLegacyOverlapGroups(in lines: [LyricLine]) -> [LyricLine] {
+        guard lines.contains(where: { $0.voice == .secondary && $0.isSynchronized }),
+              lines.contains(where: { line in
+                  line.voice == .primary
+                      && line.background?.contains(where: { isLegacyGroupCandidate($0) }) == true
+              }) else { return lines }
 
-        var grouped = lines
-        var removedSecondaryIndexes: Set<Int> = []
-
-        for secondaryIndex in lines.indices where lines[secondaryIndex].voice == .secondary {
-            let secondary = lines[secondaryIndex]
-            guard let secondaryEnd = resolvedEnd(forLineAt: secondaryIndex, in: lines),
-                  secondaryEnd > secondary.timestamp else { continue }
-
-            var bestPrimaryIndex: Int?
-            var bestOverlap: TimeInterval = 0
-
-            for primaryIndex in lines.indices where lines[primaryIndex].voice == .primary {
-                let primary = lines[primaryIndex]
-                guard let primaryEnd = resolvedEnd(forLineAt: primaryIndex, in: lines),
-                      primaryEnd > primary.timestamp,
-                      primary.timestamp <= secondary.timestamp + 0.002 else { continue }
-
-                let overlap = min(primaryEnd, secondaryEnd)
-                    - max(primary.timestamp, secondary.timestamp)
-                guard overlap > 0.002 else { continue }
-
-                if overlap > bestOverlap + 0.002 {
-                    bestPrimaryIndex = primaryIndex
-                    bestOverlap = overlap
+        var ordered: [(order: Int, line: LyricLine)] = []
+        ordered.reserveCapacity(lines.count)
+        var separatedAny = false
+        for line in lines {
+            guard line.voice == .primary, let children = line.background, !children.isEmpty else {
+                ordered.append((ordered.count, line))
+                continue
+            }
+            var kept: [LyricLine] = []
+            var separated: [LyricLine] = []
+            for child in children {
+                if isLegacyGroupCandidate(child), looksLikeOwnLine(child, beside: line) {
+                    separated.append(child)
+                } else {
+                    kept.append(child)
                 }
             }
-
-            guard let bestPrimaryIndex else { continue }
-            var background = secondary
-            background.background = nil
-            if background.endTime == nil {
-                background.endTimestamp = secondaryEnd
+            var host = line
+            if !separated.isEmpty {
+                host.background = kept.isEmpty ? nil : kept
+                separatedAny = true
             }
-            grouped[bestPrimaryIndex].background = (
-                grouped[bestPrimaryIndex].background ?? []
-            ) + [background]
-            removedSecondaryIndexes.insert(secondaryIndex)
+            ordered.append((ordered.count, host))
+            for child in separated {
+                ordered.append((ordered.count, child))
+            }
         }
-
-        return grouped.enumerated().compactMap { index, line in
-            removedSecondaryIndexes.contains(index) ? nil : line
-        }
+        guard separatedAny else { return lines }
+        return ordered.sorted {
+            if $0.line.timestamp == $1.line.timestamp { return $0.order < $1.order }
+            return $0.line.timestamp < $1.line.timestamp
+        }.map(\.line)
     }
 
-    private static func resolvedEnd(
-        forLineAt index: Int,
-        in lines: [LyricLine]
-    ) -> TimeInterval? {
-        let line = lines[index]
-        if let end = line.endTime { return end }
+    private static func isLegacyGroupCandidate(_ child: LyricLine) -> Bool {
+        child.voice == .secondary && !child.isBackingVocal && child.isSynchronized
+    }
 
-        // Legacy caches did not retain TTML paragraph ends. Prefer the next
-        // row from the same explicit voice, then fall back to the next timed
-        // row, matching ordinary line-level playback semantics.
-        if let sameVoiceEnd = lines.indices.dropFirst(index + 1).lazy
-            .map({ lines[$0] })
-            .first(where: { $0.voice == line.voice && $0.timestamp > line.timestamp })?
-            .timestamp {
-            return sameVoiceEnd
+    /// 写在一句里面的和声时间落在那一句之内,通常晚于主唱开口、早于主唱收尾。
+    private static func looksLikeOwnLine(_ child: LyricLine, beside host: LyricLine) -> Bool {
+        let tolerance = 0.05
+        guard host.isSynchronized else { return false }
+        if abs(child.timestamp - host.timestamp) <= tolerance { return true }
+        guard let childEnd = child.endTime else { return false }
+        if let hostEnd = host.endTime, childEnd > hostEnd + tolerance { return true }
+        if let hostLastWord = host.syllables?.last?.end,
+           let childLastWord = child.syllables?.last?.end,
+           abs(childLastWord - hostLastWord) <= tolerance {
+            return true
         }
-        return lines.indices.dropFirst(index + 1).lazy
-            .map { lines[$0].timestamp }
-            .first { $0 > line.timestamp }
+        return false
     }
 
     public static func flattenedLines(_ lines: [LyricLine]) -> [LyricLine] {
@@ -1255,6 +1256,7 @@ extension LyricLine: Codable {
         case voice, background, metadataLines, languageCode, documentIsLocalOverride
         case manualTranslation, alternateManualTranslations, romanization, romanizationSyllables
         case documentSource
+        case isBackingVocal = "backingVocal"
     }
 
     public init(from decoder: Decoder) throws {
@@ -1289,6 +1291,7 @@ extension LyricLine: Codable {
             LyricsDocumentSource.self,
             forKey: .documentSource
         )
+        self.isBackingVocal = try c.decodeIfPresent(Bool.self, forKey: .isBackingVocal) ?? false
 
         // Older parsers cached square-bracket word lyrics as unsynchronized
         // source text. Recover only that lossless shape, retaining row identity
@@ -1329,6 +1332,7 @@ extension LyricLine: Codable {
         try c.encodeIfPresent(romanization, forKey: .romanization)
         try c.encodeIfPresent(romanizationSyllables, forKey: .romanizationSyllables)
         try c.encodeIfPresent(documentSource, forKey: .documentSource)
+        if isBackingVocal { try c.encode(true, forKey: .isBackingVocal) }
     }
 }
 
@@ -2513,7 +2517,6 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
                 return $0.line.timestamp < $1.line.timestamp
             }
             .map(\.line)
-        orderedLines = LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: orderedLines)
         if let languageCode = delegate.documentLanguageCode,
            !orderedLines.isEmpty {
             var metadata = orderedLines[0].metadataLines ?? []
@@ -3016,7 +3019,8 @@ private final class TTMLLyricsParser: NSObject, XMLParserDelegate {
             manualTranslation: span.translations.first,
             alternateManualTranslations: Array(span.translations.dropFirst()),
             romanization: span.romanization?.text,
-            romanizationSyllables: span.romanization?.syllables
+            romanizationSyllables: span.romanization?.syllables,
+            isBackingVocal: true
         )
     }
 

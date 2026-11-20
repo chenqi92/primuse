@@ -1480,7 +1480,13 @@ struct TVNowPlayingView: View {
                     ForEach(lyricsListEntries()) { entry in
                         switch entry.id {
                         case .line(let i):
-                            lyricLine(index: i, current: cur, isDuet: isDuet, interludeActive: position.anchor?.isMarker == true)
+                            lyricLine(
+                                index: i,
+                                current: cur,
+                                concurrent: position.concurrent,
+                                isDuet: isDuet,
+                                interludeActive: position.anchor?.isMarker == true
+                            )
                                 .id(entry.id)
                                 .padding(.top, Self.lyricsRowSpacing)
                         case .intro, .interlude:
@@ -1572,17 +1578,25 @@ struct TVNowPlayingView: View {
     }
 
     private struct TVLyricsPosition: Equatable {
-        /// 当前或刚结束的歌词行，用于相邻行的明暗距离。
+        /// 当前或刚结束的歌词行，用于相邻行的明暗距离。对唱两人同时在唱时是最早开口的那一行。
         var current: Int?
         /// 滚到哪:当前这一句,或正在走的那一行提示点。
         var anchor: TVLyricsAnchor?
+        /// 对唱两人时间重叠时同时在唱的几行;只有一行在唱时为 nil。
+        var concurrent: LyricActiveRows? = nil
     }
 
     private func lyricsPosition() -> TVLyricsPosition {
         let time = isCoveredByImmersive ? coveredPlayback.lyricTime : store.interpolatedTime()
         switch store.lyricScrollTarget(at: time) {
         case .line(let index)?:
-            return TVLyricsPosition(current: index, anchor: .line(index))
+            // 对唱两人时间重叠时几行同时在唱:都亮着,滚动对准最早开口的那一行(和 iPhone、Mac 同一套)。
+            let rows = store.lyricActiveRows(aroundFrontier: index, at: time)
+            return TVLyricsPosition(
+                current: rows.anchor,
+                anchor: .line(rows.anchor),
+                concurrent: rows.isConcurrent ? rows : nil
+            )
         case .interlude(let index)?:
             // 关掉了间奏提示点就没有那一行可停,照旧停在上一句。
             return TVLyricsPosition(
@@ -1659,7 +1673,13 @@ struct TVNowPlayingView: View {
     }
 
     @ViewBuilder
-    private func lyricLine(index i: Int, current cur: Int?, isDuet: Bool, interludeActive: Bool) -> some View {
+    private func lyricLine(
+        index i: Int,
+        current cur: Int?,
+        concurrent: LyricActiveRows?,
+        isDuet: Bool,
+        interludeActive: Bool
+    ) -> some View {
         // 按「罗马音显示」换过正文或附属罗马音；当前行、时间仍按原来那一行。
         let source = TVLyricsRomanizationController.shared.displayLine(store.lyrics[i], songID: store.currentSongID)
         let _ = WordLyricsAlignmentService.shared.alignmentRevision
@@ -1674,9 +1694,9 @@ struct TVNowPlayingView: View {
         let isTrailing = LyricDuetLayoutPolicy.side(for: ln.voice, preferred: .leading, isDuet: isDuet) == .trailing
         let textAlignment: TextAlignment = isTrailing ? .trailing : .leading
         let flowAlignment: LyricFlowHorizontalAlignment = isTrailing ? .trailing : .leading
-        // 下一句开唱时这一行让位，唱过的字要在那之前落回原大小。
-        let nextLineTime = store.lyrics.indices.contains(i + 1) ? store.lyrics[i + 1].time : nil
-        let isCur = !interludeActive && cur == i
+        // 下一句开唱时这一行让位，唱过的字要在那之前落回原大小。对唱时另一声部开口不算接走。
+        let nextLineTime = store.lyricHandoverTime(afterLine: i)
+        let isCur = !interludeActive && (cur == i || concurrent?.contains(i) == true)
         let dist = cur.map { abs(i - $0) }
         let opacity = isCur ? 1 : dist.map { max(0.42, 0.72 - Double($0) * 0.08) } ?? 0.82
         // 字号固定、靠 scaleEffect 缩放——缩放能平滑动画,直接换 font size 会硬跳。
@@ -1757,6 +1777,7 @@ struct TVNowPlayingView: View {
         ))
         .animation(reduceMotion ? nil : .smooth(duration: 0.5, extraBounce: 0), value: interludeActive)
         .animation(reduceMotion ? nil : .smooth(duration: 0.5, extraBounce: 0), value: cur)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.5, extraBounce: 0), value: concurrent)
         .frame(maxWidth: .infinity, alignment: isTrailing ? .trailing : .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(ln.text))

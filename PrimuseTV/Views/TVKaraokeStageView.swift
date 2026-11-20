@@ -474,6 +474,10 @@ struct TVKaraokeLyrics: View {
     var body: some View {
         let windows = snapshot.windows
         let focus = snapshot.focusedWindowIndex(at: time)
+        // 对唱两人时间重叠时,上一行是另一声部、还没唱完:和当前行一样扫(和 iPhone 卡拉OK舞台同一套)。
+        let previousIsSinging = KaraokeLineWindowPolicy.activeWindowIndex(in: windows, at: time).flatMap {
+            KaraokeLineWindowPolicy.concurrentPartnerIndex(before: $0, in: windows, at: time)
+        } != nil
         let previous = focus.flatMap { snapshot.row(at: $0 - 1) }
         let current = focus.flatMap { snapshot.row(at: $0) }
         let next = focus.flatMap { snapshot.row(at: $0 + 1) }
@@ -481,7 +485,11 @@ struct TVKaraokeLyrics: View {
 
         VStack(spacing: 30) {
             if let previous {
-                plainLine(previous, size: 34, opacity: 0.3)
+                if previousIsSinging {
+                    sweptLine(previous)
+                } else {
+                    plainLine(previous, size: 34, opacity: 0.3)
+                }
             }
             HStack(spacing: 16) {
                 ForEach(0..<3, id: \.self) { index in
@@ -500,6 +508,7 @@ struct TVKaraokeLyrics: View {
         }
         .frame(maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.35), value: focus)
+        .animation(.easeInOut(duration: 0.35), value: previousIsSinging)
     }
 
     private func plainLine(_ row: KaraokeLyricsSnapshot.Row, size: CGFloat, opacity: Double) -> some View {

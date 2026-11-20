@@ -3516,11 +3516,11 @@ final class TVPlaybackCoordinator {
         _ lines: [LyricLine],
         duration _: TimeInterval
     ) -> [TVLyricLine] {
-        // 与 iPhone 读歌词缓存时一样：和主唱同时段的对唱/和声行收进那一行的 background，
-        // 不单独占一行（否则会抢当前行，也会被误判成对唱分到另一侧）。
-        let grouped = LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: lines)
-        let documentWritingDirection = LyricWritingDirectionPolicy.resolve(in: grouped)
-        return grouped.map { line in
+        // 与 iPhone 读歌词缓存时一样:对唱两人时间重叠时各自仍是一行(同时在唱由
+        // `LyricConcurrentVoicePolicy` 判定),旧版本并进 background 的那种拆回来;只有写在一句里的和声留在 background。
+        let separated = LyricVoiceTimelinePolicy.separatingLegacyOverlapGroups(in: lines)
+        let documentWritingDirection = LyricWritingDirectionPolicy.resolve(in: separated)
+        return separated.map { line in
             toTVLyricLine(line, documentWritingDirection: documentWritingDirection)
         }
     }

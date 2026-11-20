@@ -83,6 +83,8 @@ struct ImmersivePlayerView: View {
     @State private var flowDragOrigin: CGFloat = 0
     @State private var showsEffectPicker = false
     @State private var activeLyricIndex: Int?
+    /// 对唱两人时间重叠时同时在唱的几行(`activeLyricIndex` 是其中最早开口的那一行);只有一行在唱时为 nil。
+    @State private var concurrentLyricRows: LyricActiveRows?
     @State private var lyricInterlude = false
     @State private var visualizerOwnerID = UUID()
     @State private var visualizerRetryTask: Task<Void, Never>?
@@ -1316,7 +1318,7 @@ struct ImmersivePlayerView: View {
             return ImmersiveStageLyric(
                 id: position,
                 text: text,
-                isActive: position == index,
+                isActive: position == index || concurrentLyricRows?.contains(position) == true,
                 offset: position - index,
                 syllables: resolvedSyllables,
                 startTime: line.isSynchronized ? line.timestamp : nil,
@@ -1406,11 +1408,13 @@ struct ImmersivePlayerView: View {
         disableAnimations: Bool = false
     ) {
         let playbackTime = player.interpolatedTime()
-        let index = LyricPlaybackPositionPolicy.activeLineIndex(
+        // 对唱两人同时在唱时停在最早开口的那一行,另一行一起亮着。
+        let rows = LyricConcurrentVoicePolicy.activeRows(
             in: lyrics,
             at: playbackTime,
             lookahead: lookahead
         )
+        let index = rows?.anchor
         let isInterlude: Bool
         if lyricsMotionEnabled,
            let index,
@@ -1423,6 +1427,7 @@ struct ImmersivePlayerView: View {
         }
         updateLyricState(
             index: index,
+            concurrentRows: rows?.isConcurrent == true ? rows : nil,
             isInterlude: isInterlude,
             disableAnimations: disableAnimations
         )
@@ -1430,11 +1435,13 @@ struct ImmersivePlayerView: View {
 
     private func updateLyricState(
         index: Int?,
+        concurrentRows: LyricActiveRows? = nil,
         isInterlude: Bool,
         disableAnimations: Bool
     ) {
         let update = {
             if activeLyricIndex != index { activeLyricIndex = index }
+            if concurrentLyricRows != concurrentRows { concurrentLyricRows = concurrentRows }
             if lyricInterlude != isInterlude { lyricInterlude = isInterlude }
         }
         if disableAnimations {

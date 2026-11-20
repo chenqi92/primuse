@@ -124,7 +124,9 @@ public enum WordTimedLyricsParser {
             if parsed.isBackground,
                let hostIndex = lines.indices.last {
                 let childIndex = lines[hostIndex].background?.count ?? 0
-                lines[hostIndex].background = (lines[hostIndex].background ?? []) + [line]
+                var backing = line
+                backing.isBackingVocal = true
+                lines[hostIndex].background = (lines[hostIndex].background ?? []) + [backing]
                 placements.append((row, .background(host: hostIndex, index: childIndex)))
                 continue
             }

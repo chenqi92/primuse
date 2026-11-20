@@ -223,17 +223,20 @@ public enum LyricPlaybackPositionPolicy {
 
     /// Companion rows share the source timestamp and must not end its word
     /// sweep. Only a later timestamp group can take over the highlight.
+    /// 对唱时另一声部开口不算接走:这一句照样唱到自己的行末(见 `LyricConcurrentVoicePolicy`)。
     public static func wordLevelDeactivationTime(
         in lyrics: [LyricLine],
         afterLine index: Int,
         lookahead: TimeInterval = 0
     ) -> TimeInterval? {
-        guard lyrics.indices.contains(index) else { return nil }
-        let currentStart = lyrics[index].timestamp
-        guard let next = lyrics.dropFirst(index + 1).first(where: {
-            $0.timestamp - currentStart > sameRowTolerance
-        }) else { return nil }
-        return max(currentStart, next.timestamp - max(0, lookahead))
+        LyricConcurrentVoicePolicy.deactivationTime(
+            afterLine: index,
+            in: lyrics,
+            lookahead: lookahead,
+            timestamp: \.timestamp,
+            end: \.endTime,
+            voice: \.voice
+        )
     }
 
     /// 间奏判定用的几个时长。逐字歌词(或带结束时间的行、标出间奏的空行)知道人声什么时候停,
@@ -543,7 +546,7 @@ public enum LyricPlaybackPositionPolicy {
         let group = lyrics[index...groupEnd]
         let groupIsBlank = group.allSatisfy(isBlank)
         let explicitEnds = group.compactMap(vocalEnd).filter(\.isFinite)
-        let vocalsEnd: TimeInterval
+        var vocalsEnd: TimeInterval
         let minimumGap: TimeInterval
         let activationDelay: TimeInterval
         if groupIsBlank {
@@ -560,6 +563,12 @@ public enum LyricPlaybackPositionPolicy {
             vocalsEnd = lineStart + max(0, timing.lineLevelEstimatedDuration)
             minimumGap = timing.lineLevelMinimumGap
             activationDelay = timing.lineLevelActivationDelay
+        }
+        // 对唱时前面另一声部的那一句可能还没唱完(两人时间重叠),它唱完才算人声停下。
+        for earlier in max(0, index - LyricConcurrentVoicePolicy.lookback)..<index {
+            if let earlierEnd = vocalEnd(lyrics[earlier]), earlierEnd.isFinite, earlierEnd > vocalsEnd {
+                vocalsEnd = earlierEnd
+            }
         }
         guard vocalsEnd.isFinite,
               nextLineStart - vocalsEnd >= max(0, minimumGap) else { return nil }
@@ -1043,5 +1052,172 @@ public enum NowPlayingLyricsLoadRetryPolicy {
               emptyResultCount > 0,
               retryDelays.indices.contains(emptyResultCount - 1) else { return nil }
         return retryDelays[emptyResultCount - 1]
+    }
+}
+
+/// 此刻在唱的几行。对唱的两个声部时间重叠时(一人还没唱完另一人已经开口,或两人同时唱)
+/// 两行都在唱;其余时候只有一行,就是 `LyricPlaybackPositionPolicy.activeLineIndex`。
+public struct LyricActiveRows: Equatable, Hashable, Sendable {
+    /// 在唱的行,从小到大,至少一行。
+    public let rows: [Int]
+    /// 最近开唱的那一组的第一行(`LyricPlaybackPositionPolicy.activeLineIndex`)。
+    public let frontier: Int
+
+    public init(rows: [Int], frontier: Int) {
+        self.rows = rows.isEmpty ? [frontier] : rows
+        self.frontier = frontier
+    }
+
+    public static func single(_ index: Int) -> LyricActiveRows {
+        LyricActiveRows(rows: [index], frontier: index)
+    }
+
+    /// 自动滚动对准的那一行:在唱的几行里最早开口的,这样同时在唱的几行都在它下面露出来。
+    public var anchor: Int { rows[0] }
+
+    /// 不止一行在唱。
+    public var isConcurrent: Bool { rows.count > 1 }
+
+    public func contains(_ index: Int) -> Bool { rows.contains(index) }
+
+    /// 这一行已经唱过:在锚点之前;或夹在锚点和最近开唱的那一组之间、已经唱完(另一声部还在唱)。
+    public func hasPassed(_ index: Int) -> Bool {
+        index < anchor || (index < frontier && !rows.contains(index))
+    }
+}
+
+/// 对唱时哪几行同时在唱。最近开唱的那一组里每个声部的第一行算在唱(和以前一样一直亮到下一组开唱);
+/// 往前几行里别的声部最近那一句,只要没唱完(有写明的行末且还没到)也算在唱。只有一个声部的歌词
+/// (LRC、普通 TTML)永远只有一行,和 `activeLineIndex` 完全相同。
+public enum LyricConcurrentVoicePolicy {
+    /// 往前最多看这么多行找另一声部还没唱完的那一句。
+    public static let lookback = 8
+
+    public static func activeRows(
+        in lyrics: [LyricLine],
+        at playbackTime: TimeInterval,
+        lookahead: TimeInterval = 0
+    ) -> LyricActiveRows? {
+        activeRows(
+            in: lyrics,
+            at: playbackTime,
+            lookahead: lookahead,
+            timestamp: \.timestamp,
+            end: \.endTime,
+            voice: \.voice
+        )
+    }
+
+    /// 自己存歌词行的界面(电视)用的同一份判定。
+    public static func activeRows<Element>(
+        in lyrics: [Element],
+        at playbackTime: TimeInterval,
+        lookahead: TimeInterval = 0,
+        timestamp: (Element) -> TimeInterval,
+        end: (Element) -> TimeInterval?,
+        voice: (Element) -> LyricVoice
+    ) -> LyricActiveRows? {
+        guard let frontier = LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: playbackTime,
+            lookahead: lookahead,
+            timestamp: timestamp
+        ) else { return nil }
+        return rows(
+            aroundFrontier: frontier,
+            in: lyrics,
+            at: playbackTime,
+            timestamp: timestamp,
+            end: end,
+            voice: voice
+        )
+    }
+
+    /// 已经知道最近开唱的那一组(`activeLineIndex` 或 `scrollTarget` 给的 `.line`)时,补上同时在唱的其他行。
+    public static func rows(
+        aroundFrontier frontier: Int,
+        in lyrics: [LyricLine],
+        at playbackTime: TimeInterval
+    ) -> LyricActiveRows {
+        rows(
+            aroundFrontier: frontier,
+            in: lyrics,
+            at: playbackTime,
+            timestamp: \.timestamp,
+            end: \.endTime,
+            voice: \.voice
+        )
+    }
+
+    public static func rows<Element>(
+        aroundFrontier frontier: Int,
+        in lyrics: [Element],
+        at playbackTime: TimeInterval,
+        timestamp: (Element) -> TimeInterval,
+        end: (Element) -> TimeInterval?,
+        voice: (Element) -> LyricVoice
+    ) -> LyricActiveRows {
+        guard lyrics.indices.contains(frontier) else { return .single(frontier) }
+        let tolerance = LyricPlaybackPositionPolicy.sameRowTolerance
+        let start = timestamp(lyrics[frontier])
+        var current = [frontier]
+        var claimed = [voice(lyrics[frontier])]
+        // 同一时刻开口的那一组:每个声部的第一行都在唱;同一声部的其余行是注音、译文这类附属行。
+        var index = frontier + 1
+        while index < lyrics.count, timestamp(lyrics[index]) - start <= tolerance {
+            let rowVoice = voice(lyrics[index])
+            if !claimed.contains(rowVoice) {
+                claimed.append(rowVoice)
+                current.append(index)
+            }
+            index += 1
+        }
+        // 往前找别的声部最近那一句;同一声部更早的句子已经被它接走了。
+        var earlier: [Int] = []
+        var candidate = frontier - 1
+        let floor = max(0, frontier - lookback)
+        while candidate >= floor, claimed.count < LyricVoice.allCases.count {
+            let rowVoice = voice(lyrics[candidate])
+            if !claimed.contains(rowVoice) {
+                claimed.append(rowVoice)
+                if let rowEnd = end(lyrics[candidate]), playbackTime < rowEnd {
+                    earlier.append(candidate)
+                }
+            }
+            candidate -= 1
+        }
+        return LyricActiveRows(rows: earlier.reversed() + current, frontier: frontier)
+    }
+
+    /// 逐字行什么时候让出高亮(扫光收起),和 `rows(aroundFrontier:)` 同一套规则:下一组开唱时让位;
+    /// 那时另一声部开口而这一句还没唱完,就唱到自己的行末,或同一声部的下一句开口、
+    /// 被挤出往前看的范围为止。最后一组没有下一组,返回 nil。
+    public static func deactivationTime<Element>(
+        afterLine index: Int,
+        in lyrics: [Element],
+        lookahead: TimeInterval = 0,
+        timestamp: (Element) -> TimeInterval,
+        end: (Element) -> TimeInterval?,
+        voice: (Element) -> LyricVoice
+    ) -> TimeInterval? {
+        guard lyrics.indices.contains(index) else { return nil }
+        let tolerance = LyricPlaybackPositionPolicy.sameRowTolerance
+        let lead = max(0, lookahead)
+        let start = timestamp(lyrics[index])
+        guard let nextGroup = lyrics.indices.dropFirst(index + 1).first(where: {
+            timestamp(lyrics[$0]) - start > tolerance
+        }) else { return nil }
+        let handover = max(start, timestamp(lyrics[nextGroup]) - lead)
+        guard let lineEnd = end(lyrics[index]), lineEnd > handover else { return handover }
+        let ownVoice = voice(lyrics[index])
+        var release = lineEnd
+        if let sameVoice = lyrics.indices.dropFirst(nextGroup).first(where: { voice(lyrics[$0]) == ownVoice }) {
+            release = min(release, timestamp(lyrics[sameVoice]) - lead)
+        }
+        let pushedOut = index + lookback + 1
+        if lyrics.indices.contains(pushedOut) {
+            release = min(release, timestamp(lyrics[pushedOut]) - lead)
+        }
+        return max(handover, release)
     }
 }
