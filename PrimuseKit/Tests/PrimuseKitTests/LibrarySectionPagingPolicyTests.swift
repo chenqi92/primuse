@@ -22,13 +22,54 @@ struct LibrarySectionPagingPolicyTests {
         #expect(LibrarySectionPagingPolicy.isForward(translationX: 40, isRightToLeft: true))
     }
 
-    @Test("到头了跟手打折，进场方向和手指一致")
+    @Test("到头了跟手打折")
     func resistsAtTheEnds() {
         #expect(LibrarySectionPagingPolicy.interactiveOffset(translationX: -100, canMove: true) == -100)
         #expect(LibrarySectionPagingPolicy.interactiveOffset(translationX: -100, canMove: false) == -16)
         #expect(LibrarySectionPagingPolicy.interactiveOffset(translationX: .nan, canMove: true) == 0)
-        #expect(LibrarySectionPagingPolicy.entrySide(translationX: -80) == 1)
-        #expect(LibrarySectionPagingPolicy.entrySide(translationX: 80) == -1)
+    }
+
+    @Test("相邻页贴在内容让出来的那一侧")
+    func neighborFollowsTheRevealedSide() {
+        #expect(LibrarySectionPagingPolicy.neighborSlot(contentOffset: -80) == 1)
+        #expect(LibrarySectionPagingPolicy.neighborSlot(contentOffset: 80) == -1)
+        #expect(LibrarySectionPagingPolicy.neighborSlot(contentOffset: 0) == nil)
+        #expect(LibrarySectionPagingPolicy.neighborSlot(contentOffset: .nan) == nil)
+    }
+
+    @Test("落位时长随剩下的路变短")
+    func settleDurationShrinksWithDistance() {
+        let full = LibrarySectionPagingPolicy.settleDuration(remainingFraction: 1)
+        let short = LibrarySectionPagingPolicy.settleDuration(remainingFraction: 0.2)
+        #expect(full == LibrarySectionPagingPolicy.settleMaximumDuration)
+        #expect(short < full)
+        #expect(LibrarySectionPagingPolicy.settleDuration(remainingFraction: 0) == LibrarySectionPagingPolicy.settleMinimumDuration)
+        #expect(LibrarySectionPagingPolicy.settleDuration(remainingFraction: -3) == full)
+        #expect(LibrarySectionPagingPolicy.settleDuration(remainingFraction: .nan) == full)
+    }
+
+    @Test("落位起步接住手速，慢松手不停顿，快甩不冲过头")
+    func settleCurveMatchesReleaseVelocity() {
+        // 剩 300、0.3 秒：平均 1000/s，手速 2000/s 就是两倍起步。
+        let matched = LibrarySectionPagingPolicy.settleCurve(velocity: -2000, remaining: -300, duration: 0.3)
+        #expect(abs(matched.y1 / matched.x1 - 2) < 0.0001)
+        #expect(matched.y2 == 1)
+        let slow = LibrarySectionPagingPolicy.settleCurve(velocity: 0, remaining: -300, duration: 0.3)
+        #expect(slow.y1 / slow.x1 == LibrarySectionPagingPolicy.settleMinimumLaunch)
+        let backwards = LibrarySectionPagingPolicy.settleCurve(velocity: 900, remaining: -300, duration: 0.3)
+        #expect(backwards.y1 / backwards.x1 == LibrarySectionPagingPolicy.settleMinimumLaunch)
+        let flick = LibrarySectionPagingPolicy.settleCurve(velocity: -9000, remaining: -100, duration: 0.3)
+        #expect(flick.y1 <= 1)
+        let degenerate = LibrarySectionPagingPolicy.settleCurve(velocity: .infinity, remaining: 0, duration: 0.3)
+        #expect(degenerate.y1 / degenerate.x1 == LibrarySectionPagingPolicy.settleMinimumLaunch)
+    }
+
+    @Test("导航栈换过来之前先摆翻到的那一页，别的换页听外面的")
+    func shownPageBridgesTheCommit() {
+        #expect(LibrarySectionPagingPolicy.shownPage(current: "songs", committedFrom: "songs", committedTo: "genres") == "genres")
+        #expect(LibrarySectionPagingPolicy.shownPage(current: "genres", committedFrom: "songs", committedTo: "genres") == "genres")
+        #expect(LibrarySectionPagingPolicy.shownPage(current: "favorites", committedFrom: "songs", committedTo: "genres") == "favorites")
+        #expect(LibrarySectionPagingPolicy.shownPage(current: "songs", committedFrom: nil, committedTo: nil) == "songs")
     }
 
     @Test("起手贴着左右边缘不接：左边留给系统返回，右边留给字母索引")

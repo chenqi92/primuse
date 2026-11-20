@@ -720,7 +720,6 @@ struct LibraryView: View {
     @AppStorage(ListeningIntentService.minimalSongsVisibilityKey) private var showsMinimalStartListening = true
     @AppStorage(LibrarySectionPagingPolicy.storageKey) private var sectionSwipeEnabled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var sectionPagingMotion = LibrarySectionPagingMotion()
     #endif
     @Binding private var deepLink: LibraryDeepLink?
     private let rootSection: LibrarySection?
@@ -1017,40 +1016,42 @@ struct LibraryView: View {
         return sections.count > 1 && sections.contains(section) ? sections : []
     }
 
-    /// 分类页外面套一层横滑翻页；用不上时手势停用，页面本身不换身份。
+    /// 分类页外面套一层横滑翻页；用不上时手势停用。
+    ///
+    /// 导航栈原地换页（点顶上的分类、横滑翻过去）时沿用栈里这一格的视图，这一层跟着留下来，不再按分类
+    /// 换身份；里面的每一页按分类区分（见 `LibrarySectionSwipeContainer`）：换到别的分类时那一页是新建的，
+    /// 横滑翻过去的那一页就是拖动时已经挂在旁边的那一个，换栈以后接着用，不再重建。
     private func sectionSwipePage(_ section: LibrarySection) -> some View {
         let sections = swipeableSections(containing: section)
         return LibrarySectionSwipeContainer(
-            sectionID: section.rawValue,
+            section: section,
             enabled: !sections.isEmpty,
             // 歌曲、专辑、艺人页右缘有字母条。
             excludesTrailingEdge: section == .songs || section == .albums || section == .artists,
-            motion: sectionPagingMotion,
-            neighbor: { forward in
-                LibrarySectionPagingPolicy.neighbor(in: sections, of: section, forward: forward)?.rawValue
+            neighbor: { from, forward in
+                LibrarySectionPagingPolicy.neighbor(in: sections, of: from, forward: forward)
             },
-            onCommit: { rawValue in
-                guard let next = LibrarySection(rawValue: rawValue) else { return }
-                pageToSection(next)
-            }
-        ) {
-            readyContent(section: section) {
-                destination(for: section)
-                    .pmPageSwap(isActive: appNavigationMode == .minimal)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
+            onCommit: { next in pageToSection(next) }
+        ) { page in
+            sectionSwipeContent(page)
         }
-        // 导航栈原地换页时会沿用栈里这一格的视图：不按分类分开，新页接着用旧页滑出去的位移，也不触发
-        // 出现，进场轮不到，过了兜底时限才从旧页离开的那一侧拉回来——往哪边翻都像是反的，前面还空着一截。
-        .id(section)
+    }
+
+    /// 横滑容器里的一页：原位的那一页和拖动时挂在旁边的相邻分类都是这样建的。
+    private func sectionSwipeContent(_ section: LibrarySection) -> some View {
+        readyContent(section: section) {
+            destination(for: section)
+                .pmPageSwap(isActive: appNavigationMode == .minimal)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
     }
 
     /// 横滑翻到相邻分类：和点顶上的分类一样换掉导航栈里这一页，只是不要导航栈自己的推入动画
-    /// （旧页已经滑出去、新页自己从另一侧进来）。顶上的分类行是新页自己的那一份，下划线由外壳从上一格滑过去。
+    /// （相邻那一页已经跟着手指滑到原位，换栈以后接着用它）。顶上的分类行从上一格把下划线滑过去。
     ///
     /// 报当前分类也放在这个不带动画的事务里，不另包 `withAnimation`：同一拍里的导航栈换页不能被带上动画，
-    /// 进场方向只由横滑自己定。
+    /// 页面已经停在原位，不能再动一次。
     private func pageToSection(_ next: LibrarySection) {
         #if DEBUG
         LibrarySectionSwitchTrace.begin(next.rawValue)

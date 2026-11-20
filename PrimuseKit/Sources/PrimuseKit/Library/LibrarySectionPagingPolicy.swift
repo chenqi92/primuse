@@ -56,9 +56,50 @@ public enum LibrarySectionPagingPolicy {
             || (excludesTrailingEdge && trailing < trailingEdgeExclusion)
     }
 
-    /// 新的一页从哪一侧进来：+1 从右侧（往后翻、LTR），-1 从左侧。和手指方向一致，与语言方向无关。
-    public static func entrySide(translationX: Double) -> Double {
-        translationX < 0 ? 1 : -1
+    /// 相邻的那一页挂在当前页哪一侧（容器自己的坐标，+1 右、-1 左）：内容往哪边走，就从另一侧露出来。
+    /// 没动时为 nil。用的是容器坐标里的位移，不管语言方向，画面上总是紧贴在当前页露出空白的那一边。
+    public static func neighborSlot(contentOffset: Double) -> Double? {
+        guard contentOffset.isFinite, contentOffset != 0 else { return nil }
+        return contentOffset < 0 ? 1 : -1
+    }
+
+    /// 松手翻页时，相邻那一页滑到位要多久（秒）：剩下的路越短越快。`remainingFraction` 是剩下的路占页宽的比例。
+    public static func settleDuration(remainingFraction: Double) -> Double {
+        let fraction = remainingFraction.isFinite ? min(abs(remainingFraction), 1) : 1
+        return settleMinimumDuration + (settleMaximumDuration - settleMinimumDuration) * fraction
+    }
+
+    public static let settleMinimumDuration = 0.2
+    public static let settleMaximumDuration = 0.34
+
+    /// 落位那一段的三次贝塞尔曲线两个控制点 `(x1, y1, x2, y2)`：起步的快慢接住松手时的手速，然后减速停稳。
+    ///
+    /// 起步斜率 `y1 / x1` 就是起步速度相对整段平均速度的倍数，取 `手速 × 时长 ÷ 剩下的路`；
+    /// 手速很小（拖过一半慢慢松手）、往回甩时也至少按缓出曲线的起步走，不会先停一下再动；
+    /// 甩得再快也封顶，`y1` 不超过 1，曲线不冲过头。
+    public static func settleCurve(
+        velocity: Double,
+        remaining: Double,
+        duration: Double
+    ) -> (x1: Double, y1: Double, x2: Double, y2: Double) {
+        let x1 = 0.25
+        var ratio = settleMinimumLaunch
+        if velocity.isFinite, remaining.isFinite, duration.isFinite, abs(remaining) >= 1, duration > 0 {
+            ratio = min(max(velocity * duration / remaining, settleMinimumLaunch), settleMaximumLaunch)
+        }
+        return (x1, x1 * ratio, 0.45, 1)
+    }
+
+    /// 起步速度至少是平均速度的这么多倍（同系统缓出曲线的起步）。
+    public static let settleMinimumLaunch = 1.7
+    /// 起步速度最多这么多倍：`0.25 × 4 = 1`，控制点不高出终点。
+    public static let settleMaximumLaunch = 4.0
+
+    /// 翻页刚落定、导航栈还没换过来时摆哪一页：外面给的还是翻页前那一页，就先摆翻到的这一页；
+    /// 外面已经换成了别的（导航栈跟上了，或者这期间点了顶上的分类、深链），听外面的。
+    public static func shownPage<Page: Equatable>(current: Page, committedFrom: Page?, committedTo: Page?) -> Page {
+        guard let committedFrom, let committedTo, committedFrom == current else { return current }
+        return committedTo
     }
 }
 
