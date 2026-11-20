@@ -1,0 +1,65 @@
+{
+  "fill": {
+    "solid": "srgb:1,1,1,1"
+  },
+  "groups": [
+    {
+      "name": "Artwork",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "specular-specializations": [
+        {
+          "value": false
+        },
+        {
+          "appearance": "dark",
+          "value": false
+        },
+        {
+          "appearance": "tinted",
+          "value": true
+        }
+      ],
+      "layers": [
+        {
+          "name": "Artwork",
+          "image-name-specializations": [
+            {
+              "value": "Light.png"
+            },
+            {
+              "appearance": "dark",
+              "value": "Dark.png"
+            },
+            {
+              "appearance": "tinted",
+              "value": "Mono.png"
+            }
+          ],
+          "glass-specializations": [
+            {
+              "value": false
+            },
+            {
+              "appearance": "dark",
+              "value": false
+            },
+            {
+              "appearance": "tinted",
+              "value": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

@@ -7,7 +7,7 @@
       "size": "1024x1024"
     },
     {
-      "filename": "AppIconGroove.png",
+      "filename": "AppIconGroove-dark.png",
       "idiom": "universal",
       "platform": "ios",
       "size": "1024x1024",
@@ -15,6 +15,18 @@
         {
           "appearance": "luminosity",
           "value": "dark"
+        }
+      ]
+    },
+    {
+      "filename": "AppIconGroove-tinted.png",
+      "idiom": "universal",
+      "platform": "ios",
+      "size": "1024x1024",
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "tinted"
         }
       ]
     }

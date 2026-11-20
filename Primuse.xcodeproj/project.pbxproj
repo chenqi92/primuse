@@ -1801,6 +1801,7 @@
 		B99C6369B3A2C508A5382E56 /* ScrobbleRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5AEA62DA6DCCE70D8C4B5B /* ScrobbleRequestTests.swift */; };
 		BA11936C1571CF99810066CA /* KaraokeVocalReducerUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C3FFB11853B2B7F713CDF18 /* KaraokeVocalReducerUnit.swift */; };
 		BA6C247278C46711ECE02B19 /* AppIconPrimary.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0C6DBCC2480F1607676C8F97 /* AppIconPrimary.icon */; };
+		29EEB44B00C5D2F6411C0586 /* AppIconGroove.icon in Resources */ = {isa = PBXBuildFile; fileRef = E3DC10AB83FEFC7C9458FA71 /* AppIconGroove.icon */; };
 		2E0F235733790454FAE51BEC /* AppIconPrimary.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0C6DBCC2480F1607676C8F97 /* AppIconPrimary.icon */; };
 		BA734D2754207F90FB81DC54 /* MiniPlayerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8BE745FB20EDEA78E90EEF /* MiniPlayerWindowController.swift */; };
 		BA7BB6BF3CFA4264F0043282 /* CoverWallLayoutPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10CA5C8C87E7D225B1919EF /* CoverWallLayoutPolicy.swift */; };
@@ -2814,6 +2815,7 @@
 		0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceTypeSelectionView.swift; sourceTree = "<group>"; };
 		0C6516DD4C1AFA42968BC19A /* ArtistIdentityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistIdentityPolicy.swift; sourceTree = "<group>"; };
 		0C6DBCC2480F1607676C8F97 /* AppIconPrimary.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIconPrimary.icon; sourceTree = "<group>"; };
+		E3DC10AB83FEFC7C9458FA71 /* AppIconGroove.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIconGroove.icon; sourceTree = "<group>"; };
 		0C74B86E90D1B12924FCF7B5 /* CalibrationPromptHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationPromptHost.swift; sourceTree = "<group>"; };
 		0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrimuseWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0C8327A413776F7545781AD9 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
@@ -5613,6 +5615,7 @@
 				328976B021ACE0B2395E2621 /* AppIcon19.icon */,
 				F6B0D08B5C57B0A2DE16008F /* AppIcon20.icon */,
 				A43A360E6279A02B177A94BF /* AppIcon22.icon */,
+				E3DC10AB83FEFC7C9458FA71 /* AppIconGroove.icon */,
 				0C6DBCC2480F1607676C8F97 /* AppIconPrimary.icon */,
 			);
 			path = AppIcons;
@@ -7330,6 +7333,7 @@
 				D5AA281AE069EFCD8F0377B3 /* AppIcon19.icon in Resources */,
 				FB68485AACD2198288DB5786 /* AppIcon20.icon in Resources */,
 				DDE9CB1C49A7786E6984A17E /* AppIcon22.icon in Resources */,
+				29EEB44B00C5D2F6411C0586 /* AppIconGroove.icon in Resources */,
 				BA6C247278C46711ECE02B19 /* AppIconPrimary.icon in Resources */,
 				BE4C8ABADBEDEAA6AFB57A3C /* AppIntentVocabulary.plist in Resources */,
 				14262AEAD1DBF77D0DCAC85C /* AppShortcuts.xcstrings in Resources */,

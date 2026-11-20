@@ -12,6 +12,9 @@ The public catalog contains one primary icon and five alternates, in this order:
 | `12-pikaqiu.png` | `AppIcon12` | 皮卡丘 |
 
 咸鱼吃Sushi (`AppIconGroove`) remains a separate hidden alternate in `Primuse/Resources/Assets.xcassets`.
+Its only source is that full-colour icon; `save_groove_icon()` in
+`scripts/generate_ios_layered_icons.py` lifts the drawing off the cyan plate to
+build its dark (deep teal plate) and mono artwork.
 Retired icon numbers are not reused.
 
 This directory is a design and generation input, not an app resource directory.

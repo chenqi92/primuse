@@ -82,7 +82,7 @@ final class AppIconService {
         alternateName: "AppIconGroove",
         previewAsset: "AppIconGroovePreview",
         displayName: "咸鱼吃Sushi",
-        supportsAppearance: false
+        supportsAppearance: true
     )]
 
     var availableOptions: [IconOption] { options + hiddenOptions }

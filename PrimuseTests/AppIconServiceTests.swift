@@ -25,7 +25,7 @@ final class AppIconServiceTests: XCTestCase {
         let (service, defaults) = try fixture(system)
         let hidden = try XCTUnwrap(service.hiddenOptions.first)
         XCTAssertFalse(service.options.contains(hidden))
-        XCTAssertFalse(hidden.supportsAppearance)
+        XCTAssertTrue(hidden.supportsAppearance)
         let selected = await service.setIcon(hidden)
         XCTAssertTrue(selected)
         XCTAssertEqual(system.current, hidden.alternateName)

@@ -94,7 +94,7 @@ final class MacSongTableAndIconTests: XCTestCase {
             let dark = try XCTUnwrap(MacAppIcon.dockIconImage(
                 previewAsset: icon.previewAsset, appearance: NSAppearance(named: .darkAqua)
             )?.tiffRepresentation)
-            if icon.id == "AppIcon20" || icon.id == MacAppIcon.hidden.id {
+            if icon.id == "AppIcon20" {
                 XCTAssertEqual(light, dark, "Single-variant icons keep the same artwork in both appearances")
             } else {
                 XCTAssertNotEqual(light, dark, "\(icon.id) must render its dark asset without restarting")

@@ -81,10 +81,10 @@ class LayeredIconRenderingTests(unittest.TestCase):
             root = Path(temporary)
             command = ["xcrun", "actool", *map(str, sources), "--compile", str(root),
                        "--platform", "iphoneos", "--minimum-deployment-target", "18.0",
-                       "--target-device", "iphone", "--target-device", "ipad", "--app-icon", "AppIcon",
+                       "--target-device", "iphone", "--target-device", "ipad", "--app-icon", "AppIconPrimary",
                        "--output-partial-info-plist", str(root / "partial.plist")]
             for source in sources:
-                if source.stem != "AppIcon":
+                if source.stem != "AppIconPrimary":
                     command += ["--alternate-app-icon", source.stem]
             subprocess.run(command, check=True, capture_output=True, text=True, timeout=120)
             catalog = json.loads(subprocess.check_output(["xcrun", "assetutil", "--info", str(root / "Assets.car")]))

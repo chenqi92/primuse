@@ -4,6 +4,17 @@
       "filename": "AppIconGroovePreview.png",
       "idiom": "universal",
       "scale": "1x"
+    },
+    {
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "filename": "AppIconGroovePreview-dark.png",
+      "idiom": "universal",
+      "scale": "1x"
     }
   ],
   "info": {
