@@ -653,12 +653,9 @@ struct ServerCatalogAutoRefreshControl: View {
     var body: some View {
         let refresh = AppServices.shared.serverCatalogAutoRefresh
         Toggle(isOn: refresh.enabledBinding(for: source.id)) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("server_auto_refresh")
+            SettingsInfoLabel("server_auto_refresh") {
                 Text(LocalizedStringKey(source.type.isServerLibrary
                     ? "server_auto_refresh_description" : "source_auto_refresh_description"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
 
@@ -674,11 +671,8 @@ struct ServerCatalogAutoRefreshControl: View {
 
         if refresh.supportsServerScanRequest(source) {
             Toggle(isOn: refresh.scanOnLaunchBinding(for: source.id)) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("server_scan_on_launch")
+                SettingsInfoLabel("server_scan_on_launch") {
                     Text("server_scan_on_launch_description")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
             .disabled(!refresh.isEnabled(for: source.id))

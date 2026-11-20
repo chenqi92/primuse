@@ -87,24 +87,30 @@ struct SettingsInfoLabel<Message: View>: View {
 
 private struct SettingsInfoBubble<Message: View>: View {
     @ViewBuilder let message: Message
-    @State private var contentHeight: CGFloat?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                message
-            }
-            .font(.subheadline)
-            .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+        // 气泡按说明本身的高度弹出;问号附近放不下(说明很长、大字号、问号在屏幕中间)时
+        // 系统会把气泡压矮,这时换成能滚动的那份,不再按量出来的高度硬撑、把下半截裁掉。
+        ViewThatFits(in: .vertical) {
+            text
+            ScrollView { text }
+                .scrollBounceBehavior(.basedOnSize)
         }
-        .scrollBounceBehavior(.basedOnSize)
-        // 定宽让长段说明折行;高度按量出来的内容定,大字号超过上限才滚动。
-        .frame(width: 320, height: contentHeight.map { min($0, 460) })
+        .frame(width: 320)
+        // 系统默认的玻璃底会透出后面的开关和文字,长段说明读起来发花;换成厚一点的材质。
+        .presentationBackground(.thickMaterial)
+    }
+
+    private var text: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            message
+        }
+        .font(.subheadline)
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
     }
 }
 
