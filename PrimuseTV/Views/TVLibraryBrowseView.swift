@@ -133,7 +133,7 @@ struct TVFolderBrowser: View {
     @Environment(TVStore.self) private var store
     @State private var index: LibraryFolderIndex?
     @State private var path: [LibraryFolderNodeID]
-    /// 最近一次「重新扫描此文件夹」:哪个文件夹、扫到哪一步了。
+    /// 最近一次「增量扫描此目录」:哪个文件夹、扫到哪一步了。
     @State private var rescan: TVFolderRescanState?
     /// 刚换了一层:按下的那一行随旧列表一起拿掉,焦点会落空(看不到描边,要再按一下方向键)。
     /// 进下一层落到第一行,退回上一层落到刚才进去的那个文件夹。放完清空。
@@ -204,7 +204,7 @@ struct TVFolderBrowser: View {
                             if store.playResolvedQueue(songIDs: ids, shuffled: false) { openPlayer() }
                         }
                         if let anchor = rescanAnchor(for: current, index: index) {
-                            TVPillButton(title: String(localized: "library_folder_rescan"),
+                            TVPillButton(title: String(localized: "folder_scan_incremental"),
                                          systemImage: "arrow.clockwise") {
                                 startRescan(current.id, anchor: anchor)
                             }

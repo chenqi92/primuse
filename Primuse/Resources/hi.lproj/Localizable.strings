@@ -944,7 +944,7 @@
 "baidu_error_path_not_found" = "Baidu Netdisk पथ अब मौजूद नहीं है (त्रुटि -9)। फ़ोल्डर को दोबारा चुनें.";
 "baidu_error_rate_limited" = "बहुत अधिक API अनुरोध (त्रुटि 31034)।";
 "baidu_error_token_expired" = "एक्सेस_टोकन की समय सीमा समाप्त हो गई (त्रुटि 111)।";
-"baidu_snapshot_deep_scan_required" = "इस लाइट रिफ्रेश द्वारा पाए गए परिवर्तन इसके सुरक्षा बजट से अधिक थे, इसलिए लाइब्रेरी को अपरिवर्तित छोड़ दिया गया था। उन्हें सुरक्षित रूप से मिलाने के लिए अग्रभूमि में डीप स्कैन चलाएँ।";
+"baidu_snapshot_deep_scan_required" = "इंक्रीमेंटल स्कैन में बहुत ज़्यादा बदलाव मिले, इसलिए लाइब्रेरी अपडेट नहीं हुई। ऐप को फ़ोरग्राउंड में रखकर “पूर्ण स्कैन” चलाएँ।";
 "base_path" = "आधार पथ";
 "base_path_hint" = "आधार पथ (उदा. /dav)";
 "batch_delete_failed_format" = "%d विफल";
@@ -3068,7 +3068,6 @@
 "library_favorite_filter" = "केवल पसंदीदा दिखाएँ";
 "library_favorite_filter_short" = "पसंदीदा";
 "album_filter_hide_single_song" = "एक गाने वाले एल्बम छिपाएँ";
-"library_folder_rescan" = "इस फ़ोल्डर को फिर से स्कैन करें";
 "reread_song_tags" = "फ़ाइल टैग दोबारा पढ़ें";
 "reread_song_tags_completed" = "फ़ाइल टैग दोबारा पढ़े गए।";
 "reread_song_tags_completed_embedded" = "मानक एम्बेडेड टैग पढ़े गए।";
@@ -3713,7 +3712,8 @@
 "source_connection_public_port" = "सार्वजनिक पोर्ट";
 "source_connection_remote_method" = "रिमोट विधि";
 "source_connection_remote_optional" = "रिमोट एक्सेस (वैकल्पिक)";
-"source_deep_scan" = "डीप स्कैन";
+"source_incremental_scan" = "इंक्रीमेंटल स्कैन";
+"source_full_scan" = "पूर्ण स्कैन";
 "source_deleted_toast" = "हटा दिया गया \"%@\"";
 "source_diag_advice_auth_message" = "सर्वर ने वर्तमान क्रेडेंशियल को अस्वीकार कर दिया।";
 "source_diag_advice_auth_suggestion" = "पासवर्ड, API कुंजी, या टोकन दोबारा दर्ज करें। यदि स्रोत 2FA का उपयोग करता है, तो पहले इसे पुनः कनेक्ट करें।";
@@ -3787,7 +3787,7 @@
 "source_label" = "स्रोत";
 "source_name" = "नाम";
 "source_never_synced" = "अभी तक समन्वयित नहीं हुआ";
-"source_quick_sync" = "त्वरित समन्वयन परिवर्तन…";
+"source_quick_sync" = "इंक्रीमेंटल स्कैन चल रहा है…";
 "source_remove_confirm_message" = "यह आपकी लाइब्रेरी से स्रोत और उसके गीत रिकॉर्ड को हटा देता है। स्थानीय और दूरस्थ फ़ाइलें प्रभावित नहीं होतीं.";
 "source_remove_confirm_title" = "यह संगीत स्रोत हटाएं?";
 "source_remove_managed_confirm_action" = "स्रोत हटाएं और प्रतियां हटाएं";
@@ -5495,7 +5495,6 @@
 "directory_tag_hint" = "चुने गए फ़ोल्डर के पास वाले टैग पर टैप करके ऑडियोबुक चुनें, ताकि उसकी सामग्री संगीत की बजाय ऑडियोबुक शेल्फ़ में जाए। सब-फ़ोल्डर ऊपर वाले फ़ोल्डर के अनुसार चलते हैं, और उन्हें अलग से भी बदला जा सकता है।";
 "directory_tag_follows_format" = "“%@” के अनुसार";
 "directory_tag_follows_parent" = "ऊपर वाले फ़ोल्डर के अनुसार";
-"directory_rescan_now" = "इस फ़ोल्डर को अभी स्कैन करें";
 "home_filter_clear_hint" = "सब कुछ दिखाने के लिए फिर से टैप करें";
 "notifications_section" = "सूचनाएँ";
 "notify_long_tasks_footer" = "आपके शुरू किए गए स्कैन, टैग पढ़ने या मेटाडेटा लाने का काम बैकग्राउंड में पूरा होने पर सूचना मिलेगी। जिन समस्याओं पर आपको ध्यान देना है, जैसे स्कैन विफल होना या iCloud स्टोरेज भर जाना, उनकी सूचना हर हाल में मिलेगी। ऐप खुला रहने पर कोई सूचना नहीं भेजी जाती।";
@@ -7613,7 +7612,8 @@
 "source_files_scope_none" = "अभी स्कैन के लिए कोई फ़ोल्डर नहीं चुना";
 "source_files_choose_directories" = "फ़ोल्डर चुनें";
 "source_files_scope_editing_hint" = "स्कैन करने के लिए फ़ोल्डर चुनें। नए चयन के साथ स्कैन करने के लिए “हो गया” पर टैप करें।";
-"source_files_scan_here" = "सिर्फ़ यह फ़ोल्डर स्कैन करें";
+"folder_scan_incremental" = "इस फ़ोल्डर का इंक्रीमेंटल स्कैन";
+"folder_scan_full" = "इस फ़ोल्डर का पूर्ण स्कैन";
 "source_files_scan_source" = "पूरा स्रोत स्कैन करें";
 "source_files_scan_started_format" = "“%@” स्कैन हो रहा है";
 "source_files_scan_busy" = "यह स्रोत अभी स्कैन हो रहा है। पूरा होने पर दोबारा कोशिश करें।";

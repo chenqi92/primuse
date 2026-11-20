@@ -580,7 +580,6 @@
 "library_favorite_filter" = "只看收藏的";
 "library_favorite_filter_short" = "收藏";
 "album_filter_hide_single_song" = "屏蔽单曲";
-"library_folder_rescan" = "重新扫描此文件夹";
 "reread_song_tags" = "重新读取文件标签";
 "reread_song_tags_in_progress" = "正在读取文件标签";
 "reread_song_tags_completed" = "已重新读取文件标签。";
@@ -2790,8 +2789,9 @@
 "synology_error_invalid_url" = "无效的地址";
 "synology_error_invalid_response" = "无效的响应";
 "synology_error_http_format" = "HTTP 错误 %d";
-"source_quick_sync" = "正在快速同步变化…";
-"source_deep_scan" = "深度扫描";
+"source_quick_sync" = "正在增量扫描…";
+"source_incremental_scan" = "增量扫描";
+"source_full_scan" = "全量扫描";
 "radio_title" = "电台";
 "radio_manage" = "管理电台";
 "radio_add" = "添加电台";
@@ -3476,7 +3476,7 @@
 "artwork_processing" = "正在处理封面…";
 "artwork_upload_failed" = "无法更新封面";
 "artwork_invalid_image" = "请选择 Primuse 可处理的有效图片。";
-"baidu_snapshot_deep_scan_required" = "轻量刷新检测到的变更超过本次安全预算，资料库未被修改。请在前台选择“深度扫描”完成安全对账。";
+"baidu_snapshot_deep_scan_required" = "增量扫描检测到的变更过多，资料库尚未更新。请在前台运行「全量扫描」。";
 "player_appearance_title" = "播放器";
 "player_volume_bar" = "音量条";
 "player_volume_bar_description" = "在播放器中显示音量条。隐藏后，其他控件会自然填充空出的空间。";
@@ -4711,7 +4711,7 @@
 "source_auto_refresh_description" = "开启后，在启动或回到前台时按所选间隔增量扫描已选目录。本地目录也会在文件变化时更新。";
 "source_auto_refresh_interval" = "刷新间隔";
 "server_scan_on_launch" = "启动时请求完整服务端扫描";
-"server_scan_on_launch_description" = "Primuse 启动时请求服务端完整扫描资料库。需要管理员账号；不支持或无权限时会自动回退为仅检查状态。";
+"server_scan_on_launch_description" = "Primuse 启动时请求服务端全量扫描资料库。需要管理员账号；不支持或无权限时会自动回退为仅检查状态。";
 "server_refresh_menu_item" = "检查音乐源更新";
 "server_refresh_found_changes_format" = "正在刷新 %@";
 "server_refresh_already_scanning" = "音乐源正在同步中";
@@ -5682,7 +5682,6 @@
 "directory_tag_hint" = "点一下已选目录旁的标签改成「有声书」，里面的内容会放进有声书架，不和音乐混在一起。子目录跟着上级走，也能单独改。";
 "directory_tag_follows_format" = "跟随「%@」";
 "directory_tag_follows_parent" = "跟随上级目录";
-"directory_rescan_now" = "立即扫描此目录";
 "home_filter_clear_hint" = "再点一次回到全部";
 "notifications_section" = "通知";
 "notify_long_tasks_footer" = "你发起的扫描、标签读取和刮削在后台完成时提醒你。扫描失败、iCloud 空间已满这类需要你处理的问题不受此开关影响；App 在前台时不会发通知。";
@@ -6590,15 +6589,15 @@
 "home_filter_bar_label_title_only" = "仅文字";
 "home_filter_bar_label_style_footer" = "自动：放得下时每一项都显示图标和文字；放不下时选中的那一项保持完整，其余只留文字或图标。仍然放不下时可以左右滑动这一排。";
 /* Server catalogue: songs deleted on the server (#155) */
-"catalog_prune_held_format" = "服务端目录里少了之前列出的 %1$d 首歌。为防误删先保留，再完整扫描 %2$d 次仍然不在才会移除；不需要保留的话，可以把「服务端删掉的歌」改成「立即移除」。";
-"scan_prune_held_format" = "这次扫描比上次少了 %1$d 首歌，可能是硬盘或共享文件夹暂时没挂上。为防误删先保留，再完整扫描 %2$d 次仍然不在才会移除。";
+"catalog_prune_held_format" = "服务端目录里少了之前列出的 %1$d 首歌。为防误删先保留，再全量扫描 %2$d 次仍然不在才会移除；不需要保留的话，可以把「服务端删掉的歌」改成「立即移除」。";
+"scan_prune_held_format" = "这次扫描比上次少了 %1$d 首歌，可能是硬盘或共享文件夹暂时没挂上。为防误删先保留，再全量扫描 %2$d 次仍然不在才会移除。";
 "catalog_prune_mode_title" = "服务端删掉的歌";
 "catalog_prune_mode_confirm" = "确认后移除";
 "catalog_prune_mode_immediate" = "立即移除";
-"catalog_prune_mode_description" = "确认后移除：扫描时发现服务器上少了的歌先保留，之后的完整扫描里仍然不在才移除，服务器偶尔少返回或资料库暂时没挂载时不会误删。立即移除：一次完整扫描里不在就移除，服务器上的资料库暂时没挂载时也会移除；扫描途中内容有变动或没扫完时仍然不删。";
+"catalog_prune_mode_description" = "确认后移除：扫描时发现服务器上少了的歌先保留，之后的全量扫描里仍然不在才移除，服务器偶尔少返回或资料库暂时没挂载时不会误删。立即移除：一次全量扫描里不在就移除，服务器上的资料库暂时没挂载时也会移除；扫描途中内容有变动或没扫完时仍然不删。";
 "tv_catalog_prune_mode_menu_format" = "服务端删掉的歌：%@";
-"tv_catalog_prune_held_format" = "服务端已不在的 %1$d 首暂时保留，再完整扫描 %2$d 次仍不在才移除";
-"tv_catalog_prune_held_immediate_format" = "服务端已不在的 %1$d 首暂时保留，再完整扫描 %2$d 次仍不在才移除；长按可改成立即移除";
+"tv_catalog_prune_held_format" = "服务端已不在的 %1$d 首暂时保留，再全量扫描 %2$d 次仍不在才移除";
+"tv_catalog_prune_held_immediate_format" = "服务端已不在的 %1$d 首暂时保留，再全量扫描 %2$d 次仍不在才移除；长按可改成立即移除";
 "tv_apple_music_like_failed_format" = "没能把这首歌加进 Apple Music 资料库，所以没有加入「我喜欢」：%@";
 "icloud_sync_settings_channel_footer" = "播放器、界面布局与颜色的偏好，以及收藏里的歌单、有声书、目录和收藏顺序，跟着设置一起同步；本机音乐源上的目录与书只留在这台设备。收藏的专辑与艺人、评分和评论跟着歌单同步。";
 "icloud_sync_scan_results_footer" = "音乐源同步开着时，同一账号的 iPhone、iPad 和 Mac 共用已经读好的歌曲标签：一台读完，其他设备扫描同一个音乐源时只读新加或改过的文件。手动改过的标签和换过的封面也跟着同步，在一台设备上「恢复文件标签」，其他设备一起恢复。";
@@ -7800,7 +7799,8 @@
 "source_files_scope_none" = "还没选扫描目录";
 "source_files_choose_directories" = "选择目录";
 "source_files_scope_editing_hint" = "勾选要扫描的目录，点「完成」后按新的范围扫描。";
-"source_files_scan_here" = "只扫这里";
+"folder_scan_incremental" = "增量扫描此目录";
+"folder_scan_full" = "全量扫描此目录";
 "source_files_scan_source" = "扫描整个源";
 "source_files_scan_started_format" = "开始扫描“%@”";
 "source_files_scan_busy" = "这个源正在扫描，扫完再试";
@@ -7819,7 +7819,7 @@
 "source_file_in_library_count_format" = "在曲库中 · %d 首";
 "source_file_not_in_library_hint" = "这个文件还没入库，扫描一次这个文件夹就会出现在曲库里。";
 "source_file_outside_scope_hint" = "这个文件夹不在扫描范围内，先在「管理目录」里勾上它。";
-"source_file_scan_folder" = "扫描这个文件夹";
+"source_file_scan_folder" = "扫描此目录";
 "source_file_path" = "路径";
 "source_file_modified" = "修改时间";
 "source_file_rename_title" = "重命名文件";

@@ -217,16 +217,14 @@ enum DirectorySelectionInclusionText {
 
 // MARK: - 立即扫描「已包含」的目录
 
-/// 选目录页「已包含」行上的「立即扫描此目录」：只把这一棵子树重新列一遍（走资料库文件夹页
-/// 「重新扫描此文件夹」同一条路径），不改勾选。宿主（音乐源页）只给已保存、支持单独重扫
-/// 文件夹的源；这次打开后改过勾选就不再提供——扫描索引对应的是旧范围，关掉页面时会整源重扫。
+/// 选目录时只允许扫描已保存范围里的目录。勾选有改动时等用户结束编辑再按新范围扫描。
 struct DirectoryRescanAction {
     /// 这一行（连同浏览经过的上级，外层在前）是否被已扫描的范围覆盖。
     let covers: @MainActor (_ path: String, _ ancestors: [String]) -> Bool
     /// 这个源正在扫描。只在按钮自己的 body 里调用（读的是只在开扫、扫完时才变的那一份）。
     let isScanning: @MainActor () -> Bool
     /// 目录本身在前、再依次往上的各级；开始了返回 true。
-    let rescan: @MainActor (_ candidates: [String]) -> Bool
+    let rescan: @MainActor (_ candidates: [String], _ mode: SourceSyncMode) -> Bool
 
     @MainActor
     static func forSavedSource(
@@ -249,20 +247,23 @@ struct DirectoryRescanAction {
                 if let opened = directoriesWhenOpened(), Set(opened) != Set(directories) {
                     return false
                 }
-                guard case .included = SourceDirectorySelectionPolicy.selectionState(
+                switch SourceDirectorySelectionPolicy.selectionState(
                     of: path,
                     in: directories,
                     ancestors: ancestors,
                     for: current.type
-                ) else { return false }
-                return true
+                ) {
+                case .selected, .included: return true
+                case .unselected: return false
+                }
             },
             isScanning: { scanService.scanningSourceIDs.contains(sourceID) },
-            rescan: { candidates in
+            rescan: { candidates, mode in
                 guard let current = sourceStore.source(id: sourceID) else { return false }
                 return scanService.rescanFolder(
                     of: current,
                     request: SourceFolderRescanRequest(directoryCandidates: candidates),
+                    mode: mode,
                     sourceManager: sourceManager,
                     library: library,
                     sourceStore: sourceStore,
@@ -284,7 +285,19 @@ extension EnvironmentValues {
     }
 }
 
-/// 「已包含」行行尾的次级按钮。点下去这个源开始扫描时转圈，扫完复原；源正在扫（别处发起的）时不可点。
+struct FolderScanMenuItems: View {
+    let scan: (SourceSyncMode) -> Void
+
+    var body: some View {
+        Button { scan(.automatic) } label: {
+            Label("folder_scan_incremental", systemImage: "arrow.clockwise")
+        }
+        Button { scan(.deep) } label: {
+            Label("folder_scan_full", systemImage: "arrow.triangle.2.circlepath.circle")
+        }
+    }
+}
+
 struct DirectoryRescanButton: View {
     let action: DirectoryRescanAction
     let candidates: [String]
@@ -292,8 +305,8 @@ struct DirectoryRescanButton: View {
 
     var body: some View {
         let isScanning = action.isScanning()
-        Button {
-            isRequested = action.rescan(candidates)
+        Menu {
+            FolderScanMenuItems { mode in isRequested = action.rescan(candidates, mode) }
         } label: {
             ZStack {
                 if isRequested && isScanning {
@@ -314,8 +327,8 @@ struct DirectoryRescanButton: View {
         }
         .buttonStyle(.plain)
         .disabled(isScanning)
-        .help(Text("directory_rescan_now"))
-        .accessibilityLabel(Text("directory_rescan_now"))
+        .help(Text("source_file_scan_folder"))
+        .accessibilityLabel(Text("source_file_scan_folder"))
         .accessibilityIdentifier("directoryPicker.rescan")
         .onChange(of: isScanning) { _, scanning in
             if !scanning { isRequested = false }
@@ -1093,7 +1106,7 @@ struct MacDirTreeBrowser: View {
                 DirectoryFolderTagMenu(tag: tag)
             }
 
-            if included, let rescanAction, rescanAction.covers(row.path, ancestors) {
+            if checked || included, let rescanAction, rescanAction.covers(row.path, ancestors) {
                 DirectoryRescanButton(action: rescanAction, candidates: [row.path] + ancestors.reversed())
             }
         }

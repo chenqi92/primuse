@@ -440,6 +440,8 @@ final class ScanService {
     /// Successful catalogue access can reopen an exhausted metadata-read
     /// circuit breaker without coupling ScanService to the backfill worker.
     @ObservationIgnored var successfulSourceScanHandler: ((String, SourceScanLifecycleCompletion) -> Void)?
+    typealias FolderTagReread = @MainActor ([String], String, @escaping (MetadataTagRereadProgress) -> Void) async -> MetadataTagRereadProgress
+    @ObservationIgnored var folderTagRereadHandler: FolderTagReread?
     /// Called whenever `folderHierarchyRevision` advances. AppServices uses it
     /// to hand the ID-addressed drives' folders to the library's album-artist
     /// inference, which cannot read them from those songs' paths.
@@ -1314,6 +1316,7 @@ final class ScanService {
     func rescanFolder(
         of source: MusicSource,
         request: SourceFolderRescanRequest,
+        mode: SourceSyncMode = .automatic,
         sourceManager: SourceManager,
         library: MusicLibrary,
         sourceStore: SourcesStore,
@@ -1322,6 +1325,7 @@ final class ScanService {
         guard Self.supportsFolderRescan(source) else { return false }
         return scanSource(
             source,
+            mode: mode,
             sourceManager: sourceManager,
             library: library,
             sourceStore: sourceStore,
@@ -1401,6 +1405,7 @@ final class ScanService {
         let folderRoots: Set<String>?
         if let folderRescan {
             guard Self.supportsFolderRescan(source) else { return false }
+            guard mode != .deep || folderTagRereadHandler != nil else { return false }
             let prior = syncStates[source.id].flatMap {
                 $0.matchesScope(sourceID: source.id, scopeFingerprint: checkpointScopeFingerprint) ? $0 : nil
             }
@@ -3189,8 +3194,9 @@ final class ScanService {
             }
             do {
                 try await performFolderRescan(
-                    roots: folderRoots, source: source, generation: generation, directories: directories,
-                    state: state, scanner: scanner, existingSongs: existingForScan, library: library,
+                    roots: folderRoots, mode: mode, source: source, generation: generation, directories: directories,
+                    state: state, scanner: scanner, local: connector as? LocalFileSource,
+                    existingSongs: existingForScan, library: library,
                     sourceStore: sourceStore, scraperService: scraperService, sourceManager: sourceManager
                 )
             } catch {
@@ -5152,11 +5158,13 @@ final class ScanService {
     /// 原生增量游标不动，也不算一次完整扫描（`lastFullScanAt` 不变）。
     private func performFolderRescan(
         roots: Set<String>,
+        mode: SourceSyncMode,
         source: MusicSource,
         generation: Int,
         directories: [String],
         state: SourceSyncState,
         scanner: ConnectorScanner,
+        local: LocalFileSource?,
         existingSongs: [Song],
         library: MusicLibrary,
         sourceStore: SourcesStore,
@@ -5175,6 +5183,13 @@ final class ScanService {
         var listed: Set<String> = []
         var frontier = roots
         var changedCount = 0
+        if let local {
+            // 本地整源扫描使用组合版本和本地 CUE/ISO 分轨 ID，子目录沿用同一个读取器。
+            (songs, index) = try await Self.scanLocalSubtree(
+                local, roots: roots, existing: existingSongs, state: state, epoch: nextScanEpoch
+            )
+            frontier = []
+        }
         while !frontier.isEmpty {
             try Task.checkCancellation()
             try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
@@ -5201,7 +5216,9 @@ final class ScanService {
                 return listed.contains(child) ? nil : child
             })
         }
-        plog("📂 \(source.name): folder rescan listed \(listed.count) folder(s), \(changedCount) change(s) in \(Int(Date().timeIntervalSince(startedAt) * 1000))ms")
+        if local == nil {
+            plog("📂 \(source.name): folder rescan listed \(listed.count) folder(s), \(changedCount) change(s) in \(Int(Date().timeIntervalSince(startedAt) * 1000))ms")
+        }
         let folderPeerSeedAdoptions = await scanner.takePeerSeedAdoptions()
         if !folderPeerSeedAdoptions.isEmpty { peerSeedAdoptionHandler?(folderPeerSeedAdoptions) }
 
@@ -5210,7 +5227,7 @@ final class ScanService {
         candidateState.scanEpoch = nextScanEpoch
         candidateState.lastSuccessfulSyncAt = Date()
         // The library may gain songs or metadata in other folders while the server is listing this one.
-        let (upserts, removedIDs, scannedCount, addedCount) = await Task.detached(priority: .utility) { [songs, index] in
+        let (upserts, removedIDs, scannedCount, addedCount, rereadIDs) = await Task.detached(priority: .utility) { [songs, index] in
             var previous = Dictionary(existingSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             var addedCount = 0
             let changed = songs.filter { song in
@@ -5218,8 +5235,10 @@ final class ScanService {
                 if old == nil { addedCount += 1 }
                 return old != song
             }
-            let scannedCount = index.values.lazy.filter { $0.seenEpoch == nextScanEpoch }.reduce(0) { $0 + $1.songIDs.count }
-            return (changed, Set(previous.keys), scannedCount, addedCount)
+            let visited = index.values.lazy.filter { $0.seenEpoch == nextScanEpoch }
+            let scannedCount = visited.reduce(0) { $0 + $1.songIDs.count }
+            let rereadIDs = mode == .deep ? visited.flatMap(\.songIDs).sorted() : []
+            return (changed, Set(previous.keys), scannedCount, addedCount, rereadIDs)
         }.value
         var progressTimestamp = Date.distantPast
         publishScanProgress(
@@ -5236,6 +5255,7 @@ final class ScanService {
             songs: upserts,
             pruneMissingSongs: !removedIDs.isEmpty,
             folderRemovedSongIDs: removedIDs,
+            folderTagRereadIDs: rereadIDs,
             expectedScopeFingerprint: Self.scopeFingerprint(
                 for: source,
                 directories: directories
@@ -5248,6 +5268,43 @@ final class ScanService {
             syncState: candidateState,
             source: source
         )
+    }
+
+    @concurrent
+    private nonisolated static func scanLocalSubtree(
+        _ local: LocalFileSource, roots: Set<String>, existing: [Song], state: SourceSyncState, epoch: Int64
+    ) async throws -> ([Song], SourceSyncIndex) {
+        func isInScope(_ path: String) -> Bool {
+            roots.contains { SourceDirectorySelectionPolicy.covers($0, path, for: .local) }
+        }
+        try await local.connect()
+        let scoped = existing.filter { isInScope($0.filePath) }
+        let prior = IndexedSongSnapshot(scoped)
+        var visited: [Song] = []
+        for root in roots.sorted() {
+            let stream = try await local.scanSongs(from: root, existingSongs: existing)
+            for try await row in stream {
+                try Task.checkCancellation()
+                var song = row.song
+                guard isInScope(song.filePath) else { continue }
+                if let old = prior[song.id] {
+                    song = SongUserMetadataPolicy.preservingUserEdits(from: old, in: song)
+                    song.dateAdded = old.dateAdded
+                }
+                visited.append(song)
+            }
+        }
+        var rebuilt = state
+        for entry in state.index.values where isInScope(entry.path) && !(entry.isDirectory && roots.contains(entry.path)) {
+            rebuilt.index[entry.stableKey] = nil
+        }
+        rebuilt.scanEpoch = epoch
+        let index = restoringLegacyPathIndex(
+            base: rebuilt, sourceID: state.sourceID, scopeFingerprint: state.scopeFingerprint,
+            identityScopeFingerprint: state.identityScopeFingerprint ?? state.scopeFingerprint,
+            songs: visited, directories: Array(roots)
+        )
+        return (existing.filter { !isInScope($0.filePath) } + visited, index?.index ?? rebuilt.index)
     }
 
     private func performQuickSync(
@@ -5498,6 +5555,7 @@ final class ScanService {
         authoritativeSongIDs: Set<String>? = nil,
         pruneMissingSongs: Bool = true,
         folderRemovedSongIDs: Set<String>? = nil,
+        folderTagRereadIDs: [String] = [],
         // True when the walk already published rows into the library. The
         // terminal snapshot then equals what is already stored, so the change
         // detection below would otherwise read a first scan as a no-op.
@@ -5693,6 +5751,26 @@ final class ScanService {
         if let syncState {
             try await persistSyncState(syncState)
         }
+        var rereadSummary: String?
+        if !folderTagRereadIDs.isEmpty, let folderTagRereadHandler {
+            try checkScanCommitFence(
+                sourceID: sourceID, generation: generation, expectedScopeFingerprint: expectedScopeFingerprint,
+                expectedScopeDirectories: expectedScopeDirectories, sourceStore: sourceStore
+            )
+            var lastUpdate = Date.distantPast
+            let result = await folderTagRereadHandler(folderTagRereadIDs, sourceID) { progress in
+                guard self.isCurrentScan(sourceID, generation: generation) else { return }
+                self.publishScanProgress(
+                    sourceID: sourceID, scannedCount: progress.processed, addedCount: nil, totalCount: progress.total,
+                    currentFile: String(localized: "reread_song_tags_in_progress"), lastPublishedAt: &lastUpdate
+                )
+            }
+            if result.isCancelled { throw CancellationError() }
+            if result.failed > 0 || result.skipped > 0 {
+                rereadSummary = String(format: String(localized: "metadata_status_reread_result_format"),
+                                       result.completed, result.failed, result.skipped)
+            }
+        }
         try checkScanCommitFence(
             sourceID: sourceID,
             generation: generation,
@@ -5731,6 +5809,11 @@ final class ScanService {
         )
         scanStates[sourceID] = checkpoints[sourceID].map(Self.pendingScanState)
             ?? Self.completedScanState(syncState: syncState)
+        if let rereadSummary {
+            var state = scanStates[sourceID] ?? ScanState()
+            state.reconciliationMessage = rereadSummary
+            scanStates[sourceID] = state
+        }
         if let pending = localImportScanRevisions[sourceID], pending.generation == generation {
             LocalImportService.clearPendingScan(ifRevisionMatches: pending.revision)
         }

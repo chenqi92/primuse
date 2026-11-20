@@ -944,7 +944,7 @@
 "baidu_error_path_not_found" = "เส้นทาง Baidu Netdisk ไม่มีอยู่แล้ว (errno -9) เลือกโฟลเดอร์อีกครั้ง";
 "baidu_error_rate_limited" = "คำขอ API มากเกินไป (ข้อผิดพลาด 31034)";
 "baidu_error_token_expired" = "access_token หมดอายุแล้ว (ข้อผิดพลาด 111)";
-"baidu_snapshot_deep_scan_required" = "การเปลี่ยนแปลงที่พบในการรีเฟรชแสงนี้เกินงบประมาณด้านความปลอดภัย ดังนั้นคลังเพลงจึงไม่มีการเปลี่ยนแปลง เรียกใช้ Deep Scan ในเบื้องหน้าเพื่อปรับยอดอย่างปลอดภัย";
+"baidu_snapshot_deep_scan_required" = "การสแกนเฉพาะส่วนที่เปลี่ยนแปลงพบการเปลี่ยนแปลงมากเกินไป จึงยังไม่ได้อัปเดตคลัง ให้เปิดแอปไว้แล้วเลือก “สแกนแบบเต็ม”";
 "base_path" = "เส้นทางฐาน";
 "base_path_hint" = "เส้นทางฐาน (เช่น /dav)";
 "batch_delete_failed_format" = "%d ล้มเหลว";
@@ -3068,7 +3068,6 @@
 "library_favorite_filter" = "แสดงเฉพาะรายการโปรด";
 "library_favorite_filter_short" = "รายการโปรด";
 "album_filter_hide_single_song" = "ซ่อนอัลบั้มที่มีเพลงเดียว";
-"library_folder_rescan" = "สแกนโฟลเดอร์นี้อีกครั้ง";
 "reread_song_tags" = "อ่านแท็กไฟล์อีกครั้ง";
 "reread_song_tags_completed" = "แท็กไฟล์ถูกอ่านอีกครั้ง";
 "reread_song_tags_completed_embedded" = "อ่านแท็กฝังมาตรฐานแล้ว";
@@ -3713,7 +3712,8 @@
 "source_connection_public_port" = "พอร์ตสาธารณะ";
 "source_connection_remote_method" = "วิธีระยะไกล";
 "source_connection_remote_optional" = "การเข้าถึงระยะไกล (ทางเลือก)";
-"source_deep_scan" = "สแกนลึก";
+"source_incremental_scan" = "สแกนเฉพาะส่วนที่เปลี่ยนแปลง";
+"source_full_scan" = "สแกนแบบเต็ม";
 "source_deleted_toast" = "ลบ “%@” แล้ว";
 "source_diag_advice_auth_message" = "เซิร์ฟเวอร์ปฏิเสธข้อมูลรับรองปัจจุบัน";
 "source_diag_advice_auth_suggestion" = "ป้อนรหัสผ่าน API คีย์ หรือโทเค็นอีกครั้ง หากแหล่งที่มาใช้ 2FA ให้เชื่อมต่อใหม่ก่อน";
@@ -3787,7 +3787,7 @@
 "source_label" = "แหล่งข้อมูล";
 "source_name" = "ชื่อ";
 "source_never_synced" = "ยังไม่ได้ซิงค์";
-"source_quick_sync" = "การเปลี่ยนแปลงการซิงค์ด่วน...";
+"source_quick_sync" = "กำลังสแกนเฉพาะส่วนที่เปลี่ยนแปลง…";
 "source_remove_confirm_message" = "การดำเนินการนี้จะลบแหล่งที่มาและบันทึกเพลงออกจากคลังเพลงของคุณ ไฟล์ในเครื่องและระยะไกลจะไม่ได้รับผลกระทบ";
 "source_remove_confirm_title" = "ลบแหล่งเพลงนี้ออกหรือไม่";
 "source_remove_managed_confirm_action" = "ลบแหล่งที่มาและลบสำเนา";
@@ -5495,7 +5495,6 @@
 "directory_tag_hint" = "แตะป้ายข้างโฟลเดอร์ที่เลือกแล้วเลือก หนังสือเสียง เพื่อให้เนื้อหาในโฟลเดอร์ไปอยู่บนชั้นหนังสือเสียงแทนที่จะปนกับเพลง โฟลเดอร์ย่อยจะตามโฟลเดอร์ด้านบน และเปลี่ยนแยกเองได้";
 "directory_tag_follows_format" = "ตาม “%@”";
 "directory_tag_follows_parent" = "ตามโฟลเดอร์ด้านบน";
-"directory_rescan_now" = "สแกนโฟลเดอร์นี้ตอนนี้";
 "home_filter_clear_hint" = "แตะอีกครั้งเพื่อแสดงทั้งหมด";
 "notifications_section" = "การแจ้งเตือน";
 "notify_long_tasks_footer" = "รับการแจ้งเตือนเมื่อการสแกน การอ่านแท็ก หรือการดึงข้อมูลเมตาที่คุณเริ่มไว้เสร็จในเบื้องหลัง ปัญหาที่ต้องให้คุณจัดการ เช่น การสแกนล้มเหลวหรือพื้นที่ iCloud เต็ม จะแจ้งเตือนเสมอ จะไม่มีการแจ้งเตือนขณะเปิดแอปอยู่";
@@ -7613,7 +7612,8 @@
 "source_files_scope_none" = "ยังไม่ได้เลือกโฟลเดอร์ที่จะสแกน";
 "source_files_choose_directories" = "เลือกโฟลเดอร์";
 "source_files_scope_editing_hint" = "เลือกโฟลเดอร์ที่จะสแกน แล้วแตะ “เสร็จสิ้น” เพื่อสแกนตามที่เลือกใหม่";
-"source_files_scan_here" = "สแกนเฉพาะโฟลเดอร์นี้";
+"folder_scan_incremental" = "สแกนเฉพาะส่วนที่เปลี่ยนแปลงในโฟลเดอร์นี้";
+"folder_scan_full" = "สแกนโฟลเดอร์นี้แบบเต็ม";
 "source_files_scan_source" = "สแกนทั้งแหล่ง";
 "source_files_scan_started_format" = "กำลังสแกน “%@”";
 "source_files_scan_busy" = "แหล่งนี้กำลังสแกนอยู่ ลองอีกครั้งเมื่อสแกนเสร็จ";

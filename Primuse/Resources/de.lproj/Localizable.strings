@@ -821,7 +821,6 @@
 "library_favorite_filter" = "Nur Favoriten anzeigen";
 "library_favorite_filter_short" = "Favoriten";
 "album_filter_hide_single_song" = "Alben mit nur einem Titel ausblenden";
-"library_folder_rescan" = "Diesen Ordner erneut scannen";
 "reread_song_tags" = "Datei-Tags erneut lesen";
 "reread_song_tags_in_progress" = "Datei-Tags werden gelesen…";
 "reread_song_tags_completed" = "Die Datei-Tags wurden erneut gelesen.";
@@ -2688,8 +2687,9 @@
 "synology_error_invalid_url" = "Ungültige Adresse";
 "synology_error_invalid_response" = "Ungültige Antwort";
 "synology_error_http_format" = "HTTP-Fehler %d";
-"source_quick_sync" = "Änderungen werden schnell synchronisiert…";
-"source_deep_scan" = "Tiefenscan";
+"source_quick_sync" = "Inkrementeller Scan läuft…";
+"source_incremental_scan" = "Inkrementeller Scan";
+"source_full_scan" = "Vollständiger Scan";
 "radio_title" = "Radio";
 "radio_manage" = "Radiosender verwalten";
 "radio_add" = "Sender hinzufügen";
@@ -3374,7 +3374,7 @@
 "artwork_processing" = "Cover wird vorbereitet…";
 "artwork_upload_failed" = "Cover konnte nicht aktualisiert werden";
 "artwork_invalid_image" = "Wähle ein gültiges Bild, das Primuse verarbeiten kann.";
-"baidu_snapshot_deep_scan_required" = "Die bei dieser kurzen Aktualisierung gefundenen Änderungen überschreiten das Sicherheitsbudget; die Mediathek blieb unverändert. Führe im Vordergrund einen Tiefenscan aus.";
+"baidu_snapshot_deep_scan_required" = "Beim inkrementellen Scan wurden zu viele Änderungen gefunden. Die Mediathek wurde nicht aktualisiert. Wähle im Vordergrund „Vollständiger Scan“.";
 "player_appearance_title" = "Player";
 "player_volume_bar" = "Lautstärkeregler";
 "player_volume_bar_description" = "Zeigt den Lautstärkeregler im Player. Andere Bedienelemente nutzen den verfügbaren Platz automatisch, wenn er ausgeblendet ist.";
@@ -5589,7 +5589,6 @@
 "directory_tag_hint" = "Tippe auf das Etikett neben einem ausgewählten Ordner und wähle „Hörbücher“, damit sein Inhalt ins Hörbuchregal statt zur Musik kommt. Unterordner übernehmen das Etikett des Ordners darüber und lassen sich einzeln ändern.";
 "directory_tag_follows_format" = "Folgt „%@“";
 "directory_tag_follows_parent" = "Folgt dem übergeordneten Ordner";
-"directory_rescan_now" = "Diesen Ordner jetzt scannen";
 "home_filter_clear_hint" = "Erneut tippen, um alles anzuzeigen";
 "notifications_section" = "Mitteilungen";
 "notify_long_tasks_footer" = "Du wirst benachrichtigt, wenn ein von dir gestarteter Scan, das Auslesen von Tags oder das Abrufen von Metadaten im Hintergrund fertig ist. Probleme, die dich brauchen – etwa ein fehlgeschlagener Scan oder voller iCloud-Speicher –, werden immer gemeldet. Solange die App geöffnet ist, wird nichts gesendet.";
@@ -7707,7 +7706,8 @@
 "source_files_scope_none" = "Noch keine Scan-Ordner gewählt";
 "source_files_choose_directories" = "Ordner wählen";
 "source_files_scope_editing_hint" = "Wähle die Ordner aus, die gescannt werden sollen. Tippe auf „Fertig“, um mit der neuen Auswahl zu scannen.";
-"source_files_scan_here" = "Nur diesen Ordner scannen";
+"folder_scan_incremental" = "Diesen Ordner inkrementell scannen";
+"folder_scan_full" = "Diesen Ordner vollständig scannen";
 "source_files_scan_source" = "Ganze Quelle scannen";
 "source_files_scan_started_format" = "„%@“ wird gescannt";
 "source_files_scan_busy" = "Diese Quelle wird gerade gescannt. Versuche es danach erneut.";

@@ -821,7 +821,6 @@
 "library_favorite_filter" = "즐겨찾기만 보기";
 "library_favorite_filter_short" = "즐겨찾기";
 "album_filter_hide_single_song" = "한 곡짜리 앨범 숨기기";
-"library_folder_rescan" = "이 폴더 다시 스캔";
 "reread_song_tags" = "파일 태그 다시 읽기";
 "reread_song_tags_in_progress" = "파일 태그 읽는 중…";
 "reread_song_tags_completed" = "파일 태그를 다시 읽었습니다.";
@@ -2688,8 +2687,9 @@
 "synology_error_invalid_url" = "잘못된 주소";
 "synology_error_invalid_response" = "잘못된 응답";
 "synology_error_http_format" = "HTTP 오류 %d";
-"source_quick_sync" = "변경 사항을 빠르게 동기화하는 중…";
-"source_deep_scan" = "정밀 스캔";
+"source_quick_sync" = "증분 스캔 중…";
+"source_incremental_scan" = "증분 스캔";
+"source_full_scan" = "전체 스캔";
 "radio_title" = "라디오";
 "radio_manage" = "라디오 방송국 관리";
 "radio_add" = "방송국 추가";
@@ -3374,7 +3374,7 @@
 "artwork_processing" = "표지 준비 중…";
 "artwork_upload_failed" = "표지를 업데이트할 수 없음";
 "artwork_invalid_image" = "Primuse에서 처리할 수 있는 유효한 이미지를 선택하세요.";
-"baidu_snapshot_deep_scan_required" = "가벼운 새로 고침에서 감지된 변경 사항이 안전 예산을 초과하여 보관함을 변경하지 않았습니다. 포그라운드에서 심층 스캔을 실행해 안전하게 조정하세요.";
+"baidu_snapshot_deep_scan_required" = "증분 스캔에서 변경 사항이 너무 많이 발견되어 보관함을 업데이트하지 않았습니다. 앱을 연 상태에서 ‘전체 스캔’을 실행하세요.";
 "player_appearance_title" = "플레이어";
 "player_volume_bar" = "음량 슬라이더";
 "player_volume_bar_description" = "플레이어에 음량 슬라이더를 표시합니다. 숨기면 다른 컨트롤이 사용 가능한 공간을 자연스럽게 채웁니다.";
@@ -5589,7 +5589,6 @@
 "directory_tag_hint" = "선택한 폴더 옆의 태그를 탭하고 오디오북을 선택하면 그 안의 콘텐츠가 음악이 아닌 오디오북 서가로 들어갑니다. 하위 폴더는 상위 폴더를 따르며 따로 바꿀 수도 있습니다.";
 "directory_tag_follows_format" = "‘%@’ 따름";
 "directory_tag_follows_parent" = "상위 폴더 따름";
-"directory_rescan_now" = "이 폴더 지금 스캔";
 "home_filter_clear_hint" = "다시 탭하면 전체를 표시합니다";
 "notifications_section" = "알림";
 "notify_long_tasks_footer" = "직접 시작한 스캔, 태그 읽기, 메타데이터 가져오기가 백그라운드에서 끝나면 알려 줍니다. 스캔 실패나 iCloud 저장 공간 부족처럼 조치가 필요한 문제는 이 설정과 관계없이 알립니다. 앱을 사용 중일 때는 알림을 보내지 않습니다.";
@@ -7707,7 +7706,8 @@
 "source_files_scope_none" = "아직 스캔할 폴더를 고르지 않음";
 "source_files_choose_directories" = "폴더 선택";
 "source_files_scope_editing_hint" = "스캔할 폴더를 선택하세요. 완료를 탭하면 새로 선택한 범위로 스캔합니다.";
-"source_files_scan_here" = "이 폴더만 스캔";
+"folder_scan_incremental" = "이 폴더 증분 스캔";
+"folder_scan_full" = "이 폴더 전체 스캔";
 "source_files_scan_source" = "소스 전체 스캔";
 "source_files_scan_started_format" = "‘%@’ 스캔 중";
 "source_files_scan_busy" = "이 소스는 이미 스캔 중입니다. 끝난 뒤 다시 시도하세요.";

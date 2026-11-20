@@ -1380,7 +1380,7 @@ struct SourcesContentView: View {
         } else {
             let isScanning = scanning?.isScanning == true
             sourceFooterButton(
-                isScanning ? "scanning" : (scanning?.canResume == true ? "resume_scan" : "scan"),
+                isScanning ? "scanning" : (scanning?.canResume == true ? "resume_scan" : "source_incremental_scan"),
                 systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
                 prominence: .success,
                 isLoading: isScanning,
@@ -1454,7 +1454,7 @@ struct SourcesContentView: View {
                 Button {
                     startSourceScan(source, mode: .deep)
                 } label: {
-                    Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+                    Label("source_full_scan", systemImage: "arrow.triangle.2.circlepath.circle")
                 }
                 // 长按菜单是独立宿主, 不往里塞读 `@Environment` 的子视图;
                 // 这份集合只在"开始扫/扫完"时翻面, 读它不会把卡片拖进

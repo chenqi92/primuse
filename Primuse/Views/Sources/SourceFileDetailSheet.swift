@@ -232,7 +232,7 @@ struct SourceFileDetailSheet: View {
                         onScanFolder()
                         dismiss()
                     } label: {
-                        Label("source_file_scan_folder", systemImage: "arrow.clockwise")
+                        Label("folder_scan_incremental", systemImage: "arrow.clockwise")
                     }
                 }
             }

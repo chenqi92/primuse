@@ -166,7 +166,7 @@ struct TVScanFlowView: View {
                     .foregroundStyle(TVColor.textFaint)
             }
             TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.05, lift: 4, action: startFnMusicScan) { focused in
-                Label(PMString("ext.tv.scan.start"), systemImage: "arrow.triangle.2.circlepath")
+                Label(scanActionTitle, systemImage: "arrow.triangle.2.circlepath")
                     .tvFont(.eyebrow, weight: .bold)
                     .foregroundStyle(TVColor.onBrand)
                     .padding(.horizontal, 46)
@@ -196,7 +196,7 @@ struct TVScanFlowView: View {
         return HStack(alignment: .top, spacing: 80) {
             VStack(alignment: .leading, spacing: 0) {
                 TVEyebrow(text: PMString("ext.tv.scan.step3")).padding(.bottom, 6)
-                Text(mode == .incremental ? TVScanMode.incrementalTitle : PMString("ext.tv.scan.chooseFolders")).tvFont(size: 40, weight: .bold, relativeTo: .title2).foregroundStyle(TVColor.text).padding(.bottom, 6)
+                Text(scanActionTitle).tvFont(size: 40, weight: .bold, relativeTo: .title2).foregroundStyle(TVColor.text).padding(.bottom, 6)
                 Text(breadcrumb).tvFont(.caption, design: .monospaced).foregroundStyle(TVColor.textFaint).padding(.bottom, 22)
 
                 ScrollView(.vertical, showsIndicators: false) {
@@ -427,7 +427,7 @@ struct TVScanFlowView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.05, lift: 4, action: startScan) { f in
-                Label(PMString(rereadMetadata ? "tv_metadata_reread" : "ext.tv.scan.start"), systemImage: "arrow.triangle.2.circlepath")
+                Label(scanActionTitle, systemImage: "arrow.triangle.2.circlepath")
                     .tvFont(.eyebrow, weight: .bold).foregroundStyle(TVColor.onBrand)
                     .frame(maxWidth: .infinity).padding(.vertical, 20)
                     .background(TVColor.brand.opacity(scanSelection.isEmpty ? 0.35 : (f ? 1 : 0.88)), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -574,6 +574,11 @@ struct TVScanFlowView: View {
             SourceDirectorySelectionPolicy.toggledSelection(selected, path: p),
             for: source.type
         )
+    }
+
+    private var scanActionTitle: String {
+        if rereadMetadata { return PMString("tv_metadata_reread") }
+        return mode == .incremental ? String(localized: "source_incremental_scan") : String(localized: "source_full_scan")
     }
 
     private func startScan() {

@@ -580,7 +580,6 @@
 "library_favorite_filter" = "Show Favorites Only";
 "library_favorite_filter_short" = "Favorites";
 "album_filter_hide_single_song" = "Hide Single-Song Albums";
-"library_folder_rescan" = "Rescan This Folder";
 "reread_song_tags" = "Read File Tags Again";
 "reread_song_tags_in_progress" = "Reading file tags…";
 "reread_song_tags_completed" = "File tags were read again.";
@@ -2501,8 +2500,9 @@
 "synology_error_invalid_url" = "Invalid address";
 "synology_error_invalid_response" = "Invalid response";
 "synology_error_http_format" = "HTTP error %d";
-"source_quick_sync" = "Quick syncing changes…";
-"source_deep_scan" = "Deep Scan";
+"source_quick_sync" = "Running incremental scan…";
+"source_incremental_scan" = "Incremental Scan";
+"source_full_scan" = "Full Scan";
 "radio_title" = "Radio";
 "radio_manage" = "Manage Radio Stations";
 "radio_add" = "Add Station";
@@ -3145,7 +3145,7 @@
 "artwork_processing" = "Preparing artwork…";
 "artwork_upload_failed" = "Artwork Could Not Be Updated";
 "artwork_invalid_image" = "Choose a valid image that Primuse can process.";
-"baidu_snapshot_deep_scan_required" = "The changes found by this light refresh exceeded its safety budget, so the library was left unchanged. Run Deep Scan in the foreground to reconcile them safely.";
+"baidu_snapshot_deep_scan_required" = "The incremental scan found too many changes to update the library safely. Run Full Scan with the app in the foreground.";
 "player_appearance_title" = "Player";
 "player_volume_bar" = "Volume Slider";
 "player_volume_bar_description" = "Show the volume slider in the player. Other controls naturally fill the available space when it is hidden.";
@@ -5353,7 +5353,6 @@
 "directory_tag_hint" = "Tap the tag next to a selected folder and choose Audiobooks to put its contents on the audiobook shelf instead of in your music. Subfolders follow the folder above them and can be changed on their own.";
 "directory_tag_follows_format" = "Follows “%@”";
 "directory_tag_follows_parent" = "Follows the folder above";
-"directory_rescan_now" = "Scan This Folder Now";
 "home_filter_clear_hint" = "Tap again to show everything";
 "notifications_section" = "Notifications";
 "notify_long_tasks_footer" = "Get notified when a scan, tag reading or metadata scrape you started finishes in the background. Problems that need you, like a failed scan or full iCloud storage, are reported either way. Nothing is sent while the app is open.";
@@ -7468,7 +7467,8 @@
 "source_files_scope_none" = "No scan folders chosen yet";
 "source_files_choose_directories" = "Choose Folders";
 "source_files_scope_editing_hint" = "Check the folders to scan. Tap Done to scan with the new selection.";
-"source_files_scan_here" = "Scan This Folder";
+"folder_scan_incremental" = "Incremental Folder Scan";
+"folder_scan_full" = "Full Folder Scan";
 "source_files_scan_source" = "Scan Whole Source";
 "source_files_scan_started_format" = "Scanning “%@”";
 "source_files_scan_busy" = "This source is already scanning. Try again when it’s done.";

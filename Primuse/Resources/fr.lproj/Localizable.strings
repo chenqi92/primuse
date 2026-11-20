@@ -821,7 +821,6 @@
 "library_favorite_filter" = "Afficher uniquement les favoris";
 "library_favorite_filter_short" = "Favoris";
 "album_filter_hide_single_song" = "Masquer les albums à un seul titre";
-"library_folder_rescan" = "Réanalyser ce dossier";
 "reread_song_tags" = "Relire les tags du fichier";
 "reread_song_tags_in_progress" = "Lecture des tags du fichier…";
 "reread_song_tags_completed" = "Les tags du fichier ont été relus.";
@@ -2688,8 +2687,9 @@
 "synology_error_invalid_url" = "Adresse non valide";
 "synology_error_invalid_response" = "Réponse non valide";
 "synology_error_http_format" = "Erreur HTTP %d";
-"source_quick_sync" = "Synchronisation rapide des modifications…";
-"source_deep_scan" = "Analyse approfondie";
+"source_quick_sync" = "Analyse incrémentale en cours…";
+"source_incremental_scan" = "Analyse incrémentale";
+"source_full_scan" = "Analyse complète";
 "radio_title" = "Radio";
 "radio_manage" = "Gérer les stations de radio";
 "radio_add" = "Ajouter une station";
@@ -3374,7 +3374,7 @@
 "artwork_processing" = "Préparation de l’illustration…";
 "artwork_upload_failed" = "Impossible de modifier l’illustration";
 "artwork_invalid_image" = "Choisissez une image valide que Primuse peut traiter.";
-"baidu_snapshot_deep_scan_required" = "Les changements détectés dépassent le budget de sécurité de cette actualisation légère ; la bibliothèque n’a pas été modifiée. Lancez une analyse approfondie au premier plan.";
+"baidu_snapshot_deep_scan_required" = "L’analyse incrémentale a détecté trop de changements pour mettre à jour la bibliothèque en toute sécurité. Lancez « Analyse complète » avec l’app au premier plan.";
 "player_appearance_title" = "Lecteur";
 "player_volume_bar" = "Curseur de volume";
 "player_volume_bar_description" = "Afficher le curseur de volume dans le lecteur. Les autres commandes occupent naturellement l’espace disponible lorsqu’il est masqué.";
@@ -5589,7 +5589,6 @@
 "directory_tag_hint" = "Touchez l’étiquette à côté d’un dossier sélectionné et choisissez Livres audio pour ranger son contenu dans l’étagère des livres audio plutôt qu’avec la musique. Les sous-dossiers suivent le dossier parent et peuvent être modifiés séparément.";
 "directory_tag_follows_format" = "Suit « %@ »";
 "directory_tag_follows_parent" = "Suit le dossier parent";
-"directory_rescan_now" = "Analyser ce dossier maintenant";
 "home_filter_clear_hint" = "Touchez à nouveau pour tout afficher";
 "notifications_section" = "Notifications";
 "notify_long_tasks_footer" = "Recevez une notification quand une analyse, une lecture des tags ou une récupération de métadonnées que vous avez lancée se termine en arrière-plan. Les problèmes qui demandent votre intervention, comme une analyse échouée ou un stockage iCloud plein, sont signalés dans tous les cas. Rien n’est envoyé tant que l’app est ouverte.";
@@ -7707,7 +7706,8 @@
 "source_files_scope_none" = "Aucun dossier à analyser choisi";
 "source_files_choose_directories" = "Choisir les dossiers";
 "source_files_scope_editing_hint" = "Cochez les dossiers à analyser. Touchez Terminé pour lancer l’analyse avec la nouvelle sélection.";
-"source_files_scan_here" = "Analyser ce dossier";
+"folder_scan_incremental" = "Analyse incrémentale de ce dossier";
+"folder_scan_full" = "Analyse complète de ce dossier";
 "source_files_scan_source" = "Analyser toute la source";
 "source_files_scan_started_format" = "Analyse de « %@ »";
 "source_files_scan_busy" = "Cette source est déjà en cours d’analyse. Réessayez ensuite.";

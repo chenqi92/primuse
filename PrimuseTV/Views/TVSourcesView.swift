@@ -939,11 +939,11 @@ private struct TVSourceRow: View {
             if source.canScan {
                 if canIncrementalScan {
                     Button { onIncrementalScan() } label: {
-                        Label(TVScanMode.incrementalTitle, systemImage: "folder.badge.plus")
+                        Label(String(localized: "source_incremental_scan"), systemImage: "folder.badge.plus")
                     }
                 }
                 Button { onScan() } label: {
-                    Label(PMString("ext.tv.sources.scanFolders"), systemImage: "folder.badge.gearshape")
+                    Label(String(localized: "source_full_scan"), systemImage: "folder.badge.gearshape")
                 }
                 Button { onRereadTags() } label: {
                     Label(PMString("ext.tv.sources.rereadTags"), systemImage: "arrow.clockwise")

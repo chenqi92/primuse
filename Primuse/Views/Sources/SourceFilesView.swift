@@ -279,7 +279,7 @@ struct SourceFolderPage: View {
                         songCount: countsFolders ? model.index.songCount(inFolder: location.path) : nil,
                         isRoot: location.isRoot,
                         canScanHere: ScanService.supportsFolderRescan(current) && current.isEnabled,
-                        onScanHere: { scanHere(location) },
+                        onScanHere: { scanHere(location, mode: $0) },
                         onManage: manageDirectories
                     )
                 }
@@ -461,9 +461,8 @@ struct SourceFolderPage: View {
         .buttonStyle(.plain)
         .contextMenu {
             if childScope.isScanned, ScanService.supportsFolderRescan(current) {
-                Button { scanHere(child) } label: {
-                    Label("source_files_scan_here", systemImage: "arrow.clockwise")
-                }
+                FolderScanMenuItems { scanHere(child, mode: $0) }
+                    .disabled(!current.isEnabled || scanService.scanningSourceIDs.contains(current.id))
             }
             if let count, count > 0 {
                 Button { playFolder(child.path) } label: {
@@ -528,16 +527,18 @@ struct SourceFolderPage: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 Menu {
                     Section {
-                        Button { actions.scan(current, .automatic) } label: {
-                            Label("source_files_scan_source", systemImage: "waveform.badge.magnifyingglass")
-                        }
-                        if !location.isRoot, scope.isScanned, ScanService.supportsFolderRescan(current) {
-                            Button { scanHere(location) } label: {
-                                Label("source_files_scan_here", systemImage: "arrow.clockwise")
+                        if location.isRoot {
+                            sourceScanButtons
+                        } else {
+                            if scope.isScanned, ScanService.supportsFolderRescan(current) {
+                                FolderScanMenuItems { scanHere(location, mode: $0) }
+                                    .disabled(!current.isEnabled || scanService.scanningSourceIDs.contains(current.id))
                             }
-                        }
-                        Button { actions.scan(current, .deep) } label: {
-                            Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+                            Menu {
+                                sourceScanButtons
+                            } label: {
+                                Label("source_files_scan_source", systemImage: "waveform.badge.magnifyingglass")
+                            }
                         }
                         if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(current) {
                             SourceAutoRefreshPicker(sourceID: current.id)
@@ -561,6 +562,16 @@ struct SourceFolderPage: View {
                     Label("more", systemImage: "ellipsis.circle")
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var sourceScanButtons: some View {
+        Button { actions.scan(current, .automatic) } label: {
+            Label("source_incremental_scan", systemImage: "waveform.badge.magnifyingglass")
+        }
+        Button { actions.scan(current, .deep) } label: {
+            Label("source_full_scan", systemImage: "arrow.triangle.2.circlepath.circle")
         }
     }
 
@@ -636,9 +647,8 @@ struct SourceFolderPage: View {
         .buttonStyle(.plain)
         .contextMenu {
             if ScanService.supportsFolderRescan(current) {
-                Button { scanHere(target) } label: {
-                    Label("source_files_scan_here", systemImage: "arrow.clockwise")
-                }
+                FolderScanMenuItems { scanHere(target, mode: $0) }
+                    .disabled(!current.isEnabled || scanService.scanningSourceIDs.contains(current.id))
             }
             if let count, count > 0 {
                 Button { playFolder(path) } label: {
@@ -997,10 +1007,10 @@ struct SourceFolderPage: View {
         load()
     }
 
-    private func scanHere(_ target: SourceFolderLocation) {
+    private func scanHere(_ target: SourceFolderLocation, mode: SourceSyncMode = .automatic) {
         let source = current
-        guard !target.isRoot else {
-            actions.scan(source, .automatic)
+        if target.isRoot, mode != .deep || !ScanService.supportsFolderRescan(source) {
+            actions.scan(source, mode)
             return
         }
         guard ScanService.supportsFolderRescan(source) else { return }
@@ -1016,6 +1026,7 @@ struct SourceFolderPage: View {
         let started = scanService.rescanFolder(
             of: source,
             request: SourceFolderRescanRequest(directoryCandidates: [target.path] + target.ancestors.reversed()),
+            mode: mode,
             sourceManager: sourceManager,
             library: library,
             sourceStore: sourcesStore,
@@ -1103,11 +1114,11 @@ private struct SourceFolderScopeBanner: View {
     let songCount: Int?
     let isRoot: Bool
     let canScanHere: Bool
-    let onScanHere: () -> Void
+    let onScanHere: (SourceSyncMode) -> Void
     let onManage: () -> Void
 
     private var scanTitle: LocalizedStringKey {
-        isRoot ? "scan" : "source_files_scan_here"
+        isRoot ? "scan" : "source_file_scan_folder"
     }
 
     private var manageTitle: LocalizedStringKey {
@@ -1133,8 +1144,16 @@ private struct SourceFolderScopeBanner: View {
             }
             Spacer(minLength: 8)
             if scope.isScanned {
-                if canScanHere || isRoot {
-                    Button(scanTitle, action: onScanHere)
+                if canScanHere {
+                    Menu {
+                        FolderScanMenuItems(scan: onScanHere)
+                    } label: {
+                        Text(scanTitle)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.borderless)
+                } else if isRoot {
+                    Button("source_incremental_scan") { onScanHere(.automatic) }
                         .font(.subheadline.weight(.semibold))
                         .buttonStyle(.borderless)
                 }

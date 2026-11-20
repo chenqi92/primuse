@@ -944,7 +944,7 @@
 "baidu_error_path_not_found" = "المسار Baidu Netdisk لم يعد موجودًا (errno -9). حدد المجلد مرة أخرى.";
 "baidu_error_rate_limited" = "طلبات كثيرة جدا API (errno 31034).";
 "baidu_error_token_expired" = "انتهت صلاحية رمز الوصول (errno 111).";
-"baidu_snapshot_deep_scan_required" = "التغييرات التي تم العثور عليها من خلال هذا التحديث الخفيف تجاوزت ميزانية الأمان الخاصة بها، لذلك تركت المكتبة دون تغيير. قم بتشغيل Deep Scan في المقدمة للتوفيق بينها بأمان.";
+"baidu_snapshot_deep_scan_required" = "اكتشف الفحص التزايدي تغييرات كثيرة، لذا لم تُحدَّث المكتبة. شغّل «فحص كامل» مع إبقاء التطبيق في المقدمة.";
 "base_path" = "المسار الأساسي";
 "base_path_hint" = "المسار الأساسي (على سبيل المثال /dav)";
 "batch_delete_failed_format" = "%d فشل";
@@ -3068,7 +3068,6 @@
 "library_favorite_filter" = "عرض المفضلة فقط";
 "library_favorite_filter_short" = "المفضلة";
 "album_filter_hide_single_song" = "إخفاء الألبومات التي تحتوي على أغنية واحدة";
-"library_folder_rescan" = "إعادة فحص هذا المجلد";
 "reread_song_tags" = "إعادة قراءة وسوم الملف";
 "reread_song_tags_completed" = "تمت إعادة قراءة وسوم الملف.";
 "reread_song_tags_completed_embedded" = "تمت قراءة الوسوم المضمنة القياسية.";
@@ -3713,7 +3712,8 @@
 "source_connection_public_port" = "المنفذ العام";
 "source_connection_remote_method" = "الطريقة عن بعد";
 "source_connection_remote_optional" = "الوصول عن بعد (اختياري)";
-"source_deep_scan" = "المسح العميق";
+"source_incremental_scan" = "فحص تزايدي";
+"source_full_scan" = "فحص كامل";
 "source_deleted_toast" = "تم حذف “%@”";
 "source_diag_advice_auth_message" = "رفض الخادم بيانات الاعتماد الحالية.";
 "source_diag_advice_auth_suggestion" = "إعادة إدخال كلمة المرور أو المفتاح API أو الرمز المميز. إذا كان المصدر يستخدم المصادقة الثنائية، فأعد توصيله أولاً.";
@@ -3787,7 +3787,7 @@
 "source_label" = "المصدر";
 "source_name" = "الاسم";
 "source_never_synced" = "لم تتم المزامنة بعد";
-"source_quick_sync" = "تغييرات المزامنة السريعة…";
+"source_quick_sync" = "جارٍ إجراء فحص تزايدي…";
 "source_remove_confirm_message" = "يؤدي هذا إلى إزالة المصدر وسجلات الأغاني الخاصة به من مكتبتك. لا تتأثر الملفات المحلية والبعيدة.";
 "source_remove_confirm_title" = "إزالة مصدر الموسيقى هذا؟";
 "source_remove_managed_confirm_action" = "إزالة المصدر وحذف النسخ";
@@ -5495,7 +5495,6 @@
 "directory_tag_hint" = "اضغط على الوسم بجوار المجلد المحدد واختر «الكتب الصوتية» لتذهب محتوياته إلى رف الكتب الصوتية بدل الموسيقى. تتبع المجلدات الفرعية المجلد الأعلى، ويمكن تغيير كل منها على حدة.";
 "directory_tag_follows_format" = "يتبع «%@»";
 "directory_tag_follows_parent" = "يتبع المجلد الأعلى";
-"directory_rescan_now" = "فحص هذا المجلد الآن";
 "home_filter_clear_hint" = "اضغط مرة أخرى لعرض الكل";
 "notifications_section" = "الإشعارات";
 "notify_long_tasks_footer" = "تلقَّ إشعارًا عند انتهاء فحص أو قراءة وسوم أو جلب بيانات وصفية بدأته أنت في الخلفية. المشكلات التي تحتاج إلى تدخلك، مثل فشل الفحص أو امتلاء مساحة iCloud، يُبلَّغ عنها في كل الأحوال. لا يُرسل شيء أثناء فتح التطبيق.";
@@ -7613,7 +7612,8 @@
 "source_files_scope_none" = "لم تُختر مجلدات للمسح بعد";
 "source_files_choose_directories" = "اختيار المجلدات";
 "source_files_scope_editing_hint" = "حدّد المجلدات المراد فحصها، ثم اضغط «تم» للفحص وفق التحديد الجديد.";
-"source_files_scan_here" = "مسح هذا المجلد فقط";
+"folder_scan_incremental" = "فحص تزايدي لهذا المجلد";
+"folder_scan_full" = "فحص كامل لهذا المجلد";
 "source_files_scan_source" = "مسح المصدر بالكامل";
 "source_files_scan_started_format" = "جارٍ مسح «%@»";
 "source_files_scan_busy" = "يجري مسح هذا المصدر الآن. أعد المحاولة بعد انتهائه.";

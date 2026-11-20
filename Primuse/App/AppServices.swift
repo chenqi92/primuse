@@ -1529,6 +1529,7 @@ final class AppServices {
         manager.automaticOfflineDownloadRemovedHandler = { [weak alwaysDownload] songID in
             alwaysDownload?.downloadedFileWasRemoved(songID: songID)
         }
+        scanService.folderTagRereadHandler = metadataBackfill.rereadTags(songIDs:expectedSourceID:progress:)
         scanService.metadataInspectionHandler = { [weak metadataBackfill] songIDs in
             metadataBackfill?.acknowledgeScannerMetadataInspection(songIDs: songIDs)
         }

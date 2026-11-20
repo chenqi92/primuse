@@ -1526,11 +1526,10 @@ struct DirectoryCheckRow: View {
 
     private var isIncluded: Bool { includedCaption != nil }
 
-    /// 「立即扫描此目录」交给重扫的目录:这一行自己在前,再依次往上。只给已扫描范围里
-    /// 「已包含」的行(见 `DirectoryRescanAction`)。
+    /// 这一行自己在前,再依次往上,供 ID 型网盘确认扫描范围。
     @ViewBuilder
     private var rescanButton: some View {
-        if isIncluded, let rescanAction, rescanAction.covers(path, ancestorPaths) {
+        if isSelected || isIncluded, let rescanAction, rescanAction.covers(path, ancestorPaths) {
             DirectoryRescanButton(action: rescanAction, candidates: [path] + ancestorPaths.reversed())
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
         }

@@ -666,7 +666,7 @@
 "Crashes (30 days)" = "Çökmeler (30 gün)";
 "scrape_description" = "Arşivinizde zaten bulunan şarkıların eksik başlıklarını, sanatçılarını, albümlerini, kapaklarını ve şarkı sözlerini doldurun.";
 "scrape_writeback_media_server_hint" = "API sunucusu üzerinden yazar; Emby/Plex, şarkı sözlerini API aracılığıyla güncelleyemediğinde yerel önbellekte kalır.";
-"baidu_snapshot_deep_scan_required" = "Bu hafif yenilemeyle bulunan değişiklikler güvenlik bütçesini aştığı için arşiv değişmeden kaldı. Bunları güvenli bir şekilde uzlaştırmak için Derin Taramayı ön planda çalıştırın.";
+"baidu_snapshot_deep_scan_required" = "Artımlı taramada çok fazla değişiklik bulunduğu için arşiv güncellenmedi. Uygulama ön plandayken “Tam tarama” seçeneğini çalıştırın.";
 "lock_desktop_lyrics" = "Masaüstü şarkı sözlerini kilitle";
 "tag_editor_lyrics_writeback_server" = "Primuse'a kaydeder ve şarkı sözlerini medya sunucusuna geri yazar.";
 "notify_scrape_missing_done_title" = "Eksik üst verilerin alınması tamamlandı";
@@ -677,7 +677,7 @@
 "radio_manage_delete_confirm_title" = "Seçilen İstasyonlar Silinsin mi?";
 "local_import_reason_invalid_audio" = "Kopyalanan içerik orijinal ses değil, yer tutucu veya hata yanıtıdır";
 "search_limit_per_source" = "Kaynak başına sonuçlar";
-"source_quick_sync" = "Hızlı senkronizasyon değişiklikleri…";
+"source_quick_sync" = "Artımlı tarama sürüyor…";
 "onboarding_add_first_source" = "İlk kaynağınızı ekleyin";
 "reorder" = "Yeniden sırala";
 "Live Radio" = "Canlı Radyo";
@@ -3118,7 +3118,6 @@
 "library_favorite_filter" = "Yalnızca favorileri göster";
 "library_favorite_filter_short" = "Favoriler";
 "album_filter_hide_single_song" = "Tek şarkılı albümleri gizle";
-"library_folder_rescan" = "Bu klasörü yeniden tara";
 "reread_song_tags" = "Dosya Etiketlerini Tekrar Okuyun";
 "radio_live" = "Canlı radyo";
 "playlist_import_create" = "Oluştur";
@@ -3213,7 +3212,8 @@
 "home_section_continue_listening" = "Dinlemeye Devam Et";
 "local_import_none_added" = "Hiçbir ses dosyası içe aktarılmadı.";
 "ai_primuse_relay_test_footer" = "Test yalnızca sabit bir test cümlesi gönderir. Aramaları, şarkı sözlerini, arşivinizi veya dinleme geçmişinizi okumaz ve herhangi bir anahtarı değiştirmez.";
-"source_deep_scan" = "Derin Tarama";
+"source_incremental_scan" = "Artımlı tarama";
+"source_full_scan" = "Tam tarama";
 "google_drive_full_access_disclosure" = "Google Drive, mevcut müzik arşivinize göz atmak, kapak ve LRC yan dosyalarını yazmak ve açıkça sildiğiniz dosyaları çöp kutusuna taşımak için tam Drive erişimi ister. Primuse paylaşım izinlerini değiştirmez veya çöp kutusunu kalıcı olarak boşaltmaz.";
 "github_repository" = "GitHub Deposu";
 "tag_editor_lyrics_invalid_lines_format" = "Geçersiz veya sırası bozuk zaman damgası bulunan satırlar: %@";
@@ -5495,7 +5495,6 @@
 "directory_tag_hint" = "Seçili bir klasörün yanındaki etikete dokunup Sesli kitaplar’ı seçerseniz içindekiler müziğiniz yerine sesli kitap rafına gider. Alt klasörler üst klasörü izler ve tek tek değiştirilebilir.";
 "directory_tag_follows_format" = "“%@” ile aynı";
 "directory_tag_follows_parent" = "Üst klasörle aynı";
-"directory_rescan_now" = "Bu klasörü şimdi tara";
 "home_filter_clear_hint" = "Tümünü göstermek için tekrar dokunun";
 "notifications_section" = "Bildirimler";
 "notify_long_tasks_footer" = "Başlattığınız tarama, etiket okuma veya meta veri getirme arka planda bittiğinde bildirim alırsınız. Başarısız tarama ya da dolu iCloud depolama alanı gibi müdahale gerektiren sorunlar her durumda bildirilir. Uygulama açıkken bildirim gönderilmez.";
@@ -7613,7 +7612,8 @@
 "source_files_scope_none" = "Henüz taranacak klasör seçilmedi";
 "source_files_choose_directories" = "Klasör seç";
 "source_files_scope_editing_hint" = "Taranacak klasörleri işaretleyin. Yeni seçimle taramak için Bitti’ye dokunun.";
-"source_files_scan_here" = "Yalnızca bu klasörü tara";
+"folder_scan_incremental" = "Bu klasörde artımlı tarama";
+"folder_scan_full" = "Bu klasörde tam tarama";
 "source_files_scan_source" = "Tüm kaynağı tara";
 "source_files_scan_started_format" = "“%@” taranıyor";
 "source_files_scan_busy" = "Bu kaynak zaten taranıyor. Bitince yeniden dene.";

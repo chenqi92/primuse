@@ -6456,7 +6456,7 @@ final class LibraryFolderMaintenanceModel {
     }
 }
 
-/// 文件夹页「⋯」里的「重新扫描此文件夹」与「重新读取文件标签」。服务由页面在自己的视图
+/// 文件夹页「⋯」里的「增量扫描此目录」与「重新读取文件标签」。服务由页面在自己的视图
 /// 层级里取好再交进来：导航栏菜单的宿主拿不到环境（见 `FolderPlaylistMenuButton`）。
 @MainActor
 struct LibraryFolderMaintenanceActions {
@@ -6515,7 +6515,7 @@ private struct LibraryFolderMaintenanceMenuItems: View {
     var body: some View {
         if let rescan = actions.rescan {
             Button(action: rescan) {
-                Label("library_folder_rescan", systemImage: "arrow.clockwise")
+                Label("folder_scan_incremental", systemImage: "arrow.clockwise")
             }
             .accessibilityIdentifier("libraryFolder.rescan")
         }

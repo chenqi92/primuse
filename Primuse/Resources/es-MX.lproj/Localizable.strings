@@ -944,7 +944,7 @@
 "baidu_error_path_not_found" = "La ruta Baidu Netdisk ya no existe (errno -9). Seleccione la carpeta nuevamente.";
 "baidu_error_rate_limited" = "Demasiadas solicitudes API (error 31034).";
 "baidu_error_token_expired" = "El token de acceso expiró (errno 111).";
-"baidu_snapshot_deep_scan_required" = "Los cambios encontrados por esta actualización de luz excedieron su presupuesto de seguridad, por lo que la biblioteca se mantuvo sin cambios. Ejecute Deep Scan en primer plano para conciliarlos de forma segura.";
+"baidu_snapshot_deep_scan_required" = "El escaneo incremental detectó demasiados cambios y la biblioteca no se actualizó. Ejecuta «Escaneo completo» con la app en primer plano.";
 "base_path" = "Ruta base";
 "base_path_hint" = "Ruta base (por ejemplo, /dav)";
 "batch_delete_failed_format" = "%d falló";
@@ -3068,7 +3068,6 @@
 "library_favorite_filter" = "Mostrar solo favoritos";
 "library_favorite_filter_short" = "Favoritos";
 "album_filter_hide_single_song" = "Ocultar álbumes de una sola canción";
-"library_folder_rescan" = "Volver a escanear esta carpeta";
 "reread_song_tags" = "Volver a leer las etiquetas del archivo";
 "reread_song_tags_completed" = "Se volvieron a leer las etiquetas del archivo.";
 "reread_song_tags_completed_embedded" = "Se leyeron las etiquetas incrustadas estándar.";
@@ -3713,7 +3712,8 @@
 "source_connection_public_port" = "Puerto Público";
 "source_connection_remote_method" = "Método remoto";
 "source_connection_remote_optional" = "Acceso Remoto (Opcional)";
-"source_deep_scan" = "Escaneo Profundo";
+"source_incremental_scan" = "Escaneo incremental";
+"source_full_scan" = "Escaneo completo";
 "source_deleted_toast" = "Eliminado “%@”";
 "source_diag_advice_auth_message" = "El servidor rechazó la credencial actual.";
 "source_diag_advice_auth_suggestion" = "Vuelva a ingresar la contraseña, clave API o token. Si la fuente usa 2FA, vuelva a conectarla primero.";
@@ -3787,7 +3787,7 @@
 "source_label" = "Origen";
 "source_name" = "Nombre";
 "source_never_synced" = "Aún no sincronizado";
-"source_quick_sync" = "Cambios rápidos de sincronización…";
+"source_quick_sync" = "Escaneo incremental en curso…";
 "source_remove_confirm_message" = "Esto elimina la fuente y sus registros de canciones de su biblioteca. Los archivos locales y remotos no se ven afectados.";
 "source_remove_confirm_title" = "¿Eliminar esta fuente de música?";
 "source_remove_managed_confirm_action" = "Quitar origen y eliminar copias";
@@ -5495,7 +5495,6 @@
 "directory_tag_hint" = "Toca la etiqueta junto a una carpeta seleccionada y elige Audiolibros para que su contenido vaya al estante de audiolibros y no a tu música. Las subcarpetas siguen a la carpeta superior y puedes cambiarlas por separado.";
 "directory_tag_follows_format" = "Sigue a “%@”";
 "directory_tag_follows_parent" = "Sigue a la carpeta superior";
-"directory_rescan_now" = "Escanear esta carpeta ahora";
 "home_filter_clear_hint" = "Toca de nuevo para mostrar todo";
 "notifications_section" = "Notificaciones";
 "notify_long_tasks_footer" = "Recibe un aviso cuando un escaneo, una lectura de etiquetas o una búsqueda de metadatos que iniciaste termine en segundo plano. Los problemas que requieren tu atención, como un escaneo fallido o el almacenamiento de iCloud lleno, se avisan de todos modos. No se envía nada mientras la app está abierta.";
@@ -7613,7 +7612,8 @@
 "source_files_scope_none" = "Aún no eliges carpetas para escanear";
 "source_files_choose_directories" = "Elegir carpetas";
 "source_files_scope_editing_hint" = "Marca las carpetas que quieres escanear. Toca Listo para escanear con la nueva selección.";
-"source_files_scan_here" = "Escanear esta carpeta";
+"folder_scan_incremental" = "Escaneo incremental de esta carpeta";
+"folder_scan_full" = "Escaneo completo de esta carpeta";
 "source_files_scan_source" = "Escanear toda la fuente";
 "source_files_scan_started_format" = "Escaneando “%@”";
 "source_files_scan_busy" = "Esta fuente ya se está escaneando. Inténtalo cuando termine.";

@@ -371,6 +371,81 @@ final class FolderPlaylistTests: XCTestCase {
         XCTAssertEqual(library.songs.first { $0.filePath == "/Music/B/b1.mp3" }?.id, b1.id)
         let listed = await connector.listedPaths
         XCTAssertEqual(listed, ["/Music/A", "/Music/A/NewDisc"])
+
+        var rereadIDs = Set<String>()
+        scan.folderTagRereadHandler = { ids, sourceID, _ in
+            XCTAssertEqual(sourceID, source.id)
+            rereadIDs = Set(ids)
+            return MetadataTagRereadProgress(total: ids.count)
+        }
+        XCTAssertTrue(scan.rescanFolder(
+            of: source, request: SourceFolderRescanRequest(directoryCandidates: ["/Music/A", "/Music"]),
+            mode: .deep, sourceManager: manager, library: library, sourceStore: store
+        ))
+        await scan.waitForActiveScansToComplete()
+        XCTAssertEqual(rereadIDs, Set(library.songs.filter { $0.filePath.hasPrefix("/Music/A/") }.map(\.id)))
+        XCTAssertFalse(rereadIDs.contains(b1.id))
+    }
+
+    func testFullLocalFolderScanReadsChangedTagsWithSameSizeAndTimestamp() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let music = root.appendingPathComponent("Music")
+        let disc = music.appendingPathComponent("Album/Disc")
+        try FileManager.default.createDirectory(at: disc, withIntermediateDirectories: true)
+        let track = disc.appendingPathComponent("Track.mp3")
+        let other = music.appendingPathComponent("Other.mp3")
+        let stamp = Date(timeIntervalSince1970: 1_750_000_000)
+        func writeTitle(_ title: String, to url: URL) throws {
+            let text = Data([0]) + Data(title.utf8)
+            let frame = Data("TIT2".utf8) + Data([0, 0, 0, UInt8(text.count), 0, 0]) + text
+            let header = Data([0x49, 0x44, 0x33, 3, 0, 0, 0, 0, 0, UInt8(frame.count)])
+            let audioFrame = Data([0xFF, 0xFB, 0x90, 0x64]) + Data(repeating: 0, count: 413)
+            var data = header + frame
+            for _ in 0..<100 { data.append(audioFrame) }
+            try data.write(to: url)
+            try FileManager.default.setAttributes([.modificationDate: stamp], ofItemAtPath: url.path)
+        }
+        try writeTitle("Amber", to: track)
+        try writeTitle("Amber", to: other)
+        let source = MusicSource(id: UUID().uuidString, name: "Music", type: .local, basePath: music.path)
+        let connector = LocalFileSource(sourceID: source.id, basePath: music)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("Library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("Sources"))
+        store.add(source)
+        let scan = ScanService(
+            fileManager: FolderPlaylistTestFileManager(root: root), connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) }
+        )
+        let backfill = MetadataBackfillService(
+            library: library, sourceManager: manager, backfillableSourceIDs: { [source.id] },
+            bareOnlySourceIDs: { [source.id] },
+            directFileSourceIDs: { [source.id] }, storageDirectory: root.appendingPathComponent("Backfill")
+        )
+        backfill.automaticWorkIsAllowed = { false }
+        defer { backfill.stop() }
+        scan.folderTagRereadHandler = backfill.rereadTags(songIDs:expectedSourceID:progress:)
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+        await scan.waitForActiveScansToComplete()
+        let song = try XCTUnwrap(library.songs.first { $0.filePath == "/Album/Disc/Track.mp3" })
+        let sibling = try XCTUnwrap(library.songs.first { $0.filePath == "/Other.mp3" })
+        for id in [song.id, sibling.id] {
+            guard case .completed = await backfill.rereadTags(songID: id) else { return XCTFail("Initial tag read") }
+            XCTAssertEqual(library.storedSong(id: id)?.title, "Amber")
+        }
+        try writeTitle("Cedar", to: track)
+        try writeTitle("Cedar", to: other)
+        for (mode, expectedTitle) in [(SourceSyncMode.automatic, "Amber"), (.deep, "Cedar")] {
+            XCTAssertTrue(scan.rescanFolder(
+                of: source, request: .init(directoryCandidates: ["/Album", "/"]), mode: mode,
+                sourceManager: manager, library: library, sourceStore: store
+            ))
+            await scan.waitForActiveScansToComplete()
+            XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+            XCTAssertEqual(library.storedSong(id: song.id)?.title, expectedTitle)
+            XCTAssertEqual(library.storedSong(id: sibling.id)?.title, "Amber")
+        }
     }
 
     func testFolderRescanKeepsTagsReadFromUnchangedFiles() async throws {

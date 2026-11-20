@@ -178,7 +178,7 @@ private struct SourceScanBanner: View {
                     .font(.footnote)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("scan", action: onScan)
+                Button("source_incremental_scan", action: onScan)
                     .font(.subheadline.weight(.semibold))
                     .buttonStyle(.borderless)
             }
@@ -477,7 +477,7 @@ struct SourceOverviewPage: View {
                 Menu {
                     Button { sheet = .edit } label: { Label("edit", systemImage: "pencil") }
                     Button { actions.scan(source, .deep) } label: {
-                        Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+                        Label("source_full_scan", systemImage: "arrow.triangle.2.circlepath.circle")
                     }
                 } label: {
                     Label("more", systemImage: "ellipsis")
@@ -555,7 +555,7 @@ struct SourceScanButtonRow: View {
     var body: some View {
         SourceScanStateReader(sourceID: source.id) { scanning in
             let isScanning = scanning?.isScanning == true
-            let title: LocalizedStringKey = scanning?.canResume == true ? "resume_scan" : "scan"
+            let title: LocalizedStringKey = scanning?.canResume == true ? "resume_scan" : "source_incremental_scan"
             Button {
                 scan(.automatic)
             } label: {

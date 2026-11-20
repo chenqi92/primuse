@@ -822,7 +822,6 @@
 "library_favorite_filter" = "お気に入りのみ表示";
 "library_favorite_filter_short" = "お気に入り";
 "album_filter_hide_single_song" = "1曲のみのアルバムを非表示";
-"library_folder_rescan" = "このフォルダを再スキャン";
 "reread_song_tags" = "ファイルタグを再読み込み";
 "reread_song_tags_in_progress" = "ファイルタグを読み込んでいます…";
 "reread_song_tags_completed" = "ファイルタグを再読み込みしました。";
@@ -2689,8 +2688,9 @@
 "synology_error_invalid_url" = "アドレスが無効です";
 "synology_error_invalid_response" = "応答が無効です";
 "synology_error_http_format" = "HTTP エラー %d";
-"source_quick_sync" = "変更をクイック同期中…";
-"source_deep_scan" = "詳細スキャン";
+"source_quick_sync" = "差分スキャン中…";
+"source_incremental_scan" = "差分スキャン";
+"source_full_scan" = "フルスキャン";
 "radio_title" = "ラジオ";
 "radio_manage" = "ラジオ局を管理";
 "radio_add" = "ラジオ局を追加";
@@ -3375,7 +3375,7 @@
 "artwork_processing" = "アートワークを準備しています…";
 "artwork_upload_failed" = "アートワークを更新できませんでした";
 "artwork_invalid_image" = "Primuse で処理できる有効な画像を選択してください。";
-"baidu_snapshot_deep_scan_required" = "簡易更新で検出した変更が安全上限を超えたため、ライブラリは変更されませんでした。前面でディープスキャンを実行し、安全に整合させてください。";
+"baidu_snapshot_deep_scan_required" = "差分スキャンで多数の変更が見つかったため、ライブラリは更新されませんでした。アプリを開いた状態で「フルスキャン」を実行してください。";
 "player_appearance_title" = "プレーヤー";
 "player_volume_bar" = "音量スライダー";
 "player_volume_bar_description" = "プレーヤーに音量スライダーを表示します。非表示にすると、ほかのコントロールが空いた領域を自然に使用します。";
@@ -5590,7 +5590,6 @@
 "directory_tag_hint" = "選択したフォルダの横のタグをタップして「オーディオブック」を選ぶと、中身がミュージックではなくオーディオブックの棚に入ります。サブフォルダは上のフォルダに従い、個別に変更することもできます。";
 "directory_tag_follows_format" = "「%@」に従う";
 "directory_tag_follows_parent" = "上のフォルダに従う";
-"directory_rescan_now" = "このフォルダを今すぐスキャン";
 "home_filter_clear_hint" = "もう一度タップするとすべて表示します";
 "notifications_section" = "通知";
 "notify_long_tasks_footer" = "自分で開始したスキャン、タグの読み込み、メタデータ取得がバックグラウンドで終わったときに通知します。スキャンの失敗や iCloud の容量不足など対応が必要な問題は、この設定に関係なく通知されます。アプリを開いている間は通知しません。";
@@ -7708,7 +7707,8 @@
 "source_files_scope_none" = "スキャンするフォルダが未選択";
 "source_files_choose_directories" = "フォルダを選択";
 "source_files_scope_editing_hint" = "スキャンするフォルダにチェックを入れてください。「完了」をタップすると新しい範囲でスキャンします。";
-"source_files_scan_here" = "このフォルダだけスキャン";
+"folder_scan_incremental" = "このフォルダを差分スキャン";
+"folder_scan_full" = "このフォルダをフルスキャン";
 "source_files_scan_source" = "ソース全体をスキャン";
 "source_files_scan_started_format" = "「%@」をスキャンしています";
 "source_files_scan_busy" = "このソースはスキャン中です。終わってからもう一度お試しください。";

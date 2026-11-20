@@ -427,7 +427,7 @@ struct MacSourcesView: View {
             }
             if source.type.scansEntireLibrary || !dirs.isEmpty {
                 Button { runDeepScan(source) } label: {
-                    Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+                    Label("source_full_scan", systemImage: "arrow.triangle.2.circlepath.circle")
                 }
                 .disabled(scanService.scanningSourceIDs.contains(source.id))
             }
@@ -713,7 +713,7 @@ struct MacSourcesView: View {
             }
         } else {
             let resuming = scanning?.canResume == true
-            pill(resuming ? "resume_scan" : "rescan",
+            pill(resuming ? "resume_scan" : "source_incremental_scan",
                  systemImage: resuming ? "arrow.clockwise" : "arrow.triangle.2.circlepath",
                  tint: PMColor.ok) {
                 runScan(source)

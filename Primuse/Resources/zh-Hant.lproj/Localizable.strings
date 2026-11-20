@@ -569,7 +569,6 @@
 "library_favorite_filter" = "只看收藏的";
 "library_favorite_filter_short" = "收藏";
 "album_filter_hide_single_song" = "隱藏單曲";
-"library_folder_rescan" = "重新掃描此資料夾";
 "reread_song_tags" = "重新讀取檔案標籤";
 "reread_song_tags_in_progress" = "正在讀取檔案標籤";
 "reread_song_tags_completed" = "已重新讀取檔案標籤。";
@@ -2674,8 +2673,9 @@
 "synology_error_invalid_url" = "無效的位址";
 "synology_error_invalid_response" = "無效的回應";
 "synology_error_http_format" = "HTTP 錯誤 %d";
-"source_quick_sync" = "正在快速同步變更…";
-"source_deep_scan" = "深度掃描";
+"source_quick_sync" = "正在增量掃描…";
+"source_incremental_scan" = "增量掃描";
+"source_full_scan" = "全量掃描";
 "radio_title" = "電台";
 "radio_manage" = "管理電台";
 "radio_add" = "加入電台";
@@ -3360,7 +3360,7 @@
 "artwork_processing" = "正在處理封面…";
 "artwork_upload_failed" = "無法更新封面";
 "artwork_invalid_image" = "請選擇 Primuse 可處理的有效圖片。";
-"baidu_snapshot_deep_scan_required" = "輕量重新整理偵測到的變更超過本次安全預算，資料庫未被修改。請在前景選擇「深度掃描」以安全完成核對。";
+"baidu_snapshot_deep_scan_required" = "增量掃描偵測到的變更過多，資料庫尚未更新。請在前景執行「全量掃描」。";
 "player_appearance_title" = "播放器";
 "player_volume_bar" = "音量列";
 "player_volume_bar_description" = "在播放器中顯示音量列。隱藏後，其他控制項會自然填滿空出的空間。";
@@ -4595,7 +4595,7 @@
 "source_auto_refresh_description" = "開啟後，在啟動或回到前景時依所選間隔增量掃描已選目錄。本機目錄也會在檔案變更時更新。";
 "source_auto_refresh_interval" = "重新整理間隔";
 "server_scan_on_launch" = "啟動時請求完整伺服器掃描";
-"server_scan_on_launch_description" = "Primuse 啟動時請求伺服器完整掃描資料庫。需要管理員帳號；不支援或無權限時會自動回退為僅檢查狀態。";
+"server_scan_on_launch_description" = "Primuse 啟動時請求伺服器全量掃描資料庫。需要管理員帳號；不支援或無權限時會自動回退為僅檢查狀態。";
 "server_refresh_menu_item" = "檢查音樂來源更新";
 "server_refresh_found_changes_format" = "正在重新整理 %@";
 "server_refresh_already_scanning" = "音樂來源正在同步中";
@@ -5566,7 +5566,6 @@
 "directory_tag_hint" = "點一下已選資料夾旁的標籤改成「有聲書」，裡面的內容會放進有聲書架，不和音樂混在一起。子資料夾跟著上層走，也能單獨改。";
 "directory_tag_follows_format" = "跟隨「%@」";
 "directory_tag_follows_parent" = "跟隨上層資料夾";
-"directory_rescan_now" = "立即掃描此資料夾";
 "home_filter_clear_hint" = "再點一次回到全部";
 "notifications_section" = "通知";
 "notify_long_tasks_footer" = "你發起的掃描、標籤讀取和刮削在背景完成時提醒你。掃描失敗、iCloud 空間已滿這類需要你處理的問題不受此開關影響；App 在前景時不會發通知。";
@@ -6474,15 +6473,15 @@
 "home_filter_bar_label_title_only" = "僅文字";
 "home_filter_bar_label_style_footer" = "自動：放得下時每一項都顯示圖示和文字；放不下時選中的那一項保持完整，其餘只留文字或圖示。仍然放不下時可以左右滑動這一排。";
 /* Server catalogue: songs deleted on the server (#155) */
-"catalog_prune_held_format" = "伺服器目錄裡少了之前列出的 %1$d 首歌。為防誤刪先保留，再完整掃描 %2$d 次仍然不在才會移除；不需要保留的話，可以把「伺服器刪掉的歌」改成「立即移除」。";
-"scan_prune_held_format" = "這次掃描比上次少了 %1$d 首歌，可能是硬碟或共享資料夾暫時沒掛上。為防誤刪先保留，再完整掃描 %2$d 次仍然不在才會移除。";
+"catalog_prune_held_format" = "伺服器目錄裡少了之前列出的 %1$d 首歌。為防誤刪先保留，再全量掃描 %2$d 次仍然不在才會移除；不需要保留的話，可以把「伺服器刪掉的歌」改成「立即移除」。";
+"scan_prune_held_format" = "這次掃描比上次少了 %1$d 首歌，可能是硬碟或共享資料夾暫時沒掛上。為防誤刪先保留，再全量掃描 %2$d 次仍然不在才會移除。";
 "catalog_prune_mode_title" = "伺服器刪掉的歌";
 "catalog_prune_mode_confirm" = "確認後移除";
 "catalog_prune_mode_immediate" = "立即移除";
-"catalog_prune_mode_description" = "確認後移除：掃描時發現伺服器上少了的歌先保留，之後的完整掃描裡仍然不在才移除，伺服器偶爾少回傳或資料庫暫時沒掛載時不會誤刪。立即移除：一次完整掃描裡不在就移除，伺服器上的資料庫暫時沒掛載時也會移除；掃描途中內容有變動或沒掃完時仍然不刪。";
+"catalog_prune_mode_description" = "確認後移除：掃描時發現伺服器上少了的歌先保留，之後的全量掃描裡仍然不在才移除，伺服器偶爾少回傳或資料庫暫時沒掛載時不會誤刪。立即移除：一次全量掃描裡不在就移除，伺服器上的資料庫暫時沒掛載時也會移除；掃描途中內容有變動或沒掃完時仍然不刪。";
 "tv_catalog_prune_mode_menu_format" = "伺服器刪掉的歌：%@";
-"tv_catalog_prune_held_format" = "伺服器上已不在的 %1$d 首暫時保留，再完整掃描 %2$d 次仍不在才移除";
-"tv_catalog_prune_held_immediate_format" = "伺服器上已不在的 %1$d 首暫時保留，再完整掃描 %2$d 次仍不在才移除；長按可改成立即移除";
+"tv_catalog_prune_held_format" = "伺服器上已不在的 %1$d 首暫時保留，再全量掃描 %2$d 次仍不在才移除";
+"tv_catalog_prune_held_immediate_format" = "伺服器上已不在的 %1$d 首暫時保留，再全量掃描 %2$d 次仍不在才移除；長按可改成立即移除";
 "tv_apple_music_like_failed_format" = "沒能把這首歌加進 Apple Music 資料庫，所以沒有加入「我喜歡」：%@";
 "icloud_sync_settings_channel_footer" = "播放器、介面版面與顏色的偏好，以及收藏裡的歌單、有聲書、目錄和收藏順序，跟著設定一起同步；本機音樂來源上的目錄與書只留在這台裝置。收藏的專輯與藝人、評分和評論跟著歌單同步。";
 "icloud_sync_scan_results_footer" = "音樂來源同步開啟時，同一帳號的 iPhone、iPad 和 Mac 共用已經讀好的歌曲標籤：一台讀完，其他裝置掃描同一個音樂來源時只讀新增或改過的檔案。手動改過的標籤和換過的封面也跟著同步，在一台裝置上「恢復檔案標籤」，其他裝置一起恢復。";
@@ -7684,7 +7683,8 @@
 "source_files_scope_none" = "還沒選掃描目錄";
 "source_files_choose_directories" = "選擇目錄";
 "source_files_scope_editing_hint" = "勾選要掃描的目錄，點「完成」後按新的範圍掃描。";
-"source_files_scan_here" = "只掃這裡";
+"folder_scan_incremental" = "增量掃描此目錄";
+"folder_scan_full" = "全量掃描此目錄";
 "source_files_scan_source" = "掃描整個來源";
 "source_files_scan_started_format" = "開始掃描「%@」";
 "source_files_scan_busy" = "這個來源正在掃描，掃完再試";
@@ -7703,7 +7703,7 @@
 "source_file_in_library_count_format" = "在曲庫中 · %d 首";
 "source_file_not_in_library_hint" = "這個檔案還沒入庫，掃描一次這個資料夾就會出現在曲庫裡。";
 "source_file_outside_scope_hint" = "這個資料夾不在掃描範圍內，先在「管理目錄」裡勾選它。";
-"source_file_scan_folder" = "掃描這個資料夾";
+"source_file_scan_folder" = "掃描此目錄";
 "source_file_path" = "路徑";
 "source_file_modified" = "修改時間";
 "source_file_rename_title" = "重新命名檔案";
