@@ -387,7 +387,7 @@ struct MacHomeView: View {
             emptyState
                 .pmAppearFade(.contentAppear)
         }
-        if showContinueSpaces { QueueBookmarksSection() }
+        if showContinueSpaces { QueueBookmarksSection(horizontalInset: 0) }
         ForEach(MacHomeSectionLayout.decodeOrder(sectionOrderRawValue)) { section in
             dashboardSection(section, hasContent: hasContent)
         }
@@ -429,7 +429,7 @@ struct MacHomeView: View {
             }
         case .recentlyPlayed:
             if hasContent, showContinueListening {
-                RecentPlaybackSection(style: .grid, limit: 8)
+                RecentPlaybackSection(style: .grid, horizontalInset: 0, limit: 8)
                     .pmAppearFade(.contentAppear)
             }
         case .radio:

@@ -1138,6 +1138,8 @@ struct QueueBookmarkButton: View {
 }
 
 struct QueueBookmarksSection: View {
+    /// 左右留白。Mac 首页外层已经留了边，传 0 和别的区块对齐（同 `StartListeningShelf`）。
+    var horizontalInset: CGFloat = 20
     @Environment(AudioPlayerService.self) private var player
     @State private var showsAll = false
 
@@ -1161,7 +1163,7 @@ struct QueueBookmarksSection: View {
                     }
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, horizontalInset)
             .sheet(isPresented: $showsAll) {
                 NavigationStack {
                     List(bookmarks) { bookmark in bookmarkButton(bookmark) }
@@ -1214,6 +1216,8 @@ struct QueueBookmarksSection: View {
 
 struct RecentPlaybackSection: View {
     var style: HomeSectionLayoutStyle = .grid
+    /// 左右留白。Mac 首页外层已经留了边，传 0 和别的区块对齐（同 `StartListeningShelf`）。
+    var horizontalInset: CGFloat = 20
     var limit = 12
     var rows = 2
     var startupSongs: [Song] = []
@@ -1306,7 +1310,7 @@ struct RecentPlaybackSection: View {
                     }
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, horizontalInset)
         }
     }
 
