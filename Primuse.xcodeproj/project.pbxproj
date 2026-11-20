@@ -596,6 +596,7 @@
 		3D50D86680E367623D7A2DC3 /* ListeningRecap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0960C95537888946529A51D9 /* ListeningRecap.swift */; };
 		3D564C4F029EAEE087B638FE /* RadioStationStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57DE7B8C5035D8C74F2E397 /* RadioStationStrip.swift */; };
 		3D5B0D110E921643707BA1A8 /* PMHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92290B82B054C09E84F16173 /* PMHaptics.swift */; };
+		9447CEA0A4242A6F8A8A6E09 /* CoverFlowBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = E611C33A0C34833558E93C5D /* CoverFlowBackdrop.swift */; };
 		3DB2D944BC6083DFCF50FC79 /* SFTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */; };
 		3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92713492CA49F4357602CCA3 /* ImageCache.swift */; };
 		3DB73508E1F2F7398C73DEC1 /* S3ListParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DFCA331E6F42B56BA7100F2 /* S3ListParserTests.swift */; };
@@ -2066,6 +2067,7 @@
 		D7FB6F3F5B2FF7D18255B5F2 /* TVSiriRadioIntentRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5EF572CFF9251D5406F5AA /* TVSiriRadioIntentRoutingTests.swift */; };
 		D807361D6DE3891296DFDF58 /* MusicDiscoveryEngineEquivalenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 738CA001A4119151DECB6874 /* MusicDiscoveryEngineEquivalenceTests.swift */; };
 		D8161B76AC51C255531C63E8 /* PMHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92290B82B054C09E84F16173 /* PMHaptics.swift */; };
+		61750BD90231C8252A8B47A2 /* CoverFlowBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = E611C33A0C34833558E93C5D /* CoverFlowBackdrop.swift */; };
 		D81D210CDF6630387E02CF72 /* LibraryFolderIndexReuse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D68CAE54FF5A74ADDA008CF /* LibraryFolderIndexReuse.swift */; };
 		D84918920C71DB851E51AE09 /* SSLTrustStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AD7C0A9B431AEBEC047E320 /* SSLTrustStore.swift */; };
 		D879C90A8DE7AB1E46EF12C5 /* PlexServerLinkRefresher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040CD8D85207480295C5334F /* PlexServerLinkRefresher.swift */; };
@@ -3742,6 +3744,7 @@
 		91F2E1034751F2A381A4B435 /* TVReplayGainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVReplayGainTests.swift; sourceTree = "<group>"; };
 		920864E4FB6DEC6F5558EB2B /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/AudioCalibration.strings"; sourceTree = "<group>"; };
 		92290B82B054C09E84F16173 /* PMHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMHaptics.swift; sourceTree = "<group>"; };
+		E611C33A0C34833558E93C5D /* CoverFlowBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverFlowBackdrop.swift; sourceTree = "<group>"; };
 		9237FA090363711D3EC61458 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
 		9261E365FCA7CA1AF09E36F8 /* ExternalPlaylistImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPlaylistImport.swift; sourceTree = "<group>"; };
 		92713492CA49F4357602CCA3 /* ImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCache.swift; sourceTree = "<group>"; };
@@ -6347,6 +6350,7 @@
 				537BEA3A04660BAFF1AE2204 /* PlayerOrientationControl.swift */,
 				E70ED09A58D609AB344A780B /* PlayerStatusBarAppearance.swift */,
 				92290B82B054C09E84F16173 /* PMHaptics.swift */,
+				E611C33A0C34833558E93C5D /* CoverFlowBackdrop.swift */,
 				56EFA2B79F3B52F97EEC1E85 /* PMHeightClass.swift */,
 				82DE90F4A0194B1571C2E0A2 /* PMLayoutChangeFade.swift */,
 				86AFE90A684D1DA3CDB1C3C7 /* PMLikeBurst.swift */,
@@ -8624,6 +8628,7 @@
 				476ABB1A64AC9D81950EA6CD /* OpenAICompatibleProvider.swift in Sources */,
 				A208BF0550CF38EA88C45BC1 /* PCloudSource.swift in Sources */,
 				3D5B0D110E921643707BA1A8 /* PMHaptics.swift in Sources */,
+				9447CEA0A4242A6F8A8A6E09 /* CoverFlowBackdrop.swift in Sources */,
 				7A3273F295FFDDCC05C65206 /* PMHeightClass.swift in Sources */,
 				C29C30F584C1E5C9F4158F4C /* PMLayoutChangeFade.swift in Sources */,
 				E828EDCD59B2F4FE0F8E8C54 /* PMLikeBurst.swift in Sources */,
@@ -9510,6 +9515,7 @@
 				F807B1B51DE6DBC9D5B92CC6 /* OpenAICompatibleProvider.swift in Sources */,
 				4D13C4499A17E5CA00486F07 /* PCloudSource.swift in Sources */,
 				D8161B76AC51C255531C63E8 /* PMHaptics.swift in Sources */,
+				61750BD90231C8252A8B47A2 /* CoverFlowBackdrop.swift in Sources */,
 				75B8FDAEDD57548B9A9EBA8F /* PMHeightClass.swift in Sources */,
 				FAF140A3DF3A94839742166A /* PMLayoutChangeFade.swift in Sources */,
 				6671732B2F74A017D2DDF46D /* PMLikeBurst.swift in Sources */,

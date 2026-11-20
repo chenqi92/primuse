@@ -390,8 +390,18 @@ struct HomeHeroRecommendationCard: View {
         }
         .frame(width: metrics.cardWidth)
         .background {
-            HomeHeroCardBackdrop(style: appearance.backdrop.resolved(medium: medium, album: theme == nil),
-                                 palette: palette, focused: focused, reduceMotion: reduceMotion)
+            Group {
+                if let flowPalettes = coverFlowPalettes {
+                    // 没有封面可看:从里面几首歌的封面取色,拼成一块慢慢流动的底(像 Apple Music 的混音卡)。
+                    CoverFlowBackdrop(
+                        palettes: flowPalettes,
+                        isAnimating: focused && appearance.backdrop.resolved(medium: medium, album: theme == nil) != .gradient
+                    )
+                } else {
+                    HomeHeroCardBackdrop(style: appearance.backdrop.resolved(medium: medium, album: theme == nil),
+                                         palette: palette, focused: focused, reduceMotion: reduceMotion)
+                }
+            }
                 .overlay {
                     LinearGradient(stops: [.init(color: .clear, location: 0.15),
                                            .init(color: .black.opacity(0.60), location: metrics.isCompact ? 0.46 : 0.72),
@@ -403,9 +413,24 @@ struct HomeHeroRecommendationCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 18).stroke(.primary.opacity(0.06), lineWidth: 0.5) }
         .contentShape(RoundedRectangle(cornerRadius: 18))
-        .task(id: tintSong?.id) {
-            if let tintSong { tintProvider.prepare([tintSong]) }
+        .task(id: songs.map(\.id)) {
+            // 封面的颜色要第一首的;没有封面时底色从几首歌里一起取,所以几首都先取好。
+            guard !appearance.customColors else { return }
+            tintProvider.prepare(songs)
         }
+    }
+
+    /// 卡片上没有封面可看的时候(封面设成不显示,或者第一首根本没有封面),底色改从里面几首歌的封面取。
+    /// 一首有颜色的封面都没有时返回 nil,照旧用这一类的预设色。自选颜色、自选照片时不管。
+    private var coverFlowPalettes: [ImmersiveArtworkPalette]? {
+        guard !appearance.customColors, !(appearance.cover == .photo && appearance.photo != nil) else { return nil }
+        let firstHasArtwork = songs.first.map { song in
+            tintProvider.palette(forSongID: song.id) != nil
+                || tintProvider.hasAnalyzedColorlessArtwork(forSongID: song.id)
+        } ?? false
+        guard appearance.cover == .hidden || !firstHasArtwork else { return nil }
+        let palettes = songs.compactMap { tintProvider.palette(forSongID: $0.id) }
+        return palettes.isEmpty ? nil : palettes
     }
 
     private var tintSong: Song? {
