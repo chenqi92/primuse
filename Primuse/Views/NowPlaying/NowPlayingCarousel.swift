@@ -1300,7 +1300,12 @@ struct NowPlayingCarouselPanelPage<Content: View>: View {
     let onReturnToPlayer: () -> Void
     @ViewBuilder let content: Content
 
+    /// 设置里可以关掉底下那一条正在播放,面里只留这一面自己的内容。
+    @AppStorage(NowPlayingCarouselConfiguration.showsNowPlayingStripStorageKey)
+    private var stripEnabled = NowPlayingCarouselConfiguration.showsNowPlayingStripByDefault
+
     var body: some View {
+        let showsStrip = showsNowPlayingStrip && stripEnabled
         VStack(spacing: 0) {
             NowPlayingCarouselFaceHeader(
                 side: side,
@@ -1313,8 +1318,10 @@ struct NowPlayingCarouselPanelPage<Content: View>: View {
 
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 没有那一条时内容一直铺到底,能滚的内容最后一行让开底部的横条。
+                .safeAreaPadding(.bottom, showsStrip ? 0 : max(safeInsets.bottom, 12))
 
-            if showsNowPlayingStrip {
+            if showsStrip {
                 NowPlayingCarouselNowPlayingStrip(appearance: appearance, onTap: onReturnToPlayer)
                     .padding(.horizontal, 14)
                     .padding(.top, 8)

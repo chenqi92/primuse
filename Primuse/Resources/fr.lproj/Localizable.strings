@@ -7887,3 +7887,5 @@
 "dup_audition_play" = "Écouter cette copie";
 "dup_audition_stop" = "Arrêter l’écoute";
 "queue_show_earlier %lld" = "Afficher les %lld précédents";
+"player_carousel_now_playing_strip" = "Afficher la barre En cours de lecture";
+"player_carousel_now_playing_strip_footer" = "La barre en bas des faces latérales affiche le morceau en cours avec les boutons Lecture et Suivant. Désactivez-la pour une page plus épurée ; pour revenir au lecteur, touchez le bouton Retour en haut à droite ou balayez en sens inverse.";

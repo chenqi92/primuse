@@ -107,6 +107,14 @@ struct NowPlayingCarouselConfigurationTests {
         #expect(configuration.leading == [.upNext, .sound, .explore])
         #expect(configuration.trailing == [.stage])
     }
+
+    @Test("两侧的面底下那一条正在播放默认显示,开关单独存")
+    func nowPlayingStripDefault() {
+        #expect(Configuration.showsNowPlayingStripByDefault)
+        #expect(Configuration.showsNowPlayingStripStorageKey == "primuse.player.carousel.showsNowPlayingStrip")
+        #expect(Configuration.showsNowPlayingStripStorageKey != Configuration.storageKey)
+        #expect(Configuration.showsNowPlayingStripStorageKey != Configuration.enabledStorageKey)
+    }
 }
 
 @Suite("播放页转轮的卡片")

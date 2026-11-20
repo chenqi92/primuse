@@ -2,12 +2,15 @@
 import PrimuseKit
 import SwiftUI
 
-/// 设置 › 播放器 › 转轮切换:总开关(默认关),播放器左右两侧各放哪几面、什么顺序,以及每一面里放哪几张卡片。
+/// 设置 › 播放器 › 转轮切换:总开关(默认关),播放器左右两侧各放哪几面、什么顺序,每一面里放哪几张卡片,
+/// 以及两侧的面底下显不显示正在播放那一条。
 struct NowPlayingCarouselSettingsView: View {
     @AppStorage(NowPlayingCarouselConfiguration.enabledStorageKey)
     private var isEnabled = NowPlayingCarouselConfiguration.enabledByDefault
     @AppStorage(NowPlayingCarouselConfiguration.storageKey) private var storage = ""
     @AppStorage(NowPlayingCarouselCardSettings.storageKey) private var cardStorage = ""
+    @AppStorage(NowPlayingCarouselConfiguration.showsNowPlayingStripStorageKey)
+    private var showsNowPlayingStrip = NowPlayingCarouselConfiguration.showsNowPlayingStripByDefault
 
     private var configuration: NowPlayingCarouselConfiguration { .decode(storage) }
     private var cardSettings: NowPlayingCarouselCardSettings { .decode(cardStorage) }
@@ -60,6 +63,12 @@ struct NowPlayingCarouselSettingsView: View {
                 } header: {
                     Text("player_carousel_available")
                 }
+            }
+
+            Section {
+                Toggle("player_carousel_now_playing_strip", isOn: $showsNowPlayingStrip)
+            } footer: {
+                Text("player_carousel_now_playing_strip_footer")
             }
 
             ForEach(NowPlayingCarouselPanel.allCases) { panel in

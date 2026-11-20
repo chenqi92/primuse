@@ -144,6 +144,9 @@ public struct NowPlayingCarouselConfiguration: Equatable, Sendable {
     /// 转轮总开关。默认关:打开之前播放页的左右滑动不做任何事。
     public static let enabledStorageKey = "primuse.player.carousel.enabled"
     public static let enabledByDefault = false
+    /// 两侧的面底下那一条正在播放(封面、歌名、播放 / 暂停、下一首)。默认显示;关掉后面里只剩这一面的内容。
+    public static let showsNowPlayingStripStorageKey = "primuse.player.carousel.showsNowPlayingStrip"
+    public static let showsNowPlayingStripByDefault = true
     /// 两边各放哪几面。
     public static let storageKey = "primuse.player.carousel.layout"
     public static let maximumPanelsPerSide = 4

@@ -7887,3 +7887,5 @@
 "dup_audition_play" = "Diese Kopie anhören";
 "dup_audition_stop" = "Anhören beenden";
 "queue_show_earlier %lld" = "%lld frühere anzeigen";
+"player_carousel_now_playing_strip" = "Leiste „Aktuelle Wiedergabe“ zeigen";
+"player_carousel_now_playing_strip_footer" = "Die Leiste unten auf den Seiten neben dem Player zeigt den aktuellen Titel mit Wiedergabe- und Weiter-Taste. Ausgeschaltet wirkt die Seite ruhiger; zurück zum Player geht es über die Zurück-Taste oben rechts oder per Wischen.";

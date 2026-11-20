@@ -7793,3 +7793,5 @@
 "dup_audition_play" = "Bu Kopyayı Dinle";
 "dup_audition_stop" = "Dinlemeyi Durdur";
 "queue_show_earlier %lld" = "Önceki %lld şarkıyı göster";
+"player_carousel_now_playing_strip" = "Şu an çalıyor çubuğunu göster";
+"player_carousel_now_playing_strip_footer" = "Yan yüzlerin altındaki çubuk, çalan şarkıyı oynat ve sonraki düğmeleriyle gösterir. Daha sade bir sayfa için kapatın; oynatıcıya dönmek için sağ üstteki geri düğmesine dokunun veya geri kaydırın.";

@@ -7793,3 +7793,5 @@
 "dup_audition_play" = "Odsłuchaj tę kopię";
 "dup_audition_stop" = "Zatrzymaj odsłuch";
 "queue_show_earlier %lld" = "Pokaż %lld wcześniejszych";
+"player_carousel_now_playing_strip" = "Pokazuj pasek „Teraz odtwarzane”";
+"player_carousel_now_playing_strip_footer" = "Pasek na dole bocznych stron pokazuje bieżący utwór z przyciskami odtwarzania i następnego. Wyłącz go, by strona była czystsza; do odtwarzacza wrócisz przyciskiem powrotu w prawym górnym rogu albo przesuwając z powrotem.";

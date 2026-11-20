@@ -7648,3 +7648,5 @@
 "dup_audition_play" = "Preview This Copy";
 "dup_audition_stop" = "Stop Preview";
 "queue_show_earlier %lld" = "Show %lld Earlier";
+"player_carousel_now_playing_strip" = "Show Now Playing Bar";
+"player_carousel_now_playing_strip_footer" = "The bar at the bottom of the side faces shows the current song with play and next buttons. Turn it off for a cleaner page; to get back to the player, tap the back button at the top right or swipe back.";

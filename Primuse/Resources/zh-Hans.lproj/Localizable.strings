@@ -7980,3 +7980,5 @@
 "dup_audition_play" = "试听这一份";
 "dup_audition_stop" = "停止试听";
 "queue_show_earlier %lld" = "显示更早的 %lld 首";
+"player_carousel_now_playing_strip" = "显示正在播放条";
+"player_carousel_now_playing_strip_footer" = "两侧各面底部那一条显示当前歌曲和播放、下一首键。关掉后页面更简洁，可点右上角的返回键或滑回播放器。";
