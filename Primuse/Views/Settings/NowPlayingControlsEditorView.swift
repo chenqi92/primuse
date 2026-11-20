@@ -2035,8 +2035,8 @@ private struct SpokenWordMenuItemsEditor: View {
     private static let audiobookGroups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
         ("player_menu_group_quick", [.like, .share, .addToPlaylist, .delete]),
         ("player_menu_group_book", [
-            .bookmark, .chaptersAndBookmarks, .goToBook, .generateTranscript, .exportText, .songInfo, .editTags, .editLyrics,
-            .reloadLyrics, .openInAppleMusic,
+            .bookmark, .chaptersAndBookmarks, .goToBook, .generateTranscript, .importTranscripts, .exportText, .songInfo,
+            .editTags, .editLyrics, .reloadLyrics, .openInAppleMusic,
         ]),
         ("player_menu_group_spoken_playback", playbackItems),
     ]
@@ -2049,7 +2049,9 @@ private struct SpokenWordMenuItemsEditor: View {
             .podcastMarkPlayed, .podcastDownload, .podcastEpisodeDetails, .podcastGoToShow, .upNext,
             .chaptersAndBookmarks, .generateTranscript, .exportText,
         ]),
-        ("podcast_local_shows", [.goToBook, .songInfo, .editTags, .editLyrics, .reloadLyrics, .openInAppleMusic]),
+        ("podcast_local_shows", [
+            .goToBook, .songInfo, .editTags, .editLyrics, .importTranscripts, .reloadLyrics, .openInAppleMusic,
+        ]),
         ("player_menu_group_spoken_playback", playbackItems),
     ]
 
@@ -2167,6 +2169,7 @@ extension NowPlayingMenuItem {
         case .podcastDownload: "arrow.down.circle"
         case .clipExport: SongPlaybackRangeEditor.clipSymbol
         case .generateTranscript: "waveform.and.mic"
+        case .importTranscripts: "square.and.arrow.down.on.square"
         case .immersiveFaceToggle: "photo"
         case .shuffleLink: "link"
         case .exportText: "doc.text"
@@ -2231,6 +2234,7 @@ extension NowPlayingMenuItem {
         case .podcastDownload: "podcast_download"
         case .clipExport: "clip_export_tab"
         case .generateTranscript: "transcript_generation_title"
+        case .importTranscripts: "transcript_import_title"
         case .immersiveFaceToggle: "player_menu_item_immersive_face"
         case .shuffleLink: "shuffle_link_menu"
         case .exportText: "lyrics_export_menu_item"

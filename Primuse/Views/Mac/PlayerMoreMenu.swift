@@ -58,8 +58,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var isScrapingCurrentSong = false
     @State private var sourceLyricsReloadAlertMessage: String?
     @State private var sourceLyricsReloadingSongID: String?
-    /// 「重新读取服务器文字稿」碰上用户自己编辑、导入的那份时问一句(#461)。
+    /// 「重新读取服务器文字稿」碰上用户自己编辑、导入的那份时问一句;「导入文字稿」给哪本书(#461)。
     @State private var serverTranscriptReplaceSong: Song?
+    @State private var transcriptImportRequest: SpokenTranscriptImportRequest?
     /// 用 Button + Popover 自己画菜单,不用 SwiftUI Menu。原因:
     /// SwiftUI Menu + .borderlessButton 在 macOS 上落到 NSPopUpButton,
     /// 它的 hit test 只覆盖可见图标,玻璃圆环空白区会穿透到下层(歌词)。
@@ -186,6 +187,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
         .modifier(SpokenTranscriptSourcePresentations(
             replaceSong: $serverTranscriptReplaceSong,
+            importRequest: $transcriptImportRequest,
             onConfirmReplace: { reloadServerTranscript(song: $0, replacingUserTranscript: true) }
         ))
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
@@ -224,6 +226,12 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             return String(localized: "transcript_generation_regenerate")
         }
         return currentHasTranscript == false ? String(localized: "transcript_generation_action") : nil
+    }
+
+    /// 「导入文字稿」:资料库里的有声书(本机下载的播客节目也算);订阅里的播客单集不在资料库里(#461)。
+    private var canImportTranscripts: Bool {
+        guard isSpokenWord, !isPodcastEpisode, let song = player.currentSong else { return false }
+        return library.song(id: song.id) != nil
     }
 
     /// 这一首有歌词(有声内容是文字稿)时才能导出成文件(#362)。
@@ -482,6 +490,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             if let generation = transcriptGenerationRow {
                 menuRow(titleText: generation, symbol: "waveform.and.mic") {
                     transcriptGenerationSong = player.currentSong
+                }
+            }
+            if canImportTranscripts {
+                menuRow(title: "transcript_import_menu", symbol: "square.and.arrow.down.on.square") {
+                    transcriptImportRequest = SpokenTranscriptImportRequest.currentBook(player: player, library: library)
                 }
             }
             if canExportText {

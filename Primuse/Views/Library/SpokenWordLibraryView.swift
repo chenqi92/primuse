@@ -645,6 +645,8 @@ struct SpokenWordShelfContent: View {
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritePinsRawValue = ""
     /// 要整本加进歌单的那本书。
     @State private var playlistTarget: SpokenWordLibrarySnapshot.Entry?
+    /// 「导入文字稿」给哪本书(#461)。
+    @State private var transcriptImportTarget: SpokenTranscriptImportRequest?
     @State private var cacheRemovalTarget: SpokenWordLibrarySnapshot.Entry?
     /// 菜单里点了「始终保持离线」,这本书却一章都不能下:说明为什么。
     @State private var offlineUnavailable: AudiobookOfflinePolicy.Availability?
@@ -687,6 +689,9 @@ struct SpokenWordShelfContent: View {
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
                     #endif
+            }
+            .sheet(item: $transcriptImportTarget) { request in
+                SpokenTranscriptImportSheet(request: request)
             }
             .alert(
                 "spoken_word_keep_offline_unavailable_title",
@@ -1146,6 +1151,15 @@ struct SpokenWordShelfContent: View {
             playlistTarget = SpokenWordLibrarySnapshot.Entry(book: book, songs: songs)
         } label: {
             Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+        }
+        .disabled(songs.isEmpty)
+        Button {
+            transcriptImportTarget = SpokenTranscriptImportRequest(
+                title: book.title,
+                songs: SpokenTranscriptImportRequest.readingOrder(songs, of: book)
+            )
+        } label: {
+            Label(String(localized: "transcript_import_menu"), systemImage: "square.and.arrow.down.on.square")
         }
         .disabled(songs.isEmpty)
         keepOfflineToggle(book, songs: songs)

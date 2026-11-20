@@ -2235,6 +2235,8 @@ struct NowPlayingView: View {
     @State private var sourceLyricsReloadingSongID: String?
     /// 「重新读取服务器文字稿」碰上用户自己编辑、导入的那份:问一句再换(#461)。
     @State private var serverTranscriptReplaceSong: Song?
+    /// 「导入文字稿」给哪本书(#461)。
+    @State private var transcriptImportRequest: SpokenTranscriptImportRequest?
     /// Freeze the canonical song identity used by the scrape sheet. MusicKit
     /// can temporarily expose a catalog ID while the library row uses an
     /// `i.*` ID; reading `player.currentSong` again inside the sheet could then
@@ -2346,6 +2348,7 @@ struct NowPlayingView: View {
             || scrapeAlertMessage != nil
             || sourceLyricsReloadAlertMessage != nil
             || serverTranscriptReplaceSong != nil
+            || transcriptImportRequest != nil
             || deleteErrorMessage != nil
             || showNoScraperSourceAlert
     }
@@ -2984,6 +2987,7 @@ struct NowPlayingView: View {
             scrapeAlertMessage = nil
             sourceLyricsReloadAlertMessage = nil
             serverTranscriptReplaceSong = nil
+            transcriptImportRequest = nil
             showNoScraperSourceAlert = false
             cueRemovalTarget = nil
             deletionTarget = nil
@@ -5220,6 +5224,7 @@ struct NowPlayingView: View {
             transcriptGenerationSong: $transcriptGenerationSong,
             lyricsExportRequest: $lyricsExportRequest,
             serverTranscriptReplaceSong: $serverTranscriptReplaceSong,
+            transcriptImportRequest: $transcriptImportRequest,
             onConfirmServerTranscriptReplace: { reloadServerTranscript(song: $0, replacingUserTranscript: true) },
             intelligence: intelligence
         ))
@@ -10334,6 +10339,7 @@ struct NowPlayingView: View {
             transcriptGeneration: transcriptGenerationMenuItem.flatMap {
                 shows(.generateTranscript) || $0.isRunning ? $0 : nil
             },
+            canImportTranscripts: isSpokenWord && !isPodcastEpisode && librarySong != nil && shows(.importTranscripts),
             textExportFormats: textExportFormats(showsItem: shows(.exportText)),
             podcastShareURL: podcastShareURL,
             canOpenBook: isSpokenWord && !currentItemIsPodcast && player.currentBookID != nil && shows(.goToBook),
@@ -10481,6 +10487,9 @@ struct NowPlayingView: View {
             onMarkPodcastPlayed: { player.markCurrentPodcastEpisodePlayed() },
             onSetShowsSpokenWordVideo: { player.setShowsSpokenWordVideo($0) },
             onGenerateTranscript: { transcriptGenerationSong = player.currentSong },
+            onImportTranscripts: {
+                transcriptImportRequest = SpokenTranscriptImportRequest.currentBook(player: player, library: library)
+            },
             onExportText: { format in
                 guard let song = player.currentSong else { return }
                 lyricsExportRequest = LyricsExportRequest(song: song, format: format, isTranscript: isSpokenWord)
@@ -16261,6 +16270,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let spokenWordVideoShown: Bool?
     /// 有声内容的「生成文字稿」;没有这一项时为 nil(#314)。
     let transcriptGeneration: SpokenTranscriptGenerationMenuItem?
+    /// 有声书的「导入文字稿」(#461)。
+    let canImportTranscripts: Bool
     /// 「导出歌词 / 文字稿」能存成哪几种格式;空的时候不出现(#362)。
     let textExportFormats: [LyricsExportFormat]
     let podcastShareURL: URL?
@@ -16379,8 +16390,9 @@ private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
     @Binding var transcriptGenerationSong: Song?
     /// 「导出歌词 / 文字稿」(#362)。
     @Binding var lyricsExportRequest: LyricsExportRequest?
-    /// 「重新读取服务器文字稿」要换掉用户自己的那份时问一句(#461)。
+    /// 「重新读取服务器文字稿」要换掉用户自己的那份时问一句;「导入文字稿」(#461)。
     @Binding var serverTranscriptReplaceSong: Song?
+    @Binding var transcriptImportRequest: SpokenTranscriptImportRequest?
     let onConfirmServerTranscriptReplace: (Song) -> Void
     let intelligence: MusicIntelligenceService
 
@@ -16389,6 +16401,7 @@ private struct NowPlayingSpokenWordTextPresentations: ViewModifier {
             .modifier(LyricsExportPresenter(request: $lyricsExportRequest))
             .modifier(SpokenTranscriptSourcePresentations(
                 replaceSong: $serverTranscriptReplaceSong,
+                importRequest: $transcriptImportRequest,
                 onConfirmReplace: onConfirmServerTranscriptReplace
             ))
             .sheet(item: $transcriptGenerationSong) { song in
@@ -16656,6 +16669,7 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
     let onMarkPodcastPlayed: () -> Void
     let onSetShowsSpokenWordVideo: (Bool) -> Void
     let onGenerateTranscript: () -> Void
+    let onImportTranscripts: () -> Void
     let onExportText: (LyricsExportFormat) -> Void
     let onShowChapterList: () -> Void
     let onOpenInAppleMusic: () -> Void
@@ -16965,7 +16979,7 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
                 }
             }
 
-            if snapshot.transcriptGeneration != nil
+            if snapshot.transcriptGeneration != nil || snapshot.canImportTranscripts
                 || (snapshot.isSpokenWord && !snapshot.textExportFormats.isEmpty) {
                 Section {
                     if let generation = snapshot.transcriptGeneration {
@@ -16978,6 +16992,11 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
                             } icon: {
                                 Image(systemName: "waveform.and.mic")
                             }
+                        }
+                    }
+                    if snapshot.canImportTranscripts {
+                        Button(action: onImportTranscripts) {
+                            Label(String(localized: "transcript_import_menu"), systemImage: "square.and.arrow.down.on.square")
                         }
                     }
                     if snapshot.isSpokenWord, !snapshot.textExportFormats.isEmpty {

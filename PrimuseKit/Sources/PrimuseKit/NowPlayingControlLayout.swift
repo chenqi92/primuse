@@ -199,6 +199,8 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case clipExport
     /// 有声书、播客的「生成文字稿」。正在生成时那一行是进度,关掉也照样显示。
     case generateTranscript
+    /// 有声书的「导入文字稿」:一次给各章导入一批文字稿文件,按文件名对到章节(#461)。
+    case importTranscripts
     /// 竖屏原生全屏里顶替「全屏」那一格的封面 / 歌词切换。
     case immersiveFaceToggle
     /// 「随机时连播」(#335)。
