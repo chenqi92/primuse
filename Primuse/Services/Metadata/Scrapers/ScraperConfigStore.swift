@@ -281,7 +281,11 @@ final class ScraperConfigStore: @unchecked Sendable {
                     continue
                 }
                 next[id]?.reviewVersion = nil
-                incoming.secrets = current.secrets
+                // 已有参数保留本机的值；新版本新加的参数键补进来，否则需要新参数的规则更新后会一直失败。
+                let addedSecrets = (incoming.secrets ?? [:]).filter { current.secrets?[$0.key] == nil }
+                incoming.secrets = addedSecrets.isEmpty
+                    ? current.secrets
+                    : (current.secrets ?? [:]).merging(addedSecrets) { kept, _ in kept }
                 incoming.cookie = current.cookie
                 for (key, value) in current.headers ?? [:]
                     where !ScraperNetworkScope.isPublicHeader(key) {
@@ -309,8 +313,14 @@ final class ScraperConfigStore: @unchecked Sendable {
                 incoming.isDeleted = false
                 incoming.deletedAt = nil
                 incoming.modifiedAt = now
-                do { try writeToDiskUnlocked(incoming) }
-                catch {
+                do {
+                    try writeToDiskUnlocked(incoming)
+                    if !addedSecrets.isEmpty, let secrets = incoming.secrets {
+                        let encoder = JSONEncoder()
+                        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                        try encoder.encode(secrets).write(to: secretsFileURL(for: id), options: .atomic)
+                    }
+                } catch {
                     next[id]?.nextCheck = now.addingTimeInterval(3600)
                     continue
                 }
