@@ -466,7 +466,7 @@
 "player_backdrop_tv_images_count" = "iPhone または Mac からコードのスキャンで転送した画像：%lld 枚。";
 "player_backdrop_tv_images_empty" = "この Apple TV にはまだ画像がありません。iPhone か Mac で「マイ画像」を選んでからコードをスキャンして転送すると、画像も一緒に届きます。それまではジャケットの色を表示します。";
 "app_icon" = "App アイコン";
-"app_icon_style_hint" = "デフォルトのアイコンは、macOS 26以降でシステムのアイコンスタイル（ダーク、クリア、色合い）に合わせて変わります。その他のアイコンはPrimuseの実行中だけDockに表示され、ライトのままです。終了後も保持するには、Finderで設定してください。";
+"app_icon_style_hint" = "アイコンは、macOS 26以降でシステムのアイコンスタイル（ダーク、クリア、色合い）に合わせて変わります。デフォルト以外のアイコンはPrimuseの実行中だけDockに表示されます。終了後も保持するには、Finderで設定してください。";
 "app_icon_finder_setup" = "終了後もアイコンを保持…";
 "app_icon_finder_setup_title" = "終了後もアイコンを保持";
 "app_icon_finder_step_export" = "1. 選択したアイコンを書き出します。";

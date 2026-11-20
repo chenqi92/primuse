@@ -465,7 +465,7 @@
 "player_backdrop_tv_images_count" = "iPhone 또는 Mac에서 코드 스캔으로 가져온 사진: %lld장.";
 "player_backdrop_tv_images_empty" = "이 Apple TV에는 아직 사진이 없습니다. iPhone이나 Mac에서 내 사진을 고른 뒤 코드를 스캔해 전송하면 사진도 함께 옵니다. 그전까지는 커버 색상을 표시합니다.";
 "app_icon" = "앱 아이콘";
-"app_icon_style_hint" = "기본 아이콘은 macOS 26 이상에서 시스템 아이콘 스타일(다크, 투명, 색조)에 맞춰 바뀝니다. 다른 아이콘은 Primuse 실행 중에만 Dock에 표시되며 밝은 모양으로 유지됩니다. 종료 후에도 유지하려면 Finder에서 설정하세요.";
+"app_icon_style_hint" = "아이콘은 macOS 26 이상에서 시스템 아이콘 스타일(다크, 투명, 색조)에 맞춰 바뀝니다. 기본 아이콘 외의 아이콘은 Primuse 실행 중에만 Dock에 표시됩니다. 종료 후에도 유지하려면 Finder에서 설정하세요.";
 "app_icon_finder_setup" = "종료 후에도 아이콘 유지…";
 "app_icon_finder_setup_title" = "종료 후에도 아이콘 유지";
 "app_icon_finder_step_export" = "1. 선택한 아이콘을 내보내세요.";

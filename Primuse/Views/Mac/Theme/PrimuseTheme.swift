@@ -2,6 +2,7 @@
 import SwiftUI
 import AppKit
 import ImageIO
+import PrimuseKit
 import UniformTypeIdentifiers
 
 // MARK: - Appearance Mode
@@ -1916,21 +1917,87 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
     /// 运行时盖到 Dock 上的图。默认图标返回 nil，交还给系统：包里的 `AppIconPrimary.icon`
     /// 由系统按「图标与小组件样式」显示浅色、深色、透明或着色，启动、退出都是同一张，不会跳。
     ///
-    /// 备选图标只能运行时覆盖 (macOS 没有换包图标的接口)，而 App 读不到系统的图标样式
-    /// (没有公开接口)，所以一律用浅色版，见 `dockIconImage(for:)`。
+    /// 备选图标只能运行时覆盖 (macOS 没有换包图标的接口)，系统不替它换外观，
+    /// 所以按系统当前的图标样式换上预先渲染好的那一版，见 `dockIconImage(for:)`。
     @MainActor
     static func runtimeDockImage(for icon: MacAppIcon) -> NSImage? {
         icon.id.isEmpty ? nil : dockIconImage(for: icon)
     }
 
-    /// 备选图标的 Dock 图与导出的 .icns。**一律是浅色版, 不跟 App 的明暗模式走。**
+    /// 备选图标的 Dock 图与导出的 .icns，**跟系统「图标与小组件样式」走，不跟 App 自己的明暗模式走。**
     ///
-    /// macOS 26 起图标深浅由系统「图标与小组件样式」单独决定，默认样式在深色模式下也是
-    /// 浅色图标。运行时如果按 App 明暗换成深色版，深色模式下每次启动都会从浅色跳成深色、
-    /// 退出再跳回来。从预览资源渲染，用户可导出同款并在 Finder 中设置退出后的图标。
+    /// 默认样式在深色模式下也是浅色图标；如果按 App 明暗换成深色版，深色模式下每次启动都会
+    /// 从浅色跳成深色、退出再跳回来。图是 `scripts/generate_mac_icon_styles.py` 用 ictool
+    /// 按系统同一套规则渲染的（Resources-macOS/AppIconStyles.xcassets）。
     @MainActor
     static func dockIconImage(for icon: MacAppIcon) -> NSImage? {
-        dockIconImage(previewAsset: icon.previewAsset, appearance: NSAppearance(named: .aqua))
+        dockIconImage(for: icon, appearance: MacIconStyle.current())
+    }
+
+    @MainActor
+    static func dockIconImage(for icon: MacAppIcon, appearance: AppIconAppearance) -> NSImage? {
+        if !icon.id.isEmpty {
+            let name = "\(icon.id)-\(appearance.assetSuffix)"
+            let styled = appearance.style == .tinted
+                ? tintedDockImage(named: name, isDark: appearance.isDark,
+                                  tint: MacIconStyle.tintComponents(isDark: appearance.isDark))
+                : NSImage(named: name).flatMap(bitmapCopy)
+            if let styled { return styled }
+        }
+        return dockIconImage(previewAsset: icon.previewAsset, appearance: NSAppearance(named: .aqua))
+    }
+
+    /// 换成只带一张位图的 NSImage。资源目录里取出的图按需解码，设成 Dock 图标时 AppKit 另存的
+    /// 那份和原图对不上；导出 .icns 也要按像素取。
+    private static func bitmapImage(_ cgImage: CGImage) -> NSImage {
+        let rep = NSBitmapImageRep(cgImage: cgImage)
+        rep.size = NSSize(width: cgImage.width / 2, height: cgImage.height / 2)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return image
+    }
+
+    private static func bitmapCopy(_ image: NSImage) -> NSImage? {
+        var rect = CGRect(x: 0, y: 0, width: 512, height: 512)
+        return image.cgImage(forProposedRect: &rect, context: nil, hints: nil).map(bitmapImage)
+    }
+
+    /// 着色版按用户选的颜色现合成：数据资源里每像素存着 A、B、透明度，图 = A + B × T。
+    @MainActor
+    static func tintedDockImage(named name: String, isDark: Bool, tint: (Double, Double, Double)) -> NSImage? {
+        guard let data = NSDataAsset(name: name)?.data,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let map = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let width = map.width
+        let height = map.height
+        // 原样取出存的数（同一色彩空间里画一遍，不做色彩转换），不依赖解码出来的像素格式。
+        var raw = [UInt8](repeating: 0, count: width * height * 4)
+        let space = map.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        let copied = raw.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width * 4, space: space,
+                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+            ) else { return false }
+            context.draw(map, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard copied else { return nil }
+        let factor = AppIconStylePolicy.tintFactor(red: tint.0, green: tint.1, blue: tint.2, isDark: isDark)
+        let pixels = AppIconStylePolicy.composeTinted(
+            map: raw, width: width, height: height, bytesPerPixel: 4, bytesPerRow: width * 4,
+            tint: factor, range: AppIconStylePolicy.tintMapRange(isDark: isDark)
+        )
+        guard let provider = CGDataProvider(data: Data(pixels) as CFData),
+              let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+              let image = CGImage(
+                width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+                bytesPerRow: width * 4, space: sRGB,
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue
+                    | CGBitmapInfo.byteOrder32Big.rawValue),
+                provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
+              ) else { return nil }
+        return bitmapImage(image)
     }
 
     enum ExportError: LocalizedError {
@@ -2005,6 +2072,63 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
             image = renderer.nsImage
         }
         return image
+    }
+}
+
+/// 系统「图标与小组件样式」和着色颜色。没有公开接口，系统设置把它们写在全局偏好里
+/// (键名见 `AppIconStylePolicy`)，这里只读；没改过样式时没有这些键，按默认样式。
+enum MacIconStyle {
+    static func current(defaults: UserDefaults = .standard) -> AppIconAppearance {
+        AppIconStylePolicy.appearance(
+            theme: defaults.string(forKey: AppIconStylePolicy.themeKey),
+            systemIsDark: defaults.string(forKey: "AppleInterfaceStyle") == "Dark"
+        )
+    }
+
+    /// 着色颜色 (sRGB 0...1)。没单独选时跟强调色。
+    @MainActor
+    static func tintComponents(isDark: Bool, defaults: UserDefaults = .standard) -> (Double, Double, Double) {
+        let color: NSColor
+        switch AppIconStylePolicy.tintSource(
+            name: defaults.string(forKey: AppIconStylePolicy.tintColorKey),
+            custom: defaults.string(forKey: AppIconStylePolicy.customTintColorKey)
+        ) {
+        case .custom(let red, let green, let blue):
+            return (red, green, blue)
+        case .named(let name):
+            color = namedTint(name) ?? .controlAccentColor
+        case .accent:
+            color = .controlAccentColor
+        }
+        var resolved: NSColor?
+        (NSAppearance(named: isDark ? .darkAqua : .aqua) ?? NSApp.effectiveAppearance).performAsCurrentDrawingAppearance {
+            resolved = color.usingColorSpace(.sRGB)
+        }
+        guard let resolved else { return (0, 0.48, 1) }
+        return (Double(resolved.redComponent), Double(resolved.greenComponent), Double(resolved.blueComponent))
+    }
+
+    private static func namedTint(_ name: String) -> NSColor? {
+        switch name {
+        case "Red": return .systemRed
+        case "Orange": return .systemOrange
+        case "Yellow": return .systemYellow
+        case "Green": return .systemGreen
+        case "Blue": return .systemBlue
+        case "Purple": return .systemPurple
+        case "Pink": return .systemPink
+        case "Graphite": return .systemGray
+        default: return nil
+        }
+    }
+
+    /// 当前样式连同着色颜色的指纹，没变就不用重画。
+    @MainActor
+    static func signature() -> String {
+        let appearance = current()
+        guard appearance.style == .tinted else { return appearance.assetSuffix }
+        let tint = tintComponents(isDark: appearance.isDark)
+        return String(format: "%@ %.3f %.3f %.3f", appearance.assetSuffix, tint.0, tint.1, tint.2)
     }
 }
 
@@ -2256,10 +2380,50 @@ final class MacUIPreferences {
     /// 开发构建原地覆盖安装、构建号不变时，系统图标缓存可能还是旧图，`killall Dock` 可刷新；
     /// App Store / TestFlight 每次更新换构建号并重新登记，不受影响。
     ///
-    /// 备选图标不跟明暗模式重画，原因见 `MacAppIcon.dockIconImage(for:)`。
+    /// 备选图标跟系统图标样式走、不跟 App 自己的明暗模式走，原因见 `MacAppIcon.dockIconImage(for:)`。
     func applyAppIcon() {
+        observeSystemIconStyle()
+        appliedIconStyle = MacIconStyle.signature()
         NSApp.applicationIconImage = MacAppIcon.runtimeDockImage(for: MacAppIcon.option(for: appIconID))
         NotificationCenter.default.post(name: .primuseAppIconChanged, object: nil)
+    }
+
+    @ObservationIgnored private var appliedIconStyle: String?
+    @ObservationIgnored private var iconStyleObservers: [NSObjectProtocol] = []
+
+    /// 系统换了图标样式、明暗(样式选「自动」时)或着色颜色，备选图标跟着重画。
+    /// 图标样式的变更通知没有公开名字，回到前台时再核对一次兜底。
+    private func observeSystemIconStyle() {
+        guard iconStyleObservers.isEmpty else { return }
+        let refresh: @Sendable (Notification) -> Void = { _ in
+            Task { @MainActor in
+                MacUIPreferences.shared.refreshAppIconForSystemStyle()
+                // 通知可能先于全局偏好写好到达，过一会儿再核对一次。
+                try? await Task.sleep(for: .seconds(1))
+                MacUIPreferences.shared.refreshAppIconForSystemStyle()
+            }
+        }
+        iconStyleObservers = [
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: Notification.Name("NSWorkspaceIconAppearanceConfigurationDidChangeNotification"),
+                object: nil, queue: .main, using: refresh
+            ),
+            DistributedNotificationCenter.default().addObserver(
+                forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+                object: nil, queue: .main, using: refresh
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: refresh
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: refresh
+            ),
+        ]
+    }
+
+    func refreshAppIconForSystemStyle() {
+        guard !appIconID.isEmpty, MacIconStyle.signature() != appliedIconStyle else { return }
+        applyAppIcon()
     }
 }
 

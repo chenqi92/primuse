@@ -465,7 +465,7 @@
 "player_backdrop_tv_images_count" = "Images transférées depuis l’iPhone ou le Mac en scannant le code : %lld.";
 "player_backdrop_tv_images_empty" = "Aucune image sur cette Apple TV pour l’instant. Choisissez Mes images sur l’iPhone ou le Mac puis transférez en scannant le code : les images suivent. En attendant, les couleurs de la pochette sont affichées.";
 "app_icon" = "Icône de l'app";
-"app_icon_style_hint" = "L’icône par défaut suit le style d’icônes du système (sombre, transparent ou teinté) à partir de macOS 26. Les autres icônes n’apparaissent dans le Dock que lorsque Primuse est ouvert et restent claires. Pour en conserver une après avoir quitté l’app, définissez-la dans le Finder.";
+"app_icon_style_hint" = "Les icônes suivent le style d’icônes du système (sombre, transparent ou teinté) à partir de macOS 26. Les icônes autres que celle par défaut n’apparaissent dans le Dock que lorsque Primuse est ouvert. Pour en conserver une après avoir quitté l’app, définissez-la dans le Finder.";
 "app_icon_finder_setup" = "Conserver l’icône après la fermeture…";
 "app_icon_finder_setup_title" = "Conserver l’icône après la fermeture";
 "app_icon_finder_step_export" = "1. Exportez l’icône sélectionnée.";

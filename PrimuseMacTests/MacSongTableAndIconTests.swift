@@ -119,6 +119,67 @@ final class MacSongTableAndIconTests: XCTestCase {
         XCTAssertEqual(NSApp.applicationIconImage.tiffRepresentation, light)
     }
 
+    /// 备选图标每种系统图标样式都有一版 Dock 图：放在标准图标网格里、四角透明。
+    func testEveryAlternateIconHasArtworkForEachSystemIconStyle() throws {
+        let appearances = AppIconStyle.allCases.flatMap { style in
+            [AppIconAppearance(style: style, isDark: false), AppIconAppearance(style: style, isDark: true)]
+        }
+        for icon in MacAppIcon.available where !icon.id.isEmpty {
+            var rendered: [Data] = []
+            for appearance in appearances {
+                let name = "\(icon.id)-\(appearance.assetSuffix)"
+                if appearance.style == .tinted {
+                    XCTAssertNotNil(NSDataAsset(name: name), name)
+                } else {
+                    XCTAssertNotNil(NSImage(named: name), name)
+                }
+                let image = try XCTUnwrap(MacAppIcon.dockIconImage(for: icon, appearance: appearance), name)
+                var rect = CGRect(origin: .zero, size: image.size)
+                let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(
+                    image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+                ))
+                XCTAssertEqual(bitmap.pixelsWide, 512, name)
+                let (maxX, maxY) = (bitmap.pixelsWide - 1, bitmap.pixelsHigh - 1)
+                for (x, y) in [(0, 0), (maxX, 0), (0, maxY), (maxX, maxY), (20, 256)] {
+                    XCTAssertEqual(try XCTUnwrap(bitmap.colorAt(x: x, y: y)).alphaComponent, 0, accuracy: 0.01, name)
+                }
+                XCTAssertGreaterThan(try XCTUnwrap(bitmap.colorAt(x: 256, y: 256)).alphaComponent, 0.99, name)
+                rendered.append(try XCTUnwrap(image.tiffRepresentation))
+            }
+            XCTAssertEqual(Set(rendered).count, rendered.count, "\(icon.id) styles must differ")
+        }
+    }
+
+    /// 着色版跟着系统选的颜色变：红色着色偏红，蓝色着色偏蓝。
+    func testTintedDockIconTakesTheChosenColour() throws {
+        for isDark in [false, true] {
+            let name = "AppIcon19-\(AppIconAppearance(style: .tinted, isDark: isDark).assetSuffix)"
+            let red = try averageColour(of: XCTUnwrap(MacAppIcon.tintedDockImage(
+                named: name, isDark: isDark, tint: (1, 0.23, 0.19))))
+            let blue = try averageColour(of: XCTUnwrap(MacAppIcon.tintedDockImage(
+                named: name, isDark: isDark, tint: (0, 0.48, 1))))
+            XCTAssertGreaterThan(red.red, red.blue, name)
+            XCTAssertGreaterThan(blue.blue, blue.red, name)
+        }
+    }
+
+    private func averageColour(of image: NSImage) throws -> (red: Double, blue: Double) {
+        var rect = CGRect(origin: .zero, size: image.size)
+        let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(
+            image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+        ))
+        var red = 0.0
+        var blue = 0.0
+        for y in stride(from: 96, to: 416, by: 8) {
+            for x in stride(from: 96, to: 416, by: 8) {
+                let colour = try XCTUnwrap(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                red += Double(colour.redComponent)
+                blue += Double(colour.blueComponent)
+            }
+        }
+        return (red, blue)
+    }
+
     /// 默认图标不在运行时覆盖，交给系统按包里的 `.icon` 和图标样式显示；备选图标照旧覆盖。
     func testDefaultIconLeavesDockToSystem() throws {
         let preferences = MacUIPreferences.shared
@@ -126,10 +187,31 @@ final class MacSongTableAndIconTests: XCTestCase {
         defer { preferences.appIconID = previousIcon }
         XCTAssertNil(MacAppIcon.runtimeDockImage(for: MacAppIcon.option(for: "")))
         preferences.appIconID = "AppIcon19"
-        let alternate = try XCTUnwrap(MacAppIcon.runtimeDockImage(for: MacAppIcon.option(for: "AppIcon19")))
-        XCTAssertEqual(NSApp.applicationIconImage.tiffRepresentation, alternate.tiffRepresentation)
+        let alternate = try thumbnail(XCTUnwrap(MacAppIcon.runtimeDockImage(for: MacAppIcon.option(for: "AppIcon19"))))
+        // 设进 Dock 的图 AppKit 会另存一份缩小的，逐字节比不上，缩到同一尺寸比像素。
+        XCTAssertLessThan(try meanDifference(thumbnail(NSApp.applicationIconImage), alternate), 4)
         preferences.appIconID = ""
-        XCTAssertNotEqual(NSApp.applicationIconImage.tiffRepresentation, alternate.tiffRepresentation)
+        XCTAssertGreaterThan(try meanDifference(thumbnail(NSApp.applicationIconImage), alternate), 12)
+    }
+
+    private func thumbnail(_ image: NSImage, side: Int = 32) throws -> [UInt8] {
+        var rect = CGRect(x: 0, y: 0, width: side, height: side)
+        let source = try XCTUnwrap(image.cgImage(forProposedRect: &rect, context: nil, hints: nil))
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        try pixels.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(
+                data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8,
+                bytesPerRow: side * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.interpolationQuality = .high
+            context.draw(source, in: CGRect(x: 0, y: 0, width: side, height: side))
+        }
+        return pixels
+    }
+
+    private func meanDifference(_ a: [UInt8], _ b: [UInt8]) -> Double {
+        Double(zip(a, b).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }) / Double(max(a.count, 1))
     }
 
     func testExportedIconsIncludeStandardAndRetinaRepresentations() throws {
@@ -161,19 +243,22 @@ final class MacSongTableAndIconTests: XCTestCase {
             let images = (0..<CGImageSourceGetCount(source)).compactMap {
                 CGImageSourceCreateImageAtIndex(source, $0, nil)
             }
-            let exported = NSBitmapImageRep(cgImage: try XCTUnwrap(images.first { $0.width == 1024 }))
             let dock = try XCTUnwrap(MacAppIcon.dockIconImage(for: icon))
             var sourceRect = CGRect(x: 0, y: 0, width: 1024, height: 1024)
             let dockImage = try XCTUnwrap(dock.cgImage(forProposedRect: &sourceRect, context: nil, hints: nil))
             let expected = NSBitmapImageRep(cgImage: dockImage)
-            XCTAssertEqual(expected.pixelsWide, 1024)
+            // 备选图标的 Dock 图是 512 像素（Dock 最大 256 pt），默认图标的预览渲染是 1024。
+            XCTAssertTrue([512, 1024].contains(expected.pixelsWide), icon.id)
+            let side = expected.pixelsWide
+            let exported = NSBitmapImageRep(cgImage: try XCTUnwrap(images.first { $0.width == side }))
+            func at(_ value: Int) -> Int { value * side / 1024 }
             for (x, y) in [(0, 0), (50, 512), (100, 100), (1023, 1023)] {
-                XCTAssertEqual(try XCTUnwrap(exported.colorAt(x: x, y: y)).alphaComponent, 0,
+                XCTAssertEqual(try XCTUnwrap(exported.colorAt(x: at(x), y: at(y))).alphaComponent, 0,
                                accuracy: 0.01, icon.id)
             }
             for (x, y) in [(512, 512), (256, 512), (768, 512), (512, 256)] {
-                let actual = try XCTUnwrap(exported.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
-                let target = try XCTUnwrap(expected.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                let actual = try XCTUnwrap(exported.colorAt(x: at(x), y: at(y))?.usingColorSpace(.sRGB))
+                let target = try XCTUnwrap(expected.colorAt(x: at(x), y: at(y))?.usingColorSpace(.sRGB))
                 XCTAssertGreaterThan(actual.alphaComponent, 0.99)
                 XCTAssertEqual(actual.redComponent, target.redComponent, accuracy: 0.02, icon.id)
                 XCTAssertEqual(actual.greenComponent, target.greenComponent, accuracy: 0.02, icon.id)

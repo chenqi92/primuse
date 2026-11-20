@@ -206,7 +206,7 @@
 "player_backdrop_tv_images_count" = "電視上有 %lld 張從 iPhone 或 Mac 掃碼直傳帶來的圖片。";
 "player_backdrop_tv_images_empty" = "電視上還沒有圖片。在 iPhone 或 Mac 上選好「我的圖片」後掃碼直傳，圖片會一起帶過來；在那之前顯示封面取色。";
 "app_icon" = "App 圖示";
-"app_icon_style_hint" = "預設圖像在 macOS 26 及以上版本會跟隨系統的圖像樣式，變為深色、透明或著色。其他圖像只會在 Primuse 執行時顯示在 Dock 中，並維持淺色；若要在結束後保留，請在 Finder 中設定。";
+"app_icon_style_hint" = "圖像在 macOS 26 及以上版本會跟隨系統的圖像樣式，變為深色、透明或著色。預設以外的圖像只會在 Primuse 執行時顯示在 Dock 中；若要在結束後保留，請在 Finder 中設定。";
 "app_icon_finder_setup" = "結束後保留圖像…";
 "app_icon_finder_setup_title" = "結束後保留圖像";
 "app_icon_finder_step_export" = "1. 輸出目前選擇的圖像。";

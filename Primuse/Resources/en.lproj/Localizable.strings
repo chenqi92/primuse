@@ -214,7 +214,7 @@
 "player_backdrop_tv_images_count" = "Pictures brought over from iPhone or Mac by scanning the code: %lld.";
 "player_backdrop_tv_images_empty" = "No pictures on this Apple TV yet. Pick My Pictures on iPhone or Mac and scan the code to transfer; the pictures come along. Until then, cover colors are shown.";
 "app_icon" = "App Icon";
-"app_icon_style_hint" = "The default icon follows your system icon style (dark, clear, or tinted) on macOS 26 and later. Other icons appear in the Dock only while Primuse is running and stay light. To keep one after quitting, set it in Finder.";
+"app_icon_style_hint" = "Icons follow your system icon style (dark, clear, or tinted) on macOS 26 and later. Icons other than the default appear in the Dock only while Primuse is running. To keep one after quitting, set it in Finder.";
 "app_icon_finder_setup" = "Keep Icon After Quitting…";
 "app_icon_finder_setup_title" = "Keep Icon After Quitting";
 "app_icon_finder_step_export" = "1. Export the selected icon.";

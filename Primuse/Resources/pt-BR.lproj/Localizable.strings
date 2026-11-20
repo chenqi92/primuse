@@ -803,7 +803,7 @@
 "anonymous_login_hint" = "Nenhum usuário ou senha é usado; as credenciais salvas são excluídas ao salvar";
 "api_key" = "Chave API";
 "app_icon" = "Ícone do aplicativo";
-"app_icon_style_hint" = "O ícone padrão segue o estilo de ícones do sistema (escuro, transparente ou colorido) no macOS 26 e posterior. Os outros ícones só aparecem no Dock enquanto o Primuse está aberto e continuam claros. Para manter um após encerrar, defina-o no Finder.";
+"app_icon_style_hint" = "Os ícones seguem o estilo de ícones do sistema (escuro, transparente ou colorido) no macOS 26 e posterior. Os ícones diferentes do padrão só aparecem no Dock enquanto o Primuse está aberto. Para manter um após encerrar, defina-o no Finder.";
 "app_icon_finder_setup" = "Manter ícone após encerrar…";
 "app_icon_finder_setup_title" = "Manter ícone após encerrar";
 "app_icon_finder_step_export" = "1. Exporte o ícone selecionado.";
