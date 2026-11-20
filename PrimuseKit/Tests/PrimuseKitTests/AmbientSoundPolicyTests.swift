@@ -415,12 +415,40 @@ struct AmbientSoundPlaybackTests {
         #expect(AmbientSoundGrouping.groups(for: []).isEmpty)
     }
 
-    @Test("首页胶囊:开关开着、有内容、资料库分类没收起才出现")
-    func reachability() {
-        #expect(AmbientSoundLibrarySection.isReachable(separatesAmbient: true, hasContent: true, sectionHidden: false))
-        #expect(!AmbientSoundLibrarySection.isReachable(separatesAmbient: false, hasContent: true, sectionHidden: false))
-        #expect(!AmbientSoundLibrarySection.isReachable(separatesAmbient: true, hasContent: false, sectionHidden: false))
-        #expect(!AmbientSoundLibrarySection.isReachable(separatesAmbient: true, hasContent: true, sectionHidden: true))
+    @Test("首页胶囊:打开了还要总开关开着、真有环境音,缺哪样说哪样")
+    func homeChipBlocker() {
+        #expect(AmbientHomeFilterChip.blocker(separatesAmbient: true, hasContent: true) == nil)
+        #expect(AmbientHomeFilterChip.blocker(separatesAmbient: true, hasContent: false) == .noContent)
+        #expect(AmbientHomeFilterChip.blocker(separatesAmbient: false, hasContent: true) == .separationOff)
+        #expect(AmbientHomeFilterChip.blocker(separatesAmbient: false, hasContent: false) == .separationOff)
+    }
+
+    @Test("首页胶囊:没调过时跟着资料库分类,调过后只认「顶部切换」的开关")
+    func homeChipFollowsLibraryUntilCustomized() {
+        func visible(_ configuration: HomeFilterBarConfiguration, libraryHidden: Bool) -> [ListeningSpace] {
+            configuration.visibleSpaces(
+                sectionShown: { space in
+                    space == .ambient
+                        ? AmbientHomeFilterChip.isShownWhileFollowing(librarySectionHidden: libraryHidden)
+                        : true
+                },
+                isAvailable: { space in
+                    space != .ambient || AmbientHomeFilterChip.blocker(separatesAmbient: true, hasContent: true) == nil
+                }
+            )
+        }
+        let following = HomeFilterBarConfiguration.followingSections
+        #expect(visible(following, libraryHidden: false).contains(.ambient))
+        #expect(!visible(following, libraryHidden: true).contains(.ambient))
+
+        // 资料库里收着时第一次调整:先照原样落成关着,打开以后不再看资料库。
+        let sectionShown: (ListeningSpace) -> Bool = { $0 != .ambient }
+        var customized = following.customized(sectionShown: sectionShown)
+        #expect(!customized.isShown(.ambient, sectionShown: sectionShown))
+        customized.setShown(true, for: .ambient)
+        #expect(visible(customized, libraryHidden: true).contains(.ambient))
+        customized.setShown(false, for: .ambient)
+        #expect(!visible(customized, libraryHidden: false).contains(.ambient))
     }
 }
 

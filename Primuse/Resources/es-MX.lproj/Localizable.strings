@@ -7815,3 +7815,6 @@
 "lyrics_font_language_overrides_format" = "Las fuentes elegidas para %@ no cambian con la fuente predeterminada.";
 "lyrics_font_language_unavailable_format" = "“%2$@”, elegida para %1$@, no está disponible en este dispositivo, así que se usa la fuente predeterminada.";
 "lyrics_font_use_default_for_all" = "Usar la fuente predeterminada en todos";
+"home_filter_bar_ambient_separation_off" = "Aparece al activar “Separar sonidos ambientales”";
+"home_filter_bar_ambient_turn_on" = "Activar “Separar sonidos ambientales”";
+"home_filter_bar_ambient_no_content" = "Aparece cuando tu biblioteca tiene sonidos ambientales";

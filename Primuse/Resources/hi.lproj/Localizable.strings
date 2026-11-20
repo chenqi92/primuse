@@ -7815,3 +7815,6 @@
 "lyrics_font_language_overrides_format" = "%@ के लिए चुने गए फ़ॉन्ट डिफ़ॉल्ट फ़ॉन्ट के साथ नहीं बदलते।";
 "lyrics_font_language_unavailable_format" = "%1$@ के लिए चुना गया “%2$@” इस डिवाइस पर उपलब्ध नहीं है, इसलिए डिफ़ॉल्ट फ़ॉन्ट इस्तेमाल हो रहा है।";
 "lyrics_font_use_default_for_all" = "सभी के लिए डिफ़ॉल्ट फ़ॉन्ट इस्तेमाल करें";
+"home_filter_bar_ambient_separation_off" = "“परिवेश ध्वनियाँ अलग रखें” चालू करने पर दिखेगा";
+"home_filter_bar_ambient_turn_on" = "“परिवेश ध्वनियाँ अलग रखें” चालू करें";
+"home_filter_bar_ambient_no_content" = "लाइब्रेरी में परिवेश ध्वनियाँ होने पर दिखेगा";

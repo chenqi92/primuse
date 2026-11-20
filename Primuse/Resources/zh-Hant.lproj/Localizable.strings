@@ -7886,3 +7886,6 @@
 "lyrics_font_language_overrides_format" = "%@單獨選了字體，不跟預設字體走。";
 "lyrics_font_language_unavailable_format" = "%1$@選的「%2$@」這台裝置上用不了，先用預設字體顯示。";
 "lyrics_font_use_default_for_all" = "都改用預設字體";
+"home_filter_bar_ambient_separation_off" = "打開「單獨歸類環境音」後顯示";
+"home_filter_bar_ambient_turn_on" = "打開單獨歸類";
+"home_filter_bar_ambient_no_content" = "資料庫裡有環境音時顯示";

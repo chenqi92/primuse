@@ -824,15 +824,11 @@ private struct HomeFilterBarEditor: View {
 
                 Section {
                     ForEach(configuration.order, id: \.self) { space in
-                        Toggle(isOn: shownBinding(for: space)) {
-                            Label {
-                                Text(space.titleKey)
-                            } icon: {
-                                Image(systemName: space.systemImage)
-                                    .foregroundStyle(configuration.monochrome ? Color.primary : space.tint)
-                            }
-                        }
-                        .accessibilityIdentifier("home.filterBar.toggle.\(space.rawValue)")
+                        HomeFilterBarEditorRow(
+                            space: space,
+                            monochrome: configuration.monochrome,
+                            isOn: shownBinding(for: space)
+                        )
                     }
                     .onMove(perform: move)
                 } footer: {
@@ -937,6 +933,76 @@ private struct HomeFilterBarEditor: View {
             var updated = configuration
             updated.monochrome = enabled
             rawValue = updated.encoded()
+        }
+    }
+}
+
+/// 「顶部切换」里的一颗胶囊:开关、图标、名字。环境音打开了却出不来时,名字下面写明缺的是哪一样;
+/// 是「单独归类环境音」关着的话就地给一颗打开键,不用再去设置里找。
+private struct HomeFilterBarEditorRow: View {
+    let space: ListeningSpace
+    let monochrome: Bool
+    @Binding var isOn: Bool
+    @Environment(MusicLibrary.self) private var library
+
+    private var ambientBlocker: AmbientHomeFilterChip.Blocker? {
+        guard space == .ambient, isOn else { return nil }
+        return AmbientHomeFilterChip.blocker(
+            separatesAmbient: SpokenWordStore.shared.separatesAmbient,
+            hasContent: library.hasAmbientContent
+        )
+    }
+
+    var body: some View {
+        let blocker = ambientBlocker
+        Toggle(isOn: $isOn) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(space.titleKey)
+                    if let blocker {
+                        HomeFilterBarAmbientHint(blocker: blocker, turnOnSeparation: turnOnSeparation)
+                    }
+                }
+            } icon: {
+                Image(systemName: space.systemImage)
+                    .foregroundStyle(monochrome ? Color.primary : space.tint)
+            }
+        }
+        .accessibilityIdentifier("home.filterBar.toggle.\(space.rawValue)")
+        // 开关整行读成一个元素,里面那颗打开键读屏摸不到,挂成这一行的操作。
+        .accessibilityActions {
+            if blocker == .separationOff {
+                Button("home_filter_bar_ambient_turn_on", action: turnOnSeparation)
+            }
+        }
+    }
+
+    private func turnOnSeparation() {
+        SpokenWordStore.shared.setSeparatesAmbient(true)
+    }
+}
+
+/// 环境音那一行名字下面的说明。
+private struct HomeFilterBarAmbientHint: View {
+    let blocker: AmbientHomeFilterChip.Blocker
+    let turnOnSeparation: @MainActor () -> Void
+
+    var body: some View {
+        switch blocker {
+        case .separationOff:
+            VStack(alignment: .leading, spacing: 4) {
+                Text("home_filter_bar_ambient_separation_off")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("home_filter_bar_ambient_turn_on", action: turnOnSeparation)
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("home.filterBar.ambient.turnOnSeparation")
+            }
+        case .noContent:
+            Text("home_filter_bar_ambient_no_content")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -1715,7 +1781,7 @@ struct HomeView: View {
     /// 筛选胶囊的顺序与显隐,在首页编辑的「顶部切换」里调。
     @AppStorage(HomeFilterBarConfiguration.storageKey) private var homeFilterBarRawValue = ""
     @AppStorage(HomeFilterBarConfiguration.showsLibrarySectionsKey) private var showsLibrarySections = false
-    /// 资料库里收起了「环境音」,首页那颗胶囊跟着不出现(`AmbientSoundLibrarySection`)。
+    /// 没调过「顶部切换」时,「环境音」那颗跟着资料库里这个分类收没收起(`AmbientHomeFilterChip`)。
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey) private var hiddenLibrarySectionsRawValue = ""
     @AppStorage(HomeSubtabPresentation.pullDownKey) private var subtabPullDown = false
     @AppStorage(HomeSubtabPresentation.doubleTapKey) private var subtabDoubleTap = false
@@ -1726,9 +1792,10 @@ struct HomeView: View {
     @State private var showsFilterBarEditor = false
 
     /// 筛选胶囊有哪几颗、什么顺序(`HomeFilterBarConfiguration`)。没调过「顶部切换」时,
-    /// 电台、有声、播客分别跟着首页编辑里「电台」「有声书」「播客更新」几块的开关走;调过之后只认那里,
-    /// 区块收起了胶囊照样常驻。有声还要真有有声内容(没有电台时筛出来的是添加电台的入口,
-    /// 没订阅播客时是发现入口);只剩一颗时整排不出现。极简导航的顶栏自带电台、有声分类,不摆这一排。
+    /// 电台、有声、播客分别跟着首页编辑里「电台」「有声书」「播客更新」几块的开关走,环境音跟着资料库里那个分类;
+    /// 调过之后只认那里,区块收起了胶囊照样常驻。有声还要真有有声内容、环境音还要分得出又真有环境音
+    /// (没有电台时筛出来的是添加电台的入口,没订阅播客时是发现入口);只剩一颗时整排不出现。
+    /// 极简导航的顶栏自带电台、有声分类,不摆这一排。
     private var homeFilterSpaces: [ListeningSpace] {
         guard !editorMode else { return [] }
         #if os(iOS)
@@ -1736,38 +1803,39 @@ struct HomeView: View {
         #endif
         return HomeFilterBarConfiguration.decode(homeFilterBarRawValue).visibleSpaces(
             sectionShown: isFilterSectionShown,
-            isAvailable: { space in
-                switch space {
-                case .spokenWord:
-                    LibraryStartupNavigationHint.showsSpokenWord(
-                        isReady: library.isReady, hasSpokenWord: library.hasSpokenWordContent,
-                        enabledSourceIDs: startupSourceIDs
-                    )
-                // 环境音:真有内容、资料库里没收起才有这颗;调过「顶部切换」也一样跟着资料库走。
-                case .ambient: isAmbientChipAvailable
-                default: true
-                }
-            }
+            isAvailable: isFilterSpaceAvailable
         )
     }
 
-    private var isAmbientChipAvailable: Bool {
-        AmbientSoundLibrarySection.isReachable(
-            separatesAmbient: SpokenWordStore.shared.separatesAmbient,
-            hasContent: library.hasAmbientContent,
-            sectionHidden: LibraryDisplayConfiguration.decodeHiddenSections(hiddenLibrarySectionsRawValue)
-                .contains(.ambient)
-        )
+    /// 这一类当下筛不筛得出东西。打开了却不出现的环境音,「顶部切换」那一行写明原因。
+    private func isFilterSpaceAvailable(_ space: ListeningSpace) -> Bool {
+        switch space {
+        case .spokenWord:
+            LibraryStartupNavigationHint.showsSpokenWord(
+                isReady: library.isReady, hasSpokenWord: library.hasSpokenWordContent,
+                enabledSourceIDs: startupSourceIDs
+            )
+        case .ambient:
+            AmbientHomeFilterChip.blocker(
+                separatesAmbient: SpokenWordStore.shared.separatesAmbient,
+                hasContent: library.hasAmbientContent
+            ) == nil
+        default: true
+        }
     }
 
-    /// 没调过「顶部切换」时,每颗胶囊跟着首页里哪一块的开关走。
+    /// 没调过「顶部切换」时,每颗胶囊跟着首页里哪一块的开关走;环境音没有首页区块,跟着资料库分类。
     private func isFilterSectionShown(_ space: ListeningSpace) -> Bool {
         switch space {
         case .music: true
         case .radio: showRadioOnHome
         case .spokenWord: showAudiobooks
         case .podcast: showPodcasts
-        case .ambient: true
+        case .ambient:
+            AmbientHomeFilterChip.isShownWhileFollowing(
+                librarySectionHidden: LibraryDisplayConfiguration.decodeHiddenSections(hiddenLibrarySectionsRawValue)
+                    .contains(.ambient)
+            )
         }
     }
 
@@ -2841,7 +2909,10 @@ struct HomeView: View {
         #if os(iOS)
         if appNavigationMode != .minimal {
             let configuration = HomeFilterBarConfiguration.decode(homeFilterBarRawValue)
-            let shown = configuration.order.filter { configuration.isShown($0, sectionShown: isFilterSectionShown) }
+            // 预览只摆真会出现的那几颗:打开了却出不来的(没有有声内容、环境音分不出来)在编辑页那一行写明。
+            let shown = configuration.order.filter {
+                configuration.isShown($0, sectionShown: isFilterSectionShown) && isFilterSpaceAvailable($0)
+            }
             editorBlockFrame(visible: shown.count > 1) {
                 HStack(spacing: 10) {
                     Image(systemName: "pin.fill")

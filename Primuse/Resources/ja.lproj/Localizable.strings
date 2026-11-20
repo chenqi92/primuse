@@ -7910,3 +7910,6 @@
 "lyrics_font_language_overrides_format" = "%@は個別にフォントを選んでいるため、デフォルトのフォントを変えても変わりません。";
 "lyrics_font_language_unavailable_format" = "%1$@に選んだ「%2$@」はこのデバイスで使えないため、デフォルトのフォントで表示しています。";
 "lyrics_font_use_default_for_all" = "すべてデフォルトのフォントにする";
+"home_filter_bar_ambient_separation_off" = "「環境音を分けて管理」をオンにすると表示されます";
+"home_filter_bar_ambient_turn_on" = "「環境音を分けて管理」をオンにする";
+"home_filter_bar_ambient_no_content" = "ライブラリに環境音があると表示されます";

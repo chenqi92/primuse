@@ -7815,3 +7815,6 @@
 "lyrics_font_language_overrides_format" = "แบบอักษรที่เลือกไว้สำหรับ %@ จะไม่เปลี่ยนตามแบบอักษรเริ่มต้น";
 "lyrics_font_language_unavailable_format" = "“%2$@” ที่เลือกไว้สำหรับ %1$@ ใช้ในอุปกรณ์นี้ไม่ได้ จึงแสดงด้วยแบบอักษรเริ่มต้น";
 "lyrics_font_use_default_for_all" = "ใช้แบบอักษรเริ่มต้นทั้งหมด";
+"home_filter_bar_ambient_separation_off" = "จะแสดงเมื่อเปิด “แยกเสียงบรรยากาศออกมา”";
+"home_filter_bar_ambient_turn_on" = "เปิด “แยกเสียงบรรยากาศออกมา”";
+"home_filter_bar_ambient_no_content" = "จะแสดงเมื่อคลังเพลงมีเสียงบรรยากาศ";

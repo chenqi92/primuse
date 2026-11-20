@@ -7815,3 +7815,6 @@
 "lyrics_font_language_overrides_format" = "Шрифти, вибрані для: %@, не змінюються разом із типовим шрифтом.";
 "lyrics_font_language_unavailable_format" = "Шрифт «%2$@», вибраний для: %1$@, недоступний на цьому пристрої, тому використовується типовий шрифт.";
 "lyrics_font_use_default_for_all" = "Скрізь типовий шрифт";
+"home_filter_bar_ambient_separation_off" = "З’явиться, коли ввімкнете «Окремо класифікувати звуки довкілля»";
+"home_filter_bar_ambient_turn_on" = "Увімкнути «Окремо класифікувати звуки довкілля»";
+"home_filter_bar_ambient_no_content" = "З’явиться, коли в медіатеці будуть звуки довкілля";

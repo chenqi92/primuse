@@ -150,17 +150,38 @@ public enum AmbientSoundGrouping {
 }
 
 /// 资料库「环境音」分类:默认收着,第一次有了环境音时亮出来一次(`LibrarySectionLayoutPolicy`),
-/// 之后收不收照用户的来。首页那颗「环境音」胶囊跟着这个分类的显隐走。
+/// 之后收不收照用户的来。首页那颗「环境音」胶囊没调过「顶部切换」时跟着它走(`AmbientHomeFilterChip`)。
 public enum AmbientSoundLibrarySection {
     public static let rawValue = "ambient"
     /// 已经存过隐藏集合的人:新分类先补进隐藏集合,别在没有环境音时凭空多出一行。
     public static let defaultHiddenMigrationKey = "primuse.library.ambientDefaultHidden.v1"
     /// 第一次识别到环境音时亮出过一次。
     public static let revealedKey = "primuse.library.ambientRevealed.v1"
+}
 
-    /// 首页胶囊、搜索分组、资料库入口要不要出现:总开关开着、真有环境音、资料库分类没收起。
-    public static func isReachable(separatesAmbient: Bool, hasContent: Bool, sectionHidden: Bool) -> Bool {
-        separatesAmbient && hasContent && !sectionHidden
+/// 首页顶上那颗「环境音」筛选胶囊。
+///
+/// 没调过「顶部切换」时跟着资料库「环境音」分类的显隐走(那个分类第一次识别到环境音时亮出来一次)。
+/// 在「顶部切换」里调过之后只认那里的开关,和电台、有声几颗一样,资料库里收起了也照样留在首页:
+/// 资料库的显隐会被默认收起的迁移、别的设备同步过来的设置改掉,首页明明打开了却看不到,编辑页上也看不出为什么。
+/// 打开了还要「单独归类环境音」开着、真有环境音才出现,编辑页那一行写明缺的是哪一样(`blocker`)。
+public enum AmbientHomeFilterChip {
+    public enum Blocker: Equatable, Sendable {
+        /// 「单独归类环境音」关着,根本分不出环境音:编辑页那一行可以就地打开。
+        case separationOff
+        /// 资料库里还没有环境音:有了自然出现,不用做什么。
+        case noContent
+    }
+
+    /// 没调过「顶部切换」时这颗算不算打开:跟着资料库分类。
+    public static func isShownWhileFollowing(librarySectionHidden: Bool) -> Bool {
+        !librarySectionHidden
+    }
+
+    /// 打开了却出不来的原因;nil 是能出现。总开关关着时不看内容:关着时本来就一首环境音也分不出来。
+    public static func blocker(separatesAmbient: Bool, hasContent: Bool) -> Blocker? {
+        guard separatesAmbient else { return .separationOff }
+        return hasContent ? nil : .noContent
     }
 }
 

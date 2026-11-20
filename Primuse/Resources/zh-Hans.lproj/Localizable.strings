@@ -8002,3 +8002,6 @@
 "lyrics_font_language_overrides_format" = "%@单独选了字体，不跟默认字体走。";
 "lyrics_font_language_unavailable_format" = "%1$@选的「%2$@」这台设备上用不了，先用默认字体显示。";
 "lyrics_font_use_default_for_all" = "都改用默认字体";
+"home_filter_bar_ambient_separation_off" = "打开「单独归类环境音」后显示";
+"home_filter_bar_ambient_turn_on" = "打开单独归类";
+"home_filter_bar_ambient_no_content" = "资料库里有环境音时显示";

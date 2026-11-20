@@ -7815,3 +7815,6 @@
 "lyrics_font_language_overrides_format" = "Шрифты, выбранные для: %@, не меняются вместе со шрифтом по умолчанию.";
 "lyrics_font_language_unavailable_format" = "Шрифт «%2$@», выбранный для: %1$@, недоступен на этом устройстве, поэтому используется шрифт по умолчанию.";
 "lyrics_font_use_default_for_all" = "Везде шрифт по умолчанию";
+"home_filter_bar_ambient_separation_off" = "Появится, когда включите «Отделять звуки окружения»";
+"home_filter_bar_ambient_turn_on" = "Включить «Отделять звуки окружения»";
+"home_filter_bar_ambient_no_content" = "Появится, когда в медиатеке будут звуки окружения";

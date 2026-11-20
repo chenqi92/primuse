@@ -7815,3 +7815,6 @@
 "lyrics_font_language_overrides_format" = "Czcionki wybrane dla: %@ nie zmieniają się razem z czcionką domyślną.";
 "lyrics_font_language_unavailable_format" = "Czcionka „%2$@” wybrana dla: %1$@ nie jest dostępna na tym urządzeniu, więc używana jest czcionka domyślna.";
 "lyrics_font_use_default_for_all" = "Użyj czcionki domyślnej wszędzie";
+"home_filter_bar_ambient_separation_off" = "Pojawi się po włączeniu „Osobno klasyfikuj dźwięki otoczenia”";
+"home_filter_bar_ambient_turn_on" = "Włącz „Osobno klasyfikuj dźwięki otoczenia”";
+"home_filter_bar_ambient_no_content" = "Pojawi się, gdy w bibliotece będą dźwięki otoczenia";
