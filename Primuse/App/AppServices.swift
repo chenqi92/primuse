@@ -1824,7 +1824,8 @@ final class AppServices {
         self.duplicateCleanup = DuplicateCleanupService(
             library: library,
             sourceManager: manager,
-            sourcesStore: store
+            sourcesStore: store,
+            player: player
         )
         self.batchRemoval = SongBatchRemovalService(
             library: library,

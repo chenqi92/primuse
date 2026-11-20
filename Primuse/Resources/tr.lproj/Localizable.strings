@@ -7790,3 +7790,5 @@
 "library_recommendations_songs_title" = "Önerilen Şarkılar";
 "library_recommendations_mix_title" = "Senin İçin Seçildi";
 "library_recommendations_music_videos" = "Önerilen Müzik Videoları";
+"dup_audition_play" = "Bu Kopyayı Dinle";
+"dup_audition_stop" = "Dinlemeyi Durdur";

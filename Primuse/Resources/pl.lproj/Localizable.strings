@@ -7790,3 +7790,5 @@
 "library_recommendations_songs_title" = "Polecane utwory";
 "library_recommendations_mix_title" = "Wybrane dla Ciebie";
 "library_recommendations_music_videos" = "Polecane teledyski";
+"dup_audition_play" = "Odsłuchaj tę kopię";
+"dup_audition_stop" = "Zatrzymaj odsłuch";

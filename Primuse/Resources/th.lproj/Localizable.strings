@@ -7790,3 +7790,5 @@
 "library_recommendations_songs_title" = "เพลงแนะนำ";
 "library_recommendations_mix_title" = "คัดมาเพื่อคุณ";
 "library_recommendations_music_videos" = "มิวสิกวิดีโอแนะนำ";
+"dup_audition_play" = "ฟังตัวอย่างสำเนานี้";
+"dup_audition_stop" = "หยุดฟังตัวอย่าง";

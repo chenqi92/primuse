@@ -7645,3 +7645,5 @@
 "library_recommendations_songs_title" = "Recommended Songs";
 "library_recommendations_mix_title" = "Picked for You";
 "library_recommendations_music_videos" = "Recommended Music Videos";
+"dup_audition_play" = "Preview This Copy";
+"dup_audition_stop" = "Stop Preview";

@@ -7790,3 +7790,5 @@
 "library_recommendations_songs_title" = "Рекомендовані треки";
 "library_recommendations_mix_title" = "Добірка для вас";
 "library_recommendations_music_videos" = "Рекомендовані кліпи";
+"dup_audition_play" = "Прослухати цю копію";
+"dup_audition_stop" = "Зупинити прослуховування";

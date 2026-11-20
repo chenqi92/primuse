@@ -7790,3 +7790,5 @@
 "library_recommendations_songs_title" = "सुझाए गए गाने";
 "library_recommendations_mix_title" = "आपके लिए चुना गया";
 "library_recommendations_music_videos" = "सुझाए गए म्यूज़िक वीडियो";
+"dup_audition_play" = "यह कॉपी सुनें";
+"dup_audition_stop" = "सुनना बंद करें";

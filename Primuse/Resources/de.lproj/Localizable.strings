@@ -7884,3 +7884,5 @@
 "library_recommendations_songs_title" = "Empfohlene Titel";
 "library_recommendations_mix_title" = "Für dich ausgewählt";
 "library_recommendations_music_videos" = "Empfohlene Musikvideos";
+"dup_audition_play" = "Diese Kopie anhören";
+"dup_audition_stop" = "Anhören beenden";

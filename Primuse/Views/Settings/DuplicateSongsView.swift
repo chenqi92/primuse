@@ -41,6 +41,8 @@ struct DuplicateSongsView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(SourceManager.self) private var sourceManager
     @Environment(DuplicateCleanupService.self) private var cleaner
+    /// 只在按钮动作里读它（试听、删前停下），body 不读播放状态，免得整页跟着播放进度重算。
+    @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
 
     @State private var groups: [DuplicateGroup] = []
@@ -64,6 +66,8 @@ struct DuplicateSongsView: View {
     @State private var pendingLocalRemoval: Song?
     /// 落在重复分组里的仅歌单的歌（`CollectionOnlySongStore`），随分组一起刷新。
     @State private var groupCollectionOnlySongIDs: Set<String> = []
+    /// 最近一次在这页开始试听的那一份。删掉或移除它之前先停下，不让播放器接着放队列里的下一首。
+    @State private var auditionSongID: String?
     #if os(macOS)
     @State private var retentionStrategy: MacDuplicateRetentionStrategy = .highestBitrate
     @State private var macKeptSongIDsByGroup: [String: Set<String>] = [:]
@@ -79,6 +83,7 @@ struct DuplicateSongsView: View {
     private static let macVisibleDuplicateColumns = 3
     private static let macDuplicateCardSpacing: CGFloat = 10
     private static let macDuplicateCardMinWidth: CGFloat = 224
+    private static let macDuplicateCardPadding: CGFloat = 10
     #endif
 
     #if os(macOS)
@@ -670,6 +675,11 @@ struct DuplicateSongsView: View {
                 sameFileCopy: sameFileCopy(song, in: group, copies: sameFileCopies)
             )
             .frame(width: cardWidth, height: 104)
+            // 叠在卡片按钮外面，点它不会切换保留/删除；位置正好盖住卡片第一行右端留的空位。
+            .overlay(alignment: .topTrailing) {
+                auditionButton(for: song, style: .card)
+                    .padding(Self.macDuplicateCardPadding)
+            }
         }
     }
 
@@ -767,6 +777,13 @@ struct DuplicateSongsView: View {
                 Spacer(minLength: 4)
 
                 macFormatLabel(song)
+
+                // 试听按钮叠在这里（见 `macSongCards`），这一格只占位。
+                Color.clear
+                    .frame(
+                        width: DuplicateAuditionButton.cardGlyphSide,
+                        height: DuplicateAuditionButton.cardGlyphSide
+                    )
             }
             .foregroundStyle(statusColor)
 
@@ -789,7 +806,7 @@ struct DuplicateSongsView: View {
                 macQualityMetric("file_size_label", value: fileSizeText(song))
             }
         }
-        .padding(10)
+        .padding(Self.macDuplicateCardPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(PMColor.bg, in: .rect(cornerRadius: 9))
         .overlay {
@@ -954,6 +971,8 @@ struct DuplicateSongsView: View {
         sameFileCopy: SameFileCopy?
     ) -> some View {
         HStack(spacing: 12) {
+            auditionButton(for: song, style: .list)
+
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(song.codecFormat.displayName)
@@ -1026,6 +1045,28 @@ struct DuplicateSongsView: View {
     }
 
     // MARK: - Actions
+
+    private func auditionButton(for song: Song, style: DuplicateAuditionButton.Style) -> some View {
+        DuplicateAuditionButton(
+            song: song,
+            sourceName: duplicateSourceDisplayName(song),
+            style: style,
+            canStart: cleaner.progress == nil,
+            onStart: { auditionSongID = song.id }
+        )
+    }
+
+    /// 要删 / 移除的里面有这页正在试听的那一份：先停下。播放器随后把它从队列里拿掉时
+    /// 就只是换上下一首停着，不会接着放一首不相干的歌。不是从这页开始放的照常处理。
+    private func stopAudition(ifRemoving songIDs: Set<String>) {
+        guard let auditionSongID,
+              songIDs.contains(auditionSongID),
+              player.currentSong?.id == auditionSongID else { return }
+        self.auditionSongID = nil
+        if player.isPlaying || player.isLoading {
+            player.pause()
+        }
+    }
 
     private func rescan() async {
         scanGeneration &+= 1
@@ -1121,6 +1162,7 @@ struct DuplicateSongsView: View {
     }
 
     private func removeCopyFromThisDevice(_ song: Song, detail: String? = nil) {
+        stopAudition(ifRemoving: [song.id])
         do {
             try cleaner.removeCopyFromThisDevice(song, detail: detail)
             Task { await rescan() }
@@ -1156,6 +1198,7 @@ struct DuplicateSongsView: View {
     /// groups on screen until the user navigates away and back even though the
     /// files and library rows were deleted successfully.
     private func startCleanup(_ songs: [Song]) {
+        stopAudition(ifRemoving: Set(songs.map(\.id)))
         guard let cleanupTask = cleaner.cleanupCopies(songs) else {
             Task { await rescan() }
             return
@@ -1435,6 +1478,84 @@ struct DuplicateSongsView: View {
         case .dsf, .dff: return .pink
         default: return .blue
         }
+    }
+}
+
+/// 试听重复分组里的某一份（不是组里推荐的那份）。按一下插到正在放的这首后面立刻播，
+/// 和搜索结果里点歌一样，队列其余部分原样留着；再按一下暂停。正在放的就是这一份时显示暂停。
+/// 播放状态只在这个小视图里读，换歌、暂停只重算这颗按钮。
+private struct DuplicateAuditionButton: View {
+    enum Style { case list, card }
+
+    /// Mac 卡片第一行给按钮留的那一格边长。
+    static let cardGlyphSide: CGFloat = 18
+
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+
+    let song: Song
+    /// 读屏时跟在按钮名后面，分清是哪个来源的那一份。
+    let sourceName: String
+    let style: Style
+    /// 清理进行中不再开始新的试听；已经在放的仍然可以停。
+    let canStart: Bool
+    let onStart: () -> Void
+
+    var body: some View {
+        let isCurrent = !player.isLiveRadio && player.currentSong?.id == song.id
+        let isAuditioning = isCurrent && (player.isPlaying || player.isLoading)
+        let title: LocalizedStringKey = isAuditioning ? "dup_audition_stop" : "dup_audition_play"
+        Button {
+            toggle(isCurrent: isCurrent, isAuditioning: isAuditioning)
+        } label: {
+            glyph(isAuditioning: isAuditioning)
+        }
+        .buttonStyle(.borderless)
+        .disabled(!isAuditioning && !canStart)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(verbatim: sourceName))
+        #if os(macOS)
+        .help(Text(title))
+        #endif
+    }
+
+    @ViewBuilder
+    private func glyph(isAuditioning: Bool) -> some View {
+        let symbol = isAuditioning ? "pause.circle.fill" : "play.circle"
+        switch style {
+        case .list:
+            Image(systemName: symbol)
+                .font(.title2)
+                .contentTransition(.symbolEffect(.replace))
+        case .card:
+            #if os(macOS)
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(isAuditioning ? PMColor.brand : PMColor.textMuted)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: Self.cardGlyphSide, height: Self.cardGlyphSide)
+                .contentShape(Rectangle())
+            #else
+            Image(systemName: symbol)
+            #endif
+        }
+    }
+
+    private func toggle(isCurrent: Bool, isAuditioning: Bool) {
+        if isAuditioning {
+            player.pause()
+            return
+        }
+        if isCurrent {
+            // 停在这一份上：原地接着放，不重新从头加载。
+            player.resume()
+            return
+        }
+        guard canStart,
+              let current = library.song(id: song.id), current.isPlayable,
+              let index = player.insertNextInQueue([current]) else { return }
+        onStart()
+        Task { await player.playFromQueue(at: index) }
     }
 }
 

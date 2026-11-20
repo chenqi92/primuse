@@ -7885,3 +7885,5 @@
 "library_recommendations_songs_title" = "おすすめの曲";
 "library_recommendations_mix_title" = "あなたへのセレクト";
 "library_recommendations_music_videos" = "おすすめのミュージックビデオ";
+"dup_audition_play" = "このコピーを試聴";
+"dup_audition_stop" = "試聴を停止";

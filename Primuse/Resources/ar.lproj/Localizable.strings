@@ -7790,3 +7790,5 @@
 "library_recommendations_songs_title" = "أغانٍ مقترحة";
 "library_recommendations_mix_title" = "مختارة لك";
 "library_recommendations_music_videos" = "فيديوهات موسيقية مقترحة";
+"dup_audition_play" = "الاستماع إلى هذه النسخة";
+"dup_audition_stop" = "إيقاف الاستماع";

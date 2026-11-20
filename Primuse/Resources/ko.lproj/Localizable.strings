@@ -7884,3 +7884,5 @@
 "library_recommendations_songs_title" = "추천 노래";
 "library_recommendations_mix_title" = "당신을 위한 선곡";
 "library_recommendations_music_videos" = "추천 뮤직비디오";
+"dup_audition_play" = "이 사본 미리 듣기";
+"dup_audition_stop" = "미리 듣기 중지";

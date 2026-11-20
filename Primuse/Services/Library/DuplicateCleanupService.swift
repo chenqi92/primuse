@@ -75,13 +75,21 @@ final class DuplicateCleanupService {
     private let library: MusicLibrary
     private let sourceManager: SourceManager
     private let sourcesStore: SourcesStore
+    /// 删到正在放的那一份时先让播放器放开它（同 `SongBatchRemovalService`）。
+    private let player: AudioPlayerService?
 
     private var activeTask: Task<Void, Never>?
 
-    init(library: MusicLibrary, sourceManager: SourceManager, sourcesStore: SourcesStore) {
+    init(
+        library: MusicLibrary,
+        sourceManager: SourceManager,
+        sourcesStore: SourcesStore,
+        player: AudioPlayerService? = nil
+    ) {
         self.library = library
         self.sourceManager = sourceManager
         self.sourcesStore = sourcesStore
+        self.player = player
     }
 
     @discardableResult
@@ -245,6 +253,13 @@ final class DuplicateCleanupService {
             var failuresBySource = Dictionary(remainingFailures.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             var failureCount = 0
             var lastProgressPublishAt = Date.distantPast
+            // 正在放的那一份（比如刚在重复歌曲页试听过）先从队列换下来再删源文件，
+            // 不让连接器去删一个还开着、还在读的文件。别的队列条目等源端确认删掉后照常处理。
+            if let player = self.player,
+               let current = player.currentSong,
+               songs.contains(where: { $0.id == current.id }) {
+                await player.prepareQueueForRemovingSongs(withIDs: [current.id])
+            }
             let outcomes = await self.sourceManager.deleteSourceFiles(
                 for: songs,
                 deleteSidecarsForSongIDs: []

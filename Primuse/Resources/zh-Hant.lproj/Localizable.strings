@@ -7861,3 +7861,5 @@
 "library_recommendations_songs_title" = "推薦歌曲";
 "library_recommendations_mix_title" = "為你挑選";
 "library_recommendations_music_videos" = "推薦 MV";
+"dup_audition_play" = "試聽這一份";
+"dup_audition_stop" = "停止試聽";
