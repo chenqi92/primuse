@@ -5974,8 +5974,11 @@ final class SourceManager {
         // Subsonic-family formats that are deliberately transcoded to a
         // progressive MP3 stream retain that existing direct-stream behavior
         // unless their endpoint needs connector-owned TLS handling.
+        // 多线路的 Subsonic 系源按当前线路判断转码流(PM-6ZGYX8):否则转码设置
+        // 不生效, 每首都整首下原文件, 起播要等整首下完。
         if !prefersAuthenticatedSubsonicWANStream,
-           !permitsConfiguredDirectURL(for: source, song: song, plan: transcodePlan) {
+           !permitsConfiguredDirectURL(for: source, song: song, plan: transcodePlan),
+           !permitsRoutedTranscodedStream(for: source, song: song, plan: transcodePlan, connector: conn) {
             let local = try await conn.localURL(for: song.filePath)
             try await ensureCurrentPlaybackResolutionScope(
                 sourceID: source.id,
@@ -15471,6 +15474,27 @@ final class SourceManager {
             hasMultipleConnectionRoutes: source.connectionConfiguration != nil
                 && source.connectionCandidates.count > 1,
             usesAlternateTLSIdentity: source.alternateTLSValidationHostname != nil
+        )
+    }
+
+    /// 多线路的 Subsonic 系源按当前线路决定能不能直接取服务端转码流，规则见
+    /// `ConfiguredSourceDirectURLPolicy.permitsRoutedTranscodedStream`。不放行时照旧整首经连接器取。
+    private func permitsRoutedTranscodedStream(
+        for source: MusicSource,
+        song: Song,
+        plan: SourceTranscodePlan,
+        connector: any MusicSourceConnector
+    ) -> Bool {
+        guard source.type.isSubsonicFamily,
+              connector is any NetworkAdaptiveTranscodingConnector,
+              source.connectionConfiguration != nil,
+              source.connectionCandidates.count > 1 else { return false }
+        let activeRouteUsesAlternateTLSIdentity: Bool? = activeConnectionRoutes[source.id]
+            .flatMap { kind in source.connectionCandidates.first { $0.kind == kind } }
+            .map { source.applyingConnectionCandidate($0).alternateTLSValidationHostname != nil }
+        return ConfiguredSourceDirectURLPolicy.permitsRoutedTranscodedStream(
+            usesServerTranscodedStream: usesServerTranscodedStream(source: source, song: song, plan: plan),
+            activeRouteUsesAlternateTLSIdentity: activeRouteUsesAlternateTLSIdentity
         )
     }
 

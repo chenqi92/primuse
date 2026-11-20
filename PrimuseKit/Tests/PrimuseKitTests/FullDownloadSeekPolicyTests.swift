@@ -133,6 +133,26 @@ struct CompleteFileTransferPolicyTests {
         ))
     }
 
+    @Test("Routed sources take the transcoded stream once the active route needs no borrowed identity")
+    func routedTranscodedStreamFollowsActiveRoute() {
+        #expect(ConfiguredSourceDirectURLPolicy.permitsRoutedTranscodedStream(
+            usesServerTranscodedStream: true,
+            activeRouteUsesAlternateTLSIdentity: false
+        ))
+        #expect(!ConfiguredSourceDirectURLPolicy.permitsRoutedTranscodedStream(
+            usesServerTranscodedStream: true,
+            activeRouteUsesAlternateTLSIdentity: true
+        ))
+        #expect(!ConfiguredSourceDirectURLPolicy.permitsRoutedTranscodedStream(
+            usesServerTranscodedStream: true,
+            activeRouteUsesAlternateTLSIdentity: nil
+        ))
+        #expect(!ConfiguredSourceDirectURLPolicy.permitsRoutedTranscodedStream(
+            usesServerTranscodedStream: false,
+            activeRouteUsesAlternateTLSIdentity: false
+        ))
+    }
+
     @Test("Ordinary public streams may retain direct range playback")
     func ordinaryPublicStreamsMayUseDirectURLs() {
         #expect(ConfiguredSourceDirectURLPolicy.permitsDirectURL(

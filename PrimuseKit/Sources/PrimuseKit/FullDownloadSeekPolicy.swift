@@ -95,6 +95,24 @@ public enum ConfiguredSourceDirectURLPolicy {
             && !usesAlternateTLSIdentity
             && (!requiresCompleteLocalFile || usesServerTranscodedStream)
     }
+
+    /// 多线路的源要不要直接取服务端转码流。
+    ///
+    /// 多线路的源平时留在连接器里整首取，但那样转码设置就不生效了：每首都整首下原文件，
+    /// 起播要等整首下完，而队列预取那边照样在转码（同一个转码地址、同一个下载器），两边对不上。
+    /// 所以按当前线路判断：线路已经定下来、投影出的端点不需要借公网主机名校验证书时，
+    /// 和单线路的源一样直接取转码流；线路未定或要借身份校验的，照旧留在连接器里。
+    ///
+    /// - Parameter activeRouteUsesAlternateTLSIdentity: 当前线路投影出的端点要不要借公网主机名校验证书；
+    ///   当前线路还没定时为 nil。
+    public static func permitsRoutedTranscodedStream(
+        usesServerTranscodedStream: Bool,
+        activeRouteUsesAlternateTLSIdentity: Bool?
+    ) -> Bool {
+        guard usesServerTranscodedStream,
+              let activeRouteUsesAlternateTLSIdentity else { return false }
+        return !activeRouteUsesAlternateTLSIdentity
+    }
 }
 
 /// When a stream with no length and no Range support (a server transcoding
