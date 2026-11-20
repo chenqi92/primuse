@@ -2131,6 +2131,113 @@ final class BatchScraperRecoveryTests: XCTestCase {
         }
     }
 
+    /// 后台时间用完时批量刮削停在断点上；回到前台要接着刮，不能等系统哪天给 BGProcessing。
+    func testForegroundResumesABatchTheSystemStoppedInThisLaunch() async throws {
+        try await withFixture(failures: 0) { service, _, song, _, _, library in
+            library.addSongs([song])
+            // 续刮按可见集找断点里的歌(找不到就清断点)。真实流程里回前台要等曲库就绪再隔几秒；
+            // 这里不靠时间，直接等可见集发布。
+            await library.waitForPendingIndex()
+            XCTAssertNotNil(library.visibleSong(id: song.id))
+            _ = service.scrapeMissingMetadata(songs: [song], in: library, parts: .lyrics)
+            XCTAssertTrue(service.isScraping)
+            service.cancelPreservingCheckpoint(reason: .backgroundTimeExpired)
+            XCTAssertFalse(service.isScraping)
+            XCTAssertTrue(service.hasPendingScrape)
+
+            XCTAssertEqual(
+                service.resumeInterruptedScrapeInForeground(in: library, isApplicationActive: true, isSafeModeActive: true),
+                .skip(.safeMode)
+            )
+            XCTAssertEqual(
+                service.resumeInterruptedScrapeInForeground(in: library, isApplicationActive: false, isSafeModeActive: false),
+                .skip(.leavingForeground)
+            )
+            XCTAssertFalse(service.isScraping)
+            XCTAssertEqual(
+                service.resumeInterruptedScrapeInForeground(in: library, isApplicationActive: true, isSafeModeActive: false),
+                .resume
+            )
+            XCTAssertTrue(service.isScraping)
+            await service.waitUntilScrapeIdle()
+            XCTAssertFalse(service.hasPendingScrape)
+            XCTAssertEqual(service.lastCompletion?.processedSongCount, 1)
+        }
+    }
+
+    /// 用户点停止会清掉断点：回到前台什么也不续。
+    func testForegroundNeverResumesABatchTheUserStopped() async throws {
+        try await withFixture(failures: 0) { service, probe, song, _, _, library in
+            library.addSongs([song])
+            _ = service.scrapeMissingMetadata(songs: [song], in: library, parts: .lyrics)
+            XCTAssertTrue(service.isScraping)
+            service.cancel()
+            XCTAssertFalse(service.hasPendingScrape)
+            XCTAssertEqual(
+                service.resumeInterruptedScrapeInForeground(in: library, isApplicationActive: true, isSafeModeActive: false),
+                .skip(.noCheckpoint)
+            )
+            XCTAssertFalse(service.isScraping)
+            let requests = await probe.requests
+            XCTAssertEqual(requests, 0)
+        }
+    }
+
+    /// 被系统回收后重新打开：上一个进程留下的断点在前台接着刮。
+    func testForegroundResumesACheckpointLeftByAnEarlierLaunch() async throws {
+        try await withFixture(failures: .max) { service, _, song, root, source, library in
+            var second = song
+            second.id = UUID().uuidString
+            library.addSongs([song, second])
+            await library.waitForPendingIndex()
+            XCTAssertNotNil(library.visibleSong(id: second.id))
+            _ = service.scrapeMissingMetadata(songs: [song, second], in: library, parts: .lyrics)
+            await service.waitUntilScrapeIdle()
+            XCTAssertTrue(service.hasPendingScrape)
+
+            let healthy = RecoveryLyricsProbe(failures: 0, returnsLyrics: false)
+            let relaunched = MusicScraperService(sourceManager: SourceManager(sourcesProvider: { [source] }),
+                metadataService: MetadataService(scraperManager: ScraperManager(scraperFactory: { _ in healthy })),
+                checkpointDirectory: root.appendingPathComponent("checkpoint"), scrapeRetrySleep: { _ in })
+            XCTAssertEqual(
+                relaunched.resumeInterruptedScrapeInForeground(in: library, isApplicationActive: true, isSafeModeActive: false),
+                .resume
+            )
+            await relaunched.waitUntilScrapeIdle()
+            XCTAssertFalse(relaunched.hasPendingScrape)
+            XCTAssertEqual(relaunched.lastCompletion?.processedSongCount, 2)
+        }
+    }
+
+    /// 上一次打开时从同一位置自动续过、一首都没往前走进程就没了：这次不在前台再试，免得每次打开都闪退。
+    func testForegroundSkipsACheckpointTheEarlierLaunchCouldNotAdvance() async throws {
+        try await withFixture(failures: .max) { service, _, song, root, source, library in
+            library.addSongs([song])
+            _ = service.scrapeMissingMetadata(songs: [song], in: library, parts: .lyrics)
+            await service.waitUntilScrapeIdle()
+            XCTAssertTrue(service.hasPendingScrape)
+            let checkpointURL = root.appendingPathComponent("checkpoint/scrape-checkpoint.json")
+            var checkpoint = try XCTUnwrap(JSONSerialization.jsonObject(
+                with: Data(contentsOf: checkpointURL)
+            ) as? [String: Any])
+            checkpoint["launchResumeIndex"] = checkpoint["nextSongIndex"] as? Int ?? 0
+            try JSONSerialization.data(withJSONObject: checkpoint).write(to: checkpointURL)
+
+            let probe = RecoveryLyricsProbe(failures: 0, returnsLyrics: false)
+            let relaunched = MusicScraperService(sourceManager: SourceManager(sourcesProvider: { [source] }),
+                metadataService: MetadataService(scraperManager: ScraperManager(scraperFactory: { _ in probe })),
+                checkpointDirectory: root.appendingPathComponent("checkpoint"), scrapeRetrySleep: { _ in })
+            XCTAssertEqual(
+                relaunched.resumeInterruptedScrapeInForeground(in: library, isApplicationActive: true, isSafeModeActive: false),
+                .skip(.noProgressSinceLastLaunch)
+            )
+            XCTAssertFalse(relaunched.isScraping)
+            XCTAssertTrue(relaunched.hasPendingScrape)
+            let requests = await probe.requests
+            XCTAssertEqual(requests, 0)
+        }
+    }
+
     private func withFixture(failures: Int, body: (MusicScraperService, RecoveryLyricsProbe, Song, URL, MusicSource, MusicLibrary) async throws -> Void) async throws {
         let defaults = UserDefaults.standard
         let previous = defaults.object(forKey: ScraperSettings.defaultsKey)

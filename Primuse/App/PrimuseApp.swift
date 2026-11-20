@@ -217,7 +217,9 @@ private enum BackgroundScanResumeTask {
             waitForScrape: {
                 await AppServices.shared.scraperService.waitUntilScrapeIdle()
             },
-            cancelScrape: { AppServices.shared.scraperService.cancelPreservingCheckpoint() },
+            cancelScrape: {
+                AppServices.shared.scraperService.cancelPreservingCheckpoint(reason: .backgroundProcessingExpired)
+            },
             backfillHasPendingWork: { AppServices.shared.metadataBackfill.hasPendingWork },
             startBackfill: { AppServices.shared.metadataBackfill.start() },
             waitBackfillIdle: { await AppServices.shared.metadataBackfill.waitUntilIdle() },
@@ -2211,7 +2213,8 @@ struct PrimuseApp: App {
                     #if os(iOS)
                     // Submit durable work, but do not execute it merely because
                     // the scene is interactive. Background/BGProcessing owns
-                    // scans, scrape checkpoint replay, indexing and backfill.
+                    // scans, indexing and backfill. A user-started batch scrape
+                    // the system interrupted is the exception, resumed below.
                     scanService.scheduleBackgroundResumeIfNeeded(
                         backfillPending: metadataBackfill.hasPendingWork,
                         backfillRequiresNetworkConnectivity: metadataBackfill.backgroundWakeRequiresNetworkConnectivityFromCachedCounts,
@@ -2219,6 +2222,9 @@ struct PrimuseApp: App {
                         localImportPending: LocalImportService.hasPendingScan,
                         sourceStore: sourcesStore
                     )
+                    // 用户开的批量刮削被系统打断(后台到期、被回收)留下了断点：打开到
+                    // 前台时从断点接着刮。后台启动的进程到时不在前台，这里什么也不做。
+                    scraperService.scheduleInterruptedScrapeResume(in: musicLibrary)
                     #else
                     // 一次性把已缓存的 .lrc 解析成纯文本写回 Song.lyricsText,
                     // 让 FTS5 全文歌词搜索可用 (v5 migration 加了列但留空)。
@@ -2696,7 +2702,7 @@ struct PrimuseApp: App {
                             // reduced playback profile, which releases the UIKit
                             // assertions that would otherwise expire under it.
                             scanService.setBackgroundPlaybackActive(true)
-                            scraperService.cancelPreservingCheckpoint()
+                            scraperService.cancelPreservingCheckpoint(reason: .backgroundPlayback)
                             AppServices.shared.spotlightIndex.suspendSynchronization()
                             AppServices.shared.lyricsTextBackfill.stop()
                             // Playback postpones maintenance, but the pending scene

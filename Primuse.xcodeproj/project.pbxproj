@@ -1638,6 +1638,7 @@
 		AA559B823E7AAA6FE6860687 /* SourceLyricsDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A815E77F1B1FD79F7C32A3 /* SourceLyricsDocument.swift */; };
 		AA9C301430603ABF6EBB4FE2 /* LibraryRemovalVisibleCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B11AEF997EC32CE4DEBEB1A /* LibraryRemovalVisibleCacheTests.swift */; };
 		AABCDC42310D9F297F9279B3 /* AudioWordTimingAligner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB3BBCCA2087F450CCF7300 /* AudioWordTimingAligner.swift */; };
+		448162461ABBAD83562BA952 /* BatchScrapeForegroundResumePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED9D363A546BBE46766EB0C7 /* BatchScrapeForegroundResumePolicy.swift */; };
 		AAC26221AFCFF260E587C6A5 /* BatchTagEditService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4046A0E13C4FF69EAA4C2B8C /* BatchTagEditService.swift */; };
 		AAC729C0C76D57F218CF1574 /* LyricsCacheObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1E8215154EF49C93A26777 /* LyricsCacheObserver.swift */; };
 		AAD61E30E5B8C846731E8458 /* MediaImportText.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF89DBF15CAE0CE173C2E2F0 /* MediaImportText.swift */; };
@@ -3369,6 +3370,7 @@
 		5BFD039DE00956A390D5193A /* NowPlayingLibraryActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingLibraryActions.swift; sourceTree = "<group>"; };
 		5CA564A28322629895E223E4 /* AdaptiveStreamQualityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveStreamQualityPolicy.swift; sourceTree = "<group>"; };
 		5CB3BBCCA2087F450CCF7300 /* AudioWordTimingAligner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWordTimingAligner.swift; sourceTree = "<group>"; };
+		ED9D363A546BBE46766EB0C7 /* BatchScrapeForegroundResumePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchScrapeForegroundResumePolicy.swift; sourceTree = "<group>"; };
 		5CF37B6C8552F125760B1481 /* NowPlayingControlsEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingControlsEditorView.swift; sourceTree = "<group>"; };
 		5D229FE5BF339F4BB3310403 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = "zh-Hant"; path = "zh-Hant.lproj/AppIntentVocabulary.plist"; sourceTree = "<group>"; };
 		5D2741FA5052447F5E1B27A4 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
@@ -5035,6 +5037,7 @@
 				D9AE87890794861CD61463F5 /* AudioFileRenamePlan.swift */,
 				5CB3BBCCA2087F450CCF7300 /* AudioWordTimingAligner.swift */,
 				A929891B735851BD708F3E12 /* AutomaticOfflineRunningJobPolicy.swift */,
+				ED9D363A546BBE46766EB0C7 /* BatchScrapeForegroundResumePolicy.swift */,
 				9E40DCC65C7DA2143109929B /* BottomChromeClearancePolicy.swift */,
 				57AEB5228DD8790FB07D8877 /* BoundedAsyncChannel.swift */,
 				CDECF488946A4107E730C51A /* CarPlayArtworkCacheKey.swift */,
@@ -7701,6 +7704,7 @@
 				9129126C040F02F724CC2762 /* BaiduFileManagerBatchResponse.swift in Sources */,
 				1F47DB3FE4EE61F5E3D5C8B9 /* BaiduPanStreamResolver.swift in Sources */,
 				7906BF20227C3CB94FC5B0C2 /* BaiduTranslateAPI.swift in Sources */,
+				448162461ABBAD83562BA952 /* BatchScrapeForegroundResumePolicy.swift in Sources */,
 				A04BFD2AC3A1546B7774DA14 /* BottomChromeClearancePolicy.swift in Sources */,
 				71C60F0F8ACFF948E692212D /* BoundedAsyncChannel.swift in Sources */,
 				5978B69CCBB88DF15F5AAA4D /* BrandTintStore.swift in Sources */,

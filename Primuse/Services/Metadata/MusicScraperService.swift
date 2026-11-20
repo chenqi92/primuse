@@ -200,6 +200,11 @@ final class MusicScraperService {
     }
     private let scrapeCheckpointURL: URL
     private var scrapeCheckpoint: ScrapeCheckpoint?
+    /// 断点是从盘上读来的、这个进程还没跑过它(被系统回收或闪退后重新打开)。
+    @ObservationIgnored private var checkpointIsFromPreviousProcess = false
+    /// 回到前台后隔一会儿再从断点续刮的那一次。场景又离开前台、用户停止时作废。
+    @ObservationIgnored private var interruptedScrapeResumeTask: Task<Void, Never>?
+    @ObservationIgnored private var interruptedScrapeResumeGeneration = 0
     #if os(iOS)
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     #endif
@@ -216,6 +221,9 @@ final class MusicScraperService {
         var originPlaylistID: String?
         /// 只补歌词 / 只补封面的一轮,续跑时范围不变。旧断点没有这一项 = 全部。
         var parts: ScrapeParts?
+        /// 上一个进程留下的断点在前台自动续上时的起点。下次打开还停在这里 = 续上之后
+        /// 一首都没往前走进程就没了,不再在前台自动续(`BatchScrapeForegroundResumePolicy`)。
+        var launchResumeIndex: Int?
 
         var hasPersistedSongCounts: Bool {
             updatedCount != nil && skippedCount != nil && failedCount != nil
@@ -286,6 +294,7 @@ final class MusicScraperService {
         if let data = try? Data(contentsOf: scrapeCheckpointURL) {
             scrapeCheckpoint = try? JSONDecoder().decode(ScrapeCheckpoint.self, from: data)
         }
+        checkpointIsFromPreviousProcess = scrapeCheckpoint?.songIDs.isEmpty == false
     }
 
     /// True when an interrupted batch scrape can be resumed after foregrounding
@@ -1004,12 +1013,13 @@ final class MusicScraperService {
     func pauseForSceneTransition() {
         guard !isPausedForSceneTransition else { return }
         isPausedForSceneTransition = true
+        cancelInterruptedScrapeResume()
         let shouldHoldBackgroundWindow = isScraping
         sceneTransitionInterruptedScrape = isScraping
         plog("MusicScraperService: briefly gating publications for scene transition (scraping=\(isScraping))")
 
         if isScraping {
-            cancel(preservingCheckpoint: true)
+            cancel(preservingCheckpoint: true, reason: .sceneTransition)
         } else {
             cancelSidecarWriteTasks()
         }
@@ -1032,16 +1042,100 @@ final class MusicScraperService {
     /// background phase followed, so every later batch scrape was deferred and
     /// sidecar writes were dropped.
     func resumeAfterSceneTransition(in library: MusicLibrary) {
-        guard isPausedForSceneTransition else { return }
-        isPausedForSceneTransition = false
-        let shouldResumeScrape = sceneTransitionInterruptedScrape
-        sceneTransitionInterruptedScrape = false
-        endBackgroundTaskIfHeld()
-        plog("MusicScraperService: resuming after foreground scene transition (scrape=\(shouldResumeScrape))")
-        if shouldResumeScrape {
+        if isPausedForSceneTransition {
+            isPausedForSceneTransition = false
+            let shouldResumeScrape = sceneTransitionInterruptedScrape
+            sceneTransitionInterruptedScrape = false
+            endBackgroundTaskIfHeld()
+            plog("MusicScraperService: resuming after foreground scene transition (scrape=\(shouldResumeScrape))")
+            if shouldResumeScrape {
+                resumePendingScrape(in: library)
+            }
+            startBackgroundEnrichmentIfNeeded(in: library)
+        }
+        // 上面只接得回「这次切换当场打断的那一轮」。在后台被到期、挂起、回收打断的那一轮
+        // 断点还在却没人续，界面上就是刮着刮着自己停了。
+        scheduleInterruptedScrapeResume(in: library)
+    }
+
+    /// 回到前台(包括冷启动后第一次到前台)时，把停在断点上的批量刮削接着刮。
+    /// 断点还在、又没在刮，就是被系统打断的：后台时间用完、进程被挂起或被回收、
+    /// 后台放歌让路、刮削源一时不可用。用户点「停止」会连断点一起清掉，这里不会违背用户。
+    /// 等曲库就绪、再让开回前台的头几秒才动手。
+    func scheduleInterruptedScrapeResume(in library: MusicLibrary) {
+        cancelInterruptedScrapeResume()
+        guard hasPendingScrape, !isScraping else { return }
+        let generation = interruptedScrapeResumeGeneration
+        library.onReady { [weak self] in
+            guard let self, self.interruptedScrapeResumeGeneration == generation else { return }
+            self.interruptedScrapeResumeTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(BatchScrapeForegroundResumePolicy.foregroundResumeDelay))
+                guard !Task.isCancelled, let self,
+                      self.interruptedScrapeResumeGeneration == generation else { return }
+                self.interruptedScrapeResumeTask = nil
+                self.resumeInterruptedScrapeInForeground(in: library)
+            }
+        }
+    }
+
+    private func cancelInterruptedScrapeResume() {
+        interruptedScrapeResumeGeneration &+= 1
+        interruptedScrapeResumeTask?.cancel()
+        interruptedScrapeResumeTask = nil
+    }
+
+    /// `scheduleInterruptedScrapeResume` 等完之后的判定与执行；测试直接调，传入前台与安全模式状态。
+    @discardableResult
+    func resumeInterruptedScrapeInForeground(
+        in library: MusicLibrary,
+        isApplicationActive: Bool? = nil,
+        isSafeModeActive: Bool? = nil
+    ) -> BatchScrapeForegroundResumePolicy.Decision {
+        let checkpoint = scrapeCheckpoint
+        let resumeIndex = checkpoint.map { min(max($0.nextSongIndex, 0), $0.songIDs.count) } ?? 0
+        let fromPreviousProcess = checkpointIsFromPreviousProcess
+        let decision = BatchScrapeForegroundResumePolicy.decision(
+            hasCheckpoint: hasPendingScrape,
+            isBatchRunning: isScraping,
+            isSingleRunning: isSingleScraping,
+            isApplicationActive: (isApplicationActive ?? Self.applicationIsActive) && !isPausedForSceneTransition,
+            isSafeModeActive: isSafeModeActive ?? Self.launchSafeModeIsActive,
+            checkpointFromPreviousProcess: fromPreviousProcess,
+            resumeIndex: resumeIndex,
+            lastLaunchResumeIndex: checkpoint?.launchResumeIndex
+        )
+        let progress = "\(resumeIndex)/\(checkpoint?.songIDs.count ?? 0)"
+        switch decision {
+        case .skip(.noCheckpoint), .skip(.alreadyRunning), .skip(.leavingForeground):
+            break
+        case .skip(let reason):
+            plog("MusicScraperService: interrupted batch scrape at \(progress) not resumed in foreground (\(reason.rawValue))")
+        case .resume:
+            if fromPreviousProcess, var checkpoint {
+                checkpoint.launchResumeIndex = resumeIndex
+                scrapeCheckpoint = checkpoint
+                writeScrapeCheckpoint(checkpoint)
+            }
+            plog("MusicScraperService: resuming interrupted batch scrape in foreground at \(progress) (\(fromPreviousProcess ? "left by an earlier launch" : "stopped by the system in this launch"))")
             resumePendingScrape(in: library)
         }
-        startBackgroundEnrichmentIfNeeded(in: library)
+        return decision
+    }
+
+    private static var applicationIsActive: Bool {
+        #if os(iOS)
+        UIApplication.shared.applicationState == .active
+        #else
+        true
+        #endif
+    }
+
+    private static var launchSafeModeIsActive: Bool {
+        #if os(iOS)
+        LaunchDiagnostics.isSafeModeActive
+        #else
+        false
+        #endif
     }
 
     /// Continue the same scrape in the normal UIApplication background window
@@ -1056,18 +1150,34 @@ final class MusicScraperService {
         startBackgroundEnrichmentIfNeeded(in: library)
     }
 
+    /// 批量刮削为什么停在半路，只用于诊断日志：分得清是到期、让路还是用户自己停的。
+    enum BatchScrapeStopReason: String {
+        case userStopped = "user stopped"
+        case sceneTransition = "scene transition"
+        case backgroundTimeExpired = "background time expired"
+        case backgroundProcessingExpired = "background processing expired"
+        case backgroundPlayback = "background playback started"
+    }
+
+    /// 用户点「停止」：断点一起清掉，之后回到前台也不会自动续。
     func cancel() {
-        cancel(preservingCheckpoint: false)
+        cancelInterruptedScrapeResume()
+        cancel(preservingCheckpoint: false, reason: .userStopped)
     }
 
     /// Used only when iOS expires a background execution window. The current
     /// task stops at an atomic song boundary, while the persisted request is
     /// retained so the next system/foreground opportunity can restart it.
-    func cancelPreservingCheckpoint() {
-        cancel(preservingCheckpoint: true)
+    func cancelPreservingCheckpoint(reason: BatchScrapeStopReason) {
+        cancel(preservingCheckpoint: true, reason: reason)
     }
 
-    private func cancel(preservingCheckpoint: Bool) {
+    private func cancel(preservingCheckpoint: Bool, reason: BatchScrapeStopReason) {
+        if isScraping {
+            let phase = batchPhase == .artwork ? "artwork" : "songs"
+            let keepsCheckpoint = preservingCheckpoint && scrapeCheckpoint != nil
+            plog("MusicScraperService: batch scrape stopped (\(reason.rawValue)) at \(phaseProcessedCount)/\(phaseTotalCount) phase=\(phase) checkpoint=\(keepsCheckpoint ? "kept" : "cleared")")
+        }
         scrapingGeneration += 1
         if preservingCheckpoint, let scrapeCheckpoint {
             writeScrapeCheckpoint(scrapeCheckpoint)
@@ -1127,6 +1237,7 @@ final class MusicScraperService {
         // 上面的判定已经覆盖了"已就绪且一首都没匹配上"; 这一条只是不让空队列
         // 进入 `startScraping`。
         guard !songs.isEmpty else { return }
+        plog("MusicScraperService: resuming batch scrape from checkpoint at \(startIndex)/\(checkpoint.songIDs.count) background=\(allowBackgroundExecution)")
         startScraping(
             songs: songs,
             pendingSongs: pendingSongs,
@@ -1232,6 +1343,9 @@ final class MusicScraperService {
         artworkProcessedCount = 0
         activeOriginPlaylistID = runOriginPlaylistID
         activeRunID = runID
+        // 这个进程已经跑过这份断点(或开了新的一轮)：之后再被打断不是闪退留下的。
+        checkpointIsFromPreviousProcess = false
+        cancelInterruptedScrapeResume()
         isScraping = true
         scrapingGeneration += 1
         let generation = scrapingGeneration
@@ -1536,7 +1650,7 @@ final class MusicScraperService {
                     publishPendingSongBatch()
                     moveDeferredSongToEndOfCheckpoint(song.id)
                     deferredForSourceFailure = true
-                    plog("Batch scrape deferred: sources unavailable; '\(song.title)' moved to the end, remaining checkpoint preserved")
+                    plog("Batch scrape deferred: sources unavailable at \(min(processedCount, songTotalCount))/\(songTotalCount); '\(song.title)' moved to the end, remaining checkpoint preserved")
                     return
                 } catch is CancellationError {
                     return
@@ -1802,7 +1916,11 @@ final class MusicScraperService {
             // Runs on the main thread; end the assertion synchronously so the
             // checkpoint is preserved inside the expiration grace period.
             MainActor.assumeIsolated {
-                self?.cancelPreservingCheckpoint()
+                guard let self else { return }
+                if !self.isScraping {
+                    plog("MusicScraperService: background time expired with no batch scrape running")
+                }
+                self.cancelPreservingCheckpoint(reason: .backgroundTimeExpired)
             }
         }
         #endif
