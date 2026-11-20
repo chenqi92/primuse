@@ -7792,3 +7792,4 @@
 "library_recommendations_music_videos" = "Рекомендовані кліпи";
 "dup_audition_play" = "Прослухати цю копію";
 "dup_audition_stop" = "Зупинити прослуховування";
+"queue_show_earlier %lld" = "Показати %lld попередніх";

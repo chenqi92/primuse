@@ -559,111 +559,7 @@ struct MacMiniPlayerView: View {
     }
 
     private var queueList: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 8) {
-                if player.queue.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "music.note.list")
-                            .font(.title3)
-                            .foregroundStyle(.tertiary)
-                        Text("queue_empty")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 30)
-                } else {
-                    // currentIndex 在切歌/换队列瞬间可能越界, 先钳到合法区间,
-                    // 否则下面构造 Range 时 lowerBound > upperBound 会 trap。
-                    let count = player.queue.count
-                    let cur = min(max(player.currentIndex, 0), count - 1)
-
-                    if let current = player.currentSong {
-                        Text("now_playing")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        queueRow(index: cur, song: current, isPlaying: true)
-                            .padding(.bottom, 4)
-                    }
-
-                    let upNext = (cur + 1)..<count
-                    if !upNext.isEmpty {
-                        Text("up_next")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 6)
-                        ForEach(upNext, id: \.self) { idx in
-                            queueRow(index: idx)
-                        }
-                    }
-                    let played = 0..<cur
-                    if !played.isEmpty {
-                        Text("played")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 12)
-                        ForEach(played, id: \.self) { idx in
-                            queueRow(index: idx).opacity(0.55)
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 4)
-            // 隐藏器放进 ScrollView 内容里 (而不是挂在 ScrollView 外层的
-            // .background) —— 这样 enclosingScrollView 能直接拿到队列自己的
-            // NSScrollView。迷你播放器这种多层嵌套下, 外层 .background 那个
-            // 隐藏器是兄弟节点, 找不到, 滚动条隐不掉。
-            .pmForceHideScrollers()
-        }
-        .scrollIndicators(.hidden)
-    }
-
-    @ViewBuilder
-    private func queueRow(index: Int, song overrideSong: Song? = nil, isPlaying: Bool = false) -> some View {
-        // LazyVStack 懒渲染时, 队列可能已被切歌/清空缩短, index 不再有效;
-        // 用 indices 判定而非直接下标, 避免越界 trap。
-        if let song = overrideSong ?? (player.queue.indices.contains(index) ? player.queue[index] : nil) {
-            HStack(spacing: 9) {
-                CachedArtworkView(
-                    coverRef: song.coverArtFileName,
-                    songID: song.id,
-                    size: 32, cornerRadius: 6,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath,
-                    fileFormat: song.fileFormat
-                )
-                .overlay {
-                    if isPlaying {
-                        Color.black.opacity(0.32)
-                            .clipShape(.rect(cornerRadius: 6))
-                        Image(systemName: "waveform")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        SongRowTrackNumber(number: index + 1, largestNumber: player.queue.count, respectsLibraryPreference: false)
-                        Text(song.title).font(.caption).lineLimit(1)
-                    }
-                    Text(library.artistDisplayName(for: song) ?? "")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(isPlaying ? theme.accentColor.opacity(0.12) : Color.primary.opacity(0.04),
-                        in: .rect(cornerRadius: 8))
-            .contentShape(Rectangle())
-            .onTapGesture {
-                player.currentIndex = index
-                Task { await player.play(song: song) }
-            }
-            .pmPointingHand()
-        }
+        MacMiniQueueList()
     }
 
     // MARK: - Lyrics list
@@ -899,6 +795,191 @@ struct MacMiniPlayerView: View {
             settingEnabled: tapLyricsToSeek,
             lineIsSynchronized: line.isSynchronized
         )
+    }
+}
+
+/// 迷你播放器底下的队列。和队列面板一样从上往下是已播放、正在播放、接下来(见 `QueueHistoryLayout`),
+/// 打开时停在正在播放,往上翻是已播放;随机时按实际要放的先后排。
+private struct MacMiniQueueList: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+    @Environment(ThemeService.self) private var theme
+    /// 已播放最多画几首(从最近的往前数),点「显示更早的」往上加一页。
+    @State private var historyLimit = QueueHistoryLayout.pageSize
+
+    private static let nowPlayingAnchor = "miniQueue.nowPlaying"
+
+    var body: some View {
+        let entries = player.queueEntries
+        let history = entries.isEmpty
+            ? (entries: [QueuePresentationEntry](), totalCount: 0)
+            : player.playedQueueHistory(limit: historyLimit)
+        let upcomingEntries = entries.isEmpty ? [] : player.upcomingQueueEntries
+        let layout = QueueHistoryLayout(
+            playedCount: history.totalCount,
+            upcomingCount: upcomingEntries.count,
+            historyLimit: historyLimit
+        )
+        let revealsCurrent = player.currentSong != nil && layout.revealsCurrentOnAppear
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    if entries.isEmpty {
+                        emptyState
+                    } else {
+                        if layout.playedCount > 0 {
+                            historySection(history.entries, layout: layout)
+                        }
+                        if let current = player.currentSong {
+                            // currentIndex 在切歌/换队列瞬间可能越界, 先钳到合法区间。
+                            let currentEntry = entries[min(max(player.currentIndex, 0), entries.count - 1)]
+                            VStack(alignment: .leading, spacing: 8) {
+                                sectionTitle("now_playing")
+                                row(currentEntry, ordinal: layout.currentOrdinal, totalCount: layout.totalCount, song: current, isPlaying: true)
+                            }
+                            .padding(.bottom, 4)
+                            .id(Self.nowPlayingAnchor)
+                        }
+                        upcomingSections(upcomingEntries, layout: layout)
+                    }
+                }
+                .padding(.vertical, 4)
+                // 隐藏器放进 ScrollView 内容里 (而不是挂在 ScrollView 外层的
+                // .background) —— 这样 enclosingScrollView 能直接拿到队列自己的
+                // NSScrollView。迷你播放器这种多层嵌套下, 外层 .background 那个
+                // 隐藏器是兄弟节点, 找不到, 滚动条隐不掉。
+                .pmForceHideScrollers()
+            }
+            .scrollIndicators(.hidden)
+            // 每次切到队列都停在正在播放这一段;开着时切歌不去抢正在看的位置。
+            .onAppear {
+                guard revealsCurrent else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    proxy.scrollTo(Self.nowPlayingAnchor, anchor: .top)
+                }
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "music.note.list")
+                .font(.title3)
+                .foregroundStyle(.tertiary)
+            Text("queue_empty")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 30)
+    }
+
+    private func sectionTitle(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+    }
+
+    /// 已播放:最早的在上,刚放完的紧挨正在播放。更早的收在顶上的「显示更早的」里。
+    private func historySection(_ played: [QueuePresentationEntry], layout: QueueHistoryLayout) -> some View {
+        LazyVStack(alignment: .leading, spacing: 8) {
+            sectionTitle("played")
+            if layout.nextRevealCount > 0 {
+                PMScrollingButton {
+                    historyLimit = layout.expandedHistoryLimit
+                } label: {
+                    Label("queue_show_earlier \(layout.nextRevealCount)", systemImage: "chevron.up")
+                        .font(.caption)
+                        .foregroundStyle(theme.accentColor)
+                        .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                        .padding(.horizontal, 8)
+                        .contentShape(Rectangle())
+                }
+            }
+            ForEach(Array(played.enumerated()), id: \.element.id) { index, presentation in
+                row(presentation.entry, ordinal: layout.historyOrdinal(visibleOffset: index), totalCount: layout.totalCount)
+                    .opacity(0.55)
+            }
+        }
+        .padding(.bottom, 4)
+    }
+
+    /// 接下来:自己排的歌在前,播完后自动续上的相似歌曲单独一段。
+    @ViewBuilder
+    private func upcomingSections(_ upcomingEntries: [QueuePresentationEntry], layout: QueueHistoryLayout) -> some View {
+        let upNext = QueueContinuationPolicy.splitUpcoming(upcomingEntries) {
+            player.isAutoContinuationEntry($0.entry)
+        }
+        if !upNext.queued.isEmpty {
+            sectionTitle("up_next")
+                .padding(.top, 6)
+            ForEach(Array(upNext.queued.enumerated()), id: \.element.id) { index, presentation in
+                row(presentation.entry, ordinal: layout.upcomingOrdinal(offset: index), totalCount: layout.totalCount)
+            }
+        }
+        if !upNext.autoplay.isEmpty {
+            sectionTitle("queue_autoplay_section")
+                .padding(.top, 6)
+            ForEach(Array(upNext.autoplay.enumerated()), id: \.element.id) { index, presentation in
+                row(presentation.entry, ordinal: layout.upcomingOrdinal(offset: upNext.queued.count + index), totalCount: layout.totalCount)
+            }
+        }
+    }
+
+    private func row(
+        _ entry: QueueEntry,
+        ordinal: Int,
+        totalCount: Int,
+        song overrideSong: Song? = nil,
+        isPlaying: Bool = false
+    ) -> some View {
+        let song = overrideSong ?? entry.song
+        return HStack(spacing: 9) {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: 32, cornerRadius: 6,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat
+            )
+            .overlay {
+                if isPlaying {
+                    Color.black.opacity(0.32)
+                        .clipShape(.rect(cornerRadius: 6))
+                    Image(systemName: "waveform")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount, respectsLibraryPreference: false)
+                    Text(song.title).font(.caption).lineLimit(1)
+                }
+                Text(library.artistDisplayName(for: song) ?? "")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(isPlaying ? theme.accentColor.opacity(0.12) : Color.primary.opacity(0.04),
+                    in: .rect(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onTapGesture { play(entry) }
+        .pmPointingHand()
+    }
+
+    /// 按队列里的这一格(不是这首歌)找回它现在的位置再放:同一首歌可能排了几次,随机时还要把这一轮的
+    /// 先后一起对上,所以走 `playFromQueue`,不直接改 `currentIndex`。
+    private func play(_ entry: QueueEntry) {
+        guard let index = player.queueEntries.firstIndex(where: { $0.id == entry.id }) else { return }
+        Task { await player.playFromQueue(at: index) }
     }
 }
 

@@ -7792,3 +7792,4 @@
 "library_recommendations_music_videos" = "Рекомендуемые клипы";
 "dup_audition_play" = "Прослушать эту копию";
 "dup_audition_stop" = "Остановить прослушивание";
+"queue_show_earlier %lld" = "Показать %lld предыдущих";

@@ -2857,6 +2857,31 @@ extension AudioPlayerService {
         return presentationEntries(for: occurrences)
     }
 
+    /// 已播放里最近的 `limit` 首(按播放先后)和一共多少首。队列列表只画最近这一段
+    /// (见 `QueueHistoryLayout`),整库队列从中间开播时前面上万首用不着都转成条目。
+    func playedQueueHistory(limit: Int) -> (entries: [QueuePresentationEntry], totalCount: Int) {
+        let recent = QueuePresentationPolicy.recentPlayedOccurrences(
+            queueCount: queueEntries.count,
+            currentIndex: currentIndex,
+            shuffledIndices: usesManagedShuffleOrder ? shuffledIndices : nil,
+            shufflePosition: shuffleAnchorPosition ?? shufflePosition,
+            limit: limit
+        )
+        return (presentationEntries(for: recent.occurrences), recent.totalCount)
+    }
+
+    /// 「清除已播放」删的是排在正在播放前面的那一段队列。随机时已播放是这一轮走过的位置,
+    /// 不是队列开头那一段,删不了;Apple Music 自己排着队列时队列也不归这边删。
+    var canClearPlayedQueueEntries: Bool {
+        !shuffleEnabled && canRemoveUpcomingQueueEntries
+            && currentIndex > 0 && currentIndex < queueEntries.count
+    }
+
+    func clearPlayedQueueEntries() {
+        guard canClearPlayedQueueEntries else { return }
+        removeQueuePrefix(count: currentIndex)
+    }
+
     /// Up Next entries in the order they'll actually play. The next repeat-all
     /// shuffle round receives a distinct presentation identity even though it
     /// intentionally references the same durable queue slots.

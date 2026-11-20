@@ -15,6 +15,8 @@ struct MacQueuePanel: View {
     // MusicLibrary 与 SourceManager。
     @Environment(SourceManager.self) private var sourceManager
     @State private var dropTarget: QueueReorderOccurrenceID?
+    /// 已播放最多画几首(从最近的往前数),点「显示更早的」往上加一页。
+    @State private var historyLimit = QueueHistoryLayout.pageSize
 
     var body: some View {
         let isEmpty = player.queueEntries.isEmpty
@@ -50,10 +52,29 @@ struct MacQueuePanel: View {
     @ViewBuilder
     private var list: some View {
         let entries = player.queueEntries
-        let displayedCount = 1 + player.upcomingQueueEntries.count + player.playedQueueEntries.count
         if entries.isEmpty {
             emptyState
         } else {
+            // currentIndex 在切歌/换队列瞬间可能越界, 钳到合法区间。
+            let cur = min(max(player.currentIndex, 0), entries.count - 1)
+            let currentEntry = entries[cur]
+            // In shuffle mode raw queue offsets are not playback history.
+            // Use the player's current-round traversal prefix so Played
+            // cannot overlap the current-round Up Next section.
+            let history = player.playedQueueHistory(limit: historyLimit)
+            // Use the player's real traversal order. In shuffle mode
+            // this differs from the raw queue tail.
+            let upcomingEntries = player.upcomingQueueEntries
+            let layout = QueueHistoryLayout(
+                playedCount: history.totalCount,
+                upcomingCount: upcomingEntries.count,
+                historyLimit: historyLimit
+            )
+            // 播完后自动续上的相似歌曲单独一段,和自己排的歌分开。
+            let upNext = QueueContinuationPolicy.splitUpcoming(upcomingEntries) {
+                player.isAutoContinuationEntry($0.entry)
+            }
+            let revealsCurrent = player.currentSong != nil && layout.revealsCurrentOnAppear
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     // A large library can put thousands of songs in the queue.
@@ -63,50 +84,33 @@ struct MacQueuePanel: View {
                     // list and each section's rows lazy so only visible artwork is
                     // decoded and retained.
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        // currentIndex 在切歌/换队列瞬间可能越界, 钳到合法区间,
-                        // 否则下面构造 Range 时 lowerBound > upperBound 会 trap。
-                        QueueBookmarkButton(player: player)
-                        let cur = min(max(player.currentIndex, 0), entries.count - 1)
-                        let currentEntryID = entries[cur].id
-
-                        // In shuffle mode raw queue offsets are not playback history.
-                        // Use the player's current-round traversal prefix so Played
-                        // cannot overlap the current-round Up Next section.
-                        let playedEntries = player.playedQueueEntries
-                        if !playedEntries.isEmpty {
-                            queueSection(title: "played") {
-                                ForEach(Array(playedEntries.enumerated()), id: \.element.id) { index, entry in
-                                    queueRow(entry: entry.entry, ordinal: index + 1, totalCount: displayedCount, dimmed: true)
-                                }
-                            }
+                        // 从上往下:已播放 → 正在播放 → 接下来(见 `QueueHistoryLayout`)。
+                        if layout.playedCount > 0 {
+                            historySection(history.entries, layout: layout)
                         }
 
                         if let current = player.currentSong {
-                            let currentEntry = entries[cur]
                             queueSection(title: "now_playing", accent: true) {
-                                queueRow(entry: currentEntry, ordinal: playedEntries.count + 1, totalCount: displayedCount, displayedSong: current, isPlaying: true)
+                                queueRow(entry: currentEntry, ordinal: layout.currentOrdinal, totalCount: layout.totalCount, displayedSong: current, isPlaying: true)
                                     .id(currentEntry.id)
+                                // 「保存这个队列」放在正在播放下面:顶上现在是已播放,打开时停在这一段。
+                                QueueBookmarkButton(player: player)
+                                    .padding(.horizontal, 6)
                             }
                             .id(Self.nowPlayingAnchor)
                         }
 
-                        // Use the player's real traversal order. In shuffle mode
-                        // this differs from the raw queue tail.
-                        // 播完后自动续上的相似歌曲单独一段,和自己排的歌分开。
-                        let upNext = QueueContinuationPolicy.splitUpcoming(player.upcomingQueueEntries) {
-                            player.isAutoContinuationEntry($0.entry)
-                        }
                         if !upNext.queued.isEmpty {
                             queueSection(title: "up_next") {
                                 ForEach(Array(upNext.queued.enumerated()), id: \.element.id) { index, entry in
-                                    upcomingRow(entry, currentEntryID: currentEntryID, ordinal: playedEntries.count + index + 2, totalCount: displayedCount)
+                                    upcomingRow(entry, currentEntryID: currentEntry.id, ordinal: layout.upcomingOrdinal(offset: index), totalCount: layout.totalCount)
                                 }
                             }
                         }
                         if !upNext.autoplay.isEmpty {
                             queueSection(title: "queue_autoplay_section") {
                                 ForEach(Array(upNext.autoplay.enumerated()), id: \.element.id) { index, entry in
-                                    upcomingRow(entry, currentEntryID: currentEntryID, ordinal: playedEntries.count + upNext.queued.count + index + 2, totalCount: displayedCount)
+                                    upcomingRow(entry, currentEntryID: currentEntry.id, ordinal: layout.upcomingOrdinal(offset: upNext.queued.count + index), totalCount: layout.totalCount)
                                 }
                             }
                         }
@@ -117,14 +121,36 @@ struct MacQueuePanel: View {
                 // 「已播放」排在最上面, 听了一阵再打开面板, 看到的是一屏旧歌。
                 // 打开时直接停在正在播放这一段, 往上翻才是历史, 和 Apple Music 一样。
                 // 只在出现时定一次位, 面板开着时切歌不去抢用户正在看的位置。
+                // 已播放只画最近一段, 惰性列表找定位目标时不会把整库的旧歌逐格建一遍。
                 .onAppear {
-                    guard player.currentSong != nil, !player.playedQueueEntries.isEmpty else { return }
+                    guard revealsCurrent else { return }
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
                     withTransaction(transaction) {
                         proxy.scrollTo(Self.nowPlayingAnchor, anchor: .top)
                     }
                 }
+            }
+        }
+    }
+
+    /// 已播放:最早的在上,刚放完的紧挨正在播放。更早的收在顶上的「显示更早的」里,点一下往上加一页。
+    private func historySection(_ played: [QueuePresentationEntry], layout: QueueHistoryLayout) -> some View {
+        queueSection(title: "played") {
+            if layout.nextRevealCount > 0 {
+                PMScrollingButton {
+                    historyLimit = layout.expandedHistoryLimit
+                } label: {
+                    Label("queue_show_earlier \(layout.nextRevealCount)", systemImage: "chevron.up")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(PMColor.brand)
+                        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                        .padding(.horizontal, 6)
+                        .contentShape(Rectangle())
+                }
+            }
+            ForEach(Array(played.enumerated()), id: \.element.id) { index, entry in
+                queueRow(entry: entry.entry, ordinal: layout.historyOrdinal(visibleOffset: index), totalCount: layout.totalCount, dimmed: true)
             }
         }
     }
@@ -379,10 +405,10 @@ struct MacQueuePanel: View {
     private var footer: some View {
         HStack(spacing: 8) {
             // 只删「已播放」那一段, 当前和接下来的歌都留着; 原来写「清除全部」名不副实。
-            Button("queue_clear_played") { clearPlayed(uptoIndex: player.currentIndex) }
+            Button("queue_clear_played") { player.clearPlayedQueueEntries() }
                 // Prefix removal only matches the visible Played partition in
                 // non-shuffle order. Never delete unrelated raw slots in shuffle.
-                .disabled(player.shuffleEnabled || player.currentIndex <= 0)
+                .disabled(!player.canClearPlayedQueueEntries)
             Button("save_as_playlist") { saveQueueAsPlaylist() }
                 .disabled(player.queue.isEmpty)
             Spacer(minLength: 0)
@@ -447,11 +473,6 @@ struct MacQueuePanel: View {
             return
         }
         player.moveUpcomingQueueEntry(entryID, over: sameRound[targetIndex])
-    }
-
-    private func clearPlayed(uptoIndex: Int) {
-        guard uptoIndex > 0, uptoIndex <= player.queue.count else { return }
-        player.removeQueuePrefix(count: uptoIndex)
     }
 
     private func shuffleLibrary() {

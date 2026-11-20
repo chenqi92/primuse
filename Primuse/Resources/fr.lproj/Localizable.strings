@@ -7886,3 +7886,4 @@
 "library_recommendations_music_videos" = "Clips recommandés";
 "dup_audition_play" = "Écouter cette copie";
 "dup_audition_stop" = "Arrêter l’écoute";
+"queue_show_earlier %lld" = "Afficher les %lld précédents";

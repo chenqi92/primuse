@@ -3,7 +3,7 @@ import PrimuseKit
 import SwiftUI
 
 /// 转轮的「接下来」一面:接下来怎么放。顶上一条播放方式(随机、循环、A-B、睡眠定时,开着的亮起),
-/// 下面是播放队列本身,照样能长按拖动排序、点垃圾桶删除。
+/// 下面是播放队列本身(上面已播放、中间正在播放、下面接下来),照样能长按拖动排序、点垃圾桶删除。
 struct NowPlayingCarouselUpNextFace: View {
     let context: NowPlayingCarouselFaceContext
     let appearance: NowPlayingAppearance
@@ -26,7 +26,8 @@ struct NowPlayingCarouselUpNextFace: View {
                 .padding(.top, 4)
             }
             if showsQueue {
-                QueueView(player: player, isEmbedded: true)
+                // 队列从上往下是已播放、正在播放、接下来;每次翻到这一面都停在正在播放。
+                QueueView(player: player, isEmbedded: true, currentRevealTrigger: context.isSettled)
                     .scrollContentBackground(.hidden)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

@@ -7979,3 +7979,4 @@
 "library_recommendations_music_videos" = "推荐 MV";
 "dup_audition_play" = "试听这一份";
 "dup_audition_stop" = "停止试听";
+"queue_show_earlier %lld" = "显示更早的 %lld 首";

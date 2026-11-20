@@ -7792,3 +7792,4 @@
 "library_recommendations_music_videos" = "มิวสิกวิดีโอแนะนำ";
 "dup_audition_play" = "ฟังตัวอย่างสำเนานี้";
 "dup_audition_stop" = "หยุดฟังตัวอย่าง";
+"queue_show_earlier %lld" = "แสดง %lld เพลงก่อนหน้า";

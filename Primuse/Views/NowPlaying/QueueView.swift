@@ -6,6 +6,9 @@ struct QueueView: View {
     /// 嵌在播放页分栏的右栏里(iPhone Duo 内屏):不套导航栈、不带导航栏按钮 ——
     /// 分栏容器里不放导航容器,随机与循环就在旁边的播放器上。
     var isEmbedded = false
+    /// 由 false 变成 true 时把列表重新定位到正在播放:播放页「接下来」那一面一直挂着,
+    /// 每次翻到它都该停在正在播放,而不只是第一次出现时。
+    var currentRevealTrigger = false
     @Environment(MusicLibrary.self) private var library
     // 拖拽预览宿主要用: 行里的 CachedArtworkView 同时读 MusicLibrary 与
     // SourceManager, 两个都得显式带过去。见 queueRow 里的说明。
@@ -16,6 +19,8 @@ struct QueueView: View {
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(\.dismiss) private var dismiss
     @State private var dropTarget: QueueReorderOccurrenceID?
+    /// 已播放最多画几首(从最近的往前数),点「显示更早的」往上加一页。
+    @State private var historyLimit = QueueHistoryLayout.pageSize
 
     var body: some View {
         if isEmbedded {
@@ -229,7 +234,6 @@ struct QueueView: View {
     @ViewBuilder
     private var content: some View {
         let entries = player.queueEntries
-        let displayedCount = 1 + player.upcomingQueueEntries.count + player.playedQueueEntries.count
         if entries.isEmpty {
             EmptyStateView(
                 titleKey: "queue_empty",
@@ -238,70 +242,168 @@ struct QueueView: View {
             )
             .pmAppearFade(.contentAppear)
         } else {
-            ScrollView {
-                // Match the large song list's virtualization strategy. List's
-                // edit/reorder bridge registers every queue row up front; a
-                // LazyVStack creates only the visible lightweight rows and
-                // keeps long queues responsive while preserving one continuous
-                // scroll surface.
-                LazyVStack(alignment: .leading, spacing: heightClass.value(18, compact: 10)) {
-                    QueueBookmarkButton(player: player)
-                    let currentIndex = min(max(player.currentIndex, 0), entries.count - 1)
-                    let currentEntry = entries[currentIndex]
-                    queueSection(title: "now_playing") {
-                        queueRow(
-                            entry: currentEntry,
-                            ordinal: 1,
-                            totalCount: displayedCount,
-                            displayedSong: player.currentSong ?? currentEntry.song,
-                            isPlaying: true,
-                            offersStopPoint: true
-                        )
-                    }
-
-                    // 播完后自动续上的相似歌曲单独一段,和自己排的歌分开。
-                    let upcoming = QueueContinuationPolicy.splitUpcoming(player.upcomingQueueEntries) {
-                        player.isAutoContinuationEntry($0.entry)
-                    }
-                    if !upcoming.queued.isEmpty {
-                        queueSection(title: "up_next") {
-                            ForEach(Array(upcoming.queued.enumerated()), id: \.element.id) { @Sendable index, presentation in
-                                LazyItemCell {
-                                    upcomingRow(presentation, currentEntry: currentEntry, ordinal: index + 2, totalCount: displayedCount)
-                                }
-                            }
-                        }
-                    }
-                    if !upcoming.autoplay.isEmpty {
-                        queueSection(title: "queue_autoplay_section") {
-                            ForEach(Array(upcoming.autoplay.enumerated()), id: \.element.id) { @Sendable index, presentation in
-                                LazyItemCell {
-                                    upcomingRow(presentation, currentEntry: currentEntry, ordinal: upcoming.queued.count + index + 2, totalCount: displayedCount)
-                                }
-                            }
-                        }
-                    }
-
-                    let played = player.playedQueueEntries
-                    if !played.isEmpty {
-                        queueSection(title: "played") {
-                            ForEach(Array(played.enumerated()), id: \.element.id) { @Sendable index, presentation in
-                                LazyItemCell {
-                                    queueRow(entry: presentation.entry, ordinal: upcoming.queued.count + upcoming.autoplay.count + index + 2, totalCount: displayedCount, dimmed: true)
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, heightClass.value(12, compact: 8))
-                .padding(.bottom, heightClass.value(28, compact: 12))
+            let currentIndex = min(max(player.currentIndex, 0), entries.count - 1)
+            let currentEntry = entries[currentIndex]
+            let history = player.playedQueueHistory(limit: historyLimit)
+            let upcomingEntries = player.upcomingQueueEntries
+            let layout = QueueHistoryLayout(
+                playedCount: history.totalCount,
+                upcomingCount: upcomingEntries.count,
+                historyLimit: historyLimit
+            )
+            // 播完后自动续上的相似歌曲单独一段,和自己排的歌分开。
+            let upcoming = QueueContinuationPolicy.splitUpcoming(upcomingEntries) {
+                player.isAutoContinuationEntry($0.entry)
             }
-            // 半屏队列(iPhone Duo 竖栏)里的行和拖动把手停在竖栏左侧;嵌在播放页右栏时竖栏那一条归播放页自己用。
-            .modifier(QueueVerticalBarFill(isEnabled: !isEmbedded))
+            let revealsCurrent = layout.revealsCurrentOnAppear
+            ScrollViewReader { proxy in
+                ScrollView {
+                    // Match the large song list's virtualization strategy. List's
+                    // edit/reorder bridge registers every queue row up front; a
+                    // LazyVStack creates only the visible lightweight rows and
+                    // keeps long queues responsive while preserving one continuous
+                    // scroll surface.
+                    LazyVStack(alignment: .leading, spacing: heightClass.value(18, compact: 10)) {
+                        // 从上往下:已播放 → 正在播放 → 接下来(见 `QueueHistoryLayout`)。
+                        if layout.playedCount > 0 {
+                            historySection(history.entries, layout: layout)
+                        }
+                        nowPlayingSection(currentEntry, layout: layout)
+                            .id(Self.nowPlayingAnchor)
+                        if !upcoming.queued.isEmpty {
+                            queueSection(title: "up_next") {
+                                ForEach(Array(upcoming.queued.enumerated()), id: \.element.id) { @Sendable index, presentation in
+                                    LazyItemCell {
+                                        upcomingRow(presentation, currentEntry: currentEntry, ordinal: layout.upcomingOrdinal(offset: index), totalCount: layout.totalCount)
+                                    }
+                                }
+                            }
+                        }
+                        if !upcoming.autoplay.isEmpty {
+                            queueSection(title: "queue_autoplay_section") {
+                                ForEach(Array(upcoming.autoplay.enumerated()), id: \.element.id) { @Sendable index, presentation in
+                                    LazyItemCell {
+                                        upcomingRow(presentation, currentEntry: currentEntry, ordinal: layout.upcomingOrdinal(offset: upcoming.queued.count + index), totalCount: layout.totalCount)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, heightClass.value(12, compact: 8))
+                    .padding(.bottom, heightClass.value(28, compact: 12))
+                }
+                // 半屏队列(iPhone Duo 竖栏)里的行和拖动把手停在竖栏左侧;嵌在播放页右栏时竖栏那一条归播放页自己用。
+                .modifier(QueueVerticalBarFill(isEnabled: !isEmbedded))
+                // 打开时停在正在播放这一段,已播放留在上面、往上翻才看到。只在出现时(和播放页「接下来」
+                // 一面翻到时)定位,开着时切歌不去抢正在看的位置。
+                .onAppear {
+                    if revealsCurrent { scrollToCurrent(proxy) }
+                }
+                .task {
+                    // 弹出页刚出现时第一下可能还没排好,下一轮再定一次;已经在那儿就不会动。
+                    guard revealsCurrent else { return }
+                    await Task.yield()
+                    scrollToCurrent(proxy)
+                }
+                .onChange(of: currentRevealTrigger) { _, reveals in
+                    if reveals, revealsCurrent { scrollToCurrent(proxy) }
+                }
+            }
             // 空态与列表只让新的那块淡入: 两者不重叠, 交叉过渡期间会前后叠排。
             // 行级增删仍然走各自的动画。
             .pmAppearFade(.contentAppear)
+        }
+    }
+
+    private static let nowPlayingAnchor = "queue.nowPlaying"
+
+    /// 定位用的是整段「正在播放」(列表的直接子项),不是某一行:惰性列表找目标只过一遍这几段,
+    /// 上面的已播放又只画最近一段,不会从顶上一格一格建过来。
+    private func scrollToCurrent(_ proxy: ScrollViewProxy) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            proxy.scrollTo(Self.nowPlayingAnchor, anchor: .top)
+        }
+    }
+
+    /// 已播放:最早的在上,刚放完的紧挨正在播放。更早的收在顶上的「显示更早的」里。
+    private func historySection(_ played: [QueuePresentationEntry], layout: QueueHistoryLayout) -> some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            historyHeader
+            if layout.nextRevealCount > 0 {
+                showEarlierButton(layout)
+            }
+            ForEach(Array(played.enumerated()), id: \.element.id) { @Sendable index, presentation in
+                LazyItemCell {
+                    queueRow(
+                        entry: presentation.entry,
+                        ordinal: layout.historyOrdinal(visibleOffset: index),
+                        totalCount: layout.totalCount,
+                        dimmed: true
+                    )
+                }
+            }
+        }
+    }
+
+    /// 「已播放」小标题,右边一颗「清除」(和 Apple Music 的历史记录一样),删的是排在正在播放前面的整段。
+    /// 随机时已播放不是队列开头那一段,删不了,不给。
+    private var historyHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            sectionTitle("played")
+            Spacer(minLength: 8)
+            if player.canClearPlayedQueueEntries {
+                Button {
+                    pmWithAnimation(.list) {
+                        player.clearPlayedQueueEntries()
+                    }
+                } label: {
+                    Text("clear")
+                        .font(.footnote.weight(.semibold))
+                        .padding(.vertical, 4)
+                        .padding(.leading, 12)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .accessibilityLabel(Text("queue_clear_played"))
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.bottom, 6)
+    }
+
+    /// 往上再展开一页更早的已播放。不带动画:一下插进上百行,逐行动画只会晃。
+    private func showEarlierButton(_ layout: QueueHistoryLayout) -> some View {
+        Button {
+            historyLimit = layout.expandedHistoryLimit
+        } label: {
+            Label("queue_show_earlier \(layout.nextRevealCount)", systemImage: "chevron.up")
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.accentColor)
+        .padding(.horizontal, 8)
+    }
+
+    /// 正在播放那一首,下面是「保存这个队列」:列表顶上现在是已播放,打开时停在这一段。
+    private func nowPlayingSection(_ currentEntry: QueueEntry, layout: QueueHistoryLayout) -> some View {
+        queueSection(title: "now_playing") {
+            queueRow(
+                entry: currentEntry,
+                ordinal: layout.currentOrdinal,
+                totalCount: layout.totalCount,
+                displayedSong: player.currentSong ?? currentEntry.song,
+                isPlaying: true,
+                offersStopPoint: true
+            )
+            QueueBookmarkButton(player: player)
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
         }
     }
 
@@ -326,15 +428,19 @@ struct QueueView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         LazyVStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .textCase(.uppercase)
-                .foregroundStyle(.secondary)
+            sectionTitle(title)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 6)
-                .accessibilityAddTraits(.isHeader)
             content()
         }
+    }
+
+    private func sectionTitle(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .textCase(.uppercase)
+            .foregroundStyle(.secondary)
+            .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder

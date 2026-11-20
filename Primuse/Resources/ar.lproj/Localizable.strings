@@ -7792,3 +7792,4 @@
 "library_recommendations_music_videos" = "فيديوهات موسيقية مقترحة";
 "dup_audition_play" = "الاستماع إلى هذه النسخة";
 "dup_audition_stop" = "إيقاف الاستماع";
+"queue_show_earlier %lld" = "إظهار %lld أغنية سابقة";

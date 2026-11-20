@@ -7792,3 +7792,4 @@
 "library_recommendations_music_videos" = "Polecane teledyski";
 "dup_audition_play" = "Odsłuchaj tę kopię";
 "dup_audition_stop" = "Zatrzymaj odsłuch";
+"queue_show_earlier %lld" = "Pokaż %lld wcześniejszych";

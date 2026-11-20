@@ -7887,3 +7887,4 @@
 "library_recommendations_music_videos" = "おすすめのミュージックビデオ";
 "dup_audition_play" = "このコピーを試聴";
 "dup_audition_stop" = "試聴を停止";
+"queue_show_earlier %lld" = "以前の%lld曲を表示";

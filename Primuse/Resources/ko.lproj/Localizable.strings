@@ -7886,3 +7886,4 @@
 "library_recommendations_music_videos" = "추천 뮤직비디오";
 "dup_audition_play" = "이 사본 미리 듣기";
 "dup_audition_stop" = "미리 듣기 중지";
+"queue_show_earlier %lld" = "이전 %lld곡 보기";

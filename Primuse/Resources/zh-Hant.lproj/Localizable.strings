@@ -7863,3 +7863,4 @@
 "library_recommendations_music_videos" = "推薦 MV";
 "dup_audition_play" = "試聽這一份";
 "dup_audition_stop" = "停止試聽";
+"queue_show_earlier %lld" = "顯示更早的 %lld 首";

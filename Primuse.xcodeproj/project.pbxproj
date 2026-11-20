@@ -2380,6 +2380,7 @@
 		F918EE6E00C1951EE8A63B1D /* RadioCandidateLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CC6F2F1E70E26868240EDF8 /* RadioCandidateLogoView.swift */; };
 		F92AD1060642092C75F73447 /* KaraokeLineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC7465EC4D7BFF7A5D825BF /* KaraokeLineView.swift */; };
 		F92F2E0C9CCD4B7BED470692 /* QueueContinuationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 787EACC2CBF4BF7957F90B96 /* QueueContinuationPolicy.swift */; };
+		BB8B7ACD1BD3DF5A437CBA2A /* QueueHistoryLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0E59CEC4BEA15AD23A85A4B /* QueueHistoryLayout.swift */; };
 		F92FCB0CCB720B0F2A644274 /* SharedNowPlayingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */; };
 		F96F6724D08B5EDCD5B75987 /* DropboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2D3494E7475F44773698F9 /* DropboxSource.swift */; };
 		F983118C6B9A8C0A7940209A /* LaunchDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42797B07E3FAFAB2A9613955 /* LaunchDiagnostics.swift */; };
@@ -3584,6 +3585,7 @@
 		78324748ACDF339A48E0E8D4 /* AudioEffectsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEffectsService.swift; sourceTree = "<group>"; };
 		785341A53DEDD763069A03EC /* FFmpegMusicVideoConverter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FFmpegMusicVideoConverter.h; sourceTree = "<group>"; };
 		787EACC2CBF4BF7957F90B96 /* QueueContinuationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueContinuationPolicy.swift; sourceTree = "<group>"; };
+		A0E59CEC4BEA15AD23A85A4B /* QueueHistoryLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueHistoryLayout.swift; sourceTree = "<group>"; };
 		78953F6B19CEAED0F2FECBD0 /* AIIntelligenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIIntelligenceModels.swift; sourceTree = "<group>"; };
 		7901837A48E8B1B42DEEBA64 /* ExternalTrackMatchPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalTrackMatchPolicy.swift; sourceTree = "<group>"; };
 		79455C5F0C8A112D600E4423 /* AudioCacheSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCacheSyncService.swift; sourceTree = "<group>"; };
@@ -5218,6 +5220,7 @@
 				1EB66307D9483E3AD3737C67 /* ProxyPrefixedBasePathPolicy.swift */,
 				7A6E761F8B6C6057418F1EFC /* QueueBatchRemovalPolicy.swift */,
 				787EACC2CBF4BF7957F90B96 /* QueueContinuationPolicy.swift */,
+				A0E59CEC4BEA15AD23A85A4B /* QueueHistoryLayout.swift */,
 				5673EE19A59EAB3BD3B87AF3 /* RadioLogoBackdropPolicy.swift */,
 				9CD33C00402CB7A7097C5278 /* RemoteDirectoryRateLimitPolicy.swift */,
 				09540B602EB547F8069B8F64 /* RemoteGatewayBackoffPolicy.swift */,
@@ -7988,6 +7991,7 @@
 				3E85777D2864E17083AF03DD /* ProxyPrefixedBasePathPolicy.swift in Sources */,
 				17D31FB2ACDDC55B73DB9320 /* QueueBatchRemovalPolicy.swift in Sources */,
 				F92F2E0C9CCD4B7BED470692 /* QueueContinuationPolicy.swift in Sources */,
+				BB8B7ACD1BD3DF5A437CBA2A /* QueueHistoryLayout.swift in Sources */,
 				9B6DC920BBF4FE1D1E19F53F /* RadioHomepageIconParser.swift in Sources */,
 				CA084B87BA0FE515AA8B3BEE /* RadioICYMetadata.swift in Sources */,
 				9B662A4BB4576404119793DC /* RadioImportParser.swift in Sources */,

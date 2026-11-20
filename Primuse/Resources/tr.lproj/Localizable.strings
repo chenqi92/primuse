@@ -7792,3 +7792,4 @@
 "library_recommendations_music_videos" = "Önerilen Müzik Videoları";
 "dup_audition_play" = "Bu Kopyayı Dinle";
 "dup_audition_stop" = "Dinlemeyi Durdur";
+"queue_show_earlier %lld" = "Önceki %lld şarkıyı göster";

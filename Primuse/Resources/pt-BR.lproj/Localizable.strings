@@ -7792,3 +7792,4 @@
 "library_recommendations_music_videos" = "Videoclipes recomendados";
 "dup_audition_play" = "Ouvir esta cópia";
 "dup_audition_stop" = "Parar de ouvir";
+"queue_show_earlier %lld" = "Mostrar %lld anteriores";

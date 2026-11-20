@@ -7647,3 +7647,4 @@
 "library_recommendations_music_videos" = "Recommended Music Videos";
 "dup_audition_play" = "Preview This Copy";
 "dup_audition_stop" = "Stop Preview";
+"queue_show_earlier %lld" = "Show %lld Earlier";
