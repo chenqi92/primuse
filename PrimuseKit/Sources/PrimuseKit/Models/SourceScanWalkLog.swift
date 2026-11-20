@@ -226,15 +226,14 @@ public struct SourceScanWalkLog: Sendable {
     /// 末尾两段大小相当(老的不超过新的两倍)就并起来,直到不再相当:
     /// 段的大小大致按倍数递减,段数是对数级,每条记录平均只被搬对数次。
     private mutating func mergeTrailingSegments() {
-        while segments.count >= 2 {
-            let older = segments[segments.count - 2]
-            let newer = segments[segments.count - 1]
-            guard older.weight <= 2 * newer.weight else { break }
+        while segments.count >= 2,
+              segments[segments.count - 2].weight <= 2 * segments[segments.count - 1].weight {
+            // 先把两段整个取出来再合并：合并时手里拿的是自己的值，不是数组元素的借用，
+            // 不会碰到数组里已经释放的存储（135 扫描时的崩溃就出在这里的借用上）。
+            let newer = segments.removeLast()
+            let older = segments.removeLast()
             let index = Self.concatenating([older.index, newer.index], shadowedKeys: shadowedKeys)
-            // 先消费旧段的所有字段，避免优化构建中的元素借用跨过 removeLast 的释放。
-            let merged = Segment(index: index, songIDs: older.songIDs + newer.songIDs)
-            segments.removeLast(2)
-            segments.append(merged)
+            segments.append(Segment(index: index, songIDs: older.songIDs + newer.songIDs))
         }
     }
 
