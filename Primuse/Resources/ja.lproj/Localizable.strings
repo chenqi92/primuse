@@ -7900,3 +7900,8 @@
 "apple_music_restriction_subscription_message" = "この曲を Primuse で再生するには Apple Music のサブスクリプションが必要です。";
 "apple_music_subscribe_action" = "Apple Music に登録";
 "apple_music_restricted_songs_footer_format" = "このうち %lld 曲はクラウドにのみあるか保護されているため、Primuse で再生するには Apple Music のサブスクリプションが必要です。";
+"spoken_word_smart_speed" = "スマートスピード";
+"spoken_word_smart_speed_desc" = "オーディオブックやポッドキャストで、話の合間の長すぎる無音を短くします。話す速さや声の高さは変わらないので、同じ内容をより短い時間で聴けます。進行状況、再開位置、文字起こしは元の時間のままです。ビデオポッドキャストや他のデバイスへのキャスト中は使えません。";
+"spoken_word_smart_speed_saved" = "節約した時間";
+"spoken_word_voice_boost" = "ボイスブースト";
+"spoken_word_voice_boost_desc" = "オーディオブックやポッドキャストで声を聞き取りやすくします。音量の小さい番組を持ち上げ、エピソードごとの音量差をそろえ、会話をはっきりさせます。大きな音で急に音が割れることもありません。音楽には影響しません。ビデオポッドキャストや他のデバイスへのキャスト中は使えません。";

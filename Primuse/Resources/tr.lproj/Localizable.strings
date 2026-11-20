@@ -7805,3 +7805,8 @@
 "apple_music_restriction_subscription_message" = "Bu şarkıyı Primuse'ta çalmak için Apple Music aboneliği gerekir.";
 "apple_music_subscribe_action" = "Apple Music'e abone ol";
 "apple_music_restricted_songs_footer_format" = "Bunlardan %lld tanesi yalnızca bulutta ya da korumalı; Primuse'ta çalmak için Apple Music aboneliği gerekir.";
+"spoken_word_smart_speed" = "Akıllı Hız";
+"spoken_word_smart_speed_desc" = "Sesli kitap ve podcast’lerde konuşmalar arasındaki uzun sessizlikleri kısaltır; konuşma hızı ve ses perdesi değişmez, aynı içeriği daha kısa sürede dinlersiniz. İlerleme, devam etme konumu ve transkript özgün süreye göre kalır. Video podcast’lerde ve başka bir cihaza yayın yaparken çalışmaz.";
+"spoken_word_smart_speed_saved" = "Kazanılan süre";
+"spoken_word_voice_boost" = "Ses Güçlendirme";
+"spoken_word_voice_boost_desc" = "Sesli kitap ve podcast’lerde sesi öne çıkarır: kısık yayınlar yükseltilir, bölümler arasındaki ses düzeyi dengelenir ve diyaloglar netleşir; yüksek yerler aniden patlamaz. Müzik etkilenmez. Video podcast’lerde ve başka bir cihaza yayın yaparken çalışmaz.";

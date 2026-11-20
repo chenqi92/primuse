@@ -2544,6 +2544,40 @@ private extension Array {
     }
 }
 
+/// 有声内容设置里的智能速度、语音增强两行(REQ-174),另起一个视图,不加深播放设置页的类型。
+private struct SpokenWordListeningAidSettingsRows: View {
+    @Environment(PlaybackSettingsStore.self) private var playbackSettings
+
+    var body: some View {
+        @Bindable var settings = playbackSettings
+        Toggle(isOn: $settings.spokenWordSmartSpeedEnabled) {
+            SettingsInfoLabel("spoken_word_smart_speed") {
+                Text("spoken_word_smart_speed_desc")
+            }
+        }
+        .settingsAnchor("playback.spokenWordSmartSpeed")
+        if settings.spokenWordSmartSpeedEnabled {
+            SpokenWordSmartSpeedSavedRow()
+        }
+        Toggle(isOn: $settings.spokenWordVoiceBoostEnabled) {
+            SettingsInfoLabel("spoken_word_voice_boost") {
+                Text("spoken_word_voice_boost_desc")
+            }
+        }
+        .settingsAnchor("playback.spokenWordVoiceBoost")
+    }
+}
+
+/// 智能速度一共省下的收听时间。
+private struct SpokenWordSmartSpeedSavedRow: View {
+    var body: some View {
+        LabeledContent("spoken_word_smart_speed_saved") {
+            Text(verbatim: SpokenWordSmartSpeedSavings.shared.formattedTotal)
+                .monospacedDigit()
+        }
+    }
+}
+
 struct PlaybackSettingsView: View {
     @AppStorage(PlaybackSessionRestoreLifecycle.launchAutoplayKey) private var autoplayOnLaunch = false
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
@@ -2872,6 +2906,7 @@ struct PlaybackSettingsView: View {
                         }
                     }
                 }
+                SpokenWordListeningAidSettingsRows()
             } header: {
                 SettingsInfoHeader("spoken_word_settings_section") {
                     Text("spoken_word_settings_footer")

@@ -2891,6 +2891,38 @@ private struct MacSTInfoText: View {
 
 // MARK: - ST-01 Playback
 
+/// 有声内容里的智能速度、语音增强(REQ-174),另起一个视图,不加深播放设置页的类型。
+private struct MacSpokenWordListeningAidRows: View {
+    @Environment(PlaybackSettingsStore.self) private var store
+
+    var body: some View {
+        @Bindable var s = store
+        MacSTRow(
+            String(localized: "spoken_word_smart_speed"),
+            hint: String(localized: "spoken_word_smart_speed_desc"),
+            hintLineLimit: 3
+        ) {
+            MacSTToggle(isOn: $s.spokenWordSmartSpeedEnabled)
+        }
+        .settingsAnchor("playback.spokenWordSmartSpeed")
+        if s.spokenWordSmartSpeedEnabled {
+            MacSTRow(String(localized: "spoken_word_smart_speed_saved")) {
+                Text(verbatim: SpokenWordSmartSpeedSavings.shared.formattedTotal)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+        MacSTRow(
+            String(localized: "spoken_word_voice_boost"),
+            hint: String(localized: "spoken_word_voice_boost_desc"),
+            hintLineLimit: 3
+        ) {
+            MacSTToggle(isOn: $s.spokenWordVoiceBoostEnabled)
+        }
+        .settingsAnchor("playback.spokenWordVoiceBoost")
+    }
+}
+
 private struct MacSTPlaybackView: View {
     @AppStorage(PlaybackSessionRestoreLifecycle.launchAutoplayKey) private var autoplayOnLaunch = false
     @AppStorage(PlayerAppearancePreferences.opensNowPlayingOnPlayKey)
@@ -3156,6 +3188,7 @@ private struct MacSTPlaybackView: View {
                         )
                     }
                 }
+                MacSpokenWordListeningAidRows()
             }
         }
 

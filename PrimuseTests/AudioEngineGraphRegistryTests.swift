@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreMotion
 import Foundation
+import PrimuseKit
 import XCTest
 @testable import Primuse
 
@@ -171,5 +172,140 @@ private final class PendingHeadphoneMotionManager: CMHeadphoneMotionManager {
 
     func reportError() {
         handler?(nil, NSError(domain: CMErrorDomain, code: Int(CMErrorNotAvailable.rawValue)))
+    }
+}
+
+/// 智能速度(REQ-174):解码流最后一站缩短停顿,节点登记处把拿掉的帧记到节点时间线上。
+final class SmartSpeedPlaybackTests: XCTestCase {
+    private let sampleRate = 48_000.0
+
+    private func makeFormat() throws -> AVAudioFormat {
+        try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2))
+    }
+
+    /// 一段段拼起来再按 `chunk` 帧切块:正数秒是说话(-20 dBFS 正弦),负数秒是停顿(-80 dBFS 底噪)。
+    private func makeBuffers(_ segments: [Double], chunk: Int = 4_096) throws -> [AVAudioPCMBuffer] {
+        var samples: [Float] = []
+        for segment in segments {
+            let count = Int(abs(segment) * sampleRate)
+            if segment > 0 {
+                samples += (0..<count).map { Float(0.1 * sin(2 * Double.pi * 220 * Double($0) / sampleRate)) }
+            } else {
+                samples += (0..<count).map { $0.isMultiple(of: 2) ? Float(0.0001) : Float(-0.0001) }
+            }
+        }
+        let format = try makeFormat()
+        var buffers: [AVAudioPCMBuffer] = []
+        var position = 0
+        while position < samples.count {
+            let count = min(chunk, samples.count - position)
+            let capacity = try XCTUnwrap(AVAudioFrameCount(exactly: count))
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity))
+            buffer.frameLength = capacity
+            let channels = try XCTUnwrap(buffer.floatChannelData)
+            for channel in 0..<2 {
+                for frame in 0..<count { channels[channel][frame] = samples[position + frame] }
+            }
+            buffers.append(buffer)
+            position += count
+        }
+        return buffers
+    }
+
+    private func stream(_ buffers: [AVAudioPCMBuffer]) -> AudioBufferStream {
+        AudioBufferStreamFactory.make { continuation in
+            let task = Task {
+                do {
+                    for buffer in buffers { try await continuation.send(buffer) }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func leftChannel(_ buffers: [AVAudioPCMBuffer]) -> [Float] {
+        buffers.flatMap { buffer -> [Float] in
+            guard let data = buffer.floatChannelData else { return [] }
+            return Array(UnsafeBufferPointer(start: data[0], count: Int(buffer.frameLength)))
+        }
+    }
+
+    private func collect(_ stream: AudioBufferStream) async throws -> [AVAudioPCMBuffer] {
+        var output: [AVAudioPCMBuffer] = []
+        for try await buffer in stream { output.append(buffer) }
+        return output
+    }
+
+    func testStreamShortensLongPausesAndKeepsSpeechIntact() async throws {
+        let input = try makeBuffers([1, -3, 1])
+        let inputFrames = input.reduce(0) { $0 + Int($1.frameLength) }
+        let output = try await collect(
+            SmartSpeedStream.shorteningPauses(stream(input), registry: PlayerNodeRegistry())
+        )
+        let outputFrames = output.reduce(0) { $0 + Int($1.frameLength) }
+        // 3 秒的停顿只剩不到 1 秒,两段说话一帧不少。
+        XCTAssertLessThan(outputFrames, inputFrames - Int(2 * sampleRate))
+        XCTAssertGreaterThan(outputFrames, Int(2 * sampleRate))
+        let format = try makeFormat()
+        XCTAssertTrue(output.allSatisfy { $0.format == format })
+        let speech = Int(sampleRate)
+        XCTAssertEqual(Array(leftChannel(output).prefix(speech)), Array(leftChannel(input).prefix(speech)))
+        XCTAssertEqual(Array(leftChannel(output).suffix(speech)), Array(leftChannel(input).suffix(speech)))
+    }
+
+    func testPassthroughFramesAreNotProcessed() async throws {
+        let input = try makeBuffers([-3, 1])
+        let inputFrames = input.reduce(0) { $0 + Int($1.frameLength) }
+        let output = try await collect(
+            SmartSpeedStream.shorteningPauses(
+                stream(input),
+                passthroughFrames: Int64(3 * sampleRate),
+                registry: PlayerNodeRegistry()
+            )
+        )
+        XCTAssertEqual(output.reduce(0) { $0 + Int($1.frameLength) }, inputFrames)
+        XCTAssertEqual(leftChannel(output), leftChannel(input))
+    }
+
+    @MainActor
+    func testRegistryPlacesCutsOnTheNodeTimeline() throws {
+        let format = try makeFormat()
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player)
+        try AudioEngine.connect(player, to: engine.mainMixerNode, format: format, in: engine)
+        let registry = PlayerNodeRegistry()
+        registry.attach(player, to: .primary)
+        defer {
+            registry.attach(nil, to: .primary)
+            player.reset()
+            engine.detach(player)
+        }
+
+        let buffers = try makeBuffers([-1], chunk: 1_000).prefix(3)
+        XCTAssertEqual(buffers.count, 3)
+        let first = buffers[buffers.startIndex]
+        let second = buffers[buffers.startIndex + 1]
+        let plain = buffers[buffers.startIndex + 2]
+        registry.annotateSmartSpeedCuts([SmartSpeedCut(frameOffset: 100, removedFrames: 500)], for: first)
+        registry.annotateSmartSpeedCuts([SmartSpeedCut(frameOffset: 0, removedFrames: 40)], for: second)
+        XCTAssertNotNil(registry.schedule(first, on: .primary))
+        XCTAssertNotNil(registry.schedule(second, on: .primary))
+        XCTAssertNotNil(registry.schedule(plain, on: .primary))
+
+        XCTAssertEqual(registry.smartSpeedRemovedFrames(on: .primary, from: 0, through: 99), 0)
+        XCTAssertEqual(registry.smartSpeedRemovedFrames(on: .primary, from: 0, through: 100), 500)
+        XCTAssertEqual(registry.smartSpeedRemovedFrames(on: .primary, from: 0, through: 2_999), 540)
+        // 无缝接续的下一首从第 1000 帧起,只算它自己的接缝。
+        XCTAssertEqual(registry.smartSpeedRemovedFrames(on: .primary, from: 1_000, through: 2_999), 40)
+
+        registry.swapRoles()
+        XCTAssertEqual(registry.smartSpeedRemovedFrames(on: .crossfade, from: 0, through: 2_999), 540)
+        XCTAssertEqual(registry.smartSpeedRemovedFrames(on: .primary, from: 0, through: 2_999), 0)
+        registry.resetTimeline(for: .crossfade)
+        XCTAssertEqual(registry.smartSpeedRemovedFrames(on: .crossfade, from: 0, through: 2_999), 0)
     }
 }

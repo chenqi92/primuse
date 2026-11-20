@@ -7899,3 +7899,8 @@
 "apple_music_restriction_subscription_message" = "이 곡을 Primuse에서 재생하려면 Apple Music 구독이 필요합니다.";
 "apple_music_subscribe_action" = "Apple Music 구독하기";
 "apple_music_restricted_songs_footer_format" = "이 중 %lld곡은 클라우드에만 있거나 보호되어 있어 Primuse에서 재생하려면 Apple Music 구독이 필요합니다.";
+"spoken_word_smart_speed" = "스마트 속도";
+"spoken_word_smart_speed_desc" = "오디오북과 팟캐스트에서 말 사이의 긴 침묵을 줄여 줍니다. 말하는 속도와 음높이는 그대로라 같은 내용을 더 빨리 들을 수 있습니다. 진행률, 이어 듣기 위치, 자막은 원래 시간을 따릅니다. 비디오 팟캐스트나 다른 기기로 전송할 때는 적용되지 않습니다.";
+"spoken_word_smart_speed_saved" = "절약한 시간";
+"spoken_word_voice_boost" = "음성 강화";
+"spoken_word_voice_boost_desc" = "오디오북과 팟캐스트에서 목소리를 또렷하게 해 줍니다. 소리가 작은 방송은 키우고, 에피소드마다 음량을 고르게 맞추며, 큰 소리도 갑자기 터지지 않게 합니다. 음악에는 영향을 주지 않습니다. 비디오 팟캐스트나 다른 기기로 전송할 때는 적용되지 않습니다.";

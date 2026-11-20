@@ -1495,6 +1495,9 @@ final class AudioPlayerService {
     var currentChapterIndex: Int?
     /// True while the current item is spoken word, including podcasts.
     var currentItemIsSpokenWord = false
+    /// 智能速度(REQ-174):「已节省」的记账,和上次为它重发锁屏进度时这一段拿掉了多少。
+    @ObservationIgnored var smartSpeedSavingsMeter = SmartSpeedSavingsMeter()
+    @ObservationIgnored var smartSpeedNowPlayingBaseline: TimeInterval = 0
     /// 正在放的是环境音:播放页换成环境音的版式,全屏很快进休憩层。换条目、改分类时跟着更新,
     /// 播放页每次重画只读这一个值,不逐次去分类。
     var currentItemIsAmbient = false
@@ -1918,6 +1921,7 @@ final class AudioPlayerService {
         observeOutputPipelineSettings()
         observeReplayGainSettings()
         observeSpokenWordClassification()
+        observeSpokenWordListeningAids()
         observeNowPlayingArtworkCache()
         NotificationCenter.default.addObserver(
             forName: .primuseArtistNameConfigurationDidChange,
@@ -6095,7 +6099,10 @@ final class AudioPlayerService {
                     )
                 }
             }
-            let playbackStream = segmented(stream, for: song, sourceStartTime: decoderSourceStartTime)
+            let playbackStream = smartSpeedProcessed(
+                segmented(stream, for: song, sourceStartTime: decoderSourceStartTime),
+                for: song
+            )
             let iteratorBox = BufferIteratorBox(playbackStream.makeAsyncIterator())
 
             // Await first buffer — ensures we have audio data before calling play()
@@ -6871,7 +6878,7 @@ final class AudioPlayerService {
                 ? song.withoutAppliedPlaybackRange.duration
                 : nil
         )
-        let stream = segmented(rawStream, for: song)
+        let stream = smartSpeedProcessed(segmented(rawStream, for: song), for: song)
         let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
         let downloadStartedAt = ProcessInfo.processInfo.systemUptime
 
@@ -7412,7 +7419,7 @@ final class AudioPlayerService {
                 completeFileURL: completeFileURL
             )
         }
-        guard trimLeading || trimTrailing else { return segmentedStream }
+        guard trimLeading || trimTrailing else { return smartSpeedProcessed(segmentedStream, for: song) }
 
         let songID = song.id
         let maximumTrimDuration = max(12, settings.crossfadeDuration)
@@ -7439,17 +7446,17 @@ final class AudioPlayerService {
         }
 
         guard smartCrossfade else {
-            return AudioSilenceStream.trim(
+            return smartSpeedProcessed(AudioSilenceStream.trim(
                 segmentedStream,
                 leading: trimLeading,
                 trailing: trimTrailing,
                 maximumLeadingDuration: maximumTrimDuration,
                 maximumTrailingDuration: maximumTrimDuration,
                 onProfile: profileHandler
-            )
+            ), for: song)
         }
 
-        return AudioSilenceStream.trimAnalyzingSmartMix(
+        return smartSpeedProcessed(AudioSilenceStream.trimAnalyzingSmartMix(
             segmentedStream,
             leading: trimLeading,
             trailing: trimTrailing,
@@ -7461,7 +7468,7 @@ final class AudioPlayerService {
                 }
             },
             onProfile: profileHandler
-        )
+        ), for: song)
     }
 
     private func resetSmartMixAnalysis(for songID: String) {
@@ -7865,17 +7872,20 @@ final class AudioPlayerService {
         // FFmpeg opens a local CUE track at its start; AVAssetReader decodes
         // from the top and the trim drops what comes before.
         let ffmpegStart = useFFmpeg ? decoderStartTime(for: song) : 0
-        let fallbackStream = segmented(
-            useFFmpeg
-                ? ffmpegDecoder.decode(
-                    from: url,
-                    outputFormat: outputFormat,
-                    startingAt: ffmpegStart > 0 ? ffmpegStart : nil,
-                    onResolveSourceLength: nil
-                )
-                : assetReaderDecoder.decode(from: url, outputFormat: outputFormat),
-            for: song,
-            sourceStartTime: ffmpegStart
+        let fallbackStream = smartSpeedProcessed(
+            segmented(
+                useFFmpeg
+                    ? ffmpegDecoder.decode(
+                        from: url,
+                        outputFormat: outputFormat,
+                        startingAt: ffmpegStart > 0 ? ffmpegStart : nil,
+                        onResolveSourceLength: nil
+                    )
+                    : assetReaderDecoder.decode(from: url, outputFormat: outputFormat),
+                for: song,
+                sourceStartTime: ffmpegStart
+            ),
+            for: song
         )
         let iteratorBox = BufferIteratorBox(fallbackStream.makeAsyncIterator())
 

@@ -412,7 +412,7 @@ final class EqualizerService {
         updatePreampDB()
         guard let node = audioEngine.eqNode,
               let unit = node.auAudioUnit as? ParametricEqualizerUnit else { return }
-        let configuration = renderConfiguration ?? .flat
+        let configuration = effectiveRenderConfiguration
         guard node !== appliedNode || appliedConfiguration != configuration else { return }
         unit.mailbox.publish(configuration)
         appliedNode = node
@@ -428,6 +428,29 @@ final class EqualizerService {
     private var graphSampleRate: Double { audioEngine.outputFormat?.sampleRate ?? 48_000 }
 
     @ObservationIgnored private var renderConfiguration: EQRenderConfiguration?
+
+    /// 语音增强(REQ-174):有声内容在放、开关打开时,在用户的均衡后面叠上人声那几段。不存盘,
+    /// 播放服务按当前条目设;均衡单元换曲线时自己交叉淡变,不咔哒。界面上的均衡与余量照旧只显示用户的。
+    var voiceBoostActive = false {
+        didSet {
+            guard voiceBoostActive != oldValue else { return }
+            applySettings()
+        }
+    }
+    @ObservationIgnored private var voiceBoostConfiguration: (base: EQRenderConfiguration, sampleRate: Double, result: EQRenderConfiguration)?
+
+    /// 真正送进均衡单元的曲线。
+    private var effectiveRenderConfiguration: EQRenderConfiguration {
+        let base = renderConfiguration ?? .flat
+        guard voiceBoostActive else { return base }
+        let rate = graphSampleRate
+        if let cached = voiceBoostConfiguration, cached.base == base, cached.sampleRate == rate {
+            return cached.result
+        }
+        let result = SpokenWordVoiceBoostPolicy.equalizerConfiguration(adding: base, sampleRate: rate)
+        voiceBoostConfiguration = (base, rate, result)
+        return result
+    }
     @ObservationIgnored private var compiledPreset: EQPreset?
     @ObservationIgnored private var compiledRate: Double = 0
     @ObservationIgnored private var compiledEnabled = false

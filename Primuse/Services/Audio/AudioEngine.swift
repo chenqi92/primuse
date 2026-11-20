@@ -30,6 +30,15 @@ final class PlayerNodeRegistry: @unchecked Sendable {
     private var crossfadeTimeline = PlaybackTimelineTracker()
     private var primarySilence = TrailingSilenceTracker()
     private var crossfadeSilence = TrailingSilenceTracker()
+    /// 智能速度在两个节点时间线上各自拿掉的帧(REQ-174),和时间线一起换角色、一起清空。
+    private var primarySmartSpeed = SmartSpeedTimeline()
+    private var crossfadeSmartSpeed = SmartSpeedTimeline()
+    /// 智能速度处理过、还没排进节点的缓冲各自带的接缝。弱引用键:没排就被丢掉的缓冲,
+    /// 这一项跟着消失,地址被新缓冲复用时也不会认错。
+    private let smartSpeedAnnotations = NSMapTable<AVAudioPCMBuffer, SmartSpeedCutsBox>(
+        keyOptions: [.weakMemory, .objectPointerPersonality],
+        valueOptions: .strongMemory
+    )
 
     func attach(_ node: AVAudioPlayerNode?, to role: PlayerNodeRole) {
         lock.lock()
@@ -53,6 +62,7 @@ final class PlayerNodeRegistry: @unchecked Sendable {
         swap(&primaryNode, &crossfadeNode)
         swap(&primaryTimeline, &crossfadeTimeline)
         swap(&primarySilence, &crossfadeSilence)
+        swap(&primarySmartSpeed, &crossfadeSmartSpeed)
         lock.unlock()
     }
 
@@ -62,12 +72,46 @@ final class PlayerNodeRegistry: @unchecked Sendable {
         case .primary:
             primaryTimeline.reset()
             primarySilence.reset()
+            primarySmartSpeed.reset()
         case .crossfade:
             crossfadeTimeline.reset()
             crossfadeSilence.reset()
+            crossfadeSmartSpeed.reset()
         }
         lock.unlock()
     }
+
+    /// 智能速度的流在交出缓冲之前登记它带的接缝;排进节点时换算成节点时间线上的帧号。
+    func annotateSmartSpeedCuts(_ cuts: [SmartSpeedCut], for buffer: AVAudioPCMBuffer) {
+        guard !cuts.isEmpty else { return }
+        let box = SmartSpeedCutsBox(cuts)
+        lock.lock()
+        smartSpeedAnnotations.setObject(box, forKey: buffer)
+        lock.unlock()
+    }
+
+    /// `role` 节点上 `start ... end`(节点帧号,两头都含)之间智能速度拿掉的帧数。
+    /// 顺手丢掉 `start` 之前的接缝:它们属于已经播过去的歌。
+    func smartSpeedRemovedFrames(on role: PlayerNodeRole, from start: Int64, through end: Int64) -> Int64 {
+        lock.lock()
+        defer { lock.unlock() }
+        switch role {
+        case .primary:
+            guard !primarySmartSpeed.isEmpty else { return 0 }
+            if primarySmartSpeed.count > Self.smartSpeedTimelineCompactionCount {
+                primarySmartSpeed.discard(before: start)
+            }
+            return primarySmartSpeed.removedFrames(from: start, through: end)
+        case .crossfade:
+            guard !crossfadeSmartSpeed.isEmpty else { return 0 }
+            if crossfadeSmartSpeed.count > Self.smartSpeedTimelineCompactionCount {
+                crossfadeSmartSpeed.discard(before: start)
+            }
+            return crossfadeSmartSpeed.removedFrames(from: start, through: end)
+        }
+    }
+
+    private static let smartSpeedTimelineCompactionCount = 4_096
 
     @discardableResult
     func schedule(
@@ -79,7 +123,7 @@ final class PlayerNodeRegistry: @unchecked Sendable {
         defer { lock.unlock() }
         guard let node = role == .primary ? primaryNode : crossfadeNode else { return nil }
         node.scheduleBuffer(buffer)
-        return record(frames: Int64(buffer.frameLength), audibleEnd: audibleEnd, on: role)
+        return record(frames: Int64(buffer.frameLength), audibleEnd: audibleEnd, smartSpeedOf: buffer, on: role)
     }
 
     @discardableResult
@@ -98,7 +142,7 @@ final class PlayerNodeRegistry: @unchecked Sendable {
             completionCallbackType: completionCallbackType,
             completionHandler: completionHandler
         )
-        return record(frames: Int64(buffer.frameLength), audibleEnd: audibleEnd, on: role)
+        return record(frames: Int64(buffer.frameLength), audibleEnd: audibleEnd, smartSpeedOf: buffer, on: role)
     }
 
     @discardableResult
@@ -135,16 +179,37 @@ final class PlayerNodeRegistry: @unchecked Sendable {
     private func record(
         frames: Int64,
         audibleEnd: Int64?,
+        smartSpeedOf buffer: AVAudioPCMBuffer,
         on role: PlayerNodeRole
     ) -> PlaybackTimelineTracker.BoundaryToken? {
+        // 音乐和没开智能速度时表是空的,不查。
+        let cuts: [SmartSpeedCut]?
+        if smartSpeedAnnotations.count > 0, let box = smartSpeedAnnotations.object(forKey: buffer) {
+            smartSpeedAnnotations.removeObject(forKey: buffer)
+            cuts = box.cuts
+        } else {
+            cuts = nil
+        }
         switch role {
         case .primary:
+            let start = primaryTimeline.scheduledFrameCursor
             let token = primaryTimeline.recordScheduledFrames(frames)
-            if token != nil { primarySilence.record(frameCount: frames, audibleEnd: audibleEnd) }
+            if token != nil {
+                primarySilence.record(frameCount: frames, audibleEnd: audibleEnd)
+                for cut in cuts ?? [] {
+                    primarySmartSpeed.record(cutAt: start + Int64(cut.frameOffset), removedFrames: Int64(cut.removedFrames))
+                }
+            }
             return token
         case .crossfade:
+            let start = crossfadeTimeline.scheduledFrameCursor
             let token = crossfadeTimeline.recordScheduledFrames(frames)
-            if token != nil { crossfadeSilence.record(frameCount: frames, audibleEnd: audibleEnd) }
+            if token != nil {
+                crossfadeSilence.record(frameCount: frames, audibleEnd: audibleEnd)
+                for cut in cuts ?? [] {
+                    crossfadeSmartSpeed.record(cutAt: start + Int64(cut.frameOffset), removedFrames: Int64(cut.removedFrames))
+                }
+            }
             return token
         }
     }
@@ -192,6 +257,12 @@ final class PlayerNodeRegistry: @unchecked Sendable {
             return Int64(frameCount)
         }
     }
+}
+
+/// `NSMapTable` 的值要是对象。
+final class SmartSpeedCutsBox: Sendable {
+    let cuts: [SmartSpeedCut]
+    init(_ cuts: [SmartSpeedCut]) { self.cuts = cuts }
 }
 
 /// 输出图引擎的编号，配置变化通知靠它认出是哪张图发的。编号只增不复用：
@@ -834,6 +905,7 @@ final class AudioEngine {
         sampleTimeOffset = 0
         timelineOrigin = 0
         crossfadeTimelineOrigin = 0
+        primarySmartSpeedSkippedDuration = 0
         playerNode?.stop()
         crossfadePlayerNode?.stop()
         engine?.stop()
@@ -2065,6 +2137,7 @@ final class AudioEngine {
         nodeRegistry.resetTimeline(for: .primary)
         sampleTimeOffset = 0
         timelineOrigin = 0
+        primarySmartSpeedSkippedDuration = 0
         playerNode?.stop()
         playerNode?.reset()
         isPlaying = false
@@ -2381,27 +2454,46 @@ final class AudioEngine {
     // MARK: - Time Tracking
 
     var currentTime: TimeInterval? {
-        playbackTime(for: playerNode, sampleTimeOffset: sampleTimeOffset).map { $0 + timelineOrigin }
+        guard let sample = playbackTime(for: playerNode, role: .primary, sampleTimeOffset: sampleTimeOffset) else {
+            return nil
+        }
+        primarySmartSpeedSkippedDuration = sample.smartSpeedSkipped
+        return sample.time + timelineOrigin
     }
 
     /// The incoming node owns the visible song as soon as a crossfade commits,
     /// even though it does not become the primary node until the ramp ends.
     var crossfadeCurrentTime: TimeInterval? {
-        playbackTime(for: crossfadePlayerNode, sampleTimeOffset: 0).map { $0 + crossfadeTimelineOrigin }
+        playbackTime(for: crossfadePlayerNode, role: .crossfade, sampleTimeOffset: 0)
+            .map { $0.time + crossfadeTimelineOrigin }
     }
 
+    /// 上一次读主节点时钟时,这一首到那里为止被智能速度拿掉的文件时长(秒)。跳转、换歌后从 0 算起。
+    @ObservationIgnored private(set) var primarySmartSpeedSkippedDuration: TimeInterval = 0
+
+    /// 节点播到的位置换算成这一首里的时间。智能速度拿掉的帧补回来,进度、锁屏、续播位置都照文件时间;
+    /// 没开智能速度时接缝表是空的,补 0。
     private func playbackTime(
         for node: AVAudioPlayerNode?,
+        role: PlayerNodeRole,
         sampleTimeOffset: Int64
-    ) -> TimeInterval? {
+    ) -> (time: TimeInterval, smartSpeedSkipped: TimeInterval)? {
         guard let playerTime = playbackClockSample(for: node) else {
             return nil
         }
         let (adjustedSampleTime, overflow) = playerTime.sampleTime
             .subtractingReportingOverflow(sampleTimeOffset)
         guard !overflow else { return nil }
-        let time = Double(adjustedSampleTime) / playerTime.sampleRate
-        return time.isFinite ? time : nil
+        let removed = nodeRegistry.smartSpeedRemovedFrames(
+            on: role,
+            from: max(0, sampleTimeOffset),
+            through: playerTime.sampleTime
+        )
+        let (sourceFrames, removedOverflow) = adjustedSampleTime.addingReportingOverflow(removed)
+        guard !removedOverflow else { return nil }
+        let time = Double(sourceFrames) / playerTime.sampleRate
+        let skipped = Double(removed) / playerTime.sampleRate
+        return time.isFinite ? (time, skipped.isFinite ? skipped : 0) : nil
     }
 
     private func playbackClockSample(for node: AVAudioPlayerNode?) -> AVAudioTime? {

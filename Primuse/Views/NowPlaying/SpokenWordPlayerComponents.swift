@@ -561,6 +561,7 @@ struct SpokenWordActionTiles: View {
             } label: {
                 Text(SpokenWordPlayerText.rateTitleKey(player))
             }
+            SpokenWordListeningAidMenuToggles()
             if !SpokenWordPlayerText.isPodcastEpisode(player),
                let bookID = player.currentBookID, let song = player.currentSong {
                 Divider()
@@ -650,6 +651,25 @@ struct SpokenWordActionTiles: View {
             icon: icon,
             caption: caption
         )
+    }
+}
+
+/// 速度菜单里的智能速度、语音增强(REQ-174),和设置里是同一对开关。视频播客、走系统播放器的条目
+/// 用不上这两项,那时不列。
+struct SpokenWordListeningAidMenuToggles: View {
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        @Bindable var settings = player.playbackSettings
+        if !player.isSystemMediaPlaybackActive {
+            Divider()
+            Toggle(isOn: $settings.spokenWordSmartSpeedEnabled) {
+                Label("spoken_word_smart_speed", systemImage: "hare")
+            }
+            Toggle(isOn: $settings.spokenWordVoiceBoostEnabled) {
+                Label("spoken_word_voice_boost", systemImage: "waveform")
+            }
+        }
     }
 }
 

@@ -31,7 +31,8 @@ struct SettingsActionService {
         "appearance.volumeBar", "appearance.playerAlbumInSubtitle", "appearance.artworkLyrics", "appearance.playerProgressGlow",
         "appearance.playerProgressArtworkColors",
         "appearance.replayGainBadge",
-        "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "player.pinMiniPlayer", "playback.spokenWordSmartRewind"
+        "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "player.pinMiniPlayer", "playback.spokenWordSmartRewind",
+        "playback.spokenWordSmartSpeed", "playback.spokenWordVoiceBoost"
     ]
     nonisolated static let readableIDs = toggleIDs.union([
         "playback.outputMode", "playback.dsdMode", "playback.crossfadeMode", "playback.crossfadeDuration",
@@ -138,6 +139,8 @@ struct SettingsActionService {
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled
         case "playback.previousRestarts": playback.previousRestartsCurrentSong
         case "playback.spokenWordSmartRewind": playback.spokenWordSmartRewindEnabled
+        case "playback.spokenWordSmartSpeed": playback.spokenWordSmartSpeedEnabled
+        case "playback.spokenWordVoiceBoost": playback.spokenWordVoiceBoostEnabled
         case "playback.gapless": playback.gaplessEnabled
         case "playback.crossfade": playback.crossfadeEnabled
         case "playback.skipLeadingSilence": playback.skipLeadingSilenceEnabled
@@ -189,6 +192,8 @@ struct SettingsActionService {
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled = enabled
         case "playback.previousRestarts": playback.previousRestartsCurrentSong = enabled
         case "playback.spokenWordSmartRewind": playback.spokenWordSmartRewindEnabled = enabled
+        case "playback.spokenWordSmartSpeed": playback.spokenWordSmartSpeedEnabled = enabled
+        case "playback.spokenWordVoiceBoost": playback.spokenWordVoiceBoostEnabled = enabled
         case "playback.gapless": playback.gaplessEnabled = enabled
         case "playback.crossfade": playback.crossfadeEnabled = enabled
         case "playback.skipLeadingSilence": playback.skipLeadingSilenceEnabled = enabled

@@ -44,10 +44,14 @@ extension AudioPlayerService {
         if playbackState.positionSaveSuppressedEpisodeID != song?.id { playbackState.positionSaveSuppressedEpisodeID = nil }
 
         let wasSpokenWord = currentItemIsSpokenWord
+        smartSpeedSavingsMeter.reset()
+        smartSpeedNowPlayingBaseline = 0
         defer {
             // Spoken word runs at its own speed; switching between a book and a
             // song switches the rate with it.
             if wasSpokenWord != currentItemIsSpokenWord { applyPlaybackRate() }
+            // 语音增强同理:换到有声内容时换上说话用的均衡与压缩,换回音乐时还原。
+            applySpokenWordVoiceBoost()
         }
         guard let song else {
             currentItemIsSpokenWord = false
@@ -142,6 +146,7 @@ extension AudioPlayerService {
         pendingSpokenWordResumeSongID = nil
         pendingSpokenWordSeekOverride = nil
         applyPlaybackRate()
+        applySpokenWordVoiceBoost()
         updateSpokenWordRemoteCommands()
         updatePlaybackState()
         plog("🎧 Spoken word: '\(song.title)' now plays as \(isSpokenWord ? "spoken word" : "music")")
@@ -202,7 +207,7 @@ extension AudioPlayerService {
                ) {
                 // 服务端更新:时钟还没走起来就重新上膛,首个 tick 跳过去。
                 // 听完的一条也可能带着重听的位置,有位置就跳。
-                if self.currentTime < 2, self.spokenWordResumeTarget(for: song) != nil {
+                if self.spokenWordHeardPosition < 2, self.spokenWordResumeTarget(for: song) != nil {
                     self.pendingSpokenWordResumeSongID = songID
                 }
                 // 已经从本机记的旧位置开播了:还停在那附近就改从服务端的位置续。
@@ -552,8 +557,9 @@ extension AudioPlayerService {
         guard let songID = pendingSpokenWordResumeSongID,
               let song = currentSong,
               song.id == songID else { return }
-        guard isPlaying, currentTime < 2 else {
-            if currentTime >= 2 {
+        // 按实际放了多久判断:开头一段长停顿被智能速度拿掉时,文件位置会一下子越过 2 秒。
+        guard isPlaying, spokenWordHeardPosition < 2 else {
+            if spokenWordHeardPosition >= 2 {
                 pendingSpokenWordResumeSongID = nil
                 // Opened at the requested position already; do not reuse it next time.
                 if pendingSpokenWordSeekOverride?.songID == songID { pendingSpokenWordSeekOverride = nil }
@@ -635,6 +641,7 @@ extension AudioPlayerService {
     func flushSpokenWordPosition() {
         rememberSpokenWordPosition(force: true)
         SpokenWordStore.shared.flush()
+        SpokenWordSmartSpeedSavings.shared.persist()
     }
 
     // MARK: - Skipping

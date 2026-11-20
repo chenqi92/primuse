@@ -143,6 +143,7 @@ extension AudioPlayerService {
             rememberSpokenWordPosition()
             applyPodcastOutroSkipIfNeeded()
             applySpokenWordOutroSkipIfNeeded()
+            recordSmartSpeedProgress()
         }
         if !spokenWordChapters.isEmpty {
             refreshCurrentChapter()

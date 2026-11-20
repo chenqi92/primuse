@@ -7899,3 +7899,8 @@
 "apple_music_restriction_subscription_message" = "Ce morceau nécessite un abonnement Apple Music pour être lu dans Primuse.";
 "apple_music_subscribe_action" = "S’abonner à Apple Music";
 "apple_music_restricted_songs_footer_format" = "Parmi eux, %lld sont uniquement dans le cloud ou protégés et nécessitent un abonnement Apple Music pour être lus dans Primuse.";
+"spoken_word_smart_speed" = "Vitesse intelligente";
+"spoken_word_smart_speed_desc" = "Raccourcit les longs silences entre les phrases dans les livres audio et les podcasts, sans changer le débit ni la hauteur de la voix : vous écoutez le même contenu plus vite. La progression, la position de reprise et la transcription restent sur la durée d’origine. Ne s’applique pas aux podcasts vidéo ni à la diffusion vers un autre appareil.";
+"spoken_word_smart_speed_saved" = "Temps gagné";
+"spoken_word_voice_boost" = "Renforcement de la voix";
+"spoken_word_voice_boost_desc" = "Met la voix en avant dans les livres audio et les podcasts : les émissions trop discrètes sont remontées, le volume s’équilibre d’un épisode à l’autre et les dialogues sont plus clairs, sans que les passages forts saturent. La musique n’est pas modifiée. Ne s’applique pas aux podcasts vidéo ni à la diffusion vers un autre appareil.";

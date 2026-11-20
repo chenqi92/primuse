@@ -7660,3 +7660,8 @@
 "apple_music_restriction_subscription_message" = "This song needs an Apple Music subscription to play in Primuse.";
 "apple_music_subscribe_action" = "Subscribe to Apple Music";
 "apple_music_restricted_songs_footer_format" = "Of these, %lld are cloud-only or copy-protected and need an Apple Music subscription to play in Primuse.";
+"spoken_word_smart_speed" = "Smart Speed";
+"spoken_word_smart_speed_desc" = "Shortens long pauses between speech in audiobooks and podcasts without changing the speaking pace or pitch, so you get through the same content faster. Progress, resume position and transcripts stay on the original timing. Doesn't apply to video podcasts or when casting to another device.";
+"spoken_word_smart_speed_saved" = "Time Saved";
+"spoken_word_voice_boost" = "Voice Boost";
+"spoken_word_voice_boost_desc" = "Brings voices forward in audiobooks and podcasts: quiet shows are lifted, loudness evens out from episode to episode, and dialogue is clearer without loud moments blasting. Music isn't affected. Doesn't apply to video podcasts or when casting to another device.";

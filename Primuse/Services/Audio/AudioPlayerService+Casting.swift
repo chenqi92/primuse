@@ -1571,11 +1571,6 @@ extension AudioPlayerService {
                         startingAt: physicalSeekTime
                     )
                 }
-                let stream = segmented(
-                    rawStream,
-                    for: song,
-                    sourceStartTime: decoderSourceStartTime
-                )
                 let seekSamplePosition = targetTime * outputFormat.sampleRate
                 guard seekSamplePosition.isFinite else {
                     self.isLoading = false
@@ -1586,6 +1581,16 @@ extension AudioPlayerService {
                 let progressSeekSamples = Int64(seekSamplePosition.rounded(.down))
                 let seekSamples = decoderPerformedSeek ? 0 : progressSeekSamples
                 var samplesSkipped: Int64 = 0
+                // 智能速度在最后一站;解码器没能自己定位时,前面要整块跳过的那段原样放过,跳过的计数照原始帧算。
+                let stream = smartSpeedProcessed(
+                    segmented(
+                        rawStream,
+                        for: song,
+                        sourceStartTime: decoderSourceStartTime
+                    ),
+                    for: song,
+                    passthroughFrames: seekSamples
+                )
 
                 // Set sample time offset so currentTime calculation accounts for seek position
                 audioEngine.sampleTimeOffset = -progressSeekSamples
@@ -1675,10 +1680,14 @@ extension AudioPlayerService {
                                 onResolveSourceLength: onResolveLength
                             )
                         iteratorBox = BufferIteratorBox(
-                            segmented(
-                                localStream,
+                            smartSpeedProcessed(
+                                segmented(
+                                    localStream,
+                                    for: song,
+                                    sourceStartTime: physicalSeekTime
+                                ),
                                 for: song,
-                                sourceStartTime: physicalSeekTime
+                                passthroughFrames: seekSamples
                             ).makeAsyncIterator()
                         )
                         samplesSkipped = 0

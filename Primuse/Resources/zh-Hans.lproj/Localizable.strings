@@ -7992,3 +7992,8 @@
 "apple_music_restriction_subscription_message" = "这首歌要有 Apple Music 订阅才能在 Primuse 里播放。";
 "apple_music_subscribe_action" = "开通 Apple Music";
 "apple_music_restricted_songs_footer_format" = "其中 %lld 首只在云端或带版权保护，要有 Apple Music 订阅才能在 Primuse 里播放。";
+"spoken_word_smart_speed" = "智能速度";
+"spoken_word_smart_speed_desc" = "播放有声书和播客时缩短说话之间过长的停顿，语速和音调不变，同样的内容更快听完。进度、续播位置和字幕仍按原本的时间走。视频播客、投放到其他设备时不生效。";
+"spoken_word_smart_speed_saved" = "已节省";
+"spoken_word_voice_boost" = "语音增强";
+"spoken_word_voice_boost_desc" = "播放有声书和播客时突出人声：小声的节目会被拉起来，各期节目音量更一致，对白更清楚，大声处也不会爆音。音乐不受影响。视频播客、投放到其他设备时不生效。";

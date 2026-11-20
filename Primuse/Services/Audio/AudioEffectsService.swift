@@ -138,6 +138,15 @@ final class AudioEffectsService {
         didSet { settingsStore.compressorPresetId = compressorPresetId }
     }
 
+    /// 语音增强(REQ-174):有声内容在放、开关打开时,压缩器换成说话用的那组参数;关掉或换回音乐时
+    /// 回到上面的用户设置。不存盘,播放服务按当前条目设。切换照常一小步一小步走,不咔哒。
+    var voiceBoostActive = false {
+        didSet {
+            guard voiceBoostActive != oldValue else { return }
+            scheduleNodeUpdate()
+        }
+    }
+
     // MARK: - Reverb State
 
     var reverbEnabled: Bool {
@@ -283,12 +292,21 @@ final class AudioEffectsService {
     @ObservationIgnored private var transitionID = 0
 
     private var compressorTarget: CompressorTransitionPolicy.Parameters {
-        CompressorTransitionPolicy.target(
+        if voiceBoostActive { return SpokenWordVoiceBoostPolicy.compressorTarget }
+        return CompressorTransitionPolicy.target(
             enabled: compressorIsActive,
             threshold: compressorThreshold,
             headRoom: compressorHeadRoom,
             gain: compressorMasterGain
         )
+    }
+
+    private var targetAttackTime: Float {
+        voiceBoostActive ? SpokenWordVoiceBoostPolicy.attackTime : compressorAttackTime
+    }
+
+    private var targetReleaseTime: Float {
+        voiceBoostActive ? SpokenWordVoiceBoostPolicy.releaseTime : compressorReleaseTime
     }
 
     private var reverbTargetHeadroomDB: Float {
@@ -442,13 +460,15 @@ final class AudioEffectsService {
 
     /// 起音、释放时间不直接改电平,照设置写。
     private func writeCompressorTiming() {
-        if applied.attackTime != compressorAttackTime {
-            setCompressorParam(kDynamicsProcessorParam_AttackTime, value: compressorAttackTime)
-            applied.attackTime = compressorAttackTime
+        let attack = targetAttackTime
+        let release = targetReleaseTime
+        if applied.attackTime != attack {
+            setCompressorParam(kDynamicsProcessorParam_AttackTime, value: attack)
+            applied.attackTime = attack
         }
-        if applied.releaseTime != compressorReleaseTime {
-            setCompressorParam(kDynamicsProcessorParam_ReleaseTime, value: compressorReleaseTime)
-            applied.releaseTime = compressorReleaseTime
+        if applied.releaseTime != release {
+            setCompressorParam(kDynamicsProcessorParam_ReleaseTime, value: release)
+            applied.releaseTime = release
         }
     }
 

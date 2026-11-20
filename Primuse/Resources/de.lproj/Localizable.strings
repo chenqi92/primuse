@@ -7899,3 +7899,8 @@
 "apple_music_restriction_subscription_message" = "Für diesen Titel brauchst du ein Apple-Music-Abo, um ihn in Primuse abzuspielen.";
 "apple_music_subscribe_action" = "Apple Music abonnieren";
 "apple_music_restricted_songs_footer_format" = "Davon sind %lld nur in der Cloud oder kopiergeschützt und brauchen ein Apple-Music-Abo, um in Primuse zu laufen.";
+"spoken_word_smart_speed" = "Intelligente Geschwindigkeit";
+"spoken_word_smart_speed_desc" = "Bei Hörbüchern und Podcasts werden zu lange Pausen zwischen dem Gesprochenen verkürzt, ohne Sprechtempo oder Tonhöhe zu ändern – so bist du schneller durch. Fortschritt, Fortsetzposition und Transkript bleiben bei der Originalzeit. Gilt nicht für Video-Podcasts und beim Streamen auf andere Geräte.";
+"spoken_word_smart_speed_saved" = "Gesparte Zeit";
+"spoken_word_voice_boost" = "Stimmverstärkung";
+"spoken_word_voice_boost_desc" = "Hebt bei Hörbüchern und Podcasts die Stimme hervor: Leise Folgen werden angehoben, die Lautstärke wird zwischen Folgen ausgeglichen und Dialoge werden klarer, ohne dass laute Stellen übersteuern. Musik bleibt unverändert. Gilt nicht für Video-Podcasts und beim Streamen auf andere Geräte.";
