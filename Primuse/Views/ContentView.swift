@@ -3160,7 +3160,7 @@ struct PlayerOverlay: View {
                     )
                 }
             )
-                .equatable())
+                .equatable(), isShowing: presentationPhase != .dormant)
                 // 「播放页始终用深色」(#313):只给播放页这一层换成深色,底下的 App 不跟着变。
                 // 状态栏的字色另外换(见下面的 `PlayerLightStatusBar`)。
                 .environment(\.colorScheme, usesDarkPlayer ? .dark : systemColorScheme)
@@ -3510,6 +3510,8 @@ private struct LibraryTabPage: View, @MainActor Equatable {
 /// 控制器常驻，rootView 更新只传环境与状态，歌词滚动视图仍保留原来的身份。
 struct PlayerRenderHost<Content: View>: UIViewControllerRepresentable {
     let content: Content
+    /// 播放页看得见（展开、收起途中也算）。收着休眠时状态栏一律交还给下层页面。
+    var isShowing = true
 
     struct Root: View {
         let content: Content
@@ -3520,16 +3522,79 @@ struct PlayerRenderHost<Content: View>: UIViewControllerRepresentable {
         }
     }
 
-    func makeUIViewController(context: Context) -> UIHostingController<Root> {
-        let controller = UIHostingController(rootView: Root(content: content, environment: context.environment))
+    func makeUIViewController(context: Context) -> PlayerRenderHostController<Root> {
+        let controller = PlayerRenderHostController(rootView: Root(content: content, environment: context.environment))
         controller.view.backgroundColor = .clear
         controller.safeAreaRegions = []
         controller.sizingOptions = []
+        controller.isShowing = isShowing
         return controller
     }
 
-    func updateUIViewController(_ controller: UIHostingController<Root>, context: Context) {
+    func updateUIViewController(_ controller: PlayerRenderHostController<Root>, context: Context) {
         controller.rootView = Root(content: content, environment: context.environment)
+        controller.isShowing = isShowing
+    }
+}
+
+/// 播放页的宿主控制器。SwiftUI 的根控制器自己没定状态栏时，交给最后加进来的子控制器，播放页第一次
+/// 展开后就是这一个；下面标签页里的导航控制器从此不再管状态栏，iOS 18 上整条导航栏从状态栏底下挪到
+/// 安全区顶（灵动岛机型往下 5pt），展开时往下跳、收起又跳回来（留言 #19）。播放页自己没要求藏状态栏、
+/// 没定字色时，把这两样交还给下层页面（见 `PlayerStatusBarOwnershipPolicy`）。
+final class PlayerRenderHostController<Content: View>: UIHostingController<Content> {
+    var isShowing = false {
+        didSet {
+            guard isShowing != oldValue else { return }
+            setNeedsStatusBarAppearanceUpdate()
+        }
+    }
+
+    /// 和播放页并排挂在根控制器下的页面（标签页、极简外壳、平板分栏）。
+    private var underlyingContent: UIViewController? {
+        parent?.children.last { $0 !== self && $0.isViewLoaded && $0.view.window != nil }
+    }
+
+    /// 只看播放页自己这一支时，系统最终问到的那个控制器（全屏效果、MV 可能挂在更里面的子控制器上）。
+    private func playerEffectiveController(_ child: (UIViewController) -> UIViewController?, first: UIViewController?) -> UIViewController {
+        var current: UIViewController = self
+        var next = first
+        var steps = 0
+        while let candidate = next, candidate !== current, steps < 16 {
+            current = candidate
+            next = child(candidate)
+            steps += 1
+        }
+        return current
+    }
+
+    private var playerHidesStatusBar: Bool {
+        playerEffectiveController({ $0.childForStatusBarHidden }, first: super.childForStatusBarHidden).prefersStatusBarHidden
+    }
+
+    override var childForStatusBarHidden: UIViewController? {
+        let underlying = underlyingContent
+        switch PlayerStatusBarOwnershipPolicy.visibilityOwner(
+            isPlayerShowing: isShowing,
+            playerHidesStatusBar: playerHidesStatusBar,
+            hasUnderlyingContent: underlying != nil
+        ) {
+        case .underlyingContent: return underlying
+        case .player: return super.childForStatusBarHidden
+        }
+    }
+
+    override var childForStatusBarStyle: UIViewController? {
+        let underlying = underlyingContent
+        let styleSource = playerEffectiveController({ $0.childForStatusBarStyle }, first: super.childForStatusBarStyle)
+        switch PlayerStatusBarOwnershipPolicy.styleOwner(
+            isPlayerShowing: isShowing,
+            playerHidesStatusBar: playerHidesStatusBar,
+            playerDeclaresStyle: styleSource.preferredStatusBarStyle != .default,
+            hasUnderlyingContent: underlying != nil
+        ) {
+        case .underlyingContent: return underlying
+        case .player: return super.childForStatusBarStyle
+        }
     }
 }
 

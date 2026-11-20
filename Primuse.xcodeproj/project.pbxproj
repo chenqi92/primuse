@@ -900,6 +900,7 @@
 		5AF67F370EFCD4AA7528FEC6 /* CloudKitSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB00031B96FBABEE4773C15 /* CloudKitSyncService.swift */; };
 		5B289A4E357B580F9777DE58 /* MotionCoverEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0935502626D7EF2771D1DF77 /* MotionCoverEditorView.swift */; };
 		5B521BD011A5D1EDD5FF4CC4 /* PlayerOverlayDismissalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B4D61F000626BCDD16F85D3 /* PlayerOverlayDismissalState.swift */; };
+		053236698272AAB11586C076 /* PlayerStatusBarOwnershipPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0FC85E69E72109700C453 /* PlayerStatusBarOwnershipPolicy.swift */; };
 		5B6CB118CEB161FBC2A9C0CF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4D5D8BD40FCC0AA7011B551B /* Assets.xcassets */; };
 		5BCB2635C14EE8A1060D1EBE /* InsecureHTTPHostPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F21995B7200CF465C38A69 /* InsecureHTTPHostPolicy.swift */; };
 		5BF16B49884E4B2AD1CB14C1 /* AudioCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12604AB34F9E270AB4A330C2 /* AudioCalibrationView.swift */; };
@@ -3256,6 +3257,7 @@
 		4B1B341E5B67AEDBD0F7409E /* ExternalPlaylistQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPlaylistQuotaTests.swift; sourceTree = "<group>"; };
 		4B2598012B4C119C8C09D1A0 /* SongPlaybackRangeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongPlaybackRangeStore.swift; sourceTree = "<group>"; };
 		4B4D61F000626BCDD16F85D3 /* PlayerOverlayDismissalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerOverlayDismissalState.swift; sourceTree = "<group>"; };
+		A1F0FC85E69E72109700C453 /* PlayerStatusBarOwnershipPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerStatusBarOwnershipPolicy.swift; sourceTree = "<group>"; };
 		4B5098C0B68845BCD185C89B /* TVPlaybackPrefetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlaybackPrefetch.swift; sourceTree = "<group>"; };
 		4B5DA117AA215F5BE77B0D51 /* ISOAudioReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOAudioReader.swift; sourceTree = "<group>"; };
 		4B800605B17FB72D56E093AB /* GaplessSuccessorDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessSuccessorDiscardPolicy.swift; sourceTree = "<group>"; };
@@ -5234,6 +5236,7 @@
 				CF9D38B5C0E897BC8060AE53 /* PlaybackVolumeControlPolicy.swift */,
 				15C4A3FB0E0A7BB759142DE6 /* PlayerBackdrop.swift */,
 				4B4D61F000626BCDD16F85D3 /* PlayerOverlayDismissalState.swift */,
+				A1F0FC85E69E72109700C453 /* PlayerStatusBarOwnershipPolicy.swift */,
 				F27711F036EE652FF02C5250 /* PlayerOverlayMorphGeometry.swift */,
 				29CB73770C695E12C0CB6CDB /* PlayerTextFontSelection.swift */,
 				65E19BC1D3A821170931D905 /* PlexAccount.swift */,
@@ -7995,6 +7998,7 @@
 				8BE415B91722F03217B013F0 /* PlaybackVolumeControlPolicy.swift in Sources */,
 				0A1CD5E4BBF774E6C6E2B293 /* PlayerBackdrop.swift in Sources */,
 				5B521BD011A5D1EDD5FF4CC4 /* PlayerOverlayDismissalState.swift in Sources */,
+				053236698272AAB11586C076 /* PlayerStatusBarOwnershipPolicy.swift in Sources */,
 				88BDF0E8B59178D9F140C4F0 /* PlayerOverlayMorphGeometry.swift in Sources */,
 				137780785E272E7BA3419EE9 /* PlayerTextFontSelection.swift in Sources */,
 				E1E6E2746C97E7523587FBF4 /* Playlist.swift in Sources */,
