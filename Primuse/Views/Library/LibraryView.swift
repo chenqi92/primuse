@@ -713,6 +713,9 @@ struct LibraryView: View {
     @Environment(\.minimalPageSwitchMotion) private var pageSwitchMotion
     @Environment(\.layoutDirection) private var layoutDirection
     @AppStorage(HomeFilterBarConfiguration.showsLibrarySectionsKey) private var showsStandardSectionTabs = false
+    #if os(iOS)
+    @Environment(\.pmVerticalBarEdge) private var libraryVerticalBarEdge
+    #endif
     @State private var sectionHasBatchSelection = false
     @Environment(\.openLibraryDestination) private var openLibraryDestination
     @Environment(\.pmHeightClass) private var heightClass
@@ -856,6 +859,7 @@ struct LibraryView: View {
             .minimalSafeAreaBar(edge: .top) {
                 standardSectionTabs(selection: rootSection)
             }
+            .overlay { sectionRail(selection: rootSection) }
             #endif
             .navigationTitle(rootSection?.title ?? "library_title")
             .toolbarTitleDisplayMode(.inlineLarge)
@@ -987,10 +991,13 @@ struct LibraryView: View {
     private func sectionDestination(_ section: LibrarySection) -> some View {
         sectionPage(section)
             #if os(iOS)
+            .environment(\.librarySectionRailActive, sectionRailEdge != nil)
             .pageSwitchEntryNudge(page: appNavigationMode == .standard ? .librarySection(section) : nil)
             .minimalSafeAreaBar(edge: .top) {
                 standardSectionTabs(selection: section)
             }
+            // 挂在轻推外面:换分类时竖栏里的分类和顶上那排页签一样不跟着页面挪。
+            .overlay { sectionRail(selection: section) }
             #endif
             .navigationTitle(section.title)
             .toolbarTitleDisplayMode(.inline)
@@ -1068,12 +1075,48 @@ struct LibraryView: View {
         }
     }
 
+    @ViewBuilder
     private func standardSectionTabs(selection: LibrarySection?) -> some View {
+        #if os(iOS)
+        // iPhone Duo 竖栏放得下时分类在竖栏里(`sectionRail`),顶上不再摆一排。
+        if sectionRailEdge == nil || LibrarySectionRailState.shared.doesNotFit {
+            StandardLibrarySectionTabs(selection: selection) { section in
+                guard section != selection else { return }
+                selectMusicSection(section, from: selection)
+            }
+        }
+        #else
         StandardLibrarySectionTabs(selection: selection) { section in
             guard section != selection else { return }
             selectMusicSection(section, from: selection)
         }
+        #endif
     }
+
+    #if os(iOS)
+    /// iPhone Duo 竖栏(普通导航模式、开着资料库分类页签)时,分类页签挪进竖栏中间。
+    private var sectionRailEdge: HorizontalEdge? {
+        guard let edge = libraryVerticalBarEdge, appNavigationMode == .standard,
+              showsStandardSectionTabs else { return nil }
+        return edge
+    }
+
+    @ViewBuilder
+    private func sectionRail(selection: LibrarySection?) -> some View {
+        if let edge = sectionRailEdge {
+            let sections = StandardLibrarySectionTabsPolicy.sections(
+                enabled: showsStandardSectionTabs, mode: appNavigationMode,
+                selection: selection, visibleSections: visibleLibrarySections
+            )
+            if !sections.isEmpty {
+                LibrarySectionRail(sections: sections, selection: selection, edge: edge) { section in
+                    guard section != selection else { return }
+                    selectMusicSection(section, from: selection)
+                }
+            }
+        }
+    }
+    #endif
 
     /// `current` 是点的时候停在哪个分类页上；在总览页上点（为空）照旧推入分类页。
     private func selectMusicSection(_ section: LibrarySection, from current: LibrarySection? = nil) {

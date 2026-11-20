@@ -14,6 +14,7 @@ struct MusicVideoLibraryView: View {
     #if os(iOS)
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    @Environment(\.librarySectionRailActive) private var sectionRailActive
     #endif
 
     private var sort: MusicVideoLibrarySort {
@@ -81,8 +82,20 @@ struct MusicVideoLibraryView: View {
         .navigationBarTitleDisplayMode(.inline)
         // 全部播放、随机放在右上角,和资料库别的页一样;顶上大卡只管放它自己那一支。
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                playbackButtons(songs, titled: verticalBarEdge != nil)
+            if sectionRailActive {
+                // 资料库分类在 Duo 竖栏里时两颗键收进一个「⋯」,竖栏中间留给分类。
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        playbackButtons(songs, titled: true)
+                    } label: {
+                        PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: true)
+                    }
+                    .accessibilityIdentifier("library.musicVideos.more")
+                }
+            } else {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    playbackButtons(songs, titled: verticalBarEdge != nil)
+                }
             }
         }
         .minimalPageHeader {

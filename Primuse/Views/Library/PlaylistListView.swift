@@ -17,6 +17,7 @@ struct PlaylistListView: View {
     #endif
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    @Environment(\.librarySectionRailActive) private var sectionRailActive
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
     @State private var newPlaylistDescription = ""
@@ -458,6 +459,20 @@ struct PlaylistListView: View {
                         playlistSelection = []
                     }
                 }
+            } else if sectionRailActive {
+                // 资料库分类在 Duo 竖栏里时「+」与「⋯」并成一个「⋯」,竖栏中间留给分类。
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        playlistAddItems
+                        if !playlists.isEmpty || !smartPlaylists.isEmpty {
+                            Divider()
+                            playlistMoreItems
+                        }
+                    } label: {
+                        PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: true)
+                    }
+                    .accessibilityIdentifier("playlists.more")
+                }
             } else {
                 // 「+」只管新建与导入；整理已有歌单（调整顺序、多选）放进旁边的「⋯」。
                 ToolbarItem(placement: .topBarTrailing) {
@@ -584,70 +599,80 @@ struct PlaylistListView: View {
         .overlay(alignment: .top) { Divider() }
     }
 
+    @ViewBuilder
+    private var playlistAddItems: some View {
+        Button {
+            showNewPlaylist = true
+        } label: {
+            Label("new_playlist", systemImage: "music.note.list")
+        }
+        Button {
+            showAIEditor = true
+        } label: {
+            Label("new_ai_smart_playlist", systemImage: "sparkles")
+        }
+        Button {
+            showSmartEditor = true
+        } label: {
+            Label("new_rule_smart_playlist", systemImage: "slider.horizontal.3")
+        }
+        Button {
+            editGroup()
+        } label: {
+            Label("playlist_group_new", systemImage: "folder.badge.plus")
+        }
+        if operationAvailability.supportsImport {
+            Divider()
+            Button {
+                showPlaylistImport = true
+            } label: {
+                Label("playlist_import_title", systemImage: "tray.and.arrow.down")
+            }
+        }
+    }
+
     /// 新建歌单、AI 歌单、规则歌单与导入。
     private func playlistAddMenu(titled: Bool) -> some View {
         Menu {
-            Button {
-                showNewPlaylist = true
-            } label: {
-                Label("new_playlist", systemImage: "music.note.list")
-            }
-            Button {
-                showAIEditor = true
-            } label: {
-                Label("new_ai_smart_playlist", systemImage: "sparkles")
-            }
-            Button {
-                showSmartEditor = true
-            } label: {
-                Label("new_rule_smart_playlist", systemImage: "slider.horizontal.3")
-            }
-            Button {
-                editGroup()
-            } label: {
-                Label("playlist_group_new", systemImage: "folder.badge.plus")
-            }
-            if operationAvailability.supportsImport {
-                Divider()
-                Button {
-                    showPlaylistImport = true
-                } label: {
-                    Label("playlist_import_title", systemImage: "tray.and.arrow.down")
-                }
-            }
+            playlistAddItems
         } label: {
             PMToolbarItemLabel("new_playlist", systemImage: "plus", titled: titled)
         }
         .accessibilityIdentifier("playlists.new")
     }
 
+    @ViewBuilder
+    private var playlistMoreItems: some View {
+        if canReorderPlaylists {
+            Menu {
+                PlaylistListSortMenuItems(order: listOrderBinding)
+            } label: {
+                Label("sort_by", systemImage: "arrow.up.arrow.down")
+            }
+            Button {
+                beginPlaylistOrder()
+            } label: {
+                Label("playlist_order_action", systemImage: "line.3.horizontal")
+            }
+        }
+        Button {
+            isManagingPlaylists = true
+        } label: {
+            Label("batch_select", systemImage: "checkmark.circle")
+        }
+        if canCopyToServer {
+            Button {
+                showCopyToServer = true
+            } label: {
+                Label("server_playlist_copy_action", systemImage: "server.rack")
+            }
+        }
+    }
+
     /// 排序方式、调整顺序与多选。
     private func playlistMoreMenu(titled: Bool) -> some View {
         Menu {
-            if canReorderPlaylists {
-                Menu {
-                    PlaylistListSortMenuItems(order: listOrderBinding)
-                } label: {
-                    Label("sort_by", systemImage: "arrow.up.arrow.down")
-                }
-                Button {
-                    beginPlaylistOrder()
-                } label: {
-                    Label("playlist_order_action", systemImage: "line.3.horizontal")
-                }
-            }
-            Button {
-                isManagingPlaylists = true
-            } label: {
-                Label("batch_select", systemImage: "checkmark.circle")
-            }
-            if canCopyToServer {
-                Button {
-                    showCopyToServer = true
-                } label: {
-                    Label("server_playlist_copy_action", systemImage: "server.rack")
-                }
-            }
+            playlistMoreItems
         } label: {
             PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: titled)
         }

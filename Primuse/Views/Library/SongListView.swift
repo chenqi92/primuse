@@ -1119,6 +1119,8 @@ struct SongListView: View {
     @Environment(AudioPlayerService.self) private var player
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:「⋯」并进系统溢出菜单,按钮分组并标优先级。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    /// 资料库分类挪进了 Duo 竖栏:右上角几颗键一律收进「⋯」,给竖栏中间腾地方。
+    @Environment(\.librarySectionRailActive) private var sectionRailActive
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ScanService.self) private var scanService
@@ -3212,7 +3214,10 @@ struct SongListView: View {
             SongSelectionToolbarItems(selection: selection, orderedIDs: { batchOrderedSongIDs }, titled: verticalBarEdge != nil)
         } else {
             let locate = locateCurrentButton
-            PMExpandableToolbar(actionCount: locate.targetID(player: player, library: library) == nil ? 3 : 4, menu: toolbarMenu) {
+            PMExpandableToolbar(
+                actionCount: sectionRailActive || locate.targetID(player: player, library: library) != nil ? 4 : 3,
+                menu: toolbarMenu
+            ) {
                 locate
                 SongListShuffleToolbarButton(
                     selection: selection,

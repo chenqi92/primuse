@@ -65,6 +65,7 @@ struct ArtistListView: View {
     @State private var requestsIntroFill = false
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    @Environment(\.librarySectionRailActive) private var sectionRailActive
 
     @AppStorage(ArtistLayoutMode.storageKey)
     private var layoutModeRaw = ArtistLayoutMode.grid.rawValue
@@ -267,6 +268,20 @@ struct ArtistListView: View {
         }
     }
 
+    #if os(iOS)
+    private func artistDisplayMenu(titled: Bool) -> some View {
+        ArtistDisplayMenu(
+            modeRaw: $browseModeRaw,
+            offersBrowseModes: browsesLibrary,
+            showsLikedOnly: $showsLikedOnly,
+            offersLikedFilter: showsLikedFilter,
+            offersIntroFill: offersIntroFill,
+            fillIntros: { requestsIntroFill = true },
+            titled: titled
+        )
+    }
+    #endif
+
     private var mergeMenu: some View {
         Menu {
             mergeMenuItems
@@ -332,17 +347,22 @@ struct ArtistListView: View {
             #if os(iOS)
             .libraryPageFind(text: $searchText, prompt: "filter_artists_placeholder")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { mergeMenu }
-                ToolbarItem(placement: .topBarTrailing) {
-                    ArtistDisplayMenu(
-                        modeRaw: $browseModeRaw,
-                        offersBrowseModes: browsesLibrary,
-                        showsLikedOnly: $showsLikedOnly,
-                        offersLikedFilter: showsLikedFilter,
-                        offersIntroFill: offersIntroFill,
-                        fillIntros: { requestsIntroFill = true },
-                        titled: verticalBarEdge != nil
-                    )
+                if sectionRailActive {
+                    // 资料库分类在 Duo 竖栏里时合并与显示选项并成一个「⋯」,竖栏中间留给分类。
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            mergeMenu
+                            artistDisplayMenu(titled: true)
+                        } label: {
+                            PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: true)
+                        }
+                        .accessibilityIdentifier("artists.more")
+                    }
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) { mergeMenu }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        artistDisplayMenu(titled: verticalBarEdge != nil)
+                    }
                 }
             }
             // 极简模式根页没有导航栏：艺人数与列法、显示选项排成页头。
