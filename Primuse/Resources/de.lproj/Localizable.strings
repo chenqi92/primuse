@@ -7878,3 +7878,6 @@
 "source_route_rename_format" = "„%@“ umbenennen";
 "source_files_music_directories" = "Musikordner";
 "source_files_manage_directories" = "Verwalten";
+"music_videos_latest" = "Neuestes Musikvideo";
+"music_videos_all" = "Alle Musikvideos";
+"home_section_music_videos" = "Musikvideos für dich";

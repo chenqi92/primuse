@@ -164,7 +164,7 @@ struct HomeSectionLayoutTests {
         #expect(HomeSectionLayoutPolicy.supportsCoverSize(.recentlyAdded, style: .carousel))
         #expect(!HomeSectionLayoutPolicy.supportsCoverSize(.recentlyAdded, style: .grid))
         for section in [HomeSectionKind.startListening, .albumPick, .continueListening, .quickAccess,
-                        .forYou, .listeningRanking, .topArtists, .stats] {
+                        .forYou, .listeningRanking, .topArtists, .stats, .musicVideos] {
             for style in HomeSectionLayoutStyle.allCases {
                 #expect(!HomeSectionLayoutPolicy.supportsCoverSize(section, style: style))
             }

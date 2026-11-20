@@ -7784,3 +7784,6 @@
 "source_route_rename_format" = "Cambiar nombre de “%@”";
 "source_files_music_directories" = "Carpetas de música";
 "source_files_manage_directories" = "Administrar";
+"music_videos_latest" = "Video musical más reciente";
+"music_videos_all" = "Todos los videos musicales";
+"home_section_music_videos" = "Videos musicales para ti";

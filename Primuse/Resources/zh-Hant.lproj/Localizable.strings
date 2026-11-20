@@ -7855,3 +7855,6 @@
 "source_route_rename_format" = "替「%@」換個名字";
 "source_files_music_directories" = "音樂目錄";
 "source_files_manage_directories" = "管理";
+"music_videos_latest" = "最新 MV";
+"music_videos_all" = "全部 MV";
+"home_section_music_videos" = "MV 推薦";

@@ -7784,3 +7784,6 @@
 "source_route_rename_format" = "Переименовать «%@»";
 "source_files_music_directories" = "Папки с музыкой";
 "source_files_manage_directories" = "Управлять";
+"music_videos_latest" = "Новый клип";
+"music_videos_all" = "Все клипы";
+"home_section_music_videos" = "Клипы для вас";

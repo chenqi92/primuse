@@ -7639,3 +7639,6 @@
 "source_route_rename_format" = "Rename “%@”";
 "source_files_music_directories" = "Music Folders";
 "source_files_manage_directories" = "Manage";
+"music_videos_latest" = "Latest Music Video";
+"music_videos_all" = "All Music Videos";
+"home_section_music_videos" = "Music Videos for You";

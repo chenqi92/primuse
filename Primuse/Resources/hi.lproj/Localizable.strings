@@ -7784,3 +7784,6 @@
 "source_route_rename_format" = "“%@” का नाम बदलें";
 "source_files_music_directories" = "संगीत फ़ोल्डर";
 "source_files_manage_directories" = "प्रबंधित करें";
+"music_videos_latest" = "नवीनतम म्यूज़िक वीडियो";
+"music_videos_all" = "सभी म्यूज़िक वीडियो";
+"home_section_music_videos" = "आपके लिए म्यूज़िक वीडियो";

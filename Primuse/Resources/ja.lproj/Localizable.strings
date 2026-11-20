@@ -7879,3 +7879,6 @@
 "source_route_rename_format" = "「%@」の名前を変更";
 "source_files_music_directories" = "音楽フォルダ";
 "source_files_manage_directories" = "管理";
+"music_videos_latest" = "最新のミュージックビデオ";
+"music_videos_all" = "すべてのミュージックビデオ";
+"home_section_music_videos" = "おすすめのミュージックビデオ";

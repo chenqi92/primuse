@@ -7784,3 +7784,6 @@
 "source_route_rename_format" = "“%@” adını değiştir";
 "source_files_music_directories" = "Müzik Klasörleri";
 "source_files_manage_directories" = "Yönet";
+"music_videos_latest" = "En Yeni Müzik Videosu";
+"music_videos_all" = "Tüm Müzik Videoları";
+"home_section_music_videos" = "Senin İçin Müzik Videoları";

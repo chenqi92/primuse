@@ -27,6 +27,8 @@ public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendab
     case topArtists
     case recentlyAdded
     case stats
+    /// 「MV」:按常听的艺人、新加的挑几支 MV 横着排。曲库里没有 MV 时不出现。
+    case musicVideos
 
     public var id: String { rawValue }
 
@@ -59,6 +61,7 @@ public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendab
         case .topArtists: "music.mic"
         case .recentlyAdded: "clock.badge.checkmark"
         case .stats: "chart.bar.xaxis"
+        case .musicVideos: "play.rectangle.fill"
         }
     }
 }
@@ -110,7 +113,7 @@ public enum HomeSectionLayoutPolicy {
         case .listeningRanking: [.list, .carousel]
         // 意图一多,横着滑找不到想要的那张:默认两列(iPad 四列)铺开,横排留作选项。
         case .startListening: [.grid, .carousel]
-        case .continueSpaces, .albumPick, .radio, .booksInProgress, .audiobooks, .podcasts, .stats: []
+        case .continueSpaces, .albumPick, .radio, .booksInProgress, .audiobooks, .podcasts, .stats, .musicVideos: []
         }
     }
 
@@ -176,6 +179,7 @@ public enum HomeSectionLayoutPolicy {
         // 一张是原来的大卡片,多张时横着滑。
         case .albumPick: AlbumPickBatchPolicy.visibleCountRange
         case .quickAccess: 3...30
+        case .musicVideos: 3...24
         case .folders, .stats, .continueSpaces: nil
         }
     }
@@ -201,6 +205,7 @@ public enum HomeSectionLayoutPolicy {
         case .albumPick: 1
         // 网格是三列,三行正好九个。
         case .quickAccess: 9
+        case .musicVideos: 10
         case .folders, .stats, .continueSpaces: 0
         }
     }
@@ -217,7 +222,7 @@ public enum HomeSectionLayoutPolicy {
         case .playlists, .folders: style != .list
         case .recentlyAdded: style == .carousel
         case .startListening, .albumPick, .continueListening, .quickAccess, .forYou,
-             .listeningRanking, .topArtists, .stats: false
+             .listeningRanking, .topArtists, .stats, .musicVideos: false
         }
     }
 

@@ -7784,3 +7784,6 @@
 "source_route_rename_format" = "Renomear “%@”";
 "source_files_music_directories" = "Pastas de música";
 "source_files_manage_directories" = "Gerenciar";
+"music_videos_latest" = "Videoclipe mais recente";
+"music_videos_all" = "Todos os videoclipes";
+"home_section_music_videos" = "Videoclipes para você";

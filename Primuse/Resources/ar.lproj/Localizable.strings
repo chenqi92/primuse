@@ -7784,3 +7784,6 @@
 "source_route_rename_format" = "إعادة تسمية «%@»";
 "source_files_music_directories" = "مجلدات الموسيقى";
 "source_files_manage_directories" = "إدارة";
+"music_videos_latest" = "أحدث فيديو موسيقي";
+"music_videos_all" = "كل الفيديوهات الموسيقية";
+"home_section_music_videos" = "فيديوهات موسيقية لك";

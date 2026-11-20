@@ -732,6 +732,7 @@ final class InterfaceLayoutSync {
         "primuse.home.showPlaylists",
         "primuse.home.showTopArtists",
         "primuse.home.showRecentlyAdded",
+        "primuse.home.showMusicVideos",
         "primuse.home.showStatsGlimpse",
         // Mac 首页
         MacHomeSectionLayout.orderKey,

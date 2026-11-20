@@ -7878,3 +7878,6 @@
 "source_route_rename_format" = "‘%@’ 이름 바꾸기";
 "source_files_music_directories" = "음악 폴더";
 "source_files_manage_directories" = "관리";
+"music_videos_latest" = "최신 뮤직비디오";
+"music_videos_all" = "모든 뮤직비디오";
+"home_section_music_videos" = "추천 뮤직비디오";

@@ -92,6 +92,7 @@ private enum HomeLibraryPage: Hashable {
     case recentAlbum(String)
     case recentlyAddedAlbums
     case quickAccess
+    case musicVideos
 }
 
 private struct RecentlyAddedAlbumsView: View {
@@ -2146,6 +2147,11 @@ struct HomeView: View {
                         .navigationBarTitleDisplayMode(.inline)
                         .minimalNavigationDetail()
                         #endif
+                case .musicVideos:
+                    libraryPageWhenReady { MusicVideoLibraryView() }
+                        #if os(iOS)
+                        .minimalNavigationDetail()
+                        #endif
                 }
             }
             // 更新提示改成 sheet 弹框 ── 之前内嵌在首页顶部当 banner 用,
@@ -2216,6 +2222,8 @@ struct HomeView: View {
     @AppStorage("primuse.home.showForYou") private var showForYou: Bool = true
     @AppStorage("primuse.home.showTopArtists") private var showTopArtists: Bool = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded: Bool = true
+    /// 「MV」一排:曲库里有 MV 才出现,所以默认开着。
+    @AppStorage("primuse.home.showMusicVideos") private var showMusicVideos: Bool = true
     @AppStorage(RecentlyAddedAlbumPolicy.showsExternalAlbumsKey) private var showsExternalAlbums = false
     @AppStorage("primuse.home.showContinueListening") private var showContinueListening: Bool = true
     @AppStorage("primuse.home.showQuickAccess") private var showQuickAccess: Bool = true
@@ -2241,6 +2249,7 @@ struct HomeView: View {
         "primuse.home.showForYou": true,
         "primuse.home.showTopArtists": true,
         "primuse.home.showRecentlyAdded": true,
+        "primuse.home.showMusicVideos": true,
         "primuse.home.showContinueListening": true,
         "primuse.home.showQuickAccess": true,
         "primuse.home.showPlaylists": true,
@@ -2585,6 +2594,33 @@ struct HomeView: View {
             if showStatsGlimpse, let summary = model.snapshot.statsGlimpse {
                 HomeDeferredSection { statsGlimpseSection(summary) }
             }
+        case .musicVideos:
+            if showMusicVideos, library.hasMusicVideoContent {
+                let favoriteArtistIDs = model.snapshot.topArtists.map(\.id)
+                let recentIDs = Set(model.snapshot.recentSongs.map(\.id))
+                let limit = sectionItemCount(.musicVideos, HomeSectionLayoutPolicy.defaultItemCount(for: .musicVideos))
+                HomeDeferredSection {
+                    HomeMusicVideoSection(
+                        limit: limit,
+                        usesPadMetrics: usesPadMetrics,
+                        favoriteArtistIDs: favoriteArtistIDs,
+                        recentlyPlayedIDs: recentIDs,
+                        isInteractive: !editorMode
+                    ) {
+                        NavigationLink(value: HomeLibraryPage.musicVideos) {
+                            HStack(spacing: 5) {
+                                Text("home_section_view_all")
+                                Image(systemName: "chevron.right").font(.caption)
+                            }
+                            .font(.subheadline)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("home.musicVideos.viewAll")
+                    }
+                }
+            }
         }
     }
 
@@ -2648,6 +2684,7 @@ struct HomeView: View {
         case .recentlyAdded: showRecentlyAdded
         case .stats: showStatsGlimpse
         case .radio: showRadioOnHome
+        case .musicVideos: showMusicVideos
         }
     }
 
@@ -2669,6 +2706,7 @@ struct HomeView: View {
         case .recentlyAdded: showRecentlyAdded = visible
         case .stats: showStatsGlimpse = visible
         case .radio: showRadioOnHome = visible
+        case .musicVideos: showMusicVideos = visible
         }
     }
 
@@ -3862,6 +3900,8 @@ struct HomeView: View {
             return !library.recentPlaybackSongIDsForSync.isEmpty
         case .booksInProgress, .audiobooks:
             return library.hasSpokenWordContent
+        case .musicVideos:
+            return library.hasMusicVideoContent
         default:
             return true
         }
@@ -3991,6 +4031,9 @@ struct HomeView: View {
             }
         case .stats:
             return .init(.card(height: 66), hasHeader: false)
+        case .musicVideos:
+            let width = HomeMusicVideoMetrics.cardWidth(usesPadMetrics: usesPadMetrics)
+            return .init(.row(card: CGSize(width: width, height: width * 9 / 16 + 46), artwork: nil, circular: false, rows: 1, spacing: 14, inset: 20))
         }
     }
 

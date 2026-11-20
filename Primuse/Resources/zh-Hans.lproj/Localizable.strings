@@ -7971,3 +7971,6 @@
 "source_route_rename_format" = "给「%@」换个名字";
 "source_files_music_directories" = "音乐目录";
 "source_files_manage_directories" = "管理";
+"music_videos_latest" = "最新 MV";
+"music_videos_all" = "全部 MV";
+"home_section_music_videos" = "MV 推荐";

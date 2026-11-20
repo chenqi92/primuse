@@ -7878,3 +7878,6 @@
 "source_route_rename_format" = "Renommer « %@ »";
 "source_files_music_directories" = "Dossiers musicaux";
 "source_files_manage_directories" = "Gérer";
+"music_videos_latest" = "Dernier clip";
+"music_videos_all" = "Tous les clips";
+"home_section_music_videos" = "Clips pour vous";
