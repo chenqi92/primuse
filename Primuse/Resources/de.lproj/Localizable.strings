@@ -769,7 +769,7 @@
 "apple_music_notice_denied" = "Der Zugriff auf Apple Music wurde verweigert. Aktiviere ihn erneut unter „Systemeinstellungen“ → „Datenschutz“ → „Medien & Apple Music“.";
 "apple_music_notice_no_results" = "Keine Apple-Music-Ergebnisse (dieser Titel ist in diesem Store möglicherweise nicht verfügbar).";
 "apple_music_open_in_app" = "In Apple Music öffnen";
-"apple_music_now_playing_hint" = "Apple Music wird über den System-Player wiedergegeben. Primuse-Funktionen wie Abrufen von Metadaten, Tag-Bearbeitung und EQ sind nicht verfügbar.";
+"apple_music_now_playing_hint" = "Apple Music wird über den System-Player wiedergegeben. Primuse-Wiedergabefunktionen wie Lautstärke und EQ sind nicht verfügbar.";
 "apple_music_library_section" = "Apple-Music-Mediathek";
 "apple_music_source_needs_authorization_title" = "Apple Music-Zugriff erforderlich";
 "apple_music_source_needs_authorization_message" = "Primuse benötigt Zugriff auf Apple Music, um deine Mediathek zu synchronisieren. Erteile den Zugriff in den Systemeinstellungen und füge die Quelle erneut hinzu.";
@@ -7912,3 +7912,6 @@
 "home_filter_bar_ambient_separation_off" = "Erscheint, wenn „Umgebungsklänge getrennt führen“ aktiviert ist";
 "home_filter_bar_ambient_turn_on" = "„Umgebungsklänge getrennt führen“ aktivieren";
 "home_filter_bar_ambient_no_content" = "Erscheint, wenn deine Mediathek Umgebungsklänge enthält";
+"tag_editor_metadata_writeback_kept_local" = "Deine Änderungen sind in Primuse gesichert, in der Musikquelle hat sich aber nichts geändert.";
+"tag_editor_metadata_writeback_kept_local_retry" = "Deine Änderungen sind in Primuse gesichert, die Musikquelle hat aber noch die alten Tags. Sobald die Quelle erreichbar ist, schreibt Primuse sie automatisch erneut.";
+"artwork_apply_to_songs_kept_local_format" = "Das neue Cover wurde bei %d Songs nicht in die Dateien geschrieben und ist nur in Primuse gesichert.";

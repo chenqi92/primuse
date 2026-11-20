@@ -2908,7 +2908,7 @@
 "yearly_month_1" = "Ocak";
 "trusted_domains_footer" = "Manuel olarak eklenen uç noktalar, ilk bağlantıda yine de sertifika incelemesi gerektirir. Onaylanan girişler bir sertifika parmak izine sabitlenir ve değişiklik sonrasında tekrar sorulur. Kaldırmak için kaydırın.";
 "smart_rules_section" = "Kurallar";
-"apple_music_now_playing_hint" = "Apple Music sistem oynatıcısı aracılığıyla oynatılır. Üst veri alma, etiket düzenleme ve EQ gibi Primuse özellikleri geçerli değildir.";
+"apple_music_now_playing_hint" = "Apple Music sistem oynatıcısı aracılığıyla oynatılır. Ses düzeyi ve EQ gibi Primuse oynatma özellikleri geçerli değildir.";
 "baidu_error_token_expired" = "Access_token'in süresi doldu (hata 111).";
 "min" = "Min";
 "baidu_error_code_format" = "Baidu Netdisk hatası %d.";
@@ -7818,3 +7818,6 @@
 "home_filter_bar_ambient_separation_off" = "“Ortam seslerini ayrı sınıflandır” açıldığında görünür";
 "home_filter_bar_ambient_turn_on" = "“Ortam seslerini ayrı sınıflandır” ayarını aç";
 "home_filter_bar_ambient_no_content" = "Arşivde ortam sesleri olduğunda görünür";
+"tag_editor_metadata_writeback_kept_local" = "Değişiklikleriniz Primuse'da kayıtlı, ancak müzik kaynağında bir şey değişmedi.";
+"tag_editor_metadata_writeback_kept_local_retry" = "Değişiklikleriniz Primuse'da kayıtlı, ancak müzik kaynağında hâlâ eski etiketler var. Kaynağa ulaşılabildiğinde Primuse bunları otomatik olarak yeniden yazar.";
+"artwork_apply_to_songs_kept_local_format" = "Yeni kapak %d şarkının dosyalarına yazılamadı; yalnızca Primuse'da kayıtlı.";

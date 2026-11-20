@@ -842,7 +842,7 @@
 "apple_music_notice_no_results" = "कोई Apple Music परिणाम नहीं (इस स्टोरफ्रंट पर यह शीर्षक नहीं हो सकता है)।";
 "apple_music_notice_notDetermined" = "Apple Music अभी तक कनेक्ट नहीं हुआ है। कैटलॉग खोज सक्षम करने के लिए सेटिंग्स → Apple Music पर जाएं।";
 "apple_music_notice_notDetermined_in_sources" = "Apple Music अभी तक कनेक्ट नहीं हुआ है। कैटलॉग खोज सक्षम करने के लिए इसे \"स्रोत प्रबंधित करें\" में Apple Music स्रोत से कनेक्ट करें।";
-"apple_music_now_playing_hint" = "Apple Music सिस्टम प्लेयर के माध्यम से चलता है। Primuse मेटाडेटा पुनर्प्राप्त करना, टैग संपादन और EQ जैसी सुविधाएं लागू नहीं होती हैं।";
+"apple_music_now_playing_hint" = "Apple Music सिस्टम प्लेयर के माध्यम से चलता है। Primuse की प्लेबैक सुविधाएं, जैसे वॉल्यूम और EQ, लागू नहीं होतीं।";
 "apple_music_open_in_app" = "Apple Music में खोलें";
 "apple_music_scrape_lyrics_only" = "Apple Music मेटाडेटा और आधिकारिक कलाकृति अपरिवर्तित रहती है; मेटाडेटा पुनर्प्राप्त करने से केवल आपके द्वारा पुष्टि किए गए बाहरी गीत के बोल सहेजे जाते हैं।";
 "apple_music_unavailable" = "Apple Music स्ट्रीमिंग इस खाते या क्षेत्र के लिए उपलब्ध नहीं है।";
@@ -7818,3 +7818,6 @@
 "home_filter_bar_ambient_separation_off" = "“परिवेश ध्वनियाँ अलग रखें” चालू करने पर दिखेगा";
 "home_filter_bar_ambient_turn_on" = "“परिवेश ध्वनियाँ अलग रखें” चालू करें";
 "home_filter_bar_ambient_no_content" = "लाइब्रेरी में परिवेश ध्वनियाँ होने पर दिखेगा";
+"tag_editor_metadata_writeback_kept_local" = "आपके बदलाव Primuse में सहेजे गए हैं, लेकिन म्यूज़िक स्रोत में कुछ नहीं बदला।";
+"tag_editor_metadata_writeback_kept_local_retry" = "आपके बदलाव Primuse में सहेजे गए हैं, लेकिन म्यूज़िक स्रोत में अभी पुराने टैग हैं। स्रोत उपलब्ध होते ही Primuse उन्हें अपने-आप फिर से लिखेगा।";
+"artwork_apply_to_songs_kept_local_format" = "%d गानों की फ़ाइलों में नया कवर नहीं लिखा जा सका; यह सिर्फ़ Primuse में सहेजा गया है।";

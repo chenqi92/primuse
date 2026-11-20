@@ -1909,6 +1909,8 @@ final class AppleMusicLibraryService {
             coverArtPath: nil
         )
         reconcileCatalogDislikes()
+        // 别处(iCloud、重装前)手改过的标签,这一行刚进资料库就套上,不必等下次启动。
+        SongTagEditStore.shared.libraryRowsMayHaveChanged()
     }
 
     /// Refreshes trusted local-file provenance before every MusicKit snapshot.

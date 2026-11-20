@@ -842,7 +842,7 @@
 "apple_music_notice_no_results" = "Nenhum resultado Apple Music (esta vitrine pode não ter este título).";
 "apple_music_notice_notDetermined" = "Apple Music ainda não está conectado. Vá para Configurações → Apple Music para ativar a pesquisa de catálogo.";
 "apple_music_notice_notDetermined_in_sources" = "Apple Music ainda não está conectado. Conecte-o na fonte Apple Music em “Gerenciar Fontes” para ativar a pesquisa de catálogo.";
-"apple_music_now_playing_hint" = "O Apple Music usa o reprodutor do sistema. Recursos do Primuse, como busca de metadados, edição de tags e equalizador, não se aplicam.";
+"apple_music_now_playing_hint" = "O Apple Music usa o reprodutor do sistema. Recursos de reprodução do Primuse, como volume e equalizador, não se aplicam.";
 "apple_music_open_in_app" = "Abrir em Apple Music";
 "apple_music_scrape_lyrics_only" = "Os metadados e as capas oficiais do Apple Music não mudam; a busca de metadados só salva as letras externas que você confirmar.";
 "apple_music_unavailable" = "O streaming Apple Music não está disponível para esta conta ou região.";
@@ -7818,3 +7818,6 @@
 "home_filter_bar_ambient_separation_off" = "Aparece ao ativar “Separar sons ambientes”";
 "home_filter_bar_ambient_turn_on" = "Ativar “Separar sons ambientes”";
 "home_filter_bar_ambient_no_content" = "Aparece quando sua biblioteca tem sons ambientes";
+"tag_editor_metadata_writeback_kept_local" = "Suas alterações estão salvas no Primuse, mas a fonte de música não mudou.";
+"tag_editor_metadata_writeback_kept_local_retry" = "Suas alterações estão salvas no Primuse, mas a fonte de música ainda tem as tags antigas. O Primuse vai gravá-las de novo automaticamente quando a fonte estiver acessível.";
+"artwork_apply_to_songs_kept_local_format" = "A nova capa não foi gravada nos arquivos de %d músicas; ela está salva só no Primuse.";

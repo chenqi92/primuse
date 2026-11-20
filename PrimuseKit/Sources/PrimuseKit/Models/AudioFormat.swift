@@ -581,6 +581,99 @@ public enum PendingTagWritebackSchedule {
     }
 }
 
+/// 手改标签写不进音乐源时怎么留。
+///
+/// 和刮削对只读源的做法一致:写不进源的修改一律完整存在 Primuse,不因为源写不进去就不让改。
+/// 只读音乐源(Apple Music 资料库也在内)、格式或分轨没有自己的标签容器、源拒绝写入、
+/// 连不上、写到一半失败,都是这样。区别只在之后要不要自动再写一次:源本来收这些字段、
+/// 这次没写成的(失败或被拒)才进补写清单;源本来就不收的,再写一次也一样。补写不重发封面,
+/// 改了封面又没写成的歌不进清单。
+public enum TagWritebackKeepPolicy {
+    /// 一个改了的字段这次写回的结果。
+    public enum FieldResult: Sendable, Equatable {
+        case unchanged
+        case written
+        /// 只在 Primuse 里:源不收这个字段,或者源这次拒绝了写入。
+        case keptLocal
+        /// 源说这个字段收不了(服务器不支持),再写一次也一样。
+        case unsupported
+        /// 写的时候出错了:连不上、超时、回读校验没过。
+        case failed
+    }
+
+    public struct Field: Sendable, Equatable {
+        public let isCover: Bool
+        public let result: FieldResult
+
+        public init(isCover: Bool, result: FieldResult) {
+            self.isCover = isCover
+            self.result = result
+        }
+    }
+
+    public struct Outcome: Sendable, Equatable {
+        /// 至少有一个改了的字段只存在 Primuse 里。
+        public let isLocalOnly: Bool
+        /// 源本来收这些修改、这次没写成(失败或被拒),源上的文件还是原来的值。
+        public let missedWrite: Bool
+        /// 之后能自动再写一次:没写成,而且没写成的里面不含封面。
+        public let canRetry: Bool
+
+        public init(isLocalOnly: Bool, missedWrite: Bool, canRetry: Bool) {
+            self.isLocalOnly = isLocalOnly
+            self.missedWrite = missedWrite
+            self.canRetry = canRetry
+        }
+    }
+
+    /// - Parameters:
+    ///   - sourceTakesWrites: 音乐源收标签写回。只读源上留在 Primuse 的字段不算没写成。
+    ///   - refusedThisTime: 这次源明确拒绝了写入(只读、没有写入权限)。
+    public static func outcome(
+        fields: [Field],
+        sourceTakesWrites: Bool,
+        refusedThisTime: Bool
+    ) -> Outcome {
+        var isLocalOnly = false
+        var missedWrite = false
+        var coverMissed = false
+        for field in fields {
+            let missed: Bool
+            switch field.result {
+            case .unchanged, .written:
+                continue
+            case .failed:
+                missed = true
+            case .keptLocal:
+                missed = sourceTakesWrites && refusedThisTime
+            case .unsupported:
+                missed = false
+            }
+            isLocalOnly = true
+            missedWrite = missedWrite || missed
+            if field.isCover { coverMissed = true }
+        }
+        return Outcome(
+            isLocalOnly: isLocalOnly,
+            missedWrite: missedWrite,
+            canRetry: missedWrite && !coverMissed
+        )
+    }
+
+    /// 这次修改要不要先连上音乐源。只读源什么都不写;只收封面旁路文件的源只有换了封面才写。
+    /// 不必连的时候,源连不上也不耽误修改存进 Primuse。
+    public static func needsSource(
+        capability: AudioMetadataWritebackCapability,
+        changesCover: Bool
+    ) -> Bool {
+        switch capability {
+        case .embedded, .serverAPI: return true
+        case .sidecarOnly: return changesCover
+        case .localOnly: return false
+        }
+    }
+}
+
 /// Where saved lyrics go for songs whose audio file can take them.
 ///
 /// The sidecar is the lossless copy: a few kilobytes, word timing and

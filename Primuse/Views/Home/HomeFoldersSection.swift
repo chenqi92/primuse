@@ -1415,7 +1415,7 @@ struct HomeFolderBrowser: View {
                 songs: ids.compactMap { library.unobservedVisibleSong(id: $0) }
             )
         }
-        .disabled(node.descendantSongCount == 0 || node.sourceID == AppleMusicLibraryIdentity.sourceID)
+        .disabled(node.descendantSongCount == 0)
         .accessibilityIdentifier("folder.albumMetadata")
     }
 }

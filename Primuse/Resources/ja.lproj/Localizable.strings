@@ -770,7 +770,7 @@
 "apple_music_notice_denied" = "Apple Music へのアクセスが拒否されました。「システム設定」→「プライバシー」→「メディアと Apple Music」で再度有効にしてください。";
 "apple_music_notice_no_results" = "Apple Music の検索結果がありません（このストアではこのタイトルを取り扱っていない可能性があります）。";
 "apple_music_open_in_app" = "Apple Music で開く";
-"apple_music_now_playing_hint" = "Apple Music はシステムのプレーヤーで再生されます。スクレイピング、タグ編集、EQ などの Primuse の機能は適用されません。";
+"apple_music_now_playing_hint" = "Apple Music はシステムのプレーヤーで再生されます。音量や EQ などの Primuse の再生機能は適用されません。";
 "apple_music_library_section" = "Apple Music ライブラリ";
 "apple_music_source_needs_authorization_title" = "Apple Music へのアクセスが必要です";
 "apple_music_source_needs_authorization_message" = "ライブラリを同期するには Apple Music へのアクセスが必要です。システム設定で許可してから、もう一度追加してください。";
@@ -7913,3 +7913,6 @@
 "home_filter_bar_ambient_separation_off" = "「環境音を分けて管理」をオンにすると表示されます";
 "home_filter_bar_ambient_turn_on" = "「環境音を分けて管理」をオンにする";
 "home_filter_bar_ambient_no_content" = "ライブラリに環境音があると表示されます";
+"tag_editor_metadata_writeback_kept_local" = "変更は Primuse に保存されましたが、音楽ソース側は変更されていません。";
+"tag_editor_metadata_writeback_kept_local_retry" = "変更は Primuse に保存されましたが、音楽ソース側は元のタグのままです。ソースに接続できるようになると自動で書き込み直します。";
+"artwork_apply_to_songs_kept_local_format" = "%d 曲の新しいカバーはファイルに書き込めず、Primuse にのみ保存されました。";

@@ -10,7 +10,8 @@ import AppKit
 
 /// 用户手动编辑歌曲元数据 ── 标题 / 艺术家 / 专辑 / 年份 / 流派 / 曲号 / 碟号
 /// 以及封面。支持安全媒体替换的来源会把修改写入文件内嵌标签；仅支持
-/// sidecar 或只读的来源会在界面中明确提示，仍可只保存到 Primuse。
+/// sidecar 或只读的来源会在界面中明确提示，仍可只保存到 Primuse。写入被拒或
+/// 没写成时修改同样保存在 Primuse，说明原因，音乐源能连上时自动再写。
 ///
 /// 自动刮削回写 tag 走 ScrapeOptionsView; 这里是给"刮削抓不到 / 抓错了 /
 /// 想自定义命名 / 自己用一张图当封面"场景兜底,完全手工。
@@ -1682,40 +1683,53 @@ struct TagEditorView: View {
         var metadataSavedLocally = false
         var metadataWritebackNotice: String?
         if tagOrCoverChanged {
+            // 写不进源的修改(只读源、拒绝写入、连不上、写到一半失败)照样存在 Primuse,
+            // 和批量编辑同一套判断;没写成的说明原因,记进补写清单,音乐源能连上时自动再写。
+            let written: BatchTagEditService.Written
+            var explainsKeptLocal = false
             do {
                 let report = try await sourceManager.writeTagMetadata(
                     original: original,
                     updated: updated,
                     coverData: pickedCoverData
                 )
-                if report.shouldAbortLocalSave {
-                    writebackErrorMessage = report.issueMessage
-                        ?? String(localized: "metadata_writeback_error_invalid_state")
-                    return false
-                }
-                updated = report.updatedSong
+                written = BatchTagEditService.written(from: report)
                 sourceMutationOccurred = report.remoteMutationOccurred
-                metadataSavedLocally = report.localSaveNotice != nil
-                metadataWritebackNotice = report.issueMessage
-                if metadataSavedLocally, report.mode == .embedded,
-                   SongUserMetadataPolicy.editableFieldsChanged(from: original, to: updated) {
-                    // Written again on its own once the source takes writes,
-                    // like a batch edit the source refused.
-                    PendingTagWritebackStore.shared.record(BatchTagEditService.LocalOnlyWrite(
-                        songID: updated.id,
-                        title: updated.title,
-                        artist: updated.artistName,
-                        sourceID: updated.sourceID,
-                        filePath: updated.filePath,
-                        reason: report.localSaveNotice,
-                        canRetry: true,
-                        refused: true,
-                        original: original
-                    ))
-                }
+                // 拒绝写入、只读源的说明里已经写了「只保存在 Primuse」。
+                explainsKeptLocal = written.missedWrite && report.localSaveNotice == nil
             } catch {
-                writebackErrorMessage = error.localizedDescription
-                return false
+                written = BatchTagEditService.written(after: error, song: updated, coverChanged: pickedCoverData != nil)
+                explainsKeptLocal = true
+            }
+            updated = written.song
+            metadataSavedLocally = written.isLocalOnly
+            metadataWritebackNotice = written.notice
+            // 补写只写文字标签,只换了封面的不进补写清单。
+            let rewritesLater = written.missedWrite
+                && SongUserMetadataPolicy.editableFieldsChanged(from: original, to: updated)
+            if explainsKeptLocal {
+                let keptLocal = rewritesLater
+                    ? String(localized: "tag_editor_metadata_writeback_kept_local_retry")
+                    : String(localized: "tag_editor_metadata_writeback_kept_local")
+                metadataWritebackNotice = [written.notice, keptLocal]
+                    .compactMap { $0 }
+                    .joined(separator: "\n")
+            }
+            if rewritesLater {
+                // Written again on its own once the source takes writes,
+                // like a batch edit the source did not take.
+                PendingTagWritebackStore.shared.record(BatchTagEditService.LocalOnlyWrite(
+                    songID: updated.id,
+                    title: updated.title,
+                    artist: updated.artistName,
+                    sourceID: updated.sourceID,
+                    filePath: updated.filePath,
+                    reason: written.notice,
+                    canRetry: true,
+                    refused: written.wasRefused,
+                    missedWrite: true,
+                    original: original
+                ))
             }
         }
 

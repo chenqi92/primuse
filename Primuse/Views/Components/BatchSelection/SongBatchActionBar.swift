@@ -538,7 +538,6 @@ private struct SongBatchActionsModifier: ViewModifier {
         let removesFromDevice = context.allowsLibraryRemoval && !songs.contains { $0.sourceID == AppleMusicLibraryIdentity.sourceID }
         let removesFromLibrary = removesFromDevice && !songs.contains(where: SourceFileDeletionPolicy.isFileSegment)
         let deletesSourceFiles = context.allowsSourceFileDeletion && hasDeletableSourceSelection(songs)
-        let onlyAppleMusic = songs.allSatisfy { $0.sourceID == AppleMusicLibraryService.systemSourceID }
         // 「从资料库移除」和「从本机移除」是两项。
         let removalCount = (removesFromPlaylist ? 1 : 0)
             + (removesFromLibrary ? 1 : 0) + (removesFromDevice ? 1 : 0)
@@ -565,21 +564,22 @@ private struct SongBatchActionsModifier: ViewModifier {
             }
             .disabled(selection.count < 2)
 
+            // 写不进源的歌(Apple Music 资料库、只读源)也照样改,改动存在 Primuse。
             Button {
-                let songs = editableSelection()
+                let songs = selectedSongs()
                 if !songs.isEmpty { batchEditSelection = BatchSongSelection(songs: songs) }
             } label: {
                 Label("batch_edit_title", systemImage: "square.and.pencil")
             }
-            .disabled(onlyAppleMusic)
+            .disabled(songs.isEmpty)
 
             Button {
-                let songs = editableSelection()
+                let songs = selectedSongs()
                 if !songs.isEmpty { tagTidySelection = BatchSongSelection(songs: songs) }
             } label: {
                 Label("tag_tidy_title", systemImage: "wand.and.sparkles")
             }
-            .disabled(onlyAppleMusic)
+            .disabled(songs.isEmpty)
 
             spokenWordMoveButton
         }
@@ -609,9 +609,10 @@ private struct SongBatchActionsModifier: ViewModifier {
             }
 
             Button("album_metadata_search", systemImage: "square.stack") {
-                albumMetadataSelection = BatchSongSelection(songs: editableSelection())
+                let songs = selectedSongs()
+                if !songs.isEmpty { albumMetadataSelection = BatchSongSelection(songs: songs) }
             }
-            .disabled(onlyAppleMusic)
+            .disabled(songs.isEmpty)
 
             Menu {
                 Button("scrape_parts_all", systemImage: "wand.and.stars") { startScrape(parts: .all) }
@@ -751,11 +752,6 @@ private struct SongBatchActionsModifier: ViewModifier {
             selection.deactivate()
         }
         .disabled(selection.isEmpty)
-    }
-
-    /// Apple Music rows have no tags of ours to edit.
-    private func editableSelection() -> [Song] {
-        selectedSongs().filter { $0.sourceID != AppleMusicLibraryService.systemSourceID }
     }
 
     private func startMedley() {

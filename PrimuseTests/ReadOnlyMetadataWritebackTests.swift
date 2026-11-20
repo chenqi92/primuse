@@ -71,7 +71,7 @@ final class ReadOnlyMetadataWritebackTests: XCTestCase {
             edited.title = "Edited title"
             let report = await TagMetadataWritebackCoordinator.write(mode: .embedded,
                 connector: DeniedMetadataConnector(error: error), original: original, updated: edited, coverData: nil)
-            XCTAssertFalse(report.shouldAbortLocalSave, "\(error)")
+            XCTAssertFalse(report.embeddedWriteFailed, "\(error)")
             XCTAssertFalse(report.remoteMutationOccurred)
             XCTAssertEqual(report.updatedSong.title, "Edited title")
             XCTAssertEqual(report.fields.first(where: { $0.field == .title })?.disposition, .localOnly)
@@ -86,7 +86,7 @@ final class ReadOnlyMetadataWritebackTests: XCTestCase {
         edited.title = "Edited title"
         let report = await TagMetadataWritebackCoordinator.write(mode: .localOnly, connector: connector,
             original: original, updated: edited, coverData: nil)
-        XCTAssertFalse(report.shouldAbortLocalSave)
+        XCTAssertFalse(report.embeddedWriteFailed)
         XCTAssertFalse(report.remoteMutationOccurred)
         XCTAssertEqual(report.updatedSong.title, edited.title)
         XCTAssertNotNil(report.issueMessage)
@@ -97,7 +97,7 @@ final class ReadOnlyMetadataWritebackTests: XCTestCase {
         XCTAssertNil(unchanged.issueMessage)
     }
 
-    func testUncertainTagFailuresStillAbortSave() async {
+    func testUncertainTagFailuresAreReportedAsFailedWrites() async {
         for error: any Error in [URLError(.timedOut), CancellationError(), SourceError.authenticationFailed,
                                  EmbeddedMetadataWritebackSourceError.conflict,
                                  EmbeddedMetadataWritebackSourceError.remoteVerificationFailed] {
@@ -106,9 +106,114 @@ final class ReadOnlyMetadataWritebackTests: XCTestCase {
             edited.title = "Edited title"
             let report = await TagMetadataWritebackCoordinator.write(mode: .embedded,
                 connector: DeniedMetadataConnector(error: error), original: original, updated: edited, coverData: nil)
-            XCTAssertTrue(report.shouldAbortLocalSave, "\(error)")
+            XCTAssertTrue(report.embeddedWriteFailed, "\(error)")
             XCTAssertFalse(report.remoteMutationOccurred)
         }
+    }
+
+    @MainActor
+    private func editingFixture() throws -> (library: MusicLibrary, player: AudioPlayerService, cleanup: () -> Void) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TagKeep-\(UUID())")
+        let suite = "TagKeep-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        let player = AudioPlayerService(library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Editing tags must not start playback") })
+        return (library, player, {
+            try? FileManager.default.removeItem(at: directory)
+            defaults.removePersistentDomain(forName: suite)
+        })
+    }
+
+    /// 写进文件失败(连不上、超时):整条修改照样存在 Primuse,列进补写清单,不算失败。
+    @MainActor
+    func testBatchEditKeepsTheWholeEditWhenTheFileWriteFails() async throws {
+        let fixture = try editingFixture()
+        defer { fixture.cleanup() }
+        let original = song()
+        fixture.library.addSongs([original])
+        let source = MusicSource(id: original.sourceID, name: "Fixture", type: .webdav, host: "offline.invalid")
+        let manager = SourceManager(sourcesProvider: { [source] },
+                                    connectorFactory: { _ in DeniedMetadataConnector(error: URLError(.timedOut)) })
+        var updated = original
+        updated.title = "Edited title"
+        updated.albumTitle = "Edited album"
+        let outcome = await BatchTagEditService.apply([(original, updated)], coverData: nil,
+            sourceManager: manager, library: fixture.library, player: fixture.player) { _, _ in }
+        defer { PendingTagWritebackStore.shared.remove(songIDs: [original.id]) }
+        XCTAssertTrue(outcome.failures.isEmpty)
+        XCTAssertEqual(outcome.localOnlySongIDs, [original.id])
+        let entry = try XCTUnwrap(outcome.localOnlyWrites.first)
+        XCTAssertTrue(entry.canRetry)
+        XCTAssertTrue(entry.missedWrite)
+        XCTAssertTrue(PendingTagWritebackStore.shared.entries.contains { $0.songID == original.id })
+        let stored = try XCTUnwrap(fixture.library.song(id: original.id))
+        XCTAssertEqual(stored.title, "Edited title")
+        XCTAssertEqual(stored.albumTitle, "Edited album")
+        XCTAssertNotNil(stored.userMetadataEditedAt)
+    }
+
+    /// 只读音乐源(Apple Music 资料库)不连音乐源,修改存在 Primuse,也不进补写清单。
+    @MainActor
+    func testReadOnlySourceSavesWithoutConnectingOrQueueingRetries() async throws {
+        let fixture = try editingFixture()
+        defer { fixture.cleanup() }
+        let original = Song(id: UUID().uuidString, title: "Original", fileFormat: .aac,
+                            filePath: "i.fixture", sourceID: AppleMusicLibraryIdentity.sourceID)
+        fixture.library.addSongs([original])
+        let source = MusicSource(id: AppleMusicLibraryIdentity.sourceID, name: "Apple Music", type: .appleMusic)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in
+            UnsupportedSourceConnector(sourceID: AppleMusicLibraryIdentity.sourceID, sourceType: .appleMusic)
+        })
+        var updated = original
+        updated.title = "Edited title"
+        let report = try await manager.writeTagMetadata(original: original, updated: updated, coverData: Data([1]))
+        XCTAssertEqual(report.mode, .localOnly)
+        XCTAssertFalse(report.hasFailures)
+        XCTAssertEqual(report.keepOutcome, TagWritebackKeepPolicy.Outcome(isLocalOnly: true, missedWrite: false, canRetry: false))
+        XCTAssertNotNil(report.issueMessage)
+
+        let outcome = await BatchTagEditService.apply([(original, updated)], coverData: nil,
+            sourceManager: manager, library: fixture.library, player: fixture.player) { _, _ in }
+        XCTAssertTrue(outcome.failures.isEmpty)
+        XCTAssertEqual(outcome.localOnlyWrites.map(\.canRetry), [false])
+        XCTAssertFalse(PendingTagWritebackStore.shared.entries.contains { $0.songID == original.id })
+        XCTAssertEqual(fixture.library.song(id: original.id)?.title, "Edited title")
+        XCTAssertNotNil(fixture.library.song(id: original.id)?.userMetadataEditedAt)
+    }
+
+    /// 音乐源连不上:按写入失败报,不抛错;旁路文件源只改文字时根本不连。
+    @MainActor
+    func testUnreachableSourceReportsFailedFieldsInsteadOfThrowing() async throws {
+        let original = song()
+        var updated = original
+        updated.title = "Edited title"
+        for type in [MusicSourceType.webdav, .jellyfin] {
+            let source = MusicSource(id: original.sourceID, name: "Fixture", type: type, host: "offline.invalid")
+            let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in
+                UnsupportedSourceConnector(sourceID: original.sourceID, sourceType: type)
+            })
+            let report = try await manager.writeTagMetadata(original: original, updated: updated, coverData: nil)
+            guard case .failed? = report.fields.first(where: { $0.field == .title })?.disposition else {
+                return XCTFail("Title should be reported as not written for \(type)")
+            }
+            XCTAssertEqual(report.keepOutcome.canRetry, true, "\(type)")
+        }
+        var cueTrack = original
+        cueTrack.cueSheetPath = "/Music/album.cue"
+        cueTrack.cueStartTime = 0
+        var cueEdit = cueTrack
+        cueEdit.title = "Edited title"
+        let source = MusicSource(id: original.sourceID, name: "Fixture", type: .webdav, host: "offline.invalid")
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in
+            UnsupportedSourceConnector(sourceID: original.sourceID, sourceType: .webdav)
+        })
+        let report = try await manager.writeTagMetadata(original: cueTrack, updated: cueEdit, coverData: nil)
+        XCTAssertEqual(report.mode, .sidecarOnly)
+        XCTAssertFalse(report.hasFailures)
+        XCTAssertEqual(report.keepOutcome, TagWritebackKeepPolicy.Outcome(isLocalOnly: true, missedWrite: false, canRetry: false))
     }
 
     func testEmbeddedCoordinatorRetainsWriteDenialCause() async {
@@ -296,7 +401,7 @@ final class ReadOnlyMetadataWritebackTests: XCTestCase {
         let updated = ArtistMergePolicy.applying(to: original, names: ["English B", "中文A"], canonicalName: "中文A")
         let outcome = await BatchTagEditService.apply([(original, updated)], coverData: nil,
             sourceManager: manager, library: library, player: player,
-            keepsLocalEditsOnWriteFailure: true) { _, _ in }
+            publishesOntoLiveRows: true) { _, _ in }
         XCTAssertEqual(outcome.applied.count, 1)
         XCTAssertEqual(outcome.localOnlySongIDs, [original.id])
         XCTAssertTrue(outcome.failures.isEmpty)
@@ -536,7 +641,7 @@ final class ArtistMergeBackgroundTests: XCTestCase {
         f.started.forEach { $0.isInverted = true }
         let result = await BatchTagEditService.apply(f.changes, coverData: nil,
             sourceManager: f.manager, library: f.library, player: f.player,
-            keepsLocalEditsOnWriteFailure: true, shouldCancel: { true }) { _, _ in }
+            publishesOntoLiveRows: true, shouldCancel: { true }) { _, _ in }
         XCTAssertTrue(result.wasCancelled)
         XCTAssertTrue(result.applied.isEmpty)
         XCTAssertTrue(result.localOnlySongIDs.isEmpty)
@@ -554,7 +659,7 @@ final class ArtistMergeBackgroundTests: XCTestCase {
         let run = Task {
             await BatchTagEditService.apply(f.changes, coverData: nil,
                 sourceManager: f.manager, library: f.library, player: f.player,
-                keepsLocalEditsOnWriteFailure: true, publishesIncrementally: true) { done, _ in
+                publishesOntoLiveRows: true, publishesIncrementally: true) { done, _ in
                     progress.append(done)
                     if done == 29 { othersDone.fulfill() }
                 }
@@ -582,7 +687,7 @@ final class ArtistMergeBackgroundTests: XCTestCase {
         let run = Task {
             await BatchTagEditService.apply(f.changes, coverData: nil,
                 sourceManager: f.manager, library: f.library, player: f.player,
-                keepsLocalEditsOnWriteFailure: true, publishesIncrementally: true,
+                publishesOntoLiveRows: true, publishesIncrementally: true,
                 shouldCancel: { cancel }) { done, _ in
                     if done == 1 {
                         cancel = true

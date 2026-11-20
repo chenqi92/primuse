@@ -769,7 +769,7 @@
 "apple_music_notice_denied" = "Apple Music 접근이 거부되었습니다. 시스템 설정 → 개인정보 보호 → 미디어 및 Apple Music에서 다시 허용하세요.";
 "apple_music_notice_no_results" = "Apple Music 결과가 없습니다(이 스토어에는 해당 곡이 없을 수 있습니다).";
 "apple_music_open_in_app" = "Apple Music에서 열기";
-"apple_music_now_playing_hint" = "Apple Music은 시스템 플레이어로 재생되므로 스크래핑, 태그 편집, EQ 같은 Primuse 기능은 적용되지 않습니다.";
+"apple_music_now_playing_hint" = "Apple Music은 시스템 플레이어로 재생되므로 음량, EQ 같은 Primuse 재생 기능은 적용되지 않습니다.";
 "apple_music_library_section" = "Apple Music 라이브러리";
 "apple_music_source_needs_authorization_title" = "Apple Music 접근 권한 필요";
 "apple_music_source_needs_authorization_message" = "보관함을 동기화하려면 Apple Music 접근 권한이 필요합니다. 시스템 설정에서 권한을 허용한 뒤 다시 추가하세요.";
@@ -7912,3 +7912,6 @@
 "home_filter_bar_ambient_separation_off" = "‘환경음 따로 분류’를 켜면 표시됩니다";
 "home_filter_bar_ambient_turn_on" = "‘환경음 따로 분류’ 켜기";
 "home_filter_bar_ambient_no_content" = "라이브러리에 환경음이 있으면 표시됩니다";
+"tag_editor_metadata_writeback_kept_local" = "변경 사항은 Primuse에 저장되었지만 음악 소스는 바뀌지 않았습니다.";
+"tag_editor_metadata_writeback_kept_local_retry" = "변경 사항은 Primuse에 저장되었지만 음악 소스에는 이전 태그가 남아 있습니다. 소스에 연결되면 자동으로 다시 기록합니다.";
+"artwork_apply_to_songs_kept_local_format" = "%d곡의 새 커버를 파일에 기록하지 못해 Primuse에만 저장했습니다.";

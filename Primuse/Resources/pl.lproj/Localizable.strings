@@ -842,7 +842,7 @@
 "apple_music_notice_no_results" = "Brak wyników Apple Music (ta witryna sklepowa może nie nosić tego tytułu).";
 "apple_music_notice_notDetermined" = "Apple Music nie jest jeszcze podłączony. Przejdź do Ustawienia → Apple Music, aby włączyć wyszukiwanie w katalogu.";
 "apple_music_notice_notDetermined_in_sources" = "Apple Music nie jest jeszcze podłączony. Połącz go w źródle Apple Music w sekcji „Zarządzaj źródłami”, aby włączyć wyszukiwanie w katalogu.";
-"apple_music_now_playing_hint" = "Apple Music korzysta z odtwarzacza systemowego. Funkcje Primuse, takie jak pobieranie metadanych, edycja tagów i korektor, nie mają zastosowania.";
+"apple_music_now_playing_hint" = "Apple Music korzysta z odtwarzacza systemowego. Funkcje odtwarzania Primuse, takie jak głośność i korektor, nie mają zastosowania.";
 "apple_music_open_in_app" = "Otwarte w Apple Music";
 "apple_music_scrape_lyrics_only" = "Metadane i oficjalne okładki Apple Music pozostają bez zmian; pobieranie metadanych zapisuje tylko zewnętrzny tekst, który zatwierdzisz.";
 "apple_music_unavailable" = "Przesyłanie strumieniowe Apple Music nie jest dostępne dla tego konta lub regionu.";
@@ -7818,3 +7818,6 @@
 "home_filter_bar_ambient_separation_off" = "Pojawi się po włączeniu „Osobno klasyfikuj dźwięki otoczenia”";
 "home_filter_bar_ambient_turn_on" = "Włącz „Osobno klasyfikuj dźwięki otoczenia”";
 "home_filter_bar_ambient_no_content" = "Pojawi się, gdy w bibliotece będą dźwięki otoczenia";
+"tag_editor_metadata_writeback_kept_local" = "Zmiany zapisano w Primuse, ale w źródle muzyki nic się nie zmieniło.";
+"tag_editor_metadata_writeback_kept_local_retry" = "Zmiany zapisano w Primuse, ale źródło muzyki nadal ma stare tagi. Primuse zapisze je ponownie automatycznie, gdy źródło będzie dostępne.";
+"artwork_apply_to_songs_kept_local_format" = "Nowej okładki nie zapisano w plikach %d utworów; jest zapisana tylko w Primuse.";

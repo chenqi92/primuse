@@ -71,6 +71,19 @@ final class AlbumMetadataTests: XCTestCase {
         XCTAssertEqual(groups.map(\.artist), ["Artist", "Artist"])
     }
 
+    /// Apple Music 资料库的歌写不进源,匹配结果存在 Primuse,同样能整张匹配。
+    @MainActor
+    func testAppleMusicSongsAreGroupedForMatching() {
+        let songs = ["i.one", "i.two"].enumerated().map { index, itemID in
+            Song(id: itemID, title: "Track \(index + 1)", albumTitle: "Album", artistName: "Artist",
+                 albumArtistName: "Artist", trackNumber: index + 1, duration: 180, fileFormat: .aac,
+                 filePath: itemID, sourceID: AppleMusicLibraryIdentity.sourceID)
+        }
+        let groups = AlbumMetadataGroup.groups(for: songs)
+        XCTAssertEqual(groups.map(\.title), ["Album"])
+        XCTAssertEqual(groups.first?.songs.map(\.id), ["i.one", "i.two"])
+    }
+
     func testITunesSearchesAlbumsAndFetchesOnlyTheirTracks() async throws {
         let session = fixtureSession()
         defer { session.invalidateAndCancel() }

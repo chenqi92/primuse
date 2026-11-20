@@ -17,13 +17,11 @@ struct BatchSongSelection: Identifiable {
 }
 
 extension BatchSongSelection {
-    /// Every song a library-wide tidy-up can write to; Apple Music's own
-    /// library entries are not the listener's files.
+    /// Every song of the library. Songs whose source cannot take the tags
+    /// (Apple Music's library among them) keep the tidied tags in Primuse.
     @MainActor
     static func wholeLibraryForTidy(_ library: MusicLibrary) -> BatchSongSelection {
-        BatchSongSelection(songs: library.songs.filter {
-            $0.sourceID != AppleMusicLibraryService.systemSourceID
-        })
+        BatchSongSelection(songs: library.songs)
     }
 }
 

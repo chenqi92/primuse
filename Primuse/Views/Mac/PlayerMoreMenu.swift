@@ -141,7 +141,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             NowPlayingPodcastSheet(target: target)
         }
         .sheet(isPresented: $showTagEditor) {
-            if let song = player.currentSong {
+            if let song = tagEditorSong {
                 TagEditorView(song: song) { updated in
                     player.syncSongMetadata(updated)
                     player.forceRefreshNowPlayingArtwork()
@@ -274,6 +274,14 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// 播客单集不在曲库里: 加歌单、改标签与歌词、歌曲信息都没有落处。
     private var isPodcastEpisode: Bool {
         PodcastPlaybackSong.isEpisode(player.currentSong)
+    }
+
+    /// 标签编辑器改的那一行。Apple Music 正在放的可能是目录里的那一份(id 不同),改动要存在
+    /// 资料库那一行上;资料库里没有的目录歌没处存,不给改。
+    private var tagEditorSong: Song? {
+        guard let song = player.currentSong else { return nil }
+        guard song.sourceID == AppleMusicLibraryService.systemSourceID else { return song }
+        return library.song(id: NowPlayingLibraryActions.locationSongID(for: song, library: library))
     }
 
     private var isCurrentDisliked: Bool {
@@ -456,7 +464,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             if !isPodcastEpisode {
                 menuRow(title: "tag_editor_menu",
                         symbol: "tag",
-                        disabled: player.currentSong == nil) {
+                        disabled: tagEditorSong == nil) {
                     showTagEditor = true
                 }
                 menuRow(title: "lyrics_editor_menu",

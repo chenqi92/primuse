@@ -842,7 +842,7 @@
 "apple_music_notice_no_results" = "لا يوجد Apple Music نتيجة (واجهة المتجر هذه قد لا تحمل هذا العنوان).";
 "apple_music_notice_notDetermined" = "Apple Music غير متصل بعد. انتقل إلى الإعدادات → Apple Music لتمكين البحث في الكتالوج.";
 "apple_music_notice_notDetermined_in_sources" = "Apple Music غير متصل بعد. قم بتوصيله من مصدر Apple Music في \"إدارة المصادر\" لتمكين البحث في الكتالوج.";
-"apple_music_now_playing_hint" = "Apple Music يتم تشغيله من خلال مشغل النظام. لا تنطبق ميزات Primuse مثل جلب البيانات وتحرير الوسوم وEQ.";
+"apple_music_now_playing_hint" = "Apple Music يتم تشغيله من خلال مشغل النظام. لا تنطبق ميزات التشغيل في Primuse مثل مستوى الصوت وEQ.";
 "apple_music_open_in_app" = "مفتوح في Apple Music";
 "apple_music_scrape_lyrics_only" = "Apple Music البيانات الوصفية والأعمال الفنية الرسمية تبقى دون تغيير؛ يؤدي جلب البيانات إلى حفظ الكلمات الخارجية التي تؤكدها فقط.";
 "apple_music_unavailable" = "Apple Music البث غير متاح لهذا الحساب أو المنطقة.";
@@ -7818,3 +7818,6 @@
 "home_filter_bar_ambient_separation_off" = "تظهر بعد تشغيل «تصنيف الأصوات المحيطة على حدة»";
 "home_filter_bar_ambient_turn_on" = "تشغيل «تصنيف الأصوات المحيطة على حدة»";
 "home_filter_bar_ambient_no_content" = "تظهر عندما تحتوي مكتبتك على أصوات محيطة";
+"tag_editor_metadata_writeback_kept_local" = "تم حفظ تغييراتك في Primuse، لكن مصدر الموسيقى لم يتغير.";
+"tag_editor_metadata_writeback_kept_local_retry" = "تم حفظ تغييراتك في Primuse، لكن مصدر الموسيقى لا يزال يحمل الوسوم القديمة. سيعيد Primuse كتابتها تلقائيًا عندما يصبح المصدر متاحًا.";
+"artwork_apply_to_songs_kept_local_format" = "لم تُكتب صورة الغلاف الجديدة في ملفات %d أغنية؛ وهي محفوظة في Primuse فقط.";

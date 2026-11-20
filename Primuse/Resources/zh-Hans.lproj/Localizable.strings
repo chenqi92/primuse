@@ -528,7 +528,7 @@
 "apple_music_notice_denied" = "Apple Music 权限被拒绝，去系统 设置 → 隐私 → 媒体与 Apple Music 重新开启。";
 "apple_music_notice_no_results" = "Apple Music 没有匹配的结果（可能是地区曲库没有这首歌）。";
 "apple_music_open_in_app" = "在 Apple Music 中打开";
-"apple_music_now_playing_hint" = "Apple Music 在系统侧播放，刮削 / 标签编辑 / 均衡器等 Primuse 功能不适用。";
+"apple_music_now_playing_hint" = "Apple Music 在系统侧播放，音量、均衡器等 Primuse 的播放功能不适用。";
 "apple_music_library_section" = "Apple Music 资料库";
 "apple_music_source_needs_authorization_title" = "需要 Apple Music 权限";
 "apple_music_source_needs_authorization_message" = "Primuse 需要 Apple Music 权限才能同步资料库。请在系统设置中授予权限后重新添加。";
@@ -8005,3 +8005,6 @@
 "home_filter_bar_ambient_separation_off" = "打开「单独归类环境音」后显示";
 "home_filter_bar_ambient_turn_on" = "打开单独归类";
 "home_filter_bar_ambient_no_content" = "资料库里有环境音时显示";
+"tag_editor_metadata_writeback_kept_local" = "修改已保存在 Primuse，音乐源上还是原来的样子。";
+"tag_editor_metadata_writeback_kept_local_retry" = "修改已保存在 Primuse，音乐源上还是原来的标签；音乐源能连上时会自动再写一次。";
+"artwork_apply_to_songs_kept_local_format" = "%d 首歌的新封面没写进文件，只保存在 Primuse。";

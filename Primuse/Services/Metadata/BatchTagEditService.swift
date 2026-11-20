@@ -105,22 +105,61 @@ enum BatchTagEditService {
         /// The source refused the write (read-only, no permission), rather
         /// than the connection failing.
         var refused = false
+        /// 音乐源本来收这些修改、这次没写成(失败或被拒);只读源上的歌不算。
+        var missedWrite = false
         /// The library row before the edit; a retry writes from its tags.
         var original: Song
 
         var id: String { songID }
     }
 
-    /// One successful write: the row as it is now, a note from the source,
-    /// and what the file held before (embedded writes only).
+    /// One saved edit: the row as it is now, a note from the source, and
+    /// what the file held before (embedded writes only). A write the source
+    /// did not take is saved too, only in Primuse (`TagWritebackKeepPolicy`).
     struct Written: Sendable {
         let song: Song
         let notice: String?
         let previousFileTags: EmbeddedMetadataVerification?
         var isLocalOnly = false
         var canRetry = false
+        /// 音乐源本来收这些修改、这次没写成(失败或被拒)。
+        var missedWrite = false
         /// The source refused this embedded write; its folder stops.
         var wasRefused = false
+    }
+
+    /// 一次写回的结果落成要存的那一行:写不进源的部分照样存在 Primuse。单曲编辑器和批量编辑共用。
+    static func written(from report: TagMetadataWritebackReport) -> Written {
+        var saved = report.updatedSong
+        if let relocated = report.replacementAfterFailedVerification {
+            // 文件已经换掉、只是回读没过:按换过之后的位置记,补写和下次扫描才认得它。
+            saved.filePath = relocated.filePath
+            saved.fileSize = relocated.fileSize
+            saved.revision = relocated.revision
+            saved.lastModified = relocated.lastModified
+        }
+        let keep = report.keepOutcome
+        return Written(
+            song: saved,
+            notice: report.issueMessage,
+            previousFileTags: report.previousFileTags,
+            isLocalOnly: keep.isLocalOnly,
+            canRetry: keep.canRetry,
+            missedWrite: keep.missedWrite,
+            wasRefused: report.localSaveNotice != nil && report.mode == .embedded
+        )
+    }
+
+    /// 写回中途出了错、没有逐字段结果:修改照样存在 Primuse,音乐源能连上时再写一次(封面不重发)。
+    static func written(after error: any Error, song: Song, coverChanged: Bool) -> Written {
+        Written(
+            song: song,
+            notice: error.localizedDescription,
+            previousFileTags: nil,
+            isLocalOnly: true,
+            canRetry: !coverChanged,
+            missedWrite: true
+        )
     }
 
     struct Failure: Identifiable, Error, Sendable {
@@ -134,6 +173,9 @@ enum BatchTagEditService {
     /// only competes for the same connection.
     static let concurrency = 3
 
+    /// 写不进源的修改一律存在 Primuse(见 `write`)。`publishesOntoLiveRows`:合并艺人与
+    /// 补写清单重写用,写完只把艺人字段和文件位置叠到资料库此刻那一行上,不拿开始时取的
+    /// 整行盖掉期间别处的修改。
     @MainActor
     static func apply(
         _ changes: [(original: Song, updated: Song)],
@@ -141,7 +183,7 @@ enum BatchTagEditService {
         sourceManager: SourceManager,
         library: MusicLibrary,
         player: AudioPlayerService,
-        keepsLocalEditsOnWriteFailure: Bool = false,
+        publishesOntoLiveRows: Bool = false,
         publishesIncrementally: Bool = false,
         shouldCancel: @escaping @MainActor () -> Bool = { false },
         onProgress: @escaping @MainActor (Int, Int) -> Void
@@ -182,8 +224,7 @@ enum BatchTagEditService {
                     case .write(let index):
                         let change = pending[index]
                         group.addTask {
-                            (index, await write(change, coverData: coverData, sourceManager: sourceManager,
-                                                keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure))
+                            (index, await write(change, coverData: coverData, sourceManager: sourceManager))
                         }
                         running += 1
                     case .skip(let index):
@@ -210,14 +251,14 @@ enum BatchTagEditService {
                 if publishesIncrementally,
                    results.count >= 24 || lastPublish.duration(to: .now) >= .seconds(3) {
                     await publish(results, pending: pending, coverData: coverData,
-                                  keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure,
+                                  publishesOntoLiveRows: publishesOntoLiveRows,
                                   library: library, player: player, maintenance: .deferredIncremental, outcome: &outcome)
                     results.removeAll(keepingCapacity: true)
                     lastPublish = .now
                 }
             }
             await publish(results, pending: pending, coverData: coverData,
-                          keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure,
+                          publishesOntoLiveRows: publishesOntoLiveRows,
                           library: library, player: player, maintenance: .immediate, outcome: &outcome)
             outcome.wasCancelled = scheduler.hasUnstarted || shouldCancel() || Task.isCancelled
             if skipped > 0 {
@@ -254,7 +295,7 @@ enum BatchTagEditService {
             sourceManager: sourceManager,
             library: library,
             player: player,
-            keepsLocalEditsOnWriteFailure: true,
+            publishesOntoLiveRows: true,
             shouldCancel: shouldCancel,
             onProgress: onProgress
         )
@@ -291,7 +332,7 @@ enum BatchTagEditService {
         _ results: [Int: Result<Written, Failure>],
         pending: [(original: Song, updated: Song)],
         coverData: Data?,
-        keepsLocalEditsOnWriteFailure: Bool,
+        publishesOntoLiveRows: Bool,
         library: MusicLibrary,
         player: AudioPlayerService,
         maintenance: LibraryMaintenanceDisposition,
@@ -303,7 +344,7 @@ enum BatchTagEditService {
             switch results[index] {
             case .success(let written)?:
                 var song = written.song
-                if keepsLocalEditsOnWriteFailure {
+                if publishesOntoLiveRows {
                     guard var current = library.song(id: song.id) else { continue }
                     let original = pending[index].original
                     if original.artistName != song.artistName || original.sourceArtistNames != song.sourceArtistNames {
@@ -329,6 +370,7 @@ enum BatchTagEditService {
                         reason: written.notice,
                         canRetry: written.canRetry,
                         refused: written.wasRefused,
+                        missedWrite: written.missedWrite,
                         original: pending[index].original
                     )
                     outcome.localOnlyWrites.append(entry)
@@ -390,12 +432,13 @@ enum BatchTagEditService {
         outcome.applied.append(contentsOf: published)
     }
 
+    /// 写不进源的修改照样存在 Primuse(只读源、拒绝写入、连不上、写到一半失败都一样),
+    /// 结果里列出来;没写成的记进补写清单,音乐源能连上时自动再写。
     @MainActor
     private static func write(
         _ change: (original: Song, updated: Song),
         coverData: Data?,
-        sourceManager: SourceManager,
-        keepsLocalEditsOnWriteFailure: Bool
+        sourceManager: SourceManager
     ) async -> Result<Written, Failure> {
         var updated = change.updated
         updated.userMetadataEditedAt = Date()
@@ -405,52 +448,9 @@ enum BatchTagEditService {
                 updated: updated,
                 coverData: coverData
             )
-            if report.shouldAbortLocalSave && !keepsLocalEditsOnWriteFailure {
-                return .failure(Failure(
-                    title: change.original.title,
-                    message: report.issueMessage
-                        ?? String(localized: "metadata_writeback_error_invalid_state")
-                ))
-            }
-            var saved = report.updatedSong
-            if keepsLocalEditsOnWriteFailure, let relocated = report.replacementAfterFailedVerification {
-                saved.filePath = relocated.filePath
-                saved.fileSize = relocated.fileSize
-                saved.revision = relocated.revision
-                saved.lastModified = relocated.lastModified
-            }
-            let keptLocal = report.fields.filter {
-                switch $0.disposition {
-                case .localOnly, .failed, .unsupported: true
-                case .unchanged, .written: false
-                }
-            }
-            let onlyLocal = !keptLocal.isEmpty
-            // A refused or failed tag may go through next time (permission
-            // fixed, connection back). A tag the source never takes comes
-            // back the same, and a retry does not send the cover again.
-            let deniedThisTime = report.localSaveNotice != nil
-            let canRetry = !keptLocal.contains { $0.field == .cover } && keptLocal.contains {
-                switch $0.disposition {
-                case .failed: true
-                case .localOnly: deniedThisTime
-                case .unsupported, .unchanged, .written: false
-                }
-            }
-            return .success(Written(
-                song: saved,
-                notice: report.issueMessage,
-                previousFileTags: report.previousFileTags,
-                isLocalOnly: onlyLocal,
-                canRetry: canRetry,
-                wasRefused: deniedThisTime && report.mode == .embedded
-            ))
+            return .success(written(from: report))
         } catch {
-            if keepsLocalEditsOnWriteFailure {
-                return .success(Written(song: updated, notice: error.localizedDescription, previousFileTags: nil,
-                                        isLocalOnly: true, canRetry: coverData == nil))
-            }
-            return .failure(Failure(title: change.original.title, message: error.localizedDescription))
+            return .success(written(after: error, song: updated, coverChanged: coverData != nil))
         }
     }
 
@@ -469,6 +469,7 @@ enum BatchTagEditService {
             previousFileTags: nil,
             isLocalOnly: true,
             canRetry: coverData == nil,
+            missedWrite: true,
             wasRefused: true
         )
     }
@@ -589,7 +590,7 @@ final class ArtistMergeService {
             }.value
             outcome = await BatchTagEditService.apply(
                 changes, coverData: nil, sourceManager: sourceManager, library: library, player: player,
-                keepsLocalEditsOnWriteFailure: true, publishesIncrementally: true,
+                publishesOntoLiveRows: true, publishesIncrementally: true,
                 shouldCancel: { self.cancellationRequested }
             ) { done, total in
                 self.progress = (done, total)
@@ -659,7 +660,8 @@ final class ArtistMergeService {
 ///
 /// Every batch write and every retry goes through `BatchTagEditService`,
 /// which records the retryable local-only songs here and removes the ones a
-/// retry wrote. The single-song editor records a refused save the same way.
+/// retry wrote. The single-song editor records a save the source did not
+/// take the same way.
 /// An entry keeps the tags the file still holds, so a later edit of the same
 /// song goes along when it is written.
 @MainActor
@@ -825,6 +827,21 @@ final class PendingTagWritebackStore {
     func dropFinished() {
         guard let context, !isRetrying else { return }
         _ = currentWrites(in: context.library)
+        Task { await dropWritesTheSourceNeverTakes(context: context) }
+    }
+
+    /// 只读音乐源(Apple Music 资料库也在内)上的歌再写也写不进去,不留在清单里。以前的版本把它们
+    /// 也当成能补写的记了进来,这里顺手清掉。
+    private func dropWritesTheSourceNeverTakes(context: Context) async {
+        let songs = entries.compactMap {
+            context.library.storedSong(id: $0.songID) ?? context.library.song(id: $0.songID)
+        }
+        guard !songs.isEmpty else { return }
+        let modes = await context.sourceManager.tagMetadataPersistenceModes(for: songs)
+        let neverWritable = Set(modes.compactMap { $0.value == .localOnly ? $0.key : nil })
+        guard !neverWritable.isEmpty else { return }
+        plog("Pending tag write-back dropped songs on read-only sources count=\(neverWritable.count)")
+        remove(songIDs: neverWritable)
     }
 
     // MARK: Retrying
@@ -866,6 +883,8 @@ final class PendingTagWritebackStore {
         automaticTask = nil
         guard let context, !isRetrying, context.library.isReady,
               !ArtistMergeService.shared.isRunning, Self.automaticWorkIsAllowed() else { return }
+        await dropWritesTheSourceNeverTakes(context: context)
+        guard !isRetrying, !ArtistMergeService.shared.isRunning else { return }
         let now = Date()
         let reachable = reachableSourceIDs
         reachableSourceIDs.removeAll()

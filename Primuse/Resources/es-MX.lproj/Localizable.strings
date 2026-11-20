@@ -842,7 +842,7 @@
 "apple_music_notice_no_results" = "No hay resultados de Apple Music (es posible que este escaparate no tenga este título).";
 "apple_music_notice_notDetermined" = "Apple Music aún no está conectado. Vaya a Configuración → Apple Music para habilitar la búsqueda en el catálogo.";
 "apple_music_notice_notDetermined_in_sources" = "Apple Music aún no está conectado. Conéctelo desde la fuente Apple Music en \"Administrar fuentes\" para habilitar la búsqueda en el catálogo.";
-"apple_music_now_playing_hint" = "Apple Music se reproduce mediante el reproductor del sistema. No se aplican funciones de Primuse como la obtención de metadatos, la edición de etiquetas o el ecualizador.";
+"apple_music_now_playing_hint" = "Apple Music se reproduce mediante el reproductor del sistema. No se aplican funciones de reproducción de Primuse como el volumen o el ecualizador.";
 "apple_music_open_in_app" = "Abrir en Apple Music";
 "apple_music_scrape_lyrics_only" = "Los metadatos y las portadas oficiales de Apple Music no cambian; la obtención de metadatos solo guarda las letras externas que confirmes.";
 "apple_music_unavailable" = "La transmisión Apple Music no está disponible para esta cuenta o región.";
@@ -7818,3 +7818,6 @@
 "home_filter_bar_ambient_separation_off" = "Aparece al activar “Separar sonidos ambientales”";
 "home_filter_bar_ambient_turn_on" = "Activar “Separar sonidos ambientales”";
 "home_filter_bar_ambient_no_content" = "Aparece cuando tu biblioteca tiene sonidos ambientales";
+"tag_editor_metadata_writeback_kept_local" = "Tus cambios están guardados en Primuse, pero la fuente de música no cambió.";
+"tag_editor_metadata_writeback_kept_local_retry" = "Tus cambios están guardados en Primuse, pero la fuente de música conserva las etiquetas anteriores. Primuse volverá a escribirlas automáticamente cuando la fuente esté disponible.";
+"artwork_apply_to_songs_kept_local_format" = "La nueva portada no se escribió en los archivos de %d canciones; solo está guardada en Primuse.";

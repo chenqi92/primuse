@@ -769,7 +769,7 @@
 "apple_music_notice_denied" = "L'accès à Apple Music a été refusé. Réactivez-le dans Réglages Système → Confidentialité → Médias et Apple Music.";
 "apple_music_notice_no_results" = "Aucun résultat Apple Music (cette boutique ne propose peut-être pas ce titre).";
 "apple_music_open_in_app" = "Ouvrir dans Apple Music";
-"apple_music_now_playing_hint" = "Apple Music passe par le lecteur du système. Les fonctionnalités de Primuse comme la récupération de métadonnées, la modification des tags et l'égaliseur ne s'appliquent pas.";
+"apple_music_now_playing_hint" = "Apple Music passe par le lecteur du système. Les fonctions de lecture de Primuse comme le volume et l'égaliseur ne s'appliquent pas.";
 "apple_music_library_section" = "Bibliothèque Apple Music";
 "apple_music_source_needs_authorization_title" = "Accès à Apple Music requis";
 "apple_music_source_needs_authorization_message" = "Primuse a besoin de l’accès à Apple Music pour synchroniser votre bibliothèque. Accordez l’accès dans Réglages Système, puis ajoutez de nouveau la source.";
@@ -7912,3 +7912,6 @@
 "home_filter_bar_ambient_separation_off" = "S’affiche une fois « Classer à part les sons d’ambiance » activé";
 "home_filter_bar_ambient_turn_on" = "Activer « Classer à part les sons d’ambiance »";
 "home_filter_bar_ambient_no_content" = "S’affiche quand votre bibliothèque contient des sons d’ambiance";
+"tag_editor_metadata_writeback_kept_local" = "Vos modifications sont enregistrées dans Primuse, mais la source musicale n'a pas changé.";
+"tag_editor_metadata_writeback_kept_local_retry" = "Vos modifications sont enregistrées dans Primuse, mais la source musicale garde les anciens tags. Primuse les réécrira automatiquement dès que la source sera accessible.";
+"artwork_apply_to_songs_kept_local_format" = "La nouvelle pochette n'a pas été écrite dans les fichiers de %d morceaux ; elle est enregistrée uniquement dans Primuse.";

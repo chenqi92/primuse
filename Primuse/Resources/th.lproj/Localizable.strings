@@ -842,7 +842,7 @@
 "apple_music_notice_no_results" = "ไม่มีผลลัพธ์ Apple Music (หน้าร้านนี้อาจไม่มีชื่อนี้)";
 "apple_music_notice_notDetermined" = "Apple Music ยังไม่ได้เชื่อมต่อ ไปที่การตั้งค่า → Apple Music เพื่อเปิดใช้งานการค้นหาแคตตาล็อก";
 "apple_music_notice_notDetermined_in_sources" = "Apple Music ยังไม่ได้เชื่อมต่อ เชื่อมต่อได้ที่แหล่งที่มา Apple Music ใน “จัดการแหล่งที่มา” เพื่อเปิดใช้งานการค้นหาแคตตาล็อก";
-"apple_music_now_playing_hint" = "Apple Music เล่นผ่านเครื่องเล่นระบบ Primuse ฟีเจอร์ต่างๆ เช่น การดึงเมทาดาทา การแก้ไขแท็ก และ EQ ใช้ไม่ได้";
+"apple_music_now_playing_hint" = "Apple Music เล่นผ่านเครื่องเล่นระบบ ฟีเจอร์การเล่นของ Primuse เช่น ระดับเสียงและ EQ จึงใช้ไม่ได้";
 "apple_music_open_in_app" = "เปิดใน Apple Music";
 "apple_music_scrape_lyrics_only" = "Apple Music เมทาดาทาและอาร์ตเวิร์คอย่างเป็นทางการยังคงไม่เปลี่ยนแปลง การดึงเมทาดาทาจะบันทึกเฉพาะเนื้อเพลงภายนอกที่คุณยืนยันเท่านั้น";
 "apple_music_unavailable" = "Apple Music การสตรีมไม่พร้อมใช้งานสำหรับบัญชีหรือภูมิภาคนี้";
@@ -7818,3 +7818,6 @@
 "home_filter_bar_ambient_separation_off" = "จะแสดงเมื่อเปิด “แยกเสียงบรรยากาศออกมา”";
 "home_filter_bar_ambient_turn_on" = "เปิด “แยกเสียงบรรยากาศออกมา”";
 "home_filter_bar_ambient_no_content" = "จะแสดงเมื่อคลังเพลงมีเสียงบรรยากาศ";
+"tag_editor_metadata_writeback_kept_local" = "บันทึกการแก้ไขไว้ใน Primuse แล้ว แต่ในแหล่งเพลงยังไม่เปลี่ยน";
+"tag_editor_metadata_writeback_kept_local_retry" = "บันทึกการแก้ไขไว้ใน Primuse แล้ว แต่ในแหล่งเพลงยังเป็นแท็กเดิม Primuse จะเขียนให้ใหม่อัตโนมัติเมื่อเชื่อมต่อแหล่งเพลงได้";
+"artwork_apply_to_songs_kept_local_format" = "เขียนปกใหม่ลงไฟล์ของ %d เพลงไม่สำเร็จ บันทึกไว้ใน Primuse เท่านั้น";

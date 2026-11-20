@@ -1167,6 +1167,8 @@ struct LibraryArtworkEditorSheet: View {
     @State private var songCoverProgress: (done: Int, total: Int)?
     /// 写给歌曲时有几首没写成;关掉提示框就收起编辑页(专辑封面本身已经换好)。
     @State private var songCoverFailure: String?
+    /// 上面那条说的是「没写进文件、只存在 Primuse」,不是没换成。
+    @State private var songCoverKeptLocal = false
     /// 专辑文件夹(分碟专辑连同各碟的子文件夹)里的图片,选一张存成这张专辑的封面。
     @State private var folderPictures: [AlbumFolderImages.Picture] = []
     #if os(iOS)
@@ -1980,7 +1982,9 @@ struct LibraryArtworkEditorSheet: View {
         var seenFolders: Set<String> = []
         var seenPictures: Set<String> = []
         var found: [AlbumFolderImages.Picture] = []
-        for song in songsForCoverSync where seenFolders.count < 8 {
+        // Apple Music 资料库的歌没有文件夹可列。
+        for song in songsForCoverSync where seenFolders.count < 8
+            && song.sourceID != AppleMusicLibraryIdentity.sourceID {
             let folder = "\(song.sourceID)|\((song.filePath as NSString).deletingLastPathComponent)"
             guard seenFolders.insert(folder).inserted,
                   let listing = await AlbumFolderImages.listing(for: song, sourceManager: sourceManager)
@@ -2077,10 +2081,10 @@ struct LibraryArtworkEditorSheet: View {
     // MARK: 同时用作专辑内歌曲的封面(#188)
 
     /// 专辑封面平时只管专辑自己;同专辑的歌各用各的封面。打开这一项,上传或选定的封面也写给专辑里的歌,
-    /// 和多选「批量编辑标签」换封面走同一条路:音乐源支持时写进文件,Primuse 里总会显示这张。
-    /// Apple Music 资料库里的歌不是自己的文件,不写。
+    /// 和多选「批量编辑标签」换封面走同一条路:音乐源支持时写进文件,写不进的(Apple Music 资料库、
+    /// 只读源)只存在 Primuse,Primuse 里总会显示这张。
     private var songsForCoverSync: [PrimuseKit.Song] {
-        songs.filter { $0.sourceID != AppleMusicLibraryService.systemSourceID }
+        songs
     }
 
     private var offersSongCoverSync: Bool {
@@ -2143,7 +2147,21 @@ struct LibraryArtworkEditorSheet: View {
                 format: String(localized: "artwork_apply_to_songs_failed_format"),
                 outcome.failures.count
             )
+            songCoverKeptLocal = false
             songCoverFailure = ([summary] + outcome.failures.prefix(3).map { "\($0.title): \($0.message)" })
+                .joined(separator: "\n")
+            return false
+        }
+        // 音乐源本来收、这次没写进文件的(拒绝写入、连不上):封面已经存在 Primuse,说明一下原因。
+        // 只读源本来就不写,打开这一项时的说明已经讲过,不再提示。
+        let missed = outcome.localOnlyWrites.filter(\.missedWrite)
+        guard missed.isEmpty else {
+            let summary = String(
+                format: String(localized: "artwork_apply_to_songs_kept_local_format"),
+                missed.count
+            )
+            songCoverKeptLocal = true
+            songCoverFailure = ([summary] + missed.prefix(3).map { "\($0.title): \($0.reason ?? "")" })
                 .joined(separator: "\n")
             return false
         }
@@ -2180,7 +2198,12 @@ struct LibraryArtworkEditorSheet: View {
     }
 
     private var songCoverFailureAlert: SongCoverFailureAlert {
-        SongCoverFailureAlert(message: $songCoverFailure) { dismiss() }
+        SongCoverFailureAlert(
+            title: songCoverKeptLocal
+                ? String(localized: "tag_editor_writeback_notice_title")
+                : String(localized: "artwork_upload_failed"),
+            message: $songCoverFailure
+        ) { dismiss() }
     }
 }
 
@@ -2216,14 +2239,15 @@ private struct AlbumFolderPictureThumbnail: View {
     }
 }
 
-/// 写给歌曲时有几首没写成。专辑封面本身已经换好,关掉提示框就收起编辑页。
+/// 写给歌曲时有几首没写成或只存在 Primuse。专辑封面本身已经换好,关掉提示框就收起编辑页。
 private struct SongCoverFailureAlert: ViewModifier {
+    let title: String
     @Binding var message: String?
     let onDismiss: () -> Void
 
     func body(content: Content) -> some View {
         content.alert(
-            String(localized: "artwork_upload_failed"),
+            title,
             isPresented: Binding(
                 get: { message != nil },
                 set: { if !$0 { message = nil } }

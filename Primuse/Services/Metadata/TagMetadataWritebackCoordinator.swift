@@ -34,13 +34,19 @@ struct TagMetadataWritebackReport: Sendable {
         }
     }
 
-    /// Embedded-file replacement is one guarded transaction. Only a definite
-    /// write denial permits a disclosed local-only save. Media-server and
-    /// sidecar APIs may partially succeed, so their local row must still be
-    /// brought in line with the requested values while the per-field report is
-    /// shown to the user.
-    var shouldAbortLocalSave: Bool {
+    /// 嵌入写回没写成,而且不是源明确拒绝:连不上、超时、回读校验没过。修改照样存在 Primuse
+    /// (见 `TagWritebackKeepPolicy`),只是要说明文件没写成,之后自动再写一次。
+    var embeddedWriteFailed: Bool {
         mode == .embedded && hasFailures
+    }
+
+    /// 这次没写到源的部分怎么留在 Primuse、之后要不要自动再写。
+    var keepOutcome: TagWritebackKeepPolicy.Outcome {
+        TagWritebackKeepPolicy.outcome(
+            fields: fields.map { TagWritebackKeepPolicy.Field(isCover: $0.field == .cover, result: $0.disposition.keepResult) },
+            sourceTakesWrites: mode != .localOnly,
+            refusedThisTime: localSaveNotice != nil
+        )
     }
 
     var issueMessage: String? {
@@ -70,9 +76,11 @@ struct TagMetadataWritebackReport: Sendable {
 }
 
 enum TagMetadataWritebackCoordinator {
+    /// `connector` 为 nil 时只做不必碰音乐源的那部分(只读源、旁路文件源只改文字),
+    /// 见 `TagWritebackKeepPolicy.needsSource`。
     static func write(
         mode: TagMetadataPersistenceMode,
-        connector: any MusicSourceConnector,
+        connector: (any MusicSourceConnector)?,
         original: Song,
         updated: Song,
         coverData: Data?
@@ -103,6 +111,10 @@ enum TagMetadataWritebackCoordinator {
         }.value
         switch mode {
         case .embedded:
+            guard let connector else {
+                report.setDisposition(.failed(String(localized: "metadata_writeback_error_invalid_state")), for: changed)
+                return report
+            }
             do {
                 let result = try await writeEmbeddedRetryingOnce(
                     connector: connector,
@@ -134,6 +146,10 @@ enum TagMetadataWritebackCoordinator {
             }
 
         case .serverAPI:
+            guard let connector else {
+                report.setDisposition(.failed(String(localized: "metadata_writeback_error_invalid_state")), for: changed)
+                return report
+            }
             guard let writer = connector as? any MediaServerWritebackConnector else {
                 report.setDisposition(
                     .failed(String(localized: "metadata_writeback_error_unsupported")),
@@ -179,6 +195,10 @@ enum TagMetadataWritebackCoordinator {
             guard changed.contains(.cover), let coverData, !coverData.isEmpty else {
                 return report
             }
+            guard let connector else {
+                report.setDisposition(.failed(String(localized: "metadata_writeback_error_invalid_state")), for: [.cover])
+                return report
+            }
             let result = await SidecarWriteService.shared.writeSidecars(
                 for: updated,
                 using: connector,
@@ -204,6 +224,38 @@ enum TagMetadataWritebackCoordinator {
         }
 
         return report
+    }
+
+    /// 连不上音乐源(连接失败、源找不到):要写到源的字段按写入失败报。修改照样存在 Primuse,
+    /// 音乐源恢复连接后自动再写一次。
+    static func sourceUnavailable(
+        mode: TagMetadataPersistenceMode,
+        original: Song,
+        updated: Song,
+        coverData: Data?,
+        error: any Error
+    ) -> TagMetadataWritebackReport {
+        let changed = TagMetadataWritebackField.changedFields(
+            from: original,
+            to: updated,
+            includesCover: coverData?.isEmpty == false
+        )
+        // 旁路文件源只写封面,文字标签本来就只在 Primuse。
+        let attempted = mode == .sidecarOnly ? changed.intersection([.cover]) : changed
+        let message = error.localizedDescription
+        return TagMetadataWritebackReport(
+            mode: mode,
+            updatedSong: updated,
+            fields: TagMetadataWritebackField.allCases.map { field in
+                let disposition: TagMetadataFieldWritebackDisposition
+                if attempted.contains(field) {
+                    disposition = .failed(message)
+                } else {
+                    disposition = changed.contains(field) ? .localOnly : .unchanged
+                }
+                return TagMetadataFieldWritebackResult(field: field, disposition: disposition)
+            }
+        )
     }
 
     /// The embedded rewrite, tried a second time after a timeout or a
@@ -269,6 +321,18 @@ private extension TagMetadataWritebackReport {
                 field: result.field,
                 disposition: disposition
             )
+        }
+    }
+}
+
+private extension TagMetadataFieldWritebackDisposition {
+    var keepResult: TagWritebackKeepPolicy.FieldResult {
+        switch self {
+        case .unchanged: .unchanged
+        case .written: .written
+        case .localOnly: .keptLocal
+        case .unsupported: .unsupported
+        case .failed: .failed
         }
     }
 }

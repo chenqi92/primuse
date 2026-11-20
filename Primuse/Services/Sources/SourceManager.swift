@@ -119,6 +119,15 @@ enum TagMetadataPersistenceMode: Sendable, Equatable {
     case serverAPI
     case sidecarOnly
     case localOnly
+
+    var capability: AudioMetadataWritebackCapability {
+        switch self {
+        case .embedded: .embedded
+        case .serverAPI: .serverAPI
+        case .sidecarOnly: .sidecarOnly
+        case .localOnly: .localOnly
+        }
+    }
 }
 
 struct OfflineDownloadBatchResult: Sendable {
@@ -16296,7 +16305,35 @@ final class SourceManager {
         coverData: Data?
     ) async throws -> TagMetadataWritebackReport {
         let mode = await tagMetadataPersistenceMode(for: original)
-        let connector = try await connectorForSong(original)
+        // 只读音乐源(Apple Music 资料库也在内)什么都不写,旁路文件源只改文字时也不写:
+        // 不连音乐源,连不上也不耽误修改存进 Primuse。
+        guard TagWritebackKeepPolicy.needsSource(
+            capability: mode.capability,
+            changesCover: coverData?.isEmpty == false
+        ) else {
+            return await TagMetadataWritebackCoordinator.write(
+                mode: mode,
+                connector: nil,
+                original: original,
+                updated: updated,
+                coverData: coverData
+            )
+        }
+        let connector: any MusicSourceConnector
+        do {
+            connector = try await connectorForSong(original)
+        } catch {
+            // 连不上音乐源:按写入失败报,修改照样留在 Primuse,恢复连接后自动再写。
+            plog("Metadata writeback source unavailable songID=\(original.id) "
+                + "mode=\(String(describing: mode)): \(error.localizedDescription)")
+            return TagMetadataWritebackCoordinator.sourceUnavailable(
+                mode: mode,
+                original: original,
+                updated: updated,
+                coverData: coverData,
+                error: error
+            )
+        }
         let report = await TagMetadataWritebackCoordinator.write(
             mode: mode,
             connector: connector,

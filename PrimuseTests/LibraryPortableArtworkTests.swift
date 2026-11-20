@@ -307,7 +307,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
         let still = try XCTUnwrap(written)
         XCTAssertTrue(LibraryArtworkImageProcessor.isReusablePortableJPEG(still))
         XCTAssertEqual(ArtworkImageCompatibility.inspect(still)?.isAnimated, false)
-        XCTAssertFalse(report.shouldAbortLocalSave)
+        XCTAssertFalse(report.embeddedWriteFailed)
         XCTAssertNotNil(report.localSaveNotice)
         XCTAssertEqual(ArtworkImageCompatibility.inspect(gif)?.frameCount, 2)
     }

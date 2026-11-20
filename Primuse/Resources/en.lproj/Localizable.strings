@@ -528,7 +528,7 @@
 "apple_music_notice_denied" = "Apple Music access was denied. Re-enable it in System Settings → Privacy → Media & Apple Music.";
 "apple_music_notice_no_results" = "No Apple Music results (this storefront may not carry this title).";
 "apple_music_open_in_app" = "Open in Apple Music";
-"apple_music_now_playing_hint" = "Apple Music plays through the system player. Primuse features like scraping, tag editing and EQ don't apply.";
+"apple_music_now_playing_hint" = "Apple Music plays through the system player. Primuse playback features like volume and EQ don't apply.";
 "apple_music_library_section" = "Apple Music Library";
 "apple_music_source_needs_authorization_title" = "Apple Music Access Required";
 "apple_music_source_needs_authorization_message" = "Primuse needs Apple Music access to sync your library. Grant access in System Settings, then add the source again.";
@@ -7673,3 +7673,6 @@
 "home_filter_bar_ambient_separation_off" = "Appears after you turn on Separate Ambient Sounds";
 "home_filter_bar_ambient_turn_on" = "Turn On Separate Ambient Sounds";
 "home_filter_bar_ambient_no_content" = "Appears when your library has ambient sounds";
+"tag_editor_metadata_writeback_kept_local" = "Your changes are saved in Primuse, but the music source is unchanged.";
+"tag_editor_metadata_writeback_kept_local_retry" = "Your changes are saved in Primuse, but the music source still has the old tags. Primuse writes them again automatically once the source is reachable.";
+"artwork_apply_to_songs_kept_local_format" = "The new artwork wasn’t written to the files of %d songs; it’s saved only in Primuse.";

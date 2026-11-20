@@ -4476,7 +4476,7 @@ final class Pan123MetadataWritebackTests: XCTestCase {
                 } else {
                     let report = try await manager.writeTagMetadata(original: song, updated: requested, coverData: nil)
                     XCTAssertEqual(report.hasFailures, failReadback)
-                    XCTAssertEqual(report.shouldAbortLocalSave, failReadback)
+                    XCTAssertEqual(report.embeddedWriteFailed, failReadback)
                     if !failReadback { XCTAssertEqual(report.updatedSong.filePath, "99") }
                 }
                 XCTAssertEqual(library.song(id: song.id)?.filePath, "99")

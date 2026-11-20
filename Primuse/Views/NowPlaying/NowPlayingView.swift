@@ -2457,6 +2457,14 @@ struct NowPlayingView: View {
             || scraperService.isSingleScraping
     }
 
+    /// 标签编辑器改的那一行。Apple Music 正在放的可能是目录里的那一份(id 不同),改动要存在
+    /// 资料库那一行上;资料库里没有的目录歌没处存,不给改。
+    private var tagEditorSong: Song? {
+        guard let song = player.currentSong else { return nil }
+        guard song.sourceID == AppleMusicLibraryService.systemSourceID else { return song }
+        return library.song(id: NowPlayingLibraryActions.locationSongID(for: song, library: library))
+    }
+
     private var canReloadLyricsFromSource: Bool {
         guard let song = player.currentSong else { return false }
         return LyricsAuthoritativeSourcePolicy.supportsServerDocument(
@@ -5301,7 +5309,7 @@ struct NowPlayingView: View {
                 .playerPresentationColorScheme()
         }
         .sheet(isPresented: $showTagEditor) {
-            if let song = player.currentSong {
+            if let song = tagEditorSong {
                 TagEditorView(song: song) { updated in
                     // 元数据变更后,封面缓存可能 stale; 同步路径由 PrimuseApp
                     // 监听 songReplacementToken 统一处理 player / theme,
@@ -10417,7 +10425,7 @@ struct NowPlayingView: View {
                 : player.currentSong.flatMap { ShuffleLinkMenuState(songID: $0.id, library: library) },
             showsScrape: shows(.scrape),
             showsSimilarSongs: shows(.similarSongs),
-            showsTagEditor: shows(.editTags),
+            showsTagEditor: shows(.editTags) && (!player.isAppleMusicMode || tagEditorSong != nil),
             showsLyricsEditor: shows(.editLyrics),
             showsSongInfo: shows(.songInfo),
             showsLyricsMotion: shows(.lyricsMotion),
@@ -17052,14 +17060,15 @@ private struct NowPlayingMoreMenuItems: View, @MainActor Equatable {
                     ShuffleLinkMenu(state: shuffleLink, setLinked: onSetShuffleLink)
                 }
 
-                if !snapshot.isAppleMusicMode, !snapshot.isPodcastEpisode {
-                    if snapshot.showsTagEditor {
-                        Button(action: onEditTags) {
-                            Label(String(localized: "tag_editor_menu"), systemImage: "tag")
-                        }
-                        .disabled(!snapshot.hasSong)
+                // Apple Music 的歌写不进源,改的标签存在 Primuse(只限资料库里有的那一行)。
+                if !snapshot.isPodcastEpisode, snapshot.showsTagEditor {
+                    Button(action: onEditTags) {
+                        Label(String(localized: "tag_editor_menu"), systemImage: "tag")
                     }
+                    .disabled(!snapshot.hasSong)
+                }
 
+                if !snapshot.isAppleMusicMode, !snapshot.isPodcastEpisode {
                     if snapshot.showsLyricsEditor {
                         Button(action: onEditLyrics) {
                             Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")

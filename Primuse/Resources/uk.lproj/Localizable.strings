@@ -2908,7 +2908,7 @@
 "yearly_month_1" = "Січень";
 "trusted_domains_footer" = "Додані вручну кінцеві точки все ще потребують перевірки сертифіката під час першого підключення. Підтверджені записи закріплюються на відбитку сертифіката та запитують знову після зміни. Проведіть пальцем, щоб видалити.";
 "smart_rules_section" = "Правила";
-"apple_music_now_playing_hint" = "Apple Music грає через системний плеєр. Такі функції Primuse, як пошук метаданих, редагування тегів і EQ, не застосовуються.";
+"apple_music_now_playing_hint" = "Apple Music грає через системний плеєр. Такі функції відтворення Primuse, як гучність і EQ, не застосовуються.";
 "baidu_error_token_expired" = "Термін дії маркера доступу минув (помилка 111).";
 "min" = "Мін";
 "baidu_error_code_format" = "Baidu Netdisk помилка %d.";
@@ -7818,3 +7818,6 @@
 "home_filter_bar_ambient_separation_off" = "З’явиться, коли ввімкнете «Окремо класифікувати звуки довкілля»";
 "home_filter_bar_ambient_turn_on" = "Увімкнути «Окремо класифікувати звуки довкілля»";
 "home_filter_bar_ambient_no_content" = "З’явиться, коли в медіатеці будуть звуки довкілля";
+"tag_editor_metadata_writeback_kept_local" = "Зміни збережено в Primuse, але в джерелі музики нічого не змінилося.";
+"tag_editor_metadata_writeback_kept_local_retry" = "Зміни збережено в Primuse, але в джерелі музики ще старі теги. Primuse запише їх знову автоматично, щойно джерело стане доступним.";
+"artwork_apply_to_songs_kept_local_format" = "Нову обкладинку не вдалося записати у файли %d треків; її збережено лише в Primuse.";

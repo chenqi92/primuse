@@ -9,7 +9,8 @@ struct AlbumMetadataGroup: Identifiable {
 
     static func groups(for songs: [Song]) -> [Self] {
         var seen = Set<String>()
-        let songs = songs.filter { $0.sourceID != AppleMusicLibraryService.systemSourceID && seen.insert($0.id).inserted }
+        // 写不进源的歌(Apple Music 资料库、只读源)也照样匹配,改动存在 Primuse。
+        let songs = songs.filter { seen.insert($0.id).inserted }
         let grouped = Dictionary(grouping: songs) { song in
             if let album = nonempty(song.albumTitle) {
                 return song.sourceID + "|album|" + album + "|" + (nonempty(song.albumArtistName) ?? "")
@@ -358,8 +359,11 @@ struct AlbumMetadataTrackRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             SongRowNumberedTitle(number: ordinal, title: song.title)
-            Text(verbatim: song.filePath.split(separator: "/").suffix(2).joined(separator: "/"))
-                .font(.caption).foregroundStyle(.secondary)
+            // Apple Music 资料库的歌没有文件路径(存的是条目 id),不列。
+            if song.sourceID != AppleMusicLibraryIdentity.sourceID {
+                Text(verbatim: song.filePath.split(separator: "/").suffix(2).joined(separator: "/"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Picker("album_metadata_match", selection: Binding(
                 get: { assignments[song.id] ?? "" },
                 set: { trackID in

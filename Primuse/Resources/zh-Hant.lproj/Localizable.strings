@@ -517,7 +517,7 @@
 "apple_music_notice_denied" = "Apple Music 權限被拒絕，去系統 設定 → 隱私權 → 媒體與 Apple Music 重新開啟。";
 "apple_music_notice_no_results" = "Apple Music 沒有相符的結果（可能是地區曲庫沒有這首歌）。";
 "apple_music_open_in_app" = "在 Apple Music 中開啟";
-"apple_music_now_playing_hint" = "Apple Music 在系統側播放，刮削 / 標籤編輯 / 等化器等 Primuse 功能不適用。";
+"apple_music_now_playing_hint" = "Apple Music 在系統側播放，音量、等化器等 Primuse 的播放功能不適用。";
 "apple_music_library_section" = "Apple Music 資料庫";
 "apple_music_source_needs_authorization_title" = "需要 Apple Music 權限";
 "apple_music_source_needs_authorization_message" = "Primuse 需要 Apple Music 權限才能同步資料庫。請在系統設定中授予權限後重新加入。";
@@ -7889,3 +7889,6 @@
 "home_filter_bar_ambient_separation_off" = "打開「單獨歸類環境音」後顯示";
 "home_filter_bar_ambient_turn_on" = "打開單獨歸類";
 "home_filter_bar_ambient_no_content" = "資料庫裡有環境音時顯示";
+"tag_editor_metadata_writeback_kept_local" = "變更已儲存在 Primuse，音樂來源上仍是原來的樣子。";
+"tag_editor_metadata_writeback_kept_local_retry" = "變更已儲存在 Primuse，音樂來源上仍是原來的標籤；音樂來源能連上時會自動再寫一次。";
+"artwork_apply_to_songs_kept_local_format" = "%d 首歌的新封面沒寫進檔案，只儲存在 Primuse。";
