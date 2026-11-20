@@ -541,6 +541,190 @@ struct AlbumArtistInferencePolicyTests {
         #expect(AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(for: ambiguous) == ["1", "2", "3"])
     }
 
+    // MARK: - 服务端已分好的专辑 (#462)
+
+    /// Subsonic 一族的一首:路径都在 `/songs` 下,带服务端专辑 id 和自己标签里的专辑艺人。
+    /// `albumArtist` 是 #333 之后存下的值(标签是回退值时换成服务端专辑的艺人)。
+    private func served(
+        _ id: String,
+        _ artist: String,
+        album: String,
+        tagged: String? = nil,
+        albumArtist: String? = nil,
+        title: String = "Same Title",
+        year: Int? = nil,
+        number: Int? = nil
+    ) -> AlbumArtistInferencePolicy.Track {
+        AlbumArtistInferencePolicy.Track(
+            id: id, sourceID: "navidrome", directory: "/songs", albumTitle: title,
+            albumArtistName: albumArtist ?? tagged ?? artist, trackArtistName: artist,
+            year: year, trackNumber: number,
+            serverAlbumID: album, taggedAlbumArtistName: tagged ?? artist
+        )
+    }
+
+    /// 推断之后每首落在哪位专辑艺人名下,即专辑页上有几张。
+    private func albumCredits(_ tracks: [AlbumArtistInferencePolicy.Track]) -> Set<String> {
+        let inferred = AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks)
+        return Set(tracks.compactMap { inferred[$0.id] ?? $0.albumArtistName ?? $0.trackArtistName })
+    }
+
+    /// #462:两位歌手的同名专辑,服务端是两张。带 feat. 的那首专辑艺人是显式的,另一张那首的
+    /// 专辑艺人就是自己,以前被当成缺标签并了过去。年份、曲号也对不上,但这里不靠它们。
+    @Test func sameTitledServerAlbumsByDifferentArtistsStayApart() {
+        let tracks = [
+            served("1", "RAF Camora", album: "raf", year: 2021, number: 1),
+            served("2", "RAF Camora feat. Bonez MC", album: "raf", tagged: "RAF Camora", year: 2021, number: 2),
+            served("3", "2 Engel & Charlie", album: "engel", year: 2026, number: 1),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks).isEmpty)
+        #expect(albumCredits(tracks) == ["RAF Camora", "2 Engel & Charlie"])
+
+        let undated = [
+            served("1", "RAF Camora", album: "raf"),
+            served("2", "RAF Camora feat. Bonez MC", album: "raf", tagged: "RAF Camora"),
+            served("3", "2 Engel & Charlie", album: "engel"),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: undated).isEmpty)
+    }
+
+    /// #333 原场景:服务端按专辑名把各首艺人不同、都没有专辑艺人标签的歌并成一张,
+    /// 扫描时已经换成服务端专辑的艺人,推断不再动它们。
+    @Test func oneServerAlbumOfUntaggedArtistsStaysOneAlbum() {
+        let tracks = [
+            served("1", "Artist A", album: "sing", albumArtist: "Artist C", number: 1),
+            served("2", "Artist B", album: "sing", albumArtist: "Artist C", number: 2),
+            served("3", "Artist C", album: "sing", number: 3),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks).isEmpty)
+        #expect(albumCredits(tracks) == ["Artist C"])
+    }
+
+    /// 服务端按 MBID 或专辑名并成一张、部分曲目有专辑艺人标签,服务端专辑艺人取到了
+    /// 没标签那首的艺人 Y:#333 把没标签的都改成 Y,有标签的仍是 X。看各首自己的标签,
+    /// 只有 X 一种,整张都用 X。
+    @Test func oneServerAlbumFollowsItsOnlyTaggedAlbumArtist() {
+        let tracks = [
+            served("1", "Guest A", album: "ost", tagged: "Label X", number: 1),
+            served("2", "Composer Y", album: "ost", number: 2),
+            served("3", "Composer Z", album: "ost", albumArtist: "Composer Y", number: 3),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks) == [
+            "2": "Label X", "3": "Label X",
+        ])
+        #expect(albumCredits(tracks) == ["Label X"])
+
+        // 标签有两种:保持 #333 的结果。
+        let conflicting = [
+            served("1", "Guest A", album: "ost", tagged: "Label X"),
+            served("2", "Guest B", album: "ost", tagged: "Label W"),
+            served("3", "Composer Z", album: "ost", albumArtist: "Label W"),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: conflicting).isEmpty)
+
+        // 统一只在一张服务端专辑之内:同名的另一张不跟着改。
+        let besideAnother = tracks + [served("4", "Someone Else", album: "other", number: 1)]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: besideAnother) == [
+            "2": "Label X", "3": "Label X",
+        ])
+    }
+
+    /// #338 在 Navidrome 上:合唱那首没有专辑艺人标签,服务端把它单独算一张;
+    /// 同名范围里没有显式标签,照旧并进主唱那张。
+    @Test func aDuetOnAServerStillFoldsIntoTheSoloAlbum() {
+        let tracks = [
+            served("1", "李荣浩", album: "solo", title: "纵横四海", year: 2015, number: 1),
+            served("2", "李荣浩", album: "solo", title: "纵横四海", year: 2015, number: 2),
+            served("3", "李荣浩 & 张惠妹", album: "duet", title: "纵横四海", year: 2015, number: 3),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks) == ["3": "李荣浩"])
+    }
+
+    /// 手改过的行不再跟服务端走,它现在的专辑艺人就是它自己的标签。
+    @Test func anEditedServerRowVotesWithItsOwnAlbumArtist() {
+        func song(_ id: String, _ artist: String, albumArtist: String, tagged: String?, edited: Bool) -> Song {
+            Song(
+                id: id, title: id, albumTitle: "Same Title", artistName: artist,
+                albumArtistName: albumArtist, fileFormat: .flac, filePath: "/songs/\(id).flac",
+                sourceID: "navidrome", userMetadataEditedAt: edited ? Date(timeIntervalSince1970: 1) : nil,
+                serverCatalogAlbum: ServerCatalogAlbumReference(id: "ost", taggedArtist: tagged)
+            )
+        }
+        func tracks(_ songs: [Song]) -> [AlbumArtistInferencePolicy.Track] {
+            songs.map { AlbumArtistInferencePolicy.Track(song: $0, directory: "/songs") }
+        }
+        let tagged = song("1", "Guest A", albumArtist: "Label X", tagged: "Label X", edited: false)
+        let untagged = song("2", "Composer Z", albumArtist: "Composer Y", tagged: "Composer Z", edited: false)
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks([tagged, untagged])) == [
+            "2": "Label X",
+        ])
+
+        let renamed = song("2", "Composer Z", albumArtist: "My Label", tagged: "Composer Z", edited: true)
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks([tagged, renamed])).isEmpty)
+    }
+
+    /// 没有服务端专辑的源(飞牛等)照旧收编,但年份或曲号对不上的那一组是同名的另一张。
+    @Test func theExplicitVerdictLeavesOutAnotherReleaseOfTheSameTitle() {
+        func fn(_ id: String, _ artist: String, albumArtist: String? = nil, year: Int? = nil,
+                disc: Int? = nil, number: Int? = nil) -> AlbumArtistInferencePolicy.Track {
+            track(id, sourceID: "fnmusic", directory: "/fnmusic/tracks", albumTitle: "Same Title",
+                  albumArtistName: albumArtist, trackArtistName: artist,
+                  year: year, disc: disc, number: number)
+        }
+        let raf = [
+            fn("1", "RAF Camora", year: 2021, number: 1),
+            fn("2", "RAF Camora feat. Bonez MC", albumArtist: "RAF Camora", year: 2021, number: 2),
+        ]
+
+        // 年份不同、第 1 首撞车:不收编。
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(
+            for: raf + [fn("3", "2 Engel & Charlie", year: 2026, number: 1)]).isEmpty)
+        // 只有年份不同。
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(
+            for: raf + [fn("3", "2 Engel & Charlie", year: 2026, number: 16)]).isEmpty)
+        // 只有曲号撞车(碟号缺省按 1)。
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(
+            for: raf + [fn("3", "2 Engel & Charlie", disc: 1, number: 1)]).isEmpty)
+        // 一组里有一首撞车,整组都不收编。
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(
+            for: raf + [fn("3", "2 Engel & Charlie", number: 16), fn("4", "2 Engel & Charlie", number: 1)]
+        ).isEmpty)
+        // 看不出冲突:照旧收编。
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(
+            for: raf + [fn("3", "2 Engel & Charlie", number: 16)]) == ["3": "RAF Camora"])
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(
+            for: raf + [fn("3", "2 Engel & Charlie", year: 2021, disc: 2, number: 1)]) == ["3": "RAF Camora"])
+    }
+
+    /// 37ae32d52 的原场景带上年份和曲号:同一张专辑,飞牛只给部分曲目返回专辑艺人,仍并成一张。
+    /// 合辑每首写原始年份时年份不统一,不拿年份判断。
+    @Test func aPartlyTaggedServerAlbumWithYearsAndNumbersStillJoins() {
+        func fn(_ id: String, _ artist: String, albumArtist: String? = nil, year: Int, number: Int)
+            -> AlbumArtistInferencePolicy.Track {
+            track(id, sourceID: "fnmusic", directory: "/fnmusic/tracks", albumTitle: "游戏《Rewrite》原声带",
+                  albumArtistName: albumArtist, trackArtistName: artist, year: year, number: number)
+        }
+        let ost = [
+            fn("1", "水谷瑠奈", albumArtist: "Key Sounds Label", year: 2011, number: 1),
+            fn("2", "細井聡司", albumArtist: "Key Sounds Label", year: 2011, number: 2),
+            fn("3", "折戸伸治", year: 2011, number: 3),
+            fn("4", "麻枝准", year: 2011, number: 4),
+            fn("5", "麻枝准", year: 2011, number: 5),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: ost) == [
+            "3": "Key Sounds Label", "4": "Key Sounds Label", "5": "Key Sounds Label",
+        ])
+
+        let compilation = [
+            fn("1", "Singer A", albumArtist: "Various Artists", year: 1990, number: 1),
+            fn("2", "Singer B", albumArtist: "Various Artists", year: 1995, number: 2),
+            fn("3", "Singer C", year: 2001, number: 3),
+        ]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: compilation) == [
+            "3": "Various Artists",
+        ])
+    }
+
     @Test func creditNamesSplitCollaborationsOnly() {
         #expect(AlbumArtistInferencePolicy.creditNames(in: "李荣浩 & 张惠妹") == ["李荣浩", "张惠妹"])
         #expect(AlbumArtistInferencePolicy.creditNames(in: "A feat. B") == ["A", "B"])

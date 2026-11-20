@@ -15,6 +15,13 @@ import Foundation
 /// server answers the album artist for some of its tracks and not the rest.
 /// Those sources are grouped by album title alone and only the unambiguous
 /// verdict is taken: one explicit tag in the album, everyone else untagged.
+/// A credit that is evidently a same-titled release of its own — a disc and
+/// track number the album already has, or another year — is not taken in.
+///
+/// A track whose server already put it in an album (`serverAlbumID`, the
+/// Subsonic family) has been grouped there. It is only ever regrouped inside
+/// that server album; same-titled albums the server keeps apart stay apart
+/// (#462).
 ///
 /// Cloud drives that address files by item ID (Google Drive, OneDrive, 123…)
 /// do have real folders, only not in the path. `AlbumArtistFolderIndex`
@@ -37,7 +44,13 @@ public enum AlbumArtistInferencePolicy {
         public let year: Int?
         public let discNumber: Int?
         public let trackNumber: Int?
+        /// The server's own album for a track the server already grouped
+        /// (`Song.serverCatalogAlbum`), nil for every other source.
+        public let serverAlbumID: String?
 
+        /// `taggedAlbumArtistName` is the album artist the track's own tags
+        /// give, before the server album's credit was put in its place (#333);
+        /// it is only read together with `serverAlbumID`.
         public init(
             id: String,
             sourceID: String,
@@ -47,7 +60,9 @@ public enum AlbumArtistInferencePolicy {
             trackArtistName: String?,
             year: Int? = nil,
             discNumber: Int? = nil,
-            trackNumber: Int? = nil
+            trackNumber: Int? = nil,
+            serverAlbumID: String? = nil,
+            taggedAlbumArtistName: String? = nil
         ) {
             self.id = id
             self.sourceID = sourceID
@@ -58,17 +73,37 @@ public enum AlbumArtistInferencePolicy {
             self.year = year
             self.discNumber = discNumber
             self.trackNumber = trackNumber
+            let serverAlbumID = AlbumArtistInferencePolicy.trimmed(serverAlbumID)
+            self.serverAlbumID = serverAlbumID
             let albumArtist = AlbumArtistInferencePolicy.trimmed(albumArtistName)
             let trackArtist = AlbumArtistInferencePolicy.trimmed(trackArtistName)
             trimmedAlbumTitle = AlbumArtistInferencePolicy.trimmed(albumTitle)
             effectiveArtist = albumArtist ?? trackArtist
-            if let albumArtist {
-                hasExplicitAlbumArtist = trackArtist.map {
-                    albumArtist.caseInsensitiveCompare($0) != .orderedSame
-                } ?? true
-            } else {
-                hasExplicitAlbumArtist = false
-            }
+            hasExplicitAlbumArtist = AlbumArtistInferencePolicy.isExplicit(albumArtist, beside: trackArtist)
+            let tag = serverAlbumID == nil ? nil : AlbumArtistInferencePolicy.trimmed(taggedAlbumArtistName)
+            explicitTaggedAlbumArtist = AlbumArtistInferencePolicy.isExplicit(tag, beside: trackArtist) ? tag : nil
+        }
+
+        /// The track as a library row hands it over. A row the user edited no
+        /// longer follows the server (`ServerSongCatalogMergePolicy`): the
+        /// album artist it carries now is its own tag.
+        public init(song: Song, directory: String?) {
+            let serverAlbum = song.serverCatalogAlbum
+            self.init(
+                id: song.id,
+                sourceID: song.sourceID,
+                directory: directory,
+                albumTitle: song.albumTitle,
+                albumArtistName: song.albumArtistName,
+                trackArtistName: song.artistName,
+                year: song.year,
+                discNumber: song.discNumber,
+                trackNumber: song.trackNumber,
+                serverAlbumID: serverAlbum?.id,
+                taggedAlbumArtistName: serverAlbum.flatMap {
+                    song.userMetadataEditedAt == nil ? $0.taggedArtist : song.albumArtistName
+                }
+            )
         }
 
         // Worked out once per track: a library-wide pass reads each of these
@@ -76,6 +111,16 @@ public enum AlbumArtistInferencePolicy {
         let trimmedAlbumTitle: String?
         let effectiveArtist: String?
         let hasExplicitAlbumArtist: Bool
+        /// The tagged album artist of a track in a server album, when it names
+        /// someone other than the track's own artist.
+        let explicitTaggedAlbumArtist: String?
+    }
+
+    /// An album artist says something only when it is not the track artist
+    /// standing in for a missing tag.
+    fileprivate static func isExplicit(_ albumArtist: String?, beside trackArtist: String?) -> Bool {
+        guard let albumArtist else { return false }
+        return trackArtist.map { albumArtist.caseInsensitiveCompare($0) != .orderedSame } ?? true
     }
 
     /// `ArtistIdentityPolicy.groupingKey` remembered per spelling for one
@@ -162,8 +207,12 @@ public enum AlbumArtistInferencePolicy {
     ) -> [String: String] {
         var result: [String: String] = [:]
         var keys = GroupingKeys()
-        for scope in scopes(for: tracks, restrictedTo: directoryAuthoritativeSourceIDs)
-        where scope.count >= 2 {
+        // A track in a server album is only regrouped inside that album, so no
+        // folder vote reaches it either.
+        for scope in scopes(
+            for: tracks.lazy.filter { $0.serverAlbumID == nil },
+            restrictedTo: directoryAuthoritativeSourceIDs
+        ) where scope.count >= 2 {
             guard let target = target(for: scope, keys: &keys) else {
                 result.merge(creditContainmentTargets(for: scope, keys: &keys)) { _, new in new }
                 continue
@@ -181,20 +230,27 @@ public enum AlbumArtistInferencePolicy {
         // track here, and a filtered copy of the whole library's tracks was the
         // largest allocation of a library rebuild.
         let unfoldered = tracks.lazy.filter {
-            !directoryAuthoritativeSourceIDs.contains($0.sourceID) || $0.directory == nil
+            $0.serverAlbumID != nil
+                || !directoryAuthoritativeSourceIDs.contains($0.sourceID)
+                || $0.directory == nil
         }
         // Folding a duet into the solo credit beside it needs no majority, so
         // it is open to these scopes too: it only ever joins credits that
         // already share an artist, never an album by somebody else.
         for scope in scopes(for: unfoldered, restrictedTo: nil, byDirectory: false)
         where scope.count >= 2 {
-            guard let target = target(for: scope, explicitTagsOnly: true, keys: &keys) else {
+            // Tracks the server placed in an album stay out of the title-wide
+            // verdict: a same-titled album the server keeps apart is another
+            // release, not a track that is missing its tag (#462).
+            let placed = serverAlbumTargets(for: scope, keys: &keys)
+            let loose = scope.contains(where: { $0.serverAlbumID != nil })
+                ? scope.filter { $0.serverAlbumID == nil } : scope
+            if loose.count >= 2, let target = target(for: loose, explicitTagsOnly: true, keys: &keys) {
+                result.merge(explicitTagTargets(for: loose, target: target, keys: &keys)) { _, new in new }
+            } else {
                 result.merge(creditContainmentTargets(for: scope, keys: &keys)) { _, new in new }
-                continue
             }
-            for track in scope where track.effectiveArtist != target {
-                result[track.id] = target
-            }
+            result.merge(placed) { _, new in new }
         }
         if configuration.mergesCollaborativeAlbums {
             result.merge(sharedArtistTargets(for: tracks, configuration: configuration)) { _, shared in shared }
@@ -420,6 +476,103 @@ public enum AlbumArtistInferencePolicy {
         return tally.spelling(forKeyAt: top)
     }
 
+    /// Track ID → `target` for the tracks of a title-wide scope that one
+    /// undisputed explicit tag takes in: fnOS Music answers the album artist
+    /// for part of an album only, and the rest would split off by composer.
+    ///
+    /// The tracks to take in are judged per credit, the way they would group
+    /// on their own. A credit stays out when it is evidently a same-titled
+    /// release of its own (#462): a disc and track number the album already
+    /// has (disc 1 when not given), or one year on each side and not the
+    /// same one. Years that differ from track to track, as on a compilation
+    /// dated by each song's original release, say nothing either way.
+    private static func explicitTagTargets(
+        for scope: [Track],
+        target: String,
+        keys: inout GroupingKeys
+    ) -> [String: String] {
+        let targetKey = keys.key(target)
+        var result: [String: String] = [:]
+        var staying: [Track] = []
+        var creditOrder: [String?] = []
+        var tracksByCredit: [String?: [Track]] = [:]
+        for track in scope {
+            var key: String?
+            if let artist = track.effectiveArtist { key = keys.key(artist) }
+            if key == targetKey {
+                staying.append(track)
+                if track.effectiveArtist != target { result[track.id] = target }
+                continue
+            }
+            if tracksByCredit[key] == nil { creditOrder.append(key) }
+            tracksByCredit[key, default: []].append(track)
+        }
+        let stayingYear = singleYear(of: staying)
+        var taken = Set(staying.compactMap(DiscTrack.init))
+        for key in creditOrder {
+            guard let moving = tracksByCredit[key] else { continue }
+            if let stayingYear, let movingYear = singleYear(of: moving), movingYear != stayingYear {
+                continue
+            }
+            let incoming = moving.compactMap(DiscTrack.init)
+            guard taken.isDisjoint(with: incoming) else { continue }
+            taken.formUnion(incoming)
+            for track in moving { result[track.id] = target }
+        }
+        return result
+    }
+
+    /// The one year the tracks give, or nil when none gives one or they
+    /// disagree.
+    private static func singleYear(of tracks: [Track]) -> Int? {
+        var year: Int?
+        for track in tracks {
+            guard let value = track.year, value > 0 else { continue }
+            if let year, year != value { return nil }
+            year = value
+        }
+        return year
+    }
+
+    /// Track ID → the album artist one server album's own tags agree on.
+    ///
+    /// A server that joins an album by MusicBrainz ID or by title credits it
+    /// with one track's album artist (Navidrome: the last one by path). When
+    /// that track has no album-artist tag, #333 hands its artist to every
+    /// untagged track while the tagged ones keep their tag, and the one
+    /// server album splits in two. Explicitness is read from the tags
+    /// themselves (`taggedAlbumArtistName`): after #333 both halves look
+    /// tagged. One tag across the server album speaks for all of it; several
+    /// leave it as the server credited it.
+    private static func serverAlbumTargets(
+        for scope: [Track],
+        keys: inout GroupingKeys
+    ) -> [String: String] {
+        guard scope.contains(where: { $0.explicitTaggedAlbumArtist != nil }) else { return [:] }
+        var albumOrder: [String] = []
+        var tracksByAlbum: [String: [Track]] = [:]
+        for track in scope {
+            guard let album = track.serverAlbumID else { continue }
+            if tracksByAlbum[album] == nil { albumOrder.append(album) }
+            tracksByAlbum[album, default: []].append(track)
+        }
+        var result: [String: String] = [:]
+        for album in albumOrder {
+            guard let tracks = tracksByAlbum[album], tracks.count >= 2 else { continue }
+            var tally = Tally()
+            for track in tracks {
+                guard let tag = track.explicitTaggedAlbumArtist else { continue }
+                tally.add(tag, key: keys.key(tag))
+            }
+            guard tally.keyOrder.count == 1,
+                  let target = tally.spelling(forKey: tally.keyOrder[0]) else { continue }
+            for track in tracks where track.effectiveArtist != target {
+                result[track.id] = target
+            }
+        }
+        return result
+    }
+
     /// Track ID → the credit a co-credited track folds into, for a scope the
     /// rules above leave split (#338). An album without album-artist tags
     /// keys each track by its own artist, so the duet on 李荣浩's 《纵横四海》,
@@ -434,7 +587,8 @@ public enum AlbumArtistInferencePolicy {
     /// a duet keep their credits.
     ///
     /// Nothing moves while any track carries an album-artist tag: one tag
-    /// already decides the scope above, and several disagree on purpose. A
+    /// already decides the scope above (or, in a server album, marks a
+    /// release the server keeps apart), and several disagree on purpose. A
     /// fold is refused when the two credits' years differ or a track number
     /// is taken on both sides — same-titled releases, not one album.
     private static func creditContainmentTargets(

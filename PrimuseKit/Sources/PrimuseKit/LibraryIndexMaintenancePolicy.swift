@@ -78,6 +78,10 @@ public enum LibraryIndexMaintenancePolicy {
             || old.artistArtworkFileName != new.artistArtworkFileName
             || old.discNumber != new.discNumber
             || old.trackNumber != new.trackNumber
+            // The server album and whether the row still follows the server
+            // decide whose album-artist tag counts (`AlbumArtistInferencePolicy`).
+            || old.serverCatalogAlbum != new.serverCatalogAlbum
+            || (old.userMetadataEditedAt == nil) != (new.userMetadataEditedAt == nil)
     }
 
     /// Generation allocation wraps rather than overflowing. Zero stays reserved

@@ -18623,15 +18623,8 @@ final class MusicLibrary {
         folders: AlbumArtistFolderIndex
     ) -> AlbumArtistInferencePolicy.Track {
         AlbumArtistInferencePolicy.Track(
-            id: song.id,
-            sourceID: song.sourceID,
-            directory: folders.directory(sourceID: song.sourceID, filePath: song.filePath),
-            albumTitle: song.albumTitle,
-            albumArtistName: song.albumArtistName,
-            trackArtistName: song.artistName,
-            year: song.year,
-            discNumber: song.discNumber,
-            trackNumber: song.trackNumber
+            song: song,
+            directory: folders.directory(sourceID: song.sourceID, filePath: song.filePath)
         )
     }
 
@@ -19188,7 +19181,7 @@ final class MusicLibrary {
         var hasher = SHA256()
         var input = Data()
         input.reserveCapacity(1 << 16)
-        appendStableString("derived-index-v7", to: &input)
+        appendStableString("derived-index-v8", to: &input)
         appendStableString(String(localized: "unknown_artist"), to: &input)
         appendStableString(configuration.cacheSignature, to: &input)
 
@@ -19205,6 +19198,11 @@ final class MusicLibrary {
             // 合唱并进主唱那张时用来排除同名的另一张(#338)。
             appendStableInteger(song.discNumber.map(Int64.init) ?? Int64.min, to: &input)
             appendStableInteger(song.trackNumber.map(Int64.init) ?? Int64.min, to: &input)
+            // 服务端已分好的专辑只在专辑内统一专辑艺人(#462);手改过的行用它自己的值。
+            let serverAlbum = song.serverCatalogAlbum
+            appendStableString(serverAlbum?.id, to: &input)
+            appendStableString(serverAlbum?.taggedArtist, to: &input)
+            input.append(song.userMetadataEditedAt == nil ? 0 : 1)
             appendStableString(song.genre, to: &input)
             appendStableInteger(song.duration.sanitizedDuration.bitPattern, to: &input)
             appendStableString(song.sourceID, to: &input)

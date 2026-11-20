@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrimuseKit
 
@@ -103,6 +104,14 @@ struct LibraryIndexMaintenancePolicyTests {
         var track = original
         track.trackNumber = 9
         variants.append(track)
+
+        var serverAlbum = original
+        serverAlbum.serverCatalogAlbum = ServerCatalogAlbumReference(id: "album-1", taggedArtist: "Label")
+        variants.append(serverAlbum)
+
+        var edited = original
+        edited.userMetadataEditedAt = Date(timeIntervalSince1970: 1)
+        variants.append(edited)
 
         for variant in variants {
             #expect(LibraryIndexMaintenancePolicy.derivedCollectionsChanged(

@@ -649,6 +649,42 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
         XCTAssertEqual(result.albumIDCorrections.keys.sorted(), ["2"])
     }
 
+    /// #462:Navidrome 上两位歌手的同名专辑是两张,一张里带 feat. 的那首有显式专辑艺人,
+    /// 另一张那首的专辑艺人就是自己。整库重建要按服务端专辑保持两张;同一张服务端专辑里
+    /// 只有一首有标签时,整张跟它走。
+    func testServerAlbumsKeepSameTitledAlbumsApartAndJoinTheirOwnTracks() {
+        func row(_ id: String, _ artist: String, albumArtist: String, tagged: String?, album: String) -> Song {
+            var row = Song(
+                id: id, title: id, albumTitle: "Same Title", artistName: artist,
+                albumArtistName: albumArtist, trackNumber: Int(id), duration: 180, fileFormat: .flac,
+                filePath: "/songs/\(id).flac", sourceID: "navidrome",
+                serverCatalogAlbum: ServerCatalogAlbumReference(id: album, taggedArtist: tagged)
+            )
+            MusicLibrary.fillDerivedIDs(&row)
+            return row
+        }
+        let apart = [
+            row("1", "RAF Camora", albumArtist: "RAF Camora", tagged: "RAF Camora", album: "raf"),
+            row("2", "RAF Camora feat. Bonez MC", albumArtist: "RAF Camora", tagged: "RAF Camora", album: "raf"),
+            row("11", "2 Engel & Charlie", albumArtist: "2 Engel & Charlie", tagged: "2 Engel & Charlie", album: "engel"),
+        ]
+        let separated = MusicLibrary.computeAlbumsAndArtists(songs: apart)
+        XCTAssertEqual(Set(separated.albums.map(\.artistName)), ["RAF Camora", "2 Engel & Charlie"])
+        XCTAssertTrue(separated.albumIDCorrections.isEmpty)
+
+        let partlyTagged = [
+            row("1", "Guest A", albumArtist: "Label X", tagged: "Label X", album: "ost"),
+            row("2", "Composer Y", albumArtist: "Composer Y", tagged: "Composer Y", album: "ost"),
+            row("3", "Composer Z", albumArtist: "Composer Y", tagged: "Composer Z", album: "ost"),
+        ]
+        XCTAssertEqual(Set(partlyTagged.compactMap(\.albumID)).count, 2)
+        let joined = MusicLibrary.computeAlbumsAndArtists(songs: partlyTagged)
+        XCTAssertEqual(joined.albums.count, 1)
+        XCTAssertEqual(joined.albums.first?.artistName, "Label X")
+        XCTAssertEqual(joined.albums.first?.songCount, 3)
+        XCTAssertEqual(joined.albumIDCorrections.keys.sorted(), ["2", "3"])
+    }
+
     func testCollaborationAlbumToggleRegroupsExistingSongsAndSurvivesReload() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
