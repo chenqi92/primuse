@@ -62,8 +62,19 @@ public enum EmbeddedLyricsArchive {
                 guard item.metadataKey == nil else { throw CocoaError(.featureUnsupported) }
                 return true
             }
+            let existing = try target.filter(hasLyrics)
             append = try source.filter(hasLyrics)
-            for item in target where try hasLyrics(item) { edits.updateValue(nil, forKey: item.ordinal) }
+            if format == .mp3, source.first?.majorVersion == 3, target.first?.majorVersion == 4 {
+                // TagLib can upgrade ID3v2.3 to v2.4 and reorder otherwise unchanged frames.
+                // Reuse a frame already encoded in the target format if its payload is identical.
+                append = append.map { original in
+                    guard original.flags == 0 else { return original }
+                    return existing.first {
+                        $0.flags == 0 && $0.key == original.key && $0.payload == original.payload
+                    } ?? original
+                }
+            }
+            for item in existing { edits.updateValue(nil, forKey: item.ordinal) }
         }
         let result = try OrderedTagContainer.replacing(in: rewritten, format: format, replacements: edits, appending: append)
         guard try entries(in: result, fileExtension: fileExtension) == before else { throw CocoaError(.fileWriteUnknown) }

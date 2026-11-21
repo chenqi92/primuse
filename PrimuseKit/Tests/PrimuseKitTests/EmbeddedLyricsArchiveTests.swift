@@ -92,6 +92,29 @@ struct EmbeddedLyricsArchiveTests {
         #expect(EmbeddedLyricsFieldEditor.usltIdentity(bodies[0]) != EmbeddedLyricsFieldEditor.usltIdentity(bodies[1]))
     }
 
+    @Test func coverWriteUpgradingID3KeepsLyricsOrderAndAudio() throws {
+        let first = boxFrame("USLT", Data([0]) + Data("eng".utf8) + Data([0]) + Data("Amber rail".utf8))
+        let second = boxFrame("TXXX", Data([0]) + Data("LYRICS".utf8) + Data([0]) + Data("Copper bell".utf8))
+        let picture = boxFrame("APIC", Data([0]) + Data("image/jpeg".utf8) + Data([0, 3, 0, 0xff, 0xd8, 0xff, 0xd9]))
+        let audio = Data([0xff, 0xfb, 0x90, 0x64])
+        func file(version: UInt8, frames: Data) -> Data {
+            Data("ID3".utf8) + Data([version, 0, 0, 0, 0, 0, UInt8(frames.count)]) + frames + audio
+        }
+        let original = file(version: 3, frames: first + second)
+        let upgraded = file(version: 4, frames: second + picture + first)
+        let restored = try EmbeddedLyricsArchive.preserving(from: original, in: upgraded, fileExtension: "mp3")
+        #expect(restored[3] == 4)
+        #expect(try EmbeddedLyricsArchive.entries(in: restored, fileExtension: "mp3")
+            == EmbeddedLyricsArchive.entries(in: original, fileExtension: "mp3"))
+        #expect(restored.range(of: picture) != nil)
+        #expect(restored.suffix(audio.count) == audio)
+
+        let missing = file(version: 4, frames: picture + first)
+        #expect(throws: (any Error).self) {
+            try EmbeddedLyricsArchive.preserving(from: original, in: missing, fileExtension: "mp3")
+        }
+    }
+
     private func vorbisBlock(_ fields: [String]) -> Data {
         func le(_ n: Int) -> Data { withUnsafeBytes(of: UInt32(n).littleEndian) { Data($0) } }
         var body = le(0) + le(fields.count)
