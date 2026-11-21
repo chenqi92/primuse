@@ -229,6 +229,8 @@ extension SourceManager {
             throw SongFileRenameError.partial(result,
                 String(localized: "song_file_rename_partial") + "\n" + error.localizedDescription)
         }
+        // 改名是 Primuse 自己做的：歌词编辑器接着保存时，新的路径和身份不算「被别处改过」。
+        LyricsWriteback.recordOwnAudioWrite(result.song)
         return result
     }
 }

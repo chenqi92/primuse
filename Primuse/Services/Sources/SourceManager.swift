@@ -16459,6 +16459,8 @@ final class SourceManager {
                 SourceWriteRefusalMemory.recordRefusal(sourceID: original.sourceID)
             } else if report.remoteMutationOccurred {
                 SourceWriteRefusalMemory.recordWrite(sourceID: original.sourceID)
+                // 标签写进了音频文件：歌词编辑器接着保存时，这个新身份算 Primuse 自己写的。
+                LyricsWriteback.recordOwnAudioWrite(report.updatedSong)
             }
         }
         if report.remoteMutationOccurred {
@@ -16662,6 +16664,10 @@ final class SourceManager {
             if updated.filePath != song.filePath {
                 deleteAudioCache(for: song)
                 try await persistReplacementLocation(from: song, to: updated, using: connector)
+            }
+            if !result.assetsUnchanged {
+                // 歌词编辑器接着保存时，这次换掉的文件身份算 Primuse 自己写的，不当成「编辑期间被改过」。
+                LyricsWriteback.recordOwnAudioWrite(updated)
             }
             return (updated, result.assetsUnchanged, result.assetLyrics)
         } catch let error as EmbeddedMetadataReplacementReadbackError {

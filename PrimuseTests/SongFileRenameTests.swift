@@ -419,6 +419,22 @@ final class SongFileRenameTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("new.mp3")), Data([3, 4]))
     }
 
+    /// 本机改名后新路径上的那份是 Primuse 自己刚做的：文件变动通知不再重读；之后被别处改过就照常读。
+    func testLocalRenameIsRecordedAsThisAppsOwnWrite() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data([1, 2]).write(to: directory.appendingPathComponent("old.mp3"))
+        let connector = LocalFileSource(sourceID: UUID().uuidString, basePath: directory)
+        let state = try await connector.renameFileState(at: "/old.mp3")
+        try await connector.moveFileWithoutReplacing(from: "/old.mp3", to: "/new.mp3", expected: state)
+        let ownWrite = await connector.isOwnWrite("/new.mp3")
+        XCTAssertTrue(ownWrite)
+        try Data([5, 6, 7]).write(to: directory.appendingPathComponent("new.mp3"))
+        let changedElsewhere = await connector.isOwnWrite("/new.mp3")
+        XCTAssertFalse(changedElsewhere)
+    }
+
     func testLocalRenameRefusesSymbolicLinkWithoutMovingItsTarget() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

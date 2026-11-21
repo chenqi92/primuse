@@ -241,6 +241,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             }
         }
         guard status == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        // 改名是 Primuse 自己做的：新路径上的变动通知不再重读标签。
+        noteOwnWrite(at: destination, path: to)
     }
 
     private func renameURL(for path: String) throws -> URL {
@@ -1860,6 +1862,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             LocalBookmarkStore.refreshFileBookmark(sourceID: sourceID, fileURL: destination)
         }
         #endif
+        // 和换文件那条路一样记下：这次改写引起的文件变动通知不再重读标签。
+        noteOwnWrite(at: destination, path: path)
     }
 
     @concurrent
