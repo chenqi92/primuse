@@ -202,11 +202,13 @@ public struct PlaybackInterruptionResumePolicy: Equatable, Sendable {
     private struct Ticket: Equatable, Sendable {
         var intentGeneration: UInt64
         var itemID: String
+        var requiresWirelessOutput: Bool
     }
 
     public private(set) var playbackIsIntended: Bool
     private var intentGeneration: UInt64
     private var pendingTicket: Ticket?
+    private var provisionalResume: Ticket?
 
     public init(playbackIsIntended: Bool = false) {
         self.playbackIsIntended = playbackIsIntended
@@ -216,6 +218,24 @@ public struct PlaybackInterruptionResumePolicy: Equatable, Sendable {
 
     public var isAwaitingInterruptionEnd: Bool {
         pendingTicket != nil
+    }
+
+    public var pendingInterruptionRequiresWirelessOutput: Bool {
+        pendingTicket?.requiresWirelessOutput == true
+    }
+
+    public func hasProvisionalResume(for itemID: String?) -> Bool {
+        guard let provisionalResume else { return false }
+        return provisionalResume.intentGeneration == intentGeneration && provisionalResume.itemID == itemID
+    }
+
+    /// During a call the original car/headset route may disappear from the
+    /// session even though the accessory is still connected.
+    public mutating func preserveInterruptionOnWirelessRouteLoss(currentItemID: String?) -> Bool {
+        guard let ticket = pendingTicket, ticket.itemID == currentItemID,
+              ticket.intentGeneration == intentGeneration, playbackIsIntended else { return false }
+        pendingTicket?.requiresWirelessOutput = true
+        return true
     }
 
     public mutating func registerPlayIntent() {
@@ -239,9 +259,11 @@ public struct PlaybackInterruptionResumePolicy: Equatable, Sendable {
 
     public mutating func interruptionBegan(
         wasActuallyPlaying: Bool,
-        currentItemID: String?
+        currentItemID: String?,
+        requiresWirelessOutput: Bool = false
     ) {
-        guard let currentItemID, !currentItemID.isEmpty else {
+        provisionalResume = nil
+        guard playbackIsIntended, let currentItemID, !currentItemID.isEmpty else {
             pendingTicket = nil
             return
         }
@@ -250,34 +272,28 @@ public struct PlaybackInterruptionResumePolicy: Equatable, Sendable {
         // notification after the engine and visible state are already paused.
         // Preserve only the exact live ticket; a genuinely paused item still
         // has no right to start automatically.
-        if !wasActuallyPlaying {
-            guard playbackIsIntended,
-                  let ticket = pendingTicket,
-                  ticket.intentGeneration == intentGeneration,
-                  ticket.itemID == currentItemID else {
-                pendingTicket = nil
-                return
-            }
+        if let ticket = pendingTicket, ticket.itemID == currentItemID, ticket.intentGeneration == intentGeneration {
+            if requiresWirelessOutput { pendingTicket?.requiresWirelessOutput = true }
             return
         }
 
-        guard playbackIsIntended else {
+        guard wasActuallyPlaying else {
             pendingTicket = nil
             return
         }
         pendingTicket = Ticket(
             intentGeneration: intentGeneration,
-            itemID: currentItemID
+            itemID: currentItemID,
+            requiresWirelessOutput: requiresWirelessOutput
         )
     }
 
-    /// Reconciles a live interruption ticket when the app returns after being
-    /// suspended and iOS did not deliver a usable interruption-end event. Other
-    /// audio keeps the ticket pending so foreground activation never steals its
-    /// session; cold launch and ordinary paused state have no ticket to consume.
+    /// A real hangup or foreground return can arrive without a system recommendation.
+    /// Keep this resume identifiable until a system decision or a new user intent.
     public mutating func resumeAfterAppActivationIfSafe(
         otherAudioIsPlaying: Bool,
-        currentItemID: String?
+        currentItemID: String?,
+        hasActivePhoneCall: Bool = false
     ) -> Bool {
         guard let ticket = pendingTicket else { return false }
         guard playbackIsIntended,
@@ -286,8 +302,9 @@ public struct PlaybackInterruptionResumePolicy: Equatable, Sendable {
             pendingTicket = nil
             return false
         }
-        guard !otherAudioIsPlaying else { return false }
+        guard !hasActivePhoneCall, !otherAudioIsPlaying else { return false }
 
+        provisionalResume = ticket
         pendingTicket = nil
         return true
     }
@@ -298,6 +315,11 @@ public struct PlaybackInterruptionResumePolicy: Equatable, Sendable {
         systemShouldResume: Bool,
         currentItemID: String?
     ) -> Bool {
+        defer { provisionalResume = nil }
+        if !systemShouldResume, hasProvisionalResume(for: currentItemID) {
+            registerPauseOrStopIntent()
+            return false
+        }
         guard let ticket = pendingTicket else { return false }
         pendingTicket = nil
 
@@ -316,6 +338,7 @@ public struct PlaybackInterruptionResumePolicy: Equatable, Sendable {
 
     private mutating func advanceGeneration() {
         intentGeneration &+= 1
+        provisionalResume = nil
     }
 }
 

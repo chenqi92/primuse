@@ -103,13 +103,16 @@ struct PlaybackInterruptionResumePolicyTests {
     @Test("A user pause during interruption invalidates automatic resume")
     func pauseInvalidatesResume() {
         var policy = PlaybackInterruptionResumePolicy(playbackIsIntended: true)
-        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a")
+        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a", requiresWirelessOutput: true)
         policy.registerPauseOrStopIntent()
 
+        let preserved = policy.preserveInterruptionOnWirelessRouteLoss(currentItemID: "song-a")
         let shouldResume = policy.interruptionEnded(
             systemShouldResume: true,
             currentItemID: "song-a"
         )
+        #expect(!preserved)
+        #expect(!policy.pendingInterruptionRequiresWirelessOutput)
         #expect(!shouldResume)
     }
 
@@ -130,7 +133,7 @@ struct PlaybackInterruptionResumePolicyTests {
     @Test("Other media ending without system permission leaves playback paused")
     func deniedResumeClearsPlaybackIntent() {
         var policy = PlaybackInterruptionResumePolicy(playbackIsIntended: true)
-        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a")
+        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a", requiresWirelessOutput: true)
 
         let shouldResume = policy.interruptionEnded(
             systemShouldResume: false,
@@ -138,6 +141,7 @@ struct PlaybackInterruptionResumePolicyTests {
         )
         #expect(!shouldResume)
         #expect(!policy.playbackIsIntended)
+        #expect(!policy.pendingInterruptionRequiresWirelessOutput)
     }
 
     @Test("Foreground activation recovers a suspended interruption exactly once")
@@ -180,6 +184,45 @@ struct PlaybackInterruptionResumePolicyTests {
         #expect(systemDecision)
     }
 
+    @Test("A phone call must end and other audio must yield before the original item resumes once")
+    func phoneCallRecoveryWaitsForAllAudioOwners() {
+        var policy = PlaybackInterruptionResumePolicy(playbackIsIntended: true)
+        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a", requiresWirelessOutput: true)
+
+        let duringCall = policy.resumeAfterAppActivationIfSafe(
+            otherAudioIsPlaying: false, currentItemID: "song-a", hasActivePhoneCall: true
+        )
+        #expect(!duringCall)
+        #expect(policy.pendingInterruptionRequiresWirelessOutput)
+        let anotherAppStillPlaying = policy.resumeAfterAppActivationIfSafe(
+            otherAudioIsPlaying: true, currentItemID: "song-a", hasActivePhoneCall: false
+        )
+        #expect(!anotherAppStillPlaying)
+        #expect(policy.pendingInterruptionRequiresWirelessOutput)
+
+        let afterCall = policy.resumeAfterAppActivationIfSafe(
+            otherAudioIsPlaying: false, currentItemID: "song-a", hasActivePhoneCall: false
+        )
+        let repeatedCallback = policy.resumeAfterAppActivationIfSafe(
+            otherAudioIsPlaying: false, currentItemID: "song-a", hasActivePhoneCall: false
+        )
+        #expect(afterCall)
+        #expect(!repeatedCallback)
+    }
+
+    @Test("A hang-up cannot override a system recommendation to stay paused")
+    func systemDenialSurvivesPhoneCallEnd() {
+        var policy = PlaybackInterruptionResumePolicy(playbackIsIntended: true)
+        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a", requiresWirelessOutput: true)
+        let denied = policy.interruptionEnded(systemShouldResume: false, currentItemID: "song-a")
+        let afterCall = policy.resumeAfterAppActivationIfSafe(
+            otherAudioIsPlaying: false, currentItemID: "song-a", hasActivePhoneCall: false
+        )
+        #expect(!denied)
+        #expect(!afterCall)
+        #expect(!policy.playbackIsIntended)
+    }
+
     @Test("A delayed duplicate begin preserves the original resume ticket")
     func suspendedDuplicateBeginPreservesResumeTicket() {
         var policy = PlaybackInterruptionResumePolicy()
@@ -197,6 +240,42 @@ struct PlaybackInterruptionResumePolicyTests {
         #expect(foregroundDecision)
     }
 
+    @Test("A wireless route loss arriving after interruption begin preserves the matching item", arguments: [false, true])
+    func lateWirelessRouteLossSurvivesDuplicateBegin(stillReportedPlaying: Bool) {
+        var policy = PlaybackInterruptionResumePolicy(playbackIsIntended: true)
+        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a")
+        #expect(!policy.pendingInterruptionRequiresWirelessOutput)
+
+        let sameItem = policy.preserveInterruptionOnWirelessRouteLoss(currentItemID: "song-a")
+        #expect(sameItem)
+        policy.interruptionBegan(wasActuallyPlaying: stillReportedPlaying, currentItemID: "song-a")
+        #expect(policy.pendingInterruptionRequiresWirelessOutput)
+
+        let granted = policy.interruptionEnded(systemShouldResume: true, currentItemID: "song-a")
+        #expect(granted)
+        #expect(!policy.pendingInterruptionRequiresWirelessOutput)
+    }
+
+    @Test("A late wireless route change cannot authorize a different song")
+    func wirelessRouteLossAfterTrackChange() {
+        var policy = PlaybackInterruptionResumePolicy(playbackIsIntended: true)
+        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a")
+        let preserved = policy.preserveInterruptionOnWirelessRouteLoss(currentItemID: "song-b")
+        let resumed = policy.interruptionEnded(systemShouldResume: true, currentItemID: "song-b")
+        #expect(!preserved)
+        #expect(!resumed)
+        #expect(!policy.pendingInterruptionRequiresWirelessOutput)
+    }
+
+    @Test("Disconnecting headphones during uninterrupted playback cannot create a resume ticket")
+    func ordinaryDisconnectCannotCreateInterruption() {
+        var policy = PlaybackInterruptionResumePolicy(playbackIsIntended: true)
+        let preserved = policy.preserveInterruptionOnWirelessRouteLoss(currentItemID: "song-a")
+        #expect(!preserved)
+        #expect(!policy.isAwaitingInterruptionEnd)
+        #expect(!policy.pendingInterruptionRequiresWirelessOutput)
+    }
+
     @Test("Foreground activation without an interruption ticket never starts playback")
     func foregroundActivationNeedsLiveTicket() {
         var policy = PlaybackInterruptionResumePolicy(playbackIsIntended: true)
@@ -206,6 +285,20 @@ struct PlaybackInterruptionResumePolicyTests {
         )
 
         #expect(!foregroundDecision)
+    }
+
+    @Test("A late system denial only stops the same automatic resume", arguments: [false, true])
+    func lateDenialAfterHangup(userPlayedAgain: Bool) {
+        var policy = PlaybackInterruptionResumePolicy(playbackIsIntended: true)
+        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a", requiresWirelessOutput: true)
+        let resumed = policy.resumeAfterAppActivationIfSafe(otherAudioIsPlaying: false, currentItemID: "song-a")
+        #expect(resumed)
+        if userPlayedAgain { policy.registerPlayIntent() }
+        #expect(policy.hasProvisionalResume(for: "song-a") == !userPlayedAgain)
+        let resumeAgain = policy.interruptionEnded(systemShouldResume: false, currentItemID: "song-a")
+        #expect(!resumeAgain)
+        #expect(policy.playbackIsIntended == userPlayedAgain)
+        #expect(!policy.hasProvisionalResume(for: "song-a"))
     }
 }
 
@@ -289,6 +382,27 @@ struct AudioOutputRouteLossPolicyTests {
 
 @Suite("Bluetooth playback recovery policy")
 struct BluetoothPlaybackRecoveryPolicyTests {
+    @Test("A call moving from car audio through the receiver and hands-free mode resumes on the music route")
+    func carCallWaitsForBothForegroundClearanceAndMusicRoute() {
+        var policy = PlaybackInterruptionResumePolicy(playbackIsIntended: true)
+        policy.interruptionBegan(wasActuallyPlaying: true, currentItemID: "song-a", requiresWirelessOutput: true)
+        #expect(policy.pendingInterruptionRequiresWirelessOutput)
+        let preserved = policy.preserveInterruptionOnWirelessRouteLoss(currentItemID: "song-a")
+        #expect(preserved)
+        let duringCall = policy.resumeAfterAppActivationIfSafe(otherAudioIsPlaying: true, currentItemID: "song-a")
+        #expect(!duringCall)
+        #expect(policy.pendingInterruptionRequiresWirelessOutput)
+
+        let authorized = policy.resumeAfterAppActivationIfSafe(otherAudioIsPlaying: false, currentItemID: "song-a")
+        #expect(authorized)
+        #expect(!policy.pendingInterruptionRequiresWirelessOutput)
+        #expect(decision(hasTicket: authorized, isBluetooth: false) == .wait)
+        #expect(decision(hasTicket: authorized, isHFP: true) == .wait)
+        #expect(decision(hasTicket: authorized, isBluetooth: true) == .resume)
+        let repeatedEnd = policy.interruptionEnded(systemShouldResume: true, currentItemID: "song-a")
+        #expect(!repeatedEnd)
+    }
+
     @Test("Only an actual Bluetooth departure pauses the Bluetooth-only model")
     func bluetoothRouteLoss() {
         #expect(!BluetoothPlaybackRecoveryPolicy.shouldPauseForRouteLoss(

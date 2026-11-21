@@ -2,15 +2,17 @@ import AVFoundation
 import Foundation
 import PrimuseKit
 #if os(iOS)
+import CallKit
 import UIKit
 #endif
 
 @MainActor
-final class AudioSessionManager {
+final class AudioSessionManager: NSObject {
     static let shared = AudioSessionManager()
 
     /// Called when an interruption begins — UI should show "paused" state
     var onInterruptionBegan: ((Date) -> Void)?
+    private(set) var isHandlingRouteDisconnectInterruption = false
     /// 后台临时混音之后又切回了独占:系统重新把 Primuse 当成正在播放的 App,播放器要整份重发
     /// 一次「正在播放」,锁屏、控制中心和灵动岛才跟着回来。
     var onExclusivePlaybackRestored: (() -> Void)?
@@ -21,6 +23,7 @@ final class AudioSessionManager {
     /// Delivering denied endings is required so stale resume intent can be
     /// cleared instead of being revived by a later lifecycle callback.
     var onInterruptionEnded: ((Bool) -> Void)?
+    var onLastPhoneCallEnded: (() -> Void)?
     /// Called when the audio engine's hardware configuration changes (route change, etc.)
     /// 第二个参数是发出通知的那张输出图的编号；别的引擎或已经换掉的图发的为 nil。
     var onConfigurationChange: ((Date, AudioEngineGraphToken?) -> Void)?
@@ -38,9 +41,15 @@ final class AudioSessionManager {
     private(set) var isBackgroundMixingFallbackActive = false
     private var exclusiveRestoreTask: Task<Void, Never>?
 
-    private init() {}
+    private override init() { super.init() }
 
 #if os(iOS)
+    private let phoneCallObserver = CXCallObserver()
+    private var connectedCallEnded = false
+
+    var hasActivePhoneCall: Bool {
+        phoneCallObserver.calls.contains { !$0.hasEnded }
+    }
 
     @discardableResult
     func activatePlaybackSession(reacquiringLocalRouteFocus: Bool = false) -> Bool {
@@ -161,6 +170,7 @@ final class AudioSessionManager {
         let session = AVAudioSession.sharedInstance()
         guard !isConfigured else { return }
         isConfigured = true
+        phoneCallObserver.setDelegate(self, queue: .main)
 
         // Configure the app's playback intent at launch, but do not activate the
         // session until playback actually starts. Activating this non-mixable
@@ -176,13 +186,20 @@ final class AudioSessionManager {
             plog("🔊 Audio session prepared mixWithOthers=true (no system Now Playing controls)")
         }
 
-        // Observe interruptions (phone calls, other apps playing audio, Siri, alarms)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleInterruption(_:)),
-            name: AVAudioSession.interruptionNotification,
-            object: session
-        )
+        let interruptionNotifications: [Notification.Name]
+        if #available(iOS 27.0, *) {
+            interruptionNotifications = [
+                AVAudioSession.didBecomeInactiveNotification,
+                AVAudioSession.resumptionRecommendationNotification
+            ]
+        } else {
+            interruptionNotifications = [AVAudioSession.interruptionNotification]
+        }
+        for name in interruptionNotifications {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(handleInterruption(_:)), name: name, object: session
+            )
+        }
 
         // Observe audio engine configuration changes (route changes, hardware changes)
         NotificationCenter.default.addObserver(
@@ -393,33 +410,62 @@ final class AudioSessionManager {
 
     // MARK: - Interruption Handling
 
-    @objc private nonisolated func handleInterruption(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
-            return
+    private enum InterruptionEvent: Sendable {
+        case began(reason: UInt?)
+        case ended(shouldResume: Bool)
+
+        init?(_ notification: Notification) {
+            guard let userInfo = notification.userInfo else { return nil }
+            if #available(iOS 27.0, *) {
+                switch notification.name {
+                case AVAudioSession.didBecomeInactiveNotification:
+                    guard let context = userInfo[AVAudioSession.deactivationContextKey] as? AVAudioSession.DeactivationContext,
+                          context.source == .system else { return nil }
+                    self = .began(reason: context.interruptionContext?.reason.rawValue)
+                case AVAudioSession.resumptionRecommendationNotification:
+                    guard let context = userInfo[AVAudioSession.resumptionContextKey]
+                        as? AVAudioSession.ResumptionContext else { return nil }
+                    self = .ended(shouldResume: context.recommendation == .shouldResume)
+                default:
+                    return nil
+                }
+            } else {
+                guard let rawType = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return nil }
+                switch type {
+                case .began:
+                    self = .began(reason: userInfo[AVAudioSessionInterruptionReasonKey] as? UInt)
+                case .ended:
+                    let options = AVAudioSession.InterruptionOptions(
+                        rawValue: userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                    )
+                    self = .ended(shouldResume: options.contains(.shouldResume))
+                @unknown default:
+                    return nil
+                }
+            }
         }
+    }
+
+    @objc private nonisolated func handleInterruption(_ notification: Notification) {
+        guard let event = InterruptionEvent(notification) else { return }
         // 中断通知同样可能在非主线程 selector 回调(同 handleConfigurationChange),
         // 标 nonisolated 避免入口 executor 断言。在 hop 外把 Sendable 值提取好,
         // 避免把非 Sendable 的 userInfo 捕获进 Task。
-        let shouldResume: Bool = {
-            guard type == .ended else { return false }
-            let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
-            return AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume)
-        }()
-        let reasonValue = userInfo[AVAudioSessionInterruptionReasonKey] as? UInt
         let outputTypes = AVAudioSession.sharedInstance().currentRoute.outputs
             .map { $0.portType.rawValue }.joined(separator: ",")
         let eventTime = Date()
         Task { @MainActor [weak self] in
             guard let self else { return }
-            switch type {
-            case .began:
+            switch event {
+            case .began(let reasonValue):
                 plog("🔇 Audio interruption began reason=\(reasonValue.map(String.init) ?? "nil") outputs=[\(outputTypes)]")
                 self.leaveBackgroundMixingFallback()
+                self.isHandlingRouteDisconnectInterruption = reasonValue == AVAudioSession.InterruptionReason.routeDisconnected.rawValue
+                defer { self.isHandlingRouteDisconnectInterruption = false }
                 self.onInterruptionBegan?(eventTime)
 
-            case .ended:
+            case .ended(let shouldResume):
                 // Always forward the ending. The player owns user intent and
                 // generation checks; `.shouldResume` alone is not authorization.
                 if shouldResume {
@@ -428,9 +474,6 @@ final class AudioSessionManager {
                     plog("🔊 Audio interruption ended — should NOT resume outputs=[\(outputTypes)]")
                 }
                 self.onInterruptionEnded?(shouldResume)
-
-            @unknown default:
-                break
             }
         }
     }
@@ -502,7 +545,20 @@ final class AudioSessionManager {
     var outputRouteIsSystemManagedWireless: Bool { false }
     var outputRouteIsBuiltIn: Bool { false }
     var otherAudioIsPlaying: Bool { false }
+    var hasActivePhoneCall: Bool { false }
     /// Mac 上各个 App 本来就同时出声。
     func setMixingPreference(requested: Bool, carPlayActive: Bool) {}
 #endif
 }
+
+#if os(iOS)
+extension AudioSessionManager: @preconcurrency CXCallObserverDelegate {
+    func callObserver(_ callObserver: CXCallObserver, callChanged call: CXCall) {
+        guard call.hasEnded else { return }
+        if call.hasConnected { connectedCallEnded = true }
+        guard connectedCallEnded, !hasActivePhoneCall else { return }
+        connectedCallEnded = false
+        onLastPhoneCallEnded?()
+    }
+}
+#endif

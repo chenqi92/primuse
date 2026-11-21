@@ -1730,7 +1730,6 @@ final class AudioPlayerService {
     /// authorization through PlaybackInterruptionResumePolicy instead.
     private var configurationRecoveryPendingSongID: String?
     private var appActivationInterruptionRecoveryTask: Task<Void, Never>?
-    private static let appActivationInterruptionRecoveryAttemptLimit = 4
     private var bluetoothHFPResumeWatchdogTask: Task<Void, Never>?
     private var authorizedResumeVerificationTask: Task<Void, Never>?
     var lastPublishedPlaybackWasActive = false
@@ -2550,12 +2549,17 @@ final class AudioPlayerService {
         manager.onPlaybackSessionActivated = { [weak self] in
             self?.resampleCarAudioRoute(reason: "session-activated")
         }
+        manager.onLastPhoneCallEnded = { [weak self] in
+            self?.scheduleInterruptionResumeCheck(after: .phoneCallEnded)
+        }
         #endif
 
         manager.onInterruptionBegan = { [weak self] interruptionTime in
             guard let self else { return }
             self.transportDisturbanceGeneration &+= 1
             self.cancelAppActivationInterruptionRecovery()
+            self.clearBluetoothHFPDeferredResume()
+            self.authorizedResumeVerificationTask?.cancel()
             let hadPendingMusicVideo = self.pendingMusicVideoPlayID != nil
             self.pendingMusicVideoPlayID = nil
             if hadPendingMusicVideo {
@@ -2652,8 +2656,9 @@ final class AudioPlayerService {
             let wasAwaitingInterruptionEnd = self.interruptionResumePolicy
                 .isAwaitingInterruptionEnd
             self.interruptionResumePolicy.interruptionBegan(
-                wasActuallyPlaying: wasPlaying,
-                currentItemID: self.currentSong?.id
+                wasActuallyPlaying: wasPlaying && !manager.isHandlingRouteDisconnectInterruption,
+                currentItemID: self.currentSong?.id,
+                requiresWirelessOutput: Self.interruptionOutput != .other
             )
             self.configurationRecoveryActivityEvidence = nil
             self.musicVideoSeekActivityEvidence = nil
@@ -2727,16 +2732,24 @@ final class AudioPlayerService {
                 || appleMusic.activePlaybackRequestID != nil {
                 appleMusic.markInterruptionEnded()
             }
+            if systemShouldResume && manager.hasActivePhoneCall {
+                return // A second call may still own the session.
+            }
+            let requiresWirelessOutput = self.interruptionResumePolicy.pendingInterruptionRequiresWirelessOutput
+            let resumedProvisionally = self.interruptionResumePolicy.hasProvisionalResume(for: self.currentSong?.id)
             let shouldResume = self.interruptionResumePolicy.interruptionEnded(
                 systemShouldResume: systemShouldResume,
                 currentItemID: self.currentSong?.id
             )
             guard shouldResume else {
+                if !systemShouldResume && (resumedProvisionally || self.bluetoothHFPSuspendedSongID != nil) {
+                    self.pause()
+                }
                 self.updateNowPlayingInfo()
                 self.updatePlaybackState()
                 return
             }
-            self.resumeAfterAuthorizedInterruption(source: "system-ended")
+            self.resumeAfterAuthorizedInterruption(source: "system-ended", requiresWirelessOutput: requiresWirelessOutput)
         }
 
         manager.onConfigurationChange = { [weak self] configurationChangeTime, engineGraph in
@@ -2889,6 +2902,8 @@ final class AudioPlayerService {
             return false
         }
         guard !interruptionResumePolicy.isAwaitingInterruptionEnd,
+              bluetoothHFPSuspendedSongID == nil,
+              !AudioSessionManager.shared.hasActivePhoneCall,
               !isPlaybackActuallyActive,
               !AudioSessionManager.shared.outputRouteIsBluetoothHFP else {
             return false
@@ -3009,6 +3024,7 @@ final class AudioPlayerService {
                     as? AVAudioSessionRouteDescription
             )?.outputs ?? []
             let previousRouteWasAirPlay = previousOutputs.contains { $0.portType == .airPlay }
+            let previousRouteWasWireless = previousOutputs.contains { Self.isBluetoothOrCarOutput($0.portType) }
             let previousRouteHadExternalOutput = previousOutputs.contains {
                 $0.portType != .builtInSpeaker && $0.portType != .builtInReceiver
             }
@@ -3055,9 +3071,12 @@ final class AudioPlayerService {
                     previousRouteHadExternalOutput: previousRouteHadExternalOutput,
                     currentRouteHasExternalOutput: handlingRouteHasExternalOutput
                 ) {
-                    // Keep the user's audio private only for a real external
-                    // route fallback. Built-in speaker churn and transitions
-                    // between external outputs leave playback untouched.
+                    if previousRouteWasWireless && self.preserveInterruptedWirelessPlaybackOnRouteLoss() {
+                        // The interruption has already silenced the player. The
+                        // receiver can briefly replace the headset during a call.
+                        plog("Audio interruption waiting for Bluetooth or car output")
+                        return
+                    }
                     self.handleOutputDeviceDisappeared()
                     return
                 }
@@ -3177,7 +3196,35 @@ final class AudioPlayerService {
         clearBluetoothHFPDeferredResume()
     }
 
-    private func resumeAfterAuthorizedInterruption(source: String) {
+    private enum InterruptionOutput {
+        case wirelessMusic, handsFree, other
+    }
+
+    #if os(iOS)
+    private nonisolated static func isBluetoothOrCarOutput(_ port: AVAudioSession.Port) -> Bool {
+        port == .carAudio || port == .bluetoothA2DP || port == .bluetoothLE || port == .bluetoothHFP
+    }
+    #endif
+
+    private static var interruptionOutput: InterruptionOutput {
+        #if os(iOS)
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+        if outputs.contains(where: { $0.portType == .bluetoothHFP }) { return .handsFree }
+        if outputs.contains(where: { isBluetoothOrCarOutput($0.portType) }) { return .wirelessMusic }
+        #endif
+        return .other
+    }
+
+    private func preserveInterruptedWirelessPlaybackOnRouteLoss() -> Bool {
+        if interruptionResumePolicy.preserveInterruptionOnWirelessRouteLoss(currentItemID: currentSong?.id) {
+            return true
+        }
+        guard bluetoothHFPSuspendedSongID != nil else { return false }
+        if bluetoothHFPResumeWatchdogTask == nil { scheduleBluetoothHFPResumeWatchdog() }
+        return true
+    }
+
+    private func resumeAfterAuthorizedInterruption(source: String, requiresWirelessOutput: Bool) {
         guard !isPlaybackActuallyActive, currentSong != nil else {
             updateNowPlayingInfo()
             updatePlaybackState()
@@ -3187,7 +3234,8 @@ final class AudioPlayerService {
         // Reactivating our nonmixable playback session here would interrupt
         // that app again. Keep the one-shot resume bound to this item until a
         // later route change confirms that Bluetooth is back on A2DP.
-        if AudioSessionManager.shared.outputRouteIsBluetoothHFP {
+        let output = Self.interruptionOutput
+        if output == .handsFree || (requiresWirelessOutput && output != .wirelessMusic) {
             bluetoothHFPSuspendedSongID = currentSong?.id
             scheduleBluetoothHFPResumeWatchdog()
             updateNowPlayingInfo()
@@ -3196,28 +3244,42 @@ final class AudioPlayerService {
         }
         plog("🔊 Resuming authorized interruption source=\(source)")
         resumeCurrentPlayback(registeringUserIntent: false)
-        scheduleAuthorizedResumeVerification()
+        scheduleAuthorizedResumeVerification(requiresWirelessOutput: requiresWirelessOutput)
     }
 
     @discardableResult
-    private func attemptAppActivationInterruptionRecovery() -> Bool {
+    private func attemptInterruptionResume(after release: InterruptionRelease) -> Bool {
+        let requiresWirelessOutput = interruptionResumePolicy.pendingInterruptionRequiresWirelessOutput
+        let session = AudioSessionManager.shared
         let shouldResume = interruptionResumePolicy.resumeAfterAppActivationIfSafe(
-            otherAudioIsPlaying: AudioSessionManager.shared.otherAudioIsPlaying,
-            currentItemID: currentSong?.id
+            otherAudioIsPlaying: session.otherAudioIsPlaying,
+            currentItemID: currentSong?.id,
+            hasActivePhoneCall: session.hasActivePhoneCall
         )
         guard shouldResume else { return false }
-        resumeAfterAuthorizedInterruption(source: "app-activation")
+        resumeAfterAuthorizedInterruption(source: release.rawValue, requiresWirelessOutput: requiresWirelessOutput)
         return true
     }
 
-    /// Scene activation can overtake the final audio-session notification when
-    /// another app is being backgrounded. Allow that state to settle briefly;
-    /// the ticket remains pending after the bounded retries and can still be
-    /// consumed by a later genuine interruption-end notification.
-    func scheduleAppActivationInterruptionRecovery(attempt: Int = 0) {
+    private enum InterruptionRelease: String {
+        case appActivation = "app-activation"
+        case phoneCallEnded = "phone-call-ended"
+    }
+
+    func scheduleAppActivationInterruptionRecovery() {
+        #if os(iOS)
+        guard UIApplication.shared.applicationState == .active else { return }
+        #endif
+        // A real hangup may already be waiting for the phone to release audio.
+        guard appActivationInterruptionRecoveryTask == nil else { return }
+        scheduleInterruptionResumeCheck(after: .appActivation)
+    }
+
+    private func scheduleInterruptionResumeCheck(after release: InterruptionRelease, attempt: Int = 0) {
         cancelAppActivationInterruptionRecovery()
+        let attemptLimit = release == .phoneCallEnded ? 40 : 4
         guard interruptionResumePolicy.isAwaitingInterruptionEnd,
-              attempt < Self.appActivationInterruptionRecoveryAttemptLimit else { return }
+              attempt < attemptLimit else { return }
         appActivationInterruptionRecoveryTask = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: .milliseconds(250))
@@ -3226,9 +3288,9 @@ final class AudioPlayerService {
             }
             guard let self else { return }
             self.appActivationInterruptionRecoveryTask = nil
-            if self.attemptAppActivationInterruptionRecovery() { return }
+            if self.attemptInterruptionResume(after: release) { return }
             guard self.interruptionResumePolicy.isAwaitingInterruptionEnd else { return }
-            self.scheduleAppActivationInterruptionRecovery(attempt: attempt + 1)
+            self.scheduleInterruptionResumeCheck(after: release, attempt: attempt + 1)
         }
     }
 
@@ -3243,10 +3305,13 @@ final class AudioPlayerService {
     /// 绝不落到扬声器外放。返回 true 表示本次通知已被恢复动作消费。
     @discardableResult
     private func attemptBluetoothHFPDeferredResume() -> Bool {
+        guard bluetoothHFPSuspendedSongID != nil else { return false }
+        guard !AudioSessionManager.shared.hasActivePhoneCall else { return false }
+        let output = Self.interruptionOutput
         let decision = BluetoothPlaybackRecoveryPolicy.deferredResumeDecision(
-            hasTicket: bluetoothHFPSuspendedSongID != nil,
-            currentRouteIsBluetoothHFP: AudioSessionManager.shared.outputRouteIsBluetoothHFP,
-            currentRouteIsBluetooth: AudioSessionManager.shared.outputRouteIsBluetooth,
+            hasTicket: true,
+            currentRouteIsBluetoothHFP: output == .handsFree,
+            currentRouteIsBluetooth: output != .other,
             playbackIsIntended: interruptionResumePolicy.playbackIsIntended,
             isAwaitingInterruptionEnd: interruptionResumePolicy.isAwaitingInterruptionEnd,
             isPlaybackActuallyActive: isPlaybackActuallyActive,
@@ -3274,7 +3339,7 @@ final class AudioPlayerService {
             } else {
                 resumeCurrentPlayback(registeringUserIntent: false)
             }
-            scheduleAuthorizedResumeVerification()
+            scheduleAuthorizedResumeVerification(requiresWirelessOutput: true)
             return true
         }
     }
@@ -3284,8 +3349,12 @@ final class AudioPlayerService {
     /// number of times so an authorized resume cannot hang indefinitely.
     private func scheduleBluetoothHFPResumeWatchdog(attempt: Int = 0) {
         bluetoothHFPResumeWatchdogTask?.cancel()
-        guard let songID = bluetoothHFPSuspendedSongID, attempt < 20 else {
+        guard let songID = bluetoothHFPSuspendedSongID else { return }
+        guard attempt < 20 else {
             bluetoothHFPResumeWatchdogTask = nil
+            // A connected hands-free route can still release to music later.
+            // An absent accessory must not revive this item on a future reconnect.
+            if Self.interruptionOutput == .other { pause() }
             return
         }
         bluetoothHFPResumeWatchdogTask = Task { @MainActor [weak self] in
@@ -3315,7 +3384,7 @@ final class AudioPlayerService {
     /// 这时启动引擎会被拒，或者刚启动线路就换了，结果是停在原地并报「无法播放此曲目」，
     /// 之后再没有人重试，只有切歌重建管线才恢复。这里在续播后隔一会儿核对一次，
     /// 没放起来、用户也没改主意，就从原位置重建管线再试，次数有上限。
-    private func scheduleAuthorizedResumeVerification(attempt: Int = 0) {
+    private func scheduleAuthorizedResumeVerification(requiresWirelessOutput: Bool, attempt: Int = 0) {
         authorizedResumeVerificationTask?.cancel()
         authorizedResumeVerificationTask = nil
         guard attempt < Self.authorizedResumeVerificationAttemptLimit,
@@ -3337,10 +3406,13 @@ final class AudioPlayerService {
                   !self.isSystemMediaPlaybackActive,
                   !self.isPlaybackActuallyActive else { return }
             // 还在加载、缓冲，或者线路还停在通话档：这一轮不动，下一轮再看。
+            let output = Self.interruptionOutput
             if self.isLoading
                 || self.isRemotePlaybackBuffering
-                || AudioSessionManager.shared.outputRouteIsBluetoothHFP {
-                self.scheduleAuthorizedResumeVerification(attempt: attempt + 1)
+                || AudioSessionManager.shared.hasActivePhoneCall
+                || output == .handsFree
+                || (requiresWirelessOutput && output != .wirelessMusic) {
+                self.scheduleAuthorizedResumeVerification(requiresWirelessOutput: requiresWirelessOutput, attempt: attempt + 1)
                 return
             }
             let position = self.needsPlaybackRecovery ? self.pendingRecoveryTime : self.currentTime
@@ -3351,7 +3423,7 @@ final class AudioPlayerService {
                 self.lastPlaybackError = nil
             }
             self.seek(to: position, startPlaying: true, isRecovery: true)
-            self.scheduleAuthorizedResumeVerification(attempt: attempt + 1)
+            self.scheduleAuthorizedResumeVerification(requiresWirelessOutput: requiresWirelessOutput, attempt: attempt + 1)
         }
     }
 
@@ -3390,6 +3462,7 @@ final class AudioPlayerService {
         pendingSystemAudioSeek = nil
         pendingMusicVideoPlayID = nil
         clearBluetoothHFPDeferredResume()
+        authorizedResumeVerificationTask?.cancel()
         interruptionResumePolicy.registerPlayIntent()
         castingCommandGeneration &+= 1
     }
@@ -3413,6 +3486,7 @@ final class AudioPlayerService {
         pendingSystemAudioSeek = nil
         pendingMusicVideoPlayID = nil
         clearBluetoothHFPDeferredResume()
+        authorizedResumeVerificationTask?.cancel()
         interruptionResumePolicy.registerPauseOrStopIntent()
         castingCommandGeneration &+= 1
         invalidateAutomaticAdvance(reason: "pause-or-stop")
@@ -3424,6 +3498,8 @@ final class AudioPlayerService {
 
     func invalidateInterruptionResumePreservingIntent() {
         cancelAppActivationInterruptionRecovery()
+        clearBluetoothHFPDeferredResume()
+        authorizedResumeVerificationTask?.cancel()
         configurationRecoveryActivityEvidence = nil
         musicVideoSeekActivityEvidence = nil
         pendingMusicVideoPlayID = nil
