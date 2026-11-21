@@ -202,3 +202,46 @@ struct LyricsEmbeddingSongModeTests {
         #expect(defaults.object(forKey: EmbeddedLyricsCopyPolicy.songModesDefaultsKey) == nil)
     }
 }
+
+@Suite("Tag write conflicts")
+struct TagWriteConflictPolicyTests {
+    private typealias State = TagWriteConflictPolicy.FieldState<String>
+
+    @Test("别处改的字段和这次改的不重叠:自动重试")
+    func disjointChangesRetry() {
+        // 用户改了艺人;文件里艺人还是原来的(别处改的是专辑,不在这次改的字段里)。
+        let changed = [State(field: "artist", baseline: "Old", fileNow: "Old", edited: "New")]
+        #expect(TagWriteConflictPolicy.resolve(changed) == .retry)
+    }
+
+    @Test("文件里已经是用户要的值:不算冲突")
+    func alreadyWrittenValueIsNotAConflict() {
+        let changed = [State(field: "title", baseline: "A", fileNow: "B ", edited: "B")]
+        #expect(TagWriteConflictPolicy.resolve(changed) == .retry)
+    }
+
+    @Test("两边都改了同一项:要用户选,只列重叠的那几项")
+    func overlappingChangesAskTheUser() {
+        let changed = [
+            State(field: "artist", baseline: "Old", fileNow: "Other device", edited: "Mine"),
+            State(field: "year", baseline: "2001", fileNow: "2001", edited: "2002"),
+            State(field: "genre", baseline: nil, fileNow: "Jazz", edited: "Pop"),
+        ]
+        #expect(TagWriteConflictPolicy.resolve(changed) == .askUser(["artist", "genre"]))
+    }
+
+    @Test("换了封面、文件又变过:没有基线,只要文件里不是新封面就交给用户选")
+    func coverChangedElsewhereAsksTheUser() {
+        #expect(TagWriteConflictPolicy.coverOverlaps(userChangedCover: true, fileCoverIsTheNewOne: false))
+        #expect(!TagWriteConflictPolicy.coverOverlaps(userChangedCover: true, fileCoverIsTheNewOne: true))
+        #expect(!TagWriteConflictPolicy.coverOverlaps(userChangedCover: false, fileCoverIsTheNewOne: false))
+    }
+
+    @Test("空白和空串当成没有值")
+    func blanksCompareAsMissing() {
+        let changed = [State(field: "genre", baseline: "", fileNow: nil, edited: "Pop")]
+        #expect(TagWriteConflictPolicy.resolve(changed) == .retry)
+        #expect(TagWriteConflictPolicy.normalized("  ") == nil)
+        #expect(TagWriteConflictPolicy.normalized(" a ") == "a")
+    }
+}

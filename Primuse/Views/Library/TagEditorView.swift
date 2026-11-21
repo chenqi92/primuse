@@ -57,6 +57,10 @@ struct TagEditorView: View {
     @State private var pendingEmbedRemedy: SaveLocationPolicy.Remedy?
     /// 保存后只存在 Primuse 的歌词,用户在提示里选了解决办法:办完再把歌词写一次。
     @State private var resavesLyricsAfterRemedy = false
+    /// 文件在编辑期间被别处改过、同一项两边都改了:等用户选保留哪边。
+    @State private var tagConflict: TagWriteConflict?
+    /// 正在问的冲突是批量编辑留下的:选完或关掉都把记录删掉。
+    @State private var conflictIsRemembered = false
     /// 保存后提示里给的解决办法(只存在 Primuse 的歌词)。
     @State private var postSaveRemedies: [SaveLocationPolicy.Remedy] = []
     /// 保存已经做完、补救那一步出了错:报错关掉之后照样收尾、回调 `onSave`。
@@ -139,6 +143,12 @@ struct TagEditorView: View {
             let access = await sourceManager.saveLocationAccess(for: song)
             guard !Task.isCancelled, song.id == requestedSongID else { return }
             saveLocationAccess = access
+            // 批量编辑时同一项两边都改了、还没选的:打开这首歌就接着问。
+            if tagConflict == nil,
+               let remembered = PendingTagConflictStore.shared.conflict(for: library.storedSong(id: song.id) ?? song) {
+                conflictIsRemembered = true
+                tagConflict = remembered
+            }
         }
         .alert(
             String(localized: "tag_editor_lyrics_error_title"),
@@ -178,12 +188,18 @@ struct TagEditorView: View {
         } message: {
             Text(writebackNoticeMessage ?? "")
         }
-        .modifier(SaveLocationRemedyPrompts(
+        .modifier(TagEditorSaveLocationPrompts(
             showsFolderPicker: $showFolderAccessPicker,
             pendingEmbedRemedy: $pendingEmbedRemedy,
+            conflict: $tagConflict,
             onFolderPicked: { result in handleFolderAccessPick(result) },
             onEmbedConfirmed: { remedy in applyEmbedRemedy(remedy) },
-            onCancelled: { cancelRemedy() }
+            onEmbedCancelled: { cancelRemedy() },
+            onConflictResolved: { resolution in
+                forgetRememberedConflict()
+                Task { _ = await save(resolvedConflict: resolution) }
+            },
+            onConflictCancelled: { forgetRememberedConflict() }
         ))
         #if os(macOS)
         // iOS 的这个确认挂在工具栏的「保存」上（见 legacyBody）。
@@ -1697,18 +1713,23 @@ struct TagEditorView: View {
         Task { _ = await save() }
     }
 
+    /// - Parameter resolvedConflict: 文件在别处也改过、用户在冲突面板里选好之后要写的两行和封面。
+    ///   批量编辑留下的冲突在打开时就问,这时表单里可以没有别的改动。
     @MainActor
-    private func save(allowLyricsRemoval: Bool = false) async -> Bool {
-        guard canSubmitChanges else { return false }
+    private func save(
+        allowLyricsRemoval: Bool = false,
+        resolvedConflict: TagWriteConflict.Resolution? = nil
+    ) async -> Bool {
+        guard canSubmitChanges || (resolvedConflict != nil && !isSaving && !isLoadingCover) else { return false }
         isSaving = true
         defer { isSaving = false }
 
         // 冲突判断按库里记的文件身份做：从正在播放或列表打开时拿到的那份可能是
         // 重扫前的旧行，拿它去写回会一直判成「编辑期间已发生变化」。
-        let original = library.storedSong(id: song.id) ?? song
+        let original = resolvedConflict?.original ?? library.storedSong(id: song.id) ?? song
         let renameStem = requestedRenameStem
         let lyricsChanged = hasLyricsChanges
-        var updated = BatchTagEditService.song(original, applying: metadataEdits)
+        var updated = resolvedConflict?.updated ?? BatchTagEditService.song(original, applying: metadataEdits)
         if let renameStem {
             do {
                 try await sourceManager.validateSongFileRename(original, stem: renameStem)
@@ -1718,10 +1739,19 @@ struct TagEditorView: View {
             }
         }
 
+        // 冲突里选了文件里现在的封面:这张不写,资料库的封面换成文件里那张。
+        let coverData: Data?
+        if let resolvedConflict {
+            coverData = resolvedConflict.coverData == nil ? nil : pickedCoverData
+        } else {
+            coverData = pickedCoverData
+        }
+
         // Do not update that reference before remote verification: otherwise a
         // failed WebDAV replacement would still make the app show the new cover.
-        let tagOrCoverChanged = pickedCoverData != nil
+        let tagOrCoverChanged = coverData != nil
             || SongUserMetadataPolicy.editableFieldsChanged(from: original, to: updated)
+        // 只有真的写了用户的值才打「用户编辑」标记;冲突里全选文件里的值,资料库只是跟上文件。
         if tagOrCoverChanged { updated.userMetadataEditedAt = Date() }
 
         var sourceMutationOccurred = false
@@ -1736,14 +1766,24 @@ struct TagEditorView: View {
                 let report = try await sourceManager.writeTagMetadata(
                     original: original,
                     updated: updated,
-                    coverData: pickedCoverData
+                    coverData: coverData
                 )
+                if let conflict = report.conflict {
+                    // 同一项两边都改了:不写、不关页面,草稿留着,让用户选保留哪边。
+                    tagConflict = conflict
+                    return false
+                }
+                if report.conflictRereadFailed {
+                    // 文件被别处改过、重读也没成:如实说明,草稿留着,稍后再保存。
+                    writebackErrorMessage = report.issueMessage
+                    return false
+                }
                 written = BatchTagEditService.written(from: report)
                 sourceMutationOccurred = report.remoteMutationOccurred
                 // 拒绝写入、只读源的说明里已经写了「只保存在 Primuse」。
                 explainsKeptLocal = written.missedWrite && report.localSaveNotice == nil
             } catch {
-                written = BatchTagEditService.written(after: error, song: updated, coverChanged: pickedCoverData != nil)
+                written = BatchTagEditService.written(after: error, song: updated, coverChanged: coverData != nil)
                 explainsKeptLocal = true
             }
             updated = written.song
@@ -1778,7 +1818,12 @@ struct TagEditorView: View {
             }
         }
 
-        if let coverData = pickedCoverData {
+        if coverData == nil, let fileCover = resolvedConflict?.adoptedFileCover,
+           let fileName = await MetadataAssetStore.shared.storeAttributedCover(fileCover, songID: song.id, origin: .embedded) {
+            updated.coverArtFileName = fileName
+            CachedArtworkView.invalidateCache(for: song.id)
+        }
+        if let coverData {
             guard let newFileName = await MetadataAssetStore.shared.storeAttributedCover(
                 coverData, songID: song.id, origin: .selected
             ) else {
@@ -1799,7 +1844,8 @@ struct TagEditorView: View {
             SongTagEditStore.shared.recordUserChosenCovers(songIDs: [song.id])
         }
 
-        var needsLibraryReplace = tagOrCoverChanged
+        // 冲突里选了「文件里的值」的那几项没写文件,资料库这一行也要跟着文件。
+        var needsLibraryReplace = tagOrCoverChanged || resolvedConflict != nil
         if lyricsChanged {
             // Lyrics persistence merges into the latest library row. Publish
             // accepted tags first so that merge retains this editor's changes,
@@ -1972,6 +2018,12 @@ struct TagEditorView: View {
         }
     }
 
+    private func forgetRememberedConflict() {
+        guard conflictIsRemembered else { return }
+        conflictIsRemembered = false
+        PendingTagConflictStore.shared.clear(songID: song.id)
+    }
+
     /// 取消:保存已经做完、只差补救的,照样把存好的那一行交给调用方。
     private func cancelEditing() {
         if savedSongPendingNotice != nil {
@@ -2125,6 +2177,8 @@ struct TagEditorView: View {
         postSaveRemedies = []
         resavesLyricsAfterRemedy = false
         pendingEmbedRemedy = nil
+        tagConflict = nil
+        conflictIsRemembered = false
         lyricsErrorMessage = nil
         writebackErrorMessage = nil
         writebackNoticeMessage = nil
@@ -2230,6 +2284,157 @@ struct SaveLocationRemedyPrompts: ViewModifier {
                      ? LyricsEmbeddingMode.alongside.confirmationMessage
                      : LyricsEmbeddingMode.embedOnly.confirmationMessage)
             }
+    }
+}
+
+/// 标签编辑器里和保存位置有关的几个弹出:授权所在文件夹的选择器、改成嵌入的确认、标签冲突的选择。
+/// 合成一个修饰器挂上去,不把编辑器本身的视图类型一层层加深。
+private struct TagEditorSaveLocationPrompts: ViewModifier {
+    @Binding var showsFolderPicker: Bool
+    @Binding var pendingEmbedRemedy: SaveLocationPolicy.Remedy?
+    @Binding var conflict: TagWriteConflict?
+    let onFolderPicked: (Result<URL, any Error>) -> Void
+    let onEmbedConfirmed: (SaveLocationPolicy.Remedy) -> Void
+    let onEmbedCancelled: () -> Void
+    let onConflictResolved: (TagWriteConflict.Resolution) -> Void
+    let onConflictCancelled: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(SaveLocationRemedyPrompts(
+                showsFolderPicker: $showsFolderPicker,
+                pendingEmbedRemedy: $pendingEmbedRemedy,
+                onFolderPicked: onFolderPicked,
+                onEmbedConfirmed: onEmbedConfirmed,
+                onCancelled: onEmbedCancelled
+            ))
+            .sheet(isPresented: Binding(
+                get: { conflict != nil },
+                set: { if !$0 { conflict = nil } }
+            )) {
+                if let current = conflict {
+                    TagWriteConflictSheet(
+                        conflict: current,
+                        onCancel: {
+                            conflict = nil
+                            onConflictCancelled()
+                        },
+                        onSave: { resolution in
+                            conflict = nil
+                            onConflictResolved(resolution)
+                        }
+                    )
+                }
+            }
+    }
+}
+
+/// 文件在编辑期间被别处改过、同一项两边都改了:把「文件里现在的值」和「你的修改」摆出来,
+/// 逐项选保留哪边。默认保留你的修改;别的修改不受影响。
+private struct TagWriteConflictSheet: View {
+    let conflict: TagWriteConflict
+    let onCancel: () -> Void
+    let onSave: (TagWriteConflict.Resolution) -> Void
+
+    @State private var keepsFile: Set<TagMetadataWritebackField> = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(String(localized: "save_location_conflict_title"))
+                .font(.headline)
+            Text(String(localized: "save_location_conflict_message"))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(conflict.fields, id: \.self) { field in
+                        row(field)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: 16) {
+                Button(String(localized: "save_location_conflict_keep_file")) {
+                    keepsFile = Set(conflict.fields)
+                }
+                Button(String(localized: "save_location_conflict_keep_mine")) {
+                    keepsFile = []
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .buttonStyle(.plain)
+            .foregroundStyle(.tint)
+            HStack(spacing: 12) {
+                Spacer()
+                Button(String(localized: "cancel"), role: .cancel) { onCancel() }
+                Button(String(localized: "save")) {
+                    onSave(conflict.resolved(keepingFileValueFor: keepsFile))
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        #if os(macOS)
+        .frame(width: 460)
+        .frame(minHeight: 320)
+        #else
+        .presentationDetents([.medium, .large])
+        #endif
+    }
+
+    private func row(_ field: TagMetadataWritebackField) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(field.localizedName)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            option(field, keepsFileValue: true)
+            option(field, keepsFileValue: false)
+        }
+    }
+
+    private func option(_ field: TagMetadataWritebackField, keepsFileValue: Bool) -> some View {
+        let selected = keepsFile.contains(field) == keepsFileValue
+        let label = keepsFileValue
+            ? String(localized: "save_location_conflict_file_value")
+            : String(localized: "save_location_conflict_your_value")
+        let value = keepsFileValue ? conflict.fileValue(field) : conflict.editedValue(field)
+        let shown = TagWriteConflictPolicy.normalized(value) ?? String(localized: "save_location_conflict_empty_value")
+        let cover: PlatformImage? = field == .cover
+            ? (keepsFileValue ? conflict.fileTags.coverData : conflict.editedCover).flatMap { PlatformImage(data: $0) }
+            : nil
+        let mark: AnyShapeStyle = selected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary)
+        return Button {
+            if keepsFileValue {
+                keepsFile.insert(field)
+            } else {
+                keepsFile.remove(field)
+            }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(mark)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let cover {
+                        Image(platformImage: cover)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 56, height: 56)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    } else {
+                        Text(field == .cover ? String(localized: "save_location_conflict_empty_value") : shown)
+                            .lineLimit(3)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
     }
 }
 

@@ -1,5 +1,7 @@
 import AVFoundation
+import CoreGraphics
 import Foundation
+import ImageIO
 import PrimuseKit
 import XCTest
 #if canImport(UIKit)
@@ -1203,7 +1205,8 @@ final class PendingTagWritebackStoreTests: XCTestCase {
 }
 
 /// 单独添加的文件:没有所在文件夹的授权也能原地写进音频文件,补授权后能在旁边写歌词文件;
-/// 写回方式按「歌词保存到」和探测结果分开定。
+/// 写回方式按「歌词保存到」和探测结果分开定。文件在编辑期间被别处改过:重读后不重叠就用新身份
+/// 自动再写一次,同一项两边都改了就交给用户选。
 final class LocalSaveLocationAndConflictTests: XCTestCase {
     private struct Reference: Encodable {
         let virtualPathComponent: String
@@ -1291,6 +1294,24 @@ final class LocalSaveLocationAndConflictTests: XCTestCase {
         song.lastModified = state.modifiedDate
         song.revision = state.revision
         return song
+    }
+
+    /// 另一台设备改了文件:改动发生在稍后,修改时间往后挪,不让「一秒内同样大小」的宽容当成没改。
+    private static func changeElsewhere(_ url: URL, artist: String? = nil, genre: String? = nil) async throws {
+        let current = try EmbeddedMetadataWriter.currentTags(at: url)
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            EmbeddedMetadataEdits(
+                tags: .init(title: current.title ?? "Song", artist: artist ?? current.artist,
+                            albumTitle: current.albumTitle, genre: genre ?? current.genre,
+                            year: current.year, trackNumber: current.trackNumber, discNumber: current.discNumber),
+                coverData: nil,
+                lyrics: .keep
+            ),
+            to: url
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(30)], ofItemAtPath: url.path
+        )
     }
 
     private func fileNumber(_ url: URL) throws -> Int? {
@@ -1388,5 +1409,233 @@ final class LocalSaveLocationAndConflictTests: XCTestCase {
         XCTAssertEqual(target.plan.reason, .noFolderAccess)
         XCTAssertEqual(target.plan.remedies, [.grantFolderAccess, .embedThisSong, .embedAllSongs])
         XCTAssertNotEqual(target.notice, String(localized: "save_location_lyrics_read_only_source"))
+    }
+
+    func testChangeElsewhereToOtherFieldsIsWrittenAgainWithTheCurrentFile() async throws {
+        let file = try await Self.makeTaggedAudio(in: directory)
+        try storeIndividualReference(file, grantsFolder: false)
+        let source = LocalFileSource(sourceID: sourceID, basePath: file)
+        let stale = try await Self.librarySong(source, sourceID: sourceID)
+        try await Self.changeElsewhere(file, genre: "Jazz")
+
+        var edited = stale
+        edited.artistName = "Mine"
+        let report = await TagMetadataWritebackCoordinator.write(
+            mode: .embedded, connector: source, original: stale, updated: edited, coverData: nil
+        )
+        XCTAssertTrue(report.recoveredFromConflict, report.issueMessage ?? "")
+        XCTAssertNil(report.conflict)
+        XCTAssertTrue(report.remoteMutationOccurred)
+        let tags = try EmbeddedMetadataWriter.currentTags(at: file)
+        XCTAssertEqual(tags.artist, "Mine")
+        XCTAssertEqual(tags.genre, "Jazz", "The other device's change stays in the file")
+        XCTAssertEqual(report.updatedSong.genre, "Jazz", "The library row follows the change made elsewhere")
+        XCTAssertEqual(report.updatedSong.artistName, "Mine")
+        let current = try await source.metadataWritebackState(for: "/Song.m4a")
+        XCTAssertEqual(report.updatedSong.revision, current.revision)
+    }
+
+    func testNewCoverAfterTheFileChangedElsewhereAsksTheUser() async throws {
+        let file = try await Self.makeTaggedAudio(in: directory)
+        try storeIndividualReference(file, grantsFolder: false)
+        let source = LocalFileSource(sourceID: sourceID, basePath: file)
+        let stale = try await Self.librarySong(source, sourceID: sourceID)
+        try await Self.changeElsewhere(file, genre: "Jazz")
+        let cover = try XCTUnwrap(Self.solidJPEG())
+
+        var edited = stale
+        edited.title = "Edited"
+        let report = await TagMetadataWritebackCoordinator.write(
+            mode: .embedded, connector: source, original: stale, updated: edited, coverData: cover
+        )
+        let conflict = try XCTUnwrap(report.conflict, "Without a baseline a new cover is never written blindly")
+        XCTAssertEqual(conflict.fields, [.cover])
+        XCTAssertNotNil(conflict.editedCover)
+        XCTAssertFalse(report.remoteMutationOccurred)
+        let keepFile = conflict.resolved(keepingFileValueFor: [.cover])
+        XCTAssertNil(keepFile.coverData)
+        XCTAssertEqual(keepFile.updated.title, "Edited", "The title change is not part of the conflict")
+        XCTAssertEqual(keepFile.updated.genre, "Jazz")
+        XCTAssertEqual(keepFile.original.genre, "Jazz", "Both rows carry the change made elsewhere")
+        XCTAssertNotNil(conflict.resolved(keepingFileValueFor: []).coverData)
+    }
+
+    func testEmptyFileTitleKeepsTheFileValueAsTheLibraryShowsIt() {
+        var library = Song(id: "a", title: "Mine", fileFormat: .flac, filePath: "/Music/01 Track.flac", sourceID: "s")
+        library.artistName = "Artist"
+        var edited = library
+        edited.title = "New Title"
+        let conflict = TagWriteConflict(
+            refreshedOriginal: library,
+            edited: edited,
+            fileTags: EmbeddedMetadataVerification(title: nil, artist: "Artist", albumTitle: nil, genre: nil,
+                                                   year: nil, trackNumber: nil, discNumber: nil, coverData: nil),
+            fields: [.title]
+        )
+        let keepFile = conflict.resolved(keepingFileValueFor: [.title])
+        XCTAssertNotEqual(keepFile.updated.title, "New Title", "Choosing the file's value must not keep the edit")
+        XCTAssertEqual(keepFile.updated.title, keepFile.original.title)
+        XCTAssertFalse(keepFile.writesSomething)
+        XCTAssertEqual(keepFile.updated.userMetadataEditedAt, library.userMetadataEditedAt)
+    }
+
+    @MainActor
+    func testBatchConflictWritesOnlyTheRestAndAsksLaterInTheEditor() async throws {
+        let file = try await Self.makeTaggedAudio(in: directory)
+        try storeIndividualReference(file, grantsFolder: false)
+        let musicSource = MusicSource(id: sourceID, name: "Single", type: .local, basePath: file.path, authType: .none)
+        let connector = LocalFileSource(sourceID: sourceID, basePath: file)
+        let manager = SourceManager(sourcesProvider: { [musicSource] }, connectorFactory: { _ in connector })
+        let fixture = try editingFixture()
+        defer { fixture.cleanup() }
+        let stale = try await Self.librarySong(connector, sourceID: sourceID)
+        fixture.library.addSongs([stale])
+        defer { PendingTagConflictStore.shared.clear(songID: stale.id) }
+        try await Self.changeElsewhere(file, artist: "Other device")
+
+        var edited = stale
+        edited.artistName = "Mine"
+        edited.year = 2002
+        let outcome = await BatchTagEditService.apply([(stale, edited)], coverData: nil, sourceManager: manager,
+                                                      library: fixture.library, player: fixture.player) { _, _ in }
+        let tags = try EmbeddedMetadataWriter.currentTags(at: file)
+        XCTAssertEqual(tags.artist, "Other device", "The field both sides changed is not overwritten")
+        XCTAssertEqual(tags.year, 2002, "The rest of the edit still reaches the file")
+        let row = try XCTUnwrap(fixture.library.song(id: stale.id))
+        XCTAssertEqual(row.artistName, "Other device", "The library keeps the file's value for the conflict")
+        XCTAssertEqual(row.year, 2002)
+        XCTAssertFalse(outcome.notices.isEmpty)
+        XCTAssertFalse(PendingTagWritebackStore.shared.entries.contains { $0.songID == stale.id })
+
+        let asked = try XCTUnwrap(PendingTagConflictStore.shared.conflict(for: row))
+        XCTAssertEqual(asked.fields, [.artist])
+        XCTAssertEqual(asked.fileValue(.artist), "Other device")
+        XCTAssertEqual(asked.editedValue(.artist), "Mine")
+    }
+
+    @MainActor
+    func testBatchConflictWithNothingElseLeavesNoUserEditMark() async throws {
+        let file = try await Self.makeTaggedAudio(in: directory)
+        try storeIndividualReference(file, grantsFolder: false)
+        let musicSource = MusicSource(id: sourceID, name: "Single", type: .local, basePath: file.path, authType: .none)
+        let connector = LocalFileSource(sourceID: sourceID, basePath: file)
+        let manager = SourceManager(sourcesProvider: { [musicSource] }, connectorFactory: { _ in connector })
+        let fixture = try editingFixture()
+        defer { fixture.cleanup() }
+        let stale = try await Self.librarySong(connector, sourceID: sourceID)
+        fixture.library.addSongs([stale])
+        defer { PendingTagConflictStore.shared.clear(songID: stale.id) }
+        try await Self.changeElsewhere(file, artist: "Other device")
+
+        var edited = stale
+        edited.artistName = "Mine"
+        _ = await BatchTagEditService.apply([(stale, edited)], coverData: nil, sourceManager: manager,
+                                            library: fixture.library, player: fixture.player) { _, _ in }
+        let row = try XCTUnwrap(fixture.library.song(id: stale.id))
+        XCTAssertEqual(row.artistName, "Other device")
+        XCTAssertNil(row.userMetadataEditedAt, "Nothing of the user's was written")
+        XCTAssertNotNil(PendingTagConflictStore.shared.conflict(for: row))
+    }
+
+    @MainActor
+    private func editingFixture() throws -> (library: MusicLibrary, player: AudioPlayerService, cleanup: () -> Void) {
+        let storage = directory.appendingPathComponent("Library-\(UUID().uuidString)")
+        let suite = "SaveLocationEditing-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let library = MusicLibrary(storageDirectory: storage, deferredMaintenanceAllowed: { false })
+        let player = AudioPlayerService(library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: storage.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Editing tags must not start playback") })
+        return (library, player, { defaults.removePersistentDomain(forName: suite) })
+    }
+
+    private static func solidJPEG() -> Data? {
+        guard let context = CGContext(
+            data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return nil }
+        context.setFillColor(red: 0.2, green: 0.6, blue: 0.7, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        guard let image = context.makeImage() else { return nil }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output as CFMutableData, "public.jpeg" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
+    }
+
+    func testSameFieldChangedElsewhereAsksTheUserBeforeWriting() async throws {
+        let file = try await Self.makeTaggedAudio(in: directory)
+        try storeIndividualReference(file, grantsFolder: false)
+        let source = LocalFileSource(sourceID: sourceID, basePath: file)
+        let stale = try await Self.librarySong(source, sourceID: sourceID)
+        try await Self.changeElsewhere(file, artist: "Other device")
+
+        var edited = stale
+        edited.artistName = "Mine"
+        edited.year = 2002
+        let report = await TagMetadataWritebackCoordinator.write(
+            mode: .embedded, connector: source, original: stale, updated: edited, coverData: nil
+        )
+        let conflict = try XCTUnwrap(report.conflict, report.issueMessage ?? "")
+        XCTAssertEqual(conflict.fields, [.artist], "Only the field both sides changed is asked about")
+        XCTAssertEqual(conflict.fileValue(.artist), "Other device")
+        XCTAssertEqual(conflict.editedValue(.artist), "Mine")
+        XCTAssertFalse(report.remoteMutationOccurred)
+        XCTAssertEqual(try EmbeddedMetadataWriter.currentTags(at: file).artist, "Other device")
+        XCTAssertFalse(BatchTagEditService.written(from: report).canRetry,
+                       "An automatic retry would hit the same conflict")
+
+        let keepFile = conflict.resolved(keepingFileValueFor: [.artist])
+        XCTAssertEqual(keepFile.updated.artistName, "Other device")
+        XCTAssertEqual(
+            TagMetadataWritebackField.changedFields(from: keepFile.original, to: keepFile.updated, includesCover: false),
+            [.year]
+        )
+
+        let mine = conflict.resolved(keepingFileValueFor: [])
+        let second = await TagMetadataWritebackCoordinator.write(
+            mode: .embedded, connector: source, original: mine.original, updated: mine.updated, coverData: nil
+        )
+        XCTAssertTrue(second.remoteMutationOccurred, second.issueMessage ?? "")
+        let tags = try EmbeddedMetadataWriter.currentTags(at: file)
+        XCTAssertEqual(tags.artist, "Mine")
+        XCTAssertEqual(tags.year, 2002)
+    }
+
+    func testRereadFailureKeepsTheDraftAndSaysWhy() async {
+        let original = Song(id: UUID().uuidString, title: "Original", fileFormat: .flac,
+                            filePath: "/Music/song.flac", sourceID: UUID().uuidString)
+        var edited = original
+        edited.title = "Edited"
+        let connector = ConflictThenUnreadableConnector()
+        let report = await TagMetadataWritebackCoordinator.write(
+            mode: .embedded, connector: connector, original: original, updated: edited, coverData: nil
+        )
+        XCTAssertTrue(report.conflictRereadFailed)
+        XCTAssertNil(report.conflict)
+        XCTAssertTrue(report.embeddedWriteFailed)
+        XCTAssertNotNil(report.issueMessage)
+    }
+}
+
+/// 第一次写回撞上冲突,之后连文件状态都读不出来(文件没了、没权限、连不上)。
+private actor ConflictThenUnreadableConnector: MusicSourceConnector {
+    nonisolated let sourceID = "conflict-unreadable"
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+    func writeEmbeddedMetadata(original: Song, updated: Song, coverData: Data?, lyrics: EmbeddedLyricsEdit,
+                               writesTextTags: Bool) async throws -> EmbeddedMetadataWritebackResult {
+        throw EmbeddedMetadataCoordinatedWritebackError.conflict
+    }
+    func embeddedMetadataSnapshot(for path: String) async throws -> EmbeddedMetadataFileSnapshot {
+        throw SourceError.fileNotFound(path)
     }
 }

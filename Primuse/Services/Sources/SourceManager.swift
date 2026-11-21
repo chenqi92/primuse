@@ -2237,6 +2237,10 @@ extension RoutedConnectorProxy {
         }
     }
 
+    func embeddedMetadataSnapshot(for path: String) async throws -> EmbeddedMetadataFileSnapshot {
+        try await routing.withMutation { try await $0.embeddedMetadataSnapshot(for: path) }
+    }
+
     func deleteFile(at path: String) async throws {
         try await routing.withMutation { try await $0.deleteFile(at: path) }
     }

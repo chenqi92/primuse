@@ -874,6 +874,10 @@ protocol MusicSourceConnector: Sendable {
         policy: EmbeddedAssetWritePolicy
     ) async throws -> EmbeddedMetadataWritebackResult
 
+    /// The file's current identity and tags, read on their own after a guarded
+    /// rewrite found the file changed. Default in `EmbeddedMetadataWritebackCoordinator.swift`.
+    func embeddedMetadataSnapshot(for path: String) async throws -> EmbeddedMetadataFileSnapshot
+
     /// Delete a remote file. Used by song deletion to remove the source audio
     /// file and safe same-name sidecars.
     func deleteFile(at path: String) async throws

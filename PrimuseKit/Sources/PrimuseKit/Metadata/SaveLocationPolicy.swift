@@ -328,3 +328,57 @@ extension EmbeddedLyricsCopyPolicy {
         }
     }
 }
+
+/// 标签保存时发现文件在编辑期间被别处改过:重读文件现在的标签之后怎么办。
+///
+/// 写回只改用户这次改了的字段,其余字段原样留在文件里。所以只看用户改了的那几项:文件里现在的值
+/// 还是编辑开始时的值,或者已经就是用户要的值,这一项就不冲突;两样都不是,说明别处也改了这一项,
+/// 要用户来选。都不冲突时用新的文件身份自动再写一次。
+public enum TagWriteConflictPolicy {
+    public struct FieldState<Field: Hashable & Sendable>: Sendable, Equatable {
+        public let field: Field
+        /// 编辑开始时 Primuse 记的值。
+        public let baseline: String?
+        /// 文件里现在的值。
+        public let fileNow: String?
+        /// 用户这次要写的值。
+        public let edited: String?
+
+        public init(field: Field, baseline: String?, fileNow: String?, edited: String?) {
+            self.field = field
+            self.baseline = baseline
+            self.fileNow = fileNow
+            self.edited = edited
+        }
+    }
+
+    public enum Resolution<Field: Hashable & Sendable>: Sendable, Equatable {
+        /// 别处改的和这次改的不重叠:用新的文件身份再写一次。
+        case retry
+        /// 这些字段两边都改了,要用户选。
+        case askUser([Field])
+    }
+
+    /// 只传用户改了的字段。
+    public static func resolve<Field>(_ changed: [FieldState<Field>]) -> Resolution<Field> {
+        let overlapping = changed.filter { state in
+            let now = normalized(state.fileNow)
+            return now != normalized(state.baseline) && now != normalized(state.edited)
+        }.map(\.field)
+        return overlapping.isEmpty ? .retry : .askUser(overlapping)
+    }
+
+    /// 封面:用户换了封面、文件又被别处改过,而文件里现在的封面不是用户要的这张,就交给用户选。
+    /// 编辑开始时文件里是哪张封面不知道(没有基线),所以「文件变过」就不自动重试。
+    public static func coverOverlaps(userChangedCover: Bool, fileCoverIsTheNewOne: Bool) -> Bool {
+        userChangedCover && !fileCoverIsTheNewOne
+    }
+
+    /// 比较用:去掉首尾空白,空串当没有。
+    public static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}

@@ -126,6 +126,8 @@ enum BatchTagEditService {
         var missedWrite = false
         /// The source refused this embedded write; its folder stops.
         var wasRefused = false
+        /// 封面两边都换了:文件里留着别处那张,这首不换资料库的封面。
+        var keptFileCover = false
     }
 
     /// 一次写回的结果落成要存的那一行:写不进源的部分照样存在 Primuse。单曲编辑器和批量编辑共用。
@@ -144,7 +146,8 @@ enum BatchTagEditService {
             notice: report.issueMessage,
             previousFileTags: report.previousFileTags,
             isLocalOnly: keep.isLocalOnly,
-            canRetry: keep.canRetry,
+            // 同一项两边都改了:自动补写还会撞上同一个冲突,要用户在标签编辑里选。
+            canRetry: keep.canRetry && report.conflict == nil,
             missedWrite: keep.missedWrite,
             wasRefused: report.localSaveNotice != nil && report.mode == .embedded
         )
@@ -339,11 +342,13 @@ enum BatchTagEditService {
         outcome: inout Outcome
     ) async {
         var published: [Song] = []
+        var keptFileCoverIDs: Set<String> = []
         let originalsStart = outcome.originals.count
         for index in results.keys.sorted() {
             switch results[index] {
             case .success(let written)?:
                 var song = written.song
+                if written.keptFileCover { keptFileCoverIDs.insert(song.id) }
                 if publishesOntoLiveRows {
                     guard var current = library.song(id: song.id) else { continue }
                     let original = pending[index].original
@@ -402,7 +407,7 @@ enum BatchTagEditService {
 
         if let coverData {
             outcome.coverChanged = true
-            for index in published.indices {
+            for index in published.indices where !keptFileCoverIDs.contains(published[index].id) {
                 let songID = published[index].id
                 if let fileName = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: songID, origin: .selected) {
                     published[index].coverArtFileName = fileName
@@ -448,9 +453,58 @@ enum BatchTagEditService {
                 updated: updated,
                 coverData: coverData
             )
+            if let conflict = report.conflict {
+                return .success(await writeAround(conflict, sourceManager: sourceManager))
+            }
             return .success(written(from: report))
         } catch {
             return .success(written(after: error, song: updated, coverChanged: coverData != nil))
+        }
+    }
+
+    /// 同一项两边都改了:冲突的这几项留着文件里的值(资料库也跟着文件、不打用户编辑标记),
+    /// 只写不重叠的修改;冲突记下来,单曲标签编辑打开这首歌时接着让用户选。
+    @MainActor
+    private static func writeAround(_ conflict: TagWriteConflict, sourceManager: SourceManager) async -> Written {
+        PendingTagConflictStore.shared.record(conflict)
+        let keep = conflict.resolved(keepingFileValueFor: Set(conflict.fields))
+        let notice = TagMetadataWritebackCoordinator.conflictMessage(conflict.fields)
+        let keepsCover = conflict.fields.contains(.cover)
+        plog("Batch tag write conflict songID=\(conflict.edited.id) "
+            + "fields=\(conflict.fields.map(\.rawValue).joined(separator: ",")) remaining=\(keep.writesSomething)")
+        guard keep.writesSomething else {
+            return Written(song: keep.updated, notice: notice, previousFileTags: nil, keptFileCover: keepsCover)
+        }
+        var updated = keep.updated
+        updated.userMetadataEditedAt = Date()
+        do {
+            let report = try await sourceManager.writeTagMetadata(
+                original: keep.original,
+                updated: updated,
+                coverData: keep.coverData
+            )
+            let rest = written(from: report)
+            return Written(
+                song: rest.song,
+                notice: [notice, rest.notice].compactMap { $0 }.joined(separator: "\n"),
+                previousFileTags: rest.previousFileTags,
+                isLocalOnly: rest.isLocalOnly,
+                canRetry: rest.canRetry,
+                missedWrite: rest.missedWrite,
+                wasRefused: rest.wasRefused,
+                keptFileCover: keepsCover
+            )
+        } catch {
+            let rest = written(after: error, song: updated, coverChanged: keep.coverData != nil)
+            return Written(
+                song: rest.song,
+                notice: [notice, rest.notice].compactMap { $0 }.joined(separator: "\n"),
+                previousFileTags: nil,
+                isLocalOnly: rest.isLocalOnly,
+                canRetry: rest.canRetry,
+                missedWrite: rest.missedWrite,
+                keptFileCover: keepsCover
+            )
         }
     }
 
@@ -549,6 +603,104 @@ enum BatchTagEditService {
     }
 }
 
+
+/// 批量编辑里同一项两边都改了、没写的那几项:按歌记下用户要的值,单曲标签编辑打开这首歌时
+/// 接着让用户选。只存在这台设备上;用户选完或关掉选择就删掉。
+@MainActor
+final class PendingTagConflictStore {
+    static let shared = PendingTagConflictStore()
+
+    private struct Entry: Codable {
+        /// 字段 → 用户要的值(nil 表示清空)。
+        var values: [String: String?]
+        var recordedAt: Date
+    }
+
+    private static let defaultsKey = "primuse.tagWriteConflicts.v1"
+    private var entries: [String: Entry]
+
+    init() {
+        entries = UserDefaults.standard.data(forKey: Self.defaultsKey)
+            .flatMap { try? JSONDecoder().decode([String: Entry].self, from: $0) } ?? [:]
+    }
+
+    func record(_ conflict: TagWriteConflict) {
+        var values: [String: String?] = [:]
+        for field in conflict.fields where field != .cover {
+            values[field.rawValue] = .some(conflict.editedValue(field))
+        }
+        guard !values.isEmpty else { return }
+        entries[conflict.edited.id] = Entry(values: values, recordedAt: Date())
+        persist()
+    }
+
+    func clear(songID: String) {
+        guard entries.removeValue(forKey: songID) != nil else { return }
+        persist()
+    }
+
+    /// 这首歌还没选的冲突,按资料库现在这一行(文件里的值)摆出来;都已经一样了就不再问。
+    func conflict(for song: Song) -> TagWriteConflict? {
+        guard let entry = entries[song.id] else { return nil }
+        var edited = song
+        var fields: [TagMetadataWritebackField] = []
+        for field in TagMetadataWritebackField.textFields {
+            guard let value = entry.values[field.rawValue] else { continue }
+            edited.setText(value, for: field)
+            if TagWriteConflictPolicy.normalized(field.value(in: song))
+                != TagWriteConflictPolicy.normalized(field.value(in: edited)) {
+                fields.append(field)
+            }
+        }
+        guard !fields.isEmpty else {
+            clear(songID: song.id)
+            return nil
+        }
+        return TagWriteConflict(
+            refreshedOriginal: song,
+            edited: edited,
+            fileTags: EmbeddedMetadataVerification(
+                title: song.title,
+                artist: song.artistName,
+                albumTitle: song.albumTitle,
+                genre: song.genre,
+                year: song.year,
+                trackNumber: song.trackNumber,
+                discNumber: song.discNumber,
+                coverData: nil,
+                albumArtist: song.albumArtistName
+            ),
+            fields: fields
+        )
+    }
+
+    private func persist() {
+        if entries.isEmpty {
+            UserDefaults.standard.removeObject(forKey: Self.defaultsKey)
+        } else if let data = try? JSONEncoder().encode(entries) {
+            UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+        }
+    }
+}
+
+private extension Song {
+    /// 冲突里记下的文字值放回这一行。
+    mutating func setText(_ value: String?, for field: TagMetadataWritebackField) {
+        switch field {
+        case .title: if let value, !value.isEmpty { title = value }
+        case .artist:
+            if artistName != value { sourceArtistNames = nil }
+            artistName = value
+        case .albumArtist: albumArtistName = value
+        case .album: albumTitle = value
+        case .genre: genre = value
+        case .year: year = value.flatMap { Int($0) }
+        case .trackNumber: trackNumber = value.flatMap { Int($0) }
+        case .discNumber: discNumber = value.flatMap { Int($0) }
+        case .cover: break
+        }
+    }
+}
 
 @MainActor
 @Observable

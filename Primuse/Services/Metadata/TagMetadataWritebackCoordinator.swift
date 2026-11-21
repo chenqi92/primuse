@@ -10,6 +10,12 @@ struct TagMetadataWritebackReport: Sendable {
     /// back the file's own values.
     var previousFileTags: EmbeddedMetadataVerification? = nil
     var localSaveNotice: String?
+    /// 文件在编辑期间被别处改过,重读之后同一项两边都改了:没写,等用户选。
+    var conflict: TagWriteConflict? = nil
+    /// 文件在编辑期间被别处改过,单独重读这一首也没读成(文件没了、没权限、连不上)。
+    var conflictRereadFailed = false
+    /// 文件在编辑期间被别处改过,重读后不重叠,用新的文件身份写成了。
+    var recoveredFromConflict = false
 
     var failedFields: [TagMetadataFieldWritebackResult] {
         fields.filter {
@@ -115,34 +121,63 @@ enum TagMetadataWritebackCoordinator {
                 report.setDisposition(.failed(String(localized: "metadata_writeback_error_invalid_state")), for: changed)
                 return report
             }
-            do {
-                let result = try await writeEmbeddedRetryingOnce(
-                    connector: connector,
-                    original: original,
-                    updated: updated,
-                    coverData: sourceCover
-                )
+            func record(_ result: EmbeddedMetadataWritebackResult) {
                 report.updatedSong.fileSize = result.fileSize
                 report.updatedSong.lastModified = result.modifiedDate
                 report.updatedSong.revision = result.revision
                 report.updatedSong.filePath = result.filePath ?? updated.filePath
                 report.previousFileTags = result.previousTags
                 report.setDisposition(.written, for: changed)
-            } catch let error as EmbeddedMetadataReplacementReadbackError {
-                var relocated = original
-                relocated.filePath = error.filePath
-                relocated.fileSize = error.fileSize
-                relocated.revision = nil
-                relocated.lastModified = nil
-                report.replacementAfterFailedVerification = relocated
-                report.setDisposition(.failed(error.localizedDescription), for: changed)
-            } catch {
-                if MetadataWriteFailurePolicy.allowsLocalSave(error) {
+            }
+            func recordFailure(_ error: any Error) {
+                if let error = error as? EmbeddedMetadataReplacementReadbackError {
+                    var relocated = original
+                    relocated.filePath = error.filePath
+                    relocated.fileSize = error.fileSize
+                    relocated.revision = nil
+                    relocated.lastModified = nil
+                    report.replacementAfterFailedVerification = relocated
+                    report.setDisposition(.failed(error.localizedDescription), for: changed)
+                } else if MetadataWriteFailurePolicy.allowsLocalSave(error) {
                     report.setDisposition(.localOnly, for: changed)
                     report.localSaveNotice = MetadataWriteFailurePolicy.localSaveNotice
                 } else {
                     report.setDisposition(.failed(error.localizedDescription), for: changed)
                 }
+            }
+            do {
+                record(try await writeEmbeddedRetryingOnce(
+                    connector: connector,
+                    original: original,
+                    updated: updated,
+                    coverData: sourceCover
+                ))
+            } catch EmbeddedMetadataCoordinatedWritebackError.conflict {
+                // 页面手里的文件身份是旧的,原样再试永远失败:单独重读这一首,
+                // 别处改的和这次改的不重叠就用新身份写一次,重叠就交给用户选。
+                switch await recoverFromConflict(
+                    connector: connector,
+                    original: original,
+                    updated: updated,
+                    coverData: sourceCover
+                ) {
+                case .written(let result, let retried):
+                    report.recoveredFromConflict = true
+                    report.updatedSong = retried
+                    record(result)
+                case .needsChoice(let conflict):
+                    report.conflict = conflict
+                    report.setDisposition(.failed(conflictMessage(conflict.fields)), for: changed)
+                case .rereadFailed(let message):
+                    report.conflictRereadFailed = true
+                    report.setDisposition(.failed(message), for: changed)
+                case .failed(let error as EmbeddedMetadataCoordinatedWritebackError) where error == .conflict:
+                    report.setDisposition(.failed(String(localized: "save_location_conflict_again")), for: changed)
+                case .failed(let error):
+                    recordFailure(error)
+                }
+            } catch {
+                recordFailure(error)
             }
 
         case .serverAPI:
@@ -224,6 +259,115 @@ enum TagMetadataWritebackCoordinator {
         }
 
         return report
+    }
+
+    private enum ConflictRecovery {
+        /// 用新身份写成了;`updated` 是写的那一行(带上了别处改的字段)。
+        case written(EmbeddedMetadataWritebackResult, updated: Song)
+        case needsChoice(TagWriteConflict)
+        case rereadFailed(String)
+        /// 用新身份重写的那一次本身失败了。
+        case failed(any Error)
+    }
+
+    /// 文件在编辑期间被别处改过:单独重读它现在的身份和标签。只看这次改了的字段 ——
+    /// 写回只改这几项,别处改的其他字段原样留在文件里。
+    private static func recoverFromConflict(
+        connector: any MusicSourceConnector,
+        original: Song,
+        updated: Song,
+        coverData: Data?
+    ) async -> ConflictRecovery {
+        let snapshot: EmbeddedMetadataFileSnapshot
+        do {
+            snapshot = try await connector.embeddedMetadataSnapshot(for: original.filePath)
+        } catch {
+            plog("Metadata writeback conflict reread failed songID=\(original.id): \(error.localizedDescription)")
+            return .rereadFailed(String(
+                format: String(localized: "save_location_conflict_reread_failed_format"),
+                SourceErrorPresentation.userFacingDescription(error)
+            ))
+        }
+        let changed = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: false)
+        let ordered = TagMetadataWritebackField.allCases.filter { changed.contains($0) }
+        let states = ordered.map { field in
+            TagWriteConflictPolicy.FieldState(
+                field: field,
+                baseline: field.value(in: original),
+                fileNow: field.fileValue(in: snapshot.tags, for: original),
+                edited: field.value(in: updated)
+            )
+        }
+        var overlapping: [TagMetadataWritebackField]
+        switch TagWriteConflictPolicy.resolve(states) {
+        case .retry: overlapping = []
+        case .askUser(let fields): overlapping = fields
+        }
+        let changesCover = coverData?.isEmpty == false
+        if TagWriteConflictPolicy.coverOverlaps(
+            userChangedCover: changesCover,
+            fileCoverIsTheNewOne: changesCover && snapshot.tags.coverData == coverData
+        ) {
+            overlapping.append(.cover)
+        }
+        let refreshed = snapshot.applyingIdentity(to: original)
+        guard overlapping.isEmpty else {
+            plog("Metadata writeback conflict overlaps songID=\(original.id) "
+                + "fields=\(overlapping.map(\.rawValue).joined(separator: ",")) "
+                + "\(snapshot.state.mismatchSummary(againstScanned: original))")
+            return .needsChoice(TagWriteConflict(
+                refreshedOriginal: refreshed,
+                edited: updated,
+                fileTags: snapshot.tags,
+                fields: overlapping,
+                editedCover: changesCover ? coverData : nil
+            ))
+        }
+        // 别处改的、这次没改的字段两行都换成文件里的值:资料库跟上文件,写回也不会把它改回旧值。
+        var retryOriginal = refreshed
+        var retryUpdated = updated
+        retryUpdated.fileSize = refreshed.fileSize
+        retryUpdated.lastModified = refreshed.lastModified
+        retryUpdated.revision = refreshed.revision
+        let adopted = TagMetadataWritebackField.adoptChangesElsewhere(
+            from: snapshot.tags,
+            original: &retryOriginal,
+            updated: &retryUpdated,
+            userChanged: changed
+        )
+        plog("Metadata writeback conflict reread songID=\(original.id) "
+            + "changedElsewhere=\(adopted.map(\.rawValue).joined(separator: ",")) "
+            + "edited=\(ordered.map(\.rawValue).joined(separator: ",")) retrying with the current file identity")
+        do {
+            let result = try await writeEmbeddedRetryingOnce(
+                connector: connector,
+                original: retryOriginal,
+                updated: retryUpdated,
+                coverData: coverData
+            )
+            return .written(result, updated: retryUpdated)
+        } catch {
+            return .failed(error)
+        }
+    }
+
+    /// 批量编辑里冲突的说明:文字字段要用户去单曲标签编辑里选;封面没留下新图,要用新封面得再换一次。
+    static func conflictMessage(_ fields: [TagMetadataWritebackField]) -> String {
+        let textFields = fields.filter { $0 != .cover }
+        var parts: [String] = []
+        if !textFields.isEmpty {
+            let names = textFields.map {
+                String(format: String(localized: "save_location_field_quote_format"), $0.localizedName)
+            }
+            parts.append(String(
+                format: String(localized: "save_location_conflict_fields_format"),
+                ListFormatter.localizedString(byJoining: names)
+            ))
+        }
+        if fields.contains(.cover) {
+            parts.append(String(localized: "save_location_conflict_cover_kept"))
+        }
+        return LyricsWriteback.joinedSentences(parts)
     }
 
     /// 标签和封面这次落在哪里:开头先说落点,后面是原因。

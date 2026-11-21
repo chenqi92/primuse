@@ -247,6 +247,32 @@ protocol EmbeddedMetadataWritebackAdapter: MusicSourceConnector {
     func prepareForMetadataWriteback(at path: String) async throws
 }
 
+/// 一个音频文件此刻的身份和标签。标签保存撞上「编辑期间被别处改过」时单独重读这一首用,
+/// 不必让用户去重扫整个音乐源。
+struct EmbeddedMetadataFileSnapshot: Sendable {
+    let state: EmbeddedMetadataRemoteFileState
+    let tags: EmbeddedMetadataVerification
+
+    /// 这一行换成文件现在的身份;标签不动。
+    func applyingIdentity(to song: Song) -> Song {
+        var refreshed = song
+        refreshed.fileSize = state.fileSize
+        refreshed.lastModified = state.modifiedDate
+        refreshed.revision = state.revision
+        return refreshed
+    }
+}
+
+extension MusicSourceConnector {
+    /// 默认:能做整文件写回的连接器读一遍文件现在的身份和标签;别的连接器不支持。
+    func embeddedMetadataSnapshot(for path: String) async throws -> EmbeddedMetadataFileSnapshot {
+        guard let adapter = self as? any EmbeddedMetadataWritebackAdapter else {
+            throw EmbeddedMetadataCoordinatedWritebackError.unsupported
+        }
+        return try await EmbeddedMetadataWritebackCoordinator.snapshot(adapter: adapter, path: path)
+    }
+}
+
 /// A replacement may commit before its verification download fails. Preserve
 /// the new address even then, without treating unverified tags as a saved edit.
 struct EmbeddedMetadataReplacementReadbackError: LocalizedError {
@@ -539,6 +565,37 @@ enum EmbeddedMetadataWritebackCoordinator {
                 detail: error.localizedDescription
             )
         }
+    }
+
+    /// 读一遍文件现在的身份和标签。远端源要把这一首整个下下来读,读完就删。
+    static func snapshot<Adapter: EmbeddedMetadataWritebackAdapter>(
+        adapter: Adapter,
+        path: String
+    ) async throws -> EmbeddedMetadataFileSnapshot {
+        let sourceName = displayName(for: Adapter.self)
+        await adapter.invalidateMetadataWritebackCache(for: path)
+        try await run(source: sourceName, stage: .download) {
+            try await adapter.prepareForMetadataWriteback(at: path)
+        }
+        let state = try await run(source: sourceName, stage: .inspect) {
+            try await adapter.metadataWritebackState(for: path)
+        }
+        let url = try await run(source: sourceName, stage: .download) {
+            try await adapter.localURL(for: path)
+        }
+        let tags: EmbeddedMetadataVerification
+        do {
+            tags = try await run(source: sourceName, stage: .inspect) {
+                try await Task.detached(priority: .userInitiated) {
+                    try EmbeddedMetadataWriter.currentTags(at: url)
+                }.value
+            }
+        } catch {
+            await adapter.invalidateMetadataWritebackCache(for: path)
+            throw error
+        }
+        await adapter.invalidateMetadataWritebackCache(for: path)
+        return EmbeddedMetadataFileSnapshot(state: state, tags: tags)
     }
 
     private static func run<Value>(

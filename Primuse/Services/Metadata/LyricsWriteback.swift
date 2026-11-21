@@ -638,7 +638,7 @@ enum LyricsWriteback {
     }
 
     /// 句子接起来:以全角句号、问号、叹号、引号收尾的(中文、日文)直接接,其他语言隔一个空格。
-    static func joinedSentences(_ parts: [String]) -> String {
+    nonisolated static func joinedSentences(_ parts: [String]) -> String {
         parts.reduce(into: "") { result, part in
             guard !part.isEmpty else { return }
             if let last = result.last, !"。！？」）".contains(last) { result.append(" ") }
