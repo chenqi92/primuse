@@ -55,3 +55,42 @@ struct ListenBrainzServerAddressTests {
             == "https://lb.example.com/apis/listenbrainz/1/submit-listens")
     }
 }
+
+@Suite("ListenBrainz connection draft")
+struct ListenBrainzConnectionDraftTests {
+    @Test func switchingRootRequiresAnExplicitTokenForThatRoot() throws {
+        let root = try #require(URL(string: "https://listen.example/a"))
+        var draft = ListenBrainzConnectionDraft(baseURL: root, token: "fixture-a")
+        draft.serverText = "https://listen.example/a/1/submit-listens"
+        #expect(draft.matchesSavedCredentials)
+
+        draft.serverText = "https://listen.example/b"
+        #expect(draft.token.isEmpty)
+        #expect(!draft.canSave)
+        draft.token = "fixture-b"
+        #expect(draft.canSave)
+
+        draft.serverText = "https://other.example"
+        #expect(draft.token.isEmpty)
+        draft.serverText = root.absoluteString
+        #expect(draft.token == "fixture-a")
+        draft.serverText = "https://listen.example/b/"
+        #expect(draft.token == "fixture-b")
+    }
+
+    @Test func editingATokenBeforeChangingServerCannotCarryItToAnotherServer() {
+        var draft = ListenBrainzConnectionDraft(token: "fixture-old")
+        draft.token = "fixture-replacement"
+        draft.serverText = "https://new.example"
+        #expect(draft.token.isEmpty)
+        draft.serverText = "https://"
+        #expect(draft.baseURL == nil)
+        #expect(!draft.canSave)
+
+        draft.serverText = "https://listenbrainz.org"
+        #expect(draft.token == "fixture-replacement")
+        draft.token = ""
+        #expect(draft.canSave)
+        #expect(!draft.matchesSavedCredentials)
+    }
+}

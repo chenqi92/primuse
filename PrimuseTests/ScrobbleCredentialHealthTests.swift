@@ -8,6 +8,63 @@ import XCTest
 #endif
 
 final class ScrobbleCredentialHealthTests: XCTestCase, @unchecked Sendable {
+    func testSavingAnotherServerWritesOnePairAndAWriteFailurePreservesTheActivePair() throws {
+        typealias Store = ListenBrainzCredentialsStore
+        let a = ListenBrainzServerAddress.officialURL
+        let b = try XCTUnwrap(URL(string: "https://listen.example/b"))
+        var items: [String: String] = [:]
+        var writes = 0
+        XCTAssertTrue(Store.save(baseURL: a, token: "a") { value, key in
+            items[key] = value
+            writes += 1
+            return true
+        })
+        XCTAssertFalse(Store.save(baseURL: b, token: "b") { _, key in
+            XCTAssertEqual(key, Store.account)
+            writes += 1
+            return false
+        })
+        XCTAssertEqual(writes, 2)
+        let active = Store.resolve { items[$0].map(KeychainService.PasswordLookupResult.found) ?? .notFound }
+        XCTAssertEqual(active, .ready(try XCTUnwrap(ListenBrainzCredentials(baseURL: a, token: "a"))))
+    }
+
+    func testPairedCredentialsShadowLegacySecretsEvenWhenClearedOrUnreadable() throws {
+        typealias Store = ListenBrainzCredentialsStore
+        let server = URL(string: "https://listen.example/music/1")!
+        let saved = try XCTUnwrap(ListenBrainzCredentials(baseURL: server, token: "new-token"))
+        let cleared = try XCTUnwrap(ListenBrainzCredentials(baseURL: server, token: ""))
+        let encoder = JSONEncoder()
+        for (value, expected): (KeychainService.PasswordLookupResult, Store.Resolution) in [
+            (.found(String(decoding: try encoder.encode(saved), as: UTF8.self)), .ready(saved)),
+            (.found(String(decoding: try encoder.encode(cleared), as: UTF8.self)), .notConfigured),
+            (.found("{}"), .unavailable),
+            (.temporarilyUnavailable(-1), .unavailable)
+        ] {
+            XCTAssertEqual(Store.resolve { account in
+                XCTAssertEqual(account, Store.account)
+                return value
+            }, expected)
+        }
+        XCTAssertEqual(saved.baseURL, server)
+    }
+
+    func testLegacyTokenIsOnlyAutomaticallyUsableForTheOfficialServer() throws {
+        let official = try XCTUnwrap(ListenBrainzCredentials(baseURL: ListenBrainzServerAddress.officialURL, token: "legacy"))
+        for (address, expected): (KeychainService.PasswordLookupResult, ListenBrainzCredentialsStore.Resolution) in [
+            (.notFound, .ready(official)),
+            (.found("https://listen.example/custom"), .notConfigured),
+            (.temporarilyUnavailable(-1), .unavailable)
+        ] {
+            XCTAssertEqual(ListenBrainzCredentialsStore.resolve { account in
+                if account == ListenBrainzCredentialsStore.account { return .notFound }
+                if account == ListenBrainzServerAddress.keychainAccount { return address }
+                XCTAssertEqual(address, .notFound)
+                return .found("legacy")
+            }, expected)
+        }
+    }
+
     func testListenBrainzIdentifiesClientForValidationAndBothWriteTypes() async throws {
         let fixture = CredentialHTTPFixture(status: 200, body: #"{"valid":true,"code":200}"#)
         let token = UUID().uuidString

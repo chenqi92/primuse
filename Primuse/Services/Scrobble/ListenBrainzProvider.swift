@@ -15,6 +15,7 @@ struct ListenBrainzProvider: ScrobbleProvider {
 
     /// 服务端地址。默认官方 listenbrainz.org, 用户可改为自部署。
     let baseURL: URL
+    var serverURL: URL? { baseURL }
     let userToken: String
 
     let requests: ScrobbleRequests

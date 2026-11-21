@@ -122,48 +122,83 @@ public enum ScrobbleProviderID: String, Codable, Sendable, CaseIterable {
     var keychainAccount: String { "scrobble.\(rawValue)" }
 }
 
-/// ListenBrainz 的服务器地址(#464)。和令牌一样存钥匙串,两者随 iCloud 钥匙串、扫码直传一起走,
-/// 见 `ListenBrainzServerAddress`。没存就是官方服务器。
-enum ListenBrainzServerStore {
+enum ListenBrainzCredentialsStore {
+    static let account = LANSettingsTransferPolicy.listenBrainzConfigurationAccount
+    typealias Lookup = (String) -> KeychainService.PasswordLookupResult
+
     enum Resolution: Equatable {
-        case ready(URL)
-        /// 钥匙串暂时读不到(锁屏后、首次解锁前): 不能当成官方地址, 否则会把自建服务器的令牌发给官方。
+        case ready(ListenBrainzCredentials)
+        case notConfigured
         case unavailable
     }
 
-    static let account = ListenBrainzServerAddress.keychainAccount
+    static func resolve(lookup: Lookup = KeychainService.passwordLookup(for:)) -> Resolution {
+        let result = configuration(lookup: lookup)
+        if case .ready(let credentials) = result, credentials.token.isEmpty { return .notConfigured }
+        return result
+    }
 
-    static func resolve() -> Resolution {
-        switch ScrobbleCredentialAvailabilityPolicy.resolveValue(KeychainService.passwordLookup(for: account)) {
-        case .notConfigured:
-            return .ready(ListenBrainzServerAddress.officialURL)
-        case .ready(let stored):
-            // 存进去的都是归一过的地址; 读出来解析不了说明值坏了, 不拿令牌去猜。
-            guard let url = ListenBrainzServerAddress.resolvedURL(stored: stored) else { return .unavailable }
-            return .ready(url)
-        case .unavailable:
+    static func savedBaseURL() -> URL? {
+        if case .ready(let config) = configuration(lookup: KeychainService.passwordLookup(for:)) {
+            return config.baseURL
+        }
+        return nil
+    }
+
+    static var legacyQueueIsOfficial: Bool? {
+        switch KeychainService.passwordLookup(for: ListenBrainzServerAddress.keychainAccount) {
+        case .notFound: return true
+        case .found: return false
+        case .temporarilyUnavailable, .failed: return nil
+        }
+    }
+
+    private static func configuration(lookup: Lookup) -> Resolution {
+        switch lookup(account) {
+        case .found(let value):
+            guard let config = try? JSONDecoder().decode(ListenBrainzCredentials.self, from: Data(value.utf8)) else {
+                return .unavailable
+            }
+            return .ready(config)
+        case .notFound:
+            break
+        case .temporarilyUnavailable, .failed:
+            return .unavailable
+        }
+
+        // Released clients stored only an official token. A separate custom address
+        // cannot establish which server issued a previously saved token.
+        switch lookup(ListenBrainzServerAddress.keychainAccount) {
+        case .notFound:
+            break
+        case .found(let address):
+            guard let url = URL(string: address),
+                  let draft = ListenBrainzCredentials(baseURL: url, token: "") else { return .unavailable }
+            return .ready(draft)
+        case .temporarilyUnavailable, .failed:
+            return .unavailable
+        }
+
+        switch lookup(ScrobbleProviderID.listenBrainz.keychainAccount) {
+        case .found(let token):
+            guard let config = ListenBrainzCredentials(baseURL: ListenBrainzServerAddress.officialURL, token: token) else {
+                return .unavailable
+            }
+            return .ready(config)
+        case .notFound:
+            return .notConfigured
+        case .temporarilyUnavailable, .failed:
             return .unavailable
         }
     }
 
-    /// 设置页输入框里显示的文字: 自建服务器的地址, 官方服务器时为空。
-    static func loadText() -> String {
-        guard let stored = KeychainService.getPassword(for: account) else { return "" }
-        if case .custom(let url) = ListenBrainzServerAddress.parse(stored) { return url.absoluteString }
-        return ""
-    }
-
-    /// 存官方地址就是删掉这一项。返回 false 表示钥匙串写入失败。
-    @discardableResult
-    static func save(_ address: ListenBrainzServerAddress.ParseResult) -> Bool {
-        switch address {
-        case .official:
-            return KeychainService.deletePassword(for: account)
-        case .custom(let url):
-            return KeychainService.setPassword(url.absoluteString, for: account)
-        case .invalid:
-            return false
-        }
+    static func save(baseURL: URL, token: String, write: (String, String) -> Bool = KeychainService.setPassword(_:for:)) -> Bool {
+        // An explicit empty token shadows the legacy item on this device and on synced devices.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let config = ListenBrainzCredentials(baseURL: baseURL, token: token),
+              let data = try? encoder.encode(config) else { return false }
+        return write(String(decoding: data, as: UTF8.self), account)
     }
 }
 
@@ -185,8 +220,7 @@ enum LastFmCredentialsStore {
 
     /// 扫码直传带给 Apple TV 的账号(`LANSettingsTransferPolicy.scrobbleSecretAccounts` 写的是同一组字面值)。
     static let transferableAccounts: Set<String> = [
-        ScrobbleProviderID.listenBrainz.keychainAccount,
-        ListenBrainzServerStore.account,
+        ListenBrainzCredentialsStore.account,
         sessionKeyAccount,
         apiKeyAccount,
         apiSecretAccount,

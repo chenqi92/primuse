@@ -10,6 +10,8 @@ final class ScrobbleService {
 
     private let defaults: UserDefaults
     private let providersOverride: (() -> [any ScrobbleProvider])?
+    private let legacyQueueIsOfficial: () -> Bool?
+    private let savedListenBrainzURL: () -> URL?
     private let spokenWordStore: SpokenWordStore
     private let songLookup: (String) -> Song?
     /// 当前正在播放的歌曲信息 (用于计入规则的触发判断)。
@@ -26,7 +28,9 @@ final class ScrobbleService {
     var serverScrobbleHandler: ((_ song: Song, _ submission: Bool) -> Void)?
     /// 失败队列, 持久化到 UserDefaults。
     private var queue: [QueuedEntry] = []
-    private static let queueKey = "primuse.scrobble.queue.v1"
+    private static let queueKey = "primuse.scrobble.queue.v2"
+    private static let legacyQueueKey = "primuse.scrobble.queue.v1"
+    private var importedLegacyTargets: Set<LegacyTarget> = []
     private static let queueLimit = 5_000
     private static let queueRetention: TimeInterval = 90 * 24 * 60 * 60
     private static let recentReportsKey = "primuse.scrobble.recentReports.v1"
@@ -38,12 +42,39 @@ final class ScrobbleService {
     private(set) var rejectedCredentials: [ScrobbleProviderID: String] = [:]
     /// 后台 retry task — settings 变化或网络恢复时启动。
     private var retryTask: Task<Void, Never>?
+    private var retrySleep: Task<Void, Never>?
+    private var retryGeneration = 0
 
     /// 一首音乐听够多少算听过 (`ListenCountRule`, 设置页可调)。有声内容照默认规则。
     private let listenCountRule: @MainActor () -> ListenCountRule
 
+    private enum ListenBrainzDestination: Codable, Hashable {
+        case server(String)
+        case unresolved
+
+        init(_ url: URL?) {
+            if let url {
+                self = .server(ScrobbleCredentialFingerprint.of(url.absoluteString))
+            } else {
+                self = .unresolved
+            }
+        }
+
+        func matches(_ other: Self?) -> Bool {
+            guard case .server = self else { return false }
+            return self == other
+        }
+    }
+
     /// 失败队列条目 — track entry + 已尝试次数 + 哪些 provider 还没成功。
     private struct QueuedEntry: Codable {
+        // Request completions only refer to queue rows in this process.
+        let id = UUID()
+        enum CodingKeys: String, CodingKey {
+            case entry, pendingProviders, listenBrainzDestination, attempts, nextRetryAt, serverRetryAt
+        }
+
+        var listenBrainzDestination: ListenBrainzDestination?
         var entry: ScrobbleEntry
         /// 还需要发送给哪些 provider (成功一个移除一个, 全清空就丢出队列)。
         var pendingProviders: Set<ScrobbleProviderID>
@@ -52,6 +83,18 @@ final class ScrobbleService {
         var nextRetryAt: TimeInterval
         /// Optional for backwards-compatible decoding of older queue records.
         var serverRetryAt: TimeInterval?
+    }
+
+    private struct LegacyTarget: Codable, Hashable {
+        let songID: String
+        let startedAt: Int64
+        let provider: ScrobbleProviderID
+    }
+
+    private struct PersistedQueue: Codable {
+        let entries: [QueuedEntry]
+        // Kept with the imported entries until a subsequent launch sees the legacy key gone.
+        let importedLegacyTargets: Set<LegacyTarget>?
     }
 
     struct RecentReport: Codable, Identifiable, Equatable, Sendable {
@@ -67,6 +110,7 @@ final class ScrobbleService {
     /// 当前播放的会话状态, 决定何时触发 scrobble。
     private struct PlaySession {
         var entry: ScrobbleEntry
+        let listenBrainzDestination: ListenBrainzDestination?
         let startedAtMonotonic: TimeInterval
         var hasSentNowPlaying: Bool
         var hasScrobbled: Bool
@@ -78,6 +122,7 @@ final class ScrobbleService {
     }
 
     private struct ProviderSnapshot {
+        var listenBrainzDestination: ListenBrainzDestination?
         var ready: [any ScrobbleProvider] = []
         /// Enabled providers whose Keychain values could not be read. They are
         /// queue targets even though no provider instance can be built yet.
@@ -87,6 +132,8 @@ final class ScrobbleService {
     init(
         defaults: UserDefaults = .standard,
         providers: (() -> [any ScrobbleProvider])? = nil,
+        legacyQueueIsOfficial: @escaping () -> Bool? = { ListenBrainzCredentialsStore.legacyQueueIsOfficial },
+        savedListenBrainzURL: @escaping () -> URL? = { ListenBrainzCredentialsStore.savedBaseURL() },
         spokenWordStore: SpokenWordStore = .shared,
         songLookup: @escaping (String) -> Song? = {
             PlayHistoryStore.shared.classification.library?.song(id: $0)
@@ -97,6 +144,8 @@ final class ScrobbleService {
     ) {
         self.defaults = defaults
         self.providersOverride = providers
+        self.legacyQueueIsOfficial = legacyQueueIsOfficial
+        self.savedListenBrainzURL = savedListenBrainzURL
         self.spokenWordStore = spokenWordStore
         self.songLookup = songLookup
         self.listenCountRule = listenCountRule
@@ -137,8 +186,10 @@ final class ScrobbleService {
         // session 总是建立 —— 它同时驱动服务端源(Subsonic)的 submission 阈值,
         // 后者独立于全局 scrobble 开关。全局 provider 的 nowPlaying/submit 仍各自
         // 在 active providers 为空时 no-op。
+        let snapshot = reportable == true ? providerSnapshot() : ProviderSnapshot()
         currentSession = PlaySession(
             entry: entry,
+            listenBrainzDestination: snapshot.listenBrainzDestination,
             startedAtMonotonic: Self.monotonicNow(),
             hasSentNowPlaying: false,
             hasScrobbled: false,
@@ -154,7 +205,7 @@ final class ScrobbleService {
         guard settings.isEnabled, !settings.enabledProviders.isEmpty else { return }
         if settings.sendNowPlaying {
             currentSession?.hasSentNowPlaying = true
-            sendNowPlayingAcrossProviders(entry: entry)
+            sendNowPlayingAcrossProviders(entry: entry, snapshot: snapshot)
         }
     }
 
@@ -209,7 +260,7 @@ final class ScrobbleService {
             serverScrobbleHandler?(song, true)
         }
         // 全局 provider(Last.fm/ListenBrainz)—— activeProviders 为空时自动 no-op。
-        scrobbleAcrossProviders(entry: session.entry)
+        scrobbleAcrossProviders(entry: session.entry, listenBrainzDestination: session.listenBrainzDestination)
     }
 
     /// 切歌 / 用户手动停止 — 清 session, 不补 scrobble (没听够计入规则不该计入)。
@@ -227,6 +278,8 @@ final class ScrobbleService {
         let now = Date().timeIntervalSince1970
         for i in queue.indices { queue[i].nextRetryAt = max(now, queue[i].serverRetryAt ?? 0) }
         saveQueue()
+        retryGeneration &+= 1
+        retrySleep?.cancel()
         scheduleRetry(reason: "user manual retry")
     }
 
@@ -243,8 +296,9 @@ final class ScrobbleService {
     }
 
     /// 设置页手动验证的结论: 有效就解除拒绝并立刻补报存着的记录, 无效就记下。
-    func noteCredentialValidation(for pid: ScrobbleProviderID, isValid: Bool) {
-        guard let provider = credentialSnapshot().ready.first(where: { $0.id == pid }) else { return }
+    func noteCredentialValidation(for pid: ScrobbleProviderID, isValid: Bool, fingerprint: String? = nil) {
+        guard let provider = credentialSnapshot().ready.first(where: { $0.id == pid }),
+              fingerprint == nil || fingerprint == provider.credentialFingerprint else { return }
         if isValid {
             guard rejectedCredentials.removeValue(forKey: pid) != nil else { return }
             saveRejectedCredentials()
@@ -258,9 +312,8 @@ final class ScrobbleService {
     // MARK: - Internal: dispatch + queue
 
     /// Now Playing 同步发送 — 失败不入队 (now playing 是实时状态, 没必要补)。
-    private func sendNowPlayingAcrossProviders(entry: ScrobbleEntry) {
+    private func sendNowPlayingAcrossProviders(entry: ScrobbleEntry, snapshot: ProviderSnapshot) {
         guard canReport(entry) == true else { return }
-        let snapshot = providerSnapshot()
         let providers = snapshot.ready
         if !snapshot.unavailable.isEmpty {
             plog("🎵 scrobble nowPlaying skipped for unavailable credentials: \(snapshot.unavailable.map(\.rawValue).sorted())")
@@ -295,14 +348,24 @@ final class ScrobbleService {
 
     /// Scrobble 提交。先同步持久化，再尝试网络；进程在请求期间被终止时，
     /// 下次启动仍能补报。语义是 at-least-once，provider 以 startedAt 去重。
-    private func scrobbleAcrossProviders(entry: ScrobbleEntry) {
+    private func scrobbleAcrossProviders(entry: ScrobbleEntry, listenBrainzDestination: ListenBrainzDestination?) {
         guard canReport(entry) == true else { return }
         let snapshot = providerSnapshot()
-        let providers = snapshot.ready
-        let providerIDs = Set(providers.map(\.id)).union(snapshot.unavailable)
+        var providerIDs = Set(snapshot.ready.map(\.id)).union(snapshot.unavailable)
+        if listenBrainzDestination == nil {
+            providerIDs.remove(.listenBrainz)
+        } else if !providerIDs.contains(.listenBrainz), case .server = listenBrainzDestination,
+                  ScrobbleSettingsStore.shared.isEnabled, ScrobbleSettingsStore.shared.enabledProviders.contains(.listenBrainz),
+                  let savedURL = savedListenBrainzURL(), listenBrainzDestination != ListenBrainzDestination(savedURL) {
+            // The new server has no token yet, but this listen began with the previous server.
+            providerIDs.insert(.listenBrainz)
+        }
         guard !providerIDs.isEmpty else { return }
-
-        enqueue(entry: entry, providers: providerIDs, shouldScheduleRetry: false)
+        let providers = snapshot.ready.filter {
+            $0.id != .listenBrainz || listenBrainzDestination?.matches(snapshot.listenBrainzDestination) == true
+        }
+        let rowID = enqueue(entry: entry, providers: providerIDs,
+                            listenBrainzDestination: providerIDs.contains(.listenBrainz) ? listenBrainzDestination : nil)
 
         // A temporarily unreadable Keychain must not turn an otherwise valid
         // listen into a no-op. The durable queue already knows how to retain an
@@ -339,13 +402,13 @@ final class ScrobbleService {
                     }
                 }
                 for await (pid, done, didSubmit, serverDelay, rejected) in group {
-                    if let serverDelay { self.recordServerRetry(entry: entry, delay: serverDelay) }
+                    if let serverDelay { self.recordServerRetry(rowID: rowID, delay: serverDelay) }
                     if let rejected { self.recordCredentialRejection(rejected) }
                     if didSubmit {
                         self.recordRecent(entry: entry, provider: pid)
                     }
                     if done {
-                        self.markProviderCompleted(entry: entry, provider: pid)
+                        self.markProviderCompleted(rowID: rowID, provider: pid)
                     }
                 }
             }
@@ -354,9 +417,9 @@ final class ScrobbleService {
         }
     }
 
-    private func recordServerRetry(entry: ScrobbleEntry, delay: TimeInterval) {
+    private func recordServerRetry(rowID: UUID, delay: TimeInterval) {
         guard delay.isFinite, delay >= 0,
-              let index = queue.firstIndex(where: { $0.entry.songID == entry.songID && $0.entry.startedAt == entry.startedAt }) else { return }
+              let index = queue.firstIndex(where: { $0.id == rowID }) else { return }
         let deadline = Date().timeIntervalSince1970 + min(delay, ScrobbleCooldownStore.maximumDelay)
         queue[index].serverRetryAt = max(queue[index].serverRetryAt ?? 0, deadline)
         queue[index].nextRetryAt = max(queue[index].nextRetryAt, deadline)
@@ -365,35 +428,27 @@ final class ScrobbleService {
     private func enqueue(
         entry: ScrobbleEntry,
         providers: Set<ScrobbleProviderID>,
-        shouldScheduleRetry: Bool = true
-    ) {
-        // 同 song + 同 startedAt 的去重 (理论不会重复 scrobble 同一条, 但保险)。
+        listenBrainzDestination: ListenBrainzDestination?
+    ) -> UUID {
         if let idx = queue.firstIndex(where: {
             $0.entry.songID == entry.songID && $0.entry.startedAt == entry.startedAt
+                && $0.listenBrainzDestination == listenBrainzDestination
         }) {
+            let id = queue[idx].id
             queue[idx].pendingProviders.formUnion(providers)
-        } else {
-            queue.append(QueuedEntry(
-                entry: entry,
-                pendingProviders: providers,
-                attempts: 0,
-                nextRetryAt: Date().timeIntervalSince1970 + 60  // 1 min 后首次重试
-            ))
+            saveQueue()
+            return id
         }
-        pruneQueue()
+        let item = QueuedEntry(listenBrainzDestination: listenBrainzDestination, entry: entry,
+                               pendingProviders: providers, attempts: 0,
+                               nextRetryAt: Date().timeIntervalSince1970 + 60)
+        queue.append(item)
         saveQueue()
-        if shouldScheduleRetry {
-            scheduleRetry(reason: "new failure enqueued")
-        }
+        return item.id
     }
 
-    private func markProviderCompleted(
-        entry: ScrobbleEntry,
-        provider: ScrobbleProviderID
-    ) {
-        guard let index = queue.firstIndex(where: {
-            $0.entry.songID == entry.songID && $0.entry.startedAt == entry.startedAt
-        }) else { return }
+    private func markProviderCompleted(rowID: UUID, provider: ScrobbleProviderID) {
+        guard let index = queue.firstIndex(where: { $0.id == rowID }) else { return }
         queue[index].pendingProviders.remove(provider)
         if queue[index].pendingProviders.isEmpty {
             queue.remove(at: index)
@@ -437,23 +492,23 @@ final class ScrobbleService {
                 let nextWake = (queue.map(\.nextRetryAt).min() ?? now) - now
                 let sleep = max(5, min(60, nextWake))
                 let nanoseconds = (sleep * 1_000_000_000).finiteUInt64(or: 5_000_000_000)
-                try? await Task.sleep(nanoseconds: nanoseconds)
+                let sleeper = Task<Void, Never> { try? await Task.sleep(nanoseconds: nanoseconds) }
+                retrySleep = sleeper
+                await sleeper.value
+                retrySleep = nil
                 if Task.isCancelled { return }
                 continue
             }
 
-            // 用条目身份(songID+startedAt)做快照, 不持有跨 await 的数组索引 ——
-            // await 期间 clearQueue() 可能清空队列、enqueue 可能合并新 pending,
-            // 索引会失效。每次写回前用 firstIndex 重新定位。
-            let dueKeys: [(songID: String, startedAt: Int64)] = dueIndices.map {
-                (queue[$0].entry.songID, queue[$0].entry.startedAt)
-            }
-            // 每轮读一次凭据: 凭据被拒时队列可能攒到上千条, 逐条读 Keychain 不划算。
-            var available = activeProviders()
-            for key in dueKeys {
-                guard let idx = queue.firstIndex(where: {
-                    $0.entry.songID == key.songID && $0.entry.startedAt == key.startedAt
-                }) else { continue }  // 条目在 await 期间被清空/出队
+            // A callback for a cleared row must never update a replacement queued during the request.
+            let dueIDs = dueIndices.map { queue[$0].id }
+            resolveLegacyQueueDestinations()
+            let snapshot = providerSnapshot()
+            var available = snapshot.ready
+            let generation = retryGeneration
+            for id in dueIDs {
+                guard generation == retryGeneration else { break }
+                guard let idx = queue.firstIndex(where: { $0.id == id }) else { continue }
                 let item = queue[idx]
                 let eligible = canReport(item.entry)
                 guard eligible == true else {
@@ -463,7 +518,10 @@ final class ScrobbleService {
                     else { queue[idx].nextRetryAt = now + 60 }
                     continue
                 }
-                let providers = available.filter { item.pendingProviders.contains($0.id) }
+                let providers = available.filter { provider in
+                    item.pendingProviders.contains(provider.id)
+                        && (provider.id != .listenBrainz || item.listenBrainzDestination?.matches(snapshot.listenBrainzDestination) == true)
+                }
                 guard !providers.isEmpty else {
                     // 走到这里 isEnabled 必为 true (总开关已在循环顶部拦掉)。空集只
                     // 可能因为: pending provider 被显式从 enabledProviders 移除, 或
@@ -471,25 +529,19 @@ final class ScrobbleService {
                     // 仍启用但缺凭据的保留在 pending (用户可能重新填 token 后再补)。
                     let enabled = ScrobbleSettingsStore.shared.enabledProviders
                     let removed = item.pendingProviders.subtracting(enabled)
-                    if let writeIdx = queue.firstIndex(where: {
-                        $0.entry.songID == key.songID && $0.entry.startedAt == key.startedAt
-                    }) {
-                        queue[writeIdx].pendingProviders.subtract(removed)
-                        // 仍有 pending (启用但缺凭据) —— 推进退避, 否则该条目永远
-                        // "到期" 会让 retryLoop 空转打满 CPU。
-                        if !queue[writeIdx].pendingProviders.isEmpty {
-                            queue[writeIdx].attempts += 1
-                            let backoff = min(60.0 * 60, 60.0 * pow(2.0, Double(queue[writeIdx].attempts - 1)))
-                            queue[writeIdx].nextRetryAt = Date().timeIntervalSince1970 + backoff
-                        }
+                    queue[idx].pendingProviders.subtract(removed)
+                    if !queue[idx].pendingProviders.isEmpty {
+                        queue[idx].attempts += 1
+                        let backoff = min(60.0 * 60, 60.0 * pow(2.0, Double(queue[idx].attempts - 1)))
+                        queue[idx].nextRetryAt = Date().timeIntervalSince1970 + backoff
                     }
                     continue
                 }
 
                 var stillFailed: Set<ScrobbleProviderID> = []
-                for provider in providers {
-                    guard canReport(item.entry) == true else {
-                        stillFailed.formUnion(item.pendingProviders)
+                for (offset, provider) in providers.enumerated() {
+                    guard generation == retryGeneration, canReport(item.entry) == true else {
+                        stillFailed.formUnion(providers[offset...].map(\.id))
                         break
                     }
                     do {
@@ -506,16 +558,14 @@ final class ScrobbleService {
                     } catch {
                         if OperationCancellationPolicy.isCancellation(error) { saveQueue(); return }
                         if let delay = (error as? HTTPResponseFailure)?.retryAfter {
-                            recordServerRetry(entry: item.entry, delay: delay)
+                            recordServerRetry(rowID: id, delay: delay)
                         }
                         stillFailed.insert(provider.id)
                     }
                 }
                 // await 后重新定位 —— 队列可能已被 clearQueue() 清空(找不到则丢弃
                 // 本次结果)或被 enqueue 合并了新 pendingProviders(并集保留)。
-                guard let writeIdx = queue.firstIndex(where: {
-                    $0.entry.songID == key.songID && $0.entry.startedAt == key.startedAt
-                }) else { continue }
+                guard let writeIdx = queue.firstIndex(where: { $0.id == id }) else { continue }
                 var current = queue[writeIdx]
                 // 仅对「本轮已处理的 provider」做结论: 失败的留在 pending, 成功/
                 // 丢弃的移除; 其余(如 await 期间被 enqueue 新加入的)原样保留。
@@ -524,7 +574,8 @@ final class ScrobbleService {
                 current.attempts += 1
                 // 指数退避: 1, 2, 5, 15, 30, 60 分钟封顶
                 let backoff = min(60.0 * 60, 60.0 * pow(2.0, Double(current.attempts - 1)))
-                current.nextRetryAt = max(Date().timeIntervalSince1970 + backoff, current.serverRetryAt ?? 0)
+                let delay = generation == retryGeneration ? backoff : 0
+                current.nextRetryAt = max(Date().timeIntervalSince1970 + delay, current.serverRetryAt ?? 0)
                 queue[writeIdx] = current
             }
             // 清掉 pendingProviders 为空的条目
@@ -539,6 +590,15 @@ final class ScrobbleService {
     /// 记录照常进补报队列, 只是不再拿这份凭据去请求。
     private func providerSnapshot() -> ProviderSnapshot {
         var snapshot = credentialSnapshot()
+        if let provider = snapshot.ready.first(where: { $0.id == .listenBrainz }) {
+            snapshot.listenBrainzDestination = ListenBrainzDestination(provider.serverURL)
+            if snapshot.listenBrainzDestination == .unresolved {
+                snapshot.ready.removeAll { $0.id == .listenBrainz }
+                snapshot.unavailable.insert(.listenBrainz)
+            }
+        } else if snapshot.unavailable.contains(.listenBrainz) {
+            snapshot.listenBrainzDestination = .unresolved
+        }
         let rejected = snapshot.ready.filter { rejectedCredentials[$0.id] == $0.credentialFingerprint }
         guard !rejected.isEmpty else { return snapshot }
         snapshot.ready.removeAll { rejectedCredentials[$0.id] == $0.credentialFingerprint }
@@ -556,18 +616,9 @@ final class ScrobbleService {
         for pid in settings.enabledProviders {
             switch pid {
             case .listenBrainz:
-                let value = ScrobbleCredentialAvailabilityPolicy.resolveValue(
-                    KeychainService.passwordLookup(for: pid.keychainAccount)
-                )
-                switch ScrobbleCredentialAvailabilityPolicy.resolveProvider([value]) {
-                case .ready:
-                    guard case .ready(let token) = value else { break }
-                    switch ListenBrainzServerStore.resolve() {
-                    case .ready(let baseURL):
-                        snapshot.ready.append(ListenBrainzProvider(userToken: token, baseURL: baseURL))
-                    case .unavailable:
-                        snapshot.unavailable.insert(pid)
-                    }
+                switch ListenBrainzCredentialsStore.resolve() {
+                case .ready(let credentials):
+                    snapshot.ready.append(ListenBrainzProvider(userToken: credentials.token, baseURL: credentials.baseURL))
                 case .unavailable:
                     snapshot.unavailable.insert(pid)
                 case .notConfigured:
@@ -589,13 +640,6 @@ final class ScrobbleService {
             }
         }
         return snapshot
-    }
-
-    /// Retry only needs provider instances that can be constructed now. Queue
-    /// entries for unavailable credentials remain untouched by retryLoop's
-    /// existing enabled-provider preservation branch.
-    private func activeProviders() -> [any ScrobbleProvider] {
-        providerSnapshot().ready
     }
 
     private func makeEntry(from song: Song) -> ScrobbleEntry {
@@ -641,20 +685,54 @@ final class ScrobbleService {
 
     // MARK: - Persistence
 
-    private func saveQueue() {
+    @discardableResult
+    private func saveQueue() -> Bool {
         pruneQueue()
-        if let data = try? JSONEncoder().encode(queue) {
-            defaults.set(data, forKey: Self.queueKey)
-        }
+        let state = PersistedQueue(entries: queue, importedLegacyTargets: importedLegacyTargets.isEmpty ? nil : importedLegacyTargets)
+        guard let data = try? JSONEncoder().encode(state) else { return false }
+        defaults.set(data, forKey: Self.queueKey)
+        return true
     }
 
     private func loadQueue() {
-        if let data = defaults.data(forKey: Self.queueKey),
-           let decoded = try? JSONDecoder().decode([QueuedEntry].self, from: data) {
-            queue = decoded
-            pruneQueue()
+        let decoder = JSONDecoder()
+        if let data = defaults.data(forKey: Self.queueKey) {
+            guard let state = try? decoder.decode(PersistedQueue.self, from: data) else { return }
+            queue = state.entries
+            importedLegacyTargets = state.importedLegacyTargets ?? []
+        }
+
+        // An older installation can produce a fresh v1 queue after a downgrade.
+        if let legacy = defaults.data(forKey: Self.legacyQueueKey) {
+            guard let rows = try? decoder.decode([QueuedEntry].self, from: legacy) else { return }
+            var observed: Set<LegacyTarget> = []
+            for var row in rows {
+                row.pendingProviders = row.pendingProviders.filter { provider in
+                    let target = LegacyTarget(songID: row.entry.songID, startedAt: row.entry.startedAt, provider: provider)
+                    return observed.insert(target).inserted && !importedLegacyTargets.contains(target)
+                }
+                if !row.pendingProviders.isEmpty { queue.append(row) }
+            }
+            importedLegacyTargets = observed
+            resolveLegacyQueueDestinations()
+            // Persist the entries and import receipt together before retiring the copy readable by build 137.
+            if saveQueue(), defaults.synchronize() {
+                defaults.removeObject(forKey: Self.legacyQueueKey)
+            }
+        } else if !queue.isEmpty || !importedLegacyTargets.isEmpty {
+            importedLegacyTargets.removeAll()
+            resolveLegacyQueueDestinations()
             saveQueue()
         }
+    }
+
+    private func resolveLegacyQueueDestinations() {
+        let unbound = queue.indices.filter {
+            queue[$0].pendingProviders.contains(.listenBrainz) && queue[$0].listenBrainzDestination == nil
+        }
+        guard !unbound.isEmpty, let isOfficial = legacyQueueIsOfficial() else { return }
+        let destination = isOfficial ? ListenBrainzDestination(ListenBrainzServerAddress.officialURL) : .unresolved
+        for index in unbound { queue[index].listenBrainzDestination = destination }
     }
 
     /// Bounds offline growth and deterministically drops expired/oldest entries.
@@ -719,7 +797,9 @@ final class ScrobbleService {
 
     private func recordCredentialRejection(_ provider: any ScrobbleProvider) {
         let fingerprint = provider.credentialFingerprint
-        guard rejectedCredentials[provider.id] != fingerprint else { return }
+        guard rejectedCredentials[provider.id] != fingerprint,
+              credentialSnapshot().ready.contains(where: { $0.id == provider.id && $0.credentialFingerprint == fingerprint })
+        else { return }
         rejectedCredentials[provider.id] = fingerprint
         saveRejectedCredentials()
         plog("🎵 scrobble [\(provider.id.displayName)] credentials rejected; holding listens until they change")
@@ -734,7 +814,7 @@ final class ScrobbleService {
         for provider in rejected {
             guard await provider.validateCredentials() == true,
                   rejectedCredentials[provider.id] == provider.credentialFingerprint else { continue }
-            noteCredentialValidation(for: provider.id, isValid: true)
+            noteCredentialValidation(for: provider.id, isValid: true, fingerprint: provider.credentialFingerprint)
         }
     }
 

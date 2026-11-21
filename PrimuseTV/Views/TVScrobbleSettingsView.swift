@@ -18,13 +18,10 @@ struct TVScrobbleSettingsView: View {
     @State private var lastFmTask: Task<Void, Never>?
     @State private var showsSignOutConfirm = false
 
-    @State private var listenBrainzToken = ""
+    @State private var listenBrainzDraft = ListenBrainzConnectionDraft()
     @State private var listenBrainzStatus: TokenStatus?
     @State private var isValidatingListenBrainz = false
-    /// 自建 ListenBrainz 兼容服务的地址(#464), 空 = 官方服务器。
-    @State private var listenBrainzServer = ""
-    @State private var listenBrainzServerInvalid = false
-    @State private var listenBrainzUsesOfficialServer = true
+
     @State private var showsClearQueueConfirm = false
     @State private var errorMessage: String?
 
@@ -94,10 +91,8 @@ struct TVScrobbleSettingsView: View {
         }
         .foregroundStyle(TVColor.text)
         .onAppear(perform: load)
-        .onDisappear {
-            lastFmTask?.cancel()
-            saveListenBrainzServer()
-        }
+        .onChange(of: listenBrainzDraft) { _, _ in refreshListenBrainzStatus() }
+        .onDisappear { lastFmTask?.cancel() }
         .onExitCommand { dismiss() }
         .confirmationDialog(
             String(localized: "scrobble_lastfm_signout_confirm"),
@@ -347,26 +342,27 @@ struct TVScrobbleSettingsView: View {
                 HStack(alignment: .top, spacing: 40) {
                     VStack(alignment: .leading, spacing: 16) {
                         TVTextFieldBox {
-                            SecureField(String(localized: "scrobble_lb_token_placeholder"), text: $listenBrainzToken)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .onSubmit(saveListenBrainzToken)
-                        }
-                        TVTextFieldBox {
-                            TextField(String(localized: "scrobble_lb_server_placeholder"), text: $listenBrainzServer)
+                            TextField(String(localized: "scrobble_lb_server_placeholder"), text: $listenBrainzDraft.serverText)
                                 .keyboardType(.URL)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
-                                .onSubmit { saveListenBrainzServer() }
                         }
-                        if listenBrainzServerInvalid {
+                        if listenBrainzDraft.baseURL == nil {
                             Text(String(localized: "scrobble_lb_server_invalid"))
                                 .tvFont(.meta, weight: .medium)
                                 .foregroundStyle(TVColor.bad)
                         }
+                        TVTextFieldBox {
+                            SecureField(String(localized: "scrobble_lb_token_placeholder"), text: $listenBrainzDraft.token)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .disabled(listenBrainzDraft.baseURL == nil)
+                        }
                         HStack(spacing: 18) {
-                            TVPillButton(title: String(localized: "save"), systemImage: "key.fill",
-                                         action: saveListenBrainzToken)
+                            TVPillButton(title: String(localized: "save"), systemImage: "key.fill") {
+                                saveListenBrainzCredentials()
+                            }
+                            .disabled(!listenBrainzDraft.canSave)
                             TVPillButton(
                                 title: isValidatingListenBrainz
                                     ? String(localized: "scrobble_mac_validating")
@@ -375,12 +371,12 @@ struct TVScrobbleSettingsView: View {
                             ) {
                                 Task { await validateListenBrainz() }
                             }
-                            .disabled(listenBrainzToken.isEmpty || isValidatingListenBrainz)
+                            .disabled(listenBrainzDraft.trimmedToken.isEmpty || isValidatingListenBrainz)
                             if let listenBrainzStatus {
                                 listenBrainzStatusLabel(listenBrainzStatus)
                             }
                         }
-                        if listenBrainzUsesOfficialServer {
+                        if listenBrainzDraft.baseURL == ListenBrainzServerAddress.officialURL {
                             Text(String(localized: "tv_scrobble_listenbrainz_hint"))
                                 .tvFont(.meta)
                                 .foregroundStyle(TVColor.textFaint)
@@ -392,7 +388,7 @@ struct TVScrobbleSettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    if listenBrainzUsesOfficialServer {
+                    if listenBrainzDraft.baseURL == ListenBrainzServerAddress.officialURL {
                         TVQRCode(content: Self.listenBrainzTokenPage, size: 180)
                     }
                 }
@@ -413,77 +409,52 @@ struct TVScrobbleSettingsView: View {
             .foregroundStyle(color)
     }
 
-    /// 保存服务器地址, 返回之后上报要用的根地址; 地址填错或钥匙串写不进去时返回 nil。
-    @discardableResult
-    private func saveListenBrainzServer() -> URL? {
-        let address = ListenBrainzServerAddress.parse(listenBrainzServer)
-        let baseURL: URL
-        let text: String
-        switch address {
-        case .invalid:
-            listenBrainzServerInvalid = true
-            return nil
-        case .official:
-            baseURL = ListenBrainzServerAddress.officialURL
-            text = ""
-        case .custom(let url):
-            baseURL = url
-            text = url.absoluteString
+    private func refreshListenBrainzStatus() {
+        guard listenBrainzDraft.matchesSavedCredentials else {
+            listenBrainzStatus = nil
+            return
         }
-        listenBrainzServerInvalid = false
-        guard text != ListenBrainzServerStore.loadText() else {
-            listenBrainzServer = text
-            return baseURL
-        }
-        guard ListenBrainzServerStore.save(address) else {
-            errorMessage = String(localized: "credential_save_failed_message")
-            return nil
-        }
-        listenBrainzServer = text
-        listenBrainzUsesOfficialServer = text.isEmpty
-        // 令牌认不认要看新服务器; 之前被拒、存着的记录发到新地址再试一次。
-        listenBrainzStatus = nil
-        service.retryPendingNow()
-        return baseURL
+        listenBrainzStatus = service.hasRejectedCredential(for: .listenBrainz) ? .invalid : .valid
     }
 
-    private func saveListenBrainzToken() {
-        saveListenBrainzServer()
-        let account = ScrobbleProviderID.listenBrainz.keychainAccount
-        let trimmed = listenBrainzToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            guard KeychainService.deletePassword(for: account) else {
-                errorMessage = String(localized: "credential_save_failed_message")
-                return
+    @discardableResult
+    private func saveListenBrainzCredentials() -> Bool {
+        guard let baseURL = listenBrainzDraft.baseURL, listenBrainzDraft.canSave else { return false }
+        let token = listenBrainzDraft.trimmedToken
+        if case .ready(let saved) = ListenBrainzCredentialsStore.resolve(),
+           saved.baseURL == baseURL, saved.token == token {
+            if !listenBrainzDraft.matchesSavedCredentials {
+                listenBrainzDraft = ListenBrainzConnectionDraft(baseURL: baseURL, token: token)
             }
-            listenBrainzStatus = nil
-        } else {
-            guard KeychainService.setPassword(trimmed, for: account) else {
-                errorMessage = String(localized: "credential_save_failed_message")
-                return
-            }
-            // 换了令牌:被拒期间攒着的记录马上用新令牌补报。
-            listenBrainzStatus = service.hasRejectedCredential(for: .listenBrainz) ? .invalid : .valid
-            service.retryPendingNow()
+            return true
         }
+        guard ListenBrainzCredentialsStore.save(baseURL: baseURL, token: token) else {
+            errorMessage = String(localized: "credential_save_failed_message")
+            return false
+        }
+        listenBrainzDraft = ListenBrainzConnectionDraft(baseURL: baseURL, token: token)
+        refreshListenBrainzStatus()
+        if !token.isEmpty { service.retryPendingNow() }
+        return true
     }
 
     private func validateListenBrainz() async {
-        let trimmed = listenBrainzToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let baseURL = saveListenBrainzServer() else { return }
+        guard let baseURL = listenBrainzDraft.baseURL, !isValidatingListenBrainz else { return }
+        let token = listenBrainzDraft.trimmedToken
+        guard !token.isEmpty, saveListenBrainzCredentials() else { return }
         isValidatingListenBrainz = true
         defer { isValidatingListenBrainz = false }
-        guard KeychainService.setPassword(trimmed, for: ScrobbleProviderID.listenBrainz.keychainAccount) else {
-            errorMessage = String(localized: "credential_save_failed_message")
-            return
+        let provider = ListenBrainzProvider(userToken: token, baseURL: baseURL)
+        let result = await provider.validateCredentials()
+        if let result {
+            service.noteCredentialValidation(for: .listenBrainz, isValid: result, fingerprint: provider.credentialFingerprint)
         }
-        let result = await ListenBrainzProvider(userToken: trimmed, baseURL: baseURL).validateCredentials()
+        guard listenBrainzDraft.baseURL == baseURL, listenBrainzDraft.trimmedToken == token else { return }
         switch result {
         case true?: listenBrainzStatus = .valid
         case false?: listenBrainzStatus = .invalid
         case nil: listenBrainzStatus = .unconfirmed
         }
-        if let result { service.noteCredentialValidation(for: .listenBrainz, isValid: result) }
     }
 
     // MARK: Queue
@@ -541,13 +512,17 @@ struct TVScrobbleSettingsView: View {
             lastFmLogin = .waiting(url)
         }
         #endif
-        listenBrainzToken = KeychainService.getPassword(for: ScrobbleProviderID.listenBrainz.keychainAccount) ?? ""
-        listenBrainzServer = ListenBrainzServerStore.loadText()
-        listenBrainzUsesOfficialServer = listenBrainzServer.isEmpty
-        listenBrainzServerInvalid = false
-        if !listenBrainzToken.isEmpty {
-            listenBrainzStatus = service.hasRejectedCredential(for: .listenBrainz) ? .invalid : .valid
+        switch ListenBrainzCredentialsStore.resolve() {
+        case .ready(let credentials):
+            listenBrainzDraft = ListenBrainzConnectionDraft(baseURL: credentials.baseURL, token: credentials.token)
+        case .notConfigured:
+            listenBrainzDraft = ListenBrainzConnectionDraft(
+                baseURL: ListenBrainzCredentialsStore.savedBaseURL() ?? ListenBrainzServerAddress.officialURL
+            )
+        case .unavailable:
+            listenBrainzDraft = ListenBrainzConnectionDraft()
         }
+        refreshListenBrainzStatus()
         lastFmConnected = LastFmCredentialsStore.isConnected()
         // 上次停在等授权时离开了这一页:手机上可能已经点过「允许」,问一次,没成就当作没开始。
         if !lastFmConnected, let token = LastFmCredentialsStore.loadPendingAuthToken() {

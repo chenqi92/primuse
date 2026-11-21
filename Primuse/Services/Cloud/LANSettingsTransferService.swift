@@ -55,8 +55,10 @@ enum LANSettingsExporter {
         if let baidu = KeychainService.getPassword(for: BaiduTranslateCredentialStore.account) {
             secrets[BaiduTranslateCredentialStore.account] = baidu
         }
-        // 听歌记录的账号:电视上打开上报就能用,不用在遥控器上输令牌、重新登录 Last.fm。
-        for account in LANSettingsTransferPolicy.scrobbleSecretAccounts.sorted() {
+        if case .ready(let credentials) = ListenBrainzCredentialsStore.resolve() {
+            secrets[ListenBrainzCredentialsStore.account] = LANSettingsTransferPolicy.encodedListenBrainzCredentials(credentials)
+        }
+        for account in LANSettingsTransferPolicy.scrobbleSecretAccounts where account != ListenBrainzCredentialsStore.account {
             if let secret = KeychainService.getPassword(for: account), !secret.isEmpty {
                 secrets[account] = secret
             }
@@ -152,6 +154,7 @@ enum LANSettingsExporter {
         assert(LANSettingsTransferPolicy.lyricsTranscriptionKey == LyricsTranscriptionSettingsStore.storageKey)
         assert(LANSettingsTransferPolicy.playerEffectKey == FullscreenPlayerEffect.storageKey)
         assert(LANSettingsTransferPolicy.baiduTranslateSecretAccount == BaiduTranslateCredentialStore.account)
+        assert(LANSettingsTransferPolicy.listenBrainzConfigurationAccount == ListenBrainzCredentialsStore.account)
         assert(LANSettingsTransferPolicy.scrobbleSecretAccounts == LastFmCredentialsStore.transferableAccounts)
     }
     #endif

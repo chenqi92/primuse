@@ -136,14 +136,12 @@ public enum LANSettingsTransferPolicy {
     public static let playerBackdropKey = PlayerBackdropSettings.storageKey
     /// 百度翻译的 APP ID 与密钥(#320),在 App 里由 `BaiduTranslateCredentialStore` 存取。
     public static let baiduTranslateSecretAccount = "primuse.lyrics.translation.baidu"
-    /// 听歌记录的账号(ListenBrainz 令牌、Last.fm 会话,以及自己注册的 Last.fm 应用密钥),
-    /// 在 App 里由 `LastFmCredentialsStore` 与 `ScrobbleProviderID.keychainAccount` 存取。
-    /// 电视登录的 Apple ID 常常不同,iCloud 钥匙串到不了;遥控器上输令牌又费劲,所以随扫码直传带过去。
-    /// 开关(`primuse.scrobble.settings.v1`)不带:电视常是一家人共用,要不要把在电视上听的歌记进
-    /// 这个账号,得在电视上自己打开。ListenBrainz 的服务器地址跟令牌一起带,令牌只对那台服务器有效。
+    /// 旧版电视会忽略这个新键，保留电视上原有的 ListenBrainz 账号。
+    public static let listenBrainzConfigurationAccount = "scrobble.listenBrainz.configuration"
+    private static let legacyListenBrainzTokenAccount = "scrobble.listenBrainz"
+    /// 扫码可以复制账号，上报开关由电视自己保存。
     public static let scrobbleSecretAccounts: Set<String> = [
-        "scrobble.listenBrainz",
-        ListenBrainzServerAddress.keychainAccount,
+        listenBrainzConfigurationAccount,
         "scrobble.lastFm",
         "scrobble.lastFm.apiKey",
         "scrobble.lastFm.apiSecret",
@@ -213,6 +211,31 @@ public enum LANSettingsTransferPolicy {
         return id.range(of: #"^[A-Za-z0-9][A-Za-z0-9._-]*$"#, options: .regularExpression) != nil
     }
 
+    public static func encodedListenBrainzCredentials(_ credentials: ListenBrainzCredentials) -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard !credentials.token.isEmpty, let data = try? encoder.encode(credentials),
+              data.count <= maximumSecretBytes else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func listenBrainzCredentials(in secrets: [String: String]) -> ListenBrainzCredentials? {
+        if let configuration = secrets[listenBrainzConfigurationAccount] {
+            guard configuration.utf8.count <= maximumSecretBytes else { return nil }
+            return try? JSONDecoder().decode(ListenBrainzCredentials.self, from: Data(configuration.utf8))
+        }
+        guard let token = secrets[legacyListenBrainzTokenAccount], !token.isEmpty,
+              token.utf8.count <= maximumSecretBytes else { return nil }
+        // Released token-only senders used the official server. Separate custom
+        // address and token fields cannot prove they were saved together.
+        if let address = secrets[ListenBrainzServerAddress.keychainAccount] {
+            guard !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  address.utf8.count <= maximumSecretBytes,
+                  ListenBrainzServerAddress.parse(address) == .official else { return nil }
+        }
+        return ListenBrainzCredentials(baseURL: ListenBrainzServerAddress.officialURL, token: token)
+    }
+
     /// 两端都过一遍:发送端不多带,接收端不多收。
     public static func sanitized(_ bundle: LANSettingsBundle) -> LANSettingsBundle {
         var result = LANSettingsBundle(version: bundle.version)
@@ -237,9 +260,12 @@ public enum LANSettingsTransferPolicy {
             result.scraperConfigs.append(kept)
         }
         for (account, secret) in bundle.secrets
-        where category(forSecretAccount: account) != nil
+        where account != listenBrainzConfigurationAccount && category(forSecretAccount: account) != nil
             && !secret.isEmpty && secret.utf8.count <= maximumSecretBytes {
             result.secrets[account] = secret
+        }
+        if let credentials = listenBrainzCredentials(in: bundle.secrets) {
+            result.secrets[listenBrainzConfigurationAccount] = encodedListenBrainzCredentials(credentials)
         }
         // 图片只跟着播放背景设置走:设置没带,图片也不收。
         if result.values[playerBackdropKey] != nil {

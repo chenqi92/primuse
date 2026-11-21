@@ -47,6 +47,8 @@ public struct ScrobbleEntry: Codable, Sendable, Hashable {
 /// 所有方法都允许失败 (网络错 / 认证过期), ScrobbleService 处理重试。
 public protocol ScrobbleProvider: Sendable {
     var id: ScrobbleProviderID { get }
+    /// API root for providers whose destination can change.
+    var serverURL: URL? { get }
 
     /// 当前这份凭据的摘要。服务端拒绝过的凭据按它记下, 不保存原文;
     /// 换了 token / 重新登录后摘要随之改变。
@@ -63,6 +65,10 @@ public protocol ScrobbleProvider: Sendable {
     /// 提交一条 (或多条) 听歌历史 — 计入 history。
     /// 实现应该尽量批量发送, ScrobbleQueue 一次最多给 50 条。
     func submitListens(_ entries: [ScrobbleEntry]) async throws
+}
+
+public extension ScrobbleProvider {
+    var serverURL: URL? { nil }
 }
 
 enum ScrobbleCredentialFingerprint {

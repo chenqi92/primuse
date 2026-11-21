@@ -324,6 +324,187 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(fixture.count, 4)
     }
     @MainActor
+    func testServerSwitchSeparatesQueuedAndInProgressListensAcrossRestart() async throws {
+        try await withContentFixture { defaults, store in
+            let firstURL = URL(string: "https://history.invalid/first")!
+            let secondURL = URL(string: "https://history.invalid/second")!
+            let first = ScrobbleRecordingProvider(id: .listenBrainz, serverURL: firstURL, token: "old")
+            let second = ScrobbleRecordingProvider(id: .listenBrainz, serverURL: secondURL, token: "other")
+            let renewed = ScrobbleRecordingProvider(id: .listenBrainz, serverURL: firstURL, token: "new")
+            var active = first
+            let service = ScrobbleService(defaults: defaults, providers: { [active] }, spokenWordStore: store)
+            service.noteCredentialValidation(for: .listenBrainz, isValid: false, fingerprint: first.credentialFingerprint)
+            service.handlePlaybackStarted(song: contentSong("queued"))
+            service.handleProgressTick(playedDelta: 240)
+            service.handlePlaybackStarted(song: contentSong("playing-at-switch"))
+            active = second
+            service.handleProgressTick(playedDelta: 240)
+            XCTAssertEqual(service.pendingCount, 2)
+            XCTAssertTrue(second.listens.isEmpty)
+            XCTAssertNil(defaults.data(forKey: "primuse.scrobble.queue.v1"), "Build 137 must not see custom-server listens")
+
+            let saved = try XCTUnwrap(defaults.data(forKey: "primuse.scrobble.queue.v2"))
+            service.clearQueue()
+            defaults.set(saved, forKey: "primuse.scrobble.queue.v2")
+            let reopened = ScrobbleService(defaults: defaults, providers: { [active] }, spokenWordStore: store)
+            defer { reopened.clearQueue() }
+            ScrobbleSettingsStore.shared.isEnabled = true
+            reopened.noteCredentialValidation(for: .listenBrainz, isValid: false, fingerprint: first.credentialFingerprint)
+            XCTAssertFalse(reopened.hasRejectedCredential(for: .listenBrainz))
+            reopened.retryPendingNow()
+            reopened.handlePlaybackStarted(song: contentSong("after-switch"))
+            reopened.handleProgressTick(playedDelta: 240)
+            for _ in 0..<500 where reopened.pendingCount != 2 || second.nowPlaying.isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertEqual(second.listens, ["after-switch"])
+            XCTAssertEqual(second.nowPlaying, ["after-switch"])
+            XCTAssertEqual(reopened.pendingCount, 2)
+
+            active = renewed
+            reopened.retryPendingNow()
+            for _ in 0..<500 where reopened.pendingCount > 0 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(Set(renewed.listens), ["queued", "playing-at-switch"])
+            XCTAssertEqual(reopened.pendingCount, 0)
+            XCTAssertTrue(first.listens.isEmpty)
+        }
+    }
+
+    @MainActor
+    func testSwitchToServerWithoutTokenRetainsListenButRemovingTokenOnOriginalServerDoesNot() async throws {
+        try await withContentFixture { defaults, store in
+            let first = ScrobbleRecordingProvider(id: .listenBrainz)
+            let second = URL(string: "https://history.invalid")!
+            var ready: [any ScrobbleProvider] = [first]
+            var savedURL = ListenBrainzServerAddress.officialURL
+            let service = ScrobbleService(defaults: defaults, providers: { ready }, savedListenBrainzURL: { savedURL },
+                                          spokenWordStore: store)
+            defer { service.clearQueue() }
+            ScrobbleSettingsStore.shared.isEnabled = true
+            ScrobbleSettingsStore.shared.sendNowPlaying = false
+            service.handlePlaybackStarted(song: contentSong("revoked"))
+            ready = []
+            service.handleProgressTick(playedDelta: 240)
+            XCTAssertEqual(service.pendingCount, 0)
+
+            ready = [first]
+            service.handlePlaybackStarted(song: contentSong("before-address-only-switch"))
+            ready = []
+            savedURL = second
+            service.handleProgressTick(playedDelta: 240)
+            XCTAssertEqual(service.pendingCount, 1)
+            savedURL = ListenBrainzServerAddress.officialURL
+            ready = [first]
+            service.retryPendingNow()
+            for _ in 0..<500 where service.pendingCount > 0 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(first.listens, ["before-address-only-switch"])
+            XCTAssertEqual(service.pendingCount, 0)
+        }
+    }
+
+    @MainActor
+    func testLegacyAndUnknownDestinationsCannotFollowCurrentCustomServer() async throws {
+        for legacyOfficial in [true, false] {
+            try await withContentFixture { defaults, store in
+                let custom = ScrobbleRecordingProvider(id: .listenBrainz, serverURL: URL(string: "https://history.invalid"))
+                let official = ScrobbleRecordingProvider(id: .listenBrainz)
+                let locked = ScrobbleRecordingProvider(id: .listenBrainz, serverURL: nil)
+                let lastFm = ScrobbleRecordingProvider(id: .lastFm)
+                let now = Int(Date().timeIntervalSince1970)
+                let row: [String: Any] = ["entry": ["songID": "legacy", "title": "Legacy", "artist": "Fixture", "startedAt": now],
+                                          "pendingProviders": ["listenBrainz", "lastFm"], "attempts": 0, "nextRetryAt": 0]
+                let queueKey = "primuse.scrobble.queue.v2"
+                defaults.set(try JSONSerialization.data(withJSONObject: [row]), forKey: "primuse.scrobble.queue.v1")
+                var active = locked
+                let service = ScrobbleService(defaults: defaults, providers: { [active] },
+                                              legacyQueueIsOfficial: { nil },
+                                              spokenWordStore: store, songLookup: { self.contentSong($0) })
+                service.handlePlaybackStarted(song: contentSong("started-while-locked"))
+                active = custom
+                service.handleProgressTick(playedDelta: 240)
+                XCTAssertEqual(service.pendingCount, 2)
+                let saved = try XCTUnwrap(defaults.data(forKey: queueKey))
+                service.clearQueue()
+                defaults.set(saved, forKey: queueKey)
+                var legacyDecision: Bool?
+                let reopened = ScrobbleService(defaults: defaults, providers: { [active, lastFm] },
+                                              legacyQueueIsOfficial: { legacyDecision },
+                                              spokenWordStore: store, songLookup: { self.contentSong($0) })
+                defer { reopened.clearQueue() }
+                legacyDecision = legacyOfficial
+                ScrobbleSettingsStore.shared.isEnabled = true
+                reopened.retryPendingNow()
+                for _ in 0..<500 where lastFm.listens.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+                XCTAssertEqual(lastFm.listens, ["legacy"])
+                XCTAssertTrue(custom.listens.isEmpty)
+                XCTAssertEqual(reopened.pendingCount, 2)
+
+                active = official
+                reopened.retryPendingNow()
+                reopened.handlePlaybackStarted(song: contentSong("new-official"))
+                reopened.handleProgressTick(playedDelta: 240)
+                let expectedPending = legacyOfficial ? 1 : 2
+                for _ in 0..<500 where reopened.pendingCount != expectedPending { try await Task.sleep(for: .milliseconds(10)) }
+                XCTAssertEqual(reopened.pendingCount, expectedPending)
+                XCTAssertEqual(Set(official.listens), legacyOfficial ? ["legacy", "new-official"] : ["new-official"])
+                XCTAssertTrue(custom.listens.isEmpty)
+            }
+        }
+    }
+
+    @MainActor
+    func testDowngradeQueueImportIsIdempotentAndPreservesNewLegacyTargets() async throws {
+        try await withContentFixture { defaults, store in
+            let v1 = "primuse.scrobble.queue.v1"
+            let startedAt = Int(Date().timeIntervalSince1970)
+            func legacy(_ id: String, _ targets: [String]) -> [String: Any] {
+                ["entry": ["songID": id, "title": id, "artist": "Fixture", "startedAt": startedAt],
+                 "pendingProviders": targets, "attempts": 0, "nextRetryAt": 0]
+            }
+            let original = legacy("prior", ["lastFm"])
+            let incoming = try JSONSerialization.data(withJSONObject: [original])
+            defaults.set(incoming, forKey: v1)
+            let lastFm = ScrobbleRecordingProvider(id: .lastFm)
+            let official = ScrobbleRecordingProvider(id: .listenBrainz)
+            @MainActor func reopen() -> ScrobbleService {
+                ScrobbleService(defaults: defaults, providers: { [lastFm, official] },
+                                legacyQueueIsOfficial: { true }, spokenWordStore: store, songLookup: { self.contentSong($0) })
+            }
+            let first = reopen()
+            XCTAssertNil(defaults.data(forKey: v1))
+            XCTAssertEqual(first.pendingCount, 1)
+            let migrated = try XCTUnwrap(defaults.data(forKey: "primuse.scrobble.queue.v2"))
+            first.clearQueue()
+            defaults.set(migrated, forKey: "primuse.scrobble.queue.v2")
+            // An interrupted migration can leave the same v1 bytes alongside v2.
+            defaults.set(incoming, forKey: v1)
+            let resumed = reopen()
+            XCTAssertNil(defaults.data(forKey: v1))
+            XCTAssertEqual(resumed.pendingCount, 1)
+            ScrobbleSettingsStore.shared.isEnabled = true
+            resumed.retryPendingNow()
+            for _ in 0..<500 where resumed.pendingCount > 0 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(lastFm.listens, ["prior"])
+            ScrobbleSettingsStore.shared.isEnabled = false
+
+            // A downgraded client can extend its copy with a new target and another listen.
+            defaults.set(try JSONSerialization.data(withJSONObject: [
+                legacy("prior", ["lastFm", "listenBrainz"]), legacy("during-downgrade", ["lastFm", "listenBrainz"])
+            ]), forKey: v1)
+            let upgraded = reopen()
+            defer { upgraded.clearQueue() }
+            XCTAssertNil(defaults.data(forKey: v1))
+            XCTAssertEqual(upgraded.pendingCount, 2)
+            ScrobbleSettingsStore.shared.isEnabled = true
+            upgraded.retryPendingNow()
+            for _ in 0..<500 where upgraded.pendingCount > 0 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(lastFm.listens, ["prior", "during-downgrade"])
+            XCTAssertEqual(Set(official.listens), ["prior", "during-downgrade"])
+            XCTAssertEqual(upgraded.pendingCount, 0)
+        }
+    }
+
+    @MainActor
     func testNonMusicNeverReachesProvidersButKeepsSourcePlaybackFeedback() async throws {
         try await withContentFixture { defaults, store in
             let providers = ScrobbleProviderID.allCases.map { ScrobbleRecordingProvider(id: $0) }
@@ -533,9 +714,10 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
             XCTAssertEqual(service.pendingCount, 1, "Unknown legacy records remain pending without being sent")
 
             ScrobbleSettingsStore.shared.isEnabled = false
-            let saved = try XCTUnwrap(defaults.data(forKey: "primuse.scrobble.queue.v1"))
+            let saved = try XCTUnwrap(defaults.data(forKey: "primuse.scrobble.queue.v2"))
+            XCTAssertNil(defaults.data(forKey: "primuse.scrobble.queue.v1"))
             service.clearQueue()
-            defaults.set(saved, forKey: "primuse.scrobble.queue.v1")
+            defaults.set(saved, forKey: "primuse.scrobble.queue.v2")
             songs["unknown"] = contentSong("unknown")
             let reopened = ScrobbleService(defaults: defaults, providers: { [provider] },
                                            spokenWordStore: store, songLookup: { songs[$0] })
@@ -560,11 +742,11 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
                 service.handleProgressTick(playedDelta: 240)
             }
             XCTAssertEqual(service.pendingCount, 2)
-            let saved = try XCTUnwrap(defaults.data(forKey: "primuse.scrobble.queue.v1"))
+            let saved = try XCTUnwrap(defaults.data(forKey: "primuse.scrobble.queue.v2"))
             for _ in 0..<500 where service.pendingCount > 0 { try await Task.sleep(for: .milliseconds(10)) }
             XCTAssertEqual(service.pendingCount, 0)
             service.clearQueue()
-            defaults.set(saved, forKey: "primuse.scrobble.queue.v1")
+            defaults.set(saved, forKey: "primuse.scrobble.queue.v2")
             store.setFolderKind(.spokenWord, sourceID: "fixture", path: "/Books")
             let online = ScrobbleRecordingProvider(id: .lastFm)
             let reopened = ScrobbleService(defaults: defaults, providers: { [online] },
@@ -616,8 +798,9 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
     }
 
     private func queueDeadline(_ defaults: UserDefaults, key: String = "nextRetryAt") -> TimeInterval {
-        guard let data = defaults.data(forKey: "primuse.scrobble.queue.v1"),
-              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return 0 }
+        guard let data = defaults.data(forKey: "primuse.scrobble.queue.v2"),
+              let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rows = state["entries"] as? [[String: Any]] else { return 0 }
         return rows.first?[key] as? Double ?? 0
     }
 
@@ -626,14 +809,19 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
 
 private final class ScrobbleRecordingProvider: ScrobbleProvider, @unchecked Sendable {
     let id: ScrobbleProviderID
-    let credentialFingerprint = "content-fixture"
+    let credentialFingerprint: String
+    let serverURL: URL?
     private let lock = NSLock()
     private var recordedNowPlaying: [String] = []
     private var recordedListens: [String] = []
     var nowPlaying: [String] { lock.withLock { recordedNowPlaying } }
     var listens: [String] { lock.withLock { recordedListens } }
 
-    init(id: ScrobbleProviderID) { self.id = id }
+    init(id: ScrobbleProviderID, serverURL: URL? = ListenBrainzServerAddress.officialURL, token: String = "content-fixture") {
+        self.id = id
+        self.serverURL = id == .listenBrainz ? serverURL : nil
+        self.credentialFingerprint = ScrobbleCredentialFingerprint.of(id.rawValue, serverURL?.absoluteString ?? "", token)
+    }
     func validateCredentials() async -> Bool? { true }
     func sendNowPlaying(_ entry: ScrobbleEntry) async throws {
         lock.withLock { recordedNowPlaying.append(entry.songID) }

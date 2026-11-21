@@ -53,8 +53,9 @@ struct LANSettingsTransferTests {
         #expect(Policy.category(forSecretAccount: "ai.provider.abc.endpoint.https://x|responses|bearer.apiKey") == .intelligence)
         #expect(Policy.category(forSecretAccount: "primuse.lyrics.translation.baidu") == .intelligence)
         #expect(Policy.category(forSecretAccount: "primuse.lyrics.translation.baidu.extra") == nil)
-        #expect(Policy.category(forSecretAccount: "scrobble.listenBrainz") == .scrobble)
-        #expect(Policy.category(forSecretAccount: "scrobble.listenBrainz.serverURL") == .scrobble)
+        #expect(Policy.category(forSecretAccount: "scrobble.listenBrainz.configuration") == .scrobble)
+        #expect(Policy.category(forSecretAccount: "scrobble.listenBrainz") == nil)
+        #expect(Policy.category(forSecretAccount: "scrobble.listenBrainz.serverURL") == nil)
         #expect(Policy.category(forSecretAccount: "scrobble.lastFm") == .scrobble)
         #expect(Policy.category(forSecretAccount: "scrobble.lastFm.apiKey") == .scrobble)
         #expect(Policy.category(forSecretAccount: "scrobble.lastFm.apiSecret") == .scrobble)
@@ -74,6 +75,45 @@ struct LANSettingsTransferTests {
             "ai.provider.p.endpoint.x.apiKey": String(repeating: "k", count: Policy.maximumSecretBytes + 1),
         ])
         #expect(Policy.sanitized(bundle).secrets == ["scraper.cookie.config.netease": "MUSIC_U=1"])
+    }
+
+    @Test("Legacy official tokens and paired custom credentials retain their destination")
+    func legacyListenBrainzTransfer() throws {
+        let customURL = try #require(URL(string: "https://listens.example/music"))
+        for url in [ListenBrainzServerAddress.officialURL, customURL] {
+            var secrets = ["scrobble.listenBrainz": "example-token"]
+            if url == customURL {
+                let pair = try #require(ListenBrainzCredentials(baseURL: url, token: "example-token"))
+                secrets = [Policy.listenBrainzConfigurationAccount: try #require(Policy.encodedListenBrainzCredentials(pair))]
+            }
+            let bundle = Policy.sanitized(LANSettingsBundle(secrets: secrets))
+            #expect(Set(bundle.secrets.keys) == [Policy.listenBrainzConfigurationAccount])
+            let json = try #require(bundle.secrets[Policy.listenBrainzConfigurationAccount])
+            let credentials = try JSONDecoder().decode(ListenBrainzCredentials.self, from: Data(json.utf8))
+            #expect(credentials.baseURL == url)
+            #expect(credentials.token == "example-token")
+            #expect(Policy.sanitized(bundle) == bundle)
+        }
+    }
+
+    @Test("Partial or damaged ListenBrainz credentials cannot replace a TV account or fall back to another server")
+    func incompleteListenBrainzTransfer() {
+        let legacyToken = "scrobble.listenBrainz"
+        let legacyServer = ListenBrainzServerAddress.keychainAccount
+        let paired = Policy.listenBrainzConfigurationAccount
+        let cases = [
+            [legacyServer: "https://listens.example"],
+            [legacyToken: "legacy", legacyServer: ""],
+            [legacyToken: "legacy", legacyServer: "broken"],
+            [legacyToken: "legacy", legacyServer: "https://listens.example/custom"],
+            [legacyToken: "legacy", legacyServer: String(repeating: "a", count: Policy.maximumSecretBytes + 1)],
+            [paired: #"{"token":"new"}"#, legacyToken: "legacy"],
+            [paired: #"{"baseURL":"https://listens.example","token":""}"#],
+        ]
+        for var secrets in cases {
+            secrets["scrobble.lastFm"] = "session"
+            #expect(Policy.sanitized(LANSettingsBundle(secrets: secrets)).secrets == ["scrobble.lastFm": "session"])
+        }
     }
 
     @Test("Scraper configs need a file-safe id, stay unique and within the size caps")
