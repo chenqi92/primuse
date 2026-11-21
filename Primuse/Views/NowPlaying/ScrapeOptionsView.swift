@@ -72,6 +72,32 @@ final class ScrapeReviewWindowActions {
     var request: ((@escaping () -> Void) -> Void)?
 }
 
+/// 单曲刮削的入口为什么开不了。入口不置灰到点不动，点了用它说明原因、给去处。
+private enum ScrapeEntryBlocker: Hashable {
+    /// 标签、封面、歌词一项都没选。
+    case noParts
+    /// 选的这几项没有开着的刮削源。
+    case noSource
+    /// 自动刮削按规则走，选的这几项在刮削规则里都设成了「跳过」。
+    case rulesSkipAll
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .noParts: "scrape_options"
+        case .noSource: "scraper_no_source_title"
+        case .rulesSkipAll: "auto_scrape"
+        }
+    }
+
+    var message: LocalizedStringKey {
+        switch self {
+        case .noParts: "scrape_review_no_parts_message"
+        case .noSource: "scraper_no_source_message"
+        case .rulesSkipAll: "scrape_review_rules_skip_message"
+        }
+    }
+}
+
 struct ScrapeOptionsView: View {
     let song: Song
     var onComplete: ((Song) -> Void)?
@@ -84,6 +110,7 @@ struct ScrapeOptionsView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openScraperSettings) private var openScraperSettings
     private var contentPreferences = ScrapeContentPreferences()
     @AppStorage("scraperSearchLimit") private var searchLimit = 20
     @State private var draft: ScrapeReviewDraft?
@@ -95,6 +122,8 @@ struct ScrapeOptionsView: View {
     @State private var showsDiscard = false
     @State private var pendingDiscard: (() -> Void)?
     @State private var errorMessage: String?
+    @State private var blocker: ScrapeEntryBlocker?
+    @State private var showsRules = false
     #if os(macOS)
     @State private var macSidecarBaseNameOverride: String?
     @State private var macUsesMediaServerWriteback = false
@@ -103,9 +132,22 @@ struct ScrapeOptionsView: View {
     #endif
 
     private var parts: ScrapeParts { contentPreferences.parts }
-    private var canSearch: Bool { !scraperSettings.fieldRules.request(parts: parts, overwriteByDefault: false).fields.isEmpty }
     private var loading: Bool { searchTask.isRunning || automaticID != nil }
     private var busy: Bool { loading }
+
+    /// 手动搜索(结果页的搜索)为什么开不了：一项都没选，或者这几项没有开着的刮削源。
+    /// 刮削规则里的「跳过」不拦它，结果页只是不预选那几项。
+    private var manualBlocker: ScrapeEntryBlocker? {
+        if parts.isEmpty { return .noParts }
+        if scraperSettings.userRequestedSourceCount(for: parts) == 0 { return .noSource }
+        return nil
+    }
+
+    /// 自动刮削按刮削规则走：要刮的几项在规则里都设成「跳过」时它开不了。
+    private var automaticBlocker: ScrapeEntryBlocker? {
+        if let manualBlocker { return manualBlocker }
+        return scraperSettings.gateSourceCount(for: parts) == 0 ? .rulesSkipAll : nil
+    }
 
     var body: some View {
         screen
@@ -120,7 +162,7 @@ struct ScrapeOptionsView: View {
                 macUsesMediaServerWriteback = await sourceManager.supportsMediaServerWriteback(for: song)
                 macSupportsSidecarWriteback = await sourceManager.supportsSidecarWriting(for: song)
                 macCoverEmbeddingMode = await sourceManager.coverEmbeddingMode(for: song)
-                if !showingReview && !Task.isCancelled { startAutomatic() }
+                if !showingReview && !Task.isCancelled { startInitialMacSearch() }
                 #endif
             }
             .interactiveDismissDisabled(showingReview || busy)
@@ -140,6 +182,47 @@ struct ScrapeOptionsView: View {
             .alert("scrape_song_failed", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("ok", role: .cancel) { errorMessage = nil }
             } message: { Text(verbatim: errorMessage ?? "") }
+            .alert(blocker?.title ?? "", isPresented: Binding(get: { blocker != nil }, set: { if !$0 { blocker = nil } }),
+                   presenting: blocker) { reason in
+                blockerActions(reason)
+            } message: { reason in
+                Text(reason.message)
+            }
+            .sheet(isPresented: $showsRules) { ScrapeRulesEditor(settings: scraperSettings) }
+    }
+
+    /// 入口开不了时点了说明原因，并给一键解决的去处。
+    @ViewBuilder private func blockerActions(_ reason: ScrapeEntryBlocker) -> some View {
+        switch reason {
+        case .noParts:
+            Button("ok", role: .cancel) {}
+        case .noSource:
+            Button("scraper_no_source_open_settings") { openSourceSettings() }
+            Button("cancel", role: .cancel) {}
+        case .rulesSkipAll:
+            Button("scrape_field_rules") { showsRules = true }
+            if manualBlocker == nil {
+                Button("manual_scrape") { startSearch() }
+            }
+            Button("cancel", role: .cancel) {}
+        }
+    }
+
+    private func present(_ reason: ScrapeEntryBlocker) {
+        plog("ScrapeOptions: entry unavailable reason=\(reason) parts=\(parts.rawValue)")
+        blocker = reason
+    }
+
+    /// iPhone 上设置页在刮削页后面，先收起刮削页再过去；Mac 的设置是另一个窗口，刮削窗口留着。
+    private func openSourceSettings() {
+        #if os(macOS)
+        openScraperSettings()
+        #else
+        protect {
+            closeView()
+            openScraperSettings()
+        }
+        #endif
     }
 
     @ViewBuilder private var screen: some View {
@@ -183,8 +266,9 @@ struct ScrapeOptionsView: View {
     private var reviewBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                ScrapeSearchBar(query: $query, isSearching: loading,
-                                canSearch: canSearch && !busy) { protect(startSearch) }
+                ScrapeSearchBar(query: $query, isSearching: loading, isBusy: busy,
+                                isAvailable: manualBlocker == nil,
+                                onBlocked: { if let manualBlocker { present(manualBlocker) } }) { protect(startSearch) }
                 if let binding = Binding($draft), !binding.wrappedValue.fields.isEmpty {
                     ScrapeFieldReviewView(draft: binding, images: images) {
                         // 封面流的卡片自己定大小、裁圆角，这里铺满卡片。
@@ -242,13 +326,24 @@ struct ScrapeOptionsView: View {
                 Toggle("scrape_lyrics_toggle", isOn: contentPreferences.binding(for: .lyrics))
             }
             Section {
-                Button { startAutomatic() } label: { Label("auto_scrape", systemImage: "wand.and.stars") }
-                Button { startSearch() } label: { Label("manual_scrape", systemImage: "magnifyingglass") }
+                // 开不了的入口照样能点：看得出不可用，点了说明原因。
+                Button { tapAutomatic() } label: { Label("auto_scrape", systemImage: "wand.and.stars") }
+                    .foregroundStyle(automaticBlocker == nil ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                Button { tapManual() } label: { Label("manual_scrape", systemImage: "magnifyingglass") }
+                    .foregroundStyle(manualBlocker == nil ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 Picker("search_limit_per_source", selection: $searchLimit) {
                     ForEach([10, 20, 30, 50, 100], id: \.self) { Text("\($0)").tag($0) }
                 }
-            }.disabled(!canSearch || busy)
+            }.disabled(busy)
         }
+    }
+
+    private func tapAutomatic() {
+        if let automaticBlocker { present(automaticBlocker) } else { startAutomatic() }
+    }
+
+    private func tapManual() {
+        if let manualBlocker { present(manualBlocker) } else { startSearch() }
     }
 
     private func protect(_ action: @escaping () -> Void) {
@@ -264,10 +359,25 @@ struct ScrapeOptionsView: View {
         guard !busy else { return }
         switch scraperService.startSingleScrape(song: song, in: library, dryRun: true, parts: parts) {
         case .started(let id), .joined(let id): automaticID = id; showingReview = true
-        case .busy: errorMessage = String(localized: "intent_scrape_busy")
-        case .noScraperSource: errorMessage = String(localized: "scraper_no_source_message")
+        case .busy:
+            // 自动刮削要和批量刮削抢同一道门；结果页的搜索是只读的预览，不走那道门，照样能出结果。
+            plog("ScrapeOptions: automatic preview is busy (batch running), using the review search instead")
+            startSearch()
+        case .noScraperSource: present(automaticBlocker ?? .noSource)
         }
     }
+
+    #if os(macOS)
+    /// Mac 打开窗口就直接进结果页：自动刮削开得了就用它，规则把要刮的几项都跳过了就用搜索；
+    /// 一项都没选或没有刮削源时不弹窗，留在空白页，点搜索再说明原因。
+    private func startInitialMacSearch() {
+        switch automaticBlocker {
+        case nil: startAutomatic()
+        case .rulesSkipAll: startSearch()
+        case .noParts, .noSource: break
+        }
+    }
+    #endif
 
     private func consumeAutomatic() {
         guard automaticID != nil || (!showingReview && draft == nil),
@@ -285,6 +395,7 @@ struct ScrapeOptionsView: View {
     private func startSearch() {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !busy, !text.isEmpty else { return }
+        if let manualBlocker { present(manualBlocker); return }
         showingReview = true
         searchTask.start {
             let catalog = await scraperService.fieldReview(for: song, query: text, parts: parts, searchLimit: searchLimit)
@@ -297,7 +408,7 @@ struct ScrapeOptionsView: View {
     private func install(_ catalog: ScrapeReviewCatalog) {
         let settings = scraperSettings.snapshot()
         draft = ScrapeReviewDraft(song: song, catalog: catalog, request: settings.reviewFields(for: song, parts: parts),
-                                  defaults: settings.request(for: song, parts: parts))
+                                  defaults: settings.reviewDefaults(for: song, parts: parts))
         showingReview = true
     }
 
@@ -427,13 +538,16 @@ struct ScrapeOptionsView: View {
 private struct ScrapeSearchBar: View {
     @Binding var query: String
     let isSearching: Bool
-    let canSearch: Bool
+    let isBusy: Bool
+    /// 一项都没选或没有刮削源：键看得出不可用，但点了会说明原因。
+    let isAvailable: Bool
+    let onBlocked: () -> Void
     let onSearch: () -> Void
 
     @FocusState private var focused: Bool
 
     private var isDisabled: Bool {
-        !canSearch || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isBusy || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -503,7 +617,7 @@ private struct ScrapeSearchBar: View {
             .padding(.horizontal, 18)
             .frame(height: 46)
             .background(Capsule().fill(.tint))
-            .opacity(isDisabled && !isSearching ? 0.4 : 1)
+            .opacity((isDisabled || !isAvailable) && !isSearching ? 0.4 : 1)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -514,7 +628,7 @@ private struct ScrapeSearchBar: View {
     private func submit() {
         guard !isDisabled else { return }
         focused = false
-        onSearch()
+        if isAvailable { onSearch() } else { onBlocked() }
     }
 }
 

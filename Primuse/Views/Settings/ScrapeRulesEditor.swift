@@ -29,6 +29,9 @@ struct ScrapeRulesEditor: View {
                         }
                         .accessibilityIdentifier("scraping.rule." + field.rawValue)
                     }
+                } footer: {
+                    // 说清楚规则管到哪：只管批量和后台，用户点名的取词、单曲刮削不受「跳过」影响。
+                    Text("scrape_review_rules_scope_footer")
                 }
                 Section {
                     Menu("scrape_rules_all_fields") {

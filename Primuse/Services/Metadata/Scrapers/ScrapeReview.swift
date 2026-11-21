@@ -203,11 +203,30 @@ struct ScrapeReviewDraft: Sendable {
 }
 
 extension ScraperSettings {
+    /// CUE 分轨共用整张专辑的这几项，结果页不让单首改。
+    static let cueAlbumIdentityFields: Set<ScrapeField> = [.artist, .album, .albumArtist, .track, .disc]
+
+    /// 单曲刮削结果页搜哪些字段、能选哪些字段：这次勾的几部分全都算。刮削规则里的「跳过」
+    /// 只管批量刮削、后台自动补全和结果页的预选，用户点开这首歌来换东西时照样能挑。
     func reviewFields(for song: Song, parts: ScrapeParts) -> ScrapeFieldRequest {
-        var fields = fieldRules.request(parts: parts, overwriteByDefault: true)
+        var request = ScrapeFieldRequest()
+        request.fields = Set(ScrapeField.allCases.filter { parts.contains($0.part) })
         if song.isCueTrack {
-            fields.fields.subtract([.artist, .album, .albumArtist, .track, .disc])
+            request.fields.subtract(Self.cueAlbumIdentityFields)
         }
-        return fields
+        request.overwrites = request.fields
+        return request
+    }
+
+    /// 结果页默认勾选哪些字段。用户是专门打开这首歌来换东西的：有变化的标签、找到的封面和歌词都勾上
+    /// (CUE 分轨的封面和专辑身份除外)。「仅补全缺失字段」和覆盖 / 补缺规则只管批量和后台；
+    /// 规则里设成「跳过」的字段不预选，但仍列出来可以手动选。
+    func reviewDefaults(for song: Song, parts: ScrapeParts) -> ScrapeFieldRequest {
+        var request = fieldRules.request(parts: parts, overwriteByDefault: true)
+        if song.isCueTrack {
+            request.fields.subtract(Self.cueAlbumIdentityFields)
+            request.overwrites.subtract(Self.cueAlbumIdentityFields)
+        }
+        return request
     }
 }

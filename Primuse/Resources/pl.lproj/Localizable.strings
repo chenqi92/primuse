@@ -3134,6 +3134,9 @@
 "scan_runs_in_background_hint" = "Możesz opuścić tę stronę; skanowanie jest kontynuowane w tle.";
 "scanning" = "Skanowanie";
 "scrape_accuracy_notice" = "Wyniki automatyczne mogą być niedokładne. Jeśli nie pasują, użyj wyszukiwania ręcznego i porównaj czasy trwania utworów.";
+"scrape_review_no_parts_message" = "Włącz co najmniej metadane, okładkę lub tekst, a potem wyszukaj.";
+"scrape_review_rules_skip_message" = "Wszystko, co wybrano, ma w regułach pobierania metadanych ustawienie „Pomiń”, więc automatyczne pobieranie tego nie szuka. Użyj wyszukiwania ręcznego, aby wybrać samodzielnie, albo zmień reguły.";
+"scrape_review_rules_scope_footer" = "„Wypełnij tylko brakujące pola” i te reguły dotyczą tylko pobierania zbiorczego i automatycznego uzupełniania w tle. Przy pojedynczym utworze pola ustawione na „Pomiń” nadal są widoczne i można je wybrać ręcznie – po prostu nie są zaznaczone z góry. Nie wpływają też na pobieranie tekstów podczas odtwarzania ani na „Pobierz więcej tekstów”.";
 "scrape_actions" = "Działania dotyczące metadanych";
 "scrape_candidate_loading_details" = "Ładowanie danych kandydata…";
 "scrape_candidate_select_hint" = "Wybierz wynik spośród kandydatów po lewej stronie";

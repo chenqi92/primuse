@@ -165,10 +165,8 @@ actor ScraperManager {
         var reviewDetails: [RankedMetadataDetail] = []
         var reviewItems: [String: [ScraperSearchItem]] = [:]
         let enabledSources = settings.enabledSources
-        var needs = needs
-        needs.metadataFields = needs.metadataFields.filter { settings.fieldRules[$0].mode != .skip }
-        needs.cover = needs.cover && settings.fieldRules[.cover].mode != .skip
-        needs.lyrics = needs.lyrics && settings.fieldRules[.lyrics].mode != .skip
+        // 刮削规则里的「跳过」由调用方按规则算好的请求带进来(批量、后台补全)。这里不再按规则剔除：
+        // 播放时自动取歌词、歌词来源页「获取更多」、单曲刮削结果页都是用户点名要的，不受「跳过」影响。
 
         // Clean title for search; also split "歌手 - 标题" 文件名(云盘无标签歌曲常见)
         // 推出 effectiveArtist,避免用整串脏标题去搜导致错配。
@@ -238,10 +236,19 @@ actor ScraperManager {
                         title: cleanedTitle,
                         artist: effectiveArtist,
                         durationMs: durationMs(duration),
-                        maxCount: collectingReview ? searchLimit : Self.autoMetadataCandidatesPerSource, album: album, writtenTitle: title
+                        maxCount: Self.autoMetadataCandidatesPerSource, album: album, writtenTitle: title
                     )
-                    if collectingReview { reviewItems[config.id] = rankedItems }
-                    let confidentCandidates = rankedItems.prefix(Self.autoMetadataCandidatesPerSource).enumerated().map { searchOrder, item in
+                    if collectingReview {
+                        // 结果页把这个源搜回来的每一条都列出来，只排序不过门槛：搜索词和资料库里的
+                        // 歌名、歌手对不上时用户照样能挑。「推荐」那一项仍只从过了门槛的详情里出。
+                        let listed = Self.topMatches(
+                            in: searchResult.items, title: cleanedTitle, artist: effectiveArtist,
+                            durationMs: durationMs(duration), maxCount: searchLimit, album: album, writtenTitle: title
+                        )
+                        reviewItems[config.id] = listed
+                        plog("🔍 [\(config.type.displayName)] review lists \(listed.count) candidates, \(safeItems.count) pass the automatic identity check")
+                    }
+                    let confidentCandidates = rankedItems.enumerated().map { searchOrder, item in
                         PendingMetadataCandidate(
                             config: config,
                             item: item,
@@ -538,10 +545,24 @@ actor ScraperManager {
             && (identity.artist == nil || seed.artist == nil || ScraperIdentity.artistMatches(seed.artist, identity.artist))
         let fields = settings.reviewFields(for: song, parts: parts).fields
         let tags = fields.intersection(ScrapeField.tags)
-        let result = await scrapeMetadata(title: identity.title, artist: identity.artist, album: sameRecording ? song.albumTitle : nil,
-            duration: sameRecording && song.duration > 0 ? song.duration : nil,
+        let songDuration: TimeInterval? = song.duration > 0 ? song.duration : nil
+        // LRCLIB、AMLL、歌词 API 每个来源列多条歌词候选，和下面的搜索同时跑。歌词要对得上的是这首
+        // 歌的音频，时长总按它算；专辑只在搜的还是这首歌时才带。
+        async let manualLyrics: [ManualLyricsCandidate] = fields.contains(.lyrics)
+            ? await manualLyricsCandidates(title: identity.title, artist: identity.artist,
+                                     album: sameRecording ? song.albumTitle : nil, duration: songDuration, settings: settings)
+            : []
+        var result = await scrapeMetadata(title: identity.title, artist: identity.artist, album: sameRecording ? song.albumTitle : nil,
+            duration: sameRecording ? songDuration : nil,
             needs: .init(metadata: !tags.isEmpty, cover: fields.contains(.cover), lyrics: fields.contains(.lyrics), metadataFields: tags),
             settings: settings, collectingReview: true, searchLimit: min(100, max(1, searchLimit)))
+        let lyricsCandidates = await manualLyrics
+        let lyricsBefore = result.review.options[.lyrics]?.count ?? 0
+        for candidate in lyricsCandidates where !Task.isCancelled {
+            result.review.addLyrics(candidate.lyrics, source: candidate.config.displayName)
+        }
+        let lyricsAdded = (result.review.options[.lyrics]?.count ?? 0) - lyricsBefore
+        plog("🔍 Review search: identity artist=\(identity.artist == nil ? "none" : "set") sameRecording=\(sameRecording) fields=\(fields.count) manualLyrics=\(lyricsCandidates.count) added=\(lyricsAdded)")
         return result.review
     }
 
@@ -998,7 +1019,8 @@ actor ScraperManager {
 
     /// 歌词源分别接收歌名和歌手，搜索框里是一整串。末尾还是这首歌原来的歌手
     /// (刮削页给的初始关键词就是「歌名 歌手」)就把前面当歌名; 只剩歌名时沿用原来的歌手;
-    /// 别的写法按「歌手 - 歌名」拆, 拆不开整串当歌名。
+    /// 开头还是这首歌原来的歌名、后面空格隔开另一个名字(把初始关键词里的歌手改成了别人)，
+    /// 后面那段当歌手; 别的写法按「歌手 - 歌名」拆, 拆不开整串当歌名。
     static func lyricsLookupIdentity(
         query: String,
         title: String,
@@ -1006,10 +1028,11 @@ actor ScraperManager {
     ) -> (title: String, artist: String?) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let knownArtist = artist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let separators = CharacterSet.whitespaces.union(CharacterSet(charactersIn: "-–—·"))
         if !knownArtist.isEmpty,
            let range = trimmed.range(of: knownArtist, options: [.caseInsensitive, .anchored, .backwards]) {
             let head = cleanTitle(String(trimmed[..<range.lowerBound])
-                .trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "-–—·"))),
+                .trimmingCharacters(in: separators),
                 preservingVersionMarkers: true)
             if !head.isEmpty {
                 let identity = searchTitleArtist(head, artist: nil, preservingVersionMarkers: true)
@@ -1020,8 +1043,41 @@ actor ScraperManager {
            normalizeComparableText(trimmed) == normalizeComparableText(title) {
             return (cleanTitle(trimmed, preservingVersionMarkers: true), knownArtist)
         }
+        if let split = titleThenArtist(trimmed, knownTitle: title, separators: separators) {
+            return split
+        }
         return searchTitleArtist(trimmed, artist: nil, preservingVersionMarkers: true)
     }
+
+    /// 「歌名 歌手」里的歌名就是这首歌原来的歌名：开头对上、紧跟空格或分隔符，后面那段是一个名字
+    /// (不是「(Live)」「- Remix」这类版本说明，也不带括号) 才拆。
+    private static func titleThenArtist(_ query: String, knownTitle: String,
+                                        separators: CharacterSet) -> (title: String, artist: String?)? {
+        let title = knownTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty,
+              let range = query.range(of: title, options: [.caseInsensitive, .anchored]),
+              range.upperBound < query.endIndex,
+              let boundary = query[range.upperBound...].unicodeScalars.first,
+              separators.contains(boundary) else { return nil }
+        let tail = String(query[range.upperBound...]).trimmingCharacters(in: separators)
+        guard !tail.isEmpty, tail.rangeOfCharacter(from: CharacterSet(charactersIn: "()（）[]【】")) == nil,
+              ExternalTrackMatchPolicy.splitTitle(tail).markers.isEmpty, !isVersionNote(tail) else { return nil }
+        return (cleanTitle(String(query[range]), preservingVersionMarkers: true), tail)
+    }
+
+    /// 歌名后面不带括号直接写的版本说明(「Live」「Acoustic Ver.」「伴奏」)。只认整段都是这类词，
+    /// 歌手名里碰巧含这几个字母(Olivia、Clive)不算。
+    private static func isVersionNote(_ text: String) -> Bool {
+        let words = text.lowercased().split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" }).map(String.init)
+        guard !words.isEmpty else { return false }
+        return words.allSatisfy { versionNoteWords.contains($0) || $0.hasSuffix("版") }
+    }
+
+    private static let versionNoteWords: Set<String> = [
+        "live", "remix", "mix", "acoustic", "unplugged", "instrumental", "inst", "inst.", "karaoke", "demo",
+        "cover", "edit", "version", "ver", "ver.", "remaster", "remastered", "sped", "up", "slowed",
+        "伴奏", "现场", "現場", "混音", "翻唱", "纯音乐", "純音樂", "小样", "小樣", "不插电", "不插電",
+    ]
 
     static func manualSearchIdentity(query: String, title: String, artist: String?, source: MusicScraperType) -> (title: String, artist: String?) {
         source.isBuiltIn ? lyricsLookupIdentity(query: query, title: title, artist: artist) : (query, nil)
@@ -1074,18 +1130,20 @@ actor ScraperManager {
     private func collectReviewCovers(from items: [ScraperSearchItem], title: String, writtenTitle: String, artist: String?,
                                     durationMs: Int?, album: String?, limit: Int, config: ScraperSourceConfig,
                                     result: inout ScrapeResult) async throws {
-        let compatible = items.filter {
-            Self.isConfidentAutoMatch($0, title: title, artist: artist, durationMs: durationMs, writtenTitle: writtenTitle)
+        // 封面候选同样全列出来，只排序；只有过了身份门槛、又是同一张专辑的才下载原图、当推荐。
+        func recommendable(_ item: ScraperSearchItem) -> Bool {
+            ScraperIdentity.albumTier(album, item.album) != 2
+                && Self.isConfidentAutoMatch(item, title: title, artist: artist, durationMs: durationMs, writtenTitle: writtenTitle)
         }
         var seenIDs: Set<String> = []
-        let ranked = Self.topMatches(in: compatible, title: title, artist: artist, durationMs: durationMs,
-                                     maxCount: compatible.count, album: album, writtenTitle: writtenTitle)
+        let ranked = Self.topMatches(in: items, title: title, artist: artist, durationMs: durationMs,
+                                     maxCount: items.count, album: album, writtenTitle: writtenTitle)
             .filter { seenIDs.insert($0.externalId).inserted }.prefix(limit)
-        let best = ranked.first { ScraperIdentity.albumTier(album, $0.album) != 2 }
+        let best = ranked.first(where: recommendable)
         var seenURLs: Set<String> = []
         for item in ranked {
             try Task.checkCancellation()
-            let sameRelease = ScraperIdentity.albumTier(album, item.album) != 2
+            let sameRelease = recommendable(item)
             var urls: [String] = []
             if item.externalId == best?.externalId {
                 do {

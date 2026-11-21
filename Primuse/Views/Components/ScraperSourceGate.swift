@@ -42,12 +42,32 @@ enum ScraperAvailability {
     }
 }
 
+extension ScraperSettings {
+    /// 用户点名的单曲刮削(结果页、「暂无歌词」上的刮削)数能用的源：只看这几部分有没有开着的源，
+    /// 不看刮削规则里的「跳过」——跳过只管批量和后台。默认开着的 AMLL 照旧只在只找歌词时算。
+    func userRequestedSourceCount(for parts: ScrapeParts) -> Int {
+        ScraperSourceGatePolicy.usableSourceCount(
+            enabledSourcesOnByDefault: enabledSources.filter {
+                (parts.contains(.metadata) && $0.type.supportsMetadata)
+                    || (parts.contains(.cover) && $0.type.supportsCover)
+                    || (parts.contains(.lyrics) && $0.type.supportsLyrics)
+            }.map(\.type.isEnabledByDefault),
+            for: parts
+        )
+    }
+}
+
 extension ScraperSettingsStore {
     /// 整套刮削(标签、封面、歌词)能不能开始。
     var hasEnabledSource: Bool { hasEnabledSource(for: .all) }
 
     func hasEnabledSource(for parts: ScrapeParts) -> Bool {
         gateSourceCount(for: parts) > 0
+    }
+
+    /// 同 `ScraperSettings.userRequestedSourceCount(for:)`，界面读这一份以便开关变化时刷新。
+    func userRequestedSourceCount(for parts: ScrapeParts) -> Int {
+        snapshot().userRequestedSourceCount(for: parts)
     }
 
     func performSingleSongScrapeAction(
@@ -57,7 +77,7 @@ extension ScraperSettingsStore {
     ) {
         SingleSongScrapeGatePolicy.perform(
             from: entryPoint,
-            enabledSourceCount: gateSourceCount(for: entryPoint.requestedParts),
+            enabledSourceCount: userRequestedSourceCount(for: entryPoint.requestedParts),
             onProceed: onProceed,
             onRequireSource: onRequireSource
         )

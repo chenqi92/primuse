@@ -3134,6 +3134,9 @@
 "scan_runs_in_background_hint" = "Puedes salir de esta página; el escaneo continúa en segundo plano.";
 "scanning" = "Escaneo";
 "scrape_accuracy_notice" = "Los resultados automáticos pueden ser inexactos. Si no coinciden, utilice la búsqueda manual y compare las duraciones de las pistas.";
+"scrape_review_no_parts_message" = "Activa al menos Metadatos, Portada o Letra y luego busca.";
+"scrape_review_rules_skip_message" = "Todo lo que elegiste está configurado como «Saltar» en las reglas de búsqueda de metadatos, así que la obtención automática no lo buscará. Usa la búsqueda manual para elegir tú mismo o cambia las reglas.";
+"scrape_review_rules_scope_footer" = "«Sólo llenar campos faltantes» y estas reglas solo se aplican a la obtención por lotes y al completado automático en segundo plano. Al buscar una sola canción, los campos configurados como «Saltar» siguen apareciendo y puedes elegirlos a mano; solo no se preseleccionan. Tampoco afectan a la búsqueda de letras durante la reproducción ni a «Obtener más letras».";
 "scrape_actions" = "Acciones de metadatos";
 "scrape_candidate_loading_details" = "Cargando detalles del candidato...";
 "scrape_candidate_select_hint" = "Seleccione un resultado de los candidatos de la izquierda";

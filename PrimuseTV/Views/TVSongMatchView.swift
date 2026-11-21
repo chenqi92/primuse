@@ -118,7 +118,7 @@ struct TVSongMatchView: View {
             guard !Task.isCancelled else { return }
             isSearching = false
             if catalog.options.isEmpty { notice = String(localized: "scrape_no_changes"); return }
-            draft = ScrapeReviewDraft(song: song, catalog: catalog, request: request, defaults: settings.request(for: song))
+            draft = ScrapeReviewDraft(song: song, catalog: catalog, request: request, defaults: settings.reviewDefaults(for: song, parts: .all))
         }
     }
 

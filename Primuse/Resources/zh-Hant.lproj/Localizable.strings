@@ -389,6 +389,9 @@
 "scrape_song_success" = "目前歌曲的中繼資料已重新整理。";
 "scrape_metadata_updated" = "已更新";
 "scrape_accuracy_notice" = "自動刮取結果可能不準確。如資訊不符，請使用手動搜尋並配合歌曲時長選擇。";
+"scrape_review_no_parts_message" = "元資料、封面、歌詞至少開啟一項再搜尋。";
+"scrape_review_rules_skip_message" = "要刮取的幾項在刮削規則裡都設成了「跳過」，自動刮取不會去找。可以用手動搜尋自己挑，或到刮削規則裡修改。";
+"scrape_review_rules_scope_footer" = "「僅補齊缺少欄位」和這些規則只用於批次刮取和背景自動補全。單曲刮取時，設成「跳過」的項目仍會列出、可以手動選，只是不會預先勾選；播放時自動取得歌詞和「取得更多歌詞」也不受影響。";
 "scrape_song_failed" = "目前歌曲的中繼資料重新整理失敗。";
 "scrape_lyrics_not_found" = "找不到可用歌詞，請嘗試其他關鍵字或歌詞來源。";
 "scrape_options" = "刮取內容";
