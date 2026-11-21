@@ -554,7 +554,7 @@ final class ScrapeOptionsTaskTests: XCTestCase {
     }
 }
 
-/// 批量刮削按部分结算：只有真的补上并落了地才算更新；存不下的记失败、不改引用。
+/// 批量刮削按部分结算：只有真的补上并落了地才算更新；存不下的记失败、不改引用；失效的本机引用当缺失。
 @MainActor
 final class BatchScrapeAccountingTests: XCTestCase {
     private func makeService(_ root: URL) -> MusicScraperService {
@@ -574,8 +574,9 @@ final class BatchScrapeAccountingTests: XCTestCase {
              coverArtFileName: cover, lyricsFileName: lyrics)
     }
 
-    private func scope(_ fields: Set<ScrapeField>) -> MusicScraperService.ScrapeScope {
-        MusicScraperService.ScrapeScope(considered: fields, fetched: fields)
+    private func scope(_ fields: Set<ScrapeField>, assets: ScrapeAssetPresence = .init(cover: .absent, lyrics: .absent))
+        -> MusicScraperService.ScrapeScope {
+        MusicScraperService.ScrapeScope(considered: fields, fetched: fields, assets: assets)
     }
 
     private func pngData() throws -> Data {
@@ -684,6 +685,72 @@ final class BatchScrapeAccountingTests: XCTestCase {
         XCTAssertEqual(cached.parts.lyrics, .filled)
         XCTAssertEqual(cached.song.lyricsFileName, MetadataAssetStore.shared.expectedLyricsFileName(for: original.id))
         await cleanUp(original.id)
+    }
+
+    func testStaleLocalReferencesAreScrapedAgainAndClearedWhenNothingIsFound() async throws {
+        let directory = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetadataAssetStore(storageDirectory: directory)
+        let missingCover = "scraped-" + String(repeating: "c", count: 64) + ".jpg"
+        let missingLyrics = String(repeating: "d", count: 32) + ".json"
+        let stale = song(cover: missingCover, lyrics: missingLyrics)
+        let presence = ScraperSettings.assetPresence(for: stale, store: store)
+        XCTAssertEqual(presence, ScrapeAssetPresence(cover: .staleLocal, lyrics: .staleLocal))
+        // 音乐源上的封面、歌词文件不做网络探测，按有处理。
+        let remote = song(cover: "/Music/Album/cover.jpg", lyrics: "/Music/Window at Dawn.lrc")
+        XCTAssertEqual(ScraperSettings.assetPresence(for: remote, store: store), ScrapeAssetPresence(cover: .present, lyrics: .present))
+
+        let request = ScraperSettings(onlyFillMissingFields: true).request(for: stale, parts: [.cover, .lyrics], assets: presence)
+        XCTAssertEqual(request.fields, [.cover, .lyrics], "Stale references must not count as existing assets")
+
+        let service = makeService(directory)
+        var scraped = stale
+        scraped.year = 2026
+        let applied = await service.applyScrapedResult(
+            processed(scraped, cover: nil, lyrics: nil), scope: scope([.cover, .lyrics, .year], assets: presence),
+            to: stale, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertEqual(applied.parts.cover, .notFound)
+        XCTAssertEqual(applied.parts.tags, .filled)
+        // 带着用户编辑标记的这一行不清引用，否则会被同步成「用户删了封面」。
+        XCTAssertEqual(applied.song.coverArtFileName, missingCover)
+        XCTAssertEqual(applied.song.lyricsFileName, missingLyrics)
+        XCTAssertNotNil(applied.song.userMetadataEditedAt)
+        let staleEntry = try XCTUnwrap(applied.staleReferences)
+        XCTAssertEqual(staleEntry, MusicScraperService.StaleAssetReference(songID: stale.id, cover: missingCover, lyrics: missingLyrics))
+
+        // 另外摘：再核一次，只改引用、不动标记。
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        library.addSongs([applied.song])
+        await library.waitForPendingIndex()
+        let marker = library.storedSong(id: stale.id)?.userMetadataEditedAt
+        await service.clearStaleAssetReferences([staleEntry], in: library)
+        let cleared = try XCTUnwrap(library.storedSong(id: stale.id))
+        XCTAssertNil(cleared.coverArtFileName)
+        XCTAssertNil(cleared.lyricsFileName)
+        XCTAssertEqual(cleared.userMetadataEditedAt, marker)
+        XCTAssertEqual(cleared.year, 2026)
+    }
+
+    /// 被容量清理掉内容、留着标记的封面靠按需从音乐源恢复，不算失效，也不会被摘掉。
+    func testEvictedCoversAreNotStale() async throws {
+        let directory = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetadataAssetStore(storageDirectory: directory)
+        let image = try pngData()
+        let stored = await store.storeAttributedCover(image, songID: "evicted-song", origin: .scraped)
+        let reference = try XCTUnwrap(stored)
+        let sha = String(reference.dropFirst("scraped-".count).dropLast(".jpg".count))
+        let content = store.artworkContentDirectoryURL.appendingPathComponent(sha + ".jpg")
+        try FileManager.default.removeItem(at: content)
+        try Data().write(to: store.artworkContentDirectoryURL.appendingPathComponent(sha + ".evicted"))
+        XCTAssertTrue(store.isCoverContentEvicted(named: reference))
+
+        let evicted = song(cover: reference)
+        XCTAssertEqual(ScraperSettings.assetPresence(for: evicted, store: store).cover, .present)
+        XCTAssertFalse(ScraperSettings.coverReferenceIsDead(reference, store: store))
+        let missing = "scraped-" + String(repeating: "e", count: 64) + ".jpg"
+        XCTAssertTrue(ScraperSettings.coverReferenceIsDead(missing, store: store))
     }
 
     func testWritebackFailuresAreClassified() {

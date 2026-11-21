@@ -77,6 +77,88 @@ public struct ScrapeSongParts: Equatable, Sendable {
     }
 }
 
+// MARK: - 封面、歌词引用还在不在
+
+/// 歌曲记着的封面或歌词引用核对下来的状态。
+public enum ScrapeAssetReferenceState: String, Codable, Sendable {
+    /// 没有引用，本机也没有按歌曲存的那份。
+    case absent
+    /// 有，而且（能核对的）都还在。
+    case present
+    /// 引用指着本机缓存，文件已经没了（卸载重装、缓存被清、当初没存成留下的引用）。
+    case staleLocal
+    /// 引用指着音乐源上的旁路文件，「已知缺失」的记录说它不在了。
+    case staleSource
+
+    /// 刮不到时要把失效的本机引用清掉，免得界面一直是默认封面、又永远不再补。
+    public var clearsReferenceWhenMissed: Bool { self == .staleLocal }
+}
+
+public struct ScrapeAssetPresence: Equatable, Sendable {
+    public var cover: ScrapeAssetReferenceState
+    public var lyrics: ScrapeAssetReferenceState
+
+    public init(cover: ScrapeAssetReferenceState, lyrics: ScrapeAssetReferenceState) {
+        self.cover = cover
+        self.lyrics = lyrics
+    }
+
+    /// 后台补全只补空着的：失效的引用照旧当成有，不去白刮一张存不进去的图。
+    public var treatingStaleAsPresent: ScrapeAssetPresence {
+        ScrapeAssetPresence(cover: cover == .absent ? .absent : .present,
+                            lyrics: lyrics == .absent ? .absent : .present)
+    }
+
+    /// 只看引用空不空，不查文件。
+    public static func referencesOnly(cover: String?, lyrics: String?) -> ScrapeAssetPresence {
+        ScrapeAssetPresence(cover: cover?.isEmpty == false ? .present : .absent,
+                            lyrics: lyrics?.isEmpty == false ? .present : .absent)
+    }
+}
+
+public enum ScrapeAssetPresencePolicy {
+    /// 封面：本机缓存的引用要读得到；音乐源上的路径、服务端的封面 ID 不做网络探测，按有处理。
+    /// 被容量清理掉内容、留着「已清理」标记的封面也算有：它靠按需从音乐源恢复，不是丢了。
+    /// 没有引用时看按歌曲存的那份（和播放页读封面的顺序一致）。参数按需求值，只多一次本机文件判断。
+    public static func coverState(
+        reference: String?,
+        isLocalCacheName: Bool,
+        referenceReadable: @autoclosure () -> Bool,
+        contentEvicted: @autoclosure () -> Bool,
+        songCacheReadable: @autoclosure () -> Bool
+    ) -> ScrapeAssetReferenceState {
+        guard let reference, !reference.isEmpty else {
+            return songCacheReadable() ? .present : .absent
+        }
+        guard isLocalCacheName else { return .present }
+        if referenceReadable() || contentEvicted() { return .present }
+        return .staleLocal
+    }
+
+    /// 歌词：播放先读按歌曲存的缓存，它在就算有。引用指着本机缓存时查文件；指着音乐源上的
+    /// 歌词文件（路径里带 `/`）时不做网络探测，除非已知缺失的记录说它不在。
+    public static func lyricsState(
+        reference: String?,
+        isLocalCacheName: Bool,
+        songCacheExists: @autoclosure () -> Bool,
+        referenceExists: @autoclosure () -> Bool,
+        sourceConfirmedAbsent: @autoclosure () -> Bool
+    ) -> ScrapeAssetReferenceState {
+        if songCacheExists() { return .present }
+        guard let reference, !reference.isEmpty else { return .absent }
+        if isLocalCacheName { return referenceExists() ? .present : .staleLocal }
+        if reference.contains("/") { return sourceConfirmedAbsent() ? .staleSource : .present }
+        return .present
+    }
+
+    /// 本机歌词缓存自己起的文件名：32 位小写十六进制加 `.json`。
+    public static func isLocalLyricsCacheName(_ reference: String) -> Bool {
+        guard reference.hasSuffix(".json") else { return false }
+        let stem = reference.utf8.dropLast(5)
+        return stem.count == 32 && stem.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+}
+
 // MARK: - 写回音乐源
 
 /// 写回音乐源失败的原因分类。

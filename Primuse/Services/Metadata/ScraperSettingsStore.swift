@@ -160,24 +160,48 @@ struct ScraperSettings: Codable, Sendable {
         sources.filter(\.isEnabled).sorted { $0.priority < $1.priority }
     }
 
+    /// `assets` 是调用方在后台核对好的封面、歌词状态；不传时按 `checkingAssetCache` 当场查
+    /// （会读本机文件，别在主线程的热路径上这样用）。
     func request(for song: Song, parts: ScrapeParts = .all, force: Bool = false,
-                 fillOnly: Bool = false, titleIsPlaceholder: Bool = false, checkingAssetCache: Bool = true) -> ScrapeFieldRequest {
-        var result = fieldRules.request(parts: parts, overwriteByDefault: force || !onlyFillMissingFields, fillOnly: fillOnly)
-            .needed(for: song.scrapeFields, hasCover: song.coverArtFileName?.isEmpty == false,
-                    hasLyrics: song.lyricsFileName?.isEmpty == false, titleIsPlaceholder: titleIsPlaceholder)
-        if checkingAssetCache {
-            let assets = MetadataAssetStore.shared
-            if result.fields.contains(.cover), !result.overwrites.contains(.cover),
-               assets.hasReadableCoverFile(named: assets.expectedCoverFileName(for: song.id)) { result.fields.remove(.cover) }
-            if result.fields.contains(.lyrics), !result.overwrites.contains(.lyrics),
-               assets.hasCachedLyricsFile(forSongID: song.id) { result.fields.remove(.lyrics) }
-        }
-        return result
+                 fillOnly: Bool = false, titleIsPlaceholder: Bool = false, checkingAssetCache: Bool = true,
+                 assets: ScrapeAssetPresence? = nil) -> ScrapeFieldRequest {
+        let presence = assets ?? (checkingAssetCache
+            ? Self.assetPresence(for: song)
+            : .referencesOnly(cover: song.coverArtFileName, lyrics: song.lyricsFileName))
+        return fieldRules.request(parts: parts, overwriteByDefault: force || !onlyFillMissingFields, fillOnly: fillOnly)
+            .needed(for: song.scrapeFields, hasCover: presence.cover == .present,
+                    hasLyrics: presence.lyrics == .present, titleIsPlaceholder: titleIsPlaceholder)
     }
 
     /// 这一轮在范围里的字段（选了这部分、字段规则不是跳过），还没按歌曲已有的内容收窄。
     func consideredFields(parts: ScrapeParts, force: Bool = false, fillOnly: Bool = false) -> Set<ScrapeField> {
         fieldRules.request(parts: parts, overwriteByDefault: force || !onlyFillMissingFields, fillOnly: fillOnly).fields
+    }
+
+    /// 歌曲记着的封面、歌词还在不在。只查本机文件和「已知缺失」的记录，不碰网络：本机缓存的引用
+    /// 查文件（被容量清理掉、等着按需恢复的不算丢），指着音乐源旁路文件的引用按有处理。
+    /// 每首最多多一次本机文件判断；调用方放在后台做。
+    static func assetPresence(
+        for song: Song,
+        store: MetadataAssetStore = .shared
+    ) -> ScrapeAssetPresence {
+        let coverReference = song.coverArtFileName
+        let cover = ScrapeAssetPresencePolicy.coverState(
+            reference: coverReference,
+            isLocalCacheName: coverReference.map { MetadataAssetStore.isLocalCoverFileName($0) } ?? false,
+            referenceReadable: store.hasReadableCoverFile(named: coverReference ?? ""),
+            contentEvicted: store.isCoverContentEvicted(named: coverReference ?? ""),
+            songCacheReadable: store.hasReadableCoverFile(named: store.expectedCoverFileName(for: song.id))
+        )
+        let lyricsReference = song.lyricsFileName
+        let lyrics = ScrapeAssetPresencePolicy.lyricsState(
+            reference: lyricsReference,
+            isLocalCacheName: lyricsReference.map { ScrapeAssetPresencePolicy.isLocalLyricsCacheName($0) } ?? false,
+            songCacheExists: store.hasCachedLyricsFile(forSongID: song.id),
+            referenceExists: store.hasLyricsFile(named: lyricsReference ?? ""),
+            sourceConfirmedAbsent: store.hasConfirmedSourceLyricsAbsence(for: song)
+        )
+        return ScrapeAssetPresence(cover: cover, lyrics: lyrics)
     }
 
     func orderedSources(for field: ScrapeField) -> [ScraperSourceConfig] {
@@ -522,5 +546,21 @@ final class ScraperSettingsStore {
         guard !suppressPersist else { return }
         snapshot().save(defaults: defaults)
         CloudKVSSync.shared.markChanged(key: ScraperSettings.defaultsKey)
+    }
+}
+
+extension ScraperSettings {
+    /// 清掉失效引用之前再核一次：引用还是那个、本机确实读不到、也不是被容量清理掉的。
+    /// 只查本机文件，调用方放在后台做。
+    static func coverReferenceIsDead(_ reference: String, store: MetadataAssetStore = .shared) -> Bool {
+        MetadataAssetStore.isLocalCoverFileName(reference)
+            && !store.hasReadableCoverFile(named: reference)
+            && !store.isCoverContentEvicted(named: reference)
+    }
+
+    static func lyricsReferenceIsDead(_ reference: String, songID: String, store: MetadataAssetStore = .shared) -> Bool {
+        ScrapeAssetPresencePolicy.isLocalLyricsCacheName(reference)
+            && !store.hasLyricsFile(named: reference)
+            && !store.hasCachedLyricsFile(forSongID: songID)
     }
 }

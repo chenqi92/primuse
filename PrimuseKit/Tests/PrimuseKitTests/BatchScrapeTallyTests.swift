@@ -67,6 +67,47 @@ struct BatchScrapeTallyTests {
         #expect(ScrapeSongParts(cover: .filled, lyrics: .notFound, tags: .alreadyPresent).result == .updated)
     }
 
+    @Test func staleLocalReferencesAreTreatedAsMissing() {
+        // 本机缓存的封面引用还在、文件没了。
+        #expect(ScrapeAssetPresencePolicy.coverState(reference: "scraped-abc.jpg", isLocalCacheName: true,
+                                                     referenceReadable: false, contentEvicted: false, songCacheReadable: true) == .staleLocal)
+        #expect(ScrapeAssetPresencePolicy.coverState(reference: "scraped-abc.jpg", isLocalCacheName: true,
+                                                     referenceReadable: true, contentEvicted: false, songCacheReadable: false) == .present)
+        // 被容量清理掉内容、留着标记的封面靠按需恢复，不算失效。
+        #expect(ScrapeAssetPresencePolicy.coverState(reference: "scraped-abc.jpg", isLocalCacheName: true,
+                                                     referenceReadable: false, contentEvicted: true, songCacheReadable: false) == .present)
+        // 音乐源上的封面文件不做网络探测。
+        var probed = false
+        func probe() -> Bool { probed = true; return false }
+        let remote = ScrapeAssetPresencePolicy.coverState(reference: "/Music/Album/cover.jpg", isLocalCacheName: false,
+                                                          referenceReadable: probe(), contentEvicted: probe(), songCacheReadable: probe())
+        #expect(remote == .present)
+        #expect(probed == false)
+        #expect(ScrapeAssetPresencePolicy.coverState(reference: nil, isLocalCacheName: false,
+                                                     referenceReadable: false, contentEvicted: false, songCacheReadable: true) == .present)
+        #expect(ScrapeAssetPresencePolicy.coverState(reference: "", isLocalCacheName: false,
+                                                     referenceReadable: true, contentEvicted: false, songCacheReadable: false) == .absent)
+
+        let cacheName = String(repeating: "a", count: 32) + ".json"
+        #expect(ScrapeAssetPresencePolicy.isLocalLyricsCacheName(cacheName))
+        #expect(!ScrapeAssetPresencePolicy.isLocalLyricsCacheName("Window at Dawn.lrc"))
+        #expect(!ScrapeAssetPresencePolicy.isLocalLyricsCacheName(String(repeating: "A", count: 32) + ".json"))
+        #expect(ScrapeAssetPresencePolicy.lyricsState(reference: cacheName, isLocalCacheName: true, songCacheExists: false,
+                                                      referenceExists: false, sourceConfirmedAbsent: false) == .staleLocal)
+        #expect(ScrapeAssetPresencePolicy.lyricsState(reference: cacheName, isLocalCacheName: true, songCacheExists: true,
+                                                      referenceExists: false, sourceConfirmedAbsent: false) == .present)
+        #expect(ScrapeAssetPresencePolicy.lyricsState(reference: "/Music/a.lrc", isLocalCacheName: false, songCacheExists: false,
+                                                      referenceExists: false, sourceConfirmedAbsent: false) == .present)
+        #expect(ScrapeAssetPresencePolicy.lyricsState(reference: "/Music/a.lrc", isLocalCacheName: false, songCacheExists: false,
+                                                      referenceExists: false, sourceConfirmedAbsent: true) == .staleSource)
+        #expect(ScrapeAssetReferenceState.staleLocal.clearsReferenceWhenMissed)
+        #expect(!ScrapeAssetReferenceState.staleSource.clearsReferenceWhenMissed)
+
+        let presence = ScrapeAssetPresence(cover: .staleLocal, lyrics: .absent)
+        #expect(presence.treatingStaleAsPresent == ScrapeAssetPresence(cover: .present, lyrics: .absent))
+        #expect(ScrapeAssetPresence.referencesOnly(cover: "x.jpg", lyrics: nil) == ScrapeAssetPresence(cover: .present, lyrics: .absent))
+    }
+
     @Test func tallyRoundTripsAndOldCheckpointsDecode() throws {
         var tally = BatchScrapeTally()
         tally.record(ScrapeSongParts(cover: .filled, lyrics: .alreadyPresent, tags: .filled))

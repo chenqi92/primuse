@@ -661,7 +661,7 @@ final class MusicScraperService {
         var scope = ScrapeScope()
         let processed = try await processedSongWithAssets(song, forceRescrape: true, storeAssets: !dryRun,
                                                         parts: parts, settings: settings, collectingReview: dryRun,
-                                                        scope: &scope)
+                                                        inspectsStaleReferences: !dryRun, scope: &scope)
         guard !dryRun else {
             guard let result = processed else {
                 return SingleScrapeResult(originalSong: song, song: song, coverData: nil, lyrics: nil)
@@ -685,6 +685,9 @@ final class MusicScraperService {
         var updatedSong = applied.song
         guard applied.persists else {
             plog("MusicScraperService: single scrape left '\(song.title)' unchanged cover=\(applied.parts.cover.rawValue) lyrics=\(applied.parts.lyrics.rawValue) tags=\(applied.parts.tags.rawValue)")
+            if let stale = applied.staleReferences {
+                await clearStaleAssetReferences([stale], in: library)
+            }
             return SingleScrapeResult(originalSong: song, song: library.storedSong(id: song.id) ?? song,
                                       coverData: nil, lyrics: nil, outcome: outcome)
         }
@@ -698,6 +701,10 @@ final class MusicScraperService {
             updatedSong.revision = stored.revision
         }
         library.replaceSong(Self.rebasedOntoLatestUserEdits([updatedSong], in: library)[0])
+        // 失效的本机引用不在上面那一行里清（可能带着用户编辑标记），另外摘。
+        if let stale = applied.staleReferences {
+            await clearStaleAssetReferences([stale], in: library)
+        }
         // 单曲重新刮削是用户亲手做的,刮到的封面在其它设备上也换;整张专辑、整库的补全不传图。
         if applied.storedCover != nil {
             SongTagEditStore.shared.recordUserChosenCovers(songIDs: [updatedSong.id])
@@ -1371,6 +1378,8 @@ final class MusicScraperService {
 
             var pendingSongUpdates: [Song] = []
             var pendingSidecarOperations: [(songID: String, title: String, operation: @Sendable () async -> Void)] = []
+            // 失效的本机引用不和这一批的行一起写（那一行可能带着用户编辑标记），发布之后另外摘。
+            var pendingStaleClears: [StaleAssetReference] = []
             let sidecarCircuitBreaker = self.sidecarCircuitBreaker
             var lastCompletedSongID: String?
             var completedSongCountInBatch = 0
@@ -1384,6 +1393,12 @@ final class MusicScraperService {
                 guard let completedSongID = lastCompletedSongID else { return }
                 if !pendingSongUpdates.isEmpty {
                     library.replaceSongs(Self.rebasedOntoLatestUserEdits(pendingSongUpdates, in: library))
+                }
+                if !pendingStaleClears.isEmpty {
+                    let entries = pendingStaleClears
+                    Task { @MainActor [weak self] in
+                        await self?.clearStaleAssetReferences(entries, in: library)
+                    }
                 }
                 for pending in pendingSidecarOperations {
                     if startSidecarWriteTask(pending.operation) != nil {
@@ -1399,6 +1414,7 @@ final class MusicScraperService {
                 }
                 pendingSongUpdates.removeAll(keepingCapacity: true)
                 pendingSidecarOperations.removeAll(keepingCapacity: true)
+                pendingStaleClears.removeAll(keepingCapacity: true)
                 lastCompletedSongID = nil
                 completedSongCountInBatch = 0
                 lastSongPublicationAt = ProcessInfo.processInfo.systemUptime
@@ -1417,7 +1433,7 @@ final class MusicScraperService {
                     // of its unpublished batch so resume repeats idempotent work
                     // instead of silently skipping task-local mutations.
                     if completedCurrentSong, !Task.isCancelled {
-                        if pendingSongUpdates.isEmpty, pendingSidecarOperations.isEmpty {
+                        if pendingSongUpdates.isEmpty, pendingSidecarOperations.isEmpty, pendingStaleClears.isEmpty {
                             advanceScrapeCheckpoint(afterCompleting: song.id)
                         } else {
                             lastCompletedSongID = song.id
@@ -1460,6 +1476,9 @@ final class MusicScraperService {
 
                     if applied.persists {
                         pendingSongUpdates.append(applied.song)
+                    }
+                    if let stale = applied.staleReferences {
+                        pendingStaleClears.append(stale)
                     }
                     guard applied.storedCover != nil || applied.cachedLyrics != nil
                             || applied.parts.tags == .filled else {
@@ -1946,8 +1965,8 @@ final class MusicScraperService {
                                               parts: parts, settings: settings, sleep: sleep).result
     }
 
-    /// 同 `processedSongForBatch`，另外交回这一首的刮削范围：哪些字段在范围里、哪些真的去刮了。
-    /// 批量刮削按它分部分结算，结果为 nil 时也要知道。
+    /// 同 `processedSongForBatch`，另外交回这一首的刮削范围：哪些字段在范围里、哪些真的去刮了、
+    /// 封面和歌词引用核对下来还在不在。批量刮削按它分部分结算，结果为 nil 时也要知道。
     func processedSongForBatchScoped(
         _ song: Song, forceRescrape: Bool, remoteIdentitySeed: Song? = nil, parts: ScrapeParts = .all,
         settings: ScraperSettings = .load(), sleep: ((TimeInterval) async throws -> Void)? = nil
@@ -1957,7 +1976,8 @@ final class MusicScraperService {
             var scope = ScrapeScope()
             let result = try await processedSongWithAssets(song, forceRescrape: forceRescrape,
                                                           storeAssets: false, remoteIdentitySeed: remoteIdentitySeed,
-                                                          parts: parts, settings: settings, scope: &scope)
+                                                          parts: parts, settings: settings,
+                                                          inspectsStaleReferences: true, scope: &scope)
             guard let result, !result.unavailableParts.intersection(parts).isEmpty else { return (result, scope) }
             guard attempt < 2 else { throw BatchScrapeSourceUnavailable() }
             if let sleep { try await sleep(max(1, result.retryAfter)) }
@@ -2067,14 +2087,17 @@ final class MusicScraperService {
     }
 
     /// 这首歌这一轮的刮削范围。`considered`：在范围里的字段（选了这部分、字段规则不是跳过）；
-    /// `fetched`：按歌曲已有的内容收窄后真的去刮的字段。
+    /// `fetched`：按歌曲已有的内容收窄后真的去刮的字段；`assets`：封面、歌词引用核对下来的状态。
     struct ScrapeScope: Sendable {
         var considered: Set<ScrapeField> = []
         var fetched: Set<ScrapeField> = []
         /// 真的去刮的字段里要覆盖已有内容的那些（其余是只补缺失）。
         var overwrites: Set<ScrapeField> = []
+        var assets = ScrapeAssetPresence(cover: .absent, lyrics: .absent)
     }
 
+    /// - Parameter inspectsStaleReferences: 用户发起的刮削传 true：引用还在、本机文件已经没了的
+    ///   封面、歌词当缺失去刮。后台补全只补空着的，照旧当成有。
     func processedSongWithAssets(
         _ song: Song,
         forceRescrape: Bool,
@@ -2083,6 +2106,7 @@ final class MusicScraperService {
         parts: ScrapeParts = .all,
         settings: ScraperSettings = .load(),
         collectingReview: Bool = false,
+        inspectsStaleReferences: Bool = false,
         scope: inout ScrapeScope
     ) async throws -> ProcessedResult? {
         // 服务端曲库源(Subsonic/Navidrome、Jellyfin/Emby/Plex): 元数据以服务端为
@@ -2093,7 +2117,8 @@ final class MusicScraperService {
         // 也只补空缺, 不覆盖已有值。
         let server = await sourceManager.isServerLibrarySource(for: song)
         if server && !collectingReview {
-            var request = settings.request(for: song, parts: parts.intersection(.metadata), fillOnly: true)
+            var request = settings.request(for: song, parts: parts.intersection(.metadata), fillOnly: true,
+                                           assets: .referencesOnly(cover: song.coverArtFileName, lyrics: song.lyricsFileName))
             request.fields.remove(.title)
             scope.considered = settings.consideredFields(parts: parts.intersection(.metadata), fillOnly: true)
                 .subtracting([.title])
@@ -2111,12 +2136,25 @@ final class MusicScraperService {
 
         let fallbackTitle = await resolvedScrapeFallbackTitle(for: song)
         let filenameTitle = song.title == Self.pathBaseName(for: song) && song.userMetadataEditedAt == nil
+        // 核对封面、歌词引用要读本机文件，放到后台；整库刮削时每首只多一次本机文件判断。
+        let inspected: ScrapeAssetPresence
+        if collectingReview {
+            inspected = .referencesOnly(cover: song.coverArtFileName, lyrics: song.lyricsFileName)
+        } else {
+            inspected = await Task.detached(priority: .utility) { ScraperSettings.assetPresence(for: song) }.value
+        }
+        let assets = inspectsStaleReferences ? inspected : inspected.treatingStaleAsPresent
         let request = collectingReview ? settings.reviewFields(for: song, parts: parts)
             : settings.request(for: song, parts: parts, force: forceRescrape,
-                                       titleIsPlaceholder: filenameTitle && settings.fieldRules[.title].mode == .inherit)
+                               titleIsPlaceholder: filenameTitle && settings.fieldRules[.title].mode == .inherit,
+                               assets: assets)
         scope.considered = settings.consideredFields(parts: parts, force: forceRescrape)
         scope.fetched = request.fields
         scope.overwrites = request.overwrites
+        scope.assets = assets
+        if assets.cover == .staleLocal || assets.lyrics == .staleLocal || assets.lyrics == .staleSource {
+            plog("MusicScraperService: stale asset reference treated as missing song=\(song.id.prefix(12)) cover=\(assets.cover.rawValue) lyrics=\(assets.lyrics.rawValue)")
+        }
         guard !request.fields.isEmpty else { return nil }
         let sourceSupportsRangeStreaming = await sourceManager.songSupportsRangeStreaming(song)
         let shouldResolvePlaybackURL = ScrapeAudioMaterializationPolicy.shouldResolvePlaybackURL(
@@ -2148,7 +2186,8 @@ final class MusicScraperService {
                 trustedSource: false,
                 fallbackTitle: fallbackTitle,
                 forceOnlineRefresh: forceRescrape,
-                existingCoverReference: song.coverArtFileName,
+                // 失效的引用不算「已有封面」，不然在线封面会被它挡掉。
+                existingCoverReference: assets.cover == .present ? song.coverArtFileName : nil,
                 scrapeRequest: request, scraperSettings: settings, librarySong: song, collectingReview: collectingReview
             )
         } else {
@@ -2787,6 +2826,8 @@ final class MusicScraperService {
         var cachedLyrics: [LyricLine]?
         /// 这一行和原来不一样（含静默保存的技术参数），或者存了新的封面、歌词。
         var persists: Bool
+        /// 引用失效而这一轮又没补上的，交给调用方在这一行写完之后另外摘（`clearStaleAssetReferences`）。
+        var staleReferences: StaleAssetReference? = nil
         /// 封面、歌词是从这个文件自己（内嵌或旁边的文件）读出来的就不写回音乐源。
         var writesBackCover = true
         var writesBackLyrics = true
@@ -2796,7 +2837,9 @@ final class MusicScraperService {
     }
 
     /// 封面只有存进本机缓存、引用指着的文件读得回来并能解码成图片时才指过去；歌词只有有有效行、
-    /// 缓存也收下了才指过去。存不下的不改引用，记成保存失败。批量刮削和快捷单曲共用这一份。
+    /// 缓存也收下了才指过去。存不下的不改引用，记成保存失败。引用失效而这一轮又没补上时，失效的
+    /// 本机引用不在这一行里清（这一行可能带着用户编辑标记，会被同步成「用户删了封面」），交给调用方
+    /// 另外摘。批量刮削和快捷单曲共用这一份。
     func applyScrapedResult(
         _ result: ProcessedResult?,
         scope: ScrapeScope,
@@ -2814,13 +2857,25 @@ final class MusicScraperService {
         let lyricsFetched = scope.fetched.contains(.lyrics) && !lyricsClearedByUser
         let tagsFetched = !scope.fetched.isDisjoint(with: ScrapeField.tags)
 
+        func staleReferences(coverStored: Bool, lyricsCached: Bool) -> StaleAssetReference? {
+            var stale = StaleAssetReference(songID: song.id)
+            if coverFetched, !coverStored, scope.assets.cover.clearsReferenceWhenMissed {
+                stale.cover = song.coverArtFileName
+            }
+            if lyricsFetched, !lyricsCached, scope.assets.lyrics.clearsReferenceWhenMissed {
+                stale.lyrics = song.lyricsFileName
+            }
+            return stale.cover == nil && stale.lyrics == nil ? nil : stale
+        }
+
         guard let result else {
             let parts = ScrapeSongParts(
                 cover: ScrapePartJudgment.outcome(considered: coverConsidered, fetched: coverFetched, received: false, stored: false),
                 lyrics: ScrapePartJudgment.outcome(considered: lyricsConsidered, fetched: lyricsFetched, received: false, stored: false),
                 tags: ScrapePartJudgment.outcome(considered: tagsConsidered, fetched: tagsFetched, received: false, stored: false)
             )
-            return AppliedScrape(song: song, parts: parts, storedCover: nil, cachedLyrics: nil, persists: false)
+            return AppliedScrape(song: song, parts: parts, storedCover: nil, cachedLyrics: nil, persists: false,
+                                 staleReferences: staleReferences(coverStored: false, lyricsCached: false))
         }
 
         var updated = ScrapeApplyPolicy.restricted(result.song, to: parts, original: song)
@@ -2875,6 +2930,7 @@ final class MusicScraperService {
         return AppliedScrape(
             song: updated, parts: parts, storedCover: storedCover, cachedLyrics: cachedLyrics,
             persists: updated != song || storedCover != nil || cachedLyrics != nil,
+            staleReferences: staleReferences(coverStored: storedCover != nil, lyricsCached: cachedLyrics != nil),
             writesBackCover: ScrapeWritebackSourcePolicy.writesBackCover(readFromFile: result.coverReadFromFile),
             writesBackLyrics: ScrapeWritebackSourcePolicy.writesBackLyrics(sourceKind: lyricsSource),
             overwritesCover: scope.overwrites.contains(.cover),
@@ -3022,6 +3078,49 @@ final class MusicScraperService {
         Task { @MainActor in
             await Self.postScrapeCompletionNotification(forceRescrape: forceRescrape, completion: completion)
         }
+    }
+
+    /// 一首歌失效的本机引用（引用还在、本机文件已经没了）。
+    struct StaleAssetReference: Sendable, Equatable {
+        let songID: String
+        var cover: String?
+        var lyrics: String?
+    }
+
+    /// 摘掉失效的本机引用。先在后台对每条再核一次（引用还是那个、确实读不到、不是被容量清理掉的），
+    /// 再对库里当前那一行单独写一次：只改引用、不动用户编辑标记，同步那边不会当成「用户删了封面」。
+    func clearStaleAssetReferences(_ entries: [StaleAssetReference], in library: MusicLibrary) async {
+        guard !entries.isEmpty else { return }
+        let verified = await Task.detached(priority: .utility) { () -> [StaleAssetReference] in
+            entries.compactMap { entry in
+                let cover = entry.cover.flatMap { ScraperSettings.coverReferenceIsDead($0) ? $0 : nil }
+                let lyrics = entry.lyrics.flatMap {
+                    ScraperSettings.lyricsReferenceIsDead($0, songID: entry.songID) ? $0 : nil
+                }
+                guard cover != nil || lyrics != nil else { return nil }
+                return StaleAssetReference(songID: entry.songID, cover: cover, lyrics: lyrics)
+            }
+        }.value
+        guard !verified.isEmpty else { return }
+        library.flushPendingAssetReferencePatches()
+        var rows: [Song] = []
+        for entry in verified {
+            guard var row = library.storedSong(id: entry.songID) else { continue }
+            var changed = false
+            if let cover = entry.cover, row.coverArtFileName == cover {
+                row.coverArtFileName = nil
+                changed = true
+                CachedArtworkView.invalidateCache(for: row.id)
+            }
+            if let lyrics = entry.lyrics, row.lyricsFileName == lyrics {
+                row.lyricsFileName = nil
+                changed = true
+            }
+            if changed { rows.append(row) }
+        }
+        guard !rows.isEmpty else { return }
+        library.replaceSongs(rows)
+        plog("MusicScraperService: cleared \(rows.count) stale local asset references")
     }
 
     // MARK: - 写回音乐源（封面、歌词文件与嵌入）

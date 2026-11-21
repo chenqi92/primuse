@@ -213,19 +213,10 @@ final class TVMetadataScrapeService {
         } ?? false
         let rules = settings.fieldRules.request(parts: parts, overwriteByDefault: !settings.onlyFillMissingFields,
                                                fillOnly: isServerLibrary)
-        let hasCover: Bool
-        if song.coverArtFileName?.isEmpty == false {
-            hasCover = true
-        } else {
-            hasCover = await MetadataAssetStore.shared.cachedCoverData(forSongID: song.id) != nil
-        }
-        let hasLyrics: Bool
-        if song.lyricsFileName?.isEmpty == false {
-            hasLyrics = true
-        } else {
-            hasLyrics = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)?.isEmpty == false
-        }
-        let request = rules.needed(for: song.scrapeFields, hasCover: hasCover, hasLyrics: hasLyrics)
+        // 和 iPhone 同一套核对：引用还在、本机缓存文件已经没了的封面 / 歌词当缺失去补。查文件放在后台。
+        let presence = await Task.detached(priority: .utility) { ScraperSettings.assetPresence(for: song) }.value
+        let request = rules.needed(for: song.scrapeFields, hasCover: presence.cover == .present,
+                                   hasLyrics: presence.lyrics == .present)
         let tags = request.fields.intersection(ScrapeField.tags)
         let needsMetadata = !tags.isEmpty
         let needsCover = request.fields.contains(.cover)
@@ -245,8 +236,12 @@ final class TVMetadataScrapeService {
         let editedAt = Self.editTimestamp()
 
         let current = updated.scrapeFields
-        let apply = request.needed(for: current, hasCover: updated.coverArtFileName?.isEmpty == false,
-                                   hasLyrics: updated.lyricsFileName?.isEmpty == false)
+        // 刮的这段时间里引用没被别处换过，就还按开刮时的核对结果算（失效的引用不算有）。
+        let coverIsStale = presence.cover != .present && updated.coverArtFileName == song.coverArtFileName
+        let lyricsIsStale = presence.lyrics != .present && updated.lyricsFileName == song.lyricsFileName
+        let apply = request.needed(for: current,
+                                   hasCover: !coverIsStale && updated.coverArtFileName?.isEmpty == false,
+                                   hasLyrics: !lyricsIsStale && updated.lyricsFileName?.isEmpty == false)
         var appliedTags = false
         if needsMetadata, let detail = scraped.detail {
             var merged = apply.merging(current, candidate: .init(detail))
@@ -272,11 +267,19 @@ final class TVMetadataScrapeService {
             updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: updated.id)
             appliedLyrics = lines
         }
-        // 和 iPhone 一样的口径：刮到了却没存下算失败。
+        // 和 iPhone 一样的口径：刮到了却没存下算失败；失效的本机引用这一轮没补上就摘掉
+        // （免得一直显示默认封面、又永远不再补），摘之前再核一次，单独写、不打用户编辑标记。
         let coverSaveFailed: Bool = apply.fields.contains(.cover) && scraped.coverData != nil && appliedCover == nil
         let lyricsSaveFailed: Bool = apply.fields.contains(.lyrics) && scraped.lyrics?.isEmpty == false && appliedLyrics == nil
         let saveFailed = coverSaveFailed || lyricsSaveFailed
+        let clearsCover: Bool = coverIsStale && presence.cover.clearsReferenceWhenMissed
+            && apply.fields.contains(.cover) && appliedCover == nil
+        let clearsLyrics: Bool = lyricsIsStale && presence.lyrics.clearsReferenceWhenMissed
+            && apply.fields.contains(.lyrics) && appliedLyrics == nil
+        let staleCover: String? = clearsCover ? song.coverArtFileName : nil
+        let staleLyrics: String? = clearsLyrics ? song.lyricsFileName : nil
         guard appliedTags || appliedCover != nil || appliedLyrics != nil else {
+            await clearStaleReferences(songID: song.id, cover: staleCover, lyrics: staleLyrics)
             return saveFailed ? .failed : .unchanged
         }
         // 覆盖模式改掉的是已有的标签,要像手动编辑一样挡住电视自己的重扫;只补空缺时
@@ -298,7 +301,31 @@ final class TVMetadataScrapeService {
         )
         store.refreshNowPlayingAfterMetadataEdit(updated, lyrics: appliedLyrics)
         Self.postArtworkChanged(songs: [updated])
+        await clearStaleReferences(songID: song.id, cover: staleCover, lyrics: staleLyrics)
         return saveFailed ? .failed : .updated
+    }
+
+    /// 摘掉核对过确实失效的本机引用：引用还是那个、本机读不到、也不是被容量清理掉的。只改引用。
+    private func clearStaleReferences(songID: String, cover: String?, lyrics: String?) async {
+        guard cover != nil || lyrics != nil, let store else { return }
+        let verified = await Task.detached(priority: .utility) { () -> (cover: String?, lyrics: String?) in
+            (cover.flatMap { ScraperSettings.coverReferenceIsDead($0) ? $0 : nil },
+             lyrics.flatMap { ScraperSettings.lyricsReferenceIsDead($0, songID: songID) ? $0 : nil })
+        }.value
+        guard verified.cover != nil || verified.lyrics != nil,
+              var row = store.library.song(id: songID) else { return }
+        var changed = false
+        if let staleCover = verified.cover, row.coverArtFileName == staleCover {
+            row.coverArtFileName = nil
+            changed = true
+        }
+        if let staleLyrics = verified.lyrics, row.lyricsFileName == staleLyrics {
+            row.lyricsFileName = nil
+            changed = true
+        }
+        guard changed else { return }
+        store.library.replaceSong(row)
+        plog("TV scrape cleared stale asset reference song=\(songID.prefix(12)) cover=\(verified.cover != nil) lyrics=\(verified.lyrics != nil)")
     }
 
     // MARK: - 恢复文件标签
