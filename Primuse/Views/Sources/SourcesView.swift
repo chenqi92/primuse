@@ -619,9 +619,9 @@ struct SourcesContentView: View {
     #if os(iOS)
     @State private var showExistingLocalFileImporter = false
     @State private var localImportTargetSource: MusicSource?
-    @State private var localImportTask: Task<Void, Never>?
-    @State private var localImportSession: LocalImportService.CopySession?
-    @State private var localImportProgress: LocalImportService.CopyProgress?
+    /// 这一页在屏幕上, 或只是被点进去的源详情页盖住。导入的结果提示只在这时给,
+    /// 不在时留在 `ExistingLocalImportCoordinator` 里, 回到这一页再给。
+    @State private var canPresentLocalImportOutcome = false
     #endif
 
     var body: some View {
@@ -636,16 +636,26 @@ struct SourcesContentView: View {
             .toolbarTitleDisplayMode(.inlineLarge)
             .pmVerticalBarTitleEdge()
             .pmToastHost(undoToasts)
+            #if os(iOS)
+            .onAppear {
+                canPresentLocalImportOutcome = true
+                presentLocalImportOutcomeIfNeeded()
+            }
+            .onChange(of: localImport.hasUnannouncedOutcome) { _, hasOutcome in
+                if hasOutcome { presentLocalImportOutcomeIfNeeded() }
+            }
+            #endif
             .onDisappear {
                 flushPendingDeletes()
-                // 点进某个源的详情页时这一页只是被盖住:导入、下载前的准备照常跑完。
+                #if os(iOS)
+                // 导入归 `ExistingLocalImportCoordinator`, 离开这一页照常拷完并扫描。
+                canPresentLocalImportOutcome = openedSource != nil
+                #endif
+                // 点进某个源的详情页时这一页只是被盖住:下载前的准备照常跑完。
                 guard openedSource == nil else { return }
                 cachePreparationTask?.cancel()
                 cachePreparationTask = nil
                 preparingCacheSourceID = nil
-                #if os(iOS)
-                cancelExistingLocalImport()
-                #endif
                 if let id = sourceAlert?.id {
                     AppAlertCoordinator.shared.cancel(.sourceOperation(id))
                     sourceAlert = nil
@@ -1241,7 +1251,7 @@ struct SourcesContentView: View {
     private func sourceCardLocalOrCacheStatus(_ source: MusicSource, dirs: [String], isSourceCaching: Bool) -> some View {
         #if os(iOS)
         if isManagedLocalImportSource(source),
-           localImportTargetSource?.id == source.id,
+           localImport.targetSourceID == source.id,
            let localImportProgress {
             localImportProgressView(localImportProgress)
         } else {
@@ -1337,7 +1347,7 @@ struct SourcesContentView: View {
                 "source_card_import",
                 systemImage: "square.and.arrow.down.on.square",
                 prominence: .accent,
-                isLoading: localImportTargetSource?.id == source.id && localImportProgress != nil,
+                isLoading: localImport.targetSourceID == source.id && localImportProgress != nil,
                 isDisabled: localImportProgress != nil
             ) {
                 presentExistingLocalImport(for: source)
@@ -1557,50 +1567,17 @@ struct SourcesContentView: View {
     }
 
     private func startExistingLocalImport(_ urls: [URL], for source: MusicSource) {
-        guard localImportSession == nil, localImportTask == nil else { return }
         sourceAlert = nil
-        localImportTargetSource = currentSource(for: source)
-        localImportProgress = LocalImportService.CopyProgress(
-            phase: .discovering,
-            currentFileName: "",
-            processed: 0,
-            total: 0,
-            copied: 0,
-            duplicateSkipped: 0,
-            failed: 0
-        )
-
-        let session = LocalImportService.copySession(
-            urls,
-            cleanupPickedCopies: true
-        )
-        localImportSession = session
-        localImportTask = Task {
-            var finalResult: LocalImportService.CopyResult?
-            for await event in session.events {
-                switch event {
-                case .progress(let progress):
-                    localImportProgress = progress
-                case .finished(let result):
-                    finalResult = result
-                }
-            }
-
-            guard let outcome = finalResult else { return }
-            localImportTask = nil
-            localImportSession = nil
-            localImportProgress = nil
-            if outcome.cancelled { return }
-
-            guard outcome.copied > 0 else {
-                sourceAlert = .localImport(SourceLocalImportAlert(
-                    title: localImportFailureTitle(outcome),
-                    message: localImportFailureMessage(outcome)
-                ))
-                return
-            }
-
-            let scanSource = currentSource(for: source)
+        let target = currentSource(for: source)
+        localImportTargetSource = target
+        let scanService = scanService
+        let sourceManager = sourceManager
+        let library = library
+        let sourceStore = sourceStore
+        let scraperService = scraperService
+        localImport.start(urls, sourceID: target.id) { _ in
+            // 拷完就扫, 不靠这一页还在。
+            let scanSource = sourceStore.source(id: target.id) ?? target
             scanService.scanSource(
                 scanSource,
                 sourceManager: sourceManager,
@@ -1608,13 +1585,29 @@ struct SourcesContentView: View {
                 sourceStore: sourceStore,
                 scraperService: scraperService
             )
+        }
+    }
 
-            if outcome.skipped > 0 {
-                sourceAlert = .localImport(SourceLocalImportAlert(
-                    title: String(localized: "local_import_partial_title"),
-                    message: localImportCompletionMessage(outcome)
-                ))
-            }
+    private var localImport: ExistingLocalImportCoordinator { .shared }
+
+    private var localImportProgress: LocalImportService.CopyProgress? {
+        localImport.progress
+    }
+
+    /// 拷完时这一页不在的, 回来时补这一次; 给过就不再弹。
+    private func presentLocalImportOutcomeIfNeeded() {
+        guard canPresentLocalImportOutcome,
+              let outcome = localImport.takeUnannouncedOutcome() else { return }
+        if outcome.copied == 0 {
+            sourceAlert = .localImport(SourceLocalImportAlert(
+                title: localImportFailureTitle(outcome),
+                message: localImportFailureMessage(outcome)
+            ))
+        } else if outcome.skipped > 0 {
+            sourceAlert = .localImport(SourceLocalImportAlert(
+                title: String(localized: "local_import_partial_title"),
+                message: localImportCompletionMessage(outcome)
+            ))
         }
     }
 
@@ -1815,17 +1808,7 @@ struct SourcesContentView: View {
     }
 
     private func cancelExistingLocalImport() {
-        guard let localImportSession else {
-            localImportTask?.cancel()
-            localImportTask = nil
-            localImportProgress = nil
-            return
-        }
-        if var current = localImportProgress {
-            current.phase = .cancelling
-            localImportProgress = current
-        }
-        localImportSession.cancel()
+        localImport.cancel()
     }
     #endif
 

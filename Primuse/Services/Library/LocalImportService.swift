@@ -1289,3 +1289,94 @@ enum LocalImportService {
     }
 
 }
+
+#if os(iOS)
+/// 音乐源页「导入本机已有文件」的那一次拷贝。归它而不归页面: 切到别的标签页、退回设置都
+/// 照常拷完并扫描; 回到音乐源页看到的是同一份进度。拷完要告诉用户的结果(一首没拷进来、
+/// 有跳过的)留着, 等页面在的时候给一次。
+@MainActor
+@Observable
+final class ExistingLocalImportCoordinator {
+    static let shared = ExistingLocalImportCoordinator()
+
+    private(set) var targetSourceID: String?
+    private(set) var progress: LocalImportService.CopyProgress?
+    /// 拷完、还没给用户看的结果。用户取消、全部拷进来没有跳过的不留。
+    private(set) var unannouncedOutcome: LocalImportService.CopyResult?
+    @ObservationIgnored private var session: LocalImportService.CopySession?
+    @ObservationIgnored private var task: Task<Void, Never>?
+
+    private init() {}
+
+    var hasUnannouncedOutcome: Bool { unannouncedOutcome != nil }
+
+    /// 开始拷贝; 已有一次在拷时不再开。`onCopied` 在拷进来至少一首时调用(用来扫描),
+    /// 不依赖发起的页面还在不在。
+    @discardableResult
+    func start(
+        _ urls: [URL],
+        sourceID: String,
+        onCopied: @escaping @MainActor (LocalImportService.CopyResult) -> Void
+    ) -> Bool {
+        guard session == nil, task == nil else { return false }
+        targetSourceID = sourceID
+        unannouncedOutcome = nil
+        progress = LocalImportService.CopyProgress(
+            phase: .discovering,
+            currentFileName: "",
+            processed: 0,
+            total: 0,
+            copied: 0,
+            duplicateSkipped: 0,
+            failed: 0
+        )
+        let session = LocalImportService.copySession(urls, cleanupPickedCopies: true)
+        self.session = session
+        plog("Local import: started files=\(urls.count)")
+        task = Task { [weak self] in
+            var finalResult: LocalImportService.CopyResult?
+            for await event in session.events {
+                switch event {
+                case .progress(let value):
+                    self?.progress = value
+                case .finished(let result):
+                    finalResult = result
+                }
+            }
+            guard let self else { return }
+            self.task = nil
+            self.session = nil
+            self.progress = nil
+            guard let outcome = finalResult else { return }
+            plog("Local import: finished copied=\(outcome.copied) skipped=\(outcome.skipped) cancelled=\(outcome.cancelled)")
+            if outcome.cancelled { return }
+            if outcome.copied > 0 { onCopied(outcome) }
+            if outcome.copied == 0 || outcome.skipped > 0 {
+                self.unannouncedOutcome = outcome
+            }
+        }
+        return true
+    }
+
+    func cancel() {
+        guard let session else {
+            task?.cancel()
+            task = nil
+            progress = nil
+            return
+        }
+        if var current = progress {
+            current.phase = .cancelling
+            progress = current
+        }
+        session.cancel()
+    }
+
+    /// 取出还没给用户看的结果, 取出即算给过。
+    func takeUnannouncedOutcome() -> LocalImportService.CopyResult? {
+        let outcome = unannouncedOutcome
+        unannouncedOutcome = nil
+        return outcome
+    }
+}
+#endif
