@@ -631,6 +631,7 @@ final class MediaServerAddedDateTests: XCTestCase {
             let paged = try await source.songCatalogPage(from: "/", offset: 0).songs.map(\.song)
             for songs in [full, paged] {
                 XCTAssertEqual(songs.count, 3)
+                XCTAssertEqual(songs.map(\.serverFilePath), ["/music/0.mp3", "/music/1.mp3", "/music/2.mp3"])
                 XCTAssertEqual(songs[0].serverDateAdded, Date(timeIntervalSince1970: 1_600_000_000))
                 XCTAssertEqual(songs[1].serverDateAdded, Date(timeIntervalSince1970: 1_700_000_000))
                 XCTAssertEqual(songs[0].dateAdded, songs[0].serverDateAdded)
@@ -651,6 +652,7 @@ final class MediaServerAddedDateTests: XCTestCase {
                 let existing = rows.map { incoming -> Song in
                     var row = incoming
                     row.serverDateAdded = nil
+                    row.serverFilePath = nil
                     row.dateAdded = firstImport
                     if edited {
                         row.title = "My title"
@@ -671,6 +673,7 @@ final class MediaServerAddedDateTests: XCTestCase {
                     let song = try XCTUnwrap(songs.first { $0.id == incoming.id })
                     XCTAssertEqual(song.dateAdded, incoming.serverDateAdded ?? firstImport)
                     XCTAssertEqual(song.serverDateAdded, incoming.serverDateAdded)
+                    XCTAssertEqual(song.serverFilePath, incoming.serverFilePath)
                     if edited { XCTAssertEqual(song.title, "My title") }
                     if !edited && !replaced { XCTAssertEqual(song.lyricsText, existing[index].lyricsText) }
                 }

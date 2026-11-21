@@ -302,7 +302,8 @@ public struct TingReaderCatalogBook: Sendable, Equatable {
                 dateAdded: book.createdAt ?? Date(),
                 coverArtFileName: coverReference,
                 revision: "tingreader:\(Self.hash(chapter.path).prefix(16)):\(Int(chapter.duration.rounded()))",
-                serverLibraryID: book.libraryID.isEmpty ? nil : book.libraryID
+                serverLibraryID: book.libraryID.isEmpty ? nil : book.libraryID,
+                serverFilePath: chapter.path
             )
         }
     }

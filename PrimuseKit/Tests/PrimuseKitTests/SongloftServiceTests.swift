@@ -35,6 +35,7 @@ struct SongloftServiceTests {
         #expect(song.duration == 3.75 && song.trackNumber == 3)
         #expect(song.fileFormat == .flac && song.fileSize == 0)
         #expect(song.filePath == "/songloft/songs/42.flac")
+        #expect(song.serverFilePath == "/private/music/album.ape")
         #expect(song.coverArtFileName?.contains("SECRET") == false)
         #expect(song.coverArtFileName?.contains("unrelated") == false)
         #expect(song.id != track.makeSong(sourceID: "account-b")?.id)

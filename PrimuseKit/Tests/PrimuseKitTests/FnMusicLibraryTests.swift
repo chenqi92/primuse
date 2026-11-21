@@ -51,6 +51,7 @@ struct FnMusicLibraryTests {
         #expect(Set(songs.keys) == [online], "没有格式的行建不出能播的歌，照旧当占位")
         let song = try #require(songs[online])
         #expect(song.filePath == FnMusicAPIProtocol.trackPath(guid: online, fileExtension: "mp3"))
+        #expect(song.serverFilePath == nil)
         #expect(FnMusicAPIProtocol.trackGUID(from: song.filePath) == online)
         #expect(song.sourceID == "fn")
         #expect(song.title == "在线歌曲")

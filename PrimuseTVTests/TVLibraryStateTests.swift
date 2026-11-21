@@ -392,6 +392,37 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertEqual(results.albums.last?.title, "Summer Mix")
     }
 
+    func testSearchMatchesTheProviderPathAndPreservesLocalFilesInSongsDirectory() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let server = MusicSource(id: "server", name: "Server", type: .navidrome)
+        try fixture.sources.addDurably(server)
+        let sharedPath = "/songs/文件标记.mp3"
+        var remote = Song(id: "remote", title: "Track A", fileFormat: .mp3, filePath: sharedPath,
+                          sourceID: server.id, serverFilePath: "录音室/旧目录/01.mp3")
+        let local = Song(id: "local", title: "Track B", fileFormat: .mp3, filePath: sharedPath,
+                         sourceID: fixture.source.id)
+        fixture.library.addSongs([remote, local])
+        await fixture.library.waitForPendingIndex()
+        let store = fixture.store()
+        store.reload(reloadLibrary: false, migrateLegacyIDs: false)
+
+        let old = await store.searchResults("文件标记", relatedConcepts: ["旧目录"])
+        XCTAssertEqual(old.songs.map { $0.song.id }, [local.id, remote.id])
+        XCTAssertEqual(old.songs.map { $0.song.displayPath }, [sharedPath, remote.serverFilePath])
+        XCTAssertEqual(old.songs.last?.relatedConcept, "旧目录")
+        XCTAssertEqual(store.searchHits("文件标记").songs.map { $0.song.id }, [local.id])
+
+        remote.serverFilePath = "录音室/新目录/01.mp3"
+        fixture.library.replaceSong(remote)
+        await fixture.library.waitForPendingIndex()
+        XCTAssertNotEqual(old.libraryRevision, fixture.library.searchRevision)
+        let fresh = await store.searchResults("文件标记", relatedConcepts: old.relatedConcepts)
+        XCTAssertEqual(fresh.songs.map { $0.song.id }, [local.id])
+        let moved = await store.searchResults("新目录")
+        XCTAssertEqual(moved.songs.first?.song.displayPath, remote.serverFilePath)
+    }
+
     func testPreviousTrackShortcutSkipsEvenAfterPlaybackHasAdvanced() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

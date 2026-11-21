@@ -95,6 +95,10 @@ final class SourcesStore {
     /// Live (non-deleted) sources for normal UI use.
     var sources: [MusicSource] { allSources.filter { !$0.isDeleted } }
 
+    var typesByID: [String: MusicSourceType] {
+        allSources.reduce(into: [:]) { $0[$1.id] = $1.type }
+    }
+
     /// Deletion evidence lives independently from user-facing source rows so a
     /// permanent prune cannot make an old CloudKit record eligible to restore.
     private(set) var sourceDeletionRecords: [MusicSourceDeletionRecord]

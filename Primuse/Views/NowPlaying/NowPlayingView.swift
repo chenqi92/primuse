@@ -15382,11 +15382,9 @@ extension View {
 }
 
 struct SongInfoSheet: View {
-    @Environment(ScanService.self) private var scanService
     let song: Song
-    private var contentMetadata: SongContentMetadata? {
-        (library.song(id: song.id) ?? song).contentMetadata
-    }
+    private var catalogSong: Song { library.song(id: song.id) ?? song }
+    private var contentMetadata: SongContentMetadata? { catalogSong.contentMetadata }
     @Environment(\.dismiss) private var dismiss
     @Environment(MusicLibrary.self) private var library
     @Environment(SourceManager.self) private var sourceManager
@@ -15404,14 +15402,8 @@ struct SongInfoSheet: View {
     }
 
     private var displayPath: String? {
-        if FnMusicAPIProtocol.trackGUID(from: song.filePath) != nil {
-            return scanService.sourceFileName(for: song)
-        }
-        return SongPathPresentationPolicy.displayPath(
-            filePath: song.filePath,
-            sourceID: song.sourceID,
-            sourceType: sourcesStore.source(id: song.sourceID)?.type
-        )
+        let current = catalogSong
+        return SongPathPresentationPolicy.displayPath(for: current, sourceType: sourcesStore.source(id: current.sourceID)?.type)
     }
 
     var body: some View {
@@ -15487,8 +15479,10 @@ struct SongInfoSheet: View {
                         infoRow(
                             String(localized: "file_location_label"),
                             displayPath,
-                            monospaced: true
+                            monospaced: true,
+                            multiline: true
                         )
+                        .textSelection(.enabled)
                     }
                 }
 
@@ -15615,7 +15609,7 @@ struct SongInfoSheet: View {
                                       ? .system(size: 12.5, design: .monospaced)
                                       : .system(size: 12.5))
                                 .foregroundStyle(PMColor.text)
-                                .lineLimit(row.label == String(localized: "copyright_label") ? nil : (row.monospace ? 3 : 1))
+                                .lineLimit(row.monospace || row.label == String(localized: "copyright_label") ? nil : 1)
                                 .textSelection(.enabled)
                                 .accessibilityLabel(Text(row.label))
                                 .accessibilityValue(Text(row.value))

@@ -567,6 +567,73 @@ final class DeviceMusicPlaybackTests: XCTestCase {
     }
 
     @MainActor
+    func testConfiguredServerFilePathFromCatalogPage() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let requestedType = environment["PRIMUSE_DEVICE_SERVER_PATH_SOURCE"],
+              let type = MusicSourceType(rawValue: requestedType) else {
+            throw XCTSkip("Requires an explicitly selected device music server.")
+        }
+        let services = AppServices.shared
+        let library = services.musicLibrary
+        let ready = await waitUntil(timeout: 75) { library.isReady }
+        XCTAssertTrue(ready)
+        let enabled = services.sourcesStore.sources.filter { $0.isEnabled && !$0.isDeleted }
+        print("SERVER_PATH_DEVICE enabled=" + enabled.map { $0.type.rawValue }.sorted().joined(separator: ","))
+        let sourceIndex = Int(environment["PRIMUSE_DEVICE_SERVER_PATH_ACCOUNT"] ?? "0") ?? 0
+        let accounts = enabled.filter { $0.type == type }
+        guard accounts.indices.contains(sourceIndex) else {
+            throw XCTSkip("The device has no enabled account of the selected type.")
+        }
+        let source = accounts[sourceIndex]
+        let connector = services.sourceManager.connector(for: source)
+        let sampled: [PrimuseKit.Song]
+        if type == .fnMusic {
+            let favorites = try XCTUnwrap(connector as? any ServerFavoriteConnector)
+            sampled = Array(try await favorites.fetchServerFavorites().playableSongs.values)
+        } else {
+            let paged = try XCTUnwrap(connector as? any ResumablePagedSongCatalogConnector)
+            let page = try await paged.songCatalogPage(from: "/", offset: 0, pageSize: SubsonicCatalogPagingPolicy.pageSize)
+            sampled = page.songs.map(\.song)
+        }
+        let candidates = sampled.filter {
+            guard let path = $0.serverFilePath, path != $0.filePath, !path.contains("://") else { return false }
+            return library.song(id: $0.id)?.filePath == $0.filePath
+        }
+        let incoming = try XCTUnwrap(candidates.first, "No previously indexed song has a provider path in this page.")
+        var song = try XCTUnwrap(library.song(id: incoming.id))
+        let merged = ServerSongCatalogMergePolicy.merged(existing: song, incoming: incoming)
+        XCTAssertEqual(merged.filePath, song.filePath)
+        XCTAssertEqual(merged.serverFilePath, incoming.serverFilePath)
+        if song.serverFilePath != merged.serverFilePath {
+            song.serverFilePath = merged.serverFilePath
+            library.replaceSong(song)
+            await library.waitForPendingIndex()
+            guard case .success = await library.persistIncrementalNowAndWait() else {
+                return XCTFail("The refreshed song did not persist.")
+            }
+        }
+        print("SERVER_PATH_DEVICE source=\(type.rawValue) sampled=\(sampled.count) matched=\(candidates.count)")
+        let path = try XCTUnwrap(SongPathPresentationPolicy.displayPath(for: song, sourceType: type))
+        let start = Date()
+        var found = false
+        let snapshot = library.searchSongSnapshot()
+        repeat {
+            let result = await LibrarySearchIndex.shared.search(query: path, snapshot: snapshot, albums: [],
+                                                                metadataRevisionKey: "configured-device", matchKinds: [.path])
+            found = try XCTUnwrap(result).output.songResults.contains { $0.song.id == song.id }
+            if !found { try await Task.sleep(for: .milliseconds(500)) }
+        } while !found && Date().timeIntervalSince(start) < 30
+        XCTAssertTrue(found, "The indexed provider path must find the refreshed song.")
+        let bytes = try await connector.fetchRange(path: song.filePath, offset: 0, length: 16)
+        XCTAssertEqual(bytes.count, 16)
+        let sample = ["title": song.title, "path": path, "id": song.id, "sourceType": type.rawValue]
+        let attachment = XCTAttachment(data: try JSONEncoder().encode(sample), uniformTypeIdentifier: "public.json")
+        attachment.name = "server-path-sample.json"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testPhysicalFeiniuPlaylistRecovery() async throws {
         try await physicalPlaylistRecovery(type: .fnMusic)
     }

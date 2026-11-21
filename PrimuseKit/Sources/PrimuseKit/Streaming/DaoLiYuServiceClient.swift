@@ -57,6 +57,7 @@ public struct DaoLiYuCatalogTrack: Sendable {
     public let discNumber: Int?
     public let durationSeconds: Double
     public let fileExtension: String?
+    private let serverFilePath: String?
     public let fileSize: Int64
     public let bitRate: Int?
     public let sampleRate: Int?
@@ -103,6 +104,7 @@ public struct DaoLiYuCatalogTrack: Sendable {
             ?? 0
 
         let rawFilePath = daoLiYuNonemptyString(json["filePath"])
+        self.serverFilePath = rawFilePath
         let pathExtension = rawFilePath.map { ($0 as NSString).pathExtension }
         self.fileExtension = [
             daoLiYuNonemptyString(json["fileFormat"]),
@@ -173,7 +175,8 @@ public struct DaoLiYuCatalogTrack: Sendable {
             dateAdded: addedDate ?? Date(),
             coverArtFileName: coverURL?.absoluteString,
             revision: "daoliyu:\(Self.revisionValue(revisionDate)):\(fileSize)",
-            serverDateAdded: addedDate
+            serverDateAdded: addedDate,
+            serverFilePath: serverFilePath
         )
     }
 

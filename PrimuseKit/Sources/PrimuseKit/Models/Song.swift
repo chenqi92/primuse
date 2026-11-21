@@ -67,6 +67,16 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         get { core.values.filePath }
         set { updateCore { $0.filePath = newValue } }
     }
+    /// The server's displayable file location. Playback still uses the connector's `filePath`.
+    public var serverFilePath: String? {
+        get { core.serverFilePath }
+        set {
+            guard newValue != core.serverFilePath else { return }
+            let path = SongPathPresentationPolicy.providerPath(newValue)
+            guard path != core.serverFilePath else { return }
+            core = SongCoreFields.make(core.values, replayGain: core.replayGain, serverFilePath: path)
+        }
+    }
     public var sourceID: String {
         get { core.values.sourceID }
         set { updateCore { $0.sourceID = newValue } }
@@ -339,7 +349,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         serverAlbumDateAdded: Date? = nil,
         contentMetadata: SongContentMetadata? = nil,
         serverCatalogAlbum: ServerCatalogAlbumReference? = nil,
-        isExternal: Bool? = nil
+        isExternal: Bool? = nil,
+        serverFilePath: String? = nil
     ) {
         core = SongCoreFields.make(.init(
             id: id,
@@ -365,7 +376,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         ), replayGain: SongReplayGainFields(
             trackGain: SongOptionalDouble.bits(replayGainTrackGain), trackPeak: SongOptionalDouble.bits(replayGainTrackPeak),
             albumGain: SongOptionalDouble.bits(replayGainAlbumGain), albumPeak: SongOptionalDouble.bits(replayGainAlbumPeak)
-        ))
+        ), serverFilePath: SongPathPresentationPolicy.providerPath(serverFilePath))
         self.trackNumber = trackNumber
         self.discNumber = discNumber
         self.bitRate = bitRate
@@ -407,7 +418,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, albumID, artistID, albumTitle, artistName, sourceArtistNames, albumArtistName
-        case trackNumber, discNumber, duration, fileFormat, filePath, sourceID, fileSize
+        case trackNumber, discNumber, duration, fileFormat, filePath, serverFilePath, sourceID, fileSize
         case bitRate, sampleRate, bitDepth, genre, year, lastModified, dateAdded, serverPlayCount
         case coverArtFileName, artistArtworkFileName, lyricsFileName, mvPath
         case replayGainTrackGain, replayGainTrackPeak, replayGainAlbumGain, replayGainAlbumPeak
@@ -471,7 +482,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             serverAlbumDateAdded: try container.decodeIfPresent(Date.self, forKey: .serverAlbumDateAdded),
             contentMetadata: try container.decodeIfPresent(SongContentMetadata.self, forKey: .contentMetadata),
             serverCatalogAlbum: try container.decodeIfPresent(ServerCatalogAlbumReference.self, forKey: .serverCatalogAlbum),
-            isExternal: try container.decodeIfPresent(Bool.self, forKey: .isExternal)
+            isExternal: try container.decodeIfPresent(Bool.self, forKey: .isExternal),
+            serverFilePath: try container.decodeIfPresent(String.self, forKey: .serverFilePath)
         )
     }
 
@@ -490,6 +502,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         try container.encode(appliedPlaybackRange?.songDuration ?? duration, forKey: .duration)
         try container.encode(fileFormat, forKey: .fileFormat)
         try container.encode(filePath, forKey: .filePath)
+        try container.encodeIfPresent(serverFilePath, forKey: .serverFilePath)
         try container.encode(sourceID, forKey: .sourceID)
         try container.encode(fileSize, forKey: .fileSize)
         try container.encodeIfPresent(bitRate, forKey: .bitRate)
@@ -557,7 +570,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
 
     private mutating func updateCore(_ change: (inout SongCoreFields.Values) -> Void) {
         if !isKnownUniquelyReferenced(&core) {
-            core = SongCoreFields.make(core.values, replayGain: core.replayGain)
+            core = SongCoreFields.make(core.values, replayGain: core.replayGain, serverFilePath: core.serverFilePath)
         }
         change(&core.values)
     }
@@ -567,7 +580,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         let bits = SongOptionalDouble.bits(value)
         guard gain[keyPath: key] != bits else { return }
         gain[keyPath: key] = bits
-        core = SongCoreFields.make(core.values, replayGain: gain)
+        core = SongCoreFields.make(core.values, replayGain: gain, serverFilePath: core.serverFilePath)
     }
 
     private mutating func updateRare(_ change: (inout SongRareFields.Values) -> Void) {
@@ -645,21 +658,27 @@ private class SongCoreFields: Hashable, @unchecked Sendable {
 
     final var values: Values
     var replayGain: SongReplayGainFields { .empty }
+    var serverFilePath: String? { nil }
 
     init(_ values: Values) { self.values = values }
 
-    static func make(_ values: Values, replayGain: SongReplayGainFields) -> SongCoreFields {
+    static func make(_ values: Values, replayGain: SongReplayGainFields, serverFilePath: String?) -> SongCoreFields {
+        if let serverFilePath {
+            if replayGain == .empty { return SongCoreWithFilePath(values, serverFilePath) }
+            return SongCoreWithFilePathAndReplayGain(values, serverFilePath, replayGain)
+        }
         if replayGain == .empty { return SongCoreFields(values) }
         return SongCoreWithReplayGain(values, replayGain)
     }
 
     static func == (lhs: SongCoreFields, rhs: SongCoreFields) -> Bool {
-        lhs.values == rhs.values && lhs.replayGain == rhs.replayGain
+        lhs.values == rhs.values && lhs.replayGain == rhs.replayGain && lhs.serverFilePath == rhs.serverFilePath
     }
 
     final func hash(into hasher: inout Hasher) {
         hasher.combine(values)
         hasher.combine(replayGain)
+        hasher.combine(serverFilePath)
     }
 }
 
@@ -680,6 +699,28 @@ private final class SongCoreWithReplayGain: SongCoreFields, @unchecked Sendable 
     init(_ values: Values, _ gain: SongReplayGainFields) {
         self.gain = gain
         super.init(values)
+    }
+}
+
+/// A file path is unique to the track. Keep it out of the pooled album fields and
+/// allocate it only for tracks whose server actually supplied one.
+private class SongCoreWithFilePath: SongCoreFields, @unchecked Sendable {
+    private let path: String
+    final override var serverFilePath: String? { path }
+
+    init(_ values: Values, _ path: String) {
+        self.path = path
+        super.init(values)
+    }
+}
+
+private final class SongCoreWithFilePathAndReplayGain: SongCoreWithFilePath, @unchecked Sendable {
+    private let gain: SongReplayGainFields
+    override var replayGain: SongReplayGainFields { gain }
+
+    init(_ values: Values, _ path: String, _ gain: SongReplayGainFields) {
+        self.gain = gain
+        super.init(values, path)
     }
 }
 

@@ -282,6 +282,7 @@ private struct LibrarySearchMatcher {
         if candidate.localizedCaseInsensitiveContains(rawQuery) {
             return (120, .metadata)
         }
+        guard isValid else { return nil }
 
         let normalizedCandidate = Self.normalized(
             candidate,
@@ -490,6 +491,7 @@ enum LibrarySearchWorker {
         songs: [Song],
         albums: [Album],
         cache: LibrarySearchCache,
+        sourceTypes: [String: MusicSourceType] = [:],
         includeMetadata: Bool = true,
         includeLyrics: Bool = true,
         excluding excluded: Set<String> = [],
@@ -498,7 +500,8 @@ enum LibrarySearchWorker {
         albumLimit: Int = 10
     ) -> LibrarySearchOutput {
         let matcher = LibrarySearchMatcher(query: query)
-        guard matcher.isValid else {
+        let searchesPaths = includeMetadata && matchKinds.contains(.path)
+        guard matcher.isValid || (searchesPaths && !matcher.rawQuery.isEmpty) else {
             return LibrarySearchOutput(songResults: [], albumResults: [], cache: cache)
         }
 
@@ -548,20 +551,15 @@ enum LibrarySearchWorker {
                 }
             }
 
-            if includeMetadata {
+            if includeMetadata, matcher.isValid {
                 consider(song.title, boost: 30, prioritizesExactTitle: true)
                 consider(librarySearchableArtistText(song), boost: 20)
                 consider(song.albumTitle, boost: 14)
                 consider(song.genre, boost: 6)
                 consider(song.fileFormat.rawValue, boost: 2)
-                consider(
-                    SongPathPresentationPolicy.displayPath(
-                        filePath: song.filePath,
-                        sourceID: song.sourceID
-                    ),
-                    boost: 10,
-                    matchKindOverride: .path
-                )
+            }
+            if searchesPaths, let path = SongPathPresentationPolicy.displayPath(for: song, sourceType: sourceTypes[song.sourceID]) {
+                consider(path, boost: 10, matchKindOverride: .path)
             }
 
             if shouldSearchLyrics,
@@ -855,17 +853,20 @@ struct LibraryIndexedSearchOutput: Sendable {
 
 struct LibrarySearchSongSnapshot: Sendable {
     let songs: [Song]
+    let sourceTypes: [String: MusicSourceType]
     let lookup: (@Sendable (String) -> Song?)?
     fileprivate let startupLookup: (@Sendable (Set<String>) async -> [String: Song])?
 
-    init(_ songs: [Song], lookup: (@Sendable (String) -> Song?)? = nil) {
+    init(_ songs: [Song], sourceTypes: [String: MusicSourceType] = [:], lookup: (@Sendable (String) -> Song?)? = nil) {
         self.songs = songs
+        self.sourceTypes = sourceTypes
         self.lookup = lookup
         self.startupLookup = nil
     }
 
-    init(startupLookup: @escaping @Sendable (Set<String>) async -> [String: Song]) {
+    init(sourceTypes: [String: MusicSourceType] = [:], startupLookup: @escaping @Sendable (Set<String>) async -> [String: Song]) {
         self.songs = []
+        self.sourceTypes = sourceTypes
         self.lookup = nil
         self.startupLookup = startupLookup
     }
@@ -943,6 +944,7 @@ actor LibrarySearchIndex {
         "primuse.librarySearchIndex.preparationGeneration.v1"
     private static let completedPreparationGenerationKey =
         "primuse.librarySearchIndex.completedPreparationGeneration.v1"
+    private static let reportedPathsPreparedKey = "primuse.librarySearchIndex.reportedPathsPrepared.v1"
     nonisolated(unsafe) static let maintenanceDefaults = LibraryMaintenanceDefaults.migrating([
         preparationPendingKey,
         preparationGenerationKey,
@@ -958,6 +960,7 @@ actor LibrarySearchIndex {
     private struct SearchDisplayPath {
         let filePath: String
         let sourceID: String
+        let sourceType: MusicSourceType?
         let value: String?
     }
     /// 只记最近算过的一小批显示路径。短查询先用原始路径预筛
@@ -974,6 +977,7 @@ actor LibrarySearchIndex {
     private struct PendingFullPreparation {
         let songs: [Song]
         let generation: Int
+        let sourceTypes: [String: MusicSourceType]
     }
 
     private struct PendingLyricsRefresh {
@@ -982,6 +986,7 @@ actor LibrarySearchIndex {
 
     private struct PendingSearchDelta {
         var upserts: [String: Song] = [:]
+        var sourceTypes: [String: MusicSourceType] = [:]
         var mutations = IncrementalLibrarySearchMutationState()
         var lyricsRefreshes: [String: PendingLyricsRefresh] = [:]
         var firstGeneration: Int?
@@ -1048,7 +1053,8 @@ actor LibrarySearchIndex {
     private nonisolated static func isPreparationPending(
         defaults: UserDefaults = maintenanceDefaults
     ) -> Bool {
-        (defaults.object(forKey: preparationPendingKey) as? Bool ?? true)
+        !defaults.bool(forKey: reportedPathsPreparedKey)
+            || (defaults.object(forKey: preparationPendingKey) as? Bool ?? true)
             || defaults.integer(forKey: completedPreparationGenerationKey)
                 != defaults.integer(forKey: preparationGenerationKey)
     }
@@ -1246,6 +1252,9 @@ actor LibrarySearchIndex {
             // policy changes.
             maintenanceDefaults.set(true, forKey: preparationPendingKey)
         }
+        migrator.registerMigration("v6_server_reported_song_paths") { _ in
+            maintenanceDefaults.removeObject(forKey: reportedPathsPreparedKey)
+        }
         try migrator.migrate(pool)
         let needsVacuum = try pool.read { db in
             try Bool.fetchOne(
@@ -1264,11 +1273,11 @@ actor LibrarySearchIndex {
     /// Runs at utility/background priority. Full reconciliation is reserved
     /// for first launch, schema migration, or crash recovery. Routine library
     /// mutations enter through `applyChanges` and touch only changed rows.
-    func prepare(songs: [Song], generation: Int) async {
+    func prepare(songs: [Song], generation: Int, sourceTypes: [String: MusicSourceType] = [:]) async {
         guard dbPool != nil, !Task.isCancelled, Self.isPreparationPending() else { return }
         pendingFullPreparation = PendingFullPreparation(
             songs: songs,
-            generation: generation
+            generation: generation, sourceTypes: sourceTypes
         )
         // A newer full snapshot contains every earlier metadata mutation.
         pendingSearchDelta = PendingSearchDelta()
@@ -1280,9 +1289,11 @@ actor LibrarySearchIndex {
     func applyChanges(
         upserts: [Song],
         deletingIDs: Set<String>,
-        generation: Int
+        generation: Int,
+        sourceTypes: [String: MusicSourceType] = [:]
     ) async {
         guard dbPool != nil, !upserts.isEmpty || !deletingIDs.isEmpty else { return }
+        pendingSearchDelta.sourceTypes = sourceTypes
         pendingSearchDelta.merge(
             upserts: upserts,
             deletingIDs: deletingIDs,
@@ -1315,11 +1326,12 @@ actor LibrarySearchIndex {
         while !Task.isCancelled {
             if let full = pendingFullPreparation {
                 pendingFullPreparation = nil
-                guard await synchronizeMetadata(songs: full.songs, revisionKey: nil),
+                guard await synchronizeMetadata(songs: full.songs, revisionKey: nil, sourceTypes: full.sourceTypes),
                       !Task.isCancelled,
                       await synchronizeLyrics(songs: full.songs),
                       !Task.isCancelled else { break }
                 Self.markPreparationCompleted(generation: full.generation)
+                Self.maintenanceDefaults.set(true, forKey: Self.reportedPathsPreparedKey)
                 didCompleteWork = true
                 continue
             }
@@ -1331,7 +1343,7 @@ actor LibrarySearchIndex {
                 work.upserts = [:]
                 guard await synchronizeMetadataChanges(
                     upserts: upserts,
-                    deletingIDs: work.mutations.deletingIDs
+                    deletingIDs: work.mutations.deletingIDs, sourceTypes: work.sourceTypes
                 ), !Task.isCancelled,
                 await synchronizeLyricsChanges(
                     upserts: upserts,
@@ -1529,12 +1541,7 @@ actor LibrarySearchIndex {
                 for (offset, song) in snapshot.songs.enumerated() {
                     if offset.isMultiple(of: 512) { try Task.checkCancellation() }
                     guard !excluded.contains(song.id) else { continue }
-                    // 原始路径里都没有的, 显示路径里也不会有: 不必为整库每首都算一遍显示路径。
-                    guard SongPathPresentationPolicy.displayPathMayContain(
-                        filePath: song.filePath,
-                        query: trimmed
-                    ) else { continue }
-                    if displayPath(for: song)?.localizedCaseInsensitiveContains(trimmed) == true {
+                    if pathMatches(trimmed, song: song, sourceType: snapshot.sourceTypes[song.sourceID]) {
                         ids.append(song.id)
                         if ids.count >= songLimit * 2 { break }
                     }
@@ -1633,6 +1640,11 @@ actor LibrarySearchIndex {
             }
             for (offset, id) in pathIDs.enumerated() where !resultIDs.contains(id) {
                 guard let song = matches[id] else { continue }
+                // A previous build may still have indexed the server's playback identifier.
+                let type = snapshot.sourceTypes[song.sourceID]
+                if trimmed.count >= 3, type?.isServerLibrary == true || type == .upnp {
+                    guard song.serverFilePath?.localizedCaseInsensitiveContains(trimmed) == true else { continue }
+                }
                 ranked.append(LibrarySearchResult(
                     song: song,
                     matchKind: .path,
@@ -1696,7 +1708,7 @@ actor LibrarySearchIndex {
         }
     }
 
-    private func synchronizeMetadata(songs: [Song], revisionKey: String?) async -> Bool {
+    private func synchronizeMetadata(songs: [Song], revisionKey: String?, sourceTypes: [String: MusicSourceType]) async -> Bool {
         guard let pool = dbPool else { return false }
         if let revisionKey, lastMetadataRevisionKey == revisionKey { return true }
 
@@ -1704,7 +1716,7 @@ actor LibrarySearchIndex {
             let existing = try await Self.metadataStates(in: pool)
             let songIDs = Set(songs.map(\.id))
             let removed = existing.compactMap { songIDs.contains($0.key) ? nil : $0.value.id }
-            try await writeMetadataBatches(songs: songs, removed: removed, existing: existing, pool: pool)
+            try await writeMetadataBatches(songs: songs, removed: removed, existing: existing, pool: pool, sourceTypes: sourceTypes)
             lastMetadataRevisionKey = revisionKey
             return true
         } catch is CancellationError {
@@ -1721,7 +1733,8 @@ actor LibrarySearchIndex {
 
     private func synchronizeMetadataChanges(
         upserts: [Song],
-        deletingIDs: Set<String>
+        deletingIDs: Set<String>,
+        sourceTypes: [String: MusicSourceType]
     ) async -> Bool {
         guard !upserts.isEmpty || !deletingIDs.isEmpty else { return true }
         guard let pool = dbPool else { return false }
@@ -1730,7 +1743,7 @@ actor LibrarySearchIndex {
             let requestedIDs = Set(upserts.map(\.id)).union(deletingIDs)
             let existing = try await Self.metadataStates(songIDs: requestedIDs, in: pool)
             let removed = deletingIDs.compactMap { existing[$0]?.id }
-            try await writeMetadataBatches(songs: upserts, removed: removed, existing: existing, pool: pool)
+            try await writeMetadataBatches(songs: upserts, removed: removed, existing: existing, pool: pool, sourceTypes: sourceTypes)
             lastMetadataRevisionKey = nil
             return true
         } catch is CancellationError {
@@ -1742,7 +1755,8 @@ actor LibrarySearchIndex {
     }
 
     private func writeMetadataBatches(
-        songs: [Song], removed: [Int64], existing: [String: StoredMetadataState], pool: DatabasePool
+        songs: [Song], removed: [Int64], existing: [String: StoredMetadataState], pool: DatabasePool,
+        sourceTypes: [String: MusicSourceType]
     ) async throws {
         // Only the current batch owns copied Song values and Foundation temporaries.
         // Interrupted batches leave the durable pending generation for the next recovery pass.
@@ -1771,10 +1785,11 @@ actor LibrarySearchIndex {
             let startedAt = ProcessInfo.processInfo.systemUptime
             let end = min(start + Self.metadataBatchSize, songs.count)
             let changes = autoreleasepool {
-                songs[start..<end].compactMap { song -> (song: Song, fingerprint: String, stateID: Int64?)? in
-                    let fingerprint = Self.metadataFingerprint(song)
+                songs[start..<end].compactMap { song -> (song: Song, fingerprint: String, path: String, stateID: Int64?)? in
+                    let path = SongPathPresentationPolicy.displayPath(for: song, sourceType: sourceTypes[song.sourceID]) ?? ""
+                    let fingerprint = Self.metadataFingerprint(song, path: path)
                     guard existing[song.id]?.fingerprint != fingerprint else { return nil }
-                    return (song, fingerprint, existing[song.id]?.id)
+                    return (song, fingerprint, path, existing[song.id]?.id)
                 }
             }
             if !changes.isEmpty {
@@ -1783,7 +1798,7 @@ actor LibrarySearchIndex {
                         for change in changes {
                             try Task.checkCancellation()
                             try Self.writeMetadataChange(
-                                song: change.song, fingerprint: change.fingerprint,
+                                song: change.song, fingerprint: change.fingerprint, path: change.path,
                                 stateID: change.stateID, in: db
                             )
                         }
@@ -1806,6 +1821,7 @@ actor LibrarySearchIndex {
     private nonisolated static func writeMetadataChange(
         song: Song,
         fingerprint: String,
+        path: String,
         stateID: Int64?,
         in db: Database
     ) throws {
@@ -1841,7 +1857,7 @@ actor LibrarySearchIndex {
         )
         try LibrarySearchDocumentWriter.update(
             table: "metadataPathFts", columns: ["path"],
-            values: [SongPathPresentationPolicy.displayPath(filePath: song.filePath, sourceID: song.sourceID) ?? ""],
+            values: [path],
             rowID: id, isNew: stateID == nil, in: db
         )
     }
@@ -2346,7 +2362,7 @@ actor LibrarySearchIndex {
         return (snippetLines.joined(separator: "\n"), timestamp)
     }
 
-    private static func metadataFingerprint(_ song: Song) -> String {
+    private static func metadataFingerprint(_ song: Song, path: String) -> String {
         digest([
             song.title,
             song.artistName ?? "",
@@ -2356,10 +2372,7 @@ actor LibrarySearchIndex {
             song.titlePinyin ?? "",
             song.artistPinyin ?? "",
             song.albumPinyin ?? "",
-            SongPathPresentationPolicy.displayPath(
-                filePath: song.filePath,
-                sourceID: song.sourceID
-            ) ?? ""
+            path
         ].joined(separator: "\u{1F}"))
     }
 
@@ -2452,17 +2465,21 @@ actor LibrarySearchIndex {
         return Array((exactTitles + partialTitles + otherMatches).prefix(limit))
     }
 
-    private func displayPath(for song: Song) -> String? {
+    private func pathMatches(_ query: String, song: Song, sourceType: MusicSourceType?) -> Bool {
+        if let path = song.serverFilePath { return path.localizedCaseInsensitiveContains(query) }
+        guard sourceType?.isServerLibrary != true, sourceType != .upnp,
+              SongPathPresentationPolicy.displayPathMayContain(filePath: song.filePath, query: query) else { return false }
         if let cached = searchDisplayPaths[song.id],
-           cached.filePath == song.filePath, cached.sourceID == song.sourceID {
-            return cached.value
+           cached.filePath == song.filePath, cached.sourceID == song.sourceID, cached.sourceType == sourceType {
+            return cached.value?.localizedCaseInsensitiveContains(query) == true
         }
-        let path = SongPathPresentationPolicy.displayPath(filePath: song.filePath, sourceID: song.sourceID)
+        let path = SongPathPresentationPolicy.displayPath(for: song, sourceType: sourceType)
         // 记满了就不再往里放: 预筛之后还要算的多半是同一批歌, 不值得为它整库常驻。
         if searchDisplayPaths.count < Self.searchDisplayPathLimit {
-            searchDisplayPaths[song.id] = SearchDisplayPath(filePath: song.filePath, sourceID: song.sourceID, value: path)
+            searchDisplayPaths[song.id] = SearchDisplayPath(filePath: song.filePath, sourceID: song.sourceID,
+                                                           sourceType: sourceType, value: path)
         }
-        return path
+        return path?.localizedCaseInsensitiveContains(query) == true
     }
 
     private static func containsHan(_ text: String) -> Bool {
@@ -4468,6 +4485,8 @@ final class MusicLibrary {
     /// 由 `AppServices` / `TVStore` 装上; nil 时不做这一级。
     @ObservationIgnored
     var deviceLocalSourceIDsProvider: (() -> Set<String>)?
+
+    @ObservationIgnored weak var searchSources: SourcesStore?
 
     /// 回答"这些歌属于本机文件源, 而且它们的文件此刻确实在磁盘上吗"。
     /// 准入判定只在命中全局墓碑时才问它, 所以常态(库里没有删除记录)是零
@@ -6645,6 +6664,7 @@ final class MusicLibrary {
         after durableWrite: Task<Int64?, Never>?
     ) {
         let previous = searchIndexUpdateTask
+        let sourceTypes = searchSources?.typesByID ?? [:]
         searchIndexUpdateTask = Task.detached(priority: .utility) { [weak self] in
             _ = await previous?.value
             if let durableWrite, await durableWrite.value == nil {
@@ -6663,7 +6683,7 @@ final class MusicLibrary {
             await LibrarySearchIndex.shared.applyChanges(
                 upserts: changes.upserts,
                 deletingIDs: changes.deletingIDs.subtracting(changes.upserts.map(\.id)),
-                generation: batch.generation
+                generation: batch.generation, sourceTypes: sourceTypes
             )
         }
     }
@@ -6678,10 +6698,13 @@ final class MusicLibrary {
         guard LibrarySearchIndex.hasPendingPreparation(defaults: searchIndexDefaults) else { return }
         let previous = searchIndexUpdateTask
         let task = DeferredLibrarySnapshotWork.schedule(after: previous, capture: { [weak self] in
-            guard let self, self.isReady else { return nil as (songs: [Song], generation: Int, durableWrite: Task<Int64?, Never>?)? }
+            guard let self, self.isReady else {
+                return nil as (songs: [Song], generation: Int, sourceTypes: [String: MusicSourceType], durableWrite: Task<Int64?, Never>?)?
+            }
             self.pendingSongPersistenceBatch?.seal()
             return (songs: self.songs,
                     generation: LibrarySearchIndex.pendingPreparationGeneration(defaults: self.searchIndexDefaults),
+                    sourceTypes: self.searchSources?.typesByID ?? [:],
                     durableWrite: self.songStoreWriteTask)
         }, perform: { request in
             if let durableWrite = request.durableWrite, await durableWrite.value == nil {
@@ -6690,7 +6713,7 @@ final class MusicLibrary {
             guard !Task.isCancelled else { return }
             await LibrarySearchIndex.shared.prepare(
                 songs: request.songs,
-                generation: request.generation
+                generation: request.generation, sourceTypes: request.sourceTypes
             )
         })
         searchIndexUpdateTask = task
@@ -7730,6 +7753,7 @@ final class MusicLibrary {
                         merged.dateAdded = newSong.dateAdded
                     }
                     merged.serverPlayCount = newSong.serverPlayCount
+                    if mergeServerCatalogRows { merged.serverFilePath = newSong.serverFilePath }
                     if let libraryID = newSong.serverLibraryID { merged.serverLibraryID = libraryID }
                     // Always refresh revision — when the connector starts
                     // surfacing a fingerprint that wasn't there before
@@ -8038,6 +8062,7 @@ final class MusicLibrary {
             || old.fileFormat != new.fileFormat
             || old.audioCodec != new.audioCodec
             || old.filePath != new.filePath
+            || old.serverFilePath != new.serverFilePath
             || old.sourceID != new.sourceID
             || old.fileSize != new.fileSize
             || old.bitRate != new.bitRate
@@ -8927,18 +8952,19 @@ final class MusicLibrary {
     }
 
     func searchSongSnapshot(musicOnly: Bool = true, startupSourceIDs: Set<String>? = nil) -> LibrarySearchSongSnapshot {
+        let sourceTypes = searchSources?.typesByID ?? [:]
         if !isReady, musicOnly, let startupSourceIDs {
-            return LibrarySearchSongSnapshot(startupLookup: { [weak self] ids in
+            return LibrarySearchSongSnapshot(sourceTypes: sourceTypes, startupLookup: { [weak self] ids in
                 guard let self else { return [:] }
                 return await self.prepareStartupMusicMatches(ids: ids, sourceIDs: startupSourceIDs)
             })
         }
         let rows = musicOnly ? musicSongs : visibleSongs
         let visible = visibleSongLookup()
-        guard visible.indexByID.count == visible.songs.count else { return LibrarySearchSongSnapshot(rows) }
+        guard visible.indexByID.count == visible.songs.count else { return LibrarySearchSongSnapshot(rows, sourceTypes: sourceTypes) }
         let nonMusic = musicOnly ? nonMusicSongIDs : []
         let collectionOnly = musicOnly ? visibleContentClassification.collectionOnlySongIDs : []
-        return LibrarySearchSongSnapshot(rows) { id in
+        return LibrarySearchSongSnapshot(rows, sourceTypes: sourceTypes) { id in
             guard !nonMusic.contains(id), !collectionOnly.contains(id) else { return nil }
             return visible.song(id: id)
         }
@@ -9128,6 +9154,7 @@ final class MusicLibrary {
             songs: visibleSongs,
             albums: [],
             cache: LibrarySearchCache(),
+            sourceTypes: searchSources?.typesByID ?? [:],
             includeLyrics: false,
             songLimit: limit,
             albumLimit: 0

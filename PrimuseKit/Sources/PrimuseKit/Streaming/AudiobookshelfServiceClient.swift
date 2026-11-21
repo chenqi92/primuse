@@ -75,6 +75,7 @@ public struct AudiobookshelfAudioFile: Sendable, Equatable {
     public let fileName: String?
     /// 相对条目文件夹的路径(书分了 `CD1/`、`CD2/` 这类子文件夹时带着它);旧版本不给。
     public let relPath: String?
+    fileprivate let serverFilePath: String?
     public let tagTitle: String?
     public let trackNumber: Int?
     public let discNumber: Int?
@@ -91,6 +92,9 @@ public struct AudiobookshelfAudioFile: Sendable, Equatable {
         let filename = absNonemptyString(metadata?["filename"])
         self.fileName = filename
         self.relPath = absNonemptyString(metadata?["relPath"])
+        self.serverFilePath = SongPathPresentationPolicy.providerPath(absNonemptyString(metadata?["path"]))
+            ?? SongPathPresentationPolicy.providerPath(relPath)
+            ?? filename
         let ext = absNonemptyString(metadata?["ext"])
             ?? filename.map { "." + ($0 as NSString).pathExtension }
             ?? ""
@@ -114,6 +118,7 @@ public struct AudiobookshelfAudioFile: Sendable, Equatable {
         self.fileExtension = fileExtension
         self.fileName = fileName
         self.relPath = relPath
+        self.serverFilePath = SongPathPresentationPolicy.providerPath(relPath) ?? fileName
         self.tagTitle = tagTitle
         self.trackNumber = trackNumber
         self.discNumber = discNumber
@@ -548,7 +553,8 @@ public struct AudiobookshelfCatalogItem: Sendable, Equatable {
                 dateAdded: addedAt ?? Date(),
                 coverArtFileName: coverReference,
                 revision: "audiobookshelf:\(Self.revisionValue(updatedAt)):\(file.size)",
-                serverLibraryID: libraryID.isEmpty ? nil : libraryID
+                serverLibraryID: libraryID.isEmpty ? nil : libraryID,
+                serverFilePath: file.serverFilePath
             )
         }
     }
@@ -581,7 +587,8 @@ public struct AudiobookshelfCatalogItem: Sendable, Equatable {
                 dateAdded: episode.publishedAt ?? addedAt ?? Date(),
                 coverArtFileName: coverReference,
                 revision: "audiobookshelf:\(Self.revisionValue(updatedAt)):\(file.size)",
-                serverLibraryID: libraryID.isEmpty ? nil : libraryID
+                serverLibraryID: libraryID.isEmpty ? nil : libraryID,
+                serverFilePath: file.serverFilePath
             )
         }
     }

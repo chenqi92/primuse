@@ -66,6 +66,7 @@ import Testing
     #expect(first.albumTitle == "Validation")
     #expect(first.albumArtistName == "Various Artists")
     #expect(first.filePath == "/daoliyu/tracks/trk_123.flac")
+    #expect(first.serverFilePath == "/data/music/tone.flac")
     #expect(first.fileFormat == .flac)
     #expect(first.duration == 8)
     #expect(first.bitRate == 115)

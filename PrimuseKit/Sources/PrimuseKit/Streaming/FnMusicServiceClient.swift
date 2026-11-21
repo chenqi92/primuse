@@ -132,6 +132,7 @@ public struct FnMusicCatalogTrack: Sendable {
     fileprivate let imageDurationMilliseconds: Int?
     fileprivate let imagePath: String?
     public let sourceFileName: String?
+    private let serverFilePath: String?
     public let isCue: Bool
     public let createdAt: Int?
     public let updatedAt: Int?
@@ -164,6 +165,8 @@ public struct FnMusicCatalogTrack: Sendable {
             ?? fnMusicFirstNonemptyString(json, keys: ["albumGUID", "albumGuid", "albumId"])
         self.albumGUID = albumID
         let path = fnMusicNonemptyString(audio?["path"]) ?? fnMusicNonemptyString(json["path"])
+        let isOnline = fnMusicBool(json["is_online"]) == true
+        self.serverFilePath = isOnline ? nil : (SongPathPresentationPolicy.providerPath(path) ?? fnMusicNonemptyString(json["filename"]))
         self.isCue = fnMusicBool(json["isCue"]) == true || fnMusicNonemptyString(json["cueSheet"]) != nil
         self.imagePath = isCue ? path.flatMap { path in
             // A bare filename can repeat in unrelated folders. Scope it to the album when possible.
@@ -336,7 +339,8 @@ public struct FnMusicCatalogTrack: Sendable {
             audioCodec: ContainerAudioCodecPolicy.storedCodec(
                 ContainerAudioCodecPolicy.codec(named: codecName), container: format
             ),
-            serverDateAdded: addedDate
+            serverDateAdded: addedDate,
+            serverFilePath: serverFilePath
         )
     }
 

@@ -2143,14 +2143,45 @@ public enum AppleMusicSourcePolicy {
 /// surface URL authorities, queries or fragments where credentials commonly
 /// live.
 public enum SongPathPresentationPolicy {
+    /// Server catalogs report filesystem paths separately from their playback identifiers.
+    public static func displayPath(for song: Song, sourceType: MusicSourceType? = nil) -> String? {
+        displayPath(filePath: song.filePath, sourceID: song.sourceID, sourceType: sourceType,
+                    serverFilePath: song.serverFilePath)
+    }
+
+    public static func providerPath(_ rawPath: String?) -> String? {
+        guard let rawPath else { return nil }
+        var path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\", with: "/")
+        let inspected = (path.removingPercentEncoding ?? path).lowercased()
+        guard !path.isEmpty, !path.hasSuffix("/"),
+              !inspected.contains("://"), !inspected.hasPrefix("data:"), !inspected.hasPrefix("file:"),
+              !inspected.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+              !credentialMarkers.contains(where: inspected.contains) else { return nil }
+        if path.hasPrefix("//") {
+            guard let share = path.dropFirst(2).firstIndex(of: "/") else { return nil }
+            path = String(path[share...])
+        }
+        guard path.contains("/") || !(path as NSString).pathExtension.isEmpty else { return nil }
+        return path
+    }
+
+    private static let credentialMarkers = [
+        "access_token=", "authorization=", "credential=", "password=", "signature=",
+        "token=", "api_key=", "api-key=", "apikey=", "x-amz-credential=", "x-amz-signature=",
+    ]
+
     public static func displayPath(
         filePath rawPath: String,
         sourceID: String,
-        sourceType: MusicSourceType? = nil
+        sourceType: MusicSourceType? = nil,
+        serverFilePath: String? = nil
     ) -> String? {
         guard sourceID != AppleMusicLibraryIdentity.sourceID,
               sourceType != .appleMusic,
               sourceType != .appleMusicLibrary else { return nil }
+        if let serverFilePath { return serverFilePath }
+        guard sourceType?.isServerLibrary != true, sourceType != .upnp else { return nil }
 
         let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -2232,11 +2263,7 @@ public enum SongPathPresentationPolicy {
             options: [.caseInsensitive, .diacriticInsensitive],
             locale: Locale(identifier: "en_US_POSIX")
         )
-        let sensitiveMarkers = [
-            "access_token=", "authorization=", "credential=", "password=",
-            "signature=", "token=", "x-amz-credential=", "x-amz-signature=",
-        ]
-        guard !sensitiveMarkers.contains(where: folded.contains) else { return nil }
+        guard !credentialMarkers.contains(where: folded.contains) else { return nil }
 
         if (path.contains("/Containers/") || path.hasPrefix("/private/var/mobile/")),
            let documentsRange = path.range(of: "/Documents/") {

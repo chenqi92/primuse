@@ -3,7 +3,8 @@ import Foundation
 /// What a catalogue source remembers between two passes so the next one can
 /// ask "what changed" instead of re-reading every row.
 public struct ServerCatalogSyncMarker: Codable, Equatable, Sendable {
-    public static let currentVersion = 1
+    // A full walk records provider file paths for rows predating this marker.
+    public static let currentVersion = 2
 
     public var version: Int
     /// `stableSongCatalogRevision()` as of the last committed pass.

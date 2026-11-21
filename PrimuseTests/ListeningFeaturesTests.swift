@@ -2148,7 +2148,7 @@ final class ListeningFeaturesTests: XCTestCase {
         initial.filePath = "/Music/Old: name?.m4a"
         initial.artistName = " Artist "
         initial.albumArtistName = nil
-        let edits = TagEditorView.metadataEdits(for: initial, fields: [
+        let edits = TagEditorView.metadataEdits(for: initial, fileName: "Old: name?.m4a", fields: [
             (.title, "  New title  "), (.artist, " Artist "), (.album, initial.albumTitle ?? ""),
             (.year, initial.year.map(String.init) ?? "")
         ])
@@ -2161,6 +2161,16 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(updated.filePath, latest.filePath)
         XCTAssertEqual(updated.albumTitle, latest.albumTitle)
         XCTAssertEqual(TagMetadataWritebackField.changedFields(from: latest, to: updated, includesCover: false), [.title])
+    }
+
+    func testClearingServerTrackTitleUsesReportedFilenameOnly() {
+        var track = song("catalog-track")
+        track.title = "Original"
+        track.filePath = "/songs/internal-id.flac"
+        let fields: [(TagCleanupField, String)] = [(.title, "")]
+        let edits = TagEditorView.metadataEdits(for: track, fileName: "01 - Track.flac", fields: fields)
+        XCTAssertEqual(edits.map(\.newValue), ["01 - Track.flac"])
+        XCTAssertTrue(TagEditorView.metadataEdits(for: track, fileName: "", fields: fields).isEmpty)
     }
 
     func testProposalsBecomeTheUpdatedRow() {

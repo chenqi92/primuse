@@ -528,6 +528,25 @@ private enum MacSearchResultFilter: Hashable {
 }
 #endif
 
+struct SearchResultFilePathLabel: View {
+    let path: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "folder")
+            Text(verbatim: path)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .font(.caption2.monospaced())
+        .foregroundStyle(.secondary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: String(
+            format: String(localized: "search_result_path_accessibility_format"), path
+        )))
+    }
+}
+
 private struct SearchLibraryRevisionObserver: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sources
@@ -4466,24 +4485,11 @@ struct SearchView: View {
         leadingPadding: CGFloat = 0
     ) -> some View {
         if let path = SongPathPresentationPolicy.displayPath(
-            filePath: song.filePath,
-            sourceID: song.sourceID,
+            for: song,
             sourceType: sourcesStore.source(id: song.sourceID)?.type
         ) {
-            HStack(spacing: 4) {
-                Image(systemName: "folder")
-                Text(verbatim: path)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .font(.caption2.monospaced())
-            .foregroundStyle(.secondary)
-            .padding(.leading, leadingPadding)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(verbatim: String(
-                format: String(localized: "search_result_path_accessibility_format"),
-                path
-            )))
+            SearchResultFilePathLabel(path: path)
+                .padding(.leading, leadingPadding)
         }
     }
 
@@ -4625,6 +4631,7 @@ struct SearchView: View {
                         songs: songsSnapshot,
                         albums: albumsSnapshot,
                         cache: cacheSnapshot,
+                        sourceTypes: searchSnapshot.sourceTypes,
                         matchKinds: matchKinds,
                         songLimit: scopedSearch ? songsSnapshot.count : 120
                     )
@@ -4879,7 +4886,7 @@ struct SearchView: View {
                 let worker = Task.detached(priority: .utility) {
                     LibrarySearchWorker.compute(
                         query: concept, songs: songsSnapshot, albums: albumsSnapshot,
-                        cache: LibrarySearchCache(), matchKinds: matchKinds,
+                        cache: LibrarySearchCache(), sourceTypes: searchSnapshot.sourceTypes, matchKinds: matchKinds,
                         songLimit: 12, albumLimit: 12
                     )
                 }

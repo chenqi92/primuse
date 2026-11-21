@@ -1310,6 +1310,7 @@ struct LibraryStartupSongPreview: View {
 
 private struct LibraryStartupSongRow: View {
     let song: PrimuseKit.Song
+    var displayPath: String? = nil
     let play: (PrimuseKit.Song) -> Void
 
     var body: some View {
@@ -1324,6 +1325,9 @@ private struct LibraryStartupSongRow: View {
                     Text(song.title).foregroundStyle(.primary).lineLimit(1)
                     Text(song.artistName ?? "").font(.caption)
                         .foregroundStyle(.secondary).lineLimit(1)
+                    if let displayPath {
+                        SearchResultFilePathLabel(path: displayPath)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -1374,7 +1378,11 @@ struct LibraryReadyContent<Content: View>: View {
                         List {
                             ForEach(startupSearch.matches) { result in
                                 if sourceIDs.contains(result.song.sourceID) {
-                                    LibraryStartupSongRow(song: result.song) { playStartupSong($0, searchResult: result) }
+                                    let type = sourcesStore.source(id: result.song.sourceID)?.type
+                                    let path = SongPathPresentationPolicy.displayPath(for: result.song, sourceType: type)
+                                    LibraryStartupSongRow(song: result.song, displayPath: path) {
+                                        playStartupSong($0, searchResult: result)
+                                    }
                                 }
                             }
                             ProgressView("library_preparing")

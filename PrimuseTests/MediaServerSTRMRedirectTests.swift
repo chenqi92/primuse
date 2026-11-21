@@ -126,6 +126,8 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
             XCTAssertFalse(songs.contains(where: \.isStreamDescriptor))
             XCTAssertEqual(songs.map(\.fileSize), [1000, 2000, 0, 3000, 0, 4000, 5000])
             XCTAssertEqual(songs.first?.filePath, "/items/wrapper.flac")
+            XCTAssertEqual(songs.first?.serverFilePath, "/Music/wrapper.strm")
+            XCTAssertEqual(songs[3].serverFilePath, "/Music/signed.strm")
             let previousID = SHA256.hash(data: Data("\(host):/items/wrapper.strm".utf8))
                 .prefix(16).map { String(format: "%02x", $0) }.joined()
             XCTAssertEqual(songs.first?.id, previousID)

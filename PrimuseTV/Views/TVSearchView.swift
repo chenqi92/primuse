@@ -8,6 +8,12 @@ private enum TVSemanticSearchFeedback: Equatable {
     case success(provider: String, fallbackDepth: Int)
     case noMatches(provider: String, fallbackDepth: Int)
     case failed
+
+    static func matches(in results: TVStore.TVSearchResults, provider: String, fallbackDepth: Int) -> Self {
+        results.songs.contains { $0.relatedConcept != nil }
+            ? .success(provider: provider, fallbackDepth: fallbackDepth)
+            : .noMatches(provider: provider, fallbackDepth: fallbackDepth)
+    }
 }
 
 /// 当前焦点所在的区域。结果列表刷新时据此判断是否需要接管焦点,
@@ -127,6 +133,13 @@ struct TVSearchView: View {
 
     private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
 
+    private var revisionToRefresh: Int? {
+        guard !isSearching, !isSemanticSearching, let results,
+              !trimmed.isEmpty, memory.completedQuery == trimmed,
+              results.libraryRevision != store.library.searchRevision else { return nil }
+        return store.library.searchRevision
+    }
+
     // MARK: 结果切片(视觉顺序:艺术家 → 专辑 → 歌曲 → AI 补充)
 
     private var artistResults: [TVArtist] { results?.artists ?? [] }
@@ -214,6 +227,9 @@ struct TVSearchView: View {
         }
         .task(id: trimmed) {
             await updateResults(for: trimmed)
+        }
+        .task(id: revisionToRefresh) {
+            await refreshLibraryResults()
         }
         .task(id: focusRequest?.id) {
             guard let request = focusRequest, request.target == .searchField else { return }
@@ -608,6 +624,23 @@ struct TVSearchView: View {
     }
 
     @MainActor
+    private func refreshLibraryResults() async {
+        guard let revision = revisionToRefresh, let previous = results else { return }
+        let requestedQuery = trimmed
+        do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+        let fresh = await store.searchResults(requestedQuery, relatedConcepts: previous.relatedConcepts)
+        guard !Task.isCancelled, trimmed == requestedQuery, fresh.libraryRevision == revision,
+              store.library.searchRevision == revision else { return }
+        results = fresh
+        switch semanticFeedback {
+        case let .success(provider, depth), let .noMatches(provider, depth):
+            semanticFeedback = .matches(in: fresh, provider: provider, fallbackDepth: depth)
+        default: break
+        }
+        memory.storeCompleted(query: requestedQuery, results: fresh, feedback: semanticFeedback)
+    }
+
+    @MainActor
     private func updateResults(for requestedQuery: String) async {
         // 从记忆里拿回的就是这个查询词搜完的结果(Apple Music 目录结果也还在):不重搜。
         if let restored = restoredQuery {
@@ -682,16 +715,8 @@ struct TVSearchView: View {
             )
             guard !Task.isCancelled, trimmed == requestedQuery else { return }
             results = enriched
-            let hasSemanticMatches = enriched.songs.contains { $0.relatedConcept != nil }
-            semanticFeedback = hasSemanticMatches
-                ? .success(
-                    provider: execution.providerName,
-                    fallbackDepth: execution.fallbackDepth
-                )
-                : .noMatches(
-                    provider: execution.providerName,
-                    fallbackDepth: execution.fallbackDepth
-                )
+            semanticFeedback = .matches(in: enriched, provider: execution.providerName,
+                                        fallbackDepth: execution.fallbackDepth)
         }
         finishSemanticSearch(for: requestedQuery)
     }

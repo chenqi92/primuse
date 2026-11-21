@@ -365,6 +365,72 @@ final class LibrarySearchProjectionSnapshotTests: XCTestCase {
 
 @MainActor
 final class LibrarySearchPathCacheTests: XCTestCase {
+    func testServerPathMatchesUpdatesAndHidesLegacyID() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let index = LibrarySearchIndex(storageDirectory: directory)
+        let types: [String: MusicSourceType] = ["server": .navidrome, "files": .smb]
+        var track = Song(id: "track", title: "Song", fileFormat: .flac,
+                         filePath: "/songs/remote-42.flac", sourceID: "server")
+        let local = Song(id: "file", title: "Song", fileFormat: .flac,
+                         filePath: track.filePath, sourceID: "files")
+
+        func matches(_ query: String) async throws -> Set<String> {
+            let snapshot = LibrarySearchSongSnapshot([track, local], sourceTypes: types)
+            let result = await index.search(query: query, snapshot: snapshot, albums: [],
+                                            metadataRevisionKey: "paths", matchKinds: [.path])
+            return Set(try XCTUnwrap(result).output.songResults.map(\.song.id))
+        }
+        // An older index treated both copies of this string as filesystem paths.
+        await index.applyChanges(upserts: [track, local], deletingIDs: [], generation: 1)
+        let legacy = try await matches("remote-42")
+        XCTAssertEqual(legacy, [local.id])
+        track.serverFilePath = "唱片/Disc One/01 #7.flac"
+        await index.applyChanges(upserts: [track], deletingIDs: [], generation: 2, sourceTypes: types)
+        for query in ["唱", "#", "#7", "Disc One"] {
+            let hit = try await matches(query)
+            XCTAssertEqual(hit, [track.id])
+            let scoped = LibrarySearchWorker.compute(query: query, songs: [track, local], albums: [],
+                cache: LibrarySearchCache(), sourceTypes: types, includeLyrics: false, matchKinds: [.path])
+            XCTAssertEqual(scoped.songResults.map(\.song.id), [track.id])
+        }
+        track.serverFilePath = "改名/Archive.flac"
+        await index.applyChanges(upserts: [track], deletingIDs: [], generation: 3, sourceTypes: types)
+        let old = try await matches("Disc One")
+        let renamed = try await matches("Archive")
+        XCTAssertTrue(old.isEmpty)
+        XCTAssertEqual(renamed, [track.id])
+        track.serverFilePath = nil
+        await index.applyChanges(upserts: [track], deletingIDs: [], generation: 4, sourceTypes: types)
+        let removed = try await matches("改")
+        let hidden = try await matches("remote-42")
+        XCTAssertTrue(removed.isEmpty)
+        XCTAssertEqual(hidden, [local.id])
+        XCTAssertEqual(track.filePath, "/songs/remote-42.flac")
+    }
+
+    func testIncrementalWriteLeavesReportedPathIndexMigrationPending() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let oldRow = Song(id: "old", title: "Track", fileFormat: .flac, filePath: "/songs/abc.flac",
+                          sourceID: "server", serverFilePath: "Records/Archive.flac")
+        let other = Song(id: "other", title: "Another", fileFormat: .mp3, filePath: "elsewhere.mp3", sourceID: "local")
+        let types: [String: MusicSourceType] = ["server": .navidrome, "local": .local]
+
+        // Finish a generation before the next database applies its path migration.
+        let previous = LibrarySearchIndex(storageDirectory: directory.appendingPathComponent("previous"))
+        await previous.prepare(songs: [], generation: LibrarySearchIndex.persistLibraryChangePending())
+        let index = LibrarySearchIndex(storageDirectory: directory.appendingPathComponent("migrated"))
+        let generation = LibrarySearchIndex.persistLibraryChangePending()
+        await index.applyChanges(upserts: [other], deletingIDs: [], generation: generation, sourceTypes: types)
+        XCTAssertTrue(LibrarySearchIndex.hasPendingPreparation)
+        await index.prepare(songs: [oldRow, other], generation: generation, sourceTypes: types)
+
+        let result = await index.search(query: "Archive", snapshot: LibrarySearchSongSnapshot([oldRow, other], sourceTypes: types),
+                                        albums: [], metadataRevisionKey: "after-migration", matchKinds: [.path])
+        XCTAssertEqual(try XCTUnwrap(result).output.songResults.map(\.song.id), [oldRow.id])
+    }
+
     func testRenameDeletionAndSameIDReplacementCannotReuseOldPaths() async throws {
         var song = Song(id: "path-cache", title: "Title", fileFormat: .mp3, filePath: "/旧目录/track.mp3", sourceID: "source-a")
         func matches(_ query: String, _ songs: [Song]) async throws -> [String] {

@@ -169,7 +169,8 @@ public struct SongloftTrack: Decodable, Sendable {
             dateAdded: addedDate ?? .distantPast,
             coverArtFileName: cover,
             revision: "songloft:\(updatedAt ?? ""):\(fileModifiedAt ?? ""):\(fileSize ?? 0)",
-            serverDateAdded: addedDate
+            serverDateAdded: addedDate,
+            serverFilePath: type == "local" ? filePath : nil
         )
     }
 }

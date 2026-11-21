@@ -2673,7 +2673,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             serverAlbumDateAdded: albumCreated,
             contentMetadata: releaseType.map { SongContentMetadata(releaseType: $0) },
             serverCatalogAlbum: (child.albumId ?? album?.id).map { ServerCatalogAlbumReference(id: $0, taggedArtist: taggedAlbumArtist) },
-            isExternal: child.isExternal
+            isExternal: child.isExternal,
+            serverFilePath: child.path
         )
     }
 

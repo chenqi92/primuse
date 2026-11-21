@@ -2,7 +2,8 @@ import Foundation
 import GRDB
 
 public struct SubsonicCatalogResumeState: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 2
+    // A resumed stage must contain the same provider path metadata as newly fetched pages.
+    public static let currentSchemaVersion = 3
 
     public var schemaVersion: Int
     public var pageSize: Int

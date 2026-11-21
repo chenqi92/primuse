@@ -71,6 +71,24 @@ struct SongDetailsStateTests {
 
 @Suite("Song path presentation")
 struct SongPathPresentationPolicyTests {
+    @Test("Server paths retain filename punctuation and playback routes stay private")
+    func serverPathsAndMissingMetadata() {
+        let song = Song(id: "1", title: "One", fileFormat: .flac, filePath: "/songs/abc.flac", sourceID: "s")
+        for type in MusicSourceType.allCases where type.isServerLibrary || type == .upnp {
+            #expect(SongPathPresentationPolicy.displayPath(for: song, sourceType: type) == nil)
+        }
+        #expect(SongPathPresentationPolicy.displayPath(for: song, sourceType: .smb) == song.filePath)
+        var reported = song
+        reported.serverFilePath = #"D:\Music\A#3\100% Live?.flac"#
+        #expect(SongPathPresentationPolicy.displayPath(for: reported, sourceType: .navidrome) == "D:/Music/A#3/100% Live?.flac")
+        reported.serverFilePath = #"\\storage\share\Artist\Track.flac"#
+        #expect(reported.serverFilePath == "/share/Artist/Track.flac")
+        for value in ["https://server/stream?id=42", "/song?api_key=example", "opaque-id"] {
+            reported.serverFilePath = value
+            #expect(SongPathPresentationPolicy.displayPath(for: reported, sourceType: .plex) == nil)
+        }
+    }
+
     @Test("Signed URLs expose only their decoded path")
     func signedURLIsSanitized() {
         let path = SongPathPresentationPolicy.displayPath(

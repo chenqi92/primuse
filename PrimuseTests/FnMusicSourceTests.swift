@@ -64,6 +64,7 @@ final class FnMusicSourceTests: XCTestCase {
         for item in movements {
             let indexedFile = try XCTUnwrap(item.providerHierarchyItems.last)
             XCTAssertEqual(indexedFile.displayName, "夜航 24K.wav")
+            XCTAssertEqual(item.song.serverFilePath, "/音乐/夜航 24K.wav")
             XCTAssertEqual(indexedFile.path, item.song.filePath)
         }
         await source.disconnect()

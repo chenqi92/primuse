@@ -236,9 +236,11 @@ struct TVSong: Identifiable, Hashable {
     let sourceID: String
     let filePath: String
     let sourceType: MusicSourceType?
+    var serverFilePath: String? = nil
     // 路径仅用于搜索结果,按需格式化,避免启动时处理整库路径。
     var displayPath: String? {
-        SongPathPresentationPolicy.displayPath(filePath: filePath, sourceID: sourceID, sourceType: sourceType)
+        SongPathPresentationPolicy.displayPath(filePath: filePath, sourceID: sourceID,
+                                              sourceType: sourceType, serverFilePath: serverFilePath)
     }
 }
 
@@ -328,7 +330,8 @@ struct TVSongMapper: TVLibraryMapper {
                sampleRate: Double(s.sampleRate ?? 0) / 1000,
                sourceID: s.sourceID,
                filePath: s.filePath,
-               sourceType: sourceTypes[s.sourceID])
+               sourceType: sourceTypes[s.sourceID],
+               serverFilePath: s.serverFilePath)
     }
 }
 
@@ -722,6 +725,7 @@ final class TVStore {
         self.library.deviceExclusionsYieldToReplacedFiles = true
         // 扫码直传到电视的歌在本机文件源里, 源 id 和手机不同: 手机歌单里的同一个文件按
         // 相对路径对回来(#341)。
+        self.library.searchSources = initialSources
         self.library.deviceLocalSourceIDsProvider = { [weak initialSources] in
             guard let initialSources else { return [] }
             return Set(initialSources.allSources.lazy.filter { $0.type == .local && !$0.isDeleted }.map(\.id))
@@ -1856,26 +1860,31 @@ final class TVStore {
         let artists: [TVArtist]
         let albums: [TVAlbum]
         let songs: [TVSearchHit]
+        let relatedConcepts: [String]
+        let libraryRevision: Int
     }
 
     func searchResults(_ query: String, relatedConcepts: [String] = []) async -> TVSearchResults {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty, !Task.isCancelled else { return .init(artists: [], albums: [], songs: []) }
+        let revision = library.searchRevision
+        let empty = TVSearchResults(artists: [], albums: [], songs: [], relatedConcepts: relatedConcepts,
+                                    libraryRevision: revision)
+        guard !q.isEmpty, !Task.isCancelled else { return empty }
         let songSnapshot = library.visibleSongs
         let albumSnapshot = library.visibleAlbums
+        let sourceTypes = sourcesStore.typesByID
         let cache = searchCache
-        let revision = library.searchRevision
         let worker = Task.detached(priority: .userInitiated) {
             // 专辑名、专辑艺人对上的专辑一张不截(以前只给 10 张,第 11 张起搜不到);歌多取一些,
             // 下面还要从命中的歌里找出它们所在的专辑。AI 补充只用歌,不再白算一遍专辑。
             let primary = LibrarySearchWorker.compute(query: q, songs: songSnapshot,
-                                                      albums: albumSnapshot, cache: cache,
+                                                      albums: albumSnapshot, cache: cache, sourceTypes: sourceTypes,
                                                       songLimit: Self.searchRelatedAlbumSongLimit,
                                                       albumLimit: albumSnapshot.count)
             var secondary: [(String, LibrarySearchOutput)] = []
             for concept in relatedConcepts.prefix(5) where !Task.isCancelled {
                 secondary.append((concept, LibrarySearchWorker.compute(query: concept,
-                    songs: songSnapshot, albums: [], cache: primary.cache)))
+                    songs: songSnapshot, albums: [], cache: primary.cache, sourceTypes: sourceTypes)))
             }
             return (primary, secondary)
         }
@@ -1883,7 +1892,7 @@ final class TVStore {
             await worker.value
         } onCancel: { worker.cancel() }
         guard !Task.isCancelled, revision == library.searchRevision else {
-            return .init(artists: [], albums: [], songs: [])
+            return empty
         }
         searchCache = primary.cache
         let spokenWordIDs = library.spokenWordSongIDs
@@ -1904,7 +1913,7 @@ final class TVStore {
                         .prefix(12).map(artistMapper.map)),
                      albums: Self.searchAlbums(primary, albums: albumSnapshot,
                                                excludingSongIDs: spokenWordIDs).map(albumMapper.map),
-                     songs: hits)
+                     songs: hits, relatedConcepts: relatedConcepts, libraryRevision: revision)
     }
 
     /// 从这么多首命中的歌里找它们所在的专辑。和手机端一样有个上限:很短的查询词能命中半个曲库。
@@ -1936,7 +1945,8 @@ final class TVStore {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return (nil, []) }
         let out = LibrarySearchWorker.compute(query: q, songs: library.visibleSongs,
-                                              albums: library.visibleAlbums, cache: searchCache)
+                                              albums: library.visibleAlbums, cache: searchCache,
+                                              sourceTypes: sourcesStore.typesByID)
         searchCache = out.cache
         let spokenWordIDs = library.spokenWordSongIDs
         var hits: [TVSearchHit] = []

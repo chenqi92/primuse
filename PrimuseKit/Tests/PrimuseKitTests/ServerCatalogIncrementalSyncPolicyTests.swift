@@ -63,7 +63,7 @@ struct ServerCatalogIncrementalSyncPolicyTests {
             ) == .noUsableMarker
         )
         let stale = ServerCatalogSyncMarker(
-            version: 0,
+            version: 1,
             catalogRevision: "r",
             modifiedSince: Date(),
             itemCount: 1

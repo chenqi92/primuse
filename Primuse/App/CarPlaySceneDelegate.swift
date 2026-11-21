@@ -686,6 +686,7 @@ extension CarPlaySceneDelegate {
                 songs: snapshot.songs,
                 albums: [],
                 cache: LibrarySearchCache(),
+                sourceTypes: snapshot.sourceTypes,
                 includeMetadata: true,
                 includeLyrics: false,
                 songLimit: 100,

@@ -1845,6 +1845,7 @@ actor ConnectorScanner {
 
         var refreshed = existing
         refreshed.serverCatalogAlbum = incoming.serverCatalogAlbum ?? existing.serverCatalogAlbum
+        refreshed.serverFilePath = incoming.serverFilePath
         refreshed.contentMetadata = SongContentMetadata.merging(previous: existing.contentMetadata, incoming: incoming.contentMetadata)
         // The server owns the location: a carried row keeps its song ID while
         // the id in its path follows the server.

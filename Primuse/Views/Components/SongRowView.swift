@@ -1024,11 +1024,11 @@ struct SongRowView: View {
             case .unsupported:
                 tagReadMessage = String(localized: "reread_song_tags_unsupported")
             case .failed(let reason):
-                let fileName = URL(fileURLWithPath: song.filePath).lastPathComponent
+                let source = sourcesStore.source(id: song.sourceID)
+                let path = SongPathPresentationPolicy.displayPath(for: library.song(id: song.id) ?? song, sourceType: source?.type)
+                let fileName = path.map { ($0 as NSString).lastPathComponent } ?? song.title
                 let format = song.fileFormat.rawValue.uppercased()
-                let resolvedSourceName = sourcesStore.source(id: song.sourceID)?.name
-                    ?? sourceName
-                    ?? song.sourceID
+                let resolvedSourceName = source?.name ?? sourceName ?? song.sourceID
                 tagReadMessage = String(
                     format: String(localized: "reread_song_tags_failed_detail_format"),
                     fileName,

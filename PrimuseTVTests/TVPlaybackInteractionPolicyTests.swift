@@ -2381,16 +2381,19 @@ final class TVDeviceRegressionTests: XCTestCase {
     }
 
     func testSearchSongPathRetainsSanitizationWhenPresentedOnDemand() {
-        func song(path: String, sourceType: MusicSourceType = .navidrome) -> TVSong {
+        func song(path: String, sourceType: MusicSourceType = .webdav, serverFilePath: String? = nil) -> TVSong {
             TVSong(id: "path", albumID: "album", coverRef: nil, title: "Song", artist: "Artist",
                    duration: 30, format: "MP3", bitrate: 320, sampleRate: 44.1,
-                   sourceID: "source", filePath: path, sourceType: sourceType)
+                   sourceID: "source", filePath: path, sourceType: sourceType, serverFilePath: serverFilePath)
         }
         let remote = song(path: "https://user:password@example.com/Music/Hello%20World.mp3?token=secret#fragment")
         XCTAssertEqual(remote.displayPath, "/Music/Hello World.mp3")
         XCTAssertEqual(song(path: "/Music/token=secret/Song.mp3").displayPath, nil)
         XCTAssertNil(song(path: "opaque-item-id").displayPath)
         XCTAssertNil(song(path: "/Music/Song.mp3", sourceType: .appleMusic).displayPath)
+        XCTAssertNil(song(path: "/songs/record-17.mp3", sourceType: .navidrome).displayPath)
+        XCTAssertEqual(song(path: "/songs/record-17.mp3", sourceType: .navidrome,
+                            serverFilePath: "Archive/Song.mp3").displayPath, "Archive/Song.mp3")
     }
 
     func testListeningHistoryRefreshesSmartPlaylistsWithoutRebuildingLibrary() async throws {

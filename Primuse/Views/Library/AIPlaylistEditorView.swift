@@ -148,6 +148,7 @@ final class AIPlaylistCandidateFinder {
                 songs: snapshot.songs,
                 albums: [],
                 cache: LibrarySearchCache(),
+                sourceTypes: snapshot.sourceTypes,
                 includeMetadata: true,
                 includeLyrics: false,
                 excluding: excluding,

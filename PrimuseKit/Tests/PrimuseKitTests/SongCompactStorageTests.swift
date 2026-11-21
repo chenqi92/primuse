@@ -69,6 +69,24 @@ struct SongCompactStorageTests {
         #expect(SongStorageLayout.rareFieldsSize + 16 <= 512)
     }
 
+    @Test("Server path survives core edits and ReplayGain changes on independent copies")
+    func serverPathCopyOnWrite() throws {
+        let original = Song(id: "id", title: "Track", fileFormat: .flac, filePath: "/songs/id.flac",
+                            sourceID: "source", serverFilePath: "Album/File.flac")
+        var copy = original
+        copy.title = "Edited"
+        copy.replayGainTrackGain = -2.5
+        let tagged = copy
+        copy.serverFilePath = nil
+        #expect(copy.replayGainTrackGain == -2.5 && copy.serverFilePath == nil)
+        copy.serverFilePath = original.serverFilePath
+        #expect(copy == tagged)
+        copy.replayGainTrackGain = nil
+        #expect(copy.title == "Edited" && copy.serverFilePath == original.serverFilePath)
+        #expect(original.title == "Track" && original.replayGainTrackGain == nil)
+        #expect(try JSONDecoder().decode(Song.self, from: JSONEncoder().encode(tagged)) == tagged)
+    }
+
     @Test("Media-server songs need no rare box for their date")
     func serverDateIsInline() {
         var song = Song(id: "s", title: "t", fileFormat: .flac, filePath: "/s", sourceID: "src",

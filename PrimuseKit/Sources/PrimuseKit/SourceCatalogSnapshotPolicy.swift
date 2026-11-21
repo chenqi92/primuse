@@ -346,6 +346,7 @@ public enum ServerSongCatalogMergePolicy {
             refreshed.replayGainAlbumPeak = incoming.replayGainAlbumPeak
         }
         if let libraryID = incoming.serverLibraryID { refreshed.serverLibraryID = libraryID }
+        refreshed.serverFilePath = incoming.serverFilePath
         if !incoming.filePath.isEmpty { refreshed.filePath = incoming.filePath }
         if refreshed.coverArtFileName == nil {
             refreshed.coverArtFileName = incoming.coverArtFileName

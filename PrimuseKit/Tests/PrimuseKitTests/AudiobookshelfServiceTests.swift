@@ -99,7 +99,7 @@ struct AudiobookshelfServiceTests {
                 "publishedYear": "1979",
             ],
             "audioFiles": [
-                ["ino": "11", "index": 1, "duration": 60.0, "metadata": ["filename": "01 - Part One.mp3", "ext": ".mp3", "size": 1000],
+                ["ino": "11", "index": 1, "duration": 60.0, "metadata": ["filename": "01 - Part One.mp3", "path": "/books/Disc 1/01 - Part One.mp3", "ext": ".mp3", "size": 1000],
                  "metaTags": ["tagTitle": "Part One"], "trackNumFromMeta": 1, "bitRate": 128_000],
                 ["ino": "12", "index": 2, "duration": 120.0, "metadata": ["filename": "02.mp3", "ext": ".mp3", "size": 2000]],
                 ["ino": "13", "index": 3, "duration": 5.0, "exclude": true, "metadata": ["filename": "junk.mp3", "ext": ".mp3", "size": 1]],
@@ -130,6 +130,8 @@ struct AudiobookshelfServiceTests {
         #expect(first.duration == 60)
         #expect(first.fileFormat == .mp3)
         #expect(first.filePath == "/audiobookshelf/items/li_book/files/11.mp3")
+        #expect(first.serverFilePath == "/books/Disc 1/01 - Part One.mp3")
+        #expect(songs[1].serverFilePath == "02.mp3")
         #expect(first.serverLibraryID == "lib_books")
         #expect(first.bitRate == 128)
         #expect(first.year == 1979)

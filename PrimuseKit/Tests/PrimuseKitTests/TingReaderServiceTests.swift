@@ -114,6 +114,7 @@ struct TingReaderServiceTests {
         #expect(songs.allSatisfy { $0.artistName == "冯雪松" && $0.albumArtistName == "刘慈欣" })
         #expect(songs.allSatisfy { $0.serverLibraryID == "lib-1" && $0.sourceID == "src" })
         #expect(songs[0].filePath == "/tingreader/books/book-1/chapters/ch-1.mp3")
+        #expect(songs[0].serverFilePath == chapters[0].path)
         #expect(songs[1].fileFormat == .m4a)
         #expect(songs[2].filePath.hasSuffix(".bin"))
         let cover = try #require(songs[0].coverArtFileName.flatMap(TingReaderAPIProtocol.coverReference(from:)))

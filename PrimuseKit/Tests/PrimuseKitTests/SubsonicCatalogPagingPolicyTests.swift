@@ -175,7 +175,7 @@ struct SubsonicCatalogPagingPolicyTests {
         #expect(!SubsonicCatalogPagingPolicy.canResume(state, stagedSongCount: 1))
 
         var oldSchema = state
-        oldSchema.schemaVersion = 0
+        oldSchema.schemaVersion = 2
         #expect(!SubsonicCatalogPagingPolicy.canResume(oldSchema, stagedSongCount: 2))
 
         var oldPageSize = state

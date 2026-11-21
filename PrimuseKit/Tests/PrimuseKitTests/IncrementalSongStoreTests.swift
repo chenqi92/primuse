@@ -238,6 +238,28 @@ struct IncrementalSongStoreTests {
         }
     }
 
+    @Test("Catalog refresh adds, updates and withdraws paths on stored tracks without replacing their identity")
+    func serverFilePathRefreshRoundTrip() throws {
+        try withStore { store in
+            let legacy = makeSong(id: "stable", path: "/songs/id.mp3", title: "Edited")
+            try store.replaceAll(with: [legacy])
+            var stored = try #require(try store.loadSongs().first)
+            #expect(stored.serverFilePath == nil)
+            stored.userMetadataEditedAt = Date(timeIntervalSince1970: 1_700_000_000)
+            var catalog = legacy
+            catalog.title = "Server title"
+            for path: String? in ["Albums/First.mp3", "别的目录/Second #1.mp3", nil] {
+                catalog.serverFilePath = path
+                let updated = ServerSongCatalogMergePolicy.merged(existing: stored, incoming: catalog)
+                #expect(!ServerSongCatalogMergePolicy.contentChanged(existing: stored, incoming: updated))
+                try store.apply(upserts: [updated], deletingIDs: [])
+                stored = try #require(try store.loadSongs().first)
+                #expect(stored.id == legacy.id && stored.filePath == legacy.filePath)
+                #expect(stored.title == "Edited" && stored.serverFilePath == path)
+            }
+        }
+    }
+
     @Test("Batched concurrent decoding keeps the stored order across batch boundaries")
     func concurrentDecodingKeepsOrder() throws {
         try withStore { store in

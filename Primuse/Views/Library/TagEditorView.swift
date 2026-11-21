@@ -26,7 +26,6 @@ struct TagEditorView: View {
     var onNavigate: ((Song) -> Void)? = nil
 
     @Environment(MusicLibrary.self) private var library
-    @Environment(ScanService.self) private var scanService
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(\.dismiss) private var dismiss
@@ -327,40 +326,42 @@ struct TagEditorView: View {
                 .offset(x: 5, y: 5)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("tag_editor_filename_label")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            if !fileNameDisplay.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("tag_editor_filename_label")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
 
-                fileNameEditor
+                    fileNameEditor
 
-                Button {
-                    applyFilenameSplit()
-                } label: {
-                    Label("tag_editor_split_filename", systemImage: "wand.and.stars")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
-                        .background {
-                            Capsule().fill(
-                                didApplySplit ? Color.secondary.opacity(0.14) : Color.accentColor.opacity(0.14)
-                            )
-                        }
-                        .foregroundStyle(didApplySplit ? Color.secondary : Color.accentColor)
-                }
-                .buttonStyle(.plain)
-                .disabled(splitPreview == nil)
+                    Button {
+                        applyFilenameSplit()
+                    } label: {
+                        Label("tag_editor_split_filename", systemImage: "wand.and.stars")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
+                            .background {
+                                Capsule().fill(
+                                    didApplySplit ? Color.secondary.opacity(0.14) : Color.accentColor.opacity(0.14)
+                                )
+                            }
+                            .foregroundStyle(didApplySplit ? Color.secondary : Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(splitPreview == nil)
 
-                if let preview = splitPreview {
-                    Text(String(
-                        format: String(localized: "tag_editor_split_preview %@ %@"),
-                        preview.artist ?? String(localized: "unknown_artist"),
-                        preview.title
-                    ))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    if let preview = splitPreview {
+                        Text(String(
+                            format: String(localized: "tag_editor_split_preview %@ %@"),
+                            preview.artist ?? String(localized: "unknown_artist"),
+                            preview.title
+                        ))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    }
                 }
             }
 
@@ -368,11 +369,21 @@ struct TagEditorView: View {
         }
     }
 
+    private var locationSong: Song {
+        guard sourcesStore.source(id: initialSong.sourceID)?.type.isServerLibrary == true else { return initialSong }
+        return library.song(id: initialSong.id) ?? initialSong
+    }
+
+    private static func filenamePath(for song: Song, sourceType: MusicSourceType?) -> String? {
+        if let path = song.serverFilePath { return path }
+        if sourceType?.isServerLibrary == true || sourceType == .upnp { return nil }
+        return song.filePath
+    }
+
     private var fileNameDisplay: String {
-        if FnMusicAPIProtocol.trackGUID(from: initialSong.filePath) != nil {
-            return scanService.sourceFileName(for: initialSong) ?? ""
-        }
-        return (initialSong.filePath as NSString).lastPathComponent
+        let current = locationSong
+        let path = Self.filenamePath(for: current, sourceType: sourcesStore.source(id: current.sourceID)?.type)
+        return path.map { ($0 as NSString).lastPathComponent } ?? ""
     }
 
     private var requestedRenameStem: String? {
@@ -432,18 +443,19 @@ struct TagEditorView: View {
 
     /// 扫库拿候选。只在进入编辑器 / 翻页换歌时跑一次。
     private func computeCandidates() {
-        let directory = (song.filePath as NSString).deletingLastPathComponent
+        let sourceType = sourcesStore.source(id: song.sourceID)?.type
+        let path = Self.filenamePath(for: locationSong, sourceType: sourceType)
+        let directory = path.map { ($0 as NSString).deletingLastPathComponent } ?? ""
         let siblings: [String]
         if directory.isEmpty {
             siblings = [fileNameDisplay]
         } else {
             let names = library.visibleSongs.lazy
-                .filter {
-                    $0.sourceID == song.sourceID
-                        && ($0.filePath as NSString).deletingLastPathComponent == directory
-                }
+                .filter { $0.sourceID == song.sourceID }
+                .compactMap { Self.filenamePath(for: $0, sourceType: sourceType) }
+                .filter { ($0 as NSString).deletingLastPathComponent == directory }
                 .prefix(60)
-                .map { ($0.filePath as NSString).lastPathComponent }
+                .map { ($0 as NSString).lastPathComponent }
             siblings = names.isEmpty ? [fileNameDisplay] : Array(names)
         }
         cachedSiblingNames = siblings
@@ -1070,7 +1082,9 @@ struct TagEditorView: View {
 
                     macReadOnlyField(String(localized: "tag_editor_field_file_size"), value: macFileSizeText)
                     macReadOnlyField(String(localized: "tag_editor_field_duration"), value: macDurationText)
-                    macReadOnlyField(String(localized: "tag_editor_field_location"), value: FnMusicAPIProtocol.trackGUID(from: song.filePath) == nil ? song.filePath : fileNameDisplay, monospace: true)
+                    if let path = SongPathPresentationPolicy.displayPath(for: locationSong, sourceType: sourcesStore.source(id: initialSong.sourceID)?.type) {
+                        macReadOnlyField(String(localized: "tag_editor_field_location"), value: path, monospace: true)
+                    }
 
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "info.circle")
@@ -1265,11 +1279,14 @@ struct TagEditorView: View {
             Text(value.isEmpty ? "—" : value)
                 .font(monospace ? .system(size: 11.5, design: .monospaced) : PMFont.bodyS)
                 .foregroundStyle(value.isEmpty ? PMColor.textFaint : PMColor.text)
-                .lineLimit(monospace ? 2 : 1)
+                .lineLimit(monospace ? nil : 1)
+                .fixedSize(horizontal: false, vertical: monospace)
+                .textSelection(.enabled)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
-                .frame(height: monospace ? 34 : 26, alignment: .center)
+                .padding(.vertical, monospace ? 5 : 0)
+                .frame(minHeight: monospace ? 34 : 26)
                 .background(PMColor.bgElev.opacity(0.72), in: .rect(cornerRadius: 5))
                 .overlay {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -1554,13 +1571,13 @@ struct TagEditorView: View {
     }
 
     private var metadataEdits: [TagCleanupProposal] {
-        Self.metadataEdits(for: initialSong, fields: [
+        Self.metadataEdits(for: initialSong, fileName: fileNameDisplay, fields: [
             (.title, title), (.artist, artist), (.album, album), (.genre, genre),
             (.year, yearText), (.trackNumber, trackText), (.discNumber, discText)
         ])
     }
 
-    static func metadataEdits(for song: Song, fields: [(TagCleanupField, String)]) -> [TagCleanupProposal] {
+    static func metadataEdits(for song: Song, fileName: String, fields: [(TagCleanupField, String)]) -> [TagCleanupProposal] {
         let original = BatchTagEditService.cleanupSong(song)
         return fields.compactMap { field, text in
             let old = original.value(of: field)
@@ -1568,7 +1585,7 @@ struct TagEditorView: View {
             guard entered != trimmedOrNil(old ?? "") else { return nil }
             let value: String?
             switch field {
-            case .title: value = entered ?? (song.filePath as NSString).lastPathComponent
+            case .title: value = entered ?? trimmedOrNil(fileName) ?? old
             case .year, .trackNumber, .discNumber: value = entered.flatMap(Int.init).map(String.init)
             default: value = entered
             }

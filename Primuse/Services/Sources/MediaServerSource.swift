@@ -4186,7 +4186,9 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             audioCodec: ContainerAudioCodecPolicy.storedCodec(
                 ContainerAudioCodecPolicy.codec(named: audioStream?.codec), container: format
             ),
-            serverDateAdded: serverDateAdded
+            serverDateAdded: serverDateAdded,
+            serverFilePath: SongPathPresentationPolicy.providerPath(item.path)
+                ?? item.mediaSources?.first?.path
         )
     }
 
@@ -4244,7 +4246,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 ContainerAudioCodecPolicy.codec(named: audioStream?.codec ?? item.media?.first?.audioCodec),
                 container: format
             ),
-            serverDateAdded: serverDateAdded
+            serverDateAdded: serverDateAdded,
+            serverFilePath: part?.file
         )
     }
 

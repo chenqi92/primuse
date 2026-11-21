@@ -1862,6 +1862,7 @@ final class AppServices {
         // tombstones survive re-OAuth — the user re-adding the same
         // Baidu account mints a new mount UUID, which would otherwise
         // change song.id and silently bypass the tombstone set.
+        library.searchSources = store
         library.sourceIdentityResolver = { [weak store] sourceID in
             store?.allSources.first(where: { $0.id == sourceID })?.cloudAccountID
         }

@@ -878,7 +878,8 @@ extension SynologyAudioStationSong {
             revision: "audiostation:\(fileSize ?? 0):\(Int((duration ?? 0).rounded())):\(container ?? "")",
             audioCodec: isVirtualTrack ? nil : ContainerAudioCodecPolicy.storedCodec(
                 ContainerAudioCodecPolicy.codec(named: codec), container: format
-            )
+            ),
+            serverFilePath: path
         )
     }
 

@@ -148,6 +148,7 @@ struct SynologyAudioStationTests {
 
         let flac = try #require(byID["music_6908"]?.makeSong(sourceID: "nas-a"))
         #expect(flac.filePath == "/songs/music_6908.flac")
+        #expect(flac.serverFilePath == byID["music_6908"]?.path)
         #expect(flac.fileFormat == .flac)
         #expect(flac.bitRate == 883 && flac.sampleRate == 44100 && flac.fileSize == 30255188)
         #expect(flac.trackNumber == 3 && flac.discNumber == 4 && flac.year == 1990 && flac.duration == 262)
