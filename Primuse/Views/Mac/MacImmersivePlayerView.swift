@@ -4,7 +4,7 @@ import PrimuseKit
 
 /// macOS 沉浸播放：鼠标静置 3 秒淡出，0 返回原生、1–5 切换 A–E，
 /// 方向键定位，Option+方向键切歌，Esc 直接退出窗口全屏（卡拉 OK 开着时先回到沉浸页）。
-/// 15 分钟没动鼠标、没按键就进省电档：压暗、停下装饰动画与频谱，叠上时钟和当前歌词。
+/// 播放时「一直常亮」保留当前画面；其余时候闲置后进入省电档。
 struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
     let lyrics: [LyricLine]
@@ -465,6 +465,9 @@ struct MacImmersivePlayerView: View {
         .onChange(of: player.lastPlaybackError) { _, error in
             guard error != nil else { return }
             revealChrome()
+        }
+        .onChange(of: ScreenIdleHoldController.shared.keepsImmersivePresentationAwake) {
+            scheduleLowPower()
         }
         .onChange(of: showsEffectPicker) { _, isPresented in
             if isPresented {
@@ -1806,6 +1809,10 @@ struct MacImmersivePlayerView: View {
     /// 15 分钟没动鼠标、没按键：压暗、停下装饰动画与频谱，叠上时钟和当前歌词。动一下鼠标就回来。
     private func scheduleLowPower() {
         idleTask?.cancel()
+        if ScreenIdleHoldController.shared.keepsImmersivePresentationAwake {
+            exitLowPower()
+            return
+        }
         guard isRenderingActive,
               !voiceOverEnabled,
               !showsKaraoke,
@@ -1819,6 +1826,7 @@ struct MacImmersivePlayerView: View {
                 return
             }
             guard !Task.isCancelled,
+                  !ScreenIdleHoldController.shared.keepsImmersivePresentationAwake,
                   isRenderingActive,
                   isStageReady,
                   !voiceOverEnabled,

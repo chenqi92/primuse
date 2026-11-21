@@ -111,12 +111,15 @@ public struct ScreenIdleHoldContext: Equatable, Sendable {
 
 public struct ScreenIdleHoldDecision: Equatable, Sendable {
     public var holds: Bool
+    /// 播放中的「一直常亮」同时保留当前全屏画面，跳过应用内的休憩时钟。
+    public var keepsImmersivePresentationAwake: Bool
     /// 没有新输入时判定最早会自己变的时刻（延时档到点、暂停宽限结束）；nil 表示不会自己变。
     public var reevaluateAt: Date?
 
-    public init(holds: Bool, reevaluateAt: Date?) {
+    public init(holds: Bool, reevaluateAt: Date?, keepsImmersivePresentationAwake: Bool = false) {
         self.holds = holds
         self.reevaluateAt = reevaluateAt
+        self.keepsImmersivePresentationAwake = keepsImmersivePresentationAwake
     }
 
     public static let released = ScreenIdleHoldDecision(holds: false, reevaluateAt: nil)
@@ -149,7 +152,11 @@ public enum ScreenIdleHoldPolicy {
             guard now < expiry else { return .released }
             deadlines.append(expiry)
         }
-        return ScreenIdleHoldDecision(holds: true, reevaluateAt: deadlines.min())
+        return ScreenIdleHoldDecision(
+            holds: true,
+            reevaluateAt: deadlines.min(),
+            keepsImmersivePresentationAwake: context.mode == .always
+        )
     }
 
     /// 电视全屏播放页自己的那份租约（省电档又暂停时交还系统，由 `pageHolds` 带进来）。

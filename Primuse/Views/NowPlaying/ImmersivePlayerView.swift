@@ -6,7 +6,7 @@ import PrimuseKit
 /// iOS 全屏沉浸播放。
 ///
 /// iOS 使用点按、上下/左右滑动与捏合；控件按 3.5 秒静默时序淡出，
-/// 连续 5 分钟无操作后进入低亮度 Ambient Rest，15 分钟起再降到省电档（见 `ImmersiveIdlePowerPolicy`）。
+/// 「一直常亮」未生效时，普通歌曲连续 5 分钟无操作后进入低亮度休憩，15 分钟起再降到省电档。
 struct ImmersivePlayerView: View {
     @Binding var effect: FullscreenPlayerEffect
     let lyrics: [LyricLine]
@@ -430,6 +430,14 @@ struct ImmersivePlayerView: View {
         playbackStage.onChange(of: isSceneActive) { _, isActive in
             if !isActive { discPosition.endDrag() }
             handleSceneActivityChange(isActive: isActive)
+        }
+        .onChange(of: ScreenIdleHoldController.shared.keepsImmersivePresentationAwake) { _, keepsAwake in
+            if keepsAwake {
+                ambientTask?.cancel()
+                exitAmbientRest()
+            } else {
+                scheduleAmbientRest()
+            }
         }
         .onChange(of: voiceOverEnabled, initial: true) { _, isEnabled in
             if isEnabled {
@@ -1742,12 +1750,14 @@ struct ImmersivePlayerView: View {
         scheduleAmbientRest()
     }
 
+    private var allowsAmbientRest: Bool {
+        isSceneActive && !presentsOnExternalDisplay && !voiceOverEnabled && !showsEffectPicker
+            && !ScreenIdleHoldController.shared.keepsImmersivePresentationAwake
+    }
+
     private func scheduleAmbientRest() {
         ambientTask?.cancel()
-        guard isSceneActive,
-              !presentsOnExternalDisplay,
-              !voiceOverEnabled,
-              !showsEffectPicker else { return }
+        guard allowsAmbientRest else { return }
         // 环境音进全屏就是为了一块安静的屏:几秒没人碰就落到带时钟的休憩层,不必等五分钟。
         let restDelay = AmbientSoundPlaybackPolicy.fullscreenRestDelay(isAmbient: player.currentItemIsAmbient)
         ambientTask = Task { @MainActor in
@@ -1756,17 +1766,13 @@ struct ImmersivePlayerView: View {
             } catch {
                 return
             }
-            guard !Task.isCancelled,
-                  isSceneActive,
-                  !voiceOverEnabled,
-                  !isSeeking,
-                  !showsEffectPicker else { return }
+            guard !Task.isCancelled, !isSeeking else { return }
             enterAmbientRest()
         }
     }
 
     private func enterAmbientRest() {
-        guard isSceneActive, !voiceOverEnabled, !showsEffectPicker else { return }
+        guard allowsAmbientRest else { return }
         chromeTask?.cancel()
         withAnimation(.easeInOut(duration: 0.6)) {
             showsChrome = false
@@ -1786,7 +1792,7 @@ struct ImmersivePlayerView: View {
             } catch {
                 return
             }
-            guard !Task.isCancelled, isAmbientRest, isSceneActive else { return }
+            guard !Task.isCancelled, isAmbientRest, allowsAmbientRest else { return }
             withAnimation(.easeInOut(duration: 1.2)) { isLowPower = true }
             synchronizeVisualizer()
         }

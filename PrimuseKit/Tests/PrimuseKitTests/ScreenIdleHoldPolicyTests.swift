@@ -75,7 +75,9 @@ struct ScreenIdleHoldPolicyTests {
             context(.always),
             now: start.addingTimeInterval(6 * 3600)
         )
-        #expect(decision == ScreenIdleHoldDecision(holds: true, reevaluateAt: nil))
+        #expect(decision.holds)
+        #expect(decision.reevaluateAt == nil)
+        #expect(decision.keepsImmersivePresentationAwake)
         #expect(!ScreenIdleHoldPolicy.decide(context(.always, isAppActive: false), now: start).holds)
     }
 
@@ -114,11 +116,12 @@ struct ScreenIdleHoldPolicyTests {
         let paused = context(.always, isPlaying: false, playbackStoppedAt: pausedAt)
         let duringGrace = ScreenIdleHoldPolicy.decide(paused, now: pausedAt.addingTimeInterval(3))
         #expect(duringGrace.holds)
+        #expect(duringGrace.keepsImmersivePresentationAwake)
         #expect(duringGrace.reevaluateAt == pausedAt.addingTimeInterval(ScreenIdleHoldPolicy.pauseGrace))
-        #expect(!ScreenIdleHoldPolicy.decide(
+        #expect(ScreenIdleHoldPolicy.decide(
             paused,
             now: pausedAt.addingTimeInterval(ScreenIdleHoldPolicy.pauseGrace)
-        ).holds)
+        ) == .released)
 
         // 这次启动还没播过：没有宽限可言。
         #expect(!ScreenIdleHoldPolicy.decide(context(.always, isPlaying: false), now: start).holds)
@@ -160,7 +163,7 @@ struct ScreenIdleHoldPolicyTests {
 
     @Test func theImmersivePlayerKeepsEachModesTiming() {
         let always = ScreenIdleHoldPolicy.decide(context(.always), now: start.addingTimeInterval(8 * 3600))
-        #expect(always == ScreenIdleHoldDecision(holds: true, reevaluateAt: nil))
+        #expect(always == ScreenIdleHoldDecision(holds: true, reevaluateAt: nil, keepsImmersivePresentationAwake: true))
 
         let tenMinutes = ScreenIdleHoldPolicy.decide(context(.extend10), now: start.addingTimeInterval(60))
         #expect(tenMinutes == ScreenIdleHoldDecision(holds: true, reevaluateAt: start.addingTimeInterval(10 * 60)))
@@ -177,6 +180,23 @@ struct ScreenIdleHoldPolicyTests {
         var outside = inside
         outside.isImmersivePlayerShown = false
         #expect(ScreenIdleHoldPolicy.decide(outside, now: pausedAt.addingTimeInterval(2)) == .released)
+    }
+
+    @Test func changingModesAndChargingWhilePlayingUpdatesWhetherTheStageCanRest() {
+        var playing = context(.extend30, requiresCharging: true, isCharging: true)
+        let idle = start.addingTimeInterval(5 * 60)
+        #expect(ScreenIdleHoldPolicy.decide(playing, now: idle).holds)
+        #expect(!ScreenIdleHoldPolicy.decide(playing, now: idle).keepsImmersivePresentationAwake)
+
+        playing.mode = .always
+        #expect(ScreenIdleHoldPolicy.decide(playing, now: idle).keepsImmersivePresentationAwake)
+        playing.isCharging = false
+        #expect(!ScreenIdleHoldPolicy.decide(playing, now: idle).keepsImmersivePresentationAwake)
+        playing.requiresCharging = false
+        #expect(ScreenIdleHoldPolicy.decide(playing, now: idle).keepsImmersivePresentationAwake)
+
+        playing.mode = .system
+        #expect(!ScreenIdleHoldPolicy.decide(playing, now: idle).keepsImmersivePresentationAwake)
     }
 
     // MARK: - 电视全屏播放页

@@ -66,7 +66,7 @@ public enum SSDPNetworkInterfaces {
         )
     }
 
-    private static func string(from address: in_addr) -> String {
+    fileprivate static func string(from address: in_addr) -> String {
         var copy = address
         var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
         guard inet_ntop(AF_INET, &copy, &buffer, socklen_t(buffer.count)) != nil else {
@@ -76,6 +76,103 @@ public enum SSDPNetworkInterfaces {
             guard let baseAddress = pointer.baseAddress else { return "" }
             return String(cString: baseAddress)
         }
+    }
+}
+
+public final class DLNASSDPReadSource: @unchecked Sendable {
+    public var fileDescriptor: Int32 { socket.fileDescriptor }
+    private let socket: FileHandle
+    private let source: DispatchSourceRead
+    private let onPacket: @Sendable (String, String, UInt16) -> Void
+    private let onFailure: @Sendable (String) -> Void
+
+    // The source's serial queue owns the receive buffer and the failure streak.
+    private var buffer = [UInt8](repeating: 0, count: 65_536)
+    private var firstUnproductiveRead: ContinuousClock.Instant?
+    private var unproductiveReads = 0
+
+    public init(
+        owning fd: Int32,
+        onPacket: @escaping @Sendable (String, String, UInt16) -> Void,
+        onFailure: @escaping @Sendable (String) -> Void
+    ) {
+        let socket = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        self.socket = socket
+        self.onPacket = onPacket
+        self.onFailure = onFailure
+        source = DispatchSource.makeReadSource(
+            fileDescriptor: fd,
+            queue: DispatchQueue(label: "com.welape.primuse.dlna.ssdp", qos: .utility)
+        )
+        source.setEventHandler { [weak self] in self?.readDatagram() }
+        // The main actor can still be sending until it releases this receiver.
+        // The read queue also needs the descriptor until cancellation completes.
+        source.setCancelHandler { withExtendedLifetime(socket) {} }
+    }
+
+    public func activate() { source.activate() }
+    public func cancel() { source.cancel() }
+    var isCancelled: Bool { source.isCancelled }
+
+    deinit {
+        source.cancel()
+        source.activate()
+    }
+
+    private func readDatagram() {
+        while !source.isCancelled {
+            var peer = sockaddr_in()
+            var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let count = buffer.withUnsafeMutableBytes { bytes in
+                withUnsafeMutablePointer(to: &peer) { sender in
+                    sender.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        Darwin.recvfrom(fileDescriptor, bytes.baseAddress, bytes.count, MSG_DONTWAIT, $0, &length)
+                    }
+                }
+            }
+            let errorCode = count < 0 ? errno : 0
+            let hasPeer = length >= socklen_t(MemoryLayout<sockaddr_in>.size)
+                && peer.sin_family == sa_family_t(AF_INET)
+            switch handleReadResult(count: count, errorCode: errorCode, hasPeer: hasPeer) {
+            case .retry:
+                continue
+            case .packet:
+                if hasPeer, let message = String(bytes: buffer.prefix(count), encoding: .utf8) {
+                    let host = SSDPNetworkInterfaces.string(from: peer.sin_addr)
+                    onPacket(message, host, UInt16(bigEndian: peer.sin_port))
+                }
+            case .done:
+                break
+            }
+            return
+        }
+    }
+
+    enum ReadAction: Equatable { case packet, retry, done }
+
+    func handleReadResult(
+        count: Int, errorCode: Int32, hasPeer: Bool, now: ContinuousClock.Instant? = nil
+    ) -> ReadAction {
+        guard !source.isCancelled else { return .done }
+        // A zero-length UDP datagram still carries its sender's address.
+        if count > 0 || (count == 0 && hasPeer) {
+            firstUnproductiveRead = nil
+            return count > 0 ? .packet : .done
+        }
+        if count < 0 && (errorCode == EINTR || errorCode == EAGAIN || errorCode == EWOULDBLOCK) {
+            let now = now ?? .now
+            if let firstUnproductiveRead, firstUnproductiveRead.duration(to: now) < .seconds(1) {
+                unproductiveReads += 1
+            } else {
+                firstUnproductiveRead = now
+                unproductiveReads = 1
+            }
+            // A healthy source waits for the next readiness notification after EAGAIN.
+            if unproductiveReads < 8 { return errorCode == EINTR ? .retry : .done }
+        }
+        source.cancel()
+        onFailure(count == 0 ? "zero-byte read without IPv4 peer" : "recvfrom errno=\(errorCode)")
+        return .done
     }
 }
 

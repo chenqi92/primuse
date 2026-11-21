@@ -133,7 +133,7 @@ private struct TVImmersiveScreenWakeLeaseModifier: ViewModifier {
 
 /// tvOS 沉浸播放：56pt 安全区、按需显示的次级控制栏与 8 秒静默淡出；
 /// 长按选择键展开效果选择，控件隐藏时左右单次切歌，Menu 退出。
-/// 15 分钟没碰遥控器就进省电档：压暗、停下装饰动画与频谱，叠上时钟和当前歌词；暂停着就把屏保交还给系统。
+/// 播放常亮未生效时，15 分钟没碰遥控器就进省电档；暂停着就把屏保交还给系统。
 struct TVImmersivePlayerView: View {
     var presentsModePickerOnAppear = false
 
@@ -431,6 +431,10 @@ struct TVImmersivePlayerView: View {
                 isPlaying: store.isPlaying
             )
         ))
+        .screenIdleImmersiveSurface()
+        .onChange(of: ScreenIdleHoldController.shared.keepsImmersivePresentationAwake) { _, _ in
+            scheduleLowPower()
+        }
         .onExitCommand {
             ScreenIdleHoldController.shared.noteUserInteraction()
             // 卡拉OK 在最上层:第一下回到沉浸播放页,再按一下才退出全屏页。
@@ -1660,6 +1664,10 @@ extension TVImmersivePlayerView {
     fileprivate func scheduleLowPower() {
         idleTask?.cancel()
         idleTask = nil
+        if ScreenIdleHoldController.shared.keepsImmersivePresentationAwake {
+            exitLowPower()
+            return
+        }
         guard presentationActivity.isRenderingActive,
               !assistiveNavigationEnabled, !showsDiscPosition, !isKaraokeActive,
               let idleDelay = ImmersiveIdlePowerPolicy.delayToNextStage(from: .awake, restsEarly: false) else { return }
@@ -1671,6 +1679,7 @@ extension TVImmersivePlayerView {
                 return
             }
             guard !Task.isCancelled,
+                  !ScreenIdleHoldController.shared.keepsImmersivePresentationAwake,
                   presentationActivity.isRenderingActive,
                   !showsModePicker, !showsDiscPosition, !isKaraokeActive,
                   !scrubberFocused,

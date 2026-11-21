@@ -157,6 +157,18 @@ final class PlaybackSourceAvailabilityTests: XCTestCase {
         await player.seekTask?.value
         XCTAssertEqual(player.currentTime, 7, accuracy: 0.5)
         XCTAssertTrue(player.isPlaying)
+
+        player.pause()
+        for position in [9.0, 3.0] {
+            player.seek(to: position)
+            XCTAssertEqual(player.currentTime, position)
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertFalse(player.isLoading)
+        }
+        player.togglePlayPause()
+        await player.seekTask?.value
+        XCTAssertTrue(player.audioEngine.isActuallyPlaying)
+        XCTAssertEqual(player.currentTime, 3, accuracy: 0.5)
         release.signal()
         await maintenance.value
     }

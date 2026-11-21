@@ -74,6 +74,8 @@ enum ScreenWakeLeases {
 final class ScreenIdleHoldController {
     static let shared = ScreenIdleHoldController()
 
+    private(set) var keepsImmersivePresentationAwake = false
+
     @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var readsIsPlaying: @MainActor @Sendable () -> Bool = { false }
     @ObservationIgnored private var mode = ScreenIdleHoldMode.defaultValue
@@ -216,6 +218,7 @@ final class ScreenIdleHoldController {
         }
         holdsForPlayback = playback.holds
         holdsForFullscreenPage = fullscreenPage.holds
+        keepsImmersivePresentationAwake = playback.keepsImmersivePresentationAwake
         ScreenWakeLeases.update(owner: Self.playbackOwner, holds: playback.holds)
         ScreenWakeLeases.update(owner: Self.fullscreenPageOwner, holds: fullscreenPage.holds)
 

@@ -697,6 +697,7 @@ extension ListeningIntentService {
     /// 能「接着上次」的曲数:离开音乐去听书、听电台时记下的音乐队列,或者停在那儿的音乐队列。
     /// 停用的源里的歌不算,一首都放不了就不出这张卡;源重新启用后又算回来。
     func resumeSongCount(player: AudioPlayerService) -> Int? {
+        guard !player.musicSessionMemoryStore.isPreparingResumeTarget else { return nil }
         let count = player.rememberedMusicSessionPlayableCount
         if count > 0 { return count }
         guard !player.isPlaying, !player.isLoading,
@@ -715,6 +716,16 @@ extension ListeningIntentService {
     @discardableResult
     func play(_ intent: ListeningIntent, player: AudioPlayerService, library: MusicLibrary) async -> Bool {
         if intent.habit == .resume {
+            let store = player.musicSessionMemoryStore
+            if store.isPreparingResumeTarget {
+                let command = player.castingCommandGeneration
+                let queueRequest = player.queueRequestToken
+                let advance = player.playbackAdvancePolicy.generation
+                await store.waitForStartupResumeTarget()
+                guard !Task.isCancelled, !store.isPreparingResumeTarget,
+                      command == player.castingCommandGeneration, queueRequest == player.queueRequestToken,
+                      advance == player.playbackAdvancePolicy.generation else { return false }
+            }
             if player.rememberedMusicSessionPlayableCount > 0 {
                 return await player.resumeMusicSession()
             }

@@ -1060,7 +1060,8 @@ extension AudioPlayerService {
         reacquiringLocalRouteFocus: Bool = false
     ) {
         guard !isLiveRadio else { return }
-        if !isRecovery, !isConfigurationRecovery, !isColdSessionRestore, !reacquiringLocalRouteFocus {
+        let isUserSeek = !isRecovery && !isConfigurationRecovery && !isColdSessionRestore && !reacquiringLocalRouteFocus
+        if isUserSeek {
             noteABRepeatSeek(to: time)
         }
         noteSpokenWordSeekWhilePaused(to: time, isRecovery: isRecovery)
@@ -1242,6 +1243,17 @@ extension AudioPlayerService {
                 }
             }
             updateNowPlayingInfo()
+            return
+        }
+        if isUserSeek, startPlaying != true, !isPlaying, !isLoading,
+           !interruptionResumePolicy.playbackIsIntended, currentSong != nil {
+            // Queued PCM still belongs to the old position. Resolve and decode the new one on Play.
+            releasePausedPipelineIfIdle()
+            isAtTrackEnd = false
+            currentTime = targetTime
+            pendingRecoveryTime = targetTime
+            needsPlaybackRecovery = true
+            republishNowPlayingSurfaces()
             return
         }
         currentTime = targetTime

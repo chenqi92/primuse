@@ -61,7 +61,12 @@ final class DLNARendererService {
     /// 内部独立持久, 跟 UserDefaults 解耦, 由 Settings 那边 mirror。
     private(set) var isRunning = false
     /// 最近一条状态行,给 settings 显示 "等待发现" / "正在播放 xx" / "错误: xx"。
-    private(set) var statusText: String = ""
+    private var transportStatusText = ""
+    private var ssdpFailureStatusText: String?
+    private(set) var statusText: String {
+        get { ssdpFailureStatusText ?? transportStatusText }
+        set { transportStatusText = newValue }
+    }
     /// 最近 80 条事件 ── 给 Settings 调试面板按时间倒序展示。包含 M-SEARCH 命中、
     /// SOAP 控制调用、GENA 订阅生命周期。环形覆盖, 太老的事件丢掉。
     private(set) var recentEvents: [DebugEvent] = []
@@ -142,8 +147,13 @@ final class DLNARendererService {
     /// 有已知问题, 实测一个 M-SEARCH 都收不到 (见 8b1da7c)。退回 BSD socket:
     /// 一个 fd 绑 INADDR_ANY:1900, 同时通过 IP_ADD_MEMBERSHIP 加入
     /// 239.255.255.250, multicast 和 unicast M-SEARCH 都能投递到 read source。
-    private var ssdpSocket: Int32 = -1
-    private var ssdpReadSource: DispatchSourceRead?
+    @ObservationIgnored private var ssdpReceiver: DLNASSDPReadSource?
+    private var ssdpSocket: Int32 { ssdpReceiver?.fileDescriptor ?? -1 }
+    @ObservationIgnored private var ssdpRestartMachine = ListenerRestartStateMachine()
+    @ObservationIgnored private var ssdpRetryTask: Task<Void, Never>?
+    #if os(iOS)
+    @ObservationIgnored nonisolated(unsafe) private var ssdpForegroundObserver: NSObjectProtocol?
+    #endif
     private var ssdpJoinedInterfaceAddresses: Set<UInt32> = []
     private var httpListener: NWListener?
     /// 半开连接防护: 凑齐请求头前的 idle 超时 + 并发连接上限, 防 LAN 端
@@ -237,6 +247,16 @@ final class DLNARendererService {
         self.friendlyName = DLNARendererAdvertisement.normalizedName(
             defaults.string(forKey: "dlna.receiverName") ?? "", fallback: defaultFriendlyName
         )
+        #if os(iOS)
+        ssdpForegroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isRunning, self.ssdpRestartMachine.isDegraded else { return }
+                self.startSSDPReceiver()
+            }
+        }
+        #endif
     }
 
     func setFriendlyName(_ name: String) {
@@ -254,6 +274,10 @@ final class DLNARendererService {
         // 观察跟踪的普通存储, nonisolated deinit 可以直接读;
         // Task.cancel() 也是 nonisolated, 从 deinit 调安全。
         httpRetryTask?.cancel()
+        ssdpRetryTask?.cancel()
+        #if os(iOS)
+        if let ssdpForegroundObserver { NotificationCenter.default.removeObserver(ssdpForegroundObserver) }
+        #endif
     }
 
     // MARK: - Lifecycle
@@ -286,44 +310,32 @@ final class DLNARendererService {
 
     func start() {
         guard !isRunning else { return }
-        do {
-            advertisement = DLNARendererAdvertisement()
-            try startSSDP()
-            syncRenderingStateFromEngine()
-            installPlayerObservation()
-            isRunning = true
-            statusText = ""
-            let action = httpRestartMachine.start()
-            if case .startListener(let generation) = action {
-                do {
-                    try startHTTP(generation: generation)
-                } catch {
-                    handleHTTPListenerFailure(error, generation: generation)
-                }
+        advertisement = DLNARendererAdvertisement()
+        syncRenderingStateFromEngine()
+        installPlayerObservation()
+        isRunning = true
+        statusText = ""
+        startSSDPReceiver()
+        if case .startListener(let generation) = httpRestartMachine.start() {
+            do {
+                try startHTTP(generation: generation)
+            } catch {
+                handleHTTPListenerFailure(error, generation: generation)
             }
-            syncKeepAliveState()
-            // 启动 Controller 侧的主动设备发现循环 ── 跟 NOTIFY alive 一样
-            // 前 60s 频繁 (3s/次) 让用户进 UI 就能立刻看到设备, 之后改 5min
-            // 兜底。每轮也顺手 prune 30 分钟没听到的 stale renderer。
-            discoveryTask = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(200))
-                await MainActor.run { self?.refreshRemoteRenderers() }
-                var fastTicks = 0
-                while !Task.isCancelled {
-                    let delay = fastTicks < 20 ? 3 : 300
-                    try? await Task.sleep(for: .seconds(delay))
-                    guard !Task.isCancelled else { break }
-                    await MainActor.run { self?.refreshRemoteRenderers() }
-                    fastTicks += 1
-                }
-            }
-            dlnaLog.notice("DLNA renderer started as \(self.friendlyName) (uuid=\(self.deviceUUID))")
-        } catch {
-            logEvent(.error, "start failed: \(error.localizedDescription)")
-            dlnaLog.error("DLNA start failed: \(error.localizedDescription)")
-            stop()
-            statusText = String(format: String(localized: "dlna_status_error_format"), error.localizedDescription)
         }
+        syncKeepAliveState()
+        // 前 60 秒频繁发现附近设备，然后改为每 5 分钟刷新。
+        discoveryTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            var fastTicks = 0
+            while !Task.isCancelled {
+                if let self, self.ssdpReceiver != nil { self.refreshRemoteRenderers() }
+                let delay = fastTicks < 20 ? 3 : 300
+                try? await Task.sleep(for: .seconds(delay))
+                fastTicks += 1
+            }
+        }
+        dlnaLog.notice("DLNA renderer started as \(self.friendlyName) (uuid=\(self.deviceUUID))")
     }
 
     /// 监听 player.isPlaying / currentSong / engine.volume,任一变就给所有
@@ -405,10 +417,10 @@ final class DLNARendererService {
         subscriptions.removeAll()
         connectedDevices.removeAll()
         activeControllerID = nil
-        ssdpReadSource?.cancel()  // cancel handler 里 close(fd)
-        ssdpReadSource = nil
-        ssdpSocket = -1
-        ssdpJoinedInterfaceAddresses.removeAll()
+        ssdpRestartMachine.stop()
+        ssdpRetryTask?.cancel(); ssdpRetryTask = nil
+        cancelSSDPReceiver()
+        ssdpFailureStatusText = nil
         httpListener?.cancel(); httpListener = nil
         activeHTTPConnections = 0
         isRunning = false
@@ -842,7 +854,55 @@ final class DLNARendererService {
 
     // MARK: - SSDP
 
-    private func startSSDP() throws {
+    private func startSSDPReceiver() {
+        if case .startListener(let generation) = ssdpRestartMachine.start() {
+            installSSDPReceiver(generation: generation)
+        }
+    }
+
+    private func installSSDPReceiver(generation: UInt64) {
+        do {
+            try startSSDP(generation: generation)
+            ssdpFailureStatusText = nil
+            if advertisement.listeningPort != nil {
+                sendNotifyBatch(isAlive: true)
+                refreshRemoteRenderers()
+            }
+        } catch {
+            handleSSDPFailure(error.localizedDescription, generation: generation)
+        }
+    }
+
+    private func cancelSSDPReceiver() {
+        ssdpReceiver?.cancel()
+        ssdpReceiver = nil
+        ssdpJoinedInterfaceAddresses.removeAll()
+    }
+
+    private func handleSSDPFailure(_ detail: String, generation: UInt64) {
+        let action = ssdpRestartMachine.listenerFailed(generation: generation, jitterUnit: Double.random(in: 0..<1))
+        guard action != .ignore else { return }
+        cancelSSDPReceiver()
+        switch action {
+        case .scheduleRetry(let delay, let failedGeneration):
+            logEvent(.error, "SSDP receiver failed: \(detail); retry \(ssdpRestartMachine.currentAttempt)")
+            ssdpRetryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, let self,
+                      case .startListener(let next) = self.ssdpRestartMachine.retryDue(generation: failedGeneration)
+                else { return }
+                self.ssdpRetryTask = nil
+                self.installSSDPReceiver(generation: next)
+            }
+        case .enterDegraded(let attempts):
+            ssdpFailureStatusText = String(format: String(localized: "dlna_status_error_format"), detail)
+            logEvent(.error, "SSDP receiver unavailable after \(attempts) retries: \(detail)")
+        case .startListener, .ignore:
+            break
+        }
+    }
+
+    private func startSSDP(generation: UInt64) throws {
         // 一个 UDP socket 同时收 multicast(239.255.255.250) 和 unicast(自机
         // 任意 IP) 到 1900 端口的包 ── BSD socket 标准玩法, 跟 iOS 上
         // NWConnectionGroup/NWListener UDP 同绑同端口的兼容性问题彻底解耦。
@@ -850,6 +910,13 @@ final class DLNARendererService {
         guard fd >= 0 else {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno),
                           userInfo: [NSLocalizedDescriptionKey: "socket() failed"])
+        }
+
+        let flags = fcntl(fd, F_GETFL)
+        guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else {
+            let code = errno
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(code))
         }
 
         // SO_REUSEADDR + SO_REUSEPORT ── 跟其它可能存在的 SSDP-aware 进程共存
@@ -884,17 +951,25 @@ final class DLNARendererService {
         _ = setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &loop,
                        socklen_t(MemoryLayout<UInt8>.size))
 
-        ssdpSocket = fd
+        let receiver = DLNASSDPReadSource(
+            owning: fd,
+            onPacket: { @Sendable [weak self] request, host, port in
+                Task { @MainActor [weak self] in
+                    guard let self, self.ssdpRestartMachine.currentGeneration == generation,
+                          self.ssdpRestartMachine.currentState == .listening else { return }
+                    if self.ssdpRestartMachine.currentAttempt > 0 {
+                        _ = self.ssdpRestartMachine.listenerReady(generation: generation)
+                    }
+                    self.handleSSDPDatagram(request, fromHost: host, fromPort: port)
+                }
+            },
+            onFailure: { @Sendable [weak self] detail in
+                Task { @MainActor [weak self] in self?.handleSSDPFailure(detail, generation: generation) }
+            }
+        )
+        ssdpReceiver = receiver
         let interfaces = refreshSSDPInterfaces()
-
-        // Keep socket reads and datagram decoding off the UI queue. Build the
-        // DispatchSource in a nonisolated context; its event handler is also
-        // explicitly @Sendable so Swift cannot inherit this @MainActor method's
-        // executor. Otherwise libdispatch invokes an actor-isolated closure on
-        // the SSDP queue and Swift 6 traps before it can hop to MainActor.
-        let source = Self.makeSSDPReadSource(fileDescriptor: fd, owner: self)
-        source.resume()
-        ssdpReadSource = source
+        receiver.activate()
 
         let interfaceNames = interfaces.map(\.name).joined(separator: ",")
         logEvent(
@@ -920,51 +995,6 @@ final class DLNARendererService {
                 fastTicks += 1
             }
         }
-    }
-
-    /// DispatchSource 触发时调 recvfrom 取一个 UDP 包 ── UDP datagram 边界
-    /// 明确, 每次 read 一个完整 M-SEARCH (或 NOTIFY, 但我们 ignore)。
-    nonisolated private static func receiveSSDPDatagram(
-        from socket: Int32
-    ) -> (request: String, host: String, port: UInt16)? {
-        var buffer = [UInt8](repeating: 0, count: 65536)
-        var src = sockaddr_in()
-        var srcLen = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let n = buffer.withUnsafeMutableBufferPointer { buf -> Int in
-            withUnsafeMutablePointer(to: &src) { srcPtr in
-                srcPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { saPtr in
-                    Darwin.recvfrom(socket, buf.baseAddress, buf.count, 0, saPtr, &srcLen)
-                }
-            }
-        }
-        guard n > 0 else { return nil }
-        let data = Data(buffer[0..<n])
-        guard let request = String(data: data, encoding: .utf8) else { return nil }
-        let host = Self.ipString(from: src.sin_addr)
-        let port = UInt16(bigEndian: src.sin_port)
-        return (request, host, port)
-    }
-
-    nonisolated private static func makeSSDPReadSource(
-        fileDescriptor fd: Int32,
-        owner: DLNARendererService
-    ) -> DispatchSourceRead {
-        let queue = DispatchQueue(label: "com.welape.primuse.dlna.ssdp", qos: .utility)
-        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-        source.setEventHandler { @Sendable [weak owner] in
-            guard let packet = Self.receiveSSDPDatagram(from: fd) else { return }
-            Task { @MainActor [weak owner] in
-                owner?.handleSSDPDatagram(
-                    packet.request,
-                    fromHost: packet.host,
-                    fromPort: packet.port
-                )
-            }
-        }
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-        return source
     }
 
     /// 精确搜索只返回匹配的 ST；ssdp:all 才返回全部设备与服务类型。

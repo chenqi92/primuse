@@ -163,6 +163,8 @@ final class QueueWindowPlayerTests: XCTestCase {
         let player = try await makePlayer(librarySongs: catalog, startsPreparing: true)
         let library = try XCTUnwrap(player.library)
         library.updateDisabledSourceIDs(["disabled"])
+        player.setQueue([catalog[0]])
+        player.currentSong = catalog[0]
         let identity = UUID()
         let snapshot = PlaybackSessionSnapshot(queueSongIDs: ["s2", "s1", "s2", "missing", "s4"], currentSongID: "s2",
             currentIndex: 2, currentTime: 42, duration: 180, wasPlaying: false, shuffleEnabled: true,
@@ -170,7 +172,8 @@ final class QueueWindowPlayerTests: XCTestCase {
             queueIdentity: identity)
         player.musicSessionMemoryStore.save(.init(snapshot: snapshot, title: "Two", songID: "s2", sourceID: "local-source",
                                                  savedAt: Date()))
-        _ = await player.musicSessionMemoryStore.startupRead?.value
+        XCTAssertNil(ListeningIntentService.shared.resumeSongCount(player: player))
+        await player.musicSessionMemoryStore.waitForStartupResumeTarget()
         XCTAssertTrue(player.hasPlayableRememberedMusicSession)
         XCTAssertEqual(ListeningIntentService.shared.resumeSongCount(player: player), 3)
         let restored = await player.resumeMusicSession(startPlayback: false)
@@ -183,6 +186,30 @@ final class QueueWindowPlayerTests: XCTestCase {
         XCTAssertEqual(player.shufflePosition, 1)
         XCTAssertEqual(player.queueIdentity, identity)
         XCTAssertEqual(player.repeatMode, .all)
+    }
+
+    @MainActor
+    func testColdResumeUsesInstalledQueueOnlyAfterCheckingTheSavedSongs() async throws {
+        var catalog = songs(3)
+        catalog[2].sourceID = "disabled"
+        let player = try await makePlayer(librarySongs: catalog, startsPreparing: true)
+        let library = try XCTUnwrap(player.library)
+        library.updateDisabledSourceIDs(["disabled"])
+        player.setQueue(Array(catalog.prefix(2)))
+        player.currentSong = catalog[0]
+        let store = player.musicSessionMemoryStore
+        await store.waitForStartupResumeTarget()
+        let intents = ListeningIntentService.shared
+        XCTAssertEqual(intents.resumeSongCount(player: player), 2)
+
+        let snapshot = PlaybackSessionSnapshot(queueSongIDs: ["s2"], currentSongID: "s2", currentIndex: 0,
+            currentTime: 45, duration: 180, wasPlaying: false, shuffleEnabled: false, shuffledIndices: [],
+            shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false)
+        store.save(.init(snapshot: snapshot, title: "Song 2", songID: "s2", sourceID: "disabled", savedAt: Date()))
+        XCTAssertNil(intents.resumeSongCount(player: player))
+        await store.waitForStartupResumeTarget()
+        XCTAssertEqual(intents.resumeSongCount(player: player), 2)
+        XCTAssertFalse(library.isReady)
     }
 
     @MainActor

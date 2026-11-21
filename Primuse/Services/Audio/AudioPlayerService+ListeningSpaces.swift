@@ -25,13 +25,13 @@ final class MusicSessionMemoryStore {
     private(set) var memory: Memory? {
         didSet { prepareStartupWindow() }
     }
-    private(set) var startupPlayableCounts: [String: Int] = [:]
+    private(set) var startupPlayableCounts: [String: Int]?
     @ObservationIgnored private weak var startupLibrary: MusicLibrary?
     @ObservationIgnored private(set) var startupRead: Task<[String: Song]?, Never>?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let url: URL
     @ObservationIgnored private var revision = 0
-    @ObservationIgnored private var loadTask: Task<Void, Never>?
+    private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var activeQueueWhileLoading: [String]?
     @ObservationIgnored private var writeTask: Task<Void, Never>?
     @ObservationIgnored private var pendingWrite: Memory?
@@ -82,10 +82,21 @@ final class MusicSessionMemoryStore {
         }
     }
 
+    /// Until the saved window is resolved, the installed queue is only a possible fallback.
+    var isPreparingResumeTarget: Bool {
+        guard memory != nil else { return revision == 0 && loadTask != nil }
+        return startupLibrary?.isReady == false && startupPlayableCounts == nil
+    }
+
+    func waitForStartupResumeTarget() async {
+        if memory == nil { await loadTask?.value }
+        _ = await startupRead?.value
+    }
+
     private func prepareStartupWindow() {
         startupRead?.cancel()
         startupRead = nil
-        startupPlayableCounts = [:]
+        startupPlayableCounts = nil
         guard let library = startupLibrary, !library.isReady, let memory else { return }
         startupRead = Task { [weak self] in
             let ids = await Task.detached(priority: .userInitiated) {
@@ -296,8 +307,9 @@ extension AudioPlayerService {
     var rememberedMusicSessionPlayableCount: Int {
         guard let memory = musicSessionMemoryStore.memory, let library else { return 0 }
         if !library.isReady {
+            guard let counts = musicSessionMemoryStore.startupPlayableCounts else { return 0 }
             let disabled = library.disabledPlaybackSourceIDs
-            return musicSessionMemoryStore.startupPlayableCounts.reduce(0) { disabled.contains($1.key) ? $0 : $0 + $1.value }
+            return counts.reduce(0) { disabled.contains($1.key) ? $0 : $0 + $1.value }
         }
         return memory.snapshot.queueSongIDs.reduce(0) { count, songID in
             library.visibleSong(id: songID)?.isPlayable == true ? count + 1 : count
