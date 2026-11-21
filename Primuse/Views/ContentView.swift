@@ -1987,7 +1987,8 @@ struct ContentView: View {
                 // Without a player accessory that leaves a large empty gap at
                 // the bottom and looks like the other tabs disappeared. Only
                 // minimize when Now Playing can occupy that compact space.
-                .tabBarMinimizeBehavior(miniPlayerVisible && !pinsMiniPlayer ? .onScrollDown : .never)
+                // 多选期间整个标签栏已隐藏；保留滚动策略，让退出时接续原来的折叠状态。
+                .tabBarMinimizeBehavior(miniPlayerActive && !carPlayEditorActive && !pinsMiniPlayer ? .onScrollDown : .never)
                 .tabViewBottomAccessory(isEnabled: miniPlayerVisible) {
                     NowPlayingAccessory(onTap: presentNowPlaying)
                 }

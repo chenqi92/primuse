@@ -118,23 +118,12 @@ private struct IOSBatchActionToolbarContent<MoreActions: View>: View {
     }
 
     var body: some View {
-        content
-            // 与 macOS 分支同一档；这是系统底栏里的内容，只做淡入淡出，位移交给
-            // 系统自己的底栏动画，免得两条时间线打架。
-            .pmAnimation(.list, value: selection.isActive)
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if selection.isActive {
-            // 整排一起决定带不带图标：逐颗判断时窄屏上会一颗有图标、一颗没有。
-            ViewThatFits(in: .horizontal) {
-                actionRow(showsIcons: true)
-                actionRow(showsIcons: false)
-            }
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .pmFadeTransition()
+        // 整排一起决定带不带图标：逐颗判断时窄屏上会一颗有图标、一颗没有。
+        ViewThatFits(in: .horizontal) {
+            actionRow(showsIcons: true)
+            actionRow(showsIcons: false)
         }
+        .frame(maxWidth: .infinity, minHeight: 44)
     }
 
     private func actionRow(showsIcons: Bool) -> some View {
@@ -395,14 +384,17 @@ private struct SongBatchActionsModifier: ViewModifier {
                 value = value || isSelecting
             }
             .toolbar {
-                ToolbarItem(placement: .bottomBar) {
-                    IOSBatchActionToolbarContent(
-                        selection: selection,
-                        queueFeedback: queueFeedback,
-                        onAddToPlaylist: { showAddToPlaylist = true },
-                        onAddToQueue: appendSelectionToQueue
-                    ) {
-                        moreActions(includesAddToQueue: false)
+                // 搜索页和推进去的专辑页共用导航栈，只有正在多选的页面提供底栏操作。
+                if isSelecting {
+                    ToolbarItem(placement: .bottomBar) {
+                        IOSBatchActionToolbarContent(
+                            selection: selection,
+                            queueFeedback: queueFeedback,
+                            onAddToPlaylist: { showAddToPlaylist = true },
+                            onAddToQueue: appendSelectionToQueue
+                        ) {
+                            moreActions(includesAddToQueue: false)
+                        }
                     }
                 }
             }
