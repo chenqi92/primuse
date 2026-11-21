@@ -23,13 +23,16 @@ final class SettingsInfoButtonUITests: XCTestCase {
         let save = app.buttons["scrape.review.save"]
         XCTAssertTrue(save.waitForExistence(timeout: 15))
         attach(app, "scrape-field-review")
-        let album = app.descendants(matching: .any).matching(identifier: "scrape.review.album").firstMatch
-        let start = album.coordinate(withNormalizedOffset: .init(dx: 0.86, dy: 0.76))
-        let end = album.coordinate(withNormalizedOffset: .init(dx: 0.10, dy: 0.76))
-        start.press(forDuration: 0.1, thenDragTo: end)
-        let harbor = app.staticTexts["Harbor Edition"]
+        let albumPosition = app.staticTexts["scrape.review.album.position"]
+        XCTAssertEqual(albumPosition.label, "2 / 3")
+        let harbor = app.buttons["Harbor Edition"]
         XCTAssertTrue(harbor.waitForExistence(timeout: 5))
-        app.buttons["scrape.review.cover.previous"].tap()
+        harbor.tap()
+        XCTAssertTrue(albumPosition.label == "3 / 3" || waitForLabel(albumPosition, "3 / 3"))
+        let currentCover = app.descendants(matching: .any)["scrape.review.cover.current"]
+        XCTAssertTrue(currentCover.waitForExistence(timeout: 5))
+        currentCover.tap()
+        XCTAssertTrue(waitForLabel(app.staticTexts["scrape.review.cover.position"], "1 / 3"))
         app.navigationBars.firstMatch.swipeDown()
         XCTAssertTrue(save.isHittable)
         app.buttons["取消"].firstMatch.tap()
@@ -38,24 +41,34 @@ final class SettingsInfoButtonUITests: XCTestCase {
         alert.buttons["继续编辑"].tap()
         XCTAssertTrue(harbor.isHittable)
 
-        let nextLyrics = app.buttons["scrape.review.lyrics.next"]
-        if !nextLyrics.isHittable { app.scrollViews.firstMatch.swipeUp() }
+        let lyricsRow = app.descendants(matching: .any).matching(identifier: "scrape.review.lyrics").firstMatch
+        if !lyricsRow.isHittable { app.scrollViews.firstMatch.swipeUp() }
+        let lyricsPosition = app.staticTexts["scrape.review.lyrics.position"]
+        XCTAssertEqual(lyricsPosition.label, "2 / 3")
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "逐字")).firstMatch.exists)
-        XCTAssertTrue(nextLyrics.isEnabled)
-        nextLyrics.tap()
-        XCTAssertTrue(app.staticTexts["Cobalt windows"].waitForExistence(timeout: 5))
+        lyricsRow.swipeLeft()
+        XCTAssertTrue(waitForLabel(lyricsPosition, "3 / 3"))
+        attach(app, "scrape-field-lyrics-carousel")
         let preview = app.buttons["scrape.review.lyrics.preview"].firstMatch
         preview.tap()
         XCTAssertTrue(app.staticTexts["And one last light"].waitForExistence(timeout: 5))
         attach(app, "scrape-field-lyrics-preview")
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "纯文本")).firstMatch.exists)
         app.buttons["完成"].firstMatch.tap()
-        let previousLyrics = app.buttons["scrape.review.lyrics.previous"]
-        previousLyrics.tap()
-        previousLyrics.tap()
+        lyricsRow.swipeRight()
+        XCTAssertTrue(waitForLabel(lyricsPosition, "2 / 3"))
+        lyricsRow.swipeRight()
+        XCTAssertTrue(waitForLabel(lyricsPosition, "1 / 3"))
         save.tap()
+        let progress = app.descendants(matching: .any)["scrape.writeback.card"]
+        if progress.waitForExistence(timeout: 3) { attach(app, "scrape-writeback-progress") }
         XCTAssertTrue(open.waitForExistence(timeout: 12))
         XCTAssertEqual(app.staticTexts["scrape.fixture.saved"].label, "Harbor Edition")
+    }
+
+    private func waitForLabel(_ element: XCUIElement, _ label: String, timeout: TimeInterval = 5) -> Bool {
+        let predicate = NSPredicate(format: "label == %@", label)
+        return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: timeout) == .completed
     }
 
     func testScrapeSourceRulesExposeFieldModesAndSourcePreference() {

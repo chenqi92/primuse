@@ -91,7 +91,6 @@ struct ScrapeOptionsView: View {
     @State private var showingReview = false
     @State private var query = ""
     @State private var searchTask = ScrapeOptionsTask()
-    @State private var applyTask = ScrapeOptionsTask()
     @State private var automaticID: UUID?
     @State private var showsDiscard = false
     @State private var pendingDiscard: (() -> Void)?
@@ -106,7 +105,7 @@ struct ScrapeOptionsView: View {
     private var parts: ScrapeParts { contentPreferences.parts }
     private var canSearch: Bool { !scraperSettings.fieldRules.request(parts: parts, overwriteByDefault: false).fields.isEmpty }
     private var loading: Bool { searchTask.isRunning || automaticID != nil }
-    private var busy: Bool { loading || applyTask.isRunning }
+    private var busy: Bool { loading }
 
     var body: some View {
         screen
@@ -156,7 +155,7 @@ struct ScrapeOptionsView: View {
             reviewBody
             Divider()
             HStack {
-                Button("cancel") { protect(closeView) }.keyboardShortcut(.cancelAction).disabled(applyTask.isRunning)
+                Button("cancel") { protect(closeView) }.keyboardShortcut(.cancelAction)
                 Spacer()
                 saveButton.keyboardShortcut(.defaultAction)
             }.padding(14)
@@ -168,7 +167,7 @@ struct ScrapeOptionsView: View {
                 .navigationTitle("scrape_song").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("cancel") { protect(closeView) }.disabled(applyTask.isRunning)
+                        Button("cancel") { protect(closeView) }
                     }
                     if showingReview { ToolbarItem(placement: .confirmationAction) { saveButton } }
                 }
@@ -183,31 +182,46 @@ struct ScrapeOptionsView: View {
 
     private var reviewBody: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    TextField("search_query", text: $query).textFieldStyle(.roundedBorder)
-                        .onSubmit { protect(startSearch) }
-                    Button("search_title") { protect(startSearch) }
-                        .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy || !canSearch)
-                }
-                if loading { ProgressView("search_running").frame(maxWidth: .infinity) }
+            VStack(alignment: .leading, spacing: 26) {
+                ScrapeSearchBar(query: $query, isSearching: loading,
+                                canSearch: canSearch && !busy) { protect(startSearch) }
                 if let binding = Binding($draft), !binding.wrappedValue.fields.isEmpty {
                     ScrapeFieldReviewView(draft: binding, images: images) {
-                        CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 136, cornerRadius: 8,
-                                          sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat)
+                        // 封面流的卡片自己定大小、裁圆角，这里铺满卡片。
+                        CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 240, cornerRadius: 0,
+                                          sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat,
+                                          fillsProposedSize: true)
                     }
                     .disabled(busy)
+                    .opacity(loading ? 0.55 : 1)
+                    .animation(.easeOut(duration: 0.2), value: loading)
                     #if os(macOS)
                     writebackDetails
                     #endif
-                } else if !loading {
-                    Label("scrape_no_changes", systemImage: "magnifyingglass").foregroundStyle(.secondary)
+                } else if loading {
+                    ProgressView("search_running")
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 40)
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "text.magnifyingglass")
+                            .font(.system(size: 34, weight: .light))
+                            .foregroundStyle(.tertiary)
+                        Text("scrape_no_changes").font(.headline)
+                        Text("no_scrape_results_desc").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 48)
                 }
             }
-            .padding()
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
             .frame(maxWidth: 680, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private var optionsView: some View {
@@ -238,7 +252,6 @@ struct ScrapeOptionsView: View {
     }
 
     private func protect(_ action: @escaping () -> Void) {
-        guard !applyTask.isRunning else { return }
         if draft?.isEdited == true { pendingDiscard = action; showsDiscard = true } else { action() }
     }
 
@@ -288,19 +301,19 @@ struct ScrapeOptionsView: View {
         showingReview = true
     }
 
+    /// 保存后立刻收起，写入交给 `ScrapeWritebackCenter` 在后台做，进度在 App 最上层的卡片里看。
     private func saveDraft() {
         guard let draft, draft.hasChanges, !busy else { return }
-        applyTask.start {
-            do {
-                let coverData: Data?
-                if let cover = draft.cover { coverData = try await images.data(for: cover) } else { coverData = nil }
-                try Task.checkCancellation()
-                let current = library.storedSong(id: song.id) ?? song
-                await persist(draft, coverData: coverData, original: current)
-            } catch {
-                if !Task.isCancelled { errorMessage = error.localizedDescription }
-            }
-        }
+        let onComplete = onComplete
+        ScrapeWritebackCenter.shared.startManual(.init(
+            draft: draft,
+            images: images,
+            library: library,
+            sourceManager: sourceManager,
+            sourcesStore: sourcesStore,
+            onApplied: { onComplete?($0) }
+        ))
+        closeView()
     }
 
     #if os(macOS)
@@ -408,243 +421,101 @@ struct ScrapeOptionsView: View {
     }
 
     #endif
-    private func persist(_ draft: ScrapeReviewDraft, coverData: Data?, original song: Song) async {
-        let needsCover = coverData != nil
-        let lyricsLines = draft.lyrics
-        let lib = library
-        let sm = sourceManager
-        let store = sourcesStore
-        let songID = song.id
-        var savedLyricsSong: Song?
-        if let lines = lyricsLines {
-            let wordLevel = lines.filter { $0.isWordLevel }.count
-            plog("👉 ScrapeOptionsView.apply lyrics=\(lines.count) wordLevelLines=\(wordLevel) firstSyllables=\(lines.first?.syllables?.count ?? -1)")
-            let lyricsSong = song
-            let payload: LyricsWriteback.EditablePayload
-            let writebackMode: LyricsWriteback.Mode
-            do {
-                (payload, writebackMode) = try await AsyncOperationTimeout.run(seconds: 30) {
-                    let payload = await LyricsWriteback.loadEditablePayload(
-                        for: lyricsSong,
-                        sourceManager: sm
-                    )
-                    try Task.checkCancellation()
-                    let mode = await LyricsWriteback.resolveMode(
-                        for: lyricsSong,
-                        sourceManager: sm,
-                        sourcesStore: store
-                    )
-                    try Task.checkCancellation()
-                    return (payload, mode)
-                }
-            } catch {
-                guard !Task.isCancelled else { return }
-                errorMessage = error.localizedDescription
-                return
-            }
-            guard !Task.isCancelled else { return }
-            let outcome = await LyricsWriteback.save(
-                text: LyricsContentParser.serialize(lines),
-                for: lyricsSong,
-                mode: writebackMode,
-                allowRemoval: false,
-                structuredLines: lines,
-                sourceSnapshot: payload.sourceSnapshot,
-                cacheSnapshot: payload.cacheSnapshot,
-                sourceManager: sm,
-                library: lib
-            )
-            guard !Task.isCancelled else { return }
-            if outcome.succeeded {
-                savedLyricsSong = outcome.updatedSong
-                if let embeddedCopyError = outcome.embeddedCopyError {
-                    // 歌词文件与缓存都已落地，随身副本失败不拦这次应用。
-                    plog("⚠️ ScrapeOptionsView.apply embedded lyrics copy failed: \(embeddedCopyError)")
-                }
-            } else {
-                let message = outcome.errorMessage ?? String(localized: "scrape_song_failed")
-                plog("⚠️ ScrapeOptionsView.apply lyrics writeback failed: \(message)")
-                errorMessage = message
-                return
-            }
-        }
-        guard !Task.isCancelled else { return }
-        let server = await sm.isServerLibrarySource(for: song)
-        var coverReference: String?
-        if needsCover, let coverData {
-            guard let reference = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: songID, origin: .selected) else {
-                errorMessage = String(localized: "scrape_song_failed")
-                return
-            }
-            coverReference = reference
-        }
+}
 
-        // A source write can take time. Apply the chosen fields to the latest library row.
-        lib.flushPendingAssetReferencePatches()
-        let current = lib.storedSong(id: songID) ?? savedLyricsSong ?? song
-        var appliedFinal = current
-        appliedFinal.applyScrapeFields(draft.proposedTags(on: current))
-        if let coverReference {
-            appliedFinal.coverArtFileName = coverReference
-            CachedArtworkView.invalidateCache(for: songID)
-            if let old = current.coverArtFileName { CachedArtworkView.invalidateCache(for: old) }
-        }
-        let tagsChanged = ScrapeField.tags.contains { $0.changed(from: current.scrapeFields, to: appliedFinal.scrapeFields) }
-        if server {
-            if tagsChanged { appliedFinal.userMetadataEditedAt = Date() }
-        } else {
-            appliedFinal = SongUserMetadataPolicy.stampingUserEdit(original: current, updated: appliedFinal)
-        }
-        if tagsChanged || appliedFinal.userMetadataEditedAt != current.userMetadataEditedAt {
-            lib.replaceSong(appliedFinal)
-        } else if coverReference != nil {
-            lib.updateAssetReferences(songID: songID, coverRef: appliedFinal.coverArtFileName, lyricsRef: appliedFinal.lyricsFileName)
-        }
-        if coverReference != nil { SongTagEditStore.shared.recordUserChosenCovers(songIDs: [songID]) }
-        onComplete?(appliedFinal)
-        applyTask.finish()
-        closeView()
+/// 刮削结果页顶部：胶囊输入框（放大镜、清除键、聚焦描边）加一颗实心的搜索键，搜索中换成转圈。
+private struct ScrapeSearchBar: View {
+    @Binding var query: String
+    let isSearching: Bool
+    let canSearch: Bool
+    let onSearch: () -> Void
 
-        let usesMediaServerWriteback = await sm.supportsMediaServerWriteback(for: appliedFinal)
-        if usesMediaServerWriteback {
-            let originalSnapshot = current
-            let finalSnapshot = appliedFinal
-            Task.detached(priority: .utility) {
-                let result = await sm.writeScrapedMetadataToMediaServer(
-                    original: originalSnapshot,
-                    updated: finalSnapshot,
-                    coverData: needsCover ? coverData : nil,
-                    lyricsLines: nil
-                )
-                if !result.errors.isEmpty {
-                    plog("⚠️ Media-server writeback errors for '\(finalSnapshot.title)': \(result.errors)")
-                }
-                if !result.unsupported.isEmpty {
-                    plog("ℹ️ Media-server writeback limitations for '\(finalSnapshot.title)': \(result.unsupported)")
-                }
-            }
-        }
+    @FocusState private var focused: Bool
 
-        // Sidecar (cover.jpg / .lrc) 写回 NAS — fire and forget。
-        //
-        // 关键: detached + 30s 超时。之前的实现是 Task { @MainActor in ... },
-        // 这意味着整段 (包括 await connector.connect → NAS 网络握手, await
-        // writeSidecars → NAS 上传) 都跑在 main actor 的 cooperative thread
-        // 上。任意一个 await 异常挂起 (如 NAS 不响应也不超时), main actor
-        // 上其他 Task 仍然能跑, 但代码路径里有 lib.replaceSong / cacheCover
-        // 等回到 main actor 的同步点 ── 一旦 NAS 写回到一半挂起, 主 actor
-        // 反应链卡住, 用户描述的 "UI 完全卡死、滑掉 app 第一次失败" 就是这种
-        // main actor cooperative thread 死锁。
-        //
-        // detached 让网络写完全走背景 executor; 关键的"回写 main actor 状态"
-        // (replaceSong / invalidateCache) 用 await MainActor.run 显式跳回,
-        // 网络挂起的时候 main actor 不被持有。
-        //
-        // withTimeout 兜底: 30 秒后强制取消, 即使 NAS 端有 bug 也不会无限期
-        // 占用 connector actor。
-        let supportsSidecarWriteback = await sm.supportsSidecarWriting(for: appliedFinal)
-        if supportsSidecarWriteback
-            && !usesMediaServerWriteback
-            && needsCover {
-            let titleSnapshot = appliedFinal.title
-            let finalSnapshot = appliedFinal
-            let coverEmbeddingMode = await sm.coverEmbeddingMode(for: appliedFinal)
-            Task.detached(priority: .utility) {
-                // 选了嵌入时先整首替换（不套 30 秒超时），再写或只更新已有的封面文件；
-                // 有的网盘替换后文件换了 ID，封面文件要跟着新文件走。
-                var embeddedSnapshot: Song?
-                if coverEmbeddingMode != .off, let data = coverData {
-                    embeddedSnapshot = await MusicScraperService.embedScrapedCover(
-                        data,
-                        for: finalSnapshot,
-                        sourceManager: sm,
-                        library: lib
-                    ).updatedSong
-                }
-                let sidecarSnapshot = embeddedSnapshot ?? finalSnapshot
-                plog("📝 Sidecar: writing back to source for '\(titleSnapshot)'")
-                do {
-                    try await Self.writeSidecarWithTimeout(
-                        seconds: 30,
-                        sourceManager: sm,
-                        song: sidecarSnapshot,
-                        coverData: needsCover ? coverData : nil,
-                        lyricsLines: nil,
-                        createsCoverFile: coverEmbeddingMode != .embedOnly
-                    ) { writeResult in
-                        plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten)")
-
-                        if writeResult.coverWritten {
-                            // sidecar 已落盘 → 回写 hash cache 作为可信 mirror。
-                            // 不要先 invalidate 再 cacheCover ── 制造空窗期, 期间 view
-                            // reload 会拿不到本地 cache 被迫走 NAS, 拉到 HTTP 端缓存的旧
-                            // 文件就显示旧封面。直接覆写。
-                            if let data = coverData {
-                                await MetadataAssetStore.shared.cacheCover(data, forSongID: songID)
-                            }
-                await MainActor.run {
-                    CachedArtworkView.invalidateCache(for: songID)
-                    if let coverPath = MusicScraperService.sidecarReferencePath(for: sidecarSnapshot, suffix: "-cover.jpg") {
-                        lib.updateAssetReferences(songID: sidecarSnapshot.id, coverRef: coverPath)
-                    }
-                }
-            }
-                        if !writeResult.errors.isEmpty {
-                            plog("⚠️ Sidecar write errors: \(writeResult.errors)")
-                        }
-                    }
-                } catch is CancellationError {
-                    plog("⚠️ Sidecar write timed out (30s) for '\(titleSnapshot)' ── 网络挂起被强制中断, 本地 cache 仍然是新的, 仅 NAS sidecar 未写。")
-                } catch {
-                    plog("⚠️ Sidecar write failed for '\(titleSnapshot)': \(error.localizedDescription)")
-                }
-            }
-        }
+    private var isDisabled: Bool {
+        !canSearch || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private static func writeSidecarWithTimeout(
-        seconds: TimeInterval,
-        sourceManager: SourceManager,
-        song: Song,
-        coverData: Data?,
-        lyricsLines: [LyricLine]?,
-        createsCoverFile: Bool = true,
-        applyResult: @escaping @Sendable (SidecarWriteService.WriteResult) async -> Void
-    ) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            defer { group.cancelAll() }
-            group.addTask {
-                // Sidecar 写回使用独立 connector, 避免复用正在播放/离线缓存的
-                // 云盘 connector 状态。
-                let connector = try await sourceManager.sidecarWriteConnector(for: song)
-                let writeResult = await SidecarWriteService.shared.writeSidecars(
-                    for: song,
-                    using: connector,
-                    coverData: coverData,
-                    lyricsLines: lyricsLines,
-                    createsCoverFile: createsCoverFile
-                )
-                await sourceManager.invalidateReadCachesAfterSidecarWrite(
-                    for: song,
-                    paths: writeResult.touchedRemotePaths
-                )
-                if writeResult.coverWritten || writeResult.lyricsWritten {
-                    await sourceManager.invalidateDownloadCacheAfterSidecarWrite(for: song)
-                }
-                await applyResult(writeResult)
-            }
-            group.addTask {
-                let nanoseconds = (seconds * 1_000_000_000).finiteUInt64(or: 30_000_000_000)
-                try await Task.sleep(nanoseconds: nanoseconds)
-                throw CancellationError()
-            }
-            // 等任意一个先完成。如果是真实工作完成 → 第二个 sleep task 被 cancelAll
-            // 中断; 如果是 sleep 先完成 (即 30s 超时) → 第二个 task 被 cancelAll
-            // 中断, throw 也被 group 抛给外层 catch。
-            try await group.next()
+    var body: some View {
+        HStack(spacing: 10) {
+            field
+            searchButton
         }
+        .animation(.easeOut(duration: 0.18), value: isSearching)
+        .animation(.easeOut(duration: 0.18), value: query.isEmpty)
+        .animation(.easeOut(duration: 0.18), value: focused)
     }
 
+    private var field: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.body.weight(.medium))
+                .foregroundStyle(focused ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            TextField("search_query", text: $query)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                #endif
+                .onSubmit(submit)
+                .accessibilityIdentifier("scrape.review.query")
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                    focused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("clear"))
+                .transition(.opacity)
+            }
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, query.isEmpty ? 14 : 6)
+        .frame(height: 46)
+        .background(Capsule().fill(.fill.tertiary))
+        .overlay {
+            Capsule().strokeBorder(focused ? AnyShapeStyle(.tint.opacity(0.6)) : AnyShapeStyle(.clear), lineWidth: 1.5)
+        }
+        .contentShape(Capsule())
+        .onTapGesture { focused = true }
+    }
+
+    private var searchButton: some View {
+        Button(action: submit) {
+            ZStack {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+                    .opacity(isSearching ? 1 : 0)
+                Text("search_title")
+                    .font(.body.weight(.semibold))
+                    .opacity(isSearching ? 0 : 1)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .frame(height: 46)
+            .background(Capsule().fill(.tint))
+            .opacity(isDisabled && !isSearching ? 0.4 : 1)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .accessibilityIdentifier("scrape.review.search")
+    }
+
+    private func submit() {
+        guard !isDisabled else { return }
+        focused = false
+        onSearch()
+    }
 }
 
 #if DEBUG && os(iOS)
@@ -669,15 +540,24 @@ struct ScrapeFieldReviewTestHost: View {
             Button("Open") { presented = true }.accessibilityIdentifier("scrape.fixture.open")
             Text(verbatim: savedAlbum).accessibilityIdentifier("scrape.fixture.saved")
         }
+        // 和真实根视图一样铺满全屏，进度卡片与胶囊按整屏摆。
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             if library.song(id: Self.song.id) == nil { library.addSongs([Self.song], affectedSourceIDs: [Self.song.sourceID]) }
             else { library.replaceSong(Self.song) }
+            // 截图取证：不经 UI 测试直接打开结果页，或摆出写入进度卡片的某一种状态。
+            let environment = ProcessInfo.processInfo.environment
+            if environment["PRIMUSE_SCRAPE_FIXTURE_AUTO_OPEN"] == "1" { presented = true }
+            if let mode = environment["PRIMUSE_SCRAPE_FIXTURE_PROGRESS"], !mode.isEmpty {
+                ScrapeWritebackCenter.shared.debugShowSample(song: Self.song, mode: mode)
+            }
         }
         .sheet(isPresented: $presented) {
             ScrapeOptionsView(previewing: Self.draft) { updated in
                 savedAlbum = library.storedSong(id: updated.id)?.albumTitle ?? ""
             }.environment(library)
         }
+        .scrapeWritebackProgressHost()
     }
 
     private static var draft: ScrapeReviewDraft {

@@ -662,6 +662,7 @@
 		43DF2820BED807C30C8650A9 /* AudiobookOfflinePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF244DF72F15664FA7E3F634 /* AudiobookOfflinePolicy.swift */; };
 		43EAB92367D069296EBEB44E /* HomeStartListeningSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81119E6E832DAD7DC7750C0F /* HomeStartListeningSection.swift */; };
 		43F46C58961EC4083BDF4D59 /* ScrapeOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */; };
+		80A797CD8290A49399FE0548 /* ScrapeWritebackProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = E398264A20947C542B5747EA /* ScrapeWritebackProgress.swift */; };
 		44173A0D5CA82A1BF899F9FB /* LocalPlaybackResumePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5AF0A502ADBF66BB885795B /* LocalPlaybackResumePolicy.swift */; };
 		44191AC3027616D0A339980E /* CollectionCoverWallHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06389F1A9E9FBF644B3DB889 /* CollectionCoverWallHeader.swift */; };
 		442CA0C50F300BE2E92459AB /* MacLyricLineCommentsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4E9643FF737C29A9F6E686 /* MacLyricLineCommentsViewTests.swift */; };
@@ -2359,6 +2360,7 @@
 		F40B33DDA53CD895A0CA5D6F /* ArtistFeaturedReleaseCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79EF90091FDA19FEF9B71415 /* ArtistFeaturedReleaseCard.swift */; };
 		F41811AEA0646B4F680416AA /* RadioCandidateLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CC6F2F1E70E26868240EDF8 /* RadioCandidateLogoView.swift */; };
 		F42267DB1E4B85832BE4E52D /* ScrapeOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */; };
+		7F55AF162C6C37B0C6E111DA /* ScrapeWritebackProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = E398264A20947C542B5747EA /* ScrapeWritebackProgress.swift */; };
 		F42719D18702C67BDED29230 /* PodcastNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = F130E9C212ECBE573672CF94 /* PodcastNetwork.swift */; };
 		F45510F7EDAE425A749A03CF /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F652918A8A39CEF7841384ED /* OnboardingView.swift */; };
 		F459A3BA7A901D1A11EC6F31 /* TVScraperSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BE7C0BC522E862F78DC00BA /* TVScraperSettingsView.swift */; };
@@ -2867,6 +2869,7 @@
 		10D8687352CA14B5A8B9D5A2 /* EmbeddedMetadataWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedMetadataWriter.swift; sourceTree = "<group>"; };
 		10EA195119C963A2DA62FC69 /* WidgetSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshots.swift; sourceTree = "<group>"; };
 		11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeOptionsView.swift; sourceTree = "<group>"; };
+		E398264A20947C542B5747EA /* ScrapeWritebackProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeWritebackProgress.swift; sourceTree = "<group>"; };
 		111D15C431BBFAC41E4D37B1 /* FileFormatRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileFormatRouter.swift; sourceTree = "<group>"; };
 		1154675D8F2C4FDD945FD6A9 /* PCloudSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCloudSource.swift; sourceTree = "<group>"; };
 		11600D843C3681F87A75F59B /* MusicVideoStreamingLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicVideoStreamingLoader.swift; sourceTree = "<group>"; };
@@ -5583,6 +5586,7 @@
 				5D2741FA5052447F5E1B27A4 /* QueueView.swift */,
 				2E2DC3DDF5AB285F2C555E88 /* ScrapeFieldReviewView.swift */,
 				11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */,
+				E398264A20947C542B5747EA /* ScrapeWritebackProgress.swift */,
 				3D95C407321BB61F2AE5D951 /* SleepTimerSheet.swift */,
 				0D36821ECE5B2C7F182ACD85 /* SpokenChapterGenerationSheet.swift */,
 				1E4C3266509DEBD737D2392F /* SpokenTranscriptGenerationSheet.swift */,
@@ -8831,6 +8835,7 @@
 				4B2BF38BCFB84F05C64395BB /* ScanService.swift in Sources */,
 				F7C91C5EFABFB435EC5171BB /* ScrapeFieldReviewView.swift in Sources */,
 				43F46C58961EC4083BDF4D59 /* ScrapeOptionsView.swift in Sources */,
+				80A797CD8290A49399FE0548 /* ScrapeWritebackProgress.swift in Sources */,
 				750D174877C83D4B16EE9546 /* ScrapeReview.swift in Sources */,
 				C6E1B85FEEBD0D4C5E4B9696 /* ScrapeRulesEditor.swift in Sources */,
 				C2BFAB8F831F6DC779847A68 /* ScrapeWindowController.swift in Sources */,
@@ -9727,6 +9732,7 @@
 				A4B7165F820806605899C00B /* ScanService.swift in Sources */,
 				972D73CC946D0DEA74D3A4D3 /* ScrapeFieldReviewView.swift in Sources */,
 				F42267DB1E4B85832BE4E52D /* ScrapeOptionsView.swift in Sources */,
+				7F55AF162C6C37B0C6E111DA /* ScrapeWritebackProgress.swift in Sources */,
 				125AE86AF984F452ABB8137E /* ScrapeReview.swift in Sources */,
 				11E1AA9D1CF59AD9B2FAB8DA /* ScrapeRulesEditor.swift in Sources */,
 				0931D21CB53640BBBCBC0B98 /* ScrapeWindowController.swift in Sources */,

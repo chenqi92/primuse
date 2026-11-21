@@ -475,6 +475,8 @@ struct MacContentView: View {
         .songBatchRemovalFeedback()
         // 跟页面无关的提示条(批量删除、菜单里设为下一首):浮在底部播放栏上面。
         .pmToastHost(.shared, placement: .appRoot(fallbackClearance: PMSize.bottomBar + 12))
+        // 刮削窗口保存后的写入进度：卡片在主窗口中间，收起后胶囊浮在底部播放栏上面。
+        .scrapeWritebackProgressHost(placement: .bottom(clearance: PMSize.bottomBar + 12))
         .serverCatalogRefreshFeedback()
         .smartNudges()
         .macPlaybackErrorFeedback()

@@ -2943,7 +2943,7 @@ struct SongListView: View {
                         CachedArtworkView.invalidateCache(for: oldRef)
                     }
                     player.syncSongMetadata(updated)
-                    player.forceRefreshNowPlayingArtwork()
+                    if player.currentSong?.id == updated.id { player.forceRefreshNowPlayingArtwork() }
                 }
             },
             onRequireSource: {

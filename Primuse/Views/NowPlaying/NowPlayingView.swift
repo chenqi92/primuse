@@ -5259,6 +5259,8 @@ struct NowPlayingView: View {
                     CachedArtworkView.invalidateCache(for: oldRef)
                 }
                 player.syncSongMetadata(u)
+                // 写入在后台做，写完时可能已经换了歌：只刷新还在放的这一首的封面和歌词。
+                guard player.currentSong?.id == u.id else { return }
                 player.forceRefreshNowPlayingArtwork()
                 Task { await loadLyrics() }
             }
@@ -13258,7 +13260,9 @@ struct NowPlayingView: View {
 
         guard displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID else {
             handleAutomaticScrapeStart(
-                scraperService.startSingleScrape(song: displayedSong, in: library)
+                scraperService.startSingleScrape(song: displayedSong, in: library),
+                song: displayedSong,
+                lyricsOnly: false
             )
             return
         }
@@ -13278,17 +13282,23 @@ struct NowPlayingView: View {
                 }
             }
             handleAutomaticScrapeStart(
-                scraperService.startOnlineLyricsOnlyScrape(song: song, in: library)
+                scraperService.startOnlineLyricsOnlyScrape(song: song, in: library),
+                song: song,
+                lyricsOnly: true
             )
         }
     }
 
+    /// 开始了就在 App 最上层的进度卡片里逐项显示查找结果（替代原来做完才弹的提示框），
+    /// 用户可以点「后台写入」收起来接着听。
     private func handleAutomaticScrapeStart(
-        _ result: MusicScraperService.SingleScrapeStartResult
+        _ result: MusicScraperService.SingleScrapeStartResult,
+        song: Song,
+        lyricsOnly: Bool
     ) {
         switch result {
         case .started, .joined:
-            break
+            ScrapeWritebackCenter.shared.beginAutomatic(song: song, lyricsOnly: lyricsOnly)
         case .busy:
             scrapeAlertMessage = String(localized: "intent_scrape_busy")
         case .noScraperSource:
@@ -13296,15 +13306,36 @@ struct NowPlayingView: View {
         }
     }
 
+    /// 自动刮削的结果按发起时那首歌的 id 去取：中途切了歌也取得到，进度卡片不会一直转圈；
+    /// 正在放的这首另取一次，别处发起的自动刮削照样有结果显示。
     private func consumeAutomaticScrapeCompletion() {
-        guard let songID = player.currentSong?.id,
-              let completion = scraperService.consumeSingleScrapeCompletion(
+        let center = ScrapeWritebackCenter.shared
+        var songIDs = center.pendingAutomaticSongIDs
+        if let currentID = player.currentSong?.id, !songIDs.contains(currentID) {
+            songIDs.append(currentID)
+        }
+        for songID in songIDs {
+            guard let completion = scraperService.consumeSingleScrapeCompletion(
                 songID: songID,
                 purposes: [.metadataApply, .lyricsApply]
-              ) else { return }
+            ) else { continue }
+            applyAutomaticScrapeCompletion(completion, songID: songID)
+        }
+    }
 
+    private func applyAutomaticScrapeCompletion(
+        _ completion: MusicScraperService.SingleScrapeCompletion,
+        songID: String
+    ) {
+        let center = ScrapeWritebackCenter.shared
+        let lyricsOnly = completion.activity.key.purpose == .lyricsApply
         guard let result = completion.result else {
-            scrapeAlertMessage = String(localized: "scrape_song_failed")
+            let song = center.jobs.last(where: { $0.song.id == songID })?.song
+                ?? library.song(id: songID)
+                ?? (player.currentSong?.id == songID ? player.currentSong : nil)
+            guard let song else { return }
+            center.finishAutomatic(song: song, lyricsOnly: lyricsOnly, outcome: nil,
+                                   errorMessage: completion.errorMessage)
             return
         }
 
@@ -13314,9 +13345,9 @@ struct NowPlayingView: View {
             CachedArtworkView.invalidateCache(for: oldRef)
         }
         player.syncSongMetadata(updatedSong)
-        player.forceRefreshNowPlayingArtwork()
 
         if player.currentSong?.id == updatedSong.id {
+            player.forceRefreshNowPlayingArtwork()
             if let scrapedLyrics = result.lyrics, !scrapedLyrics.isEmpty {
                 lyricsLoadRevision &+= 1
                 setLyrics(scrapedLyrics)
@@ -13324,69 +13355,17 @@ struct NowPlayingView: View {
                 Task { await loadLyrics() }
             }
         }
-        scrapeAlertMessage = automaticScrapeSummary(
-            original: result.originalSong,
-            updated: updatedSong,
-            coverFound: result.coverData != nil,
-            lyricsFound: result.lyrics?.isEmpty == false,
-            lyricsOnly: completion.activity.key.purpose == .lyricsApply
+        center.finishAutomatic(
+            song: result.originalSong,
+            lyricsOnly: lyricsOnly,
+            outcome: .init(
+                original: result.originalSong,
+                updated: updatedSong,
+                coverFound: result.coverData != nil,
+                lyricsFound: result.lyrics?.isEmpty == false
+            ),
+            errorMessage: nil
         )
-    }
-
-    /// The empty-lyrics button applies results immediately, so its completion
-    /// alert must describe every tier instead of treating lyrics as the sole
-    /// success signal. The regular scrape sheet already provides a detailed
-    /// before/after preview; this is the compact equivalent for one-tap use.
-    private func automaticScrapeSummary(
-        original: Song,
-        updated: Song,
-        coverFound: Bool,
-        lyricsFound: Bool,
-        lyricsOnly: Bool
-    ) -> String {
-        let lyricsStatus = lyricsFound
-            ? String(localized: "lyrics_found")
-            : String(localized: "no_results")
-        let accuracyNotice = String(localized: "scrape_accuracy_notice")
-        if lyricsOnly {
-            return [
-                "\(String(localized: "lyrics_word")): \(lyricsStatus)",
-                accuracyNotice,
-            ].joined(separator: "\n\n")
-        }
-
-        var metadataChanges: [String] = []
-        if original.title != updated.title {
-            metadataChanges.append(String(localized: "title_changed"))
-        }
-        if original.artistName != updated.artistName {
-            metadataChanges.append(String(localized: "artist_changed"))
-        }
-        if original.albumTitle != updated.albumTitle {
-            metadataChanges.append(String(localized: "album_changed"))
-        }
-        let otherMetadataChanged = original.year != updated.year
-            || original.genre != updated.genre
-            || original.trackNumber != updated.trackNumber
-            || original.discNumber != updated.discNumber
-        if metadataChanges.isEmpty, otherMetadataChanged {
-            metadataChanges.append(String(localized: "scrape_metadata_updated"))
-        }
-
-        let metadataStatus = metadataChanges.isEmpty
-            ? String(localized: "unchanged")
-            : metadataChanges.joined(separator: " · ")
-        let coverStatus = coverFound
-            ? String(localized: "cover_found")
-            : String(localized: "no_results")
-
-        return [
-            "\(String(localized: "metadata")): \(metadataStatus)",
-            "\(String(localized: "cover")): \(coverStatus)",
-            "\(String(localized: "lyrics_word")): \(lyricsStatus)",
-            "",
-            accuracyNotice,
-        ].joined(separator: "\n")
     }
 
     private func fmt(_ t: TimeInterval) -> String {

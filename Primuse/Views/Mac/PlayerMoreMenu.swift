@@ -121,7 +121,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     CachedArtworkView.invalidateCache(for: oldRef)
                 }
                 player.syncSongMetadata(u)
-                player.forceRefreshNowPlayingArtwork()
+                // 写入在后台做完时可能已经换了歌。
+                if player.currentSong?.id == u.id { player.forceRefreshNowPlayingArtwork() }
             }
             showScrapeOptions = false
         }

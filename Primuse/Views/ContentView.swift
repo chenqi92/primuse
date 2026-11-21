@@ -2349,6 +2349,8 @@ struct ContentView: View {
             .shared,
             placement: .appRoot(fallbackClearance: rootLayout == .standardTabs ? 64 : 24)
         )
+        // 刮削结果保存后的写入进度：盖在播放页上面，收起后在顶部留一枚胶囊。
+        .scrapeWritebackProgressHost()
         .serverCatalogRefreshFeedback()
         .smartNudges()
         .appleMusicSubscriptionOffer()
