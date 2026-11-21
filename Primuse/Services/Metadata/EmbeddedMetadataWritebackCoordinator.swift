@@ -97,7 +97,7 @@ struct EmbeddedMetadataRemoteFileState: Sendable, Equatable {
         // A change predating import does not require rereading the library on upgrade.
         guard let stamp = stampedLocalRevision(current),
               song.revision == nil || song.revision == String(stamp.base) else { return false }
-        return Date(timeIntervalSinceReferenceDate: Double(bitPattern: stamp.changeBits)) <= song.dateAdded
+        return Double(bitPattern: stamp.changeBits) <= song.dateAdded.timeIntervalSinceReferenceDate
     }
 
     private static func stampedLocalRevision(_ value: String?) -> (base: Substring, changeBits: UInt64)? {

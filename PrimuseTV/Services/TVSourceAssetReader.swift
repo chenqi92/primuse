@@ -103,7 +103,8 @@ actor TVSourceAssetReader {
         for reference: AudiobookshelfAPIProtocol.TrackReference, lastModified: Date?, in cache: CachedAudiobookshelfClient
     ) async throws -> AudiobookshelfCatalogItem? {
         if let item = cache.items[reference.itemID],
-           (lastModified ?? .distantPast) <= (item.updatedAt ?? .distantPast),
+           (lastModified ?? .distantPast).timeIntervalSinceReferenceDate
+               <= (item.updatedAt ?? .distantPast).timeIntervalSinceReferenceDate,
            item.audioFile(for: reference.kind) != nil { return item }
         let item = try await cache.client.item(id: reference.itemID)
         cache.items[reference.itemID] = item
