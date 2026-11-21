@@ -975,6 +975,7 @@
 "import_scraper_footer" = "Importez une source de récupération personnalisée via une configuration JSON ou une URL. Il vous incombe de vous assurer que les sources importées respectent les conditions d'utilisation et les lois sur le droit d'auteur applicables.";
 "scrape_entry_writeback_header" = "Réécriture après récupération";
 "scrape_entry_writeback_scope" = "« Écriture des pochettes », « Écriture des paroles » et « Délai d’écriture » ne s’appliquent qu’après une récupération automatique : « Récupérer les métadonnées » sur la page de paroles vide du lecteur, et la récupération par lot de la bibliothèque, d’un album, d’une playlist ou de morceaux sélectionnés. Un appui sur « Enregistrer » dans la page des résultats écrit toujours selon « Enregistrer les paroles dans » et « Enregistrer les pochettes dans ».";
+"scrape_entry_tv_lyrics_only_note" = "Seule une source de paroles est activée : cette recherche ne porte que sur les paroles. Pour compléter aussi les tags et la pochette, activez une autre source dans les réglages des sources.";
 "scraper_lyrics_server_name" = "Serveur d'API de paroles";
 "scraper_lyrics_server_desc" = "Demande les paroles, dans l'ordre, aux API de paroles que vous configurez";
 "lyrics_server_count_format" = "Adresses : %d";
@@ -5731,12 +5732,12 @@
 "server_playlist_append_footer" = "Les morceaux sont ajoutés à la playlist sur le serveur. Pour les retirer, modifiez la playlist sur le serveur.";
 
 // MARK: - Apple TV scraping
-"tv_scrape_match_title" = "Associer les infos";
+"tv_scrape_match_title" = "Récupérer les métadonnées";
 "tv_scrape_apply_tags" = "Tags";
 "tv_scrape_no_cover" = "Aucune pochette trouvée";
 "tv_scrape_no_lyrics" = "Aucunes paroles trouvées";
 "tv_scrape_lyrics_lines_format" = "%d lignes";
-"tv_scrape_local_only_note" = "Les infos associées sur la TV sont enregistrées uniquement sur cette Apple TV et ne sont pas réécrites dans la source musicale.";
+"tv_scrape_local_only_note" = "Les métadonnées récupérées sur la TV sont enregistrées uniquement sur cette Apple TV et ne sont pas réécrites dans la source musicale.";
 "tv_scrape_enabled_count_format" = "Sources activées : %d";
 "tv_scrape_lyrics_server_unset" = "Aucune adresse de serveur – ajoutez-en une sur l'iPhone";
 "tv_scrape_order_hint" = "Les sources sont interrogées dans l'ordre de la liste, en commençant par le haut. Utilisez les flèches haut et bas pour les réorganiser.";

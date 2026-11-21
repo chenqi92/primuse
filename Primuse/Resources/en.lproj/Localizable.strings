@@ -747,6 +747,7 @@
 "import_scraper_footer" = "Import a custom scraper source via JSON config or URL. You are responsible for ensuring imported sources comply with applicable terms and copyright laws.";
 "scrape_entry_writeback_header" = "Write Back After Scraping";
 "scrape_entry_writeback_scope" = "“Cover Write-Back”, “Lyrics Write-Back” and “Write Timeout” only apply after automatic scraping: “Scrape Metadata” on the player’s empty lyrics page, and batch scraping of the library, an album, a playlist or selected songs. Tapping “Save” on the scrape results page always writes according to “Save Lyrics To” and “Save Artwork To”.";
+"scrape_entry_tv_lyrics_only_note" = "Only a lyrics source is on, so this search looks for lyrics only. To fill in tags and artwork too, turn on another source in scraper settings.";
 "scraper_lyrics_server_name" = "Lyrics API Server";
 "scraper_lyrics_server_desc" = "Requests lyrics, in order, from lyrics APIs you configure";
 "lyrics_server_count_format" = "Addresses: %d";
@@ -5495,12 +5496,12 @@
 "server_playlist_append_footer" = "Songs are added to the playlist on the server. To remove them, edit the playlist on the server.";
 
 // MARK: - Apple TV scraping
-"tv_scrape_match_title" = "Match Info";
+"tv_scrape_match_title" = "Scrape Metadata";
 "tv_scrape_apply_tags" = "Tags";
 "tv_scrape_no_cover" = "No cover found";
 "tv_scrape_no_lyrics" = "No lyrics found";
 "tv_scrape_lyrics_lines_format" = "%d lines";
-"tv_scrape_local_only_note" = "Info matched on TV is saved on this Apple TV only and isn't written back to the music source.";
+"tv_scrape_local_only_note" = "Metadata scraped on TV is saved on this Apple TV only and isn't written back to the music source.";
 "tv_scrape_enabled_count_format" = "Sources on: %d";
 "tv_scrape_lyrics_server_unset" = "No server address yet — add one on iPhone";
 "tv_scrape_order_hint" = "Sources are queried in list order, top first. Use the up and down arrows to reorder them.";

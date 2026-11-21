@@ -1722,6 +1722,7 @@
 "import_scraper_footer" = "Importa un proveedor de metadatos personalizado mediante una configuración JSON o una URL. Es tu responsabilidad asegurarte de que los proveedores importados cumplan las condiciones aplicables y las leyes de derechos de autor.";
 "scrape_entry_writeback_header" = "Escribir en el origen tras obtener metadatos";
 "scrape_entry_writeback_scope" = "“Guardar portada en el origen”, “Guardar letras en el origen” y “Tiempo de espera de escritura” solo se aplican después de obtener metadatos automáticamente: “Obtener metadatos” en la pantalla sin letras del reproductor y la obtención por lotes de la biblioteca, un álbum, una playlist o canciones seleccionadas. Al tocar “Guardar” en la página de resultados, siempre se escribe según “Guardar letras en” y “Guardar portadas en”.";
+"scrape_entry_tv_lyrics_only_note" = "Solo hay una fuente de letras activada, así que esta búsqueda solo encuentra letras. Para completar también etiquetas y portada, activa otra fuente en la configuración de fuentes.";
 "scraper_lyrics_server_name" = "Servidor de API de letras";
 "scraper_lyrics_server_desc" = "Solicita letras, en orden, a las API de letras que tú configures";
 "lyrics_server_count_format" = "Direcciones: %d";
@@ -5637,12 +5638,12 @@
 "server_playlist_append_footer" = "Las canciones se agregan a la playlist en el servidor. Para quitarlas, edita la playlist en el servidor.";
 
 // MARK: - Apple TV scraping
-"tv_scrape_match_title" = "Buscar coincidencias";
+"tv_scrape_match_title" = "Obtener metadatos";
 "tv_scrape_apply_tags" = "Etiquetas";
 "tv_scrape_no_cover" = "No se encontró portada";
 "tv_scrape_no_lyrics" = "No se encontró letra";
 "tv_scrape_lyrics_lines_format" = "%d líneas";
-"tv_scrape_local_only_note" = "La información que coincidas en la TV se guarda solo en este Apple TV y no se escribe en la fuente de música.";
+"tv_scrape_local_only_note" = "Los metadatos que obtengas en la TV se guardan solo en este Apple TV y no se escriben en la fuente de música.";
 "tv_scrape_enabled_count_format" = "Fuentes activadas: %d";
 "tv_scrape_lyrics_server_unset" = "Aún no hay dirección de servidor; agrégala en el iPhone";
 "tv_scrape_order_hint" = "Las fuentes se consultan en el orden de la lista, empezando por arriba. Usa las flechas arriba y abajo para reordenarlas.";

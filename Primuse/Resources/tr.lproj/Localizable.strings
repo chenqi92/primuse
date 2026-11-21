@@ -1354,6 +1354,7 @@
 "import_scraper_footer" = "JSON yapılandırması veya URL ile özel bir üst veri sağlayıcısını içe aktarın. İçe aktarılan kaynakların geçerli koşullara ve telif hakkı yasalarına uygun olmasından siz sorumlusunuz.";
 "scrape_entry_writeback_header" = "Üst veriler bulunduktan sonra kaynağa yaz";
 "scrape_entry_writeback_scope" = "“Kapak Geri Yazma”, “Şarkı sözlerini kaynağa geri yazma” ve “Yazma Zaman Aşımı” yalnızca otomatik bulmadan sonra geçerlidir: oynatıcının boş şarkı sözü sayfasındaki “Üst verileri bul” ile arşiv, albüm, çalma listesi veya seçili şarkılar için toplu bulma. Sonuç sayfasında “Kaydet”e dokunduğunuzda yazma her zaman “Şarkı Sözlerini Kaydetme Yeri” ve “Kapakları Kaydetme Yeri” ayarlarına göre yapılır.";
+"scrape_entry_tv_lyrics_only_note" = "Yalnızca bir şarkı sözü kaynağı açık, bu yüzden bu arama yalnızca şarkı sözü arıyor. Etiketleri ve kapağı da doldurmak için kaynak ayarlarından başka bir kaynak açın.";
 "scraper_lyrics_server_name" = "Şarkı Sözü API Sunucusu";
 "scraper_lyrics_server_desc" = "Şarkı sözlerini, yapılandırdığın şarkı sözü API'lerinden sırayla ister";
 "lyrics_server_count_format" = "Adres sayısı: %d";
@@ -5637,12 +5638,12 @@
 "server_playlist_append_footer" = "Şarkılar sunucudaki çalma listesine eklenir. Kaldırmak için listeyi sunucuda düzenleyin.";
 
 // MARK: - Apple TV scraping
-"tv_scrape_match_title" = "Bilgileri eşleştir";
+"tv_scrape_match_title" = "Üst verileri bul";
 "tv_scrape_apply_tags" = "Etiketler";
 "tv_scrape_no_cover" = "Kapak bulunamadı";
 "tv_scrape_no_lyrics" = "Şarkı sözü bulunamadı";
 "tv_scrape_lyrics_lines_format" = "%d satır";
-"tv_scrape_local_only_note" = "TV'de eşleştirilen bilgiler yalnızca bu Apple TV'ye kaydedilir, müzik kaynağına geri yazılmaz.";
+"tv_scrape_local_only_note" = "TV'de bulunan üst veriler yalnızca bu Apple TV'ye kaydedilir, müzik kaynağına geri yazılmaz.";
 "tv_scrape_enabled_count_format" = "Açık kaynak: %d";
 "tv_scrape_lyrics_server_unset" = "Henüz sunucu adresi yok; iPhone'da ekleyin";
 "tv_scrape_order_hint" = "Kaynaklar listedeki sırayla, en üstten başlayarak sorgulanır. Sırayı yukarı ve aşağı oklarla değiştirin.";

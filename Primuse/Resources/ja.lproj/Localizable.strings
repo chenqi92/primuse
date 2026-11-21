@@ -976,6 +976,7 @@
 "import_scraper_footer" = "JSON 設定または URL からカスタム取得ソースを読み込みます。読み込んだソースが関連する利用規約および著作権法に準拠することについては、お客様の責任となります。";
 "scrape_entry_writeback_header" = "取得後に音楽ソースへ書き戻す";
 "scrape_entry_writeback_scope" = "「カバー書き戻し」「歌詞書き戻し」「書き込みタイムアウト」は、自動取得のあとに音楽ソースへ書き戻すかどうかと待ち時間だけを決めます（再生画面の歌詞がないときの「メタデータを取得」と、ライブラリ・アルバム・プレイリスト・選択した曲の一括取得）。取得結果の画面で「保存」をタップした場合は、常に「歌詞の保存先」「カバーの保存先」に従って書き込みます。";
+"scrape_entry_tv_lyrics_only_note" = "歌詞ソースしかオンになっていないため、今回は歌詞だけを探します。タグとカバーも補うには、スクレイピングソースの設定で別のソースをオンにしてください。";
 "scraper_lyrics_server_name" = "歌詞 API サーバ";
 "scraper_lyrics_server_desc" = "設定した歌詞 API に順番に歌詞をリクエストします";
 "lyrics_server_count_format" = "%d 件のアドレス";
@@ -5732,12 +5733,12 @@
 "server_playlist_append_footer" = "曲はサーバー上のプレイリストに追加されます。削除するにはサーバー側で編集してください。";
 
 // MARK: - Apple TV scraping
-"tv_scrape_match_title" = "情報を照合";
+"tv_scrape_match_title" = "メタデータを取得";
 "tv_scrape_apply_tags" = "タグ";
 "tv_scrape_no_cover" = "カバーが見つかりません";
 "tv_scrape_no_lyrics" = "歌詞が見つかりません";
 "tv_scrape_lyrics_lines_format" = "%d 行";
-"tv_scrape_local_only_note" = "テレビで照合した情報はこの Apple TV にのみ保存され、音楽ソースには書き戻されません。";
+"tv_scrape_local_only_note" = "テレビで取得したメタデータはこの Apple TV にのみ保存され、音楽ソースには書き戻されません。";
 "tv_scrape_enabled_count_format" = "%d 件のソースが有効";
 "tv_scrape_lyrics_server_unset" = "サーバーアドレスが未設定です。iPhone で入力してください";
 "tv_scrape_order_hint" = "リストの順に上から照会します。上下の矢印で並べ替えできます。";

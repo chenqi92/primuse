@@ -975,6 +975,7 @@
 "import_scraper_footer" = "Importiere eine benutzerdefinierte Abrufquelle über eine JSON-Konfiguration oder URL. Du bist dafür verantwortlich, dass importierte Quellen den geltenden Nutzungsbedingungen und Urheberrechtsgesetzen entsprechen.";
 "scrape_entry_writeback_header" = "Nach dem Abrufen zurückschreiben";
 "scrape_entry_writeback_scope" = "„Cover-Rückschreibung“, „Liedtext-Rückschreibung“ und „Schreib-Timeout“ gelten nur nach dem automatischen Abrufen: „Metadaten abrufen“ auf der leeren Liedtextseite im Player sowie das Abrufen für die ganze Mediathek, ein Album, eine Wiedergabeliste oder ausgewählte Titel. Beim Tippen auf „Speichern“ auf der Ergebnisseite wird immer nach „Liedtexte speichern in“ und „Cover speichern in“ geschrieben.";
+"scrape_entry_tv_lyrics_only_note" = "Es ist nur eine Liedtextquelle aktiv, daher wird diesmal nur nach Liedtexten gesucht. Um auch Tags und Cover zu ergänzen, aktiviere in den Abrufquellen eine weitere Quelle.";
 "scraper_lyrics_server_name" = "Lyrics-API-Server";
 "scraper_lyrics_server_desc" = "Fragt Songtexte der Reihe nach bei selbst eingerichteten Lyrics-Schnittstellen ab";
 "lyrics_server_count_format" = "Adressen: %d";
@@ -5731,12 +5732,12 @@
 "server_playlist_append_footer" = "Titel werden der Playlist auf dem Server hinzugefügt. Zum Entfernen die Playlist auf dem Server bearbeiten.";
 
 // MARK: - Apple TV scraping
-"tv_scrape_match_title" = "Infos abgleichen";
+"tv_scrape_match_title" = "Metadaten abrufen";
 "tv_scrape_apply_tags" = "Tags";
 "tv_scrape_no_cover" = "Kein Cover gefunden";
 "tv_scrape_no_lyrics" = "Kein Songtext gefunden";
 "tv_scrape_lyrics_lines_format" = "%d Zeilen";
-"tv_scrape_local_only_note" = "Auf dem Fernseher abgeglichene Infos werden nur auf diesem Apple TV gespeichert und nicht in die Musikquelle zurückgeschrieben.";
+"tv_scrape_local_only_note" = "Auf dem Fernseher abgerufene Metadaten werden nur auf diesem Apple TV gespeichert und nicht in die Musikquelle zurückgeschrieben.";
 "tv_scrape_enabled_count_format" = "Aktive Quellen: %d";
 "tv_scrape_lyrics_server_unset" = "Noch keine Serveradresse – auf dem iPhone eintragen";
 "tv_scrape_order_hint" = "Die Quellen werden in Listenreihenfolge von oben abgefragt. Mit den Pfeilen nach oben und unten änderst du die Reihenfolge.";

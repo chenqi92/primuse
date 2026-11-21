@@ -3,12 +3,12 @@ import PrimuseKit
 import SwiftUI
 import UIKit
 
-/// 「匹配信息」要打开的歌,给 `fullScreenCover(item:)` 用。
+/// 「刮削数据」要打开的歌,给 `fullScreenCover(item:)` 用。
 struct TVSongMatchTarget: Identifiable, Hashable {
     let id: String
 }
 
-// MARK: - 单曲匹配
+// MARK: - 单曲刮削
 
 struct TVSongMatchView: View {
     let songID: String
@@ -24,6 +24,11 @@ struct TVSongMatchView: View {
     @State private var notice: String?
     @State private var pendingDiscard: (() -> Void)?
     @State private var showsDiscard = false
+    /// 这次按什么搜：能刮整套就整套；只剩默认开着的纯歌词源时只找歌词（见 `SingleSongScrapePartsFallbackPolicy`）。
+    @State private var searchParts: ScrapeParts = .all
+    /// 一个能用的刮削源都没有：提示里给出去刮削源设置的入口。
+    @State private var needsScraperSource = false
+    @State private var showsScraperSettings = false
 
     private var song: Song? { store.library.song(id: songID) }
 
@@ -57,6 +62,9 @@ struct TVSongMatchView: View {
                         }.focusSection()
                         if isSearching { ProgressView("scrape_candidates_searching") }
                         if let notice { Text(verbatim: notice).foregroundStyle(TVColor.textMuted) }
+                        if needsScraperSource || searchParts == .lyrics {
+                            scraperSourceHint
+                        }
                         if let binding = Binding($draft), let song {
                             ScrapeFieldReviewView(draft: binding, images: images) {
                                 TVArtworkView(coverKey: song.albumID ?? song.id, artist: song.artistName ?? "",
@@ -84,6 +92,10 @@ struct TVSongMatchView: View {
         }
         .onDisappear { searchTask?.cancel() }
         .onExitCommand { protect { dismiss() } }
+        // 从这里去开刮削源，回来按新的设置重搜一次。
+        .tvFullScreenCover(isPresented: $showsScraperSettings, onDismiss: { search() }) {
+            TVScraperSettingsView().environment(store)
+        }
         .alert("lyrics_sources_discard_title", isPresented: $showsDiscard) {
             Button("lyrics_editor_keep_editing", role: .cancel) { pendingDiscard = nil }
             Button("lyrics_sources_discard", role: .destructive) {
@@ -100,17 +112,45 @@ struct TVSongMatchView: View {
         if draft?.isEdited == true { pendingDiscard = action; showsDiscard = true } else { action() }
     }
 
+    /// 只剩歌词源能用时说一句这次只找歌词；一个源都没有时说要先开源。两种都给去刮削源设置的按钮。
+    private var scraperSourceHint: some View {
+        HStack(alignment: .center, spacing: 24) {
+            if !needsScraperSource {
+                Text("scrape_entry_tv_lyrics_only_note")
+                    .tvFont(.caption)
+                    .foregroundStyle(TVColor.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            TVPillButton(title: String(localized: "scraper_no_source_open_settings"), systemImage: "gearshape") {
+                protect { showsScraperSettings = true }
+            }
+        }
+        .focusSection()
+    }
+
     private func search() {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let song, !text.isEmpty, !isSaving else { return }
         searchTask?.cancel()
         let settings = ScraperSettings.load()
-        let request = settings.reviewFields(for: song, parts: .all)
-        guard !request.fields.isEmpty, store.scraperSettings.gateSourceCount(for: .all) > 0 else {
+        // 单曲匹配是用户点名要的：数源时不看刮削规则里的「跳过」，和手机端入口一致。
+        let fullCount = store.scraperSettings.userRequestedSourceCount(for: .all)
+        let lyricsCount = store.scraperSettings.userRequestedSourceCount(for: .lyrics)
+        let plannedParts = SingleSongScrapePartsFallbackPolicy.parts(fullSourceCount: fullCount, lyricsSourceCount: lyricsCount)
+        let plannedRequest = plannedParts.map { settings.reviewFields(for: song, parts: $0) }
+        guard let parts = plannedParts, let request = plannedRequest, !request.fields.isEmpty else {
+            plog("TV scrape: no usable scraper source full=\(fullCount) lyrics=\(lyricsCount)")
             isSearching = false
+            needsScraperSource = true
             notice = String(localized: "scraper_no_source_message")
             return
         }
+        if parts != searchParts || needsScraperSource {
+            plog("TV scrape: search parts=\(parts == .lyrics ? "lyrics" : "all") full=\(fullCount) lyrics=\(lyricsCount)")
+        }
+        needsScraperSource = false
+        searchParts = parts
         isSearching = true
         notice = nil
         searchTask = Task { @MainActor in
@@ -118,7 +158,8 @@ struct TVSongMatchView: View {
             guard !Task.isCancelled else { return }
             isSearching = false
             if catalog.options.isEmpty { notice = String(localized: "scrape_no_changes"); return }
-            draft = ScrapeReviewDraft(song: song, catalog: catalog, request: request, defaults: settings.reviewDefaults(for: song, parts: .all))
+            draft = ScrapeReviewDraft(song: song, catalog: catalog, request: request,
+                                      defaults: settings.reviewDefaults(for: song, parts: parts))
         }
     }
 

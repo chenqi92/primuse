@@ -1722,6 +1722,7 @@
 "import_scraper_footer" = "Zaimportuj własnego dostawcę metadanych za pomocą konfiguracji JSON lub adresu URL. Odpowiadasz za zgodność importowanych dostawców z obowiązującymi warunkami i prawem autorskim.";
 "scrape_entry_writeback_header" = "Zapis w źródle po pobraniu metadanych";
 "scrape_entry_writeback_scope" = "„Zapis okładki w źródle”, „Zapis tekstu w źródle” i „Limit czasu zapisu” działają tylko po automatycznym pobieraniu: „Pobierz metadane” na pustej stronie tekstu w odtwarzaczu oraz pobieranie zbiorcze dla biblioteki, albumu, playlisty lub zaznaczonych utworów. Po stuknięciu „Zapisz” na stronie wyników zapis zawsze odbywa się według ustawień „Zapisuj teksty w” i „Zapisuj okładki w”.";
+"scrape_entry_tv_lyrics_only_note" = "Włączone jest tylko źródło tekstów, więc teraz szukane są tylko teksty. Aby uzupełnić też tagi i okładkę, włącz kolejne źródło w ustawieniach źródeł.";
 "scraper_lyrics_server_name" = "Serwer API tekstów";
 "scraper_lyrics_server_desc" = "Pobiera teksty po kolei z interfejsów API tekstów, które sam skonfigurujesz";
 "lyrics_server_count_format" = "Adresy: %d";
@@ -5637,12 +5638,12 @@
 "server_playlist_append_footer" = "Utwory są dodawane do playlisty na serwerze. Aby je usunąć, edytuj playlistę na serwerze.";
 
 // MARK: - Apple TV scraping
-"tv_scrape_match_title" = "Dopasuj informacje";
+"tv_scrape_match_title" = "Pobierz metadane";
 "tv_scrape_apply_tags" = "Tagi";
 "tv_scrape_no_cover" = "Nie znaleziono okładki";
 "tv_scrape_no_lyrics" = "Nie znaleziono tekstu";
 "tv_scrape_lyrics_lines_format" = "Wiersze: %d";
-"tv_scrape_local_only_note" = "Informacje dopasowane na telewizorze są zapisywane tylko na tym Apple TV i nie trafiają z powrotem do źródła muzyki.";
+"tv_scrape_local_only_note" = "Metadane pobrane na telewizorze są zapisywane tylko na tym Apple TV i nie trafiają z powrotem do źródła muzyki.";
 "tv_scrape_enabled_count_format" = "Włączone źródła: %d";
 "tv_scrape_lyrics_server_unset" = "Brak adresu serwera — dodaj go na iPhonie";
 "tv_scrape_order_hint" = "Źródła są odpytywane w kolejności listy, od góry. Zmień kolejność strzałkami w górę i w dół.";

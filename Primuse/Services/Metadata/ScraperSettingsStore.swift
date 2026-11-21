@@ -564,3 +564,18 @@ extension ScraperSettings {
             && !store.hasCachedLyricsFile(forSongID: songID)
     }
 }
+
+extension ScraperSettings {
+    /// 用户点名的单曲刮削(结果页、「暂无歌词」上的刮削)数能用的源：只看这几部分有没有开着的源，
+    /// 不看刮削规则里的「跳过」——跳过只管批量和后台。默认开着的 AMLL 照旧只在只找歌词时算。
+    func userRequestedSourceCount(for parts: ScrapeParts) -> Int {
+        ScraperSourceGatePolicy.usableSourceCount(
+            enabledSourcesOnByDefault: enabledSources.filter {
+                (parts.contains(.metadata) && $0.type.supportsMetadata)
+                    || (parts.contains(.cover) && $0.type.supportsCover)
+                    || (parts.contains(.lyrics) && $0.type.supportsLyrics)
+            }.map(\.type.isEnabledByDefault),
+            for: parts
+        )
+    }
+}

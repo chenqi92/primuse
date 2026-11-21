@@ -150,3 +150,16 @@ public struct ScraperSettingsRouteState: Equatable, Sendable {
         destination = isPresented ? .metadataScraping : nil
     }
 }
+
+/// 电视「刮削数据」这次刮什么：能刮整套就整套；只剩默认开着的纯歌词源（AMLL）能用时只找歌词，
+/// 不拦成「需要刮削源」；一个能用的源都没有才返回 nil，由界面给出去刮削源设置的入口。
+public enum SingleSongScrapePartsFallbackPolicy {
+    /// - Parameters:
+    ///   - fullSourceCount: 整套刮削（标签、封面、歌词）能用的源数，默认开着的纯歌词源不算。
+    ///   - lyricsSourceCount: 只找歌词时能用的源数，默认开着的纯歌词源也算。
+    public static func parts(fullSourceCount: Int, lyricsSourceCount: Int) -> ScrapeParts? {
+        if fullSourceCount > 0 { return .all }
+        if lyricsSourceCount > 0 { return .lyrics }
+        return nil
+    }
+}

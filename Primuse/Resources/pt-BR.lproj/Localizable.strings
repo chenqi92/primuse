@@ -1722,6 +1722,7 @@
 "import_scraper_footer" = "Importe um provedor de metadados personalizado por configuração JSON ou URL. Você é responsável por garantir que os provedores importados cumpram os termos aplicáveis e as leis de direitos autorais.";
 "scrape_entry_writeback_header" = "Gravar na origem após buscar metadados";
 "scrape_entry_writeback_scope" = "“Salvar capa na origem”, “Salvar letras na origem” e “Tempo limite de gravação” só valem depois da busca automática: “Buscar metadados” na tela sem letra do player e a busca em lote da biblioteca, de um álbum, de uma playlist ou de músicas selecionadas. Ao tocar em “Salvar” na página de resultados, a gravação sempre segue “Salvar letras em” e “Salvar capas em”.";
+"scrape_entry_tv_lyrics_only_note" = "Só uma fonte de letras está ativada, então esta busca procura apenas letras. Para completar também tags e capa, ative outra fonte nas configurações de fontes.";
 "scraper_lyrics_server_name" = "Servidor de API de letras";
 "scraper_lyrics_server_desc" = "Busca letras, em ordem, nas APIs de letras que você configurar";
 "lyrics_server_count_format" = "Endereços: %d";
@@ -5637,12 +5638,12 @@
 "server_playlist_append_footer" = "As músicas são adicionadas à playlist no servidor. Para removê-las, edite a playlist no servidor.";
 
 // MARK: - Apple TV scraping
-"tv_scrape_match_title" = "Corresponder informações";
+"tv_scrape_match_title" = "Buscar metadados";
 "tv_scrape_apply_tags" = "Tags";
 "tv_scrape_no_cover" = "Nenhuma capa encontrada";
 "tv_scrape_no_lyrics" = "Nenhuma letra encontrada";
 "tv_scrape_lyrics_lines_format" = "%d linhas";
-"tv_scrape_local_only_note" = "As informações correspondidas na TV ficam salvas só nesta Apple TV e não são gravadas de volta na fonte de música.";
+"tv_scrape_local_only_note" = "Os metadados buscados na TV ficam salvos só nesta Apple TV e não são gravados de volta na fonte de música.";
 "tv_scrape_enabled_count_format" = "Fontes ativadas: %d";
 "tv_scrape_lyrics_server_unset" = "Ainda sem endereço de servidor; adicione no iPhone";
 "tv_scrape_order_hint" = "As fontes são consultadas na ordem da lista, de cima para baixo. Use as setas para cima e para baixo para reordená-las.";

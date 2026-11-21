@@ -723,6 +723,7 @@
 "import_scraper_footer" = "透過 JSON 設定或 URL 匯入自訂刮削來源，可提供中繼資料、封面和歌詞。請確保所匯入的資料來源合法合規，本 App 不對第三方來源的內容承擔責任。";
 "scrape_entry_writeback_header" = "刮削後寫回音樂來源";
 "scrape_entry_writeback_scope" = "「封面寫回」「歌詞寫回」「寫入逾時」只管自動刮削之後要不要寫回音樂來源、最多等多久：播放頁「暫無歌詞」裡的「刮取資料」，以及整個資料庫、專輯、播放清單和多選的批次刮削。在刮削結果頁手動點「儲存」的，一律按「歌詞儲存到」「封面儲存到」寫入。";
+"scrape_entry_tv_lyrics_only_note" = "目前只開著歌詞來源，這次只找歌詞。要一併補上標籤和封面，請先到刮削來源設定再開一個來源。";
 "scraper_lyrics_server_name" = "歌詞 API 服務";
 "scraper_lyrics_server_desc" = "依序向你自行設定的歌詞介面請求歌詞";
 "lyrics_server_count_format" = "%d 個位址";
@@ -5708,12 +5709,12 @@
 "server_playlist_append_footer" = "歌曲會加入伺服器上的這個播放列表；若要移除，請到伺服器上編輯。";
 
 // MARK: - Apple TV 刮削
-"tv_scrape_match_title" = "比對資訊";
+"tv_scrape_match_title" = "刮取資料";
 "tv_scrape_apply_tags" = "標籤";
 "tv_scrape_no_cover" = "沒有找到封面";
 "tv_scrape_no_lyrics" = "沒有找到歌詞";
 "tv_scrape_lyrics_lines_format" = "%d 行";
-"tv_scrape_local_only_note" = "在電視上比對到的資訊只會儲存在這台 Apple TV，不會寫回音樂來源。";
+"tv_scrape_local_only_note" = "在電視上刮取到的資訊只會儲存在這台 Apple TV，不會寫回音樂來源。";
 "tv_scrape_enabled_count_format" = "已啟用 %d 個來源";
 "tv_scrape_lyrics_server_unset" = "尚未設定服務位址，請在 iPhone 上填寫";
 "tv_scrape_order_hint" = "依列表順序查詢，排在前面的先查，用上下箭頭調整順序。";
