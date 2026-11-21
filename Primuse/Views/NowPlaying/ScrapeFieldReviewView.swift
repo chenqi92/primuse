@@ -106,6 +106,10 @@ struct ScrapeFieldReviewView<OriginalCover: View>: View {
                 ScrollView {
                     if let fullLyrics { ScrapeReviewLyricLines(lyrics: fullLyrics, expanded: true).padding() }
                 }
+                #if os(tvOS)
+                // 只有文字的全文，要让焦点能停上去，遥控器才滑得动。
+                .tvReadOnlyScrollFocus()
+                #endif
                 .navigationTitle("scrape_lyrics_preview")
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("done") { fullLyrics = nil } } }
             }
