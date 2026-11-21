@@ -71,7 +71,15 @@ struct EmbeddedMetadataRemoteFileState: Sendable, Equatable {
     /// 那一份(大小、修改时间都对得上)就不算冲突。音频真被别处改过照旧拒绝。
     func matchesScannedSong(_ song: Song, revisionFoldsSidecarFingerprints: Bool) -> Bool {
         if matchesScannedSong(song) { return true }
-        return revisionFoldsSidecarFingerprints && song.revision != nil && matchesScannedAudio(song)
+        guard revisionFoldsSidecarFingerprints, let scanned = song.revision,
+              matchesScannedAudio(song) else { return false }
+        // A sibling write changes the composite digest but leaves the audio's own ctime intact.
+        if let saved = Self.stampedLocalRevision(scanned) {
+            return saved.changeBits == Self.stampedLocalRevision(revision)?.changeBits
+        }
+        // Older local rows have no ctime. Their audio digest used millisecond-resolution mtimes.
+        guard let savedDate = song.lastModified, let modifiedDate else { return false }
+        return abs(savedDate.timeIntervalSince(modifiedDate)) < 0.001
     }
 
     /// 音频本身(大小、修改时间)还是库里记的那一份。
@@ -87,10 +95,15 @@ struct EmbeddedMetadataRemoteFileState: Sendable, Equatable {
         if song.revision == current { return true }
         // Older local scans stored the size/mtime/sidecar digest alone.
         // A change predating import does not require rereading the library on upgrade.
-        guard let current, current.hasPrefix("local:"), let separator = current.firstIndex(of: "|"),
-              song.revision == nil || song.revision == String(current[..<separator]),
-              let bits = UInt64(current[current.index(after: separator)...], radix: 16) else { return false }
-        return Date(timeIntervalSinceReferenceDate: Double(bitPattern: bits)) <= song.dateAdded
+        guard let stamp = stampedLocalRevision(current),
+              song.revision == nil || song.revision == String(stamp.base) else { return false }
+        return Date(timeIntervalSinceReferenceDate: Double(bitPattern: stamp.changeBits)) <= song.dateAdded
+    }
+
+    private static func stampedLocalRevision(_ value: String?) -> (base: Substring, changeBits: UInt64)? {
+        guard let value, value.hasPrefix("local:"), let separator = value.firstIndex(of: "|"),
+              let bits = UInt64(value[value.index(after: separator)...], radix: 16) else { return nil }
+        return (value[..<separator], bits)
     }
 
     /// 冲突日志用：只说哪一项对不上，不带 ETag 原文与路径。
@@ -134,6 +147,32 @@ struct EmbeddedAssetWritePolicy: Sendable, Equatable {
     /// 封面时事务里不动歌词，交回 `.leftForFieldReplace`，调用方随后用新的文件身份拿它再写一次。
     /// nil 时照旧整段写。
     var lyricsFieldReplacement: EmbeddedLyricsFieldRequest? = nil
+
+    var tagFields: Set<ScrapeField> = []
+    var overwritesTags: Set<ScrapeField> = []
+    var tagTarget: LyricsWriteback.EditTarget?
+
+    func tagsToWrite(_ file: EmbeddedMetadataVerification, proposed: Song) -> Set<TagMetadataWritebackField> {
+        var selected: Set<TagMetadataWritebackField> = []
+        for field in tagFields where field.hasValue(in: proposed.scrapeFields, hasCover: false, hasLyrics: false) {
+            let tag: TagMetadataWritebackField
+            switch field {
+            case .title: tag = .title
+            case .artist: tag = .artist
+            case .albumArtist: tag = .albumArtist
+            case .album: tag = .album
+            case .genre: tag = .genre
+            case .year: tag = .year
+            case .track: tag = .trackNumber
+            case .disc: tag = .discNumber
+            case .cover, .lyrics: continue
+            }
+            let current = TagWriteConflictPolicy.normalized(tag.value(in: file))
+            let desired = TagWriteConflictPolicy.normalized(tag.value(in: proposed))
+            if current != desired, current == nil || overwritesTags.contains(field) { selected.insert(tag) }
+        }
+        return selected
+    }
 
     /// 照原样整段替换（手动保存、标签编辑走的路）。
     static let replace = EmbeddedAssetWritePolicy(keepsExistingCover: false, keepsExistingLyrics: false, skipsUnchanged: false)
@@ -465,10 +504,20 @@ enum EmbeddedMetadataWritebackCoordinator {
 
         // 刮削的写入先看文件里已有的：只补缺失时已有的不换，和要写的一样时不整首重写；
         // 文件里已有歌词又要换时，这次不整段写歌词，交回调用方按字段替换。
+        let changedTags: Set<TagMetadataWritebackField>
+        if assetPolicy.tagFields.isEmpty {
+            changedTags = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: false)
+        } else {
+            let current = try await run(source: sourceName, stage: .inspect) {
+                try EmbeddedMetadataWriter.currentTags(at: workingURL)
+            }
+            changedTags = assetPolicy.tagsToWrite(current, proposed: updated)
+        }
+        let writesTags = writesTextTags || !assetPolicy.tagFields.isEmpty && !changedTags.isEmpty
         var writtenCover = coverData
         var writtenLyrics = lyrics
         var assetLyrics = EmbeddedAssetLyricsHandling.notIncluded
-        if assetPolicy != .replace, writtenCover != nil || writtenLyrics != .keep {
+        if assetPolicy != .replace, writtenCover != nil || writtenLyrics != .keep || !assetPolicy.tagFields.isEmpty {
             let existing = await FileMetadataReader.read(from: workingURL)
             let kept = EmbeddedAssetWritePolicy.filtered(
                 coverData: writtenCover, lyricsText: nil,
@@ -507,7 +556,7 @@ enum EmbeddedMetadataWritebackCoordinator {
                     assetLyrics = .kept
                     writtenLyrics = .keep
                 case .replaceByField:
-                    if writtenCover == nil, !writesTextTags, comment == .keep,
+                    if writtenCover == nil, !writesTags, comment == .keep,
                        let request = assetPolicy.lyricsFieldReplacement {
                         // 这次只有歌词要写：就在这次事务里按字段改，不用整首再传一遍。
                         assetLyrics = .replacedByField
@@ -520,7 +569,7 @@ enum EmbeddedMetadataWritebackCoordinator {
                 }
                 plog("Writeback: scraped lyrics plan=\(plan.rawValue) fileHasLyrics=\(fileHasLyrics) variants=\(existing.lyricsVariants.count) rawFrames=\(rawLyricsFrameCount.map { "\($0)" } ?? "-") source=\(sourceName)")
             }
-            if writtenCover == nil, writtenLyrics == .keep, !writesTextTags, comment == .keep {
+            if writtenCover == nil, writtenLyrics == .keep, !writesTags, comment == .keep {
                 // 没有要写的：不替换文件，交回文件此刻的身份。
                 let currentTags = try? EmbeddedMetadataWriter.currentTags(at: workingURL)
                 let digest = try await run(source: sourceName, stage: .edit) {
@@ -545,7 +594,7 @@ enum EmbeddedMetadataWritebackCoordinator {
         }
 
         let edits = EmbeddedMetadataEdits(
-            tags: writesTextTags
+            tags: writesTags
                 ? EmbeddedMetadataEdits.Tags(
                     title: updated.title,
                     artist: updated.artistName,
@@ -559,11 +608,7 @@ enum EmbeddedMetadataWritebackCoordinator {
                 : nil,
             coverData: writtenCover,
             lyrics: writtenLyrics,
-            changedFields: TagMetadataWritebackField.changedFields(
-                from: original,
-                to: updated,
-                includesCover: false
-            ),
+            changedFields: changedTags,
             comment: comment
         )
         let previousTags = try? EmbeddedMetadataWriter.currentTags(at: workingURL)

@@ -102,6 +102,7 @@ struct ScrapeResult: Sendable {
     var coverData: Data?
     var lyrics: [PrimuseKit.LyricLine]?
     var errors: [String]
+    var unavailableSourceIDs: [ScrapeParts: Set<String>] = [:]
     var unavailableParts: ScrapeParts = []
     var retryAfter: TimeInterval = 5
 }

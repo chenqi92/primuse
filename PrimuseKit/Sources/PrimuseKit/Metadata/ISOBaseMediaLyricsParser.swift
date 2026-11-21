@@ -174,6 +174,159 @@ public enum ISOBaseMediaLyricsParser {
         return result
     }
 
+    /// Rewrites individual data children so multilingual/freeform siblings and their names
+    /// survive. When the movie header grows before media, media offsets stay at their original positions.
+    public static func editingOriginals(in data: Data, _ operation: EmbeddedLyricsFieldEditor.Operation) -> EmbeddedLyricsFieldEditor.FileEdit? {
+        typealias Editor = EmbeddedLyricsFieldEditor
+        let corrupt = CocoaError(.fileReadCorruptFile)
+        func children(_ bounds: Range<Int>) throws -> [Atom] {
+            let list = atoms(in: data, range: bounds)
+            guard bounds.isEmpty || list.last?.payload.upperBound == bounds.upperBound else { throw corrupt }
+            return list
+        }
+        func uint32(_ n: UInt32) -> Data {
+            Data([UInt8(n >> 24), UInt8(truncatingIfNeeded: n >> 16), UInt8(truncatingIfNeeded: n >> 8), UInt8(truncatingIfNeeded: n)])
+        }
+        func box(_ type: UInt32, _ body: Data) throws -> Data {
+            guard let size = UInt32(exactly: body.count + 8) else { throw corrupt }
+            return uint32(size) + uint32(type) + body
+        }
+        do {
+            let top = try children(data.startIndex..<data.endIndex)
+            let movies = top.filter { $0.type == AtomType.moov }
+            guard movies.count == 1, let movie = movies.first,
+                  !top.contains(where: { $0.type == 0x6d6f6f66 }) else { return nil } // moof
+            let movieChildren = try children(movie.payload)
+            guard !movieChildren.contains(where: { [0x636d6f76, 0x6d766578].contains($0.type) }) else { return nil } // cmov, mvex
+            var fields: [Editor.Field] = []
+            var dataAtoms: [Atom] = []
+            var valueItem: [Int: Atom] = [:]
+            var additions: [Int: Data] = [:]
+            var paths: [Int: [Atom]] = [movie.start: movieChildren]
+            var defaultList: Atom?
+            var metadata = movieChildren.filter { $0.type == AtomType.meta }
+            for userData in movieChildren where userData.type == AtomType.udta {
+                let nested = try children(userData.payload)
+                paths[userData.start] = nested
+                metadata.append(contentsOf: nested.filter { $0.type == AtomType.meta })
+            }
+            for meta in metadata {
+                guard meta.payload.count >= 4 else { return nil }
+                let metaChildren = try children((meta.payload.lowerBound + 4)..<meta.payload.upperBound)
+                paths[meta.start] = metaChildren
+                let keyTable = metaChildren.first { $0.type == AtomType.keys }
+                let keys = keyTable.map { metadataKeys(in: data, atom: $0) } ?? [:]
+                for list in metaChildren where list.type == AtomType.ilst {
+                    let items = try children(list.payload)
+                    paths[list.start] = items
+                    if keyTable == nil, defaultList == nil { defaultList = list }
+                    for item in items {
+                        let role: LyricFieldRole?
+                        switch item.type {
+                        case AtomType.iTunesLyrics: role = .original(languageCode: nil)
+                        case AtomType.freeform: role = freeformName(in: data, item: item).flatMap(lyricFieldRole)
+                        default: role = keys[item.type].flatMap(lyricFieldRole)
+                        }
+                        guard case .original(let code) = role else { continue }
+                        let components = try children(item.payload)
+                        paths[item.start] = components
+                        for child in components where child.type == AtomType.data {
+                            guard let text = decodedDataAtom(child, in: data) else { return nil }
+                            fields.append(Editor.Field(text: text, language: code))
+                            dataAtoms.append(child)
+                            valueItem[child.start] = item
+                        }
+                    }
+                }
+            }
+            guard let plan = Editor.targets(fields, operation: operation, prefersUntagged: true) else { return nil }
+            var changed: [Int: Data] = [:]
+            switch operation {
+            case .replace(let text, _):
+                guard !Editor.normalizedText(text).isEmpty else { return nil }
+                if plan.indices.isEmpty {
+                    let encoded = try box(AtomType.iTunesLyrics, box(AtomType.data, uint32(1) + uint32(0) + Data(text.utf8)))
+                    if let list = defaultList {
+                        additions[list.start] = encoded
+                    } else {
+                        // A numeric mdta ilst cannot carry an iTunes key. Add a standard mdir metadata box.
+                        let handler = try box(0x68646c72, Data(count: 8) + Data("mdirappl".utf8) + Data(count: 9))
+                        let meta = try box(AtomType.meta, Data(count: 4) + handler + box(AtomType.ilst, encoded))
+                        if let udta = movieChildren.first(where: { $0.type == AtomType.udta }) {
+                            additions[udta.start] = meta
+                        } else {
+                            additions[movie.start] = try box(AtomType.udta, meta)
+                        }
+                    }
+                }
+                for i in plan.indices {
+                    let child = dataAtoms[i]
+                    var header = Data(data[child.payload.prefix(8)])
+                    header.replaceSubrange(1..<4, with: [0, 0, 1]) // UTF-8; preserve locale
+                    changed[child.start] = try box(AtomType.data, header + Data(text.utf8))
+                }
+            case .removeOne, .removeAllOriginals:
+                if plan.indices.isEmpty { return Editor.FileEdit(data: data, result: plan.result) }
+                for i in plan.indices { changed[dataAtoms[i].start] = Data() }
+                for i in plan.indices {
+                    let child = dataAtoms[i]
+                    guard let item = valueItem[child.start], let parts = paths[item.start] else { return nil }
+                    let keep = parts.contains { part in
+                        if part.type == AtomType.data { return changed[part.start] == nil }
+                        return part.type != AtomType.name && part.type != 0x6d65616e
+                    }
+                    if !keep { changed[item.start] = Data() }
+                }
+            }
+            // Only rebuild an ancestor of a changed atom. Every other box, including custom
+            // children and extended-size headers, is copied byte-for-byte.
+            func rewritten(_ atom: Atom) throws -> Data? {
+                if let value = changed[atom.start] { return value }
+                guard let nested = paths[atom.start] else { return nil }
+                var body = Data()
+                var position = atom.payload.lowerBound
+                var dirty = false
+                for child in nested {
+                    if let next = try rewritten(child) {
+                        body.append(data[position..<child.start])
+                        body.append(next)
+                        position = child.payload.upperBound
+                        dirty = true
+                    }
+                }
+                guard dirty || additions[atom.start] != nil else { return nil }
+                body.append(data[position..<atom.payload.upperBound])
+                if let added = additions[atom.start] { body.append(added) }
+                return try box(atom.type, body)
+            }
+            guard let edited = try rewritten(movie) else { return nil }
+            let end = movie.payload.upperBound
+            var output: Data
+            if edited.count == end - movie.start || end == data.endIndex {
+                output = Data(data[..<movie.start]) + edited
+                output.append(data[end...])
+            } else {
+                let followingFree = top.first {
+                    $0.start == end && $0.type == 0x66726565 && data[$0.payload].allSatisfy { $0 == 0 }
+                }
+                let reservedEnd = followingFree?.payload.upperBound ?? end
+                let slack = reservedEnd - movie.start - edited.count
+                if slack == 0 || (8...Int(UInt32.max)).contains(slack) {
+                    output = Data(data[..<movie.start]) + edited
+                    if slack > 0 { output.append(try box(0x66726565, Data(count: slack - 8))) }
+                    output.append(data[reservedEnd...])
+                } else {
+                    guard let last = top.last, readUInt32BE(data, at: last.start) != 0 else { return nil }
+                    output = data
+                    output.replaceSubrange((movie.start + 4)..<(movie.start + 8), with: "free".utf8)
+                    output.resetBytes(in: movie.payload)
+                    output.append(edited)
+                }
+            }
+            return Editor.FileEdit(data: output, result: plan.result)
+        } catch { return nil }
+    }
+
     public struct ReplayGainTags: Equatable, Sendable {
         public var trackGain: Double?
         public var trackPeak: Double?
@@ -278,6 +431,7 @@ public enum ISOBaseMediaLyricsParser {
     }
 
     private struct Atom {
+        let start: Int
         let type: UInt32
         let payload: Range<Int>
     }
@@ -431,7 +585,7 @@ public enum ISOBaseMediaLyricsParser {
             || (data[data.startIndex] == 0xFF && data[data.startIndex + 1] == 0xFE)
     }
 
-    private enum LyricFieldRole {
+    enum LyricFieldRole {
         case original(languageCode: String?)
         case translation(languageCode: String?)
     }
@@ -464,7 +618,15 @@ public enum ISOBaseMediaLyricsParser {
         }
     }
 
-    private static func lyricFieldRole(_ value: String) -> LyricFieldRole? {
+    static func lyricFieldRole(_ value: String) -> LyricFieldRole? {
+        lyricFieldRole(value, allowsNamespace: true)
+    }
+
+    static func id3UserTextRole(_ value: String) -> LyricFieldRole? {
+        lyricFieldRole(value, allowsNamespace: false)
+    }
+
+    private static func lyricFieldRole(_ value: String, allowsNamespace: Bool) -> LyricFieldRole? {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
             .uppercased()
         let translatedRoots = [
@@ -476,10 +638,10 @@ public enum ISOBaseMediaLyricsParser {
             "SYNCED LYRICS", "LYRICS",
         ]
 
-        if let languageCode = matchedLyricKey(normalized, roots: translatedRoots) {
+        if let languageCode = matchedLyricKey(normalized, roots: translatedRoots, allowsNamespace: allowsNamespace) {
             return .translation(languageCode: languageCode)
         }
-        if let languageCode = matchedLyricKey(normalized, roots: originalRoots) {
+        if let languageCode = matchedLyricKey(normalized, roots: originalRoots, allowsNamespace: allowsNamespace) {
             return .original(languageCode: languageCode)
         }
         return nil
@@ -489,12 +651,13 @@ public enum ISOBaseMediaLyricsParser {
     /// optional with a nil language is an untagged lyric key.
     private static func matchedLyricKey(
         _ key: String,
-        roots: [String]
+        roots: [String],
+        allowsNamespace: Bool
     ) -> String?? {
         for root in roots.sorted(by: { $0.count > $1.count }) {
             guard let range = key.range(of: root) else { continue }
             let prefix = key[..<range.lowerBound]
-            guard prefix.isEmpty || prefix.last.map({ ".:/_- ".contains($0) }) == true else {
+            guard prefix.isEmpty || (allowsNamespace && prefix.last.map({ ".:/_- ".contains($0) }) == true) else {
                 continue
             }
             let rawSuffix = key[range.upperBound...]
@@ -549,7 +712,7 @@ public enum ISOBaseMediaLyricsParser {
                 break
             }
             let end = cursor + Int(totalLength)
-            result.append(Atom(type: type, payload: (cursor + headerLength)..<end))
+            result.append(Atom(start: cursor, type: type, payload: (cursor + headerLength)..<end))
             guard end > cursor else { break }
             cursor = end
         }

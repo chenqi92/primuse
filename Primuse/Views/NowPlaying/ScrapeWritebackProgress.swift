@@ -26,7 +26,15 @@ final class ScrapeWritebackCenter {
         case unchanged
         /// 自动刮削：没找到。
         case notFound
+        case partial(String)
         case failed(String)
+
+        var hasFailure: Bool {
+            switch self {
+            case .partial, .failed: true
+            default: false
+            }
+        }
 
         var isSettled: Bool {
             switch self {
@@ -61,7 +69,7 @@ final class ScrapeWritebackCenter {
 
         var settledCount: Int { steps.filter { $0.state.isSettled }.count }
         var hasFailure: Bool {
-            steps.contains { if case .failed = $0.state { true } else { false } }
+            steps.contains { $0.state.hasFailure }
         }
         /// 什么都没刮到也要让人看一眼，和出错一样等用户点「完成」。
         var foundNothing: Bool {
@@ -142,18 +150,26 @@ final class ScrapeWritebackCenter {
         // 排队期间前一个任务可能改过这一行（比如嵌入过歌词换了文件身份），从最新的那一行开始。
         let song = lib.storedSong(id: draft.original.id) ?? draft.original
         let songID = song.id
-        let tagsSelected = draft.selected.keys.contains { ScrapeField.tags.contains($0) }
+        let selectedTags = Set(draft.selected.keys).intersection(ScrapeField.tags)
+        let tagsSelected = !selectedTags.isEmpty
+        var localTags: Set<ScrapeField> = []
+        if tagsSelected, SourceManager.tagMetadataPersistenceMode(for: song, sourceType: .local) == .embedded,
+           await sm.source(withID: song.sourceID)?.type == .local {
+            localTags = selectedTags
+        }
 
         let usesMediaServerWriteback = await sm.supportsMediaServerWriteback(for: song)
         var supportsSidecarCover = false
         if !usesMediaServerWriteback, draft.cover != nil {
             supportsSidecarCover = await sm.supportsSidecarWriting(for: song)
         }
-        if (usesMediaServerWriteback && (tagsSelected || draft.cover != nil)) || supportsSidecarCover {
+        if (usesMediaServerWriteback && (tagsSelected || draft.cover != nil)) || supportsSidecarCover || !localTags.isEmpty {
             update(jobID) { $0.steps.append(Step(kind: .source, state: .waiting)) }
         }
 
         var savedLyricsSong: Song?
+        var tagTarget = LyricsWriteback.EditTarget(draft.original)
+        let matchesOpenedFile = tagTarget.isSameFile(as: song)
         if let lines = draft.lyrics {
             setState(.running, for: .lyrics, in: jobID)
             let wordLevel = lines.filter { $0.isWordLevel }.count
@@ -161,16 +177,20 @@ final class ScrapeWritebackCenter {
             switch await Self.writeLyrics(lines, for: song, write: write) {
             case .success(let saved):
                 savedLyricsSong = saved.song
+                if matchesOpenedFile, let savedSong = saved.song { tagTarget = LyricsWriteback.EditTarget(savedSong) }
                 if let embedFailure = saved.embedFailure {
                     // 歌词文件写成了、嵌进音频文件没成：不能显示成全部成功。
-                    setState(.failed(String(format: String(localized: "scrape_tally_lyrics_embed_failed_format"),
+                    setState(.partial(String(format: String(localized: "scrape_tally_lyrics_embed_failed_format"),
                                             embedFailure)), for: .lyrics, in: jobID)
                 } else {
                     setState(.done, for: .lyrics, in: jobID)
                 }
             case .failure(let failure):
-                plog("⚠️ ScrapeWriteback lyrics writeback failed: \(failure.message)")
-                setState(.failed(failure.message), for: .lyrics, in: jobID)
+                plog("⚠️ ScrapeWriteback lyrics writeback: \(failure.state)")
+                setState(failure.state, for: .lyrics, in: jobID)
+                if matchesOpenedFile, case .partial = failure.state, let written = lib.storedSong(id: songID) {
+                    tagTarget = LyricsWriteback.EditTarget(written)
+                }
             }
         }
 
@@ -247,9 +267,12 @@ final class ScrapeWritebackCenter {
                 plog("⚠️ Media-server writeback errors for '\(updated.title)': \(result.errors)")
                 setState(.failed(result.errors.joined(separator: "\n")), for: .source, in: jobID)
             }
-        } else if supportsSidecarCover, let coverData {
+        } else if (supportsSidecarCover && needsCover) || !localTags.isEmpty {
             setState(.running, for: .source, in: jobID)
-            let outcome = await Self.writeSidecarCover(coverData, for: appliedFinal, sourceManager: sm, library: lib)
+            let outcome = await Self.writeFileMetadata(
+                coverData: supportsSidecarCover ? coverData : nil, selectedTags: localTags, tagTarget: tagTarget,
+                for: appliedFinal, sourceManager: sm, library: lib
+            )
             if let failure = outcome {
                 setState(.failed(failure), for: .source, in: jobID)
             } else {
@@ -263,7 +286,16 @@ final class ScrapeWritebackCenter {
     }
 
     private struct WriteFailure: Error {
-        let message: String
+        let state: StepState
+    }
+
+    static func lyricsFailureState(_ outcome: LyricsWriteback.SaveOutcome) -> StepState {
+        guard outcome.sourceWriteVerifiedBeforeCacheFailure else {
+            return .failed(outcome.errorMessage ?? String(localized: "scrape_song_failed"))
+        }
+        let written = String(format: String(localized: "scrape_tally_writeback_line_format"),
+                             String(localized: "scrape_state_written"))
+        return .partial(written + "\n" + String(localized: "scrape_tally_failure_lyrics"))
     }
 
     private static func writeLyrics(
@@ -282,7 +314,7 @@ final class ScrapeWritebackCenter {
                 return (payload, mode)
             }
         } catch {
-            return .failure(WriteFailure(message: error.localizedDescription))
+            return .failure(WriteFailure(state: .failed(error.localizedDescription)))
         }
         let outcome = await LyricsWriteback.save(
             text: LyricsContentParser.serialize(lines),
@@ -296,7 +328,7 @@ final class ScrapeWritebackCenter {
             library: write.library
         )
         guard outcome.succeeded else {
-            return .failure(WriteFailure(message: outcome.errorMessage ?? String(localized: "scrape_song_failed")))
+            return .failure(WriteFailure(state: lyricsFailureState(outcome)))
         }
         if let embeddedCopyError = outcome.embeddedCopyError {
             // 歌词文件与缓存都已落地，随身副本失败不回滚，但要让用户看到。
@@ -309,8 +341,8 @@ final class ScrapeWritebackCenter {
     ///
     /// 网络写入全在 detached 任务里跑，回到主线程的只有改资料库和刷新封面那几步：NAS 写到一半挂住时
     /// 主线程不被占着。旁路文件写入套 30 秒超时；嵌入要整首下载、改写、替换，不套超时，开始了就做完。
-    private static func writeSidecarCover(
-        _ coverData: Data,
+    private static func writeFileMetadata(
+        coverData: Data?, selectedTags: Set<ScrapeField>, tagTarget: LyricsWriteback.EditTarget,
         for song: Song,
         sourceManager sm: SourceManager,
         library lib: MusicLibrary
@@ -320,16 +352,23 @@ final class ScrapeWritebackCenter {
         return await Task.detached(priority: .utility) { () -> String? in
             // 有的网盘替换后文件换了 ID，封面文件要跟着新文件走。
             var embeddedSnapshot: Song?
-            var embedFailed = false
-            if coverEmbeddingMode != .off {
-                embeddedSnapshot = await MusicScraperService.embedScrapedCover(
-                    coverData,
-                    for: song,
-                    sourceManager: sm,
-                    library: lib
-                ).updatedSong
-                embedFailed = embeddedSnapshot == nil
+            var embedFailure: String?
+            let embeddedCover = coverEmbeddingMode != .off ? coverData : nil
+            if embeddedCover != nil || !selectedTags.isEmpty {
+                var policy = EmbeddedAssetWritePolicy.replace
+                policy.tagFields = selectedTags
+                policy.overwritesTags = selectedTags
+                policy.tagTarget = selectedTags.isEmpty ? nil : tagTarget
+                let outcome = await MusicScraperService.embedScrapedAssets(
+                    coverData: embeddedCover, lyricsText: nil, policy: policy,
+                    for: song, sourceManager: sm, library: lib
+                )
+                embeddedSnapshot = outcome.updatedSong
+                if let failure = outcome.failure {
+                    embedFailure = outcome.failureDetail ?? BatchScrapeSummaryText.reason(failure)
+                }
             }
+            guard let coverData else { return embedFailure }
             let sidecarSnapshot = embeddedSnapshot ?? song
             let createsCoverFile = coverEmbeddingMode != .embedOnly
             plog("📝 Sidecar: writing back to source for '\(song.title)'")
@@ -357,7 +396,7 @@ final class ScrapeWritebackCenter {
                 if !writeResult.errors.isEmpty {
                     plog("⚠️ Sidecar write errors: \(writeResult.errors)")
                 }
-                if embedFailed { return String(localized: "scrape_progress_embed_failed") }
+                if let embedFailure { return embedFailure }
                 if createsCoverFile, !writeResult.coverWritten {
                     return writeResult.coverError ?? writeResult.errors.first ?? String(localized: "scrape_song_failed")
                 }
@@ -819,6 +858,8 @@ private struct ScrapeWritebackStepRow: View {
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .transition(.scale(scale: 0.4).combined(with: .opacity))
+        case .partial:
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         case .failed:
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 19, weight: .semibold))
@@ -852,6 +893,7 @@ private struct ScrapeWritebackStepRow: View {
     /// 等待、写入中跟随 App 的主题色（`.tint`），不用资源里的 AccentColor。
     private var tint: AnyShapeStyle {
         switch step.state {
+        case .partial: AnyShapeStyle(Color.orange)
         case .failed: AnyShapeStyle(Color.red)
         case .done: AnyShapeStyle(Color.green)
         case .unchanged, .notFound: AnyShapeStyle(Color.secondary)
@@ -868,6 +910,7 @@ private struct ScrapeWritebackStepRow: View {
             step.detail ?? (kind == .automatic ? String(localized: "scrape_metadata_updated") : String(localized: "scrape_state_written"))
         case .unchanged: String(localized: "unchanged")
         case .notFound: String(localized: "no_results")
+        case .partial(let message): message
         case .failed(let message): message.isEmpty ? String(localized: "scrape_state_failed") : message
         }
     }

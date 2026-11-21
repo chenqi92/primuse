@@ -1199,7 +1199,12 @@ enum FileMetadataReader {
             )
             return fallback
         }
-        guard let fallback = parsed else { return }
+        guard var fallback = parsed else { return }
+        // TagLib can expose the first USLT as generic lyrics even when its descriptor marks it as a translation.
+        if let lyrics = fallback.lyricsText, lyrics != metadata.lyricsText,
+           lyrics == metadata.translatedLyricsText || metadata.languageTaggedTranslations.values.contains(lyrics) {
+            fallback.lyricsText = nil
+        }
         metadata.fillMissing(from: fallback)
     }
 

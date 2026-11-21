@@ -768,6 +768,7 @@ actor MetadataAssetStore {
     ///   （保存了哪一份、清空了、隐藏了哪几份，见 `LyricsUserChoicePolicy`）；`.user` 写成功后
     ///   记成用户保存的那一份，自动路径从此不能把它换掉。
     /// - parameter previousVersion: 缓存里原来那份在来源候选里怎么记（替换 / 另存为新版本）。
+    /// - parameter editedVersion: 编辑期间自动缓存换了版本时，替换或保留的是编辑器打开的原文。
     /// - parameter preservingSelection: 自动路径的覆盖写入，哪怕带 `force` 也不动用户保存的那份。
     @discardableResult
     func cacheLyrics(
@@ -776,7 +777,8 @@ actor MetadataAssetStore {
         force: Bool = false,
         origin: LyricsCacheWriteOrigin = .automatic,
         previousVersion: LyricsPreviousVersionHandling = .remember,
-        preservingSelection: Bool = false
+        preservingSelection: Bool = false,
+        replacingEditedVersion editedVersion: [LyricLine]? = nil
     ) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
         if !force, lyricsSourceCollection(forSongID: songID).selected != nil { return false }
@@ -832,7 +834,7 @@ actor MetadataAssetStore {
         guard let data = try? encoder.encode(lines) else { return false }
         let previousSources = lyricsSourceCollection(forSongID: songID)
         var sources = previousSources
-        let previousDocument = cachedLyrics(forSongID: songID)
+        let previousDocument = editedVersion ?? cachedLyrics(forSongID: songID)
         sources.record(
             lines,
             replacing: previousDocument,
@@ -863,7 +865,8 @@ actor MetadataAssetStore {
         force: Bool = true,
         preservingSelection: Bool = false,
         origin: LyricsCacheWriteOrigin = .automatic,
-        previousVersion: LyricsPreviousVersionHandling = .remember
+        previousVersion: LyricsPreviousVersionHandling = .remember,
+        replacingEditedVersion editedVersion: [LyricLine]? = nil
     ) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
         if preservingSelection, lyricsSourceCollection(forSongID: songID).selected != nil { return false }
@@ -876,7 +879,8 @@ actor MetadataAssetStore {
             force: force,
             origin: origin,
             previousVersion: previousVersion,
-            preservingSelection: preservingSelection
+            preservingSelection: preservingSelection,
+            replacingEditedVersion: editedVersion
         )
     }
 
@@ -1158,7 +1162,8 @@ actor MetadataAssetStore {
         forSongID songID: String,
         token: UUID,
         origin: LyricsCacheWriteOrigin = .automatic,
-        previousVersion: LyricsPreviousVersionHandling = .remember
+        previousVersion: LyricsPreviousVersionHandling = .remember,
+        replacingEditedVersion editedVersion: [LyricLine]? = nil
     ) -> Bool {
         guard lyricsMutationReservations[songID] == token else { return false }
         lyricsMutationReservations[songID] = nil
@@ -1167,7 +1172,8 @@ actor MetadataAssetStore {
             forSongID: songID,
             force: true,
             origin: origin,
-            previousVersion: previousVersion
+            previousVersion: previousVersion,
+            replacingEditedVersion: editedVersion
         )
     }
 
@@ -1206,6 +1212,46 @@ actor MetadataAssetStore {
             return
         }
         NotificationCenter.default.post(name: .primuseLyricsDidCache, object: nil, userInfo: userInfo)
+    }
+
+    /// A verified source read can retire automatic snapshots of a field replaced on another device.
+    func reconcileEmbeddedSource(_ lines: [LyricLine], alternatives: EmbeddedLyricsAlternatives?,
+                                 forSongID id: String, expected: LyricsDocumentFingerprint) {
+        guard lyricsMutationReservations[id] == nil, let cached = cachedLyrics(forSongID: id),
+              LyricsDocumentFingerprint(lines: cached) == expected,
+              LyricsDocumentSource.of(cached)?.kind == .embedded,
+              cached.first?.documentIsLocalOverride != true,
+              LyricsDocumentSource.of(lines)?.kind == .embedded, !lines.isEmpty,
+              !hasUserClearedLyrics(forSongID: id), !isHiddenLyricsVersion(lines, forSongID: id) else { return }
+        let collection = lyricsSourceCollection(forSongID: id)
+        guard collection.selected == nil else { return }
+        let originals = [lines] + (alternatives.map { record in
+            record.variants.compactMap { Self.embeddedLyricsDocument(for: $0, in: record) }
+        } ?? [])
+        func stillInFile(_ candidate: [LyricLine]) -> Bool {
+            originals.contains { EmbeddedLyricsPrecedencePolicy.sameDocument($0, candidate) }
+        }
+        if !stillInFile(cached) {
+            guard let merged = LyricManualTranslationPolicy.preservingStoredTranslations(from: cached, in: lines),
+                  replaceLyricsIfUnchanged(merged, forSongID: id, expectedFingerprint: expected,
+                                           preservingSelection: true, origin: .sourceDocument) else { return }
+        }
+        if let fallback = embeddedFallbackLyrics(forSongID: id), !stillInFile(fallback) {
+            storeEmbeddedFallbackLyrics(lines, forSongID: id)
+        }
+        if embeddedLyricsAlternatives(forSongID: id) != alternatives {
+            storeEmbeddedLyricsAlternatives(alternatives, forSongID: id)
+        }
+        let previousSources = lyricsSourceCollection(forSongID: id)
+        var sources = previousSources
+        for candidate in previousSources.candidates where candidate.source?.kind == .embedded
+            && candidate.lines.first?.documentIsLocalOverride != true && !sources.isKept(candidate.id)
+            && candidate.id != sources.selectedID && !stillInFile(candidate.lines) {
+            sources.remove(id: candidate.id)
+        }
+        if sources != previousSources {
+            _ = storeLyricsSourceCollection(sources, forSongID: id)
+        }
     }
 
     /// 音频文件里内嵌的歌词。歌旁边有歌词文件时它不进歌词缓存(播放先读缓存, 进去就会

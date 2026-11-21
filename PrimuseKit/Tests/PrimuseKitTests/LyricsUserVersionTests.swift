@@ -275,6 +275,7 @@ struct LyricsUserVersionTests {
         #expect(EmbeddedLyricsFieldEditor.editFLAC(region: twoOriginals, .replace(text: "[00:01.00]C", anchor: "[00:01.00]Z")) == nil)
 
         let noDefault = flacRegion([("SYNCEDLYRICS", "[00:01.00]B"), ("UNSYNCEDLYRICS", "B")])
+        #expect(EmbeddedLyricsFieldEditor.editFLAC(region: noDefault, .replace(text: "[00:01.00]C", anchor: "stale original")) == nil)
         let added = try #require(EmbeddedLyricsFieldEditor.editFLAC(region: noDefault, .replace(text: "[00:01.00]C", anchor: nil)))
         #expect(added.result == .wroteDefaultField)
         #expect(EmbeddedLyricsFieldEditor.flacOriginalLyrics(in: added.region) == ["[00:01.00]C", "[00:01.00]B", "B"])

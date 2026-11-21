@@ -88,7 +88,7 @@ public enum EmbeddedLyricsFieldEditor {
                 return layout.rebuilt(with: items).map { FLACEdit(region: $0, result: .replacedField) }
             }
             // 认不出正在用的是哪一份：只在没有默认字段时补一个，绝不覆盖别的版本。
-            guard !layout.keys.contains(where: { $0?.uppercased() == "LYRICS" }) else { return nil }
+            guard anchor == nil, !layout.keys.contains(where: { $0?.uppercased() == "LYRICS" }) else { return nil }
             let field = Data("LYRICS=".utf8) + value
             items.insert(field, at: originals.first ?? items.count)
             return layout.rebuilt(with: items).map { FLACEdit(region: $0, result: .wroteDefaultField) }
@@ -228,6 +228,14 @@ public enum EmbeddedLyricsFieldEditor {
     /// 和音频数据的起点。别的形状不认，为 nil。
     public static func id3Layout(_ data: Data) -> (otherFrames: [Data], audioOffset: Int)? {
         let data = Data(data)
+        guard let layout = checkedID3Frames(data) else { return nil }
+        let other = layout.frames.compactMap { frame -> Data? in
+            data[frame.prefix(4)].elementsEqual("USLT".utf8) ? nil : data.subdata(in: frame)
+        }
+        return (other, layout.audioOffset)
+    }
+
+    private static func checkedID3Frames(_ data: Data) -> (frames: [Range<Int>], audioOffset: Int)? {
         guard data.count >= 10,
               data.starts(with: Array("ID3".utf8)),
               data[3] == 3 || data[3] == 4,
@@ -237,7 +245,7 @@ public enum EmbeddedLyricsFieldEditor {
         let size = Int(data[6]) << 21 | Int(data[7]) << 14 | Int(data[8]) << 7 | Int(data[9])
         let end = 10 + size
         guard end <= data.count else { return nil }
-        var frames: [Data] = []
+        var frames: [Range<Int>] = []
         var cursor = 10
         while cursor + 10 <= end {
             if data[cursor] == 0 { break }
@@ -255,9 +263,7 @@ public enum EmbeddedLyricsFieldEditor {
             }
             let frameEnd = cursor + 10 + frameSize
             guard frameSize > 0, frameEnd <= end else { return nil }
-            if idBytes != Data("USLT".utf8) {
-                frames.append(data.subdata(in: cursor..<frameEnd))
-            }
+            frames.append(cursor..<frameEnd)
             cursor = frameEnd
         }
         guard data.subdata(in: cursor..<end).allSatisfy({ $0 == 0 }) else { return nil }
@@ -273,6 +279,182 @@ public enum EmbeddedLyricsFieldEditor {
               original.count - before.audioOffset == edited.count - after.audioOffset else { return false }
         return original.subdata(in: before.audioOffset..<original.count)
             == edited.subdata(in: after.audioOffset..<edited.count)
+    }
+
+    struct Field {
+        let text: String
+        let language: String?
+    }
+
+    /// Applies the same identity rule to all lyric fields in a container, including
+    /// copies of one version in several fields. A stale explicit anchor never inserts a copy.
+    static func targets(_ fields: [Field], operation: Operation, prefersUntagged: Bool = false) -> (indices: [Int], result: Result)? {
+        var primary = fields.compactMap(\.language).first
+        if prefersUntagged, let untagged = fields.first(where: { $0.language == nil }) {
+            primary = fields.first { $0.language != nil && sameLyrics($0.text, untagged.text) }?.language
+        }
+        let originals = fields.indices.filter { fields[$0].language == nil || fields[$0].language == primary }
+        func matches(_ text: String?) -> [Int] {
+            guard let text else { return originals.count == 1 ? originals : [] }
+            let all = fields.indices.filter { index in
+                let source = fields[index].text
+                return sameLyrics(source, text) || TextEncodingRepair.repaired(source).map { sameLyrics($0, text) } == true
+            }
+            let inPrimary = all.filter(originals.contains)
+            if !inPrimary.isEmpty { return inPrimary }
+            return Set(all.map { fields[$0].language }).count == 1 ? all : []
+        }
+        switch operation {
+        case .replace(_, let anchor):
+            let found = matches(anchor)
+            if !found.isEmpty { return (found, .replacedField) }
+            return fields.isEmpty && anchor == nil ? ([], .wroteDefaultField) : nil
+        case .removeOne(let anchor):
+            let found = matches(anchor)
+            return found.isEmpty ? nil : (found, .removedField)
+        case .removeAllOriginals:
+            return (originals, .removedOriginals(originals.count))
+        }
+    }
+
+    public struct FileEdit: Sendable {
+        public let data: Data
+        public let result: Result
+    }
+
+    /// Edits plain ID3v2.3/2.4 frames. Other frames and the complete audio tail are copied verbatim.
+    public static func editID3(_ data: Data, _ operation: Operation) -> FileEdit? {
+        guard data.startIndex == 0, let layout = checkedID3Frames(data), data[5] == 0 else { return nil }
+        let version = data[3]
+        func lengthBytes(_ value: Int, sync: Bool) -> Data {
+            let bits = sync ? 7 : 8
+            let mask = (1 << bits) - 1
+            return Data((0..<4).reversed().map { UInt8((value >> ($0 * bits)) & mask) })
+        }
+        func makeFrame(_ name: String, _ body: Data) -> Data {
+            Data(name.utf8) + lengthBytes(body.count, sync: version == 4) + Data([0, 0]) + body
+        }
+        var raw: [Data] = []
+        var fields: [Field] = []
+        var slots: [Int] = []
+        var replacements: [(String) -> Data?] = []
+        let existingUSLT = layout.frames.compactMap { range -> (language: Data, descriptor: String, text: String)? in
+            guard data[range.prefix(4)].elementsEqual("USLT".utf8) else { return nil }
+            return usltParts(Data(data[range.dropFirst(10)]))
+        }
+        for range in layout.frames {
+            let start = range.lowerBound
+            let id = String(decoding: data[range.prefix(4)], as: UTF8.self)
+            let body = Data(data[range.dropFirst(10)])
+            let flags = data[(start + 8)..<(start + 10)]
+            raw.append(data.subdata(in: range))
+            guard ["USLT", "SYLT", "TXXX"].contains(id) else { continue }
+            // A compressed/encrypted user text frame can contain an unknown lyrics field.
+            guard flags.allSatisfy({ $0 == 0 }) else { return nil }
+            let text: String
+            let language: String?
+            let replacing: (String) -> Data?
+            if id == "TXXX" {
+                guard body.count > 1 else { return nil }
+                let tail = Data(body.dropFirst())
+                guard let ranges = descriptorAndTextRanges(tail, encoding: body[0]),
+                      let descriptor = decodedID3Text(tail.subdata(in: ranges.descriptor), encoding: body[0]) else { return nil }
+                guard case .original(let code) = ISOBaseMediaLyricsParser.id3UserTextRole(descriptor) else { continue }
+                guard let value = TextEncodingRepair.decodeID3Text(tail.subdata(in: ranges.text), encodingByte: body[0]) else { return nil }
+                text = value
+                language = code
+                replacing = { value in
+                    makeFrame(id, Data([1]) + utf16WithByteOrderMark(descriptor) + Data([0, 0]) + utf16WithByteOrderMark(value))
+                }
+            } else {
+                let descriptor: String
+                if id == "SYLT" {
+                    guard body.count > 6 else { return nil }
+                    guard [1, 2].contains(body[5]) else { continue }
+                    guard let parsed = ID3SynchronizedLyricsParser.parse(body) else { return nil }
+                    descriptor = parsed.descriptor
+                    text = parsed.text
+                } else {
+                    guard let parts = usltParts(body) else { return nil }
+                    descriptor = parts.descriptor
+                    text = parts.text
+                }
+                guard !isTranslationDescriptor(descriptor) else { continue }
+                let lang = body.subdata(in: 1..<4)
+                language = isUndeterminedLanguage(lang) ? nil : String(data: lang, encoding: .ascii)?.lowercased()
+                replacing = { value in
+                    if id == "SYLT", let payload = synchronizedBody(value, language: lang, descriptor: descriptor, contentType: body[5]) {
+                        return makeFrame("SYLT", payload)
+                    }
+                    // USLT can carry the exact LRC, TTML or untimed text when SYLT cannot represent it.
+                    var label = descriptor
+                    if id == "SYLT" {
+                        var suffix = 1
+                        while existingUSLT.contains(where: { $0.language == lang && $0.descriptor == label }) {
+                            label = descriptor + " (SYLT " + String(suffix) + ")"
+                            suffix += 1
+                        }
+                    }
+                    return makeFrame("USLT", makeUSLTBody(language: lang, descriptor: label, text: value))
+                }
+            }
+            fields.append(Field(text: text, language: language))
+            slots.append(raw.count - 1)
+            replacements.append(replacing)
+        }
+        guard let plan = targets(fields, operation: operation) else { return nil }
+        switch operation {
+        case .replace(let text, _):
+            guard !normalizedText(text).isEmpty else { return nil }
+            if plan.indices.isEmpty {
+                raw.append(makeFrame("USLT", makeUSLTBody(language: Data("und".utf8), descriptor: "", text: text)))
+            } else {
+                for i in plan.indices {
+                    guard let frame = replacements[i](text) else { return nil }
+                    raw[slots[i]] = frame
+                }
+                if let first = plan.indices.first, let head = slots.first, head < slots[first] {
+                    let moved = raw.remove(at: slots[first])
+                    raw.insert(moved, at: head)
+                }
+            }
+        case .removeOne, .removeAllOriginals:
+            if plan.indices.isEmpty { return FileEdit(data: data, result: plan.result) }
+            for i in plan.indices.reversed() { raw.remove(at: slots[i]) }
+        }
+        let byteCount = raw.reduce(0) { $0 + $1.count }
+        let tagSize = max(layout.audioOffset - 10, byteCount)
+        guard tagSize <= 0x0fff_ffff else { return nil }
+        var result = Data(data.prefix(6)) + lengthBytes(tagSize, sync: true)
+        for frame in raw { result.append(frame) }
+        result.append(Data(count: tagSize - byteCount))
+        result.append(data[layout.audioOffset...])
+        return FileEdit(data: result, result: plan.result)
+    }
+
+    private static func isTranslationDescriptor(_ descriptor: String) -> Bool {
+        let normalized = descriptor.lowercased().filter { $0.isLetter || $0.isNumber }
+        return normalized.hasPrefix("translat") || normalized == "lyricstranslation"
+    }
+
+    private static func synchronizedBody(_ text: String, language: Data, descriptor: String, contentType: UInt8) -> Data? {
+        let lines = LyricsContentParser.parseText(text)
+        guard !lines.isEmpty, lines.allSatisfy(\.isSynchronized) else { return nil }
+        var body = Data([1]) + language + Data([2, contentType]) + utf16WithByteOrderMark(descriptor) + Data([0, 0])
+        for (lineIndex, line) in lines.enumerated() {
+            let cues = line.syllables?.map { ($0.text, $0.start) } ?? [(line.text, line.timestamp)]
+            for (cueIndex, cue) in cues.enumerated() {
+                let time = (cue.1 * 1000).rounded()
+                guard time.isFinite, time >= 0, time <= Double(UInt32.max) else { return nil }
+                let value = UInt32(time)
+                let prefix = lineIndex > 0 && cueIndex == 0 ? "\n" : ""
+                body.append(utf16WithByteOrderMark(prefix + cue.0))
+                body.append(contentsOf: [0, 0, UInt8(value >> 24), UInt8(truncatingIfNeeded: value >> 16),
+                                         UInt8(truncatingIfNeeded: value >> 8), UInt8(truncatingIfNeeded: value)])
+            }
+        }
+        guard let rendered = ID3SynchronizedLyricsParser.parse(body), sameLyrics(rendered.text, text) else { return nil }
+        return body
     }
 
     // MARK: - 工具

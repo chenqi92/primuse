@@ -4557,7 +4557,7 @@ private struct MacSTScrapingView: View {
                             ProgressView(value: scraperService.progress)
                                 .tint(PMColor.brand)
                                 .frame(width: 180)
-                            Text(verbatim: "\(scraperService.processedCount)/\(scraperService.totalCount) · \(scraperService.updatedCount) \(Lz("updated")) · \(scraperService.failedCount) \(Lz("failed"))")
+                            Text(verbatim: scraperService.liveSongSummary)
                                 .font(.system(size: 10.5, design: .monospaced))
                                 .foregroundStyle(PMColor.textFaint)
                         }
@@ -4575,7 +4575,12 @@ private struct MacSTScrapingView: View {
                 }
                 .settingsAnchor("scraping.fillMissing")
                 // 上一轮批量刮削按部分的结果；有没完成的歌时点「查看」列出来（和 iPhone 设置页同一份）。
-                if !scraperService.isScraping, let completion = scraperService.lastCompletion {
+                if let paused = scraperService.pausedSourceSummary {
+                    MacSTRow(String(localized: "player_activity_scraping"), hint: paused) {
+                        MacSTButton(title: String(localized: "retry")) { scraperService.resumePendingScrape(in: library) }
+                        MacSTButton(title: String(localized: "cancel")) { scraperService.cancel() }
+                    }
+                } else if !scraperService.isScraping, let completion = scraperService.lastCompletion {
                     MacSTRow(String(localized: "scrape_tally_last_result"), hint: completion.summaryText, hintLineLimit: 6) {
                         if completion.offersDetails {
                             MacSTButton(title: String(localized: "scrape_tally_view_details")) {

@@ -1,4 +1,5 @@
 import AVFoundation
+import PrimuseKit
 import XCTest
 @testable import Primuse
 
@@ -49,6 +50,40 @@ final class M4ATagWritebackTests: XCTestCase {
             values[identifier] = value
         }
         return values
+    }
+
+    func testScrapeWritesOnlySelectedTagsAndProtectsTheFileDuringFillAndOverwrite() async throws {
+        let url = try makeFixture()
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            .init(tags: tags(title: "File title", album: "File album"), coverData: nil, lyrics: .keep), to: url)
+        let path = "/" + url.lastPathComponent
+        let connector = LocalFileSource(sourceID: "local", basePath: directory)
+        var song = Song(id: "scrape", title: "Proposed title", albumTitle: "Proposed album", artistName: "Other artist",
+                        duration: 1, fileFormat: .m4a, filePath: path, sourceID: "local")
+        song.year = 2018
+        let original = try await connector.embeddedMetadataSnapshot(for: path)
+        song = original.applyingIdentity(to: song)
+        var policy = EmbeddedAssetWritePolicy()
+        policy.tagFields = [.album, .year]
+        _ = try await connector.writeEmbeddedAssets(original: song, coverData: nil, lyrics: .keep, policy: policy)
+        var written = try EmbeddedMetadataWriter.currentTags(at: url)
+        XCTAssertEqual(written.year, 2018)
+        XCTAssertEqual(written.albumTitle, "File album")
+        XCTAssertEqual(written.title, "File title")
+        XCTAssertEqual(written.artist, "Artist")
+
+        policy.overwritesTags = [.album]
+        do {
+            _ = try await connector.writeEmbeddedAssets(original: song, coverData: nil, lyrics: .keep, policy: policy)
+            XCTFail("The old file revision may not authorize a second write")
+        } catch EmbeddedMetadataCoordinatedWritebackError.conflict {}
+        let refreshed = try await connector.embeddedMetadataSnapshot(for: path)
+        _ = try await connector.writeEmbeddedAssets(original: refreshed.applyingIdentity(to: song), coverData: nil,
+                                                    lyrics: .keep, policy: policy)
+        written = try EmbeddedMetadataWriter.currentTags(at: url)
+        XCTAssertEqual(written.albumTitle, "Proposed album")
+        XCTAssertEqual(written.year, 2018)
+        XCTAssertEqual(written.artist, "Artist")
     }
 
     func testAlbumArtistMergeWritesBothFieldsAndKeepsUnchangedTags() async throws {

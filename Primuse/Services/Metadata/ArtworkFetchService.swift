@@ -223,15 +223,19 @@ actor ArtworkFetchService {
 
         let task = Task<Data?, Never> {
             let data = await searchAlbumCoverOnline(albumTitle: albumTitle, artistName: artistName)
-            if let data {
-                _ = await assetStore.storeAlbumCover(data, forAlbumID: albumID)
-            }
+            guard let data, await installFetchedAlbumCover(data, albumID: albumID) else { return nil }
             return data
         }
         inFlightAlbum[albumID] = task
         let result = await task.value
         inFlightAlbum[albumID] = nil
         return result
+    }
+
+    func installFetchedAlbumCover(_ data: Data, albumID: String) async -> Bool {
+        guard await assetStore.storeAlbumCover(data, forAlbumID: albumID) != nil else { return false }
+        await MainActor.run { CachedArtworkView.invalidateAlbumCover(albumID) }
+        return true
     }
 
     /// 只按已启用的刮削源在线搜一张专辑封面，不读也不写本机的专辑封面缓存。

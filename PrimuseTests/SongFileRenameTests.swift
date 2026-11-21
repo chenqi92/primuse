@@ -270,7 +270,24 @@ final class SongFileRenameTests: XCTestCase {
         XCTAssertTrue(afterSidecars.matchesScannedSong(song, revisionFoldsSidecarFingerprints: true))
         XCTAssertFalse(afterSidecars.matchesScannedSong(song, revisionFoldsSidecarFingerprints: false))
 
-        try Data(repeating: 0x2B, count: 4096).write(to: directory.appendingPathComponent("song.mp3"))
+        var legacy = song
+        legacy.revision = try XCTUnwrap(song.revision?.split(separator: "|").first.map(String.init))
+        XCTAssertTrue(afterSidecars.matchesScannedSong(legacy, revisionFoldsSidecarFingerprints: true))
+
+        let audio = directory.appendingPathComponent("song.mp3")
+        let savedDate = try XCTUnwrap(initial.modifiedDate)
+        try Data(repeating: 0x2C, count: 2048).write(to: audio)
+        try FileManager.default.setAttributes([.modificationDate: savedDate], ofItemAtPath: audio.path)
+        let sameSizeAndMtime = try await connector.metadataWritebackState(for: song.filePath)
+        XCTAssertEqual(sameSizeAndMtime.fileSize, song.fileSize)
+        XCTAssertEqual(try XCTUnwrap(sameSizeAndMtime.modifiedDate).timeIntervalSince(savedDate), 0, accuracy: 0.001)
+        XCTAssertFalse(sameSizeAndMtime.matchesScannedSong(song, revisionFoldsSidecarFingerprints: true))
+
+        try FileManager.default.setAttributes([.modificationDate: savedDate.addingTimeInterval(0.25)], ofItemAtPath: audio.path)
+        let subsecondAudioChange = try await connector.metadataWritebackState(for: song.filePath)
+        XCTAssertFalse(subsecondAudioChange.matchesScannedSong(legacy, revisionFoldsSidecarFingerprints: true))
+
+        try Data(repeating: 0x2B, count: 4096).write(to: audio)
         let afterAudioChange = try await connector.metadataWritebackState(for: song.filePath)
         XCTAssertFalse(afterAudioChange.matchesScannedSong(song, revisionFoldsSidecarFingerprints: true))
         await connector.disconnect()

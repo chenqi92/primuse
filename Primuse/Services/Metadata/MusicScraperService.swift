@@ -282,6 +282,7 @@ final class MusicScraperService {
         var tallyIsPartial: Bool?
         /// 这一轮开始时定下的：歌词要不要嵌进音频文件。旧断点没有这一项。
         var embedsLyrics: Bool?
+        var nextProviderRetry: Date?
 
         var hasPersistedSongCounts: Bool {
             updatedCount != nil && skippedCount != nil && failedCount != nil
@@ -304,6 +305,16 @@ final class MusicScraperService {
     private(set) var artworkUnavailableCount = 0
     /// 这一轮按部分的计数。只在完成和断点里读，不进界面观察：写回结果一首一首到，不该每到一首刷一次界面。
     @ObservationIgnored private var tally = BatchScrapeTally()
+    private var sourceWritebackFailureCount = 0
+
+    var liveSongSummary: String {
+        let library = String(format: String(localized: "batch_scrape_completed_format"),
+                             updatedCount + skippedCount + failedCount, songTotalCount, updatedCount, skippedCount, failedCount)
+        guard let source = BatchScrapeCompletion.sourceWritebackLine(written: 0, failed: sourceWritebackFailureCount) else {
+            return library
+        }
+        return library + "\n" + source
+    }
     @ObservationIgnored private var runTallyIsPartial = false
     /// 这一轮歌词要不要嵌进音频文件（批量刮削开始前确认过的结果）。
     @ObservationIgnored private var runEmbedsLyrics = false
@@ -343,6 +354,20 @@ final class MusicScraperService {
     private static func inFlightKey(runID: UUID, songID: String) -> String {
         runID.uuidString + "\u{1F}" + songID
     }
+    var pausedSourceSummary: String? {
+        guard !isScraping, let checkpoint = scrapeCheckpoint, checkpoint.nextProviderRetry != nil else { return nil }
+        return [String(localized: "metadata_status_state_source_unavailable"),
+                String(localized: "metadata_status_state_retry"),
+                "\(checkpoint.nextSongIndex) / \(checkpoint.songIDs.count)"].joined(separator: " · ")
+    }
+
+    func pausedSourceSummary(for songs: [Song]) -> String? {
+        guard let text = pausedSourceSummary, let checkpoint = scrapeCheckpoint,
+              checkpoint.songIDs.count == songs.count,
+              Set(checkpoint.songIDs) == Set(songs.map(\.id)) else { return nil }
+        return text
+    }
+
     private(set) var lastCompletion: BatchScrapeCompletion?
     private(set) var completionRevision: UInt = 0
     private(set) var activeRunID: UUID?
@@ -754,6 +779,7 @@ final class MusicScraperService {
         in library: MusicLibrary,
         dryRun: Bool, parts: ScrapeParts
     ) async throws -> SingleScrapeResult {
+        let song = library.storedSong(id: song.id) ?? song
         await sidecarCircuitBreaker.resetIdleUnavailableSources()
 
         let settings = Self.settingsForSingleScrape(parts: parts)
@@ -1147,10 +1173,12 @@ final class MusicScraperService {
         cancelInterruptedScrapeResume()
         guard hasPendingScrape, !isScraping else { return }
         let generation = interruptedScrapeResumeGeneration
+        let delay = max(BatchScrapeForegroundResumePolicy.foregroundResumeDelay,
+                        scrapeCheckpoint?.nextProviderRetry?.timeIntervalSinceNow ?? 0)
         library.onReady { [weak self] in
             guard let self, self.interruptedScrapeResumeGeneration == generation else { return }
             self.interruptedScrapeResumeTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(BatchScrapeForegroundResumePolicy.foregroundResumeDelay))
+                try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled, let self,
                       self.interruptedScrapeResumeGeneration == generation else { return }
                 self.interruptedScrapeResumeTask = nil
@@ -1442,12 +1470,13 @@ final class MusicScraperService {
             )
         } else if var checkpoint = scrapeCheckpoint,
                   checkpoint.runID == nil || checkpoint.originPlaylistID != runOriginPlaylistID
-                    || checkpoint.embedsLyrics == nil || checkpoint.tallyIsPartial == nil {
+                    || checkpoint.embedsLyrics == nil || checkpoint.tallyIsPartial == nil || checkpoint.nextProviderRetry != nil {
             // Upgrade checkpoints written by an older build so any later
             // lifecycle resume keeps the same run identity and UI ownership.
             checkpoint.runID = runID
             checkpoint.originPlaylistID = runOriginPlaylistID
             checkpoint.embedsLyrics = embedsLyrics
+            checkpoint.nextProviderRetry = nil
             checkpoint.tallyIsPartial = tallyIsPartial
             scrapeCheckpoint = checkpoint
             writeScrapeCheckpoint(checkpoint)
@@ -1458,6 +1487,7 @@ final class MusicScraperService {
         failedCount = resumeCheckpoint?.failedCount ?? 0
         processedCount = updatedCount + skippedCount + failedCount
         tally = resumeCheckpoint?.tally ?? BatchScrapeTally()
+        sourceWritebackFailureCount = tally.writebackFailed
         runTallyIsPartial = tallyIsPartial
         runEmbedsLyrics = embedsLyrics
         totalCount = logicalSongCount
@@ -1501,6 +1531,7 @@ final class MusicScraperService {
                     }
                     activeRunID = nil
                     activeOriginPlaylistID = nil
+                    if !cancelled && deferredForSourceFailure { scheduleInterruptedScrapeResume(in: library) }
                 }
             }
 
@@ -1607,7 +1638,7 @@ final class MusicScraperService {
                         lyricsOrigin: forceRescrape ? .user : .automatic
                     )
                     guard !Task.isCancelled else { return }
-                    recordBatchSongOutcome(applied, for: song)
+                    recordBatchSongOutcome(applied, for: song, unavailable: result?.unavailableParts ?? [])
 
                     if applied.persists {
                         pendingSongUpdates.append(applied.song)
@@ -1655,9 +1686,9 @@ final class MusicScraperService {
                             songID: song.id, title: song.title, runID: runID
                         )
                     }
-                } catch is BatchScrapeSourceUnavailable {
+                } catch let outage as BatchScrapeSourceUnavailable {
                     publishPendingSongBatch()
-                    moveDeferredSongToEndOfCheckpoint(song.id)
+                    deferSongUntilProviderRetry(song.id, retryAfter: outage.retryAfter)
                     deferredForSourceFailure = true
                     plog("Batch scrape deferred: sources unavailable at \(min(processedCount, songTotalCount))/\(songTotalCount); '\(song.title)' moved to the end, remaining checkpoint preserved")
                     return
@@ -1835,12 +1866,12 @@ final class MusicScraperService {
 
     /// 整批因源不可用挂起时,把卡住的这首挪到剩余队列最后:续跑先刮别的歌,
     /// 只因为这一首的问题时不会让后面的歌一直轮不到。它不算失败,轮到时照常再刮。
-    private func moveDeferredSongToEndOfCheckpoint(_ songID: String) {
+    private func deferSongUntilProviderRetry(_ songID: String, retryAfter: TimeInterval) {
         guard var checkpoint = scrapeCheckpoint else { return }
         let reordered = Self.songIDsMovingDeferredSongToEnd(
             songID, in: checkpoint.songIDs, resumeIndex: checkpoint.nextSongIndex
         )
-        guard reordered != checkpoint.songIDs else { return }
+        checkpoint.nextProviderRetry = Date().addingTimeInterval(max(30, retryAfter))
         checkpoint.songIDs = reordered
         scrapeCheckpoint = checkpoint
         writeScrapeCheckpoint(checkpoint)
@@ -2093,7 +2124,7 @@ final class MusicScraperService {
         var coverReadFromFile = false
     }
 
-    struct BatchScrapeSourceUnavailable: Error { }
+    struct BatchScrapeSourceUnavailable: Error { var retryAfter: TimeInterval = 5 }
 
     func processedSongForBatch(
         _ song: Song, forceRescrape: Bool, remoteIdentitySeed: Song? = nil, parts: ScrapeParts = .all,
@@ -2117,7 +2148,22 @@ final class MusicScraperService {
                                                           parts: parts, settings: settings,
                                                           inspectsStaleReferences: true, scope: &scope)
             guard let result, !result.unavailableParts.intersection(parts).isEmpty else { return (result, scope) }
-            guard attempt < 2 else { throw BatchScrapeSourceUnavailable() }
+            let unanswered = result.unavailableParts.intersection(parts)
+            let active = settings.enabledSources
+            let answeredAnotherPart = scope.fetched.contains { field in
+                guard !unanswered.contains(field.part) else { return false }
+                switch field.part {
+                case .metadata: return active.contains { $0.type.supportsMetadata }
+                case .cover: return active.contains { $0.type.supportsCover }
+                case .lyrics: return active.contains { $0.type.supportsLyrics }
+                default: return false
+                }
+            }
+            let recoveredTags = !ScrapeTagChange.changedFields(from: song, to: result.song).isDisjoint(with: scope.fetched)
+            if answeredAnotherPart || recoveredTags || result.coverData != nil || result.lyricsLines?.isEmpty == false {
+                return (result, scope)
+            }
+            guard attempt < 2 else { throw BatchScrapeSourceUnavailable(retryAfter: result.retryAfter) }
             if let sleep { try await sleep(max(1, result.retryAfter)) }
             else { try await scrapeRetrySleep(max(1, result.retryAfter)) }
         }
@@ -2937,6 +2983,9 @@ final class MusicScraperService {
         /// 这一轮是覆盖还是只补缺失：只补缺失时，写进音频文件前文件里已有的不换。
         var overwritesCover = false
         var overwritesLyrics = false
+        var changedTagFields: Set<ScrapeField> = []
+        var tagTarget: LyricsWriteback.EditTarget?
+        var overwritesTags: Set<ScrapeField> = []
         /// 覆盖歌词、又要写进音频文件时按字段替换用的：缓存换成新歌词之前，文件里正在用的那一份。
         var embeddedLyricsAnchor: LyricsWriteback.EmbeddedAnchor? = nil
         /// 歌词写进缓存时算谁的：用户点名的刮削是 `.user`（钉住、解除清空），只补缺失的是 `.automatic`。
@@ -2975,10 +3024,10 @@ final class MusicScraperService {
 
         func staleReferences(coverStored: Bool, lyricsCached: Bool) -> StaleAssetReference? {
             var stale = StaleAssetReference(songID: song.id)
-            if coverFetched, !coverStored, scope.assets.cover.clearsReferenceWhenMissed {
+            if coverFetched, !coverStored, result?.unavailableParts.contains(.cover) != true, scope.assets.cover.clearsReferenceWhenMissed {
                 stale.cover = song.coverArtFileName
             }
-            if lyricsFetched, !lyricsCached, scope.assets.lyrics.clearsReferenceWhenMissed {
+            if lyricsFetched, !lyricsCached, result?.unavailableParts.contains(.lyrics) != true, scope.assets.lyrics.clearsReferenceWhenMissed {
                 stale.lyrics = song.lyricsFileName
             }
             return stale.cover == nil && stale.lyrics == nil ? nil : stale
@@ -3061,6 +3110,9 @@ final class MusicScraperService {
             writesBackLyrics: ScrapeWritebackSourcePolicy.writesBackLyrics(sourceKind: lyricsSource),
             overwritesCover: scope.overwrites.contains(.cover),
             overwritesLyrics: scope.overwrites.contains(.lyrics),
+            changedTagFields: changedTags.intersection(scope.fetched),
+            tagTarget: changedTags.isEmpty ? nil : LyricsWriteback.EditTarget(song),
+            overwritesTags: scope.overwrites.intersection(changedTags),
             embeddedLyricsAnchor: embeddedLyricsAnchor,
             lyricsOrigin: lyricsOrigin
         )
@@ -3074,9 +3126,18 @@ final class MusicScraperService {
         }.value
     }
 
-    private func recordBatchSongOutcome(_ applied: AppliedScrape, for song: Song) {
-        tally.record(applied.parts)
-        switch applied.parts.result {
+    private func recordBatchSongOutcome(_ applied: AppliedScrape, for song: Song, unavailable: ScrapeParts) {
+        var counted = applied.parts
+        if unavailable.contains(.cover), counted.cover == .notFound { counted.cover = .notRequested }
+        if unavailable.contains(.lyrics), counted.lyrics == .notFound { counted.lyrics = .notRequested }
+        if unavailable.contains(.metadata), counted.tags == .notFound { counted.tags = .notRequested }
+        let hasUnavailablePart = counted != applied.parts
+        if hasUnavailablePart {
+            tally.recordSongError(songID: song.id, title: song.title, detail: String(localized: "metadata_status_state_source_unavailable"))
+        }
+        tally.record(counted)
+        switch counted.result {
+        case .unchanged where hasUnavailablePart: failedCount += 1
         case .updated: updatedCount += 1
         case .unchanged: skippedCount += 1
         case .failed: failedCount += 1
@@ -3106,7 +3167,10 @@ final class MusicScraperService {
         }
         if activeRunID == runID {
             tally.recordWriteback(outcome)
-            if let failure { tally.recordFailure(failure) }
+            if let failure {
+                tally.recordFailure(failure)
+                sourceWritebackFailureCount = tally.writebackFailed
+            }
         }
         if var checkpoint = scrapeCheckpoint, checkpoint.runID == runID {
             var persisted = checkpoint.tally ?? BatchScrapeTally()
@@ -3321,6 +3385,9 @@ final class MusicScraperService {
             ))
         }
         plog("📝 Sidecar: coverData=\(coverData?.count ?? 0)B lyricsLines=\(lyricsLines?.count ?? 0) coverMode=\(coverMode.rawValue) lyricsMode=\(lyricsMode.rawValue) embedsLyrics=\(embeddedText != nil) anchor=\(applied.embeddedLyricsAnchor?.text == nil ? "none" : "known") origin=\(applied.lyricsOrigin.rawValue) for '\(song.title)'")
+        let embedsAudio = coverMode != .off || embeddedText != nil
+        let writesLocalTags = embedsAudio && !applied.changedTagFields.isEmpty
+            ? await sourceManager.source(withID: song.sourceID)?.type == .local : false
         return ScrapedAssetWriteback(
             song: song, coverData: coverData, lyricsLines: lyricsLines, embeddedLyricsText: embeddedText,
             coverEmbeddingMode: coverMode, lyricsEmbeddingMode: lyricsMode,
@@ -3328,7 +3395,10 @@ final class MusicScraperService {
                 keepsExistingCover: !applied.overwritesCover,
                 keepsExistingLyrics: !applied.overwritesLyrics,
                 skipsUnchanged: true,
-                lyricsFieldReplacement: fieldRequest
+                lyricsFieldReplacement: fieldRequest,
+                tagFields: writesLocalTags ? applied.changedTagFields : [],
+                overwritesTags: writesLocalTags ? applied.overwritesTags : [],
+                tagTarget: writesLocalTags ? applied.tagTarget : nil
             ),
             timeout: settings.timeout,
             lyricsOrigin: applied.lyricsOrigin
@@ -3521,13 +3591,13 @@ final class MusicScraperService {
                 plog("⚠️ Embedded cover: scraped artwork for '\(song.title)' is not a decodable image")
             }
         }
-        guard embeddableCover != nil || lyricsText != nil else {
+        guard embeddableCover != nil || lyricsText != nil || !policy.tagFields.isEmpty else {
             return EmbeddedAssetsOutcome(failure: coverData == nil ? nil : .other)
         }
-        // 冲突判断按库里记的文件身份做，刮削手里的快照可能已经旧了（比如刚嵌入过歌词）。
-        let target = await MainActor.run { () -> Song in
+        let target = await MainActor.run { () -> Song? in
             var target = song
             if let latest = library.storedSong(id: song.id) {
+                if let tagTarget = policy.tagTarget, !tagTarget.isSameFile(as: latest) { return nil }
                 target.filePath = latest.filePath
                 target.fileSize = latest.fileSize
                 target.lastModified = latest.lastModified
@@ -3535,6 +3605,7 @@ final class MusicScraperService {
             }
             return target
         }
+        guard let target else { return EmbeddedAssetsOutcome(failure: .conflict) }
         let lyricsEdit: EmbeddedLyricsEdit = lyricsText.map { EmbeddedLyricsEdit.set($0) } ?? .keep
         let cover = embeddableCover
         let write = Task.detached(priority: .utility) {
@@ -3736,15 +3807,18 @@ extension MusicScraperService.BatchScrapeCompletion {
     var summaryLines: [String] {
         let summary = tally.summary
         var lines: [String] = []
-        if tallyIsPartial {
-            // 旧版本留下的断点续上的：分项计数只有续跑那部分，说总数那一行。
+        if tallyIsPartial || summary.writebackFailed > 0 {
             lines.append(String(
                 format: String(localized: "batch_scrape_completed_format"),
                 processedSongCount, songCount, updatedCount, skippedCount, failedCount
             ))
-        } else if summary.foundNothing {
+        }
+        if let writeback = Self.sourceWritebackLine(written: summary.writebackWritten, failed: summary.writebackFailed) {
+            lines.append(writeback)
+        }
+        if !tallyIsPartial, summary.foundNothing {
             lines.append(String(localized: "scrape_tally_nothing"))
-        } else {
+        } else if !tallyIsPartial {
             if !summary.cover.isEmpty {
                 lines.append(String(format: String(localized: "scrape_tally_cover_line_format"),
                                     BatchScrapeSummaryText.segments(summary.cover)))
@@ -3755,17 +3829,6 @@ extension MusicScraperService.BatchScrapeCompletion {
             }
             if summary.tagsFilled > 0 {
                 lines.append(String(format: String(localized: "scrape_tally_tags_line_format"), summary.tagsFilled))
-            }
-            if summary.writebackWritten + summary.writebackFailed > 0 {
-                var parts: [String] = []
-                if summary.writebackWritten > 0 {
-                    parts.append(String(format: String(localized: "scrape_tally_writeback_ok_format"), summary.writebackWritten))
-                }
-                if summary.writebackFailed > 0 {
-                    parts.append(String(format: String(localized: "scrape_tally_writeback_failed_format"), summary.writebackFailed))
-                }
-                lines.append(String(format: String(localized: "scrape_tally_writeback_line_format"),
-                                    parts.joined(separator: " · ")))
             }
             if summary.songErrors > 0 {
                 lines.append(String(format: String(localized: "scrape_tally_errors_line_format"), summary.songErrors))
@@ -3780,6 +3843,14 @@ extension MusicScraperService.BatchScrapeCompletion {
             ))
         }
         return lines
+    }
+
+    static func sourceWritebackLine(written: Int, failed: Int) -> String? {
+        var parts: [String] = []
+        if written > 0 { parts.append(String(format: String(localized: "scrape_tally_writeback_ok_format"), written)) }
+        if failed > 0 { parts.append(String(format: String(localized: "scrape_tally_writeback_failed_format"), failed)) }
+        guard !parts.isEmpty else { return nil }
+        return String(format: String(localized: "scrape_tally_writeback_line_format"), parts.joined(separator: " · "))
     }
 
     var summaryText: String { summaryLines.joined(separator: "\n") }

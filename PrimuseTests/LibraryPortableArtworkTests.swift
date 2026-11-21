@@ -756,6 +756,39 @@ final class LibraryPortableArtworkTests: XCTestCase {
         }
     }
 
+    func testVisibleAlbumDetailArtworkReplacesItsPlaceholderAfterAlbumScrape() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: UUID().uuidString, name: "Album fixture", type: .local, basePath: root.path)
+        let manager = SourceManager(sourcesProvider: { [source] })
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let song = Song(id: UUID().uuidString, title: "Album fixture", albumTitle: UUID().uuidString,
+                        artistName: "Album fixture", fileFormat: .flac, filePath: "/track.flac", sourceID: source.id)
+        library.addSongs([song])
+        await library.waitForPendingIndex()
+        let album = try XCTUnwrap(library.visibleAlbums.first)
+        defer { MetadataAssetStore.shared.removeAlbumCoverSync(forAlbumID: album.id) }
+        let view = AlbumArtworkView(album: album, size: 120, cornerRadius: 0, presentationRole: .animatedHero)
+            .frame(width: 120, height: 120).ignoresSafeArea()
+            .environment(library).environment(manager).environment(\.scenePhase, .inactive)
+        let (window, host, previous) = try hostHeroTestView(view, size: CGSize(width: 120, height: 120))
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        func showsScrapedCover() throws -> Bool {
+            let pixel = try rgb(heroTestSnapshot(host.view), x: 60, y: 60)
+            return pixel.0 > 220 && pixel.1 < 35 && pixel.2 < 35
+        }
+        try await Task.sleep(for: .milliseconds(350))
+        XCTAssertFalse(try showsScrapedCover())
+        let red = try image(color: .red)
+        let saved = await ArtworkFetchService.shared.installFetchedAlbumCover(red, albumID: album.id)
+        XCTAssertTrue(saved)
+        for _ in 0..<50 {
+            if try showsScrapedCover() { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTFail("The mounted album header still shows its placeholder")
+    }
+
     func testAlbumArtworkPrefersFolderCoverOverScrapedAlbumCache() async throws {
         try await verifyAlbumCoverPriority(sourceExists: true, uploaded: false)
     }

@@ -99,6 +99,16 @@ enum LyricsDocumentCatalog {
         let store = MetadataAssetStore.shared
         let sidecars = await loadSidecars(for: song, sourceManager: sourceManager, sourcesStore: sourcesStore)
         var cached = await store.cachedLyrics(forSongID: song.id)
+        if let old = cached, LyricsDocumentSource.of(old)?.kind == .embedded,
+           old.first?.documentIsLocalOverride != true, !song.isCueTrack, !song.isStreamDescriptor,
+           let url = await sourceManager.directLocalFileURL(for: song), !UbiquitousPlaybackFile.isEvictedPlaceholder(url) {
+            let metadata = await FileMetadataReader.read(from: url)
+            if let current = FileMetadataReader.parsedEmbeddedLyrics(from: metadata) {
+                await store.reconcileEmbeddedSource(current, alternatives: metadata.embeddedLyricsAlternatives,
+                                                    forSongID: song.id, expected: LyricsDocumentFingerprint(lines: old))
+                cached = await store.cachedLyrics(forSongID: song.id)
+            }
+        }
         if cached == nil, case .notFileBased = sidecars {
             cached = await LyricsLoader.load(for: song, sourceManager: sourceManager, allowsAutomaticOnlineLyrics: false)
         }

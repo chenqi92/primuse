@@ -714,6 +714,68 @@ final class LyricsUserVersionTests: XCTestCase {
         XCTAssertEqual(replaced?.map(\.text), ["Draft"])
     }
 
+    func testLateOnlineLyricsDoNotRedirectTheSaveOrBecomeTheVersionBeingEdited() async throws {
+        let store = MetadataAssetStore.shared
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        for keepOriginal in [false, true] {
+            let item = song()
+            let original = "[00:01.00]Opened from the file"
+            let draft = "[00:01.00]Handwritten lanterns"
+            let otherSong = Data("[00:01.00]Next track".utf8)
+            let fixture = LyricsDocumentFixtureConnector(directory: "/", files: [
+                "Fixture.lrc": Data(original.utf8), "Next.lrc": otherSong
+            ])
+            let source = MusicSource(id: item.sourceID, name: "Test", type: .webdav, host: "fixture.invalid")
+            let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in fixture })
+            library.addSongs([item])
+            EmbeddedLyricsCopyPolicy.setMode(.off, forSongID: item.id)
+            addTeardownBlock {
+                EmbeddedLyricsCopyPolicy.setMode(nil, forSongID: item.id)
+                await store.invalidateCaches(forSongIDs: [item.id])
+            }
+            let seeded = await store.cacheLyrics(
+                LyricsDocumentSource.file("Fixture.lrc").stamped(LyricsContentParser.parseText(original)),
+                forSongID: item.id
+            )
+            XCTAssertTrue(seeded)
+            let opened = await LyricsWriteback.loadEditablePayload(for: item, sourceManager: manager)
+            let destination = try await SidecarWriteService.shared.preflightLyricsWrite(for: item, using: fixture)
+            let online = LyricsDocumentSource.online(identifier: "fixture", name: "Fixture").stamped(
+                LyricsContentParser.parseText("[00:01.00]Late online result")
+            )
+            let arrived = await store.replaceLyricsIfUnchanged(
+                online, forSongID: item.id, expectedFingerprint: opened.cacheSnapshot, force: false
+            )
+            XCTAssertTrue(arrived)
+            if keepOriginal { LyricsWriteback.requestNewVersion(forSongID: item.id) }
+            let result = await LyricsWriteback.save(
+                text: draft, for: item, mode: .sidecar(destination), allowRemoval: false,
+                sourceSnapshot: opened.sourceSnapshot, cacheSnapshot: opened.cacheSnapshot,
+                sourceManager: manager, library: library
+            )
+            XCTAssertTrue(result.succeeded, result.errorMessage ?? "")
+            XCTAssertEqual(result.persistence, .sidecar)
+            let files = await fixture.files
+            XCTAssertTrue(LyricsContentParser.areContentsSemanticallyEquivalent(
+                String(decoding: try XCTUnwrap(files["Fixture.lrc"]), as: UTF8.self), draft
+            ))
+            XCTAssertEqual(files["Next.lrc"], otherSong)
+            let cached = await store.cachedLyrics(forSongID: item.id)
+            XCTAssertEqual(cached?.map(\.text), ["Handwritten lanterns"])
+            let sources = await store.lyricsSourceCollection(forSongID: item.id)
+            let originals = sources.candidates.filter { $0.lines.first?.text == "Opened from the file" }
+            XCTAssertEqual(originals.count, keepOriginal ? 1 : 0)
+            if let old = originals.first {
+                XCTAssertEqual(old.source, .file("Fixture.lrc"))
+                XCTAssertTrue(sources.isKept(old.id))
+            }
+            let onlineCandidate = try XCTUnwrap(sources.candidates.first { $0.lines.first?.text == "Late online result" })
+            XCTAssertFalse(sources.isKept(onlineCandidate.id))
+        }
+    }
+
     func testSavingAsANewVersionKeepsTheOldOneSelectable() async throws {
         let song = song()
         let store = MetadataAssetStore.shared

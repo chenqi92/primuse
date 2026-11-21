@@ -874,6 +874,34 @@ final class BatchScrapeAccountingTests: XCTestCase {
         XCTAssertEqual(kept.coverData, cover, "Manual saves keep replacing as before")
     }
 
+    func testAlbumCoverInstallInvalidatesOnlyItsAlbumAndCanBeReadBack() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MetadataAssetStore(storageDirectory: root)
+        let service = ArtworkFetchService(assetStore: store)
+        let albumID = UUID().uuidString
+        let event = expectation(forNotification: .primuseArtworkDidInvalidate, object: nil) {
+            ($0.object as? String) == albumID
+        }
+        let png = try pngData()
+        let installed = await service.installFetchedAlbumCover(png, albumID: albumID)
+        XCTAssertTrue(installed)
+        await fulfillment(of: [event], timeout: 2)
+        let saved = await store.cachedAlbumCover(forAlbumID: albumID)
+        XCTAssertEqual(saved, png)
+    }
+
+    func testManualLyricsFailureDistinguishesVerifiedSourceFromFailedCache() {
+        var outcome = LyricsWriteback.SaveOutcome(updatedSong: song(), errorMessage: "cache", persistence: .embedded)
+        XCTAssertEqual(ScrapeWritebackCenter.lyricsFailureState(outcome), .failed("cache"))
+        outcome.sourceWriteVerifiedBeforeCacheFailure = true
+        guard case .partial(let message) = ScrapeWritebackCenter.lyricsFailureState(outcome) else {
+            return XCTFail("The verified source must remain visible in a partial result")
+        }
+        XCTAssertTrue(message.contains(String(localized: "scrape_tally_failure_lyrics")))
+        XCTAssertTrue(ScrapeWritebackCenter.StepState.partial(message).hasFailure)
+    }
+
     func testWritebackFailuresAreClassified() {
         XCTAssertEqual(MusicScraperService.writebackFailureReason(for: EmbeddedMetadataCoordinatedWritebackError.conflict), .conflict)
         XCTAssertEqual(MusicScraperService.writebackFailureReason(for: CancellationError()), .timeout)
@@ -898,7 +926,9 @@ final class BatchScrapeAccountingTests: XCTestCase {
             runID: UUID(), originPlaylistID: nil, songCount: 2, updatedCount: 0, skippedCount: 1, failedCount: 1,
             artworkTotalCount: 0, artworkAvailableCount: 0, artworkUnavailableCount: 0, tally: tally
         )
-        XCTAssertEqual(mixed.summaryLines.count, 3, "Cover, lyrics and writeback lines; no tags line for zero")
+        XCTAssertEqual(mixed.summaryLines.count, 4)
+        XCTAssertEqual(mixed.summaryLines[0], String(format: String(localized: "batch_scrape_completed_format"), 2, 2, 0, 1, 1))
+        XCTAssertEqual(mixed.summaryLines[1], MusicScraperService.BatchScrapeCompletion.sourceWritebackLine(written: 0, failed: 1))
         XCTAssertTrue(mixed.offersDetails)
         XCTAssertTrue(mixed.hasAnyFailure)
     }

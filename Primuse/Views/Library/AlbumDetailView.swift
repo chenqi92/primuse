@@ -219,6 +219,20 @@ struct AlbumDetailView: View {
             )
         }
         #endif
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let paused = scraperService.pausedSourceSummary(for: songs) {
+                HStack {
+                    Text(verbatim: paused)
+                    Spacer()
+                    Button("retry") { scraperService.resumePendingScrape(in: library) }
+                    Button("cancel", role: .cancel) { scraperService.cancel() }
+                }
+                .font(.callout)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.regularMaterial)
+            }
+        }
         .songLocationReader(songLocation, revision: albumSongs.map(\.id))
         .onDisappear { songLocation.cancel() }
         .songBatchActions(

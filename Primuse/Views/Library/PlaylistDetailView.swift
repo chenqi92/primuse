@@ -1501,12 +1501,7 @@ struct PlaylistDetailView: View {
     private var batchScrapeCountsText: String {
         switch scraperService.batchPhase {
         case .songs:
-            return String(
-                format: String(localized: "batch_scrape_counts_format"),
-                scraperService.updatedCount,
-                scraperService.skippedCount,
-                scraperService.failedCount
-            )
+            return scraperService.liveSongSummary
         case .artwork:
             return String(
                 format: String(localized: "batch_scrape_artwork_counts_format"),

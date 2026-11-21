@@ -1989,15 +1989,9 @@ struct MetadataScrapingView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
 
-                        HStack(spacing: 12) {
-                            Text("\(scraperService.processedCount)/\(scraperService.totalCount)")
-                            Text("·")
-                            Text("\(scraperService.updatedCount) \(String(localized: "updated_count"))")
-                            Text("·")
-                            Text("\(scraperService.failedCount) \(String(localized: "failed_count"))")
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        Text(verbatim: scraperService.liveSongSummary)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
 
                         Button("cancel", role: .cancel) {
                             scraperService.cancel()
@@ -2007,7 +2001,11 @@ struct MetadataScrapingView: View {
                     .pmAppearFade(.control)
                 } else {
                     // 上一轮批量刮削按部分的结果；有没完成的歌时点「查看」列出来。
-                    if let completion = scraperService.lastCompletion {
+                    if let paused = scraperService.pausedSourceSummary {
+                        Text(verbatim: paused)
+                        Button("retry") { scraperService.resumePendingScrape(in: library) }
+                        Button("cancel", role: .cancel) { scraperService.cancel() }
+                    } else if let completion = scraperService.lastCompletion {
                         BatchScrapeLastResultRow(completion: completion)
                     }
                     Button("scrape_missing_metadata") {

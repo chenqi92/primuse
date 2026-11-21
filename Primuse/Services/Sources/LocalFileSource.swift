@@ -469,6 +469,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         base.dateAdded = existing.dateAdded
         base.lyricsText = existing.lyricsText
         base.artistArtworkFileName = existing.artistArtworkFileName
+        let previousLyrics = await MetadataAssetStore.shared.cachedLyrics(forSongID: existing.id)
+            .map(LyricsDocumentFingerprint.init(lines:))
         var metadata = await metadataService.loadMetadata(
             for: url, allowOnlineFetch: false, fallbackTitle: base.title, discoverSidecars: false
         )
@@ -485,6 +487,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
               metadata.hasEmbeddedDescriptiveMetadata || metadata.hasTechnicalProperties else { return nil }
         if base.coverArtFileName != nil || StoredArtworkOrigin.preservesLocalChoice(existing.coverArtFileName) {
             metadata.coverArtData = nil
+        }
+        if base.lyricsFileName == nil, let previousLyrics, let lyrics = metadata.lyrics {
+            await MetadataAssetStore.shared.reconcileEmbeddedSource(
+                lyrics, alternatives: metadata.embeddedLyricsAlternatives, forSongID: existing.id, expected: previousLyrics
+            )
         }
         metadata = await metadataService.storingEmbeddedAssets(in: metadata, cacheKey: existing.id,
                                                                storesLyrics: base.lyricsFileName == nil)

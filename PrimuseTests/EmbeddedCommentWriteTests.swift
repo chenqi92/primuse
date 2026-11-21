@@ -252,7 +252,8 @@ final class EmbeddedLyricsFieldWriteTests: XCTestCase {
     }
 
     /// 合成一个最小的 MP3：ID3v2.4 标签 + 几十帧静音帧。
-    private func makeMP3(lyricsFrames: [(language: String, descriptor: String, text: String)]) throws -> URL {
+    private func makeMP3(lyricsFrames: [(language: String, descriptor: String, text: String)],
+                         extraFrames: [(String, Data)] = []) throws -> URL {
         func synchsafe(_ value: Int) -> Data {
             Data([UInt8((value >> 21) & 0x7F), UInt8((value >> 14) & 0x7F),
                   UInt8((value >> 7) & 0x7F), UInt8(value & 0x7F)])
@@ -265,6 +266,7 @@ final class EmbeddedLyricsFieldWriteTests: XCTestCase {
             body += frame("USLT", Data([0x03]) + Data(lyrics.language.utf8) + Data(lyrics.descriptor.utf8)
                           + Data([0x00]) + Data(lyrics.text.utf8))
         }
+        for (id, payload) in extraFrames { body += frame(id, payload) }
         body += Data(count: 256)
         var file = Data("ID3".utf8) + Data([4, 0, 0]) + synchsafe(body.count) + body
         let audioFrame = Data([0xFF, 0xFB, 0x90, 0x64]) + Data(repeating: 0, count: 413)
@@ -306,6 +308,59 @@ final class EmbeddedLyricsFieldWriteTests: XCTestCase {
         XCTAssertEqual(cleared, .done(.removedOriginals(1), remainingOriginals: false))
         bodies = try XCTUnwrap(ID3LyricsFramePreservation.lyricsFrameBodies(in: Data(contentsOf: url)))
         XCTAssertEqual(bodies.compactMap(EmbeddedLyricsFieldEditor.usltText), ["[00:01.00]晚潮"])
+    }
+
+    func testMixedMP3EditsSynchronizedAndUserTextFramesWithoutChangingAudioOrTranslatedLyrics() async throws {
+        let plain = "First original"
+        let synced = "[00:01.500]Second original"
+        let custom = "[00:02.00]Third original"
+        let replacement = "[00:03.000]Edited original"
+        let translated = "Un autre texte"
+        let url = try makeMP3(lyricsFrames: [("eng", "", plain), ("fra", "translation", translated)],
+                              extraFrames: [
+                                ("SYLT", Data([3]) + Data("eng".utf8) + Data([2, 1, 0]) + Data("Second original".utf8) + Data([0, 0, 0, 5, 220])),
+                                ("TXXX", Data([3]) + Data("LYRICS".utf8) + Data([0]) + Data(custom.utf8)),
+                                ("TXXX", Data([3]) + Data("CUSTOM_LYRICS".utf8) + Data([0]) + Data("Annotation".utf8))
+                              ])
+        func audio(_ bytes: Data) throws -> Data {
+            let tag = try XCTUnwrap(EmbeddedLyricsFieldEditor.id3Layout(bytes))
+            return Data(bytes[tag.audioOffset...])
+        }
+        let originalAudio = try audio(Data(contentsOf: url))
+        let update = try await write(.replace(text: replacement, anchor: synced), to: url)
+        XCTAssertEqual(update, .done(.replacedField, remainingOriginals: false))
+        let afterUpdate = try Data(contentsOf: url)
+        let metadata = await FileMetadataReader.read(from: afterUpdate, fileExtension: "mp3")
+        XCTAssertEqual(Set(metadata.lyricsVariants.map(\.text)), Set([plain, custom, replacement]))
+        XCTAssertEqual(try audio(afterUpdate), originalAudio)
+        let removed = try await write(.removeOne(custom), to: url)
+        XCTAssertEqual(removed, .done(.removedField, remainingOriginals: false))
+        let afterRemove = try Data(contentsOf: url)
+        XCTAssertNil(afterRemove.range(of: Data(custom.utf8)))
+        XCTAssertEqual(try audio(afterRemove), originalAudio)
+        let cleared = try await write(.removeAllOriginals, to: url)
+        XCTAssertEqual(cleared, .done(.removedOriginals(2), remainingOriginals: false))
+        let final = try Data(contentsOf: url)
+        let bodies = try XCTUnwrap(ID3LyricsFramePreservation.lyricsFrameBodies(in: final))
+        XCTAssertEqual(bodies.compactMap(EmbeddedLyricsFieldEditor.usltText), [translated])
+        XCTAssertEqual(try audio(final), originalAudio)
+        XCTAssertNotNil(final.range(of: Data("CUSTOM_LYRICS\0Annotation".utf8)))
+        XCTAssertEqual(try EmbeddedMetadataWriter.currentTags(at: url).title, "Fixture")
+        let local = await FileMetadataReader.read(from: url)
+        XCTAssertNil(local.lyricsText)
+        XCTAssertTrue(local.lyricsVariants.isEmpty)
+        XCTAssertEqual(local.translatedLyricsText, translated)
+    }
+
+    func testLocalReaderPreservesFrenchOriginalWithTheSameTextInATranslationFrame() async throws {
+        let words = "Un autre texte"
+        let url = try makeMP3(lyricsFrames: [
+            ("eng", "Translation", words), ("fra", "", words),
+        ])
+        let local = await FileMetadataReader.read(from: url)
+        XCTAssertEqual(local.lyricsText, words)
+        XCTAssertEqual(local.lyricsLanguageCode, "fr")
+        XCTAssertEqual(local.translatedLyricsText, words)
     }
 
     // MARK: 刮削往音频文件里嵌歌词

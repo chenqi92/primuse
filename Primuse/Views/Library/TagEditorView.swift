@@ -1851,7 +1851,13 @@ struct TagEditorView: View {
             // accepted tags first so that merge retains this editor's changes,
             // including a local-only edit after the source refused write access.
             if sourceMutationOccurred || metadataSavedLocally { library.replaceSong(updated) }
-            let target = await resolveLyricsWritebackMode(for: updated)
+            let target: LyricsWriteback.Target
+            switch lyricsTarget.mode {
+            case .checking, .temporarilyUnavailable:
+                target = await resolveLyricsWritebackMode(for: updated)
+            default:
+                target = lyricsTarget
+            }
             let outcome = await LyricsWriteback.save(
                 text: lyricsText,
                 for: updated,

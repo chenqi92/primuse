@@ -114,6 +114,7 @@ actor ScraperManager {
             if isCancellation(error) { return }
             if case ScraperError.notFound = error { return }
         }
+        result.unavailableSourceIDs[part, default: []].insert(config.id)
         result.unavailableParts.formUnion(part)
         var delay = await getScraper(for: config).cooldownRemaining()
         if let until = failureStates[config.id]?.circuitOpenUntil {
@@ -549,6 +550,20 @@ actor ScraperManager {
             plog("🎤 Lyrics tier: needs.lyrics=false, skipped")
         }
 
+        // A confirmed miss from one provider still answers that part of the search.
+        // Preserve an outage only when every eligible provider failed or was cooling down.
+        for (part, unavailableIDs) in result.unavailableSourceIDs {
+            let answered = enabledSources.contains { source in
+                guard !unavailableIDs.contains(source.id) else { return false }
+                switch part {
+                case .metadata: return source.type.supportsMetadata
+                case .cover: return source.type.supportsCover
+                case .lyrics: return source.type.supportsLyrics
+                default: return false
+                }
+            }
+            if answered { result.unavailableParts.remove(part) }
+        }
         if let detail = result.detail, needs.metadataFields.contains(where: detail.hasTag) {
             result.unavailableParts.remove(.metadata)
         }

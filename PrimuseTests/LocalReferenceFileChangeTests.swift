@@ -7,7 +7,7 @@ import XCTest
 final class LocalReferenceFileChangeTests: XCTestCase {
     private let timestamp = Date(timeIntervalSince1970: 1_750_000_000)
 
-    private func write(_ title: String, to file: URL, artist: String? = nil, atomically: Bool = false) throws {
+    private func write(_ title: String, to file: URL, artist: String? = nil, lyrics: String? = nil, atomically: Bool = false) throws {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         func frame(_ key: String, _ value: String) -> Data {
             let text = Data([0]) + Data(value.utf8)
@@ -15,6 +15,10 @@ final class LocalReferenceFileChangeTests: XCTestCase {
         }
         var tags = frame("TIT2", title)
         if let artist { tags.append(frame("TPE1", artist)) }
+        if let lyrics {
+            let payload = Data([0]) + Data("eng".utf8) + Data([0]) + Data(lyrics.utf8)
+            tags.append(Data("USLT".utf8) + Data([0, 0, 0, UInt8(payload.count), 0, 0]) + payload)
+        }
         tags.append(Data(repeating: 0, count: 100 - tags.count))
         var bytes = Data([0x49, 0x44, 0x33, 3, 0, 0, 0, 0, 0, 100]) + tags
         let audio = Data([0xFF, 0xFB, 0x90, 0x64]) + Data(repeating: 0, count: 413)
@@ -27,6 +31,35 @@ final class LocalReferenceFileChangeTests: XCTestCase {
         var songs: [Song] = []
         for try await row in try await local.scanSongs(from: "/", existingSongs: existing) { songs.append(row.song) }
         return songs
+    }
+
+    func testExternalEmbeddedReplacementUpdatesDefaultAndRetainsExplicitSavedCopy() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let file = root.appendingPathComponent("Album/Track.mp3")
+        let source = MusicSource(id: UUID().uuidString, name: "Folder", type: .local, basePath: root.path)
+        let local = LocalFileSource(sourceID: source.id, basePath: root)
+        try write("Amber", to: file, lyrics: "Earlier words")
+        let first = try await scanned(local)
+        let read = try await local.refreshedLocalSong(XCTUnwrap(first.first), notified: true)
+        let song = try XCTUnwrap(read)
+        let assets = MetadataAssetStore.shared
+        addTeardownBlock {
+            await assets.invalidateCaches(forSongIDs: [song.id])
+            try? FileManager.default.removeItem(at: root)
+        }
+        let keep = LyricsDocumentSource.embedded.stamped(LyricsParser.parse("Deliberately kept"))
+        let stored = await assets.cachedLyrics(forSongID: song.id)
+        let original = try XCTUnwrap(stored)
+        _ = await assets.cacheLyrics(keep, forSongID: song.id, force: true)
+        _ = await assets.cacheLyrics(original, forSongID: song.id, force: true, previousVersion: .keep)
+
+        try write("Amber", to: file, lyrics: "Changed words", atomically: true)
+        _ = try await local.refreshedLocalSong(song, notified: true)
+        let refreshed = await assets.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(refreshed?.map(\.text), ["Changed words"])
+        let versions = await assets.lyricsSourceCollection(forSongID: song.id)
+        XCTAssertFalse(versions.candidates.contains { $0.lines.first?.text == "Earlier words" })
+        XCTAssertTrue(versions.candidates.contains { versions.isKept($0.id) && $0.lines.first?.text == "Deliberately kept" })
     }
 
     func testIndependentCopiesConvergeOnlyAfterEachFileChanges() async throws {

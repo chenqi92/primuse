@@ -2087,6 +2087,66 @@ final class BatchScraperRecoveryTests: XCTestCase {
         }
     }
 
+    func testMetadataMissFromResponsiveSourceOutweighsAnotherProvidersOutage() async {
+        let settings = ScraperSettings(sources: [
+            .init(id: "offline", type: .musicBrainz, isEnabled: true, priority: 0),
+            .init(id: "online", type: .itunes, isEnabled: true, priority: 1)
+        ])
+        let manager = ScraperManager(scraperFactory: { config in
+            let otherSong = ScraperDetail(externalId: "other", source: config.type, title: "Another recording",
+                                          artist: "Another artist", year: 2018, durationMs: 240000)
+            return FieldDetailFixture(detail: otherSong, searchUnavailable: config.id == "offline")
+        })
+        let response = await manager.scrapeMetadata(title: "Paper Lantern", artist: "North Breakwater", album: nil,
+            duration: 2, needs: .init(metadata: true, cover: false, lyrics: false, metadataFields: [.year]), settings: settings)
+        XCTAssertFalse(response.errors.isEmpty)
+        XCTAssertNil(response.detail)
+        XCTAssertTrue(response.unavailableParts.isEmpty)
+    }
+
+    func testBatchContinuesPastUnavailableProviderForBothMissesAndHits() async throws {
+        try await withFixture(failures: .max) { _, unavailable, seed, root, source, library in
+            var settings = ScraperSettings.load()
+            for index in settings.sources.indices {
+                let type = settings.sources[index].type
+                settings.sources[index].isEnabled = type == .lrclib || type == .amll
+                if type == .lrclib { settings.sources[index].priority = 0 }
+                if type == .amll { settings.sources[index].priority = 1 }
+            }
+            settings.save()
+            for matches in [false, true] {
+                let healthy = RecoveryLyricsProbe(failures: 0, returnsLyrics: matches)
+                let manager = ScraperManager(scraperFactory: { $0.type == .lrclib ? unavailable : healthy })
+                let service = MusicScraperService(sourceManager: SourceManager(sourcesProvider: { [source] }),
+                    metadataService: MetadataService(scraperManager: manager),
+                    checkpointDirectory: root.appendingPathComponent("mixed-\(matches)"), scrapeRetrySleep: { _ in })
+                var first = seed
+                first.id = UUID().uuidString
+                var second = first
+                second.id = UUID().uuidString
+                let songs = [first, second]
+                library.addSongs(songs)
+                defer { service.cancel() }
+                _ = service.scrapeMissingMetadata(songs: songs, in: library, parts: .lyrics)
+                await service.waitUntilScrapeIdle()
+                let done = try XCTUnwrap(service.lastCompletion)
+                XCTAssertEqual(done.processedSongCount, 2)
+                XCTAssertEqual(done.tally.lyrics.filled, matches ? 2 : 0)
+                XCTAssertEqual(done.tally.lyrics.notFound, matches ? 0 : 2)
+                XCTAssertEqual(done.failedCount, 0)
+                XCTAssertFalse(service.hasPendingScrape)
+                XCTAssertNil(service.pausedSourceSummary)
+                let failures = await unavailable.requests
+                let responses = await healthy.requests
+                XCTAssertGreaterThan(failures, 0)
+                XCTAssertEqual(responses, 2)
+                if matches {
+                    for song in songs { XCTAssertNotNil(library.song(id: song.id)?.lyricsFileName) }
+                }
+            }
+        }
+    }
+
     func testUnavailableBatchPreservesCheckpointAndCanResumeAfterRestart() async throws {
         try await withFixture(failures: .max) { service, _, song, root, source, library in
             var second = song
@@ -2095,6 +2155,7 @@ final class BatchScraperRecoveryTests: XCTestCase {
             _ = service.scrapeMissingMetadata(songs: [song, second], in: library, parts: .lyrics)
             await service.waitUntilScrapeIdle()
             XCTAssertTrue(service.hasPendingScrape)
+            XCTAssertTrue(service.pausedSourceSummary?.contains("0 / 2") == true)
             XCTAssertEqual(service.processedCount, 0)
             XCTAssertEqual(service.skippedCount, 0)
             XCTAssertNil(service.lastCompletion)
@@ -2569,9 +2630,11 @@ private actor ReviewCoverRequests {
 private struct FieldDetailFixture: MusicScraper {
     let detail: ScraperDetail
     var coverURLs: [String] = []
+    var searchUnavailable = false
     var type: MusicScraperType { detail.source }
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
-        .init(items: [.init(externalId: detail.externalId, source: type, title: detail.title, artist: detail.artist,
+        if searchUnavailable { throw URLError(.notConnectedToInternet) }
+        return .init(items: [.init(externalId: detail.externalId, source: type, title: detail.title, artist: detail.artist,
                            album: detail.album, durationMs: detail.durationMs)], source: type)
     }
     func getDetail(externalId: String) async throws -> ScraperDetail? { detail }

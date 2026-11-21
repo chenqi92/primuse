@@ -303,6 +303,39 @@ struct ISOBaseMediaLyricsParserTests {
         #expect(result.copyright == "© Artist")
     }
 
+    @Test("Replacing, removing and clearing mixed lyrics preserves other languages, custom fields and media offsets")
+    func editMixedOriginalFields() throws {
+        let first = "First original"
+        let second = "[00:01.00]Second original"
+        let custom = "[00:02.00]Freeform original"
+        let changed = "[00:02.00]New text with a longer line"
+        let foreign = replayGainItem("LYRICS:fr", value: "Paroles en français")
+        let translation = replayGainItem("TRANSLATEDLYRICS:de", value: "Deutsche Übersetzung")
+        let other = replayGainItem("replaygain_track_gain", value: "-1.1 dB")
+        let standard = atom(type: Data([0xa9, 0x6c, 0x79, 0x72]),
+                            payload: dataAtom(Data(first.utf8)) + dataAtom(Data(second.utf8)))
+        let originals = replayGainItem("SYNCEDLYRICS", value: custom) + standard
+        let preserved = foreign + translation + other
+        let movie = mediaFile(items: preserved + originals)
+        let audio = atom("mdat", payload: Data(repeating: 0x71, count: 327))
+        let file = movie + audio
+
+        let updated = try #require(ISOBaseMediaLyricsParser.editingOriginals(in: file, .replace(text: changed, anchor: custom)))
+        #expect(updated.result == .replacedField)
+        #expect(ISOBaseMediaLyricsParser.payload(in: updated.data)?.lyricsVariants.map(\.text) == [changed, first, second])
+        let removed = try #require(ISOBaseMediaLyricsParser.editingOriginals(in: updated.data, .removeOne(first)))
+        #expect(ISOBaseMediaLyricsParser.payload(in: removed.data)?.lyricsVariants.map(\.text) == [changed, second])
+        let cleared = try #require(ISOBaseMediaLyricsParser.editingOriginals(in: removed.data, .removeAllOriginals))
+        #expect(cleared.result == .removedOriginals(2))
+        #expect(ISOBaseMediaLyricsParser.payload(in: cleared.data)?.lyrics == "Paroles en français")
+        for bytes in [updated.data, removed.data, cleared.data] {
+            #expect(bytes.range(of: preserved) != nil)
+            #expect(bytes.subdata(in: movie.count..<file.count) == audio)
+        }
+        #expect(ISOBaseMediaLyricsParser.editingOriginals(in: file, .removeOne("Other original")) == nil)
+        #expect(ISOBaseMediaLyricsParser.editingOriginals(in: file, .replace(text: changed, anchor: nil)) == nil)
+    }
+
     private func mediaFile(items: Data) -> Data {
         mediaFile(metadata: metadataAtom(keys: [], items: items))
     }
