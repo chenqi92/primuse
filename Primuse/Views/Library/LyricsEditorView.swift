@@ -168,6 +168,7 @@ struct LyricsEditorView: View {
             .onDisappear {
                 audioTranscriptionTask?.cancel()
                 audioTranscriptionTask = nil
+                LyricsWriteback.cancelNewVersionRequest(forSongID: song.id)
             }
             .sheet(isPresented: $showTimingRepair) { timingRepairSheet }
             #if os(macOS)
@@ -259,7 +260,7 @@ struct LyricsEditorView: View {
 
             HStack(spacing: 13) {
                 editorActionsMenu
-                Button(String(localized: "done")) { requestCommit() }
+                Button(String(localized: "done")) { requestReplacingCommit() }
                     .font(.subheadline.weight(.semibold))
                     // 挂在「完成」上，弹框从按钮长出来而不是贴在整页边缘。
                     .confirmationDialog(
@@ -452,8 +453,23 @@ struct LyricsEditorView: View {
                 .padding(.horizontal, 14)
                 .frame(height: 26)
 
+            if offersNewVersion {
+                Button {
+                    requestNewVersionCommit()
+                } label: {
+                    Text(String(localized: "lyrics_version_save_as_new"))
+                        .font(PMFont.bodyM)
+                        .foregroundStyle(PMColor.text)
+                        .padding(.horizontal, 12)
+                        .frame(height: 26)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "lyrics_version_save_as_new_hint"))
+            }
+
             Button {
-                requestCommit()
+                requestReplacingCommit()
             } label: {
                 Text(String(localized: "done"))
                     .font(.system(size: 12, weight: .semibold))
@@ -1467,6 +1483,15 @@ struct LyricsEditorView: View {
                     showLyricsSources()
                 } label: {
                     Label(String(localized: "lyrics_sources_title"), systemImage: "doc.on.doc")
+                }
+            }
+            if offersNewVersion {
+                Button {
+                    requestNewVersionCommit()
+                } label: {
+                    Text(String(localized: "lyrics_version_save_as_new"))
+                    Text(String(localized: "lyrics_version_save_as_new_hint"))
+                    Image(systemName: "square.on.square")
                 }
             }
             Button {
@@ -3106,6 +3131,23 @@ struct LyricsEditorView: View {
     /// 存在带时间戳的行,就只返回那些行,未打轴的会被静默丢弃。所以这里拦一道。
     private var willDropUnstampedLines: Bool {
         timedEligibleCount > 0 && unstampedEligibleCount > 0
+    }
+
+    /// 只有独立的歌词编辑入口才落盘；原来一行歌词都没有时也谈不上留下旧版本。
+    private var offersNewVersion: Bool {
+        onCommit != nil && !originalDocument.lines.isEmpty
+    }
+
+    /// 「完成」：保存时替换当前版本，被替换的那份不再留在歌词来源里。
+    private func requestReplacingCommit() {
+        LyricsWriteback.cancelNewVersionRequest(forSongID: song.id)
+        requestCommit()
+    }
+
+    /// 「另存为新版本」：新的成为正在用的，旧的留在歌词来源里，随时可以换回。
+    private func requestNewVersionCommit() {
+        LyricsWriteback.requestNewVersion(forSongID: song.id)
+        requestCommit()
     }
 
     private func requestCommit() {

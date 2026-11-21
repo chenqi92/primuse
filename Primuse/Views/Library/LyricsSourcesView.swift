@@ -24,15 +24,35 @@ struct LyricsSourcesView: View {
     @State private var editingID: String?
     @State private var notice: LyricsSourcesNotice?
     @State private var switchFeedback = 0
-    @State private var fetchToken = 0
     @State private var isFetching = false
+    /// 点了「删除此版本」、正在等确认的那一份，连同查出来的删法。
+    @State private var pendingDeletion: PendingVersionDeletion?
 
     var body: some View {
         container
-            .task(id: reloadToken) { await load() }
-            .task(id: fetchToken) {
-                if fetchToken > 0 { await fetchMore() }
+            .confirmationDialog(
+                String(localized: "lyrics_version_delete_confirm_title"),
+                isPresented: Binding(
+                    get: { pendingDeletion != nil },
+                    set: { if !$0 { pendingDeletion = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: pendingDeletion
+            ) { pending in
+                if pending.offersHide {
+                    Button(String(localized: "lyrics_version_hide")) {
+                        Task { await deleteVersion(pending) }
+                    }
+                } else {
+                    Button(String(localized: "lyrics_version_delete"), role: .destructive) {
+                        Task { await deleteVersion(pending) }
+                    }
+                }
+                Button(String(localized: "cancel"), role: .cancel) {}
+            } message: { pending in
+                Text(pending.message)
             }
+            .task(id: reloadToken) { await load() }
             .alert(
                 notice?.title ?? "",
                 isPresented: Binding(
@@ -199,6 +219,9 @@ struct LyricsSourcesView: View {
             Section {
                 ForEach(Array(documents.entries.enumerated()), id: \.element.id) { index, entry in
                     row(entry, number: index + 1, documents: documents)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            deleteVersionButton(entry, documents: documents)
+                        }
                 }
             } header: {
                 Text(countText(documents))
@@ -340,8 +363,40 @@ struct LyricsSourcesView: View {
             .controlSize(.small)
             #endif
             .disabled(activatingID != nil)
+
+            // 行内「更多」：iPhone 还能左滑、长按，Mac 还能右键，几处都是同一个「删除此版本」。
+            Menu {
+                deleteVersionButton(entry, documents: documents)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 17))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            #if os(macOS)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            #endif
+            .fixedSize()
+            .accessibilityLabel(String(localized: "lyrics_editor_more_actions"))
+            .disabled(activatingID != nil)
         }
         .padding(.vertical, 2)
+        .contextMenu {
+            deleteVersionButton(entry, documents: documents)
+        }
+    }
+
+    private func deleteVersionButton(
+        _ entry: LyricsDocumentCatalog.Entry,
+        documents: LyricsDocumentCatalog.Documents
+    ) -> some View {
+        Button(role: .destructive) {
+            requestDeletion(entry, in: documents)
+        } label: {
+            Label(String(localized: "lyrics_version_delete"), systemImage: "trash")
+        }
     }
 
     private func selectionMark(_ entry: LyricsDocumentCatalog.Entry) -> some View {
@@ -456,8 +511,7 @@ struct LyricsSourcesView: View {
             // Mac: 和弹框里其他按钮同一种(28 高浅底), 进度圈放在按钮旁边, 不把按钮撑宽。
             HStack(spacing: 8) {
                 Button {
-                    isFetching = true
-                    fetchToken += 1
+                    fetchMore()
                 } label: {
                     Label(String(localized: "lyrics_sources_fetch_more"), systemImage: "arrow.down.circle")
                 }
@@ -467,8 +521,7 @@ struct LyricsSourcesView: View {
             }
             #else
             Button {
-                isFetching = true
-                fetchToken += 1
+                fetchMore()
             } label: {
                 HStack {
                     Label(String(localized: "lyrics_sources_fetch_more"), systemImage: "arrow.down.circle")
@@ -480,17 +533,90 @@ struct LyricsSourcesView: View {
         }
     }
 
-    private func fetchMore() async {
-        defer { isFetching = false }
-        let candidates = await ScraperManager().lyricsSourceCandidates(for: song, settings: .load())
-        guard !Task.isCancelled else { return }
-        var saved = 0
-        for lines in candidates {
-            if await MetadataAssetStore.shared.rememberLyricsCandidate(lines, forSongID: song.id) != nil { saved += 1 }
+    /// 「获取更多」不挂在页面的生命周期上：用户点了之后离开页面，抓到的候选照样记下，下次打开就在。
+    private func fetchMore() {
+        guard !isFetching else { return }
+        isFetching = true
+        let target = song
+        Task { @MainActor in
+            let candidates = await ScraperManager().lyricsSourceCandidates(for: target, settings: .load())
+            var saved = 0
+            for lines in candidates {
+                if await MetadataAssetStore.shared.rememberLyricsCandidate(lines, forSongID: target.id) != nil {
+                    saved += 1
+                }
+            }
+            isFetching = false
+            if saved == 0 {
+                notice = LyricsSourcesNotice(title: String(localized: "lyrics_sources_title"),
+                                             message: String(localized: "scrape_lyrics_not_found"))
+            }
+            reloadToken += 1
         }
-        if saved == 0 {
-            notice = LyricsSourcesNotice(title: String(localized: "lyrics_sources_title"),
-                                         message: String(localized: "scrape_lyrics_not_found"))
+    }
+
+    /// 先查清楚这一份怎么删（只是记着的、文件里的一个字段、一个歌词文件、删不掉），再请用户确认。
+    /// 删不掉的也照样能点：确认框里说明原因，给「在 Primuse 里隐藏」。
+    private func requestDeletion(
+        _ entry: LyricsDocumentCatalog.Entry,
+        in documents: LyricsDocumentCatalog.Documents
+    ) {
+        guard activatingID == nil else { return }
+        Task {
+            let plan = await LyricsDocumentCatalog.deletionPlan(
+                for: entry,
+                in: documents,
+                song: song,
+                sourceManager: sourceManager
+            )
+            pendingDeletion = PendingVersionDeletion(
+                entry: entry,
+                plan: plan,
+                isLastVersion: documents.entries.count == 1,
+                editorHasUnsavedChanges: editorHasUnsavedChanges && entry.isActive
+            )
+        }
+    }
+
+    private func deleteVersion(_ pending: PendingVersionDeletion) async {
+        let entry = pending.entry
+        activatingID = entry.id
+        defer { activatingID = nil }
+        // 文件要按列出来时读到的内容核对：还没在后台读到的，删之前先读一次。
+        var original = contents[entry.id]
+        if original == nil {
+            original = try? await LyricsDocumentCatalog.read(entry, for: song, sourceManager: sourceManager)
+        }
+        let outcome = await LyricsWriteback.deleteVersion(
+            entry,
+            plan: pending.plan,
+            expecting: original,
+            for: song,
+            sourceManager: sourceManager,
+            sourcesStore: sourcesStore,
+            library: library
+        )
+        guard outcome.succeeded else {
+            notice = LyricsSourcesNotice(
+                title: String(localized: "lyrics_version_delete_failed_title"),
+                message: outcome.errorMessage ?? ""
+            )
+            if outcome.changedElsewhere {
+                contents[entry.id] = nil
+                summaries[entry.id] = nil
+                reloadToken += 1
+            }
+            return
+        }
+        contents[entry.id] = nil
+        summaries[entry.id] = nil
+        switchFeedback += 1
+        if entry.isActive || outcome.cleared {
+            // 播放页和编辑器跟着换：和换来源走同一个回调。
+            onActiveDocumentChanged(outcome.updatedSong ?? library.song(id: song.id) ?? song)
+        }
+        if let message = outcome.notice {
+            notice = LyricsSourcesNotice(title: String(localized: "lyrics_sources_title"), message: message)
         }
         reloadToken += 1
     }
@@ -513,6 +639,45 @@ struct LyricsSourcesView: View {
                 message: error.localizedDescription
             )
         }
+    }
+}
+
+/// 等确认的「删除此版本」。
+struct PendingVersionDeletion: Identifiable {
+    let entry: LyricsDocumentCatalog.Entry
+    let plan: LyricsDocumentCatalog.DeletionPlan
+    let isLastVersion: Bool
+    let editorHasUnsavedChanges: Bool
+
+    var id: String { entry.id }
+
+    /// 源里删不掉：确认框给的是「在 Primuse 里隐藏」。
+    var offersHide: Bool {
+        if case .readOnly = plan { return true }
+        return false
+    }
+
+    /// 确认框里说清楚这次删的是什么、动不动文件。
+    var message: String {
+        var parts: [String] = []
+        switch plan {
+        case .forget:
+            parts.append(String(localized: "lyrics_version_delete_forget_message"))
+        case .embeddedField:
+            parts.append(String(localized: "lyrics_version_delete_embedded_message"))
+        case .file:
+            parts.append(String(format: String(localized: "lyrics_version_delete_file_message %@"), entry.name))
+        case .readOnly(let reason):
+            parts.append(reason)
+            parts.append(String(localized: "lyrics_version_hide_suggestion"))
+        }
+        if isLastVersion, entry.isActive {
+            parts.append(String(localized: "lyrics_version_delete_last_message"))
+        }
+        if editorHasUnsavedChanges {
+            parts.append(String(localized: "lyrics_sources_unsaved_banner"))
+        }
+        return parts.joined(separator: "\n")
     }
 }
 

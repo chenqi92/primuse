@@ -1801,6 +1801,233 @@ enum LyricsWriteback {
         return outcome
     }
 
+    // MARK: - 歌词来源页：删除此版本
+
+    struct VersionDeletionOutcome {
+        var errorMessage: String?
+        /// 删好了，有一句需要用户知道的话（只在 Primuse 里隐藏了）。
+        var notice: String?
+        /// 删的是正在用的那份、而且一份都不剩：等同于清空。
+        var cleared = false
+        /// 文件在列出来之后被别处改过：重新列一次再删。
+        var changedElsewhere = false
+        var updatedSong: Song?
+
+        var succeeded: Bool { errorMessage == nil }
+    }
+
+    /// 删掉这一版歌词：App 里记着的候选只从候选里去掉；音频文件里的一份内嵌原文只删内容完全相同的那一个字段；
+    /// 旁边的歌词文件删掉这个文件（文件还得是列出来时那样，删完回读确认）；源里删不掉的在 Primuse 里隐藏。
+    /// 删的是正在用的那份时换上剩下里最合适的一份（不钉住），一份不剩就等同于清空。
+    static func deleteVersion(
+        _ entry: LyricsDocumentCatalog.Entry,
+        plan: LyricsDocumentCatalog.DeletionPlan,
+        expecting original: LyricsDocumentCatalog.Content?,
+        for song: Song,
+        sourceManager: SourceManager,
+        sourcesStore: SourcesStore,
+        library: MusicLibrary
+    ) async -> VersionDeletionOutcome {
+        let key = song.sourceID + "\u{0}version\u{0}" + song.id
+        await mutationGate.acquire(key)
+        let outcome = await performVersionDeletion(
+            entry,
+            plan: plan,
+            versionLines: versionLines,
+            expecting: original,
+            for: song,
+            sourceManager: sourceManager,
+            sourcesStore: sourcesStore,
+            library: library
+        )
+        await mutationGate.release(key)
+        return outcome
+    }
+
+    private static func performVersionDeletion(
+        _ entry: LyricsDocumentCatalog.Entry,
+        plan: LyricsDocumentCatalog.DeletionPlan,
+        versionLines: [LyricLine]?,
+        expecting original: LyricsDocumentCatalog.Content?,
+        for song: Song,
+        sourceManager: SourceManager,
+        sourcesStore: SourcesStore,
+        library: MusicLibrary
+    ) async -> VersionDeletionOutcome {
+        let store = MetadataAssetStore.shared
+        var outcome = VersionDeletionOutcome()
+        var deleted = Set<String>()
+        if let versionLines, !versionLines.isEmpty { deleted.insert(MetadataAssetStore.lyricsFingerprint(versionLines)) }
+        func hide(_ notice: String) async -> Bool {
+            guard let versionLines, !versionLines.isEmpty else { return false }
+            await store.hideLyricsVersion(versionLines, forSongID: song.id)
+            outcome.notice = notice
+            return true
+        }
+        switch plan {
+        case .forget:
+            if let candidate = entry.candidate {
+                await store.removeLyricsCandidate(candidate.id, forSongID: song.id)
+            }
+        case .readOnly:
+            guard await hide(String(localized: "lyrics_version_hidden_in_primuse")) else {
+                outcome.errorMessage = String(localized: "tag_editor_lyrics_verify_failed")
+                return outcome
+            }
+        case .embeddedField(let text):
+            let write = await writeEmbeddedField(
+                .removeOne(text),
+                for: song,
+                sourceManager: sourceManager,
+                library: library
+            )
+            if case .written = write.copy, case .done(let result, _)? = write.report {
+                await store.updateEmbeddedLyricsRecords(forSongID: song.id, result: result, anchor: text, text: nil)
+                recordReplacedAudioFile(write.copy, songID: song.id, library: library)
+                if let candidate = entry.candidate {
+                    await store.removeLyricsCandidate(candidate.id, forSongID: song.id)
+                }
+            } else if write.report == .notLocated || write.copy.allowsLocalSave {
+                // 认不准是哪一个字段、或者没有写权限：文件没动，改为在 Primuse 里隐藏并说明原因。
+                let notice = write.report == .notLocated
+                    ? String(localized: "lyrics_version_delete_hidden_not_located")
+                    : String(localized: "lyrics_version_delete_hidden_no_permission")
+                guard await hide(notice) else {
+                    outcome.errorMessage = write.copy.failureReason ?? String(localized: "tag_editor_lyrics_verify_failed")
+                    return outcome
+                }
+            } else {
+                outcome.errorMessage = String(
+                    format: String(localized: "tag_editor_lyrics_write_failed"),
+                    write.copy.failureReason ?? String(localized: "tag_editor_lyrics_verify_failed")
+                )
+                return outcome
+            }
+        case .file:
+            if let failure = await deleteLyricsDocument(
+                named: entry.name,
+                expecting: original?.data,
+                for: song,
+                sourceManager: sourceManager
+            ) {
+                return failure
+            }
+            LyricsDocumentPinStore.shared.forgetFile(named: entry.name, forSongID: song.id)
+            // 每次写缓存都会把文件的内容记成候选：文件删了，这些候选也拿掉，免得又被换回来。
+            if let versionLines, !versionLines.isEmpty {
+                await store.forgetLyricsVersion(versionLines, forSongID: song.id)
+            }
+        }
+        if entry.isActive {
+            // 「拿掉正在用的 → 换上剩下的 / 标清空」在歌词写入事务里做完，自动加载插不进来。
+            let current = await store.cachedLyrics(forSongID: song.id)
+            if let current, !current.isEmpty { deleted.insert(MetadataAssetStore.lyricsFingerprint(current)) }
+            guard let token = await store.beginLyricsMutation(
+                forSongID: song.id,
+                expectedFingerprint: current.map(LyricsDocumentFingerprint.init(lines:))
+            ) else {
+                outcome.errorMessage = String(localized: "tag_editor_lyrics_verify_failed")
+                return outcome
+            }
+            let replacement = await LyricsDocumentCatalog.remainingVersion(
+                for: song,
+                excluding: deleted,
+                sourceManager: sourceManager,
+                sourcesStore: sourcesStore
+            )
+            let committed: Bool
+            if let replacement {
+                committed = await store.commitLyricsMutation(
+                    replacement,
+                    forSongID: song.id,
+                    token: token,
+                    origin: .automatic,
+                    previousVersion: .forget
+                )
+            } else {
+                committed = await store.commitLyricsRemoval(forSongID: song.id, token: token)
+                outcome.cleared = committed
+            }
+            guard committed else {
+                await store.cancelLyricsMutation(forSongID: song.id, token: token)
+                outcome.errorMessage = String(localized: "tag_editor_lyrics_verify_failed")
+                return outcome
+            }
+        }
+        library.flushPendingAssetReferencePatches()
+        if outcome.cleared, var latest = library.storedSong(id: song.id) {
+            latest.lyricsText = nil
+            library.replaceSong(latest)
+        }
+        NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
+        outcome.updatedSong = library.song(id: song.id) ?? song
+        return outcome
+    }
+
+    /// 删掉歌旁边的一个歌词文件：删之前确认它还是列出来时那样，删完回读确认它不在了。
+    private static func deleteLyricsDocument(
+        named fileName: String,
+        expecting originalData: Data?,
+        for song: Song,
+        sourceManager: SourceManager
+    ) async -> VersionDeletionOutcome? {
+        var failure = VersionDeletionOutcome()
+        let deletedPath: String
+        do {
+            deletedPath = try await AsyncOperationTimeout.run(seconds: 30) {
+                let connector = try await sourceManager.sidecarWriteConnector(for: song)
+                let target = try await SidecarWriteService.shared.lyricsDocumentTarget(
+                    named: fileName,
+                    for: song,
+                    using: connector
+                )
+                guard let path = target.existingPath else {
+                    throw SidecarWriteService.LyricsDocumentWriteError.documentMissing(fileName)
+                }
+                if let originalData {
+                    let size = target.existingSize ?? Int64(originalData.count)
+                    guard size == Int64(originalData.count) else {
+                        throw SidecarWriteService.LyricsDocumentWriteError.changedElsewhere(fileName)
+                    }
+                    let current = try await connector.fetchRange(path: path, offset: 0, length: size)
+                    guard current == originalData else {
+                        throw SidecarWriteService.LyricsDocumentWriteError.changedElsewhere(fileName)
+                    }
+                }
+                try await connector.deleteFile(at: path)
+                return path
+            }
+        } catch let error as SidecarWriteService.LyricsDocumentWriteError {
+            failure.errorMessage = error.localizedDescription
+            if case .changedElsewhere = error { failure.changedElsewhere = true }
+            return failure
+        } catch {
+            failure.errorMessage = String(
+                format: String(localized: "tag_editor_lyrics_write_failed"),
+                SourceErrorPresentation.userFacingDescription(error)
+            )
+            return failure
+        }
+        await sourceManager.invalidateReadCachesAfterSidecarWrite(for: song, paths: [deletedPath])
+        await sourceManager.invalidateDownloadCacheAfterSidecarWrite(for: song)
+        // 按 ID 寻址的网盘删除先回成功、列目录过一会儿才跟上：等一小段再确认。
+        for delay in [0, 250, 750, 1_500, 3_000] {
+            if delay > 0 {
+                do { try await Task.sleep(for: .milliseconds(delay)) } catch { break }
+            }
+            if let exists = try? await MusicScraperService.lyricsDocumentExistsWithTimeout(
+                seconds: 5,
+                sourceManager: sourceManager,
+                for: song,
+                named: fileName
+            ), !exists {
+                return nil
+            }
+        }
+        failure.errorMessage = String(localized: "tag_editor_lyrics_verify_failed")
+        return failure
+    }
+
     // MARK: - 写 / 删
 
     private static func sourceStillMatches(

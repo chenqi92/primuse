@@ -576,6 +576,12 @@ private actor LyricsDocumentFixtureConnector: MusicSourceConnector {
         files[(path as NSString).lastPathComponent] = data
     }
 
+    func deleteFile(at path: String) async throws {
+        guard files.removeValue(forKey: (path as NSString).lastPathComponent) != nil else {
+            throw SourceError.fileNotFound(path)
+        }
+    }
+
     func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
         .init { $0.finish() }
@@ -775,6 +781,95 @@ final class LyricsUserVersionTests: XCTestCase {
             for: song, sourceManager: manager, allowsAutomaticOnlineLyrics: false
         )
         XCTAssertEqual(reloaded.map(\.text), ["Picked again"])
+    }
+
+    func testDeletingTheFileInUseSwitchesToTheNextOne() async throws {
+        let song = Song(id: "song-\(UUID().uuidString)", title: "Night Changes", fileFormat: .flac,
+                        filePath: "/Music/Night Changes.flac", sourceID: "source", fileSize: 1)
+        let lrc = Data("[00:01.00]From the LRC\n".utf8)
+        let yrc = Data("[1000,1000](1000,1000,0)YRC\n".utf8)
+        let fixture = LyricsDocumentFixtureConnector(directory: "/Music", files: [
+            "Night Changes.flac": Data([0]), "Night Changes.lrc": lrc, "Night Changes.yrc": yrc,
+        ])
+        let source = MusicSource(id: "source", name: "Fixture", type: .webdav, host: "fixture.invalid")
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in fixture })
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let sourcesStore = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"))
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"),
+                                   deferredMaintenanceAllowed: { false })
+        library.addSongs([song])
+        let store = MetadataAssetStore.shared
+        addTeardownBlock {
+            await store.invalidateCaches(forSongIDs: [song.id])
+            LyricsDocumentPinStore.shared.clearPin(forSongID: song.id)
+        }
+
+        guard case .documents(let first) = await LyricsDocumentCatalog.load(
+            for: song, sourceManager: manager, sourcesStore: sourcesStore
+        ) else { return XCTFail("Expected the lyric files") }
+        let lrcEntry = try XCTUnwrap(first.entries.first { $0.name == "Night Changes.lrc" })
+        try await LyricsDocumentCatalog.activate(lrcEntry, for: song, sourceManager: manager)
+        guard case .documents(let listed) = await LyricsDocumentCatalog.load(
+            for: song, sourceManager: manager, sourcesStore: sourcesStore
+        ) else { return XCTFail("Expected the lyric files") }
+        let active = try XCTUnwrap(listed.entries.first { $0.isActive && $0.candidate == nil })
+        XCTAssertEqual(active.name, "Night Changes.lrc")
+
+        let plan = await LyricsDocumentCatalog.deletionPlan(
+            for: active, in: listed, song: song, sourceManager: manager
+        )
+        XCTAssertEqual(plan, .file)
+        let content = try await LyricsDocumentCatalog.read(active, for: song, sourceManager: manager)
+        let outcome = await LyricsWriteback.deleteVersion(
+            active, plan: plan, expecting: content, for: song,
+            sourceManager: manager, sourcesStore: sourcesStore, library: library
+        )
+        XCTAssertTrue(outcome.succeeded, outcome.errorMessage ?? "")
+        XCTAssertFalse(outcome.cleared)
+        let files = await fixture.files
+        XCTAssertNil(files["Night Changes.lrc"])
+        XCTAssertEqual(files["Night Changes.yrc"], yrc)
+        let cached = await store.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(cached?.map(\.text), ["YRC"])
+    }
+
+    func testDeletingTheOnlyVersionClearsTheSong() async throws {
+        let song = song()
+        let store = MetadataAssetStore.shared
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [song.id]) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let sourcesStore = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"))
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"),
+                                   deferredMaintenanceAllowed: { false })
+        library.addSongs([song])
+        let manager = SourceManager(sourcesProvider: { [] })
+        let online = LyricsDocumentSource.online(identifier: "fixture", name: "Fixture")
+            .stamped(LyricsContentParser.parseText("[00:01.00]Only online"))
+        let seeded = await store.cacheLyrics(online, forSongID: song.id, force: true)
+        XCTAssertTrue(seeded)
+
+        guard case .documents(let documents) = await LyricsDocumentCatalog.load(
+            for: song, sourceManager: manager, sourcesStore: sourcesStore
+        ) else { return XCTFail("Expected the remembered version") }
+        let entry = try XCTUnwrap(documents.entries.first { $0.isActive })
+        let plan = await LyricsDocumentCatalog.deletionPlan(
+            for: entry, in: documents, song: song, sourceManager: manager
+        )
+        XCTAssertEqual(plan, .forget)
+        let outcome = await LyricsWriteback.deleteVersion(
+            entry, plan: plan, expecting: nil, for: song,
+            sourceManager: manager, sourcesStore: sourcesStore, library: library
+        )
+        XCTAssertTrue(outcome.succeeded, outcome.errorMessage ?? "")
+        XCTAssertTrue(outcome.cleared)
+        let cleared = await store.hasUserClearedLyrics(forSongID: song.id)
+        XCTAssertTrue(cleared)
+        let cached = await store.cachedLyrics(forSongID: song.id)
+        XCTAssertNil(cached)
+        let candidates = await store.lyricsSourceCollection(forSongID: song.id).candidates
+        XCTAssertTrue(candidates.isEmpty)
     }
 
     func testEmbeddedRecordsFollowTheReplacedVersion() async throws {

@@ -1335,12 +1335,44 @@ actor MetadataAssetStore {
         return candidate
     }
 
+    /// 来源页「删除此版本」：从 App 记着的候选里去掉这一份。
+    @discardableResult
+    func removeLyricsCandidate(_ id: String, forSongID songID: String) -> LyricsSourceCollection.Candidate? {
+        guard lyricsMutationReservations[songID] == nil else { return nil }
+        var sources = lyricsSourceCollection(forSongID: songID)
+        guard let removed = sources.remove(id: id),
+              storeLyricsSourceCollection(sources, forSongID: songID) else { return nil }
+        return removed
+    }
+
+    /// 从候选里去掉内容和这份相同的（规整后比）。删掉一个歌词文件之后用，免得它又被列回来。
+    func forgetLyricsVersion(_ lines: [LyricLine], forSongID songID: String) {
+        var sources = lyricsSourceCollection(forSongID: songID)
+        if sources.forget(lines, normalize: Self.normalizedCachedLyrics) > 0 {
+            _ = storeLyricsSourceCollection(sources, forSongID: songID)
+        }
+    }
+
+    /// 文件里删不掉的一份，用户选了在 Primuse 里隐藏：记进隐藏的版本，候选里也去掉。
+    /// 之后自动路径不会再把它写回缓存，来源页也不再列出它；用户选用同样内容的一份时自动取消隐藏。
+    func hideLyricsVersion(_ lines: [LyricLine], forSongID songID: String) {
+        guard !lines.isEmpty else { return }
+        let fingerprint = Self.lyricsFingerprint(lines)
+        storeUserLyricsChoice(
+            LyricsUserChoicePolicy.choice(hiding: fingerprint, previous: userLyricsChoice(forSongID: songID)),
+            forSongID: songID
+        )
+        forgetLyricsVersion(lines, forSongID: songID)
+        plog("📝 lyrics version hidden by the listener songID=\(songID.prefix(8)) fp=\(fingerprint.prefix(8))")
+    }
+
     func selectLyricsCandidate(_ id: String, forSongID songID: String) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
         var sources = lyricsSourceCollection(forSongID: songID)
         guard let candidate = sources.candidates.first(where: { $0.id == id }) else { return false }
         sources.selectedID = candidate.id
-        if let current = cachedLyrics(forSongID: songID) { sources.remember(current) }
+        let previous = cachedLyrics(forSongID: songID)
+        if let previous { sources.remember(previous) }
         let cacheURL = lyricsDirectory.appendingPathComponent(hashedFileName(for: songID, pathExtension: "json"))
         let previousData = try? Data(contentsOf: cacheURL)
         do { try encoder.encode(candidate.lines).write(to: cacheURL, options: .atomic) }

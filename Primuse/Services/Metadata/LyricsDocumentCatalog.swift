@@ -14,6 +14,8 @@ enum LyricsDocumentCatalog {
         let isEditable: Bool
         let translation: LyricsSidecarTranslation?
         var candidate: LyricsSourceCollection.Candidate? = nil
+        /// 「另存为新版本」留下的旧版本：它原来所在的文件已经换了内容，删它只从候选里拿掉。
+        var isKeptVersion = false
 
         var id: String { document.path }
         var name: String { document.name }
@@ -39,7 +41,8 @@ enum LyricsDocumentCatalog {
                         isActive: entry.id == id,
                         isEditable: entry.isEditable,
                         translation: entry.translation,
-                        candidate: entry.candidate
+                        candidate: entry.candidate,
+                        isKeptVersion: entry.isKeptVersion
                     )
                 },
                 canSwitch: canSwitch,
@@ -93,25 +96,39 @@ enum LyricsDocumentCatalog {
         sourceManager: SourceManager,
         sourcesStore: SourcesStore
     ) async -> Listing {
+        let store = MetadataAssetStore.shared
         let sidecars = await loadSidecars(for: song, sourceManager: sourceManager, sourcesStore: sourcesStore)
-        var cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+        var cached = await store.cachedLyrics(forSongID: song.id)
         if cached == nil, case .notFileBased = sidecars {
             cached = await LyricsLoader.load(for: song, sourceManager: sourceManager, allowsAutomaticOnlineLyrics: false)
         }
         if let cached, !cached.isEmpty {
-            await MetadataAssetStore.shared.rememberLyricsCandidate(cached, forSongID: song.id)
+            await store.rememberLyricsCandidate(cached, forSongID: song.id)
         }
-        if let embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id) {
-            await MetadataAssetStore.shared.rememberLyricsCandidate(embedded, forSongID: song.id)
+        if let embedded = await store.embeddedFallbackLyrics(forSongID: song.id),
+           await !store.isHiddenLyricsVersion(embedded, forSongID: song.id) {
+            await store.rememberLyricsCandidate(embedded, forSongID: song.id)
         }
-        var sources = await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id)
+        // 文件里不止一份原文时每一份都列出来：可以分别选用，也可以只删掉其中一份。
+        if let alternatives = await store.embeddedLyricsAlternatives(forSongID: song.id) {
+            let documents = await Task.detached(priority: .userInitiated) {
+                alternatives.variants.compactMap { LyricsLoader.embeddedDocument(for: $0, in: alternatives) }
+            }.value
+            for document in documents {
+                guard await !store.isHiddenLyricsVersion(document, forSongID: song.id) else { continue }
+                await store.rememberLyricsCandidate(document, forSongID: song.id)
+            }
+        }
+        var sources = await store.lyricsSourceCollection(forSongID: song.id)
         if case .notFileBased = sidecars,
            let type = sourcesStore.source(id: song.sourceID)?.type,
            !sources.candidates.contains(where: { $0.source?.kind == .server }),
            case .content(let text) = await LyricsLoader.readAuthoritativeSourceText(for: song, sourceManager: sourceManager) {
             let lines = LyricsDocumentSource.server(type.rawValue).stamped(LyricsParser.parse(text))
-            await MetadataAssetStore.shared.rememberLyricsCandidate(lines, forSongID: song.id)
-            sources = await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id)
+            if await !store.isHiddenLyricsVersion(lines, forSongID: song.id) {
+                await store.rememberLyricsCandidate(lines, forSongID: song.id)
+            }
+            sources = await store.lyricsSourceCollection(forSongID: song.id)
         }
         let base: Documents
         if case .documents(let documents) = sidecars { base = documents }
@@ -123,14 +140,18 @@ enum LyricsDocumentCatalog {
                 && $0.lines.first?.documentIsLocalOverride == cached.first?.documentIsLocalOverride
                 && LyricsDocumentFingerprint(lines: $0.lines) == LyricsDocumentFingerprint(lines: cached)
         })
+        let hiddenIDs = await store.hiddenCandidateIDs(forSongID: song.id)
         for candidate in sources.candidates {
+            // 歌词文件的那几份已经按文件列出来了；「另存为新版本」留下的旧版本例外，它原来的文件已经换了内容。
             if candidate.source?.kind == .file, !base.entries.isEmpty, candidate.id != sources.selectedID,
-               candidate.lines.first?.documentIsLocalOverride != true { continue }
-            let name = candidateName(candidate)
+               candidate.lines.first?.documentIsLocalOverride != true, !sources.isKept(candidate.id) { continue }
+            if hiddenIDs.contains(candidate.id) { continue }
+            let kept = sources.isKept(candidate.id)
+            let name = candidateName(candidate, kept: kept)
             entries.append(Entry(
                 document: LyricsSidecarDocument(name: name, path: "candidate:" + candidate.id, size: 0, modifiedDate: nil),
                 format: nil, isActive: candidate.id == current?.id, isEditable: false,
-                translation: nil, candidate: candidate
+                translation: nil, candidate: candidate, isKeptVersion: kept
             ))
         }
         if entries.contains(where: { $0.candidate != nil && $0.isActive }) {
@@ -146,7 +167,8 @@ enum LyricsDocumentCatalog {
                                     usesLocalCopy: false, sourceIsWritable: base.sourceIsWritable, sourceError: sourceError))
     }
 
-    static func candidateName(_ candidate: LyricsSourceCollection.Candidate) -> String {
+    static func candidateName(_ candidate: LyricsSourceCollection.Candidate, kept: Bool = false) -> String {
+        if kept { return String(localized: "lyrics_version_previous") }
         if candidate.lines.first?.documentIsLocalOverride == true {
             return String(localized: "lyrics_source_badge_local_edit")
         }
@@ -366,14 +388,7 @@ enum LyricsDocumentCatalog {
         sourceManager: SourceManager,
         previousVersion: LyricsPreviousVersionHandling = .remember
     ) async throws {
-        var lines = lines
-        if let track = entry.translation,
-           let connector = try? await sourceManager.auxiliaryConnector(for: song) {
-            lines = await LyricsLoader.mergingTranslationTrack(
-                into: lines, track: track, connector: connector,
-                maximumSize: LyricsSidecarTargetPolicy.maximumReadByteCount(for: song)
-            )
-        }
+        let lines = await withTranslationTrack(lines, from: entry, for: song, sourceManager: sourceManager)
         for attempt in 0..<3 {
             if attempt > 0 {
                 // An automatic read may be writing the same song right now.
@@ -393,6 +408,164 @@ enum LyricsDocumentCatalog {
             }
         }
         throw CatalogError.cacheBusy
+    }
+
+    /// 文件带着同时间轴的译文文件时把译文配上。
+    private static func withTranslationTrack(
+        _ lines: [LyricLine],
+        from entry: Entry,
+        for song: Song,
+        sourceManager: SourceManager
+    ) async -> [LyricLine] {
+        guard let track = entry.translation,
+              let connector = try? await sourceManager.auxiliaryConnector(for: song) else { return lines }
+        return await LyricsLoader.mergingTranslationTrack(
+            into: lines, track: track, connector: connector,
+            maximumSize: LyricsSidecarTargetPolicy.maximumReadByteCount(for: song)
+        )
+    }
+
+    // MARK: - Deleting one version
+
+    /// 来源页「删除此版本」删的是什么。
+    enum DeletionPlan: Equatable, Sendable {
+        /// 只是 App 里记着的一份：从候选里去掉，不动任何文件。
+        case forget
+        /// 音频文件里的一份内嵌原文：只删内容完全相同的那一个字段，其他语言和译文保留。附上文件里的原文；
+        /// nil 表示文件里只有这一份原文（不止一份时写入器不动文件）。
+        case embeddedField(String?)
+        /// 歌旁边的一个歌词文件：删掉这个文件。
+        case file
+        /// 源里删不掉（只读的音乐源、不能改写的格式、服务器给的歌词、嵌入设成关）。附上原因；改为在 Primuse 里隐藏。
+        case readOnly(String)
+    }
+
+    /// 一份内嵌候选在音频文件里对应哪一个字段。
+    private enum EmbeddedFieldLocation: Equatable {
+        case text(String)
+        case onlyOriginal
+    }
+
+    static func deletionPlan(
+        for entry: Entry,
+        in documents: Documents,
+        song: Song,
+        sourceManager: SourceManager
+    ) async -> DeletionPlan {
+        guard let candidate = entry.candidate else {
+            return documents.sourceIsWritable
+                ? .file
+                : .readOnly(String(localized: "lyrics_version_delete_read_only_file"))
+        }
+        // 「另存为新版本」留下的旧版本只在 Primuse 里，删它不碰文件。
+        if entry.isKeptVersion { return .forget }
+        switch candidate.source?.kind {
+        case .embedded:
+            guard let location = await embeddedFieldLocation(for: candidate.lines, songID: song.id) else {
+                return .forget
+            }
+            // 和正在用的那份是文件里的同一个字段：不删字段，只从列表里拿掉这一行。
+            if !entry.isActive,
+               let active = documents.entries.first(where: \.isActive)?.candidate,
+               active.source?.kind == .embedded,
+               let activeLocation = await embeddedFieldLocation(for: active.lines, songID: song.id),
+               sameField(location, activeLocation) {
+                return .forget
+            }
+            guard await sourceManager.lyricsEmbeddingMode(for: song) != .off else {
+                return .readOnly(String(localized: "lyrics_version_delete_read_only_embed_off"))
+            }
+            guard await sourceManager.supportsEmbeddedTagWrite(for: song) else {
+                return .readOnly(String(localized: "lyrics_version_delete_read_only_embedded"))
+            }
+            switch location {
+            case .text(let text): return .embeddedField(text)
+            case .onlyOriginal: return .embeddedField(nil)
+            }
+        case .server:
+            return .readOnly(String(localized: "lyrics_version_delete_read_only_server"))
+        case .appleMusic:
+            return .readOnly(String(localized: "lyrics_version_delete_read_only_embedded"))
+        case .file, .online, .transcript, nil:
+            return .forget
+        }
+    }
+
+    private static func sameField(_ lhs: EmbeddedFieldLocation, _ rhs: EmbeddedFieldLocation) -> Bool {
+        switch (lhs, rhs) {
+        case (.onlyOriginal, .onlyOriginal): return true
+        case (.text(let left), .text(let right)): return EmbeddedLyricsFieldEditor.sameLyrics(left, right)
+        default: return false
+        }
+    }
+
+    /// 只认得出完全对得上的：文件里有好几份原文时按整份文档指纹对上记下的那一份；只有一份原文时
+    /// 候选正是那份备用内嵌歌词或缓存里的内嵌歌词才算。认不出（文件里多半已经没有它了）为 nil。
+    private static func embeddedFieldLocation(for lines: [LyricLine], songID: String) async -> EmbeddedFieldLocation? {
+        let store = MetadataAssetStore.shared
+        let target = MetadataAssetStore.lyricsFingerprint(lines)
+        if let alternatives = await store.embeddedLyricsAlternatives(forSongID: songID) {
+            let variant = await Task.detached(priority: .userInitiated) {
+                LyricsLoader.embeddedVariant(matching: lines, in: alternatives)
+            }.value
+            return variant.map { .text($0.text) }
+        }
+        if let fallback = await store.embeddedFallbackLyrics(forSongID: songID),
+           MetadataAssetStore.lyricsFingerprint(fallback) == target {
+            return .onlyOriginal
+        }
+        if let cached = await store.cachedLyrics(forSongID: songID),
+           LyricsDocumentSource.of(cached)?.kind == .embedded,
+           MetadataAssetStore.lyricsFingerprint(cached) == target {
+            return .onlyOriginal
+        }
+        return nil
+    }
+
+    /// 删掉正在用的那份之后该换上的：歌旁边的歌词文件优先，其次音频文件里现在还记着的内嵌原文，
+    /// 再其次 App 记着的其他版本里最近的一份。刚删掉的那几份（按规整后的指纹）、隐藏的都不算。
+    /// 只挑不写，调用方在歌词写入事务里写。一份都没有为 nil。
+    static func remainingVersion(
+        for song: Song,
+        excluding excluded: Set<String>,
+        sourceManager: SourceManager,
+        sourcesStore: SourcesStore
+    ) async -> [LyricLine]? {
+        let store = MetadataAssetStore.shared
+        guard case .documents(let documents) = await load(
+            for: song,
+            sourceManager: sourceManager,
+            sourcesStore: sourcesStore
+        ) else { return nil }
+        for file in documents.entries where file.candidate == nil {
+            guard let content = try? await read(
+                file.document,
+                for: song,
+                sourceManager: sourceManager,
+                maximumBytes: LyricsSidecarTargetPolicy.maximumReadByteCount(for: song)
+            ) else { continue }
+            let text = content.text
+            let name = file.name
+            let parsed = await Task.detached(priority: .userInitiated) {
+                LyricsParser.parseDocument(text, fileName: name)
+            }.value
+            guard !parsed.isEmpty else { continue }
+            let lines = await withTranslationTrack(parsed, from: file, for: song, sourceManager: sourceManager)
+            guard !excluded.contains(MetadataAssetStore.lyricsFingerprint(lines)),
+                  !excluded.contains(MetadataAssetStore.lyricsFingerprint(parsed)),
+                  await !store.isHiddenLyricsVersion(lines, forSongID: song.id) else { continue }
+            return lines
+        }
+        let embeddedPrints = await store.embeddedDocumentFingerprints(forSongID: song.id)
+        let candidates = documents.entries.compactMap(\.candidate).filter {
+            !excluded.contains(MetadataAssetStore.lyricsFingerprint($0.lines))
+        }
+        if let embedded = candidates.first(where: {
+            $0.source?.kind == .embedded && embeddedPrints.contains(MetadataAssetStore.lyricsFingerprint($0.lines))
+        }) {
+            return embedded.lines
+        }
+        return candidates.last(where: { $0.source?.kind != .embedded && $0.source?.kind != .file })?.lines
     }
 
     // MARK: - Messages
