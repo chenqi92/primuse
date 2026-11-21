@@ -145,6 +145,52 @@ public enum LocalFileWatchSchedule {
     public static let individualFileCheckInterval: TimeInterval = 30
 }
 
+/// Why a changed file could not be read yet.
+public enum LocalFileReadDeferral: String, Sendable, CaseIterable {
+    /// iCloud is downloading the file.
+    case downloading
+    /// A local copy exists but iCloud has a newer version.
+    case outdated
+    /// Only a placeholder is here and nothing is downloading it.
+    case notDownloaded
+    /// Size or dates moved during the read, or the file is still too short.
+    case changing
+    /// Nothing is at the path right now.
+    case missing
+    /// The reader found neither tags nor audio properties.
+    case unreadable
+    /// The file exists but this app may not read it.
+    case inaccessible
+}
+
+public enum LocalFileRefreshRetryPolicy {
+    private static let downloadDelays: [TimeInterval] = [2, 4, 8, 16, 30, 30]
+    private static let changingDelays: [TimeInterval] = [2, 4, 8, 16]
+    private static let unreadableDelays: [TimeInterval] = [4, 15]
+    /// One short wait before a vanished file counts as deleted: providers can
+    /// briefly leave the path empty while replacing a file.
+    private static let missingDelays: [TimeInterval] = [2]
+
+    /// Delay before retry number `attempt` (1-based, counting the read that
+    /// just failed). Nil means stop retrying.
+    public static func delay(for reason: LocalFileReadDeferral, attempt: Int, notified: Bool) -> TimeInterval? {
+        let delays: [TimeInterval]
+        switch reason {
+        case .downloading: delays = downloadDelays
+        // Without a download in progress only a reported change is worth
+        // waiting for; a row merely shown on screen is checked again next time.
+        case .outdated: delays = notified ? downloadDelays : []
+        case .changing: delays = changingDelays
+        case .unreadable: delays = unreadableDelays
+        case .missing: delays = notified ? missingDelays : []
+        // The next download or permission grant produces its own notification.
+        case .notDownloaded, .inaccessible: delays = []
+        }
+        guard attempt >= 1, attempt <= delays.count else { return nil }
+        return delays[attempt - 1]
+    }
+}
+
 // MARK: - Diagnostics
 
 public enum LocalFileWatchLog {

@@ -122,6 +122,43 @@ struct LocalFileEventClassifierTests {
     }
 }
 
+@Suite("Local file deferred reads")
+struct LocalFileRefreshRetryPolicyTests {
+    private func delays(_ reason: LocalFileReadDeferral, notified: Bool = true) -> [TimeInterval] {
+        var result: [TimeInterval] = []
+        var attempt = 1
+        while let delay = LocalFileRefreshRetryPolicy.delay(for: reason, attempt: attempt, notified: notified) {
+            result.append(delay)
+            attempt += 1
+        }
+        return result
+    }
+
+    @Test func downloadsAreWaitedForWithABoundedBackoff() {
+        #expect(delays(.downloading) == [2, 4, 8, 16, 30, 30])
+        #expect(delays(.downloading, notified: false) == delays(.downloading))
+        #expect(delays(.outdated) == delays(.downloading))
+        #expect(delays(.outdated, notified: false).isEmpty)
+        #expect(delays(.downloading).reduce(0, +) <= 120)
+    }
+
+    @Test func partialAndUnreadableFilesRetryBriefly() {
+        #expect(delays(.changing) == [2, 4, 8, 16])
+        #expect(delays(.unreadable) == [4, 15])
+    }
+
+    @Test func aMissingFileGetsOneGraceRetryOnlyAfterANotification() {
+        #expect(delays(.missing, notified: true) == [2])
+        #expect(delays(.missing, notified: false).isEmpty)
+    }
+
+    @Test func placeholdersAndPermissionWaitForTheirOwnNotification() {
+        #expect(delays(.notDownloaded).isEmpty)
+        #expect(delays(.inaccessible).isEmpty)
+        #expect(LocalFileRefreshRetryPolicy.delay(for: .downloading, attempt: 0, notified: true) == nil)
+    }
+}
+
 @Suite("Local file watch diagnostics")
 struct LocalFileWatchLogTests {
     @Test func identityChangeNamesWhatMoved() {

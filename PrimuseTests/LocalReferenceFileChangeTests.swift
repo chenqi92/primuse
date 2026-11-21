@@ -167,7 +167,8 @@ final class LocalReferenceFileChangeTests: XCTestCase {
             !library.songs.contains { $0.filePath == "/Album/Track.mp3" }
                 && library.songs.contains { $0.filePath == "/Other/Moved.mp3" }
         }
-        for _ in 0..<200 where !moveWasIndexed() { try await Task.sleep(for: .milliseconds(50)) }
+        // The old path gets one short grace retry before it counts as gone.
+        for _ in 0..<300 where !moveWasIndexed() { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertTrue(moveWasIndexed())
         XCTAssertEqual(library.storedSong(id: untouched.id)?.title, "Amber")
         enabled = false
@@ -302,6 +303,98 @@ final class LocalReferenceFileChangeTests: XCTestCase {
         withExtendedLifetime(streams) {}
     }
     #endif
+
+    func testUnfinishedOrMissingFilesAreDeferredInsteadOfDropped() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("Track.mp3")
+        let local = LocalFileSource(sourceID: UUID().uuidString, basePath: root)
+        try write("Amber", to: file)
+        let initial = try await scanned(local)
+        let read = try await local.refreshedLocalSong(XCTUnwrap(initial.first), notified: true)
+        let song = try XCTUnwrap(read)
+        try Data(repeating: 0, count: 100).write(to: file)
+        let partial = try await local.refreshLocalSong(song, notified: true)
+        guard case .deferred(.changing) = partial else { return XCTFail("Partial file: \(partial)") }
+        try FileManager.default.removeItem(at: file)
+        let missing = try await local.refreshLocalSong(song, notified: true)
+        guard case .deferred(.missing) = missing else { return XCTFail("Missing file: \(missing)") }
+        try write("Cedar", to: file)
+        let complete = try await local.refreshLocalSong(song, notified: false)
+        guard case .updated(let updated) = complete else { return XCTFail("Complete file: \(complete)") }
+        XCTAssertEqual(updated.title, "Cedar")
+    }
+
+    /// A notified change that cannot be read yet is retried; on iPhone the
+    /// rest of the write produces no further notification.
+    func testNotifiedChangeStillBeingWrittenIsReadOnceComplete() async throws {
+        let folder = try await makeWatchedFolder()
+        defer { folder.service.stop() }
+        var coordinationError: NSError?
+        var writeError: Error?
+        NSFileCoordinator().coordinate(writingItemAt: folder.file, options: [], error: &coordinationError) { url in
+            do { try Data(repeating: 0, count: 100).write(to: url) } catch { writeError = error }
+        }
+        XCTAssertNil(coordinationError)
+        XCTAssertNil(writeError)
+        let id = folder.target.id
+        for _ in 0..<160 where !folder.service.retryingSongIDs.contains(id) { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertTrue(folder.service.retryingSongIDs.contains(id))
+        XCTAssertEqual(folder.library.storedSong(id: id)?.title, "Amber")
+        try write("Cedar", to: folder.file)
+        for _ in 0..<300 where folder.library.storedSong(id: id)?.title != "Cedar" { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(folder.library.storedSong(id: id)?.title, "Cedar")
+        XCTAssertFalse(folder.service.retryingSongIDs.contains(id))
+    }
+
+    private struct WatchedFolder {
+        let file: URL
+        let local: LocalFileSource
+        let library: MusicLibrary
+        let service: LocalReferenceRefreshService
+        let target: Song
+    }
+
+    /// One watched folder with `/Album/Track.mp3` read into the library.
+    private func makeWatchedFolder() async throws -> WatchedFolder {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("Music", isDirectory: true)
+        let file = directory.appendingPathComponent("Album/Track.mp3")
+        try write("Amber", to: file)
+        let source = MusicSource(id: UUID().uuidString, name: "Folder", type: .local, basePath: directory.path)
+        #if os(iOS)
+        let bookmark = try directory.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
+        UserDefaults.standard.set(bookmark, forKey: "primuse.localBookmark." + source.id)
+        let sourceID = source.id
+        addTeardownBlock { LocalBookmarkStore.remove(sourceID: sourceID) }
+        #endif
+        let local = LocalFileSource(sourceID: source.id, basePath: directory)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in local })
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("Library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("Sources"))
+        store.add(source)
+        let scan = ScanService(fileManager: LocalRefreshTestFileManager(root: root), connectorProvider: { _ in local },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) })
+        scan.automaticScansAllowed = { true }
+        for song in try await scanned(local) {
+            let read = try await local.refreshedLocalSong(song, notified: true)
+            library.addSongs([try XCTUnwrap(read)], pruneMissingSongs: false)
+        }
+        let target = try XCTUnwrap(library.songs.first { $0.filePath == "/Album/Track.mp3" })
+        let service = LocalReferenceRefreshService(sourcesStore: store, sourceManager: manager, library: library,
+            scanService: scan, scraperService: MusicScraperService(sourceManager: manager, checkpointDirectory: root),
+            automaticRefreshEnabled: { _ in true }, automaticWorkAllowed: { true })
+        service.start()
+        func hasPresenter() -> Bool {
+            NSFileCoordinator.filePresenters.contains {
+                $0.presentedItemURL?.resolvingSymlinksInPath().path == directory.resolvingSymlinksInPath().path
+            }
+        }
+        for _ in 0..<100 where !hasPresenter() { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertTrue(hasPresenter())
+        return WatchedFolder(file: file, local: local, library: library, service: service, target: target)
+    }
 }
 
 private final class LocalRefreshTestFileManager: FileManager, @unchecked Sendable {

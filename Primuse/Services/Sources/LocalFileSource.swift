@@ -3,6 +3,13 @@ import Darwin
 import Foundation
 import PrimuseKit
 
+/// What re-checking one song's file against the library found.
+enum LocalFileRefreshOutcome: Sendable {
+    case updated(Song)
+    case unchanged
+    case deferred(LocalFileReadDeferral)
+}
+
 actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWritebackAdapter, PathFileRenameConnector {
     /// 扫描把同名封面、歌词、MV 文件的指纹并进 Song.revision(`localCompositeRevision`)。
     static let revisionFoldsSidecarFingerprints = true
@@ -273,13 +280,32 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         return try await Self.detachedWritebackState(probe)
     }
 
+    func refreshedLocalSong(_ song: Song, notified: Bool) async throws -> Song? {
+        if case .updated(let updated) = try await refreshLocalSong(song, notified: notified) { return updated }
+        return nil
+    }
+
     /// A visible row needs only the attributes of its own file. A presenter
     /// notification can force a read on providers that preserve all dates.
-    func refreshedLocalSong(_ song: Song, notified: Bool) async throws -> Song? {
-        guard song.sourceID == sourceID, !song.isCueTrack, !song.isDiscImageTrack, !song.isStreamDescriptor else { return nil }
-        let url = try resolvedURL(for: song.filePath, allowRoot: false)
-        let observation = try LocalAudioObservation(url)
-        guard observation.isReadable else { return nil }
+    /// A file that is still downloading, being written or briefly missing is
+    /// reported as deferred so the caller can look again later.
+    func refreshLocalSong(_ song: Song, notified: Bool) async throws -> LocalFileRefreshOutcome {
+        guard song.sourceID == sourceID, !song.isCueTrack, !song.isDiscImageTrack, !song.isStreamDescriptor else { return .unchanged }
+        let url: URL
+        do {
+            url = try resolvedURL(for: song.filePath, allowRoot: false)
+        } catch SourceError.credentialUnavailable(_) {
+            return .deferred(.inaccessible)
+        } catch {
+            return .deferred(.missing)
+        }
+        let observation: LocalAudioObservation
+        do {
+            observation = try LocalAudioObservation(url)
+        } catch {
+            return .deferred(Self.unavailableReason(for: url, error: error))
+        }
+        if let deferral = observation.deferral { return .deferred(deferral) }
         let sameSizeAndDate = Self.localRevision(size: song.fileSize, modifiedDate: song.lastModified)
             == Self.localRevision(size: observation.size, modifiedDate: observation.modified)
         let existingBase = song.revision?.components(separatedBy: "|").first
@@ -302,30 +328,72 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             let audioRevision = Self.localRevision(size: observation.size, modifiedDate: observation.modified)
             revision = Self.stampedRevision(Self.compositeRevision([audioRevision] + siblings), changed: observation.changed)
         }
-        guard notified || !sameSizeAndDate || !EmbeddedMetadataRemoteFileState.revisionMatches(song, current: revision) else { return nil }
+        guard notified || !sameSizeAndDate || !EmbeddedMetadataRemoteFileState.revisionMatches(song, current: revision) else { return .unchanged }
         let item = RemoteFileItem(name: url.lastPathComponent, path: song.filePath, isDirectory: false,
                                   size: observation.size, modifiedDate: observation.modified,
                                   sidecarHints: sidecars, revision: revision)
-        return try await readUpdatedSong(song, item: item, url: url, observation: observation)
+        do {
+            if let updated = try await readUpdatedSong(song, item: item, url: url, observation: observation) {
+                return .updated(updated)
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // The file went away during the read; classified below.
+        }
+        // Tell a file that moved under the read from one with nothing readable in it.
+        guard let after = try? LocalAudioObservation(url) else { return .deferred(.missing) }
+        if let deferral = after.deferral { return .deferred(deferral) }
+        return .deferred(after == observation ? .unreadable : .changing)
+    }
+
+    private nonisolated static func unavailableReason(for url: URL, error: Error) -> LocalFileReadDeferral {
+        if UbiquitousPlaybackFile.isEvictedPlaceholder(url) { return .notDownloaded }
+        let nsError = error as NSError
+        let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError
+        let posix: Int?
+        if let underlying, underlying.domain == NSPOSIXErrorDomain {
+            posix = underlying.code
+        } else if nsError.domain == NSPOSIXErrorDomain {
+            posix = nsError.code
+        } else {
+            posix = nil
+        }
+        if nsError.domain == NSCocoaErrorDomain, nsError.code == CocoaError.fileReadNoPermission.rawValue {
+            return .inaccessible
+        }
+        if let posix, posix == Int(EACCES) || posix == Int(EPERM) { return .inaccessible }
+        return .missing
     }
 
     private struct LocalAudioObservation: Equatable {
         let size: Int64
         let modified: Date?
         let changed: Date?
-        let isReadable: Bool
+        let deferral: LocalFileReadDeferral?
+
+        var isReadable: Bool { deferral == nil }
 
         init(_ url: URL) throws {
             // URLs from directory listings cache their resource values.
             let values = try URL(fileURLWithPath: url.path).resourceValues(forKeys: [
                 .isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .attributeModificationDateKey,
-                .ubiquitousItemDownloadingStatusKey,
+                .ubiquitousItemDownloadingStatusKey, .ubiquitousItemIsDownloadingKey,
             ])
             size = Int64(values.fileSize ?? 0)
             modified = values.contentModificationDate
             changed = values.attributeModificationDate
-            isReadable = values.isRegularFile == true && size >= LocalFileSource.minimumReadableAudioBytes
-                && (values.ubiquitousItemDownloadingStatus == nil || values.ubiquitousItemDownloadingStatus == .current)
+            if values.isRegularFile != true {
+                deferral = .missing
+            } else if values.ubiquitousItemDownloadingStatus == .notDownloaded {
+                deferral = values.ubiquitousItemIsDownloading == true ? .downloading : .notDownloaded
+            } else if values.ubiquitousItemDownloadingStatus == .downloaded {
+                deferral = values.ubiquitousItemIsDownloading == true ? .downloading : .outdated
+            } else if size < LocalFileSource.minimumReadableAudioBytes {
+                deferral = .changing
+            } else {
+                deferral = nil
+            }
         }
     }
 

@@ -367,6 +367,8 @@ enum LocalReferenceChange: Hashable, Sendable {
     /// Compare a known song's file with the library; read only when it differs.
     case check(String)
     case verify(songID: String)
+    /// Retry of a content change that could not be read yet.
+    case reread(songID: String)
 
     static func parent(of path: String) -> String {
         path == "/" ? "/" : (path as NSString).deletingLastPathComponent
@@ -379,6 +381,7 @@ enum LocalFileWatchTrigger: String, Sendable {
     case presenter
     case visible
     case activation
+    case retry
 }
 
 /// Keeps user-selected local references synchronized while the application is
@@ -413,6 +416,9 @@ final class LocalReferenceRefreshService {
     private var isPresenting = false
     private var hasStarted = false
     private var pendingTriggers: [String: Set<LocalFileWatchTrigger>] = [:]
+    /// Song ID → reads already deferred for the current change.
+    private var retryAttempts: [String: Int] = [:]
+    private var retryTasks: [String: Task<Void, Never>] = [:]
     /// Source ID → source paths of individually added files.
     private var individualFilePaths: [String: [String]] = [:]
     private var lastIndividualFileCheck: Date?
@@ -422,9 +428,11 @@ final class LocalReferenceRefreshService {
     struct Activity: Equatable {
         var reread = 0
         var unchanged = 0
+        var deferred = 0
     }
 
     private(set) var activity = Activity()
+    var retryingSongIDs: Set<String> { Set(retryAttempts.keys) }
 
     init(
         sourcesStore: SourcesStore,
@@ -537,6 +545,11 @@ final class LocalReferenceRefreshService {
         for task in refreshTasks.values {
             task.cancel()
         }
+        for task in retryTasks.values {
+            task.cancel()
+        }
+        retryTasks.removeAll()
+        retryAttempts.removeAll()
         for (sourceID, changes) in processingChanges {
             pendingChanges[sourceID, default: []].formUnion(changes)
         }
@@ -677,6 +690,31 @@ final class LocalReferenceRefreshService {
         pendingTriggers[sourceID, default: []].formUnion(triggers)
     }
 
+    /// Returns false when the policy gives up on this song for now.
+    private func scheduleRetry(songID: String, sourceID: String, notified: Bool, reason: LocalFileReadDeferral) -> Bool {
+        let attempt = (retryAttempts[songID] ?? 0) + 1
+        let source8 = String(sourceID.prefix(8))
+        let song8 = String(songID.prefix(8))
+        guard let delay = LocalFileRefreshRetryPolicy.delay(for: reason, attempt: attempt, notified: notified) else {
+            retryAttempts[songID] = nil
+            if notified {
+                plog("LocalFileWatch deferred source=\(source8) song=\(song8) reason=\(reason.rawValue) attempt=\(attempt) retry=none")
+            }
+            return false
+        }
+        retryAttempts[songID] = attempt
+        retryTasks[songID]?.cancel()
+        retryTasks[songID] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            retryTasks[songID] = nil
+            let change: LocalReferenceChange = notified ? .reread(songID: songID) : .verify(songID: songID)
+            enqueue([change], sourceID: sourceID, via: .retry)
+        }
+        plog("LocalFileWatch deferred source=\(source8) song=\(song8) reason=\(reason.rawValue) attempt=\(attempt) retryIn=\(Int(delay))s")
+        return true
+    }
+
     private func schedulePending(_ sourceID: String) {
         guard presentersBySourceID[sourceID] != nil, refreshTasks[sourceID] == nil,
               pendingChanges[sourceID]?.isEmpty == false else { return }
@@ -729,6 +767,7 @@ final class LocalReferenceRefreshService {
         for change in changes {
             switch change {
             case .verify(let id): if files[id] == nil { files[id] = false }
+            case .reread(let id): files[id] = true
             case .check(let path):
                 let entry = index[path] ?? index["path:" + path.lowercased()]
                 guard let song = knownSong(at: path, entry: entry) else { continue }
@@ -747,11 +786,8 @@ final class LocalReferenceRefreshService {
                     || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) else { continue }
                 exactPaths.insert(path)
                 if let song = knownSong(at: path, entry: entry) {
-                    // A rename into a known destination can be an editor's atomic save.
-                    if case .removed = change, (try? await local.localURL(for: path)) == nil {
-                        directories.insert(LocalReferenceChange.parent(of: path))
-                        continue
-                    }
+                    // A rename onto a known path is usually an atomic save; the
+                    // read tells a replaced file from a deleted one.
                     files[song.id] = true
                 } else {
                     directories.insert(LocalReferenceChange.parent(of: path))
@@ -786,33 +822,51 @@ final class LocalReferenceRefreshService {
                 requeue(changes, triggers: triggers, sourceID: source.id)
                 return
             }
-            guard let previous = library.storedSong(id: id), previous.sourceID == source.id else { continue }
-            guard let updated = try? await local.refreshedLocalSong(previous, notified: notified), !Task.isCancelled else {
+            guard let previous = library.storedSong(id: id), previous.sourceID == source.id,
+                  let outcome = try? await local.refreshLocalSong(previous, notified: notified),
+                  !Task.isCancelled else { continue }
+            switch outcome {
+            case .updated(let updated):
+                retryAttempts[id] = nil
+                summary.reread += 1
+                updates.append((previous, updated))
+                let identity = LocalFileWatchLog.identityChange(
+                    beforeSize: previous.fileSize, beforeModified: previous.lastModified, beforeRevision: previous.revision,
+                    afterSize: updated.fileSize, afterModified: updated.lastModified, afterRevision: updated.revision
+                )
+                let fields = LocalFileWatchLog.changedFields(from: previous, to: updated)
+                plog("LocalFileWatch reread source=\(source8) song=\(id.prefix(8)) via=\(via) notified=\(notified) "
+                    + "\(identity) changed=\(fields.isEmpty ? "none" : fields.joined(separator: ",")) "
+                    + "userEdited=\(previous.userMetadataEditedAt != nil)")
+                if updates.count == 32, canContinue(source.id), !scanService.hasActiveScans { publishUpdates() }
+            case .unchanged:
+                retryAttempts[id] = nil
                 summary.unchanged += 1
-                continue
+            case .deferred(let reason):
+                // A visible row whose file is only a placeholder stays quiet.
+                if scheduleRetry(songID: id, sourceID: source.id, notified: notified, reason: reason) || notified {
+                    summary.deferred += 1
+                } else {
+                    summary.unchanged += 1
+                }
+                if notified, reason == .missing, retryAttempts[id] == nil {
+                    // Still gone after the grace period: the folder scan prunes it.
+                    directories.insert(LocalReferenceChange.parent(of: previous.filePath))
+                }
             }
-            summary.reread += 1
-            updates.append((previous, updated))
-            let identity = LocalFileWatchLog.identityChange(
-                beforeSize: previous.fileSize, beforeModified: previous.lastModified, beforeRevision: previous.revision,
-                afterSize: updated.fileSize, afterModified: updated.lastModified, afterRevision: updated.revision
-            )
-            let fields = LocalFileWatchLog.changedFields(from: previous, to: updated)
-            plog("LocalFileWatch reread source=\(source8) song=\(id.prefix(8)) via=\(via) notified=\(notified) "
-                + "\(identity) changed=\(fields.isEmpty ? "none" : fields.joined(separator: ",")) "
-                + "userEdited=\(previous.userMetadataEditedAt != nil)")
-            if updates.count == 32, canContinue(source.id), !scanService.hasActiveScans { publishUpdates() }
         }
         activity.reread += summary.reread
         activity.unchanged += summary.unchanged
+        activity.deferred += summary.deferred
         guard canContinue(source.id), !scanService.hasActiveScans else {
             requeue(changes, triggers: triggers, sourceID: source.id)
             return
         }
         publishUpdates()
-        if summary.reread > 0 || !directories.isEmpty {
+        if summary.reread + summary.deferred > 0 || !directories.isEmpty {
             plog("LocalFileWatch batch source=\(source8) via=\(via) files=\(files.count) reread=\(summary.reread) "
-                + "applied=\(applied) unchanged=\(summary.unchanged) folders=\(directories.count)")
+                + "applied=\(applied) unchanged=\(summary.unchanged) "
+                + "deferred=\(summary.deferred) folders=\(directories.count)")
         }
         for path in directories.sorted() where !directories.contains(where: { $0 != path && SourceDirectorySelectionPolicy.covers($0, path, for: .local) }) {
             guard canContinue(source.id), !scanService.hasActiveScans, automaticWorkAllowed() else {
