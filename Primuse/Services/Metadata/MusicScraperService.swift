@@ -755,6 +755,10 @@ final class MusicScraperService {
         dryRun: Bool, parts: ScrapeParts
     ) async throws -> SingleScrapeResult {
         await sidecarCircuitBreaker.resetIdleUnavailableSources()
+        if !dryRun, parts.contains(.lyrics) {
+            // 单曲刮削是用户点名对这首歌做的：之前清空过歌词的，这次重新去找。
+            await MetadataAssetStore.shared.liftUserLyricsClear(forSongID: song.id)
+        }
 
         let settings = Self.settingsForSingleScrape(parts: parts)
         var scope = ScrapeScope()
@@ -946,6 +950,9 @@ final class MusicScraperService {
         in library: MusicLibrary,
         dryRun: Bool
     ) async -> SingleScrapeResult {
+        if !dryRun {
+            await MetadataAssetStore.shared.liftUserLyricsClear(forSongID: song.id)
+        }
         let request = Self.settingsForSingleScrape(parts: .lyrics).request(for: song, parts: .lyrics, force: true)
         let unchanged = SingleScrapeResult(originalSong: song, song: song, coverData: nil, lyrics: nil)
         guard request.fields.contains(.lyrics) else { return unchanged }
@@ -1581,6 +1588,10 @@ final class MusicScraperService {
                 currentSongTitle = song.title
 
                 do {
+                    if forceRescrape, parts.contains(.lyrics) {
+                        // 重新刮削是用户明确要换掉歌词：之前清空过的这次重新去找。只补缺失的不解除。
+                        await MetadataAssetStore.shared.liftUserLyricsClear(forSongID: song.id)
+                    }
                     let remoteIdentitySeed = Self.batchRemoteIdentity(for: song)
                         .flatMap { remoteMetadataSeeds[$0] }
                     let (result, scope) = try await processedSongForBatchScoped(
@@ -2947,7 +2958,8 @@ final class MusicScraperService {
         stampsUserEdit: Bool
     ) async -> AppliedScrape {
         let coverConsidered = scope.considered.contains(.cover)
-        let lyricsClearedByUser = Self.lyricsWereClearedByUser(song.id)
+        let clearedInStore = await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id)
+        let lyricsClearedByUser = clearedInStore || Self.lyricsWereClearedByUser(song.id)
         // 用户主动清空过歌词的歌：刮到的歌词不写，按「没去刮」算，不进失败清单。
         let lyricsConsidered = scope.considered.contains(.lyrics) && !lyricsClearedByUser
         let tagsConsidered = !scope.considered.isDisjoint(with: ScrapeField.tags)

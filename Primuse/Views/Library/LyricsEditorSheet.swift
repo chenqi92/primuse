@@ -324,6 +324,12 @@ struct LyricsEditorSheet: View {
         originalText = text
         cacheSnapshot = outcome.cacheSnapshot
         onSave?(outcome.updatedSong)
+        if let notice = outcome.notice {
+            // 存成功了，但有一句要让用户知道的话(清空后文件里的歌词还在、只在 Primuse 里隐藏了等)。
+            completionMessage = notice
+            completionRemedies = []
+            return
+        }
         if outcome.persistence == .localOnly {
             // 落在哪里、为什么、之后会不会自动写进文件;能一键解决的给按钮。
             completionMessage = LyricsWriteback.keptLocallyMessage(requested: writebackTarget)

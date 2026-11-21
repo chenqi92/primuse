@@ -1882,7 +1882,12 @@ struct TagEditorView: View {
             }
             updated = outcome.updatedSong
             lyricsCacheSnapshot = outcome.cacheSnapshot
-            if outcome.persistence == .localOnly {
+            if let lyricsNotice = outcome.notice {
+                // 清空后的如实说明(文件里的歌词还在、只在 Primuse 里隐藏了等)，不套「只存在本机」那句。
+                metadataWritebackNotice = [metadataWritebackNotice, lyricsNotice]
+                    .compactMap { $0 }
+                    .joined(separator: "\n")
+            } else if outcome.persistence == .localOnly {
                 let lyricsNotice = LyricsWriteback.keptLocallyMessage(requested: target)
                 metadataWritebackNotice = [metadataWritebackNotice, lyricsNotice]
                     .compactMap { $0 }
