@@ -6,6 +6,34 @@ import PrimuseKit
 @testable import Primuse
 
 @MainActor
+final class MacDesktopLyricsClickThroughTests: XCTestCase {
+    func testClickThroughOverridesAnEngagedPanelUntilDisabled() {
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100),
+                            styleMask: .borderless, backing: .buffered, defer: true)
+        let interaction = DesktopLyricsInteraction()
+        interaction.updateMouseHandling(for: panel, clickThrough: false) { true }
+        XCTAssertTrue(interaction.engaged)
+        XCTAssertFalse(panel.ignoresMouseEvents)
+
+        interaction.keepsEngaged = true
+        interaction.updateMouseHandling(for: panel, clickThrough: true) {
+            XCTFail("An open popover or a pointer over the lyrics must not re-engage the panel")
+            return true
+        }
+        XCTAssertFalse(interaction.engaged)
+        XCTAssertTrue(panel.ignoresMouseEvents)
+
+        interaction.keepsEngaged = false
+        interaction.updateMouseHandling(for: panel, clickThrough: false) { false }
+        XCTAssertFalse(interaction.engaged)
+        XCTAssertTrue(panel.ignoresMouseEvents)
+        interaction.updateMouseHandling(for: panel, clickThrough: false) { true }
+        XCTAssertTrue(interaction.engaged)
+        XCTAssertFalse(panel.ignoresMouseEvents)
+    }
+}
+
+@MainActor
 final class ListeningArtistRankingRegressionTests: XCTestCase {
     func testStatsCreditCollaboratorsWithoutDoublingListeningTotals() {
         let now = Date()

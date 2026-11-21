@@ -1533,9 +1533,9 @@ private struct MacSongListPrewarm: ViewModifier {
     func body(content: Content) -> some View {
         content.task(id: "\(library.visibleSongCollectionRevision)-\(library.songReplacementToken)") {
             let order = LibrarySongSortOrderPreference.load()
-            // 播放次数、来源、是否已下载这几种排序用的是页面上现算的值, 预热对不上缓存。
+            // 依赖来源索引或页面上现算的值时, 预热对不上缓存。
             switch order.criterion {
-            case .playCount, .source, .downloaded:
+            case .fileName, .playCount, .source, .downloaded:
                 return
             default:
                 break

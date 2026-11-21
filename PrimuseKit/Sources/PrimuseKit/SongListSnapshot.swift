@@ -11,6 +11,8 @@ private enum SongListSnapshotPerformance {
 public enum LibrarySongSortOrder: String, CaseIterable, Hashable, Sendable {
     case title
     case titleDescending
+    case fileName
+    case fileNameDescending
     case artist
     case artistDescending
     case album
@@ -41,6 +43,7 @@ public enum LibrarySongSortOrder: String, CaseIterable, Hashable, Sendable {
 
 public enum LibrarySongSortCriterion: String, CaseIterable, Hashable, Sendable {
     case title
+    case fileName
     case artist
     case album
     case dateAdded
@@ -60,6 +63,7 @@ public extension LibrarySongSortOrder {
     var criterion: LibrarySongSortCriterion {
         switch self {
         case .title, .titleDescending: return .title
+        case .fileName, .fileNameDescending: return .fileName
         case .artist, .artistDescending: return .artist
         case .album, .albumDescending: return .album
         case .dateAdded, .dateAddedOldest: return .dateAdded
@@ -78,11 +82,11 @@ public extension LibrarySongSortOrder {
 
     var isAscending: Bool {
         switch self {
-        case .title, .artist, .album, .dateAddedOldest, .sourceDateOldest, .format,
+        case .title, .fileName, .artist, .album, .dateAddedOldest, .sourceDateOldest, .format,
                 .duration, .playCount, .serverPlayCount, .source, .year, .bitRate,
                 .bitDepth, .downloaded:
             return true
-        case .titleDescending, .artistDescending, .albumDescending, .dateAdded,
+        case .titleDescending, .fileNameDescending, .artistDescending, .albumDescending, .dateAdded,
                 .sourceDate, .formatDescending, .durationDescending,
                 .playCountDescending, .serverPlayCountDescending, .sourceDescending,
                 .yearDescending, .bitRateDescending, .bitDepthDescending,
@@ -95,6 +99,8 @@ public extension LibrarySongSortOrder {
         switch self {
         case .title: return .titleDescending
         case .titleDescending: return .title
+        case .fileName: return .fileNameDescending
+        case .fileNameDescending: return .fileName
         case .artist: return .artistDescending
         case .artistDescending: return .artist
         case .album: return .albumDescending
@@ -127,6 +133,7 @@ public extension LibrarySongSortOrder {
     static func defaultOrder(for criterion: LibrarySongSortCriterion) -> LibrarySongSortOrder {
         switch criterion {
         case .title: return .title
+        case .fileName: return .fileName
         case .artist: return .artist
         case .album: return .album
         case .dateAdded: return .dateAdded
@@ -157,20 +164,26 @@ public struct SongListSortValues: Sendable {
     public let playCountsBySongID: [String: Int]
     public let downloadedSongIDs: Set<String>
     public let sourceNamesByID: [String: String]
+    /// Sources whose playback paths do not carry filenames. Their scans may supply
+    /// a name separately. An empty index selects the title fallback for catalogue-only sources.
+    public let fileNameIndexesBySourceID: [String: SourceSyncIndex]
 
     public init(
         playCountsBySongID: [String: Int] = [:],
         downloadedSongIDs: Set<String> = [],
-        sourceNamesByID: [String: String] = [:]
+        sourceNamesByID: [String: String] = [:],
+        fileNameIndexesBySourceID: [String: SourceSyncIndex] = [:]
     ) {
         self.playCountsBySongID = playCountsBySongID
         self.downloadedSongIDs = downloadedSongIDs
         self.sourceNamesByID = sourceNamesByID
+        self.fileNameIndexesBySourceID = fileNameIndexesBySourceID
     }
 }
 
 public struct SongListSortValuesVersion: Sendable {
     private var revisions: [LibrarySongSortCriterion: UUID] = [
+        .fileName: UUID(),
         .playCount: UUID(),
         .downloaded: UUID(),
         .source: UUID(),
@@ -909,7 +922,7 @@ public enum SongListSnapshotBuilder {
             return song.artistName ?? ""
         case .album:
             return song.albumTitle ?? ""
-        case .dateAdded, .sourceDate:
+        case .fileName, .dateAdded, .sourceDate:
             return nil
         case .format:
             return song.fileFormat.displayName
@@ -931,7 +944,7 @@ public enum SongListSnapshotBuilder {
     ) -> [SongListSectionIndexEntry] {
         let supportsSectionIndex: Bool = switch order.criterion {
         case .title, .artist, .album, .format, .source: true
-        case .dateAdded, .sourceDate, .duration, .playCount, .serverPlayCount,
+        case .fileName, .dateAdded, .sourceDate, .duration, .playCount, .serverPlayCount,
                 .year, .bitRate, .bitDepth, .downloaded: false
         }
         guard supportsSectionIndex else { return [] }
@@ -987,12 +1000,16 @@ public enum SongListSnapshotBuilder {
 
         var titleKeys: [LibraryCollationPolicy.Key] = []
         var timeKeys: [TimeInterval] = []
+        var fileNames: [String] = []
         if order.criterion == .title {
             titleKeys.reserveCapacity(songs.count)
             for index in songs.indices {
                 if index.isMultiple(of: 1_024) { try checkCancellation() }
                 titleKeys.append(LibraryCollationPolicy.songTitleKey(for: songs[index].title))
             }
+        } else if order.criterion == .fileName {
+            fileNames = try fileNameKeys(for: songs, indexes: sortValues.fileNameIndexesBySourceID,
+                                        checkCancellation: checkCancellation)
         } else if order.criterion == .dateAdded || order.criterion == .duration {
             let usesDate = order.criterion == .dateAdded
             timeKeys.reserveCapacity(songs.count)
@@ -1010,10 +1027,52 @@ public enum SongListSnapshotBuilder {
             comparisons += 1
             if comparisons.isMultiple(of: 2_048) { try checkCancellation() }
             return isOrderedBefore(lhs, rhs, songs: songs, titleKeys: titleKeys,
-                                   timeKeys: timeKeys, order: order, sortValues: sortValues)
+                                   fileNames: fileNames, timeKeys: timeKeys, order: order, sortValues: sortValues)
         }
         try checkCancellation()
         return indices
+    }
+
+    private static func fileNameKeys(
+        for songs: [Song],
+        indexes: [String: SourceSyncIndex],
+        checkCancellation: () throws -> Void
+    ) throws -> [String] {
+        var names: [String] = []
+        var indexedOffsets: [String: Int] = [:]
+        names.reserveCapacity(songs.count)
+        for (offset, song) in songs.enumerated() {
+            if offset.isMultiple(of: 1_024) { try checkCancellation() }
+            if let index = indexes[song.sourceID] {
+                names.append(song.title)
+                if !index.isEmpty { indexedOffsets[song.id] = offset }
+            } else if song.sourceID == AppleMusicLibraryIdentity.sourceID || song.filePath.isEmpty {
+                names.append(song.title)
+            } else {
+                let path = song.filePath
+                if path.hasPrefix("nfs::") {
+                    let decoded = SongPathPresentationPolicy.displayPath(filePath: path, sourceID: song.sourceID)
+                    names.append(decoded.map { ($0 as NSString).lastPathComponent } ?? song.title)
+                } else if path.contains("://"), let url = URL(string: path), url.scheme != nil {
+                    names.append(url.lastPathComponent.isEmpty ? song.title : url.lastPathComponent)
+                } else {
+                    names.append((path as NSString).lastPathComponent)
+                }
+            }
+        }
+        guard !indexedOffsets.isEmpty else { return names }
+        for (sourceID, index) in indexes {
+            for (offset, entry) in index.values.enumerated() {
+                if offset.isMultiple(of: 1_024) { try checkCancellation() }
+                guard !entry.isDirectory, let name = entry.displayName, !name.isEmpty else { continue }
+                for id in entry.songIDs {
+                    guard let row = indexedOffsets[id], songs[row].sourceID == sourceID,
+                          songs[row].filePath == entry.path else { continue }
+                    names[row] = name
+                }
+            }
+        }
+        return names
     }
 
     private static func isOrderedBefore(
@@ -1021,6 +1080,7 @@ public enum SongListSnapshotBuilder {
         _ rhsIndex: Int,
         songs: [Song],
         titleKeys: [LibraryCollationPolicy.Key],
+        fileNames: [String],
         timeKeys: [TimeInterval],
         order: LibrarySongSortOrder,
         sortValues: SongListSortValues
@@ -1036,6 +1096,8 @@ public enum SongListSnapshotBuilder {
                 return order.isAscending ? lhsKey < rhsKey : rhsKey < lhsKey
             }
             comparison = lhs.title.localizedCompare(rhs.title)
+        case .fileName, .fileNameDescending:
+            comparison = fileNames[lhsIndex].localizedStandardCompare(fileNames[rhsIndex])
         case .artist, .artistDescending:
             comparison = (lhs.artistName ?? "").localizedCompare(rhs.artistName ?? "")
         case .album, .albumDescending:
@@ -1129,10 +1191,10 @@ public enum SongListSnapshotBuilder {
             return lhs.id < rhs.id
         }
         switch order {
-        case .titleDescending, .artistDescending, .albumDescending, .sourceDate,
+        case .titleDescending, .fileNameDescending, .artistDescending, .albumDescending, .sourceDate,
                 .formatDescending, .sourceDescending:
             return comparison == .orderedDescending
-        case .title, .artist, .album, .dateAdded, .dateAddedOldest,
+        case .title, .fileName, .artist, .album, .dateAdded, .dateAddedOldest,
                 .sourceDateOldest, .format, .source:
             return comparison == .orderedAscending
         case .duration, .durationDescending, .playCount, .playCountDescending,

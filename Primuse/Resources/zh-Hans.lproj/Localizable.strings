@@ -117,6 +117,7 @@
 // MARK: - 排序
 "sort_by" = "排序方式";
 "sort_title" = "标题";
+"sort_file_name" = "文件名";
 "sort_artist" = "艺术家";
 "sort_album" = "专辑";
 "sort_track_order" = "曲目顺序";
@@ -1890,6 +1891,7 @@
 "show_desktop_lyrics" = "显示桌面歌词";
 "hide_desktop_lyrics" = "隐藏桌面歌词";
 "lock_desktop_lyrics" = "锁定桌面歌词";
+"desktop_lyrics_click_through" = "桌面歌词点击穿透";
 "toggle_desktop_lyrics_lock" = "锁定 / 解锁桌面歌词";
 "desktop_lyrics_locked" = "桌面歌词已锁定";
 "desktop_lyrics_unlocked" = "桌面歌词已解锁";

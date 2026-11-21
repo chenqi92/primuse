@@ -1287,6 +1287,7 @@ struct SongListView: View {
 
     enum SongSortOrder: String, CaseIterable, Sendable {
         case title, titleDescending
+        case fileName, fileNameDescending
         case artist, artistDescending
         case album, albumDescending
         case dateAdded, dateAddedOldest
@@ -1305,6 +1306,8 @@ struct SongListView: View {
             switch self {
             case .title: return .title
             case .titleDescending: return .titleDescending
+            case .fileName: return .fileName
+            case .fileNameDescending: return .fileNameDescending
             case .artist: return .artist
             case .artistDescending: return .artistDescending
             case .album: return .album
@@ -1338,6 +1341,8 @@ struct SongListView: View {
             switch libraryOrder {
             case .title: self = .title
             case .titleDescending: self = .titleDescending
+            case .fileName: self = .fileName
+            case .fileNameDescending: self = .fileNameDescending
             case .artist: self = .artist
             case .artistDescending: self = .artistDescending
             case .album: self = .album
@@ -1545,7 +1550,7 @@ struct SongListView: View {
                     carryReusableFolderIndex(from: previousToken, to: token)
                 }
                 let technicalOrderNeedsRefresh: Bool = switch sortOrder.criterion {
-                case .dateAdded, .sourceDate, .duration, .serverPlayCount, .year,
+                case .fileName, .dateAdded, .sourceDate, .duration, .serverPlayCount, .year,
                         .bitRate, .bitDepth:
                     true
                 case .title, .artist, .album, .format, .playCount, .source, .downloaded:
@@ -1678,6 +1683,11 @@ struct SongListView: View {
             .onChange(of: scanService.folderHierarchyRevision) { _, _ in
                 folderSourceRevision &+= 1
                 scheduleFolderIndexRecompute(delay: .milliseconds(80))
+                sortValuesVersion.invalidate(.fileName)
+                if sortOrder.criterion == .fileName {
+                    scheduleSortedRecompute(delay: .milliseconds(80), pruneRowModels: false,
+                                            isExplicitSort: activeSortIsExplicit)
+                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(
@@ -1772,12 +1782,21 @@ struct SongListView: View {
 
     private var songListSortValues: SongListSortValues {
         #if os(macOS)
-        SongListSortValues(
+        var fileNameIndexes: [String: SourceSyncIndex] = [:]
+        if sortOrder.criterion == .fileName {
+            for source in sourcesStore.allSources where !source.type.itemPathsCarryFileNames {
+                if case .source(let id) = scope, id != source.id { continue }
+                fileNameIndexes[source.id] = source.type.usesOpaqueDirectoryIdentifiers || source.type == .fnMusic
+                    ? scanService.libraryFolderSyncIndex(for: source.id) : SourceSyncIndex()
+            }
+        }
+        return SongListSortValues(
             playCountsBySongID: playCountsBySongID,
             downloadedSongIDs: downloadedSongIDs,
             sourceNamesByID: Dictionary(uniqueKeysWithValues: sourcesStore.sources.map {
                 ($0.id, $0.name)
-            })
+            }),
+            fileNameIndexesBySourceID: fileNameIndexes
         )
         #else
         .empty
@@ -5750,6 +5769,7 @@ extension LibrarySongSortCriterion {
     var label: String {
         switch self {
         case .title: return String(localized: "sort_title")
+        case .fileName: return String(localized: "sort_file_name")
         case .artist: return String(localized: "sort_artist")
         case .album: return String(localized: "sort_album")
         case .dateAdded: return String(localized: "sort_date_added")
@@ -5768,9 +5788,15 @@ extension LibrarySongSortCriterion {
 
     /// Compact/mobile sort menus keep their established choices. Additional
     /// technical and device-state criteria are exposed by the macOS headers.
+    #if os(macOS)
+    static let menuCases: [LibrarySongSortCriterion] = [
+        .title, .fileName, .artist, .album, .dateAdded, .sourceDate, .format,
+    ]
+    #else
     static let menuCases: [LibrarySongSortCriterion] = [
         .title, .artist, .album, .dateAdded, .sourceDate, .format,
     ]
+    #endif
 }
 
 /// 只剩 macOS 列表头的排序按钮在用: 那里的菜单跟着一排工具条控件, 六个维度平铺

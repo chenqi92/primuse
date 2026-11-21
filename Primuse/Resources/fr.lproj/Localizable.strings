@@ -371,6 +371,7 @@
 "unknown_artist" = "Artiste inconnu";
 "sort_by" = "Trier par";
 "sort_title" = "Titre";
+"sort_file_name" = "Nom du fichier";
 "sort_artist" = "Artiste";
 "sort_album" = "Album";
 "sort_track_order" = "Ordre des pistes";
@@ -1852,6 +1853,7 @@
 "show_desktop_lyrics" = "Afficher les paroles sur le bureau";
 "hide_desktop_lyrics" = "Masquer les paroles sur le bureau";
 "lock_desktop_lyrics" = "Verrouiller les paroles sur le bureau";
+"desktop_lyrics_click_through" = "Cliquer à travers les paroles sur le bureau";
 "toggle_desktop_lyrics_lock" = "Verrouiller / déverrouiller les paroles sur le bureau";
 "desktop_lyrics_locked" = "Paroles du bureau verrouillées";
 "desktop_lyrics_unlocked" = "Paroles du bureau déverrouillées";

@@ -102,48 +102,36 @@ struct SourceUnreachableNotice: View {
     }
 }
 
-/// Presents adaptive routes as distinct, comparable endpoints instead of one
-/// long subtitle. The highlighted segment is device-local runtime state and is
-/// never persisted or synced with the source configuration.
-///
-/// 上面一行是「连接线路」和现在选的那条的名字(自动、内网、公网……),点开选线路、给线路换名字;
-/// 菜单里只写名字,地址写在下面的格子里,长地址不会在菜单里折成好几行。
 struct SourceConnectionRouteStrip: View {
     let source: MusicSource
     let activeKind: SourceConnectionCandidateKind?
     let lastSuccessfulKind: SourceConnectionCandidateKind?
 
-    private var candidates: [SourceConnectionCandidate] {
-        let usable = source.connectionCandidates
-        guard usable.count > 2 else { return usable }
-        return usable.filter { $0.kind == (activeKind ?? lastSuccessfulKind) }
-    }
+    @Environment(SourcesStore.self) private var sourceStore
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(ScanService.self) private var scanService
 
     var body: some View {
-        // 读一下名字表,改名之后整条跟着重画。
-        let _ = SourceRouteLabelStore.shared.labels
+        let candidates = source.configuredConnectionCandidates
+        let selectedKind = source.connectionConfiguration?.effectiveSelectedRoute
         VStack(alignment: .leading, spacing: 8) {
-            if source.configuredConnectionCandidates.count > 1 {
+            if candidates.count > 1 || selectedKind != nil {
                 HStack(spacing: 8) {
                     Text("source_connection_route")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 8)
-                    Menu {
-                        SourceRouteMenuContent(source: source)
+                    Button {
+                        SourceRouteNaming.select(
+                            nil, sourceID: source.id, sourceStore: sourceStore,
+                            sourceManager: sourceManager, scanService: scanService
+                        )
                     } label: {
-                        HStack(spacing: 4) {
-                            Text(verbatim: selectionTitle)
-                                .lineLimit(1)
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.caption2.weight(.semibold))
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .contentShape(Rectangle())
+                        Label("source_address_transport_automatic", systemImage: selectedKind == nil ? "checkmark.circle.fill" : "circle")
+                            .font(.subheadline.weight(.semibold))
                     }
-                    .menuStyle(.button)
                     .buttonStyle(.borderless)
-                    .fixedSize()
+                    .accessibilityAddTraits(selectedKind == nil ? .isSelected : [])
                 }
             }
             // 地址放得下就并排；放不下改成一条一行，长地址折行，不从中间截掉。
@@ -163,14 +151,6 @@ struct SourceConnectionRouteStrip: View {
         .accessibilityElement(children: .contain)
     }
 
-    private var selectionTitle: String {
-        guard let selected = source.connectionConfiguration?.effectiveSelectedRoute,
-              let route = source.configuredConnectionCandidates.first(where: { $0.kind == selected }) else {
-            return String(localized: "source_address_transport_automatic")
-        }
-        return SourceRouteNaming.name(for: route, in: source)
-    }
-
     private func routeSegment(_ candidate: SourceConnectionCandidate, wrapsAddress: Bool) -> some View {
         let presentation = SourceConnectionRoutePresentationState.resolve(
             candidate: candidate.kind,
@@ -183,11 +163,7 @@ struct SourceConnectionRouteStrip: View {
         let tint = SourceRouteNaming.tint(for: candidate, in: source)
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 5) {
-                Image(systemName: SourceRouteNaming.systemImage(for: candidate, in: source))
-                    .font(.system(size: 11, weight: .semibold))
-                Text(verbatim: SourceRouteNaming.name(for: candidate, in: source))
-                    .font(.caption2.weight(.semibold))
-                    .lineLimit(1)
+                SourceRouteChip(source: source, route: candidate, tapAction: .select)
                 Spacer(minLength: 3)
                 if isActive {
                     HStack(spacing: 3) {
@@ -229,12 +205,8 @@ struct SourceConnectionRouteStrip: View {
                     lineWidth: 0.8
                 )
         }
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .contextMenu {
-            SourceRouteRenamePicker(source: source, route: candidate)
-        }
         .pmAnimation(.hover, value: presentation)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     private func address(for candidate: SourceConnectionCandidate) -> String {

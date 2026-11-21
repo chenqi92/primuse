@@ -165,48 +165,7 @@ enum SourceRouteNaming {
     }
 }
 
-/// 线路菜单:用哪条(自动或手选),以及给每条换个名字。卡片上长按线路标签、详情页的线路下拉共用。
-struct SourceRouteMenuContent: View {
-    let source: MusicSource
-
-    @Environment(SourcesStore.self) private var sourceStore
-    @Environment(SourceManager.self) private var sourceManager
-    @Environment(ScanService.self) private var scanService
-
-    var body: some View {
-        let routes = source.configuredConnectionCandidates
-        if routes.count > 1 {
-            Picker(selection: Binding(
-                get: { source.connectionConfiguration?.effectiveSelectedRoute },
-                set: { kind in
-                    SourceRouteNaming.select(
-                        kind, sourceID: source.id, sourceStore: sourceStore,
-                        sourceManager: sourceManager, scanService: scanService
-                    )
-                }
-            )) {
-                Label("source_address_transport_automatic", systemImage: "arrow.triangle.branch")
-                    .tag(nil as SourceConnectionCandidateKind?)
-                ForEach(routes) { route in
-                    Label(SourceRouteNaming.name(for: route, in: source), systemImage: SourceRouteNaming.systemImage(for: route, in: source))
-                        .tag(Optional(route.kind))
-                }
-            } label: {
-                Text("source_connection_route")
-            }
-            .pickerStyle(.inline)
-        }
-        Section {
-            ForEach(routes) { route in
-                SourceRouteRenamePicker(source: source, route: route)
-            }
-        }
-    }
-}
-
-/// 给一条线路挑个名字。挑的是预设,不用打字:最上面是内网直连、公网直连,其余按网络、来源、音质、
-/// 整洁度、场景分成几组。另加的线路、厂商中转可以挑回原来的叫法。
-struct SourceRouteRenamePicker: View {
+private struct SourceRouteNameOptions: View {
     let source: MusicSource
     let route: SourceConnectionCandidate
 
@@ -216,90 +175,115 @@ struct SourceRouteRenamePicker: View {
             get: { SourceRouteNaming.label(for: route, in: source) },
             set: { store.setLabel($0, sourceID: source.id, kind: route.kind) }
         )
-        Menu {
+        Picker(selection: selection) {
+            if SourceConnectionRouteNamingPolicy.defaultLabel(for: route.kind) == nil {
+                Text(verbatim: SourceRouteNaming.defaultName(for: route, in: source))
+                    .tag(nil as SourceConnectionRouteLabel?)
+            }
+            ForEach(SourceConnectionRouteLabel.allCases.filter { $0.category == nil }) { label in
+                Label(label.localizedTitle, systemImage: label.systemImage)
+                    .tag(Optional(label))
+            }
+        } label: {
+            EmptyView()
+        }
+        .pickerStyle(.inline)
+        ForEach(SourceConnectionRouteLabel.Category.allCases) { category in
             Picker(selection: selection) {
-                if SourceConnectionRouteNamingPolicy.defaultLabel(for: route.kind) == nil {
-                    Text(verbatim: SourceRouteNaming.defaultName(for: route, in: source))
-                        .tag(nil as SourceConnectionRouteLabel?)
-                }
-                ForEach(SourceConnectionRouteLabel.allCases.filter { $0.category == nil }) { label in
+                ForEach(category.labels) { label in
                     Label(label.localizedTitle, systemImage: label.systemImage)
                         .tag(Optional(label))
                 }
             } label: {
-                EmptyView()
+                Label(category.localizedTitle, systemImage: category.systemImage)
             }
-            .pickerStyle(.inline)
-            ForEach(SourceConnectionRouteLabel.Category.allCases) { category in
-                Picker(selection: selection) {
-                    ForEach(category.labels) { label in
-                        Label(label.localizedTitle, systemImage: label.systemImage)
-                            .tag(Optional(label))
-                    }
-                } label: {
-                    Label(category.localizedTitle, systemImage: category.systemImage)
-                }
-                .pickerStyle(.menu)
-            }
-        } label: {
-            Label(
-                String(format: String(localized: "source_route_rename_format"), SourceRouteNaming.name(for: route, in: source)),
-                systemImage: "character.cursor.ibeam"
-            )
+            .pickerStyle(.menu)
         }
     }
 }
 
-/// 卡片上那颗小小的线路标签:名字带颜色。点一下换到下一条线路,长按选自动、改名字。
-/// 不知道能点也没关系 —— 它首先是告诉你现在走的哪条。
 struct SourceRouteChip: View {
+    enum TapAction {
+        case cycle
+        case select
+    }
+
     let source: MusicSource
     let route: SourceConnectionCandidate
+    var tapAction: TapAction = .cycle
 
     @Environment(SourcesStore.self) private var sourceStore
     @Environment(SourceManager.self) private var sourceManager
     @Environment(ScanService.self) private var scanService
 
     var body: some View {
-        // 读一下名字表,改名之后这颗标签跟着重画。
-        let _ = SourceRouteLabelStore.shared.labels
         let name = SourceRouteNaming.name(for: route, in: source)
         let tint = SourceRouteNaming.tint(for: route, in: source)
-        Menu {
-            SourceRouteMenuContent(source: source)
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: SourceRouteNaming.systemImage(for: route, in: source))
-                    .font(.system(size: 9, weight: .bold))
-                Text(verbatim: name)
-                    .font(.caption2.weight(.semibold))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .foregroundStyle(tint)
-            .background(tint.opacity(0.15), in: Capsule())
-            .contentShape(Capsule())
-            .fixedSize()
-        } primaryAction: {
-            cycle()
+        let isSelected = tapAction == .select && source.connectionConfiguration?.effectiveSelectedRoute == route.kind
+        let label = HStack(spacing: 3) {
+            Image(systemName: SourceRouteNaming.systemImage(for: route, in: source))
+                .font(.system(size: 9, weight: .bold))
+            Text(verbatim: name)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .foregroundStyle(tint)
+        .background(tint.opacity(isSelected ? 0.25 : 0.15), in: Capsule())
+        .overlay {
+            if isSelected { Capsule().strokeBorder(tint, lineWidth: 1) }
+        }
+        .contentShape(Capsule())
+
+        Group {
+            #if os(macOS)
+            Button(action: activate) { label }
+                .contextMenu { SourceRouteNameOptions(source: source, route: route) }
+            #else
+            // List can promote a child's contextMenu to the whole row. A Menu keeps the press on its label.
+            Menu {
+                SourceRouteNameOptions(source: source, route: route)
+            } label: {
+                label.contentShape(.contextMenuPreview, Capsule())
+            } primaryAction: {
+                activate()
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            #endif
+        }
+        .buttonStyle(RouteNameButtonStyle(tint: tint))
+        .fixedSize()
         .pmAnimation(.control, value: route.kind)
         .accessibilityLabel(Text("source_connection_route"))
         .accessibilityValue(Text(verbatim: name))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private func cycle() {
-        guard let next = SourceConnectionRouteNamingPolicy.nextRoute(
-            after: route.kind,
-            in: source.configuredConnectionCandidates
-        ) else { return }
-        PMHaptics.playbackModeToggled()
+    private struct RouteNameButtonStyle: ButtonStyle {
+        let tint: Color
+
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .background(tint.opacity(configuration.isPressed ? 0.35 : 0), in: Capsule())
+        }
+    }
+
+    private func activate() {
+        let routes = source.configuredConnectionCandidates
+        guard routes.count > 1 else { return }
+        let kind: SourceConnectionCandidateKind
+        switch tapAction {
+        case .cycle:
+            guard let next = SourceConnectionRouteNamingPolicy.nextRoute(after: route.kind, in: routes) else { return }
+            PMHaptics.playbackModeToggled()
+            kind = next
+        case .select:
+            kind = route.kind
+        }
         SourceRouteNaming.select(
-            next, sourceID: source.id, sourceStore: sourceStore,
+            kind, sourceID: source.id, sourceStore: sourceStore,
             sourceManager: sourceManager, scanService: scanService
         )
     }

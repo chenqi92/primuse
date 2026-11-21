@@ -56,6 +56,7 @@ struct DesktopLyricsView: View {
     /// 新版本枚举存 raw value,迁移逻辑在 init 里。
     @AppStorage("desktopLyricsLayout") private var layoutRaw: String = DesktopLyricsLayout.dual.rawValue
     @AppStorage("desktopLyricsLocked") private var locked: Bool = false
+    @AppStorage(DesktopLyricsInteraction.clickThroughKey) private var clickThrough = false
     /// 是否显示玻璃背景 chrome。关掉后只剩浮动文字,适合极简桌面。
     @AppStorage("desktopLyricsShowBackground") private var showBackground: Bool = true
     /// 歌词主色调 (hex 字符串方便存 AppStorage)。默认白。
@@ -152,7 +153,7 @@ struct DesktopLyricsView: View {
     /// 顶部 chrome 显不显示。指针进没进面板由 controller 判定,穿透时 SwiftUI
     /// 压根收不到 hover,所以这里读 controller 的结论而不是自己的 .onHover。
     private var chromeVisible: Bool {
-        interaction.engaged || settingsShown || colorPaletteShown
+        !clickThrough && (interaction.engaged || settingsShown || colorPaletteShown)
     }
 
     var body: some View {
@@ -233,6 +234,12 @@ struct DesktopLyricsView: View {
         }
         .onChange(of: settingsShown || colorPaletteShown, initial: true) { _, holding in
             interaction.keepsEngaged = holding
+        }
+        .onChange(of: clickThrough) { _, enabled in
+            if enabled {
+                settingsShown = false
+                colorPaletteShown = false
+            }
         }
         .onDisappear {
             interaction.keepsEngaged = false
@@ -665,6 +672,10 @@ struct DesktopLyricsView: View {
             settingsRow(icon: showBackground ? "rectangle.fill" : "rectangle",
                         title: showBackground ? "hide_lyrics_background" : "show_lyrics_background") {
                 showBackground.toggle()
+            }
+
+            settingsRow(icon: "cursorarrow", title: "desktop_lyrics_click_through") {
+                clickThrough = true
             }
 
             settingsRow(

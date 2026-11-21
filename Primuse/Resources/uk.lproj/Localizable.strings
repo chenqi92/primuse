@@ -668,6 +668,7 @@
 "scrape_writeback_media_server_hint" = "Записує через сервер API; коли Emby/Plex не може оновити тексти пісень через API, вони залишаються в локальному кеші.";
 "baidu_snapshot_deep_scan_required" = "Інкрементальне сканування виявило забагато змін, тому медіатеку не оновлено. Відкрийте застосунок і виберіть «Повне сканування».";
 "lock_desktop_lyrics" = "Заблокувати тексти пісень на робочому столі";
+"desktop_lyrics_click_through" = "Пропускати клацання крізь текст пісні на робочому столі";
 "tag_editor_lyrics_writeback_server" = "Зберігає в Primuse і записує текст пісні на медіасервер.";
 "notify_scrape_missing_done_title" = "Пошук відсутніх метаданих завершено";
 "yearly_personality_efnm_name" = "Нічний бродяга";
@@ -3979,6 +3980,7 @@
 "connect_browse_hint" = "Підключіться до цього джерела, а потім виберіть каталоги для пошуку музики";
 "appearance" = "Зовнішній вигляд";
 "sort_title" = "Назва";
+"sort_file_name" = "Назва файлу";
 "export_path" = "Шлях експорту";
 "Playback speed set to %1$@ times." = "Швидкість відтворення встановлена на %1$@ разів.";
 "Playback speed can't be changed in High Fidelity Direct mode." = "У режимі «Пряме відтворення високої точності» швидкість відтворення змінити не можна.";

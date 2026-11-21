@@ -16,6 +16,7 @@ import PrimuseKit
 @Observable
 final class DesktopLyricsInteraction {
     static let shared = DesktopLyricsInteraction()
+    static let clickThroughKey = "desktopLyricsClickThrough"
 
     /// 歌词 (连同背板留白) 在面板局部坐标里的矩形,SwiftUI 坐标系:左上原点、
     /// y 向下。`.null` = 还没量出来,这时按整块面板算 —— 宁可暂时不穿透,
@@ -32,6 +33,12 @@ final class DesktopLyricsInteraction {
     /// 这边一个事件都收不到,不兜住会被判成"离开"把 chrome 连同 popover
     /// 一起收掉。由 view 写。
     var keepsEngaged = false
+
+    func updateMouseHandling(for panel: NSPanel, clickThrough: Bool, hitTest: () -> Bool) {
+        let acceptsMouse = !clickThrough && hitTest()
+        if engaged != acceptsMouse { engaged = acceptsMouse }
+        if panel.ignoresMouseEvents == acceptsMouse { panel.ignoresMouseEvents = !acceptsMouse }
+    }
 }
 
 /// Borderless transparent NSPanel that floats over every other window. The
@@ -43,7 +50,7 @@ final class DesktopLyricsWindowController {
     static let islandVisibleKey = MacLyricsVisibilityPreferences.islandKey
 
     private var panel: NSPanel?
-    @AppStorage("desktopLyricsLocked") private var locked: Bool = false
+    private var clickThrough = UserDefaults.standard.bool(forKey: DesktopLyricsInteraction.clickThroughKey)
 
     private lazy var island: DesktopLyricsIslandController = {
         let island = DesktopLyricsIslandController()
@@ -54,10 +61,8 @@ final class DesktopLyricsWindowController {
     /// didChangeNotification observer token —— 必须持有并在 deinit 注销, 否则
     /// block-based observer 永远不会移除 (内存泄漏)。nonisolated(unsafe): 仅 init
     /// (MainActor) 写、deinit 读, 无并发竞争, 让 Swift 6 的 nonisolated deinit 可访问。
-    nonisolated(unsafe) private var lockObserver: NSObjectProtocol?
-    /// 上次已应用的 lock 值 —— 全局 didChange 会因 app 内任何 UserDefaults 写入
-    /// (音量/主题等高频) 触发, 只在 lock 真正变化时才动 panel, 避免主线程噪声。
-    private var lastKnownLocked: Bool = false
+    nonisolated(unsafe) private var preferencesObserver: NSObjectProtocol?
+    private var lastKnownLocked = UserDefaults.standard.bool(forKey: "desktopLyricsLocked")
 
     /// autosave name 带 v2 后缀:之前默认 600x140 太窄会截断长歌词,
     /// 改默认值时换 key 让老用户也跳到新的宽默认值,而不是停在旧
@@ -72,7 +77,7 @@ final class DesktopLyricsWindowController {
 
     /// 鼠标监视器 —— 全局一个 (指针落在别的 app 上) + 本地一个 (落在本 app 上)。
     /// 面板穿透时自己收不到任何鼠标事件,只能靠监视器知道指针走到哪了。
-    /// nonisolated(unsafe) 的理由跟 lockObserver 一样:只有 MainActor 方法写、
+    /// nonisolated(unsafe) 的理由跟 preferencesObserver 一样:只有 MainActor 方法写、
     /// deinit 读,没有并发竞争,但 deinit 是 nonisolated 的。
     nonisolated(unsafe) private var pointerMonitors: [Any] = []
 
@@ -130,25 +135,20 @@ final class DesktopLyricsWindowController {
         let visibility = MacLyricsVisibilityPreferences.restore()
         if visibility.desktop { show() }
         if visibility.island { island.show() }
-        lastKnownLocked = locked
-        // 监听 lock 变化（来自菜单栏 popover 或桌面歌词的悬浮 toolbar）
-        // 同步给 NSPanel,因为 ignoresMouseEvents 是 NSWindow 级别状态。
         // 不挂主队列: 写 UserDefaults 的线程会同步等主队列上的回调跑完 (#200)。
-        lockObserver = NotificationCenter.default.addObserver(
+        preferencesObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil, queue: nil
         ) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.locked != self.lastKnownLocked else { return }
-                self.lastKnownLocked = self.locked
-                self.applyLockedState()
+                self?.refreshInteractionPreferences()
             }
         }
     }
 
     deinit {
-        if let lockObserver {
-            NotificationCenter.default.removeObserver(lockObserver)
+        if let preferencesObserver {
+            NotificationCenter.default.removeObserver(preferencesObserver)
         }
         for monitor in pointerMonitors { NSEvent.removeMonitor(monitor) }
         pointerTimer?.invalidate()
@@ -197,9 +197,9 @@ final class DesktopLyricsWindowController {
             panel.contentView = makeContentView(for: panel)
         }
         panel.alphaValue = 1
+        panel.ignoresMouseEvents = clickThrough
         panel.orderFrontRegardless()
-        startPointerTracking()
-        applyLockedState()
+        configurePointerTracking()
     }
 
     /// 用户切换排版时把 panel 拉成对应朝向。围绕中心点缩放,避免
@@ -237,21 +237,30 @@ final class DesktopLyricsWindowController {
         }
     }
 
-    private func applyLockedState() {
-        // 锁定只管两件事:拖动由 updateWindowDrag 按锁定态拦掉 (防误拖),
-        // chrome 换成那颗解锁按钮。吃不吃鼠标事件跟锁定无关,统一交给
-        // updatePassthrough 按指针位置判 —— 锁定态下指针照样能落到歌词上
-        // hover 出解锁按钮,而歌词以外的地方一直是穿透的。
-        // 解锁路径:hover 浮现的锁按钮 / 菜单栏开关 / ⇧⌘L 快捷键。
-        updatePassthrough()
-        // 拖动过程中被锁上就把这次拖动作废,免得松手前还继续跟手。
-        if isLockedNow { dragAnchor = nil }
+    private func refreshInteractionPreferences() {
+        let locked = isLockedNow
+        let enabled = UserDefaults.standard.bool(forKey: DesktopLyricsInteraction.clickThroughKey)
+        guard lastKnownLocked != locked || clickThrough != enabled else { return }
+        lastKnownLocked = locked
+        clickThrough = enabled
+        if locked { dragAnchor = nil }
+        configurePointerTracking()
     }
 
     // MARK: - 鼠标穿透
 
+    private func configurePointerTracking() {
+        guard isShowing else { return }
+        if clickThrough {
+            stopPointerTracking()
+        } else {
+            startPointerTracking()
+        }
+        updatePassthrough()
+    }
+
     private func startPointerTracking() {
-        guard pointerMonitors.isEmpty else { return }
+        guard pointerTimer == nil else { return }
         let mask: NSEvent.EventTypeMask = [
             .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
             .leftMouseDown, .rightMouseDown, .scrollWheel
@@ -286,7 +295,6 @@ final class DesktopLyricsWindowController {
         timer.tolerance = 0.25
         RunLoop.main.add(timer, forMode: .common)
         pointerTimer = timer
-        updatePassthrough()
     }
 
     private func stopPointerTracking() {
@@ -298,8 +306,6 @@ final class DesktopLyricsWindowController {
         // 面板中途被收起时松手事件到不了 SwiftUI,拖动锚点会滞留;留着它下次
         // 开拖第一帧就会按旧锚点跳一下,还会把穿透判定钉在"进入"上。
         dragAnchor = nil
-        // 下次 show() 之前保持可点,免得停在"穿透"上把再次打开的面板变成死的。
-        panel?.ignoresMouseEvents = false
     }
 
     /// 按指针此刻的位置决定面板吃不吃鼠标事件。
@@ -311,25 +317,27 @@ final class DesktopLyricsWindowController {
     /// 字要能浮出解锁提示,锁定本身只管禁掉拖动、把 chrome 换成解锁按钮。
     private func updatePassthrough() {
         guard let panel, panel.isVisible else { return }
+        DesktopLyricsInteraction.shared.updateMouseHandling(for: panel, clickThrough: clickThrough) {
+            pointerEngagesPanel(panel)
+        }
+    }
+
+    private func pointerEngagesPanel(_ panel: NSPanel) -> Bool {
         let interaction = DesktopLyricsInteraction.shared
         let mouse = NSEvent.mouseLocation
         // 正在拖动 (锚点在、左键还按着) 或正在从边缘拉尺寸:中途绝不能切回穿透。
         // 拖动时面板比指针慢一个事件,快拖会让指针短暂落到面板外,按几何判会
         // 误判成离开,chrome 一闪、拖动也可能断掉。
         let dragging = dragAnchor != nil && NSEvent.pressedMouseButtons & 0x1 != 0
-        let inside: Bool
         if interaction.keepsEngaged || dragging || panel.inLiveResize {
-            inside = true
-        } else if interaction.engaged {
-            // 已经进来了就按整块面板判离开 —— 否则指针从歌词挪向顶部工具栏
-            // 的半路上就被判成离开,按钮永远点不到,四边的缩放热区也没了。
-            inside = panel.frame.contains(mouse)
-        } else {
-            inside = interactiveRectOnScreen(panel).contains(mouse)
-                || cornerHandleOnScreen(panel).contains(mouse)
+            return true
         }
-        if interaction.engaged != inside { interaction.engaged = inside }
-        if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
+        if interaction.engaged {
+            // 进入后保留整窗热区,指针才能从歌词移动到边缘工具栏。
+            return panel.frame.contains(mouse)
+        }
+        return interactiveRectOnScreen(panel).contains(mouse)
+            || cornerHandleOnScreen(panel).contains(mouse)
     }
 
     /// view 上报的内容矩形换算成屏幕坐标。SwiftUI 那边是左上原点、y 向下,
@@ -371,7 +379,7 @@ final class DesktopLyricsWindowController {
     /// 拖拽手势、这里直接搬 panel,行为在各版本 macOS 上都一致。
     /// 锁定时直接不动,菜单栏/悬浮锁按钮解锁后才恢复。
     private func updateWindowDrag() {
-        guard let panel, !isLockedNow else { return }
+        guard let panel, !clickThrough, !isLockedNow else { return }
         // 第一帧只记锚点:锚点同时取"此刻的鼠标位置"和"此刻的窗口原点",
         // 之后的位移都相对这一刻算,所以起手不会有跳一下的偏移。
         guard let anchor = dragAnchor else {

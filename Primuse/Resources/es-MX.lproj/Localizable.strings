@@ -1987,6 +1987,7 @@
 "local_reference_permission_missing" = "Primuse ya no puede acceder a este archivo o carpeta. Agréguelo nuevamente para restaurar el acceso.";
 "local_reference_source_name_format" = "Referencias locales (%d)";
 "lock_desktop_lyrics" = "Bloquear letras del escritorio";
+"desktop_lyrics_click_through" = "Permitir clics a través de las letras del escritorio";
 "lock_screen_lyrics" = "Letras en pantalla bloqueada";
 "lock_screen_lyrics_desc" = "Usa la línea sincronizada actual como título en el panel de reproducción del sistema. El Centro de control, Bluetooth y las pantallas del auto también pueden mostrarla. Solo se muestra la letra sincronizada que ves en el reproductor de Primuse. Apple Music no comparte sus letras con otras apps, así que primero agrega la letra a esas canciones.";
 "lock_screen_controls_section" = "Pantalla bloqueada y Centro de control";
@@ -3659,6 +3660,7 @@
 "sort_oldest_to_newest" = "Del más antiguo al más nuevo";
 "sort_source_date" = "Fecha de origen";
 "sort_title" = "Título";
+"sort_file_name" = "Nombre del archivo";
 "sort_z_to_a" = "Z–A";
 "source" = "Origen";
 "source_auth_failed_message_generic" = "Error al iniciar sesión. Verifique las credenciales o el estado de NAS.";

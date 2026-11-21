@@ -106,6 +106,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "lyrics.fontSize", titleKey: "lyrics_font_size", iosPage: .lyrics, macPage: .lyrics),
         SettingDefinition(id: "lyrics.translationFontSize", titleKey: "lyrics_translation_font_size", iosPage: .lyrics, macPage: .lyrics, keywords: ["translation size", "bilingual", "subtitle", "译文字号", "翻译字号", "双语", "字幕", "注音"]),
         SettingDefinition(id: "lyrics.menuBar", titleKey: "menu_bar_lyrics", iosPage: nil, macPage: .lyrics, keywords: ["menu bar lyrics", "status bar lyrics", "菜单栏歌词", "状态栏歌词", "顶部歌词"]),
+        SettingDefinition(id: "lyrics.desktopClickThrough", titleKey: "desktop_lyrics_click_through", iosPage: nil, macPage: .lyrics, keywords: ["mouse", "click through", "click-through", "鼠标穿透", "穿透点击"]),
         SettingDefinition(id: "lyrics.island", titleKey: "desktop_lyrics_island", iosPage: nil, macPage: .lyrics, keywords: ["dynamic island", "notch", "lyrics island", "desktop lyrics", "灵动岛", "刘海", "上岛", "歌词岛", "桌面歌词"]),
         SettingDefinition(id: "lyrics.islandSystemStatus", titleKey: "desktop_lyrics_island_system_status", iosPage: nil, macPage: .lyrics, keywords: ["headphones", "airpods", "volume", "battery", "charging", "耳机", "音量", "充电", "电量"]),
         SettingDefinition(id: "storage.audioCacheEnabled", titleKey: "audio_cache_enabled", iosPage: .storage, macPage: .storage, keywords: ["offline download", "缓存", "离线", "自动下载"]),

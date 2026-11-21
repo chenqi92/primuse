@@ -5980,6 +5980,8 @@ private struct MacSTLyricsView: View {
     private var showsLyricsInterludeAlways = PlayerAppearancePreferences.showsLyricsInterludeAlwaysByDefault
     @AppStorage(MacMenuBarController.lyricsEnabledKey)
     private var menuBarLyricsEnabled = false
+    @AppStorage(DesktopLyricsInteraction.clickThroughKey)
+    private var desktopLyricsClickThrough = false
     @AppStorage(DesktopLyricsWindowController.islandVisibleKey)
     private var desktopLyricsIsland = false
     @AppStorage(DesktopLyricsIslandController.systemStatusKey)
@@ -6305,6 +6307,11 @@ private struct MacSTLyricsView: View {
                             .accessibilityHint(Text("menu_bar_lyrics_description"))
                     }
                     .settingsAnchor("lyrics.menuBar")
+                    MacSTRow(String(localized: "desktop_lyrics_click_through")) {
+                        MacSTToggle(isOn: $desktopLyricsClickThrough)
+                            .accessibilityLabel(Text("desktop_lyrics_click_through"))
+                    }
+                    .settingsAnchor("lyrics.desktopClickThrough")
                     MacSTRow(
                         String(localized: "desktop_lyrics_island"),
                         hint: String(localized: "desktop_lyrics_island_description")

@@ -112,6 +112,7 @@
 "unknown_artist" = "未知演出者";
 "sort_by" = "排序方式";
 "sort_title" = "標題";
+"sort_file_name" = "檔名";
 "sort_artist" = "演出者";
 "sort_album" = "專輯";
 "sort_track_order" = "曲目順序";
@@ -1801,6 +1802,7 @@
 "show_desktop_lyrics" = "顯示桌面歌詞";
 "hide_desktop_lyrics" = "隱藏桌面歌詞";
 "lock_desktop_lyrics" = "鎖定桌面歌詞";
+"desktop_lyrics_click_through" = "桌面歌詞點擊穿透";
 "toggle_desktop_lyrics_lock" = "鎖定 / 解鎖桌面歌詞";
 "desktop_lyrics_locked" = "桌面歌詞已鎖定";
 "desktop_lyrics_unlocked" = "桌面歌詞已解鎖";

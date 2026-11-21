@@ -53,7 +53,7 @@ enum OfflineSettingsCatalog {
         "primuse.home.filter", "primuse.podcast.feed.filter", "primuse.podcast.library.sort",
         "spokenWord.shelf.expandsArchived", "spokenWord.shelf.layout", "spokenWord.shelf.order", "spokenWord.shelf.showsFinished",
         "primuse.sleepTimer.clockMinuteOfDay", "primuse.sleepTimer.customMinutes", "scraperSearchLimit",
-        "desktopLyricsColor", "desktopLyricsFontScale", "desktopLyricsLayout", "desktopLyricsLocked",
+        "desktopLyricsColor", "desktopLyricsFontScale", "desktopLyricsLayout", "desktopLyricsLocked", "desktopLyricsClickThrough",
         "desktopLyricsShowBackground", "desktopLyricsUsesArtworkColor", "desktopLyricsVisible",
         "desktopLyricsIslandSystemStatus", "desktopLyricsIslandAlwaysOnTop", "menuBarLyricsEnabled",
         "menuBarCompactWithLyricsIsland", "menuBarShowTitle", "miniPlayerVisible",

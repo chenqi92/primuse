@@ -1987,6 +1987,7 @@
 "local_reference_permission_missing" = "Primuse nie może już uzyskać dostępu do tego pliku lub folderu. Dodaj go ponownie, aby przywrócić dostęp.";
 "local_reference_source_name_format" = "Odniesienia lokalne (%d)";
 "lock_desktop_lyrics" = "Zablokuj tekst na biurku";
+"desktop_lyrics_click_through" = "Przepuszczaj kliknięcia przez tekst na biurku";
 "lock_screen_lyrics" = "Tekst na ekranie blokady";
 "lock_screen_lyrics_desc" = "Używaj bieżącego zsynchronizowanego wersu jako tytułu w systemowym panelu Teraz odtwarzane. Może on być też widoczny w Centrum sterowania, przez Bluetooth i na ekranach samochodowych. Wyświetlany jest tylko zsynchronizowany tekst widoczny w odtwarzaczu Primuse. Apple Music nie udostępnia tekstów innym aplikacjom, więc najpierw dodaj tekst do tych utworów.";
 "lock_screen_controls_section" = "Ekran blokady i Centrum sterowania";
@@ -3659,6 +3660,7 @@
 "sort_oldest_to_newest" = "Od najstarszego do najnowszego";
 "sort_source_date" = "Data źródła";
 "sort_title" = "Tytuł";
+"sort_file_name" = "Nazwa pliku";
 "sort_z_to_a" = "Z–A";
 "source" = "Źródło";
 "source_auth_failed_message_generic" = "Logowanie nie powiodło się. Sprawdź poświadczenia lub status NAS.";

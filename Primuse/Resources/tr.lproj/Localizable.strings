@@ -668,6 +668,7 @@
 "scrape_writeback_media_server_hint" = "API sunucusu üzerinden yazar; Emby/Plex, şarkı sözlerini API aracılığıyla güncelleyemediğinde yerel önbellekte kalır.";
 "baidu_snapshot_deep_scan_required" = "Artımlı taramada çok fazla değişiklik bulunduğu için arşiv güncellenmedi. Uygulama ön plandayken “Tam tarama” seçeneğini çalıştırın.";
 "lock_desktop_lyrics" = "Masaüstü şarkı sözlerini kilitle";
+"desktop_lyrics_click_through" = "Tıklamaları masaüstü şarkı sözlerinin altına ilet";
 "tag_editor_lyrics_writeback_server" = "Primuse'a kaydeder ve şarkı sözlerini medya sunucusuna geri yazar.";
 "notify_scrape_missing_done_title" = "Eksik üst verilerin alınması tamamlandı";
 "yearly_personality_efnm_name" = "Gece Drifteri";
@@ -3979,6 +3980,7 @@
 "connect_browse_hint" = "Bu kaynağa bağlanın, ardından müzik için hangi dizinlerin taranacağını seçin";
 "appearance" = "Görünüm";
 "sort_title" = "Başlık";
+"sort_file_name" = "Dosya adı";
 "export_path" = "Dışa Aktarma Yolu";
 "Playback speed set to %1$@ times." = "Oynatma hızı %1$@ katına ayarlandı.";
 "Playback speed can't be changed in High Fidelity Direct mode." = "Yüksek doğruluklu doğrudan oynatma modunda oynatma hızı değiştirilemez.";

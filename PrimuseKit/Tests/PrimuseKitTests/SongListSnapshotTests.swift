@@ -4,6 +4,39 @@ import Testing
 
 @Suite("Large song-list snapshots")
 struct SongListSnapshotTests {
+    @Test("Filename sorting uses the basename, numeric order and stable ties in both directions")
+    func fileNameSort() {
+        let songs = [
+            song(id: "z", title: "Bravo", filePath: "/A/Track 10.flac"),
+            song(id: "b", title: "Alpha", filePath: "/B/Track 2.flac"),
+            song(id: "a", title: "Zulu", filePath: "/Z/Track 2.flac"),
+            song(id: "u", title: "Oscar", filePath: "file:///Music/Track%203.flac"),
+        ]
+        let ascending = LibrarySongSortOrder.title.selecting(.fileName)
+        let descending = ascending.selecting(.fileName)
+        #expect(sortedIDs(songs, by: ascending) == ["a", "b", "u", "z"])
+        #expect(sortedIDs(songs, by: descending) == ["z", "u", "a", "b"])
+        #expect(descending.selecting(.fileName) == ascending)
+    }
+
+    @Test("Opaque sources use the scanned filename or fall back to the song title")
+    func fileNameSortFromScanIndex() {
+        let songs = [
+            song(id: "cloud", title: "Unrelated tag", sourceID: "drive", filePath: "pick-code"),
+            song(id: "server", title: "Track 3", sourceID: "catalogue", filePath: "/songs/1.flac"),
+            song(id: "apple", title: "Track 1", sourceID: AppleMusicLibraryIdentity.sourceID, filePath: "i.999"),
+            song(id: "local", title: "Another tag", filePath: "/Music/Track 4.flac"),
+        ]
+        let item = SourceSyncIndexedItem(stableKey: "provider-id", path: "pick-code", displayName: "Track 2.flac",
+                                        parentPath: "parent", isDirectory: false, songIDs: ["cloud"],
+                                        size: 1, modifiedDate: nil, revision: nil)
+        let values = SongListSortValues(fileNameIndexesBySourceID: [
+            "drive": SourceSyncIndex([item.stableKey: item]), "catalogue": SourceSyncIndex(),
+        ])
+        #expect(sortedIDs(songs, by: .fileName, values: values) == ["apple", "cloud", "server", "local"])
+        #expect(sortedIDs(songs, by: .fileNameDescending, values: values) == ["local", "server", "cloud", "apple"])
+    }
+
     @Test("Header artwork caches missing covers and preserves its candidate across sorting")
     func headerArtworkCandidate() {
         var first = song(id: "first", title: "Z")

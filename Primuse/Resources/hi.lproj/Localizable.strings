@@ -1987,6 +1987,7 @@
 "local_reference_permission_missing" = "Primuse अब इस फ़ाइल या फ़ोल्डर तक नहीं पहुंच सकता। पहुंच बहाल करने के लिए इसे फिर से जोड़ें।";
 "local_reference_source_name_format" = "स्थानीय संदर्भ (%d)";
 "lock_desktop_lyrics" = "डेस्कटॉप गीत के बोल लॉक करें";
+"desktop_lyrics_click_through" = "डेस्कटॉप पर गीत के बोल के आर-पार क्लिक करें";
 "lock_screen_lyrics" = "लॉक स्क्रीन गीत के बोल";
 "lock_screen_lyrics_desc" = "सिस्टम के अभी चल रहा है पैनल में वर्तमान सिंक की गई पंक्ति को शीर्षक बनाएँ। कंट्रोल सेंटर, Bluetooth और कार के डिस्प्ले पर भी बोल दिख सकते हैं। सिर्फ़ वही सिंक किए गए बोल दिखते हैं जो Primuse प्लेयर में दिखते हैं। Apple Music अपने बोल दूसरे ऐप्स को नहीं देता, इसलिए ऐसे गानों के बोल पहले जोड़ें।";
 "lock_screen_controls_section" = "लॉक स्क्रीन और कंट्रोल सेंटर";
@@ -3659,6 +3660,7 @@
 "sort_oldest_to_newest" = "सबसे पुराने से नवीनतम";
 "sort_source_date" = "स्रोत दिनांक";
 "sort_title" = "शीर्षक";
+"sort_file_name" = "फ़ाइल नाम";
 "sort_z_to_a" = "जेड-ए";
 "source" = "स्रोत";
 "source_auth_failed_message_generic" = "लॉगिन विफल। क्रेडेंशियल या NAS स्थिति जांचें।";

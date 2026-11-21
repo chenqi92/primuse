@@ -116,6 +116,7 @@
 // MARK: - Sort
 "sort_by" = "Sort By";
 "sort_title" = "Title";
+"sort_file_name" = "File Name";
 "sort_artist" = "Artist";
 "sort_album" = "Album";
 "sort_track_order" = "Track Order";
@@ -1874,6 +1875,7 @@
 "show_desktop_lyrics" = "Show desktop lyrics";
 "hide_desktop_lyrics" = "Hide desktop lyrics";
 "lock_desktop_lyrics" = "Lock desktop lyrics";
+"desktop_lyrics_click_through" = "Click through desktop lyrics";
 "toggle_desktop_lyrics_lock" = "Lock / unlock desktop lyrics";
 "desktop_lyrics_locked" = "Desktop lyrics locked";
 "desktop_lyrics_unlocked" = "Desktop lyrics unlocked";

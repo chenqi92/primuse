@@ -372,6 +372,7 @@
 "unknown_artist" = "不明なアーティスト";
 "sort_by" = "並べ替え";
 "sort_title" = "タイトル";
+"sort_file_name" = "ファイル名";
 "sort_artist" = "アーティスト";
 "sort_album" = "アルバム";
 "sort_track_order" = "トラック順";
@@ -1853,6 +1854,7 @@
 "show_desktop_lyrics" = "デスクトップ歌詞を表示";
 "hide_desktop_lyrics" = "デスクトップ歌詞を非表示";
 "lock_desktop_lyrics" = "デスクトップ歌詞をロック";
+"desktop_lyrics_click_through" = "デスクトップ歌詞の背後をクリック可能にする";
 "toggle_desktop_lyrics_lock" = "デスクトップ歌詞をロック／ロック解除";
 "desktop_lyrics_locked" = "デスクトップ歌詞をロックしました";
 "desktop_lyrics_unlocked" = "デスクトップ歌詞のロックを解除しました";
