@@ -6502,6 +6502,7 @@
 "lyrics_sources_local_copy" = "Vous voyez une version modifiée enregistrée uniquement dans Primuse. Touchez un fichier pour revenir aux paroles de ce fichier.";
 "lyrics_sources_unsaved_banner" = "L’éditeur contient des modifications non enregistrées. Si vous changez de source ou réécrivez le fichier utilisé, l’éditeur se recharge avec le nouveau contenu et ces modifications sont perdues.";
 "lyrics_version_changed_elsewhere" = "Les paroles ont été modifiées ailleurs. Enregistrez à nouveau pour les remplacer par ce que vous modifiez, ou annulez et rouvrez l’éditeur pour voir la nouvelle version.";
+"lyrics_version_hidden_in_primuse" = "Les paroles sont masquées dans Primuse. Les paroles enregistrées dans le fichier n’ont pas été modifiées. Pour les réutiliser, choisissez-les dans « Sources des paroles ».";
 "lyrics_sources_switch_confirm_title %@" = "Utiliser %@ ?";
 "lyrics_sources_switch_confirm_message" = "L’éditeur se recharge à partir de ce fichier ; les modifications non enregistrées seront perdues.";
 "lyrics_sources_switch_action" = "Utiliser ce fichier";

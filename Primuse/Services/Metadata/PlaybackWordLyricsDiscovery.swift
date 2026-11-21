@@ -143,11 +143,16 @@ final class PlaybackWordLyricsDiscovery {
             guard self.isCurrent(song), !Task.isCancelled else { return }
             let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
             let hasSelectedCandidate = await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id).selected != nil
+            // 用户清空过、或者正在用的是用户自己保存的那份：不替用户去找逐字歌词。
+            let userCleared = await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id)
+            let userPinned = await MetadataAssetStore.shared.isUserPinned(forSongID: song.id)
+            guard !userCleared else { return }
             guard WordLyricsDiscoveryPolicy.shouldExplore(
                 enabled: self.enabled,
                 isPlaying: self.playback().isPlaying,
                 isSpokenWord: self.playback().isSpokenWord,
-                isPinned: hasSelectedCandidate || LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil,
+                isPinned: hasSelectedCandidate || userPinned
+                    || LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil,
                 lyrics: cached ?? displayed
             ) else { return }
             let settings = self.settings()

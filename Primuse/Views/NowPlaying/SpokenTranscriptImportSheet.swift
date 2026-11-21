@@ -143,7 +143,9 @@ struct SpokenTranscriptImportSheet: View {
         phase = .importing
         var imported = 0
         for row in plan.rows {
-            guard await MetadataAssetStore.shared.cacheLyrics(row.lines, forSongID: row.song.id, force: true) else {
+            guard await MetadataAssetStore.shared.cacheLyrics(
+                row.lines, forSongID: row.song.id, force: true, origin: .user
+            ) else {
                 continue
             }
             imported += 1

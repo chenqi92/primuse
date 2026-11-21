@@ -9093,7 +9093,10 @@ final class AudioPlayerService {
         systemLyricsLoadTask = Task { @MainActor [weak self, capturedSourceManager] in
             let lyrics: [LyricLine]
             if song.sourceID == AppleMusicLibraryService.systemSourceID {
-                if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+                if await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id) {
+                    // 用户清空过这首歌的歌词：锁屏、小组件也显示没有歌词。
+                    lyrics = []
+                } else if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
                     lyrics = cached
                 } else if let fetched = await AppServices.shared.appleMusicLibrary
                     .fetchLyrics(for: song), !fetched.isEmpty {

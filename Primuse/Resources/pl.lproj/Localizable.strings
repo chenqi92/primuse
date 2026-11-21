@@ -6408,6 +6408,7 @@
 "lyrics_sources_local_copy" = "Widzisz zmienioną wersję zapisaną tylko w Primuse. Stuknij plik, aby wrócić do tekstu z tego pliku.";
 "lyrics_sources_unsaved_banner" = "W edytorze są niezapisane zmiany. Po zmianie źródła lub nadpisaniu używanego pliku edytor wczyta nową zawartość, a te zmiany nie zostaną zachowane.";
 "lyrics_version_changed_elsewhere" = "Tekst został zmieniony gdzie indziej. Zapisz ponownie, aby zastąpić go tym, co teraz edytujesz, albo anuluj i otwórz edytor jeszcze raz, aby zobaczyć nową wersję.";
+"lyrics_version_hidden_in_primuse" = "Tekst został ukryty w Primuse. Tekst zapisany w pliku nie został zmieniony. Aby znów go używać, wybierz go w „Źródłach tekstu”.";
 "lyrics_sources_switch_confirm_title %@" = "Użyć pliku %@?";
 "lyrics_sources_switch_confirm_message" = "Edytor wczyta zawartość tego pliku, a niezapisane zmiany przepadną.";
 "lyrics_sources_switch_action" = "Użyj tego pliku";

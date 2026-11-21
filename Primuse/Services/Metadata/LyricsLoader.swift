@@ -150,12 +150,14 @@ enum LyricsLoader {
                 return serverSource.stamped(usable)
             },
             replace: { lines in
+                // 用户点了「从源重新读取」是对这首歌的明确动作，可以解除清空；自动核对不行。
                 let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                     lines,
                     forSongID: songID,
                     expectedFingerprint: capturedFingerprint,
                     force: trigger != .automatic || supersedesCachedDocument,
-                    preservingSelection: trigger != .explicit
+                    preservingSelection: trigger != .explicit,
+                    origin: trigger == .explicit ? .user : .sourceDocument
                 )
                 if wrote {
                     await MainActor.run {
@@ -335,12 +337,19 @@ enum LyricsLoader {
         sourceType: MusicSourceType? = nil,
         allowsAutomaticOnlineLyrics: Bool = true
     ) async -> [LyricLine] {
+        // 用户清空过：播放页、桌面歌词、锁屏、小组件、车机都显示没有歌词，也不去源里或在线找。
+        if await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id) {
+            plog("📜 LyricsLoader songID=\(song.id.prefix(8)) cleared by the listener")
+            return []
+        }
         if var cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
             guard !Task.isCancelled else { return [] }
             logLoaded(cached, song: song, tier: "Tier1a")
             if await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id).selected != nil {
                 return cached
             }
+            // 用户保存的那一份不按设置重挑（`reselectedEmbeddedVariant` 自己会跳过），回源核对照常：
+            // 源里真被别处改过才会换掉它。
             if let reselected = await reselectedEmbeddedVariant(for: song, cached: cached) {
                 cached = reselected
             }
@@ -360,7 +369,8 @@ enum LyricsLoader {
         }
         let isPinned = readsPinnedDocument(song)
         if !isPinned,
-           let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
+           let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName),
+           await !MetadataAssetStore.shared.isHiddenLyricsVersion(cached, forSongID: song.id) {
             guard !Task.isCancelled else { return [] }
             let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                 cached,
@@ -409,13 +419,15 @@ enum LyricsLoader {
            usesAudioCacheSidecar(for: song),
            let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
-           let parsed = SidecarMetadataLoader.loadLyrics(at: lrcURL), !parsed.isEmpty {
+           let parsed = SidecarMetadataLoader.loadLyrics(at: lrcURL), !parsed.isEmpty,
+           await !MetadataAssetStore.shared.isHiddenLyricsVersion(parsed, forSongID: song.id) {
             guard !Task.isCancelled else { return [] }
             let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                 parsed,
                 forSongID: song.id,
                 expectedFingerprint: nil,
-                force: false
+                force: false,
+                origin: .sourceDocument
             )
             guard !Task.isCancelled else { return [] }
             let resolved = wrote
@@ -683,6 +695,8 @@ enum LyricsLoader {
         cachedDocument: [LyricLine]
     ) async -> [LyricLine]? {
         guard await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id).selected == nil else { return nil }
+        let cleared = await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id)
+        guard !cleared else { return nil }
         guard !song.isCueTrack,
               !song.isStreamDescriptor,
               !PodcastPlaybackSong.isEpisode(song),
@@ -892,7 +906,9 @@ enum LyricsLoader {
     /// 读标签时因为歌旁边有歌词文件而没进缓存的内嵌歌词。源里读不到歌词文件时先用它,
     /// 再去在线找; 用上了就写进缓存, 下次直接命中。
     static func embeddedFallbackLyrics(for song: Song) async -> [LyricLine]? {
-        guard var embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id),
+        let store = MetadataAssetStore.shared
+        guard await !store.hasUserClearedLyrics(forSongID: song.id) else { return nil }
+        guard var embedded = await store.embeddedFallbackLyrics(forSongID: song.id),
               !Task.isCancelled else { return nil }
         // 文件里原文不止一份时按设置里现在那一档挑。
         if let alternatives = await MetadataAssetStore.shared.embeddedLyricsAlternatives(forSongID: song.id),
@@ -1283,6 +1299,7 @@ extension LyricsLoader {
     /// 以前每处各问一轮在线歌词源(没有歌词的歌半分钟里打四五轮); 现在同一首歌同时只问
     /// 一轮；成功后冷却 6 小时，未取到时 60 秒后允许再试。
     static func serverFallbackOnlineLyrics(for song: Song) async -> [LyricLine]? {
+        guard await !MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id) else { return nil }
         // 没网、或者用户不让这个 App 联网时不问，也不记进台账：网络回来后这首照常能问。
         await NetworkMonitor.shared.waitForInitialPath()
         guard NetworkMonitor.shared.allowsAutomaticInternetRequests else { return nil }
@@ -1308,6 +1325,7 @@ extension LyricsLoader {
     ) async -> [LyricLine]? {
         guard !Task.isCancelled else { return nil }
         guard songAcceptsAutomaticOnlineLyrics(song) else { return nil }
+        guard await !MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id) else { return nil }
         guard AutomaticOnlineLyricsGate.allowsAutomaticFetch(settings: ScraperSettings.load()) else {
             return nil
         }

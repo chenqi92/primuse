@@ -6263,6 +6263,7 @@
 "lyrics_sources_local_copy" = "You're seeing an edited version saved only in Primuse. Tap a file to go back to the lyrics in that file.";
 "lyrics_sources_unsaved_banner" = "The editor has unsaved changes. After you switch sources or rewrite the file in use, the editor reloads with the new content and those changes are discarded.";
 "lyrics_version_changed_elsewhere" = "These lyrics were updated somewhere else. Save again to replace them with what you’re editing now, or cancel and reopen the editor to see the new version.";
+"lyrics_version_hidden_in_primuse" = "The lyrics are hidden in Primuse. The lyrics stored in the file were not changed. To use them again, pick them in Lyrics Sources.";
 "lyrics_sources_switch_confirm_title %@" = "Use %@?";
 "lyrics_sources_switch_confirm_message" = "The editor reloads from this file and its unsaved changes are discarded.";
 "lyrics_sources_switch_action" = "Use This File";

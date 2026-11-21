@@ -6502,6 +6502,7 @@
 "lyrics_sources_local_copy" = "Du siehst eine bearbeitete Fassung, die nur in Primuse gespeichert ist. Tippe auf eine Datei, um wieder den Songtext aus dieser Datei zu verwenden.";
 "lyrics_sources_unsaved_banner" = "Im Editor gibt es ungesicherte Änderungen. Wenn du die Quelle wechselst oder die verwendete Datei überschreibst, lädt der Editor den neuen Inhalt und diese Änderungen gehen verloren.";
 "lyrics_version_changed_elsewhere" = "Der Liedtext wurde an anderer Stelle geändert. Speichere noch einmal, um ihn durch deine aktuelle Bearbeitung zu ersetzen, oder brich ab und öffne den Editor erneut, um die neue Fassung zu sehen.";
+"lyrics_version_hidden_in_primuse" = "Der Liedtext ist in Primuse ausgeblendet. Der in der Datei gespeicherte Liedtext wurde nicht verändert. Um ihn wieder zu verwenden, wähle ihn unter „Songtextquellen“.";
 "lyrics_sources_switch_confirm_title %@" = "%@ verwenden?";
 "lyrics_sources_switch_confirm_message" = "Der Editor lädt diese Datei neu; ungesicherte Änderungen gehen verloren.";
 "lyrics_sources_switch_action" = "Diese Datei verwenden";

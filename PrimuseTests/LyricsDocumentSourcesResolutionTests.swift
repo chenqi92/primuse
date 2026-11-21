@@ -728,6 +728,55 @@ final class LyricsUserVersionTests: XCTestCase {
         XCTAssertEqual(current?.map(\.text), ["After"])
     }
 
+    func testClearingStaysClearedUntilTheListenerActsAgain() async throws {
+        let song = song()
+        let store = MetadataAssetStore.shared
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [song.id]) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        library.addSongs([song])
+        let manager = SourceManager(sourcesProvider: { [] })
+        let fileLines = embedded("[00:01.00]Words in the file")
+        let seeded = await store.cacheLyrics(fileLines, forSongID: song.id, force: true)
+        XCTAssertTrue(seeded)
+        await store.storeEmbeddedFallbackLyrics(fileLines, forSongID: song.id)
+        let opened = await store.cachedLyrics(forSongID: song.id)
+        let snapshot = try XCTUnwrap(opened.map(LyricsDocumentFingerprint.init(lines:)))
+
+        // A read-only source used to refuse this: there was nothing durable to remember it by.
+        let outcome = await LyricsWriteback.save(
+            text: "", for: song, mode: .localOnly(reason: nil), allowRemoval: true,
+            cacheSnapshot: snapshot, sourceManager: manager, library: library
+        )
+        XCTAssertTrue(outcome.succeeded, outcome.errorMessage ?? "")
+        XCTAssertEqual(outcome.notice, String(localized: "lyrics_version_hidden_in_primuse"))
+        let cleared = await store.hasUserClearedLyrics(forSongID: song.id)
+        XCTAssertTrue(cleared)
+
+        let automatic = await store.cacheLyrics(embedded("[00:01.00]Online"), forSongID: song.id)
+        XCTAssertFalse(automatic)
+        let completion = await store.cacheLyrics(embedded("[00:01.00]Filled in"), forSongID: song.id, force: true)
+        XCTAssertFalse(completion)
+        let loaded = await LyricsLoader.load(for: song, sourceManager: manager)
+        XCTAssertTrue(loaded.isEmpty)
+        let fallback = await LyricsLoader.embeddedFallbackLyrics(for: song)
+        XCTAssertNil(fallback)
+        let payload = await LyricsWriteback.loadEditablePayload(for: song, sourceManager: manager)
+        XCTAssertEqual(payload.text, "")
+
+        let picked = await store.cacheLyrics(
+            embedded("[00:01.00]Picked again"), forSongID: song.id, force: true, origin: .user
+        )
+        XCTAssertTrue(picked)
+        let stillCleared = await store.hasUserClearedLyrics(forSongID: song.id)
+        XCTAssertFalse(stillCleared)
+        let reloaded = await LyricsLoader.load(
+            for: song, sourceManager: manager, allowsAutomaticOnlineLyrics: false
+        )
+        XCTAssertEqual(reloaded.map(\.text), ["Picked again"])
+    }
+
     func testEmbeddedRecordsFollowTheReplacedVersion() async throws {
         let song = song()
         let store = MetadataAssetStore.shared

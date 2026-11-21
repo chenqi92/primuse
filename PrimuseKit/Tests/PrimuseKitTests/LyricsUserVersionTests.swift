@@ -61,6 +61,41 @@ struct LyricsUserVersionTests {
         #expect(admits("edited-on-another-device"))
     }
 
+    @Test("A cleared song refuses every automatic write until the listener acts; hidden versions stay out")
+    func clearedAndHiddenVersions() {
+        let cleared = LyricsUserChoicePolicy.choice(afterUserClear: nil)
+        #expect(cleared.isCleared)
+        // Background completion, online fallback, a scrape that only fills gaps, a tag re-read: none of them.
+        for origin in [LyricsCacheWriteOrigin.automatic, .sourceDocument] {
+            #expect(!LyricsUserChoicePolicy.admitsWrite(
+                origin: origin, force: true, preservingSelection: false,
+                choice: cleared, currentFingerprint: nil, incomingFingerprint: "incoming"
+            ))
+        }
+        #expect(LyricsUserChoicePolicy.admitsWrite(
+            origin: .user, force: false, preservingSelection: false,
+            choice: cleared, currentFingerprint: nil, incomingFingerprint: "incoming"
+        ))
+        let lifted = LyricsUserChoicePolicy.choice(afterUserWriteOf: "incoming", previous: cleared)
+        #expect(!lifted.isCleared)
+        #expect(lifted.savedFingerprint == "incoming")
+
+        let hidden = LyricsUserChoicePolicy.choice(hiding: "old", previous: nil)
+        #expect(!LyricsUserChoicePolicy.admitsWrite(
+            origin: .sourceDocument, force: false, preservingSelection: false,
+            choice: hidden, currentFingerprint: nil, incomingFingerprint: "old"
+        ))
+        #expect(LyricsUserChoicePolicy.admitsWrite(
+            origin: .automatic, force: false, preservingSelection: false,
+            choice: hidden, currentFingerprint: nil, incomingFingerprint: "other"
+        ))
+        // Picking the hidden version again brings it back.
+        let chosen = LyricsUserChoicePolicy.choice(afterUserWriteOf: "old", previous: hidden)
+        #expect(chosen.hiddenFingerprints.isEmpty)
+        // Clearing keeps what was hidden.
+        #expect(LyricsUserChoicePolicy.choice(afterUserClear: hidden).hiddenFingerprints == ["old"])
+    }
+
     @Test("A choice survives encoding and older records decode")
     func choiceRoundTrip() throws {
         let choice = LyricsUserChoice(

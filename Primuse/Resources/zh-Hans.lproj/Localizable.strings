@@ -6595,6 +6595,7 @@
 "lyrics_sources_local_copy" = "现在显示的是只存在 Primuse 里的修改版本。点一个文件就改回用文件里的歌词。";
 "lyrics_sources_unsaved_banner" = "编辑器里还有没存的修改。换来源或改写正在用的文件之后，编辑器会按新内容重新载入，这些修改不会保留。";
 "lyrics_version_changed_elsewhere" = "这首歌的歌词在别处有更新。再保存一次会用你现在编辑的内容覆盖它；想先看看新的，就取消编辑后重新打开。";
+"lyrics_version_hidden_in_primuse" = "已在 Primuse 里隐藏这首歌的歌词，文件里的歌词没有动。之后想用回来，可以在「歌词来源」里选。";
 "lyrics_sources_switch_confirm_title %@" = "改用 %@？";
 "lyrics_sources_switch_confirm_message" = "编辑器会按这个文件重新载入，没存的修改会丢掉。";
 "lyrics_sources_switch_action" = "改用这个文件";

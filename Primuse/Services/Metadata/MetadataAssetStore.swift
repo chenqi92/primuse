@@ -924,6 +924,32 @@ actor MetadataAssetStore {
         }
     }
 
+    /// 用户清空了这首歌的歌词，之后还没有对它做过新的明确动作。期间各处都显示没有歌词，
+    /// 不自动在线取词、不从备用内嵌歌词恢复、不被后台补全和旁路复查填回。
+    func hasUserClearedLyrics(forSongID songID: String) -> Bool {
+        userLyricsChoice(forSongID: songID)?.isCleared == true
+    }
+
+    /// 用户清空了歌词（或者把版本删到一份不剩）。
+    func markLyricsCleared(forSongID songID: String) {
+        storeUserLyricsChoice(
+            LyricsUserChoicePolicy.choice(afterUserClear: userLyricsChoice(forSongID: songID)),
+            forSongID: songID
+        )
+        plog("📝 lyrics cleared by the listener songID=\(songID.prefix(8))")
+    }
+
+    /// 用户对这首歌做了明确的动作，但这次不经过 `cacheLyrics(origin: .user)`（比如点了「刮削数据」、
+    /// 「获取歌词」，结果还在路上）：先解除清空，让结果能写进来。
+    func liftUserLyricsClear(forSongID songID: String) {
+        guard var choice = userLyricsChoice(forSongID: songID), choice.isCleared else { return }
+        choice.isCleared = false
+        choice.updatedAt = Date()
+        storeUserLyricsChoice(choice, forSongID: songID)
+        plog("📝 lyrics clear lifted by the listener songID=\(songID.prefix(8))")
+    }
+
+    /// 缓存里还是用户保存的那一份：不读源的自动路径不该再去换它。
     func isUserPinned(forSongID songID: String) -> Bool {
         guard let choice = userLyricsChoice(forSongID: songID), choice.savedFingerprint != nil else {
             return false
@@ -1145,10 +1171,13 @@ actor MetadataAssetStore {
         )
     }
 
+    /// 用户清空歌词的事务收尾：删缓存，并记下「用户清空了」，之后自动路径不能再把歌词填回来。
     func commitLyricsRemoval(forSongID songID: String, token: UUID) -> Bool {
         guard lyricsMutationReservations[songID] == token else { return false }
         lyricsMutationReservations[songID] = nil
-        return invalidateLyricsCache(forSongID: songID)
+        guard invalidateLyricsCache(forSongID: songID) else { return false }
+        markLyricsCleared(forSongID: songID)
+        return true
     }
 
     func cancelLyricsMutation(forSongID songID: String, token: UUID) {
@@ -1321,6 +1350,8 @@ actor MetadataAssetStore {
             else { try? FileManager.default.removeItem(at: cacheURL) }
             return false
         }
+        // 用户在来源页选用了这一份：解除清空，记成用户选定的版本。
+        recordUserLyricsSave(forSongID: songID, replacing: previous)
         Self.postLyricsCached(songID: songID, lines: candidate.lines)
         return true
     }
@@ -1464,14 +1495,18 @@ actor MetadataAssetStore {
 
     /// Compare-and-delete counterpart used by the editor. This prevents a
     /// stale window from removing lyrics saved by a newer window.
+    /// - Parameter marksCleared: 这是用户清空歌词：删掉之后记下「用户清空了」。
     func invalidateLyricsCacheIfUnchanged(
         forSongID songID: String,
-        expectedFingerprint: LyricsDocumentFingerprint?
+        expectedFingerprint: LyricsDocumentFingerprint?,
+        marksCleared: Bool = false
     ) -> Bool {
         let currentFingerprint = cachedLyrics(forSongID: songID)
             .map(LyricsDocumentFingerprint.init(lines:))
         guard currentFingerprint == expectedFingerprint else { return false }
-        return invalidateLyricsCache(forSongID: songID)
+        guard invalidateLyricsCache(forSongID: songID) else { return false }
+        if marksCleared { markLyricsCleared(forSongID: songID) }
+        return true
     }
 
     /// Shared legacy directories cannot be dropped with a source's cache tree.

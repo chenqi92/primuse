@@ -12430,6 +12430,13 @@ struct NowPlayingView: View {
         guard let song = player.currentSong else { setLyrics([]); return }
         let loadStart = Date()
 
+        // 用户清空过这首歌的歌词：不读缓存、不回源、不在线找，直到用户对它做了新的明确动作。
+        if await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id) {
+            plog("📜 loadLyrics songID=\(song.id.prefix(8)) cleared by the listener")
+            setLyricsIfCurrent([], for: song, loadRevision: loadRevision)
+            return
+        }
+
         if song.sourceID == AppleMusicLibraryService.systemSourceID {
             let lyrics = await LyricsLoader.load(for: song, sourceManager: sourceManager)
             setLyricsIfCurrent(lyrics, for: song, loadRevision: loadRevision)
@@ -12480,7 +12487,8 @@ struct NowPlayingView: View {
         // Tier 1b: legacy named ref (only for non-NAS path)
         if !lyricsRefIsRemote,
            !readsPinnedDocument,
-           let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
+           let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName),
+           await !MetadataAssetStore.shared.isHiddenLyricsVersion(cached, forSongID: song.id) {
             guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
             await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
             plog(String(format: "📜 loadLyrics '%@' Tier1b hit (named ref) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, cached.count))
@@ -12498,9 +12506,10 @@ struct NowPlayingView: View {
            LyricsLoader.usesAudioCacheSidecar(for: song),
            let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
-           let parsed = SidecarMetadataLoader.loadLyrics(at: lrcURL), !parsed.isEmpty {
+           let parsed = SidecarMetadataLoader.loadLyrics(at: lrcURL), !parsed.isEmpty,
+           await !MetadataAssetStore.shared.isHiddenLyricsVersion(parsed, forSongID: song.id) {
             guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
-            await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+            await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id, origin: .sourceDocument)
             plog(String(format: "📜 loadLyrics '%@' Tier2 hit (audio cache sidecar) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, parsed.count))
             setLyricsIfCurrent(parsed, for: song, loadRevision: loadRevision); return
         }
@@ -13200,6 +13209,8 @@ struct NowPlayingView: View {
     }
 
     private func openScrapeForCurrentSongWithEnabledSource(_ displayedSong: Song) {
+        // 用户明确要刮这首的数据：解除「用户清空了歌词」，挑中的歌词才写得进来。
+        Task { await MetadataAssetStore.shared.liftUserLyricsClear(forSongID: displayedSong.id) }
         guard displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID else {
             scrapeTargetSong = displayedSong
             return
@@ -13259,18 +13270,26 @@ struct NowPlayingView: View {
         lyricsLoadRevision &+= 1
 
         guard displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID else {
-            handleAutomaticScrapeStart(
-                scraperService.startSingleScrape(song: displayedSong, in: library),
-                song: displayedSong,
-                lyricsOnly: false
-            )
+            Task { @MainActor in
+                // 用户点了「获取歌词」：先解除「用户清空了歌词」，取到的结果才写得进来。
+                await MetadataAssetStore.shared.liftUserLyricsClear(forSongID: displayedSong.id)
+                handleAutomaticScrapeStart(
+                    scraperService.startSingleScrape(song: displayedSong, in: library),
+                    song: displayedSong,
+                    lyricsOnly: false
+                )
+            }
             return
         }
 
         isResolvingScrapeTarget = true
         Task { @MainActor in
             defer { isResolvingScrapeTarget = false }
+            await MetadataAssetStore.shared.liftUserLyricsClear(forSongID: displayedSong.id)
             let song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
+            if song.id != displayedSong.id {
+                await MetadataAssetStore.shared.liftUserLyricsClear(forSongID: song.id)
+            }
             if song.id != displayedSong.id {
                 _ = await MetadataAssetStore.shared.preserveLyricsAlias(
                     fromSongID: displayedSong.id,

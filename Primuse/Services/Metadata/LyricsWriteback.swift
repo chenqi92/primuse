@@ -237,6 +237,22 @@ enum LyricsWriteback {
         sourceManager: SourceManager,
         cached: [LyricLine]?
     ) async -> EditablePayload {
+        if cached == nil, await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id) {
+            // 用户清空过：编辑器从空白开始，不把文件里隐藏起来的那份又摆出来。
+            // 源的快照照常记，保存时核对它有没有被别处改过。
+            let snapshot: EditableSourceSnapshot
+            switch await LyricsLoader.readAuthoritativeSourceText(for: song, sourceManager: sourceManager) {
+            case .content(let content):
+                snapshot = .content(normalizedSourceText(content))
+            case .absent:
+                snapshot = LyricsLoader.locallyMaterializedSourceText(for: song, sourceManager: sourceManager) == nil
+                    ? .absent
+                    : .unknown
+            case .unavailable:
+                snapshot = .unknown
+            }
+            return EditablePayload(text: "", structuredLines: nil, sourceSnapshot: snapshot)
+        }
         if let cached, await LyricsLoader.prefersCachedDocument(for: song) {
             return EditablePayload(text: LyricsContentParser.serialize(cached), structuredLines: cached)
         }
@@ -1003,6 +1019,7 @@ enum LyricsWriteback {
         var savedPersistence = requestedPersistence
         var savedCacheSnapshot = cacheSnapshot
         var embeddedCopy = EmbeddedCopyResult.notAttempted
+        var clearNotice: String?
         // 嵌入只跟着「写歌词文件」这条路走：媒体服务器和只读源本来就碰不到音频文件。
         let embeddingMode: LyricsEmbeddingMode
         let lyricsDocumentExists: Bool
@@ -1022,29 +1039,23 @@ enum LyricsWriteback {
                     persistence: requestedPersistence
                 )
             }
-            if case .localOnly = mode {
-                // Clearing only Primuse's cache cannot suppress a scanned
-                // embedded field or a confirmed-empty source's online
-                // fallback. Without a durable tombstone, refuse to report a
-                // deletion that the next load can immediately resurrect.
-                return SaveOutcome(
-                    updatedSong: song,
-                    errorMessage: String(localized: "tag_editor_lyrics_verify_failed"),
-                    persistence: requestedPersistence
-                )
-            }
             // 旁边没有任何歌词文档、又开了嵌入时，歌词就在音频文件里：删的是嵌入的那份。
             let removesEmbeddedLyrics = embeddingMode != .off && !lyricsDocumentExists
+            // 源写不了（只存在本机），或者旁边本来就没有歌词文件、又没开嵌入：文件里没有能删的，
+            // 只在 Primuse 里清空，记下「用户清空了」，之后自动路径不会再把歌词填回来。
+            var clearsOnlyInPrimuse = false
+            if case .localOnly = mode { clearsOnlyInPrimuse = true }
             if case .sidecar(let target) = mode,
                !target.replacesExistingFile,
                !removesEmbeddedLyrics {
-                // Removing a sidecar that never existed cannot delete an
-                // embedded, scanned, or cache-only authority, and there is no
-                // durable tombstone today.
-                return SaveOutcome(
-                    updatedSong: song,
-                    errorMessage: String(localized: "tag_editor_lyrics_verify_failed"),
-                    persistence: requestedPersistence
+                clearsOnlyInPrimuse = true
+            }
+            if clearsOnlyInPrimuse {
+                return await clearOnlyInPrimuse(
+                    for: song,
+                    persistence: requestedPersistence,
+                    cacheSnapshot: cacheSnapshot,
+                    library: library
                 )
             }
             guard await sourceStillMatches(
@@ -1090,6 +1101,15 @@ enum LyricsWriteback {
                 embeddedCopy = write.copy
                 removalError = embeddedCopy.failureReason
                 savedPersistence = .embedded
+                if case .written = embeddedCopy, case .done(let result, let remaining)? = write.report {
+                    await MetadataAssetStore.shared.updateEmbeddedLyricsRecords(
+                        forSongID: song.id,
+                        result: result,
+                        anchor: nil,
+                        text: nil
+                    )
+                    if remaining { clearNotice = String(localized: "lyrics_version_embedded_remaining") }
+                }
             } else {
                 removalError = await remove(for: updated, mode: mode, sourceManager: sourceManager)
             }
@@ -1135,17 +1155,32 @@ enum LyricsWriteback {
             savedCacheSnapshot = nil
             updated.lyricsFileName = nil
             updated.lyricsText = nil
+            let keptEmbeddedLyrics = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id)
+            if !removesEmbeddedLyrics, embeddingMode == .off, keptEmbeddedLyrics != nil {
+                // 歌词文件删了，音频文件里自带的那份没开嵌入、不能动：它只在 Primuse 里隐藏。
+                clearNotice = String(localized: "lyrics_version_sidecar_deleted_embedded_hidden")
+            }
             if case .sidecar(let target) = mode, !removesEmbeddedLyrics {
                 LyricsDocumentPinStore.shared.forgetFile(named: target.fileName, forSongID: song.id)
             }
             if !removesEmbeddedLyrics, embeddingMode != .off {
                 // 歌词文件删掉了，嵌入的那份也要删，否则下次扫描会把它读回来。
-                embeddedCopy = await writeEmbeddedCopy(
-                    .remove,
+                let write = await writeEmbeddedField(
+                    .removeAllOriginals,
                     for: updated,
                     sourceManager: sourceManager,
                     library: library
                 )
+                embeddedCopy = write.copy
+                if case .written = embeddedCopy, case .done(let result, let remaining)? = write.report {
+                    await MetadataAssetStore.shared.updateEmbeddedLyricsRecords(
+                        forSongID: song.id,
+                        result: result,
+                        anchor: nil,
+                        text: nil
+                    )
+                    if remaining { clearNotice = String(localized: "lyrics_version_embedded_remaining") }
+                }
             }
         } else {
             let validation = LyricsContentParser.validateEditableText(content)
@@ -1426,6 +1461,52 @@ enum LyricsWriteback {
         )
         if case .failed(let reason, _) = embeddedCopy {
             outcome.embeddedCopyError = reason
+        }
+        outcome.notice = clearNotice
+        return outcome
+    }
+
+    /// 只在 Primuse 里清空：删本机缓存、记下「用户清空了」，音频文件和歌词文件都不动。
+    /// 文件里自带的歌词还在时如实告诉用户：已在 Primuse 里隐藏，文件里的歌词没有动。
+    private static func clearOnlyInPrimuse(
+        for song: Song,
+        persistence: SaveOutcome.Persistence,
+        cacheSnapshot: LyricsDocumentFingerprint?,
+        library: MusicLibrary
+    ) async -> SaveOutcome {
+        let store = MetadataAssetStore.shared
+        let cached = await store.cachedLyrics(forSongID: song.id)
+        let cachedKind = cached.flatMap { LyricsDocumentSource.of($0)?.kind }
+        let embeddedFallback = await store.embeddedFallbackLyrics(forSongID: song.id)
+        let embeddedAlternatives = await store.embeddedLyricsAlternatives(forSongID: song.id)
+        let hasEmbeddedRecord = embeddedFallback != nil || embeddedAlternatives != nil
+        let fileKeepsLyrics = hasEmbeddedRecord
+            || cachedKind == .file || cachedKind == .embedded || cachedKind == .server
+            || cachedKind == .appleMusic
+        guard await store.invalidateLyricsCacheIfUnchanged(
+            forSongID: song.id,
+            expectedFingerprint: cacheSnapshot,
+            marksCleared: true
+        ) else {
+            return staleFailure(for: song, persistence: persistence, .cache)
+        }
+        library.flushPendingAssetReferencePatches()
+        var committed = song
+        committed.lyricsText = nil
+        if var latest = library.storedSong(id: song.id) {
+            // 文件还在，引用照旧留着：用户以后在来源页选回它时还找得到。
+            latest.lyricsText = nil
+            library.replaceSong(latest)
+            committed = latest
+        }
+        NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
+        var outcome = SaveOutcome(
+            updatedSong: committed,
+            errorMessage: nil,
+            persistence: fileKeepsLyrics ? .localOnly : persistence
+        )
+        if fileKeepsLyrics {
+            outcome.notice = String(localized: "lyrics_version_hidden_in_primuse")
         }
         return outcome
     }
