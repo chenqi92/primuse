@@ -144,6 +144,14 @@ def build_marks() -> dict[str, tuple[Layer, Layer | None]]:
         (glyph_colour(load("22-kai-dark"), dark_alpha), dark_alpha),
     )
 
+    with Image.open(RAW_DIR / "23-ribbon-note-tinted.png") as ribbon:
+        mask = ribbon.getchannel("A").resize((SIDE, SIDE), Image.Resampling.LANCZOS)
+    alpha = np.asarray(mask, dtype=float) / 255
+    marks["AppIcon23"] = (
+        (glyph_colour(load("23-ribbon-note"), alpha), alpha),
+        (glyph_colour(load("23-ribbon-note-dark"), alpha), alpha),
+    )
+
     alpha = luma_alpha(load("15-folded-note-tinted"), 1, 10, 40)
     marks["AppIcon15"] = (
         (glyph_colour(load("15-folded-note"), alpha), alpha),

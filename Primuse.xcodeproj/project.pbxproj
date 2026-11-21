@@ -2223,6 +2223,7 @@
 		E69C14A8F61B6822F6426908 /* PMPlaybackVolumeControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10CFE1EAE8AD179E6A7CF5A0 /* PMPlaybackVolumeControl.swift */; };
 		E6A240838BE0AD9CC2C17761 /* libavutil.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 97F67F7EA254BBF6D2BA74A0 /* libavutil.xcframework */; };
 		E6B6179903F5EEC5ED020942 /* TVMetadataScrapeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A194C114E2993714AF699014 /* TVMetadataScrapeService.swift */; };
+		E6BB109383A225FA5491595C /* AppIcon23.icon in Resources */ = {isa = PBXBuildFile; fileRef = 626D094955E376EA6D21F83C /* AppIcon23.icon */; };
 		E6DBB654D10BCAAAD099D321 /* PlexAccountSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25FDBC3381B10645FE8E89D2 /* PlexAccountSignIn.swift */; };
 		E7071AF18FB302425A91145B /* libavutil.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 97F67F7EA254BBF6D2BA74A0 /* libavutil.xcframework */; };
 		E71FA426EFC830D0C5A66E13 /* PodcastText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A4131ED5151550113E19983 /* PodcastText.swift */; };
@@ -3444,6 +3445,7 @@
 		61EACF0F812C134ED35D5209 /* SongBatchRemovalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongBatchRemovalService.swift; sourceTree = "<group>"; };
 		6260D8F4F4648F9D7376C4F5 /* BaiduPanIncrementalSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduPanIncrementalSync.swift; sourceTree = "<group>"; };
 		62665C6DA078B24ACC4A727E /* ListeningStatsChartsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningStatsChartsView.swift; sourceTree = "<group>"; };
+		626D094955E376EA6D21F83C /* AppIcon23.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon23.icon; sourceTree = "<group>"; };
 		62A323DB607FAB5DFC8100D0 /* KaraokeRemoteMicView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeRemoteMicView.swift; sourceTree = "<group>"; };
 		62D6E69627D9C8F06B3BC8AC /* PrimuseListeningAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseListeningAppIntents.swift; sourceTree = "<group>"; };
 		62D9F0A8D9C14DFD67C1FA67 /* HomeSpotlightSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSpotlightSelection.swift; sourceTree = "<group>"; };
@@ -5650,6 +5652,7 @@
 				328976B021ACE0B2395E2621 /* AppIcon19.icon */,
 				F6B0D08B5C57B0A2DE16008F /* AppIcon20.icon */,
 				A43A360E6279A02B177A94BF /* AppIcon22.icon */,
+				626D094955E376EA6D21F83C /* AppIcon23.icon */,
 				E3DC10AB83FEFC7C9458FA71 /* AppIconGroove.icon */,
 				0C6DBCC2480F1607676C8F97 /* AppIconPrimary.icon */,
 			);
@@ -7371,6 +7374,7 @@
 				D5AA281AE069EFCD8F0377B3 /* AppIcon19.icon in Resources */,
 				FB68485AACD2198288DB5786 /* AppIcon20.icon in Resources */,
 				DDE9CB1C49A7786E6984A17E /* AppIcon22.icon in Resources */,
+				E6BB109383A225FA5491595C /* AppIcon23.icon in Resources */,
 				29EEB44B00C5D2F6411C0586 /* AppIconGroove.icon in Resources */,
 				BA6C247278C46711ECE02B19 /* AppIconPrimary.icon in Resources */,
 				BE4C8ABADBEDEAA6AFB57A3C /* AppIntentVocabulary.plist in Resources */,
@@ -10349,7 +10353,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 28EE6B136CE82FFC872F9E86 /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon22 AppIcon19 AppIcon20 AppIconGroove";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon22 AppIcon23 AppIcon19 AppIcon20 AppIconGroove";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconPrimary;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
@@ -10810,7 +10814,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 63D1E2C3BE30F68AD3F01632 /* Debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon22 AppIcon19 AppIcon20 AppIconGroove";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon22 AppIcon23 AppIcon19 AppIcon20 AppIconGroove";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconPrimary;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;

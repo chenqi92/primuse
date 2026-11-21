@@ -21,7 +21,7 @@ struct TVAppIconSettingsView: View {
                 Button("done") { dismiss() }
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 40), count: hiddenOnly ? 2 : 3), spacing: 36) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 40), count: hiddenOnly ? 2 : 4), spacing: 36) {
                 ForEach(options) { option in
                     iconButton(option)
                 }

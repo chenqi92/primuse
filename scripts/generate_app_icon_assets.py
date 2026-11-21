@@ -50,6 +50,14 @@ EXACT_ICONS = [
         "22-kai-tinted.png",
     ),
     (
+        "23-ribbon-note",
+        "AppIcon23",
+        "AppIcon23Preview",
+        "23-ribbon-note.png",
+        "23-ribbon-note-dark.png",
+        "23-ribbon-note-tinted.png",
+    ),
+    (
         "15-folded-note",
         "AppIcon15",
         "AppIcon15Preview",
@@ -67,7 +75,7 @@ EXACT_ICONS = [
     ),
 ]
 
-CATALOG_ORDER = ["AppIcon", "AppIcon20", "AppIcon19", "AppIcon22", "AppIcon15", "AppIcon12"]
+CATALOG_ORDER = [icon[1] for icon in EXACT_ICONS]
 
 # In-app previews render at 60–100 pt (and 512 pt@2x for the macOS Dock icon).
 PREVIEW_SIDE = 512
@@ -88,6 +96,10 @@ def save_direct_ios_assets(
         tinted_icon = soft_note_artwork(tinted=True)
     any_icon = any_icon.convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
     dark_icon = dark_icon.convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
+    if tinted_icon.mode == "RGBA":
+        plate = Image.new("RGB", tinted_icon.size, "black")
+        plate.paste(tinted_icon, mask=tinted_icon.getchannel("A"))
+        tinted_icon = plate
     tinted_icon = tinted_icon.convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
 
     master_path = DESIGN_DIR / f"{master_stem}.png"

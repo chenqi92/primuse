@@ -162,9 +162,12 @@ def save_groove_icon() -> None:
 
 def main() -> None:
     marks = build_marks()
-    for _, icon_name, _, light_name, dark_name, _ in EXACT_ICONS:
+    for _, icon_name, _, light_name, dark_name, tinted_name in EXACT_ICONS:
         light, dark = marks[icon_name]
-        save_icon(icon_name, light_name, dark_name, mono_glyph(dark or light))
+        with Image.open(RAW_DIR / tinted_name) as tinted:
+            mono = (tinted.resize((1024, 1024), Image.Resampling.LANCZOS)
+                    if tinted.mode == "RGBA" else mono_glyph(dark or light))
+        save_icon(icon_name, light_name, dark_name, mono)
     save_groove_icon()
 
 

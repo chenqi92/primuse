@@ -1899,6 +1899,7 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
         MacAppIcon(id: "AppIcon20", previewAsset: "AppIcon20Preview", nameKey: "icon_theme_20", tint: Color(red: 51.0 / 255, green: 217.0 / 255, blue: 79.0 / 255)),
         MacAppIcon(id: "AppIcon19", previewAsset: "AppIcon19Preview", nameKey: "icon_theme_19", tint: Color(red: 1, green: 0.059, blue: 0.267)),
         MacAppIcon(id: "AppIcon22", previewAsset: "AppIcon22Preview", nameKey: "icon_theme_22", tint: .primary),
+        MacAppIcon(id: "AppIcon23", previewAsset: "AppIcon23Preview", nameKey: "icon_theme_23", tint: .pink),
         MacAppIcon(id: "AppIcon15", previewAsset: "AppIcon15Preview", nameKey: "icon_theme_15", tint: Color(red: 0.914, green: 0.314, blue: 0.263)),
         MacAppIcon(id: "AppIcon12", previewAsset: "AppIcon12Preview", nameKey: "icon_theme_12", tint: Color(red: 0.965, green: 0.251, blue: 0.424)),
     ]

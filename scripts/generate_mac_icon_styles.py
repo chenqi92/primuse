@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -25,7 +26,7 @@ ICON_SOURCES = ROOT / "Primuse" / "Resources-iOS" / "AppIcons"
 CATALOG = ROOT / "Primuse" / "Resources-macOS" / "AppIconStyles.xcassets"
 TINT_TABLE = ROOT / "PrimuseKit" / "Sources" / "PrimuseKit" / "AppIconTintTable.swift"
 
-ICONS = ["AppIcon20", "AppIcon19", "AppIcon22", "AppIcon15", "AppIcon12", "AppIconGroove"]
+ICONS = ["AppIcon20", "AppIcon19", "AppIcon22", "AppIcon23", "AppIcon15", "AppIcon12", "AppIconGroove"]
 # 资源名后缀 → ictool rendition
 STATIC_RENDITIONS = {
     "RegularLight": "Default",
@@ -65,17 +66,19 @@ def tint_name(icon: str, mode: str, hue: float, strength: float, side: int) -> s
     return f"{icon}-{mode}-h{hue:.4f}-s{strength:.2f}-{side}.png"
 
 
-def render_all(work: Path) -> None:
+def render_all(work: Path, only_icon: str | None = None) -> None:
     tool = ictool()
     work.mkdir(parents=True, exist_ok=True)
-    for icon in ICONS:
+    icons = [only_icon] if only_icon else ICONS
+    for icon in icons:
         for suffix, rendition in STATIC_RENDITIONS.items():
             render_one(tool, icon, rendition, BODY, work / f"{icon}-{suffix}.png")
         for mode, rendition in TINT_MODES.items():
-            for hue in CAL_HUES:
-                for strength in CAL_STRENGTHS:
-                    render_one(tool, icon, rendition, CAL_SIDE,
-                               work / tint_name(icon, mode, hue, strength, CAL_SIDE), hue, strength)
+            if only_icon is None:
+                for hue in CAL_HUES:
+                    for strength in CAL_STRENGTHS:
+                        render_one(tool, icon, rendition, CAL_SIDE,
+                                   work / tint_name(icon, mode, hue, strength, CAL_SIDE), hue, strength)
             for hue, strength in FIT_SAMPLES:
                 render_one(tool, icon, rendition, BODY,
                            work / tint_name(icon, mode, hue, strength, BODY), hue, strength)
@@ -84,9 +87,11 @@ def render_all(work: Path) -> None:
 
 # MARK: - build
 
-def build_from(work: Path) -> None:
+def build_from(work: Path, only_icon: str | None = None) -> None:
     import numpy as np
     from PIL import Image, ImageFilter
+
+    calibration = {mode: bundled_calibration(mode) for mode in TINT_MODES} if only_icon else {}
 
     def load(path: Path):
         return np.asarray(Image.open(path).convert("RGBA")).astype(np.float64) / 255
@@ -138,15 +143,12 @@ def build_from(work: Path) -> None:
     (CATALOG / "Contents.json").write_text(json.dumps({"info": {"author": "xcode", "version": 1}}, indent=2)
                                            .replace('": ', '" : ') + "\n")
 
-    for icon in ICONS:
+    icons = [only_icon] if only_icon else ICONS
+    for icon in icons:
         for suffix in STATIC_RENDITIONS:
             save_imageset(f"{icon}-{suffix}", place(load(work / f"{icon}-{suffix}.png")))
 
-    grid = [(h, s) for s in CAL_STRENGTHS for h in CAL_HUES]
-    tables = {}
-    ranges = {}
-    for mode in TINT_MODES:
-        # 1. 用全部图标的小图联合拟合颜色表 T[(h, s)]：out = A + B × T，A/B 每款图标各一份。
+    def fit_tint_table(mode, grid):
         stacks = []
         for icon in ICONS:
             frames = [premultiplied(load(work / tint_name(icon, mode, h, s, CAL_SIDE))) for h, s in grid]
@@ -169,12 +171,23 @@ def build_from(work: Path) -> None:
             table = -table
         # 规范到 0...1，方便存成定点数。
         low, high = table.min(), table.max()
-        table = (table - low) / (high - low)
+        return (table - low) / (high - low)
+
+    grid = [(h, s) for s in CAL_STRENGTHS for h in CAL_HUES]
+    tables = {}
+    ranges = {}
+    for mode in TINT_MODES:
+        # 1. 用参考图标的小图拟合共享颜色表，每款图标各自拟合 A、B。
+        if calibration:
+            table, fixed_range = calibration[mode]
+        else:
+            table = fit_tint_table(mode, grid)
+            fixed_range = None
         tables[mode] = table
 
         # 2. 每款图标用大图在固定颜色表下拟合 A、B。
         maps = {}
-        for icon in ICONS:
+        for icon in icons:
             frames = [load(work / tint_name(icon, mode, h, s, BODY)) for h, s in FIT_SAMPLES]
             alpha = np.median(np.stack([f[..., 3] for f in frames]), 0)
             x = np.stack([premultiplied(f) for f in frames], -1).reshape(-1, 3, len(FIT_SAMPLES))
@@ -185,16 +198,19 @@ def build_from(work: Path) -> None:
             error = np.abs(prediction - x) * 255
             print(f"{icon} {mode}: mean {error.mean():.2f}, p99 {np.percentile(error, 99):.1f} (of 255)")
             maps[icon] = (a.reshape(BODY, BODY), b.reshape(BODY, BODY), alpha)
-        a_low = min(m[0].min() for m in maps.values())
-        a_high = max(m[0].max() for m in maps.values())
-        b_low = min(m[1].min() for m in maps.values())
-        b_high = max(m[1].max() for m in maps.values())
+        if fixed_range is not None:
+            a_low, a_high, b_low, b_high = fixed_range
+        else:
+            a_low = min(m[0].min() for m in maps.values())
+            a_high = max(m[0].max() for m in maps.values())
+            b_low = min(m[1].min() for m in maps.values())
+            b_high = max(m[1].max() for m in maps.values())
         ranges[mode] = (a_low, a_high, b_low, b_high)
         for icon, (a, b, alpha) in maps.items():
             encoded = np.stack([
                 np.round((a - a_low) / (a_high - a_low) * 255),
                 np.round((b - b_low) / (b_high - b_low) * 255),
-            ], -1).astype(np.uint8)
+            ], -1).clip(0, 255).astype(np.uint8)
             # 放进图标网格：主体外 A、B 取 0（阴影是黑色，预乘后颜色为 0），透明度并上阴影。
             canvas = np.zeros((CANVAS, CANVAS, 3), dtype=np.uint8)
             canvas[..., 0] = int(round((0 - a_low) / (a_high - a_low) * 255))
@@ -206,7 +222,25 @@ def build_from(work: Path) -> None:
             canvas[..., 2] = np.round(total * 255).astype(np.uint8)
             save_dataset(f"{icon}-{mode}", Image.fromarray(canvas, "RGB"))
 
-    write_tint_table(tables, ranges, grid)
+    if only_icon is None:
+        write_tint_table(tables, ranges, grid)
+
+
+def bundled_calibration(mode: str):
+    """Use the same table and quantization ranges as the existing Dock resources."""
+    import numpy as np
+
+    source = TINT_TABLE.read_text()
+    name = mode.removeprefix("Tinted").lower()
+    table_start = source.index(f"static let {name}: [[[Double]]] = [")
+    rows = source[table_start:].splitlines()[1:1 + len(CAL_STRENGTHS)]
+    table = np.array([json.loads(row.strip().rstrip(",")) for row in rows])
+    if table.shape != (len(CAL_STRENGTHS), len(CAL_HUES), 3):
+        raise ValueError(f"Invalid {name} tint table")
+    declaration = next(line for line in source.splitlines() if f"static let {name}Range =" in line)
+    values = dict(re.findall(r"(aLow|aHigh|bLow|bHigh): ([-.0-9]+)", declaration))
+    bounds = tuple(float(values[key]) for key in ("aLow", "aHigh", "bLow", "bHigh"))
+    return table.reshape(-1, 3).T, bounds
 
 
 def write_tint_table(tables, ranges, grid) -> None:
@@ -250,15 +284,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--render-only", type=Path, help="only render with ictool into this folder")
     parser.add_argument("--build-from", type=Path, help="build assets from renders in this folder")
+    parser.add_argument("--icon", choices=ICONS, help="regenerate one icon using the bundled tint calibration")
     options = parser.parse_args()
     if options.render_only:
-        render_all(options.render_only)
+        render_all(options.render_only, options.icon)
     elif options.build_from:
-        build_from(options.build_from)
+        build_from(options.build_from, options.icon)
     else:
         with tempfile.TemporaryDirectory() as work:
-            render_all(Path(work))
-            build_from(Path(work))
+            render_all(Path(work), options.icon)
+            build_from(Path(work), options.icon)
 
 
 if __name__ == "__main__":
