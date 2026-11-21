@@ -302,7 +302,70 @@ final class LocalReferenceFileChangeTests: XCTestCase {
         await fulfillment(of: expectations, timeout: 8)
         withExtendedLifetime(streams) {}
     }
+
+    /// Primuse's own writeback lands as a rename onto the song; the watcher
+    /// sees the file exactly as written and does not read it again.
+    func testWatcherSkipsTheFileThisAppJustWrote() async throws {
+        let folder = try await makeWatchedFolder()
+        defer { folder.service.stop() }
+        let staging = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp3")
+        defer { try? FileManager.default.removeItem(at: staging) }
+        try write("Fir", to: staging)
+        let before = try await folder.local.metadataWritebackState(for: folder.target.filePath)
+        try await folder.local.replaceMetadataFile(at: folder.target.filePath, with: staging, expected: before)
+        let after = try await folder.local.metadataWritebackState(for: folder.target.filePath)
+        var written = try XCTUnwrap(folder.library.storedSong(id: folder.target.id))
+        written.title = "Fir"
+        written.revision = after.revision
+        written.fileSize = after.fileSize
+        written.lastModified = after.modifiedDate
+        folder.library.replaceSong(written)
+        let rereads = folder.service.activity.reread
+        for _ in 0..<200 where folder.service.activity.ownWrite == 0 { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertGreaterThan(folder.service.activity.ownWrite, 0)
+        XCTAssertEqual(folder.service.activity.reread, rereads)
+        XCTAssertEqual(folder.library.storedSong(id: folder.target.id)?.title, "Fir")
+        // Someone else's edit afterwards is read as usual.
+        try write("Pine", to: folder.file)
+        for _ in 0..<200 where folder.library.storedSong(id: folder.target.id)?.title != "Pine" {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(folder.library.storedSong(id: folder.target.id)?.title, "Pine")
+    }
     #endif
+
+    func testOwnWritebackIsRecognisedUntilSomeoneElseChangesTheFile() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("Track.mp3")
+        let local = LocalFileSource(sourceID: UUID().uuidString, basePath: root)
+        try write("Amber", to: file)
+        let initial = try await scanned(local)
+        let read = try await local.refreshedLocalSong(XCTUnwrap(initial.first), notified: true)
+        var song = try XCTUnwrap(read)
+        let staging = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp3")
+        defer { try? FileManager.default.removeItem(at: staging) }
+        try write("Cedar", to: staging)
+        let before = try await local.metadataWritebackState(for: song.filePath)
+        try await local.replaceMetadataFile(at: song.filePath, with: staging, expected: before)
+        let after = try await local.metadataWritebackState(for: song.filePath)
+        song.title = "Cedar"
+        song.revision = after.revision
+        song.fileSize = after.fileSize
+        song.lastModified = after.modifiedDate
+        for notified in [true, false] {
+            let outcome = try await local.refreshLocalSong(song, notified: notified)
+            guard case .ownWrite = outcome else { return XCTFail("Own write was read again: \(outcome)") }
+        }
+        let stillOwn = await local.isOwnWrite(song.filePath)
+        XCTAssertTrue(stillOwn)
+        try write("Maple", to: file)
+        let outcome = try await local.refreshLocalSong(song, notified: true)
+        guard case .updated(let reread) = outcome else { return XCTFail("External edit was not read: \(outcome)") }
+        XCTAssertEqual(reread.title, "Maple")
+        let ownAfterEdit = await local.isOwnWrite(song.filePath)
+        XCTAssertFalse(ownAfterEdit)
+    }
 
     func testUnfinishedOrMissingFilesAreDeferredInsteadOfDropped() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

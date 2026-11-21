@@ -428,6 +428,7 @@ final class LocalReferenceRefreshService {
     struct Activity: Equatable {
         var reread = 0
         var unchanged = 0
+        var ownWrite = 0
         var deferred = 0
     }
 
@@ -789,6 +790,9 @@ final class LocalReferenceRefreshService {
                     // A rename onto a known path is usually an atomic save; the
                     // read tells a replaced file from a deleted one.
                     files[song.id] = true
+                } else if await local.isOwnWrite(path) {
+                    // A cover or lyrics file this app just wrote beside a song.
+                    summary.ownWrite += 1
                 } else {
                     directories.insert(LocalReferenceChange.parent(of: path))
                 }
@@ -842,6 +846,9 @@ final class LocalReferenceRefreshService {
             case .unchanged:
                 retryAttempts[id] = nil
                 summary.unchanged += 1
+            case .ownWrite:
+                retryAttempts[id] = nil
+                summary.ownWrite += 1
             case .deferred(let reason):
                 // A visible row whose file is only a placeholder stays quiet.
                 if scheduleRetry(songID: id, sourceID: source.id, notified: notified, reason: reason) || notified {
@@ -857,15 +864,16 @@ final class LocalReferenceRefreshService {
         }
         activity.reread += summary.reread
         activity.unchanged += summary.unchanged
+        activity.ownWrite += summary.ownWrite
         activity.deferred += summary.deferred
         guard canContinue(source.id), !scanService.hasActiveScans else {
             requeue(changes, triggers: triggers, sourceID: source.id)
             return
         }
         publishUpdates()
-        if summary.reread + summary.deferred > 0 || !directories.isEmpty {
+        if summary.reread + summary.ownWrite + summary.deferred > 0 || !directories.isEmpty {
             plog("LocalFileWatch batch source=\(source8) via=\(via) files=\(files.count) reread=\(summary.reread) "
-                + "applied=\(applied) unchanged=\(summary.unchanged) "
+                + "applied=\(applied) unchanged=\(summary.unchanged) ownWrite=\(summary.ownWrite) "
                 + "deferred=\(summary.deferred) folders=\(directories.count)")
         }
         for path in directories.sorted() where !directories.contains(where: { $0 != path && SourceDirectorySelectionPolicy.covers($0, path, for: .local) }) {

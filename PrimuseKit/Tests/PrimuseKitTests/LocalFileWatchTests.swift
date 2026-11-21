@@ -159,6 +159,57 @@ struct LocalFileRefreshRetryPolicyTests {
     }
 }
 
+@Suite("Local own-write ledger")
+struct LocalOwnWriteLedgerTests {
+    private let written = LocalFileIdentity(device: 1, inode: 42, size: 4_096, modifiedNanoseconds: 10, changedNanoseconds: 20)
+    private let start = Date(timeIntervalSinceReferenceDate: 1_000_000)
+
+    @Test func theExactWrittenFileIsRecognised() {
+        var ledger = LocalOwnWriteLedger()
+        #expect(ledger.isEmpty)
+        ledger.record(written, for: "/Album/a.flac", at: start)
+        let match1 = ledger.isOwnWrite(written, for: "/Album/a.flac", at: start.addingTimeInterval(1))
+        #expect(match1)
+        // Notifications repeat; every repeat of the same state is skipped.
+        let match2 = ledger.isOwnWrite(written, for: "/Album/a.flac", at: start.addingTimeInterval(3))
+        #expect(match2)
+        let match3 = ledger.isOwnWrite(written, for: "/Album/b.flac", at: start.addingTimeInterval(1))
+        #expect(!match3)
+    }
+
+    @Test func anyLaterChangeIsSomeoneElsesAndForgetsTheEntry() {
+        var ledger = LocalOwnWriteLedger()
+        ledger.record(written, for: "/a.flac", at: start)
+        var replaced = written
+        replaced.inode = 43
+        let match4 = ledger.isOwnWrite(replaced, for: "/a.flac", at: start.addingTimeInterval(1))
+        #expect(!match4)
+        let match5 = ledger.isOwnWrite(written, for: "/a.flac", at: start.addingTimeInterval(2))
+        #expect(!match5)
+        ledger.record(written, for: "/a.flac", at: start)
+        var touched = written
+        touched.changedNanoseconds += 1
+        let match6 = ledger.isOwnWrite(touched, for: "/a.flac", at: start.addingTimeInterval(1))
+        #expect(!match6)
+        ledger.record(written, for: "/a.flac", at: start)
+        let match7 = ledger.isOwnWrite(nil, for: "/a.flac", at: start.addingTimeInterval(1))
+        #expect(!match7)
+    }
+
+    @Test func entriesExpire() {
+        var ledger = LocalOwnWriteLedger()
+        ledger.record(written, for: "/a.flac", at: start)
+        let match8 = ledger.isOwnWrite(written, for: "/a.flac", at: start.addingTimeInterval(LocalOwnWriteLedger.lifetime + 1))
+        #expect(!match8)
+        ledger.record(written, for: "/old.flac", at: start)
+        ledger.record(written, for: "/new.flac", at: start.addingTimeInterval(LocalOwnWriteLedger.lifetime + 1))
+        let match9 = ledger.isOwnWrite(written, for: "/old.flac", at: start.addingTimeInterval(LocalOwnWriteLedger.lifetime + 2))
+        #expect(!match9)
+        let match10 = ledger.isOwnWrite(written, for: "/new.flac", at: start.addingTimeInterval(LocalOwnWriteLedger.lifetime + 2))
+        #expect(match10)
+    }
+}
+
 @Suite("Local file watch diagnostics")
 struct LocalFileWatchLogTests {
     @Test func identityChangeNamesWhatMoved() {

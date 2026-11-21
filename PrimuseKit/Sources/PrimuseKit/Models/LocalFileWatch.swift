@@ -191,6 +191,58 @@ public enum LocalFileRefreshRetryPolicy {
     }
 }
 
+// MARK: - Own writes
+
+/// What `stat` says about one file: device, inode, size and both timestamps.
+public struct LocalFileIdentity: Hashable, Sendable {
+    public var device: UInt64
+    public var inode: UInt64
+    public var size: Int64
+    public var modifiedNanoseconds: Int64
+    public var changedNanoseconds: Int64
+
+    public init(device: UInt64, inode: UInt64, size: Int64, modifiedNanoseconds: Int64, changedNanoseconds: Int64) {
+        self.device = device
+        self.inode = inode
+        self.size = size
+        self.modifiedNanoseconds = modifiedNanoseconds
+        self.changedNanoseconds = changedNanoseconds
+    }
+}
+
+/// Files this app has just written, so the change notifications its own
+/// writes produce do not trigger another read. An entry only matches while
+/// the file is exactly as written; any later change by someone else alters
+/// the inode, size or a timestamp and is read normally.
+public struct LocalOwnWriteLedger: Sendable {
+    public static let lifetime: TimeInterval = 120
+
+    private struct Entry: Sendable {
+        let identity: LocalFileIdentity
+        let recordedAt: Date
+    }
+
+    private var entries: [String: Entry] = [:]
+
+    public init() {}
+
+    public var isEmpty: Bool { entries.isEmpty }
+
+    public mutating func record(_ identity: LocalFileIdentity, for path: String, at date: Date = Date()) {
+        entries = entries.filter { date.timeIntervalSince($0.value.recordedAt) < Self.lifetime }
+        entries[path] = Entry(identity: identity, recordedAt: date)
+    }
+
+    public mutating func isOwnWrite(_ identity: LocalFileIdentity?, for path: String, at date: Date = Date()) -> Bool {
+        guard let entry = entries[path] else { return false }
+        guard date.timeIntervalSince(entry.recordedAt) < Self.lifetime, let identity, identity == entry.identity else {
+            entries[path] = nil
+            return false
+        }
+        return true
+    }
+}
+
 // MARK: - Diagnostics
 
 public enum LocalFileWatchLog {

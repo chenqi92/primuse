@@ -7,6 +7,8 @@ import PrimuseKit
 enum LocalFileRefreshOutcome: Sendable {
     case updated(Song)
     case unchanged
+    /// The file is exactly as this app last wrote it; the writer updates the library.
+    case ownWrite
     case deferred(LocalFileReadDeferral)
 }
 
@@ -21,6 +23,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     private var referenceBookmarksUnavailable = false
     private var hasResolvedReferenceRoots = false
     private var cachedPathResolver: PathResolver?
+    /// Embedded tags and sidecars this connector just wrote (see `isOwnWrite`).
+    private var ownWrites = LocalOwnWriteLedger()
     private let metadataService = MetadataService()
     private let ffmpegDecoder = FFmpegAudioDecoder()
     /// Native metadata readers are fast and remain the default for large
@@ -299,6 +303,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         } catch {
             return .deferred(.missing)
         }
+        if !ownWrites.isEmpty, ownWrites.isOwnWrite(Self.fileIdentity(at: url), for: song.filePath) { return .ownWrite }
         let observation: LocalAudioObservation
         do {
             observation = try LocalAudioObservation(url)
@@ -345,6 +350,30 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         guard let after = try? LocalAudioObservation(url) else { return .deferred(.missing) }
         if let deferral = after.deferral { return .deferred(deferral) }
         return .deferred(after == observation ? .unreadable : .changing)
+    }
+
+    /// True while the file at `path` is exactly as this connector last wrote it.
+    func isOwnWrite(_ path: String) -> Bool {
+        guard !ownWrites.isEmpty, let url = try? resolvedURL(for: path, allowRoot: false) else { return false }
+        return ownWrites.isOwnWrite(Self.fileIdentity(at: url), for: path)
+    }
+
+    private func noteOwnWrite(at url: URL, path: String) {
+        guard let identity = Self.fileIdentity(at: url) else { return }
+        ownWrites.record(identity, for: path)
+    }
+
+    nonisolated static func fileIdentity(at url: URL) -> LocalFileIdentity? {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return nil }
+        func nanoseconds(_ time: timespec) -> Int64 { Int64(time.tv_sec) * 1_000_000_000 + Int64(time.tv_nsec) }
+        return LocalFileIdentity(
+            device: UInt64(UInt32(bitPattern: info.st_dev)),
+            inode: UInt64(info.st_ino),
+            size: Int64(info.st_size),
+            modifiedNanoseconds: nanoseconds(info.st_mtimespec),
+            changedNanoseconds: nanoseconds(info.st_ctimespec)
+        )
     }
 
     private nonisolated static func unavailableReason(for url: URL, error: Error) -> LocalFileReadDeferral {
@@ -579,6 +608,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             backupItemName: nil,
             options: []
         )
+        noteOwnWrite(at: destination, path: path)
     }
 
     func writeFile(data: Data, to path: String) async throws {
@@ -614,6 +644,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         } else {
             try FileManager.default.moveItem(at: stagingURL, to: destination)
         }
+        noteOwnWrite(at: destination, path: path)
     }
 
     func canMutateDirectories() async -> Bool { supportsSidecarWriting }
