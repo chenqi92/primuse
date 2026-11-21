@@ -29,4 +29,7 @@ PRIMUSE_MAC_APP_STORE_ID =
 // Substituted into `aps-environment` in entitlements at sign time.
 APS_ENVIRONMENT = production
 
+SWIFT_OPTIMIZATION_LEVEL[sdk=iphone*] = -Osize
+ASSETCATALOG_COMPILER_OPTIMIZATION[sdk=iphone*] = space
+
 #include? "Secrets.local.xcconfig"

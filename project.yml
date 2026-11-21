@@ -21,6 +21,9 @@ settings:
     DEVELOPMENT_TEAM: "2U97K3U27A"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: YES
+  configs:
+    Release:
+      "ARCHS[sdk=macosx*]": arm64
 
 packages:
   # 各目标一律链接 GRDB-dynamic：主程序、PrimuseKit 和扩展都要用它，
