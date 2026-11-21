@@ -164,14 +164,11 @@ struct MacContentView: View {
     @State private var showInitialOnboarding = false
     @State private var newPlaylistName = ""
     @State private var newPlaylistDescription = ""
-    /// Keep the one-tap lyrics scrape above `MacNowPlayingView`'s lifetime.
-    /// The expanded player is removed from the view tree when it is collapsed;
-    /// a task/state owned by that child can therefore lose its UI completion
-    /// path halfway through a request. `MacContentView` stays mounted, so the
-    /// scrape continues and publishes its result even while the player is
-    /// collapsed.
-    @State private var lyricsScrapeTask: Task<Void, Never>?
-    @State private var isScrapingCurrentSongLyrics = false
+    /// 「暂无歌词」那颗刮削按钮由主窗口发起、取结果，不挂在播放页上：播放页收起时会被拆掉，
+    /// 挂在它身上的任务会丢掉结果。刮削本身在 `MusicScraperService` 里跑，结果按发起时那首歌的 id
+    /// 取（`MacAutomaticScrapeResults`），进度和结果显示在主窗口的进度卡片里，和 iPhone 同一套。
+    /// 这里只记 Apple Music 歌曲换成资料库那一行的那一小段。
+    @State private var isResolvingLyricsScrapeTarget = false
     @State private var lyricsTranscriptionEditorTargetSong: Song?
     @State private var lyricsScrapeAlertMessage: String?
     @State private var showNoScraperSourceAlert = false
@@ -330,7 +327,7 @@ struct MacContentView: View {
                                 pmWithAnimation(.panel) {
                                     nowPlayingPresented = false
                                 }
-                            }, isScrapingCurrentSong: isScrapingCurrentSongLyrics,
+                            }, isScrapingCurrentSong: isScrapingCurrentSong,
                                canTranscribeAudio: canTranscribeCurrentSongAudio,
                                onScrapeCurrentSong: startCurrentSongLyricsScrape,
                                onTranscribeAudio: openCurrentSongAudioTranscriptionEditor,
@@ -548,6 +545,7 @@ struct MacContentView: View {
             Text(lyricsScrapeAlertMessage ?? "")
         }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+        .modifier(MacAutomaticScrapeResults())
     }
 
     private var libraryCommands: some View {
@@ -883,8 +881,18 @@ struct MacContentView: View {
         adoptWindowedLayout(animated: true)
     }
 
+    /// 正在为当前这首刮削（含 Apple Music 歌曲换成资料库那一行的那一小段）：按钮转圈、不能再点。
+    /// 批量刮削或别的歌在刮时按钮照样能点，点了提示正忙。
+    private var isScrapingCurrentSong: Bool {
+        guard let songID = player.currentSong?.id else { return isResolvingLyricsScrapeTarget }
+        return isResolvingLyricsScrapeTarget || scraperService.isSingleScrapeActive(
+            songID: songID,
+            purposes: [.metadataApply, .lyricsApply]
+        )
+    }
+
     private func startCurrentSongLyricsScrape() {
-        guard lyricsScrapeTask == nil,
+        guard !isScrapingCurrentSong,
               let displayedSong = player.currentSong else { return }
 
         scraperSettings.performSingleSongScrapeAction(
@@ -894,73 +902,54 @@ struct MacContentView: View {
         )
     }
 
+    /// 和 iPhone 播放页同一套：交给 `MusicScraperService` 去刮，开始了就在进度卡片里逐项显示查找结果，
+    /// 结果由 `MacAutomaticScrapeResults` 按这首歌的 id 取回，中途切歌也认得出是哪一首。
     private func startCurrentSongLyricsScrapeWithEnabledSource(_ displayedSong: Song) {
-        isScrapingCurrentSongLyrics = true
-        lyricsScrapeTask = Task { @MainActor in
-            defer {
-                isScrapingCurrentSongLyrics = false
-                lyricsScrapeTask = nil
-            }
+        guard displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID else {
+            handleAutomaticLyricsScrapeStart(
+                scraperService.startSingleScrape(song: displayedSong, in: library),
+                song: displayedSong,
+                lyricsOnly: false
+            )
+            return
+        }
 
-            do {
-                let song: Song
-                if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
-                    song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
-                    if song.id != displayedSong.id {
-                        _ = await MetadataAssetStore.shared.preserveLyricsAlias(
-                            fromSongID: displayedSong.id,
-                            toSongID: song.id
-                        )
-                        player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
-                    }
-                } else {
-                    song = displayedSong
-                }
-
-                let updatedSong: Song
-                let scrapedLyrics: [LyricLine]?
-                var failureSummary: String?
-                if song.sourceID == AppleMusicLibraryIdentity.sourceID {
-                    let result = try await scraperService.scrapeOnlineLyricsOnly(song: song, in: library)
-                    updatedSong = result.song
-                    scrapedLyrics = result.lyrics
-                } else {
-                    // 封面、歌词没存下、没能写回音乐源的要说出来，和 iPhone 播放页的进度卡片一致。
-                    let result = try await scraperService.scrapeSingleResult(song: song, in: library)
-                    updatedSong = result.song
-                    scrapedLyrics = result.lyrics
-                    failureSummary = BatchScrapeSummaryText.singleFailure(result.outcome)
-                }
-
-                CachedArtworkView.invalidateCache(for: updatedSong.id)
-                if let oldRef = song.coverArtFileName {
-                    CachedArtworkView.invalidateCache(for: oldRef)
-                }
-                player.syncSongMetadata(updatedSong)
-                player.forceRefreshNowPlayingArtwork()
-
-                // This notification is the view-independent completion path:
-                // an expanded player reloads immediately; a collapsed player
-                // reads the same song-ID cache on its next appearance.
-                NotificationCenter.default.post(
-                    name: .primuseLyricsDidChange,
-                    object: updatedSong.id,
-                    userInfo: lyricsChangeUserInfo(scrapedLyrics)
+        isResolvingLyricsScrapeTarget = true
+        Task { @MainActor in
+            defer { isResolvingLyricsScrapeTarget = false }
+            let song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
+            if song.id != displayedSong.id {
+                _ = await MetadataAssetStore.shared.preserveLyricsAlias(
+                    fromSongID: displayedSong.id,
+                    toSongID: song.id
                 )
-                lyricsScrapeAlertMessage = failureSummary ?? String(localized: scrapedLyrics?.isEmpty == false
-                    ? "scrape_song_success"
-                    : "scrape_lyrics_not_found")
-            } catch {
-                lyricsScrapeAlertMessage = String(localized: "scrape_song_failed")
+                if player.currentSong?.id == displayedSong.id
+                    || player.currentSong?.id == song.id {
+                    player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
+                }
             }
+            handleAutomaticLyricsScrapeStart(
+                scraperService.startOnlineLyricsOnlyScrape(song: song, in: library),
+                song: song,
+                lyricsOnly: true
+            )
         }
     }
 
-    private func lyricsChangeUserInfo(
-        _ lyrics: [LyricLine]?
-    ) -> [AnyHashable: Any]? {
-        guard let lyrics, !lyrics.isEmpty else { return nil }
-        return ["lyrics": lyrics]
+    private func handleAutomaticLyricsScrapeStart(
+        _ result: MusicScraperService.SingleScrapeStartResult,
+        song: Song,
+        lyricsOnly: Bool
+    ) {
+        switch result {
+        case .started, .joined:
+            plog("Mac automatic scrape started song=\(song.id.prefix(12)) lyricsOnly=\(lyricsOnly)")
+            ScrapeWritebackCenter.shared.beginAutomatic(song: song, lyricsOnly: lyricsOnly)
+        case .busy:
+            lyricsScrapeAlertMessage = String(localized: "intent_scrape_busy")
+        case .noScraperSource:
+            showNoScraperSourceAlert = true
+        }
     }
 
     private var canTranscribeCurrentSongAudio: Bool {
@@ -970,7 +959,7 @@ struct MacContentView: View {
 
     private func openCurrentSongAudioTranscriptionEditor() {
         guard canTranscribeCurrentSongAudio,
-              lyricsScrapeTask == nil,
+              !isScrapingCurrentSong,
               let song = player.currentSong else { return }
         lyricsTranscriptionEditorTargetSong = song
     }
@@ -1256,6 +1245,90 @@ private struct MacWindowFullScreenObserver: ViewModifier {
     private func comesFromHost(_ note: Notification) -> Bool {
         guard let sender = note.object as? NSWindow else { return false }
         return isHostWindow(sender)
+    }
+}
+
+/// 主窗口「暂无歌词」刮削的结果：按进度卡片里还在等的那几首歌的 id 去取，正在放的这首另取一次（别处发起的
+/// 自动刮削照样有结果显示），写进进度卡片，和 iPhone 播放页的做法一样。完成次数只在这个修饰器里读，
+/// 每刮完一首不把整个主窗口重算一遍。
+private struct MacAutomaticScrapeResults: ViewModifier {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicScraperService.self) private var scraperService
+    @Environment(MusicLibrary.self) private var library
+
+    func body(content: Content) -> some View {
+        content.onChange(of: scraperService.singleScrapeCompletionRevision) { _, _ in
+            consume()
+        }
+    }
+
+    private func consume() {
+        let center = ScrapeWritebackCenter.shared
+        var songIDs = center.pendingAutomaticSongIDs
+        if let currentID = player.currentSong?.id, !songIDs.contains(currentID) {
+            songIDs.append(currentID)
+        }
+        for songID in songIDs {
+            guard let completion = scraperService.consumeSingleScrapeCompletion(
+                songID: songID,
+                purposes: [.metadataApply, .lyricsApply]
+            ) else { continue }
+            apply(completion, songID: songID)
+        }
+    }
+
+    private func apply(_ completion: MusicScraperService.SingleScrapeCompletion, songID: String) {
+        let center = ScrapeWritebackCenter.shared
+        let lyricsOnly = completion.activity.key.purpose == .lyricsApply
+        guard let result = completion.result else {
+            plog("Mac automatic scrape failed song=\(songID.prefix(12))")
+            let song = center.jobs.last(where: { $0.song.id == songID })?.song
+                ?? library.song(id: songID)
+                ?? (player.currentSong?.id == songID ? player.currentSong : nil)
+            guard let song else { return }
+            center.finishAutomatic(song: song, lyricsOnly: lyricsOnly, outcome: nil,
+                                   errorMessage: completion.errorMessage)
+            return
+        }
+
+        let updatedSong = result.song
+        CachedArtworkView.invalidateCache(for: updatedSong.id)
+        if let oldRef = result.originalSong.coverArtFileName {
+            CachedArtworkView.invalidateCache(for: oldRef)
+        }
+        player.syncSongMetadata(updatedSong)
+        if player.currentSong?.id == updatedSong.id {
+            player.forceRefreshNowPlayingArtwork()
+        }
+        let lyricsCount = result.lyrics?.count ?? 0
+        plog("Mac automatic scrape finished song=\(songID.prefix(12)) lyricsLines=\(lyricsCount) cover=\(result.coverData != nil)")
+        // 播放页、迷你播放器、桌面歌词都认这条通知：展开着的播放页马上换上新歌词，收着的下次出现时读同一份缓存。
+        var userInfo: [AnyHashable: Any]?
+        if let lyrics = result.lyrics, !lyrics.isEmpty { userInfo = ["lyrics": lyrics] }
+        NotificationCenter.default.post(
+            name: .primuseLyricsDidChange,
+            object: updatedSong.id,
+            userInfo: userInfo
+        )
+        // 刮到了却没存下、没能写回音乐源的部分在卡片上显示成失败，和 iPhone 播放页一致。
+        let outcome = result.outcome
+        center.finishAutomatic(
+            song: result.originalSong,
+            lyricsOnly: lyricsOnly,
+            outcome: .init(
+                original: result.originalSong,
+                updated: updatedSong,
+                coverFound: result.coverData != nil,
+                lyricsFound: lyricsCount > 0,
+                coverFailure: outcome.coverSaveFailed ? String(localized: "scrape_tally_failure_cover") : nil,
+                lyricsFailure: outcome.lyricsSaveFailed ? String(localized: "scrape_tally_failure_lyrics") : nil,
+                sourceFailure: outcome.writebackFailureReason.map {
+                    String(format: String(localized: "scrape_tally_writeback_failed_detail_format"),
+                           BatchScrapeSummaryText.reason($0))
+                }
+            ),
+            errorMessage: nil
+        )
     }
 }
 
