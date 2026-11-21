@@ -1720,6 +1720,8 @@
 "import_action" = "Importar";
 "import_mode" = "Modo de importação";
 "import_scraper_footer" = "Importe um provedor de metadados personalizado por configuração JSON ou URL. Você é responsável por garantir que os provedores importados cumpram os termos aplicáveis e as leis de direitos autorais.";
+"scrape_entry_writeback_header" = "Gravar na origem após buscar metadados";
+"scrape_entry_writeback_scope" = "“Salvar capa na origem”, “Salvar letras na origem” e “Tempo limite de gravação” só valem depois da busca automática: “Buscar metadados” na tela sem letra do player e a busca em lote da biblioteca, de um álbum, de uma playlist ou de músicas selecionadas. Ao tocar em “Salvar” na página de resultados, a gravação sempre segue “Salvar letras em” e “Salvar capas em”.";
 "scraper_lyrics_server_name" = "Servidor de API de letras";
 "scraper_lyrics_server_desc" = "Busca letras, em ordem, nas APIs de letras que você configurar";
 "lyrics_server_count_format" = "Endereços: %d";

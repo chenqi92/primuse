@@ -1741,6 +1741,10 @@ struct MetadataScrapingView: View {
     @State private var pendingCoverEmbeddingMode: CoverEmbeddingMode?
     @AppStorage(LibraryInsightWritebackPolicy.fileWriteEnabledKey) private var insightFileWriteEnabled = true
     @AppStorage(LibraryInsightWritebackPolicy.embedCommentEnabledKey) private var insightCommentEnabled = false
+    /// 和 Mac 设置读写同一组键、同样的默认值：自动刮削和批量刮削之后写不写回音乐源、最多等多久。
+    @AppStorage(MusicScraperService.sidecarCoverWriteEnabledKey) private var sidecarCoverWriteEnabled = true
+    @AppStorage(MusicScraperService.sidecarLyricsWriteEnabledKey) private var sidecarLyricsWriteEnabled = true
+    @AppStorage(MusicScraperService.sidecarWriteTimeoutKey) private var sidecarWriteTimeout = 30.0
     @State private var confirmsInsightComment = false
     @State private var showLyricsServers = false
     @State private var lyricsServerStore = LyricsAPIServerStore.shared
@@ -1899,6 +1903,9 @@ struct MetadataScrapingView: View {
                     .textCase(nil)
                 }
                 .settingsAnchor("scraping.sources")
+            } footer: {
+                // 导入自定义源之前先看到：第三方源合不合规由导入的人负责。
+                Text("import_scraper_footer")
             }
 
             Section {
@@ -1942,6 +1949,24 @@ struct MetadataScrapingView: View {
                 SettingsInfoHeader("cover_embed_copy_header") {
                     Text("cover_embed_copy_footer")
                 }
+            }
+
+            Section {
+                Toggle("Cover Write-Back", isOn: $sidecarCoverWriteEnabled)
+                    .settingsAnchor("scraping.writeCover")
+                Toggle("Lyrics Write-Back", isOn: $sidecarLyricsWriteEnabled)
+                    .settingsAnchor("scraping.writeLyrics")
+                Stepper(value: $sidecarWriteTimeout, in: 5...120, step: 5) {
+                    LabeledContent("Write Timeout") {
+                        Text(verbatim: sidecarWriteTimeoutText)
+                            .monospacedDigit()
+                    }
+                }
+                .settingsAnchor("scraping.writeTimeout")
+            } header: {
+                Text("scrape_entry_writeback_header")
+            } footer: {
+                Text("scrape_entry_writeback_scope")
             }
 
             Section {
@@ -2124,6 +2149,12 @@ struct MetadataScrapingView: View {
         } message: {
             Text("library_insight_writeback_comment_confirm_message")
         }
+    }
+
+    /// 写入超时按整秒显示，跟系统语言走（「30 秒」「30 sec」）。
+    private var sidecarWriteTimeoutText: String {
+        let seconds: Int = min(120, max(5, sidecarWriteTimeout.rounded().finiteInt()))
+        return Duration.seconds(seconds).formatted(.units(allowed: [.seconds], width: .abbreviated))
     }
 
     /// 打开前先说清代价(整首重传、覆盖原注释),关掉不用问。

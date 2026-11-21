@@ -745,6 +745,8 @@
 "custom_scraper_desc" = "User-imported scraper";
 "import_scraper_source" = "Import Scraper Source";
 "import_scraper_footer" = "Import a custom scraper source via JSON config or URL. You are responsible for ensuring imported sources comply with applicable terms and copyright laws.";
+"scrape_entry_writeback_header" = "Write Back After Scraping";
+"scrape_entry_writeback_scope" = "“Cover Write-Back”, “Lyrics Write-Back” and “Write Timeout” only apply after automatic scraping: “Scrape Metadata” on the player’s empty lyrics page, and batch scraping of the library, an album, a playlist or selected songs. Tapping “Save” on the scrape results page always writes according to “Save Lyrics To” and “Save Artwork To”.";
 "scraper_lyrics_server_name" = "Lyrics API Server";
 "scraper_lyrics_server_desc" = "Requests lyrics, in order, from lyrics APIs you configure";
 "lyrics_server_count_format" = "Addresses: %d";

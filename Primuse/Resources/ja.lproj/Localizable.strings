@@ -974,6 +974,8 @@
 "custom_scraper_desc" = "ユーザーが読み込んだ取得ソース";
 "import_scraper_source" = "取得ソースを読み込む";
 "import_scraper_footer" = "JSON 設定または URL からカスタム取得ソースを読み込みます。読み込んだソースが関連する利用規約および著作権法に準拠することについては、お客様の責任となります。";
+"scrape_entry_writeback_header" = "取得後に音楽ソースへ書き戻す";
+"scrape_entry_writeback_scope" = "「カバー書き戻し」「歌詞書き戻し」「書き込みタイムアウト」は、自動取得のあとに音楽ソースへ書き戻すかどうかと待ち時間だけを決めます（再生画面の歌詞がないときの「メタデータを取得」と、ライブラリ・アルバム・プレイリスト・選択した曲の一括取得）。取得結果の画面で「保存」をタップした場合は、常に「歌詞の保存先」「カバーの保存先」に従って書き込みます。";
 "scraper_lyrics_server_name" = "歌詞 API サーバ";
 "scraper_lyrics_server_desc" = "設定した歌詞 API に順番に歌詞をリクエストします";
 "lyrics_server_count_format" = "%d 件のアドレス";

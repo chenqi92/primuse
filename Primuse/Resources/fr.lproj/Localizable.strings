@@ -973,6 +973,8 @@
 "custom_scraper_desc" = "Source de récupération importée par l'utilisateur";
 "import_scraper_source" = "Importer une source de récupération";
 "import_scraper_footer" = "Importez une source de récupération personnalisée via une configuration JSON ou une URL. Il vous incombe de vous assurer que les sources importées respectent les conditions d'utilisation et les lois sur le droit d'auteur applicables.";
+"scrape_entry_writeback_header" = "Réécriture après récupération";
+"scrape_entry_writeback_scope" = "« Écriture des pochettes », « Écriture des paroles » et « Délai d’écriture » ne s’appliquent qu’après une récupération automatique : « Récupérer les métadonnées » sur la page de paroles vide du lecteur, et la récupération par lot de la bibliothèque, d’un album, d’une playlist ou de morceaux sélectionnés. Un appui sur « Enregistrer » dans la page des résultats écrit toujours selon « Enregistrer les paroles dans » et « Enregistrer les pochettes dans ».";
 "scraper_lyrics_server_name" = "Serveur d'API de paroles";
 "scraper_lyrics_server_desc" = "Demande les paroles, dans l'ordre, aux API de paroles que vous configurez";
 "lyrics_server_count_format" = "Adresses : %d";

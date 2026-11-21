@@ -1720,6 +1720,8 @@
 "import_action" = "Importuj";
 "import_mode" = "Tryb importu";
 "import_scraper_footer" = "Zaimportuj własnego dostawcę metadanych za pomocą konfiguracji JSON lub adresu URL. Odpowiadasz za zgodność importowanych dostawców z obowiązującymi warunkami i prawem autorskim.";
+"scrape_entry_writeback_header" = "Zapis w źródle po pobraniu metadanych";
+"scrape_entry_writeback_scope" = "„Zapis okładki w źródle”, „Zapis tekstu w źródle” i „Limit czasu zapisu” działają tylko po automatycznym pobieraniu: „Pobierz metadane” na pustej stronie tekstu w odtwarzaczu oraz pobieranie zbiorcze dla biblioteki, albumu, playlisty lub zaznaczonych utworów. Po stuknięciu „Zapisz” na stronie wyników zapis zawsze odbywa się według ustawień „Zapisuj teksty w” i „Zapisuj okładki w”.";
 "scraper_lyrics_server_name" = "Serwer API tekstów";
 "scraper_lyrics_server_desc" = "Pobiera teksty po kolei z interfejsów API tekstów, które sam skonfigurujesz";
 "lyrics_server_count_format" = "Adresy: %d";

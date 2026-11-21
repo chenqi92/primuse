@@ -1352,6 +1352,8 @@
 "playlist_import_missing" = "Bulunamadı";
 "yearly_personality_eovd_description" = "Gün geçtikçe bilinmeyen klasikleri ortaya çıkarıyor ve her eski şarkıyı yeni hissettiriyor.";
 "import_scraper_footer" = "JSON yapılandırması veya URL ile özel bir üst veri sağlayıcısını içe aktarın. İçe aktarılan kaynakların geçerli koşullara ve telif hakkı yasalarına uygun olmasından siz sorumlusunuz.";
+"scrape_entry_writeback_header" = "Üst veriler bulunduktan sonra kaynağa yaz";
+"scrape_entry_writeback_scope" = "“Kapak Geri Yazma”, “Şarkı sözlerini kaynağa geri yazma” ve “Yazma Zaman Aşımı” yalnızca otomatik bulmadan sonra geçerlidir: oynatıcının boş şarkı sözü sayfasındaki “Üst verileri bul” ile arşiv, albüm, çalma listesi veya seçili şarkılar için toplu bulma. Sonuç sayfasında “Kaydet”e dokunduğunuzda yazma her zaman “Şarkı Sözlerini Kaydetme Yeri” ve “Kapakları Kaydetme Yeri” ayarlarına göre yapılır.";
 "scraper_lyrics_server_name" = "Şarkı Sözü API Sunucusu";
 "scraper_lyrics_server_desc" = "Şarkı sözlerini, yapılandırdığın şarkı sözü API'lerinden sırayla ister";
 "lyrics_server_count_format" = "Adres sayısı: %d";

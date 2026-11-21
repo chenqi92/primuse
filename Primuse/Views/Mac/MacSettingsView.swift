@@ -4389,6 +4389,13 @@ private struct MacSTScrapingView: View {
     @State private var scrapeResultReport: BatchScrapeResultReport?
     @Environment(AudioPlayerService.self) private var player
 
+    /// 写回那一节底下的说明：写到哪儿，再加一句这几项只管自动刮削和批量刮削（和 iPhone 设置同一句）。
+    private var sidecarSectionHint: String {
+        let target: String = Lz("Write sidecar files next to source tracks")
+        let scope: String = String(localized: "scrape_entry_writeback_scope")
+        return target + "\n" + scope
+    }
+
     var body: some View {
         MacSTSection(Lz("Scraping Sources"), hint: Lz("META-01 · Drag to Reorder · Higher Items Take Priority")) {
             VStack(spacing: 4) {
@@ -4413,7 +4420,8 @@ private struct MacSTScrapingView: View {
                     MacSTButton(title: Lz("Configure"), systemImage: "slider.horizontal.3") { showsScrapeRules = true }
                 }
                 .settingsAnchor("scraping.fieldRules")
-                MacSTRow(Lz("Custom Source"), divider: false) {
+                // 导入自定义源之前先看到：第三方源合不合规由导入的人负责（和 iPhone、电视同一句）。
+                MacSTRow(Lz("Custom Source"), hint: String(localized: "import_scraper_footer"), hintLineLimit: 4, divider: false) {
                     Menu(String(localized: "import_scraper_source")) {
                         Button("import_scraper_source") { beginImport() }
                         Button("motion_artwork_source_add") { showsArtworkEditor = true }
@@ -4446,7 +4454,8 @@ private struct MacSTScrapingView: View {
             }
         }
 
-        MacSTSection(Lz("Sidecar Write-Back"), hint: Lz("Write sidecar files next to source tracks")) {
+        // 底下那句说清「封面写回」「歌词写回」「写入超时」只管自动刮削和批量刮削，和 iPhone 设置同一句。
+        MacSTSection(Lz("Sidecar Write-Back"), hint: sidecarSectionHint) {
             MacSTGroup {
                 MacSTRow(Lz("Cover Write-Back"), hint: Lz("<Song Name>-cover.jpg"), divider: false) {
                     MacSTToggle(isOn: $sidecarCoverWriteEnabled)
@@ -4458,7 +4467,6 @@ private struct MacSTScrapingView: View {
                         options: CoverEmbeddingMode.allCases.map { ($0, $0.settingsTitle) },
                         width: 200
                     )
-                    .disabled(!sidecarCoverWriteEnabled)
                 }
                 .settingsAnchor("scraping.embedCover")
                 MacSTRow(Lz("Lyrics Write-Back"), hint: Lz("<Song Name>.lrc")) {

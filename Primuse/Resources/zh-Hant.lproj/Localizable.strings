@@ -721,6 +721,8 @@
 "custom_scraper_desc" = "使用者匯入的刮削來源";
 "import_scraper_source" = "匯入刮削來源";
 "import_scraper_footer" = "透過 JSON 設定或 URL 匯入自訂刮削來源，可提供中繼資料、封面和歌詞。請確保所匯入的資料來源合法合規，本 App 不對第三方來源的內容承擔責任。";
+"scrape_entry_writeback_header" = "刮削後寫回音樂來源";
+"scrape_entry_writeback_scope" = "「封面寫回」「歌詞寫回」「寫入逾時」只管自動刮削之後要不要寫回音樂來源、最多等多久：播放頁「暫無歌詞」裡的「刮取資料」，以及整個資料庫、專輯、播放清單和多選的批次刮削。在刮削結果頁手動點「儲存」的，一律按「歌詞儲存到」「封面儲存到」寫入。";
 "scraper_lyrics_server_name" = "歌詞 API 服務";
 "scraper_lyrics_server_desc" = "依序向你自行設定的歌詞介面請求歌詞";
 "lyrics_server_count_format" = "%d 個位址";

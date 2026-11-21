@@ -973,6 +973,8 @@
 "custom_scraper_desc" = "사용자가 가져온 스크래퍼 소스";
 "import_scraper_source" = "스크래퍼 소스 가져오기";
 "import_scraper_footer" = "JSON 설정 또는 URL을 통해 사용자 지정 스크래퍼 소스를 가져옵니다. 가져온 소스가 관련 약관 및 저작권법을 준수하도록 하는 책임은 사용자에게 있습니다.";
+"scrape_entry_writeback_header" = "가져온 뒤 음악 소스에 기록";
+"scrape_entry_writeback_scope" = "‘커버 기록’, ‘가사 기록’, ‘기록 시간 초과’는 자동으로 가져온 뒤 음악 소스에 기록할지와 얼마나 기다릴지만 정합니다(재생 화면에 가사가 없을 때 누르는 ‘메타데이터 가져오기’, 라이브러리·앨범·재생 목록·선택한 곡의 일괄 가져오기). 가져온 결과 화면에서 ‘저장’을 누르면 항상 ‘가사 저장 위치’와 ‘커버 저장 위치’에 따라 기록합니다.";
 "scraper_lyrics_server_name" = "가사 API 서버";
 "scraper_lyrics_server_desc" = "직접 설정한 가사 API에 순서대로 가사를 요청합니다";
 "lyrics_server_count_format" = "주소 %d개";

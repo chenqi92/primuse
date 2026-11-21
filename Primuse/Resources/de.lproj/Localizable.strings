@@ -973,6 +973,8 @@
 "custom_scraper_desc" = "Vom Benutzer importierte Abrufquelle";
 "import_scraper_source" = "Abrufquelle importieren";
 "import_scraper_footer" = "Importiere eine benutzerdefinierte Abrufquelle über eine JSON-Konfiguration oder URL. Du bist dafür verantwortlich, dass importierte Quellen den geltenden Nutzungsbedingungen und Urheberrechtsgesetzen entsprechen.";
+"scrape_entry_writeback_header" = "Nach dem Abrufen zurückschreiben";
+"scrape_entry_writeback_scope" = "„Cover-Rückschreibung“, „Liedtext-Rückschreibung“ und „Schreib-Timeout“ gelten nur nach dem automatischen Abrufen: „Metadaten abrufen“ auf der leeren Liedtextseite im Player sowie das Abrufen für die ganze Mediathek, ein Album, eine Wiedergabeliste oder ausgewählte Titel. Beim Tippen auf „Speichern“ auf der Ergebnisseite wird immer nach „Liedtexte speichern in“ und „Cover speichern in“ geschrieben.";
 "scraper_lyrics_server_name" = "Lyrics-API-Server";
 "scraper_lyrics_server_desc" = "Fragt Songtexte der Reihe nach bei selbst eingerichteten Lyrics-Schnittstellen ab";
 "lyrics_server_count_format" = "Adressen: %d";
