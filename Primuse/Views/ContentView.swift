@@ -285,6 +285,21 @@ enum MinimalNavigationChromePolicy {
     }
 }
 
+/// 根视图上的刮削进度层。盖住根视图的整页 sheet（补充标签页）开着时不画，由 sheet 自己那一层画，
+/// 免得两层各显示一张卡片。开合状态只在这个修饰器里读，根视图的 body 不因开合重算。
+private struct RootScrapeWritebackLayer: ViewModifier {
+    @Binding var coveringSheet: AppNavigationTab?
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if coveringSheet == nil {
+                // Color.clear 不接触摸；卡片、胶囊和卡片后面的暗层照常可点。
+                Color.clear.scrapeWritebackProgressHost()
+            }
+        }
+    }
+}
+
 private struct AppNavigationModeEnvironmentKey: EnvironmentKey {
     static let defaultValue = AppNavigationMode.standard
 }
@@ -2265,6 +2280,18 @@ struct ContentView: View {
         }
     }
 
+    /// 补充标签页 sheet 的内容。单独成一个函数：`mainContent` 那条修饰链已经贴着类型检查的时间上限。
+    private func supplementaryTabSheet(_ tab: AppNavigationTab) -> some View {
+        tabPage(tab)
+            .environment(\.appNavigationMode, .standard)
+            .environment(\.hiddenTabSettingsAction, hiddenSettingsAction)
+            .environment(\.supplementaryTabDismissAction, { supplementaryTab = nil })
+            .environment(\.librarySearchNavigation, searchNavigation)
+            .presentationDragIndicator(.visible)
+            // 补充标签页整页盖住根视图：在这一页里刮削、保存的，进度卡片画在这一层（根视图那一层这时不画）。
+            .scrapeWritebackProgressHost()
+    }
+
     private var mainContent: some View {
         ZStack(alignment: .bottom) {
             Group {
@@ -2339,12 +2366,7 @@ struct ContentView: View {
         // iPhone Duo 合上、展开时整屏做一次归位（模糊、沿开合方向拉伸后回到原样），播放页也在里面。
         .pmScreenChangeTransition()
         .sheet(item: $supplementaryTab) { tab in
-            tabPage(tab)
-                .environment(\.appNavigationMode, .standard)
-                .environment(\.hiddenTabSettingsAction, hiddenSettingsAction)
-                .environment(\.supplementaryTabDismissAction, { supplementaryTab = nil })
-                .environment(\.librarySearchNavigation, searchNavigation)
-                .presentationDragIndicator(.visible)
+            supplementaryTabSheet(tab)
         }
         .task(id: navigationScenePhase == .active ? pendingSupplementaryTab : nil) {
             await presentPendingSupplementaryTab()
@@ -2359,8 +2381,9 @@ struct ContentView: View {
             .shared,
             placement: .appRoot(fallbackClearance: rootLayout == .standardTabs ? 64 : 24)
         )
-        // 刮削结果保存后的写入进度：盖在播放页上面，收起后在顶部留一枚胶囊。
-        .scrapeWritebackProgressHost()
+        // 刮削结果保存后的写入进度：盖在播放页上面，收起后在顶部留一枚胶囊。补充标签页开着时画在那一页里，
+        // 这里不画，同一时刻只有一张卡片。
+        .modifier(RootScrapeWritebackLayer(coveringSheet: $supplementaryTab))
         .serverCatalogRefreshFeedback()
         .smartNudges()
         .appleMusicSubscriptionOffer()
