@@ -6012,6 +6012,9 @@ private struct MacSTLyricsView: View {
     @AppStorage(MacMenuBarController.compactWithIslandKey)
     private var compactMenuBarWithIsland = false
     @State private var showTranscriptionSettings = false
+    /// 删模型前先确认，和 iPhone 一样：删了要重新下载。
+    @State private var confirmsWordAlignmentModelRemoval = false
+    @State private var pendingLocalTranslationRemoval: LocalLyricsTranslationModel.Pack?
     private var localTranslation: LocalLyricsTranslationService { .shared }
 
     var body: some View {
@@ -6384,6 +6387,30 @@ private struct MacSTLyricsView: View {
         .sheet(isPresented: $showTranscriptionSettings) {
             GoogleLyricsTranscriptionSettingsView(presentedAsSheet: true)
         }
+        .confirmationDialog(
+            "word_alignment_model_remove_confirm",
+            isPresented: $confirmsWordAlignmentModelRemoval,
+            titleVisibility: .visible
+        ) {
+            Button("lyrics_translation_local_remove", role: .destructive) {
+                Task { await WordLyricsAlignmentService.shared.removeModel() }
+            }
+            Button("cancel", role: .cancel) {}
+        }
+        .confirmationDialog(
+            "lyrics_translation_local_remove_confirm",
+            isPresented: Binding(
+                get: { pendingLocalTranslationRemoval != nil },
+                set: { if !$0 { pendingLocalTranslationRemoval = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingLocalTranslationRemoval
+        ) { pack in
+            Button("lyrics_translation_local_remove", role: .destructive) {
+                Task { await localTranslation.removeModel(pack) }
+            }
+            Button("cancel", role: .cancel) {}
+        }
     }
 
     @ViewBuilder
@@ -6418,7 +6445,7 @@ private struct MacSTLyricsView: View {
                 systemImage: "trash",
                 destructive: true
             ) {
-                Task { await localTranslation.removeModel(pack) }
+                pendingLocalTranslationRemoval = pack
             }
         case .unsupportedSystem:
             EmptyView()
@@ -6455,7 +6482,7 @@ private struct MacSTLyricsView: View {
                 systemImage: "trash",
                 destructive: true
             ) {
-                Task { await service.removeModel() }
+                confirmsWordAlignmentModelRemoval = true
             }
         case .unsupportedSystem:
             EmptyView()

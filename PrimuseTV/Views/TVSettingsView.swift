@@ -123,6 +123,8 @@ struct TVSettingsView: View {
     @State private var diagnosticModeActive = FileLogger.isDiagnosticModeActive
     @State private var siriAuthorization = TVSiriAuthorizationRuntime.status
     @State private var showsMetadata = false
+    /// 删逐字对齐模型前先确认，和 iPhone、Mac 一样：删了要重新下载。
+    @State private var confirmsWordAlignmentModelRemoval = false
     @State private var showsScraperSettings = tvDebugShowsScraperSettings
     @State private var showsScrobbleSettings = tvDebugShowsScrobbleSettings
     @State private var showsMedleySettings = false
@@ -572,6 +574,16 @@ struct TVSettingsView: View {
                     missingArtworkStyle = style.rawValue
                 }
             }
+        }
+        .confirmationDialog(
+            String(localized: "word_alignment_model_remove_confirm"),
+            isPresented: $confirmsWordAlignmentModelRemoval,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "lyrics_translation_local_remove"), role: .destructive) {
+                Task { await WordLyricsAlignmentService.shared.removeModel() }
+            }
+            Button(String(localized: "cancel"), role: .cancel) {}
         }
         .onExitCommand {
             if showsHiddenAppIcons {
@@ -1095,7 +1107,7 @@ struct TVSettingsView: View {
             case .notDownloaded, .failed:
                 service.downloadModel()
             case .ready:
-                Task { await service.removeModel() }
+                confirmsWordAlignmentModelRemoval = true
             case .downloading, .unsupportedSystem:
                 break
             }
