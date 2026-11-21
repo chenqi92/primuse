@@ -324,11 +324,35 @@ struct EmbeddedMetadataFileSnapshot: Sendable {
 
     /// 这一行换成文件现在的身份;标签不动。
     func applyingIdentity(to song: Song) -> Song {
+        state.applyingIdentity(to: song)
+    }
+}
+
+extension EmbeddedMetadataRemoteFileState {
+    func applyingIdentity(to song: Song) -> Song {
         var refreshed = song
-        refreshed.fileSize = state.fileSize
-        refreshed.lastModified = state.modifiedDate
-        refreshed.revision = state.revision
+        refreshed.fileSize = fileSize
+        refreshed.lastModified = modifiedDate
+        refreshed.revision = revision
         return refreshed
+    }
+}
+
+extension SourceManager {
+    /// Capture the local audio revision before reading an editable document. An app-container
+    /// migration can replace the inode before the editor opens while leaving the library row intact.
+    func localLyricsEditingIdentity(for song: Song) async -> Song? {
+        guard !song.isCueTrack, !song.isStreamDescriptor,
+              let source = await source(withID: song.sourceID), source.type == .local,
+              let local = connector(for: source) as? LocalFileSource else { return nil }
+        do {
+            try await local.connect()
+            let state = try await local.metadataWritebackState(for: song.filePath)
+            guard state.hasReliableConflictGuard else { return nil }
+            return state.applyingIdentity(to: song)
+        } catch {
+            return nil
+        }
     }
 }
 

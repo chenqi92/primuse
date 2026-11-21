@@ -86,6 +86,48 @@ final class M4ATagWritebackTests: XCTestCase {
         XCTAssertEqual(written.artist, "Artist")
     }
 
+    func testLocalLyricsEditorCapturesTheMovedFileAndRejectsAReplacementAfterOpening() async throws {
+        let input = try makeFixture()
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            .init(tags: tags(title: "File title", album: "Album"), coverData: nil, lyrics: .set("Old words")), to: input)
+        let path = "/" + input.lastPathComponent
+        let first = LocalFileSource(sourceID: "local", basePath: directory)
+        let initial = try await first.metadataWritebackState(for: path)
+        let song = initial.applyingIdentity(to: Song(id: "local-song", title: "File title", albumTitle: "Album",
+            artistName: "Artist", duration: 1, fileFormat: .m4a, filePath: path, sourceID: "local"))
+
+        let moved = directory.appendingPathComponent("NewContainer", isDirectory: true)
+        try FileManager.default.createDirectory(at: moved, withIntermediateDirectories: true)
+        let audio = moved.appendingPathComponent(input.lastPathComponent)
+        try FileManager.default.copyItem(at: input, to: audio)
+        let source = MusicSource(id: "local", name: "Music", type: .local, basePath: moved.path)
+        let local = LocalFileSource(sourceID: source.id, basePath: moved)
+        let manager = await SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in local })
+        let migrated = try await local.metadataWritebackState(for: path)
+        XCTAssertEqual(try Data(contentsOf: audio), try Data(contentsOf: input))
+        XCTAssertFalse(migrated.matchesScannedSong(song, revisionFoldsSidecarFingerprints: true))
+        let captured = await manager.localLyricsEditingIdentity(for: song)
+        let opened = try XCTUnwrap(captured)
+        XCTAssertTrue(migrated.matchesScannedSong(opened))
+        _ = try await local.writeEmbeddedAssets(original: opened, coverData: nil, lyrics: .set("Saved words"), policy: .replace)
+        let saved = await FileMetadataReader.read(from: audio)
+        XCTAssertEqual(saved.lyricsText, "Saved words")
+
+        let next = await manager.localLyricsEditingIdentity(for: song)
+        let secondOpening = try XCTUnwrap(next)
+        var external = try Data(contentsOf: audio)
+        let range = try XCTUnwrap(external.range(of: Data("File title".utf8)))
+        external.replaceSubrange(range, with: Data("New singer".utf8))
+        try external.write(to: audio, options: .atomic)
+        try FileManager.default.setAttributes([.modificationDate: try XCTUnwrap(secondOpening.lastModified)],
+                                              ofItemAtPath: audio.path)
+        do {
+            _ = try await local.writeEmbeddedAssets(original: secondOpening, coverData: nil, lyrics: .set("Stale words"), policy: .replace)
+            XCTFail("A replacement after the edit began must keep its content")
+        } catch EmbeddedMetadataCoordinatedWritebackError.conflict {}
+        XCTAssertEqual(try Data(contentsOf: audio), external)
+    }
+
     func testAlbumArtistMergeWritesBothFieldsAndKeepsUnchangedTags() async throws {
         let url = try makeFixture()
         var before = tags(title: "Song", album: "Album")

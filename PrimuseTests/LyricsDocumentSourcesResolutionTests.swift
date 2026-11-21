@@ -11,6 +11,68 @@ import XCTest
 /// rewrites exactly one file, byte for byte, only while it is unchanged.
 final class LyricsDocumentSourcesResolutionTests: XCTestCase {
     @MainActor
+    func testEmbeddedSaveUsesTheFileOpenedByTheEditorAndRefusesLaterAudioChanges() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let media = directory.appendingPathComponent("music")
+        try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = MusicSource(id: UUID().uuidString, name: "Test", type: .local, basePath: media.path)
+        let local = LocalFileSource(sourceID: source.id, basePath: media)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in local })
+        let sources = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"), publishesKeychainOptOuts: false)
+        sources.add(source)
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("db"), deferredMaintenanceAllowed: { false })
+        let file = media.appendingPathComponent("One.mp3")
+        let originalText = "[00:01.00]Before the hillside"
+        let payload = Data([3]) + Data("eng".utf8) + Data([0]) + Data(originalText.utf8)
+        let uslt = Data("USLT".utf8) + Data([0, 0, 0, UInt8(payload.count), 0, 0]) + payload
+        let frame = Data([0xff, 0xfb, 0x90, 0x64]) + Data(count: 413)
+        var audio = Data("ID3".utf8) + Data([4, 0, 0, 0, 0, 0, UInt8(uslt.count)]) + uslt
+        for _ in 0..<8 { audio.append(frame) }
+        try audio.write(to: file)
+        var track: Song?
+        for try await row in try await local.scanSongs(from: "/", existingSongs: []) { track = row.song }
+        let row = try XCTUnwrap(track)
+        let scanned = try await local.metadataWritebackState(for: row.filePath)
+        let original = scanned.applyingIdentity(to: row)
+        library.addSongs([original], pruneMissingSongs: false)
+        EmbeddedLyricsCopyPolicy.setMode(.embedOnly, forSongID: original.id)
+        defer { EmbeddedLyricsCopyPolicy.setMode(nil, forSongID: original.id) }
+        addTeardownBlock { await MetadataAssetStore.shared.invalidateCaches(forSongIDs: [original.id]) }
+
+        let permissions = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber)
+        try FileManager.default.setAttributes([.posixPermissions: permissions.intValue ^ 0o100], ofItemAtPath: file.path)
+        let current = try await local.metadataWritebackState(for: row.filePath)
+        XCTAssertNotEqual(current.revision, scanned.revision)
+        XCTAssertEqual(current.modifiedDate, scanned.modifiedDate)
+        for changedAfterOpening in [false, true] {
+            let song = try XCTUnwrap(library.storedSong(id: original.id))
+            let opened = await LyricsWriteback.loadEditablePayload(for: song, sourceManager: manager)
+            let mode = await LyricsWriteback.resolveMode(for: song, sourceManager: manager, sourcesStore: sources)
+            guard case .sidecar = mode else { return XCTFail("Expected an embedded-file destination") }
+            var external = try Data(contentsOf: file)
+            if changedAfterOpening {
+                let mtime = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date)
+                external[external.count - 1] ^= 1
+                try external.write(to: file)
+                try FileManager.default.setAttributes([.modificationDate: mtime], ofItemAtPath: file.path)
+            }
+            let lyrics = changedAfterOpening ? "[00:01.00]Robins over the ridge" : "[00:01.00]Stars across the ridge"
+            let saved = await LyricsWriteback.save(text: lyrics, for: song, mode: mode, allowRemoval: false,
+                                                    sourceSnapshot: opened.sourceSnapshot, cacheSnapshot: opened.cacheSnapshot,
+                                                    sourceManager: manager, library: library)
+            if changedAfterOpening {
+                XCTAssertFalse(saved.succeeded)
+                XCTAssertEqual(try Data(contentsOf: file), external)
+            } else {
+                XCTAssertTrue(saved.succeeded, saved.errorMessage ?? "")
+                let metadata = await FileMetadataReader.read(from: file)
+                XCTAssertEqual(LyricsParser.parse(try XCTUnwrap(metadata.lyricsText)).map(\.text), ["Stars across the ridge"])
+            }
+        }
+    }
+
+    @MainActor
     func testSourceLyricsLoadDisplaysConcurrentCacheWinner() async {
         let song = song()
         let store = MetadataAssetStore.shared

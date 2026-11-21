@@ -214,6 +214,8 @@ enum LyricsWriteback {
         for song: Song,
         sourceManager: SourceManager
     ) async -> EditablePayload {
+        let opened = AppServices.shared.musicLibrary.storedSong(id: song.id) ?? song
+        let openedFile = await openedAudioFile(for: song, sourceManager: sourceManager)
         let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
         var payload = await makeEditablePayload(
             for: song,
@@ -232,7 +234,6 @@ enum LyricsWriteback {
         }
         // 编辑器打开这一刻固定住目标和要换掉的那一份内嵌原文：之后播放切到哪一首、外层怎么刷新、
         // 自动路径把缓存换成了什么，保存都只写这一首、这个文件、这个字段。
-        let opened = AppServices.shared.musicLibrary.storedSong(id: song.id) ?? song
         let anchor = await embeddedReplacementAnchor(forSongID: song.id)
         let playbackLines = payload.playbackLines
         let editedVersion: [LyricLine]
@@ -245,7 +246,7 @@ enum LyricsWriteback {
             editedVersion = playbackLines
         }
         openEditSession(
-            EditSession(target: EditTarget(opened), anchor: anchor, editedVersion: editedVersion),
+            EditSession(target: EditTarget(opened), openedFile: openedFile, anchor: anchor, editedVersion: editedVersion),
             key: editSessionKey(songID: song.id, cacheSnapshot: payload.cacheSnapshot)
         )
         return payload
@@ -855,6 +856,7 @@ enum LyricsWriteback {
             ? .keep
             : .forget
         let draft = draftIdentity(text: text, structuredLines: structuredLines)
+        let openedFile = editSessions[sessionKey]?.openedFile
         var effectiveMode = mode
         var effectiveSourceSnapshot = sourceSnapshot
         var effectiveCacheSnapshot = cacheSnapshot
@@ -875,6 +877,7 @@ enum LyricsWriteback {
             cacheSnapshot: effectiveCacheSnapshot,
             previousVersion: previousVersion,
             embeddedAnchor: embeddedAnchor,
+            openedFile: openedFile,
             sourceManager: sourceManager,
             library: library
         )
@@ -892,6 +895,7 @@ enum LyricsWriteback {
                 previousVersion: previousVersion,
                 editedVersion: editSessions[sessionKey]?.editedVersion,
                 embeddedAnchor: embeddedAnchor,
+                openedFile: openedFile,
                 sourceManager: sourceManager,
                 library: library
             )
@@ -971,6 +975,7 @@ enum LyricsWriteback {
         previousVersion: LyricsPreviousVersionHandling,
         editedVersion: [LyricLine]?,
         embeddedAnchor: EmbeddedAnchor?,
+        openedFile: OpenedAudioFile? = nil,
         sourceManager: SourceManager,
         library: MusicLibrary
     ) async -> SaveOutcome {
@@ -1036,6 +1041,7 @@ enum LyricsWriteback {
             previousVersion: previousVersion,
             editedVersion: stale == .cache && !changedByUser ? editedVersion : nil,
             embeddedAnchor: embeddedAnchor,
+            openedFile: openedFile,
             sourceManager: sourceManager,
             library: library
         )
@@ -1087,6 +1093,7 @@ enum LyricsWriteback {
         previousVersion: LyricsPreviousVersionHandling,
         editedVersion: [LyricLine]? = nil,
         embeddedAnchor: EmbeddedAnchor?,
+        openedFile: OpenedAudioFile? = nil,
         sourceManager: SourceManager,
         library: MusicLibrary
     ) async -> SaveOutcome {
@@ -1173,6 +1180,7 @@ enum LyricsWriteback {
                 let write = await writeEmbeddedField(
                     .removeAllOriginals,
                     for: updated,
+                    openedFile: openedFile,
                     sourceManager: sourceManager,
                     library: library
                 )
@@ -1248,6 +1256,7 @@ enum LyricsWriteback {
                 let write = await writeEmbeddedField(
                     .removeAllOriginals,
                     for: updated,
+                    openedFile: openedFile,
                     sourceManager: sourceManager,
                     library: library
                 )
@@ -1371,6 +1380,7 @@ enum LyricsWriteback {
                     let write = await writeEmbeddedField(
                         replaceOperation,
                         for: updated,
+                        openedFile: openedFile,
                         sourceManager: sourceManager,
                         library: library
                     )
@@ -1498,6 +1508,7 @@ enum LyricsWriteback {
                 let write = await writeEmbeddedField(
                     replaceOperation,
                     for: updated,
+                    openedFile: openedFile,
                     sourceManager: sourceManager,
                     library: library
                 )
@@ -1647,12 +1658,18 @@ enum LyricsWriteback {
     private static func writeEmbeddedCopy(
         _ edit: EmbeddedLyricsEdit,
         for song: Song,
+        openedFile: OpenedAudioFile? = nil,
         sourceManager: SourceManager,
         library: MusicLibrary
     ) async -> EmbeddedCopyResult {
         // 保存开始后，资料库重读也可能发现别处换过文件。只接续本次已确认的文件或 Primuse 自己的写入。
         var target = song
-        if let latest = library.storedSong(id: song.id) {
+        if let openedFile {
+            guard let captured = openedFile.target(for: library.storedSong(id: song.id) ?? song) else {
+                return .failed(String(localized: "lyrics_version_target_moved"))
+            }
+            target = captured
+        } else if let latest = library.storedSong(id: song.id) {
             guard EditTarget(song).isSameLocation(as: latest) else {
                 return .failed(String(localized: "lyrics_version_target_moved"))
             }
@@ -1766,11 +1783,12 @@ enum LyricsWriteback {
     private static func writeEmbeddedField(
         _ operation: EmbeddedLyricsFieldEditor.Operation,
         for song: Song,
+        openedFile: OpenedAudioFile? = nil,
         sourceManager: SourceManager,
         library: MusicLibrary
     ) async -> EmbeddedFieldWrite {
         let request = EmbeddedLyricsFieldRequest(operation)
-        let copy = await writeEmbeddedCopy(.field(request), for: song, sourceManager: sourceManager, library: library)
+        let copy = await writeEmbeddedCopy(.field(request), for: song, openedFile: openedFile, sourceManager: sourceManager, library: library)
         return EmbeddedFieldWrite(copy: copy, report: EmbeddedLyricsFieldReports.take(request.id))
     }
 
@@ -1947,10 +1965,35 @@ enum LyricsWriteback {
         }
     }
 
+    struct OpenedAudioFile: Equatable, Sendable {
+        let identity: EditTarget
+        let ownWriteAtOpening: EditTarget?
+
+        @MainActor
+        func target(for song: Song) -> Song? {
+            guard identity.songID == song.id, identity.isSameLocation(as: song) else { return nil }
+            if let own = ownAudioWrites[song.id], own != ownWriteAtOpening, own.isSameFile(as: song) {
+                return song
+            }
+            var target = song
+            target.fileSize = identity.fileSize
+            target.lastModified = identity.lastModified
+            target.revision = identity.revision
+            return target
+        }
+    }
+
+    static func openedAudioFile(for song: Song, sourceManager: SourceManager) async -> OpenedAudioFile? {
+        let own = ownAudioWrites[song.id]
+        guard let current = await sourceManager.localLyricsEditingIdentity(for: song) else { return nil }
+        return OpenedAudioFile(identity: EditTarget(current), ownWriteAtOpening: own)
+    }
+
     /// 一次编辑：打开时固定住的目标和要换掉的那一份内嵌原文。按「歌曲 + 打开时的缓存指纹」记，
     /// 保存成功后作废；同一首歌开了两个编辑器各是各的。
     private struct EditSession {
         var target: EditTarget
+        var openedFile: OpenedAudioFile?
         let anchor: EmbeddedAnchor?
         var editedVersion: [LyricLine]?
     }
@@ -1991,10 +2034,12 @@ enum LyricsWriteback {
         }
         guard let stored = library.storedSong(id: song.id) else { return nil }
         var accepted = [editSessions[sessionKey]?.target ?? EditTarget(song)]
+        if let openedFile = editSessions[sessionKey]?.openedFile { accepted.append(openedFile.identity) }
         if let own = ownAudioWrites[song.id] { accepted.append(own) }
         func relock() {
             openEditSession(
-                EditSession(target: EditTarget(stored), anchor: editSessions[sessionKey]?.anchor ?? anchor,
+                EditSession(target: EditTarget(stored), openedFile: editSessions[sessionKey]?.openedFile,
+                            anchor: editSessions[sessionKey]?.anchor ?? anchor,
                             editedVersion: editSessions[sessionKey]?.editedVersion),
                 key: sessionKey
             )
