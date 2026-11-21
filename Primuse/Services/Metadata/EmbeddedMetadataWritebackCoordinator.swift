@@ -150,7 +150,9 @@ struct EmbeddedAssetWritePolicy: Sendable, Equatable {
 
     var tagFields: Set<ScrapeField> = []
     var overwritesTags: Set<ScrapeField> = []
+    #if os(iOS) || os(macOS)
     var tagTarget: LyricsWriteback.EditTarget?
+    #endif
 
     func tagsToWrite(_ file: EmbeddedMetadataVerification, proposed: Song) -> Set<TagMetadataWritebackField> {
         var selected: Set<TagMetadataWritebackField> = []
@@ -338,6 +340,7 @@ extension EmbeddedMetadataRemoteFileState {
     }
 }
 
+#if os(iOS) || os(macOS)
 extension SourceManager {
     /// Capture the local audio revision before reading an editable document. An app-container
     /// migration can replace the inode before the editor opens while leaving the library row intact.
@@ -355,6 +358,7 @@ extension SourceManager {
         }
     }
 }
+#endif
 
 extension MusicSourceConnector {
     /// 默认:能做整文件写回的连接器读一遍文件现在的身份和标签;别的连接器不支持。

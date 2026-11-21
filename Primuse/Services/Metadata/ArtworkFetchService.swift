@@ -234,7 +234,11 @@ actor ArtworkFetchService {
 
     func installFetchedAlbumCover(_ data: Data, albumID: String) async -> Bool {
         guard await assetStore.storeAlbumCover(data, forAlbumID: albumID) != nil else { return false }
+        #if os(tvOS)
+        await MainActor.run { TVArtworkRefresh.shared.refresh([albumID]) }
+        #else
         await MainActor.run { CachedArtworkView.invalidateAlbumCover(albumID) }
+        #endif
         return true
     }
 
