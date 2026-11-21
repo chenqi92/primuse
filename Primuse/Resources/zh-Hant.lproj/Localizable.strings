@@ -8061,3 +8061,17 @@
 "scrobble_lb_server_placeholder" = "伺服器位址（留空使用 listenbrainz.org）";
 "scrobble_lb_server_invalid" = "伺服器位址無效";
 "scrobble_lb_server_footer" = "使用 Maloja、Koito、multi-scrobbler 等相容 ListenBrainz 的自架服務時，填寫它的 API 位址，權杖也在那台伺服器上取得。";
+
+"lyrics_versions_title" = "歌詞版本";
+"lyrics_versions_external" = "外部";
+"lyrics_versions_embedded" = "內嵌";
+"lyrics_versions_line" = "逐行";
+"lyrics_versions_use_for_playback" = "用於播放";
+"lyrics_versions_playing" = "播放時使用";
+"lyrics_versions_delete_one" = "刪除此版本";
+"lyrics_versions_hide_one" = "在 Primuse 中隱藏此版本";
+"lyrics_versions_delete_all" = "刪除所有版本";
+"lyrics_versions_remove_all_mixed" = "刪除可寫入的版本，並在 Primuse 中隱藏唯讀版本？";
+"lyrics_versions_hide_all" = "在 Primuse 中隱藏所有版本";
+"lyrics_versions_remove_one_confirm" = "移除「%@」？";
+"lyrics_versions_remove_all_confirm" = "移除全部 %lld 個歌詞版本？";

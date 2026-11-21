@@ -60,6 +60,17 @@ final class LocalReferenceFileChangeTests: XCTestCase {
         let versions = await assets.lyricsSourceCollection(forSongID: song.id)
         XCTAssertFalse(versions.candidates.contains { $0.lines.first?.text == "Earlier words" })
         XCTAssertTrue(versions.candidates.contains { versions.isKept($0.id) && $0.lines.first?.text == "Deliberately kept" })
+
+        let fields = try EmbeddedLyricsArchive.entries(in: Data(contentsOf: file), fileExtension: "mp3")
+        var selection = LyricsVersionPreferences()
+        selection.selectedID = "embedded:" + (try XCTUnwrap(fields.first)).id
+        selection.selectedLines = try XCTUnwrap(refreshed)
+        try await assets.chooseLyricsVersion(selection, lines: selection.selectedLines, forSongID: song.id)
+        try write("Amber", to: file, lyrics: "Another edit", atomically: true)
+        _ = try await local.refreshedLocalSong(song, notified: true)
+        let afterPinnedFieldChanged = await assets.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(afterPinnedFieldChanged?.map(\.text), ["Another edit"])
+
     }
 
     func testIndependentCopiesConvergeOnlyAfterEachFileChanges() async throws {

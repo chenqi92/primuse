@@ -14,9 +14,11 @@ enum EmbeddedLyricsEdit: Sendable, Equatable {
     /// 只改正在用的那一份所在的字段、只删掉一份、或者删掉全部原文字段（译文保留）。
     /// 只能单独做，不和改标签、换封面一起。做了什么记在 `EmbeddedLyricsFieldReports` 里。
     case field(EmbeddedLyricsFieldRequest)
+    case ordered([String: String?])
 
     var logName: String {
         switch self {
+        case .ordered: return "ordered"
         case .keep: return "keep"
         case .set: return "set"
         case .remove: return "remove"
@@ -180,6 +182,20 @@ enum EmbeddedMetadataWriter {
             return verification(from: try AudioFile(readingPropertiesAndMetadataFrom: fileURL).metadata)
         }
 
+        let fileData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+        guard let format = AudioFormat.from(fileExtension: fileExtension) else {
+            throw EmbeddedMetadataWriterError.unsupportedFormat(fileExtension)
+        }
+        if case .ordered(let entries) = edits.lyrics {
+            guard edits.tags == nil, edits.comment == .keep, edits.coverData == nil else {
+                throw EmbeddedMetadataWriterError.verificationFailed("lyrics")
+            }
+            let changed = try EmbeddedLyricsArchive.replacing(in: fileData, fileExtension: fileExtension, edits: entries)
+            try changed.write(to: fileURL, options: .atomic)
+            return try currentTags(at: fileURL)
+        }
+        let original = edits.lyrics == .keep ? try OrderedTagContainer.tagSnapshot(in: fileData, format: format) : Data()
+        if !original.isEmpty { _ = try OrderedTagContainer.items(in: original, format: format) }
         let audioFile = try AudioFile(readingPropertiesAndMetadataFrom: fileURL)
         let metadata = audioFile.metadata
         if let tags = edits.tags {
@@ -244,7 +260,8 @@ enum EmbeddedMetadataWriter {
         }
 
         switch edits.lyrics {
-        case .keep, .field:
+        case .ordered, .field: throw EmbeddedMetadataWriterError.verificationFailed("lyrics")
+        case .keep:
             break
         case .set(let text):
             metadata.lyrics = text
@@ -255,7 +272,8 @@ enum EmbeddedMetadataWriter {
         }
 
         switch edits.comment {
-        case .keep, .field:
+        case .ordered, .field: throw EmbeddedMetadataWriterError.verificationFailed("comment")
+        case .keep:
             break
         case .set(let text):
             metadata.comment = text
@@ -301,6 +319,12 @@ enum EmbeddedMetadataWriter {
             )
         }
 
+        if edits.lyrics == .keep, !original.isEmpty {
+            let saved = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            let restored = try EmbeddedLyricsArchive.preserving(from: original, in: saved, fileExtension: fileExtension)
+            if restored != saved { try restored.write(to: fileURL, options: .atomic) }
+        }
+
         let verifiedFile = try AudioFile(readingPropertiesAndMetadataFrom: fileURL)
         let verified = verification(from: verifiedFile.metadata)
         if let tags = edits.tags {
@@ -333,7 +357,8 @@ enum EmbeddedMetadataWriter {
             try require(verified.coverData == coverData, field: "cover artwork")
         }
         switch edits.comment {
-        case .keep, .field:
+        case .ordered, .field: throw EmbeddedMetadataWriterError.verificationFailed("comment")
+        case .keep:
             break
         case .set(let text):
             try require(
@@ -358,7 +383,8 @@ enum EmbeddedMetadataWriter {
             }
         } else {
             switch edits.lyrics {
-            case .keep, .field:
+            case .ordered, .field: throw EmbeddedMetadataWriterError.verificationFailed("lyrics")
+            case .keep:
                 if restoredID3LyricsFrames {
                     let written = ID3LyricsFramePreservation.lyricsFrameBodies(
                         in: try Data(contentsOf: fileURL, options: .mappedIfSafe)

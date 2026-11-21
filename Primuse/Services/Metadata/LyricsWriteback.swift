@@ -257,7 +257,7 @@ enum LyricsWriteback {
         sourceManager: SourceManager,
         cached: [LyricLine]?
     ) async -> EditablePayload {
-        if cached == nil, await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id) {
+        if await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id) {
             // 用户清空过：编辑器从空白开始，不把文件里隐藏起来的那份又摆出来。
             // 源的快照照常记，保存时核对它有没有被别处改过。
             let snapshot: EditableSourceSnapshot
@@ -462,7 +462,8 @@ enum LyricsWriteback {
         respectsCachedVersion: Bool = true
     ) async -> Target {
         let requested = EmbeddedLyricsCopyPolicy.mode(forSongID: song.id)
-        if respectsCachedVersion, await LyricsLoader.prefersCachedDocument(for: song) {
+        let previouslyCleared = await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id)
+        if respectsCachedVersion, !previouslyCleared, await LyricsLoader.prefersCachedDocument(for: song) {
             return makeTarget(
                 SaveLocationPolicy.lyricsPlan(.init(usesPrimuseVersion: true), requested: requested),
                 preflight: nil
@@ -513,6 +514,12 @@ enum LyricsWriteback {
                             using: connector
                         )
                     }
+                }
+                if previouslyCleared, preflight.replacesExistingFile {
+                    return makeTarget(
+                        SaveLocationPolicy.lyricsPlan(.init(usesPrimuseVersion: true), requested: requested),
+                        preflight: nil
+                    )
                 }
                 var plan = SaveLocationPolicy.lyricsPlan(
                     facts,
@@ -1008,7 +1015,8 @@ enum LyricsWriteback {
             }
         case .cache:
             let choice = await store.userLyricsChoice(forSongID: song.id)
-            changedByUser = choice?.isCleared == true
+            let versions = await store.lyricsVersionPreferences(forSongID: song.id)
+            changedByUser = choice?.isCleared == true || versions?.cleared == true || versions?.selectedID != nil
                 || LyricsUserChoicePolicy.pins(choice, currentFingerprint: cacheSnapshot?.rawValue)
             alreadySaved = normalized(cached.map { LyricsContentParser.serialize($0) } ?? "") == normalized(text)
         }
@@ -2146,6 +2154,7 @@ enum LyricsWriteback {
         case .forget: destination = "local"
         case .embeddedField: destination = "embedded"
         case .file: destination = "file"
+        case .serverVersion: destination = "server"
         case .readOnly: destination = "hidden"
         }
         let versionLines: [LyricLine]? = entry.candidate?.lines
@@ -2195,6 +2204,23 @@ enum LyricsWriteback {
     ) async -> VersionDeletionOutcome {
         let store = MetadataAssetStore.shared
         var outcome = VersionDeletionOutcome()
+        if entry.isEmbedded || entry.serverText != nil || entry.cachedOnly {
+            let hides: Bool
+            if case .readOnly = plan { hides = true } else { hides = false }
+            do {
+                try await LyricsDocumentCatalog.remove(
+                    [entry], for: song, sourceManager: sourceManager, hidingOnly: hides,
+                    sourcesStore: sourcesStore, library: library
+                )
+                if hides { outcome.notice = String(localized: "lyrics_version_hidden_in_primuse") }
+                outcome.cleared = await store.hasUserClearedLyrics(forSongID: song.id)
+                outcome.updatedSong = library.storedSong(id: song.id)
+            } catch {
+                outcome.errorMessage = error.localizedDescription
+                if case SidecarWriteService.LyricsDocumentWriteError.changedElsewhere = error { outcome.changedElsewhere = true }
+            }
+            return outcome
+        }
         var deleted = Set<String>()
         if let versionLines, !versionLines.isEmpty { deleted.insert(MetadataAssetStore.lyricsFingerprint(versionLines)) }
         func hide(_ notice: String) async -> Bool {
@@ -2204,6 +2230,9 @@ enum LyricsWriteback {
             return true
         }
         switch plan {
+        case .serverVersion:
+            outcome.errorMessage = String(localized: "tag_editor_lyrics_verify_failed")
+            return outcome
         case .forget:
             if let candidate = entry.candidate {
                 await store.removeLyricsCandidate(candidate.id, forSongID: song.id)
@@ -2380,6 +2409,9 @@ enum LyricsWriteback {
             return false
         case .localOnly:
             if case .unknown = expected { return true }
+            // A hidden read-only document may still exist when its local replacement is created.
+            if case .absent = expected,
+               await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id) { return true }
             let latestRead = await LyricsLoader.readAuthoritativeSourceText(
                 for: song,
                 sourceManager: sourceManager
@@ -2512,6 +2544,25 @@ enum LyricsWriteback {
                 return WriteFailure(String(localized: "tag_editor_lyrics_verify_failed"))
             }
             return nil
+        }
+    }
+
+    static func replaceServerVersion(for song: Song, expecting original: String, with text: String?,
+                                     sourceManager: SourceManager) async throws {
+        let connector = try await sourceManager.auxiliaryConnector(for: song)
+        guard let server = connector as? any ServerLyricsConnector,
+              text == nil ? server.serverLyricsCapabilities.canDelete : server.serverLyricsCapabilities.canWrite,
+              case .content(let current) = await server.readServerLyrics(for: song.filePath),
+              current == original else {
+            throw SidecarWriteService.LyricsDocumentWriteError.changedElsewhere(song.title)
+        }
+        if let text {
+            if let failure = await write(LyricsParser.parse(text), content: text, for: song, mode: .mediaServer,
+                                         sourceManager: sourceManager) {
+                throw SourceError.connectionFailed(failure.message)
+            }
+        } else if let error = await remove(for: song, mode: .mediaServer, sourceManager: sourceManager) {
+            throw SourceError.connectionFailed(error)
         }
     }
 

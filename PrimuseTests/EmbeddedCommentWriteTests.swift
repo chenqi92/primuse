@@ -382,6 +382,37 @@ final class EmbeddedLyricsFieldWriteTests: XCTestCase {
         XCTAssertEqual(local.translatedLyricsText, words)
     }
 
+    func testOrderedLyricsAndAnchoredLyricsSurviveUnrelatedCoverWrite() async throws {
+        let url = try makeMP3(lyricsFrames: [
+            ("eng", "", "Copper tide"), ("fra", "translation", "Marée de cuivre"),
+        ], extraFrames: [
+            ("TXXX", Data([3]) + Data("LYRICS".utf8) + Data([0]) + Data("[00:02.00]Golden tide".utf8))
+        ])
+        func entries() throws -> [EmbeddedLyricsArchive.Entry] {
+            try EmbeddedLyricsArchive.entries(in: Data(contentsOf: url), fileExtension: "mp3")
+        }
+        let target = try XCTUnwrap(entries().first { $0.text.contains("Golden") })
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            .init(tags: nil, coverData: nil, lyrics: .ordered([target.id: "[00:02.00]Silver tide"])), to: url
+        )
+        _ = try await write(.replace(text: "Copper river", anchor: "Copper tide"), to: url)
+        let beforeCover = try entries()
+        XCTAssertEqual(Set(beforeCover.map(\.text)), Set(["Copper river", "Marée de cuivre", "[00:02.00]Silver tide"]))
+        let coverData = await MainActor.run {
+            UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16)).image { context in
+                UIColor.orange.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+            }.jpegData(compressionQuality: 0.9)
+        }
+        let cover = try XCTUnwrap(coverData)
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(.init(tags: nil, coverData: cover, lyrics: .keep), to: url)
+        XCTAssertEqual(try entries(), beforeCover)
+        XCTAssertEqual(try EmbeddedMetadataWriter.currentTags(at: url).coverData, cover)
+        _ = try await write(.removeAllOriginals, to: url)
+        XCTAssertEqual(try entries().map(\.text), ["Marée de cuivre"])
+        XCTAssertEqual(try EmbeddedMetadataWriter.currentTags(at: url).coverData, cover)
+    }
+
     // MARK: 刮削往音频文件里嵌歌词
 
     /// 本机文件夹源上的一首：资料库记的文件身份和文件一致，写回的冲突判断才过得去。

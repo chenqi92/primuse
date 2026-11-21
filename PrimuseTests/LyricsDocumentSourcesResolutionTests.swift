@@ -198,6 +198,311 @@ final class LyricsDocumentSourcesResolutionTests: XCTestCase {
         XCTAssertNil(afterRemoval)
     }
 
+    func testClearedSongRejectsRescansAfterReopeningAndAcceptsManualCreation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetadataAssetStore(storageDirectory: directory)
+        let removed = LyricsDocumentSource.embedded.stamped([LyricLine(timestamp: 1, text: "A paper kite counts clouds")])
+        let cached = await store.cacheLyrics(removed, forSongID: "fixture")
+        XCTAssertTrue(cached)
+        var choices = LyricsVersionPreferences()
+        choices.cleared = true
+        choices.removedDocuments.insert(LyricsVersionPreferences.documentKey(removed))
+        try await store.setLyricsVersionPreferences(choices, forSongID: "fixture")
+        let reopened = MetadataAssetStore(storageDirectory: directory)
+        let automatic = await reopened.cacheLyrics(removed, forSongID: "fixture")
+        let playback = await reopened.cachedLyrics(forSongID: "fixture")
+        XCTAssertFalse(automatic)
+        XCTAssertNil(playback)
+        let replacement = [LyricLine(timestamp: 3, text: "The rooftops turn a page")]
+        let created = await reopened.replaceLyricsIfUnchanged(replacement, forSongID: "fixture",
+                                                               expectedFingerprint: nil, userEdit: true)
+        XCTAssertTrue(created)
+        let restored = await reopened.cachedLyrics(forSongID: "fixture")
+        XCTAssertEqual(restored?.map(\.text), replacement.map(\.text))
+        let rescan = await reopened.cacheLyrics(removed, forSongID: "fixture")
+        XCTAssertFalse(rescan)
+    }
+
+    @MainActor
+    func testEditingAndDeletingLanguageSidecarDoesNotChangeItsSiblingOrPlayback() async throws {
+        var track = song()
+        track.fileFormat = .wav
+        track.filePath = "/Music/Paper Jet.wav"
+        let english = Data("[00:01.00]A paper jet leaves port".utf8)
+        let chinese = Data("[00:01.00]纸飞机掠过窗台".utf8)
+        let connector = LyricsDocumentFixtureConnector(directory: "/Music", files: [
+            "Paper Jet.wav": Data([0, 1]), "Paper Jet.en.lrc": english, "Paper Jet.zh.lrc": chinese,
+        ])
+        let source = MusicSource(id: track.sourceID, name: "Fixture", type: .webdav, host: "fixture.invalid")
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        let library = AppServices.shared.musicLibrary
+        guard case .documents(let listing) = await LyricsDocumentCatalog.load(for: track, sourceManager: manager, sourcesStore: sources) else {
+            return XCTFail("Expected both language files")
+        }
+        let en = try XCTUnwrap(listing.entries.first { $0.languageCode == "en" })
+        let zh = try XCTUnwrap(listing.entries.first { $0.languageCode == "zh" })
+        try await LyricsDocumentCatalog.activate(en, for: track, sourceManager: manager)
+        let old = try await LyricsDocumentCatalog.read(zh, for: track, sourceManager: manager)
+        try await LyricsDocumentCatalog.save("[00:02.00]纸飞机落在码头", entry: zh, original: old,
+                                            for: track, sourceManager: manager, library: library)
+        guard case .documents(let saved) = await LyricsDocumentCatalog.load(for: track, sourceManager: manager, sourcesStore: sources) else {
+            return XCTFail("Expected the edited file")
+        }
+        XCTAssertEqual(saved.entries.first(where: \.isActive)?.name, en.name)
+        let edited = try XCTUnwrap(saved.entries.first { $0.name == zh.name })
+        try await LyricsDocumentCatalog.remove([edited], for: track, sourceManager: manager, sourcesStore: sources, library: library)
+        let files = await connector.files
+        XCTAssertEqual(files[en.name], english)
+        XCTAssertNil(files[zh.name])
+        XCTAssertEqual(files["Paper Jet.wav"], Data([0, 1]))
+        let playing = await LyricsLoader.load(for: track, sourceManager: manager, allowsAutomaticOnlineLyrics: false)
+        XCTAssertEqual(playing.map(\.text), ["A paper jet leaves port"])
+        LyricsDocumentPinStore.shared.clearPin(forSongID: track.id)
+        _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: track.id)
+    }
+
+    @MainActor
+    func testVersionDraftKeepsOrReplacesTheEditedEmbeddedLyrics() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let media = directory.appendingPathComponent("music")
+        try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)
+        let source = MusicSource(id: UUID().uuidString, name: "Test", type: .local, basePath: media.path)
+        let local = LocalFileSource(sourceID: source.id, basePath: media)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in local })
+        let sources = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"), publishesKeychainOptOuts: false)
+        sources.add(source)
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("db"), deferredMaintenanceAllowed: { false })
+        let old = "[00:01.00]The rain measures the roof"
+        let edited = "[00:02.00]A little boat counts the waves"
+        let payload = Data([3]) + Data("eng".utf8) + Data([0]) + Data(old.utf8)
+        let uslt = Data("USLT".utf8) + Data([0, 0, 0, UInt8(payload.count), 0, 0]) + payload
+        let frame = Data([0xff, 0xfb, 0x90, 0x64]) + Data(count: 413)
+        var audio = Data("ID3".utf8) + Data([4, 0, 0, 0, 0, 0, UInt8(uslt.count)]) + uslt
+        for _ in 0..<8 { audio.append(frame) }
+
+        for keep in [false, true] {
+            let file = media.appendingPathComponent(keep ? "Keep.mp3" : "Replace.mp3")
+            try audio.write(to: file)
+            var track: Song?
+            for try await row in try await local.scanSongs(from: "/", existingSongs: []) where row.song.filePath.hasSuffix(file.lastPathComponent) {
+                track = row.song
+            }
+            let row = try XCTUnwrap(track)
+            let scanned = try await local.metadataWritebackState(for: row.filePath)
+            let song = scanned.applyingIdentity(to: row)
+            let permissions = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber)
+            try FileManager.default.setAttributes([.posixPermissions: permissions.intValue ^ 0o100], ofItemAtPath: file.path)
+            let current = try await local.metadataWritebackState(for: row.filePath)
+            XCTAssertNotEqual(scanned.revision, current.revision)
+            XCTAssertEqual(scanned.fileSize, current.fileSize)
+            XCTAssertEqual(scanned.modifiedDate, current.modifiedDate)
+            library.addSongs([song], pruneMissingSongs: false)
+            addTeardownBlock { await MetadataAssetStore.shared.invalidateCaches(forSongIDs: [song.id]) }
+            func listed() async throws -> [LyricsDocumentCatalog.Entry] {
+                let current = library.storedSong(id: song.id) ?? song
+                guard case .documents(let listing) = await LyricsDocumentCatalog.load(for: current, sourceManager: manager, sourcesStore: sources)
+                else { throw CocoaError(.fileReadUnknown) }
+                return listing.entries
+            }
+            let initial = try await listed()
+            let physical = try XCTUnwrap(initial.first(where: \.isEmbedded))
+            try await LyricsDocumentCatalog.activate(physical, for: song, sourceManager: manager)
+            let original = try await LyricsDocumentCatalog.read(physical, for: song, sourceManager: manager)
+            let draft = LyricsVersionDraft(entry: physical, original: original, baseline: .init(parsing: old),
+                                           document: .init(parsing: edited))
+            try await draft.save(for: song, sourceManager: manager, library: library, mode: keep ? .keepAndSelect : .replace)
+            let fields = try EmbeddedLyricsArchive.entries(in: Data(contentsOf: file), fileExtension: "mp3")
+            XCTAssertEqual(fields.map { LyricsParser.parse($0.text).map(\.text) }, [["A little boat counts the waves"]])
+            let after = try await listed()
+            let active = try XCTUnwrap(after.first(where: \.isActive))
+            XCTAssertTrue(active.isEmbedded)
+            let kept = after.filter(\.isKeptVersion)
+            XCTAssertEqual(kept.count, keep ? 1 : 0)
+            if let previous = kept.first {
+                XCTAssertEqual(previous.candidate?.lines.map(\.text), ["The rain measures the roof"])
+                try await LyricsDocumentCatalog.activate(previous, for: song, sourceManager: manager)
+                let switched = try await listed()
+                XCTAssertEqual(switched.first(where: \.isActive)?.id, previous.id)
+                try await LyricsDocumentCatalog.activate(active, for: song, sourceManager: manager)
+            }
+            let reloaded = try await listed()
+            let next = try XCTUnwrap(reloaded.first(where: \.isActive))
+            let beforeConflict = try await LyricsDocumentCatalog.read(next, for: song, sourceManager: manager)
+            var external = try Data(contentsOf: file)
+            external[external.count - 1] ^= 1
+            let originalDate = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date)
+            try external.write(to: file)
+            try FileManager.default.setAttributes([.modificationDate: originalDate], ofItemAtPath: file.path)
+            let stale = LyricsVersionDraft(entry: next, original: beforeConflict, baseline: .init(parsing: edited),
+                                          document: .init(parsing: old))
+            do {
+                try await stale.save(for: song, sourceManager: manager, library: library, mode: .keepAndSelect)
+                XCTFail("An external change after opening must stop the embedded write")
+            } catch {
+                XCTAssertEqual(try Data(contentsOf: file), external)
+            }
+            let playing = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+            XCTAssertEqual(playing?.map(\.text), ["A little boat counts the waves"])
+        }
+    }
+
+    @MainActor
+    func testPreviouslyHiddenEmbeddedLyricsStayHiddenWhenPhysicalFieldsAreListed() async throws {
+        func frame(_ text: String) -> Data {
+            let payload = Data([3]) + Data("eng".utf8) + Data([0]) + Data(text.utf8)
+            return Data("USLT".utf8) + Data([0, 0, 0, UInt8(payload.count), 0, 0]) + payload
+        }
+        let hidden = "[00:01.00]A paper moon"
+        let visible = "[00:02.00]The morning tide"
+        let frames = frame(hidden) + frame(visible)
+        let audio = Data("ID3".utf8) + Data([4, 0, 0, 0, 0, 0, UInt8(frames.count)]) + frames
+        let fileName = "Paper Moon.mp3"
+        let fixture = LyricsDocumentFixtureConnector(directory: "/Music", files: [fileName: audio])
+        let source = MusicSource(id: UUID().uuidString, name: "Lyrics", type: .webdav, host: "fixture.invalid")
+        let song = Song(id: UUID().uuidString, title: "Paper Moon", fileFormat: .mp3,
+                        filePath: "/Music/" + fileName, sourceID: source.id, fileSize: Int64(audio.count))
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in fixture })
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        sources.add(source)
+        let store = MetadataAssetStore.shared
+        addTeardownBlock {
+            await store.invalidateCaches(forSongIDs: [song.id])
+            try? FileManager.default.removeItem(at: directory)
+        }
+        func fields() async throws -> [String] {
+            guard case .documents(let catalog) = await LyricsDocumentCatalog.load(for: song, sourceManager: manager, sourcesStore: sources) else {
+                XCTFail("Missing embedded fields")
+                return []
+            }
+            return catalog.entries.compactMap(\.embeddedText)
+        }
+        let before = try await fields()
+        XCTAssertEqual(before, [hidden, visible])
+        await store.hideLyricsVersion(LyricsDocumentSource.embedded.stamped(LyricsParser.parse(hidden)), forSongID: song.id)
+        let after = try await fields()
+        XCTAssertEqual(after, [visible])
+        let files = await fixture.files
+        XCTAssertEqual(files[fileName], audio)
+    }
+
+    @MainActor
+    func testDeletingLastWritableVersionAllowsCreatingNewSidecar() async throws {
+        try await verifyRecreationAfterLastVersion(sourceType: .webdav)
+    }
+
+    @MainActor
+    func testHidingLastReadOnlyVersionAllowsCreatingLocalLyrics() async throws {
+        try await verifyRecreationAfterLastVersion(sourceType: .upnp)
+    }
+
+    @MainActor
+    private func verifyRecreationAfterLastVersion(sourceType: MusicSourceType) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let song = Song(id: UUID().uuidString, title: "Paper Window", fileFormat: .wav,
+                        filePath: "/Music/Paper Window.wav", sourceID: UUID().uuidString, fileSize: 2)
+        let audio = Data([0, 1])
+        let english = Data("[00:01.00]A paper window holds the rain".utf8)
+        let chinese = Data("[00:02.00]一叶纸窗托住雨滴".utf8)
+        let initialFiles = ["Paper Window.wav": audio, "Paper Window.en.lrc": english, "Paper Window.zh.lrc": chinese]
+        let fixture = LyricsDocumentFixtureConnector(directory: "/Music", files: initialFiles)
+        let source = MusicSource(id: song.sourceID, name: "Paper Window", type: sourceType, host: "fixture.invalid")
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in fixture })
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        sources.add(source)
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        library.addSongs([song])
+        addTeardownBlock {
+            _ = await library.persistIncrementalNowAndWait()
+            LyricsDocumentPinStore.shared.clearPin(forSongID: song.id)
+            await MetadataAssetStore.shared.invalidateCaches(forSongIDs: [song.id])
+            try FileManager.default.removeItem(at: directory)
+        }
+
+        func versions(for song: Song) async throws -> [LyricsDocumentCatalog.Entry] {
+            guard case .documents(let listing) = await LyricsDocumentCatalog.load(
+                for: song, sourceManager: manager, sourcesStore: sources
+            ) else {
+                XCTFail("Source did not return a catalog")
+                return []
+            }
+            XCTAssertNil(listing.sourceError)
+            return listing.entries
+        }
+        let original = try await versions(for: song)
+        XCTAssertEqual(Set(original.map(\.name)), ["Paper Window.en.lrc", "Paper Window.zh.lrc"])
+        var first = try XCTUnwrap(original.first { $0.languageCode == "en" })
+        XCTAssertEqual(first.isPhysicallyRemovable, sourceType.supportsSidecarWriting)
+        try await LyricsDocumentCatalog.activate(first, for: song, sourceManager: manager)
+        if !sourceType.supportsSidecarWriting {
+            let opened = try await LyricsDocumentCatalog.read(first, for: song, sourceManager: manager)
+            XCTAssertEqual(opened.data, english)
+            let edit = "[00:04.25]The window saves a drop of sun"
+            try await LyricsDocumentCatalog.saveEditedLines(
+                LyricsParser.parse(edit), text: edit, entry: first, original: opened,
+                for: song, sourceManager: manager, library: library
+            )
+            let relisted = try await versions(for: song)
+            XCTAssertEqual(Set(relisted.map(\.id)), Set(original.map(\.id)))
+            let active = try XCTUnwrap(relisted.first(where: \.isActive))
+            XCTAssertEqual(active.id, first.id)
+            let edited = try await LyricsDocumentCatalog.read(active, for: song, sourceManager: manager)
+            XCTAssertEqual(edited.text, edit)
+            let playing = await LyricsLoader.load(for: song, sourceManager: manager, allowsAutomaticOnlineLyrics: false)
+            XCTAssertEqual(playing.map(\.text), ["The window saves a drop of sun"])
+            XCTAssertEqual(playing.map(\.timestamp), [4.25])
+            let filesAfterEdit = await fixture.files
+            XCTAssertEqual(filesAfterEdit, initialFiles)
+            first = active
+        }
+        try await LyricsDocumentCatalog.remove([first], for: song, sourceManager: manager, sourcesStore: sources, library: library)
+        let remaining = try await versions(for: song)
+        XCTAssertEqual(remaining.map(\.name), ["Paper Window.zh.lrc"])
+        let last = try XCTUnwrap(remaining.first)
+        XCTAssertTrue(last.isActive)
+        try await LyricsDocumentCatalog.remove([last], for: song, sourceManager: manager, sourcesStore: sources, library: library)
+
+        let empty = try await versions(for: song)
+        XCTAssertTrue(empty.isEmpty)
+        let payload = await LyricsWriteback.loadEditablePayload(for: song, sourceManager: manager)
+        XCTAssertEqual(payload.text, "")
+        let filesAfterRemoval = await fixture.files
+        XCTAssertEqual(filesAfterRemoval, sourceType.supportsSidecarWriting ? ["Paper Window.wav": audio] : initialFiles)
+
+        let replacement = "[00:03.00]Daylight folds the paper crane"
+        let mode = await LyricsWriteback.resolveMode(for: song, sourceManager: manager, sourcesStore: sources)
+        let saved = await LyricsWriteback.save(
+            text: replacement, for: song, mode: mode, allowRemoval: false, structuredLines: LyricsParser.parse(replacement),
+            sourceSnapshot: payload.sourceSnapshot, cacheSnapshot: payload.cacheSnapshot, sourceManager: manager, library: library
+        )
+        XCTAssertTrue(saved.succeeded, saved.errorMessage ?? "")
+        guard saved.succeeded else { return }
+        XCTAssertEqual(saved.persistence, sourceType.supportsSidecarWriting ? .sidecar : .localOnly)
+        let filesAfterCreation = await fixture.files
+        if sourceType.supportsSidecarWriting {
+            XCTAssertEqual(Set(filesAfterCreation.keys), ["Paper Window.wav", "Paper Window.lrc"])
+            let sidecar = try XCTUnwrap(filesAfterCreation["Paper Window.lrc"])
+            XCTAssertEqual(LyricsParser.parse(String(decoding: sidecar, as: UTF8.self)).map(\.text), ["Daylight folds the paper crane"])
+            XCTAssertEqual(filesAfterCreation["Paper Window.wav"], audio)
+        } else {
+            XCTAssertEqual(filesAfterCreation, initialFiles)
+        }
+        let reopened = try await versions(for: saved.updatedSong)
+        XCTAssertEqual(reopened.count, 1)
+        XCTAssertEqual(reopened.first?.isActive, true)
+        let editor = await LyricsWriteback.loadEditablePayload(for: saved.updatedSong, sourceManager: manager)
+        XCTAssertEqual(editor.playbackLines.map(\.text), ["Daylight folds the paper crane"])
+        let playback = await LyricsLoader.load(for: saved.updatedSong, sourceManager: manager, allowsAutomaticOnlineLyrics: false)
+        XCTAssertEqual(playback.map(\.text), ["Daylight folds the paper crane"])
+        XCTAssertEqual(playback.map(\.timestamp), [3])
+    }
+
     @MainActor
     func testCatalogListsOnlineAndEmbeddedAlongsideSidecarsAndEditorFollowsPick() async throws {
         let song = song()

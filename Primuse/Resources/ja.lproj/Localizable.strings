@@ -8085,3 +8085,17 @@
 "scrobble_lb_server_placeholder" = "サーバー URL（空欄で listenbrainz.org）";
 "scrobble_lb_server_invalid" = "サーバー URL が無効です";
 "scrobble_lb_server_footer" = "Maloja、Koito、multi-scrobbler など ListenBrainz 互換のセルフホストサーバーを使う場合は、その API URL を入力し、そのサーバーで取得したトークンを使ってください。";
+
+"lyrics_versions_title" = "歌詞のバージョン";
+"lyrics_versions_external" = "外部";
+"lyrics_versions_embedded" = "埋め込み";
+"lyrics_versions_line" = "行単位";
+"lyrics_versions_use_for_playback" = "再生時に使用";
+"lyrics_versions_playing" = "使用中";
+"lyrics_versions_delete_one" = "このバージョンを削除";
+"lyrics_versions_hide_one" = "このバージョンをPrimuseで非表示";
+"lyrics_versions_delete_all" = "すべてのバージョンを削除";
+"lyrics_versions_remove_all_mixed" = "書き込み可能なバージョンを削除し、読み取り専用のバージョンをPrimuseで非表示にしますか？";
+"lyrics_versions_hide_all" = "すべてのバージョンをPrimuseで非表示";
+"lyrics_versions_remove_one_confirm" = "「%@」を取り除きますか？";
+"lyrics_versions_remove_all_confirm" = "歌詞の全%lld件のバージョンを取り除きますか？";

@@ -342,6 +342,23 @@ enum LyricsLoader {
             plog("📜 LyricsLoader songID=\(song.id.prefix(8)) cleared by the listener")
             return []
         }
+        let store = MetadataAssetStore.shared
+        if let choices = await store.lyricsVersionPreferences(forSongID: song.id) {
+            if choices.cleared { return [] }
+            if choices.selectedID != nil, !choices.selectedLines.isEmpty { return choices.selectedLines }
+        }
+        let lines = await resolveLyrics(for: song, sourceManager: sourceManager, sourceType: sourceType,
+                                        allowsAutomaticOnlineLyrics: allowsAutomaticOnlineLyrics)
+        if await store.hasUserClearedLyrics(forSongID: song.id) { return [] }
+        guard let choices = await store.lyricsVersionPreferences(forSongID: song.id) else { return lines }
+        if choices.selectedID != nil { return choices.selectedLines }
+        return choices.permits(lines) ? lines : []
+    }
+
+    private static func resolveLyrics(
+        for song: Song, sourceManager: SourceManager, sourceType: MusicSourceType?,
+        allowsAutomaticOnlineLyrics: Bool
+    ) async -> [LyricLine] {
         if var cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
             guard !Task.isCancelled else { return [] }
             logLoaded(cached, song: song, tier: "Tier1a")
@@ -694,6 +711,8 @@ enum LyricsLoader {
         sourceManager: SourceManager,
         cachedDocument: [LyricLine]
     ) async -> [LyricLine]? {
+        if let choices = await MetadataAssetStore.shared.lyricsVersionPreferences(forSongID: song.id),
+           choices.cleared || choices.selectedID != nil { return nil }
         guard await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id).selected == nil else { return nil }
         let cleared = await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id)
         guard !cleared else { return nil }
@@ -1208,6 +1227,8 @@ enum LyricsLoader {
     }
 
     static func prefersCachedDocument(for song: Song) async -> Bool {
+        if let choices = await MetadataAssetStore.shared.lyricsVersionPreferences(forSongID: song.id),
+           choices.selectedID != nil { return true }
         if await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id).selected != nil { return true }
         guard let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) else { return false }
         let kind = LyricsDocumentSource.of(cached)?.kind

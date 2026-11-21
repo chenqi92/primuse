@@ -7990,3 +7990,17 @@
 "scrobble_lb_server_placeholder" = "Адрес сервера (пусто — listenbrainz.org)";
 "scrobble_lb_server_invalid" = "Недопустимый адрес сервера";
 "scrobble_lb_server_footer" = "Для собственного сервера, совместимого с ListenBrainz (Maloja, Koito, multi-scrobbler и т. п.), укажите адрес его API и используйте токен с этого сервера.";
+
+"lyrics_versions_title" = "Версии текста";
+"lyrics_versions_external" = "Внешняя";
+"lyrics_versions_embedded" = "Встроенная";
+"lyrics_versions_line" = "Построчно";
+"lyrics_versions_use_for_playback" = "Использовать при воспроизведении";
+"lyrics_versions_playing" = "Используется";
+"lyrics_versions_delete_one" = "Удалить эту версию";
+"lyrics_versions_hide_one" = "Скрыть эту версию в Primuse";
+"lyrics_versions_delete_all" = "Удалить все версии";
+"lyrics_versions_remove_all_mixed" = "Удалить доступные для записи версии и скрыть остальные в Primuse?";
+"lyrics_versions_hide_all" = "Скрыть все версии в Primuse";
+"lyrics_versions_remove_one_confirm" = "Убрать «%@»?";
+"lyrics_versions_remove_all_confirm" = "Убрать все версии текста (%lld)?";

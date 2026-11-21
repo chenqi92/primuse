@@ -3626,6 +3626,16 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
 @MainActor
 @Observable
 final class SourceManager {
+    private struct EditorTagReadKey: Equatable {
+        let songID: String
+        let path: String
+        let scope: String
+        let revision: String?
+        let modified: Date?
+        let bytes: Int64
+    }
+    @ObservationIgnored private var editorTagRead: (key: EditorTagReadKey, task: Task<Data, Error>, started: Date)?
+
     private enum PlaybackAudioCacheReservationMode: Equatable {
         case readOnly
         case persistentCache
@@ -12016,6 +12026,8 @@ final class SourceManager {
     }
 
     func deleteAudioCache(for song: Song) {
+        if editorTagRead?.key.songID == song.id { editorTagRead = nil }
+
         backgroundAudioCacheTasks[song.id]?.task.cancel()
         cancelOfflineCompaction(path: audioCacheRelativePath(for: song))
         let cacheURL = cacheURL(for: song)
@@ -16591,6 +16603,80 @@ final class SourceManager {
         )
         plog("Embedded assets writeback completed for songID=\(song.id) coverBytes=\(coverData?.count ?? 0) lyrics=\(lyrics.logName) unchanged=\(outcome.unchanged) lyricsHandling=\(String(describing: outcome.lyricsHandling))")
         return outcome
+    }
+
+    /// Returns the original media locally, or just its complete tags from a file source.
+    /// The editor uses these bytes for inspection; replacements always reopen the guarded source.
+    func editorEmbeddedFileData(for song: Song) async throws -> Data {
+        guard !song.isCueTrack, !song.isStreamDescriptor, [.mp3, .flac, .m4a, .alac].contains(song.fileFormat),
+              let source = try await sourcesProvider().first(where: { $0.id == song.sourceID && $0.isEnabled && !$0.isDeleted }),
+              source.type == .local || source.type.supportsEmbeddedMetadataBackfill else {
+            throw EmbeddedMetadataWritebackSourceError.unsupported
+        }
+        var localURL = await directLocalFileURL(for: song)
+        if localURL == nil { localURL = await cachedURLForBackgroundRead(for: song) }
+        if let localURL {
+            return try await Task.detached(priority: .utility) { try Data(contentsOf: localURL, options: .mappedIfSafe) }.value
+        }
+        let key = EditorTagReadKey(songID: song.id, path: song.filePath, scope: MusicSourceSecurityRevision.scopedFingerprint(for: source),
+                                   revision: song.revision, modified: song.lastModified, bytes: song.fileSize)
+        if let previous = editorTagRead, previous.key == key, Date().timeIntervalSince(previous.started) < 10 {
+            return try await previous.task.value
+        }
+        let connector = try await auxiliaryConnector(for: song)
+        if let previous = editorTagRead, previous.key == key, Date().timeIntervalSince(previous.started) < 10 {
+            return try await previous.task.value
+        }
+        let task = Task.detached(priority: .utility) {
+            try await Self.readEditorTags(for: song) { offset, length in
+                try await connector.fetchRange(path: song.filePath, offset: offset, length: length, priority: .background)
+            }
+        }
+        editorTagRead = (key, task, Date())
+        defer {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(10))
+                if self?.editorTagRead?.key == key { self?.editorTagRead = nil }
+            }
+        }
+        return try await task.value
+    }
+
+    private nonisolated static func readEditorTags(for song: Song, fetch: @Sendable (Int64, Int64) async throws -> Data) async throws -> Data {
+        guard song.fileSize > 0 else { throw EmbeddedMetadataWritebackSourceError.unsupported }
+        let head = Data(try await fetch(0, min(song.fileSize, 16 * 1024)))
+        if song.fileFormat == .m4a || song.fileFormat == .alac {
+            guard let tags = try await ISOBaseMediaRangeReader.read(head: head, fileSize: song.fileSize, fetch: fetch) else {
+                throw EmbeddedMetadataWritebackSourceError.unsupported
+            }
+            return tags
+        }
+        var data = head
+        let limit = min(song.fileSize, Int64(ISOBaseMediaRangeReader.maximumMetadataByteCount))
+        func extend(to count: Int) async throws {
+            guard Int64(count) <= limit else { throw EmbeddedMetadataWritebackSourceError.unsupported }
+            while data.count < count {
+                let length = min(count - data.count, ISOBaseMediaRangeReader.chunkByteCount)
+                let bytes = try await fetch(Int64(data.count), Int64(length))
+                guard bytes.count == length else { throw ISOBaseMediaRangeReader.ReadError.incompleteRange }
+                data += bytes
+            }
+        }
+        if song.fileFormat == .mp3 {
+            guard let length = EmbeddedTagMetadataParser.id3TagByteCount(in: head) else { return head }
+            try await extend(to: length)
+            return data
+        }
+        guard head.starts(with: "fLaC".utf8) else { throw EmbeddedMetadataWritebackSourceError.unsupported }
+        var cursor = 4
+        while true {
+            try await extend(to: cursor + 4)
+            let last = data[cursor] & 128 != 0
+            let length = data[(cursor + 1)..<(cursor + 4)].reduce(0) { ($0 << 8) | Int($1) }
+            cursor += 4 + length
+            try await extend(to: cursor)
+            if last { return data }
+        }
     }
 
     /// Stores or removes the comment inside the audio file and leaves every

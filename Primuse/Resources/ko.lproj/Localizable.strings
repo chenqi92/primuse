@@ -8084,3 +8084,17 @@
 "scrobble_lb_server_placeholder" = "서버 URL (비워 두면 listenbrainz.org)";
 "scrobble_lb_server_invalid" = "서버 URL이 올바르지 않습니다";
 "scrobble_lb_server_footer" = "Maloja, Koito, multi-scrobbler 등 ListenBrainz 호환 자체 호스팅 서버를 사용할 때는 해당 API URL을 입력하고 그 서버에서 받은 토큰을 사용하세요.";
+
+"lyrics_versions_title" = "가사 버전";
+"lyrics_versions_external" = "외부";
+"lyrics_versions_embedded" = "내장";
+"lyrics_versions_line" = "줄 단위";
+"lyrics_versions_use_for_playback" = "재생에 사용";
+"lyrics_versions_playing" = "사용 중";
+"lyrics_versions_delete_one" = "이 버전 삭제";
+"lyrics_versions_hide_one" = "Primuse에서 이 버전 숨기기";
+"lyrics_versions_delete_all" = "모든 버전 삭제";
+"lyrics_versions_remove_all_mixed" = "쓰기 가능한 버전을 삭제하고 읽기 전용 버전을 Primuse에서 숨길까요?";
+"lyrics_versions_hide_all" = "Primuse에서 모든 버전 숨기기";
+"lyrics_versions_remove_one_confirm" = "‘%@’을(를) 제거할까요?";
+"lyrics_versions_remove_all_confirm" = "가사 버전 %lld개를 모두 제거할까요?";

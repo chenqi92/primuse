@@ -4,6 +4,54 @@ import Testing
 
 @Suite("Lyric document sources")
 struct LyricsDocumentSourcesTests {
+    @Test("Earlier identical entries can be removed without losing later version choices")
+    func remapsDuplicatedEmbeddedEntries() {
+        var choices = LyricsVersionPreferences()
+        choices.selectedID = "same.1"
+        choices.edits["same.1"] = .init(text: "Later wave", lines: [], displayName: "USLT")
+        choices.edits["same.2"] = .init(text: "Last wave", lines: [], displayName: "USLT")
+        choices.hiddenIDs.insert("same.2")
+        choices.remapVersions(["same.1": "same.0", "same.2": "same.1"])
+        #expect(choices.selectedID == "same.0")
+        #expect(choices.edits["same.0"]?.text == "Later wave")
+        #expect(choices.edits["same.1"]?.text == "Last wave")
+        #expect(choices.hiddenIDs == ["same.1"])
+    }
+
+    @Test("Synchronized ID3 frames verify the sung words and millisecond starts")
+    func verifiesCanonicalSynchronizedCues() {
+        let source = "[00:01.00]<00:01.00>A <00:01.48>lantern"
+        let canonical = "[00:01.000]<00:01.000>A <00:01.480>lantern"
+        #expect(EmbeddedLyricsVariantPolicy.sameSynchronizedCues(source, canonical))
+        #expect(!EmbeddedLyricsVariantPolicy.sameSynchronizedCues(source, canonical.replacingOccurrences(of: "01.480", with: "01.481")))
+        #expect(!EmbeddedLyricsVariantPolicy.sameSynchronizedCues(source, canonical.replacingOccurrences(of: "lantern", with: "ribbon")))
+    }
+
+    @Test("Explicit lyric versions include qualified LRC and TTML while protecting another song's file")
+    func languageQualifiedVersions() {
+        let names = ["Harbor.en.lrc", "Harbor.zh.lrc", "Harbor.fr.ttml", "Harbor.fr.flac"]
+        #expect(LyricsSidecarSelectionPolicy.documents(baseName: "Harbor", names: names) == [0, 1])
+        #expect(LyricsSidecarSelectionPolicy.select(.named("Harbor.zh.lrc"), baseName: "Harbor", names: names) == .item(1))
+        #expect(LyricsSidecarSelectionPolicy.select(.named("Harbor.fr.ttml"), baseName: "Harbor", names: names) == .none)
+        #expect(LyricsSidecarSelectionPolicy.currentDocument(baseName: "Harbor", names: names) == .none)
+        #expect(LyricsSidecarSelectionPolicy.select(.current(pinned: "Harbor.en.lrc"), baseName: "Harbor", names: names) == .item(0))
+    }
+
+    @Test("Removing one version preserves the same words from another source")
+    func versionRemovalAndLocalEditPersist() throws {
+        let lines = [LyricLine(timestamp: 1, text: "A ribbon marks the midnight page")]
+        let tagged = LyricsDocumentSource.embedded.stamped(lines)
+        let file = LyricsDocumentSource.file("Draft.lrc").stamped(lines)
+        var choices = LyricsVersionPreferences()
+        choices.removedDocuments.insert(LyricsVersionPreferences.documentKey(tagged))
+        choices.edits["sidecar"] = .init(text: "Draft text", lines: file, displayName: "Draft.lrc")
+        let restored = try JSONDecoder().decode(LyricsVersionPreferences.self, from: JSONEncoder().encode(choices))
+        #expect(!restored.permits(tagged))
+        #expect(restored.permits(file))
+        #expect(restored.edits["sidecar"]?.text == "Draft text")
+        #expect(restored.selectedID == nil)
+    }
+
     @Test("Candidate identity preserves provenance and survives persistence")
     func candidateIdentity() throws {
         let lines = [LyricLine(timestamp: 1, text: "Paper lanterns cross the bay")]

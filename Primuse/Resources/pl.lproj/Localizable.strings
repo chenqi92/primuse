@@ -7990,3 +7990,17 @@
 "scrobble_lb_server_placeholder" = "Adres serwera (puste = listenbrainz.org)";
 "scrobble_lb_server_invalid" = "Nieprawidłowy adres serwera";
 "scrobble_lb_server_footer" = "W przypadku własnego serwera zgodnego z ListenBrainz, np. Maloja, Koito lub multi-scrobbler, wpisz adres jego API i użyj tokenu z tego serwera.";
+
+"lyrics_versions_title" = "Wersje tekstu";
+"lyrics_versions_external" = "Zewnętrzna";
+"lyrics_versions_embedded" = "Osadzona";
+"lyrics_versions_line" = "Wierszami";
+"lyrics_versions_use_for_playback" = "Użyj podczas odtwarzania";
+"lyrics_versions_playing" = "W użyciu";
+"lyrics_versions_delete_one" = "Usuń tę wersję";
+"lyrics_versions_hide_one" = "Ukryj tę wersję w Primuse";
+"lyrics_versions_delete_all" = "Usuń wszystkie wersje";
+"lyrics_versions_remove_all_mixed" = "Usunąć wersje z możliwością zapisu i ukryć wersje tylko do odczytu w Primuse?";
+"lyrics_versions_hide_all" = "Ukryj wszystkie wersje w Primuse";
+"lyrics_versions_remove_one_confirm" = "Usunąć „%@”?";
+"lyrics_versions_remove_all_confirm" = "Usunąć wszystkie wersje tekstu (%lld)?";

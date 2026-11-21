@@ -388,7 +388,7 @@ struct LyricsSidecarSelectionPolicyTests {
     }
 
     @Test("An exact-name LRC pairs only with its own Chinese translation")
-    func separateChineseLRCFiles() {
+    func separateChineseLRCFiles() throws {
         let bases = ["Glass Harbor", "Glass Harbor II", "Ink. Moon"]
         let names = bases.flatMap { ["\($0).flac", "\($0).lrc", "\($0).zh.lrc"] }.reversed()
         let listing = Array(names)
@@ -400,7 +400,10 @@ struct LyricsSidecarSelectionPolicyTests {
             let track = LyricsSidecarSelectionPolicy.translationTrack(forPrimary: primary, baseName: base,
                                                                       names: listing, preferredLanguages: ["en"])
             #expect(track.map { listing[$0] } == translated)
-            #expect(LyricsSidecarSelectionPolicy.documents(baseName: base, names: listing).map { listing[$0] } == [primary])
+            let primaryIndex = try #require(listing.firstIndex(of: primary))
+            #expect(LyricsSidecarSelectionPolicy.currentDocument(baseName: base, names: listing) == .item(primaryIndex))
+            let versions = LyricsSidecarSelectionPolicy.documents(baseName: base, names: listing).map { listing[$0] }
+            #expect(versions == [primary, translated])
         }
         let owned = listing + ["Glass Harbor.ZH.MP3"]
         #expect(LyricsSidecarSelectionPolicy.translationTrack(forPrimary: "Glass Harbor.lrc",

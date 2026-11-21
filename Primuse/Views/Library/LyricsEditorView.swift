@@ -23,16 +23,17 @@ struct LyricsEditorView: View {
     /// 只有仅本地结构化缓存的模式能无损保存纯文本/字级行译文。
     /// 外部 sidecar/媒体服务器需限制为可往返的普通双语 LRC。
     let allowsStructuredOnlyTranslationEditing: Bool
-    /// 非 nil 时编辑器多一个「歌词来源」入口，参数是编辑器里有没有没存的修改。
-    /// 来源页由外层呈现：切换来源、改写文件之后编辑器要整个重新载入。
-    let onShowLyricsSources: ((Bool) -> Void)?
+    let onStageVersions: (([String: LyricsVersionDraft]) -> Void)?
+    let onVersionsChanged: ((Set<String>) async -> Void)?
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
+    @Environment(\.locale) private var locale
 
     @State private var document: LyricsEditorDocument
     @State private var originalDocument: LyricsEditorDocument
@@ -77,6 +78,19 @@ struct LyricsEditorView: View {
     @State private var showsTranscriptionOptions = false
     @State private var showTranscriptionReplaceConfirm = false
     @State private var transcriptionMessage: String?
+    @State private var versionEntries: [LyricsDocumentCatalog.Entry] = []
+    @State private var versionDrafts: [String: LyricsVersionDraft]
+    @State private var openedVersion: LyricsVersionDraft?
+    @State private var keepsPreviousVersions = false
+    @State private var canChangePlaybackVersion = false
+    @State private var versionBusy = false
+    @State private var versionError: String?
+    @State private var removal: VersionRemoval?
+    @State private var versionLabels: [String: String] = [:]
+    @State private var versionLanguageCodes: [String: String] = [:]
+    @State private var versionFormats: [String: String] = [:]
+    @State private var showsOtherLyricsSources = false
+    @State private var changedFromSources = false
 
     @FocusState private var focusedLine: UUID?
     @FocusState private var focusedTranslationLine: UUID?
@@ -110,14 +124,18 @@ struct LyricsEditorView: View {
         initialLines: [LyricLine]? = nil,
         autoStartsAudioTranscription: Bool = false,
         allowsStructuredOnlyTranslationEditing: Bool = false,
-        onCommit: ((String, [LyricLine]) -> Void)? = nil,
-        onShowLyricsSources: ((Bool) -> Void)? = nil
+        stagedVersions: [String: LyricsVersionDraft] = [:],
+        onStageVersions: (([String: LyricsVersionDraft]) -> Void)? = nil,
+        onVersionsChanged: ((Set<String>) async -> Void)? = nil,
+        onCommit: ((String, [LyricLine]) -> Void)? = nil
     ) {
         self.song = song
         self._text = text
         self.autoStartsAudioTranscription = autoStartsAudioTranscription
         self.allowsStructuredOnlyTranslationEditing = allowsStructuredOnlyTranslationEditing
-        self.onShowLyricsSources = onShowLyricsSources
+        self._versionDrafts = State(initialValue: stagedVersions)
+        self.onStageVersions = onStageVersions
+        self.onVersionsChanged = onVersionsChanged
         self.onCommit = onCommit
         let parsed = if let initialLines, !initialLines.isEmpty {
             LyricsEditorDocument(lyricLines: initialLines)
@@ -135,6 +153,19 @@ struct LyricsEditorView: View {
 
     var body: some View {
         content
+            .task(id: song.id) { await loadVersions(preservesInitialChanges: true) }
+            .sheet(isPresented: $showsOtherLyricsSources, onDismiss: reloadEditedSources) {
+                LyricsSourcesView(song: library.song(id: song.id) ?? song, editorHasUnsavedChanges: false) { _ in
+                    changedFromSources = true
+                }
+            }
+            .alert(String(localized: "lyrics_versions_title"), isPresented: Binding(
+                get: { versionError != nil }, set: { if !$0 { versionError = nil } }
+            )) {
+                Button(String(localized: "done"), role: .cancel) {}
+            } message: {
+                Text(versionError ?? "")
+            }
             .task(id: song.id) { await trackPlaybackTime() }
             // 选了内置 AI 时先问一下后台有没有开放听歌识词,入口据此出现。
             .task { await intelligence.refreshBuiltInTranscriptionOffer() }
@@ -198,14 +229,10 @@ struct LyricsEditorView: View {
                 String(localized: "lyrics_editor_source_text_unavailable_title"),
                 isPresented: $showSourceTextUnavailable
             ) {
-                if onShowLyricsSources != nil {
-                    Button(String(localized: "lyrics_sources_title")) { showLyricsSources() }
-                }
+                Button(String(localized: "lyrics_sources_title")) { showLyricsSources() }
                 Button(String(localized: "done"), role: .cancel) {}
             } message: {
-                Text(String(localized: onShowLyricsSources == nil
-                            ? "lyrics_editor_source_text_unavailable_message"
-                            : "lyrics_editor_source_text_unavailable_sources_message"))
+                Text(String(localized: "lyrics_editor_source_text_unavailable_sources_message"))
             }
     }
 
@@ -261,6 +288,7 @@ struct LyricsEditorView: View {
             HStack(spacing: 13) {
                 editorActionsMenu
                 Button(String(localized: "done")) { requestReplacingCommit() }
+                    .accessibilityIdentifier("lyrics.editor.done")
                     .font(.subheadline.weight(.semibold))
                     // 挂在「完成」上，弹框从按钮长出来而不是贴在整页边缘。
                     .confirmationDialog(
@@ -349,7 +377,7 @@ struct LyricsEditorView: View {
                 .buttonStyle(.plain)
                 .disabled(isTranscribingAudio)
             }
-            if onShowLyricsSources != nil {
+            Group {
                 Button {
                     showLyricsSources()
                 } label: {
@@ -480,6 +508,7 @@ struct LyricsEditorView: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
+            .accessibilityIdentifier("lyrics.editor.done")
         }
         .padding(.horizontal, PMSpace.l24)
         .padding(.vertical, PMSpace.m)
@@ -488,6 +517,7 @@ struct LyricsEditorView: View {
 
     private var editorStack: some View {
         VStack(spacing: 0) {
+            versionBar
             if let draft = pasteDraft {
                 // 拆句预览是一次性的中间态：确认之前不显示常规编辑器，
                 // 免得用户以为已经落库了。
@@ -496,6 +526,7 @@ struct LyricsEditorView: View {
                 liveWritingStack
             } else if document.lines.isEmpty {
                 emptyLyricsStack
+                    .accessibilityIdentifier("lyrics.version.empty")
             } else {
                 switch mode {
                 case .timing:
@@ -505,9 +536,310 @@ struct LyricsEditorView: View {
                 }
             }
         }
+        .disabled(versionBusy)
     }
 
     // MARK: - 零歌词空状态
+
+    private struct VersionRemoval {
+        let entries: [LyricsDocumentCatalog.Entry]
+        let all: Bool
+
+        var action: String {
+            if all {
+                return entries.contains(where: \.isPhysicallyRemovable)
+                    ? String(localized: "lyrics_versions_delete_all") : String(localized: "lyrics_versions_hide_all")
+            }
+            return entries.first?.isPhysicallyRemovable == true
+                ? String(localized: "lyrics_versions_delete_one") : String(localized: "lyrics_versions_hide_one")
+        }
+
+        var question: String {
+            all ? String(format: String(localized: "lyrics_versions_remove_all_confirm"), Int64(entries.count))
+                : String(format: String(localized: "lyrics_versions_remove_one_confirm"), entries.first?.name ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var versionBar: some View {
+        if !versionEntries.isEmpty {
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                if versionBusy { ProgressView().controlSize(.small) }
+                Menu {
+                    ForEach(Array(versionEntries.enumerated()), id: \.element.id) { index, entry in
+                        Button {
+                            Task { await browseVersion(entry) }
+                        } label: {
+                            let title = versionLabels[entry.id] ?? entry.name
+                            let duplicate = versionEntries.contains { $0.id != entry.id && versionLabels[$0.id] == title }
+                            let choice = duplicate ? "\(title) · \(entry.name) (\(index + 1))" : title
+                            if openedVersion?.entry.id == entry.id {
+                                Label(choice, systemImage: "checkmark")
+                            } else {
+                                Text(choice)
+                            }
+                        }
+                        .accessibilityIdentifier("lyrics.version.option.\(index)")
+                    }
+                    if let entry = openedVersion?.entry {
+                        Divider()
+                        let playing = versionEntries.first(where: { $0.id == entry.id })?.isActive == true
+                        Button {
+                            Task { await useVersionForPlayback(entry) }
+                        } label: {
+                            Label(playing ? String(localized: "lyrics_versions_playing") : String(localized: "lyrics_versions_use_for_playback"),
+                                  systemImage: playing ? "speaker.wave.2.fill" : "play")
+                        }
+                        .disabled(playing || !canChangePlaybackVersion)
+                        .accessibilityIdentifier("lyrics.version.play")
+                        Button(role: .destructive) {
+                            removal = VersionRemoval(entries: [entry], all: false)
+                        } label: {
+                            Label(VersionRemoval(entries: [entry], all: false).action, systemImage: "trash")
+                        }
+                        .accessibilityIdentifier("lyrics.version.remove")
+                    }
+                    Button(role: .destructive) {
+                        removal = VersionRemoval(entries: versionEntries, all: true)
+                    } label: {
+                        Label(VersionRemoval(entries: versionEntries, all: true).action, systemImage: "trash")
+                    }
+                    .accessibilityIdentifier("lyrics.version.removeAll")
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(openedVersion.flatMap { versionLabels[$0.entry.id] } ?? String(localized: "lyrics_versions_title"))
+                            .lineLimit(1).truncationMode(.middle)
+                        Image(systemName: "chevron.down").font(.caption2)
+                    }
+                    .font(.subheadline)
+                    .padding(.vertical, 6)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .disabled(versionBusy || isTranscribingAudio || pasteDraft != nil || isLiveWriting)
+                .accessibilityIdentifier("lyrics.version.menu")
+                .confirmationDialog(removal?.question ?? "", isPresented: Binding(
+                    get: { removal != nil }, set: { if !$0 { removal = nil } }
+                ), titleVisibility: .visible, presenting: removal) { request in
+                    Button(request.action, role: .destructive) {
+                        Task { await removeVersions(request) }
+                    }
+                    .accessibilityIdentifier("lyrics.version.confirmRemove")
+                    Button(String(localized: "cancel"), role: .cancel) {}
+                } message: { request in
+                    if request.all, request.entries.contains(where: \.isPhysicallyRemovable),
+                       request.entries.contains(where: { !$0.isPhysicallyRemovable }) {
+                        Text("lyrics_versions_remove_all_mixed")
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .task(id: versionEntries.map(\.id)) { await loadVersionSummaries() }
+        }
+    }
+
+    private func versionTitle(_ entry: LyricsDocumentCatalog.Entry, summary: LyricsDocumentSummary?) -> String {
+        let origin: String
+        if entry.isEmbedded || entry.sourceKind == .embedded {
+            origin = String(localized: "lyrics_versions_embedded")
+        } else if entry.sourceKind == .file {
+            origin = String(localized: "lyrics_versions_external")
+        } else {
+            origin = entry.name
+        }
+        let language = (entry.languageCode ?? versionLanguageCodes[entry.id]).flatMap { locale.localizedString(forIdentifier: $0) }
+        var type = [String]()
+        if let summary {
+            if summary.isWordLevel { type.append(String(localized: "lyrics_word_level_badge")) }
+            else if summary.isSynchronized { type.append(String(localized: "lyrics_versions_line")) }
+            else { type.append(String(localized: "lyrics_format_plain_short")) }
+        }
+        if let format = versionFormats[entry.id] { type.append(format) }
+        return [[origin, language].compactMap { $0 }.joined(separator: " "), type.joined(separator: " ")]
+            .filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    private func loadVersions(preservesInitialChanges: Bool = false) async {
+        let listing = await LyricsDocumentCatalog.load(for: song, sourceManager: sourceManager, sourcesStore: sourcesStore)
+        guard !Task.isCancelled, case .documents(let documents) = listing else { return }
+        versionEntries = documents.entries
+        canChangePlaybackVersion = documents.canSwitch
+        for entry in documents.entries {
+            versionFormats[entry.id] = entry.formatLabel
+            if versionLabels[entry.id] == nil { versionLabels[entry.id] = versionTitle(entry, summary: nil) }
+        }
+        if openedVersion == nil,
+           let entry = documents.entries.first(where: \.isActive) ?? documents.entries.first {
+            await browseVersion(entry, initial: preservesInitialChanges && entry.isActive)
+        }
+    }
+
+    private func loadVersionSummaries() async {
+        for entry in versionEntries {
+            guard !Task.isCancelled else { return }
+            if entry.id == openedVersion?.entry.id { continue }
+            let lines: [LyricLine]
+            if let stored = entry.localEdit?.lines ?? entry.candidate?.lines {
+                lines = stored
+            } else {
+                guard let content = try? await LyricsDocumentCatalog.read(entry, for: song, sourceManager: sourceManager)
+                else { continue }
+                lines = await Task.detached(priority: .utility) { LyricsContentParser.parseText(content.text) }.value
+            }
+            guard !Task.isCancelled else { return }
+            versionLanguageCodes[entry.id] = lines.first(where: { $0.languageCode != nil })?.languageCode
+            versionLabels[entry.id] = versionTitle(entry, summary: LyricsDocumentSummary(lines: lines))
+        }
+    }
+
+    private func rememberVersionDraft(_ current: LyricsEditorDocument, acceptsPartialTiming: Bool = false) {
+        guard var draft = openedVersion else { return }
+        if current.hasSameContent(as: draft.baseline) {
+            versionDrafts.removeValue(forKey: draft.entry.id)
+            return
+        }
+        let retainsApproval = draft.allowsPartialTiming && current.hasSameContent(as: draft.document)
+        draft.document = current
+        draft.timingEligibleIndices = timingEligibleIndices
+        draft.needsTimingRepair = needsTimingRepair
+        draft.unstampedCount = willDropUnstampedLines ? unstampedEligibleCount : 0
+        draft.allowsPartialTiming = acceptsPartialTiming || retainsApproval
+        versionDrafts[draft.entry.id] = draft
+    }
+
+    private func displayVersion(_ draft: LyricsVersionDraft) {
+        openedVersion = draft
+        originalDocument = draft.baseline
+        document = draft.document
+        sourceText = draft.document.serialized()
+        let lines = draft.document.lyricLines()
+        versionLanguageCodes[draft.entry.id] = lines.first(where: { $0.languageCode != nil })?.languageCode
+        versionLabels[draft.entry.id] = versionTitle(draft.entry, summary: LyricsDocumentSummary(lines: lines))
+        focusedLine = nil
+        focusedTranslationLine = nil
+        focusedRomanizationLine = nil
+        selectedTextSyllable = nil
+        shiftBaseline = nil
+        timingSession = LyricsTimingSession(document: document)
+        prepareTimingSession()
+    }
+
+    private func browseVersion(_ entry: LyricsDocumentCatalog.Entry, initial: Bool = false) async {
+        guard !versionBusy, openedVersion?.entry.id != entry.id else { return }
+        rememberVersionDraft(document)
+        if let draft = versionDrafts[entry.id] {
+            displayVersion(draft)
+            return
+        }
+        versionBusy = true
+        defer { versionBusy = false }
+        do {
+            let original = try await LyricsDocumentCatalog.read(entry, for: song, sourceManager: sourceManager)
+            try Task.checkCancellation()
+            let fromFile = await Task.detached(priority: .userInitiated) {
+                if let lines = entry.localEdit?.lines ?? entry.candidate?.lines {
+                    return LyricsEditorDocument(lyricLines: lines)
+                }
+                if LyricsRawDocumentPolicy.family(of: original.text) == .lrc {
+                    return LyricsEditorDocument(parsing: original.text)
+                }
+                return LyricsEditorDocument(lyricLines: LyricsContentParser.parseText(original.text))
+            }.value
+            try Task.checkCancellation()
+            let hadChanges = !document.hasSameContent(as: originalDocument)
+            let current = initial && hadChanges ? document : fromFile
+            let baseline = initial && hadChanges ? originalDocument : fromFile
+            displayVersion(LyricsVersionDraft(entry: entry, original: original, baseline: baseline, document: current))
+        } catch is CancellationError {
+            return
+        } catch {
+            versionError = error.localizedDescription
+        }
+    }
+
+    private func useVersionForPlayback(_ entry: LyricsDocumentCatalog.Entry) async {
+        guard !versionBusy else { return }
+        versionBusy = true
+        defer { versionBusy = false }
+        do {
+            try await LyricsDocumentCatalog.activate(entry, for: song, sourceManager: sourceManager)
+            await onVersionsChanged?([])
+            await loadVersions()
+        } catch {
+            versionError = error.localizedDescription
+        }
+    }
+
+    private func removeVersions(_ request: VersionRemoval) async {
+        guard !versionBusy else { return }
+        versionBusy = true
+        rememberVersionDraft(document)
+        var succeeded = false
+        do {
+            try await LyricsDocumentCatalog.remove(request.entries, for: song, sourceManager: sourceManager,
+                                                  removeAll: request.all, sourcesStore: sourcesStore, library: library)
+            succeeded = true
+        } catch {
+            versionError = error.localizedDescription
+        }
+        let listing = await LyricsDocumentCatalog.load(for: song, sourceManager: sourceManager, sourcesStore: sourcesStore)
+        let remaining: [LyricsDocumentCatalog.Entry]
+        if case .documents(let documents) = listing, documents.sourceError == nil {
+            remaining = documents.entries
+            canChangePlaybackVersion = documents.canSwitch
+        } else if succeeded {
+            let ids = Set(request.entries.map(\.id))
+            remaining = versionEntries.filter { !ids.contains($0.id) }
+        } else {
+            versionBusy = false
+            return
+        }
+        let removed = Set(request.entries.map(\.id)).subtracting(remaining.map(\.id))
+        for id in removed { versionDrafts.removeValue(forKey: id) }
+        versionEntries = remaining
+        await onVersionsChanged?(removed)
+        versionBusy = false
+        if remaining.isEmpty {
+            self.openedVersion = nil
+            document = LyricsEditorDocument()
+            originalDocument = document
+            text = ""
+            sourceText = ""
+            timingSession = LyricsTimingSession(document: document)
+            mode = .text
+        } else if !remaining.contains(where: { $0.id == openedVersion?.entry.id }) {
+            self.openedVersion = nil
+            if let next = remaining.first(where: \.isActive) ?? remaining.first { await browseVersion(next) }
+        }
+    }
+
+    private func saveVersionDrafts() async {
+        guard !versionBusy else { return }
+        versionBusy = true
+        defer { versionBusy = false }
+        do {
+            let ids = versionDrafts.keys.sorted()
+            let selected = openedVersion.flatMap { versionDrafts[$0.entry.id]?.entry.id }
+                ?? versionEntries.first(where: { $0.isActive && versionDrafts[$0.id] != nil })?.id ?? ids.first
+            let ordered = ids.filter { $0 != selected } + [selected].compactMap { $0 }
+            for id in ordered {
+                guard let draft = versionDrafts[id] else { continue }
+                let mode: LyricsDocumentCatalog.VersionSaveMode = keepsPreviousVersions
+                    ? (id == selected ? .keepAndSelect : .keep) : .replace
+                try await draft.save(for: song, sourceManager: sourceManager, library: library, mode: mode)
+                versionDrafts.removeValue(forKey: id)
+                if openedVersion?.entry.id == id {
+                    self.openedVersion = nil
+                    originalDocument = document
+                }
+            }
+            await onVersionsChanged?([])
+            dismiss()
+        } catch {
+            if let next = versionDrafts.keys.sorted().first.flatMap({ versionDrafts[$0] }) { displayVersion(next) }
+            versionError = error.localizedDescription
+        }
+    }
 
     private var canTranscribeSongAudio: Bool {
         intelligence.canTranscribeAudio(of: song)
@@ -1478,7 +1810,7 @@ struct LyricsEditorView: View {
                 .disabled(isTranscribingAudio)
                 Divider()
             }
-            if onShowLyricsSources != nil {
+            Group {
                 Button {
                     showLyricsSources()
                 } label: {
@@ -1947,6 +2279,7 @@ struct LyricsEditorView: View {
             )
             .frame(minHeight: 28, alignment: .center)
             .focused($focusedLine, equals: line.id)
+            .accessibilityIdentifier("lyrics.editor.line.\(index)")
             .environment(\.layoutDirection, layoutDirection)
 
             if mode == .text,
@@ -2738,7 +3071,18 @@ struct LyricsEditorView: View {
     // MARK: - LRC / ELRC 源码
 
     private func showLyricsSources() {
-        onShowLyricsSources?(!document.hasSameContent(as: originalDocument))
+        rememberVersionDraft(document)
+        showsOtherLyricsSources = true
+    }
+
+    private func reloadEditedSources() {
+        guard changedFromSources else { return }
+        changedFromSources = false
+        openedVersion = nil
+        Task {
+            await onVersionsChanged?([])
+            await loadVersions()
+        }
     }
 
     private func openSourceEditor() {
@@ -3140,17 +3484,18 @@ struct LyricsEditorView: View {
 
     /// 「完成」：保存时替换当前版本，被替换的那份不再留在歌词来源里。
     private func requestReplacingCommit() {
-        LyricsWriteback.cancelNewVersionRequest(forSongID: song.id)
+        keepsPreviousVersions = false
         requestCommit()
     }
 
     /// 「另存为新版本」：新的成为正在用的，旧的留在歌词来源里，随时可以换回。
     private func requestNewVersionCommit() {
-        LyricsWriteback.requestNewVersion(forSongID: song.id)
+        keepsPreviousVersions = true
         requestCommit()
     }
 
     private func requestCommit() {
+        guard !versionBusy else { return }
         if needsTimingRepair {
             showTimingRepair = true
             return
@@ -3170,6 +3515,30 @@ struct LyricsEditorView: View {
             showTimingRepair = true
             return
         }
+        if openedVersion != nil || !versionDrafts.isEmpty {
+            rememberVersionDraft(preparedDocument, acceptsPartialTiming: true)
+            if let incomplete = versionEntries.compactMap({ versionDrafts[$0.id] }).first(where: {
+                $0.document.lines.isEmpty || $0.needsTimingRepair || ($0.unstampedCount > 0 && !$0.allowsPartialTiming)
+            }) {
+                displayVersion(incomplete)
+                if incomplete.document.lines.isEmpty {
+                    removal = VersionRemoval(entries: [incomplete.entry], all: false)
+                } else if incomplete.needsTimingRepair {
+                    showTimingRepair = true
+                } else {
+                    showUnstampedWarning = true
+                }
+                return
+            }
+            if let onStageVersions {
+                onStageVersions(versionDrafts)
+            } else if versionDrafts.isEmpty {
+                dismiss()
+            } else {
+                Task { await saveVersionDrafts() }
+            }
+            return
+        }
         let committedText = preparedDocument.committedText(
             preserving: text,
             comparedTo: originalDocument
@@ -3185,6 +3554,8 @@ struct LyricsEditorView: View {
         // 也可能需要二次确认，所以由它决定何时 dismiss。嵌在标签编辑器里时
         // 没有这个回调，保持原来的"改完就关"。
         if let onCommit {
+            if keepsPreviousVersions { LyricsWriteback.requestNewVersion(forSongID: song.id) }
+            else { LyricsWriteback.cancelNewVersionRequest(forSongID: song.id) }
             onCommit(committedText, preparedDocument.lyricLines())
         } else {
             dismiss()

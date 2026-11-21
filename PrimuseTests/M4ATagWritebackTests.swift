@@ -250,4 +250,79 @@ final class M4ATagWritebackTests: XCTestCase {
         }
         return count
     }
+
+    @MainActor
+    func testScannedMultiVersionMusicRemainsPlayableAfterClearingLyrics() async throws {
+        let files = FileManager.default
+        let seed = files.temporaryDirectory.appendingPathComponent("PrimuseMediaVersionsSeed")
+        try XCTSkipUnless(files.fileExists(atPath: seed.appendingPathComponent("Glass Harbor Versions.m4a").path),
+                          "Requires the multi-version music acceptance fixture")
+        let music = directory.appendingPathComponent("Music", isDirectory: true)
+        try files.copyItem(at: seed, to: music)
+        let audio = music.appendingPathComponent("Glass Harbor Versions.m4a")
+        let original = try Data(contentsOf: audio)
+        let embedded = try EmbeddedLyricsArchive.entries(in: original, fileExtension: "m4a")
+        XCTAssertEqual(embedded.count, 2)
+        let source = MusicSource(id: UUID().uuidString, name: "Versions", type: .local, basePath: music.path)
+        let store = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("Sources"))
+        try store.addDurably(source)
+        let connector = LocalFileSource(sourceID: source.id, basePath: music)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("Library"))
+
+        func scan() async throws -> Song {
+            for try await item in try await connector.scanSongs(from: "/") where item.song.fileFormat == .m4a {
+                return item.song
+            }
+            throw NSError(domain: "LyricsVersionAcceptance", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Music scan produced no M4A"])
+        }
+        func versions(_ song: Song) async throws -> [LyricsDocumentCatalog.Entry] {
+            switch await LyricsDocumentCatalog.load(for: song, sourceManager: manager, sourcesStore: store) {
+            case .documents(let documents):
+                XCTAssertNil(documents.sourceError)
+                return documents.entries
+            default: throw NSError(domain: "LyricsVersionAcceptance", code: 1)
+            }
+        }
+
+        let song = try await scan()
+        let all = try await versions(song)
+        XCTAssertEqual(all.count, 4)
+        let selected = try XCTUnwrap(all.first { $0.name.hasSuffix(".en.lrc") })
+        try await LyricsDocumentCatalog.activate(selected, for: song, sourceManager: manager)
+        let selectedLines = await LyricsLoader.load(for: song, sourceManager: manager, allowsAutomaticOnlineLyrics: false)
+        XCTAssertEqual(selectedLines.first?.text, "A copper bird unfolds")
+        let single = try XCTUnwrap(all.first(where: \.isEmbedded))
+        try await LyricsDocumentCatalog.remove([single], for: song, sourceManager: manager, sourcesStore: store, library: library)
+        let updated = try await scan()
+        let remaining = try await versions(updated)
+        XCTAssertEqual(remaining.count, 3)
+        try await LyricsDocumentCatalog.remove(remaining, for: updated, sourceManager: manager, removeAll: true,
+                                              sourcesStore: store, library: library)
+        let rescanned = try await scan()
+        XCTAssertEqual(rescanned.id, song.id)
+        let reopened = try await versions(rescanned)
+        XCTAssertTrue(reopened.isEmpty)
+        let written = try Data(contentsOf: audio)
+        XCTAssertTrue(try EmbeddedLyricsArchive.entries(in: written, fileExtension: "m4a").isEmpty)
+        func pictureItems(_ data: Data) throws -> [Data] {
+            try OrderedTagContainer.items(in: data, format: .m4a).filter { $0.key == "covr" }.map(\.payload)
+        }
+        let originalPictures = try pictureItems(original)
+        XCTAssertFalse(originalPictures.isEmpty)
+        XCTAssertEqual(try pictureItems(written), originalPictures)
+        for language in ["zh", "en"] {
+            XCTAssertFalse(files.fileExists(atPath: audio.deletingPathExtension().appendingPathExtension(language + ".lrc").path))
+        }
+        let player = try AVAudioPlayer(contentsOf: audio)
+        player.volume = 0.01
+        defer { player.stop() }
+        XCTAssertTrue(player.play())
+        try await Task.sleep(nanoseconds: 700_000_000)
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertGreaterThan(player.currentTime, 0.2)
+        let onPlayback = await LyricsLoader.load(for: rescanned, sourceManager: manager)
+        XCTAssertTrue(onPlayback.isEmpty)
+    }
 }

@@ -7990,3 +7990,17 @@
 "scrobble_lb_server_placeholder" = "عنوان الخادم (اتركه فارغًا لاستخدام listenbrainz.org)";
 "scrobble_lb_server_invalid" = "عنوان الخادم غير صالح";
 "scrobble_lb_server_footer" = "عند استخدام خادم مستضاف ذاتيًا متوافق مع ListenBrainz مثل Maloja أو Koito أو multi-scrobbler، أدخل عنوان واجهته البرمجية واستخدم رمزًا من ذلك الخادم.";
+
+"lyrics_versions_title" = "إصدارات الكلمات";
+"lyrics_versions_external" = "خارجي";
+"lyrics_versions_embedded" = "مضمّن";
+"lyrics_versions_line" = "بتوقيت السطر";
+"lyrics_versions_use_for_playback" = "استخدام أثناء التشغيل";
+"lyrics_versions_playing" = "قيد الاستخدام";
+"lyrics_versions_delete_one" = "حذف هذا الإصدار";
+"lyrics_versions_hide_one" = "إخفاء هذا الإصدار في Primuse";
+"lyrics_versions_delete_all" = "حذف كل الإصدارات";
+"lyrics_versions_remove_all_mixed" = "حذف الإصدارات القابلة للكتابة وإخفاء إصدارات القراءة فقط في Primuse؟";
+"lyrics_versions_hide_all" = "إخفاء كل الإصدارات في Primuse";
+"lyrics_versions_remove_one_confirm" = "إزالة «%@»؟";
+"lyrics_versions_remove_all_confirm" = "إزالة كل إصدارات الكلمات وعددها %lld؟";

@@ -1,5 +1,55 @@
 import Foundation
 
+/// Per-song choices that survive cache eviction and rebuilding the library index.
+public struct LyricsVersionPreferences: Codable, Equatable, Sendable {
+    public struct LocalEdit: Codable, Equatable, Sendable {
+        public var text: String
+        public var lines: [LyricLine]
+        public var displayName: String
+        public init(text: String, lines: [LyricLine], displayName: String) {
+            self.text = text
+            self.lines = lines
+            self.displayName = displayName
+        }
+    }
+
+    public var selectedID: String?
+    public var selectedLines: [LyricLine] = []
+    public var edits: [String: LocalEdit] = [:]
+    public var hiddenIDs: Set<String> = []
+    public var removedDocuments: Set<String> = []
+    public var cleared = false
+
+    public init() {}
+
+    public static func documentKey(_ lines: [LyricLine]) -> String {
+        let source = LyricsDocumentSource.of(lines)
+        return [source?.kind.rawValue ?? "", source?.identifier ?? "", LyricsDocumentFingerprint(lines: lines).rawValue]
+            .joined(separator: "|")
+    }
+
+    public func permits(_ lines: [LyricLine]) -> Bool {
+        !cleared && (removedDocuments.isEmpty || !removedDocuments.contains(Self.documentKey(lines)))
+    }
+
+    /// Occurrence numbers can move when an earlier byte-identical field is edited or removed.
+    public mutating func remapVersions(_ mapping: [String: String]) {
+        let changes = mapping.filter { $0.key != $0.value }
+        guard !changes.isEmpty else { return }
+        let priorEdits = edits
+        let priorHidden = hiddenIDs
+        for old in changes.keys {
+            edits[old] = nil
+            hiddenIDs.remove(old)
+        }
+        for (old, new) in changes {
+            if let edit = priorEdits[old] { edits[new] = edit }
+            if priorHidden.contains(old) { hiddenIDs.insert(new) }
+        }
+        if let selectedID, let new = changes[selectedID] { self.selectedID = new }
+    }
+}
+
 public struct LyricsSourceCollection: Codable, Equatable, Sendable {
     public struct Candidate: Codable, Equatable, Identifiable, Sendable {
         public let id: String
@@ -18,6 +68,10 @@ public struct LyricsSourceCollection: Codable, Equatable, Sendable {
 
     public func isKept(_ id: String) -> Bool {
         keptIDs?.contains(id) == true
+    }
+
+    public mutating func forget(_ matching: (Candidate) -> Bool) {
+        for candidate in candidates.filter(matching) { remove(id: candidate.id) }
     }
 
     @discardableResult

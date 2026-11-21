@@ -332,6 +332,197 @@ final class SearchExperienceUITests: XCTestCase {
 }
 
 @MainActor
+final class MediaVersionDeviceUITests: XCTestCase {
+    private let title = "Glass Harbor Versions"
+    private let bundleID = "com.welape.yuanyin"
+
+    private func openFixture(scan: Bool = false, restoresHome: Bool = true) throws -> XCUIApplication {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["PRIMUSE_MEDIA_VERSIONS_QA"] == "1",
+                          "Requires the dedicated disposable media-version fixture")
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: bundleID)
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+                               "-primuse.navigation.mode.v1", "standard", "-primuse.hasSeenOnboarding", "YES",
+                               "-primuse.launch.consecutiveAborts", "0", "-primuse.launch.safeModeLatched", "NO",
+                               "-primuse.search.displayMode.v1", "tabs", "-primuse.playback.autoplayOnLaunch", "NO"]
+        app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "search"
+        if scan { app.launchEnvironment["PRIMUSE_DEBUG_IMPORT_LOCAL"] = "1" }
+        if restoresHome { addTeardownBlock { @MainActor in
+            app.terminate()
+            let normal = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+            normal.launch()
+            self.closeLaunchNotices(normal)
+            let home = normal.tabBars.buttons.element(boundBy: 0)
+            if home.waitForExistence(timeout: 10) { home.tap() }
+            let homeContent = normal.descendants(matching: .any).matching(
+                NSPredicate(format: "identifier BEGINSWITH 'home.page.' OR identifier BEGINSWITH 'home.spaceFilter.'")
+            ).firstMatch
+            XCTAssertTrue(homeContent.waitForExistence(timeout: 20) || (home.exists && home.isSelected))
+        } }
+        app.launch()
+        closeLaunchNotices(app)
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 40))
+        field.tap()
+        field.typeText(title + "\n")
+        let songs = app.buttons["search.tab.metadata"]
+        XCTAssertTrue(songs.waitForExistence(timeout: 35))
+        songs.tap()
+        let fixtureRow = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", title, "Editor QA")
+        ).firstMatch
+        XCTAssertTrue(fixtureRow.waitForExistence(timeout: 6) || app.staticTexts[title].firstMatch.waitForExistence(timeout: 20))
+        let matches = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'song.actions.'"))
+        XCTAssertEqual(matches.count, 1, "Refuse edits unless the QA result is unique")
+        return app
+    }
+
+    private func closeLaunchNotices(_ app: XCUIApplication) {
+        for _ in 0..<8 {
+            if app.alerts["音乐源登录失败"].exists {
+                app.alerts["音乐源登录失败"].buttons["稍后"].tap()
+            } else if app.alerts["上次启动没有完成"].exists {
+                app.alerts["上次启动没有完成"].buttons["关闭"].tap()
+            } else { break }
+        }
+    }
+
+    private func openEditor(_ label: String, in app: XCUIApplication) {
+        let menu = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'song.actions.'")).firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 15))
+        menu.tap()
+        let edit = app.buttons["编辑"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        edit.tap()
+        XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5))
+        app.buttons[label].tap()
+    }
+
+    private func element(_ id: String, _ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: id).firstMatch
+    }
+
+    private func openMenu(_ app: XCUIApplication) {
+        let menu = element("lyrics.version.menu", app)
+        XCTAssertTrue(menu.waitForExistence(timeout: 20))
+        XCTAssertTrue(waitUntil(menu, "enabled == true"))
+        menu.tap()
+    }
+
+    private func waitUntil(_ element: XCUIElement, _ format: String, _ argument: String? = nil) -> Bool {
+        let predicate = argument.map { NSPredicate(format: format, $0) } ?? NSPredicate(format: format)
+        return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: 12) == .completed
+    }
+
+    private func chooseVersion(_ index: Int, in app: XCUIApplication) {
+        openMenu(app)
+        let option = element("lyrics.version.option.\(index)", app)
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        option.tap()
+    }
+
+    private func record(_ app: XCUIApplication, name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testBrowseEditTwoVersionsAndChoosePlayback() throws {
+        let app = try openFixture()
+        openEditor("编辑标签", in: app)
+        let lyrics = element("tagEditor.lyrics", app)
+        for _ in 0..<6 where !lyrics.isHittable { app.swipeUp() }
+        XCTAssertTrue(lyrics.isHittable)
+        lyrics.tap()
+        openMenu(app)
+        let options = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'lyrics.version.option.'"))
+        XCTAssertEqual(options.count, 4)
+        let labels = options.allElementsBoundByIndex.map(\.label)
+        XCTAssertEqual(labels.filter { $0.contains("外置") }.count, 2)
+        XCTAssertEqual(labels.filter { $0.contains("内嵌") }.count, 2)
+        let englishIndex = try XCTUnwrap(labels.firstIndex(where: { $0.contains("外置") && $0.contains("英语") }))
+        let embeddedIndex = try XCTUnwrap(labels.firstIndex(where: { $0.contains("内嵌") && $0.contains("LRC") }))
+        record(app, name: "four-lyric-versions")
+        element("lyrics.version.option.\(englishIndex)", app).tap()
+        let line = element("lyrics.editor.line.0", app)
+        XCTAssertTrue(waitUntil(line, "value CONTAINS %@", "A copper bird"))
+        line.tap()
+        line.typeText(" drifts")
+        chooseVersion(embeddedIndex, in: app)
+        XCTAssertTrue(waitUntil(line, "value CONTAINS %@", "Amber kites"))
+        line.tap()
+        line.typeText(" glow")
+        chooseVersion(englishIndex, in: app)
+        XCTAssertTrue(waitUntil(line, "value CONTAINS %@", "drifts"))
+        chooseVersion(embeddedIndex, in: app)
+        XCTAssertTrue(waitUntil(line, "value CONTAINS %@", "glow"))
+        element("lyrics.editor.done", app).tap()
+        let save = app.navigationBars.buttons["保存"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        XCTAssertTrue(save.isEnabled)
+        save.tap()
+        XCTAssertTrue(save.waitForNonExistence(timeout: 30))
+
+        openEditor("编辑歌词", in: app)
+        chooseVersion(englishIndex, in: app)
+        XCTAssertTrue(waitUntil(line, "value CONTAINS %@", "drifts"))
+        openMenu(app)
+        let play = element("lyrics.version.play", app)
+        var chosenIndex = englishIndex
+        if !play.isEnabled {
+            chosenIndex = embeddedIndex
+            element("lyrics.version.option.\(embeddedIndex)", app).tap()
+            XCTAssertTrue(waitUntil(line, "value CONTAINS %@", "glow"))
+            openMenu(app)
+        }
+        let chosenMarker = chosenIndex == embeddedIndex ? "glow" : "drifts"
+        XCTAssertTrue(play.isEnabled)
+        play.tap()
+        openMenu(app)
+        XCTAssertFalse(play.isEnabled)
+        record(app, name: "explicit-playback-lyric-version")
+        element("lyrics.version.option.\(chosenIndex)", app).tap()
+        element("lyrics.editor.done", app).tap()
+        openEditor("编辑歌词", in: app)
+        XCTAssertTrue(waitUntil(line, "value CONTAINS %@", chosenMarker))
+        openMenu(app)
+        XCTAssertFalse(play.isEnabled)
+    }
+
+    func testRemoveOneThenAllAndReopenEmptyAfterRescan() throws {
+        var app = try openFixture()
+        openEditor("编辑歌词", in: app)
+        openMenu(app)
+        let options = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'lyrics.version.option.'"))
+        XCTAssertEqual(options.count, 4)
+        let disposable = try XCTUnwrap(options.allElementsBoundByIndex.first { $0.label.contains("外置") && $0.label.contains("中文") })
+        disposable.tap()
+        let line = element("lyrics.editor.line.0", app)
+        XCTAssertTrue(waitUntil(line, "value CONTAINS %@", "纸灯"))
+        openMenu(app)
+        element("lyrics.version.remove", app).tap()
+        element("lyrics.version.confirmRemove", app).tap()
+        openMenu(app)
+        XCTAssertEqual(options.count, 3)
+        element("lyrics.version.removeAll", app).tap()
+        element("lyrics.version.confirmRemove", app).tap()
+        XCTAssertTrue(app.staticTexts["这首还没有歌词"].waitForExistence(timeout: 30))
+        record(app, name: "no-versions-after-removal")
+        element("lyrics.editor.done", app).tap()
+        app.terminate()
+        app = try openFixture(scan: true, restoresHome: false)
+        openEditor("编辑歌词", in: app)
+        XCTAssertTrue(app.staticTexts["这首还没有歌词"].waitForExistence(timeout: 30))
+        let blank = app.buttons.matching(NSPredicate(format: "label CONTAINS '从空白开始'")).firstMatch
+        XCTAssertTrue(blank.exists)
+        blank.tap()
+        XCTAssertTrue(element("lyrics.editor.line.0", app).waitForExistence(timeout: 4))
+        app.buttons["取消"].firstMatch.tap()
+    }
+}
+
+@MainActor
 final class SongLocationUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false

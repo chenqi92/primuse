@@ -282,10 +282,8 @@ struct LyricsSourcesView: View {
     private func footerText(_ documents: LyricsDocumentCatalog.Documents) -> String {
         var parts: [String] = []
         if !documents.canSwitch { parts.append(String(localized: "lyrics_sources_footer_cue")) }
-        if documents.entries.contains(where: { $0.candidate == nil }) {
-            parts.append(String(localized: documents.sourceIsWritable
-                                ? "lyrics_sources_footer_edit"
-                                : "lyrics_sources_footer_read_only"))
+        if !documents.entries.isEmpty, documents.entries.allSatisfy({ !$0.isEditable }) {
+            parts.append(String(localized: "lyrics_sources_footer_read_only"))
         }
         return parts.joined(separator: "\n")
     }
@@ -299,7 +297,7 @@ struct LyricsSourcesView: View {
     ) -> some View {
         HStack(spacing: 12) {
             Button {
-                requestSwitch(entry, in: documents)
+                editingID = entry.id
             } label: {
                 HStack(spacing: 12) {
                     Text(String(format: "%02d", number))
@@ -315,7 +313,9 @@ struct LyricsSourcesView: View {
                             .truncationMode(.middle)
                             .multilineTextAlignment(.leading)
                         HStack(spacing: 6) {
-                            if entry.candidate == nil { LyricsDocumentFormatBadge(format: entry.format) }
+                            if let formatLabel = entry.formatLabel {
+                                LyricsDocumentFormatBadge(format: entry.format, fallbackLabel: formatLabel)
+                            }
                             if entry.isActive {
                                 Text(String(localized: "lyrics_sources_in_use"))
                                     .font(.caption2.weight(.semibold))
@@ -337,6 +337,18 @@ struct LyricsSourcesView: View {
             .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(entry.isActive ? .isSelected : [])
+            .disabled(activatingID != nil)
+
+            Button(String(localized: "lyrics_versions_use_for_playback")) {
+                requestSwitch(entry, in: documents)
+            }
+            #if os(macOS)
+            .buttonStyle(.macSheet)
+            #else
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            #endif
+            .disabled(activatingID != nil || !documents.canSwitch || (entry.isActive && !documents.usesLocalCopy))
             .confirmationDialog(
                 String(format: String(localized: "lyrics_sources_switch_confirm_title %@"), entry.name),
                 isPresented: Binding(
@@ -352,17 +364,6 @@ struct LyricsSourcesView: View {
             } message: {
                 Text(String(localized: "lyrics_sources_unsaved_banner"))
             }
-
-            Button(String(localized: entry.isEditable ? "lyrics_sources_edit" : "lyrics_sources_view")) {
-                editingID = entry.id
-            }
-            #if os(macOS)
-            .buttonStyle(.macSheet)
-            #else
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            #endif
-            .disabled(activatingID != nil)
 
             // 行内「更多」：iPhone 还能左滑、长按，Mac 还能右键，几处都是同一个「删除此版本」。
             Menu {
@@ -443,7 +444,7 @@ struct LyricsSourcesView: View {
             onSaved: { saved, outcome in
                 contents[entry.id] = saved
                 summaries[entry.id] = LyricsDocumentSummary(lines: LyricsParser.parse(saved.text))
-                if entry.isActive, let updated = outcome.updatedSong {
+                if let updated = outcome.updatedSong {
                     onActiveDocumentChanged(updated)
                 }
                 // 文件大小变了，重新列一次，下次打开按新的长度读。
@@ -661,6 +662,8 @@ struct PendingVersionDeletion: Identifiable {
     var message: String {
         var parts: [String] = []
         switch plan {
+        case .serverVersion:
+            parts.append(String(format: String(localized: "lyrics_versions_remove_one_confirm"), entry.name))
         case .forget:
             parts.append(String(localized: "lyrics_version_delete_forget_message"))
         case .embeddedField:
@@ -693,16 +696,17 @@ struct LyricsSourcesNotice: Equatable {
 /// 文件格式的小胶囊。按内容的种类配色：LRC 一类、TTML、毫秒逐字（LYS/YRC/QRC）、字幕。
 struct LyricsDocumentFormatBadge: View {
     let format: LyricsDocumentFormat?
+    var fallbackLabel: String? = nil
 
     var body: some View {
-        Text(format?.label ?? "—")
+        Text(format?.label ?? fallbackLabel ?? "—")
             .font(.system(size: 10, weight: .bold, design: .rounded))
             .tracking(0.4)
             .foregroundStyle(tint)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(tint.opacity(0.14), in: Capsule())
-            .accessibilityLabel(format?.label ?? "")
+            .accessibilityLabel(format?.label ?? fallbackLabel ?? "")
     }
 
     private var tint: Color {
@@ -924,7 +928,7 @@ struct LyricsDocumentEditorView: View {
     private var statusBar: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                LyricsDocumentFormatBadge(format: entry.format)
+                if let label = entry.formatLabel { LyricsDocumentFormatBadge(format: entry.format, fallbackLabel: label) }
                 Text(entry.name)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
@@ -997,7 +1001,7 @@ struct LyricsDocumentEditorView: View {
         loadError = nil
         do {
             let fresh: LyricsDocumentCatalog.Content
-            if entry.candidate != nil {
+            if entry.candidate != nil || entry.isEmbedded || entry.localEdit != nil || entry.serverText != nil {
                 fresh = try await LyricsDocumentCatalog.read(entry, for: song, sourceManager: sourceManager)
             } else {
                 fresh = try await LyricsDocumentCatalog.readFresh(named: entry.name, for: song, sourceManager: sourceManager)
@@ -1043,20 +1047,14 @@ struct LyricsDocumentEditorView: View {
         }
         isSaving = true
         let saved = text
-        let outcome = await LyricsWriteback.saveDocument(
-            entry,
-            text: saved,
-            original: content,
-            for: song,
-            sourceManager: sourceManager,
-            library: library
-        )
-        isSaving = false
-        guard outcome.succeeded else {
+        defer { isSaving = false }
+        do {
+            try await LyricsDocumentCatalog.save(saved, entry: entry, original: content, for: song, sourceManager: sourceManager, library: library)
+        } catch {
             notice = LyricsSourcesNotice(
                 title: String(localized: "tag_editor_lyrics_error_title"),
-                message: outcome.errorMessage ?? "",
-                offersReload: outcome.changedElsewhere
+                message: error.localizedDescription,
+                offersReload: true
             )
             return
         }
@@ -1066,15 +1064,7 @@ struct LyricsDocumentEditorView: View {
             encoding: content.encoding
         )
         self.content = baseline
-        onSaved(baseline, outcome)
-        if let embeddedCopyError = outcome.embeddedCopyError {
-            notice = LyricsSourcesNotice(
-                title: String(localized: "done"),
-                message: String(format: String(localized: "lyrics_embed_copy_failed_format"), embeddedCopyError),
-                closesEditor: true
-            )
-        } else {
-            onClose()
-        }
+        onSaved(baseline, LyricsWriteback.DocumentSaveOutcome(updatedSong: library.song(id: song.id) ?? song))
+        onClose()
     }
 }

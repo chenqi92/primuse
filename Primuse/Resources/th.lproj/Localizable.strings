@@ -7990,3 +7990,17 @@
 "scrobble_lb_server_placeholder" = "URL เซิร์ฟเวอร์ (เว้นว่างเพื่อใช้ listenbrainz.org)";
 "scrobble_lb_server_invalid" = "URL เซิร์ฟเวอร์ไม่ถูกต้อง";
 "scrobble_lb_server_footer" = "หากใช้เซิร์ฟเวอร์ที่โฮสต์เองซึ่งรองรับ ListenBrainz เช่น Maloja, Koito หรือ multi-scrobbler ให้ป้อน URL ของ API และใช้โทเค็นจากเซิร์ฟเวอร์นั้น";
+
+"lyrics_versions_title" = "เวอร์ชันเนื้อเพลง";
+"lyrics_versions_external" = "ภายนอก";
+"lyrics_versions_embedded" = "ฝังในไฟล์";
+"lyrics_versions_line" = "ตามบรรทัด";
+"lyrics_versions_use_for_playback" = "ใช้เมื่อเล่น";
+"lyrics_versions_playing" = "ใช้งานอยู่";
+"lyrics_versions_delete_one" = "ลบเวอร์ชันนี้";
+"lyrics_versions_hide_one" = "ซ่อนเวอร์ชันนี้ใน Primuse";
+"lyrics_versions_delete_all" = "ลบทุกเวอร์ชัน";
+"lyrics_versions_remove_all_mixed" = "ลบเวอร์ชันที่เขียนได้และซ่อนเวอร์ชันอ่านอย่างเดียวใน Primuse หรือไม่";
+"lyrics_versions_hide_all" = "ซ่อนทุกเวอร์ชันใน Primuse";
+"lyrics_versions_remove_one_confirm" = "นำ “%@” ออกหรือไม่";
+"lyrics_versions_remove_all_confirm" = "นำเนื้อเพลงทั้ง %lld เวอร์ชันออกหรือไม่";

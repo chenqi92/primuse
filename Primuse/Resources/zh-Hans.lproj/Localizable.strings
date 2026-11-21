@@ -8177,3 +8177,17 @@
 "scrobble_lb_server_placeholder" = "服务器地址（留空使用 listenbrainz.org）";
 "scrobble_lb_server_invalid" = "服务器地址无效";
 "scrobble_lb_server_footer" = "使用 Maloja、Koito、multi-scrobbler 等兼容 ListenBrainz 的自建服务时，填写它的接口地址，令牌也在那台服务器上获取。";
+
+"lyrics_versions_title" = "歌词版本";
+"lyrics_versions_external" = "外置";
+"lyrics_versions_embedded" = "内嵌";
+"lyrics_versions_line" = "逐行";
+"lyrics_versions_use_for_playback" = "用于播放";
+"lyrics_versions_playing" = "播放中使用";
+"lyrics_versions_delete_one" = "删除此版本";
+"lyrics_versions_hide_one" = "在 Primuse 中隐藏此版本";
+"lyrics_versions_delete_all" = "删除全部版本";
+"lyrics_versions_remove_all_mixed" = "删除可写版本，并在 Primuse 中隐藏只读版本？";
+"lyrics_versions_hide_all" = "在 Primuse 中隐藏全部版本";
+"lyrics_versions_remove_one_confirm" = "移除“%@”？";
+"lyrics_versions_remove_all_confirm" = "移除全部 %lld 个歌词版本？";

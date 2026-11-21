@@ -7990,3 +7990,17 @@
 "scrobble_lb_server_placeholder" = "Sunucu URL'si (boş bırakılırsa listenbrainz.org)";
 "scrobble_lb_server_invalid" = "Geçersiz sunucu URL'si";
 "scrobble_lb_server_footer" = "Maloja, Koito veya multi-scrobbler gibi ListenBrainz uyumlu kendi sunucunuzu kullanıyorsanız API URL'sini girin ve o sunucudan aldığınız jetonu kullanın.";
+
+"lyrics_versions_title" = "Şarkı sözü sürümleri";
+"lyrics_versions_external" = "Harici";
+"lyrics_versions_embedded" = "Gömülü";
+"lyrics_versions_line" = "Satır zamanlı";
+"lyrics_versions_use_for_playback" = "Çalmada kullan";
+"lyrics_versions_playing" = "Kullanımda";
+"lyrics_versions_delete_one" = "Bu sürümü sil";
+"lyrics_versions_hide_one" = "Bu sürümü Primuse içinde gizle";
+"lyrics_versions_delete_all" = "Tüm sürümleri sil";
+"lyrics_versions_remove_all_mixed" = "Yazılabilir sürümler silinsin ve salt okunur sürümler Primuse içinde gizlensin mi?";
+"lyrics_versions_hide_all" = "Tüm sürümleri Primuse içinde gizle";
+"lyrics_versions_remove_one_confirm" = "“%@” kaldırılsın mı?";
+"lyrics_versions_remove_all_confirm" = "Şarkı sözlerinin %lld sürümü de kaldırılsın mı?";

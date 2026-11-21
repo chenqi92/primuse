@@ -349,10 +349,10 @@ public enum EmbeddedLyricsFieldEditor {
         var fields: [Field] = []
         var slots: [Int] = []
         var replacements: [(String) -> Data?] = []
-        let existingUSLT = layout.frames.compactMap { range -> (language: Data, descriptor: String, text: String)? in
+        var occupied = Set(layout.frames.compactMap { range -> USLTIdentity? in
             guard data[range.prefix(4)].elementsEqual("USLT".utf8) else { return nil }
-            return usltParts(Data(data[range.dropFirst(10)]))
-        }
+            return usltIdentity(Data(data[range.dropFirst(10)]))
+        })
         for range in layout.frames {
             let start = range.lowerBound
             let id = String(decoding: data[range.prefix(4)], as: UTF8.self)
@@ -398,15 +398,10 @@ public enum EmbeddedLyricsFieldEditor {
                         return makeFrame("SYLT", payload)
                     }
                     // USLT can carry the exact LRC, TTML or untimed text when SYLT cannot represent it.
-                    var label = descriptor
-                    if id == "SYLT" {
-                        var suffix = 1
-                        while existingUSLT.contains(where: { $0.language == lang && $0.descriptor == label }) {
-                            label = descriptor + " (SYLT " + String(suffix) + ")"
-                            suffix += 1
-                        }
-                    }
-                    return makeFrame("USLT", makeUSLTBody(language: lang, descriptor: label, text: value))
+                    let body = id == "SYLT"
+                        ? makeUSLTConvertingSYLT(language: lang, descriptor: descriptor, text: value, occupied: &occupied)
+                        : makeUSLTBody(language: lang, descriptor: descriptor, text: value)
+                    return makeFrame("USLT", body)
                 }
             }
             fields.append(Field(text: text, language: language))
@@ -461,7 +456,10 @@ public enum EmbeddedLyricsFieldEditor {
         return normalized.hasPrefix("translat") || normalized == "lyricstranslation"
     }
 
-    private static func synchronizedBody(_ text: String, language: Data, descriptor: String, contentType: UInt8) -> Data? {
+    static func synchronizedBody(
+        _ text: String, language: Data, descriptor: String, contentType: UInt8,
+        equivalent: (String, String) -> Bool = sameLyrics
+    ) -> Data? {
         let lines = LyricsContentParser.parseText(text)
         guard !lines.isEmpty, lines.allSatisfy(\.isSynchronized) else { return nil }
         var body = Data([1]) + language + Data([2, contentType]) + utf16WithByteOrderMark(descriptor) + Data([0, 0])
@@ -477,7 +475,7 @@ public enum EmbeddedLyricsFieldEditor {
                                          UInt8(truncatingIfNeeded: value >> 8), UInt8(truncatingIfNeeded: value)])
             }
         }
-        guard let rendered = ID3SynchronizedLyricsParser.parse(body), sameLyrics(rendered.text, text) else { return nil }
+        guard let rendered = ID3SynchronizedLyricsParser.parse(body), equivalent(text, rendered.text) else { return nil }
         return body
     }
 
@@ -514,6 +512,25 @@ public enum EmbeddedLyricsFieldEditor {
               let text = decodedID3Text(rest.subdata(in: ranges.text), encoding: encoding) else { return nil }
         let descriptor = decodedID3Text(rest.subdata(in: ranges.descriptor), encoding: encoding) ?? ""
         return (language, descriptor, text)
+    }
+
+    struct USLTIdentity: Hashable {
+        let language: Data
+        let descriptor: String
+    }
+
+    static func usltIdentity(_ body: Data) -> USLTIdentity? {
+        usltParts(body).map { USLTIdentity(language: $0.language, descriptor: $0.descriptor) }
+    }
+
+    static func makeUSLTConvertingSYLT(language: Data, descriptor: String, text: String, occupied: inout Set<USLTIdentity>) -> Data {
+        var label = descriptor
+        var suffix = 1
+        while !occupied.insert(USLTIdentity(language: language, descriptor: label)).inserted {
+            label = descriptor + " (SYLT " + String(suffix) + ")"
+            suffix += 1
+        }
+        return makeUSLTBody(language: language, descriptor: label, text: text)
     }
 
     private static func makeUSLTBody(language: Data, descriptor: String, text: String) -> Data {

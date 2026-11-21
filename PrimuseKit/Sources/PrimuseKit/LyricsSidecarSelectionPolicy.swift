@@ -53,6 +53,15 @@ public enum LyricsSidecarSelectionPolicy {
         ofSidecarNamed fileName: String
     ) -> (baseName: String, tag: String)? {
         guard languageTaggedExtensions.contains(fileExtension(of: fileName)) else { return nil }
+        return versionLanguageComponents(ofSidecarNamed: fileName)
+    }
+
+    /// Explicitly listing or naming a version accepts language-qualified files of every
+    /// readable format. Unpinned automatic writeback keeps its exact-name LRC/TTML target.
+    public static func versionLanguageComponents(
+        ofSidecarNamed fileName: String
+    ) -> (baseName: String, tag: String)? {
+        guard PrimuseConstants.readableLyricsExtensions.contains(fileExtension(of: fileName)) else { return nil }
         let stem = (fileName as NSString).deletingPathExtension
         guard let separator = stem.lastIndex(of: ".") else { return nil }
         let baseName = String(stem[stem.startIndex..<separator])
@@ -242,6 +251,7 @@ public enum LyricsSidecarSelectionPolicy {
                 names: names,
                 preferredLanguages: preferredLanguages
             )
+            if current == .none { return documents.first.map(Selection.item) ?? .none }
             guard current == .conflict else { return current }
             return documents.first { isWritableDocument(fileName: names[$0]) }
                 .map(Selection.item) ?? .none
@@ -272,7 +282,7 @@ public enum LyricsSidecarSelectionPolicy {
             let isTagged: Bool
             if stem.caseInsensitiveCompare(baseName) == .orderedSame {
                 isTagged = false
-            } else if let components = languageTaggedComponents(ofSidecarNamed: name),
+            } else if let components = versionLanguageComponents(ofSidecarNamed: name),
                       components.baseName.caseInsensitiveCompare(baseName) == .orderedSame,
                       // `Track.it.vtt` beside `Track.it.flac` is that song's own file.
                       !audioStems.contains(stem.lowercased()) {

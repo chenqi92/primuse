@@ -63,6 +63,9 @@ actor MetadataAssetStore {
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     private var lyricsMutationReservations: [String: UUID] = [:]
+    private let lyricsPreferencesDirectory: URL
+    private var lyricsPreferenceNames: Set<String>?
+    private var loadedLyricsPreferences: [String: LyricsVersionPreferences] = [:]
     private var artworkSelections: [String: String] = [:]
     nonisolated private let artworkRefreshClock = ArtworkRefreshClock()
     nonisolated private let contentMutationLock = NSLock()
@@ -91,6 +94,7 @@ actor MetadataAssetStore {
         let rootDirectory = storageDirectory ?? appSupport.appendingPathComponent("Primuse/MetadataAssets", isDirectory: true)
         artworkDirectory = rootDirectory.appendingPathComponent("artwork", isDirectory: true)
         lyricsDirectory = rootDirectory.appendingPathComponent("lyrics", isDirectory: true)
+        lyricsPreferencesDirectory = rootDirectory.appendingPathComponent("lyrics-choices", isDirectory: true)
         albumArtworkDirectory = rootDirectory.appendingPathComponent("artwork/album", isDirectory: true)
         artistArtworkDirectory = rootDirectory.appendingPathComponent("artwork/artist", isDirectory: true)
         // User uploads are durable data, not a disposable cache. Keep them in
@@ -780,6 +784,13 @@ actor MetadataAssetStore {
         preservingSelection: Bool = false,
         replacingEditedVersion editedVersion: [LyricLine]? = nil
     ) -> Bool {
+        if origin != .user, let preferences = lyricsVersionPreferences(forSongID: songID) {
+            guard preferences.permits(lines) else { return false }
+            if preferences.selectedID != nil,
+               !force || LyricsVersionPreferences.documentKey(preferences.selectedLines) != LyricsVersionPreferences.documentKey(lines) {
+                return false
+            }
+        }
         guard lyricsMutationReservations[songID] == nil else { return false }
         if !force, lyricsSourceCollection(forSongID: songID).selected != nil { return false }
         guard admitsLyricsWrite(
@@ -842,7 +853,19 @@ actor MetadataAssetStore {
             normalize: Self.normalizedCachedLyrics
         )
         guard storeLyricsSourceCollection(sources, forSongID: songID) else { return false }
+        var previousPreferences: LyricsVersionPreferences?
         do {
+            if origin == .user, !preservingSelection, let current = lyricsVersionPreferences(forSongID: songID) {
+                var updated = current
+                updated.cleared = false
+                updated.selectedID = nil
+                updated.selectedLines = []
+                updated.removedDocuments.remove(LyricsVersionPreferences.documentKey(lines))
+                if updated != current {
+                    try setLyricsVersionPreferences(updated, forSongID: songID)
+                    previousPreferences = current
+                }
+            }
             try data.write(to: fileURL, options: .atomic)
             if origin == .user, !lines.isEmpty {
                 recordUserLyricsSave(forSongID: songID, replacing: previousDocument)
@@ -850,6 +873,7 @@ actor MetadataAssetStore {
             Self.postLyricsCached(songID: songID, lines: lines)
             return true
         } catch {
+            if let previousPreferences { try? setLyricsVersionPreferences(previousPreferences, forSongID: songID) }
             _ = storeLyricsSourceCollection(previousSources, forSongID: songID)
             return false
         }
@@ -866,9 +890,12 @@ actor MetadataAssetStore {
         preservingSelection: Bool = false,
         origin: LyricsCacheWriteOrigin = .automatic,
         previousVersion: LyricsPreviousVersionHandling = .remember,
-        replacingEditedVersion editedVersion: [LyricLine]? = nil
+        replacingEditedVersion editedVersion: [LyricLine]? = nil,
+        userEdit: Bool = false
     ) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
+        if preservingSelection, let choices = lyricsVersionPreferences(forSongID: songID),
+           choices.cleared || choices.selectedID != nil { return false }
         if preservingSelection, lyricsSourceCollection(forSongID: songID).selected != nil { return false }
         let currentFingerprint = cachedLyrics(forSongID: songID)
             .map(LyricsDocumentFingerprint.init(lines:))
@@ -877,7 +904,7 @@ actor MetadataAssetStore {
             lines,
             forSongID: songID,
             force: force,
-            origin: origin,
+            origin: userEdit ? .user : origin,
             previousVersion: previousVersion,
             preservingSelection: preservingSelection,
             replacingEditedVersion: editedVersion
@@ -931,11 +958,17 @@ actor MetadataAssetStore {
     /// 用户清空了这首歌的歌词，之后还没有对它做过新的明确动作。期间各处都显示没有歌词，
     /// 不自动在线取词、不从备用内嵌歌词恢复、不被后台补全和旁路复查填回。
     func hasUserClearedLyrics(forSongID songID: String) -> Bool {
-        userLyricsChoice(forSongID: songID)?.isCleared == true
+        userLyricsChoice(forSongID: songID)?.isCleared == true || lyricsVersionPreferences(forSongID: songID)?.cleared == true
     }
 
     /// 用户清空了歌词（或者把版本删到一份不剩）。
     func markLyricsCleared(forSongID songID: String) {
+        if var version = lyricsVersionPreferences(forSongID: songID) {
+            version.cleared = true
+            version.selectedID = nil
+            version.selectedLines = []
+            try? setLyricsVersionPreferences(version, forSongID: songID)
+        }
         storeUserLyricsChoice(
             LyricsUserChoicePolicy.choice(afterUserClear: userLyricsChoice(forSongID: songID)),
             forSongID: songID
@@ -946,6 +979,10 @@ actor MetadataAssetStore {
     /// 用户对这首歌做了明确的动作，但这次不经过 `cacheLyrics(origin: .user)`（比如点了「刮削数据」、
     /// 「获取歌词」，结果还在路上）：先解除清空，让结果能写进来。
     func liftUserLyricsClear(forSongID songID: String) {
+        if var version = lyricsVersionPreferences(forSongID: songID), version.cleared {
+            version.cleared = false
+            try? setLyricsVersionPreferences(version, forSongID: songID)
+        }
         guard var choice = userLyricsChoice(forSongID: songID), choice.isCleared else { return }
         choice.isCleared = false
         choice.updatedAt = Date()
@@ -1225,13 +1262,32 @@ actor MetadataAssetStore {
               !hasUserClearedLyrics(forSongID: id), !isHiddenLyricsVersion(lines, forSongID: id) else { return }
         let collection = lyricsSourceCollection(forSongID: id)
         guard collection.selected == nil else { return }
+        let preferences = lyricsVersionPreferences(forSongID: id)
+        if let preferences, !preferences.permits(lines) { return }
         let originals = [lines] + (alternatives.map { record in
             record.variants.compactMap { Self.embeddedLyricsDocument(for: $0, in: record) }
         } ?? [])
         func stillInFile(_ candidate: [LyricLine]) -> Bool {
             originals.contains { EmbeddedLyricsPrecedencePolicy.sameDocument($0, candidate) }
         }
-        if !stillInFile(cached) {
+        if let preferences, let selected = preferences.selectedID {
+            // A physical field ID includes its bytes. Follow its sole successor after an external replacement.
+            guard selected.hasPrefix("embedded:"), preferences.edits[selected] == nil,
+                  alternatives?.offersChoice != true, !stillInFile(cached),
+                  let merged = LyricManualTranslationPolicy.preservingStoredTranslations(from: cached, in: lines),
+                  admitsLyricsWrite(merged, forSongID: id, force: true, origin: .sourceDocument,
+                                    preservingSelection: true) else { return }
+            var automatic = preferences
+            automatic.selectedID = nil
+            automatic.selectedLines = []
+            do {
+                try setLyricsVersionPreferences(automatic, forSongID: id)
+                guard cacheLyrics(merged, forSongID: id, force: true, origin: .sourceDocument, preservingSelection: true) else {
+                    try setLyricsVersionPreferences(preferences, forSongID: id)
+                    return
+                }
+            } catch { return }
+        } else if !stillInFile(cached) {
             guard let merged = LyricManualTranslationPolicy.preservingStoredTranslations(from: cached, in: lines),
                   replaceLyricsIfUnchanged(merged, forSongID: id, expectedFingerprint: expected,
                                            preservingSelection: true, origin: .sourceDocument) else { return }
@@ -1301,7 +1357,8 @@ actor MetadataAssetStore {
             return nil
         }
         // 这份备用只存读标签时的内嵌歌词;早先存下的没有来源记号,读出来补上(#357)。
-        return LyricsDocumentSource.embedded.stamped(Self.normalizedCachedLyrics(lines))
+        let stamped = LyricsDocumentSource.embedded.stamped(Self.normalizedCachedLyrics(lines))
+        return lyricsVersionPreferences(forSongID: songID)?.permits(stamped) == false ? nil : stamped
     }
 
     /// 缓存命中后回源核对过歌词文件时, 歌上记的歌词引用是什么。引用没变(扫描没发现
@@ -1328,6 +1385,10 @@ actor MetadataAssetStore {
 
     /// Read cached lyrics by song ID.
     func cachedLyrics(forSongID songID: String) -> [LyricLine]? {
+        if let choices = lyricsVersionPreferences(forSongID: songID) {
+            if choices.cleared { return nil }
+            if choices.selectedID != nil, !choices.selectedLines.isEmpty { return choices.selectedLines }
+        }
         let fileName = hashedFileName(for: songID, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
@@ -1345,7 +1406,80 @@ actor MetadataAssetStore {
             try? FileManager.default.removeItem(at: fileURL)
             return nil
         }
-        return Self.normalizedCachedLyrics(lines)
+        let normalized = Self.normalizedCachedLyrics(lines)
+        return lyricsVersionPreferences(forSongID: songID)?.permits(normalized) == false ? nil : normalized
+    }
+
+    func lyricsVersionPreferences(forSongID id: String) -> LyricsVersionPreferences? {
+        if let cached = loadedLyricsPreferences[id] { return cached }
+        if lyricsPreferenceNames == nil {
+            lyricsPreferenceNames = Set((try? FileManager.default.contentsOfDirectory(atPath: lyricsPreferencesDirectory.path)) ?? [])
+        }
+        guard lyricsPreferenceNames?.isEmpty == false else { return nil }
+        let name = hashedFileName(for: id, pathExtension: "json")
+        guard lyricsPreferenceNames?.contains(name) == true,
+              let data = try? Data(contentsOf: lyricsPreferencesDirectory.appendingPathComponent(name)),
+              let preferences = try? decoder.decode(LyricsVersionPreferences.self, from: data) else { return nil }
+        loadedLyricsPreferences[id] = preferences
+        return preferences
+    }
+
+    func setLyricsVersionPreferences(_ choices: LyricsVersionPreferences, forSongID id: String) throws {
+        _ = lyricsVersionPreferences(forSongID: id)
+        let name = hashedFileName(for: id, pathExtension: "json")
+        try FileManager.default.createDirectory(at: lyricsPreferencesDirectory, withIntermediateDirectories: true)
+        try encoder.encode(choices).write(to: lyricsPreferencesDirectory.appendingPathComponent(name), options: .atomic)
+        loadedLyricsPreferences[id] = choices
+        lyricsPreferenceNames?.insert(name)
+    }
+
+    func chooseLyricsVersion(_ choices: LyricsVersionPreferences, lines: [LyricLine],
+                             candidateID: String? = nil, forSongID id: String) throws {
+        guard lyricsMutationReservations[id] == nil else { throw CocoaError(.fileLocking) }
+        let previous = lyricsVersionPreferences(forSongID: id) ?? .init()
+        try setLyricsVersionPreferences(choices, forSongID: id)
+        let saved = candidateID.map { selectLyricsCandidate($0, forSongID: id) }
+            ?? cacheLyrics(lines, forSongID: id, force: true, origin: .user, preservingSelection: true)
+        guard saved else {
+            try setLyricsVersionPreferences(previous, forSongID: id)
+            throw CocoaError(.fileWriteUnknown)
+        }
+    }
+
+    /// Older caches may have merged a translation or normalized a voice group. Retire the
+    /// copies of the removed source document without discarding another source's version.
+    func discardLyricsVersionCopies(_ lines: [LyricLine], forSongID id: String) throws -> Set<String> {
+        guard !lines.isEmpty else { return [] }
+        let kind = LyricsDocumentSource.of(lines)
+        var keys = Set([LyricsVersionPreferences.documentKey(lines)])
+        var sources = lyricsSourceCollection(forSongID: id)
+        sources.forget { candidate in
+            guard candidate.source == kind,
+                  candidate.lines.first?.documentIsLocalOverride == lines.first?.documentIsLocalOverride,
+                  EmbeddedLyricsPrecedencePolicy.sameDocument(candidate.lines, lines) else { return false }
+            keys.insert(LyricsVersionPreferences.documentKey(candidate.lines))
+            return true
+        }
+        guard storeLyricsSourceCollection(sources, forSongID: id) else { throw CocoaError(.fileWriteUnknown) }
+        if kind?.kind == .embedded {
+            if let fallback = embeddedFallbackLyrics(forSongID: id),
+               EmbeddedLyricsPrecedencePolicy.sameDocument(lines, fallback) {
+                keys.insert(LyricsVersionPreferences.documentKey(fallback))
+                let url = lyricsDirectory.appendingPathComponent(hashedFileName(for: id, pathExtension: "embedded.json"))
+                try FileManager.default.removeItem(at: url)
+            }
+            if var alternatives = embeddedLyricsAlternatives(forSongID: id) {
+                func matches(_ text: String) -> Bool {
+                    EmbeddedLyricsPrecedencePolicy.sameDocument(LyricsContentParser.parseText(text), lines)
+                }
+                alternatives.variants.removeAll { matches($0.text) }
+                if alternatives.translatedLyricsText.map(matches) == true { alternatives.translatedLyricsText = nil }
+                alternatives.languageTaggedLyrics = alternatives.languageTaggedLyrics.filter { !matches($0.value) }
+                alternatives.languageTaggedTranslations = alternatives.languageTaggedTranslations.filter { !matches($0.value) }
+                storeEmbeddedLyricsAlternatives(alternatives, forSongID: id)
+            }
+        }
+        return keys
     }
 
     nonisolated static func normalizedCachedLyrics(_ lines: [LyricLine]) -> [LyricLine] {
@@ -1375,9 +1509,16 @@ actor MetadataAssetStore {
 
     @discardableResult
     func rememberLyricsCandidate(_ lines: [LyricLine], forSongID songID: String) -> LyricsSourceCollection.Candidate? {
+        rememberLyricsCandidate(lines, forSongID: songID, keepingVersion: false)
+    }
+
+    func rememberLyricsCandidate(_ lines: [LyricLine], forSongID songID: String,
+                                 keepingVersion: Bool) -> LyricsSourceCollection.Candidate? {
+        guard keepingVersion || lyricsVersionPreferences(forSongID: songID)?.permits(lines) != false else { return nil }
         var sources = lyricsSourceCollection(forSongID: songID)
-        guard let candidate = sources.remember(lines),
-              storeLyricsSourceCollection(sources, forSongID: songID) else { return nil }
+        guard let candidate = sources.remember(lines) else { return nil }
+        if keepingVersion { sources.keep(id: candidate.id) }
+        guard storeLyricsSourceCollection(sources, forSongID: songID) else { return nil }
         return candidate
     }
 

@@ -8084,3 +8084,17 @@
 "scrobble_lb_server_placeholder" = "Server-URL (leer für listenbrainz.org)";
 "scrobble_lb_server_invalid" = "Ungültige Server-URL";
 "scrobble_lb_server_footer" = "Für einen selbst gehosteten, ListenBrainz-kompatiblen Server wie Maloja, Koito oder multi-scrobbler gib dessen API-URL ein und verwende ein Token dieses Servers.";
+
+"lyrics_versions_title" = "Liedtextversionen";
+"lyrics_versions_external" = "Extern";
+"lyrics_versions_embedded" = "Eingebettet";
+"lyrics_versions_line" = "Zeilenweise";
+"lyrics_versions_use_for_playback" = "Für Wiedergabe verwenden";
+"lyrics_versions_playing" = "In Verwendung";
+"lyrics_versions_delete_one" = "Diese Version löschen";
+"lyrics_versions_hide_one" = "Diese Version in Primuse ausblenden";
+"lyrics_versions_delete_all" = "Alle Versionen löschen";
+"lyrics_versions_remove_all_mixed" = "Beschreibbare Versionen löschen und schreibgeschützte in Primuse ausblenden?";
+"lyrics_versions_hide_all" = "Alle Versionen in Primuse ausblenden";
+"lyrics_versions_remove_one_confirm" = "„%@“ entfernen?";
+"lyrics_versions_remove_all_confirm" = "Alle %lld Liedtextversionen entfernen?";

@@ -1,6 +1,27 @@
 import SwiftUI
 import PrimuseKit
 
+struct LyricsVersionDraft {
+    let entry: LyricsDocumentCatalog.Entry
+    let original: LyricsDocumentCatalog.Content
+    let baseline: LyricsEditorDocument
+    var document: LyricsEditorDocument
+    var timingEligibleIndices: [Int] = []
+    var needsTimingRepair = false
+    var unstampedCount = 0
+    var allowsPartialTiming = false
+
+    @MainActor
+    func save(for song: Song, sourceManager: SourceManager, library: MusicLibrary,
+              mode: LyricsDocumentCatalog.VersionSaveMode = .replace) async throws {
+        let prepared = document.preparedForTimingCommit(eligibleIndices: timingEligibleIndices)
+        try await LyricsDocumentCatalog.saveEditedLines(
+            prepared.lyricLines(), text: prepared.serialized(), entry: entry,
+            original: original, for: song, sourceManager: sourceManager, library: library, mode: mode
+        )
+    }
+}
+
 /// 歌词编辑的独立入口。跟「编辑标签」平级 —— 调歌词是高频且自成一件事的操作，
 /// 不该埋在标签编辑器里再点一层。
 ///
@@ -40,11 +61,6 @@ struct LyricsEditorSheet: View {
     @State private var dismissesAfterError = false
     /// 待确认删除的内容。非 nil 表示用户清空了歌词、正在等二次确认。
     @State private var pendingRemoval = false
-    @State private var showLyricsSources = false
-    @State private var editorHadUnsavedChanges = false
-    /// 来源页里换了来源、或改写了正在用的文件：关掉来源页后按新内容重新载入编辑器。
-    @State private var reloadsAfterSources = false
-    @State private var editorGeneration = 0
 
     var body: some View {
         Group {
@@ -58,31 +74,21 @@ struct LyricsEditorSheet: View {
                     autoStartsAudioTranscription: autoStartsAudioTranscription,
                     allowsStructuredOnlyTranslationEditing: LyricsWriteback
                         .allowsStructuredOnlyTranslationEditing(for: initialLines, mode: target.mode),
+                    onVersionsChanged: { _ in
+                        let updated = library.song(id: song.id) ?? song
+                        onSave?(updated)
+                        await refreshAfterVersionChange()
+                    },
                     onCommit: { committed, lines in
                         handleCommit(committed, structuredLines: lines)
-                    },
-                    onShowLyricsSources: { hasUnsavedChanges in
-                        editorHadUnsavedChanges = hasUnsavedChanges
-                        showLyricsSources = true
                     }
                 )
-                .id(editorGeneration)
                 .overlay {
                     if isSaving { savingOverlay }
                 }
             }
         }
         .task(id: song.id) { await load() }
-        .sheet(isPresented: $showLyricsSources, onDismiss: reloadAfterSourcesIfNeeded) {
-            LyricsSourcesView(
-                song: library.song(id: song.id) ?? song,
-                editorHasUnsavedChanges: editorHadUnsavedChanges
-            ) { updated in
-                reloadsAfterSources = true
-                // 播放页跟着换：和保存走同一个回调。
-                onSave?(updated)
-            }
-        }
         .onDisappear { cancelWritebackProbe() }
         .alert(
             String(localized: "tag_editor_lyrics_error_title"),
@@ -223,12 +229,19 @@ struct LyricsEditorSheet: View {
         target = resolved.protectingSourceConflict(loaded.hasSourceConflict)
     }
 
-    /// 编辑器手里的还是换来源之前的那份：整个重新读一遍，换成现在用的文件。
-    private func reloadAfterSourcesIfNeeded() {
-        guard reloadsAfterSources else { return }
-        reloadsAfterSources = false
-        editorGeneration += 1
-        Task { await load() }
+    private func refreshAfterVersionChange() async {
+        let updated = library.song(id: song.id) ?? song
+        let loaded = await LyricsWriteback.loadEditablePayload(for: updated, sourceManager: sourceManager)
+        guard !Task.isCancelled else { return }
+        originalText = loaded.text
+        text = loaded.text
+        initialLines = loaded.structuredLines
+        pendingStructuredLines = nil
+        sourceSnapshot = loaded.sourceSnapshot
+        cacheSnapshot = loaded.cacheSnapshot
+        hasSourceConflict = loaded.hasSourceConflict
+        let probe = startWritebackProbe()
+        target = await probe.value.protectingSourceConflict(loaded.hasSourceConflict)
     }
 
     private func startWritebackProbe() -> Task<LyricsWriteback.Target, Never> {

@@ -50,7 +50,7 @@ public enum EmbeddedLyricsVariantPriority: String, CaseIterable, Sendable {
 public enum EmbeddedLyricsContentFormat: String, CaseIterable, Sendable {
     case ttml, lrc, lys, yrc, qrc, krc, webVTT, subRip, substationAlpha, plainText
 
-    static func detect(_ text: String, timing: LyricsTimingLevel) -> Self {
+    public static func detect(_ text: String, timing: LyricsTimingLevel) -> Self {
         if LyricsContentParser.isTTML(text) { return .ttml }
         if let format = WordTimedLyricsParser.detect(text) {
             switch format {
@@ -82,6 +82,24 @@ public struct EmbeddedLyricsVariant: Codable, Hashable, Sendable {
 }
 
 public enum EmbeddedLyricsVariantPolicy {
+    /// SYLT stores text and millisecond cue starts, not an LRC/ELRC serialization.
+    public static func sameSynchronizedCues(_ original: String, _ readback: String) -> Bool {
+        let requested = LyricsContentParser.parseText(original)
+        let returned = LyricsContentParser.parseText(readback)
+        guard !requested.isEmpty, requested.count == returned.count,
+              !LyricsStructuredPersistencePolicy.requiresTTML(requested) else { return false }
+        func cues(_ line: LyricLine) -> [(String, Double)] {
+            (line.syllables?.map { ($0.text, $0.start) } ?? [(line.text, line.timestamp)])
+                .map { ($0.0, ($0.1 * 1000).rounded()) }
+        }
+        return zip(requested, returned).allSatisfy { lhs, rhs in
+            lhs.isSynchronized && rhs.isSynchronized && lhs.text == rhs.text
+                && (lhs.metadataLines ?? []).isEmpty && lhs.allManualTranslations.isEmpty
+                && (lhs.timestamp * 1000).rounded() == (rhs.timestamp * 1000).rounded()
+                && cues(lhs).elementsEqual(cues(rhs), by: { $0.0 == $1.0 && $0.1 == $1.1 })
+        }
+    }
+
     /// 按在文件里的先后记下一份。内容相同的只记第一次（顺带补上语言）。
     public static func append(
         _ text: String?,

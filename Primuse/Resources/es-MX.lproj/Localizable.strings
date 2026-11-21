@@ -7990,3 +7990,17 @@
 "scrobble_lb_server_placeholder" = "URL del servidor (vacío para listenbrainz.org)";
 "scrobble_lb_server_invalid" = "URL del servidor no válida";
 "scrobble_lb_server_footer" = "Para un servidor propio compatible con ListenBrainz, como Maloja, Koito o multi-scrobbler, escribe su URL de API y usa un token de ese servidor.";
+
+"lyrics_versions_title" = "Versiones de la letra";
+"lyrics_versions_external" = "Externa";
+"lyrics_versions_embedded" = "Integrada";
+"lyrics_versions_line" = "Por línea";
+"lyrics_versions_use_for_playback" = "Usar en la reproducción";
+"lyrics_versions_playing" = "En uso";
+"lyrics_versions_delete_one" = "Eliminar esta versión";
+"lyrics_versions_hide_one" = "Ocultar esta versión en Primuse";
+"lyrics_versions_delete_all" = "Eliminar todas las versiones";
+"lyrics_versions_remove_all_mixed" = "¿Eliminar las versiones editables y ocultar las de solo lectura en Primuse?";
+"lyrics_versions_hide_all" = "Ocultar todas las versiones en Primuse";
+"lyrics_versions_remove_one_confirm" = "¿Quitar “%@”?";
+"lyrics_versions_remove_all_confirm" = "¿Quitar las %lld versiones de la letra?";

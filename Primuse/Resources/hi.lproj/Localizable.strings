@@ -7990,3 +7990,17 @@
 "scrobble_lb_server_placeholder" = "सर्वर URL (listenbrainz.org के लिए खाली छोड़ें)";
 "scrobble_lb_server_invalid" = "सर्वर URL अमान्य है";
 "scrobble_lb_server_footer" = "Maloja, Koito या multi-scrobbler जैसे ListenBrainz-संगत सेल्फ़-होस्टेड सर्वर के लिए उसका API URL दर्ज करें और उसी सर्वर का टोकन इस्तेमाल करें।";
+
+"lyrics_versions_title" = "बोल के संस्करण";
+"lyrics_versions_external" = "बाहरी";
+"lyrics_versions_embedded" = "एम्बेडेड";
+"lyrics_versions_line" = "प्रति पंक्ति";
+"lyrics_versions_use_for_playback" = "प्लेबैक के लिए चुनें";
+"lyrics_versions_playing" = "उपयोग में";
+"lyrics_versions_delete_one" = "यह संस्करण मिटाएँ";
+"lyrics_versions_hide_one" = "Primuse में यह संस्करण छिपाएँ";
+"lyrics_versions_delete_all" = "सभी संस्करण मिटाएँ";
+"lyrics_versions_remove_all_mixed" = "लिखने योग्य संस्करण मिटाएँ और केवल पढ़ने योग्य संस्करण Primuse में छिपाएँ?";
+"lyrics_versions_hide_all" = "Primuse में सभी संस्करण छिपाएँ";
+"lyrics_versions_remove_one_confirm" = "“%@” हटाएँ?";
+"lyrics_versions_remove_all_confirm" = "बोल के सभी %lld संस्करण हटाएँ?";

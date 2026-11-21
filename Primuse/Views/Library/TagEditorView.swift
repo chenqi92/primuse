@@ -43,6 +43,7 @@ struct TagEditorView: View {
     @State private var originalLyricsText = ""
     @State private var initialLyricsLines: [LyricLine]?
     @State private var pendingLyricsLines: [LyricLine]?
+    @State private var stagedLyricVersions: [String: LyricsVersionDraft] = [:]
     @State private var lyricsHaveSourceConflict = false
     @State private var lyricsSourceSnapshot: LyricsWriteback.EditableSourceSnapshot = .unknown
     @State private var lyricsCacheSnapshot: LyricsDocumentFingerprint?
@@ -251,7 +252,16 @@ struct TagEditorView: View {
                 .allowsStructuredOnlyTranslationEditing(
                     for: pendingLyricsLines ?? initialLyricsLines,
                     mode: lyricsWritebackMode
-                )
+                ),
+            stagedVersions: stagedLyricVersions,
+            onStageVersions: { drafts in
+                stagedLyricVersions = drafts
+                showLyricsEditor = false
+            },
+            onVersionsChanged: { removed in
+                for id in removed { stagedLyricVersions.removeValue(forKey: id) }
+                await loadLyricsEditor()
+            }
         ) { committed, lines in
             lyricsText = committed
             pendingLyricsLines = lines
@@ -848,9 +858,12 @@ struct TagEditorView: View {
             }
             .buttonStyle(.plain)
             .disabled(lyricsLoading || isSaving)
+            .accessibilityIdentifier("tagEditor.lyrics")
 
-            lyricsWritebackStatus
-                .font(.caption2)
+            if showsNewLyricsWritebackStatus {
+                lyricsWritebackStatus
+                    .font(.caption2)
+            }
             lyricsRemedyButtons
         }
     }
@@ -1354,8 +1367,10 @@ struct TagEditorView: View {
                 .font(PMFont.bodyS)
                 .foregroundStyle(PMColor.textMuted)
             // 说明里有落在哪里、为什么、怎么解决,一行放不下,单独占几行。
-            lyricsWritebackStatus
-                .font(PMFont.caption)
+            if showsNewLyricsWritebackStatus {
+                lyricsWritebackStatus
+                    .font(PMFont.caption)
+            }
             lyricsRemedyButtons
 
             Button {
@@ -1475,7 +1490,12 @@ struct TagEditorView: View {
         )
     }
 
-    /// 这次保存落在哪里、为什么。开头先说落点,后面是原因和解决办法。
+    private var showsNewLyricsWritebackStatus: Bool {
+        if case .content = lyricsSourceSnapshot { return false }
+        return !lyricsLoading && originalLyricsText.isEmpty && initialLyricsLines?.isEmpty != false
+            && stagedLyricVersions.isEmpty && !lyricsHaveSourceConflict
+    }
+
     private var lyricsWritebackStatus: some View {
         Label(lyricsTarget.fullNotice, systemImage: lyricsStatusIcon)
             .foregroundStyle(lyricsStatusColor)
@@ -1640,6 +1660,10 @@ struct TagEditorView: View {
     }
 
     private var hasLyricsChanges: Bool {
+        !stagedLyricVersions.isEmpty || hasDefaultLyricsChanges
+    }
+
+    private var hasDefaultLyricsChanges: Bool {
         guard !lyricsLoading else { return false }
         let textChanged = LyricsWriteback.normalized(lyricsText)
             != LyricsWriteback.normalized(originalLyricsText)
@@ -1676,7 +1700,7 @@ struct TagEditorView: View {
 
     private var canSubmitChanges: Bool {
         guard initialSong.id == song.id, hasChanges, !isLoadingCover, !isSaving else { return false }
-        guard hasLyricsChanges else { return true }
+        guard hasDefaultLyricsChanges else { return true }
         let content = LyricsWriteback.normalized(lyricsText)
         if content.isEmpty {
             return !LyricsWriteback.normalized(originalLyricsText).isEmpty
@@ -1704,7 +1728,7 @@ struct TagEditorView: View {
 
     @MainActor
     private func requestSave() {
-        if hasLyricsChanges,
+        if hasDefaultLyricsChanges,
            LyricsWriteback.normalized(lyricsText).isEmpty,
            !LyricsWriteback.normalized(originalLyricsText).isEmpty {
             showLyricsDeleteConfirm = true
@@ -1728,7 +1752,7 @@ struct TagEditorView: View {
         // 重扫前的旧行，拿它去写回会一直判成「编辑期间已发生变化」。
         let original = resolvedConflict?.original ?? library.storedSong(id: song.id) ?? song
         let renameStem = requestedRenameStem
-        let lyricsChanged = hasLyricsChanges
+        let lyricsChanged = hasDefaultLyricsChanges
         var updated = resolvedConflict?.updated ?? BatchTagEditService.song(original, applying: metadataEdits)
         if let renameStem {
             do {
@@ -1922,6 +1946,19 @@ struct TagEditorView: View {
 
         if needsLibraryReplace {
             library.replaceSong(updated)
+        }
+        if !stagedLyricVersions.isEmpty {
+            do {
+                for id in stagedLyricVersions.keys.sorted() {
+                    guard let draft = stagedLyricVersions[id] else { continue }
+                    try await draft.save(for: library.storedSong(id: updated.id) ?? updated, sourceManager: sourceManager, library: library)
+                    stagedLyricVersions.removeValue(forKey: id)
+                }
+                updated = library.storedSong(id: updated.id) ?? updated
+            } catch {
+                lyricsErrorMessage = error.localizedDescription
+                return false
+            }
         }
         if let renameStem {
             do {
@@ -2158,6 +2195,7 @@ struct TagEditorView: View {
         discText = song.discNumber.map { String($0) } ?? ""
         lyricsText = originalLyricsText
         pendingLyricsLines = initialLyricsLines
+        stagedLyricVersions = [:]
         pickedCoverData = nil
         coverPickerItem = nil
     }
@@ -2176,6 +2214,7 @@ struct TagEditorView: View {
         discText = song.discNumber.map(String.init) ?? ""
         lyricsText = ""
         originalLyricsText = ""
+        stagedLyricVersions = [:]
         initialLyricsLines = nil
         pendingLyricsLines = nil
         lyricsHaveSourceConflict = false
