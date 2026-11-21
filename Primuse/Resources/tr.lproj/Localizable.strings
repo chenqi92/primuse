@@ -2039,6 +2039,9 @@
 "metadata_status_reread_filtered" = "Filtrelenen tüm şarkıların etiketlerini yeniden oku";
 "metadata_status_reread_progress_format" = "Etiketler okunuyor: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "Tamamlanan: %1$lld. Başarısız: %2$lld. Atlanan (zaten okunuyor veya kullanılamıyor): %3$lld.";
+"metadata_reread_resume" = "Devam et";
+"metadata_reread_paused_format" = "Duraklatıldı: %1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "İptal edildi. Okunmuş %lld şarkı korundu.";
 "lyrics_editor_mode_structured" = "Satırlar";
 "Search…" = "Ara…";
 "playlist_import_match_path" = "Yol";

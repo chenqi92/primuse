@@ -2375,6 +2375,9 @@
 "metadata_status_reread_filtered" = "Odczytaj ponownie tagi wszystkich przefiltrowanych utworów";
 "metadata_status_reread_progress_format" = "Odczytywanie tagów: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "Ukończono: %1$lld. Błędy: %2$lld. Pominięto (już odczytywane lub niedostępne): %3$lld.";
+"metadata_reread_resume" = "Wznów";
+"metadata_reread_paused_format" = "Wstrzymano: %1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "Anulowano. Zachowano już odczytane utwory: %lld.";
 "metadata_status_result_title" = "Wynik odczytu metadanych";
 "metadata_status_retry" = "Wymagana ponowna próba";
 "metadata_status_retry_failed" = "Spróbuj ponownie problematycznych utworów";

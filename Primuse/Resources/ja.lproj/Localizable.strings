@@ -3898,6 +3898,9 @@
 "metadata_status_reread_filtered" = "絞り込んだすべての曲のタグを再読み込み";
 "metadata_status_reread_progress_format" = "タグを読み込み中：%1$lld / %2$lld";
 "metadata_status_reread_result_format" = "完了：%1$lld曲。失敗：%2$lld曲。スキップ（読み込み中または利用不可）：%3$lld曲。";
+"metadata_reread_resume" = "再開";
+"metadata_reread_paused_format" = "一時停止中：%1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "キャンセルしました。読み込み済みの%lld曲はそのまま残っています。";
 "metadata_status_filter" = "状態フィルタ";
 "metadata_status_filter_all" = "すべて";
 "metadata_status_filter_pending" = "保留";

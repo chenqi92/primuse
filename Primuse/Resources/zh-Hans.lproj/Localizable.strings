@@ -3999,6 +3999,9 @@
 "metadata_status_reread_filtered" = "重新读取当前筛选结果的全部标签";
 "metadata_status_reread_progress_format" = "正在读取标签：%1$lld / %2$lld";
 "metadata_status_reread_result_format" = "完成 %1$lld 首，失败 %2$lld 首，跳过 %3$lld 首（正在读取或不可读取）。";
+"metadata_reread_resume" = "继续";
+"metadata_reread_paused_format" = "已暂停：%1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "已取消，读完的 %lld 首已保留。";
 "metadata_status_filter" = "状态筛选";
 "metadata_status_filter_all" = "全部";
 "metadata_status_filter_pending" = "待检查";

@@ -2375,6 +2375,9 @@
 "metadata_status_reread_filtered" = "إعادة قراءة وسوم جميع الأغاني المصفاة";
 "metadata_status_reread_progress_format" = "قراءة الوسوم: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "اكتمل: %1$lld. فشل: %2$lld. تم تخطي %3$lld (قيد القراءة أو غير متاحة).";
+"metadata_reread_resume" = "متابعة";
+"metadata_reread_paused_format" = "متوقف مؤقتًا: %1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "تم الإلغاء. تم الاحتفاظ بـ %lld من الأغاني التي تمت قراءتها.";
 "metadata_status_result_title" = "نتيجة قراءة البيانات الوصفية";
 "metadata_status_retry" = "مطلوب إعادة المحاولة";
 "metadata_status_retry_failed" = "إعادة محاولة أغاني المشكلة";

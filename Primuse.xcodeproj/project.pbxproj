@@ -55,6 +55,7 @@
 		0519F502F13E4317BE550727 /* TingReaderServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D70535C9AFFD59F478AD5D9 /* TingReaderServiceClient.swift */; };
 		052404EC85F892799A7D1F85 /* MetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645BBABA564E600B40010061 /* MetadataService.swift */; };
 		05406A7F73619CF228F01366 /* MetadataReadScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C99953CC3004D92E3B3147BC /* MetadataReadScheduler.swift */; };
+		25287BE89A2787F14BEF4942 /* MetadataTagRereadQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A57BC75CEBF4D4C2EABAF6C0 /* MetadataTagRereadQueue.swift */; };
 		055E8F5093B42BCBDF08DA4F /* S3StreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C603E86C2F865CDFD1D1C8EB /* S3StreamResolver.swift */; };
 		0560AA503018F8EE32A80B76 /* PlaylistCopyToServerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84D805C7D7D623EB020C31E5 /* PlaylistCopyToServerSheet.swift */; };
 		058445CADD8F1C7478E211F0 /* LyricsRomanizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AE496CFA4F8A379D5763F46 /* LyricsRomanizationService.swift */; };
@@ -4168,6 +4169,7 @@
 		C93DE271CA63A6287693A0C7 /* AppleIntelligenceProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleIntelligenceProviderTests.swift; sourceTree = "<group>"; };
 		C97AD40A4E79629039B84599 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/Localizable.strings; sourceTree = "<group>"; };
 		C99953CC3004D92E3B3147BC /* MetadataReadScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataReadScheduler.swift; sourceTree = "<group>"; };
+		A57BC75CEBF4D4C2EABAF6C0 /* MetadataTagRereadQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataTagRereadQueue.swift; sourceTree = "<group>"; };
 		C9F21995B7200CF465C38A69 /* InsecureHTTPHostPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsecureHTTPHostPolicy.swift; sourceTree = "<group>"; };
 		C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileLogger.swift; sourceTree = "<group>"; };
 		CA179334735B8A7FCFC9F055 /* QnapSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QnapSource.swift; sourceTree = "<group>"; };
@@ -5221,6 +5223,7 @@
 				1178DD2CF47E24C862B0BECF /* MetadataBackfillSceneTransitionPolicy.swift */,
 				BA82B3C1FF9F3629EC8F5F0F /* MetadataReadCPUSamplePolicy.swift */,
 				C99953CC3004D92E3B3147BC /* MetadataReadScheduler.swift */,
+				A57BC75CEBF4D4C2EABAF6C0 /* MetadataTagRereadQueue.swift */,
 				9AB286EEA94A980ADF0391BD /* MetadataReadThroughputSampler.swift */,
 				AF561533EC649E1C87772C4A /* MinimalNavigationDetailLedger.swift */,
 				9B5ED1EC965BB609A64B9388 /* MinimalTopTabConfiguration.swift */,
@@ -7986,6 +7989,7 @@
 				7786CB5EF89B2EBA3756CF48 /* MetadataInspectionPolicy.swift in Sources */,
 				A50B698C2A7FEA4D08E6D4C8 /* MetadataReadCPUSamplePolicy.swift in Sources */,
 				05406A7F73619CF228F01366 /* MetadataReadScheduler.swift in Sources */,
+				25287BE89A2787F14BEF4942 /* MetadataTagRereadQueue.swift in Sources */,
 				99329A4BD91655CBDF214737 /* MetadataReadThroughputSampler.swift in Sources */,
 				4AD960ADD6500C88A7352856 /* MetadataTitleResolutionPolicy.swift in Sources */,
 				A6794A4324E4442B4373F440 /* MinimalNavigationDetailLedger.swift in Sources */,

@@ -145,12 +145,18 @@ struct SourceMetadataStatusView: View {
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var isProjecting = false
     @State private var resultMessage: String?
-    @State private var batchRereadTask: Task<Void, Never>?
-    @State private var batchProgress: MetadataTagRereadProgress?
+    /// 页面在不在屏幕上。批量重读和单首重读都不跟页面走, 读完时页面已经离开的,
+    /// 不在这里弹提示; 批量的结果等回到页面时补给一次。
+    @State private var isPageVisible = false
     @State private var showsExplanation = false
 
     private var summary: MetadataBackfillSourceSummary {
         backfill.sourceStatusSummary(forSource: source.id)
+    }
+
+    /// 这个源上由本页发起、服务持有的那一批重读; 离开页面再回来看到的是同一批。
+    private var userBatch: MetadataTagRereadQueue? {
+        backfill.userTagReread(forSource: source.id)
     }
 
     private var usesTwoColumnLayout: Bool {
@@ -179,10 +185,18 @@ struct SourceMetadataStatusView: View {
         .onChange(of: searchText) { _, newValue in
             scheduleSearchProjection(for: newValue)
         }
+        .onChange(of: userBatch?.shouldAnnounceResult == true) { _, shouldAnnounce in
+            if shouldAnnounce { announceBatchResultIfNeeded() }
+        }
+        .onAppear {
+            isPageVisible = true
+            announceBatchResultIfNeeded()
+        }
         .onDisappear {
+            isPageVisible = false
+            // 只停这一页自己的搜索与投影。批量重读归服务, 离开页面照常读完。
             searchDebounceTask?.cancel()
             projectionTask?.cancel()
-            batchRereadTask?.cancel()
         }
         .alert(
             "metadata_status_result_title",
@@ -284,8 +298,8 @@ struct SourceMetadataStatusView: View {
 
     @ViewBuilder
     private var resultRows: some View {
-        if let progress = batchProgress {
-            batchProgressCard(progress)
+        if let batch = userBatch {
+            batchProgressCard(batch)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
@@ -809,15 +823,24 @@ struct SourceMetadataStatusView: View {
     }
 
     /// 搜索框里的词还没落到 `debouncedSearchText` 时列表仍是上一批结果, 此时
-    /// 批量重读会读到用户没看到的那批歌, 所以一并算作不可用。
+    /// 批量重读会读到用户没看到的那批歌, 所以一并算作不可用。本页那一批在读时
+    /// 仍可点: 新筛出来的歌并进同一批。
     private var isBatchRereadDisabled: Bool {
-        batchRereadTask != nil || backfill.batchRereadingSourceIDs.contains(source.id)
+        isRereadHeldElsewhere
             || isProjecting || projectedItems.isEmpty || !source.isEnabled
             || searchText.trimmingCharacters(in: .whitespacesAndNewlines) != debouncedSearchText
     }
 
+    /// 文件夹重读或「恢复文件标签」正占着这个源, 而本页没有自己那一批。
+    private var isRereadHeldElsewhere: Bool {
+        backfill.batchRereadingSourceIDs.contains(source.id) && userBatch?.isActive != true
+    }
+
     private var isBatchRereading: Bool {
-        backfill.batchRereadingSourceIDs.contains(source.id)
+        if let phase = userBatch?.phase, phase == .running || phase == .suspended {
+            return true
+        }
+        return isRereadHeldElsewhere
     }
 
     private var batchRefreshButton: some View {
@@ -960,30 +983,64 @@ struct SourceMetadataStatusView: View {
         .accessibilityIdentifier("metadata-status-filter-all")
     }
 
-    private func batchProgressCard(_ progress: MetadataTagRereadProgress) -> some View {
+    private func batchProgressCard(_ batch: MetadataTagRereadQueue) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
-                Text(batchProgressText(progress))
+                Text(batchProgressText(batch))
                     .font(.caption.weight(.medium))
                     .monospacedDigit()
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 6)
-                if batchRereadTask != nil {
-                    Button("cancel") { batchRereadTask?.cancel() }
-                        .buttonStyle(.borderless)
-                        .font(.caption.weight(.semibold))
-                }
+                batchControls(batch)
             }
 
-            if batchRereadTask != nil, progress.total > 0 {
+            if batch.isActive, batch.total > 0 {
                 ProgressView(
-                    value: Double(progress.processed),
-                    total: Double(max(1, progress.total))
+                    value: Double(batch.processed),
+                    total: Double(max(1, batch.total))
                 )
                 .progressViewStyle(.linear)
             }
         }
         .tagStatusCard(padding: 11, corner: TagStatusStyle.rowCorner)
+    }
+
+    /// 在读: 暂停 / 取消; 暂停了: 继续 / 取消; 结束或取消了: 收起这张卡片。
+    /// 被系统打断(退到后台)的仍按在读显示, 回到前台会自己接着读。
+    @ViewBuilder
+    private func batchControls(_ batch: MetadataTagRereadQueue) -> some View {
+        if batch.isActive {
+            if batch.phase == .paused {
+                Button("metadata_reread_resume") {
+                    backfill.resumeUserTagReread(sourceID: source.id)
+                }
+                .buttonStyle(.borderless)
+                .font(.caption.weight(.semibold))
+            } else {
+                Button("pause") {
+                    backfill.pauseUserTagReread(sourceID: source.id)
+                }
+                .buttonStyle(.borderless)
+                .font(.caption.weight(.semibold))
+            }
+            Button("cancel") {
+                backfill.cancelUserTagReread(sourceID: source.id)
+            }
+            .buttonStyle(.borderless)
+            .font(.caption.weight(.semibold))
+        } else {
+            Button {
+                backfill.dismissUserTagReread(sourceID: source.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.bold))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(Text("close"))
+        }
     }
 
     // MARK: - Result rows
@@ -1360,11 +1417,15 @@ struct SourceMetadataStatusView: View {
     }
 
     private func reread(_ item: MetadataBackfillStatusDisplayItem) {
+        // 不挂在页面上: 离开页面这一首照样读完、照样落库。
         Task {
             let result = await backfill.rereadTags(
                 songID: item.songID,
                 expectedSourceID: source.id
             )
+            // 读完时页面已经离开: 行状态由服务自己刷新, 不再对一个看不见的页面弹提示、
+            // 也不再重算它的列表。
+            guard isPageVisible else { return }
             switch result {
             case .completed(let kind):
                 resultMessage = kind.localizedRereadResult
@@ -1385,37 +1446,46 @@ struct SourceMetadataStatusView: View {
         }
     }
 
+    /// 交给服务读: 这个源已有一批没结束就并进去, 否则另起一批。进度和结果都在服务上,
+    /// 离开页面、切到别的标签页照常读完。
     private func rereadFilteredItems() {
-        guard batchRereadTask == nil else { return }
         let songIDs = projectedItems.map(\.songID)
-        batchRereadTask = Task { @MainActor in
-            defer { batchRereadTask = nil }
-            let result = await backfill.rereadTags(songIDs: songIDs, expectedSourceID: source.id) {
-                batchProgress = $0
-            }
-            reload(force: true)
-            guard !Task.isCancelled else { return }
-            resultMessage = String(
-                format: String(localized: "metadata_status_reread_result_format"),
-                Int64(result.completed), Int64(result.failed), Int64(result.skipped)
-            )
-        }
+        backfill.enqueueUserTagReread(songIDs: songIDs, sourceID: source.id)
     }
 
-    private func batchProgressText(_ progress: MetadataTagRereadProgress) -> String {
-        if progress.isCancelled {
-            return String(localized: "reread_song_tags_failure_cancelled")
-        }
-        if batchRereadTask == nil {
+    /// 这一批读完时给一次结果提示; 页面不在时读完的, 回到页面时补这一次, 给过就不再弹。
+    private func announceBatchResultIfNeeded() {
+        guard isPageVisible, let batch = userBatch, batch.shouldAnnounceResult else { return }
+        backfill.markUserTagRereadResultAnnounced(sourceID: source.id)
+        resultMessage = String(
+            format: String(localized: "metadata_status_reread_result_format"),
+            Int64(batch.completed), Int64(batch.failed), Int64(batch.skipped)
+        )
+    }
+
+    private func batchProgressText(_ batch: MetadataTagRereadQueue) -> String {
+        switch batch.phase {
+        case .cancelled:
+            return String(
+                format: String(localized: "metadata_reread_cancelled_format"),
+                Int64(batch.completed)
+            )
+        case .finished:
             return String(
                 format: String(localized: "metadata_status_reread_result_format"),
-                Int64(progress.completed), Int64(progress.failed), Int64(progress.skipped)
+                Int64(batch.completed), Int64(batch.failed), Int64(batch.skipped)
+            )
+        case .paused:
+            return String(
+                format: String(localized: "metadata_reread_paused_format"),
+                Int64(batch.processed), Int64(batch.total)
+            )
+        case .running, .suspended:
+            return String(
+                format: String(localized: "metadata_status_reread_progress_format"),
+                Int64(batch.processed), Int64(batch.total)
             )
         }
-        return String(
-            format: String(localized: "metadata_status_reread_progress_format"),
-            Int64(progress.processed), Int64(progress.total)
-        )
     }
 
     private func stateTitle(_ state: MetadataBackfillItemState) -> LocalizedStringKey {

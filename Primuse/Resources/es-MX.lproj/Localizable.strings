@@ -2375,6 +2375,9 @@
 "metadata_status_reread_filtered" = "Volver a leer las etiquetas de todas las canciones filtradas";
 "metadata_status_reread_progress_format" = "Leyendo etiquetas: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "Completadas: %1$lld. Fallidas: %2$lld. Omitidas (ya se están leyendo o no están disponibles): %3$lld.";
+"metadata_reread_resume" = "Continuar";
+"metadata_reread_paused_format" = "En pausa: %1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "Cancelado. Se conservaron las %lld canciones ya leídas.";
 "metadata_status_result_title" = "Resultado de lectura de metadatos";
 "metadata_status_retry" = "Es necesario reintentar";
 "metadata_status_retry_failed" = "Reintentar canciones problemáticas";

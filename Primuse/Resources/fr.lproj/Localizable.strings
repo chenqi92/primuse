@@ -3897,6 +3897,9 @@
 "metadata_status_reread_filtered" = "Relire les tags de tous les morceaux filtrés";
 "metadata_status_reread_progress_format" = "Lecture des tags : %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "Terminés : %1$lld. Échecs : %2$lld. Ignorés (déjà en cours de lecture ou indisponibles) : %3$lld.";
+"metadata_reread_resume" = "Reprendre";
+"metadata_reread_paused_format" = "En pause : %1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "Annulé. Les %lld morceaux déjà lus ont été conservés.";
 "metadata_status_filter" = "Filtre d’état";
 "metadata_status_filter_all" = "Tous";
 "metadata_status_filter_pending" = "En attente";

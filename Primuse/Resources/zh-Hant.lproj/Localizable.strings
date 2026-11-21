@@ -3883,6 +3883,9 @@
 "metadata_status_reread_filtered" = "重新讀取目前篩選結果的全部標籤";
 "metadata_status_reread_progress_format" = "正在讀取標籤：%1$lld / %2$lld";
 "metadata_status_reread_result_format" = "完成 %1$lld 首，失敗 %2$lld 首，略過 %3$lld 首（正在讀取或無法讀取）。";
+"metadata_reread_resume" = "繼續";
+"metadata_reread_paused_format" = "已暫停：%1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "已取消，讀完的 %lld 首已保留。";
 "metadata_status_filter" = "狀態篩選";
 "metadata_status_filter_all" = "全部";
 "metadata_status_filter_pending" = "待檢查";

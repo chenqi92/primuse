@@ -2375,6 +2375,9 @@
 "metadata_status_reread_filtered" = "Reler as tags de todas as músicas filtradas";
 "metadata_status_reread_progress_format" = "Lendo tags: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "Concluídas: %1$lld. Falhas: %2$lld. Ignoradas (já estão sendo lidas ou indisponíveis): %3$lld.";
+"metadata_reread_resume" = "Continuar";
+"metadata_reread_paused_format" = "Pausado: %1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "Cancelado. As %lld músicas já lidas foram mantidas.";
 "metadata_status_result_title" = "Resultado da leitura de metadados";
 "metadata_status_retry" = "É necessária nova tentativa";
 "metadata_status_retry_failed" = "Tentar novamente músicas com problemas";

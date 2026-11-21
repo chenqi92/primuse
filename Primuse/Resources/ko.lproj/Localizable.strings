@@ -3897,6 +3897,9 @@
 "metadata_status_reread_filtered" = "필터링된 모든 곡의 태그 다시 읽기";
 "metadata_status_reread_progress_format" = "태그 읽는 중: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "완료: %1$lld곡. 실패: %2$lld곡. 건너뜀(이미 읽는 중이거나 사용할 수 없음): %3$lld곡.";
+"metadata_reread_resume" = "계속";
+"metadata_reread_paused_format" = "일시 정지됨: %1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "취소했습니다. 이미 읽은 %lld곡은 그대로 유지됩니다.";
 "metadata_status_filter" = "상태 필터";
 "metadata_status_filter_all" = "전체";
 "metadata_status_filter_pending" = "대기";

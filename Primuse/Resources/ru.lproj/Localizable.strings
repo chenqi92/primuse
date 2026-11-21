@@ -2039,6 +2039,9 @@
 "metadata_status_reread_filtered" = "Повторно прочитать теги всех отфильтрованных треков";
 "metadata_status_reread_progress_format" = "Чтение тегов: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "Завершено: %1$lld. Ошибок: %2$lld. Пропущено (уже читаются или недоступны): %3$lld.";
+"metadata_reread_resume" = "Продолжить";
+"metadata_reread_paused_format" = "Пауза: %1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "Отменено. Уже прочитанные треки сохранены: %lld.";
 "lyrics_editor_mode_structured" = "Строки";
 "Search…" = "Искать…";
 "playlist_import_match_path" = "Путь";

@@ -2375,6 +2375,9 @@
 "metadata_status_reread_filtered" = "फ़िल्टर किए गए सभी गानों के टैग फिर से पढ़ें";
 "metadata_status_reread_progress_format" = "टैग पढ़े जा रहे हैं: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "पूर्ण: %1$lld। विफल: %2$lld। छोड़े गए (पहले से पढ़े जा रहे हैं या अनुपलब्ध हैं): %3$lld।";
+"metadata_reread_resume" = "जारी रखें";
+"metadata_reread_paused_format" = "रोका गया: %1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "रद्द किया गया। पहले से पढ़े गए %lld गाने रखे गए हैं।";
 "metadata_status_result_title" = "मेटाडेटा पढ़ने का परिणाम";
 "metadata_status_retry" = "पुनः प्रयास की आवश्यकता है";
 "metadata_status_retry_failed" = "समस्या गीतों का पुनः प्रयास करें";

@@ -738,6 +738,101 @@ final class LifecycleRegressionTests: XCTestCase {
         ), 4)
     }
 
+    /// 标签读取状态页那批重读归服务持有: 没有页面拿着任务也照样读完; 同一个源再点一次
+    /// 并进同一批; 结果提示只给一次; 收起后不再留着。
+    @MainActor
+    func testUserTagRereadBatchRunsWithoutAPageAndMergesRepeatTaps() async throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let backfill = Self.makeTagRereadBackfill(directory: directory)
+        defer { backfill.stop() }
+
+        // 库里没有这些歌: 每首都按不可读取跳过, 不碰文件和网络。
+        XCTAssertEqual(backfill.enqueueUserTagReread(songIDs: ["a", "b", "a"], sourceID: "source-1"), 2)
+        XCTAssertEqual(backfill.enqueueUserTagReread(songIDs: ["b", "c"], sourceID: "source-1"), 1)
+        XCTAssertEqual(backfill.userTagReread(forSource: "source-1")?.total, 3)
+
+        let finished = await Self.waitUntil {
+            backfill.userTagReread(forSource: "source-1")?.phase == .finished
+        }
+        XCTAssertTrue(finished, "没有页面持有任务, 这一批也要读完")
+        let batch = try XCTUnwrap(backfill.userTagReread(forSource: "source-1"))
+        XCTAssertEqual(batch.processed, 3)
+        XCTAssertEqual(batch.skipped, 3)
+        XCTAssertTrue(batch.shouldAnnounceResult)
+        XCTAssertFalse(backfill.batchRereadingSourceIDs.contains("source-1"))
+
+        backfill.markUserTagRereadResultAnnounced(sourceID: "source-1")
+        XCTAssertEqual(backfill.userTagReread(forSource: "source-1")?.shouldAnnounceResult, false)
+        backfill.dismissUserTagReread(sourceID: "source-1")
+        XCTAssertNil(backfill.userTagReread(forSource: "source-1"))
+    }
+
+    /// 暂停立即生效, 不会自己续上, 点继续后读完; 取消后剩下的不读, 再点一次另起一批。
+    @MainActor
+    func testUserTagRereadPauseResumeAndCancel() async throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let backfill = Self.makeTagRereadBackfill(directory: directory)
+        defer { backfill.stop() }
+
+        backfill.enqueueUserTagReread(songIDs: ["a", "b"], sourceID: "source-1")
+        backfill.pauseUserTagReread(sourceID: "source-1")
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(backfill.userTagReread(forSource: "source-1")?.phase, .paused)
+        XCTAssertEqual(backfill.userTagReread(forSource: "source-1")?.processed, 0)
+        XCTAssertFalse(backfill.batchRereadingSourceIDs.contains("source-1"))
+
+        backfill.resumeUserTagReread(sourceID: "source-1")
+        let resumed = await Self.waitUntil {
+            backfill.userTagReread(forSource: "source-1")?.phase == .finished
+        }
+        XCTAssertTrue(resumed)
+        XCTAssertEqual(backfill.userTagReread(forSource: "source-1")?.processed, 2)
+
+        backfill.enqueueUserTagReread(songIDs: ["c", "d"], sourceID: "source-2")
+        backfill.cancelUserTagReread(sourceID: "source-2")
+        try await Task.sleep(for: .milliseconds(200))
+        let cancelled = try XCTUnwrap(backfill.userTagReread(forSource: "source-2"))
+        XCTAssertEqual(cancelled.phase, .cancelled)
+        XCTAssertEqual(cancelled.processed, 0)
+        XCTAssertFalse(cancelled.shouldAnnounceResult)
+
+        XCTAssertEqual(backfill.enqueueUserTagReread(songIDs: ["c"], sourceID: "source-2"), 1)
+        XCTAssertEqual(backfill.userTagReread(forSource: "source-2")?.total, 1)
+        XCTAssertNotEqual(backfill.userTagReread(forSource: "source-2")?.id, cancelled.id)
+        let restarted = await Self.waitUntil {
+            backfill.userTagReread(forSource: "source-2")?.phase == .finished
+        }
+        XCTAssertTrue(restarted)
+    }
+
+    @MainActor
+    private static func makeTagRereadBackfill(directory: URL) -> MetadataBackfillService {
+        let backfill = MetadataBackfillService(
+            library: MusicLibrary(storageDirectory: directory.appendingPathComponent("Library")),
+            sourceManager: SourceManager(sourcesProvider: { [MusicSource]() }),
+            backfillableSourceIDs: { ["source-1", "source-2"] },
+            storageDirectory: directory.appendingPathComponent("Backfill")
+        )
+        backfill.automaticWorkIsAllowed = { false }
+        return backfill
+    }
+
+    /// 等不到就按超时失败, 不让测试卡死(批在 App 不在前台时不放行新的读取)。
+    @MainActor
+    private static func waitUntil(
+        timeout: TimeInterval = 10,
+        _ condition: () -> Bool
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() > deadline { return false }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return true
+    }
+
     /// Resuming a checkpoint seeds the rows the library is missing, and also
     /// corrects rows whose locating fields drifted. Without the second half a
     /// resumed scan that dies before its first flush leaves stale

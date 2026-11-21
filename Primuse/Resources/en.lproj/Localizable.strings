@@ -3668,6 +3668,9 @@
 "metadata_status_reread_filtered" = "Read Tags for All Filtered Songs Again";
 "metadata_status_reread_progress_format" = "Reading tags: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "Completed: %1$lld. Failed: %2$lld. Skipped (already reading or unavailable): %3$lld.";
+"metadata_reread_resume" = "Resume";
+"metadata_reread_paused_format" = "Paused: %1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "Cancelled. %lld songs already read were kept.";
 "metadata_status_filter" = "Status Filter";
 "metadata_status_filter_all" = "All";
 "metadata_status_filter_pending" = "Pending";

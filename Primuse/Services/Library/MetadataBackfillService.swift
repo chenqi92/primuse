@@ -597,6 +597,16 @@ final class MetadataBackfillService {
     @ObservationIgnored private var executionMode: MetadataBackfillExecutionMode = .standard
     @ObservationIgnored private var activeScheduler: MetadataReadScheduler<Song, BackfillOutcome>?
     @ObservationIgnored private var batchSchedulers: [String: MetadataReadScheduler<String, MetadataTagRereadBatch.Outcome>] = [:]
+    /// 标签读取状态页对筛选结果发起的批量重读, 按音乐源各一批。页面只看这里的进度,
+    /// 离开页面、切到别的标签页、关掉弹出页都不影响读取; 见 `MetadataTagRereadQueue`。
+    private(set) var userTagRereads: [String: MetadataTagRereadQueue] = [:]
+    /// 每个源当前那一趟的任务。暂停 / 取消只取消它、不摘掉, 接着读的新任务先等它收尾。
+    @ObservationIgnored private var userTagRereadTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var userTagRereadGenerations: [String: Int] = [:]
+    /// 状态页那一批此刻占着(`batchRereadingSourceIDs` 里由它放进去)的源。
+    @ObservationIgnored private var userTagRereadHolderSourceIDs: Set<String> = []
+    /// 整批接口(文件夹重读、恢复文件标签)在等状态页那一批让出这个源的个数。
+    @ObservationIgnored private var tagRereadYieldRequests: [String: Int] = [:]
     @ObservationIgnored nonisolated(unsafe) private var configurationObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var playbackIsActive: () -> Bool
     /// Playback is starting or resuming a song from this source and is still
@@ -898,6 +908,10 @@ final class MetadataBackfillService {
     @ObservationIgnored private var continuedProcessingSession: (any MetadataBackgroundContinuation)?
     @ObservationIgnored private var systemProcessingSessions: Set<UUID> = []
     @ObservationIgnored private var backgroundExecutionExpired = false
+    /// 状态页那批重读退到后台时, 把手上在读的几首读完用的后台时间。和上面回填自己的
+    /// 断言分开: 两边各自开始、各自交还, 谁到期都不连累另一边。
+    @ObservationIgnored private var tagRereadBackgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored private var tagRereadBackgroundGeneration: UUID?
     #endif
 
     private var hasContinuedProcessingTime: Bool {
@@ -2697,6 +2711,9 @@ final class MetadataBackfillService {
         case .resume:
             resumeAfterSceneTransition()
         }
+        // 看相位而不是上面的处置: 后台处理到期时回到前台也给的是硬停止,
+        // 状态页那批照样要在回到前台时接着读。
+        applyUserTagRereadScenePhase(phase)
     }
 
     /// Suspend reading for a scene transition that may not be a real
@@ -4207,6 +4224,9 @@ final class MetadataBackfillService {
         expectedSourceID: String,
         progress: @escaping (MetadataTagRereadProgress) -> Void
     ) async -> MetadataTagRereadProgress {
+        // 状态页那一批离开页面后还会一直读下去。它占着这个源时, 请它读完手上这一段就
+        // 让出来, 等它让出来再读; 不等的话「恢复文件标签」和文件夹重读会整批算成跳过。
+        await waitForUserTagRereadToYield(sourceID: expectedSourceID)
         guard batchRereadingSourceIDs.insert(expectedSourceID).inserted else {
             var result = MetadataTagRereadProgress(total: Set(songIDs).count)
             result.skipped = result.total
@@ -4218,43 +4238,12 @@ final class MetadataBackfillService {
             library.flushDeferredLibraryMaintenance()
             refreshStatusSnapshot()
         }
-        let scheduler = MetadataReadScheduler<String, MetadataTagRereadBatch.Outcome>()
-        batchSchedulers[expectedSourceID] = scheduler
-        activeScheduler?.configurationChanged()
-        defer {
-            batchSchedulers[expectedSourceID] = nil
-            readingProgress[expectedSourceID] = nil
-            readProgressAccumulator[expectedSourceID] = nil
-            activeScheduler?.configurationChanged()
-            for other in batchSchedulers.values { other.configurationChanged() }
-        }
-        let now = Date()
-        readProgressAccumulator[expectedSourceID] = MetadataReadingRate(startedAt: now)
-        readingProgress[expectedSourceID] = nil
-        var lastProcessed = 0
-        return await MetadataTagRereadBatch.run(
+        let scheduler = beginRegisteredTagReread(sourceID: expectedSourceID)
+        defer { endRegisteredTagReread(sourceID: expectedSourceID) }
+        return await runTagRereadPass(
             songIDs: songIDs,
-            scheduler: scheduler,
-            limits: { [self] in
-                let budget = MetadataBackfillExecutionPolicy.limits(
-                    for: .userInitiated,
-                    preference: readingMode,
-                    environment: readingEnvironment(sourceID: expectedSourceID),
-                    recentProcessingDuration: recentProcessingDuration
-                )
-                #if os(iOS)
-                if UIApplication.shared.applicationState != .active {
-                    return MetadataBackfillExecutionLimits(
-                        workerCount: 0, snapshotLimit: budget.snapshotLimit,
-                        interRequestDelay: budget.interRequestDelay, flushInterval: budget.flushInterval
-                    )
-                }
-                #endif
-                let occupied = (activeScheduler?.inFlightCount ?? 0)
-                    + batchSchedulers.filter { $0.key != expectedSourceID }
-                        .values.reduce(0) { $0 + $1.inFlightCount }
-                return budget.withWorkerCount(max(0, budget.workerCount - occupied))
-            }
+            sourceID: expectedSourceID,
+            scheduler: scheduler
         ) { songID in
             let result = await self.rereadTags(songID: songID, expectedSourceID: expectedSourceID)
             switch result {
@@ -4262,7 +4251,46 @@ final class MetadataBackfillService {
             case .failed: return .failed
             case .alreadyReading, .unsupported: return .skipped
             }
-        } progress: { [self] value in
+        } progress: { value in
+            progress(value)
+        }
+    }
+
+    /// 显式批量重读登记进共享预算: 调度器与读速统计。整批接口与状态页那一批共用这几段,
+    /// 两条路的并发上限、非前台不放新读取和节流因此始终一样。
+    private func beginRegisteredTagReread(
+        sourceID: String
+    ) -> MetadataReadScheduler<String, MetadataTagRereadBatch.Outcome> {
+        let scheduler = MetadataReadScheduler<String, MetadataTagRereadBatch.Outcome>()
+        batchSchedulers[sourceID] = scheduler
+        activeScheduler?.configurationChanged()
+        readProgressAccumulator[sourceID] = MetadataReadingRate(startedAt: Date())
+        readingProgress[sourceID] = nil
+        return scheduler
+    }
+
+    private func endRegisteredTagReread(sourceID: String) {
+        batchSchedulers[sourceID] = nil
+        readingProgress[sourceID] = nil
+        readProgressAccumulator[sourceID] = nil
+        activeScheduler?.configurationChanged()
+        for other in batchSchedulers.values { other.configurationChanged() }
+    }
+
+    private func runTagRereadPass(
+        songIDs: [String],
+        sourceID expectedSourceID: String,
+        scheduler: MetadataReadScheduler<String, MetadataTagRereadBatch.Outcome>,
+        read: @escaping @MainActor @Sendable (String) async -> MetadataTagRereadBatch.Outcome,
+        progress: @escaping @MainActor (MetadataTagRereadProgress) -> Void
+    ) async -> MetadataTagRereadProgress {
+        var lastProcessed = 0
+        return await MetadataTagRereadBatch.run(
+            songIDs: songIDs,
+            scheduler: scheduler,
+            limits: { [self] in tagRereadLimits(sourceID: expectedSourceID) },
+            read: read
+        ) { [self] value in
             if value.processed > lastProcessed {
                 recordReadCompletion(sourceID: expectedSourceID)
             }
@@ -4270,6 +4298,330 @@ final class MetadataBackfillService {
             progress(value)
             for other in batchSchedulers.values { other.configurationChanged() }
         }
+    }
+
+    private func tagRereadLimits(sourceID expectedSourceID: String) -> MetadataBackfillExecutionLimits {
+        let budget = MetadataBackfillExecutionPolicy.limits(
+            for: .userInitiated,
+            preference: readingMode,
+            environment: readingEnvironment(sourceID: expectedSourceID),
+            recentProcessingDuration: recentProcessingDuration
+        )
+        #if os(iOS)
+        if UIApplication.shared.applicationState != .active {
+            return MetadataBackfillExecutionLimits(
+                workerCount: 0, snapshotLimit: budget.snapshotLimit,
+                interRequestDelay: budget.interRequestDelay, flushInterval: budget.flushInterval
+            )
+        }
+        #endif
+        let occupied = (activeScheduler?.inFlightCount ?? 0)
+            + batchSchedulers.filter { $0.key != expectedSourceID }
+                .values.reduce(0) { $0 + $1.inFlightCount }
+        return budget.withWorkerCount(max(0, budget.workerCount - occupied))
+    }
+
+    /// 整批接口要用的源正被状态页那一批占着: 登记一个让路请求, 等那一批读完手上这一段
+    /// 让出来。请求在拿到源的同一拍撤掉, 那一批看到源已被占就接着等。
+    private func waitForUserTagRereadToYield(sourceID: String) async {
+        guard userTagRereadHolderSourceIDs.contains(sourceID) else { return }
+        tagRereadYieldRequests[sourceID, default: 0] += 1
+        defer {
+            let remaining = (tagRereadYieldRequests[sourceID] ?? 1) - 1
+            tagRereadYieldRequests[sourceID] = remaining > 0 ? remaining : nil
+        }
+        plog("Tag reread: waiting for the status-page batch to yield source=\(sourceID.prefix(8))")
+        while userTagRereadHolderSourceIDs.contains(sourceID), !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+    }
+
+    // MARK: - User tag reread batches
+
+    func userTagReread(forSource sourceID: String) -> MetadataTagRereadQueue? {
+        userTagRereads[sourceID]
+    }
+
+    /// 状态页「重新读取筛选结果」。这个源已有一批没结束就并进去(去重), 暂停着的顺带接着读;
+    /// 否则另起一批。返回新加入的首数。
+    @discardableResult
+    func enqueueUserTagReread(songIDs: [String], sourceID: String) -> Int {
+        if var queue = userTagRereads[sourceID], queue.isActive {
+            let added = queue.merge(songIDs)
+            var resumed = false
+            if queue.phase == .paused { resumed = queue.resume() }
+            userTagRereads[sourceID] = queue
+            plog("Tag reread batch merged source=\(sourceID.prefix(8)) added=\(added) total=\(queue.total) processed=\(queue.processed) resumed=\(resumed)")
+            launchUserTagRereadRunner(sourceID: sourceID)
+            return added
+        }
+        let queue = MetadataTagRereadQueue(songIDs: songIDs)
+        guard queue.isActive else { return 0 }
+        userTagRereads[sourceID] = queue
+        plog("Tag reread batch started source=\(sourceID.prefix(8)) total=\(queue.total)")
+        launchUserTagRereadRunner(sourceID: sourceID)
+        return queue.total
+    }
+
+    func pauseUserTagReread(sourceID: String) {
+        guard var queue = userTagRereads[sourceID], queue.pause() else { return }
+        userTagRereads[sourceID] = queue
+        userTagRereadTasks[sourceID]?.cancel()
+        plog("Tag reread batch paused source=\(sourceID.prefix(8)) processed=\(queue.processed)/\(queue.total)")
+    }
+
+    func resumeUserTagReread(sourceID: String) {
+        guard var queue = userTagRereads[sourceID], queue.resume() else { return }
+        userTagRereads[sourceID] = queue
+        plog("Tag reread batch resumed source=\(sourceID.prefix(8)) remaining=\(queue.remainingCount)")
+        launchUserTagRereadRunner(sourceID: sourceID)
+    }
+
+    func cancelUserTagReread(sourceID: String) {
+        guard var queue = userTagRereads[sourceID], queue.cancel() else { return }
+        userTagRereads[sourceID] = queue
+        userTagRereadTasks[sourceID]?.cancel()
+        plog("Tag reread batch cancelled source=\(sourceID.prefix(8)) processed=\(queue.processed)/\(queue.total)")
+    }
+
+    /// 完成提示已经给过: 页面重建或再次打开时不再弹。
+    func markUserTagRereadResultAnnounced(sourceID: String) {
+        guard userTagRereads[sourceID]?.shouldAnnounceResult == true else { return }
+        userTagRereads[sourceID]?.markResultAnnounced()
+    }
+
+    /// 收起已经结束或取消的那一批的结果卡片。
+    func dismissUserTagReread(sourceID: String) {
+        guard let queue = userTagRereads[sourceID], !queue.isActive else { return }
+        userTagRereads[sourceID] = nil
+    }
+
+    private func launchUserTagRereadRunner(sourceID: String) {
+        guard userTagRereads[sourceID]?.phase == .running else { return }
+        // 这一趟还在读: 新并进来的歌由它读完这一趟后接着读。
+        if let current = userTagRereadTasks[sourceID], !current.isCancelled { return }
+        // 被暂停 / 取消的那一趟可能还在等在读的几首收尾; 新的一趟等它退出再取剩下的,
+        // 同一首不会被两趟同时读。
+        let previous = userTagRereadTasks[sourceID]
+        let generation = (userTagRereadGenerations[sourceID] ?? 0) &+ 1
+        userTagRereadGenerations[sourceID] = generation
+        userTagRereadTasks[sourceID] = Task { [weak self] in
+            await previous?.value
+            guard !Task.isCancelled else { return }
+            await self?.runUserTagReread(sourceID: sourceID, generation: generation)
+        }
+    }
+
+    /// 分段读: 每段交给调度器的首数有上限。新并进来的歌下一段就能读到, 要借用这个源的
+    /// 文件夹重读或「恢复文件标签」最多等一段。
+    private static let userTagRereadChunkSize = 48
+
+    private func runUserTagReread(sourceID: String, generation: Int) async {
+        // 这一趟占着源时的调度器; 段与段之间不放源, 有人请它让路时才放。
+        var scheduler: MetadataReadScheduler<String, MetadataTagRereadBatch.Outcome>?
+        defer {
+            if scheduler != nil { releaseUserTagRereadSource(sourceID) }
+            if userTagRereadGenerations[sourceID] == generation {
+                userTagRereadTasks[sourceID] = nil
+            }
+            endTagRereadBackgroundTimeIfDrained()
+        }
+        while !Task.isCancelled {
+            guard var queue = userTagRereads[sourceID], queue.phase == .running else { return }
+            let batchID = queue.id
+            let songIDs = queue.takeNextRun(limit: Self.userTagRereadChunkSize)
+            guard !songIDs.isEmpty else {
+                if scheduler != nil {
+                    releaseUserTagRereadSource(sourceID)
+                    scheduler = nil
+                }
+                if var drained = userTagRereads[sourceID], drained.id == batchID,
+                   drained.finishIfDrained() {
+                    userTagRereads[sourceID] = drained
+                    announceUserTagRereadFinished(drained)
+                }
+                return
+            }
+            userTagRereads[sourceID] = queue
+            if scheduler == nil {
+                // 文件夹重读或「恢复文件标签」正占着这个源, 或刚请这一批让过路: 等它们读完再
+                // 接着读, 不在同一个源上叠两批, 也不把整批算成跳过。
+                while !Task.isCancelled,
+                      batchRereadingSourceIDs.contains(sourceID)
+                        || (tagRereadYieldRequests[sourceID] ?? 0) > 0 {
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+                guard !Task.isCancelled, batchRereadingSourceIDs.insert(sourceID).inserted else {
+                    if userTagRereads[sourceID]?.id == batchID {
+                        userTagRereads[sourceID]?.returnUnfinished()
+                    }
+                    return
+                }
+                userTagRereadHolderSourceIDs.insert(sourceID)
+                scheduler = beginRegisteredTagReread(sourceID: sourceID)
+            }
+            guard let chunkScheduler = scheduler else { return }
+            let pass = await runTagRereadPass(
+                songIDs: songIDs,
+                sourceID: sourceID,
+                scheduler: chunkScheduler
+            ) { [weak self] songID in
+                guard let self else { return .skipped }
+                return await self.readForUserTagReread(
+                    songID: songID,
+                    sourceID: sourceID,
+                    batchID: batchID
+                )
+            } progress: { [weak self] _ in
+                self?.endTagRereadBackgroundTimeIfDrained()
+            }
+            if userTagRereads[sourceID]?.id == batchID {
+                userTagRereads[sourceID]?.returnUnfinished()
+            }
+            if pass.isCancelled { return }
+            if (tagRereadYieldRequests[sourceID] ?? 0) > 0 {
+                plog("Tag reread batch yielding source=\(sourceID.prefix(8)) to another reread")
+                releaseUserTagRereadSource(sourceID)
+                scheduler = nil
+            }
+        }
+    }
+
+    private func releaseUserTagRereadSource(_ sourceID: String) {
+        endRegisteredTagReread(sourceID: sourceID)
+        userTagRereadHolderSourceIDs.remove(sourceID)
+        batchRereadingSourceIDs.remove(sourceID)
+        library.flushDeferredLibraryMaintenance()
+        refreshStatusSnapshot()
+    }
+
+    /// 结果当场记进这一批, 不等调度器回调: 暂停或取消时已经写进资料库的那一首也算读完。
+    /// 被暂停 / 取消 / 后台到期打断的读取不算失败, 留在待读里, 接着读时再读。
+    private func readForUserTagReread(
+        songID: String,
+        sourceID: String,
+        batchID: UUID
+    ) async -> MetadataTagRereadBatch.Outcome {
+        let result = await rereadTags(songID: songID, expectedSourceID: sourceID)
+        let outcome: MetadataTagRereadBatch.Outcome
+        switch result {
+        case .completed:
+            outcome = .completed
+        case .failed:
+            if Task.isCancelled { return .failed }
+            outcome = .failed
+        case .alreadyReading, .unsupported:
+            outcome = .skipped
+        }
+        if userTagRereads[sourceID]?.id == batchID {
+            userTagRereads[sourceID]?.record(songID, outcome: outcome)
+        }
+        return outcome
+    }
+
+    private func announceUserTagRereadFinished(_ queue: MetadataTagRereadQueue) {
+        plog("Tag reread batch finished total=\(queue.total) completed=\(queue.completed) failed=\(queue.failed) skipped=\(queue.skipped)")
+        // 页面不在前台时这一批也会读完; App 不在前台就照整源读取的做法发一条完成通知,
+        // 回到页面时页面自己再给一次结果提示。
+        let body = String(
+            format: String(localized: "metadata_status_reread_result_format"),
+            Int64(queue.completed), Int64(queue.failed), Int64(queue.skipped)
+        )
+        let count = queue.processed
+        Task {
+            await UserNotificationService.shared.postLongTaskCompletion(
+                category: .rescrapeLibraryDone,
+                title: String(localized: "backfill_done_title"),
+                body: body,
+                isUserInitiated: true,
+                itemCount: count
+            )
+        }
+    }
+
+    private func applyUserTagRereadScenePhase(_ phase: ScenePhaseKind) {
+        switch phase {
+        case .inactive:
+            // 非前台时批的预算是 0, 在读的照常读完, 不用另做什么。
+            break
+        case .background:
+            beginTagRereadBackgroundTimeIfNeeded()
+        case .active:
+            resumeUserTagRereadsInForeground()
+        }
+    }
+
+    /// 回到前台: 被系统打断的批接着读, 停在 0 预算上的那一趟重新放行。
+    private func resumeUserTagRereadsInForeground() {
+        endTagRereadBackgroundTimeIfDrained()
+        for sourceID in Array(userTagRereads.keys) {
+            guard var queue = userTagRereads[sourceID], queue.phase == .suspended,
+                  queue.resume() else { continue }
+            userTagRereads[sourceID] = queue
+            plog("Tag reread batch resumed in foreground source=\(sourceID.prefix(8)) remaining=\(queue.remainingCount)")
+            launchUserTagRereadRunner(sourceID: sourceID)
+        }
+        for scheduler in batchSchedulers.values { scheduler.configurationChanged() }
+    }
+
+    private var userTagRereadInFlightCount: Int {
+        userTagRereads.keys.reduce(0) { $0 + (batchSchedulers[$1]?.inFlightCount ?? 0) }
+    }
+
+    /// 退到后台时手上还有在读的: 申请一段后台时间把它们读完。不再发起新的读取 —— 批的预算
+    /// 在非前台时是 0。到期还没读完就停在这里, 剩下的记着, 回到前台接着读。
+    private func beginTagRereadBackgroundTimeIfNeeded() {
+        #if os(iOS)
+        guard tagRereadBackgroundTaskID == .invalid,
+              UIApplication.shared.applicationState != .active else { return }
+        let inFlight = userTagRereadInFlightCount
+        guard inFlight > 0 else { return }
+        let generation = UUID()
+        tagRereadBackgroundGeneration = generation
+        tagRereadBackgroundTaskID = UIApplication.shared.beginBackgroundTask(
+            withName: "primuse.tag-reread"
+        ) { [weak self] in
+            // 到期回调在主线程上; 返回之前必须把断言交还。
+            MainActor.assumeIsolated {
+                guard let self, self.tagRereadBackgroundGeneration == generation else { return }
+                if UIApplication.shared.applicationState != .active {
+                    self.suspendUserTagRereadsForBackground()
+                }
+                self.endTagRereadBackgroundTimeIfHeld()
+            }
+        }
+        plog("Tag reread: beginBackgroundTask id=\(tagRereadBackgroundTaskID.rawValue) inFlight=\(inFlight)")
+        #endif
+    }
+
+    /// 后台时间到期: 在读的取消, 剩下的(连同被取消的)记着等回到前台。
+    private func suspendUserTagRereadsForBackground() {
+        for sourceID in Array(userTagRereads.keys) {
+            guard var queue = userTagRereads[sourceID], queue.suspend() else { continue }
+            userTagRereads[sourceID] = queue
+            userTagRereadTasks[sourceID]?.cancel()
+            plog("Tag reread batch suspended (background time expired) source=\(sourceID.prefix(8)) remaining=\(queue.remainingCount)")
+        }
+    }
+
+    private func endTagRereadBackgroundTimeIfDrained() {
+        #if os(iOS)
+        guard tagRereadBackgroundTaskID != .invalid else { return }
+        guard UIApplication.shared.applicationState == .active
+                || userTagRereadInFlightCount == 0 else { return }
+        endTagRereadBackgroundTimeIfHeld()
+        #endif
+    }
+
+    private func endTagRereadBackgroundTimeIfHeld() {
+        #if os(iOS)
+        guard tagRereadBackgroundTaskID != .invalid else { return }
+        let id = tagRereadBackgroundTaskID
+        tagRereadBackgroundGeneration = nil
+        tagRereadBackgroundTaskID = .invalid
+        UIApplication.shared.endBackgroundTask(id)
+        plog("Tag reread: endBackgroundTask id=\(id.rawValue)")
+        #endif
     }
 
     /// Immediately reads only the selected file. File-oriented remote sources

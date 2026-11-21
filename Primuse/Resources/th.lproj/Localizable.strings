@@ -2375,6 +2375,9 @@
 "metadata_status_reread_filtered" = "อ่านแท็กของเพลงที่กรองทั้งหมดอีกครั้ง";
 "metadata_status_reread_progress_format" = "กำลังอ่านแท็ก: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "สำเร็จ: %1$lld เพลง ล้มเหลว: %2$lld เพลง ข้าม (กำลังอ่านอยู่หรือไม่พร้อมใช้งาน): %3$lld เพลง";
+"metadata_reread_resume" = "ดำเนินการต่อ";
+"metadata_reread_paused_format" = "หยุดชั่วคราว: %1$lld / %2$lld";
+"metadata_reread_cancelled_format" = "ยกเลิกแล้ว เก็บเพลงที่อ่านเสร็จแล้ว %lld เพลงไว้";
 "metadata_status_result_title" = "ผลการอ่านเมทาดาทา";
 "metadata_status_retry" = "จำเป็นต้องลองอีกครั้ง";
 "metadata_status_retry_failed" = "ลองเพลงปัญหาอีกครั้ง";
