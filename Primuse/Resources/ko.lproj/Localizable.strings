@@ -8081,3 +8081,6 @@
 "playback_app_volume" = "앱 내 음량";
 "playback_app_volume_desc" = "켜면 재생 화면의 음량 슬라이더가 Primuse 자체 음량을 조절합니다. 시스템 음량보다 더 작게 줄일 수 있어 시스템 최소 음량도 너무 클 때 유용합니다. 시스템 음량과 다른 앱에는 영향이 없으며, 음량 버튼은 계속 시스템 음량을 조절합니다. Apple Music 곡과 다른 기기로 캐스팅할 때는 시스템 음량 슬라이더가 표시됩니다.";
 "playback_app_volume_high_fidelity_note" = "고음질 다이렉트는 믹서를 거치지 않아 앱 내 음량이 적용되지 않습니다. 효과 및 처리로 되돌리면 적용됩니다.";
+"scrobble_lb_server_placeholder" = "서버 URL (비워 두면 listenbrainz.org)";
+"scrobble_lb_server_invalid" = "서버 URL이 올바르지 않습니다";
+"scrobble_lb_server_footer" = "Maloja, Koito, multi-scrobbler 등 ListenBrainz 호환 자체 호스팅 서버를 사용할 때는 해당 API URL을 입력하고 그 서버에서 받은 토큰을 사용하세요.";

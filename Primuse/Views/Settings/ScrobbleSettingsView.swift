@@ -18,6 +18,11 @@ struct ScrobbleSettingsView: View {
     /// 点了验证但限流、服务故障或断网,确认不了 token 有效还是无效。
     @State private var listenBrainzUnconfirmed = false
     @State private var isValidatingLB = false
+    /// 自建 ListenBrainz 兼容服务的地址(#464), 空 = 官方服务器。
+    @State private var listenBrainzServer: String = ""
+    @State private var listenBrainzServerInvalid = false
+    /// 已保存的地址是不是官方服务器: 只有官方服务器才给「去 ListenBrainz 拿令牌」的链接。
+    @State private var listenBrainzUsesOfficialServer = true
 
     @State private var lastFmAPIKey: String = ""
     @State private var lastFmAPISecret: String = ""
@@ -49,6 +54,8 @@ struct ScrobbleSettingsView: View {
             #endif
         }
         .onAppear { loadStoredTokens() }
+        // 填了服务器地址没按回车就离开这一页, 也照填的存下来(填错的不存)。
+        .onDisappear { saveListenBrainzServer() }
         .onChange(of: service.rejectedCredentials) { _, _ in refreshCredentialRejections() }
         #if os(iOS)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
@@ -273,6 +280,25 @@ struct ScrobbleSettingsView: View {
                         }
                         .onSubmit { saveListenBrainzToken() }
 
+                    TextField("scrobble_lb_server_placeholder", text: $listenBrainzServer)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12.5, design: .monospaced))
+                        .autocorrectionDisabled()
+                        .padding(.horizontal, 10)
+                        .frame(height: 32)
+                        .background(PMColor.bg, in: .rect(cornerRadius: 7))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .strokeBorder(listenBrainzServerInvalid ? PMColor.bad : PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                        .onSubmit { saveListenBrainzServer() }
+
+                    if listenBrainzServerInvalid {
+                        Text("scrobble_lb_server_invalid")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(PMColor.bad)
+                    }
+
                     HStack(spacing: 8) {
                         macTinyButton(String(localized: "save"), icon: "key.fill") {
                             saveListenBrainzToken()
@@ -294,12 +320,19 @@ struct ScrobbleSettingsView: View {
 
                         Spacer()
 
-                        Link(destination: URL(string: "https://listenbrainz.org/profile/")!) {
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(PMColor.textMuted)
+                        if listenBrainzUsesOfficialServer {
+                            Link(destination: URL(string: "https://listenbrainz.org/profile/")!) {
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(PMColor.textMuted)
+                            }
                         }
                     }
+
+                    Text("scrobble_lb_server_footer")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -658,6 +691,23 @@ struct ScrobbleSettingsView: View {
                     .textContentType(.password)
                     .onSubmit { saveListenBrainzToken() }
 
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField("scrobble_lb_server_placeholder", text: $listenBrainzServer)
+                        #if os(iOS)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .textContentType(.URL)
+                        #endif
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit { saveListenBrainzServer() }
+                    if listenBrainzServerInvalid {
+                        Text("scrobble_lb_server_invalid")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+
                 HStack {
                     Button {
                         Task { await validateListenBrainz() }
@@ -686,16 +736,23 @@ struct ScrobbleSettingsView: View {
                     }
                 }
 
-                Link(destination: URL(string: "https://listenbrainz.org/profile/")!) {
-                    Label("scrobble_lb_get_token", systemImage: "arrow.up.right.square")
-                        .font(.caption)
+                if listenBrainzUsesOfficialServer {
+                    Link(destination: URL(string: "https://listenbrainz.org/profile/")!) {
+                        Label("scrobble_lb_get_token", systemImage: "arrow.up.right.square")
+                            .font(.caption)
+                    }
                 }
             }
         } header: {
             Text("scrobble_provider_section")
         } footer: {
             if settings.enabledProviders.contains(.listenBrainz) {
-                Text("scrobble_lb_footer")
+                VStack(alignment: .leading, spacing: 4) {
+                    if listenBrainzUsesOfficialServer {
+                        Text("scrobble_lb_footer")
+                    }
+                    Text("scrobble_lb_server_footer")
+                }
             }
         }
     }
@@ -975,6 +1032,9 @@ struct ScrobbleSettingsView: View {
 
     private func loadStoredTokens() {
         listenBrainzToken = KeychainService.getPassword(for: ScrobbleProviderID.listenBrainz.keychainAccount) ?? ""
+        listenBrainzServer = ListenBrainzServerStore.loadText()
+        listenBrainzUsesOfficialServer = listenBrainzServer.isEmpty
+        listenBrainzServerInvalid = false
         // 已有 token 默认显示 valid (不强制立即触发网络验证)。
         if !listenBrainzToken.isEmpty {
             listenBrainzValid = true
@@ -1013,7 +1073,43 @@ struct ScrobbleSettingsView: View {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
+    /// 保存服务器地址, 返回之后上报要用的根地址; 地址填错或钥匙串写不进去时返回 nil。
+    @discardableResult
+    private func saveListenBrainzServer() -> URL? {
+        let address = ListenBrainzServerAddress.parse(listenBrainzServer)
+        let baseURL: URL
+        let text: String
+        switch address {
+        case .invalid:
+            listenBrainzServerInvalid = true
+            return nil
+        case .official:
+            baseURL = ListenBrainzServerAddress.officialURL
+            text = ""
+        case .custom(let url):
+            baseURL = url
+            text = url.absoluteString
+        }
+        listenBrainzServerInvalid = false
+        guard text != ListenBrainzServerStore.loadText() else {
+            listenBrainzServer = text
+            return baseURL
+        }
+        guard ListenBrainzServerStore.save(address) else {
+            credentialSaveError = String(localized: "credential_save_failed_message")
+            return nil
+        }
+        listenBrainzServer = text
+        listenBrainzUsesOfficialServer = text.isEmpty
+        // 令牌认不认要看新服务器; 之前被拒、存着的记录发到新地址再试一次。
+        listenBrainzValid = nil
+        listenBrainzUnconfirmed = false
+        service.retryPendingNow()
+        return baseURL
+    }
+
     private func saveListenBrainzToken() {
+        saveListenBrainzServer()
         let trimmed = listenBrainzToken.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             guard KeychainService.deletePassword(
@@ -1055,7 +1151,7 @@ struct ScrobbleSettingsView: View {
 
     private func validateListenBrainz() async {
         let trimmed = listenBrainzToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, let baseURL = saveListenBrainzServer() else { return }
         isValidatingLB = true
         defer { isValidatingLB = false }
         // 先存 (validate 用的就是 Keychain 内的 token via provider factory),
@@ -1067,7 +1163,7 @@ struct ScrobbleSettingsView: View {
             credentialSaveError = String(localized: "credential_save_failed_message")
             return
         }
-        let provider = ListenBrainzProvider(userToken: trimmed)
+        let provider = ListenBrainzProvider(userToken: trimmed, baseURL: baseURL)
         let result = await provider.validateCredentials()
         listenBrainzValid = result
         listenBrainzUnconfirmed = result == nil

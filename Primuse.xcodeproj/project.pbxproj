@@ -46,6 +46,7 @@
 		04C02106CAF87A33F0763AFE /* SpokenTranscriptGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E4C3266509DEBD737D2392F /* SpokenTranscriptGenerationSheet.swift */; };
 		381B270F59D10C203BF822B7 /* LocalFileWatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DED94021F95DF3AFE0DCA51 /* LocalFileWatch.swift */; };
 		356DF39A752DD0F5850F8A6C /* LyricsUserChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BBF3FE5C6BD5D69CE21B832 /* LyricsUserChoice.swift */; };
+		7A137B25B31A58CCAA44FD0C /* ListenBrainzServerAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7CB0EFAD8C88FDD679F315C /* ListenBrainzServerAddress.swift */; };
 		83D83E5892E18ECA527A5564 /* ApplicationVolumeCurve.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9CCF093827B37B5EBE816ED /* ApplicationVolumeCurve.swift */; };
 		8485A46A32AD2303108D3E2E /* SpokenTranscriptSourcePresentations.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D1024DF4E0307DC6F82A5B /* SpokenTranscriptSourcePresentations.swift */; };
 		B798CCFD4AA7472D9411F308 /* SpokenTranscriptImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8EE0C72CDCC071A8BAB008 /* SpokenTranscriptImportSheet.swift */; };
@@ -2845,6 +2846,7 @@
 		5DED94021F95DF3AFE0DCA51 /* LocalFileWatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileWatch.swift; sourceTree = "<group>"; };
 		90F999E377E647BA8DFDA727 /* EmbeddedLyricsFieldEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedLyricsFieldEditor.swift; sourceTree = "<group>"; };
 		B9CCF093827B37B5EBE816ED /* ApplicationVolumeCurve.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationVolumeCurve.swift; sourceTree = "<group>"; };
+		D7CB0EFAD8C88FDD679F315C /* ListenBrainzServerAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenBrainzServerAddress.swift; sourceTree = "<group>"; };
 		E3DC10AB83FEFC7C9458FA71 /* AppIconGroove.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIconGroove.icon; sourceTree = "<group>"; };
 		0C74B86E90D1B12924FCF7B5 /* CalibrationPromptHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationPromptHost.swift; sourceTree = "<group>"; };
 		0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrimuseWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -5177,6 +5179,7 @@
 				23D06A49BA26CC677DEE933E /* LibrarySongAdmissionPolicy.swift */,
 				5B89002BB9DE5179461BC5B7 /* LibrarySongBrowseMode.swift */,
 				1A3BAD1AFCC87A7AD28F689B /* LiquidBackdropPolicy.swift */,
+				D7CB0EFAD8C88FDD679F315C /* ListenBrainzServerAddress.swift */,
 				C6412A69AF458A967A5C88F0 /* ListenerRestartPolicy.swift */,
 				F7B126B91C9B2A5ACEBED8C8 /* ListeningActivityTimeline.swift */,
 				DF361564E0E959B6D96F2D1D /* ListeningHistoryTimeline.swift */,
@@ -7936,6 +7939,7 @@
 				FC2482B99B01EA40D2779B0A /* LibraryUserDataBackup.swift in Sources */,
 				277FD777877D236D271807CB /* LikedSongsPodcastSplitPolicy.swift in Sources */,
 				4D42EE479CE9E73467A23862 /* LiquidBackdropPolicy.swift in Sources */,
+				7A137B25B31A58CCAA44FD0C /* ListenBrainzServerAddress.swift in Sources */,
 				790189620FE35DFEC1D44373 /* ListenerRestartPolicy.swift in Sources */,
 				B212535D1AAE552E3660E47F /* ListeningActivityTimeline.swift in Sources */,
 				7B06A0591D3A4DA024FC8B3F /* ListeningHistoryTimeline.swift in Sources */,

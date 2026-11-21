@@ -8082,3 +8082,6 @@
 "playback_app_volume" = "アプリ内音量";
 "playback_app_volume_desc" = "オンにすると、再生画面の音量スライダーで Primuse 独自の音量を調整します。システム音量よりさらに小さくでき、システム音量の最小でも大きすぎるときに便利です。システム音量やほかのアプリには影響せず、音量ボタンは引き続きシステム音量を変更します。Apple Music の曲や他のデバイスへのキャスト中は、システム音量のスライダーが表示されます。";
 "playback_app_volume_high_fidelity_note" = "高音質ダイレクトはミキサーを通らないため、アプリ内音量は効きません。エフェクト処理に戻すと有効になります。";
+"scrobble_lb_server_placeholder" = "サーバー URL（空欄で listenbrainz.org）";
+"scrobble_lb_server_invalid" = "サーバー URL が無効です";
+"scrobble_lb_server_footer" = "Maloja、Koito、multi-scrobbler など ListenBrainz 互換のセルフホストサーバーを使う場合は、その API URL を入力し、そのサーバーで取得したトークンを使ってください。";

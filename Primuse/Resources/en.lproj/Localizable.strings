@@ -7842,3 +7842,6 @@
 "playback_app_volume" = "App Volume";
 "playback_app_volume_desc" = "When on, the volume slider on the Now Playing screen controls Primuse's own volume, lowering it further below the system volume — useful when even the lowest system step is too loud. System volume and other apps are unaffected, and the volume buttons still change the system volume. Apple Music songs and casting to other devices still use the system volume slider.";
 "playback_app_volume_high_fidelity_note" = "High Fidelity Direct bypasses the mixer, so App Volume has no effect. Switch back to Effects & Processing to use it.";
+"scrobble_lb_server_placeholder" = "Server URL (leave blank for listenbrainz.org)";
+"scrobble_lb_server_invalid" = "Invalid server URL";
+"scrobble_lb_server_footer" = "For a self-hosted ListenBrainz-compatible server such as Maloja, Koito or multi-scrobbler, enter its API URL and use a token from that server.";

@@ -8081,3 +8081,6 @@
 "playback_app_volume" = "Volume de l’app";
 "playback_app_volume_desc" = "Si activé, le curseur de volume de l’écran de lecture règle le volume propre à Primuse, qui peut descendre encore sous le volume du système — utile quand même le niveau le plus bas du système est trop fort. Le volume du système et les autres apps ne sont pas affectés, et les boutons de volume continuent de régler le volume du système. Pour les morceaux Apple Music et la diffusion vers d’autres appareils, le curseur reste celui du système.";
 "playback_app_volume_high_fidelity_note" = "Haute fidélité directe contourne le mixeur : le volume de l’app n’a donc aucun effet. Revenez à Effets et traitement pour l’utiliser.";
+"scrobble_lb_server_placeholder" = "URL du serveur (vide pour listenbrainz.org)";
+"scrobble_lb_server_invalid" = "URL du serveur non valide";
+"scrobble_lb_server_footer" = "Pour un serveur auto-hébergé compatible ListenBrainz comme Maloja, Koito ou multi-scrobbler, saisissez son URL d’API et utilisez un jeton fourni par ce serveur.";

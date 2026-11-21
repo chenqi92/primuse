@@ -7987,3 +7987,6 @@
 "playback_app_volume" = "Głośność aplikacji";
 "playback_app_volume_desc" = "Po włączeniu suwak głośności na ekranie odtwarzania reguluje własną głośność Primuse i pozwala ściszyć dźwięk poniżej głośności systemu — przydatne, gdy nawet najniższy poziom systemu jest za głośny. Głośność systemu i inne aplikacje pozostają bez zmian, a przyciski głośności nadal zmieniają głośność systemu. Przy utworach Apple Music i przesyłaniu na inne urządzenia nadal widać suwak systemowy.";
 "playback_app_volume_high_fidelity_note" = "Bezpośrednie odtwarzanie Hi-Fi omija mikser, więc głośność aplikacji nie działa. Wróć do trybu Efekty i przetwarzanie, aby z niej korzystać.";
+"scrobble_lb_server_placeholder" = "Adres serwera (puste = listenbrainz.org)";
+"scrobble_lb_server_invalid" = "Nieprawidłowy adres serwera";
+"scrobble_lb_server_footer" = "W przypadku własnego serwera zgodnego z ListenBrainz, np. Maloja, Koito lub multi-scrobbler, wpisz adres jego API i użyj tokenu z tego serwera.";

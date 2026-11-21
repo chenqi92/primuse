@@ -561,8 +561,12 @@ final class ScrobbleService {
                 )
                 switch ScrobbleCredentialAvailabilityPolicy.resolveProvider([value]) {
                 case .ready:
-                    if case .ready(let token) = value {
-                        snapshot.ready.append(ListenBrainzProvider(userToken: token))
+                    guard case .ready(let token) = value else { break }
+                    switch ListenBrainzServerStore.resolve() {
+                    case .ready(let baseURL):
+                        snapshot.ready.append(ListenBrainzProvider(userToken: token, baseURL: baseURL))
+                    case .unavailable:
+                        snapshot.unavailable.insert(pid)
                     }
                 case .unavailable:
                     snapshot.unavailable.insert(pid)

@@ -8058,3 +8058,6 @@
 "playback_app_volume" = "App 內音量";
 "playback_app_volume_desc" = "開啟後，播放頁的音量條調整的是 Primuse 自己的音量：在系統音量的基礎上再調小，適合系統最低一格仍嫌太大聲的時候。系統音量和其他 App 不受影響，音量鍵照舊調整系統音量。Apple Music 歌曲和投放到其他裝置時，音量條仍是系統音量。";
 "playback_app_volume_high_fidelity_note" = "「高傳真直通」不經過混音，App 內音量不起作用；切回「音效處理」後生效。";
+"scrobble_lb_server_placeholder" = "伺服器位址（留空使用 listenbrainz.org）";
+"scrobble_lb_server_invalid" = "伺服器位址無效";
+"scrobble_lb_server_footer" = "使用 Maloja、Koito、multi-scrobbler 等相容 ListenBrainz 的自架服務時，填寫它的 API 位址，權杖也在那台伺服器上取得。";

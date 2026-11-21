@@ -122,6 +122,51 @@ public enum ScrobbleProviderID: String, Codable, Sendable, CaseIterable {
     var keychainAccount: String { "scrobble.\(rawValue)" }
 }
 
+/// ListenBrainz 的服务器地址(#464)。和令牌一样存钥匙串,两者随 iCloud 钥匙串、扫码直传一起走,
+/// 见 `ListenBrainzServerAddress`。没存就是官方服务器。
+enum ListenBrainzServerStore {
+    enum Resolution: Equatable {
+        case ready(URL)
+        /// 钥匙串暂时读不到(锁屏后、首次解锁前): 不能当成官方地址, 否则会把自建服务器的令牌发给官方。
+        case unavailable
+    }
+
+    static let account = ListenBrainzServerAddress.keychainAccount
+
+    static func resolve() -> Resolution {
+        switch ScrobbleCredentialAvailabilityPolicy.resolveValue(KeychainService.passwordLookup(for: account)) {
+        case .notConfigured:
+            return .ready(ListenBrainzServerAddress.officialURL)
+        case .ready(let stored):
+            // 存进去的都是归一过的地址; 读出来解析不了说明值坏了, 不拿令牌去猜。
+            guard let url = ListenBrainzServerAddress.resolvedURL(stored: stored) else { return .unavailable }
+            return .ready(url)
+        case .unavailable:
+            return .unavailable
+        }
+    }
+
+    /// 设置页输入框里显示的文字: 自建服务器的地址, 官方服务器时为空。
+    static func loadText() -> String {
+        guard let stored = KeychainService.getPassword(for: account) else { return "" }
+        if case .custom(let url) = ListenBrainzServerAddress.parse(stored) { return url.absoluteString }
+        return ""
+    }
+
+    /// 存官方地址就是删掉这一项。返回 false 表示钥匙串写入失败。
+    @discardableResult
+    static func save(_ address: ListenBrainzServerAddress.ParseResult) -> Bool {
+        switch address {
+        case .official:
+            return KeychainService.deletePassword(for: account)
+        case .custom(let url):
+            return KeychainService.setPassword(url.absoluteString, for: account)
+        case .invalid:
+            return false
+        }
+    }
+}
+
 /// Last.fm 需要 3 个 Keychain 字段才能完整工作 (Last.fm 协议要求 client
 /// 端持有 api_key + api_secret 才能签 api_sig, 不像 ListenBrainz 一个 token
 /// 就够)。这里把读写集中, 让 Settings UI 和 ScrobbleService 共用一套
@@ -141,6 +186,7 @@ enum LastFmCredentialsStore {
     /// 扫码直传带给 Apple TV 的账号(`LANSettingsTransferPolicy.scrobbleSecretAccounts` 写的是同一组字面值)。
     static let transferableAccounts: Set<String> = [
         ScrobbleProviderID.listenBrainz.keychainAccount,
+        ListenBrainzServerStore.account,
         sessionKeyAccount,
         apiKeyAccount,
         apiSecretAccount,

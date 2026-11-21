@@ -7987,3 +7987,6 @@
 "playback_app_volume" = "Volumen de la app";
 "playback_app_volume_desc" = "Al activarlo, el control de volumen de la pantalla de reproducción ajusta el volumen propio de Primuse y lo baja aún más que el volumen del sistema, útil cuando incluso el nivel más bajo del sistema es demasiado alto. El volumen del sistema y las demás apps no cambian, y los botones de volumen siguen ajustando el volumen del sistema. Con canciones de Apple Music y al transmitir a otros dispositivos se sigue mostrando el control del sistema.";
 "playback_app_volume_high_fidelity_note" = "Alta fidelidad directa no pasa por el mezclador, así que el volumen de la app no tiene efecto. Vuelve a Efectos y procesamiento para usarlo.";
+"scrobble_lb_server_placeholder" = "URL del servidor (vacío para listenbrainz.org)";
+"scrobble_lb_server_invalid" = "URL del servidor no válida";
+"scrobble_lb_server_footer" = "Para un servidor propio compatible con ListenBrainz, como Maloja, Koito o multi-scrobbler, escribe su URL de API y usa un token de ese servidor.";

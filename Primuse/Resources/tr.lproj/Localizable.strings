@@ -7987,3 +7987,6 @@
 "playback_app_volume" = "Uygulama Ses Düzeyi";
 "playback_app_volume_desc" = "Açıkken oynatma ekranındaki ses kaydırıcısı Primuse'un kendi ses düzeyini ayarlar ve sesi sistem ses düzeyinin de altına indirebilir; sistemin en düşük seviyesi bile çok yüksek geldiğinde işe yarar. Sistem ses düzeyi ve diğer uygulamalar etkilenmez, ses düğmeleri sistem ses düzeyini değiştirmeye devam eder. Apple Music şarkılarında ve başka cihazlara yayın yaparken sistem kaydırıcısı gösterilir.";
 "playback_app_volume_high_fidelity_note" = "Yüksek doğruluklu doğrudan oynatma mikseri atladığı için uygulama ses düzeyi etkili olmaz. Kullanmak için Efektler ve İşleme moduna geri dönün.";
+"scrobble_lb_server_placeholder" = "Sunucu URL'si (boş bırakılırsa listenbrainz.org)";
+"scrobble_lb_server_invalid" = "Geçersiz sunucu URL'si";
+"scrobble_lb_server_footer" = "Maloja, Koito veya multi-scrobbler gibi ListenBrainz uyumlu kendi sunucunuzu kullanıyorsanız API URL'sini girin ve o sunucudan aldığınız jetonu kullanın.";

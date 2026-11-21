@@ -54,6 +54,7 @@ struct LANSettingsTransferTests {
         #expect(Policy.category(forSecretAccount: "primuse.lyrics.translation.baidu") == .intelligence)
         #expect(Policy.category(forSecretAccount: "primuse.lyrics.translation.baidu.extra") == nil)
         #expect(Policy.category(forSecretAccount: "scrobble.listenBrainz") == .scrobble)
+        #expect(Policy.category(forSecretAccount: "scrobble.listenBrainz.serverURL") == .scrobble)
         #expect(Policy.category(forSecretAccount: "scrobble.lastFm") == .scrobble)
         #expect(Policy.category(forSecretAccount: "scrobble.lastFm.apiKey") == .scrobble)
         #expect(Policy.category(forSecretAccount: "scrobble.lastFm.apiSecret") == .scrobble)

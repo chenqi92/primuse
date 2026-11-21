@@ -140,9 +140,10 @@ public enum LANSettingsTransferPolicy {
     /// 在 App 里由 `LastFmCredentialsStore` 与 `ScrobbleProviderID.keychainAccount` 存取。
     /// 电视登录的 Apple ID 常常不同,iCloud 钥匙串到不了;遥控器上输令牌又费劲,所以随扫码直传带过去。
     /// 开关(`primuse.scrobble.settings.v1`)不带:电视常是一家人共用,要不要把在电视上听的歌记进
-    /// 这个账号,得在电视上自己打开。
+    /// 这个账号,得在电视上自己打开。ListenBrainz 的服务器地址跟令牌一起带,令牌只对那台服务器有效。
     public static let scrobbleSecretAccounts: Set<String> = [
         "scrobble.listenBrainz",
+        ListenBrainzServerAddress.keychainAccount,
         "scrobble.lastFm",
         "scrobble.lastFm.apiKey",
         "scrobble.lastFm.apiSecret",

@@ -323,6 +323,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "scrobble.nowPlaying", titleKey: "scrobble_send_now_playing", iosPage: .scrobble, macPage: .scrobble),
         SettingDefinition(id: "scrobble.listenBrainz", titleKey: "ListenBrainz", iosPage: .scrobble, macPage: .scrobble),
         SettingDefinition(id: "scrobble.listenBrainzToken", titleKey: "scrobble_lb_token_placeholder", iosPage: .scrobble, macPage: .scrobble, keywords: ["scrobble_user_token", "save", "scrobble_user_token"], anchor: "scrobble.listenBrainz"),
+        SettingDefinition(id: "scrobble.listenBrainzServer", titleKey: "scrobble_lb_server_placeholder", iosPage: .scrobble, macPage: .scrobble, keywords: ["ListenBrainz", "server", "self-hosted", "custom", "URL", "Maloja", "Koito", "multi-scrobbler", "服务器", "自建", "自定义", "地址"], anchor: "scrobble.listenBrainz"),
         SettingDefinition(id: "scrobble.validateListenBrainz", titleKey: "scrobble_validate", iosPage: .scrobble, macPage: .scrobble, anchor: "scrobble.listenBrainz"),
         SettingDefinition(id: "scrobble.getListenBrainzToken", titleKey: "scrobble_lb_get_token", iosPage: .scrobble, macPage: .scrobble, anchor: "scrobble.listenBrainz"),
         SettingDefinition(id: "scrobble.lastFM", titleKey: "Last.fm", iosPage: .scrobble, macPage: .scrobble),
