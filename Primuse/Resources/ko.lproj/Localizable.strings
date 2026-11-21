@@ -6518,6 +6518,15 @@
 "lyrics_version_hide" = "Primuse에서 숨기기";
 "lyrics_version_delete_last_message" = "마지막 가사입니다. 삭제하면 이 곡에는 가사가 없게 되고 자동으로 다시 찾지도 않습니다.";
 "lyrics_version_delete_failed_title" = "이 버전을 삭제하지 못했습니다";
+"lyrics_version_target_moved" = "편집하는 동안 이 곡의 파일 위치가 바뀌어 저장하지 않았습니다. 같은 곡이 맞다면 한 번 더 저장하면 새 위치에 씁니다. 확실하지 않으면 편집을 취소하고 다시 여세요.";
+"lyrics_version_target_changed" = "편집하는 동안 이 곡의 오디오 파일이 바뀌어 저장하지 않았습니다. 한 번 더 저장하면 바뀐 파일에 씁니다. 다른 곳의 변경을 유지하려면 편집을 취소하세요.";
+"lyrics_version_embed_not_located" = "오디오 파일에 가사가 여러 개 들어 있어 어느 것을 바꿀지 확실하지 않아, 오디오 파일에는 쓰지 않았습니다.";
+"lyrics_version_embed_not_preferred" = "쓰고 나면 파일 안의 다른 가사가 먼저 읽히므로 원래대로 되돌렸습니다. 설정에서 내장 가사 우선순위를 바꾸거나 가사 파일로 저장하세요.";
+"lyrics_version_embedded_remaining" = "오디오 파일 안의 가사 하나는 삭제할 수 없습니다(Primuse가 편집할 수 없는 필드에 있음). Primuse에서 숨겼습니다.";
+"lyrics_version_sidecar_deleted_embedded_hidden" = "가사 파일을 삭제했습니다. 오디오 파일에 내장된 가사는 그대로 두고 Primuse에서 숨겼습니다. 삭제하려면 '가사 소스'에서 따로 삭제하세요.";
+"lyrics_version_delete_hidden_not_located" = "이 버전이 오디오 파일의 어느 필드에 있는지 확실하지 않아 파일은 그대로 두고 Primuse에서 숨겼습니다.";
+"lyrics_version_delete_hidden_no_permission" = "이 오디오 파일을 다시 쓸 권한이 없어 파일은 그대로 두고 Primuse에서 숨겼습니다.";
+"lyrics_version_delete_read_only_embed_off" = "'가사 저장 위치'가 오디오 파일에 쓰지 않도록 설정되어 있어 파일 안의 가사는 바꾸지 않습니다.";
 "lyrics_sources_switch_confirm_title %@" = "%@ 파일을 사용하시겠습니까?";
 "lyrics_sources_switch_confirm_message" = "편집기가 이 파일로 다시 불러오며, 저장하지 않은 변경 사항은 사라집니다.";
 "lyrics_sources_switch_action" = "이 파일 사용";

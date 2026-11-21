@@ -6424,6 +6424,15 @@
 "lyrics_version_hide" = "Ocultar en Primuse";
 "lyrics_version_delete_last_message" = "Es la última versión. Al eliminarla, la canción se queda sin letra y no se buscará otra automáticamente.";
 "lyrics_version_delete_failed_title" = "No se pudo eliminar esta versión";
+"lyrics_version_target_moved" = "El archivo de esta canción cambió de ubicación mientras editabas, así que no se guardó nada. Si sigue siendo la canción correcta, guarda de nuevo para escribir en la nueva ubicación; si no estás seguro, cancela y vuelve a abrir el editor.";
+"lyrics_version_target_changed" = "El archivo de audio de esta canción cambió mientras editabas, así que no se guardó nada. Guarda de nuevo para escribir en el archivo modificado, o cancela para conservar los otros cambios.";
+"lyrics_version_embed_not_located" = "El archivo de audio tiene varias versiones de la letra y Primuse no sabe cuál reemplazar, así que no se modificó el archivo de audio.";
+"lyrics_version_embed_not_preferred" = "Después de escribir, otra versión del archivo de audio se seguiría leyendo primero, así que se restauró el archivo. Cambia el orden de las letras incrustadas en Configuración o guarda la letra como archivo.";
+"lyrics_version_embedded_remaining" = "Una versión de la letra del archivo de audio no se puede eliminar (está en un campo que Primuse no puede editar). Quedó oculta en Primuse.";
+"lyrics_version_sidecar_deleted_embedded_hidden" = "Se eliminó el archivo de letra. La letra guardada en el archivo de audio no se modificó y quedó oculta en Primuse; para eliminarla, quita esa versión en «Orígenes de letras».";
+"lyrics_version_delete_hidden_not_located" = "Primuse no sabe en qué campo del archivo de audio está esta versión, así que no se modificó el archivo. En su lugar quedó oculta en Primuse.";
+"lyrics_version_delete_hidden_no_permission" = "Primuse no tiene permiso para reescribir este archivo de audio, así que no se modificó. En su lugar la versión quedó oculta en Primuse.";
+"lyrics_version_delete_read_only_embed_off" = "«Guardar letras en» está configurado para no escribir en archivos de audio, así que la letra del archivo no se modifica.";
 "lyrics_sources_switch_confirm_title %@" = "¿Usar %@?";
 "lyrics_sources_switch_confirm_message" = "El editor se vuelve a cargar con este archivo y los cambios sin guardar se descartan.";
 "lyrics_sources_switch_action" = "Usar este archivo";

@@ -6519,6 +6519,15 @@
 "lyrics_version_hide" = "Primuse で非表示にする";
 "lyrics_version_delete_last_message" = "これが最後の歌詞です。削除するとこの曲には歌詞がなくなり、自動で取得し直すこともありません。";
 "lyrics_version_delete_failed_title" = "このバージョンを削除できませんでした";
+"lyrics_version_target_moved" = "編集中にこの曲のファイルの場所が変わったため、保存しませんでした。同じ曲で間違いなければ、もう一度保存すると新しい場所に書き込みます。わからない場合は編集をキャンセルして開き直してください。";
+"lyrics_version_target_changed" = "編集中にこの曲のオーディオファイルが変更されたため、保存しませんでした。もう一度保存すると変更後のファイルに書き込みます。ほかの変更を残したい場合は編集をキャンセルしてください。";
+"lyrics_version_embed_not_located" = "オーディオファイルに歌詞が複数入っていて、どれを置き換えるか特定できないため、オーディオファイルには書き込みませんでした。";
+"lyrics_version_embed_not_preferred" = "書き込むと、ファイル内の別の歌詞が優先して読み込まれるため、元に戻しました。設定で内蔵歌詞の優先順位を変えるか、歌詞ファイルとして保存してください。";
+"lyrics_version_embedded_remaining" = "オーディオファイル内の歌詞のうち 1 つは削除できません（Primuse で編集できないフィールドにあります）。Primuse では非表示にしました。";
+"lyrics_version_sidecar_deleted_embedded_hidden" = "歌詞ファイルを削除しました。オーディオファイルに内蔵された歌詞は変更せず、Primuse で非表示にしました。削除するには「歌詞ソース」で個別に削除してください。";
+"lyrics_version_delete_hidden_not_located" = "このバージョンがオーディオファイルのどのフィールドにあるか特定できないため、ファイルは変更せず、Primuse で非表示にしました。";
+"lyrics_version_delete_hidden_no_permission" = "このオーディオファイルを書き換える権限がないため、ファイルは変更せず、Primuse で非表示にしました。";
+"lyrics_version_delete_read_only_embed_off" = "「歌詞の保存先」がオーディオファイルに書き込まない設定のため、ファイル内の歌詞は変更しません。";
 "lyrics_sources_switch_confirm_title %@" = "%@ に切り替えますか？";
 "lyrics_sources_switch_confirm_message" = "エディタはこのファイルから再読み込みされ、未保存の変更は失われます。";
 "lyrics_sources_switch_action" = "このファイルを使用";

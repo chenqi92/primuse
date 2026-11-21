@@ -6424,6 +6424,15 @@
 "lyrics_version_hide" = "Ukryj w Primuse";
 "lyrics_version_delete_last_message" = "To ostatnia wersja. Po jej usunięciu utwór nie będzie miał tekstu i żaden nie zostanie pobrany automatycznie.";
 "lyrics_version_delete_failed_title" = "Nie udało się usunąć tej wersji";
+"lyrics_version_target_moved" = "Plik tego utworu został przeniesiony podczas edycji, więc nic nie zapisano. Jeśli to nadal właściwy utwór, zapisz ponownie, aby zapisać w nowym miejscu; jeśli nie masz pewności, anuluj i otwórz edytor jeszcze raz.";
+"lyrics_version_target_changed" = "Plik audio tego utworu zmienił się podczas edycji, więc nic nie zapisano. Zapisz ponownie, aby zapisać w zmienionym pliku, albo anuluj, aby zachować inne zmiany.";
+"lyrics_version_embed_not_located" = "Plik audio zawiera kilka wersji tekstu i nie wiadomo, którą zastąpić, więc plik audio nie został zmieniony.";
+"lyrics_version_embed_not_preferred" = "Po zapisaniu inna wersja w pliku audio nadal byłaby czytana jako pierwsza, więc plik przywrócono. Zmień kolejność osadzonych tekstów w ustawieniach albo zapisz tekst jako plik.";
+"lyrics_version_embedded_remaining" = "Jednej wersji tekstu w pliku audio nie da się usunąć (jest w polu, którego Primuse nie może edytować). Została ukryta w Primuse.";
+"lyrics_version_sidecar_deleted_embedded_hidden" = "Plik tekstu został usunięty. Tekst zapisany w pliku audio nie został zmieniony i jest ukryty w Primuse; aby go usunąć, usuń tę wersję w „Źródłach tekstu”.";
+"lyrics_version_delete_hidden_not_located" = "Nie wiadomo, w którym polu pliku audio jest ta wersja, więc plik nie został zmieniony. Zamiast tego wersja została ukryta w Primuse.";
+"lyrics_version_delete_hidden_no_permission" = "Primuse nie ma uprawnień do zapisu tego pliku audio, więc plik nie został zmieniony. Zamiast tego wersja została ukryta w Primuse.";
+"lyrics_version_delete_read_only_embed_off" = "„Zapisuj teksty w” jest ustawione tak, by nie zapisywać w plikach audio, więc tekst w pliku zostaje bez zmian.";
 "lyrics_sources_switch_confirm_title %@" = "Użyć pliku %@?";
 "lyrics_sources_switch_confirm_message" = "Edytor wczyta zawartość tego pliku, a niezapisane zmiany przepadną.";
 "lyrics_sources_switch_action" = "Użyj tego pliku";

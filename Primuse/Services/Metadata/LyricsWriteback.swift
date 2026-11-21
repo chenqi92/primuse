@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import PrimuseKit
 
@@ -229,6 +230,14 @@ enum LyricsWriteback {
             // this payload. Record only the exact document the editor received.
             payload.cacheSnapshot = LyricsDocumentFingerprint(lines: latest)
         }
+        // 编辑器打开这一刻固定住目标和要换掉的那一份内嵌原文：之后播放切到哪一首、外层怎么刷新、
+        // 自动路径把缓存换成了什么，保存都只写这一首、这个文件、这个字段。
+        let opened = AppServices.shared.musicLibrary.storedSong(id: song.id) ?? song
+        let anchor = await embeddedReplacementAnchor(forSongID: song.id)
+        openEditSession(
+            EditSession(target: EditTarget(opened), anchor: anchor),
+            key: editSessionKey(songID: song.id, cacheSnapshot: payload.cacheSnapshot)
+        )
         return payload
     }
 
@@ -785,6 +794,44 @@ enum LyricsWriteback {
         guard !Task.isCancelled else { return cancelledSave(for: song, mode: mode) }
         let mutationKey = mutationKey(for: song, mode: mode)
         await mutationGate.acquire(mutationKey)
+        let action = normalized(text).isEmpty ? "clear" : "save"
+        let touchesAudioFile: Bool
+        if case .sidecar = mode {
+            touchesAudioFile = await sourceManager.lyricsEmbeddingMode(for: song) != .off
+        } else {
+            touchesAudioFile = false
+        }
+        let sessionKey = editSessionKey(songID: song.id, cacheSnapshot: cacheSnapshot)
+        // 要换掉的那一份按编辑器打开时定位的来；没有打开记录（直接调用的保存）就现在定位一次，重试也沿用它。
+        let embeddedAnchor: EmbeddedAnchor?
+        if touchesAudioFile {
+            if let anchor = editSessions[sessionKey]?.anchor {
+                embeddedAnchor = anchor
+            } else {
+                embeddedAnchor = await embeddedReplacementAnchor(forSongID: song.id)
+            }
+        } else {
+            embeddedAnchor = nil
+        }
+        if let refusal = verifyEditTarget(
+            for: song,
+            library: library,
+            sessionKey: sessionKey,
+            anchor: embeddedAnchor,
+            touchesAudioFile: touchesAudioFile
+        ) {
+            await mutationGate.release(mutationKey)
+            logLyricsMutation(action, stage: "refused", song: song, destination: destinationName(for: mode))
+            return SaveOutcome(updatedSong: song, errorMessage: refusal, persistence: persistence(for: mode))
+        }
+        logLyricsMutation(
+            action,
+            stage: "before",
+            song: song,
+            destination: destinationName(for: mode),
+            draftText: action == "clear" ? "" : text,
+            draftLines: structuredLines
+        )
         let previousVersion: LyricsPreviousVersionHandling = newVersionRequests.contains(song.id)
             ? .keep
             : .forget
@@ -840,6 +887,17 @@ enum LyricsWriteback {
             )
         }
         await mutationGate.release(mutationKey)
+        if outcome.succeeded {
+            newVersionRequests.remove(song.id)
+            editSessions[sessionKey] = nil
+        }
+        logLyricsMutation(
+            action,
+            stage: outcome.succeeded ? "after" : "failed",
+            song: outcome.updatedSong,
+            destination: destinationName(for: outcome.persistence),
+            lines: await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+        )
         if outcome.errorMessage == nil, let structuredLines,
            LyricsDocumentSource.of(structuredLines)?.kind == .transcript {
             await MetadataAssetStore.shared.rememberLyricsCandidate(structuredLines, forSongID: song.id)
@@ -1576,6 +1634,7 @@ enum LyricsWriteback {
         }
         do {
             let written = try await sourceManager.writeEmbeddedLyrics(edit, for: target)
+            recordOwnAudioWrite(written)
             return .written(EmbeddedFileIdentity(
                 filePath: written.filePath,
                 fileSize: written.fileSize,
@@ -1592,7 +1651,7 @@ enum LyricsWriteback {
     /// 嵌入字段里各家播放器都认的只有行级 LRC 文本，逐字标记会被原样显示成乱码。
     /// 所以这份副本去掉逐字时间轴，保留每行时间戳、同时间戳的译文行和文件头；
     /// 逐字数据仍然只在歌词文件和本地缓存里。
-    static func embeddedCopyContent(_ lines: [LyricLine]) -> String {
+    nonisolated static func embeddedCopyContent(_ lines: [LyricLine]) -> String {
         LyricsContentParser.serialize(lines.map { line in
             var lineLevel = line
             lineLevel.syllables = nil
@@ -1717,6 +1776,20 @@ enum LyricsWriteback {
         }
         let key = song.sourceID + "\u{0}document\u{0}" + song.id + "\u{0}" + entry.name.lowercased()
         await mutationGate.acquire(key)
+        let embeds = await sourceManager.lyricsEmbeddingMode(for: song) != .off
+        let touchesAudioFile = entry.isActive && embeds
+        if let refusal = verifyEditTarget(
+            for: song,
+            library: library,
+            sessionKey: song.id + "\u{1F}document\u{1F}" + entry.name.lowercased(),
+            anchor: nil,
+            touchesAudioFile: touchesAudioFile
+        ) {
+            await mutationGate.release(key)
+            logLyricsMutation("save-document", stage: "refused", song: song, destination: "file", lines: nil)
+            return DocumentSaveOutcome(errorMessage: refusal)
+        }
+        logLyricsMutation("save-document", stage: "before", song: song, destination: "file", lines: validation.lines)
         let outcome = await performDocumentSave(
             entry,
             lines: validation.lines,
@@ -1727,6 +1800,13 @@ enum LyricsWriteback {
             library: library
         )
         await mutationGate.release(key)
+        logLyricsMutation(
+            "save-document",
+            stage: outcome.succeeded ? "after" : "failed",
+            song: outcome.updatedSong ?? song,
+            destination: "file",
+            lines: await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+        )
         return outcome
     }
 
@@ -1801,6 +1881,160 @@ enum LyricsWriteback {
         return outcome
     }
 
+    // MARK: - 编辑目标的锁定与写入记录
+
+    /// 编辑器打开时这首歌在资料库里的样子。保存时核对音乐源和文件路径；要改音频文件时再核对文件身份
+    /// （大小、revision 相同，修改时间差在 2 秒内）。
+    struct EditTarget: Equatable, Sendable {
+        let songID: String
+        let sourceID: String
+        let filePath: String
+        let fileSize: Int64
+        let lastModified: Date?
+        let revision: String?
+
+        init(_ song: Song) {
+            songID = song.id
+            sourceID = song.sourceID
+            filePath = song.filePath
+            fileSize = song.fileSize
+            lastModified = song.lastModified
+            revision = song.revision
+        }
+
+        func isSameLocation(as song: Song) -> Bool {
+            sourceID == song.sourceID && filePath == song.filePath
+        }
+
+        func isSameFile(as song: Song) -> Bool {
+            guard isSameLocation(as: song), fileSize == song.fileSize, revision == song.revision else {
+                return false
+            }
+            // 文件系统、监听重读和写入结果给的修改时间精度不一样，差两秒以内算同一个。
+            guard let lastModified, let other = song.lastModified else { return true }
+            return abs(lastModified.timeIntervalSince(other)) <= 2
+        }
+    }
+
+    /// 一次编辑：打开时固定住的目标和要换掉的那一份内嵌原文。按「歌曲 + 打开时的缓存指纹」记，
+    /// 保存成功后作废；同一首歌开了两个编辑器各是各的。
+    private struct EditSession {
+        var target: EditTarget
+        let anchor: EmbeddedAnchor?
+    }
+
+    private static var editSessions: [String: EditSession] = [:]
+    /// Primuse 自己刚改写过的音频文件（嵌入歌词、改标签、嵌封面换了文件身份）：同一次编辑接着保存不算「被别处改过」。
+    private static var ownAudioWrites: [String: EditTarget] = [:]
+
+    private static func editSessionKey(songID: String, cacheSnapshot: LyricsDocumentFingerprint?) -> String {
+        songID + "\u{1F}" + (cacheSnapshot?.rawValue ?? "-")
+    }
+
+    private static func openEditSession(_ session: EditSession, key: String) {
+        if editSessions.count > 64 { editSessions.removeAll() }
+        editSessions[key] = session
+    }
+
+    /// 标签、封面、歌词写进音频文件成功后记一笔。写回协调器以外改了音频文件的地方（标签编辑器、
+    /// 封面嵌入）也调它，编辑器接着保存歌词时就不会被自己的锁拦下。
+    static func recordOwnAudioWrite(_ song: Song) {
+        if ownAudioWrites.count > 256 { ownAudioWrites.removeAll() }
+        ownAudioWrites[song.id] = EditTarget(song)
+    }
+
+    /// 保存前再核对一次目标：音乐源和文件路径没变；要写音频文件时文件还是打开时那一个
+    /// （或者是 Primuse 自己刚写过的那一个，或者传进来的这首已经就是资料库里现在的样子）。
+    /// 对不上就拒绝并说明，不写任何文件；用户确认还是这首歌、再保存一次就按现在的文件写。
+    /// 资料库里查不到的歌（文件夹浏览直接播放、插件在线歌曲）按传进来的这首写。
+    private static func verifyEditTarget(
+        for song: Song,
+        library: MusicLibrary,
+        sessionKey: String,
+        anchor: EmbeddedAnchor?,
+        touchesAudioFile: Bool
+    ) -> String? {
+        if PodcastPlaybackSong.isEpisode(song) || song.sourceID == AppleMusicLibraryIdentity.sourceID {
+            return nil
+        }
+        guard let stored = library.storedSong(id: song.id) else { return nil }
+        var accepted = [EditTarget(song)]
+        if let session = editSessions[sessionKey] { accepted.append(session.target) }
+        if let own = ownAudioWrites[song.id] { accepted.append(own) }
+        func relock() {
+            openEditSession(
+                EditSession(target: EditTarget(stored), anchor: editSessions[sessionKey]?.anchor ?? anchor),
+                key: sessionKey
+            )
+        }
+        guard stored.sourceID == song.sourceID,
+              accepted.contains(where: { $0.isSameLocation(as: stored) }) else {
+            plog("📝 lyrics target refused songID=\(song.id.prefix(8)) reason=moved opened=\(shortHash(song.filePath)) now=\(shortHash(stored.filePath))")
+            relock()
+            return String(localized: "lyrics_version_target_moved")
+        }
+        guard touchesAudioFile else { return nil }
+        guard accepted.contains(where: { $0.isSameFile(as: stored) }) else {
+            plog("📝 lyrics target refused songID=\(song.id.prefix(8)) reason=file-changed size=\(song.fileSize)->\(stored.fileSize)")
+            relock()
+            return String(localized: "lyrics_version_target_changed")
+        }
+        return nil
+    }
+
+    /// 每次保存、清空、删除版本记一行：歌曲 id 前 8 位、文件名哈希前 8 位、写入去处、行数、内容指纹前 8 位。
+    /// 不记歌词正文。写前一行、写后回读一行，两首歌的前后指纹对得上就能判断有没有写错目标。
+    /// 解析和算指纹放在后台，上千行的文字稿也不卡界面。
+    private static func logLyricsMutation(
+        _ action: String,
+        stage: String,
+        song: Song,
+        destination: String,
+        lines: [LyricLine]? = nil,
+        draftText: String? = nil,
+        draftLines: [LyricLine]? = nil
+    ) {
+        let songID = String(song.id.prefix(8))
+        let fileName = (song.filePath as NSString).lastPathComponent
+        Task.detached(priority: .utility) {
+            let resolved: [LyricLine]?
+            if let lines {
+                resolved = lines
+            } else if let draftText {
+                let normalizedDraft = draftText.replacingOccurrences(of: "\r\n", with: "\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                resolved = normalizedDraft.isEmpty ? [] : (draftLines ?? LyricsContentParser.parseText(normalizedDraft))
+            } else {
+                resolved = nil
+            }
+            let fingerprint = resolved.map {
+                $0.isEmpty ? "empty" : String(MetadataAssetStore.lyricsFingerprint($0).prefix(8))
+            } ?? "-"
+            plog("📝 lyrics \(action) \(stage) songID=\(songID) file=\(shortHash(fileName)) dest=\(destination) lines=\(resolved?.count ?? 0) fp=\(fingerprint)")
+        }
+    }
+
+    nonisolated private static func shortHash(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func destinationName(for mode: Mode) -> String {
+        switch mode {
+        case .sidecar: return "file"
+        case .mediaServer: return "server"
+        case .localOnly, .checking, .unavailable, .temporarilyUnavailable: return "local"
+        }
+    }
+
+    private static func destinationName(for persistence: SaveOutcome.Persistence) -> String {
+        switch persistence {
+        case .sidecar: return "file"
+        case .embedded: return "embedded"
+        case .mediaServer: return "server"
+        case .localOnly: return "local"
+        }
+    }
+
     // MARK: - 歌词来源页：删除此版本
 
     struct VersionDeletionOutcome {
@@ -1830,6 +2064,27 @@ enum LyricsWriteback {
     ) async -> VersionDeletionOutcome {
         let key = song.sourceID + "\u{0}version\u{0}" + song.id
         await mutationGate.acquire(key)
+        let destination: String
+        switch plan {
+        case .forget: destination = "local"
+        case .embeddedField: destination = "embedded"
+        case .file: destination = "file"
+        case .readOnly: destination = "hidden"
+        }
+        let versionLines: [LyricLine]? = entry.candidate?.lines
+            ?? original.map { LyricsParser.parseDocument($0.text, fileName: entry.name) }
+        if let refusal = verifyEditTarget(
+            for: song,
+            library: library,
+            sessionKey: song.id + "\u{1F}version",
+            anchor: nil,
+            touchesAudioFile: destination == "embedded"
+        ) {
+            await mutationGate.release(key)
+            logLyricsMutation("delete-version", stage: "refused", song: song, destination: destination)
+            return VersionDeletionOutcome(errorMessage: refusal)
+        }
+        logLyricsMutation("delete-version", stage: "before", song: song, destination: destination, lines: versionLines)
         let outcome = await performVersionDeletion(
             entry,
             plan: plan,
@@ -1841,6 +2096,13 @@ enum LyricsWriteback {
             library: library
         )
         await mutationGate.release(key)
+        logLyricsMutation(
+            "delete-version",
+            stage: outcome.succeeded ? "after" : "failed",
+            song: outcome.updatedSong ?? song,
+            destination: destination,
+            lines: await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+        )
         return outcome
     }
 

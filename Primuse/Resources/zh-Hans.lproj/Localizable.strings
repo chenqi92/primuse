@@ -6611,6 +6611,15 @@
 "lyrics_version_hide" = "在 Primuse 里隐藏";
 "lyrics_version_delete_last_message" = "这是最后一份歌词，删掉后这首歌就没有歌词了，之后也不会自动找回来。";
 "lyrics_version_delete_failed_title" = "没能删掉这一版歌词";
+"lyrics_version_target_moved" = "这首歌的文件位置在编辑期间变了，这次没有保存。确认还是这首歌的话，再保存一次会写到新位置；不确定就取消编辑后重新打开。";
+"lyrics_version_target_changed" = "这首歌的音频文件在编辑期间被改过，这次没有保存。再保存一次会写进改过之后的文件；不想覆盖别处的修改就取消编辑。";
+"lyrics_version_embed_not_located" = "音频文件里有好几份歌词，认不准要换掉哪一份，为免改错没有写进音频文件。";
+"lyrics_version_embed_not_preferred" = "写进音频文件后，文件里另一份歌词仍会被优先读出，已经放回原样。可以在设置里调整内嵌歌词的优先顺序，或者改成保存为歌词文件。";
+"lyrics_version_embedded_remaining" = "音频文件里还有一份歌词删不掉（存在 Primuse 改不了的字段里），已在 Primuse 里隐藏。";
+"lyrics_version_sidecar_deleted_embedded_hidden" = "歌词文件已删除。音频文件里自带的歌词没有动，已在 Primuse 里隐藏；想删掉它，可以在「歌词来源」里单独删除。";
+"lyrics_version_delete_hidden_not_located" = "认不准这一份在音频文件里是哪个字段，为免删错，文件没有动，已改为在 Primuse 里隐藏。";
+"lyrics_version_delete_hidden_no_permission" = "没有权限改写这个音频文件，文件没有动，已改为在 Primuse 里隐藏。";
+"lyrics_version_delete_read_only_embed_off" = "「歌词保存到」设成了不写进音频文件，所以不改写它里面的歌词。";
 "lyrics_sources_switch_confirm_title %@" = "改用 %@？";
 "lyrics_sources_switch_confirm_message" = "编辑器会按这个文件重新载入，没存的修改会丢掉。";
 "lyrics_sources_switch_action" = "改用这个文件";

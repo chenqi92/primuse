@@ -6279,6 +6279,15 @@
 "lyrics_version_hide" = "Hide in Primuse";
 "lyrics_version_delete_last_message" = "This is the last version. After deleting it, the song has no lyrics, and none will be fetched automatically.";
 "lyrics_version_delete_failed_title" = "Couldn’t Delete This Version";
+"lyrics_version_target_moved" = "This song’s file moved while you were editing, so nothing was saved. If it’s still the right song, save again to write to the new location; if you’re not sure, cancel and reopen the editor.";
+"lyrics_version_target_changed" = "This song’s audio file was changed while you were editing, so nothing was saved. Save again to write into the changed file, or cancel to keep the other changes.";
+"lyrics_version_embed_not_located" = "The audio file holds several versions of the lyrics and Primuse can’t tell which one to replace, so the audio file wasn’t changed.";
+"lyrics_version_embed_not_preferred" = "After writing, another version in the audio file would still be read first, so the file was restored. Change the embedded lyrics priority in Settings, or save the lyrics as a lyrics file instead.";
+"lyrics_version_embedded_remaining" = "One version of the lyrics in the audio file can’t be removed (it’s in a field Primuse can’t edit). It’s hidden in Primuse.";
+"lyrics_version_sidecar_deleted_embedded_hidden" = "The lyrics file was deleted. The lyrics stored in the audio file were not changed and are hidden in Primuse; to delete them, remove that version in Lyrics Sources.";
+"lyrics_version_delete_hidden_not_located" = "Primuse can’t tell which field in the audio file holds this version, so the file wasn’t changed. The version is hidden in Primuse instead.";
+"lyrics_version_delete_hidden_no_permission" = "Primuse isn’t allowed to rewrite this audio file, so the file wasn’t changed. The version is hidden in Primuse instead.";
+"lyrics_version_delete_read_only_embed_off" = "“Save Lyrics To” is set not to write into audio files, so the lyrics inside the file are left as they are.";
 "lyrics_sources_switch_confirm_title %@" = "Use %@?";
 "lyrics_sources_switch_confirm_message" = "The editor reloads from this file and its unsaved changes are discarded.";
 "lyrics_sources_switch_action" = "Use This File";

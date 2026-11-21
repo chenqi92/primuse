@@ -6518,6 +6518,15 @@
 "lyrics_version_hide" = "In Primuse ausblenden";
 "lyrics_version_delete_last_message" = "Das ist die letzte Version. Danach hat der Titel keinen Liedtext mehr, und es wird auch keiner automatisch gesucht.";
 "lyrics_version_delete_failed_title" = "Version konnte nicht gelöscht werden";
+"lyrics_version_target_moved" = "Die Datei dieses Titels wurde während der Bearbeitung verschoben, daher wurde nichts gesichert. Wenn es noch der richtige Titel ist, sichere erneut, um am neuen Ort zu speichern; wenn du unsicher bist, brich ab und öffne den Editor erneut.";
+"lyrics_version_target_changed" = "Die Audiodatei dieses Titels wurde während der Bearbeitung geändert, daher wurde nichts gesichert. Sichere erneut, um in die geänderte Datei zu schreiben, oder brich ab, um die anderen Änderungen zu behalten.";
+"lyrics_version_embed_not_located" = "Die Audiodatei enthält mehrere Fassungen des Liedtexts, und es ist nicht eindeutig, welche ersetzt werden soll. Die Audiodatei wurde nicht geändert.";
+"lyrics_version_embed_not_preferred" = "Nach dem Schreiben würde eine andere Fassung in der Audiodatei zuerst gelesen, daher wurde die Datei wiederhergestellt. Ändere in den Einstellungen die Reihenfolge eingebetteter Liedtexte oder sichere den Liedtext als Datei.";
+"lyrics_version_embedded_remaining" = "Eine Fassung in der Audiodatei lässt sich nicht entfernen (sie steht in einem Feld, das Primuse nicht bearbeiten kann). Sie ist in Primuse ausgeblendet.";
+"lyrics_version_sidecar_deleted_embedded_hidden" = "Die Liedtextdatei wurde gelöscht. Der in der Audiodatei gespeicherte Liedtext wurde nicht verändert und ist in Primuse ausgeblendet; zum Löschen entferne diese Fassung unter „Songtextquellen“.";
+"lyrics_version_delete_hidden_not_located" = "Es ist nicht eindeutig, in welchem Feld der Audiodatei diese Fassung steht, daher wurde die Datei nicht geändert. Die Fassung ist stattdessen in Primuse ausgeblendet.";
+"lyrics_version_delete_hidden_no_permission" = "Primuse darf diese Audiodatei nicht überschreiben, daher wurde die Datei nicht geändert. Die Fassung ist stattdessen in Primuse ausgeblendet.";
+"lyrics_version_delete_read_only_embed_off" = "„Liedtexte speichern in“ schreibt nicht in Audiodateien, daher bleibt der Liedtext in der Datei unverändert.";
 "lyrics_sources_switch_confirm_title %@" = "%@ verwenden?";
 "lyrics_sources_switch_confirm_message" = "Der Editor lädt diese Datei neu; ungesicherte Änderungen gehen verloren.";
 "lyrics_sources_switch_action" = "Diese Datei verwenden";

@@ -6518,6 +6518,15 @@
 "lyrics_version_hide" = "Masquer dans Primuse";
 "lyrics_version_delete_last_message" = "C’est la dernière version. Une fois supprimée, le morceau n’aura plus de paroles et aucune ne sera récupérée automatiquement.";
 "lyrics_version_delete_failed_title" = "Impossible de supprimer cette version";
+"lyrics_version_target_moved" = "Le fichier de ce morceau a été déplacé pendant la modification, rien n’a été enregistré. S’il s’agit bien du même morceau, enregistrez à nouveau pour écrire au nouvel emplacement ; en cas de doute, annulez et rouvrez l’éditeur.";
+"lyrics_version_target_changed" = "Le fichier audio de ce morceau a été modifié pendant l’édition, rien n’a été enregistré. Enregistrez à nouveau pour écrire dans le fichier modifié, ou annulez pour conserver les autres modifications.";
+"lyrics_version_embed_not_located" = "Le fichier audio contient plusieurs versions des paroles et Primuse ne sait pas laquelle remplacer : le fichier audio n’a pas été modifié.";
+"lyrics_version_embed_not_preferred" = "Après l’écriture, une autre version du fichier audio serait encore lue en premier : le fichier a été restauré. Changez l’ordre des paroles intégrées dans les réglages, ou enregistrez les paroles dans un fichier.";
+"lyrics_version_embedded_remaining" = "Une version des paroles du fichier audio ne peut pas être supprimée (elle se trouve dans un champ que Primuse ne peut pas modifier). Elle est masquée dans Primuse.";
+"lyrics_version_sidecar_deleted_embedded_hidden" = "Le fichier de paroles a été supprimé. Les paroles enregistrées dans le fichier audio n’ont pas été modifiées et sont masquées dans Primuse ; pour les supprimer, supprimez cette version dans « Sources des paroles ».";
+"lyrics_version_delete_hidden_not_located" = "Primuse ne sait pas dans quel champ du fichier audio se trouve cette version : le fichier n’a pas été modifié. La version est masquée dans Primuse.";
+"lyrics_version_delete_hidden_no_permission" = "Primuse n’a pas le droit de réécrire ce fichier audio : le fichier n’a pas été modifié. La version est masquée dans Primuse.";
+"lyrics_version_delete_read_only_embed_off" = "« Enregistrer les paroles dans » est réglé pour ne pas écrire dans les fichiers audio : les paroles du fichier restent telles quelles.";
 "lyrics_sources_switch_confirm_title %@" = "Utiliser %@ ?";
 "lyrics_sources_switch_confirm_message" = "L’éditeur se recharge à partir de ce fichier ; les modifications non enregistrées seront perdues.";
 "lyrics_sources_switch_action" = "Utiliser ce fichier";

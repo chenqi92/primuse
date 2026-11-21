@@ -6424,6 +6424,15 @@
 "lyrics_version_hide" = "Primuse'da gizle";
 "lyrics_version_delete_last_message" = "Bu son sürüm. Silersen şarkının sözü kalmaz ve otomatik olarak yenisi aranmaz.";
 "lyrics_version_delete_failed_title" = "Bu sürüm silinemedi";
+"lyrics_version_target_moved" = "Düzenlerken bu şarkının dosyasının yeri değişti, bu yüzden hiçbir şey kaydedilmedi. Hâlâ doğru şarkıysa tekrar kaydet, yeni konuma yazılır; emin değilsen iptal edip düzenleyiciyi yeniden aç.";
+"lyrics_version_target_changed" = "Düzenlerken bu şarkının ses dosyası değişti, bu yüzden hiçbir şey kaydedilmedi. Değişen dosyaya yazmak için tekrar kaydet ya da diğer değişiklikleri korumak için iptal et.";
+"lyrics_version_embed_not_located" = "Ses dosyasında sözlerin birden fazla sürümü var ve hangisinin değiştirileceği belli değil, bu yüzden ses dosyası değiştirilmedi.";
+"lyrics_version_embed_not_preferred" = "Yazıldıktan sonra ses dosyasındaki başka bir sürüm yine önce okunacaktı, bu yüzden dosya eski haline getirildi. Ayarlar'dan gömülü söz önceliğini değiştir ya da sözleri dosya olarak kaydet.";
+"lyrics_version_embedded_remaining" = "Ses dosyasındaki sözlerin bir sürümü silinemiyor (Primuse'un düzenleyemediği bir alanda). Primuse'da gizlendi.";
+"lyrics_version_sidecar_deleted_embedded_hidden" = "Şarkı sözü dosyası silindi. Ses dosyasındaki sözler değiştirilmedi ve Primuse'da gizlendi; silmek için o sürümü Şarkı Sözü Kaynakları'ndan sil.";
+"lyrics_version_delete_hidden_not_located" = "Bu sürümün ses dosyasında hangi alanda olduğu belli değil, bu yüzden dosya değiştirilmedi. Bunun yerine Primuse'da gizlendi.";
+"lyrics_version_delete_hidden_no_permission" = "Primuse'un bu ses dosyasını yeniden yazma izni yok, bu yüzden dosya değiştirilmedi. Bunun yerine sürüm Primuse'da gizlendi.";
+"lyrics_version_delete_read_only_embed_off" = "“Şarkı Sözlerini Kaydetme Yeri” ses dosyalarına yazmayacak şekilde ayarlı, bu yüzden dosyadaki sözler olduğu gibi kalır.";
 "lyrics_sources_switch_confirm_title %@" = "%@ kullanılsın mı?";
 "lyrics_sources_switch_confirm_message" = "Düzenleyici bu dosyayla yeniden yüklenir ve kaydedilmemiş değişiklikler kaybolur.";
 "lyrics_sources_switch_action" = "Bu dosyayı kullan";

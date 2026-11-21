@@ -6495,6 +6495,15 @@
 "lyrics_version_hide" = "在 Primuse 裡隱藏";
 "lyrics_version_delete_last_message" = "這是最後一份歌詞，刪除後這首歌就沒有歌詞了，之後也不會自動找回來。";
 "lyrics_version_delete_failed_title" = "沒能刪除這一版歌詞";
+"lyrics_version_target_moved" = "這首歌的檔案位置在編輯期間變了，這次沒有儲存。確認還是這首歌的話，再儲存一次會寫到新位置；不確定就取消編輯後重新打開。";
+"lyrics_version_target_changed" = "這首歌的音訊檔在編輯期間被改過，這次沒有儲存。再儲存一次會寫進改過之後的檔案；不想覆蓋別處的修改就取消編輯。";
+"lyrics_version_embed_not_located" = "音訊檔裡有好幾份歌詞，認不準要換掉哪一份，為免改錯沒有寫進音訊檔。";
+"lyrics_version_embed_not_preferred" = "寫進音訊檔後，檔案裡另一份歌詞仍會被優先讀出，已經放回原樣。可以在設定裡調整內嵌歌詞的優先順序，或者改成儲存為歌詞檔。";
+"lyrics_version_embedded_remaining" = "音訊檔裡還有一份歌詞刪不掉（存在 Primuse 改不了的欄位裡），已在 Primuse 裡隱藏。";
+"lyrics_version_sidecar_deleted_embedded_hidden" = "歌詞檔已刪除。音訊檔裡內建的歌詞沒有動，已在 Primuse 裡隱藏；想刪掉它，可以在「歌詞來源」裡單獨刪除。";
+"lyrics_version_delete_hidden_not_located" = "認不準這一份在音訊檔裡是哪個欄位，為免刪錯，檔案沒有動，已改為在 Primuse 裡隱藏。";
+"lyrics_version_delete_hidden_no_permission" = "沒有權限改寫這個音訊檔，檔案沒有動，已改為在 Primuse 裡隱藏。";
+"lyrics_version_delete_read_only_embed_off" = "「歌詞儲存到」設成了不寫進音訊檔，所以不改寫它裡面的歌詞。";
 "lyrics_sources_switch_confirm_title %@" = "改用 %@？";
 "lyrics_sources_switch_confirm_message" = "編輯器會依這個檔案重新載入，尚未儲存的修改將會遺失。";
 "lyrics_sources_switch_action" = "改用這個檔案";
