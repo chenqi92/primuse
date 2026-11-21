@@ -601,7 +601,12 @@ final class MusicScraperService {
             break
         }
 
-        guard ScraperAvailability.hasEnabledSource(for: parts ?? key.purpose.requestedParts) else {
+        // 只要歌词是用户点名要的(播放页「暂无歌词」)：只看有没有开着的歌词源，不看规则里的「跳过」。
+        let requestedParts = parts ?? key.purpose.requestedParts
+        let hasSource = requestedParts == .lyrics
+            ? ScraperSettings.load().userRequestedSourceCount(for: .lyrics) > 0
+            : ScraperAvailability.hasEnabledSource(for: requestedParts)
+        guard hasSource else {
             plog("MusicScraperService: no enabled scraper source, single scrape aborted")
             return .noScraperSource
         }
@@ -734,6 +739,16 @@ final class MusicScraperService {
         }
     }
 
+    /// 只要歌词的单曲刮削是用户点名要歌词：规则里把歌词设成「跳过」也照样去找。
+    /// 「跳过」只管批量刮削、后台自动补全和结果页的预选。
+    private static func settingsForSingleScrape(parts: ScrapeParts) -> ScraperSettings {
+        var settings = ScraperSettings.load()
+        if parts == .lyrics, settings.fieldRules[.lyrics].mode == .skip {
+            settings.fieldRules[.lyrics].mode = .inherit
+        }
+        return settings
+    }
+
     private func performSingleScrape(
         song: Song,
         in library: MusicLibrary,
@@ -741,7 +756,7 @@ final class MusicScraperService {
     ) async throws -> SingleScrapeResult {
         await sidecarCircuitBreaker.resetIdleUnavailableSources()
 
-        let settings = ScraperSettings.load()
+        let settings = Self.settingsForSingleScrape(parts: parts)
         var scope = ScrapeScope()
         let processed = try await processedSongWithAssets(song, forceRescrape: true, storeAssets: !dryRun,
                                                         parts: parts, settings: settings, collectingReview: dryRun,
@@ -931,7 +946,7 @@ final class MusicScraperService {
         in library: MusicLibrary,
         dryRun: Bool
     ) async -> SingleScrapeResult {
-        let request = ScraperSettings.load().request(for: song, parts: .lyrics, force: true)
+        let request = Self.settingsForSingleScrape(parts: .lyrics).request(for: song, parts: .lyrics, force: true)
         let unchanged = SingleScrapeResult(originalSong: song, song: song, coverData: nil, lyrics: nil)
         guard request.fields.contains(.lyrics) else { return unchanged }
         let fetched = await fetchOnlineLyrics(
