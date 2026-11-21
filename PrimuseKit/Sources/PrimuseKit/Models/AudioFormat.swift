@@ -680,7 +680,9 @@ public enum TagWritebackKeepPolicy {
 /// translation tracks intact, and the media object is never touched. The
 /// embedded copy travels with the file to players that only read tags, at the
 /// price of downloading, rewriting and re-uploading the whole song on every
-/// save — so it is opt-in, and library-wide scraping never embeds.
+/// save — so it is opt-in. Quick and batch scraping follow the same setting;
+/// a batch that would embed asks once first (`BatchLyricsEmbeddingConsentPolicy`),
+/// and lyrics read from the file itself are never written back into it.
 public enum LyricsEmbeddingMode: String, CaseIterable, Sendable {
     /// Lyrics file only. The default, and the only behaviour before embedding.
     case off

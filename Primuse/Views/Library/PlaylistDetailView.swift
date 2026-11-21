@@ -2204,6 +2204,9 @@ struct PlaylistDetailView: View {
             )
         case .noScraperSource:
             showNoScraperSourceAlert = true
+        case .awaitingConfirmation:
+            // 根视图正在问要不要把歌词写进音频文件；确认后照常开始，这一页跟着这一轮。
+            break
         }
     }
 

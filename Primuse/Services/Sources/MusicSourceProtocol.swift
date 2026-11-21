@@ -754,6 +754,8 @@ struct EmbeddedMetadataWritebackResult: Sendable, Equatable {
     /// The file's tags just before this write, read from the working copy.
     /// Undo restores these, not the library row, which can lag the file.
     var previousTags: EmbeddedMetadataVerification? = nil
+    /// 刮削写入时文件里已经有（或一样）的内容不再写，什么都没替换。
+    var assetsUnchanged = false
 }
 
 enum EmbeddedMetadataWritebackSourceError: LocalizedError, Equatable {
@@ -861,6 +863,15 @@ protocol MusicSourceConnector: Sendable {
     func writeEmbeddedComment(
         _ comment: EmbeddedLyricsEdit,
         for song: Song
+    ) async throws -> EmbeddedMetadataWritebackResult
+
+    /// 刮削把封面、歌词写进音频文件：同一套整文件事务，替换前按 `policy` 看文件里已有的，
+    /// 已有的不换（只补缺失时）、一样的不重写；什么都不用写时不替换文件。
+    func writeEmbeddedAssets(
+        original: Song,
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit,
+        policy: EmbeddedAssetWritePolicy
     ) async throws -> EmbeddedMetadataWritebackResult
 
     /// Delete a remote file. Used by song deletion to remove the source audio
@@ -1834,6 +1845,15 @@ extension MusicSourceConnector {
     func writeEmbeddedComment(
         _ comment: EmbeddedLyricsEdit,
         for song: Song
+    ) async throws -> EmbeddedMetadataWritebackResult {
+        throw EmbeddedMetadataWritebackSourceError.unsupported
+    }
+
+    func writeEmbeddedAssets(
+        original: Song,
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit,
+        policy: EmbeddedAssetWritePolicy
     ) async throws -> EmbeddedMetadataWritebackResult {
         throw EmbeddedMetadataWritebackSourceError.unsupported
     }

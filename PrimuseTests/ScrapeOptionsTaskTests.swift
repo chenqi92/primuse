@@ -753,6 +753,40 @@ final class BatchScrapeAccountingTests: XCTestCase {
         XCTAssertTrue(ScraperSettings.coverReferenceIsDead(missing, store: store))
     }
 
+    /// 写进音频文件前看文件里已有的：只补缺失时已有的不换，一样的不重写。
+    func testEmbeddedAssetPolicyKeepsWhatTheFileAlreadyHas() {
+        let cover = Data([1, 2, 3])
+        let fillOnly = EmbeddedAssetWritePolicy(keepsExistingCover: true, keepsExistingLyrics: true, skipsUnchanged: true)
+        var kept = EmbeddedAssetWritePolicy.filtered(coverData: cover, lyricsText: "[00:01.00]New",
+                                                     existingCover: Data([9]), existingLyrics: "[00:01.00]Old",
+                                                     policy: fillOnly)
+        XCTAssertNil(kept.coverData)
+        XCTAssertNil(kept.lyricsText)
+
+        let overwrite = EmbeddedAssetWritePolicy(keepsExistingCover: false, keepsExistingLyrics: false, skipsUnchanged: true)
+        kept = EmbeddedAssetWritePolicy.filtered(coverData: cover, lyricsText: "[00:01.00]New",
+                                                 existingCover: Data([9]), existingLyrics: "[00:01.00]Old",
+                                                 policy: overwrite)
+        XCTAssertEqual(kept.coverData, cover)
+        XCTAssertEqual(kept.lyricsText, "[00:01.00]New")
+
+        kept = EmbeddedAssetWritePolicy.filtered(coverData: cover, lyricsText: "[00:01.00]Same\n",
+                                                 existingCover: cover, existingLyrics: "[00:01.00]Same\r\n",
+                                                 policy: overwrite)
+        XCTAssertNil(kept.coverData, "Identical content is not rewritten")
+        XCTAssertNil(kept.lyricsText)
+
+        kept = EmbeddedAssetWritePolicy.filtered(coverData: cover, lyricsText: "[00:01.00]New",
+                                                 existingCover: nil, existingLyrics: "  ",
+                                                 policy: fillOnly)
+        XCTAssertEqual(kept.coverData, cover, "Missing assets are filled")
+        XCTAssertEqual(kept.lyricsText, "[00:01.00]New")
+
+        kept = EmbeddedAssetWritePolicy.filtered(coverData: cover, lyricsText: "x", existingCover: cover,
+                                                 existingLyrics: "x", policy: .replace)
+        XCTAssertEqual(kept.coverData, cover, "Manual saves keep replacing as before")
+    }
+
     func testWritebackFailuresAreClassified() {
         XCTAssertEqual(MusicScraperService.writebackFailureReason(for: EmbeddedMetadataCoordinatedWritebackError.conflict), .conflict)
         XCTAssertEqual(MusicScraperService.writebackFailureReason(for: CancellationError()), .timeout)
@@ -825,6 +859,156 @@ final class BatchScrapeAccountingTests: XCTestCase {
         XCTAssertEqual(completion.summaryLines.first, String(localized: "scrape_tally_nothing"))
         let stored = try XCTUnwrap(library.storedSong(id: song.id))
         XCTAssertTrue(stored.sampleRate != nil || stored.duration > 0, "Technical parameters are still saved")
+    }
+
+    /// 快捷单曲和批量刮削的写回去处跟刮削结果页的保存同一套：「歌词保存到」「封面保存到」两档设置，
+    /// 「刮削后写回歌词 / 封面」开关，嵌入的歌词只要行级 LRC；CUE 分轨不嵌入。
+    func testScrapeWritebackFollowsTheSaveDestinationSettings() async throws {
+        let defaults = UserDefaults.standard
+        let keys = [EmbeddedLyricsCopyPolicy.modeDefaultsKey, EmbeddedCoverPolicy.modeDefaultsKey,
+                    MusicScraperService.sidecarLyricsWriteEnabledKey, MusicScraperService.sidecarCoverWriteEnabledKey]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, previous) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: UUID().uuidString, name: "Embed fixture", type: .local, basePath: root.path)
+        let service = MusicScraperService(sourceManager: SourceManager(sourcesProvider: { [source] }),
+                                          checkpointDirectory: root.appendingPathComponent("checkpoint"))
+        let song = Song(id: UUID().uuidString, title: "Window at Dawn", fileFormat: .flac,
+                        filePath: "/Window at Dawn.flac", sourceID: source.id)
+        var line = LyricLine(timestamp: 1, text: "Paper lanterns")
+        line.syllables = [LyricSyllable(text: "Paper ", start: 1, end: 1.4), LyricSyllable(text: "lanterns", start: 1.4, end: 2)]
+        let cover = try pngData()
+        let applied = MusicScraperService.AppliedScrape(
+            song: song, parts: ScrapeSongParts(cover: .filled, lyrics: .filled, tags: .notFound),
+            storedCover: cover, cachedLyrics: [line], persists: true
+        )
+
+        defaults.set(true, forKey: MusicScraperService.sidecarLyricsWriteEnabledKey)
+        defaults.set(true, forKey: MusicScraperService.sidecarCoverWriteEnabledKey)
+        EmbeddedLyricsCopyPolicy.setMode(.embedOnly)
+        EmbeddedCoverPolicy.setMode(.alongside)
+        let embeddedJob = await service.scrapedAssetWritebackJob(for: song, applied: applied)
+        let embedded = try XCTUnwrap(embeddedJob)
+        XCTAssertEqual(embedded.lyricsEmbeddingMode, .embedOnly)
+        XCTAssertEqual(embedded.coverEmbeddingMode, .alongside)
+        XCTAssertEqual(embedded.embeddedLyricsText, LyricsWriteback.embeddedCopyContent([line]))
+        XCTAssertNotNil(embedded.lyricsLines, "An existing lyrics file beside the song is still kept up to date")
+
+        XCTAssertTrue(embedded.embedPolicy.keepsExistingLyrics, "Fill-missing runs never replace lyrics already in the file")
+        XCTAssertTrue(embedded.embedPolicy.keepsExistingCover)
+        XCTAssertTrue(embedded.embedPolicy.skipsUnchanged)
+
+        // 批量刮削这一轮没同意嵌入：歌词照常进缓存和（已有的）歌词文件，不写进音频文件。
+        let declinedJob = await service.scrapedAssetWritebackJob(for: song, applied: applied, embedsLyrics: false)
+        let declined = try XCTUnwrap(declinedJob)
+        XCTAssertNil(declined.embeddedLyricsText)
+        XCTAssertNotNil(declined.lyricsLines)
+
+        // 歌词、封面本来就是从这个文件读出来的：不写回。
+        var fromFile = applied
+        fromFile.writesBackLyrics = false
+        fromFile.writesBackCover = false
+        let fromFileJob = await service.scrapedAssetWritebackJob(for: song, applied: fromFile)
+        XCTAssertNil(fromFileJob)
+
+        EmbeddedLyricsCopyPolicy.setMode(.off)
+        let fileOnlyJob = await service.scrapedAssetWritebackJob(for: song, applied: applied)
+        let fileOnly = try XCTUnwrap(fileOnlyJob)
+        XCTAssertEqual(fileOnly.lyricsEmbeddingMode, .off)
+        XCTAssertNil(fileOnly.embeddedLyricsText)
+
+        // 「刮削后写回歌词」关着：歌词既不写文件也不嵌入，封面照常。
+        EmbeddedLyricsCopyPolicy.setMode(.alongside)
+        defaults.set(false, forKey: MusicScraperService.sidecarLyricsWriteEnabledKey)
+        let coverOnlyJob = await service.scrapedAssetWritebackJob(for: song, applied: applied)
+        let coverOnly = try XCTUnwrap(coverOnlyJob)
+        XCTAssertNil(coverOnly.lyricsLines)
+        XCTAssertNil(coverOnly.embeddedLyricsText)
+        XCTAssertNotNil(coverOnly.coverData)
+
+        // CUE 分轨不参与整文件替换。
+        defaults.set(true, forKey: MusicScraperService.sidecarLyricsWriteEnabledKey)
+        var cue = song
+        cue.cueSheetPath = "/Window at Dawn.cue"
+        cue.cueStartTime = 0
+        let cueResult = await service.scrapedAssetWritebackJob(for: cue, applied: applied)
+        let cueJob = try XCTUnwrap(cueResult)
+        XCTAssertEqual(cueJob.lyricsEmbeddingMode, .off)
+        XCTAssertEqual(cueJob.coverEmbeddingMode, .off)
+    }
+
+    /// 批量刮削会往音频文件里嵌歌词、又没确认过时，先停下来问；选了取消什么都不做，
+    /// 选了「这次不写进音频文件」照常开始并把这个选择记进断点。
+    func testBatchScrapeAsksBeforeEmbeddingLyrics() async throws {
+        let defaults = UserDefaults.standard
+        let keys = [ScraperSettings.defaultsKey, EmbeddedLyricsCopyPolicy.modeDefaultsKey,
+                    MusicScraperService.sidecarLyricsWriteEnabledKey, MusicScraperService.batchLyricsEmbeddingAcknowledgedKey]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, previous) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        var settings = ScraperSettings.load()
+        for index in settings.sources.indices {
+            settings.sources[index].isEnabled = settings.sources[index].type == .itunes
+        }
+        settings.save()
+        EmbeddedLyricsCopyPolicy.setMode(.alongside)
+        defaults.set(true, forKey: MusicScraperService.sidecarLyricsWriteEnabledKey)
+        defaults.removeObject(forKey: MusicScraperService.batchLyricsEmbeddingAcknowledgedKey)
+
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: UUID().uuidString, name: "Consent fixture", type: .local, basePath: root.path)
+        let service = MusicScraperService(
+            sourceManager: SourceManager(sourcesProvider: { [source] }),
+            metadataService: MetadataService(scraperManager: ScraperManager(scraperFactory: { _ in EmptyMetadataProbe() })),
+            checkpointDirectory: root.appendingPathComponent("checkpoint"), scrapeRetrySleep: { _ in }
+        )
+        defer { service.cancel() }
+        let song = Song(id: UUID().uuidString, title: "Lantern Shore", fileFormat: .flac,
+                        filePath: "/Lantern Shore.flac", sourceID: source.id)
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        library.addSongs([song])
+        await library.waitForPendingIndex()
+
+        XCTAssertEqual(service.scrapeMissingMetadata(songs: [song], in: library), .awaitingConfirmation)
+        XCTAssertEqual(service.pendingLyricsEmbeddingConfirmation?.songCount, 1)
+        XCTAssertFalse(service.isScraping)
+        service.resolveLyricsEmbeddingConfirmation(.cancel)
+        XCTAssertNil(service.pendingLyricsEmbeddingConfirmation)
+        XCTAssertFalse(service.isScraping)
+        XCTAssertFalse(service.hasPendingScrape)
+
+        // Siri 这类弹不了确认的入口：没同意过就不嵌入，也不停下来问。
+        let silent = service.scrapeMissingMetadata(songs: [song], in: library, askToEmbedLyrics: false)
+        guard case .started = silent else { return XCTFail("Expected the batch to start, got \(silent)") }
+        let checkpointURL = root.appendingPathComponent("checkpoint/scrape-checkpoint.json")
+        let silentCheckpoint = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: checkpointURL)) as? [String: Any])
+        XCTAssertEqual(silentCheckpoint["embedsLyrics"] as? Bool, false)
+        service.cancel()
+
+        XCTAssertEqual(service.scrapeMissingMetadata(songs: [song], in: library), .awaitingConfirmation)
+        service.resolveLyricsEmbeddingConfirmation(.skipEmbedding)
+        XCTAssertTrue(service.isScraping)
+        let declined = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: checkpointURL)) as? [String: Any])
+        XCTAssertEqual(declined["embedsLyrics"] as? Bool, false)
+        XCTAssertFalse(defaults.bool(forKey: MusicScraperService.batchLyricsEmbeddingAcknowledgedKey))
+        service.cancel()
+
+        // 同意一次以后不再问。
+        XCTAssertEqual(service.scrapeMissingMetadata(songs: [song], in: library), .awaitingConfirmation)
+        service.resolveLyricsEmbeddingConfirmation(.embed)
+        XCTAssertTrue(defaults.bool(forKey: MusicScraperService.batchLyricsEmbeddingAcknowledgedKey))
+        service.cancel()
+        let again = service.scrapeMissingMetadata(songs: [song], in: library)
+        guard case .started = again else { return XCTFail("Acknowledged users are not asked again, got \(again)") }
     }
 
     private struct EmptyMetadataProbe: MusicScraper {

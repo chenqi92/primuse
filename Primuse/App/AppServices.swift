@@ -3807,7 +3807,9 @@ final class AppServices {
 
         switch scraperService.scrapeMissingMetadata(
             songs: [displayedSong],
-            in: musicLibrary
+            in: musicLibrary,
+            // Siri 发起时弹不了确认：没同意过批量刮削嵌歌词就只写缓存和歌词文件。
+            askToEmbedLyrics: false
         ) {
         case .started:
             plog("🎙️ AppIntent scrape started song=\(displayedSong.id.prefix(12))")
@@ -3826,6 +3828,9 @@ final class AppServices {
             )
         case .noScraperSource:
             return String(localized: "intent_scrape_no_source")
+        case .awaitingConfirmation:
+            // 不弹确认（askToEmbedLyrics: false），走不到这里。
+            return String(localized: "intent_scrape_deferred")
         }
     }
 }

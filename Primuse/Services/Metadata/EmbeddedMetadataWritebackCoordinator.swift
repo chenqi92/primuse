@@ -121,6 +121,47 @@ struct EmbeddedMetadataRemoteFileState: Sendable, Equatable {
     }
 }
 
+/// 刮削往音频文件里写封面、歌词时的规矩。整文件事务反正要整首下载，在替换之前看一眼文件里已有的。
+struct EmbeddedAssetWritePolicy: Sendable, Equatable {
+    /// 文件里已经有封面就不换（只补全缺失时）。远程歌曲的内嵌封面常常还没读到，不能拿在线图把它换掉。
+    var keepsExistingCover = false
+    /// 文件里已经有歌词就不换（只补全缺失时）。
+    var keepsExistingLyrics = false
+    /// 要写的和文件里现有的一样就不整首重写。
+    var skipsUnchanged = true
+
+    /// 照原样整段替换（手动保存、标签编辑走的路）。
+    static let replace = EmbeddedAssetWritePolicy(keepsExistingCover: false, keepsExistingLyrics: false, skipsUnchanged: false)
+
+    /// 封面、歌词按规矩筛掉不该写的之后还剩什么。纯判定，便于测试。
+    static func filtered(
+        coverData: Data?, lyricsText: String?,
+        existingCover: Data?, existingLyrics: String?,
+        policy: EmbeddedAssetWritePolicy
+    ) -> (coverData: Data?, lyricsText: String?) {
+        var cover = coverData
+        var lyrics = lyricsText
+        if let newCover = cover, let current = existingCover, !current.isEmpty,
+           policy.keepsExistingCover || (policy.skipsUnchanged && current == newCover) {
+            cover = nil
+        }
+        let currentLyrics = existingLyrics.map(normalizedLyrics) ?? ""
+        if let newLyrics = lyrics, !currentLyrics.isEmpty,
+           policy.keepsExistingLyrics || (policy.skipsUnchanged && currentLyrics == normalizedLyrics(newLyrics)) {
+            lyrics = nil
+        }
+        return (cover, lyrics)
+    }
+
+    static func normalizedLyrics(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+}
+
 enum EmbeddedMetadataWritebackStage: String, Sendable, Equatable {
     case inspect
     case download
@@ -244,6 +285,23 @@ extension EmbeddedMetadataWritebackAdapter {
         )
     }
 
+    func writeEmbeddedAssets(
+        original: Song,
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit,
+        policy: EmbeddedAssetWritePolicy
+    ) async throws -> EmbeddedMetadataWritebackResult {
+        try await EmbeddedMetadataWritebackCoordinator.write(
+            adapter: self,
+            original: original,
+            updated: original,
+            coverData: coverData,
+            lyrics: lyrics,
+            writesTextTags: false,
+            assetPolicy: policy
+        )
+    }
+
     func writeEmbeddedComment(
         _ comment: EmbeddedLyricsEdit,
         for song: Song
@@ -289,7 +347,8 @@ enum EmbeddedMetadataWritebackCoordinator {
         coverData: Data?,
         lyrics: EmbeddedLyricsEdit = .keep,
         writesTextTags: Bool = true,
-        comment: EmbeddedLyricsEdit = .keep
+        comment: EmbeddedLyricsEdit = .keep,
+        assetPolicy: EmbeddedAssetWritePolicy = .replace
     ) async throws -> EmbeddedMetadataWritebackResult {
         guard AudioMetadataWritebackPolicy.embeddedFormats.contains(updated.fileFormat),
               !updated.isCueTrack,
@@ -340,6 +399,49 @@ enum EmbeddedMetadataWritebackCoordinator {
         // 留着既不计入音频缓存上限也不参与淘汰, 批量写回能占掉几个 GB。
         await adapter.invalidateMetadataWritebackCache(for: original.filePath)
 
+        // 刮削的写入先看文件里已有的：只补缺失时已有的不换，和要写的一样时不整首重写。
+        var writtenCover = coverData
+        var writtenLyrics = lyrics
+        if assetPolicy != .replace, writtenCover != nil || writtenLyrics != .keep {
+            let existing = await FileMetadataReader.read(from: workingURL)
+            var lyricsText: String?
+            if case .set(let text) = writtenLyrics { lyricsText = text }
+            let kept = EmbeddedAssetWritePolicy.filtered(
+                coverData: writtenCover, lyricsText: lyricsText,
+                existingCover: existing.coverArtData, existingLyrics: existing.lyricsText,
+                policy: assetPolicy
+            )
+            if writtenCover != nil, kept.coverData == nil {
+                plog("Writeback: cover left as the file has it source=\(sourceName) keepsExisting=\(assetPolicy.keepsExistingCover)")
+            }
+            if lyricsText != nil, kept.lyricsText == nil {
+                plog("Writeback: lyrics left as the file has them source=\(sourceName) keepsExisting=\(assetPolicy.keepsExistingLyrics)")
+                writtenLyrics = .keep
+            }
+            writtenCover = kept.coverData
+            if writtenCover == nil, writtenLyrics == .keep, !writesTextTags, comment == .keep {
+                // 没有要写的：不替换文件，交回文件此刻的身份。
+                let currentTags = try? EmbeddedMetadataWriter.currentTags(at: workingURL)
+                let digest = try await run(source: sourceName, stage: .edit) {
+                    try SHA256FileDigest.hexDigest(at: workingURL)
+                }
+                let emptyTags = EmbeddedMetadataVerification(
+                    title: nil, artist: nil, albumTitle: nil, genre: nil,
+                    year: nil, trackNumber: nil, discNumber: nil, coverData: nil
+                )
+                return EmbeddedMetadataWritebackResult(
+                    fileSize: initialState.fileSize,
+                    modifiedDate: initialState.modifiedDate,
+                    revision: initialState.revision,
+                    fileSHA256: digest,
+                    verification: currentTags ?? emptyTags,
+                    filePath: original.filePath,
+                    previousTags: currentTags,
+                    assetsUnchanged: true
+                )
+            }
+        }
+
         let edits = EmbeddedMetadataEdits(
             tags: writesTextTags
                 ? EmbeddedMetadataEdits.Tags(
@@ -353,8 +455,8 @@ enum EmbeddedMetadataWritebackCoordinator {
                     albumArtist: updated.albumArtistName
                 )
                 : nil,
-            coverData: coverData,
-            lyrics: lyrics,
+            coverData: writtenCover,
+            lyrics: writtenLyrics,
             changedFields: TagMetadataWritebackField.changedFields(
                 from: original,
                 to: updated,

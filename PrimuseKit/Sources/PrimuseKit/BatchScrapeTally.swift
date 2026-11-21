@@ -206,6 +206,25 @@ public enum ScrapeWritebackSourcePolicy {
     }
 }
 
+/// 批量刮削会往音频文件里嵌歌词时要不要先问一次。老用户当初是在「整库刮削不嵌入」的说明下打开
+/// 嵌入的，所以单独一个「已知晓」标记，升级上来第一次一定会问。快捷单曲只动一首，不问。
+public enum BatchLyricsEmbeddingConsentPolicy {
+    public static func wouldEmbed(lyricsRequested: Bool, lyricsWritebackEnabled: Bool,
+                                  embeddingMode: LyricsEmbeddingMode) -> Bool {
+        lyricsRequested && lyricsWritebackEnabled && embeddingMode != .off
+    }
+
+    public static func needsConfirmation(wouldEmbed: Bool, acknowledged: Bool) -> Bool {
+        wouldEmbed && !acknowledged
+    }
+
+    /// 续跑的那一轮按开始时定下的来；旧断点没记这一项时，只有已经知晓过才嵌入，没确认过就只写缓存
+    /// 和歌词文件。
+    public static func resumedRunEmbeds(recordedChoice: Bool?, acknowledged: Bool) -> Bool {
+        recordedChoice ?? acknowledged
+    }
+}
+
 /// 等这一轮写回结束的兜底：嵌入要整首下载、改写、上传、回读，网盘上一首大文件就可能好几分钟，
 /// 所以按这一轮里实际最慢的一首放宽，连续这么久一首都没写完才不再等。
 public enum ScrapeWritebackWaitPolicy {

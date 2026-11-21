@@ -93,7 +93,34 @@ final class MusicScraperService {
         case empty
         /// 一个刮削源都没启用 —— 调用方应引导用户去开启或导入刮削源。
         case noScraperSource
+        /// 这一轮会往音频文件里嵌歌词，先等用户确认（根视图弹出说明代价的确认）。
+        case awaitingConfirmation
     }
+
+    /// 批量刮削开始前「会把歌词写进音频文件」的确认，根视图按它弹出。
+    struct LyricsEmbeddingConfirmation: Identifiable, Equatable {
+        let id = UUID()
+        let songCount: Int
+    }
+
+    enum LyricsEmbeddingChoice: Sendable {
+        /// 写进音频文件，并记下已知晓，以后批量刮削不再问。
+        case embed
+        /// 这一轮照常刮削，只是歌词不写进音频文件。
+        case skipEmbedding
+        case cancel
+    }
+
+    /// 发起批量刮削的入口对嵌歌词确认的要求。
+    enum BatchLyricsEmbedding {
+        /// 没确认过就先问。
+        case ask
+        /// 不能弹确认的入口（Siri 等）：确认过才嵌入，没确认过只写缓存和歌词文件。
+        case onlyIfAcknowledged
+        case decided(Bool)
+    }
+
+    nonisolated static let batchLyricsEmbeddingAcknowledgedKey = "primuse.scrape.batchLyricsEmbeddingAcknowledged"
 
     /// 任务 B 接线用：这首歌的歌词是不是用户主动清空的。为真时刮到的歌词不写，按「没去刮」算，不进失败清单。
     static var lyricsWereClearedByUser: (String) -> Bool = { _ in false }
@@ -253,6 +280,8 @@ final class MusicScraperService {
         var tally: BatchScrapeTally?
         /// 分项计数只统计了续跑部分（旧断点续上的）。
         var tallyIsPartial: Bool?
+        /// 这一轮开始时定下的：歌词要不要嵌进音频文件。旧断点没有这一项。
+        var embedsLyrics: Bool?
 
         var hasPersistedSongCounts: Bool {
             updatedCount != nil && skippedCount != nil && failedCount != nil
@@ -276,6 +305,8 @@ final class MusicScraperService {
     /// 这一轮按部分的计数。只在完成和断点里读，不进界面观察：写回结果一首一首到，不该每到一首刷一次界面。
     @ObservationIgnored private var tally = BatchScrapeTally()
     @ObservationIgnored private var runTallyIsPartial = false
+    /// 这一轮歌词要不要嵌进音频文件（批量刮削开始前确认过的结果）。
+    @ObservationIgnored private var runEmbedsLyrics = false
     /// 这个进程里发起、还没结束的写回，按「轮次 + 歌曲」记。完成前等它们（`awaitRunWritebacks`），
     /// 被打断、等不到的从这里取出来记成失败；之后迟到的结果不再重复记。
     @ObservationIgnored private var inFlightWritebacks: [String: InFlightWriteback] = [:]
@@ -283,6 +314,8 @@ final class MusicScraperService {
     @ObservationIgnored private var longestWritebackDuration: TimeInterval = 0
     /// 正在等这一轮的写回时为非空：这时点停止也要给出摘要。
     @ObservationIgnored private var awaitingRunContext: RunContext?
+    @ObservationIgnored private var pendingBatchRequest: PendingBatchRequest?
+    private(set) var pendingLyricsEmbeddingConfirmation: LyricsEmbeddingConfirmation?
 
     private struct InFlightWriteback {
         let runID: UUID
@@ -297,6 +330,14 @@ final class MusicScraperService {
         let songCount: Int
         let forceRescrape: Bool
         let generation: Int
+    }
+
+    private struct PendingBatchRequest {
+        let songs: [Song]
+        let library: MusicLibrary
+        let originPlaylistID: String?
+        let parts: ScrapeParts
+        let forceRescrape: Bool
     }
 
     private static func inFlightKey(runID: UUID, songID: String) -> String {
@@ -421,19 +462,62 @@ final class MusicScraperService {
     }
 
     /// `parts`:只补歌词或只补封面时,其余部分即使刮到了也不写。
+    /// `askToEmbedLyrics`：不能弹确认的入口（Siri）传 false，没确认过就不往音频文件里嵌歌词。
     @discardableResult
     func scrapeMissingMetadata(
         songs: [Song],
         in library: MusicLibrary,
         originPlaylistID: String? = nil,
-        parts: ScrapeParts = .all
+        parts: ScrapeParts = .all,
+        askToEmbedLyrics: Bool = true
     ) -> BatchScrapeStartResult {
         startScraping(
             songs: songs,
             in: library,
             forceRescrape: false,
             originPlaylistID: originPlaylistID,
-            parts: parts
+            parts: parts,
+            lyricsEmbedding: askToEmbedLyrics ? .ask : .onlyIfAcknowledged
+        )
+    }
+
+    /// 回应「会把歌词写进音频文件」的确认。选了写入就记下已知晓，以后批量刮削不再问。
+    func resolveLyricsEmbeddingConfirmation(_ choice: LyricsEmbeddingChoice) {
+        guard let request = pendingBatchRequest else {
+            pendingLyricsEmbeddingConfirmation = nil
+            return
+        }
+        pendingBatchRequest = nil
+        pendingLyricsEmbeddingConfirmation = nil
+        let embeds: Bool
+        switch choice {
+        case .cancel:
+            plog("MusicScraperService: batch scrape cancelled at the lyrics embedding confirmation")
+            return
+        case .embed:
+            UserDefaults.standard.set(true, forKey: Self.batchLyricsEmbeddingAcknowledgedKey)
+            embeds = true
+        case .skipEmbedding:
+            embeds = false
+        }
+        plog("MusicScraperService: lyrics embedding confirmation answered embed=\(embeds) songs=\(request.songs.count)")
+        startScraping(
+            songs: request.songs,
+            in: request.library,
+            forceRescrape: request.forceRescrape,
+            originPlaylistID: request.originPlaylistID,
+            parts: request.parts,
+            lyricsEmbedding: .decided(embeds)
+        )
+    }
+
+    /// 这一轮会不会往音频文件里嵌歌词：选了歌词这部分、字段规则没跳过、「刮削后写回歌词」开着、
+    /// 「歌词保存到」选了嵌入。具体每首还要按来源、格式收窄，这里只看设置。
+    private static func batchWouldEmbedLyrics(parts: ScrapeParts, settings: ScraperSettings) -> Bool {
+        BatchLyricsEmbeddingConsentPolicy.wouldEmbed(
+            lyricsRequested: parts.contains(.lyrics) && settings.fieldRules[.lyrics].mode != .skip,
+            lyricsWritebackEnabled: sidecarSettings().lyricsEnabled,
+            embeddingMode: EmbeddedLyricsCopyPolicy.mode()
         )
     }
 
@@ -1260,7 +1344,8 @@ final class MusicScraperService {
         allowBackgroundExecution: Bool = false,
         resumeCheckpoint: ScrapeCheckpoint? = nil,
         originPlaylistID: String? = nil,
-        parts requestedParts: ScrapeParts = .all
+        parts requestedParts: ScrapeParts = .all,
+        lyricsEmbedding: BatchLyricsEmbedding = .ask
     ) -> BatchScrapeStartResult {
         guard !isScraping, !isSingleScraping else {
             plog("MusicScraperService: ignored overlapping batch scrape request")
@@ -1296,6 +1381,33 @@ final class MusicScraperService {
         let runID = resumeCheckpoint?.runID ?? UUID()
         let runOriginPlaylistID = resumeCheckpoint?.originPlaylistID ?? originPlaylistID
         let parts = resumeCheckpoint.map { $0.parts ?? .all } ?? requestedParts
+        // 这一轮歌词要不要嵌进音频文件。没确认过的先问；续跑按开始时定下的，旧断点没记的只有知晓过才嵌入。
+        let acknowledged = UserDefaults.standard.bool(forKey: Self.batchLyricsEmbeddingAcknowledgedKey)
+        let embedsLyrics: Bool
+        if let resumeCheckpoint {
+            embedsLyrics = BatchLyricsEmbeddingConsentPolicy.resumedRunEmbeds(
+                recordedChoice: resumeCheckpoint.embedsLyrics, acknowledged: acknowledged
+            )
+        } else {
+            let wouldEmbed = Self.batchWouldEmbedLyrics(parts: parts, settings: ScraperSettings.load())
+            switch lyricsEmbedding {
+            case .decided(let choice):
+                embedsLyrics = choice && wouldEmbed
+            case .onlyIfAcknowledged:
+                embedsLyrics = wouldEmbed && acknowledged
+            case .ask:
+                if BatchLyricsEmbeddingConsentPolicy.needsConfirmation(wouldEmbed: wouldEmbed, acknowledged: acknowledged) {
+                    pendingBatchRequest = PendingBatchRequest(
+                        songs: songs, library: library, originPlaylistID: runOriginPlaylistID,
+                        parts: parts, forceRescrape: forceRescrape
+                    )
+                    pendingLyricsEmbeddingConfirmation = LyricsEmbeddingConfirmation(songCount: songs.count)
+                    plog("MusicScraperService: batch scrape waits for the lyrics embedding confirmation songs=\(songs.count)")
+                    return .awaitingConfirmation
+                }
+                embedsLyrics = wouldEmbed
+            }
+        }
         // 旧版本留下、只有总数的断点：分项计数只能从续跑处算起，摘要退回总数那一行。
         let tallyIsPartial = resumeCheckpoint.map { checkpoint in
             checkpoint.tallyIsPartial
@@ -1307,15 +1419,17 @@ final class MusicScraperService {
                 forceRescrape: forceRescrape,
                 runID: runID,
                 originPlaylistID: runOriginPlaylistID,
-                parts: parts
+                parts: parts,
+                embedsLyrics: embedsLyrics
             )
         } else if var checkpoint = scrapeCheckpoint,
                   checkpoint.runID == nil || checkpoint.originPlaylistID != runOriginPlaylistID
-                    || checkpoint.tallyIsPartial == nil {
+                    || checkpoint.embedsLyrics == nil || checkpoint.tallyIsPartial == nil {
             // Upgrade checkpoints written by an older build so any later
             // lifecycle resume keeps the same run identity and UI ownership.
             checkpoint.runID = runID
             checkpoint.originPlaylistID = runOriginPlaylistID
+            checkpoint.embedsLyrics = embedsLyrics
             checkpoint.tallyIsPartial = tallyIsPartial
             scrapeCheckpoint = checkpoint
             writeScrapeCheckpoint(checkpoint)
@@ -1327,6 +1441,7 @@ final class MusicScraperService {
         processedCount = updatedCount + skippedCount + failedCount
         tally = resumeCheckpoint?.tally ?? BatchScrapeTally()
         runTallyIsPartial = tallyIsPartial
+        runEmbedsLyrics = embedsLyrics
         totalCount = logicalSongCount
         currentSongTitle = ""
         batchPhase = .songs
@@ -1494,7 +1609,8 @@ final class MusicScraperService {
                     )
                     guard !Task.isCancelled else { return }
 
-                    if let job = await scrapedAssetWritebackJob(for: applied.song, applied: applied) {
+                    if let job = await scrapedAssetWritebackJob(for: applied.song, applied: applied,
+                                                                embedsLyrics: runEmbedsLyrics) {
                         let sourceManager = self.sourceManager
                         let songID = song.id
                         let title = song.title
@@ -1647,7 +1763,8 @@ final class MusicScraperService {
         forceRescrape: Bool,
         runID: UUID,
         originPlaylistID: String?,
-        parts: ScrapeParts
+        parts: ScrapeParts,
+        embedsLyrics: Bool
     ) {
         let checkpoint = ScrapeCheckpoint(
             songIDs: songIDs,
@@ -1661,7 +1778,8 @@ final class MusicScraperService {
             originPlaylistID: originPlaylistID,
             parts: parts == .all ? nil : parts,
             tally: BatchScrapeTally(),
-            tallyIsPartial: false
+            tallyIsPartial: false,
+            embedsLyrics: embedsLyrics
         )
         scrapeCheckpoint = checkpoint
         writeScrapeCheckpoint(checkpoint)
@@ -2643,8 +2761,6 @@ final class MusicScraperService {
         /// The song with the replaced file's identity; nil when nothing was written.
         var updatedSong: Song?
         var sourceUnavailable = false
-        var failure: ScrapeWritebackFailureReason?
-        var failureDetail: String?
     }
 
     /// 把刮到的封面写进音频文件。要整首下载、改写、替换、回读，所以不套旁路文件的写入超时
@@ -2657,44 +2773,11 @@ final class MusicScraperService {
         sourceManager: SourceManager,
         library: MusicLibrary
     ) async -> EmbeddedCoverOutcome {
-        guard let embeddable = SidecarWriteService.embeddableCoverData(coverData) else {
-            plog("⚠️ Embedded cover: scraped artwork for '\(song.title)' is not a decodable image")
-            return EmbeddedCoverOutcome(failure: .other)
-        }
-        // 冲突判断按库里记的文件身份做，刮削手里的快照可能已经旧了（比如刚嵌入过歌词）。
-        let target = await MainActor.run { () -> Song in
-            var target = song
-            if let latest = library.storedSong(id: song.id) {
-                target.filePath = latest.filePath
-                target.fileSize = latest.fileSize
-                target.lastModified = latest.lastModified
-                target.revision = latest.revision
-            }
-            return target
-        }
-        let write = Task.detached(priority: .utility) {
-            try await sourceManager.writeEmbeddedCover(embeddable, for: target)
-        }
-        do {
-            let written = try await write.value
-            await MainActor.run {
-                library.flushPendingAssetReferencePatches()
-                guard var latest = library.storedSong(id: song.id) else { return }
-                latest.filePath = written.filePath
-                latest.fileSize = written.fileSize
-                latest.lastModified = written.lastModified
-                latest.revision = written.revision
-                library.replaceSong(latest)
-            }
-            return EmbeddedCoverOutcome(updatedSong: written)
-        } catch {
-            plog("⚠️ Embedded cover writeback failed for '\(song.title)': \(error.localizedDescription)")
-            return EmbeddedCoverOutcome(
-                sourceUnavailable: isSourceUnavailableSidecarError(error),
-                failure: writebackFailureReason(for: error),
-                failureDetail: error.localizedDescription
-            )
-        }
+        let outcome = await embedScrapedAssets(
+            coverData: coverData, lyricsText: nil, for: song,
+            sourceManager: sourceManager, library: library
+        )
+        return EmbeddedCoverOutcome(updatedSong: outcome.updatedSong, sourceUnavailable: outcome.sourceUnavailable)
     }
 
     nonisolated static func preflightLyricsWriteWithTimeout(
@@ -3132,9 +3215,12 @@ final class MusicScraperService {
         let coverData: Data?
         /// 歌词文件用的歌词；「刮削后写回歌词」关着、或歌词本来就是从这个文件读出来的时为 nil。
         let lyricsLines: [LyricLine]?
+        /// 嵌进音频文件的行级 LRC；歌词不嵌入（或这一轮批量刮削没同意嵌入）时为 nil。
+        let embeddedLyricsText: String?
         let coverEmbeddingMode: CoverEmbeddingMode
-        /// 「歌词保存到」选了只嵌入时不新建歌词文件（歌曲旁已有的照样更新）；刮削本身不嵌入歌词。
-        let createsLyricsFile: Bool
+        let lyricsEmbeddingMode: LyricsEmbeddingMode
+        /// 写进音频文件时：只补缺失的部分文件里已有就不换；和现有的一样就不整首重写。
+        let embedPolicy: EmbeddedAssetWritePolicy
         let timeout: TimeInterval
     }
 
@@ -3155,9 +3241,14 @@ final class MusicScraperService {
         func store(_ result: ScrapedAssetWritebackResult) { self.result = result }
     }
 
-    /// 刮削后要不要写回音乐源、写到哪：开关（刮削后写回封面 / 歌词）和「封面保存到」「歌词保存到」，
-    /// 后两项已按来源、格式、CUE 分轨收窄过。从文件自己读出来的封面、歌词不写回。
-    func scrapedAssetWritebackJob(for song: Song, applied: AppliedScrape) async -> ScrapedAssetWriteback? {
+    /// 刮削后要不要写回音乐源、写到哪。三个入口同一套规则：开关（刮削后写回封面 / 歌词）、
+    /// 「封面保存到」「歌词保存到」，后两项已按来源、格式、CUE 分轨收窄过。从文件自己读出来的封面、
+    /// 歌词不写回。`embedsLyrics`：批量刮削这一轮有没有同意把歌词写进音频文件；快捷单曲总是 true。
+    func scrapedAssetWritebackJob(
+        for song: Song,
+        applied: AppliedScrape,
+        embedsLyrics: Bool = true
+    ) async -> ScrapedAssetWriteback? {
         let settings = Self.sidecarSettings()
         let coverData = settings.coverEnabled && applied.writesBackCover ? applied.storedCover : nil
         let lyricsLines = settings.lyricsEnabled && applied.writesBackLyrics ? applied.cachedLyrics : nil
@@ -3168,15 +3259,26 @@ final class MusicScraperService {
         }
         let coverMode = coverData == nil ? CoverEmbeddingMode.off : await sourceManager.coverEmbeddingMode(for: song)
         let lyricsMode = lyricsLines == nil ? LyricsEmbeddingMode.off : await sourceManager.lyricsEmbeddingMode(for: song)
-        plog("📝 Sidecar: coverData=\(coverData?.count ?? 0)B lyricsLines=\(lyricsLines?.count ?? 0) coverMode=\(coverMode.rawValue) lyricsMode=\(lyricsMode.rawValue) for '\(song.title)'")
+        // 嵌入字段只认行级 LRC，和刮削结果页的保存同一份文本。
+        let embeddedText = embedsLyrics && lyricsMode != .off
+            ? lyricsLines.map { LyricsWriteback.embeddedCopyContent($0) }
+            : nil
+        plog("📝 Sidecar: coverData=\(coverData?.count ?? 0)B lyricsLines=\(lyricsLines?.count ?? 0) coverMode=\(coverMode.rawValue) lyricsMode=\(lyricsMode.rawValue) embedsLyrics=\(embeddedText != nil) for '\(song.title)'")
         return ScrapedAssetWriteback(
-            song: song, coverData: coverData, lyricsLines: lyricsLines,
-            coverEmbeddingMode: coverMode, createsLyricsFile: lyricsMode != .embedOnly, timeout: settings.timeout
+            song: song, coverData: coverData, lyricsLines: lyricsLines, embeddedLyricsText: embeddedText,
+            coverEmbeddingMode: coverMode, lyricsEmbeddingMode: lyricsMode,
+            embedPolicy: EmbeddedAssetWritePolicy(
+                keepsExistingCover: !applied.overwritesCover,
+                keepsExistingLyrics: !applied.overwritesLyrics,
+                skipsUnchanged: true
+            ),
+            timeout: settings.timeout
         )
     }
 
-    /// 按定好的去处写回：要嵌入封面时先整首替换，再用替换后的文件身份写封面、歌词文件。只嵌入时
-    /// 不新建文件，歌曲旁已有的照样更新。源只读或连不上时打开这一轮的熔断，后面的歌不再试。
+    /// 按定好的去处写回：要嵌入的（封面、歌词）合成一次整文件事务（文件里已有、只补缺失时不换，
+    /// 一样时不重写），再用替换后的文件身份写封面、歌词文件。只嵌入时不新建文件，歌曲旁已有的照样
+    /// 更新。存进缓存的歌词按落到哪个文件标来源。源只读或连不上时打开这一轮的熔断，后面的歌不再试。
     nonisolated static func performScrapedAssetWriteback(
         _ job: ScrapedAssetWriteback,
         sourceManager: SourceManager,
@@ -3190,9 +3292,15 @@ final class MusicScraperService {
             return result
         }
         var songForSidecar = song
-        if job.coverEmbeddingMode != .off, let coverData = job.coverData, !Task.isCancelled {
-            let embedded = await embedScrapedCover(
-                coverData, for: song, sourceManager: sourceManager, library: library
+        var lyricsEmbedded = false
+        let embedsCover = job.coverEmbeddingMode != .off && job.coverData != nil
+        let embedsLyrics = job.lyricsEmbeddingMode != .off && job.embeddedLyricsText != nil
+        if embedsCover || embedsLyrics, !Task.isCancelled {
+            let embedded = await embedScrapedAssets(
+                coverData: embedsCover ? job.coverData : nil,
+                lyricsText: embedsLyrics ? job.embeddedLyricsText : nil,
+                policy: job.embedPolicy,
+                for: song, sourceManager: sourceManager, library: library
             )
             if embedded.sourceUnavailable {
                 if await circuitBreaker.release(sourceID: song.sourceID, sourceUnavailable: true) {
@@ -3207,10 +3315,14 @@ final class MusicScraperService {
             } else if let written = embedded.updatedSong {
                 // 有的网盘替换后文件换了 ID，之后的旁路文件要跟着新文件走。
                 songForSidecar = written
-                result.record(.written)
+                if !embedded.unchanged {
+                    lyricsEmbedded = embedsLyrics
+                    result.record(.written)
+                }
             }
         }
 
+        var lyricsFileName: String?
         if job.coverData != nil || job.lyricsLines != nil {
             do {
                 let writeResult = try await writeSidecarWithTimeout(
@@ -3218,7 +3330,7 @@ final class MusicScraperService {
                     sourceManager: sourceManager,
                     for: songForSidecar,
                     coverData: job.coverData, lyricsLines: job.lyricsLines,
-                    createsLyricsFile: job.createsLyricsFile,
+                    createsLyricsFile: job.lyricsEmbeddingMode != .embedOnly,
                     createsCoverFile: job.coverEmbeddingMode != .embedOnly
                 )
                 if await circuitBreaker.release(sourceID: song.sourceID, sourceUnavailable: writeResult.sourceUnavailable) {
@@ -3237,6 +3349,9 @@ final class MusicScraperService {
                     if let coverData = job.coverData {
                         await MetadataAssetStore.shared.cacheCover(coverData, forSongID: song.id)
                     }
+                }
+                if writeResult.lyricsWritten {
+                    lyricsFileName = writeResult.verifiedLyricsWrite?.target.fileName
                 }
                 if writeResult.sourceUnavailable {
                     result.record(.failed(.unavailable), detail: writeResult.errors.first)
@@ -3269,7 +3384,98 @@ final class MusicScraperService {
             _ = await circuitBreaker.release(sourceID: song.sourceID, sourceUnavailable: false)
         }
 
+        // 存进了哪个文件,播放页的来源标签就照它写(#357)：歌词文件优先，只嵌入时标「内嵌」。
+        // 只在缓存还是这次刮到的那份时改：写回可能排了很久，期间用户改过歌词、选了别的版本就不动。
+        if let lines = job.lyricsLines, !Task.isCancelled {
+            let source: LyricsDocumentSource?
+            if let lyricsFileName {
+                source = .file(lyricsFileName)
+            } else if lyricsEmbedded {
+                source = .embedded
+            } else {
+                source = nil
+            }
+            if let source {
+                let stamped = source.stamped(lines)
+                let cached = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                    stamped, forSongID: song.id,
+                    expectedFingerprint: LyricsDocumentFingerprint(lines: lines),
+                    preservingSelection: true
+                )
+                plog("MusicScraperService: scraped lyrics source=\(lyricsFileName == nil ? "embedded" : "file") stamped=\(cached) song=\(song.id.prefix(12))")
+            }
+        }
         return result
+    }
+
+    struct EmbeddedAssetsOutcome: Sendable {
+        /// 文件此刻的身份（替换过就是替换后的）；没写成时为 nil。
+        var updatedSong: Song?
+        /// 文件里已有（只补缺失）或一样，什么都没替换。
+        var unchanged = false
+        var failure: ScrapeWritebackFailureReason?
+        var failureDetail: String?
+        var sourceUnavailable = false
+    }
+
+    /// 把刮到的封面和（或）歌词写进音频文件，一次整文件事务。要整首下载、改写、替换、回读，所以不套
+    /// 旁路文件的写入超时（半途取消可能停在替换阶段），也放进独立任务、不随刮削取消而中断。
+    /// 冲突判断按库里记的文件身份做，文件被别处改过时不覆盖；替换前按 `policy` 看文件里已有的。
+    /// 成功后把文件身份记回资料库。
+    nonisolated static func embedScrapedAssets(
+        coverData: Data?,
+        lyricsText: String?,
+        policy: EmbeddedAssetWritePolicy = .replace,
+        for song: Song,
+        sourceManager: SourceManager,
+        library: MusicLibrary
+    ) async -> EmbeddedAssetsOutcome {
+        var embeddableCover: Data?
+        if let coverData {
+            embeddableCover = SidecarWriteService.embeddableCoverData(coverData)
+            if embeddableCover == nil {
+                plog("⚠️ Embedded cover: scraped artwork for '\(song.title)' is not a decodable image")
+            }
+        }
+        guard embeddableCover != nil || lyricsText != nil else {
+            return EmbeddedAssetsOutcome(failure: coverData == nil ? nil : .other)
+        }
+        // 冲突判断按库里记的文件身份做，刮削手里的快照可能已经旧了（比如刚嵌入过歌词）。
+        let target = await MainActor.run { () -> Song in
+            var target = song
+            if let latest = library.storedSong(id: song.id) {
+                target.filePath = latest.filePath
+                target.fileSize = latest.fileSize
+                target.lastModified = latest.lastModified
+                target.revision = latest.revision
+            }
+            return target
+        }
+        let lyricsEdit: EmbeddedLyricsEdit = lyricsText.map { EmbeddedLyricsEdit.set($0) } ?? .keep
+        let cover = embeddableCover
+        let write = Task.detached(priority: .utility) {
+            try await sourceManager.writeEmbeddedAssets(coverData: cover, lyrics: lyricsEdit, policy: policy, for: target)
+        }
+        do {
+            let written = try await write.value
+            await MainActor.run {
+                library.flushPendingAssetReferencePatches()
+                guard var latest = library.storedSong(id: song.id) else { return }
+                latest.filePath = written.song.filePath
+                latest.fileSize = written.song.fileSize
+                latest.lastModified = written.song.lastModified
+                latest.revision = written.song.revision
+                library.replaceSong(latest)
+            }
+            return EmbeddedAssetsOutcome(updatedSong: written.song, unchanged: written.unchanged)
+        } catch {
+            plog("⚠️ Embedded scrape writeback failed for '\(song.title)' cover=\(cover != nil) lyrics=\(lyricsText != nil): \(error.localizedDescription)")
+            return EmbeddedAssetsOutcome(
+                failure: writebackFailureReason(for: error),
+                failureDetail: error.localizedDescription,
+                sourceUnavailable: isSourceUnavailableSidecarError(error)
+            )
+        }
     }
 
     /// 写回失败归到哪一类：只读或不可达、与文件现状冲突、超时、其他。

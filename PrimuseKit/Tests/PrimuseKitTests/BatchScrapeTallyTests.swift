@@ -156,6 +156,26 @@ struct BatchScrapeTallyTests {
         #expect(ScrapeWritebackSourcePolicy.writesBackCover(readFromFile: false))
     }
 
+    @Test func batchLyricsEmbeddingAsksOnceAndResumesNeverEmbedWithoutConsent() {
+        let embeds = BatchLyricsEmbeddingConsentPolicy.wouldEmbed(lyricsRequested: true, lyricsWritebackEnabled: true,
+                                                                  embeddingMode: .alongside)
+        #expect(embeds)
+        #expect(!BatchLyricsEmbeddingConsentPolicy.wouldEmbed(lyricsRequested: true, lyricsWritebackEnabled: false,
+                                                              embeddingMode: .embedOnly))
+        #expect(!BatchLyricsEmbeddingConsentPolicy.wouldEmbed(lyricsRequested: false, lyricsWritebackEnabled: true,
+                                                              embeddingMode: .embedOnly))
+        #expect(!BatchLyricsEmbeddingConsentPolicy.wouldEmbed(lyricsRequested: true, lyricsWritebackEnabled: true,
+                                                              embeddingMode: .off))
+        // 升级上来的用户没有「已知晓」标记：第一次一定问。
+        #expect(BatchLyricsEmbeddingConsentPolicy.needsConfirmation(wouldEmbed: true, acknowledged: false))
+        #expect(!BatchLyricsEmbeddingConsentPolicy.needsConfirmation(wouldEmbed: true, acknowledged: true))
+        #expect(!BatchLyricsEmbeddingConsentPolicy.needsConfirmation(wouldEmbed: false, acknowledged: false))
+        // 续跑按开始时的选择；旧断点没记时，没确认过就不嵌入。
+        #expect(!BatchLyricsEmbeddingConsentPolicy.resumedRunEmbeds(recordedChoice: nil, acknowledged: false))
+        #expect(BatchLyricsEmbeddingConsentPolicy.resumedRunEmbeds(recordedChoice: nil, acknowledged: true))
+        #expect(!BatchLyricsEmbeddingConsentPolicy.resumedRunEmbeds(recordedChoice: false, acknowledged: true))
+    }
+
     @Test func writebackWaitFollowsTheSlowestEmbed() {
         #expect(ScrapeWritebackWaitPolicy.stallLimit(sidecarTimeout: 30, longestObservedWrite: 0) == 180)
         #expect(ScrapeWritebackWaitPolicy.stallLimit(sidecarTimeout: 120, longestObservedWrite: 10) == 480)

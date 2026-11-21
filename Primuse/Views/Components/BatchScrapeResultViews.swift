@@ -1,9 +1,15 @@
 import PrimuseKit
 import SwiftUI
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 extension View {
     /// 批量刮削（整库、专辑、艺人、多选）做完时的提示条。歌单发起的由歌单页自己说，这里不重复；
-    /// 有没完成的歌时提示条带「查看」，点开列出是哪几首、哪一部分、为什么。挂在根视图上，全 App 一份。
+    /// 有没完成的歌时提示条带「查看」，点开列出是哪几首、哪一部分、为什么。开始前要把歌词写进音频
+    /// 文件时的确认也由这里弹（用系统弹框，盖得住设置页这类弹出层）。挂在根视图上，全 App 一份。
     func batchScrapeCompletionFeedback() -> some View {
         modifier(BatchScrapeCompletionFeedbackModifier())
     }
@@ -49,6 +55,14 @@ private struct BatchScrapeCompletionFeedbackModifier: ViewModifier {
         content
             .onChange(of: scraperService.completionRevision) { _, _ in
                 present()
+            }
+            .onChange(of: scraperService.pendingLyricsEmbeddingConfirmation?.id, initial: true) { _, _ in
+                if let confirmation = scraperService.pendingLyricsEmbeddingConfirmation {
+                    let service = scraperService
+                    BatchLyricsEmbeddingConfirmationPresenter.present(confirmation) { choice in
+                        service.resolveLyricsEmbeddingConfirmation(choice)
+                    }
+                }
             }
             .batchScrapeResultSheet($report)
     }
@@ -163,4 +177,82 @@ private struct BatchScrapeFailureRow: View {
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
     }
+}
+
+/// 批量刮削开始前「会把歌词写进音频文件」的确认。用系统弹框：设置页、专辑页这些入口可能在弹出层里，
+/// 挂在根视图上的 SwiftUI 弹框盖不住它们。找不到能弹的地方时按「这次不写进音频文件」继续，不悄悄嵌入。
+@MainActor
+enum BatchLyricsEmbeddingConfirmationPresenter {
+    static func present(
+        _ confirmation: MusicScraperService.LyricsEmbeddingConfirmation,
+        resolve: @escaping @MainActor @Sendable (MusicScraperService.LyricsEmbeddingChoice) -> Void
+    ) {
+        let title = String(localized: "scrape_tally_embed_confirm_title")
+        let message = String(format: String(localized: "scrape_tally_embed_confirm_message_format"), confirmation.songCount)
+        let embedTitle = String(localized: "scrape_tally_embed_confirm_embed")
+        let skipTitle = String(localized: "scrape_tally_embed_confirm_skip")
+        let cancelTitle = String(localized: "cancel")
+        #if os(iOS)
+        guard let presenter = topMostViewController() else {
+            plog("BatchLyricsEmbeddingConfirmation: no presenter, continuing without embedding lyrics")
+            resolve(.skipEmbedding)
+            return
+        }
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: embedTitle, style: .default) { _ in
+            Task { @MainActor in resolve(.embed) }
+        })
+        alert.addAction(UIAlertAction(title: skipTitle, style: .default) { _ in
+            Task { @MainActor in resolve(.skipEmbedding) }
+        })
+        alert.addAction(UIAlertAction(title: cancelTitle, style: .cancel) { _ in
+            Task { @MainActor in resolve(.cancel) }
+        })
+        presenter.present(alert, animated: true)
+        #elseif os(macOS)
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: embedTitle)
+        alert.addButton(withTitle: skipTitle)
+        alert.addButton(withTitle: cancelTitle)
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+        let handle: (NSApplication.ModalResponse) -> Void = { response in
+            switch response {
+            case .alertFirstButtonReturn: resolve(.embed)
+            case .alertSecondButtonReturn: resolve(.skipEmbedding)
+            default: resolve(.cancel)
+            }
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window) { response in
+                MainActor.assumeIsolated { handle(response) }
+            }
+        } else {
+            handle(alert.runModal())
+        }
+        #endif
+    }
+
+    #if os(iOS)
+    private static func topMostViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let ordered = scenes.sorted { lhs, rhs in
+            (lhs.activationState == .foregroundActive ? 0 : 1) < (rhs.activationState == .foregroundActive ? 0 : 1)
+        }
+        var window: UIWindow?
+        for scene in ordered {
+            if let candidate = scene.keyWindow ?? scene.windows.first(where: \.isKeyWindow) ?? scene.windows.first {
+                window = candidate
+                break
+            }
+        }
+        guard var top = window?.rootViewController else { return nil }
+        while let presented = top.presentedViewController, !presented.isBeingDismissed {
+            top = presented
+        }
+        return top.viewIfLoaded?.window == nil ? nil : top
+    }
+    #endif
 }

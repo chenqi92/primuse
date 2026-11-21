@@ -2226,6 +2226,17 @@ extension RoutedConnectorProxy {
         }
     }
 
+    func writeEmbeddedAssets(
+        original: Song,
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit,
+        policy: EmbeddedAssetWritePolicy
+    ) async throws -> EmbeddedMetadataWritebackResult {
+        try await routing.withMutation {
+            try await $0.writeEmbeddedAssets(original: original, coverData: coverData, lyrics: lyrics, policy: policy)
+        }
+    }
+
     func deleteFile(at path: String) async throws {
         try await routing.withMutation { try await $0.deleteFile(at: path) }
     }
@@ -16515,6 +16526,22 @@ final class SourceManager {
         return updated
     }
 
+    /// 刮削的封面和歌词一起写进音频文件：一次下载、改写、替换、回读，远程源不用整首传两遍。
+    /// `coverData` 为 nil 时封面不动，`lyrics` 为 `.keep` 时歌词不动；替换前按 `policy` 看文件里
+    /// 已有的。返回文件此刻的身份，`unchanged` 为真表示没有替换文件。
+    func writeEmbeddedAssets(
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit,
+        policy: EmbeddedAssetWritePolicy,
+        for song: Song
+    ) async throws -> (song: Song, unchanged: Bool) {
+        let outcome = try await replaceEmbeddedAssetsReporting(
+            of: song, coverData: coverData, lyrics: lyrics, policy: policy
+        )
+        plog("Embedded assets writeback completed for songID=\(song.id) coverBytes=\(coverData?.count ?? 0) lyrics=\(lyrics.logName) unchanged=\(outcome.unchanged)")
+        return outcome
+    }
+
     /// Stores or removes the comment inside the audio file and leaves every
     /// other tag alone. Returns the song with the replaced file's identity.
     func writeEmbeddedComment(_ comment: EmbeddedLyricsEdit, for song: Song) async throws -> Song {
@@ -16542,13 +16569,32 @@ final class SourceManager {
         lyrics: EmbeddedLyricsEdit,
         comment: EmbeddedLyricsEdit = .keep
     ) async throws -> Song {
+        try await replaceEmbeddedAssetsReporting(
+            of: song, coverData: coverData, lyrics: lyrics, comment: comment, policy: nil
+        ).song
+    }
+
+    private func replaceEmbeddedAssetsReporting(
+        of song: Song,
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit,
+        comment: EmbeddedLyricsEdit = .keep,
+        policy: EmbeddedAssetWritePolicy?
+    ) async throws -> (song: Song, unchanged: Bool) {
         let connector = try await connectorForSong(song)
         // The file may already have reached the replace stage when a later
         // step fails, so cached bytes are dropped in either outcome.
         defer { deleteAudioCache(for: song) }
         do {
             let result: EmbeddedMetadataWritebackResult
-            if comment == .keep {
+            if comment == .keep, let policy {
+                result = try await connector.writeEmbeddedAssets(
+                    original: song,
+                    coverData: coverData,
+                    lyrics: lyrics,
+                    policy: policy
+                )
+            } else if comment == .keep {
                 result = try await connector.writeEmbeddedMetadata(
                     original: song,
                     updated: song,
@@ -16568,7 +16614,7 @@ final class SourceManager {
                 deleteAudioCache(for: song)
                 try await persistReplacementLocation(from: song, to: updated, using: connector)
             }
-            return updated
+            return (updated, result.assetsUnchanged)
         } catch let error as EmbeddedMetadataReplacementReadbackError {
             var relocated = song
             relocated.filePath = error.filePath
