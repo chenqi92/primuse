@@ -122,7 +122,8 @@ struct MotionCoverEditorView<Preview: View>: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityPlayAnimatedImages) private var playAnimatedImages
-    @State private var controller = MotionCoverImportController()
+    /// 导入不挂在这一页上: 选好视频后退出编辑页也照样规整完、设上; 再打开看到的是同一份进度。
+    private var controller: MotionCoverImportController { .shared(for: owner) }
     @State private var isFileImporterPresented = false
     @State private var photoItem: PhotosPickerItem?
 
@@ -255,7 +256,6 @@ struct MotionCoverEditorView<Preview: View>: View {
         } message: {
             Text(controller.errorMessage ?? "")
         }
-        .onDisappear { controller.cancel() }
         #if DEBUG
         .task {
             // 取证:`PRIMUSE_DEBUG_MOTION_COVER_IMPORT=<Documents 里的文件名>` 打开编辑页后直接导入这个文件,
@@ -309,6 +309,17 @@ struct MotionCoverEditorView<Preview: View>: View {
 @MainActor
 @Observable
 final class MotionCoverImportController {
+    /// 一首歌或一张专辑一份。用户选好就是要设上，退出编辑页不取消；只有处理卡片上的
+    /// 「取消」会停。导入失败的提示留到下次打开这一页时给。
+    private static var controllers: [MotionCoverOwner: MotionCoverImportController] = [:]
+
+    static func shared(for owner: MotionCoverOwner) -> MotionCoverImportController {
+        if let controller = controllers[owner] { return controller }
+        let controller = MotionCoverImportController()
+        controllers[owner] = controller
+        return controller
+    }
+
     private(set) var isProcessing = false
     private(set) var progress: Double = 0
     var errorMessage: String?
