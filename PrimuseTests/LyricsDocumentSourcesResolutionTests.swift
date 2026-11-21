@@ -584,3 +584,188 @@ private actor LyricsDocumentFixtureConnector: MusicSourceConnector {
         .init { $0.finish() }
     }
 }
+
+/// 用户保存的那一份就是这首歌正在用的版本：按设置重挑内嵌原文、重读标签都换不掉它，
+/// 被替换下来的旧版本也不再作为多出来的一份留在来源列表里。
+@MainActor
+final class LyricsUserVersionTests: XCTestCase {
+    private func song() -> Song {
+        Song(id: "user-version-\(UUID().uuidString)", title: "Fixture", fileFormat: .flac,
+             filePath: "/Fixture.flac", sourceID: "user-version-test", fileSize: 1)
+    }
+
+    private func embedded(_ text: String) -> [LyricLine] {
+        LyricsDocumentSource.embedded.stamped(LyricsContentParser.parseText(text))
+    }
+
+    func testSavedVersionSurvivesReselectionAndTagRereads() async throws {
+        let song = song()
+        let store = MetadataAssetStore.shared
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [song.id]) }
+        let old = "[00:01.00]Old version one\n[00:02.00]Old version two"
+        let other = "[00:01.00]Other version"
+        let oldLines = embedded(old)
+        let seeded = await store.cacheLyrics(oldLines, forSongID: song.id, force: true)
+        XCTAssertTrue(seeded)
+        await store.storeEmbeddedLyricsAlternatives(
+            .init(variants: [.init(text: other), .init(text: old)]), forSongID: song.id
+        )
+
+        let savedLines = embedded("[00:01.00]Saved one\n[00:02.00]Saved two\n[00:03.00]Saved three")
+        let saved = await store.cacheLyrics(
+            savedLines, forSongID: song.id, force: true, origin: .user, previousVersion: .forget
+        )
+        XCTAssertTrue(saved)
+        let pinned = await store.isUserPinned(forSongID: song.id)
+        XCTAssertTrue(pinned)
+
+        let reselected = await LyricsLoader.reselectedEmbeddedVariant(for: song, cached: savedLines)
+        XCTAssertNil(reselected)
+        let reread = await store.cacheLyrics(embedded(other), forSongID: song.id)
+        XCTAssertFalse(reread)
+        let current = await store.cachedLyrics(forSongID: song.id)
+        let variantSwap = await store.replaceLyricsIfUnchanged(
+            embedded(other), forSongID: song.id,
+            expectedFingerprint: current.map(LyricsDocumentFingerprint.init(lines:)),
+            force: true, preservingSelection: true
+        )
+        XCTAssertFalse(variantSwap)
+
+        let loaded = await LyricsLoader.load(
+            for: song, sourceManager: SourceManager(sourcesProvider: { [] }),
+            allowsAutomaticOnlineLyrics: false
+        )
+        XCTAssertEqual(loaded.map(\.text), savedLines.map(\.text))
+
+        let candidates = await store.lyricsSourceCollection(forSongID: song.id).candidates
+        XCTAssertFalse(candidates.contains { $0.lines.map(\.text) == oldLines.map(\.text) })
+        XCTAssertTrue(candidates.contains { $0.lines.map(\.text) == savedLines.map(\.text) })
+    }
+
+    func testSaveRecoversWhenAnAutomaticPathChangedTheCache() async throws {
+        let song = song()
+        let store = MetadataAssetStore.shared
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [song.id]) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        library.addSongs([song])
+        let manager = SourceManager(sourcesProvider: { [] })
+        let seeded = await store.cacheLyrics(embedded("[00:01.00]Opened"), forSongID: song.id, force: true)
+        XCTAssertTrue(seeded)
+        let openedLines = await store.cachedLyrics(forSongID: song.id)
+        let snapshot = LyricsDocumentFingerprint(lines: try XCTUnwrap(openedLines))
+        // The priority setting re-picks another embedded original while the editor is open.
+        let repicked = await store.replaceLyricsIfUnchanged(
+            embedded("[00:01.00]Re-picked"), forSongID: song.id,
+            expectedFingerprint: snapshot, force: true, preservingSelection: true
+        )
+        XCTAssertTrue(repicked)
+
+        let outcome = await LyricsWriteback.save(
+            text: "[00:01.00]Draft", for: song, mode: .localOnly(reason: nil), allowRemoval: false,
+            cacheSnapshot: snapshot, sourceManager: manager, library: library
+        )
+        XCTAssertTrue(outcome.succeeded, outcome.errorMessage ?? "")
+        let cached = await store.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(cached?.map(\.text), ["Draft"])
+    }
+
+    func testSaveAsksBeforeOverwritingAVersionSavedElsewhere() async throws {
+        let song = song()
+        let store = MetadataAssetStore.shared
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [song.id]) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        library.addSongs([song])
+        let manager = SourceManager(sourcesProvider: { [] })
+        let seeded = await store.cacheLyrics(embedded("[00:01.00]Opened"), forSongID: song.id, force: true)
+        XCTAssertTrue(seeded)
+        let openedLines = await store.cachedLyrics(forSongID: song.id)
+        let snapshot = LyricsDocumentFingerprint(lines: try XCTUnwrap(openedLines))
+        let elsewhere = await store.cacheLyrics(
+            embedded("[00:01.00]Saved in another window"), forSongID: song.id, force: true, origin: .user
+        )
+        XCTAssertTrue(elsewhere)
+
+        let first = await LyricsWriteback.save(
+            text: "[00:01.00]Draft", for: song, mode: .localOnly(reason: nil), allowRemoval: false,
+            cacheSnapshot: snapshot, sourceManager: manager, library: library
+        )
+        XCTAssertFalse(first.succeeded)
+        XCTAssertEqual(first.errorMessage, String(localized: "lyrics_version_changed_elsewhere"))
+        let kept = await store.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(kept?.map(\.text), ["Saved in another window"])
+
+        // Saving the same draft again is the listener choosing to overwrite.
+        let second = await LyricsWriteback.save(
+            text: "[00:01.00]Draft", for: song, mode: .localOnly(reason: nil), allowRemoval: false,
+            cacheSnapshot: snapshot, sourceManager: manager, library: library
+        )
+        XCTAssertTrue(second.succeeded, second.errorMessage ?? "")
+        let replaced = await store.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(replaced?.map(\.text), ["Draft"])
+    }
+
+    func testSavingAsANewVersionKeepsTheOldOneSelectable() async throws {
+        let song = song()
+        let store = MetadataAssetStore.shared
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [song.id]) }
+        let oldLines = embedded("[00:01.00]Before")
+        let newLines = embedded("[00:01.00]After")
+        let seeded = await store.cacheLyrics(oldLines, forSongID: song.id, force: true)
+        XCTAssertTrue(seeded)
+        let saved = await store.cacheLyrics(
+            newLines, forSongID: song.id, force: true, origin: .user, previousVersion: .keep
+        )
+        XCTAssertTrue(saved)
+        let sources = await store.lyricsSourceCollection(forSongID: song.id)
+        let kept = try XCTUnwrap(sources.candidates.first { $0.lines.map(\.text) == ["Before"] })
+        XCTAssertTrue(sources.isKept(kept.id))
+        XCTAssertTrue(sources.candidates.contains { $0.lines.map(\.text) == ["After"] })
+        let current = await store.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(current?.map(\.text), ["After"])
+    }
+
+    func testEmbeddedRecordsFollowTheReplacedVersion() async throws {
+        let song = song()
+        let store = MetadataAssetStore.shared
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [song.id]) }
+        let other = "[00:01.00]Other version"
+        let old = "[00:01.00]Old version"
+        let saved = "[00:01.00]Saved version\n[00:02.00]Saved two"
+        await store.storeEmbeddedLyricsAlternatives(
+            .init(variants: [.init(text: other), .init(text: old)]), forSongID: song.id
+        )
+        await store.storeEmbeddedFallbackLyrics(embedded(old), forSongID: song.id)
+
+        // A timestamp spelled differently is another version: nothing is matched, the records are dropped.
+        await store.updateEmbeddedLyricsRecords(
+            forSongID: song.id, result: .replacedField, anchor: "[00:01.000]Old version", text: saved
+        )
+        let dropped = await store.embeddedLyricsAlternatives(forSongID: song.id)
+        XCTAssertNil(dropped)
+
+        await store.storeEmbeddedLyricsAlternatives(
+            .init(variants: [.init(text: other), .init(text: old)]), forSongID: song.id
+        )
+        await store.storeEmbeddedFallbackLyrics(embedded(old), forSongID: song.id)
+        await store.updateEmbeddedLyricsRecords(forSongID: song.id, result: .replacedField, anchor: old, text: saved)
+        let alternatives = await store.embeddedLyricsAlternatives(forSongID: song.id)
+        XCTAssertEqual(alternatives?.variants.map(\.text), [saved, other])
+        XCTAssertEqual(alternatives?.inUseText, saved)
+        let fallback = await store.embeddedFallbackLyrics(forSongID: song.id)
+        XCTAssertEqual(fallback?.map(\.text), ["Saved version", "Saved two"])
+
+        // The other version is deleted from the file: only one original is left, nothing to choose from.
+        await store.updateEmbeddedLyricsRecords(forSongID: song.id, result: .removedField, anchor: other, text: nil)
+        let remaining = await store.embeddedLyricsAlternatives(forSongID: song.id)
+        XCTAssertNil(remaining)
+
+        // Only the default field written: the records no longer describe the file.
+        await store.updateEmbeddedLyricsRecords(forSongID: song.id, result: .wroteDefaultField, anchor: nil, text: saved)
+        let gone = await store.embeddedFallbackLyrics(forSongID: song.id)
+        XCTAssertNil(gone)
+    }
+}

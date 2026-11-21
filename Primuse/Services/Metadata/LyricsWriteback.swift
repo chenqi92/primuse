@@ -720,6 +720,21 @@ enum LyricsWriteback {
         /// Only a definite rejected write, before remote verification, can
         /// enter the existing local-override transaction.
         var allowsLocalFallback = false
+        /// 存成功了，但有一句需要用户知道的话（比如文件里的歌词删不掉，只在 Primuse 里隐藏了）。
+        /// 取值见 `lyrics_version_hidden_in_primuse`、`lyrics_version_sidecar_deleted_embedded_hidden`、
+        /// `lyrics_version_embedded_remaining`。
+        var notice: String?
+        /// 歌词在别处有更新，这次没有覆盖。界面可以给两个选择：再存一次（用草稿覆盖），或者只存在本机。
+        var changedElsewhere = false
+        /// 编辑器手里的快照在哪一步对不上了。只在这里决定能不能拿新快照重试。
+        var staleSnapshot: StaleSnapshot?
+
+        enum StaleSnapshot: String, Equatable {
+            /// 源里的歌词（歌词文件、服务器）和打开编辑器时不一样了。
+            case source
+            /// 本机歌词缓存和打开编辑器时不一样了。
+            case cache
+        }
 
         var succeeded: Bool { errorMessage == nil }
 
@@ -754,23 +769,57 @@ enum LyricsWriteback {
         guard !Task.isCancelled else { return cancelledSave(for: song, mode: mode) }
         let mutationKey = mutationKey(for: song, mode: mode)
         await mutationGate.acquire(mutationKey)
+        let previousVersion: LyricsPreviousVersionHandling = newVersionRequests.contains(song.id)
+            ? .keep
+            : .forget
+        let draft = draftIdentity(text: text, structuredLines: structuredLines)
+        var effectiveMode = mode
+        var effectiveSourceSnapshot = sourceSnapshot
+        var effectiveCacheSnapshot = cacheSnapshot
+        if let confirmed = confirmedOverwrites.removeValue(forKey: song.id), confirmed.draft == draft {
+            // 用户看过「歌词在别处有更新」又点了一次保存：用那时重新读到的快照，草稿覆盖新的那份。
+            plog("📝 lyrics save overwrites the newer version songID=\(song.id.prefix(8))")
+            effectiveMode = confirmed.mode
+            effectiveSourceSnapshot = confirmed.sourceSnapshot
+            effectiveCacheSnapshot = confirmed.cacheSnapshot
+        }
         var outcome = await performSave(
             text: text,
             for: song,
-            mode: mode,
+            mode: effectiveMode,
             allowRemoval: allowRemoval,
             structuredLines: structuredLines,
-            sourceSnapshot: sourceSnapshot,
-            cacheSnapshot: cacheSnapshot,
+            sourceSnapshot: effectiveSourceSnapshot,
+            cacheSnapshot: effectiveCacheSnapshot,
+            previousVersion: previousVersion,
+            embeddedAnchor: embeddedAnchor,
             sourceManager: sourceManager,
             library: library
         )
+        if let stale = outcome.staleSnapshot, !Task.isCancelled {
+            outcome = await recoverFromStaleSnapshot(
+                stale,
+                failure: outcome,
+                draft: draft,
+                text: text,
+                for: song,
+                mode: effectiveMode,
+                allowRemoval: allowRemoval,
+                structuredLines: structuredLines,
+                previousVersion: previousVersion,
+                embeddedAnchor: embeddedAnchor,
+                sourceManager: sourceManager,
+                library: library
+            )
+        }
         if outcome.allowsLocalFallback, !normalized(text).isEmpty, !Task.isCancelled {
             outcome = await performSave(
                 text: text, for: song,
                 mode: .localOnly(reason: MetadataWriteFailurePolicy.localSaveNotice),
                 allowRemoval: false, structuredLines: structuredLines,
-                sourceSnapshot: sourceSnapshot, cacheSnapshot: cacheSnapshot,
+                sourceSnapshot: effectiveSourceSnapshot, cacheSnapshot: effectiveCacheSnapshot,
+                previousVersion: previousVersion,
+                embeddedAnchor: nil,
                 sourceManager: sourceManager, library: library
             )
         }
@@ -779,6 +828,139 @@ enum LyricsWriteback {
            LyricsDocumentSource.of(structuredLines)?.kind == .transcript {
             await MetadataAssetStore.shared.rememberLyricsCandidate(structuredLines, forSongID: song.id)
         }
+        return outcome
+    }
+
+    // MARK: - 另存为新版本、快照过期后的重试
+
+    /// 编辑器「另存为新版本」：下一次保存这首歌时，被换下来的旧版本留在来源列表里。保存成功后作废。
+    private static var newVersionRequests: Set<String> = []
+
+    static func requestNewVersion(forSongID songID: String) {
+        newVersionRequests.insert(songID)
+    }
+
+    static func cancelNewVersionRequest(forSongID songID: String) {
+        newVersionRequests.remove(songID)
+    }
+
+    private struct ConfirmedOverwrite {
+        let draft: String
+        let mode: Mode
+        let sourceSnapshot: EditableSourceSnapshot
+        let cacheSnapshot: LyricsDocumentFingerprint?
+    }
+
+    /// 告诉过用户「歌词在别处有更新」的那几首：同一份草稿再保存一次，就按那时重新读到的快照覆盖。
+    private static var confirmedOverwrites: [String: ConfirmedOverwrite] = [:]
+
+    private static func draftIdentity(text: String, structuredLines: [LyricLine]?) -> String {
+        normalized(text) + "\u{1F}" + (structuredLines.map { LyricsDocumentFingerprint(lines: $0).rawValue } ?? "")
+    }
+
+    /// 编辑器打开后缓存或源变了。重新读一遍源和缓存：
+    /// - 只是自动路径动了缓存（按设置重挑内嵌原文、核对歌词文件、后台补全），或者别处存进去的正好就是
+    ///   这份草稿：拿新快照直接再存一次，用户看不出来。要换掉的内嵌原文仍是编辑器打开时定位的那一份。
+    /// - 源里的歌词被改过、缓存是用户在别处保存的另一份、或者重新探测出源和本机有冲突：不覆盖，告诉用户
+    ///   「歌词在别处有更新」，草稿留在编辑器里。用户再点一次保存就用草稿覆盖；界面也可以给「只存在本机」。
+    private static func recoverFromStaleSnapshot(
+        _ stale: SaveOutcome.StaleSnapshot,
+        failure: SaveOutcome,
+        draft: String,
+        text: String,
+        for song: Song,
+        mode: Mode,
+        allowRemoval: Bool,
+        structuredLines: [LyricLine]?,
+        previousVersion: LyricsPreviousVersionHandling,
+        embeddedAnchor: EmbeddedAnchor?,
+        sourceManager: SourceManager,
+        library: MusicLibrary
+    ) async -> SaveOutcome {
+        let fresh = await loadEditablePayload(for: song, sourceManager: sourceManager)
+        guard !Task.isCancelled else { return failure }
+        let modes = await refreshedModes(
+            for: song,
+            original: mode,
+            hasSourceConflict: fresh.hasSourceConflict,
+            sourceManager: sourceManager
+        )
+        guard let overwriteMode = modes.overwrite else { return failure }
+        let changedByUser: Bool
+        switch stale {
+        case .source:
+            changedByUser = true
+        case .cache:
+            changedByUser = await MetadataAssetStore.shared.isUserPinned(forSongID: song.id)
+        }
+        let alreadySaved = normalized(fresh.text) == normalized(text)
+        func changedElsewhere(from outcome: SaveOutcome) -> SaveOutcome {
+            confirmedOverwrites[song.id] = ConfirmedOverwrite(
+                draft: draft,
+                mode: overwriteMode,
+                sourceSnapshot: fresh.sourceSnapshot,
+                cacheSnapshot: fresh.cacheSnapshot
+            )
+            plog("📝 lyrics save found a newer version songID=\(song.id.prefix(8)) stale=\(stale.rawValue)")
+            var result = outcome
+            result.staleSnapshot = nil
+            result.changedElsewhere = true
+            result.errorMessage = String(localized: "lyrics_version_changed_elsewhere")
+            return result
+        }
+        guard let retryMode = modes.retry, !(changedByUser && !alreadySaved) else {
+            return changedElsewhere(from: failure)
+        }
+        plog("📝 lyrics save retries with a fresh snapshot songID=\(song.id.prefix(8)) stale=\(stale.rawValue)")
+        let retried = await performSave(
+            text: text,
+            for: song,
+            mode: retryMode,
+            allowRemoval: allowRemoval,
+            structuredLines: structuredLines,
+            sourceSnapshot: fresh.sourceSnapshot,
+            cacheSnapshot: fresh.cacheSnapshot,
+            previousVersion: previousVersion,
+            embeddedAnchor: embeddedAnchor,
+            sourceManager: sourceManager,
+            library: library
+        )
+        // 重读之后又被抢先了一次：不再自己重试，交给用户。
+        return retried.staleSnapshot == nil ? retried : changedElsewhere(from: retried)
+    }
+
+    /// 重试用的写回目标。歌词文件可能换了（别处新建、删掉了一份），要重新探一次。
+    /// - `retry`：可以直接再存一次的去处；探出来不再是写歌词文件、或者源和本机有冲突时为 nil。
+    /// - `overwrite`：用户确认「用草稿覆盖」时用的去处（不套冲突保护）；源已经写不了时为 nil。
+    private static func refreshedModes(
+        for song: Song,
+        original: Mode,
+        hasSourceConflict: Bool,
+        sourceManager: SourceManager
+    ) async -> (retry: Mode?, overwrite: Mode?) {
+        guard case .sidecar = original else { return (original, original) }
+        let resolved = await resolveMode(
+            for: song,
+            sourceManager: sourceManager,
+            sourcesStore: AppServices.shared.sourcesStore
+        )
+        guard case .sidecar = resolved else { return (nil, nil) }
+        let protected = resolved.protectingSourceConflict(hasSourceConflict)
+        if case .sidecar = protected { return (protected, protected) }
+        return (nil, resolved)
+    }
+
+    private static func staleFailure(
+        for song: Song,
+        persistence: SaveOutcome.Persistence,
+        _ kind: SaveOutcome.StaleSnapshot
+    ) -> SaveOutcome {
+        var outcome = SaveOutcome(
+            updatedSong: song,
+            errorMessage: String(localized: "tag_editor_lyrics_verify_failed"),
+            persistence: persistence
+        )
+        outcome.staleSnapshot = kind
         return outcome
     }
 
@@ -809,6 +991,8 @@ enum LyricsWriteback {
         structuredLines: [LyricLine]?,
         sourceSnapshot: EditableSourceSnapshot,
         cacheSnapshot: LyricsDocumentFingerprint?,
+        previousVersion: LyricsPreviousVersionHandling,
+        embeddedAnchor: EmbeddedAnchor?,
         sourceManager: SourceManager,
         library: MusicLibrary
     ) async -> SaveOutcome {
@@ -869,11 +1053,7 @@ enum LyricsWriteback {
                 mode: mode,
                 sourceManager: sourceManager
             ) else {
-                return SaveOutcome(
-                    updatedSong: song,
-                    errorMessage: String(localized: "tag_editor_lyrics_verify_failed"),
-                    persistence: requestedPersistence
-                )
+                return staleFailure(for: song, persistence: requestedPersistence, .source)
             }
             let externalMutationToken: UUID?
             guard !Task.isCancelled else { return cancelledSave(for: song, mode: mode) }
@@ -884,11 +1064,7 @@ enum LyricsWriteback {
                     expectedFingerprint: cacheSnapshot
                 )
                 guard externalMutationToken != nil else {
-                    return SaveOutcome(
-                        updatedSong: song,
-                        errorMessage: String(localized: "tag_editor_lyrics_verify_failed"),
-                        persistence: requestedPersistence
-                    )
+                    return staleFailure(for: song, persistence: requestedPersistence, .cache)
                 }
             case .checking, .localOnly, .unavailable, .temporarilyUnavailable:
                 externalMutationToken = nil
@@ -904,12 +1080,14 @@ enum LyricsWriteback {
             }
             let removalError: String?
             if removesEmbeddedLyrics {
-                embeddedCopy = await writeEmbeddedCopy(
-                    .remove,
+                // 清空：删掉文件里全部原文字段（译文保留），读回来确认；删不掉的如实说。
+                let write = await writeEmbeddedField(
+                    .removeAllOriginals,
                     for: updated,
                     sourceManager: sourceManager,
                     library: library
                 )
+                embeddedCopy = write.copy
                 removalError = embeddedCopy.failureReason
                 savedPersistence = .embedded
             } else {
@@ -945,6 +1123,9 @@ enum LyricsWriteback {
             }
             guard cacheRemoved else {
                 recordReplacedAudioFile(embeddedCopy, songID: song.id, library: library)
+                if externalMutationToken == nil {
+                    return staleFailure(for: song, persistence: requestedPersistence, .cache)
+                }
                 return SaveOutcome(
                     updatedSong: song,
                     errorMessage: String(localized: "tag_editor_lyrics_verify_failed"),
@@ -1005,11 +1186,7 @@ enum LyricsWriteback {
                 mode: mode,
                 sourceManager: sourceManager
             ) else {
-                return SaveOutcome(
-                    updatedSong: song,
-                    errorMessage: String(localized: "tag_editor_lyrics_verify_failed"),
-                    persistence: requestedPersistence
-                )
+                return staleFailure(for: song, persistence: requestedPersistence, .source)
             }
             guard !Task.isCancelled else { return cancelledSave(for: song, mode: mode) }
             var writebackLines = staysLocal
@@ -1048,6 +1225,12 @@ enum LyricsWriteback {
                     writebackLines = LyricsDocumentSource.file(target.fileName).stamped(writebackLines)
                 }
             }
+            // 要换掉的那一份内嵌原文已经在编辑器打开时定位好了；写进去的格式跟着它（逐字的写逐字、TTML 写 TTML）。
+            let embedText = Self.embeddedText(for: writebackLines, anchor: embeddedAnchor)
+            let replaceOperation = EmbeddedLyricsFieldEditor.Operation.replace(
+                text: embedText,
+                anchor: embeddedAnchor?.text
+            )
             var externalMutationToken: UUID?
             if !staysLocal {
                 externalMutationToken = await MetadataAssetStore.shared.beginLyricsMutation(
@@ -1055,11 +1238,7 @@ enum LyricsWriteback {
                     expectedFingerprint: cacheSnapshot
                 )
                 guard externalMutationToken != nil else {
-                    return SaveOutcome(
-                        updatedSong: song,
-                        errorMessage: String(localized: "tag_editor_lyrics_verify_failed"),
-                        persistence: requestedPersistence
-                    )
+                    return staleFailure(for: song, persistence: requestedPersistence, .cache)
                 }
                 if Task.isCancelled {
                     if let externalMutationToken {
@@ -1074,14 +1253,23 @@ enum LyricsWriteback {
                 // even if the presenting view has since been dismissed.
                 let writeError: WriteFailure?
                 if skipsLyricsFile {
-                    embeddedCopy = await writeEmbeddedCopy(
-                        .set(embeddedCopyContent(writebackLines)),
+                    let write = await writeEmbeddedField(
+                        replaceOperation,
                         for: updated,
                         sourceManager: sourceManager,
                         library: library
                     )
+                    embeddedCopy = write.copy
                     writeError = embeddedCopy.failureReason.map {
                         WriteFailure($0, allowsLocalSave: embeddedCopy.allowsLocalSave)
+                    }
+                    if case .written = embeddedCopy, case .done(let result, _)? = write.report {
+                        await MetadataAssetStore.shared.updateEmbeddedLyricsRecords(
+                            forSongID: song.id,
+                            result: result,
+                            anchor: embeddedAnchor?.text,
+                            text: embedText
+                        )
                     }
                 } else {
                     writeError = await write(
@@ -1115,18 +1303,24 @@ enum LyricsWriteback {
                     return failure
                 }
             }
+            // 用户保存的这一份就是这首歌正在用的版本，自动路径从此不能把它换掉；
+            // 被替换下来的旧版本不再留在来源候选里（另存为新版本时留着）。
             let cacheStored: Bool
             if let externalMutationToken {
                 cacheStored = await MetadataAssetStore.shared.commitLyricsMutation(
                     writebackLines,
                     forSongID: song.id,
-                    token: externalMutationToken
+                    token: externalMutationToken,
+                    origin: .user,
+                    previousVersion: previousVersion
                 )
             } else {
                 cacheStored = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                     writebackLines,
                     forSongID: song.id,
-                    expectedFingerprint: cacheSnapshot
+                    expectedFingerprint: cacheSnapshot,
+                    origin: .user,
+                    previousVersion: previousVersion
                 )
             }
             if !staysLocal, !skipsLyricsFile, case .sidecar(let target) = mode {
@@ -1135,13 +1329,34 @@ enum LyricsWriteback {
                 LyricsDocumentPinStore.shared.followSave(toFileName: target.fileName, forSongID: song.id)
             }
             if cacheStored {
-                savedCacheSnapshot = LyricsDocumentFingerprint(lines: writebackLines)
+                // 按读回来的那份记：缓存读出来时会规整一遍，下次保存比的是读回来的指纹。
+                savedCacheSnapshot = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+                    .map(LyricsDocumentFingerprint.init(lines:))
+                    ?? LyricsDocumentFingerprint(lines: writebackLines)
+                // 记下写进源的那份：之后从源读回它不算「别处更新」，读到别的才会换掉用户保存的这份。
+                if !staysLocal {
+                    let sourceLines: [LyricLine]
+                    if skipsLyricsFile {
+                        sourceLines = LyricsContentParser.parseText(embedText)
+                    } else if case .sidecar(let target) = mode {
+                        sourceLines = LyricsParser.parseDocument(
+                            persistenceContent(validation.normalizedContent, lines: writebackLines, mode: mode),
+                            fileName: target.fileName
+                        )
+                    } else {
+                        sourceLines = LyricsContentParser.parseText(validation.normalizedContent)
+                    }
+                    await MetadataAssetStore.shared.noteSavedSourceDocument(sourceLines, forSongID: song.id)
+                }
             } else {
                 // A local-only document has no other durable copy. For an
                 // external write, the source may already contain the update,
                 // but source/cache divergence is still a partial failure and
                 // must not be reported as an atomic success.
                 recordReplacedAudioFile(embeddedCopy, songID: song.id, library: library)
+                if externalMutationToken == nil {
+                    return staleFailure(for: song, persistence: savedPersistence, .cache)
+                }
                 return SaveOutcome(
                     updatedSong: song,
                     errorMessage: String(localized: "tag_editor_lyrics_verify_failed"),
@@ -1161,12 +1376,21 @@ enum LyricsWriteback {
                 : song.lyricsFileName
             updated.lyricsText = writebackLines.map(\.text).joined(separator: "\n")
             if !staysLocal, !skipsLyricsFile, embeddingMode != .off {
-                embeddedCopy = await writeEmbeddedCopy(
-                    .set(embeddedCopyContent(writebackLines)),
+                let write = await writeEmbeddedField(
+                    replaceOperation,
                     for: updated,
                     sourceManager: sourceManager,
                     library: library
                 )
+                embeddedCopy = write.copy
+                if case .written = embeddedCopy, case .done(let result, _)? = write.report {
+                    await MetadataAssetStore.shared.updateEmbeddedLyricsRecords(
+                        forSongID: song.id,
+                        result: result,
+                        anchor: embeddedAnchor?.text,
+                        text: embedText
+                    )
+                }
             }
         }
 
@@ -1295,6 +1519,90 @@ enum LyricsWriteback {
         })
     }
 
+    /// 写进音频文件时要换掉的那一份内嵌原文，以及它是什么格式。
+    struct EmbeddedAnchor: Sendable, Equatable {
+        /// 文件里正在用的那份原文（读标签时记下的原样文字）。nil 表示认不出：
+        /// 写入器只在文件里只有一份原文时换它，否则只在没有默认字段时补一个。
+        let text: String?
+        let isWordLevel: Bool
+        let isTTML: Bool
+    }
+
+    /// 定位要换掉的那一份：
+    /// - 缓存里是内嵌歌词：按整份文档指纹对上记下的那几份原文中的一份；用户保存过的、对不上时用上次写进去的那份；
+    /// - 缓存是歌词文件、在线歌词（同时嵌入或另选过）：文件里正在显示的那份，就是按设置挑出来的那份；
+    /// - 文件里只有一份原文（没有记录）：不给文字，交给写入器按「唯一那一份」处理。
+    /// 解析放在后台做。必须在缓存换成新内容之前取。
+    static func embeddedReplacementAnchor(forSongID songID: String) async -> EmbeddedAnchor {
+        let store = MetadataAssetStore.shared
+        let alternatives = await store.embeddedLyricsAlternatives(forSongID: songID)
+        let cached = await store.cachedLyrics(forSongID: songID)
+        let pinned = await store.isUserPinned(forSongID: songID)
+        let priority = EmbeddedLyricsVariantPriority.current()
+        return await Task.detached(priority: .userInitiated) {
+            resolveEmbeddedAnchor(alternatives: alternatives, cached: cached, pinned: pinned, priority: priority)
+        }.value
+    }
+
+    nonisolated static func resolveEmbeddedAnchor(
+        alternatives: EmbeddedLyricsAlternatives?,
+        cached: [LyricLine]?,
+        pinned: Bool,
+        priority: EmbeddedLyricsVariantPriority
+    ) -> EmbeddedAnchor {
+        let cachedIsEmbedded = cached.map { LyricsDocumentSource.of($0)?.kind == .embedded } ?? false
+        func anchor(_ text: String?) -> EmbeddedAnchor {
+            guard let text else {
+                let wordLevel = cachedIsEmbedded && cached.map { LyricsTimingLevel(lines: $0) == .word } == true
+                return EmbeddedAnchor(text: nil, isWordLevel: wordLevel, isTTML: false)
+            }
+            return EmbeddedAnchor(
+                text: text,
+                isWordLevel: LyricsTimingLevel(lines: LyricsContentParser.parseText(text)) == .word,
+                isTTML: LyricsContentParser.isTTML(text)
+            )
+        }
+        guard let alternatives else { return anchor(nil) }
+        if cachedIsEmbedded, let cached {
+            if let variant = LyricsLoader.embeddedVariant(matching: cached, in: alternatives) {
+                return anchor(variant.text)
+            }
+            if pinned, let inUse = alternatives.inUseText,
+               alternatives.variants.contains(where: { EmbeddedLyricsFieldEditor.sameLyrics($0.text, inUse) }) {
+                return anchor(inUse)
+            }
+            return anchor(nil)
+        }
+        return anchor(EmbeddedLyricsVariantPolicy.preferred(in: alternatives.variants, priority: priority)?.text)
+    }
+
+    /// 写进音频文件的文字。被换掉的那份是逐字或 TTML、而这次的歌词也带逐字时间时照原格式写，
+    /// 不把文件里的逐字时间降成逐行；其余情况写各家播放器都认的行级 LRC。
+    nonisolated static func embeddedText(for lines: [LyricLine], anchor: EmbeddedAnchor?) -> String {
+        if let anchor, lines.contains(where: \.isWordLevel) {
+            if anchor.isTTML { return LyricsContentParser.serializeTTML(lines) }
+            if anchor.isWordLevel { return LyricsContentParser.serialize(lines) }
+        }
+        return embeddedCopyContent(lines)
+    }
+
+    private struct EmbeddedFieldWrite {
+        let copy: EmbeddedCopyResult
+        let report: EmbeddedLyricsFieldReport?
+    }
+
+    /// 按字段改写音频文件里的歌词，连同写入器的回报一起交回。
+    private static func writeEmbeddedField(
+        _ operation: EmbeddedLyricsFieldEditor.Operation,
+        for song: Song,
+        sourceManager: SourceManager,
+        library: MusicLibrary
+    ) async -> EmbeddedFieldWrite {
+        let request = EmbeddedLyricsFieldRequest(operation)
+        let copy = await writeEmbeddedCopy(.field(request), for: song, sourceManager: sourceManager, library: library)
+        return EmbeddedFieldWrite(copy: copy, report: EmbeddedLyricsFieldReports.take(request.id))
+    }
+
     // MARK: - 歌词来源页：按原文改写一个文件
 
     struct DocumentSaveOutcome {
@@ -1372,21 +1680,39 @@ enum LyricsWriteback {
 
         var outcome = DocumentSaveOutcome()
         if entry.isActive {
+            let embeds = await sourceManager.lyricsEmbeddingMode(for: song) != .off
+            let embeddedAnchor: EmbeddedAnchor? = embeds ? await embeddedReplacementAnchor(forSongID: song.id) : nil
             do {
-                try await LyricsDocumentCatalog.show(lines, from: entry, for: song, sourceManager: sourceManager)
+                // 改写的就是正在用的那份文件：改之前的内容被替换掉了，不再留在来源候选里。
+                try await LyricsDocumentCatalog.show(
+                    lines,
+                    from: entry,
+                    for: song,
+                    sourceManager: sourceManager,
+                    previousVersion: .forget
+                )
             } catch {
                 // The file is saved; the song only shows it after its next read.
                 plog("⚠️ Lyrics document saved but not cached for songID=\(song.id): \(error.localizedDescription)")
             }
-            if await sourceManager.lyricsEmbeddingMode(for: song) != .off {
-                let embedded = await writeEmbeddedCopy(
-                    .set(embeddedCopyContent(lines)),
+            if embeds {
+                let text = embeddedText(for: lines, anchor: embeddedAnchor)
+                let write = await writeEmbeddedField(
+                    .replace(text: text, anchor: embeddedAnchor?.text),
                     for: song,
                     sourceManager: sourceManager,
                     library: library
                 )
-                recordReplacedAudioFile(embedded, songID: song.id, library: library)
-                outcome.embeddedCopyError = embedded.failureReason
+                if case .written = write.copy, case .done(let result, _)? = write.report {
+                    await MetadataAssetStore.shared.updateEmbeddedLyricsRecords(
+                        forSongID: song.id,
+                        result: result,
+                        anchor: embeddedAnchor?.text,
+                        text: text
+                    )
+                }
+                recordReplacedAudioFile(write.copy, songID: song.id, library: library)
+                outcome.embeddedCopyError = write.copy.failureReason
             }
         }
         library.flushPendingAssetReferencePatches()

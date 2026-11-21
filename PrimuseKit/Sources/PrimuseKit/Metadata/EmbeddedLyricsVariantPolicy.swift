@@ -151,6 +151,8 @@ public struct EmbeddedLyricsAlternatives: Codable, Hashable, Sendable {
     public var translatedLyricsLanguageCode: String?
     public var languageTaggedLyrics: [String: String]
     public var languageTaggedTranslations: [String: String]
+    /// Primuse 上次写进文件、正在用的那一份原文（按字段替换之后记下）。读标签时记下的没有这一项。
+    public var inUseText: String?
 
     public init(
         variants: [EmbeddedLyricsVariant],

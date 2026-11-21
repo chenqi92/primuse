@@ -6407,6 +6407,7 @@
 "lyrics_sources_footer_read_only" = "Esta origem não pode gravar arquivos, então o texto original fica somente para visualização.";
 "lyrics_sources_local_copy" = "Você está vendo uma versão editada salva só no Primuse. Toque em um arquivo para voltar a usar a letra desse arquivo.";
 "lyrics_sources_unsaved_banner" = "O editor tem alterações não salvas. Ao trocar a origem ou regravar o arquivo em uso, o editor é recarregado com o novo conteúdo e essas alterações são descartadas.";
+"lyrics_version_changed_elsewhere" = "A letra foi atualizada em outro lugar. Salve de novo para substituí-la pelo que você está editando, ou cancele e reabra o editor para ver a versão nova.";
 "lyrics_sources_switch_confirm_title %@" = "Usar %@?";
 "lyrics_sources_switch_confirm_message" = "O editor será recarregado com este arquivo e as alterações não salvas serão descartadas.";
 "lyrics_sources_switch_action" = "Usar este arquivo";

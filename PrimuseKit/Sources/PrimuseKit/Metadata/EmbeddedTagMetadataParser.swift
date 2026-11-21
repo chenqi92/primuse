@@ -158,6 +158,12 @@ public enum EmbeddedTagMetadataParser {
         return metadata(from: values, orderedOriginals: originals)
     }
 
+    /// 这个 Vorbis / APE 字段名装的是不是一份歌词原文（`LYRICS`、`SYNCEDLYRICS`、带语言后缀的……），
+    /// 和读标签时认原文的规则同一份。改写某一份内嵌原文时用它找字段。
+    static func isOriginalLyricKey(_ rawKey: String) -> Bool {
+        originalLyric(key: normalizedKey(rawKey), text: "-") != nil
+    }
+
     private static func originalLyric(key: String, text: String) -> EmbeddedLyricsVariant? {
         if originalLyricKeys.contains(key) { return .init(text: text) }
         guard key.contains("LYRICS"), let language = lyricLanguageSuffix(in: key, roots: originalLyricKeys) else {

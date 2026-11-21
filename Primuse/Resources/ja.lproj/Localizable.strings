@@ -6502,6 +6502,7 @@
 "lyrics_sources_footer_read_only" = "この音楽ソースはファイルに書き戻せないため、元のテキストは表示のみです。";
 "lyrics_sources_local_copy" = "現在表示しているのは、Primuse 内にのみ保存された編集版です。ファイルをタップすると、そのファイルの歌詞に戻ります。";
 "lyrics_sources_unsaved_banner" = "エディタに未保存の変更があります。ソースを切り替えるか使用中のファイルを書き換えると、エディタは新しい内容で再読み込みされ、これらの変更は失われます。";
+"lyrics_version_changed_elsewhere" = "この曲の歌詞は別の場所で更新されています。もう一度保存すると、いま編集中の内容で上書きします。新しい内容を見るには、編集をキャンセルして開き直してください。";
 "lyrics_sources_switch_confirm_title %@" = "%@ に切り替えますか？";
 "lyrics_sources_switch_confirm_message" = "エディタはこのファイルから再読み込みされ、未保存の変更は失われます。";
 "lyrics_sources_switch_action" = "このファイルを使用";

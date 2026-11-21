@@ -6478,6 +6478,7 @@
 "lyrics_sources_footer_read_only" = "這個音樂來源無法寫回檔案，原文只能檢視。";
 "lyrics_sources_local_copy" = "目前顯示的是只存在 Primuse 裡的修改版本。點一下任一檔案，就會改回使用檔案裡的歌詞。";
 "lyrics_sources_unsaved_banner" = "編輯器裡還有尚未儲存的修改。切換來源或改寫正在使用的檔案後，編輯器會依新內容重新載入，這些修改不會保留。";
+"lyrics_version_changed_elsewhere" = "這首歌的歌詞在別處有更新。再儲存一次會用你現在編輯的內容覆蓋它；想先看看新的，就取消編輯後重新打開。";
 "lyrics_sources_switch_confirm_title %@" = "改用 %@？";
 "lyrics_sources_switch_confirm_message" = "編輯器會依這個檔案重新載入，尚未儲存的修改將會遺失。";
 "lyrics_sources_switch_action" = "改用這個檔案";

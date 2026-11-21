@@ -605,7 +605,8 @@ enum LyricsLoader {
             lines,
             forSongID: songID,
             expectedFingerprint: cachedDocument.map(LyricsDocumentFingerprint.init(lines:)),
-            force: false
+            force: false,
+            origin: .sourceDocument
         )
         if wrote { return (lines, true) }
         return (await MetadataAssetStore.shared.cachedLyrics(forSongID: songID) ?? [], false)
@@ -776,12 +777,15 @@ enum LyricsLoader {
                 forced = true
             }
             guard !Task.isCancelled else { return nil }
+            // 读的是歌旁边的歌词文件：按「从源读到的」写，用户保存过的那份只在源里真被别处改过时才换。
+            // 文件被删后换回内嵌歌词不是读源，挡在用户保存的那份前面。
             let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                 replacement,
                 forSongID: song.id,
                 expectedFingerprint: cachedFingerprint,
                 force: forced,
-                preservingSelection: true
+                preservingSelection: true,
+                origin: forced ? .automatic : .sourceDocument
             )
             guard wrote else {
                 // 缓存没被别处换掉却没写进去, 是有意留着的(用户自己写的译文等), 不必再核对。
@@ -809,6 +813,9 @@ enum LyricsLoader {
     /// （`EmbeddedLyricsVariantPriority`），改了设置不用重读文件。本机改过的、在歌词来源页选定过的、
     /// 在 App 里配过译文的不动。换了就写回缓存并返回新的那份。
     static func reselectedEmbeddedVariant(for song: Song, cached: [LyricLine]) async -> [LyricLine]? {
+        // 用户刚保存的那一份也标着「内嵌」，记下的几份原文可能还是保存之前的：不能拿旧的换掉它。
+        let pinned = await MetadataAssetStore.shared.isUserPinned(forSongID: song.id)
+        guard !pinned else { return nil }
         guard !cached.isEmpty,
               cached.first?.documentIsLocalOverride != true,
               LyricsDocumentSource.of(cached)?.kind == .embedded,
@@ -853,6 +860,26 @@ enum LyricsLoader {
         }
     }
 
+    /// 缓存里这份内嵌歌词是文件里的哪一份原文：只认整份文档（连同文件里的译文）规整后指纹完全相同的那份，
+    /// 认不出就是 nil，不按文字猜。
+    nonisolated static func embeddedVariant(
+        matching cached: [LyricLine],
+        in alternatives: EmbeddedLyricsAlternatives
+    ) -> EmbeddedLyricsVariant? {
+        let target = MetadataAssetStore.lyricsFingerprint(cached)
+        return alternatives.variants.first { variant in
+            embeddedDocument(for: variant, in: alternatives).map(MetadataAssetStore.lyricsFingerprint) == target
+        }
+    }
+
+    /// 文件里的一份原文连同文件里的译文拼成的歌词，和读标签时选中它会得到的那份一样。
+    nonisolated static func embeddedDocument(
+        for variant: EmbeddedLyricsVariant,
+        in alternatives: EmbeddedLyricsAlternatives
+    ) -> [LyricLine]? {
+        MetadataAssetStore.embeddedLyricsDocument(for: variant, in: alternatives)
+    }
+
     /// 按设置里现在那一档从记下的几份里挑出一份，连同文件里的译文拼成歌词。
     private static func embeddedVariant(from alternatives: EmbeddedLyricsAlternatives) -> [LyricLine]? {
         guard let metadata = FileMetadataReader.Metadata.embeddedLyrics(
@@ -872,7 +899,9 @@ enum LyricsLoader {
            let preferred = embeddedVariant(from: alternatives) {
             embedded = preferred
         }
-        let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+        // 用户在 Primuse 里隐藏的那份不拿出来用。
+        guard await !store.isHiddenLyricsVersion(embedded, forSongID: song.id) else { return nil }
+        let wrote = await store.replaceLyricsIfUnchanged(
             embedded,
             forSongID: song.id,
             expectedFingerprint: nil,
@@ -881,7 +910,7 @@ enum LyricsLoader {
         guard !Task.isCancelled else { return nil }
         let resolved = wrote
             ? embedded
-            : await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? embedded
+            : await store.cachedLyrics(forSongID: song.id) ?? embedded
         logLoaded(resolved, song: song, tier: "embedded-fallback")
         return resolved
     }

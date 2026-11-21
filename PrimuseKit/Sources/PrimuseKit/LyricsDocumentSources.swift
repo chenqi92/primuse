@@ -9,9 +9,16 @@ public struct LyricsSourceCollection: Codable, Equatable, Sendable {
 
     public private(set) var candidates: [Candidate] = []
     public var selectedID: String?
+    /// 「另存为新版本」时留下的旧版本。它们原来所在的文件已经换成新内容了，来源页照样要列出来。
+    /// 旧数据没有这一项。
+    public private(set) var keptIDs: [String]?
     public var selected: Candidate? { candidates.first { $0.id == selectedID } }
 
     public init() {}
+
+    public func isKept(_ id: String) -> Bool {
+        keptIDs?.contains(id) == true
+    }
 
     @discardableResult
     public mutating func remember(_ lines: [LyricLine]) -> Candidate? {
@@ -22,15 +29,56 @@ public struct LyricsSourceCollection: Codable, Equatable, Sendable {
                 && $0.lines.first?.documentIsLocalOverride == lines.first?.documentIsLocalOverride
                 && LyricsDocumentFingerprint(lines: $0.lines) == fingerprint
         }) {
-            candidates[index].lines = lines
-            return candidates[index]
+            // 又见到一次就挪到最后：满了先淘汰的是最久没见过的。
+            var existing = candidates.remove(at: index)
+            existing.lines = lines
+            candidates.append(existing)
+            return existing
         }
         let candidate = Candidate(id: UUID().uuidString, lines: lines)
         candidates.append(candidate)
-        while candidates.count > 12, let index = candidates.firstIndex(where: { $0.id != selectedID }) {
+        // 超过上限时先淘汰最旧的；选定的、「另存为新版本」留下的、刚记下的这一份都不淘汰。
+        while candidates.count > 12, let index = candidates.firstIndex(where: {
+            $0.id != selectedID && !isKept($0.id) && $0.id != candidate.id
+        }) {
             candidates.remove(at: index)
         }
         return candidate
+    }
+
+    /// 保存时替换掉的那一份：不管当时记成哪个来源，内容一样的都从候选里去掉。
+    /// `normalize` 把两边规整成同一种样子再比（缓存读出来时会规整一遍，候选里存的是规整前的）。
+    /// - Returns: 去掉了几份。
+    @discardableResult
+    public mutating func forget(
+        _ lines: [LyricLine],
+        normalize: ([LyricLine]) -> [LyricLine] = { $0 }
+    ) -> Int {
+        guard !lines.isEmpty else { return 0 }
+        let fingerprint = LyricsDocumentFingerprint(lines: normalize(lines))
+        let removed = candidates.filter {
+            LyricsDocumentFingerprint(lines: normalize($0.lines)) == fingerprint
+        }
+        guard !removed.isEmpty else { return 0 }
+        for candidate in removed { remove(id: candidate.id) }
+        return removed.count
+    }
+
+    /// 来源页「删除此版本」。删的是选定的那份时选定一起清掉。
+    @discardableResult
+    public mutating func remove(id: String) -> Candidate? {
+        guard let index = candidates.firstIndex(where: { $0.id == id }) else { return nil }
+        let removed = candidates.remove(at: index)
+        if selectedID == id { selectedID = nil }
+        keptIDs?.removeAll { $0 == id }
+        if keptIDs?.isEmpty == true { keptIDs = nil }
+        return removed
+    }
+
+    /// 记成「另存为新版本」留下的旧版本。
+    public mutating func keep(id: String) {
+        guard candidates.contains(where: { $0.id == id }), !isKept(id) else { return }
+        keptIDs = (keptIDs ?? []) + [id]
     }
 }
 

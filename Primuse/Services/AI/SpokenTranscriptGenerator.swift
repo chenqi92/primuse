@@ -238,7 +238,8 @@ final class SpokenTranscriptGenerator {
             let lines = LyricsDocumentSource.transcript.stamped(SpokenTranscriptLayout.lines(from: result))
             guard !lines.isEmpty else { throw Failure.noSpeech }
             let replaced = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
-            _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: true)
+            // 用户手动生成的文字稿：明确动作，解除「用户清空」。
+            _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: true, origin: .user)
             // 换掉的是服务器上的外部文字稿:用户明确要的这份固定下来,后台核对不再把服务器那份换回来(#461)。
             if SpokenTranscriptPrecedencePolicy.pinsGeneratedTranscript(replacing: replaced),
                let candidate = await MetadataAssetStore.shared.rememberLyricsCandidate(lines, forSongID: song.id) {

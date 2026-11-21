@@ -357,11 +357,14 @@ enum LyricsDocumentCatalog {
     /// player reads first. The listener asked for this file, so it replaces
     /// whatever is cached — a word-timed document, an edit kept only in
     /// Primuse — instead of yielding to it the way automatic reads do.
+    /// - Parameter previousVersion: 换下来的那份在来源候选里怎么记。改写正在用的文件时它被替换掉了
+    ///   （`.forget`）；换用另一份文件时原来那份还是一个版本（`.remember`）。
     static func show(
         _ lines: [LyricLine],
         from entry: Entry,
         for song: Song,
-        sourceManager: SourceManager
+        sourceManager: SourceManager,
+        previousVersion: LyricsPreviousVersionHandling = .remember
     ) async throws {
         var lines = lines
         if let track = entry.translation,
@@ -381,7 +384,9 @@ enum LyricsDocumentCatalog {
                 lines,
                 forSongID: song.id,
                 expectedFingerprint: snapshot.map(LyricsDocumentFingerprint.init(lines:)),
-                force: true
+                force: true,
+                origin: .user,
+                previousVersion: previousVersion
             ) {
                 NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
                 return

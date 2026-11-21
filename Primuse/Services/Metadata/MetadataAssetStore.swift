@@ -429,7 +429,8 @@ actor MetadataAssetStore {
         guard lyricsMutationReservations[key] == nil else { return nil }
         let fileName = hashedFileName(for: key, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
-        if cacheLyrics(lines, forSongID: key, force: force) { return fileName }
+        // 读标签、扫描时存下的就是文件自己带的歌词：按「从源读到的」过用户的决定。
+        if cacheLyrics(lines, forSongID: key, force: force, origin: .sourceDocument) { return fileName }
         // Automatic scans deliberately retain an existing local override,
         // authored translation, or stronger word-level cache. Keep its stable
         // reference instead of making the caller clear a document we preserved.
@@ -763,10 +764,29 @@ actor MetadataAssetStore {
     ///                    (Tier3 stale-while-revalidate) 传 false 拒绝降级。
     /// - returns: true 表示写入了 / false 跳过 (downgrade 或编码失败)。调用
     ///   方根据返回值决定要不要更新 UI —— skip 了就 UI 保持现状。
+    /// - parameter origin: 是不是用户对这首歌的明确动作。`.automatic` 的写入要先过用户的决定
+    ///   （保存了哪一份、清空了、隐藏了哪几份，见 `LyricsUserChoicePolicy`）；`.user` 写成功后
+    ///   记成用户保存的那一份，自动路径从此不能把它换掉。
+    /// - parameter previousVersion: 缓存里原来那份在来源候选里怎么记（替换 / 另存为新版本）。
+    /// - parameter preservingSelection: 自动路径的覆盖写入，哪怕带 `force` 也不动用户保存的那份。
     @discardableResult
-    func cacheLyrics(_ lines: [LyricLine], forSongID songID: String, force: Bool = false) -> Bool {
+    func cacheLyrics(
+        _ lines: [LyricLine],
+        forSongID songID: String,
+        force: Bool = false,
+        origin: LyricsCacheWriteOrigin = .automatic,
+        previousVersion: LyricsPreviousVersionHandling = .remember,
+        preservingSelection: Bool = false
+    ) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
         if !force, lyricsSourceCollection(forSongID: songID).selected != nil { return false }
+        guard admitsLyricsWrite(
+            lines,
+            forSongID: songID,
+            force: force,
+            origin: origin,
+            preservingSelection: preservingSelection
+        ) else { return false }
         if !lines.isEmpty { clearSourceLyricsAbsence(songID: songID) }
         // 上游按 UTF-8 解坏了的 GBK / Big5 歌词(`LossyDecodedLyricsRepair`)一律不进缓存:
         // 进去了播放就一直先读到它。
@@ -812,12 +832,19 @@ actor MetadataAssetStore {
         guard let data = try? encoder.encode(lines) else { return false }
         let previousSources = lyricsSourceCollection(forSongID: songID)
         var sources = previousSources
-        if let previous = cachedLyrics(forSongID: songID) { sources.remember(previous) }
-        sources.remember(lines)
-        sources.selectedID = nil
+        let previousDocument = cachedLyrics(forSongID: songID)
+        sources.record(
+            lines,
+            replacing: previousDocument,
+            handling: previousVersion,
+            normalize: Self.normalizedCachedLyrics
+        )
         guard storeLyricsSourceCollection(sources, forSongID: songID) else { return false }
         do {
             try data.write(to: fileURL, options: .atomic)
+            if origin == .user, !lines.isEmpty {
+                recordUserLyricsSave(forSongID: songID, replacing: previousDocument)
+            }
             Self.postLyricsCached(songID: songID, lines: lines)
             return true
         } catch {
@@ -834,14 +861,253 @@ actor MetadataAssetStore {
         forSongID songID: String,
         expectedFingerprint: LyricsDocumentFingerprint?,
         force: Bool = true,
-        preservingSelection: Bool = false
+        preservingSelection: Bool = false,
+        origin: LyricsCacheWriteOrigin = .automatic,
+        previousVersion: LyricsPreviousVersionHandling = .remember
     ) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
         if preservingSelection, lyricsSourceCollection(forSongID: songID).selected != nil { return false }
         let currentFingerprint = cachedLyrics(forSongID: songID)
             .map(LyricsDocumentFingerprint.init(lines:))
         guard currentFingerprint == expectedFingerprint else { return false }
-        return cacheLyrics(lines, forSongID: songID, force: force)
+        return cacheLyrics(
+            lines,
+            forSongID: songID,
+            force: force,
+            origin: origin,
+            previousVersion: previousVersion,
+            preservingSelection: preservingSelection
+        )
+    }
+
+    // MARK: - 用户对歌词的决定（保存了哪一份、清空了、隐藏了哪几份）
+
+    nonisolated private func userLyricsChoiceURL(songID: String) -> URL {
+        lyricsDirectoryURL.appendingPathComponent(hashedFileName(for: songID, pathExtension: "choice.json"))
+    }
+
+    /// 读过的决定留在内存里（没有决定的歌也记一个 nil），每次加载歌词不用再读文件。
+    private var userChoiceCache: [String: LyricsUserChoice?] = [:]
+
+    /// 用户对这首歌歌词的明确决定，没有为 nil。
+    func userLyricsChoice(forSongID songID: String) -> LyricsUserChoice? {
+        if let cached = userChoiceCache[songID] { return cached }
+        var choice: LyricsUserChoice?
+        if let data = try? Data(contentsOf: userLyricsChoiceURL(songID: songID)),
+           let decoded = try? decoder.decode(LyricsUserChoice.self, from: data),
+           !decoded.isEmpty {
+            choice = decoded
+        }
+        if userChoiceCache.count > 2_000 { userChoiceCache.removeAll(keepingCapacity: true) }
+        userChoiceCache[songID] = .some(choice)
+        return choice
+    }
+
+    @discardableResult
+    private func storeUserLyricsChoice(_ choice: LyricsUserChoice?, forSongID songID: String) -> Bool {
+        let url = userLyricsChoiceURL(songID: songID)
+        guard let choice, !choice.isEmpty else {
+            if FileManager.default.fileExists(atPath: url.path) {
+                try? FileManager.default.removeItem(at: url)
+            }
+            userChoiceCache[songID] = .some(nil)
+            return true
+        }
+        do {
+            try encoder.encode(choice).write(to: url, options: .atomic)
+            userChoiceCache[songID] = .some(choice)
+            return true
+        } catch {
+            plog("⚠️ failed to store lyrics choice songID=\(songID.prefix(8)): \(error.localizedDescription)")
+            userChoiceCache[songID] = nil
+            return false
+        }
+    }
+
+    func isUserPinned(forSongID songID: String) -> Bool {
+        guard let choice = userLyricsChoice(forSongID: songID), choice.savedFingerprint != nil else {
+            return false
+        }
+        let current = cachedLyrics(forSongID: songID).map { LyricsDocumentFingerprint(lines: $0).rawValue }
+        return LyricsUserChoicePolicy.pins(choice, currentFingerprint: current)
+    }
+
+    /// 保存时写进源（歌词文件、服务器、音频文件）的那份：之后从源读回它不算「别处更新」。
+    /// 按读源时的样子（解析后再规整）算指纹。缓存已经不是这次保存的那份时不记。
+    func noteSavedSourceDocument(_ lines: [LyricLine], forSongID songID: String) {
+        guard !lines.isEmpty, var choice = userLyricsChoice(forSongID: songID),
+              LyricsUserChoicePolicy.pins(
+                choice,
+                currentFingerprint: cachedLyrics(forSongID: songID).map { LyricsDocumentFingerprint(lines: $0).rawValue }
+              ) else { return }
+        choice.savedSourceFingerprint = Self.lyricsFingerprint(lines)
+        storeUserLyricsChoice(choice, forSongID: songID)
+    }
+
+    /// 文件里的一份原文连同文件里的译文拼成的歌词，和读标签时选中它会得到的那份一样。
+    nonisolated static func embeddedLyricsDocument(
+        for variant: EmbeddedLyricsVariant,
+        in alternatives: EmbeddedLyricsAlternatives
+    ) -> [LyricLine]? {
+        var single = alternatives
+        single.variants = [variant]
+        guard let metadata = FileMetadataReader.Metadata.embeddedLyrics(
+            from: single,
+            priority: .firstInFile
+        ) else { return nil }
+        let lines = FileMetadataReader.parsedEmbeddedLyrics(from: metadata)
+        return lines?.isEmpty == false ? lines : nil
+    }
+
+    /// 和用户的决定比较时用的指纹：先按缓存读出来的样子规整一遍，两边口径一致。
+    nonisolated static func lyricsFingerprint(_ lines: [LyricLine]) -> String {
+        LyricsDocumentFingerprint(lines: normalizedCachedLyrics(lines)).rawValue
+    }
+
+    private func recordUserLyricsSave(forSongID songID: String, replacing previous: [LyricLine]?) {
+        // 按读回来的那份记：缓存读出来时会规整一遍（双语配对、实体解码），指纹要和之后比的一致。
+        guard let stored = cachedLyrics(forSongID: songID), !stored.isEmpty else { return }
+        let fingerprint = LyricsDocumentFingerprint(lines: stored).rawValue
+        let previousFingerprint = previous.flatMap { $0.isEmpty ? nil : Self.lyricsFingerprint($0) }
+        storeUserLyricsChoice(
+            LyricsUserChoicePolicy.choice(
+                afterUserWriteOf: fingerprint,
+                replacing: previousFingerprint == fingerprint ? nil : previousFingerprint,
+                previous: userLyricsChoice(forSongID: songID)
+            ),
+            forSongID: songID
+        )
+    }
+
+    private func admitsLyricsWrite(
+        _ lines: [LyricLine],
+        forSongID songID: String,
+        force: Bool,
+        origin: LyricsCacheWriteOrigin,
+        preservingSelection: Bool
+    ) -> Bool {
+        guard origin != .user, let choice = userLyricsChoice(forSongID: songID) else { return true }
+        if choice.isCleared {
+            plog("📝 cacheLyrics keep user choice=cleared songID=\(songID.prefix(8)) lines=\(lines.count)")
+            return false
+        }
+        let current: String? = choice.savedFingerprint == nil
+            ? nil
+            : cachedLyrics(forSongID: songID).map { LyricsDocumentFingerprint(lines: $0).rawValue }
+        let incoming = Self.lyricsFingerprint(lines)
+        let admitted = LyricsUserChoicePolicy.admitsWrite(
+            origin: origin,
+            force: force,
+            preservingSelection: preservingSelection,
+            choice: choice,
+            currentFingerprint: current,
+            incomingFingerprint: incoming
+        )
+        if !admitted {
+            let reason = choice.hiddenFingerprints.contains(incoming) ? "hidden" : "saved"
+            plog("📝 cacheLyrics keep user choice=\(reason) origin=\(origin.rawValue) songID=\(songID.prefix(8)) lines=\(lines.count)")
+        } else if origin == .sourceDocument, LyricsUserChoicePolicy.pins(choice, currentFingerprint: current) {
+            plog("📝 cacheLyrics source changed elsewhere; replacing the saved version songID=\(songID.prefix(8))")
+        }
+        return admitted
+    }
+
+    /// 这一份是不是用户在 Primuse 里隐藏的。
+    func isHiddenLyricsVersion(_ lines: [LyricLine], forSongID songID: String) -> Bool {
+        guard !lines.isEmpty,
+              let hidden = userLyricsChoice(forSongID: songID)?.hiddenFingerprints,
+              !hidden.isEmpty else { return false }
+        return hidden.contains(Self.lyricsFingerprint(lines))
+    }
+
+    /// 候选里被用户隐藏的那几份。
+    func hiddenCandidateIDs(forSongID songID: String) -> Set<String> {
+        guard let hidden = userLyricsChoice(forSongID: songID)?.hiddenFingerprints, !hidden.isEmpty else {
+            return []
+        }
+        let hiddenSet = Set(hidden)
+        return Set(lyricsSourceCollection(forSongID: songID).candidates
+            .filter { hiddenSet.contains(Self.lyricsFingerprint($0.lines)) }
+            .map(\.id))
+    }
+
+    /// 音频文件里现在还记着的几份原文（备用内嵌歌词和读标签时记下的几份），规整后的指纹。
+    /// 自动换上剩下的版本时，内嵌候选只认这里还有的。
+    func embeddedDocumentFingerprints(forSongID songID: String) -> Set<String> {
+        var result = Set<String>()
+        if let fallback = embeddedFallbackLyrics(forSongID: songID) {
+            result.insert(Self.lyricsFingerprint(fallback))
+        }
+        if let alternatives = embeddedLyricsAlternatives(forSongID: songID) {
+            for variant in alternatives.variants {
+                if let document = Self.embeddedLyricsDocument(for: variant, in: alternatives) {
+                    result.insert(Self.lyricsFingerprint(document))
+                }
+            }
+        }
+        return result
+    }
+
+    /// 按字段改写音频文件成功后，记下的「文件里有几份原文」和备用内嵌歌词跟着改，只按写入器回报的实际结果：
+    /// - 换掉了那一份：记录里内容完全相同的那份换成新内容，并记下正在用的是它；
+    /// - 只写了默认字段、删光了原文：记录作废，下次读标签时重新记；
+    /// - 删掉了一份：记录里内容完全相同的那份去掉。
+    func updateEmbeddedLyricsRecords(
+        forSongID songID: String,
+        result: EmbeddedLyricsFieldEditor.Result,
+        anchor: String?,
+        text: String?
+    ) {
+        let fallbackURL = lyricsDirectory.appendingPathComponent(
+            hashedFileName(for: songID, pathExtension: "embedded.json")
+        )
+        func dropRecords() {
+            storeEmbeddedLyricsAlternatives(nil, forSongID: songID)
+            try? FileManager.default.removeItem(at: fallbackURL)
+        }
+        switch result {
+        case .wroteDefaultField, .removedOriginals:
+            dropRecords()
+        case .replacedField:
+            guard let text else { return dropRecords() }
+            if var alternatives = embeddedLyricsAlternatives(forSongID: songID) {
+                let matched = anchor.map { anchor in
+                    alternatives.variants.indices.filter {
+                        EmbeddedLyricsFieldEditor.sameLyrics(alternatives.variants[$0].text, anchor)
+                    }
+                } ?? []
+                guard let first = matched.first else { return dropRecords() }
+                for index in matched.dropFirst().reversed() { alternatives.variants.remove(at: index) }
+                alternatives.variants[first].text = text
+                let moved = alternatives.variants.remove(at: first)
+                alternatives.variants.removeAll { EmbeddedLyricsFieldEditor.sameLyrics($0.text, text) }
+                alternatives.variants.insert(moved, at: 0)
+                alternatives.inUseText = text
+                storeEmbeddedLyricsAlternatives(alternatives, forSongID: songID)
+            }
+            if embeddedFallbackLyrics(forSongID: songID) != nil {
+                let lines = LyricsDocumentSource.embedded.stamped(LyricsContentParser.parseText(text))
+                if lines.isEmpty {
+                    try? FileManager.default.removeItem(at: fallbackURL)
+                } else {
+                    storeEmbeddedFallbackLyrics(lines, forSongID: songID)
+                }
+            }
+        case .removedField:
+            if var alternatives = embeddedLyricsAlternatives(forSongID: songID) {
+                guard let anchor else { return dropRecords() }
+                let before = alternatives.variants.count
+                alternatives.variants.removeAll { EmbeddedLyricsFieldEditor.sameLyrics($0.text, anchor) }
+                if alternatives.variants.count == before { return dropRecords() }
+                if let inUse = alternatives.inUseText, EmbeddedLyricsFieldEditor.sameLyrics(inUse, anchor) {
+                    alternatives.inUseText = nil
+                }
+                storeEmbeddedLyricsAlternatives(alternatives, forSongID: songID)
+            } else {
+                // 文件里只有一份原文、删掉的就是它。
+                try? FileManager.default.removeItem(at: fallbackURL)
+            }
+        }
     }
 
     /// Reserves a song's cache mutation across an external compare/write/read
@@ -864,11 +1130,19 @@ actor MetadataAssetStore {
     func commitLyricsMutation(
         _ lines: [LyricLine],
         forSongID songID: String,
-        token: UUID
+        token: UUID,
+        origin: LyricsCacheWriteOrigin = .automatic,
+        previousVersion: LyricsPreviousVersionHandling = .remember
     ) -> Bool {
         guard lyricsMutationReservations[songID] == token else { return false }
         lyricsMutationReservations[songID] = nil
-        return cacheLyrics(lines, forSongID: songID, force: true)
+        return cacheLyrics(
+            lines,
+            forSongID: songID,
+            force: true,
+            origin: origin,
+            previousVersion: previousVersion
+        )
     }
 
     func commitLyricsRemoval(forSongID songID: String, token: UUID) -> Bool {
@@ -1170,6 +1444,13 @@ actor MetadataAssetStore {
         guard lyricsMutationReservations[songID] == nil else { return false }
         guard storeLyricsSourceCollection(LyricsSourceCollection(), forSongID: songID) else { return false }
         clearSourceLyricsAbsence(songID: songID)
+        if var choice = userLyricsChoice(forSongID: songID), choice.savedFingerprint != nil || choice.isCleared {
+            // 缓存没了，「保存的就是这一份」不再算数。这里的调用方都是用户对这首歌的动作
+            // （导入了歌词文件、删歌、清空歌词的事务里先删后记），清空标记一并解除，清空时由调用方重新记上。
+            choice.savedFingerprint = nil
+            choice.isCleared = false
+            storeUserLyricsChoice(choice, forSongID: songID)
+        }
         let fileName = hashedFileName(for: songID, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return true }
@@ -1212,6 +1493,7 @@ actor MetadataAssetStore {
             for songID in songIDs {
                 guard !artworkNames.isEmpty || !lyricsNames.isEmpty else { return }
                 try await pacer.checkpoint()
+                userChoiceCache[songID] = nil
                 autoreleasepool {
                     let base = hashedBaseName(for: songID)
                     let cover = base + ".jpg"
@@ -1219,7 +1501,8 @@ actor MetadataAssetStore {
                         removeCacheAsset(artworkDirectory.appendingPathComponent(cover, isDirectory: false),
                                          lastWrittenBefore: cleanupStartedAt)
                     }
-                    for suffix in [".json", ".sources.json", ".embedded.json", ".embedded-variants.json", ".recheck"] {
+                    for suffix in [".json", ".sources.json", ".embedded.json", ".embedded-variants.json",
+                                   ".choice.json", ".recheck"] {
                         let name = base + suffix
                         guard lyricsNames.remove(name) != nil, !preservingLyricsNames.contains(name) else { continue }
                         if (suffix == ".json" || suffix == ".sources.json"), lyricsMutationReservations[songID] != nil { continue }
@@ -1525,6 +1808,7 @@ actor MetadataAssetStore {
     }
 
     func clearAll() {
+        userChoiceCache.removeAll()
         // 注意: artwork/ 下还有 album / artist 子目录, 父目录 contentsOf 会
         // 把它们当文件 entry 一并 removeItem (递归删整棵), 子调用 clear()
         // 时再补建即可。content/ 是 root-level 兄弟目录, 必须显式清。

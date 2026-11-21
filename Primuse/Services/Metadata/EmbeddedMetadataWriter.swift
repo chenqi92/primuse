@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 import PrimuseKit
 import SFBAudioEngine
@@ -10,13 +11,65 @@ enum EmbeddedLyricsEdit: Sendable, Equatable {
     /// Store this text as the file's unsynchronised lyrics (LRC text included).
     case set(String)
     case remove
+    /// 只改正在用的那一份所在的字段、只删掉一份、或者删掉全部原文字段（译文保留）。
+    /// 只能单独做，不和改标签、换封面一起。做了什么记在 `EmbeddedLyricsFieldReports` 里。
+    case field(EmbeddedLyricsFieldRequest)
 
     var logName: String {
         switch self {
         case .keep: return "keep"
         case .set: return "set"
         case .remove: return "remove"
+        case .field(let request):
+            switch request.operation {
+            case .replace: return "field-replace"
+            case .removeOne: return "field-remove-one"
+            case .removeAllOriginals: return "field-remove-all"
+            }
         }
+    }
+}
+
+/// 一次按字段改写歌词的请求。`id` 用来在写完之后取回写入器的回报（写回协调器只回传文件身份）。
+struct EmbeddedLyricsFieldRequest: Sendable, Equatable {
+    let id: UUID
+    let operation: EmbeddedLyricsFieldEditor.Operation
+
+    init(_ operation: EmbeddedLyricsFieldEditor.Operation) {
+        id = UUID()
+        self.operation = operation
+    }
+}
+
+/// 写入器这次按字段改写实际做了什么。
+enum EmbeddedLyricsFieldReport: Sendable, Equatable {
+    /// 改好了。`remainingOriginals`：清空之后按 Primuse 读标签的办法读回来，文件里还读得到原文（删不掉的字段）。
+    case done(EmbeddedLyricsFieldEditor.Result, remainingOriginals: Bool)
+    /// 认不准是哪一个字段（或者这种标签结构不支持按字段改），文件没动。
+    case notLocated
+    /// 写进去之后读回来选中的还是别的那份，已经放回原样。
+    case notPreferred
+}
+
+/// 按请求 id 存写入器的回报，调用方写完之后取走。
+enum EmbeddedLyricsFieldReports {
+    private final class Storage: @unchecked Sendable {
+        let lock = NSLock()
+        var reports: [UUID: EmbeddedLyricsFieldReport] = [:]
+    }
+
+    private static let storage = Storage()
+
+    static func record(_ report: EmbeddedLyricsFieldReport, for id: UUID) {
+        storage.lock.lock()
+        defer { storage.lock.unlock() }
+        storage.reports[id] = report
+    }
+
+    static func take(_ id: UUID) -> EmbeddedLyricsFieldReport? {
+        storage.lock.lock()
+        defer { storage.lock.unlock() }
+        return storage.reports.removeValue(forKey: id)
     }
 }
 
@@ -66,6 +119,10 @@ struct EmbeddedMetadataVerification: Sendable, Equatable {
 enum EmbeddedMetadataWriterError: LocalizedError {
     case unsupportedFormat(String)
     case verificationFailed(String)
+    /// 认不准文件里哪一个字段是要改的那一份，为免改错没有动文件。
+    case lyricsFieldNotLocated
+    /// 写进去之后，文件里另一份歌词仍会被优先读出，已经放回原样。
+    case lyricsNotPreferred
 
     var errorDescription: String? {
         switch self {
@@ -76,6 +133,10 @@ enum EmbeddedMetadataWriterError: LocalizedError {
                 format: String(localized: "metadata_writeback_error_embedded_verification_format"),
                 field
             )
+        case .lyricsFieldNotLocated:
+            return String(localized: "lyrics_version_embed_not_located")
+        case .lyricsNotPreferred:
+            return String(localized: "lyrics_version_embed_not_preferred")
         }
     }
 }
@@ -96,6 +157,27 @@ enum EmbeddedMetadataWriter {
         let fileExtension = fileURL.pathExtension.lowercased()
         guard supportedExtensions.contains(fileExtension) else {
             throw EmbeddedMetadataWriterError.unsupportedFormat(fileExtension)
+        }
+
+        if case .field(let request) = edits.lyrics {
+            guard edits.tags == nil, edits.coverData == nil, edits.comment == .keep else {
+                throw EmbeddedMetadataWriterError.verificationFailed("lyrics")
+            }
+            do {
+                let report = try await EmbeddedLyricsFieldWriter.apply(
+                    request.operation,
+                    to: fileURL,
+                    fileExtension: fileExtension
+                )
+                EmbeddedLyricsFieldReports.record(report, for: request.id)
+            } catch EmbeddedMetadataWriterError.lyricsFieldNotLocated {
+                EmbeddedLyricsFieldReports.record(.notLocated, for: request.id)
+                throw EmbeddedMetadataWriterError.lyricsFieldNotLocated
+            } catch EmbeddedMetadataWriterError.lyricsNotPreferred {
+                EmbeddedLyricsFieldReports.record(.notPreferred, for: request.id)
+                throw EmbeddedMetadataWriterError.lyricsNotPreferred
+            }
+            return verification(from: try AudioFile(readingPropertiesAndMetadataFrom: fileURL).metadata)
         }
 
         let audioFile = try AudioFile(readingPropertiesAndMetadataFrom: fileURL)
@@ -162,7 +244,7 @@ enum EmbeddedMetadataWriter {
         }
 
         switch edits.lyrics {
-        case .keep:
+        case .keep, .field:
             break
         case .set(let text):
             metadata.lyrics = text
@@ -173,7 +255,7 @@ enum EmbeddedMetadataWriter {
         }
 
         switch edits.comment {
-        case .keep:
+        case .keep, .field:
             break
         case .set(let text):
             metadata.comment = text
@@ -251,7 +333,7 @@ enum EmbeddedMetadataWriter {
             try require(verified.coverData == coverData, field: "cover artwork")
         }
         switch edits.comment {
-        case .keep:
+        case .keep, .field:
             break
         case .set(let text):
             try require(
@@ -276,7 +358,7 @@ enum EmbeddedMetadataWriter {
             }
         } else {
             switch edits.lyrics {
-            case .keep:
+            case .keep, .field:
                 if restoredID3LyricsFrames {
                     let written = ID3LyricsFramePreservation.lyricsFrameBodies(
                         in: try Data(contentsOf: fileURL, options: .mappedIfSafe)
@@ -548,5 +630,251 @@ enum EmbeddedMetadataWriter {
         guard condition() else {
             throw EmbeddedMetadataWriterError.verificationFailed(field)
         }
+    }
+}
+
+/// 按字段改写歌词。直接改用户的音频文件，所以：
+/// - 定位只认规整后全文完全相同（`EmbeddedLyricsFieldEditor`），认不准就不动文件；
+/// - 自己改二进制的地方（FLAC 的元数据块、ID3 的 USLT 帧）改完都核对：别的标签字段、别的帧逐字节相同，
+///   音频数据长度和摘要相同，否则放弃；
+/// - 写完用 Primuse 读标签的办法读回来，替换要读回选中新内容，删除要读不到被删的那份，否则放回原样。
+///
+/// 各格式走哪条路：FLAC 只改元数据块（标签库 SFBAudioEngine 只认 `LYRICS` 一个歌词键，读进来的同名多值
+/// 字段只留第一个、写回时整组覆盖，会把多艺人等字段合并掉，也删不了别的键），音频段按块拷贝；
+/// MP3 只改 USLT 帧，别的帧原样（标签库会把全部 USLT 合成一帧）；M4A 只有 `©lyr` 能改，走标签库。
+private enum EmbeddedLyricsFieldWriter {
+    static func apply(
+        _ operation: EmbeddedLyricsFieldEditor.Operation,
+        to url: URL,
+        fileExtension: String
+    ) async throws -> EmbeddedLyricsFieldReport {
+        let backup = url.deletingLastPathComponent()
+            .appendingPathComponent(".primuse-lyrics-backup-\(UUID().uuidString)")
+            .appendingPathExtension(fileExtension)
+        try FileManager.default.copyItem(at: url, to: backup)
+        defer { try? FileManager.default.removeItem(at: backup) }
+        // FLAC、MP3 的改写只在最后一步整份换文件，之前出错文件没动；M4A 走标签库，写到一半出错也要放回。
+        var modified = false
+        do {
+            let result: EmbeddedLyricsFieldEditor.Result
+            switch fileExtension {
+            case "flac":
+                result = try rewriteFLAC(operation, at: url)
+            case "mp3":
+                result = try rewriteMP3(operation, at: url)
+            case "m4a":
+                result = try await rewriteM4A(operation, at: url)
+            default:
+                throw EmbeddedMetadataWriterError.unsupportedFormat(fileExtension)
+            }
+            modified = true
+            let reread = await readBack(url, fileExtension: fileExtension)
+            let readTexts = reread.lyricsVariants.map(\.text) + [reread.lyricsText].compactMap { $0 }
+            switch operation {
+            case .replace(let text, _):
+                guard let chosen = reread.lyricsText, EmbeddedLyricsFieldEditor.sameLyrics(chosen, text) else {
+                    plog("⚠️ Embedded lyrics field write is not the preferred original after readback; restored")
+                    throw EmbeddedMetadataWriterError.lyricsNotPreferred
+                }
+                return .done(result, remainingOriginals: false)
+            case .removeOne(let text):
+                if let text, readTexts.contains(where: { EmbeddedLyricsFieldEditor.sameLyrics($0, text) }) {
+                    throw EmbeddedMetadataWriterError.verificationFailed("lyrics")
+                }
+                if text == nil, reread.lyricsText != nil {
+                    throw EmbeddedMetadataWriterError.verificationFailed("lyrics")
+                }
+                return .done(result, remainingOriginals: false)
+            case .removeAllOriginals:
+                return .done(result, remainingOriginals: reread.lyricsText != nil)
+            }
+        } catch {
+            var restore = modified
+            if !modified, fileExtension == "m4a" {
+                if case EmbeddedMetadataWriterError.lyricsFieldNotLocated = error {
+                    restore = false
+                } else {
+                    restore = true
+                }
+            }
+            if restore {
+                try? FileManager.default.removeItem(at: url)
+                try FileManager.default.copyItem(at: backup, to: url)
+            }
+            throw error
+        }
+    }
+
+    /// 用 Primuse 读标签的同一套办法读回来（映射整个文件，不整份读进内存）。
+    private static func readBack(_ url: URL, fileExtension: String) async -> FileMetadataReader.Metadata {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            return FileMetadataReader.Metadata()
+        }
+        return await FileMetadataReader.read(from: data, fileExtension: fileExtension)
+    }
+
+    // MARK: FLAC
+
+    private static func rewriteFLAC(
+        _ operation: EmbeddedLyricsFieldEditor.Operation,
+        at url: URL
+    ) throws -> EmbeddedLyricsFieldEditor.Result {
+        let input = try FileHandle(forReadingFrom: url)
+        defer { try? input.close() }
+        guard let regionLength = try flacRegionLength(input) else {
+            throw EmbeddedMetadataWriterError.lyricsFieldNotLocated
+        }
+        try input.seek(toOffset: 0)
+        guard let region = try input.read(upToCount: regionLength), region.count == regionLength else {
+            throw EmbeddedMetadataWriterError.verificationFailed("FLAC metadata")
+        }
+        guard let edit = EmbeddedLyricsFieldEditor.editFLAC(region: region, operation) else {
+            throw EmbeddedMetadataWriterError.lyricsFieldNotLocated
+        }
+        if case .removedOriginals(0) = edit.result { return edit.result }
+        guard EmbeddedLyricsFieldEditor.verifyFLAC(
+            original: region,
+            edited: edit.region,
+            operation,
+            result: edit.result
+        ) else {
+            throw EmbeddedMetadataWriterError.verificationFailed("FLAC metadata")
+        }
+        let audioLength = try input.seekToEnd() - UInt64(regionLength)
+        let audioDigest = try digest(of: input, from: UInt64(regionLength))
+
+        let temporary = url.deletingLastPathComponent()
+            .appendingPathComponent(".primuse-lyrics-edit-\(UUID().uuidString)")
+            .appendingPathExtension("flac")
+        guard FileManager.default.createFile(atPath: temporary.path, contents: nil) else {
+            throw EmbeddedMetadataWriterError.verificationFailed("FLAC")
+        }
+        do {
+            try writeEdited(region: edit.region, audioFrom: input, offset: UInt64(regionLength), to: temporary)
+            try verifyAudio(in: temporary, regionLength: edit.region.count, length: audioLength, digest: audioDigest)
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
+        return edit.result
+    }
+
+    private static func flacRegionLength(_ handle: FileHandle) throws -> Int? {
+        try handle.seek(toOffset: 0)
+        guard let magic = try handle.read(upToCount: 4), magic == Data("fLaC".utf8) else { return nil }
+        var offset = 4
+        for _ in 0..<4096 {
+            try handle.seek(toOffset: UInt64(offset))
+            guard let header = try handle.read(upToCount: 4), header.count == 4 else { return nil }
+            let bytes = [UInt8](header)
+            let length = Int(bytes[1]) << 16 | Int(bytes[2]) << 8 | Int(bytes[3])
+            offset += 4 + length
+            if bytes[0] & 0x80 != 0 { return offset }
+        }
+        return nil
+    }
+
+    private static func writeEdited(region: Data, audioFrom input: FileHandle, offset: UInt64, to url: URL) throws {
+        let output = try FileHandle(forWritingTo: url)
+        defer { try? output.close() }
+        try output.write(contentsOf: region)
+        try input.seek(toOffset: offset)
+        while let chunk = try input.read(upToCount: 1 << 20), !chunk.isEmpty {
+            try output.write(contentsOf: chunk)
+        }
+        try output.synchronize()
+    }
+
+    private static func verifyAudio(in url: URL, regionLength: Int, length: UInt64, digest expected: [UInt8]) throws {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let total = try handle.seekToEnd()
+        guard total >= UInt64(regionLength),
+              total - UInt64(regionLength) == length,
+              try digest(of: handle, from: UInt64(regionLength)) == expected else {
+            throw EmbeddedMetadataWriterError.verificationFailed("audio data")
+        }
+    }
+
+    private static func digest(of handle: FileHandle, from offset: UInt64) throws -> [UInt8] {
+        try handle.seek(toOffset: offset)
+        var hasher = SHA256()
+        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return Array(hasher.finalize())
+    }
+
+    // MARK: MP3
+
+    private static func rewriteMP3(
+        _ operation: EmbeddedLyricsFieldEditor.Operation,
+        at url: URL
+    ) throws -> EmbeddedLyricsFieldEditor.Result {
+        let original = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard EmbeddedLyricsFieldEditor.id3Layout(original) != nil,
+              let bodies = ID3LyricsFramePreservation.lyricsFrameBodies(in: original),
+              let edit = EmbeddedLyricsFieldEditor.editUSLT(bodies: bodies, operation) else {
+            throw EmbeddedMetadataWriterError.lyricsFieldNotLocated
+        }
+        if case .removedOriginals(0) = edit.result { return edit.result }
+        guard let rewritten = ID3LyricsFramePreservation.replacingLyricsFrames(in: original, with: edit.bodies),
+              EmbeddedLyricsFieldEditor.verifyID3(
+                original: original,
+                edited: rewritten,
+                expectedBodies: edit.bodies
+              ) else {
+            throw EmbeddedMetadataWriterError.lyricsFieldNotLocated
+        }
+        try rewritten.write(to: url, options: .atomic)
+        return edit.result
+    }
+
+    // MARK: M4A
+
+    /// MP4 里标签库只认 `©lyr`。正在用的那份在 iTunes 自定义字段里时认为定位不到。
+    private static func rewriteM4A(
+        _ operation: EmbeddedLyricsFieldEditor.Operation,
+        at url: URL
+    ) async throws -> EmbeddedLyricsFieldEditor.Result {
+        let fileData = try Data(contentsOf: url, options: .mappedIfSafe)
+        let current = ISOBaseMediaLyricsParser.storedITunesTextItems(in: fileData).lyrics
+        let originals = ISOBaseMediaLyricsParser.payload(in: fileData)?.lyricsVariants.count ?? (current == nil ? 0 : 1)
+        let edit: EmbeddedLyricsEdit
+        let result: EmbeddedLyricsFieldEditor.Result
+        switch operation {
+        case .replace(let text, let anchor):
+            if let current, let anchor, EmbeddedLyricsFieldEditor.sameLyrics(current, anchor) {
+                result = .replacedField
+            } else if current != nil, anchor == nil, originals <= 1 {
+                result = .replacedField
+            } else if current == nil {
+                result = .wroteDefaultField
+            } else {
+                throw EmbeddedMetadataWriterError.lyricsFieldNotLocated
+            }
+            edit = .set(text)
+        case .removeOne(let text):
+            guard let current else { throw EmbeddedMetadataWriterError.lyricsFieldNotLocated }
+            if let text {
+                guard EmbeddedLyricsFieldEditor.sameLyrics(current, text) else {
+                    throw EmbeddedMetadataWriterError.lyricsFieldNotLocated
+                }
+            } else {
+                guard originals <= 1 else { throw EmbeddedMetadataWriterError.lyricsFieldNotLocated }
+            }
+            result = .removedField
+            edit = .remove
+        case .removeAllOriginals:
+            guard current != nil else { return .removedOriginals(0) }
+            result = .removedOriginals(1)
+            edit = .remove
+        }
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            EmbeddedMetadataEdits(tags: nil, coverData: nil, lyrics: edit),
+            to: url
+        )
+        return result
     }
 }
