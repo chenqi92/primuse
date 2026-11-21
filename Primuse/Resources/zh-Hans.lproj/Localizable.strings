@@ -429,6 +429,7 @@
 "scrape_tally_reason_conflict" = "音频文件在别处被改过，没有覆盖";
 "scrape_tally_reason_timeout" = "音乐源响应超时";
 "scrape_tally_reason_other" = "音乐源报错";
+"scrape_tally_reason_lyrics_not_located" = "音频文件里已有歌词，没能确定换掉哪一份，文件没动。可以到歌词编辑器里处理";
 "scrape_tally_writeback_failed_detail_format" = "没能写回音乐源：%@";
 "scrape_tally_waiting_writeback_format" = "正在写回音乐源，还剩 %d 首";
 "scrape_tally_lyrics_embed_failed_format" = "歌词已保存，没能写进音频文件：%@";

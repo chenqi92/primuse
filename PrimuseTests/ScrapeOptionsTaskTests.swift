@@ -687,6 +687,93 @@ final class BatchScrapeAccountingTests: XCTestCase {
         await cleanUp(original.id)
     }
 
+    /// 点名刮削（快捷单曲、重新刮削覆盖）写进缓存的歌词算用户选的版本：钉住，自动路径换不掉；清空过的照写并解除清空。
+    /// 只补缺失的不钉住；清空过的不写，也不进失败清单。
+    func testNamedScrapePinsLyricsAndFillOnlyKeepsTheListenersClear() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = makeService(root)
+        let store = MetadataAssetStore.shared
+        let lines = [LyricLine(timestamp: 1, text: "Paper lanterns cross the quiet sky")]
+        let automatic = song()
+        let named = song()
+        let cleared = song()
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [automatic.id, named.id, cleared.id]) }
+
+        let filled = await service.applyScrapedResult(
+            processed(automatic, cover: nil, lyrics: lines), scope: scope([.lyrics]),
+            to: automatic, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertEqual(filled.parts.lyrics, .filled)
+        XCTAssertEqual(filled.lyricsOrigin, .automatic)
+        let automaticPinned = await store.isUserPinned(forSongID: automatic.id)
+        XCTAssertFalse(automaticPinned, "Filling gaps is not the listener's choice")
+
+        let chosen = await service.applyScrapedResult(
+            processed(named, cover: nil, lyrics: lines), scope: scope([.lyrics]),
+            to: named, parts: .all, coverOrigin: .selected, stampsUserEdit: true, lyricsOrigin: .user
+        )
+        XCTAssertEqual(chosen.parts.lyrics, .filled)
+        XCTAssertEqual(chosen.lyricsOrigin, .user)
+        let namedPinned = await store.isUserPinned(forSongID: named.id)
+        XCTAssertTrue(namedPinned)
+        let replacedAutomatically = await store.cacheLyrics(
+            [LyricLine(timestamp: 1, text: "Another version from an automatic path")], forSongID: named.id
+        )
+        XCTAssertFalse(replacedAutomatically, "An automatic path must not swap the scraped version back")
+
+        await store.markLyricsCleared(forSongID: cleared.id)
+        let skipped = await service.applyScrapedResult(
+            processed(cleared, cover: nil, lyrics: lines), scope: scope([.lyrics]),
+            to: cleared, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertEqual(skipped.parts.lyrics, .notRequested, "A cleared song is not a failure when only filling gaps")
+        XCTAssertNil(skipped.cachedLyrics)
+        let stillCleared = await store.hasUserClearedLyrics(forSongID: cleared.id)
+        XCTAssertTrue(stillCleared)
+
+        let rescraped = await service.applyScrapedResult(
+            processed(cleared, cover: nil, lyrics: lines), scope: scope([.lyrics]),
+            to: cleared, parts: .all, coverOrigin: .selected, stampsUserEdit: true, lyricsOrigin: .user
+        )
+        XCTAssertEqual(rescraped.parts.lyrics, .filled)
+        let clearLifted = await store.hasUserClearedLyrics(forSongID: cleared.id)
+        XCTAssertFalse(clearLifted)
+        let clearedPinned = await store.isUserPinned(forSongID: cleared.id)
+        XCTAssertTrue(clearedPinned)
+    }
+
+    /// 写回之后给缓存打来源标记不能把点名刮到的那份的钉住弄丢。
+    func testSourceStampKeepsTheScrapedVersionPinned() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = makeService(root)
+        let store = MetadataAssetStore.shared
+        let original = song()
+        addTeardownBlock { await store.invalidateCaches(forSongIDs: [original.id]) }
+        let lines = [LyricLine(timestamp: 1, text: "Lanterns over the harbor")]
+        let applied = await service.applyScrapedResult(
+            processed(original, cover: nil, lyrics: lines), scope: scope([.lyrics]),
+            to: original, parts: .all, coverOrigin: .selected, stampsUserEdit: true, lyricsOrigin: .user
+        )
+        let cached = try XCTUnwrap(applied.cachedLyrics)
+        let automaticStamp = await store.replaceLyricsIfUnchanged(
+            LyricsDocumentSource.embedded.stamped(cached), forSongID: original.id,
+            expectedFingerprint: LyricsDocumentFingerprint(lines: cached), preservingSelection: true
+        )
+        XCTAssertFalse(automaticStamp, "Stamping as an automatic write is refused for the listener's version")
+        let userStamp = await store.replaceLyricsIfUnchanged(
+            LyricsDocumentSource.embedded.stamped(cached), forSongID: original.id,
+            expectedFingerprint: LyricsDocumentFingerprint(lines: cached), preservingSelection: true,
+            origin: applied.lyricsOrigin
+        )
+        XCTAssertTrue(userStamp)
+        let pinned = await store.isUserPinned(forSongID: original.id)
+        XCTAssertTrue(pinned)
+        XCTAssertEqual(BatchScrapeSummaryText.reason(.lyricsNotLocated),
+                       String(localized: "scrape_tally_reason_lyrics_not_located"))
+    }
+
     func testStaleLocalReferencesAreScrapedAgainAndClearedWhenNothingIsFound() async throws {
         let directory = try temporaryRoot()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -902,11 +989,15 @@ final class BatchScrapeAccountingTests: XCTestCase {
         XCTAssertTrue(embedded.embedPolicy.keepsExistingLyrics, "Fill-missing runs never replace lyrics already in the file")
         XCTAssertTrue(embedded.embedPolicy.keepsExistingCover)
         XCTAssertTrue(embedded.embedPolicy.skipsUnchanged)
+        // 文件里已有歌词又要换时按字段替换，不整段写；没有锚点时按「唯一那一份」处理。
+        let fieldRequest = try XCTUnwrap(embedded.embedPolicy.lyricsFieldReplacement)
+        XCTAssertEqual(fieldRequest.operation, .replace(text: LyricsWriteback.embeddedCopyContent([line]), anchor: nil))
 
         // 批量刮削这一轮没同意嵌入：歌词照常进缓存和（已有的）歌词文件，不写进音频文件。
         let declinedJob = await service.scrapedAssetWritebackJob(for: song, applied: applied, embedsLyrics: false)
         let declined = try XCTUnwrap(declinedJob)
         XCTAssertNil(declined.embeddedLyricsText)
+        XCTAssertNil(declined.embedPolicy.lyricsFieldReplacement)
         XCTAssertNotNil(declined.lyricsLines)
 
         // 歌词、封面本来就是从这个文件读出来的：不写回。

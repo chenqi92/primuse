@@ -3195,6 +3195,7 @@
 "scrape_tally_reason_conflict" = "تغيّر الملف الصوتي في مكان آخر فلم تتم الكتابة فوقه";
 "scrape_tally_reason_timeout" = "لم يستجب مصدر الموسيقى في الوقت المحدد";
 "scrape_tally_reason_other" = "أبلغ مصدر الموسيقى عن خطأ";
+"scrape_tally_reason_lyrics_not_located" = "يحتوي ملف الصوت على كلمات بالفعل ولا يمكن معرفة أي نسخة تُستبدل، لذا لم يُعدَّل الملف. يمكنك معالجة ذلك في محرر الكلمات الغنائية";
 "scrape_tally_writeback_failed_detail_format" = "تعذّرت الكتابة إلى مصدر الموسيقى: %@";
 "scrape_tally_waiting_writeback_format" = "جارٍ الكتابة إلى مصدر الموسيقى، بقي %d أغنية";
 "scrape_tally_lyrics_embed_failed_format" = "حُفظت الكلمات لكن تعذّرت كتابتها داخل الملف الصوتي: %@";

@@ -2425,6 +2425,7 @@
 "scrape_tally_reason_conflict" = "Ses dosyası başka bir yerde değiştirildiği için üzerine yazılmadı";
 "scrape_tally_reason_timeout" = "Müzik kaynağı zamanında yanıt vermedi";
 "scrape_tally_reason_other" = "Müzik kaynağı bir hata bildirdi";
+"scrape_tally_reason_lyrics_not_located" = "Ses dosyasında zaten sözler var ve hangi sürümün değiştirileceği belli değil, bu yüzden dosya değiştirilmedi. Bunu şarkı sözü düzenleyicide halledebilirsiniz";
 "scrape_tally_writeback_failed_detail_format" = "Müzik kaynağına yazılamadı: %@";
 "scrape_tally_waiting_writeback_format" = "Müzik kaynağına yazılıyor, %d şarkı kaldı";
 "scrape_tally_lyrics_embed_failed_format" = "Sözler kaydedildi ama ses dosyasına yazılamadı: %@";

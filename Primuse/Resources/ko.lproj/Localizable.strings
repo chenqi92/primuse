@@ -714,6 +714,7 @@
 "scrape_tally_reason_conflict" = "오디오 파일이 다른 곳에서 바뀌어 덮어쓰지 않았습니다";
 "scrape_tally_reason_timeout" = "음악 소스의 응답 시간이 초과되었습니다";
 "scrape_tally_reason_other" = "음악 소스가 오류를 반환했습니다";
+"scrape_tally_reason_lyrics_not_located" = "오디오 파일에 이미 가사가 있어 어느 것을 바꿀지 확실하지 않아 파일을 바꾸지 않았습니다. 가사 편집기에서 처리할 수 있습니다";
 "scrape_tally_writeback_failed_detail_format" = "음악 소스에 기록하지 못했습니다: %@";
 "scrape_tally_waiting_writeback_format" = "음악 소스에 기록하는 중, %d곡 남음";
 "scrape_tally_lyrics_embed_failed_format" = "가사는 저장했지만 오디오 파일에 넣지 못했습니다: %@";

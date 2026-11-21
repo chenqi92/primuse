@@ -3195,6 +3195,7 @@
 "scrape_tally_reason_conflict" = "ऑडियो फ़ाइल कहीं और बदली गई थी, इसलिए उसे ओवरराइट नहीं किया गया";
 "scrape_tally_reason_timeout" = "म्यूज़िक सोर्स ने समय पर जवाब नहीं दिया";
 "scrape_tally_reason_other" = "म्यूज़िक सोर्स ने त्रुटि बताई";
+"scrape_tally_reason_lyrics_not_located" = "ऑडियो फ़ाइल में पहले से बोल हैं और पता नहीं चल रहा कि कौन-सा संस्करण बदलना है, इसलिए फ़ाइल नहीं बदली गई। आप इसे बोल संपादक में ठीक कर सकते हैं";
 "scrape_tally_writeback_failed_detail_format" = "म्यूज़िक सोर्स में नहीं लिखा जा सका: %@";
 "scrape_tally_waiting_writeback_format" = "म्यूज़िक सोर्स में लिखा जा रहा है, %d गाने बाकी";
 "scrape_tally_lyrics_embed_failed_format" = "बोल सहेज लिए गए, लेकिन ऑडियो फ़ाइल में नहीं लिखे जा सके: %@";

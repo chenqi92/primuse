@@ -172,6 +172,8 @@ public enum ScrapeWritebackFailureReason: String, Codable, Sendable, CaseIterabl
     /// 刮削被打断（离开前台、后台时间用完、点了停止），这首还没写完。
     case interrupted
     case other
+    /// 音频文件里已有歌词，认不准要换掉哪一份（或者写进去读回来选中的不是它），文件没动。
+    case lyricsNotLocated
 }
 
 public enum ScrapeWritebackOutcome: Equatable, Sendable {
@@ -203,6 +205,63 @@ public enum ScrapeWritebackSourcePolicy {
     /// 封面同理：从文件里内嵌的图或旁边的封面图读出来的，不再写回。
     public static func writesBackCover(readFromFile: Bool) -> Bool {
         !readFromFile
+    }
+}
+
+/// 刮削把歌词写进音频文件时，按文件里已有的歌词定怎么写。
+///
+/// 整段写进默认字段只适合文件里一份歌词都没有的时候：MP3 里有好几帧 USLT（原文、译文）时标签库会把它们
+/// 合成一帧；FLAC 里除了 `LYRICS` 还有 `SYNCEDLYRICS` 之类的原文字段时只改 `LYRICS`，旧的那份还在文件里，
+/// 重读标签后可能又被选中。文件里已有歌词又要换时，只换正在用的那一份所在的字段。
+public enum ScrapedLyricsEmbedPlan: String, Equatable, Sendable {
+    /// 文件里没有任何歌词：和封面合成一次整文件事务，整段写进默认字段。
+    case setInTransaction
+    /// 文件里已有歌词、这一轮要换：不整段写，按字段只换掉正在用的那一份。
+    case replaceByField
+    /// 文件里已有歌词、只补缺失：不换。
+    case keepExisting
+    /// 和文件里正在用的那份一样：不重写。
+    case unchanged
+
+    /// - Parameters:
+    ///   - incoming: 这次要写的歌词。整段写和按字段写可能是两种格式（行级 LRC、照文件里那份的逐字格式），
+    ///     文件里选中的那份和其中任何一种一样都算没变。
+    ///   - fileChosen: 读标签时文件里被选中的那份。
+    ///   - fileHasLyrics: 文件里有没有任何歌词（见 `fileHasLyrics(texts:rawFieldCount:)`）。
+    ///   - keepsExisting: 只补缺失。
+    ///   - skipsUnchanged: 和文件里的一样时不重写。
+    ///   - replacesByField: 调用方接得住按字段替换；不接时照旧整段写。
+    public static func plan(
+        incoming: [String],
+        fileChosen: String?,
+        fileHasLyrics: Bool,
+        keepsExisting: Bool,
+        skipsUnchanged: Bool,
+        replacesByField: Bool
+    ) -> ScrapedLyricsEmbedPlan {
+        guard fileHasLyrics else { return .setInTransaction }
+        if skipsUnchanged, let fileChosen {
+            let current = normalized(fileChosen)
+            if !current.isEmpty, incoming.contains(where: { normalized($0) == current }) { return .unchanged }
+        }
+        if keepsExisting { return .keepExisting }
+        return replacesByField ? .replaceByField : .setInTransaction
+    }
+
+    /// 读到的各份原文、译文里有一份不是空白就算文件里已有歌词；按字节认出了歌词字段（读不出文字的也算）同样算。
+    public static func fileHasLyrics(texts: [String], rawFieldCount: Int?) -> Bool {
+        if let rawFieldCount, rawFieldCount > 0 { return true }
+        return texts.contains { !normalized($0).isEmpty }
+    }
+
+    /// 比较用：统一换行，每行去掉首尾空白，去掉空行。
+    public static func normalized(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
     }
 }
 
@@ -351,7 +410,8 @@ public struct BatchScrapeTally: Codable, Equatable, Sendable {
         case .failed(.conflict): writebackFailedConflict += 1
         case .failed(.timeout): writebackFailedTimeout += 1
         case .failed(.interrupted): writebackFailedInterrupted += 1
-        case .failed(.other): writebackFailedOther += 1
+        // 认不准歌词字段的也算进「其他」，失败清单里那一行照样写清原因。
+        case .failed(.other), .failed(.lyricsNotLocated): writebackFailedOther += 1
         }
     }
 

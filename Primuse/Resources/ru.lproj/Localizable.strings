@@ -2425,6 +2425,7 @@
 "scrape_tally_reason_conflict" = "Аудиофайл изменили в другом месте, перезапись не выполнена";
 "scrape_tally_reason_timeout" = "Источник не ответил вовремя";
 "scrape_tally_reason_other" = "Источник сообщил об ошибке";
+"scrape_tally_reason_lyrics_not_located" = "В аудиофайле уже есть текст, и непонятно, какую версию заменить, поэтому файл не изменён. Это можно исправить в редакторе текстов";
 "scrape_tally_writeback_failed_detail_format" = "Не удалось записать в источник: %@";
 "scrape_tally_waiting_writeback_format" = "Запись в источник, осталось %d песен";
 "scrape_tally_lyrics_embed_failed_format" = "Текст сохранён, но его не удалось записать в аудиофайл: %@";

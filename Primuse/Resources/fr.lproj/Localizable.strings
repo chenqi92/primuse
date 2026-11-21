@@ -714,6 +714,7 @@
 "scrape_tally_reason_conflict" = "Le fichier audio a été modifié ailleurs et n’a pas été écrasé";
 "scrape_tally_reason_timeout" = "La source n’a pas répondu à temps";
 "scrape_tally_reason_other" = "La source a signalé une erreur";
+"scrape_tally_reason_lyrics_not_located" = "Le fichier audio contient déjà des paroles et Primuse ne sait pas quelle version remplacer : le fichier n’a pas été modifié. Vous pouvez régler cela dans l’éditeur de paroles";
 "scrape_tally_writeback_failed_detail_format" = "Impossible d’écrire dans la source : %@";
 "scrape_tally_waiting_writeback_format" = "Écriture dans la source, encore %d morceaux";
 "scrape_tally_lyrics_embed_failed_format" = "Paroles enregistrées, mais impossible de les écrire dans le fichier audio : %@";

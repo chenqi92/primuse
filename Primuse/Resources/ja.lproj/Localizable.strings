@@ -715,6 +715,7 @@
 "scrape_tally_reason_conflict" = "オーディオファイルがほかで変更されていたため上書きしませんでした";
 "scrape_tally_reason_timeout" = "ミュージックソースの応答がタイムアウトしました";
 "scrape_tally_reason_other" = "ミュージックソースがエラーを返しました";
+"scrape_tally_reason_lyrics_not_located" = "オーディオファイルにすでに歌詞があり、どれを置き換えるか特定できないため、ファイルは変更していません。歌詞エディタで対応できます";
 "scrape_tally_writeback_failed_detail_format" = "ミュージックソースに書き戻せませんでした：%@";
 "scrape_tally_waiting_writeback_format" = "ミュージックソースに書き戻し中、残り %d 曲";
 "scrape_tally_lyrics_embed_failed_format" = "歌詞は保存しましたが、オーディオファイルに書き込めませんでした：%@";

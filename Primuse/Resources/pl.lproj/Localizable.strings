@@ -3195,6 +3195,7 @@
 "scrape_tally_reason_conflict" = "Plik audio został zmieniony gdzie indziej i nie został nadpisany";
 "scrape_tally_reason_timeout" = "Źródło nie odpowiedziało na czas";
 "scrape_tally_reason_other" = "Źródło zgłosiło błąd";
+"scrape_tally_reason_lyrics_not_located" = "Plik audio ma już tekst i nie wiadomo, którą wersję zastąpić, więc plik nie został zmieniony. Możesz to poprawić w edytorze tekstu";
 "scrape_tally_writeback_failed_detail_format" = "Nie udało się zapisać w źródle: %@";
 "scrape_tally_waiting_writeback_format" = "Zapisywanie w źródle, zostało %d utworów";
 "scrape_tally_lyrics_embed_failed_format" = "Tekst zapisano, ale nie udało się go zapisać w pliku audio: %@";

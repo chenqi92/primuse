@@ -220,4 +220,41 @@ struct BatchScrapeTallyTests {
         #expect(!errored.summary.foundNothing)
         #expect(errored.summary.songErrors == 1)
     }
+
+    /// 刮削嵌歌词：文件里一份歌词都没有才整段写；已有又要换时按字段替换；只补缺失时不换；一样时不重写。
+    @Test func scrapedLyricsUseFieldReplacementWhenTheFileAlreadyHasLyrics() {
+        let new = "[00:01.00]Paper lanterns"
+        let wordLevel = "[00:01.00]<00:01.00>Paper <00:01.40>lanterns"
+        func plan(_ chosen: String?, has: Bool, keeps: Bool = false, byField: Bool = true) -> ScrapedLyricsEmbedPlan {
+            ScrapedLyricsEmbedPlan.plan(incoming: [new, wordLevel], fileChosen: chosen, fileHasLyrics: has,
+                                        keepsExisting: keeps, skipsUnchanged: true, replacesByField: byField)
+        }
+        #expect(plan(nil, has: false) == .setInTransaction)
+        #expect(plan(nil, has: false, keeps: true) == .setInTransaction, "Missing lyrics are filled even when only filling gaps")
+        #expect(plan("[00:01.00]Old words", has: true) == .replaceByField)
+        // 只有一份译文、读不出选中的原文也算已有：整段写会把 MP3 里的译文帧合掉。
+        #expect(plan(nil, has: true) == .replaceByField)
+        #expect(plan("[00:01.00]Old words", has: true, keeps: true) == .keepExisting)
+        #expect(plan("[00:01.00]Paper lanterns\r\n", has: true) == .unchanged)
+        #expect(plan(wordLevel, has: true) == .unchanged, "The word-level form written by field counts as the same")
+        #expect(plan("[00:01.00]Old words", has: true, byField: false) == .setInTransaction)
+    }
+
+    @Test func anyReadableOrRawLyricsFieldMeansTheFileHasLyrics() {
+        #expect(!ScrapedLyricsEmbedPlan.fileHasLyrics(texts: [], rawFieldCount: nil))
+        #expect(!ScrapedLyricsEmbedPlan.fileHasLyrics(texts: ["  ", "\n"], rawFieldCount: 0))
+        #expect(ScrapedLyricsEmbedPlan.fileHasLyrics(texts: ["", "[00:01.00]晚潮"], rawFieldCount: nil))
+        #expect(ScrapedLyricsEmbedPlan.fileHasLyrics(texts: [], rawFieldCount: 1), "A frame whose text cannot be decoded still counts")
+    }
+
+    @Test func lyricsThatCannotBeLocatedAreAWritebackFailure() {
+        var tally = BatchScrapeTally()
+        tally.recordWriteback(.failed(.lyricsNotLocated))
+        tally.recordFailure(.init(songID: "s", title: "Window at Dawn", part: .writeback, reason: .lyricsNotLocated))
+        let failed = tally.writebackFailed
+        #expect(failed == 1)
+        #expect(tally.failures.first?.reason == .lyricsNotLocated)
+        #expect(!tally.summary.foundNothing)
+        #expect(ScrapeWritebackOutcome.written.combined(with: .failed(.lyricsNotLocated)) == .failed(.lyricsNotLocated))
+    }
 }

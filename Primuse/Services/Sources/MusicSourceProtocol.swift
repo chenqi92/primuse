@@ -756,6 +756,8 @@ struct EmbeddedMetadataWritebackResult: Sendable, Equatable {
     var previousTags: EmbeddedMetadataVerification? = nil
     /// 刮削写入时文件里已经有（或一样）的内容不再写，什么都没替换。
     var assetsUnchanged = false
+    /// 刮削写入时歌词这一项怎么处理的；`.leftForFieldReplace` 要调用方接着按字段替换。
+    var assetLyrics: EmbeddedAssetLyricsHandling = .notIncluded
 }
 
 enum EmbeddedMetadataWritebackSourceError: LocalizedError, Equatable {

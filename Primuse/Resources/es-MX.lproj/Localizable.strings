@@ -3195,6 +3195,7 @@
 "scrape_tally_reason_conflict" = "El archivo de audio cambió en otro lugar y no se sobrescribió";
 "scrape_tally_reason_timeout" = "La fuente no respondió a tiempo";
 "scrape_tally_reason_other" = "La fuente devolvió un error";
+"scrape_tally_reason_lyrics_not_located" = "El archivo de audio ya tiene letra y Primuse no sabe qué versión reemplazar, así que no se modificó el archivo. Puedes resolverlo en el editor de letras";
 "scrape_tally_writeback_failed_detail_format" = "No se pudo escribir en la fuente: %@";
 "scrape_tally_waiting_writeback_format" = "Escribiendo en la fuente, faltan %d canciones";
 "scrape_tally_lyrics_embed_failed_format" = "La letra se guardó, pero no se pudo escribir en el archivo de audio: %@";

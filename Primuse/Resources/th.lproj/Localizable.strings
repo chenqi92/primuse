@@ -3195,6 +3195,7 @@
 "scrape_tally_reason_conflict" = "ไฟล์เสียงถูกแก้ไขจากที่อื่น จึงไม่ได้เขียนทับ";
 "scrape_tally_reason_timeout" = "แหล่งเพลงตอบกลับไม่ทันเวลา";
 "scrape_tally_reason_other" = "แหล่งเพลงแจ้งข้อผิดพลาด";
+"scrape_tally_reason_lyrics_not_located" = "ไฟล์เสียงมีเนื้อเพลงอยู่แล้วและไม่แน่ใจว่าจะแทนที่เวอร์ชันไหน จึงไม่ได้แก้ไขไฟล์ จัดการได้ในตัวแก้ไขเนื้อเพลง";
 "scrape_tally_writeback_failed_detail_format" = "เขียนกลับไปยังแหล่งเพลงไม่ได้: %@";
 "scrape_tally_waiting_writeback_format" = "กำลังเขียนกลับไปยังแหล่งเพลง เหลืออีก %d เพลง";
 "scrape_tally_lyrics_embed_failed_format" = "บันทึกเนื้อเพลงแล้ว แต่เขียนลงในไฟล์เสียงไม่ได้: %@";

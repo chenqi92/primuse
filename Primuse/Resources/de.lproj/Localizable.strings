@@ -714,6 +714,7 @@
 "scrape_tally_reason_conflict" = "Die Audiodatei wurde anderswo geändert und nicht überschrieben";
 "scrape_tally_reason_timeout" = "Die Musikquelle hat nicht rechtzeitig geantwortet";
 "scrape_tally_reason_other" = "Die Musikquelle hat einen Fehler gemeldet";
+"scrape_tally_reason_lyrics_not_located" = "Die Audiodatei enthält bereits einen Liedtext und es ist nicht eindeutig, welche Fassung ersetzt werden soll. Die Datei wurde nicht geändert. Du kannst das im Liedtexteditor klären";
 "scrape_tally_writeback_failed_detail_format" = "Konnte nicht in die Musikquelle schreiben: %@";
 "scrape_tally_waiting_writeback_format" = "Schreibe in die Musikquelle, noch %d Titel";
 "scrape_tally_lyrics_embed_failed_format" = "Liedtext gespeichert, konnte aber nicht in die Audiodatei geschrieben werden: %@";

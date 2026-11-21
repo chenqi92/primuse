@@ -1,5 +1,6 @@
 import AVFoundation
 import PrimuseKit
+import UIKit
 import XCTest
 @testable import Primuse
 
@@ -305,5 +306,137 @@ final class EmbeddedLyricsFieldWriteTests: XCTestCase {
         XCTAssertEqual(cleared, .done(.removedOriginals(1), remainingOriginals: false))
         bodies = try XCTUnwrap(ID3LyricsFramePreservation.lyricsFrameBodies(in: Data(contentsOf: url)))
         XCTAssertEqual(bodies.compactMap(EmbeddedLyricsFieldEditor.usltText), ["[00:01.00]晚潮"])
+    }
+
+    // MARK: 刮削往音频文件里嵌歌词
+
+    /// 本机文件夹源上的一首：资料库记的文件身份和文件一致，写回的冲突判断才过得去。
+    @MainActor
+    private func scrapeFixture(for url: URL) async throws -> (manager: SourceManager, library: MusicLibrary, song: Song) {
+        let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let source = MusicSource(id: UUID().uuidString, name: "Embed fixture", type: .local, basePath: directory.path)
+        let song = Song(id: UUID().uuidString, title: "Fixture", fileFormat: .flac,
+                        filePath: "/" + url.lastPathComponent, sourceID: source.id,
+                        fileSize: Int64(values.fileSize ?? 0), lastModified: values.contentModificationDate)
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library-\(UUID().uuidString)"),
+                                   deferredMaintenanceAllowed: { false })
+        library.addSongs([song])
+        await library.waitForPendingIndex()
+        let songID = song.id
+        addTeardownBlock { await MetadataAssetStore.shared.invalidateCaches(forSongIDs: [songID]) }
+        return (SourceManager(sourcesProvider: { [source] }), library, song)
+    }
+
+    private func overwritePolicy(_ request: EmbeddedLyricsFieldRequest) -> EmbeddedAssetWritePolicy {
+        EmbeddedAssetWritePolicy(keepsExistingCover: false, keepsExistingLyrics: false, skipsUnchanged: true,
+                                 lyricsFieldReplacement: request)
+    }
+
+    /// 文件里没有歌词：仍是一次事务整段写进默认字段。
+    @MainActor
+    func testScrapeEmbedSetsLyricsInOneTransactionWhenTheFileHasNone() async throws {
+        let url = try makeFLAC()
+        let fixture = try await scrapeFixture(for: url)
+        let scraped = "[00:01.00]Silver harbor\n[00:02.00]Silver bell"
+        let request = EmbeddedLyricsFieldRequest(.replace(text: scraped, anchor: nil))
+        defer { _ = EmbeddedLyricsFieldReports.take(request.id) }
+        let written = try await fixture.manager.writeEmbeddedAssets(
+            coverData: nil, lyrics: .set(scraped), policy: overwritePolicy(request), for: fixture.song
+        )
+        XCTAssertEqual(written.lyricsHandling, .written)
+        XCTAssertFalse(written.unchanged)
+        XCTAssertNil(EmbeddedLyricsFieldReports.take(request.id), "No field write when the file had no lyrics")
+        XCTAssertEqual(EmbeddedLyricsFieldEditor.flacOriginalLyrics(in: try flacRegion(of: url)), [scraped])
+    }
+
+    /// 文件里已有歌词又要换：不整段写，只换正在用的那一份，另一份原文留着；只有歌词时就在这一次事务里改。
+    @MainActor
+    func testScrapeEmbedReplacesOnlyTheVersionInUseWhenTheFileHasLyrics() async throws {
+        let url = try makeFLAC()
+        let other = "[00:01.00]Copper harbor\n[00:02.00]Copper bell"
+        let inUse = "[00:01.00]Silver harbor\n[00:02.00]Silver bell"
+        let scraped = "[00:01.00]Silver harbor, scraped\n[00:02.00]Silver bell"
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            EmbeddedMetadataEdits(tags: nil, coverData: nil, lyrics: .set(other)),
+            to: url
+        )
+        try appendingComment("SYNCEDLYRICS", inUse, to: Data(contentsOf: url)).write(to: url)
+        let fixture = try await scrapeFixture(for: url)
+        let request = EmbeddedLyricsFieldRequest(.replace(text: scraped, anchor: inUse))
+        let written = try await fixture.manager.writeEmbeddedAssets(
+            coverData: nil, lyrics: .set(scraped), policy: overwritePolicy(request), for: fixture.song
+        )
+        XCTAssertEqual(written.lyricsHandling, .replacedByField)
+        XCTAssertEqual(EmbeddedLyricsFieldReports.take(request.id), .done(.replacedField, remainingOriginals: false))
+        let originals = try XCTUnwrap(EmbeddedLyricsFieldEditor.flacOriginalLyrics(in: try flacRegion(of: url)))
+        XCTAssertEqual(originals, [scraped, other])
+        let metadata = await FileMetadataReader.read(from: url)
+        XCTAssertEqual(metadata.lyricsText, scraped)
+    }
+
+    /// 还要换封面时是两次改写：封面一次事务，歌词随后用新的文件身份按字段写。
+    @MainActor
+    func testScrapeEmbedWritesTheCoverThenReplacesTheLyricsField() async throws {
+        let url = try makeFLAC()
+        let other = "[00:01.00]Copper harbor"
+        let inUse = "[00:01.00]Silver harbor"
+        let scraped = "[00:01.00]Silver harbor, scraped"
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            EmbeddedMetadataEdits(tags: nil, coverData: nil, lyrics: .set(other)),
+            to: url
+        )
+        try appendingComment("SYNCEDLYRICS", inUse, to: Data(contentsOf: url)).write(to: url)
+        let fixture = try await scrapeFixture(for: url)
+        let cover = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16)).image { context in
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+        }.pngData())
+        let job = MusicScraperService.ScrapedAssetWriteback(
+            song: fixture.song, coverData: cover, lyricsLines: LyricsContentParser.parseText(scraped),
+            embeddedLyricsText: scraped, coverEmbeddingMode: .embedOnly, lyricsEmbeddingMode: .embedOnly,
+            embedPolicy: overwritePolicy(EmbeddedLyricsFieldRequest(.replace(text: scraped, anchor: inUse))),
+            timeout: 30, lyricsOrigin: .user
+        )
+        let result = await MusicScraperService.performScrapedAssetWriteback(
+            job, sourceManager: fixture.manager, library: fixture.library, circuitBreaker: SidecarWriteCircuitBreaker()
+        )
+        XCTAssertEqual(result.outcome, .written, result.failureDetail ?? "")
+        let originals = try XCTUnwrap(EmbeddedLyricsFieldEditor.flacOriginalLyrics(in: try flacRegion(of: url)))
+        XCTAssertEqual(originals.first, scraped)
+        XCTAssertTrue(originals.contains(other), "The other original stays in the file")
+        XCTAssertFalse(originals.contains(inUse))
+        XCTAssertNotNil(try EmbeddedMetadataWriter.currentTags(at: url).coverData)
+        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        XCTAssertEqual(fixture.library.storedSong(id: fixture.song.id)?.fileSize, Int64(size ?? 0),
+                       "The library follows the identity of the second rewrite")
+    }
+
+    /// 认不准文件里要换哪一份：文件不动，这首的写回记成「认不准」，进失败清单。
+    @MainActor
+    func testScrapeEmbedLeavesTheFileAloneWhenItCannotTellWhichLyricsToReplace() async throws {
+        let url = try makeFLAC()
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            EmbeddedMetadataEdits(tags: nil, coverData: nil, lyrics: .set("[00:01.00]One")),
+            to: url
+        )
+        try appendingComment("SYNCEDLYRICS", "[00:01.00]Two", to: Data(contentsOf: url)).write(to: url)
+        let before = try Data(contentsOf: url)
+        let fixture = try await scrapeFixture(for: url)
+        let scraped = "[00:01.00]Three"
+        let job = MusicScraperService.ScrapedAssetWriteback(
+            song: fixture.song, coverData: nil, lyricsLines: LyricsContentParser.parseText(scraped),
+            embeddedLyricsText: scraped, coverEmbeddingMode: .off, lyricsEmbeddingMode: .embedOnly,
+            embedPolicy: overwritePolicy(EmbeddedLyricsFieldRequest(.replace(text: scraped, anchor: nil))),
+            timeout: 30, lyricsOrigin: .user
+        )
+        let result = await MusicScraperService.performScrapedAssetWriteback(
+            job, sourceManager: fixture.manager, library: fixture.library, circuitBreaker: SidecarWriteCircuitBreaker()
+        )
+        XCTAssertEqual(result.outcome, .failed(.lyricsNotLocated))
+        XCTAssertEqual(try Data(contentsOf: url), before)
+        var tally = BatchScrapeTally()
+        tally.recordWriteback(result.outcome)
+        let failed = tally.writebackFailed
+        XCTAssertEqual(failed, 1)
     }
 }

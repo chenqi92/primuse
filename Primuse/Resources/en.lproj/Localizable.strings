@@ -429,6 +429,7 @@
 "scrape_tally_reason_conflict" = "The audio file was changed elsewhere and wasn’t overwritten";
 "scrape_tally_reason_timeout" = "The music source didn’t respond in time";
 "scrape_tally_reason_other" = "The music source reported an error";
+"scrape_tally_reason_lyrics_not_located" = "The audio file already has lyrics and Primuse couldn’t tell which version to replace, so the file wasn’t changed. You can sort it out in the lyric editor";
 "scrape_tally_writeback_failed_detail_format" = "Couldn’t write to the music source: %@";
 "scrape_tally_waiting_writeback_format" = "Writing to the music source, %d songs left";
 "scrape_tally_lyrics_embed_failed_format" = "Lyrics saved, but they couldn’t be written into the audio file: %@";

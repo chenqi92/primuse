@@ -129,9 +129,25 @@ struct EmbeddedAssetWritePolicy: Sendable, Equatable {
     var keepsExistingLyrics = false
     /// 要写的和文件里现有的一样就不整首重写。
     var skipsUnchanged = true
+    /// 文件里已经有歌词、这一轮又要换时用的按字段替换请求：不整段写歌词（会把几份原文合成一份，或者留下
+    /// 旧的那份），只换正在用的那一份。这次只有歌词要写时就在这次事务里按它改（`.replacedByField`）；还要换
+    /// 封面时事务里不动歌词，交回 `.leftForFieldReplace`，调用方随后用新的文件身份拿它再写一次。
+    /// nil 时照旧整段写。
+    var lyricsFieldReplacement: EmbeddedLyricsFieldRequest? = nil
 
     /// 照原样整段替换（手动保存、标签编辑走的路）。
     static let replace = EmbeddedAssetWritePolicy(keepsExistingCover: false, keepsExistingLyrics: false, skipsUnchanged: false)
+
+    /// 文件里有没有任何歌词：读标签读到的各份原文、译文字段；MP3 再按字节数一下歌词帧（读不出文字的也算）。
+    static func fileHasLyrics(_ metadata: FileMetadataReader.Metadata, rawLyricsFrameCount: Int?) -> Bool {
+        var texts: [String] = []
+        if let text = metadata.lyricsText { texts.append(text) }
+        if let text = metadata.translatedLyricsText { texts.append(text) }
+        texts.append(contentsOf: metadata.lyricsVariants.map(\.text))
+        texts.append(contentsOf: Array(metadata.languageTaggedLyrics.values))
+        texts.append(contentsOf: Array(metadata.languageTaggedTranslations.values))
+        return ScrapedLyricsEmbedPlan.fileHasLyrics(texts: texts, rawFieldCount: rawLyricsFrameCount)
+    }
 
     /// 封面、歌词按规矩筛掉不该写的之后还剩什么。纯判定，便于测试。
     static func filtered(
@@ -160,6 +176,20 @@ struct EmbeddedAssetWritePolicy: Sendable, Equatable {
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
     }
+}
+
+/// 按 `EmbeddedAssetWritePolicy` 写时（刮削），歌词这一项最后怎么处理的。照原样整段替换时一直是 `.notIncluded`。
+enum EmbeddedAssetLyricsHandling: Sendable, Equatable {
+    /// 这次没带歌词。
+    case notIncluded
+    /// 文件里已有（只补缺失）或和现在的一样，没写。
+    case kept
+    /// 文件里原来没有歌词，和封面一起写进了默认字段。
+    case written
+    /// 文件里已有歌词、这次只写歌词：在这次事务里按字段换掉了正在用的那一份（写入器的回报按请求 id 取）。
+    case replacedByField
+    /// 文件里已有歌词、这次还要换封面：事务里没动歌词，留给调用方按字段替换正在用的那一份。
+    case leftForFieldReplace
 }
 
 enum EmbeddedMetadataWritebackStage: String, Sendable, Equatable {
@@ -433,26 +463,63 @@ enum EmbeddedMetadataWritebackCoordinator {
         // 留着既不计入音频缓存上限也不参与淘汰, 批量写回能占掉几个 GB。
         await adapter.invalidateMetadataWritebackCache(for: original.filePath)
 
-        // 刮削的写入先看文件里已有的：只补缺失时已有的不换，和要写的一样时不整首重写。
+        // 刮削的写入先看文件里已有的：只补缺失时已有的不换，和要写的一样时不整首重写；
+        // 文件里已有歌词又要换时，这次不整段写歌词，交回调用方按字段替换。
         var writtenCover = coverData
         var writtenLyrics = lyrics
+        var assetLyrics = EmbeddedAssetLyricsHandling.notIncluded
         if assetPolicy != .replace, writtenCover != nil || writtenLyrics != .keep {
             let existing = await FileMetadataReader.read(from: workingURL)
-            var lyricsText: String?
-            if case .set(let text) = writtenLyrics { lyricsText = text }
             let kept = EmbeddedAssetWritePolicy.filtered(
-                coverData: writtenCover, lyricsText: lyricsText,
-                existingCover: existing.coverArtData, existingLyrics: existing.lyricsText,
+                coverData: writtenCover, lyricsText: nil,
+                existingCover: existing.coverArtData, existingLyrics: nil,
                 policy: assetPolicy
             )
             if writtenCover != nil, kept.coverData == nil {
                 plog("Writeback: cover left as the file has it source=\(sourceName) keepsExisting=\(assetPolicy.keepsExistingCover)")
             }
-            if lyricsText != nil, kept.lyricsText == nil {
-                plog("Writeback: lyrics left as the file has them source=\(sourceName) keepsExisting=\(assetPolicy.keepsExistingLyrics)")
-                writtenLyrics = .keep
-            }
             writtenCover = kept.coverData
+            if case .set(let lyricsText) = writtenLyrics {
+                var rawLyricsFrameCount: Int?
+                if workingURL.pathExtension.lowercased() == "mp3",
+                   let data = try? Data(contentsOf: workingURL, options: .mappedIfSafe) {
+                    rawLyricsFrameCount = ID3LyricsFramePreservation.lyricsFrameBodies(in: data)?.count
+                }
+                let fileHasLyrics = EmbeddedAssetWritePolicy.fileHasLyrics(
+                    existing, rawLyricsFrameCount: rawLyricsFrameCount
+                )
+                var incoming = [lyricsText]
+                if case .replace(let fieldText, _)? = assetPolicy.lyricsFieldReplacement?.operation {
+                    incoming.append(fieldText)
+                }
+                let plan = ScrapedLyricsEmbedPlan.plan(
+                    incoming: incoming,
+                    fileChosen: existing.lyricsText,
+                    fileHasLyrics: fileHasLyrics,
+                    keepsExisting: assetPolicy.keepsExistingLyrics,
+                    skipsUnchanged: assetPolicy.skipsUnchanged,
+                    replacesByField: assetPolicy.lyricsFieldReplacement != nil
+                )
+                switch plan {
+                case .setInTransaction:
+                    assetLyrics = .written
+                case .keepExisting, .unchanged:
+                    assetLyrics = .kept
+                    writtenLyrics = .keep
+                case .replaceByField:
+                    if writtenCover == nil, !writesTextTags, comment == .keep,
+                       let request = assetPolicy.lyricsFieldReplacement {
+                        // 这次只有歌词要写：就在这次事务里按字段改，不用整首再传一遍。
+                        assetLyrics = .replacedByField
+                        writtenLyrics = .field(request)
+                    } else {
+                        // 按字段改不能和封面放在同一次写入里：这次只换封面，歌词交回调用方随后单独写。
+                        assetLyrics = .leftForFieldReplace
+                        writtenLyrics = .keep
+                    }
+                }
+                plog("Writeback: scraped lyrics plan=\(plan.rawValue) fileHasLyrics=\(fileHasLyrics) variants=\(existing.lyricsVariants.count) rawFrames=\(rawLyricsFrameCount.map { "\($0)" } ?? "-") source=\(sourceName)")
+            }
             if writtenCover == nil, writtenLyrics == .keep, !writesTextTags, comment == .keep {
                 // 没有要写的：不替换文件，交回文件此刻的身份。
                 let currentTags = try? EmbeddedMetadataWriter.currentTags(at: workingURL)
@@ -471,7 +538,8 @@ enum EmbeddedMetadataWritebackCoordinator {
                     verification: currentTags ?? emptyTags,
                     filePath: original.filePath,
                     previousTags: currentTags,
-                    assetsUnchanged: true
+                    assetsUnchanged: true,
+                    assetLyrics: assetLyrics
                 )
             }
         }
@@ -554,7 +622,8 @@ enum EmbeddedMetadataWritebackCoordinator {
                 fileSHA256: readbackSHA256,
                 verification: verification,
                 filePath: replacementPath,
-                previousTags: previousTags
+                previousTags: previousTags,
+                assetLyrics: assetLyrics
             )
         } catch {
             guard replacementPath != original.filePath else { throw error }

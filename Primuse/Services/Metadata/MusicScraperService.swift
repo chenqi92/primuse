@@ -755,10 +755,6 @@ final class MusicScraperService {
         dryRun: Bool, parts: ScrapeParts
     ) async throws -> SingleScrapeResult {
         await sidecarCircuitBreaker.resetIdleUnavailableSources()
-        if !dryRun, parts.contains(.lyrics) {
-            // 单曲刮削是用户点名对这首歌做的：之前清空过歌词的，这次重新去找。
-            await MetadataAssetStore.shared.liftUserLyricsClear(forSongID: song.id)
-        }
 
         let settings = Self.settingsForSingleScrape(parts: parts)
         var scope = ScrapeScope()
@@ -777,12 +773,12 @@ final class MusicScraperService {
                                       lyrics: result.lyricsLines, review: result.review)
         }
 
-        // 单曲重新刮削是用户亲手点的：选中的封面按用户挑的记，在其它设备上也换。
-        // 文件型源刮到的值只存在资料库,不记用户编辑的话下次读标签就被换回(#173)。
+        // 单曲重新刮削是用户亲手点的：选中的封面按用户挑的记，在其它设备上也换；刮到的歌词算用户选的版本，
+        // 之前清空过歌词的这次照写。文件型源刮到的值只存在资料库,不记用户编辑的话下次读标签就被换回(#173)。
         let isServerLibrary = await sourceManager.isServerLibrarySource(for: song)
         let applied = await applyScrapedResult(
             processed, scope: scope, to: song, parts: parts, coverOrigin: .selected,
-            stampsUserEdit: !isServerLibrary
+            stampsUserEdit: !isServerLibrary, lyricsOrigin: .user
         )
         var outcome = SingleScrapeOutcome(parts: applied.parts)
         var updatedSong = applied.song
@@ -950,9 +946,6 @@ final class MusicScraperService {
         in library: MusicLibrary,
         dryRun: Bool
     ) async -> SingleScrapeResult {
-        if !dryRun {
-            await MetadataAssetStore.shared.liftUserLyricsClear(forSongID: song.id)
-        }
         let request = Self.settingsForSingleScrape(parts: .lyrics).request(for: song, parts: .lyrics, force: true)
         let unchanged = SingleScrapeResult(originalSong: song, song: song, coverData: nil, lyrics: nil)
         guard request.fields.contains(.lyrics) else { return unchanged }
@@ -981,8 +974,11 @@ final class MusicScraperService {
         }
 
         var updated = library.storedSong(id: song.id) ?? song
+        // 用户点名要的歌词：算用户选的版本，自动路径不再换掉它；之前清空过的这次照写（写进去即解除清空）。
         guard request.overwrites.contains(.lyrics) || updated.lyricsFileName?.isEmpty != false,
-              await MetadataAssetStore.shared.cacheLyrics(lyrics, forSongID: song.id, force: request.overwrites.contains(.lyrics))
+              await MetadataAssetStore.shared.cacheLyrics(
+                lyrics, forSongID: song.id, force: request.overwrites.contains(.lyrics), origin: .user
+              )
         else { return unchanged }
         updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
         library.replaceSong(updated)
@@ -1588,10 +1584,6 @@ final class MusicScraperService {
                 currentSongTitle = song.title
 
                 do {
-                    if forceRescrape, parts.contains(.lyrics) {
-                        // 重新刮削是用户明确要换掉歌词：之前清空过的这次重新去找。只补缺失的不解除。
-                        await MetadataAssetStore.shared.liftUserLyricsClear(forSongID: song.id)
-                    }
                     let remoteIdentitySeed = Self.batchRemoteIdentity(for: song)
                         .flatMap { remoteMetadataSeeds[$0] }
                     let (result, scope) = try await processedSongForBatchScoped(
@@ -1606,11 +1598,13 @@ final class MusicScraperService {
                     // 只补歌词 / 只补封面:其余部分刮到了也换回原值。封面、歌词只有存进本机缓存并核对过
                     // 才指过去；存不下的不改引用、记成保存失败。只有技术参数变了的照常保存，但不算更新。
                     // 同单曲刮削:文件型源刮到的值要记用户编辑,否则回填读标签会换回(#173)。
+                    // 重新刮削是用户明确要换掉：刮到的歌词算用户选的版本，清空过的也照写；只补缺失的不钉住、不解除清空。
                     let isServerLibrary = await sourceManager.isServerLibrarySource(for: song)
                     let applied = await applyScrapedResult(
                         result, scope: scope, to: song, parts: parts,
                         coverOrigin: overwriteCover ? .selected : .scraped,
-                        stampsUserEdit: !isServerLibrary
+                        stampsUserEdit: !isServerLibrary,
+                        lyricsOrigin: forceRescrape ? .user : .automatic
                     )
                     guard !Task.isCancelled else { return }
                     recordBatchSongOutcome(applied, for: song)
@@ -2943,24 +2937,36 @@ final class MusicScraperService {
         /// 这一轮是覆盖还是只补缺失：只补缺失时，写进音频文件前文件里已有的不换。
         var overwritesCover = false
         var overwritesLyrics = false
+        /// 覆盖歌词、又要写进音频文件时按字段替换用的：缓存换成新歌词之前，文件里正在用的那一份。
+        var embeddedLyricsAnchor: LyricsWriteback.EmbeddedAnchor? = nil
+        /// 歌词写进缓存时算谁的：用户点名的刮削是 `.user`（钉住、解除清空），只补缺失的是 `.automatic`。
+        var lyricsOrigin: LyricsCacheWriteOrigin = .automatic
     }
 
     /// 封面只有存进本机缓存、引用指着的文件读得回来并能解码成图片时才指过去；歌词只有有有效行、
     /// 缓存也收下了才指过去。存不下的不改引用，记成保存失败。引用失效而这一轮又没补上时，失效的
     /// 本机引用不在这一行里清（这一行可能带着用户编辑标记，会被同步成「用户删了封面」），交给调用方
     /// 另外摘。批量刮削和快捷单曲共用这一份。
+    ///
+    /// - Parameter lyricsOrigin: 用户点名的刮削（快捷单曲、重新刮削覆盖）传 `.user`：刮到的歌词算用户选的版本，
+    ///   自动路径不再换掉它，之前清空过歌词的也照写（写进去时解除清空）。只补缺失的传 `.automatic`。
     func applyScrapedResult(
         _ result: ProcessedResult?,
         scope: ScrapeScope,
         to song: Song,
         parts: ScrapeParts,
         coverOrigin: StoredArtworkOrigin,
-        stampsUserEdit: Bool
+        stampsUserEdit: Bool,
+        lyricsOrigin: LyricsCacheWriteOrigin = .automatic
     ) async -> AppliedScrape {
         let coverConsidered = scope.considered.contains(.cover)
-        let clearedInStore = await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id)
-        let lyricsClearedByUser = clearedInStore || Self.lyricsWereClearedByUser(song.id)
-        // 用户主动清空过歌词的歌：刮到的歌词不写，按「没去刮」算，不进失败清单。
+        // 用户主动清空过歌词的歌，只补缺失时刮到的歌词不写，按「没去刮」算，不进失败清单。
+        // 用户点名的刮削不受它挡：`.user` 写进缓存时会解除清空，没刮到就还是清空着。
+        var lyricsClearedByUser = false
+        if lyricsOrigin != .user {
+            let clearedInStore = await MetadataAssetStore.shared.hasUserClearedLyrics(forSongID: song.id)
+            lyricsClearedByUser = clearedInStore || Self.lyricsWereClearedByUser(song.id)
+        }
         let lyricsConsidered = scope.considered.contains(.lyrics) && !lyricsClearedByUser
         let tagsConsidered = !scope.considered.isDisjoint(with: ScrapeField.tags)
         let coverFetched = scope.fetched.contains(.cover)
@@ -3009,15 +3015,25 @@ final class MusicScraperService {
         let scrapedLyrics = lyricsFetched ? result.lyricsLines : nil
         let lyricsReceived = scrapedLyrics?.isEmpty == false
         var cachedLyrics: [LyricLine]?
+        var embeddedLyricsAnchor: LyricsWriteback.EmbeddedAnchor?
         if let lines = scrapedLyrics, !lines.isEmpty {
+            let usable = ScrapedLyricsValidity.hasUsableLines(lines)
+            // 覆盖歌词、又要写进音频文件时，按字段替换要认出文件里正在用的那一份：它按缓存里现在那份去对，
+            // 所以必须在缓存换成新歌词之前取。
+            var anchor: LyricsWriteback.EmbeddedAnchor?
+            if usable, scope.overwrites.contains(.lyrics),
+               EmbeddedLyricsCopyPolicy.mode(forSongID: song.id) != .off {
+                anchor = await LyricsWriteback.embeddedReplacementAnchor(forSongID: song.id)
+            }
             // 拿到歌词立即写本机缓存并把引用指到缓存：播放页马上重读时先读到的就是它，
             // 不必等写回音乐源。
-            if ScrapedLyricsValidity.hasUsableLines(lines),
-               await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: true) {
+            if usable,
+               await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: true, origin: lyricsOrigin) {
                 updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
                 cachedLyrics = lines
+                embeddedLyricsAnchor = anchor
             } else {
-                plog("MusicScraperService: scraped lyrics not saved song=\(song.id.prefix(12)) lines=\(lines.count) usable=\(ScrapedLyricsValidity.hasUsableLines(lines))")
+                plog("MusicScraperService: scraped lyrics not saved song=\(song.id.prefix(12)) lines=\(lines.count) usable=\(usable) origin=\(lyricsOrigin.rawValue)")
             }
         }
         if cachedLyrics == nil {
@@ -3044,7 +3060,9 @@ final class MusicScraperService {
             writesBackCover: ScrapeWritebackSourcePolicy.writesBackCover(readFromFile: result.coverReadFromFile),
             writesBackLyrics: ScrapeWritebackSourcePolicy.writesBackLyrics(sourceKind: lyricsSource),
             overwritesCover: scope.overwrites.contains(.cover),
-            overwritesLyrics: scope.overwrites.contains(.lyrics)
+            overwritesLyrics: scope.overwrites.contains(.lyrics),
+            embeddedLyricsAnchor: embeddedLyricsAnchor,
+            lyricsOrigin: lyricsOrigin
         )
     }
 
@@ -3246,9 +3264,12 @@ final class MusicScraperService {
         let embeddedLyricsText: String?
         let coverEmbeddingMode: CoverEmbeddingMode
         let lyricsEmbeddingMode: LyricsEmbeddingMode
-        /// 写进音频文件时：只补缺失的部分文件里已有就不换；和现有的一样就不整首重写。
+        /// 写进音频文件时：只补缺失的部分文件里已有就不换；和现有的一样就不整首重写；文件里已有歌词又要换时
+        /// 不整段写，按字段只换正在用的那一份（`lyricsFieldReplacement`）。
         let embedPolicy: EmbeddedAssetWritePolicy
         let timeout: TimeInterval
+        /// 歌词缓存算谁写的；写回后给缓存打来源标记时照这个来，不把用户选的版本的钉住弄丢。
+        var lyricsOrigin: LyricsCacheWriteOrigin = .automatic
     }
 
     struct ScrapedAssetWritebackResult: Sendable {
@@ -3290,22 +3311,34 @@ final class MusicScraperService {
         let embeddedText = embedsLyrics && lyricsMode != .off
             ? lyricsLines.map { LyricsWriteback.embeddedCopyContent($0) }
             : nil
-        plog("📝 Sidecar: coverData=\(coverData?.count ?? 0)B lyricsLines=\(lyricsLines?.count ?? 0) coverMode=\(coverMode.rawValue) lyricsMode=\(lyricsMode.rawValue) embedsLyrics=\(embeddedText != nil) for '\(song.title)'")
+        // 文件里已有歌词又要换时按字段只换正在用的那一份（锚点是缓存换掉之前取的）；换掉的那份是逐字或 TTML
+        // 时照它的格式写。文件里没有歌词时仍然整段写进默认字段。
+        var fieldRequest: EmbeddedLyricsFieldRequest?
+        if embeddedText != nil, let lines = lyricsLines {
+            let anchor = applied.embeddedLyricsAnchor
+            fieldRequest = EmbeddedLyricsFieldRequest(.replace(
+                text: LyricsWriteback.embeddedText(for: lines, anchor: anchor), anchor: anchor?.text
+            ))
+        }
+        plog("📝 Sidecar: coverData=\(coverData?.count ?? 0)B lyricsLines=\(lyricsLines?.count ?? 0) coverMode=\(coverMode.rawValue) lyricsMode=\(lyricsMode.rawValue) embedsLyrics=\(embeddedText != nil) anchor=\(applied.embeddedLyricsAnchor?.text == nil ? "none" : "known") origin=\(applied.lyricsOrigin.rawValue) for '\(song.title)'")
         return ScrapedAssetWriteback(
             song: song, coverData: coverData, lyricsLines: lyricsLines, embeddedLyricsText: embeddedText,
             coverEmbeddingMode: coverMode, lyricsEmbeddingMode: lyricsMode,
             embedPolicy: EmbeddedAssetWritePolicy(
                 keepsExistingCover: !applied.overwritesCover,
                 keepsExistingLyrics: !applied.overwritesLyrics,
-                skipsUnchanged: true
+                skipsUnchanged: true,
+                lyricsFieldReplacement: fieldRequest
             ),
-            timeout: settings.timeout
+            timeout: settings.timeout,
+            lyricsOrigin: applied.lyricsOrigin
         )
     }
 
     /// 按定好的去处写回：要嵌入的（封面、歌词）合成一次整文件事务（文件里已有、只补缺失时不换，
-    /// 一样时不重写），再用替换后的文件身份写封面、歌词文件。只嵌入时不新建文件，歌曲旁已有的照样
-    /// 更新。存进缓存的歌词按落到哪个文件标来源。源只读或连不上时打开这一轮的熔断，后面的歌不再试。
+    /// 一样时不重写；文件里已有歌词又要换时歌词改成随后单独按字段替换），再用替换后的文件身份写封面、
+    /// 歌词文件。只嵌入时不新建文件，歌曲旁已有的照样更新。存进缓存的歌词按落到哪个文件标来源。
+    /// 源只读或连不上时打开这一轮的熔断，后面的歌不再试。
     nonisolated static func performScrapedAssetWriteback(
         _ job: ScrapedAssetWriteback,
         sourceManager: SourceManager,
@@ -3319,7 +3352,8 @@ final class MusicScraperService {
             return result
         }
         var songForSidecar = song
-        var lyricsEmbedded = false
+        // 这次真的写进音频文件的歌词文字；没写进去为 nil。
+        var embeddedLyricsWritten: String?
         let embedsCover = job.coverEmbeddingMode != .off && job.coverData != nil
         let embedsLyrics = job.lyricsEmbeddingMode != .off && job.embeddedLyricsText != nil
         if embedsCover || embedsLyrics, !Task.isCancelled {
@@ -3336,20 +3370,23 @@ final class MusicScraperService {
                 result.record(.failed(.unavailable), detail: embedded.failureDetail)
                 return result
             }
-            if let failure = embedded.failure {
-                // 冲突时不覆盖：音频文件保持原样，记成「与文件现状冲突」。
-                result.record(.failed(failure), detail: embedded.failureDetail)
-            } else if let written = embedded.updatedSong {
-                // 有的网盘替换后文件换了 ID，之后的旁路文件要跟着新文件走。
+            if let written = embedded.updatedSong {
+                // 有的网盘替换后文件换了 ID，之后的旁路文件要跟着新文件走。封面那次事务成了、随后按字段换歌词
+                // 没成时也是这样：文件已经换过一次。
                 songForSidecar = written
                 if !embedded.unchanged {
-                    lyricsEmbedded = embedsLyrics
+                    embeddedLyricsWritten = embedded.writtenLyricsText
                     result.record(.written)
                 }
+            }
+            if let failure = embedded.failure {
+                // 冲突、认不准文件里要换哪一份歌词时不覆盖：音频文件（的这一部分）保持原样，记成失败。
+                result.record(.failed(failure), detail: embedded.failureDetail)
             }
         }
 
         var lyricsFileName: String?
+        var lyricsSidecarWrite: SidecarWriteService.WriteResult.VerifiedLyricsWrite?
         if job.coverData != nil || job.lyricsLines != nil {
             do {
                 let writeResult = try await writeSidecarWithTimeout(
@@ -3379,6 +3416,7 @@ final class MusicScraperService {
                 }
                 if writeResult.lyricsWritten {
                     lyricsFileName = writeResult.verifiedLyricsWrite?.target.fileName
+                    lyricsSidecarWrite = writeResult.verifiedLyricsWrite
                 }
                 if writeResult.sourceUnavailable {
                     result.record(.failed(.unavailable), detail: writeResult.errors.first)
@@ -3417,19 +3455,34 @@ final class MusicScraperService {
             let source: LyricsDocumentSource?
             if let lyricsFileName {
                 source = .file(lyricsFileName)
-            } else if lyricsEmbedded {
+            } else if embeddedLyricsWritten != nil {
                 source = .embedded
             } else {
                 source = nil
             }
             if let source {
                 let stamped = source.stamped(lines)
+                // 按原来写缓存的身份写：用户点名刮到的那份钉住了，按 `.automatic` 写会被拦下、来源标不上。
                 let cached = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                     stamped, forSongID: song.id,
                     expectedFingerprint: LyricsDocumentFingerprint(lines: lines),
-                    preservingSelection: true
+                    preservingSelection: true,
+                    origin: job.lyricsOrigin
                 )
-                plog("MusicScraperService: scraped lyrics source=\(lyricsFileName == nil ? "embedded" : "file") stamped=\(cached) song=\(song.id.prefix(12))")
+                plog("MusicScraperService: scraped lyrics source=\(lyricsFileName == nil ? "embedded" : "file") stamped=\(cached) origin=\(job.lyricsOrigin.rawValue) song=\(song.id.prefix(12))")
+                // 用户选的版本：记下写进源的那份（和歌词编辑器保存一样），之后从源读回它不算「别处更新」，
+                // 不会拿文件里的那份把缓存换掉。缓存已经不是这一份时 `noteSavedSourceDocument` 不记。
+                if cached, job.lyricsOrigin == .user {
+                    var sourceDocument: [LyricLine]?
+                    if let verified = lyricsSidecarWrite {
+                        sourceDocument = LyricsParser.parseDocument(verified.content, fileName: verified.target.fileName)
+                    } else if let embeddedLyricsWritten {
+                        sourceDocument = LyricsContentParser.parseText(embeddedLyricsWritten)
+                    }
+                    if let sourceDocument, !sourceDocument.isEmpty {
+                        await MetadataAssetStore.shared.noteSavedSourceDocument(sourceDocument, forSongID: song.id)
+                    }
+                }
             }
         }
         return result
@@ -3443,12 +3496,16 @@ final class MusicScraperService {
         var failure: ScrapeWritebackFailureReason?
         var failureDetail: String?
         var sourceUnavailable = false
+        /// 这次真的写进文件的歌词文字（文件里原来没有、随事务写进默认字段，或者按字段换掉了正在用的那一份）。
+        var writtenLyricsText: String?
     }
 
     /// 把刮到的封面和（或）歌词写进音频文件，一次整文件事务。要整首下载、改写、替换、回读，所以不套
     /// 旁路文件的写入超时（半途取消可能停在替换阶段），也放进独立任务、不随刮削取消而中断。
     /// 冲突判断按库里记的文件身份做，文件被别处改过时不覆盖；替换前按 `policy` 看文件里已有的。
-    /// 成功后把文件身份记回资料库。
+    /// 文件里已有歌词又要换时（`policy.lyricsFieldReplacement`）不整段写，按字段只换正在用的那一份：只有歌词
+    /// 要写时就在这次事务里改，还要换封面时随后用事务交回的文件身份单独再写一次；认不准时文件不动、记成失败。
+    /// 成功后把文件身份记回资料库，记下的「文件里有几份原文」跟着实际结果改。
     nonisolated static func embedScrapedAssets(
         coverData: Data?,
         lyricsText: String?,
@@ -3483,25 +3540,131 @@ final class MusicScraperService {
         let write = Task.detached(priority: .utility) {
             try await sourceManager.writeEmbeddedAssets(coverData: cover, lyrics: lyricsEdit, policy: policy, for: target)
         }
+        let fieldRequest = policy.lyricsFieldReplacement
         do {
             let written = try await write.value
-            await MainActor.run {
-                library.flushPendingAssetReferencePatches()
-                guard var latest = library.storedSong(id: song.id) else { return }
-                latest.filePath = written.song.filePath
-                latest.fileSize = written.song.fileSize
-                latest.lastModified = written.song.lastModified
-                latest.revision = written.song.revision
-                library.replaceSong(latest)
+            let fieldReport = fieldRequest.flatMap { EmbeddedLyricsFieldReports.take($0.id) }
+            await recordEmbeddedFileIdentity(written.song, songID: song.id, library: library)
+            var outcome = EmbeddedAssetsOutcome(updatedSong: written.song, unchanged: written.unchanged)
+            switch written.lyricsHandling {
+            case .written:
+                outcome.writtenLyricsText = lyricsText
+                // 文件里原来没有歌词，现在只有刚写进默认字段的这一份：之前记下的几份原文、备用内嵌歌词作废，
+                // 加载时按设置重挑不会挑到一份已经不在文件里的旧内容。
+                await MetadataAssetStore.shared.updateEmbeddedLyricsRecords(
+                    forSongID: song.id, result: .wroteDefaultField, anchor: nil, text: lyricsText
+                )
+            case .replacedByField:
+                if let fieldRequest {
+                    outcome.writtenLyricsText = await recordFieldReplacement(fieldRequest, report: fieldReport, songID: song.id)
+                }
+            case .leftForFieldReplace:
+                if let fieldRequest {
+                    outcome = await replaceEmbeddedLyricsField(
+                        fieldRequest, after: outcome, for: written.song,
+                        sourceManager: sourceManager, library: library
+                    )
+                } else {
+                    // 没带按字段替换的请求（不该发生）：不去动文件里的歌词，这首的歌词写回记成失败。
+                    plog("Embedded scrape lyrics: the file already has lyrics and no field replacement was prepared song=\(song.id.prefix(12))")
+                    outcome.failure = .lyricsNotLocated
+                }
+            case .notIncluded, .kept:
+                break
             }
-            return EmbeddedAssetsOutcome(updatedSong: written.song, unchanged: written.unchanged)
+            return outcome
         } catch {
+            let fieldReport = fieldRequest.flatMap { EmbeddedLyricsFieldReports.take($0.id) }
+            if Self.fieldReportMeansNotLocated(fieldReport) {
+                plog("Embedded scrape lyrics: could not tell which version in the file to replace report=\(String(describing: fieldReport)); file left as it was song=\(song.id.prefix(12))")
+                return EmbeddedAssetsOutcome(failure: .lyricsNotLocated, failureDetail: error.localizedDescription)
+            }
             plog("⚠️ Embedded scrape writeback failed for '\(song.title)' cover=\(cover != nil) lyrics=\(lyricsText != nil): \(error.localizedDescription)")
             return EmbeddedAssetsOutcome(
                 failure: writebackFailureReason(for: error),
                 failureDetail: error.localizedDescription,
                 sourceUnavailable: isSourceUnavailableSidecarError(error)
             )
+        }
+    }
+
+    /// 写入器说认不准是哪一份（或者写进去读回来选中的不是它）：文件没动，不是音乐源的错。
+    nonisolated static func fieldReportMeansNotLocated(_ report: EmbeddedLyricsFieldReport?) -> Bool {
+        switch report {
+        case .notLocated?, .notPreferred?: return true
+        case .done?, nil: return false
+        }
+    }
+
+    /// 按字段改写成功后，记下的「文件里有几份原文」按写入器的实际回报跟上。交回写进文件的文字。
+    private nonisolated static func recordFieldReplacement(
+        _ request: EmbeddedLyricsFieldRequest,
+        report: EmbeddedLyricsFieldReport?,
+        songID: String
+    ) async -> String? {
+        guard case .replace(let text, let anchor) = request.operation else { return nil }
+        let result: EmbeddedLyricsFieldEditor.Result
+        if case .done(let done, _)? = report {
+            result = done
+        } else {
+            // 写成了却没有回报（不该发生）：按「只写了默认字段」处理，记录作废、下次读标签重记。
+            result = .wroteDefaultField
+        }
+        await MetadataAssetStore.shared.updateEmbeddedLyricsRecords(
+            forSongID: songID, result: result, anchor: anchor, text: text
+        )
+        plog("Embedded scrape lyrics replaced by field result=\(String(describing: result)) anchor=\(anchor == nil ? "none" : "known") song=\(songID.prefix(12))")
+        return text
+    }
+
+    /// 写进音频文件后把文件的新身份记回资料库里这首歌现在那一行。
+    private nonisolated static func recordEmbeddedFileIdentity(_ written: Song, songID: String, library: MusicLibrary) async {
+        await MainActor.run {
+            library.flushPendingAssetReferencePatches()
+            guard var latest = library.storedSong(id: songID) else { return }
+            latest.filePath = written.filePath
+            latest.fileSize = written.fileSize
+            latest.lastModified = written.lastModified
+            latest.revision = written.revision
+            library.replaceSong(latest)
+        }
+    }
+
+    /// 文件里已有歌词、这次还换了封面：封面那次事务之后，用它交回的文件身份按字段只换正在用的那一份，
+    /// 别的原文、译文原样（`EmbeddedLyricsFieldEditor`）。认不准是哪一份、或者写进去读回来选中的不是它时，
+    /// 写入器不动文件（或放回原样），这首的歌词写回记成失败，结果详情里能看到。
+    private nonisolated static func replaceEmbeddedLyricsField(
+        _ request: EmbeddedLyricsFieldRequest,
+        after transaction: EmbeddedAssetsOutcome,
+        for song: Song,
+        sourceManager: SourceManager,
+        library: MusicLibrary
+    ) async -> EmbeddedAssetsOutcome {
+        var outcome = transaction
+        let target = song
+        let write = Task.detached(priority: .utility) {
+            try await sourceManager.writeEmbeddedLyrics(.field(request), for: target)
+        }
+        do {
+            let written = try await write.value
+            let report = EmbeddedLyricsFieldReports.take(request.id)
+            await recordEmbeddedFileIdentity(written, songID: song.id, library: library)
+            outcome.updatedSong = written
+            outcome.unchanged = false
+            outcome.writtenLyricsText = await recordFieldReplacement(request, report: report, songID: song.id)
+            return outcome
+        } catch {
+            let report = EmbeddedLyricsFieldReports.take(request.id)
+            if fieldReportMeansNotLocated(report) {
+                plog("Embedded scrape lyrics: could not tell which version in the file to replace report=\(String(describing: report)); file left as it was song=\(song.id.prefix(12))")
+                outcome.failure = .lyricsNotLocated
+            } else {
+                plog("Embedded scrape lyrics field write failed song=\(song.id.prefix(12)): \(error.localizedDescription)")
+                outcome.failure = writebackFailureReason(for: error)
+                outcome.sourceUnavailable = isSourceUnavailableSidecarError(error)
+            }
+            outcome.failureDetail = error.localizedDescription
+            return outcome
         }
     }
 
@@ -3653,6 +3816,7 @@ enum BatchScrapeSummaryText {
         case .timeout: String(localized: "scrape_tally_reason_timeout")
         case .interrupted: String(localized: "scrape_tally_reason_interrupted")
         case .other: String(localized: "scrape_tally_reason_other")
+        case .lyricsNotLocated: String(localized: "scrape_tally_reason_lyrics_not_located")
         }
     }
 

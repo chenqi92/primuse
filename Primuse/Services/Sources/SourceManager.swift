@@ -16576,17 +16576,18 @@ final class SourceManager {
 
     /// 刮削的封面和歌词一起写进音频文件：一次下载、改写、替换、回读，远程源不用整首传两遍。
     /// `coverData` 为 nil 时封面不动，`lyrics` 为 `.keep` 时歌词不动；替换前按 `policy` 看文件里
-    /// 已有的。返回文件此刻的身份，`unchanged` 为真表示没有替换文件。
+    /// 已有的。返回文件此刻的身份，`unchanged` 为真表示没有替换文件；`lyricsHandling` 说歌词这一项怎么处理的
+    /// （`.leftForFieldReplace` 时调用方要接着按字段替换）。
     func writeEmbeddedAssets(
         coverData: Data?,
         lyrics: EmbeddedLyricsEdit,
         policy: EmbeddedAssetWritePolicy,
         for song: Song
-    ) async throws -> (song: Song, unchanged: Bool) {
+    ) async throws -> (song: Song, unchanged: Bool, lyricsHandling: EmbeddedAssetLyricsHandling) {
         let outcome = try await replaceEmbeddedAssetsReporting(
             of: song, coverData: coverData, lyrics: lyrics, policy: policy
         )
-        plog("Embedded assets writeback completed for songID=\(song.id) coverBytes=\(coverData?.count ?? 0) lyrics=\(lyrics.logName) unchanged=\(outcome.unchanged)")
+        plog("Embedded assets writeback completed for songID=\(song.id) coverBytes=\(coverData?.count ?? 0) lyrics=\(lyrics.logName) unchanged=\(outcome.unchanged) lyricsHandling=\(String(describing: outcome.lyricsHandling))")
         return outcome
     }
 
@@ -16628,7 +16629,7 @@ final class SourceManager {
         lyrics: EmbeddedLyricsEdit,
         comment: EmbeddedLyricsEdit = .keep,
         policy: EmbeddedAssetWritePolicy?
-    ) async throws -> (song: Song, unchanged: Bool) {
+    ) async throws -> (song: Song, unchanged: Bool, lyricsHandling: EmbeddedAssetLyricsHandling) {
         let connector = try await connectorForSong(song)
         // The file may already have reached the replace stage when a later
         // step fails, so cached bytes are dropped in either outcome.
@@ -16662,7 +16663,7 @@ final class SourceManager {
                 deleteAudioCache(for: song)
                 try await persistReplacementLocation(from: song, to: updated, using: connector)
             }
-            return (updated, result.assetsUnchanged)
+            return (updated, result.assetsUnchanged, result.assetLyrics)
         } catch let error as EmbeddedMetadataReplacementReadbackError {
             var relocated = song
             relocated.filePath = error.filePath
