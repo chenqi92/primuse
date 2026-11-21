@@ -1215,6 +1215,8 @@ struct SongListView: View {
     @State private var contextTagEditorSong: Song?
     @State private var contextShareSong: Song?
     @State private var contextPlaybackRangeRequest: SongPlaybackRangeEditor.Request?
+    /// 右键菜单里的「编辑歌词」「重新读取文件标签」交给 `macSongActionHost`，和 iPhone 长按走同一套。
+    @State private var contextSongAction: SongRowActionRequest?
     @State private var exportError: String?
     /// songID → 播放次数, 由 PlayHistory 一次性折叠而来。重建只发生在
     /// onAppear 和 PlayHistory 变更通知时, 而不是每行重算 (否则 LazyVStack
@@ -1628,6 +1630,7 @@ struct SongListView: View {
                     purpose: request.purpose
                 )
             }
+            .macSongActionHost(contextSongAction)
             .alert("songs_export_failed",
                    isPresented: exportErrorPresentation) {
                 Button("done", role: .cancel) {}
@@ -2875,6 +2878,13 @@ struct SongListView: View {
 
             SongCopyTitleButton(song: latestSong(song))
 
+            // 刮削数据、编辑标签、编辑歌词、重新读取文件标签：顺序、文案、可用条件和 iPhone 长按菜单「编辑」里一样。
+            Button {
+                openScrapeWindow(for: song)
+            } label: {
+                Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
+            }
+
             Button {
                 editTags(for: song)
             } label: {
@@ -2882,9 +2892,9 @@ struct SongListView: View {
             }
 
             Button {
-                openScrapeWindow(for: song)
+                contextSongAction = SongRowActionRequest(song: latestSong(song), action: .editLyrics)
             } label: {
-                Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
+                Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
             }
 
             Button {
@@ -2894,6 +2904,10 @@ struct SongListView: View {
             }
 
             macSpokenWordClassificationButton(for: song)
+
+            MacRereadSongTagsMenuButton(song: song) {
+                contextSongAction = SongRowActionRequest(song: latestSong(song), action: .rereadTags)
+            }
 
             SongPlaybackRangeMenuItems(song: latestSong(song)) { purpose in
                 contextPlaybackRangeRequest = .init(song: latestSong(song), purpose: purpose)
@@ -6927,6 +6941,68 @@ private struct MacSongRowContainer<Content: View & Equatable & Sendable, Menu: V
             content
         }
         .contextMenu { menu() }
+    }
+}
+#endif
+
+#if os(macOS)
+/// Mac 歌曲列表右键菜单里的「重新读取文件标签」。可用条件、文案和 iPhone 长按菜单「编辑」里那一项一样；
+/// 补读服务的状态只在这个小视图里读，读标签开始、结束只重算这一项，不牵动整行。
+struct MacRereadSongTagsMenuButton: View {
+    let song: Song
+    let action: () -> Void
+    @Environment(MetadataBackfillService.self) private var backfill
+
+    var body: some View {
+        if backfill.canRereadTags(for: song) {
+            let isReading = backfill.isRereadingTags(songID: song.id)
+            Button(action: action) {
+                Label(
+                    String(localized: isReading ? "reread_song_tags_in_progress" : "reread_song_tags"),
+                    systemImage: "arrow.clockwise"
+                )
+            }
+            .disabled(isReading)
+        }
+    }
+}
+
+/// Mac 歌曲列表右键菜单里「改这首歌自身信息」那一段：刮削数据、编辑标签、编辑歌词、重新读取文件标签，
+/// 顺序和文案照 iPhone 长按菜单「编辑」。点了交给页面上挂的 `macSongActionHost`。
+struct MacSongMetadataMenuItems: View {
+    let song: Song
+    let perform: (SongRowActionRequest.Action) -> Void
+
+    var body: some View {
+        Button {
+            perform(.scrape)
+        } label: {
+            Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
+        }
+        Button {
+            perform(.editTags)
+        } label: {
+            Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+        }
+        Button {
+            perform(.editLyrics)
+        } label: {
+            Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
+        }
+        MacRereadSongTagsMenuButton(song: song) { perform(.rereadTags) }
+    }
+}
+
+extension View {
+    /// 右键菜单里要弹页面或读文件的几项交给一个不显示的 `SongRowView` 去做：弹出的刮削、标签、歌词页
+    /// 和读完的结果提示都和 iPhone 长按菜单同一套。每页挂一次，不挂在会回收的行上。
+    func macSongActionHost(_ request: SongRowActionRequest?) -> some View {
+        background {
+            if let request {
+                SongRowView(song: request.song, actionRequest: request)
+                    .id(request.id)
+            }
+        }
     }
 }
 #endif

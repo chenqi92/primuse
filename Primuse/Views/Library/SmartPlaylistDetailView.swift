@@ -45,6 +45,9 @@ struct SmartPlaylistDetailView: View {
     #if os(iOS)
     @State private var isFindPresented = false
     @State private var toolbarMenu = PMToolbarMenuState()
+    #elseif os(macOS)
+    /// 歌曲右键菜单里的刮削数据、编辑标签、编辑歌词、重新读取文件标签，交给 `macSongActionHost`。
+    @State private var macSongAction: SongRowActionRequest?
     #endif
 
     /// 手机横屏 (纵向紧凑) 才把头部换成矮横带。Mac 没有纵向尺寸等级, 恒为 false。
@@ -128,6 +131,7 @@ struct SmartPlaylistDetailView: View {
             .playlistRemovalAlert($pendingRemoval) { _ in
                 NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
             }
+            .macSongActionHost(macSongAction)
             .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert))
         #else
         return AnyView(
@@ -751,6 +755,12 @@ struct SmartPlaylistDetailView: View {
             LazyVStack(spacing: 1) {
                 ForEach(Array(shownRows(matched).enumerated()), id: \.element.id) { index, row in
                     macSongRow(row.song, index: index, ordinalWidth: ordinalWidth)
+                        // 和 iPhone 长按「编辑」里同样的几项：刮削数据、编辑标签、编辑歌词、重新读取文件标签。
+                        .contextMenu {
+                            MacSongMetadataMenuItems(song: row.song) { action in
+                                macSongAction = SongRowActionRequest(song: library.song(id: row.song.id) ?? row.song, action: action)
+                            }
+                        }
                         .songLocationRow(row.song.id)
                 }
             }

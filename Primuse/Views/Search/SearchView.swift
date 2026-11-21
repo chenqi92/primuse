@@ -696,6 +696,8 @@ struct SearchView: View {
     /// 「全部」页结果区的宽度, 决定并排几栏、一排放几张封面。先给一个常见值,
     /// 量到真实宽度后再排一次。
     @State private var macResultsWidth: CGFloat = 960
+    /// 资料库歌曲右键菜单里的刮削数据、编辑标签、编辑歌词、重新读取文件标签，交给 `macSongActionHost`。
+    @State private var macSongAction: SongRowActionRequest?
     #endif
 
     init(
@@ -1777,8 +1779,18 @@ struct SearchView: View {
                 macResultFilter = .all
             }
         }
+        .macSongActionHost(macSongAction)
         // 注意: Album/Artist 的 navigationDestination 由 MacDetailContainer 的
         // NavigationStack 统一注册, 这里不再重复声明 (否则会重复 destination)。
+    }
+
+    /// 资料库歌曲的右键菜单在「在资料库中显示」后面接上和 iPhone 长按「编辑」同样的几项。
+    private func macSongMetadataSection(_ song: PrimuseKit.Song) -> some View {
+        Section {
+            MacSongMetadataMenuItems(song: song) { action in
+                macSongAction = SongRowActionRequest(song: library.song(id: song.id) ?? song, action: action)
+            }
+        }
     }
 
     /// 过滤芯片 + 右端的「调整搜索结果」。输入框只有标题栏上那一个, 页面里不再
@@ -2295,6 +2307,7 @@ struct SearchView: View {
                 .buttonStyle(.plain)
                 .contextMenu {
                     showInLibraryButton(for: result.song)
+                    macSongMetadataSection(result.song)
                 }
             }
             macTopMatchActions(match)
@@ -2440,6 +2453,7 @@ struct SearchView: View {
                 .buttonStyle(.plain)
                 .contextMenu {
                     showInLibraryButton(for: result.song)
+                    macSongMetadataSection(result.song)
                 }
             }
             macTopMatchActions(match)
@@ -3268,6 +3282,7 @@ struct SearchView: View {
             .buttonStyle(.plain)
             .contextMenu {
                 showInLibraryButton(for: result.song)
+                macSongMetadataSection(result.song)
             }
             if !selection.isActive { songMoreMenu(result.song) }
         }
@@ -3367,6 +3382,7 @@ struct SearchView: View {
             .buttonStyle(.plain)
             .contextMenu {
                 showInLibraryButton(for: result.song)
+                macSongMetadataSection(result.song)
                 Divider()
                 Button {
                     selection.activate(seed: result.song.id)
@@ -3439,6 +3455,7 @@ struct SearchView: View {
             .help(Text("search_jump_to_lyrics_context"))
             .contextMenu {
                 showInLibraryButton(for: result.song)
+                macSongMetadataSection(result.song)
                 Divider()
                 Button {
                     selection.activate(seed: result.song.id)

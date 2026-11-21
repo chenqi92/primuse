@@ -42,6 +42,10 @@ struct AlbumDetailView: View {
     @State private var appleMusicCompletion: AppleMusicAlbumCompletion?
     /// 目录现拼的专辑取曲目这一趟走完了(没取到时显示说明,而不是一直转圈)。
     @State private var catalogAlbumLoadFinished = false
+    #if os(macOS)
+    /// 曲目右键菜单里的刮削数据、编辑标签、编辑歌词、重新读取文件标签，交给 `macSongActionHost`。
+    @State private var macSongAction: SongRowActionRequest?
+    #endif
 
     init(album: Album, onMacInlineBack: (() -> Void)? = nil) {
         self.album = album
@@ -970,6 +974,7 @@ struct AlbumDetailView: View {
             .padding(.bottom, 112)
         }
         .background(PMColor.bg.ignoresSafeArea())
+        .macSongActionHost(macSongAction)
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -1179,6 +1184,12 @@ struct AlbumDetailView: View {
                                 .songLocationRow(song.id)
                         } else {
                             macTrackRow(song, index: index, nextSongID: nextSongID, ordinalWidth: ordinalWidth)
+                                // 资料库里的曲目能改自身信息：右键给出和 iPhone 长按「编辑」同样的几项。
+                                .contextMenu {
+                                    MacSongMetadataMenuItems(song: song) { action in
+                                        macSongAction = SongRowActionRequest(song: library.song(id: song.id) ?? song, action: action)
+                                    }
+                                }
                                 .songLocationRow(song.id)
                                 .songSelectable(
                                     songID: song.id,

@@ -31,6 +31,8 @@ struct PlaylistDetailView: View {
     @State private var macTableFirstVisibleRow = 0
     @State private var macTableRowsTop: CGFloat = 0
     @State private var macTableRowsCache = MacTableRowsCache()
+    /// 歌曲右键菜单里的刮削数据、编辑标签、编辑歌词、重新读取文件标签，交给 `macSongActionHost`。
+    @State private var macSongAction: SongRowActionRequest?
     #endif
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -513,6 +515,7 @@ struct PlaylistDetailView: View {
         } message: { removal in
             Text(verbatim: removal.message)
         }
+        .macSongActionHost(macSongAction)
         #endif
         .alert("playlist_remove_offline_none", isPresented: $showsNoOfflineDownloads) {
             Button("ok", role: .cancel) {}
@@ -2075,6 +2078,13 @@ struct PlaylistDetailView: View {
                     pinSongs([song.id])
                 } label: {
                     Label("radio_manage_pin_top", systemImage: "arrow.up.to.line")
+                }
+            }
+
+            // 和 iPhone 长按「编辑」里同样的几项：刮削数据、编辑标签、编辑歌词、重新读取文件标签。
+            Section {
+                MacSongMetadataMenuItems(song: song) { action in
+                    macSongAction = SongRowActionRequest(song: library.song(id: song.id) ?? song, action: action)
                 }
             }
 

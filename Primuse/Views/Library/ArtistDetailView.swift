@@ -118,6 +118,10 @@ struct ArtistDetailView: View {
     @State private var listeningSnapshot = ArtistListeningSnapshot()
     @State private var albumShelvesCache = ArtistAlbumShelvesCache()
     @State private var songsCache = ArtistSongsCache()
+    #if os(macOS)
+    /// 热门歌曲右键菜单里的刮削数据、编辑标签、编辑歌词、重新读取文件标签，交给 `macSongActionHost`。
+    @State private var macSongAction: SongRowActionRequest?
+    #endif
 
     init(
         artist: Artist,
@@ -853,6 +857,7 @@ struct ArtistDetailView: View {
             .padding(.bottom, 112)
         }
         .background(PMColor.bg.ignoresSafeArea())
+        .macSongActionHost(macSongAction)
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -1022,6 +1027,12 @@ struct ArtistDetailView: View {
                 selection.activate(seed: song.id)
             } label: {
                 Label("batch_select", systemImage: "checkmark.circle")
+            }
+            // 和 iPhone 长按「编辑」里同样的几项：刮削数据、编辑标签、编辑歌词、重新读取文件标签。
+            Section {
+                MacSongMetadataMenuItems(song: song) { action in
+                    macSongAction = SongRowActionRequest(song: library.song(id: song.id) ?? song, action: action)
+                }
             }
         }
     }
