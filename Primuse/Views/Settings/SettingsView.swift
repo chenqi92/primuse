@@ -1981,6 +1981,10 @@ struct MetadataScrapingView: View {
                     }
                     .pmAppearFade(.control)
                 } else {
+                    // 上一轮批量刮削按部分的结果；有没完成的歌时点「查看」列出来。
+                    if let completion = scraperService.lastCompletion {
+                        BatchScrapeLastResultRow(completion: completion)
+                    }
                     Button("scrape_missing_metadata") {
                         scraperService.scrapeMissingMetadata(in: library)
                     }

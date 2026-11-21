@@ -55,6 +55,8 @@ struct PlaylistDetailView: View {
     @State private var pendingPlaylistRemoval: PlaylistRemovalRequest?
     /// 置顶、刮削开始 / 取消 / 完成的那一句提示。跟着这一页走，页面在弹出层里也看得见。
     @State private var feedbackToasts = PMToastPresenter()
+    /// 刮削完成提示上点「查看」弹出的结果：按部分的计数和没完成的歌。
+    @State private var scrapeResultReport: BatchScrapeResultReport?
     @State private var showNoScraperSourceAlert = false
     @State private var showArtworkEditor = false
     @State private var trackedScrapeRunID: UUID?
@@ -527,6 +529,7 @@ struct PlaylistDetailView: View {
             PlaylistDescriptionEditor(playlist: currentPlaylist ?? playlist)
         }
         .pmToastHost(feedbackToasts)
+        .batchScrapeResultSheet($scrapeResultReport)
         .songBatchActions(
             selection: selection,
             context: .playlist(id: playlist.id, allowsRemoval: allowsManualMembership || removalSource != nil),
@@ -2222,47 +2225,26 @@ struct PlaylistDetailView: View {
                   matching: trackedScrapeRunID
               ) else { return }
         trackedScrapeRunID = nil
-        var message = String(
-            format: String(localized: "batch_scrape_completed_format"),
-            completion.processedSongCount,
-            completion.songCount,
-            completion.updatedCount,
-            completion.skippedCount,
-            completion.failedCount
+        // 按部分说清楚补上了什么、哪些没存下、写回音乐源成没成；有没完成的歌时点「查看」列出来。
+        let action = completion.offersDetails
+            ? PMToastItem.Action(title: String(localized: "scrape_tally_view_details")) {
+                scrapeResultReport = BatchScrapeResultReport(completion: completion)
+            }
+            : nil
+        showScrapeFeedback(
+            completion.summaryText,
+            systemImage: completion.feedbackSymbol,
+            color: completion.feedbackTint,
+            action: action
         )
-        if completion.artworkTotalCount > 0 {
-            message += "\n" + String(
-                format: String(localized: "batch_scrape_completed_artwork_format"),
-                completion.artworkAvailableCount,
-                completion.artworkTotalCount,
-                completion.artworkUnavailableCount
-            )
-        }
-        let symbol: String
-        let color: Color
-        let appliedCount = completion.updatedCount + completion.artworkAvailableCount
-        let unavailableCount = completion.failedCount + completion.artworkUnavailableCount
-        if appliedCount == 0, unavailableCount > 0 {
-            symbol = "xmark.circle.fill"
-            color = .red
-        } else if unavailableCount > 0 {
-            symbol = "exclamationmark.triangle.fill"
-            color = .orange
-        } else if appliedCount > 0 {
-            symbol = "checkmark.circle.fill"
-            color = .green
-        } else {
-            symbol = "info.circle.fill"
-            color = .accentColor
-        }
-        showScrapeFeedback(message, systemImage: symbol, color: color)
     }
 
     private func showScrapeFeedback(
         _ message: String,
         systemImage: String,
         color: Color,
-        isCompact: Bool = false
+        isCompact: Bool = false,
+        action: PMToastItem.Action? = nil
     ) {
         // 同一个来源：连着置顶两次、刮削开始后马上完成，后一句原地换掉前一句。
         feedbackToasts.show(PMToastItem(
@@ -2270,7 +2252,8 @@ struct PlaylistDetailView: View {
             message: message,
             systemImage: systemImage,
             tint: color,
-            duration: isCompact ? 2 : 4
+            duration: isCompact ? 2 : (action == nil ? 4 : 8),
+            action: action
         ))
         announceScrapeFeedback(message)
     }

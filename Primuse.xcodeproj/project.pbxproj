@@ -805,6 +805,7 @@
 		51D0E75113BD5B877CE4B83F /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
 		51DC9BBBE4717BD78C48408A /* libavcodec.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1A603AA0134C1792449BF47 /* libavcodec.xcframework */; };
 		51E2762C668B8C619B60B2CE /* ScrapeFieldRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42EB2122DF35D06FA5EE051 /* ScrapeFieldRules.swift */; };
+		D15C104ED8127B1B55350E26 /* BatchScrapeTally.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FBF82BBC5939609DD15AC38 /* BatchScrapeTally.swift */; };
 		522A6D628C04E0334D46F12F /* NowPlayingCarousel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C684D0CFF19C7FD22D1FC2 /* NowPlayingCarousel.swift */; };
 		522CD18159CE4EE0E7C8F035 /* SpokenWordBookFollowPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8213F2E9F5D9DFA852280AFC /* SpokenWordBookFollowPolicy.swift */; };
 		522F1685DE70D860FEE3B572 /* CrashDiagnosticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 856D9C17545ABDD50E3B5977 /* CrashDiagnosticsService.swift */; };
@@ -833,6 +834,7 @@
 		54181D544D62F154D3340E81 /* ScraperRequestPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 033454AE682A97431BEADFEE /* ScraperRequestPool.swift */; };
 		541C2DAFF2509005F4CABC11 /* PlayerMoreMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75BE56F487EF033888E16A0 /* PlayerMoreMenu.swift */; };
 		5423F30859BAA4B72BA7D909 /* PMToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2BF8455CF57CC8CA701D4A1 /* PMToast.swift */; };
+		88ED33A4A632FB3EEABEB0B7 /* BatchScrapeResultViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79F6280BBA4AC7711F613157 /* BatchScrapeResultViews.swift */; };
 		543377415ABD7E422E29B5E6 /* MotionCoverPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C119A78A9C2685256AC3CA04 /* MotionCoverPolicy.swift */; };
 		54422655A97AF4B14BCFB2DD /* RemoteMediaHTTPErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */; };
 		54462943A793EB8154002506 /* LibNFS in Frameworks */ = {isa = PBXBuildFile; productRef = 3419DD3DEEF714754F3A4580 /* LibNFS */; };
@@ -1700,6 +1702,7 @@
 		ADA970DC684E05BF6D6AE5C0 /* WidgetConfiguration.strings in Resources */ = {isa = PBXBuildFile; fileRef = BC23AD54CECCD6607FE810C6 /* WidgetConfiguration.strings */; };
 		ADB400688500A470719EBC83 /* PMVerticalBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A84D97F97A35EB01DF0F61E /* PMVerticalBar.swift */; };
 		ADBAB17868F1318EA8F98852 /* PMToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2BF8455CF57CC8CA701D4A1 /* PMToast.swift */; };
+		A87B8AEF364AB66D336969B2 /* BatchScrapeResultViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79F6280BBA4AC7711F613157 /* BatchScrapeResultViews.swift */; };
 		ADC1E38757746B8E8FA851DB /* SACDISOReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4397B8CABB182943E8246B21 /* SACDISOReader.swift */; };
 		ADCDB73D415E79D8A3C57EB9 /* MetadataAssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A24F02124D01EC09135B0F9 /* MetadataAssetStore.swift */; };
 		AE1E0F179439B3421A49EBEA /* LibNFS in Frameworks */ = {isa = PBXBuildFile; productRef = 609A5AE375E2F918AC617DD3 /* LibNFS */; };
@@ -4127,6 +4130,7 @@
 		C3BAEFCF2DE4F0D189D9CF92 /* TVLyricsRomanizationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVLyricsRomanizationController.swift; sourceTree = "<group>"; };
 		C3C34D43D12F0BF40B3FD18C /* EmbeddedLyricsVariantPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedLyricsVariantPolicy.swift; sourceTree = "<group>"; };
 		C42EB2122DF35D06FA5EE051 /* ScrapeFieldRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeFieldRules.swift; sourceTree = "<group>"; };
+		5FBF82BBC5939609DD15AC38 /* BatchScrapeTally.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchScrapeTally.swift; sourceTree = "<group>"; };
 		C45DBC29426E786513B5CFA0 /* MacSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsView.swift; sourceTree = "<group>"; };
 		C47E5CC20B6E176D58A356AC /* KaraokeMicLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeMicLink.swift; sourceTree = "<group>"; };
 		C51AF0F45EA0343E3BDF8300 /* AmbientNowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientNowPlayingView.swift; sourceTree = "<group>"; };
@@ -4329,6 +4333,7 @@
 		E29626A0E82F1C22DE16A59A /* SongLocalRemovalPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongLocalRemovalPolicy.swift; sourceTree = "<group>"; };
 		E29AA1A6283A60FD0B2BA640 /* ParametricEqualizerUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParametricEqualizerUnit.swift; sourceTree = "<group>"; };
 		E2BF8455CF57CC8CA701D4A1 /* PMToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMToast.swift; sourceTree = "<group>"; };
+		79F6280BBA4AC7711F613157 /* BatchScrapeResultViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchScrapeResultViews.swift; sourceTree = "<group>"; };
 		E33D82BA02A515B3AED89287 /* MedleyHighlight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedleyHighlight.swift; sourceTree = "<group>"; };
 		E3539A081659E6E09ECAA357 /* HomeHeroCarousel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeHeroCarousel.swift; sourceTree = "<group>"; };
 		E354B19F580967D02B15ECEB /* SpokenWordCurrentBookCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordCurrentBookCache.swift; sourceTree = "<group>"; };
@@ -5297,6 +5302,7 @@
 				4A5E3854301A90D6807F3BEA /* ScanTLSTrustRetryPolicy.swift */,
 				EBD6678B75E0ED0C185FD110 /* SceneTransitionScanQuiescePolicy.swift */,
 				C42EB2122DF35D06FA5EE051 /* ScrapeFieldRules.swift */,
+				5FBF82BBC5939609DD15AC38 /* BatchScrapeTally.swift */,
 				5B65AED69CE92E74F1AB2CA4 /* ScraperJSONRule.swift */,
 				18D43872DB076D765B01FC84 /* ScreenChangeTransitionPolicy.swift */,
 				747F9DFB5622C847676BED5C /* ScreenIdleHoldPolicy.swift */,
@@ -6446,6 +6452,7 @@
 				C24789082CEFB3C4913FB3F1 /* PMMotion.swift */,
 				50A49AF5877E93784EC2F152 /* PMSheetFitting.swift */,
 				E2BF8455CF57CC8CA701D4A1 /* PMToast.swift */,
+				79F6280BBA4AC7711F613157 /* BatchScrapeResultViews.swift */,
 				9A84D97F97A35EB01DF0F61E /* PMVerticalBar.swift */,
 				8BE8990000EEE4B1133209E1 /* PMVerticalBarChrome.swift */,
 				B4DB999971CA92DDD0B89B9E /* RenderingVisibility.swift */,
@@ -8118,6 +8125,7 @@
 				C78883EEF4E8ECF986774E31 /* ScanTLSTrustRetryPolicy.swift in Sources */,
 				175CA91636CD93FF58990750 /* SceneTransitionScanQuiescePolicy.swift in Sources */,
 				51E2762C668B8C619B60B2CE /* ScrapeFieldRules.swift in Sources */,
+				D15C104ED8127B1B55350E26 /* BatchScrapeTally.swift in Sources */,
 				F2532B590118ADC3744EFED5 /* ScraperJSONRule.swift in Sources */,
 				D0223B06EA923E5E84C8E154 /* ScreenChangeTransitionPolicy.swift in Sources */,
 				0DF2DAA9157D8C8FDF99CDDE /* ScreenIdleHoldPolicy.swift in Sources */,
@@ -8751,6 +8759,7 @@
 				AB3CC80AADA2D2DE9AC2BEFE /* PMSheetFitting.swift in Sources */,
 				33291B00F794529D46E2B888 /* PMTitleBar.swift in Sources */,
 				5423F30859BAA4B72BA7D909 /* PMToast.swift in Sources */,
+				88ED33A4A632FB3EEABEB0B7 /* BatchScrapeResultViews.swift in Sources */,
 				ADB400688500A470719EBC83 /* PMVerticalBar.swift in Sources */,
 				3B018D03458A817D3F3400BA /* PMVerticalBarChrome.swift in Sources */,
 				BEB291FBADAB1813D2379B09 /* PMVolumeSlider.swift in Sources */,
@@ -9647,6 +9656,7 @@
 				C3DAE99C4208D117352DF52B /* PMSheetFitting.swift in Sources */,
 				E3900CCC1A7A9AEC7FAB20FE /* PMTitleBar.swift in Sources */,
 				ADBAB17868F1318EA8F98852 /* PMToast.swift in Sources */,
+				A87B8AEF364AB66D336969B2 /* BatchScrapeResultViews.swift in Sources */,
 				B478C5AF48BBAD1B67FBE529 /* PMVerticalBar.swift in Sources */,
 				ACDB0068D3CF83756F697E4C /* PMVerticalBarChrome.swift in Sources */,
 				B4EBAC636CB88193ED9429FC /* PMVolumeSlider.swift in Sources */,

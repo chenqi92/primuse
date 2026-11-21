@@ -298,11 +298,15 @@ struct TVAlbumScrapeView: View {
 
     private func resultText(_ result: TVAlbumScrapeResult) -> String {
         if result.noEnabledSource { return String(localized: "scraper_no_source_message") }
-        let counts = String(
+        var counts = String(
             format: String(localized: "tv_scrape_album_result_format"),
             result.updated,
             result.unchanged
         )
+        if result.failed > 0 {
+            // 刮到了却没存下的单独说出来，不混进「没变」。
+            counts += " · " + String(format: String(localized: "scrape_tally_save_failed_format"), result.failed)
+        }
         return result.cancelled ? counts + " · " + String(localized: "tv_scrape_album_stopped") : counts
     }
 

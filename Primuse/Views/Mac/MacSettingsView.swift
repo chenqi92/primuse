@@ -4385,6 +4385,8 @@ private struct MacSTScrapingView: View {
     @State private var showsPendingWritebacks = false
     @State private var showsScrapeRules = false
     @State private var showsArtworkEditor = false
+    /// 上一轮批量刮削的结果，点「查看」弹出。
+    @State private var scrapeResultReport: BatchScrapeResultReport?
     @Environment(AudioPlayerService.self) private var player
 
     var body: some View {
@@ -4564,6 +4566,17 @@ private struct MacSTScrapingView: View {
                     }
                 }
                 .settingsAnchor("scraping.fillMissing")
+                // 上一轮批量刮削按部分的结果；有没完成的歌时点「查看」列出来（和 iPhone 设置页同一份）。
+                if !scraperService.isScraping, let completion = scraperService.lastCompletion {
+                    MacSTRow(String(localized: "scrape_tally_last_result"), hint: completion.summaryText, hintLineLimit: 6) {
+                        if completion.offersDetails {
+                            MacSTButton(title: String(localized: "scrape_tally_view_details")) {
+                                scrapeResultReport = BatchScrapeResultReport(completion: completion)
+                            }
+                        }
+                    }
+                    .batchScrapeResultSheet($scrapeResultReport)
+                }
                 MacSTRow(String(localized: "tag_tidy_library_action"), hint: String(localized: "tag_tidy_library_footer")) {
                     MacSTButton(title: String(localized: "tag_tidy_library_button"), systemImage: "wand.and.sparkles") {
                         libraryTidySongs = .wholeLibraryForTidy(library)

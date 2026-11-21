@@ -553,3 +553,220 @@ final class ScrapeOptionsTaskTests: XCTestCase {
         )
     }
 }
+
+/// 批量刮削按部分结算：只有真的补上并落了地才算更新；存不下的记失败、不改引用。
+@MainActor
+final class BatchScrapeAccountingTests: XCTestCase {
+    private func makeService(_ root: URL) -> MusicScraperService {
+        MusicScraperService(sourceManager: SourceManager(sourcesProvider: { [] }),
+                            checkpointDirectory: root.appendingPathComponent("checkpoint"))
+    }
+
+    private func temporaryRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("scrape-tally-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private func song(cover: String? = nil, lyrics: String? = nil) -> Song {
+        Song(id: UUID().uuidString, title: "Window at Dawn", albumTitle: "Quiet Windows", artistName: "Paper Harbor",
+             duration: 180, fileFormat: .flac, filePath: "/Music/Window at Dawn.flac", sourceID: "nas",
+             coverArtFileName: cover, lyricsFileName: lyrics)
+    }
+
+    private func scope(_ fields: Set<ScrapeField>) -> MusicScraperService.ScrapeScope {
+        MusicScraperService.ScrapeScope(considered: fields, fetched: fields)
+    }
+
+    private func pngData() throws -> Data {
+        try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16)).image { context in
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+        }.pngData())
+    }
+
+    private func processed(_ song: Song, cover: Data?, lyrics: [LyricLine]?) -> MusicScraperService.ProcessedResult {
+        MusicScraperService.ProcessedResult(song: song, coverData: cover, lyricsLines: lyrics)
+    }
+
+    private func cleanUp(_ songID: String) async {
+        await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+        _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
+        CachedArtworkView.invalidateCache(for: songID)
+    }
+
+    func testTechnicalParametersAloneAreSavedButNotCountedAsUpdated() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = makeService(root)
+        let original = song()
+        var scraped = original
+        scraped.duration = 181.4
+        scraped.bitRate = 1_411
+        scraped.sampleRate = 96_000
+        scraped.bitDepth = 24
+        let applied = await service.applyScrapedResult(
+            processed(scraped, cover: nil, lyrics: nil), scope: scope([.year, .genre, .cover, .lyrics]),
+            to: original, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertEqual(applied.parts.tags, .notFound)
+        XCTAssertEqual(applied.parts.cover, .notFound)
+        XCTAssertEqual(applied.parts.result, .unchanged)
+        XCTAssertTrue(applied.persists, "Technical parameters are still saved silently")
+        XCTAssertEqual(applied.song.sampleRate, 96_000)
+        XCTAssertNil(applied.song.userMetadataEditedAt)
+
+        scraped.year = 2026
+        let tagged = await service.applyScrapedResult(
+            processed(scraped, cover: nil, lyrics: nil), scope: scope([.year]),
+            to: original, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertEqual(tagged.parts.tags, .filled)
+        XCTAssertEqual(tagged.parts.result, .updated)
+    }
+
+    func testCoverThatCannotBeStoredIsAFailureAndKeepsTheReference() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = makeService(root)
+        let original = song(cover: "/Music/Album/cover.jpg")
+        var scraped = original
+        scraped.coverArtFileName = MetadataAssetStore.shared.expectedCoverFileName(for: original.id)
+        let applied = await service.applyScrapedResult(
+            processed(scraped, cover: Data("not an image".utf8), lyrics: nil), scope: scope([.cover]),
+            to: original, parts: .all, coverOrigin: .selected, stampsUserEdit: true
+        )
+        XCTAssertEqual(applied.parts.cover, .saveFailed)
+        XCTAssertEqual(applied.parts.result, .failed)
+        XCTAssertNil(applied.storedCover)
+        XCTAssertEqual(applied.song.coverArtFileName, original.coverArtFileName)
+        XCTAssertFalse(applied.persists)
+
+        let image = try pngData()
+        let stored = await service.applyScrapedResult(
+            processed(scraped, cover: image, lyrics: nil), scope: scope([.cover]),
+            to: original, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertEqual(stored.parts.cover, .filled)
+        let reference = try XCTUnwrap(stored.song.coverArtFileName)
+        XCTAssertTrue(MetadataAssetStore.shared.hasReadableCoverFile(named: reference))
+        await cleanUp(original.id)
+    }
+
+    func testLyricsRejectedByTheCacheAreNotFilledAndKeepTheReference() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = makeService(root)
+        let original = song()
+        let lines = [LyricLine(timestamp: 1, text: "Paper lanterns cross the quiet sky")]
+        // 别处正在改这首的歌词：缓存不收，这一轮不算补上，引用也不改。
+        let token = await MetadataAssetStore.shared.beginLyricsMutation(forSongID: original.id, expectedFingerprint: nil)
+        let reserved = try XCTUnwrap(token)
+        let rejected = await service.applyScrapedResult(
+            processed(original, cover: nil, lyrics: lines), scope: scope([.lyrics]),
+            to: original, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        await MetadataAssetStore.shared.cancelLyricsMutation(forSongID: original.id, token: reserved)
+        XCTAssertEqual(rejected.parts.lyrics, .saveFailed)
+        XCTAssertNil(rejected.cachedLyrics)
+        XCTAssertNil(rejected.song.lyricsFileName)
+
+        let blank = await service.applyScrapedResult(
+            processed(original, cover: nil, lyrics: [LyricLine(timestamp: 1, text: "  ")]), scope: scope([.lyrics]),
+            to: original, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertEqual(blank.parts.lyrics, .saveFailed)
+
+        let cached = await service.applyScrapedResult(
+            processed(original, cover: nil, lyrics: lines), scope: scope([.lyrics]),
+            to: original, parts: .all, coverOrigin: .scraped, stampsUserEdit: true
+        )
+        XCTAssertEqual(cached.parts.lyrics, .filled)
+        XCTAssertEqual(cached.song.lyricsFileName, MetadataAssetStore.shared.expectedLyricsFileName(for: original.id))
+        await cleanUp(original.id)
+    }
+
+    func testWritebackFailuresAreClassified() {
+        XCTAssertEqual(MusicScraperService.writebackFailureReason(for: EmbeddedMetadataCoordinatedWritebackError.conflict), .conflict)
+        XCTAssertEqual(MusicScraperService.writebackFailureReason(for: CancellationError()), .timeout)
+        XCTAssertEqual(MusicScraperService.writebackFailureReason(for: SourceFileMutationError.readOnly), .unavailable)
+        XCTAssertEqual(MusicScraperService.writebackFailureReason(for: NSError(domain: "Primuse.Test", code: 7)), .other)
+    }
+
+    func testCompletionSummaryHidesZeroItemsAndSaysWhenNothingWasFound() {
+        var tally = BatchScrapeTally()
+        tally.record(ScrapeSongParts(cover: .alreadyPresent, lyrics: .notFound, tags: .notFound))
+        let nothing = MusicScraperService.BatchScrapeCompletion(
+            runID: UUID(), originPlaylistID: nil, songCount: 1, updatedCount: 0, skippedCount: 1, failedCount: 0,
+            artworkTotalCount: 0, artworkAvailableCount: 0, artworkUnavailableCount: 0, tally: tally
+        )
+        XCTAssertEqual(nothing.summaryLines, [String(localized: "scrape_tally_nothing")])
+        XCTAssertFalse(nothing.offersDetails)
+
+        tally.record(ScrapeSongParts(cover: .saveFailed, lyrics: .filled, tags: .notRequested))
+        tally.recordFailure(.init(songID: "s", title: "Window at Dawn", part: .cover))
+        tally.recordWriteback(.failed(.conflict))
+        let mixed = MusicScraperService.BatchScrapeCompletion(
+            runID: UUID(), originPlaylistID: nil, songCount: 2, updatedCount: 0, skippedCount: 1, failedCount: 1,
+            artworkTotalCount: 0, artworkAvailableCount: 0, artworkUnavailableCount: 0, tally: tally
+        )
+        XCTAssertEqual(mixed.summaryLines.count, 3, "Cover, lyrics and writeback lines; no tags line for zero")
+        XCTAssertTrue(mixed.offersDetails)
+        XCTAssertTrue(mixed.hasAnyFailure)
+    }
+
+    func testTechnicalChangesInABatchAreNotReportedAsUpdated() async throws {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: ScraperSettings.defaultsKey)
+        defer {
+            if let previous { defaults.set(previous, forKey: ScraperSettings.defaultsKey) }
+            else { defaults.removeObject(forKey: ScraperSettings.defaultsKey) }
+        }
+        var settings = ScraperSettings.load()
+        for index in settings.sources.indices {
+            settings.sources[index].isEnabled = settings.sources[index].type == .itunes
+        }
+        settings.onlyFillMissingFields = true
+        settings.save()
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var wav = Data("RIFF".utf8)
+        func u32(_ value: UInt32) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
+        wav.append(u32(196)); wav.append(Data("WAVEfmt ".utf8)); wav.append(u32(16)); wav.append(contentsOf: [1, 0, 1, 0])
+        wav.append(u32(8000)); wav.append(u32(16000)); wav.append(contentsOf: [2, 0, 16, 0])
+        wav.append(Data("data".utf8)); wav.append(u32(160)); wav.append(Data(repeating: 0, count: 160))
+        try wav.write(to: root.appendingPathComponent("Lantern Shore.wav"))
+        let source = MusicSource(id: UUID().uuidString, name: "Tally fixture", type: .local, basePath: root.path)
+        let service = MusicScraperService(
+            sourceManager: SourceManager(sourcesProvider: { [source] }),
+            metadataService: MetadataService(scraperManager: ScraperManager(scraperFactory: { _ in EmptyMetadataProbe() })),
+            checkpointDirectory: root.appendingPathComponent("checkpoint"), scrapeRetrySleep: { _ in }
+        )
+        defer { service.cancel() }
+        let song = Song(id: UUID().uuidString, title: "Lantern Shore", fileFormat: .wav,
+                        filePath: "/Lantern Shore.wav", sourceID: source.id)
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        library.addSongs([song])
+        await library.waitForPendingIndex()
+
+        _ = service.scrapeMissingMetadata(songs: [song], in: library, parts: .metadata)
+        await service.waitUntilScrapeIdle()
+        let completion = try XCTUnwrap(service.lastCompletion)
+        XCTAssertEqual(completion.updatedCount, 0, "Only duration / sample rate changed: not an update")
+        XCTAssertEqual(completion.skippedCount, 1)
+        XCTAssertEqual(completion.tally.tags.notFound, 1)
+        XCTAssertEqual(completion.summaryLines.first, String(localized: "scrape_tally_nothing"))
+        let stored = try XCTUnwrap(library.storedSong(id: song.id))
+        XCTAssertTrue(stored.sampleRate != nil || stored.duration > 0, "Technical parameters are still saved")
+    }
+
+    private struct EmptyMetadataProbe: MusicScraper {
+        let type = MusicScraperType.itunes
+        func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
+            .empty(.itunes)
+        }
+        func getDetail(externalId: String) async throws -> ScraperDetail? { nil }
+        func getCoverArt(externalId: String) async throws -> [ScraperCoverResult] { [] }
+        func getLyrics(externalId: String) async throws -> ScraperLyricsResult? { nil }
+    }
+}

@@ -13355,6 +13355,8 @@ struct NowPlayingView: View {
                 Task { await loadLyrics() }
             }
         }
+        // 刮到了却没存下、没能写回音乐源的部分在卡片上显示成失败，不当成「没找到」或成功。
+        let outcome = result.outcome
         center.finishAutomatic(
             song: result.originalSong,
             lyricsOnly: lyricsOnly,
@@ -13362,7 +13364,13 @@ struct NowPlayingView: View {
                 original: result.originalSong,
                 updated: updatedSong,
                 coverFound: result.coverData != nil,
-                lyricsFound: result.lyrics?.isEmpty == false
+                lyricsFound: result.lyrics?.isEmpty == false,
+                coverFailure: outcome.coverSaveFailed ? String(localized: "scrape_tally_failure_cover") : nil,
+                lyricsFailure: outcome.lyricsSaveFailed ? String(localized: "scrape_tally_failure_lyrics") : nil,
+                sourceFailure: outcome.writebackFailureReason.map {
+                    String(format: String(localized: "scrape_tally_writeback_failed_detail_format"),
+                           BatchScrapeSummaryText.reason($0))
+                }
             ),
             errorMessage: nil
         )

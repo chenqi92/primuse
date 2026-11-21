@@ -95,13 +95,17 @@ final class MusicScraperService {
         case noScraperSource
     }
 
+    /// 任务 B 接线用：这首歌的歌词是不是用户主动清空的。为真时刮到的歌词不写，按「没去刮」算，不进失败清单。
+    static var lyricsWereClearedByUser: (String) -> Bool = { _ in false }
+
     enum BatchScrapePhase: Equatable {
         case songs
         case artwork
     }
 
-    /// Reports metadata committed to the app library and artwork cache. Optional
-    /// media-server sidecar writes continue independently and are not included.
+    /// 一轮批量刮削的结果。`updatedCount` 只数封面、歌词、标签至少补上一样并落了地的歌；
+    /// 只有技术参数变了的算 `skippedCount`；有一部分刮到了却没存下、或整首出错的算 `failedCount`。
+    /// `tally` 按部分细分，并带上这一轮自己发起的写回音乐源（嵌入、旁路文件、媒体服务器）的结果。
     struct BatchScrapeCompletion: Equatable {
         let runID: UUID
         let originPlaylistID: String?
@@ -112,6 +116,9 @@ final class MusicScraperService {
         let artworkTotalCount: Int
         let artworkAvailableCount: Int
         let artworkUnavailableCount: Int
+        var tally = BatchScrapeTally()
+        /// 从旧版本留下的断点续跑：分项计数只统计了续跑的那部分，摘要退回总数那一行。
+        var tallyIsPartial = false
 
         var processedSongCount: Int {
             updatedCount + skippedCount + failedCount
@@ -131,6 +138,24 @@ final class MusicScraperService {
         let coverData: Data?
         let lyrics: [LyricLine]?
         var review = ScrapeReviewCatalog()
+        /// 各部分落地的结局与写回音乐源的结果；预览（dry run）时为空。
+        var outcome = SingleScrapeOutcome()
+    }
+
+    /// 快捷单曲刮削交给调用方的结局：封面、歌词存没存下，写回音乐源成没成。
+    struct SingleScrapeOutcome: Sendable, Equatable {
+        var parts: ScrapeSongParts?
+        var writeback: ScrapeWritebackOutcome = .notAttempted
+        /// 写回失败时音乐源报的错，可能为空。
+        var writebackDetail: String?
+
+        var coverSaveFailed: Bool { parts?.cover == .saveFailed }
+        var lyricsSaveFailed: Bool { parts?.lyrics == .saveFailed }
+
+        var writebackFailureReason: ScrapeWritebackFailureReason? {
+            if case .failed(let reason) = writeback { return reason }
+            return nil
+        }
     }
 
     struct SingleScrapeCompletion: Sendable {
@@ -224,6 +249,10 @@ final class MusicScraperService {
         /// 上一个进程留下的断点在前台自动续上时的起点。下次打开还停在这里 = 续上之后
         /// 一首都没往前走进程就没了,不再在前台自动续(`BatchScrapeForegroundResumePolicy`)。
         var launchResumeIndex: Int?
+        /// 按部分的计数与失败清单。旧断点没有这一项，续跑时从空的开始。
+        var tally: BatchScrapeTally?
+        /// 分项计数只统计了续跑部分（旧断点续上的）。
+        var tallyIsPartial: Bool?
 
         var hasPersistedSongCounts: Bool {
             updatedCount != nil && skippedCount != nil && failedCount != nil
@@ -244,6 +273,35 @@ final class MusicScraperService {
     private(set) var artworkProcessedCount = 0 { didSet { publishBatchActivity() } }
     private(set) var artworkAvailableCount = 0
     private(set) var artworkUnavailableCount = 0
+    /// 这一轮按部分的计数。只在完成和断点里读，不进界面观察：写回结果一首一首到，不该每到一首刷一次界面。
+    @ObservationIgnored private var tally = BatchScrapeTally()
+    @ObservationIgnored private var runTallyIsPartial = false
+    /// 这个进程里发起、还没结束的写回，按「轮次 + 歌曲」记。完成前等它们（`awaitRunWritebacks`），
+    /// 被打断、等不到的从这里取出来记成失败；之后迟到的结果不再重复记。
+    @ObservationIgnored private var inFlightWritebacks: [String: InFlightWriteback] = [:]
+    /// 这个进程里最慢的一次写回用了多久，等写回的兜底按它放宽。
+    @ObservationIgnored private var longestWritebackDuration: TimeInterval = 0
+    /// 正在等这一轮的写回时为非空：这时点停止也要给出摘要。
+    @ObservationIgnored private var awaitingRunContext: RunContext?
+
+    private struct InFlightWriteback {
+        let runID: UUID
+        let songID: String
+        let title: String
+        let startedAt: TimeInterval
+    }
+
+    private struct RunContext {
+        let runID: UUID
+        let originPlaylistID: String?
+        let songCount: Int
+        let forceRescrape: Bool
+        let generation: Int
+    }
+
+    private static func inFlightKey(runID: UUID, songID: String) -> String {
+        runID.uuidString + "\u{1F}" + songID
+    }
     private(set) var lastCompletion: BatchScrapeCompletion?
     private(set) var completionRevision: UInt = 0
     private(set) var activeRunID: UUID?
@@ -580,6 +638,18 @@ final class MusicScraperService {
         return (result.song, result.coverData, result.lyrics)
     }
 
+    /// 同 `scrapeSingle`，交回完整结果：封面、歌词存没存下，写回音乐源成没成。
+    func scrapeSingleResult(song: Song, in library: MusicLibrary) async throws -> SingleScrapeResult {
+        switch startSingleScrape(song: song, in: library) {
+        case .started(let runID), .joined(let runID):
+            return try await awaitSingleScrape(runID: runID)
+        case .busy:
+            throw ScraperError.busy
+        case .noScraperSource:
+            throw ScraperError.noEnabledSource
+        }
+    }
+
     private func performSingleScrape(
         song: Song,
         in library: MusicLibrary,
@@ -588,200 +658,95 @@ final class MusicScraperService {
         await sidecarCircuitBreaker.resetIdleUnavailableSources()
 
         let settings = ScraperSettings.load()
+        var scope = ScrapeScope()
         let processed = try await processedSongWithAssets(song, forceRescrape: true, storeAssets: !dryRun,
-                                                        parts: parts, settings: settings, collectingReview: dryRun)
-        guard let result = processed else {
-            return SingleScrapeResult(
-                originalSong: song,
-                song: song,
-                coverData: nil,
-                lyrics: nil
-            )
-        }
-        var updatedSong = result.song
-
-        // NEVER overwrite existing cover or lyrics with nil
-        if updatedSong.coverArtFileName == nil && song.coverArtFileName != nil {
-            updatedSong.coverArtFileName = song.coverArtFileName
-        }
-        if updatedSong.lyricsFileName == nil && song.lyricsFileName != nil {
-            updatedSong.lyricsFileName = song.lyricsFileName
+                                                        parts: parts, settings: settings, collectingReview: dryRun,
+                                                        scope: &scope)
+        guard !dryRun else {
+            guard let result = processed else {
+                return SingleScrapeResult(originalSong: song, song: song, coverData: nil, lyrics: nil)
+            }
+            var preview = result.song
+            // 预览不改任何东西：没刮到的封面、歌词不能显示成没有。
+            if preview.coverArtFileName == nil { preview.coverArtFileName = song.coverArtFileName }
+            if preview.lyricsFileName == nil { preview.lyricsFileName = song.lyricsFileName }
+            return SingleScrapeResult(originalSong: song, song: preview, coverData: result.coverData,
+                                      lyrics: result.lyricsLines, review: result.review)
         }
 
-        // 重新刮削已有 hash ref 的歌曲时, mergedSong 生成的占位 ref 与现存 ref 完全
-        // 相同 (cover/lyrics 文件名是 song.id 的确定性 hash), 且 fillMissingOnline 只补
-        // nil 不覆盖 ——  于是 updatedSong == song。但 result 里可能带着刚下载的新封面/
-        // 歌词。只要刮到了新资产就必须走缓存/sidecar 写回, 否则用户点「重新刮削」实为无操作。
-        let hasNewAssets = result.coverData != nil || (result.lyricsLines?.isEmpty == false)
-        if !dryRun && (updatedSong != song || hasNewAssets) {
-            // 拿到 lyrics 立即写 hash JSON cache + 把 song.lyricsFileName 改成
-            // hash filename (不是 NAS .lrc path) —— 否则 NowPlayingView.loadLyrics
-            // 立即跑时, Tier1a cache miss + Tier1b 看 lyricsFileName 含 "/" 走
-            // Tier3 从 NAS 拉 line-level .lrc, 用户看到 line-level, 等后续 sidecar
-            // task 写 cache 已经晚了 (UI 不会再 reload)。
-            let lyricsLines = result.lyricsLines
-            let coverData = result.coverData
-            let sidecarSettings = Self.sidecarSettings()
-            let sidecarCoverData = sidecarSettings.coverEnabled ? coverData : nil
-            let sidecarLyricsLines = sidecarSettings.lyricsEnabled ? lyricsLines : nil
-            if let coverData {
-                // 图存不下就别指过去: 引用一旦不空, 之后的刮削缺失都会跳过这首。
-                if let reference = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: updatedSong.id, origin: .selected) {
-                    updatedSong.coverArtFileName = reference
-                    CachedArtworkView.invalidateCache(for: updatedSong.id)
-                } else {
-                    updatedSong.coverArtFileName = song.coverArtFileName
-                }
-            }
-            if let lyricsLines, !lyricsLines.isEmpty {
-                await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: updatedSong.id, force: true)
-                updatedSong.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: updatedSong.id)
-            }
-            // 文件型源刮到的值只存在资料库,不记用户编辑的话下次读标签就被换回(#173)。
-            if await !sourceManager.isServerLibrarySource(for: song) {
-                updatedSong = SongUserMetadataPolicy.stampingUserEdit(original: song, updated: updatedSong)
-            }
-            // 文件身份以库里那一行为准：拿来刮削的可能是重扫前的旧行（正在播放那份），
-            // 整行写回会把库里的版本倒回去，之后的写回都判成「编辑期间已发生变化」。
-            if let stored = library.storedSong(id: updatedSong.id) {
-                updatedSong.filePath = stored.filePath
-                updatedSong.fileSize = stored.fileSize
-                updatedSong.lastModified = stored.lastModified
-                updatedSong.revision = stored.revision
-            }
-            library.replaceSong(Self.rebasedOntoLatestUserEdits([updatedSong], in: library)[0])
-            // 单曲重新刮削是用户亲手做的,刮到的封面在其它设备上也换;整张专辑、整库的补全不传图。
-            if coverData != nil {
-                SongTagEditStore.shared.recordUserChosenCovers(songIDs: [updatedSong.id])
-            }
+        // 单曲重新刮削是用户亲手点的：选中的封面按用户挑的记，在其它设备上也换。
+        // 文件型源刮到的值只存在资料库,不记用户编辑的话下次读标签就被换回(#173)。
+        let isServerLibrary = await sourceManager.isServerLibrarySource(for: song)
+        let applied = await applyScrapedResult(
+            processed, scope: scope, to: song, parts: parts, coverOrigin: .selected,
+            stampsUserEdit: !isServerLibrary
+        )
+        var outcome = SingleScrapeOutcome(parts: applied.parts)
+        var updatedSong = applied.song
+        guard applied.persists else {
+            plog("MusicScraperService: single scrape left '\(song.title)' unchanged cover=\(applied.parts.cover.rawValue) lyrics=\(applied.parts.lyrics.rawValue) tags=\(applied.parts.tags.rawValue)")
+            return SingleScrapeResult(originalSong: song, song: library.storedSong(id: song.id) ?? song,
+                                      coverData: nil, lyrics: nil, outcome: outcome)
+        }
 
-            // Write sidecar files to source (cover.jpg, .lrc) and update Song refs
-            plog("📝 Sidecar: coverData=\(sidecarCoverData?.count ?? 0)B lyricsLines=\(sidecarLyricsLines?.count ?? 0) for '\(updatedSong.title)'")
-            if sidecarCoverData != nil || sidecarLyricsLines != nil {
-                let canWriteSidecar = await sourceManager.supportsSidecarWriting(for: updatedSong)
-                if canWriteSidecar {
-                    // 只嵌入模式下刮削不新建歌词文件；刮削本身不嵌入(要整首重传)，
-                    // 刮到的歌词留在上面已经写好的本地缓存里。
-                    let createsLyricsFile = await sourceManager.lyricsEmbeddingMode(
-                        for: updatedSong
-                    ) != .embedOnly
-                    // 封面另按「封面保存到」：嵌入时先整首替换，再写（或只更新已有的）封面文件。
-                    let coverEmbeddingMode = sidecarCoverData == nil
-                        ? CoverEmbeddingMode.off
-                        : await sourceManager.coverEmbeddingMode(for: updatedSong)
-                    let songForWrite = updatedSong
-                    let sourceManager = self.sourceManager
-                    let songID = updatedSong.id
-                    let sidecarCircuitBreaker = self.sidecarCircuitBreaker
-                    let sidecarTask = startSidecarWriteTask {
-                        guard await sidecarCircuitBreaker.acquire(sourceID: songForWrite.sourceID) else {
-                            return
-                        }
-                        var songForSidecar = songForWrite
-                        if coverEmbeddingMode != .off, let sidecarCoverData {
-                            let embedded = await MusicScraperService.embedScrapedCover(
-                                sidecarCoverData,
-                                for: songForWrite,
-                                sourceManager: sourceManager,
-                                library: library
-                            )
-                            if embedded.sourceUnavailable {
-                                _ = await sidecarCircuitBreaker.release(
-                                    sourceID: songForWrite.sourceID,
-                                    sourceUnavailable: true
-                                )
-                                plog("⚠️ Sidecar: source \(songForWrite.sourceID) is read-only or unavailable; later writes are skipped")
-                                return
-                            }
-                            // 有的网盘替换后文件换了 ID，之后的旁路文件要跟着新文件走。
-                            if let written = embedded.updatedSong {
-                                songForSidecar = written
-                            }
-                        }
-                        do {
-                            let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
-                                seconds: sidecarSettings.timeout,
-                                sourceManager: sourceManager,
-                                for: songForSidecar,
-                                coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines,
-                                createsLyricsFile: createsLyricsFile,
-                                createsCoverFile: coverEmbeddingMode != .embedOnly
-                            )
-                            let didOpenCircuit = await sidecarCircuitBreaker.release(
-                                sourceID: songForWrite.sourceID,
-                                sourceUnavailable: writeResult.sourceUnavailable
-                            )
-                            if didOpenCircuit {
-                                plog("⚠️ Sidecar: source \(songForWrite.sourceID) is read-only or unavailable; later writes are skipped")
-                            }
-                            plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten) errors=\(writeResult.errors)")
+        // 文件身份以库里那一行为准：拿来刮削的可能是重扫前的旧行（正在播放那份），
+        // 整行写回会把库里的版本倒回去，之后的写回都判成「编辑期间已发生变化」。
+        if let stored = library.storedSong(id: updatedSong.id) {
+            updatedSong.filePath = stored.filePath
+            updatedSong.fileSize = stored.fileSize
+            updatedSong.lastModified = stored.lastModified
+            updatedSong.revision = stored.revision
+        }
+        library.replaceSong(Self.rebasedOntoLatestUserEdits([updatedSong], in: library)[0])
+        // 单曲重新刮削是用户亲手做的,刮到的封面在其它设备上也换;整张专辑、整库的补全不传图。
+        if applied.storedCover != nil {
+            SongTagEditStore.shared.recordUserChosenCovers(songIDs: [updatedSong.id])
+        }
+        plog("MusicScraperService: single scrape '\(song.title)' cover=\(applied.parts.cover.rawValue) lyrics=\(applied.parts.lyrics.rawValue) tags=\(applied.parts.tags.rawValue)")
 
-                            var needsUpdate = false
-                            var refSong = songForSidecar
-
-                            if writeResult.coverWritten {
-                                if let coverPath = Self.sidecarReferencePath(for: songForSidecar, suffix: "-cover.jpg") {
-                                    refSong.coverArtFileName = songForSidecar.coverArtFileName ?? coverPath
-                                    needsUpdate = true
-                                }
-                                // sidecar 已落盘 —— 现在回写 hash cache 作为可信 mirror
-                                if let coverData {
-                                    await MetadataAssetStore.shared.cacheCover(coverData, forSongID: songID)
-                                }
-                            }
-                            if writeResult.lyricsWritten, let lyricsLines {
-                                // 不让 song.lyricsFileName 指向 NAS .lrc —— .lrc
-                                // 是行级备份, 字级数据只在本地 hash JSON 里。
-                                // 仍把内容回写到本地 cache 让 hash JSON 跟 NAS
-                                // 一致。
-                                // 用户动作 (scrape) 触发的 sidecar 镜像写回, 强制覆盖
-                                await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID, force: true)
-                            }
-
-                            guard !Task.isCancelled else { return }
-                            if needsUpdate {
-                                await MainActor.run {
-                                    library.updateAssetReferences(songID: refSong.id, coverRef: refSong.coverArtFileName)
-                                }
-                            }
-
-                            if !writeResult.errors.isEmpty {
-                                plog("⚠️ Sidecar write errors: \(writeResult.errors)")
-                            }
-                        } catch is CancellationError {
-                            _ = await sidecarCircuitBreaker.release(
-                                sourceID: songForWrite.sourceID,
-                                sourceUnavailable: false
-                            )
-                            plog("⚠️ Sidecar write timed out (\(sidecarSettings.timeout.finiteInt())s) for '\(songForWrite.title)'")
-                        } catch {
-                            _ = await sidecarCircuitBreaker.release(
-                                sourceID: songForWrite.sourceID,
-                                sourceUnavailable: MusicScraperService.isSourceUnavailableSidecarError(error)
-                            )
-                            plog("⚠️ Sidecar write skipped for '\(songForWrite.title)': \(error.localizedDescription)")
-                        }
-                    }
-                    // Keep the single-song operation inside the same gate until
-                    // its sidecar mutation finishes (or times out).
-                    await sidecarTask?.value
-                } else {
-                    plog("📝 Sidecar: source does not support writing, keeping local metadata cache for '\(updatedSong.title)'")
-                }
+        // 写回音乐源：媒体服务器走它的接口；文件型源按「封面保存到」「歌词保存到」写封面、歌词文件
+        // 或嵌进音频文件，和刮削结果页的保存同一套规则。
+        let serverWriteback = await writeBackToMediaServerIfSupported(
+            original: song,
+            updated: updatedSong,
+            coverData: applied.storedCover,
+            lyricsLines: applied.cachedLyrics
+        )
+        outcome.writeback = serverWriteback.outcome
+        outcome.writebackDetail = serverWriteback.detail
+        if let job = await scrapedAssetWritebackJob(for: updatedSong, applied: applied) {
+            let sourceManager = self.sourceManager
+            let circuitBreaker = self.sidecarCircuitBreaker
+            let box = ScrapedAssetWritebackBox()
+            let task = startSidecarWriteTask {
+                let result = await MusicScraperService.performScrapedAssetWriteback(
+                    job, sourceManager: sourceManager, library: library, circuitBreaker: circuitBreaker
+                )
+                await box.store(result)
             }
-
-            await writeBackToMediaServerIfSupported(
-                original: song,
-                updated: updatedSong,
-                coverData: result.coverData,
-                lyricsLines: result.lyricsLines
-            )
+            // Keep the single-song operation inside the same gate until
+            // its sidecar mutation finishes (or times out).
+            await task?.value
+            if let result = await box.result {
+                outcome.writeback = outcome.writeback.combined(with: result.outcome)
+                outcome.writebackDetail = outcome.writebackDetail ?? result.failureDetail
+            }
+        }
+        if outcome.writeback != .notAttempted {
+            plog("MusicScraperService: single scrape writeback '\(song.title)' result=\(String(describing: outcome.writeback))")
+        }
+        // 写回之后封面引用、文件身份、歌词来源标记可能都换了：交回库里和缓存里最新的那份。
+        library.flushPendingAssetReferencePatches()
+        var finalLyrics = applied.cachedLyrics
+        if finalLyrics != nil, let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !cached.isEmpty {
+            finalLyrics = cached
         }
         return SingleScrapeResult(
             originalSong: song,
-            song: updatedSong,
-            coverData: result.coverData,
-            lyrics: result.lyricsLines, review: result.review
+            song: library.storedSong(id: updatedSong.id) ?? updatedSong,
+            coverData: applied.storedCover,
+            lyrics: finalLyrics, review: processed?.review ?? ScrapeReviewCatalog(),
+            outcome: outcome
         )
     }
 
@@ -1185,16 +1150,23 @@ final class MusicScraperService {
             let keepsCheckpoint = preservingCheckpoint && scrapeCheckpoint != nil
             plog("MusicScraperService: batch scrape stopped (\(reason.rawValue)) at \(phaseProcessedCount)/\(phaseTotalCount) phase=\(phase) checkpoint=\(keepsCheckpoint ? "kept" : "cleared")")
         }
+        // 用户在等写回时点停止：歌都处理完了，照样给出摘要（没写完的记成被打断）。
+        let finishingRun = preservingCheckpoint ? nil : awaitingRunContext
+        awaitingRunContext = nil
         scrapingGeneration += 1
+        // 先把还在写的记成被打断，断点落盘时带上这份结果。
+        cancelSidecarWriteTasks()
         if preservingCheckpoint, let scrapeCheckpoint {
             writeScrapeCheckpoint(scrapeCheckpoint)
         }
         scrapingTask?.cancel()
         scrapingTask = nil
-        cancelSidecarWriteTasks()
         isScraping = false
         currentSongTitle = ""
         endBackgroundTaskIfHeld()
+        if let finishingRun {
+            finishBatchRun(finishingRun)
+        }
         if !preservingCheckpoint {
             clearScrapeCheckpoint()
             activeRunID = nil
@@ -1317,6 +1289,11 @@ final class MusicScraperService {
         let runID = resumeCheckpoint?.runID ?? UUID()
         let runOriginPlaylistID = resumeCheckpoint?.originPlaylistID ?? originPlaylistID
         let parts = resumeCheckpoint.map { $0.parts ?? .all } ?? requestedParts
+        // 旧版本留下、只有总数的断点：分项计数只能从续跑处算起，摘要退回总数那一行。
+        let tallyIsPartial = resumeCheckpoint.map { checkpoint in
+            checkpoint.tallyIsPartial
+                ?? (checkpoint.tally == nil && checkpoint.hasPersistedSongCounts && checkpoint.nextSongIndex > 0)
+        } ?? false
         if saveCheckpoint {
             persistScrapeCheckpoint(
                 songIDs: songs.map(\.id),
@@ -1326,11 +1303,13 @@ final class MusicScraperService {
                 parts: parts
             )
         } else if var checkpoint = scrapeCheckpoint,
-                  checkpoint.runID == nil || checkpoint.originPlaylistID != runOriginPlaylistID {
+                  checkpoint.runID == nil || checkpoint.originPlaylistID != runOriginPlaylistID
+                    || checkpoint.tallyIsPartial == nil {
             // Upgrade checkpoints written by an older build so any later
             // lifecycle resume keeps the same run identity and UI ownership.
             checkpoint.runID = runID
             checkpoint.originPlaylistID = runOriginPlaylistID
+            checkpoint.tallyIsPartial = tallyIsPartial
             scrapeCheckpoint = checkpoint
             writeScrapeCheckpoint(checkpoint)
         }
@@ -1339,6 +1318,8 @@ final class MusicScraperService {
         skippedCount = resumeCheckpoint?.skippedCount ?? 0
         failedCount = resumeCheckpoint?.failedCount ?? 0
         processedCount = updatedCount + skippedCount + failedCount
+        tally = resumeCheckpoint?.tally ?? BatchScrapeTally()
+        runTallyIsPartial = tallyIsPartial
         totalCount = logicalSongCount
         currentSongTitle = ""
         batchPhase = .songs
@@ -1356,6 +1337,10 @@ final class MusicScraperService {
         isScraping = true
         scrapingGeneration += 1
         let generation = scrapingGeneration
+        let runContext = RunContext(
+            runID: runID, originPlaylistID: runOriginPlaylistID, songCount: logicalSongCount,
+            forceRescrape: forceRescrape, generation: generation
+        )
         beginBackgroundTaskIfNeeded()
 
         scrapingTask = Task {
@@ -1363,13 +1348,8 @@ final class MusicScraperService {
             await sidecarCircuitBreaker.resetIdleUnavailableSources()
             defer {
                 let cancelled = Task.isCancelled
-                let updated = updatedCount
-                let skipped = skippedCount
-                let failed = failedCount
-                let availableArtwork = artworkAvailableCount
-                let unavailableArtwork = artworkUnavailableCount
-                let totalArtwork = artworkTotalCount
                 if scrapingGeneration == generation {
+                    awaitingRunContext = nil
                     isScraping = false
                     currentSongTitle = ""
                     scrapingTask = nil
@@ -1377,29 +1357,7 @@ final class MusicScraperService {
                     // Fire the completion notification only when the run actually
                     // finished — cancellation (user hit "stop") shouldn't pop one.
                     if !cancelled && !deferredForSourceFailure {
-                        let completion = BatchScrapeCompletion(
-                            runID: runID,
-                            originPlaylistID: runOriginPlaylistID,
-                            songCount: logicalSongCount,
-                            updatedCount: updated,
-                            skippedCount: skipped,
-                            failedCount: failed,
-                            artworkTotalCount: totalArtwork,
-                            artworkAvailableCount: availableArtwork,
-                            artworkUnavailableCount: unavailableArtwork
-                        )
-                        lastCompletion = completion
-                        if let runOriginPlaylistID {
-                            pendingPlaylistCompletions[runOriginPlaylistID] = completion
-                        }
-                        completionRevision &+= 1
-                        clearScrapeCheckpoint()
-                        Task { @MainActor in
-                            await Self.postScrapeCompletionNotification(
-                                forceRescrape: forceRescrape,
-                                completion: completion
-                            )
-                        }
+                        finishBatchRun(runContext)
                     }
                     activeRunID = nil
                     activeOriginPlaylistID = nil
@@ -1412,7 +1370,7 @@ final class MusicScraperService {
             let remoteMetadataSeeds = Self.preferredRemoteMetadataSeeds(in: songs)
 
             var pendingSongUpdates: [Song] = []
-            var pendingSidecarOperations: [@Sendable () async -> Void] = []
+            var pendingSidecarOperations: [(songID: String, title: String, operation: @Sendable () async -> Void)] = []
             let sidecarCircuitBreaker = self.sidecarCircuitBreaker
             var lastCompletedSongID: String?
             var completedSongCountInBatch = 0
@@ -1427,8 +1385,17 @@ final class MusicScraperService {
                 if !pendingSongUpdates.isEmpty {
                     library.replaceSongs(Self.rebasedOntoLatestUserEdits(pendingSongUpdates, in: library))
                 }
-                for operation in pendingSidecarOperations {
-                    startSidecarWriteTask(operation)
+                for pending in pendingSidecarOperations {
+                    if startSidecarWriteTask(pending.operation) != nil {
+                        inFlightWritebacks[Self.inFlightKey(runID: runID, songID: pending.songID)] = InFlightWriteback(
+                            runID: runID, songID: pending.songID, title: pending.title,
+                            startedAt: ProcessInfo.processInfo.systemUptime
+                        )
+                    } else {
+                        // 正在离开前台，写回没能开始：记成被打断，不悄悄丢掉。
+                        recordBatchWriteback(.failed(.interrupted), detail: nil,
+                                             songID: pending.songID, title: pending.title, runID: runID)
+                    }
                 }
                 pendingSongUpdates.removeAll(keepingCapacity: true)
                 pendingSidecarOperations.removeAll(keepingCapacity: true)
@@ -1470,188 +1437,68 @@ final class MusicScraperService {
                 do {
                     let remoteIdentitySeed = Self.batchRemoteIdentity(for: song)
                         .flatMap { remoteMetadataSeeds[$0] }
-                    guard let result = try await processedSongForBatch(
+                    let (result, scope) = try await processedSongForBatchScoped(
                         song,
                         forceRescrape: forceRescrape,
                         remoteIdentitySeed: remoteIdentitySeed,
                         parts: parts, settings: settings
-                    ) else {
-                        guard !Task.isCancelled else { return }
-                        processedCount += 1
-                        skippedCount += 1
-                        completedCurrentSong = true
-                        continue
-                    }
+                    )
                     guard !Task.isCancelled else { return }
 
                     processedCount += 1
-                    // 只补歌词 / 只补封面:其余部分刮到了也换回原值。
-                    var updatedSong = ScrapeApplyPolicy.restricted(result.song, to: parts, original: song)
+                    // 只补歌词 / 只补封面:其余部分刮到了也换回原值。封面、歌词只有存进本机缓存并核对过
+                    // 才指过去；存不下的不改引用、记成保存失败。只有技术参数变了的照常保存，但不算更新。
+                    // 同单曲刮削:文件型源刮到的值要记用户编辑,否则回填读标签会换回(#173)。
+                    let isServerLibrary = await sourceManager.isServerLibrarySource(for: song)
+                    let applied = await applyScrapedResult(
+                        result, scope: scope, to: song, parts: parts,
+                        coverOrigin: overwriteCover ? .selected : .scraped,
+                        stampsUserEdit: !isServerLibrary
+                    )
+                    guard !Task.isCancelled else { return }
+                    recordBatchSongOutcome(applied, for: song)
 
-                    let shouldWriteCover = result.coverData != nil
-                    let shouldWriteLyrics = result.lyricsLines?.isEmpty == false
+                    if applied.persists {
+                        pendingSongUpdates.append(applied.song)
+                    }
+                    guard applied.storedCover != nil || applied.cachedLyrics != nil
+                            || applied.parts.tags == .filled else {
+                        completedCurrentSong = true
+                        continue
+                    }
 
-                    // 重新刮削时占位 hash ref 与现存 ref 相同 → updatedSong == song, 但
-                    // 仍可能刮到了新封面/歌词。只要本次模式会落盘新资产, 就进入写回分支,
-                    // 否则用户「重新刮削整库」对已有 ref 的歌曲实为无操作。
-                    if updatedSong != song || shouldWriteCover || shouldWriteLyrics {
-                        let sidecarSettings = Self.sidecarSettings()
-                        // 本地 hash cache 写入只看 fill/overwrite 模式, 与 sidecar 写回
-                        // 开关解耦 —— 关掉「写 sidecar 封面/歌词」不该让刮到的数据连本地
-                        // 缓存都丢失。sidecar 镜像写回另用 *Enabled 开关过滤(对齐 scrapeSingle)。
-                        let coverData = shouldWriteCover ? result.coverData : nil
-                        let lyricsLines = shouldWriteLyrics ? result.lyricsLines : nil
-                        let sidecarCoverData = sidecarSettings.coverEnabled ? coverData : nil
-                        let sidecarLyricsLines = sidecarSettings.lyricsEnabled ? lyricsLines : nil
+                    let serverWriteback = await writeBackToMediaServerIfSupported(
+                        original: song,
+                        updated: applied.song,
+                        coverData: applied.storedCover,
+                        lyricsLines: applied.cachedLyrics
+                    )
+                    guard !Task.isCancelled else { return }
 
-                        if let coverData {
-                            if let reference = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: updatedSong.id, origin: overwriteCover ? .selected : .scraped) {
-                                updatedSong.coverArtFileName = reference
-                                CachedArtworkView.invalidateCache(for: updatedSong.id)
-                            } else {
-                                updatedSong.coverArtFileName = song.coverArtFileName
-                            }
-                        }
-                        if let lyricsLines, !lyricsLines.isEmpty {
-                            await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: updatedSong.id, force: true)
-                            updatedSong.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: updatedSong.id)
-                        }
-
-                        // 同单曲刮削:文件型源刮到的值要记用户编辑,否则回填读标签会换回(#173)。
-                        if await !sourceManager.isServerLibrarySource(for: song) {
-                            updatedSong = SongUserMetadataPolicy.stampingUserEdit(
-                                original: song,
-                                updated: updatedSong
+                    if let job = await scrapedAssetWritebackJob(for: applied.song, applied: applied) {
+                        let sourceManager = self.sourceManager
+                        let songID = song.id
+                        let title = song.title
+                        // Start sidecar work only after the matching
+                        // library batch is visible. Otherwise a fast
+                        // local sidecar write could publish its path and
+                        // then be overwritten by the delayed song batch.
+                        pendingSidecarOperations.append((songID: songID, title: title, operation: { [weak self] in
+                            let result = await MusicScraperService.performScrapedAssetWriteback(
+                                job, sourceManager: sourceManager, library: library,
+                                circuitBreaker: sidecarCircuitBreaker
                             )
-                        }
-                        guard !Task.isCancelled else { return }
-                        pendingSongUpdates.append(updatedSong)
-                        updatedCount += 1
-
-                        await writeBackToMediaServerIfSupported(
-                            original: song,
-                            updated: updatedSong,
-                            coverData: coverData,
-                            lyricsLines: lyricsLines
-                        )
-                        guard !Task.isCancelled else { return }
-
-                        if sidecarCoverData != nil || sidecarLyricsLines != nil {
-                            let songForWrite = updatedSong
-                            let sourceManager = self.sourceManager
-                            let songID = updatedSong.id
-
-                            let canWriteSidecar = await sourceManager.supportsSidecarWriting(for: songForWrite)
-                            if !canWriteSidecar {
-                                plog("📝 Batch sidecar: source does not support writing for '\(songForWrite.title)'")
-                            } else {
-                                // 同单曲刮削：只嵌入模式下不新建歌词文件，整库刮削也不嵌入。
-                                let createsLyricsFile = await sourceManager.lyricsEmbeddingMode(
-                                    for: songForWrite
-                                ) != .embedOnly
-                                // 封面按「封面保存到」：整库刮削同样逐首嵌入（确认框里写明了代价）。
-                                let coverEmbeddingMode = sidecarCoverData == nil
-                                    ? CoverEmbeddingMode.off
-                                    : await sourceManager.coverEmbeddingMode(for: songForWrite)
-                                // Start sidecar work only after the matching
-                                // library batch is visible. Otherwise a fast
-                                // local sidecar write could publish its path and
-                                // then be overwritten by the delayed song batch.
-                                pendingSidecarOperations.append {
-                                    guard await sidecarCircuitBreaker.acquire(sourceID: songForWrite.sourceID) else {
-                                        return
-                                    }
-                                    var songForSidecar = songForWrite
-                                    if coverEmbeddingMode != .off, let sidecarCoverData, !Task.isCancelled {
-                                        let embedded = await MusicScraperService.embedScrapedCover(
-                                            sidecarCoverData,
-                                            for: songForWrite,
-                                            sourceManager: sourceManager,
-                                            library: library
-                                        )
-                                        if embedded.sourceUnavailable {
-                                            let didOpenCircuit = await sidecarCircuitBreaker.release(
-                                                sourceID: songForWrite.sourceID,
-                                                sourceUnavailable: true
-                                            )
-                                            if didOpenCircuit {
-                                                plog("⚠️ Batch sidecar: source \(songForWrite.sourceID) is read-only or unavailable; remaining writes skipped for this run")
-                                            }
-                                            return
-                                        }
-                                        if let written = embedded.updatedSong {
-                                            songForSidecar = written
-                                        }
-                                    }
-                                    do {
-                                        let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
-                                            seconds: sidecarSettings.timeout,
-                                            sourceManager: sourceManager,
-                                            for: songForSidecar,
-                                            coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines,
-                                            createsLyricsFile: createsLyricsFile,
-                                            createsCoverFile: coverEmbeddingMode != .embedOnly
-                                        )
-                                        let didOpenCircuit = await sidecarCircuitBreaker.release(
-                                            sourceID: songForWrite.sourceID,
-                                            sourceUnavailable: writeResult.sourceUnavailable
-                                        )
-
-                                        if didOpenCircuit {
-                                            plog("⚠️ Batch sidecar: source \(songForWrite.sourceID) is read-only or unavailable; remaining writes skipped for this run")
-                                        }
-
-                                        var needsUpdate = false
-                                        var refSong = songForSidecar
-
-                                        if writeResult.coverWritten {
-                                            if let coverPath = Self.sidecarReferencePath(for: songForSidecar, suffix: "-cover.jpg") {
-                                                refSong.coverArtFileName = songForSidecar.coverArtFileName ?? coverPath
-                                                needsUpdate = true
-                                            }
-                                            if let coverData {
-                                                await MetadataAssetStore.shared.cacheCover(coverData, forSongID: songID)
-                                            }
-                                        }
-                                        if writeResult.lyricsWritten, let lyricsLines {
-                                            // 同上: 不指向 NAS .lrc, 字级数据只在
-                                            // 本地 hash JSON。
-                                            // 用户动作 (scrape) 触发的 sidecar 镜像写回, 强制覆盖
-                                            await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID, force: true)
-                                        }
-
-                                        guard !Task.isCancelled else { return }
-                                        if needsUpdate {
-                                            await MainActor.run {
-                                                library.updateAssetReferences(songID: refSong.id, coverRef: refSong.coverArtFileName)
-                                            }
-                                        }
-
-                                        if !writeResult.errors.isEmpty {
-                                            plog("⚠️ Batch sidecar errors for '\(songForWrite.title)': \(writeResult.errors)")
-                                        }
-                                    } catch is CancellationError {
-                                        _ = await sidecarCircuitBreaker.release(
-                                            sourceID: songForWrite.sourceID,
-                                            sourceUnavailable: false
-                                        )
-                                        plog("⚠️ Batch sidecar timed out (\(sidecarSettings.timeout.finiteInt())s) for '\(songForWrite.title)'")
-                                    } catch {
-                                        let sourceUnavailable = MusicScraperService.isSourceUnavailableSidecarError(error)
-                                        let didOpenCircuit = await sidecarCircuitBreaker.release(
-                                            sourceID: songForWrite.sourceID,
-                                            sourceUnavailable: sourceUnavailable
-                                        )
-                                        if didOpenCircuit {
-                                            plog("⚠️ Batch sidecar: source \(songForWrite.sourceID) is unavailable; remaining writes skipped for this run")
-                                        }
-                                        plog("⚠️ Batch sidecar skipped for '\(songForWrite.title)': \(error.localizedDescription)")
-                                    }
-                                }
-                            }
-                        }
+                            await self?.finishBatchWriteback(
+                                serverWriteback.outcome.combined(with: result.outcome),
+                                detail: serverWriteback.detail ?? result.failureDetail,
+                                songID: songID, title: title, runID: runID
+                            )
+                        }))
                     } else {
-                        skippedCount += 1
+                        recordBatchWriteback(
+                            serverWriteback.outcome, detail: serverWriteback.detail,
+                            songID: song.id, title: song.title, runID: runID
+                        )
                     }
                 } catch is BatchScrapeSourceUnavailable {
                     publishPendingSongBatch()
@@ -1665,6 +1512,8 @@ final class MusicScraperService {
                     if Task.isCancelled { return }
                     processedCount += 1
                     failedCount += 1
+                    tally.recordSongError(songID: song.id, title: song.title, detail: error.localizedDescription)
+                    plog("MusicScraperService: batch scrape failed for '\(song.title)': \(error.localizedDescription)")
                 }
                 completedCurrentSong = true
             }
@@ -1677,85 +1526,101 @@ final class MusicScraperService {
             // Phase 2: Scrape album and artist covers
             guard !Task.isCancelled else { return }
             // 只补歌词的一轮不碰专辑 / 艺人封面。
-            guard parts.contains(.cover), coverRule.fields.contains(.cover) else { return }
-
-            let assetStore = MetadataAssetStore.shared
-            let isWholeVisibleLibrary = Set(songs.map(\.id)) == Set(library.visibleSongs.map(\.id))
-            let targetAlbumIDs = Set(songs.compactMap(\.albumID))
-            let targetArtistIDs = Set(songs.compactMap(\.artistID))
-            let targetArtistNames = Set(
-                songs.compactMap(\.artistName)
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                    .filter { !$0.isEmpty }
-            )
-            let albumsInScope = library.visibleAlbums.filter { album in
-                isWholeVisibleLibrary || targetAlbumIDs.contains(album.id)
-            }
-            let artistsInScope = library.visibleArtists.filter { artist in
-                let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                return (isWholeVisibleLibrary || targetArtistIDs.contains(artist.id) || targetArtistNames.contains(name))
+            if parts.contains(.cover), coverRule.fields.contains(.cover) {
+                await scrapeAlbumAndArtistArtworkPhase(
+                    songs: songs, library: library, overwriteCover: overwriteCover,
+                    resumedTargetIDs: resumeCheckpoint?.artworkTargetIDs
+                )
             }
 
-            let resumedTargetIDs = resumeCheckpoint?.artworkTargetIDs
-            let targetIDs: [String]
-            if let resumedTargetIDs {
-                targetIDs = resumedTargetIDs
-            } else {
-                let albumIDs = albumsInScope.compactMap { album -> String? in
-                    guard overwriteCover || !Self.albumHasArtwork(album.id, in: library) else { return nil }
-                    return Self.albumArtworkTargetID(album.id)
-                }
-                let artistIDs = artistsInScope.compactMap { artist -> String? in
-                    guard overwriteCover || !assetStore.hasArtistImage(forArtistID: artist.id) else { return nil }
-                    return Self.artistArtworkTargetID(artist.id)
-                }
-                targetIDs = albumIDs + artistIDs
-            }
-
-            let targetIDSet = Set(targetIDs)
-            var availableIDs = Set<String>()
-            if !overwriteCover {
-                for targetID in targetIDs {
-                    if Self.isArtworkAvailable(targetID: targetID, in: assetStore, library: library) {
-                        availableIDs.insert(targetID)
-                    }
-                }
-            }
-
-            let albumsNeedingCover = albumsInScope.filter { album in
-                let targetID = Self.albumArtworkTargetID(album.id)
-                return targetIDSet.contains(targetID)
-                    && (overwriteCover || !availableIDs.contains(targetID))
-            }
-            let artistsNeedingImage = artistsInScope.filter { artist in
-                let targetID = Self.artistArtworkTargetID(artist.id)
-                return targetIDSet.contains(targetID)
-                    && (overwriteCover || !availableIDs.contains(targetID))
-            }
-            let pendingTargetIDs = Set(
-                albumsNeedingCover.map { Self.albumArtworkTargetID($0.id) }
-                    + artistsNeedingImage.map { Self.artistArtworkTargetID($0.id) }
-            )
-            artworkTargetIDs = targetIDs
-            artworkTotalCount = targetIDs.count
-            artworkAvailableCount = availableIDs.count
-            artworkUnavailableCount = targetIDSet.subtracting(availableIDs.union(pendingTargetIDs)).count
-            artworkProcessedCount = artworkAvailableCount + artworkUnavailableCount
-            if artworkTotalCount > 0 {
-                batchPhase = .artwork
-                totalCount += artworkTotalCount
-                processedCount += artworkProcessedCount
-                updateArtworkCheckpoint(forceWrite: true)
-            }
-
-            await scrapeAlbumAndArtistCovers(
-                in: library,
-                albumsNeedingCover: albumsNeedingCover,
-                artistsNeedingImage: artistsNeedingImage,
-                forceRescrape: overwriteCover
-            )
+            // 这一轮自己发起的写回音乐源（嵌入、旁路文件）做完才算完成，结果要算进完成提示。
+            guard !Task.isCancelled else { return }
+            await awaitRunWritebacks(runContext, timeout: Self.sidecarSettings().timeout)
         }
         return .started(runID: runID, songCount: logicalSongCount)
+    }
+
+    /// 第二阶段：补专辑封面和艺人图。从批量刮削的任务里拆出来，阶段之后还要等这一轮的写回。
+    private func scrapeAlbumAndArtistArtworkPhase(
+        songs: [Song],
+        library: MusicLibrary,
+        overwriteCover: Bool,
+        resumedTargetIDs: [String]?
+    ) async {
+        let assetStore = MetadataAssetStore.shared
+        let isWholeVisibleLibrary = Set(songs.map(\.id)) == Set(library.visibleSongs.map(\.id))
+        let targetAlbumIDs = Set(songs.compactMap(\.albumID))
+        let targetArtistIDs = Set(songs.compactMap(\.artistID))
+        let targetArtistNames = Set(
+            songs.compactMap(\.artistName)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        )
+        let albumsInScope = library.visibleAlbums.filter { album in
+            isWholeVisibleLibrary || targetAlbumIDs.contains(album.id)
+        }
+        let artistsInScope = library.visibleArtists.filter { artist in
+            let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return (isWholeVisibleLibrary || targetArtistIDs.contains(artist.id) || targetArtistNames.contains(name))
+        }
+
+        let targetIDs: [String]
+        if let resumedTargetIDs {
+            targetIDs = resumedTargetIDs
+        } else {
+            let albumIDs = albumsInScope.compactMap { album -> String? in
+                guard overwriteCover || !Self.albumHasArtwork(album.id, in: library) else { return nil }
+                return Self.albumArtworkTargetID(album.id)
+            }
+            let artistIDs = artistsInScope.compactMap { artist -> String? in
+                guard overwriteCover || !assetStore.hasArtistImage(forArtistID: artist.id) else { return nil }
+                return Self.artistArtworkTargetID(artist.id)
+            }
+            targetIDs = albumIDs + artistIDs
+        }
+
+        let targetIDSet = Set(targetIDs)
+        var availableIDs = Set<String>()
+        if !overwriteCover {
+            for targetID in targetIDs {
+                if Self.isArtworkAvailable(targetID: targetID, in: assetStore, library: library) {
+                    availableIDs.insert(targetID)
+                }
+            }
+        }
+
+        let albumsNeedingCover = albumsInScope.filter { album in
+            let targetID = Self.albumArtworkTargetID(album.id)
+            return targetIDSet.contains(targetID)
+                && (overwriteCover || !availableIDs.contains(targetID))
+        }
+        let artistsNeedingImage = artistsInScope.filter { artist in
+            let targetID = Self.artistArtworkTargetID(artist.id)
+            return targetIDSet.contains(targetID)
+                && (overwriteCover || !availableIDs.contains(targetID))
+        }
+        let pendingTargetIDs = Set(
+            albumsNeedingCover.map { Self.albumArtworkTargetID($0.id) }
+                + artistsNeedingImage.map { Self.artistArtworkTargetID($0.id) }
+        )
+        artworkTargetIDs = targetIDs
+        artworkTotalCount = targetIDs.count
+        artworkAvailableCount = availableIDs.count
+        artworkUnavailableCount = targetIDSet.subtracting(availableIDs.union(pendingTargetIDs)).count
+        artworkProcessedCount = artworkAvailableCount + artworkUnavailableCount
+        if artworkTotalCount > 0 {
+            batchPhase = .artwork
+            totalCount += artworkTotalCount
+            processedCount += artworkProcessedCount
+            updateArtworkCheckpoint(forceWrite: true)
+        }
+
+        await scrapeAlbumAndArtistCovers(
+            in: library,
+            albumsNeedingCover: albumsNeedingCover,
+            artistsNeedingImage: artistsNeedingImage,
+            forceRescrape: overwriteCover
+        )
     }
 
     private func persistScrapeCheckpoint(
@@ -1775,7 +1640,9 @@ final class MusicScraperService {
             artworkTargetIDs: nil,
             runID: runID,
             originPlaylistID: originPlaylistID,
-            parts: parts == .all ? nil : parts
+            parts: parts == .all ? nil : parts,
+            tally: BatchScrapeTally(),
+            tallyIsPartial: false
         )
         scrapeCheckpoint = checkpoint
         writeScrapeCheckpoint(checkpoint)
@@ -1798,6 +1665,7 @@ final class MusicScraperService {
         checkpoint.updatedCount = updatedCount
         checkpoint.skippedCount = skippedCount
         checkpoint.failedCount = failedCount
+        checkpoint.tally = tally
         scrapeCheckpoint = checkpoint
 
         // Network scraping is much slower than this write, but avoid rewriting
@@ -1843,6 +1711,7 @@ final class MusicScraperService {
         checkpoint.updatedCount = updatedCount
         checkpoint.skippedCount = skippedCount
         checkpoint.failedCount = failedCount
+        checkpoint.tally = tally
         scrapeCheckpoint = checkpoint
         writeScrapeCheckpoint(checkpoint)
     }
@@ -1850,6 +1719,7 @@ final class MusicScraperService {
     private func updateArtworkCheckpoint(forceWrite: Bool = false) {
         guard var checkpoint = scrapeCheckpoint else { return }
         checkpoint.artworkTargetIDs = artworkTargetIDs
+        checkpoint.tally = tally
         scrapeCheckpoint = checkpoint
 
         // The checkpoint includes the complete song-ID list, which can be large.
@@ -1907,6 +1777,7 @@ final class MusicScraperService {
         for task in tasks {
             task.cancel()
         }
+        markInFlightWritebacksInterrupted()
     }
 
     private func beginBackgroundTaskIfNeeded() {
@@ -1953,22 +1824,7 @@ final class MusicScraperService {
             ? "notify_rescrape_done_title"
             : "notify_scrape_missing_done_title"
         let title = String(localized: String.LocalizationValue(titleKey))
-        var body = String(
-            format: String(localized: "batch_scrape_completed_format"),
-            completion.processedSongCount,
-            completion.songCount,
-            completion.updatedCount,
-            completion.skippedCount,
-            completion.failedCount
-        )
-        if completion.artworkTotalCount > 0 {
-            body += "\n" + String(
-                format: String(localized: "batch_scrape_completed_artwork_format"),
-                completion.artworkAvailableCount,
-                completion.artworkTotalCount,
-                completion.artworkUnavailableCount
-            )
-        }
+        let body = completion.summaryText
         await UserNotificationService.shared.postLongTaskCompletion(
             category: forceRescrape ? .rescrapeLibraryDone : .scrapeMissingDone,
             title: title,
@@ -2076,6 +1932,8 @@ final class MusicScraperService {
         let lyricsLines: [LyricLine]?
         var unavailableParts: ScrapeParts = []
         var retryAfter: TimeInterval = 5
+        /// 封面是从这个文件里内嵌的图或旁边的封面图读出来的（不是在线刮到的）。
+        var coverReadFromFile = false
     }
 
     struct BatchScrapeSourceUnavailable: Error { }
@@ -2084,12 +1942,23 @@ final class MusicScraperService {
         _ song: Song, forceRescrape: Bool, remoteIdentitySeed: Song? = nil, parts: ScrapeParts = .all,
         settings: ScraperSettings = .load(), sleep: ((TimeInterval) async throws -> Void)? = nil
     ) async throws -> ProcessedResult? {
+        try await processedSongForBatchScoped(song, forceRescrape: forceRescrape, remoteIdentitySeed: remoteIdentitySeed,
+                                              parts: parts, settings: settings, sleep: sleep).result
+    }
+
+    /// 同 `processedSongForBatch`，另外交回这一首的刮削范围：哪些字段在范围里、哪些真的去刮了。
+    /// 批量刮削按它分部分结算，结果为 nil 时也要知道。
+    func processedSongForBatchScoped(
+        _ song: Song, forceRescrape: Bool, remoteIdentitySeed: Song? = nil, parts: ScrapeParts = .all,
+        settings: ScraperSettings = .load(), sleep: ((TimeInterval) async throws -> Void)? = nil
+    ) async throws -> (result: ProcessedResult?, scope: ScrapeScope) {
         for attempt in 0..<3 {
             try Task.checkCancellation()
+            var scope = ScrapeScope()
             let result = try await processedSongWithAssets(song, forceRescrape: forceRescrape,
                                                           storeAssets: false, remoteIdentitySeed: remoteIdentitySeed,
-                                                          parts: parts, settings: settings)
-            guard let result, !result.unavailableParts.intersection(parts).isEmpty else { return result }
+                                                          parts: parts, settings: settings, scope: &scope)
+            guard let result, !result.unavailableParts.intersection(parts).isEmpty else { return (result, scope) }
             guard attempt < 2 else { throw BatchScrapeSourceUnavailable() }
             if let sleep { try await sleep(max(1, result.retryAfter)) }
             else { try await scrapeRetrySleep(max(1, result.retryAfter)) }
@@ -2191,6 +2060,31 @@ final class MusicScraperService {
         settings: ScraperSettings = .load(),
         collectingReview: Bool = false
     ) async throws -> ProcessedResult? {
+        var scope = ScrapeScope()
+        return try await processedSongWithAssets(song, forceRescrape: forceRescrape, storeAssets: storeAssets,
+                                                 remoteIdentitySeed: remoteIdentitySeed, parts: parts, settings: settings,
+                                                 collectingReview: collectingReview, scope: &scope)
+    }
+
+    /// 这首歌这一轮的刮削范围。`considered`：在范围里的字段（选了这部分、字段规则不是跳过）；
+    /// `fetched`：按歌曲已有的内容收窄后真的去刮的字段。
+    struct ScrapeScope: Sendable {
+        var considered: Set<ScrapeField> = []
+        var fetched: Set<ScrapeField> = []
+        /// 真的去刮的字段里要覆盖已有内容的那些（其余是只补缺失）。
+        var overwrites: Set<ScrapeField> = []
+    }
+
+    func processedSongWithAssets(
+        _ song: Song,
+        forceRescrape: Bool,
+        storeAssets: Bool = true,
+        remoteIdentitySeed: Song? = nil,
+        parts: ScrapeParts = .all,
+        settings: ScraperSettings = .load(),
+        collectingReview: Bool = false,
+        scope: inout ScrapeScope
+    ) async throws -> ProcessedResult? {
         // 服务端曲库源(Subsonic/Navidrome、Jellyfin/Emby/Plex): 元数据以服务端为
         // 权威, 自动刮削只「补空缺、绝不覆盖」。不读(可能转码的)音频流 —— 用歌曲
         // 已有 title/artist/album 直接查在线源, 只填 nil/空 的 artist/album/year/
@@ -2201,6 +2095,10 @@ final class MusicScraperService {
         if server && !collectingReview {
             var request = settings.request(for: song, parts: parts.intersection(.metadata), fillOnly: true)
             request.fields.remove(.title)
+            scope.considered = settings.consideredFields(parts: parts.intersection(.metadata), fillOnly: true)
+                .subtracting([.title])
+            scope.fetched = request.fields
+            scope.overwrites = request.overwrites
             guard !request.fields.isEmpty else { return nil }
             let metadata = await metadataService.fillMissingOnline(seed: song, title: song.title,
                                                                   request: request, settings: settings)
@@ -2216,6 +2114,9 @@ final class MusicScraperService {
         let request = collectingReview ? settings.reviewFields(for: song, parts: parts)
             : settings.request(for: song, parts: parts, force: forceRescrape,
                                        titleIsPlaceholder: filenameTitle && settings.fieldRules[.title].mode == .inherit)
+        scope.considered = settings.consideredFields(parts: parts, force: forceRescrape)
+        scope.fetched = request.fields
+        scope.overwrites = request.overwrites
         guard !request.fields.isEmpty else { return nil }
         let sourceSupportsRangeStreaming = await sourceManager.songSupportsRangeStreaming(song)
         let shouldResolvePlaybackURL = ScrapeAudioMaterializationPolicy.shouldResolvePlaybackURL(
@@ -2277,10 +2178,12 @@ final class MusicScraperService {
             applied.fields.remove(.title)
         }
         let merged = mergedSong(song, with: metadata, request: applied)
+        let coverData = request.fields.contains(.cover) ? metadata.coverArtData : nil
         return ProcessedResult(
-            review: metadata.review, song: merged, coverData: request.fields.contains(.cover) ? metadata.coverArtData : nil,
+            review: metadata.review, song: merged, coverData: coverData,
             lyricsLines: request.fields.contains(.lyrics) ? metadata.lyrics : nil,
-            unavailableParts: metadata.unavailableScrapeParts, retryAfter: metadata.scrapeRetryAfter
+            unavailableParts: metadata.unavailableScrapeParts, retryAfter: metadata.scrapeRetryAfter,
+            coverReadFromFile: coverData != nil && metadata.artworkOrigin != .scraped
         )
     }
 
@@ -2701,6 +2604,8 @@ final class MusicScraperService {
         /// The song with the replaced file's identity; nil when nothing was written.
         var updatedSong: Song?
         var sourceUnavailable = false
+        var failure: ScrapeWritebackFailureReason?
+        var failureDetail: String?
     }
 
     /// 把刮到的封面写进音频文件。要整首下载、改写、替换、回读，所以不套旁路文件的写入超时
@@ -2715,7 +2620,7 @@ final class MusicScraperService {
     ) async -> EmbeddedCoverOutcome {
         guard let embeddable = SidecarWriteService.embeddableCoverData(coverData) else {
             plog("⚠️ Embedded cover: scraped artwork for '\(song.title)' is not a decodable image")
-            return EmbeddedCoverOutcome()
+            return EmbeddedCoverOutcome(failure: .other)
         }
         // 冲突判断按库里记的文件身份做，刮削手里的快照可能已经旧了（比如刚嵌入过歌词）。
         let target = await MainActor.run { () -> Song in
@@ -2745,7 +2650,11 @@ final class MusicScraperService {
             return EmbeddedCoverOutcome(updatedSong: written)
         } catch {
             plog("⚠️ Embedded cover writeback failed for '\(song.title)': \(error.localizedDescription)")
-            return EmbeddedCoverOutcome(sourceUnavailable: isSourceUnavailableSidecarError(error))
+            return EmbeddedCoverOutcome(
+                sourceUnavailable: isSourceUnavailableSidecarError(error),
+                failure: writebackFailureReason(for: error),
+                failureDetail: error.localizedDescription
+            )
         }
     }
 
@@ -2865,14 +2774,431 @@ final class MusicScraperService {
         MetadataWriteFailurePolicy.stopsSourceWrites(error)
     }
 
+    // MARK: - 刮削结果落地与按部分结算
+
+    /// 一首歌刮到的结果落地之后的样子。
+    struct AppliedScrape: Sendable {
+        /// 要写进资料库的那一行。
+        var song: Song
+        var parts: ScrapeSongParts
+        /// 存进本机缓存并核对过的封面。
+        var storedCover: Data?
+        /// 存进本机缓存的歌词。
+        var cachedLyrics: [LyricLine]?
+        /// 这一行和原来不一样（含静默保存的技术参数），或者存了新的封面、歌词。
+        var persists: Bool
+        /// 封面、歌词是从这个文件自己（内嵌或旁边的文件）读出来的就不写回音乐源。
+        var writesBackCover = true
+        var writesBackLyrics = true
+        /// 这一轮是覆盖还是只补缺失：只补缺失时，写进音频文件前文件里已有的不换。
+        var overwritesCover = false
+        var overwritesLyrics = false
+    }
+
+    /// 封面只有存进本机缓存、引用指着的文件读得回来并能解码成图片时才指过去；歌词只有有有效行、
+    /// 缓存也收下了才指过去。存不下的不改引用，记成保存失败。批量刮削和快捷单曲共用这一份。
+    func applyScrapedResult(
+        _ result: ProcessedResult?,
+        scope: ScrapeScope,
+        to song: Song,
+        parts: ScrapeParts,
+        coverOrigin: StoredArtworkOrigin,
+        stampsUserEdit: Bool
+    ) async -> AppliedScrape {
+        let coverConsidered = scope.considered.contains(.cover)
+        let lyricsClearedByUser = Self.lyricsWereClearedByUser(song.id)
+        // 用户主动清空过歌词的歌：刮到的歌词不写，按「没去刮」算，不进失败清单。
+        let lyricsConsidered = scope.considered.contains(.lyrics) && !lyricsClearedByUser
+        let tagsConsidered = !scope.considered.isDisjoint(with: ScrapeField.tags)
+        let coverFetched = scope.fetched.contains(.cover)
+        let lyricsFetched = scope.fetched.contains(.lyrics) && !lyricsClearedByUser
+        let tagsFetched = !scope.fetched.isDisjoint(with: ScrapeField.tags)
+
+        guard let result else {
+            let parts = ScrapeSongParts(
+                cover: ScrapePartJudgment.outcome(considered: coverConsidered, fetched: coverFetched, received: false, stored: false),
+                lyrics: ScrapePartJudgment.outcome(considered: lyricsConsidered, fetched: lyricsFetched, received: false, stored: false),
+                tags: ScrapePartJudgment.outcome(considered: tagsConsidered, fetched: tagsFetched, received: false, stored: false)
+            )
+            return AppliedScrape(song: song, parts: parts, storedCover: nil, cachedLyrics: nil, persists: false)
+        }
+
+        var updated = ScrapeApplyPolicy.restricted(result.song, to: parts, original: song)
+
+        var storedCover: Data?
+        if let coverData = result.coverData {
+            if let reference = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: song.id, origin: coverOrigin),
+               await Self.storedCoverIsReadable(reference) {
+                updated.coverArtFileName = reference
+                storedCover = coverData
+                CachedArtworkView.invalidateCache(for: song.id)
+            } else {
+                plog("MusicScraperService: scraped cover not saved song=\(song.id.prefix(12)) bytes=\(coverData.count)")
+            }
+        }
+        if storedCover == nil {
+            // 图存不下就别指过去: 引用一旦不空, 之后的刮削缺失都会跳过这首。
+            updated.coverArtFileName = song.coverArtFileName
+        }
+
+        let scrapedLyrics = lyricsFetched ? result.lyricsLines : nil
+        let lyricsReceived = scrapedLyrics?.isEmpty == false
+        var cachedLyrics: [LyricLine]?
+        if let lines = scrapedLyrics, !lines.isEmpty {
+            // 拿到歌词立即写本机缓存并把引用指到缓存：播放页马上重读时先读到的就是它，
+            // 不必等写回音乐源。
+            if ScrapedLyricsValidity.hasUsableLines(lines),
+               await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: true) {
+                updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
+                cachedLyrics = lines
+            } else {
+                plog("MusicScraperService: scraped lyrics not saved song=\(song.id.prefix(12)) lines=\(lines.count) usable=\(ScrapedLyricsValidity.hasUsableLines(lines))")
+            }
+        }
+        if cachedLyrics == nil {
+            updated.lyricsFileName = song.lyricsFileName
+        }
+
+        let changedTags = ScrapeTagChange.changedFields(from: song, to: updated)
+        if stampsUserEdit {
+            updated = SongUserMetadataPolicy.stampingUserEdit(original: song, updated: updated)
+        }
+        let parts = ScrapeSongParts(
+            cover: ScrapePartJudgment.outcome(considered: coverConsidered, fetched: coverFetched,
+                                              received: result.coverData != nil, stored: storedCover != nil),
+            lyrics: ScrapePartJudgment.outcome(considered: lyricsConsidered, fetched: lyricsFetched,
+                                               received: lyricsReceived, stored: cachedLyrics != nil),
+            tags: ScrapePartJudgment.outcome(considered: tagsConsidered, fetched: tagsFetched,
+                                             received: !changedTags.isEmpty, stored: true)
+        )
+        let lyricsSource = cachedLyrics.flatMap { LyricsDocumentSource.of($0)?.kind }
+        return AppliedScrape(
+            song: updated, parts: parts, storedCover: storedCover, cachedLyrics: cachedLyrics,
+            persists: updated != song || storedCover != nil || cachedLyrics != nil,
+            writesBackCover: ScrapeWritebackSourcePolicy.writesBackCover(readFromFile: result.coverReadFromFile),
+            writesBackLyrics: ScrapeWritebackSourcePolicy.writesBackLyrics(sourceKind: lyricsSource),
+            overwritesCover: scope.overwrites.contains(.cover),
+            overwritesLyrics: scope.overwrites.contains(.lyrics)
+        )
+    }
+
+    /// 存下的封面引用读得回来、能解码成图片。读文件放在后台。
+    private nonisolated static func storedCoverIsReadable(_ reference: String) async -> Bool {
+        await Task.detached(priority: .utility) {
+            guard let data = MetadataAssetStore.shared.readCoverData(named: reference) else { return false }
+            return ArtworkImageCompatibility.isCompleteImage(data)
+        }.value
+    }
+
+    private func recordBatchSongOutcome(_ applied: AppliedScrape, for song: Song) {
+        tally.record(applied.parts)
+        switch applied.parts.result {
+        case .updated: updatedCount += 1
+        case .unchanged: skippedCount += 1
+        case .failed: failedCount += 1
+        }
+        if applied.parts.cover == .saveFailed {
+            tally.recordFailure(.init(songID: song.id, title: song.title, part: .cover))
+        }
+        if applied.parts.lyrics == .saveFailed {
+            tally.recordFailure(.init(songID: song.id, title: song.title, part: .lyrics))
+        }
+    }
+
+    /// 写回音乐源的结果记进这一轮的账。断点里的分项计数只在推进断点时更新，这里只把写回这部分的
+    /// 增量记进内存里的断点：被系统打断时随断点落盘；源不可达延后之后迟到的结果也记得进去。
+    private func recordBatchWriteback(
+        _ outcome: ScrapeWritebackOutcome,
+        detail: String?,
+        songID: String,
+        title: String,
+        runID: UUID
+    ) {
+        guard outcome != .notAttempted else { return }
+        var failure: BatchScrapeFailureEntry?
+        if case .failed(let reason) = outcome {
+            failure = BatchScrapeFailureEntry(songID: songID, title: title, part: .writeback, reason: reason, detail: detail)
+            plog("MusicScraperService: batch writeback failed song=\(songID.prefix(12)) reason=\(reason.rawValue)")
+        }
+        if activeRunID == runID {
+            tally.recordWriteback(outcome)
+            if let failure { tally.recordFailure(failure) }
+        }
+        if var checkpoint = scrapeCheckpoint, checkpoint.runID == runID {
+            var persisted = checkpoint.tally ?? BatchScrapeTally()
+            persisted.recordWriteback(outcome)
+            if let failure { persisted.recordFailure(failure) }
+            checkpoint.tally = persisted
+            scrapeCheckpoint = checkpoint
+        }
+    }
+
+    /// 后台写回任务结束。已经被记成被打断或超时的（不在「还在写」里了）不再重复记。
+    private func finishBatchWriteback(
+        _ outcome: ScrapeWritebackOutcome,
+        detail: String?,
+        songID: String,
+        title: String,
+        runID: UUID
+    ) {
+        let key = Self.inFlightKey(runID: runID, songID: songID)
+        guard let entry = inFlightWritebacks.removeValue(forKey: key) else { return }
+        longestWritebackDuration = max(longestWritebackDuration, ProcessInfo.processInfo.systemUptime - entry.startedAt)
+        recordBatchWriteback(outcome, detail: detail, songID: songID, title: title, runID: runID)
+    }
+
+    /// 离开前台、后台时间用完、点了停止：还在写或排着没开始的写回记成被打断，进失败清单。
+    private func markInFlightWritebacksInterrupted() {
+        guard !inFlightWritebacks.isEmpty else { return }
+        let entries = Array(inFlightWritebacks.values)
+        inFlightWritebacks.removeAll()
+        plog("MusicScraperService: \(entries.count) source writebacks interrupted")
+        for entry in entries {
+            recordBatchWriteback(.failed(.interrupted), detail: nil,
+                                 songID: entry.songID, title: entry.title, runID: entry.runID)
+        }
+    }
+
+    /// 等这一轮在这个进程里发起的写回都结束。一直有写完的就接着等；连着一段时间一首都没写完
+    /// （按这一轮最慢的一首放宽，嵌入要整首下载上传），剩下的记成超时并进失败清单，不让完成卡死。
+    private func awaitRunWritebacks(_ context: RunContext, timeout: TimeInterval) async {
+        awaitingRunContext = context
+        func remaining() -> [InFlightWriteback] {
+            inFlightWritebacks.values.filter { $0.runID == context.runID }
+        }
+        var lastRemaining = remaining().count
+        var lastProgressAt = ProcessInfo.processInfo.systemUptime
+        while scrapingGeneration == context.generation, !Task.isCancelled, lastRemaining > 0 {
+            currentSongTitle = String(format: String(localized: "scrape_tally_waiting_writeback_format"), lastRemaining)
+            do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+            guard scrapingGeneration == context.generation else { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            let count = remaining().count
+            if count != lastRemaining {
+                lastRemaining = count
+                lastProgressAt = now
+                continue
+            }
+            let limit = ScrapeWritebackWaitPolicy.stallLimit(
+                sidecarTimeout: timeout, longestObservedWrite: longestWritebackDuration
+            )
+            if now - lastProgressAt >= limit {
+                let stalled = remaining()
+                plog("MusicScraperService: stopped waiting for \(stalled.count) source writebacks after \(Int(limit))s without progress; counted as timed out")
+                for entry in stalled {
+                    inFlightWritebacks[Self.inFlightKey(runID: entry.runID, songID: entry.songID)] = nil
+                    recordBatchWriteback(.failed(.timeout), detail: nil,
+                                         songID: entry.songID, title: entry.title, runID: entry.runID)
+                }
+                return
+            }
+        }
+    }
+
+    /// 一轮批量刮削做完：交出结果、发通知、清断点。正常结束和在等写回时点停止都走这里。
+    private func finishBatchRun(_ context: RunContext) {
+        let completion = BatchScrapeCompletion(
+            runID: context.runID,
+            originPlaylistID: context.originPlaylistID,
+            songCount: context.songCount,
+            updatedCount: updatedCount,
+            skippedCount: skippedCount,
+            failedCount: failedCount,
+            artworkTotalCount: artworkTotalCount,
+            artworkAvailableCount: artworkAvailableCount,
+            artworkUnavailableCount: artworkUnavailableCount,
+            tally: tally,
+            tallyIsPartial: runTallyIsPartial
+        )
+        let runTally = tally
+        plog("MusicScraperService: batch scrape finished songs=\(context.songCount) updated=\(updatedCount) unchanged=\(skippedCount) failed=\(failedCount) cover=\(runTally.cover.filled)/\(runTally.cover.alreadyPresent)/\(runTally.cover.notFound)/\(runTally.cover.saveFailed) lyrics=\(runTally.lyrics.filled)/\(runTally.lyrics.alreadyPresent)/\(runTally.lyrics.notFound)/\(runTally.lyrics.saveFailed) tags=\(runTally.tags.filled) writeback=\(runTally.writebackWritten)ok/\(runTally.writebackFailed)failed partial=\(runTallyIsPartial)")
+        lastCompletion = completion
+        if let originPlaylistID = context.originPlaylistID {
+            pendingPlaylistCompletions[originPlaylistID] = completion
+        }
+        completionRevision &+= 1
+        clearScrapeCheckpoint()
+        let forceRescrape = context.forceRescrape
+        Task { @MainActor in
+            await Self.postScrapeCompletionNotification(forceRescrape: forceRescrape, completion: completion)
+        }
+    }
+
+    // MARK: - 写回音乐源（封面、歌词文件与嵌入）
+
+    /// 一首歌要写回音乐源的内容，以及按「封面保存到」「歌词保存到」定下的去处。
+    struct ScrapedAssetWriteback: Sendable {
+        let song: Song
+        /// 封面文件和嵌入用的封面；「刮削后写回封面」关着、或封面本来就是从这个文件读出来的时为 nil。
+        let coverData: Data?
+        /// 歌词文件用的歌词；「刮削后写回歌词」关着、或歌词本来就是从这个文件读出来的时为 nil。
+        let lyricsLines: [LyricLine]?
+        let coverEmbeddingMode: CoverEmbeddingMode
+        /// 「歌词保存到」选了只嵌入时不新建歌词文件（歌曲旁已有的照样更新）；刮削本身不嵌入歌词。
+        let createsLyricsFile: Bool
+        let timeout: TimeInterval
+    }
+
+    struct ScrapedAssetWritebackResult: Sendable {
+        var outcome: ScrapeWritebackOutcome = .notAttempted
+        var failureDetail: String?
+
+        mutating func record(_ next: ScrapeWritebackOutcome, detail: String? = nil) {
+            if case .failed = next, failureDetail == nil, outcome == .written || outcome == .notAttempted {
+                failureDetail = detail
+            }
+            outcome = outcome.combined(with: next)
+        }
+    }
+
+    actor ScrapedAssetWritebackBox {
+        private(set) var result: ScrapedAssetWritebackResult?
+        func store(_ result: ScrapedAssetWritebackResult) { self.result = result }
+    }
+
+    /// 刮削后要不要写回音乐源、写到哪：开关（刮削后写回封面 / 歌词）和「封面保存到」「歌词保存到」，
+    /// 后两项已按来源、格式、CUE 分轨收窄过。从文件自己读出来的封面、歌词不写回。
+    func scrapedAssetWritebackJob(for song: Song, applied: AppliedScrape) async -> ScrapedAssetWriteback? {
+        let settings = Self.sidecarSettings()
+        let coverData = settings.coverEnabled && applied.writesBackCover ? applied.storedCover : nil
+        let lyricsLines = settings.lyricsEnabled && applied.writesBackLyrics ? applied.cachedLyrics : nil
+        guard coverData != nil || lyricsLines != nil else { return nil }
+        guard await sourceManager.supportsSidecarWriting(for: song) else {
+            plog("📝 Sidecar: source does not support writing, keeping local metadata cache for '\(song.title)'")
+            return nil
+        }
+        let coverMode = coverData == nil ? CoverEmbeddingMode.off : await sourceManager.coverEmbeddingMode(for: song)
+        let lyricsMode = lyricsLines == nil ? LyricsEmbeddingMode.off : await sourceManager.lyricsEmbeddingMode(for: song)
+        plog("📝 Sidecar: coverData=\(coverData?.count ?? 0)B lyricsLines=\(lyricsLines?.count ?? 0) coverMode=\(coverMode.rawValue) lyricsMode=\(lyricsMode.rawValue) for '\(song.title)'")
+        return ScrapedAssetWriteback(
+            song: song, coverData: coverData, lyricsLines: lyricsLines,
+            coverEmbeddingMode: coverMode, createsLyricsFile: lyricsMode != .embedOnly, timeout: settings.timeout
+        )
+    }
+
+    /// 按定好的去处写回：要嵌入封面时先整首替换，再用替换后的文件身份写封面、歌词文件。只嵌入时
+    /// 不新建文件，歌曲旁已有的照样更新。源只读或连不上时打开这一轮的熔断，后面的歌不再试。
+    nonisolated static func performScrapedAssetWriteback(
+        _ job: ScrapedAssetWriteback,
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        circuitBreaker: SidecarWriteCircuitBreaker
+    ) async -> ScrapedAssetWritebackResult {
+        let song = job.song
+        var result = ScrapedAssetWritebackResult()
+        guard await circuitBreaker.acquire(sourceID: song.sourceID) else {
+            result.record(.failed(.unavailable))
+            return result
+        }
+        var songForSidecar = song
+        if job.coverEmbeddingMode != .off, let coverData = job.coverData, !Task.isCancelled {
+            let embedded = await embedScrapedCover(
+                coverData, for: song, sourceManager: sourceManager, library: library
+            )
+            if embedded.sourceUnavailable {
+                if await circuitBreaker.release(sourceID: song.sourceID, sourceUnavailable: true) {
+                    plog("⚠️ Sidecar: source \(song.sourceID) is read-only or unavailable; later writes are skipped")
+                }
+                result.record(.failed(.unavailable), detail: embedded.failureDetail)
+                return result
+            }
+            if let failure = embedded.failure {
+                // 冲突时不覆盖：音频文件保持原样，记成「与文件现状冲突」。
+                result.record(.failed(failure), detail: embedded.failureDetail)
+            } else if let written = embedded.updatedSong {
+                // 有的网盘替换后文件换了 ID，之后的旁路文件要跟着新文件走。
+                songForSidecar = written
+                result.record(.written)
+            }
+        }
+
+        if job.coverData != nil || job.lyricsLines != nil {
+            do {
+                let writeResult = try await writeSidecarWithTimeout(
+                    seconds: job.timeout,
+                    sourceManager: sourceManager,
+                    for: songForSidecar,
+                    coverData: job.coverData, lyricsLines: job.lyricsLines,
+                    createsLyricsFile: job.createsLyricsFile,
+                    createsCoverFile: job.coverEmbeddingMode != .embedOnly
+                )
+                if await circuitBreaker.release(sourceID: song.sourceID, sourceUnavailable: writeResult.sourceUnavailable) {
+                    plog("⚠️ Sidecar: source \(song.sourceID) is read-only or unavailable; later writes are skipped")
+                }
+                plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten) errors=\(writeResult.errors)")
+                if writeResult.coverWritten {
+                    if let coverPath = sidecarReferencePath(for: songForSidecar, suffix: "-cover.jpg"),
+                       !Task.isCancelled {
+                        let coverRef = songForSidecar.coverArtFileName ?? coverPath
+                        await MainActor.run {
+                            library.updateAssetReferences(songID: songForSidecar.id, coverRef: coverRef)
+                        }
+                    }
+                    // 旁路文件已落盘 —— 现在回写 hash cache 作为可信副本。
+                    if let coverData = job.coverData {
+                        await MetadataAssetStore.shared.cacheCover(coverData, forSongID: song.id)
+                    }
+                }
+                if writeResult.sourceUnavailable {
+                    result.record(.failed(.unavailable), detail: writeResult.errors.first)
+                } else if writeResult.lyricsTargetChanged {
+                    result.record(.failed(.conflict))
+                } else if writeResult.coverError != nil || writeResult.lyricsError != nil {
+                    result.record(.failed(.other), detail: writeResult.errors.first)
+                } else if writeResult.coverWritten || writeResult.lyricsWritten {
+                    result.record(.written)
+                }
+                if !writeResult.errors.isEmpty {
+                    plog("⚠️ Sidecar write errors: \(writeResult.errors)")
+                }
+            } catch is CancellationError {
+                _ = await circuitBreaker.release(sourceID: song.sourceID, sourceUnavailable: false)
+                // 外层任务被取消是刮削被打断；否则是写入超时。
+                let interrupted = Task.isCancelled
+                plog("⚠️ Sidecar write \(interrupted ? "interrupted" : "timed out (\(job.timeout.finiteInt())s)") for '\(song.title)'")
+                result.record(.failed(interrupted ? .interrupted : .timeout))
+            } catch {
+                let unavailable = isSourceUnavailableSidecarError(error)
+                if await circuitBreaker.release(sourceID: song.sourceID, sourceUnavailable: unavailable) {
+                    plog("⚠️ Sidecar: source \(song.sourceID) is unavailable; later writes are skipped")
+                }
+                plog("⚠️ Sidecar write skipped for '\(song.title)': \(error.localizedDescription)")
+                result.record(.failed(unavailable ? .unavailable : writebackFailureReason(for: error)),
+                              detail: error.localizedDescription)
+            }
+        } else {
+            _ = await circuitBreaker.release(sourceID: song.sourceID, sourceUnavailable: false)
+        }
+
+        return result
+    }
+
+    /// 写回失败归到哪一类：只读或不可达、与文件现状冲突、超时、其他。
+    nonisolated static func writebackFailureReason(for error: Error) -> ScrapeWritebackFailureReason {
+        if error is CancellationError { return .timeout }
+        switch error {
+        case EmbeddedMetadataCoordinatedWritebackError.conflict, EmbeddedMetadataWritebackSourceError.conflict:
+            return .conflict
+        case EmbeddedMetadataCoordinatedWritebackError.operationFailed(_, _, _, let isTransient) where isTransient:
+            return .unavailable
+        default:
+            break
+        }
+        if let urlError = error as? URLError, urlError.code == .timedOut { return .timeout }
+        if isSourceUnavailableSidecarError(error) || MetadataWriteFailurePolicy.isTransient(error) { return .unavailable }
+        return .other
+    }
+
+    /// 媒体服务器（Jellyfin 等）走它自己的写回接口。返回这首歌写回的结局，失败时带上服务器报的错。
+    @discardableResult
     private func writeBackToMediaServerIfSupported(
         original: Song,
         updated: Song,
         coverData: Data?,
         lyricsLines: [LyricLine]?
-    ) async {
+    ) async -> (outcome: ScrapeWritebackOutcome, detail: String?) {
         guard await sourceManager.supportsMediaServerWriteback(for: updated) else {
-            return
+            return (.notAttempted, nil)
         }
         let result = await sourceManager.writeScrapedMetadataToMediaServer(
             original: original,
@@ -2886,6 +3212,11 @@ final class MusicScraperService {
         if !result.unsupported.isEmpty {
             plog("ℹ️ Media-server writeback limitations for '\(updated.title)': \(result.unsupported)")
         }
+        if !result.errors.isEmpty {
+            return (.failed(.other), result.errors.first)
+        }
+        let wrote = result.metadataWritten || result.coverWritten || result.lyricsWritten
+        return (wrote ? .written : .notAttempted, nil)
     }
 
     private nonisolated static func sidecarSettings() -> (coverEnabled: Bool, lyricsEnabled: Bool, timeout: TimeInterval) {
@@ -2900,5 +3231,119 @@ final class MusicScraperService {
             ? 30
             : defaults.double(forKey: sidecarWriteTimeoutKey)
         return (coverEnabled, lyricsEnabled, max(5, min(120, timeout)))
+    }
+}
+
+// MARK: - 完成提示的文字
+
+extension MusicScraperService.BatchScrapeCompletion {
+    /// 完成提示按部分说清楚。系统通知、iPhone 和 Mac 的提示条、设置页共用这一份。
+    var summaryLines: [String] {
+        let summary = tally.summary
+        var lines: [String] = []
+        if tallyIsPartial {
+            // 旧版本留下的断点续上的：分项计数只有续跑那部分，说总数那一行。
+            lines.append(String(
+                format: String(localized: "batch_scrape_completed_format"),
+                processedSongCount, songCount, updatedCount, skippedCount, failedCount
+            ))
+        } else if summary.foundNothing {
+            lines.append(String(localized: "scrape_tally_nothing"))
+        } else {
+            if !summary.cover.isEmpty {
+                lines.append(String(format: String(localized: "scrape_tally_cover_line_format"),
+                                    BatchScrapeSummaryText.segments(summary.cover)))
+            }
+            if !summary.lyrics.isEmpty {
+                lines.append(String(format: String(localized: "scrape_tally_lyrics_line_format"),
+                                    BatchScrapeSummaryText.segments(summary.lyrics)))
+            }
+            if summary.tagsFilled > 0 {
+                lines.append(String(format: String(localized: "scrape_tally_tags_line_format"), summary.tagsFilled))
+            }
+            if summary.writebackWritten + summary.writebackFailed > 0 {
+                var parts: [String] = []
+                if summary.writebackWritten > 0 {
+                    parts.append(String(format: String(localized: "scrape_tally_writeback_ok_format"), summary.writebackWritten))
+                }
+                if summary.writebackFailed > 0 {
+                    parts.append(String(format: String(localized: "scrape_tally_writeback_failed_format"), summary.writebackFailed))
+                }
+                lines.append(String(format: String(localized: "scrape_tally_writeback_line_format"),
+                                    parts.joined(separator: " · ")))
+            }
+            if summary.songErrors > 0 {
+                lines.append(String(format: String(localized: "scrape_tally_errors_line_format"), summary.songErrors))
+            }
+        }
+        if artworkTotalCount > 0 {
+            lines.append(String(
+                format: String(localized: "batch_scrape_completed_artwork_format"),
+                artworkAvailableCount,
+                artworkTotalCount,
+                artworkUnavailableCount
+            ))
+        }
+        return lines
+    }
+
+    var summaryText: String { summaryLines.joined(separator: "\n") }
+
+    /// 有没有能点开看的失败清单。
+    var hasFailureDetails: Bool { tally.hasFailures }
+
+    /// 提示条的语气：全没成、部分没成、成了、什么都没找到。专辑、艺人图在线没找到不算失败。
+    var hasAnyFailure: Bool {
+        failedCount > 0 || tally.writebackFailed > 0 || tally.hasFailures
+    }
+
+    var appliedAnything: Bool {
+        updatedCount > 0 || artworkAvailableCount > 0
+    }
+}
+
+enum BatchScrapeSummaryText {
+    static func segments(_ segments: [BatchScrapeSummary.Segment]) -> String {
+        segments.map { segment -> String in
+            switch segment {
+            case .filled(let count): String(format: String(localized: "scrape_tally_filled_format"), count)
+            case .alreadyPresent(let count): String(format: String(localized: "scrape_tally_present_format"), count)
+            case .notFound(let count): String(format: String(localized: "scrape_tally_not_found_format"), count)
+            case .saveFailed(let count): String(format: String(localized: "scrape_tally_save_failed_format"), count)
+            }
+        }.joined(separator: " · ")
+    }
+
+    static func reason(_ reason: ScrapeWritebackFailureReason) -> String {
+        switch reason {
+        case .unavailable: String(localized: "scrape_tally_reason_unavailable")
+        case .conflict: String(localized: "scrape_tally_reason_conflict")
+        case .timeout: String(localized: "scrape_tally_reason_timeout")
+        case .interrupted: String(localized: "scrape_tally_reason_interrupted")
+        case .other: String(localized: "scrape_tally_reason_other")
+        }
+    }
+
+    /// 失败清单里这一行说什么。
+    static func description(of entry: BatchScrapeFailureEntry) -> String {
+        switch entry.part {
+        case .cover: String(localized: "scrape_tally_failure_cover")
+        case .lyrics: String(localized: "scrape_tally_failure_lyrics")
+        case .song: String(localized: "scrape_tally_failure_song")
+        case .writeback:
+            String(format: String(localized: "scrape_tally_writeback_failed_detail_format"), reason(entry.reason ?? .other))
+        }
+    }
+
+    /// 快捷单曲刮削没成的部分，一句一行；全成了返回 nil。
+    static func singleFailure(_ outcome: MusicScraperService.SingleScrapeOutcome) -> String? {
+        var lines: [String] = []
+        if outcome.coverSaveFailed { lines.append(String(localized: "scrape_tally_failure_cover")) }
+        if outcome.lyricsSaveFailed { lines.append(String(localized: "scrape_tally_failure_lyrics")) }
+        if let reason = outcome.writebackFailureReason {
+            lines.append(String(format: String(localized: "scrape_tally_writeback_failed_detail_format"),
+                                Self.reason(reason)))
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 }

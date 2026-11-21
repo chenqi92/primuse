@@ -2352,6 +2352,8 @@ struct ContentView: View {
         .environment(\.librarySearchNavigation, searchNavigation)
         .environment(\.appNavigationMode, navigationMode)
         .songBatchRemovalFeedback()
+        // 整库、专辑、多选的批量刮削做完时按部分说结果（歌单发起的由歌单页自己说）。
+        .batchScrapeCompletionFeedback()
         // 跟页面无关的提示条(滑动入队、批量删除):浮在迷你条胶囊上面,没有迷你条时浮在标签栏上面。
         .pmToastHost(
             .shared,

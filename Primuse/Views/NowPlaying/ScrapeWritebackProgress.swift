@@ -159,9 +159,15 @@ final class ScrapeWritebackCenter {
             let wordLevel = lines.filter { $0.isWordLevel }.count
             plog("👉 ScrapeWriteback lyrics=\(lines.count) wordLevelLines=\(wordLevel) firstSyllables=\(lines.first?.syllables?.count ?? -1)")
             switch await Self.writeLyrics(lines, for: song, write: write) {
-            case .success(let updated):
-                savedLyricsSong = updated
-                setState(.done, for: .lyrics, in: jobID)
+            case .success(let saved):
+                savedLyricsSong = saved.song
+                if let embedFailure = saved.embedFailure {
+                    // 歌词文件写成了、嵌进音频文件没成：不能显示成全部成功。
+                    setState(.failed(String(format: String(localized: "scrape_tally_lyrics_embed_failed_format"),
+                                            embedFailure)), for: .lyrics, in: jobID)
+                } else {
+                    setState(.done, for: .lyrics, in: jobID)
+                }
             case .failure(let failure):
                 plog("⚠️ ScrapeWriteback lyrics writeback failed: \(failure.message)")
                 setState(.failed(failure.message), for: .lyrics, in: jobID)
@@ -260,7 +266,9 @@ final class ScrapeWritebackCenter {
         let message: String
     }
 
-    private static func writeLyrics(_ lines: [LyricLine], for song: Song, write: ManualWrite) async -> Result<Song?, WriteFailure> {
+    private static func writeLyrics(
+        _ lines: [LyricLine], for song: Song, write: ManualWrite
+    ) async -> Result<(song: Song?, embedFailure: String?), WriteFailure> {
         let sm = write.sourceManager
         let store = write.sourcesStore
         let payload: LyricsWriteback.EditablePayload
@@ -291,10 +299,10 @@ final class ScrapeWritebackCenter {
             return .failure(WriteFailure(message: outcome.errorMessage ?? String(localized: "scrape_song_failed")))
         }
         if let embeddedCopyError = outcome.embeddedCopyError {
-            // 歌词文件与缓存都已落地，随身副本失败不算这次写入失败。
+            // 歌词文件与缓存都已落地，随身副本失败不回滚，但要让用户看到。
             plog("⚠️ ScrapeWriteback embedded lyrics copy failed: \(embeddedCopyError)")
         }
-        return .success(outcome.updatedSong)
+        return .success((song: outcome.updatedSong, embedFailure: outcome.embeddedCopyError))
     }
 
     /// 封面写回音乐源旁的封面文件（选了嵌入时先嵌进音频文件）。返回 nil 表示写成了，否则是出错说明。
@@ -427,6 +435,10 @@ final class ScrapeWritebackCenter {
         let updated: Song
         let coverFound: Bool
         let lyricsFound: Bool
+        /// 刮到了却没存下、或没能写回音乐源时的说明；对应那一步显示成失败。
+        var coverFailure: String? = nil
+        var lyricsFailure: String? = nil
+        var sourceFailure: String? = nil
     }
 
     /// 自动刮削有了结果。没有对应任务时（比如别处发起、播放页取到）补一个直接显示结果。
@@ -451,12 +463,17 @@ final class ScrapeWritebackCenter {
                     job.steps[index].state = changes.isEmpty ? .unchanged : .done
                     job.steps[index].detail = changes.isEmpty ? nil : changes.joined(separator: " · ")
                 case .cover:
-                    job.steps[index].state = outcome.coverFound ? .done : .notFound
+                    job.steps[index].state = outcome.coverFailure.map { StepState.failed($0) }
+                        ?? (outcome.coverFound ? .done : .notFound)
                 case .lyrics:
-                    job.steps[index].state = outcome.lyricsFound ? .done : .notFound
+                    job.steps[index].state = outcome.lyricsFailure.map { StepState.failed($0) }
+                        ?? (outcome.lyricsFound ? .done : .notFound)
                 case .source:
                     break
                 }
+            }
+            if let sourceFailure = outcome?.sourceFailure {
+                job.steps.append(Step(kind: .source, state: .failed(sourceFailure)))
             }
         }
         finish(jobID)

@@ -473,6 +473,8 @@ struct MacContentView: View {
             }
         }
         .songBatchRemovalFeedback()
+        // 整库、专辑、多选的批量刮削做完时按部分说结果（歌单发起的由歌单页自己说）。
+        .batchScrapeCompletionFeedback()
         // 跟页面无关的提示条(批量删除、菜单里设为下一首):浮在底部播放栏上面。
         .pmToastHost(.shared, placement: .appRoot(fallbackClearance: PMSize.bottomBar + 12))
         // 刮削窗口保存后的写入进度：卡片在主窗口中间，收起后胶囊浮在底部播放栏上面。
@@ -917,14 +919,17 @@ struct MacContentView: View {
 
                 let updatedSong: Song
                 let scrapedLyrics: [LyricLine]?
+                var failureSummary: String?
                 if song.sourceID == AppleMusicLibraryIdentity.sourceID {
                     let result = try await scraperService.scrapeOnlineLyricsOnly(song: song, in: library)
                     updatedSong = result.song
                     scrapedLyrics = result.lyrics
                 } else {
-                    let result = try await scraperService.scrapeSingle(song: song, in: library)
-                    updatedSong = result.0
-                    scrapedLyrics = result.2
+                    // 封面、歌词没存下、没能写回音乐源的要说出来，和 iPhone 播放页的进度卡片一致。
+                    let result = try await scraperService.scrapeSingleResult(song: song, in: library)
+                    updatedSong = result.song
+                    scrapedLyrics = result.lyrics
+                    failureSummary = BatchScrapeSummaryText.singleFailure(result.outcome)
                 }
 
                 CachedArtworkView.invalidateCache(for: updatedSong.id)
@@ -942,7 +947,7 @@ struct MacContentView: View {
                     object: updatedSong.id,
                     userInfo: lyricsChangeUserInfo(scrapedLyrics)
                 )
-                lyricsScrapeAlertMessage = String(localized: scrapedLyrics?.isEmpty == false
+                lyricsScrapeAlertMessage = failureSummary ?? String(localized: scrapedLyrics?.isEmpty == false
                     ? "scrape_song_success"
                     : "scrape_lyrics_not_found")
             } catch {

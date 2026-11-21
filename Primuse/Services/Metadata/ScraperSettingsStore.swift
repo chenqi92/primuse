@@ -175,6 +175,11 @@ struct ScraperSettings: Codable, Sendable {
         return result
     }
 
+    /// 这一轮在范围里的字段（选了这部分、字段规则不是跳过），还没按歌曲已有的内容收窄。
+    func consideredFields(parts: ScrapeParts, force: Bool = false, fillOnly: Bool = false) -> Set<ScrapeField> {
+        fieldRules.request(parts: parts, overwriteByDefault: force || !onlyFillMissingFields, fillOnly: fillOnly).fields
+    }
+
     func orderedSources(for field: ScrapeField) -> [ScraperSourceConfig] {
         var ordered = enabledSources
         if let preferred = fieldRules[field].preferredSource,

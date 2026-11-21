@@ -22,6 +22,8 @@ struct TVAlbumScrapeResult: Sendable, Equatable {
     var updated = 0
     /// 没什么可补、或者没找到可信结果的歌。
     var unchanged = 0
+    /// 刮到了封面或歌词却没能存进本机缓存的歌（和 iPhone 一样算失败，不算「没变」）。
+    var failed = 0
     /// 一个刮削源都没启用,什么都没做。
     var noEnabledSource = false
     var cancelled = false
@@ -193,18 +195,18 @@ final class TVMetadataScrapeService {
                 result.unchanged += 1
                 continue
             }
-            if await fillMissing(song, settings: settings, parts: parts) {
-                result.updated += 1
-            } else {
-                result.unchanged += 1
+            switch await fillMissing(song, settings: settings, parts: parts) {
+            case .updated: result.updated += 1
+            case .unchanged: result.unchanged += 1
+            case .failed: result.failed += 1
             }
         }
         if Task.isCancelled { result.cancelled = true }
         return result
     }
 
-    private func fillMissing(_ song: Song, settings: ScraperSettings, parts: ScrapeParts) async -> Bool {
-        guard let store else { return false }
+    private func fillMissing(_ song: Song, settings: ScraperSettings, parts: ScrapeParts) async -> ScrapeSongResult {
+        guard let store else { return .unchanged }
         let sourceType = store.sourcesStore.source(id: song.sourceID)?.type
         let isServerLibrary = sourceType.map {
             TVLyricsLoadingPolicy.strategy(for: $0) != .sourceFile
@@ -228,7 +230,7 @@ final class TVMetadataScrapeService {
         let needsMetadata = !tags.isEmpty
         let needsCover = request.fields.contains(.cover)
         let needsLyrics = request.fields.contains(.lyrics) && !isServerLibrary && !store.isSpokenWord(songID: song.id)
-        guard needsMetadata || needsCover || needsLyrics else { return false }
+        guard needsMetadata || needsCover || needsLyrics else { return .unchanged }
 
         let scraped = await scraperManager.scrapeMetadata(
             title: song.title,
@@ -239,7 +241,7 @@ final class TVMetadataScrapeService {
             settings: settings
         )
         guard !Task.isCancelled,
-              var updated = store.library.song(id: song.id) else { return false }
+              var updated = store.library.song(id: song.id) else { return .unchanged }
         let editedAt = Self.editTimestamp()
 
         let current = updated.scrapeFields
@@ -270,7 +272,13 @@ final class TVMetadataScrapeService {
             updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: updated.id)
             appliedLyrics = lines
         }
-        guard appliedTags || appliedCover != nil || appliedLyrics != nil else { return false }
+        // 和 iPhone 一样的口径：刮到了却没存下算失败。
+        let coverSaveFailed: Bool = apply.fields.contains(.cover) && scraped.coverData != nil && appliedCover == nil
+        let lyricsSaveFailed: Bool = apply.fields.contains(.lyrics) && scraped.lyrics?.isEmpty == false && appliedLyrics == nil
+        let saveFailed = coverSaveFailed || lyricsSaveFailed
+        guard appliedTags || appliedCover != nil || appliedLyrics != nil else {
+            return saveFailed ? .failed : .unchanged
+        }
         // 覆盖模式改掉的是已有的标签,要像手动编辑一样挡住电视自己的重扫;只补空缺时
         // 不打标记,文件里后来补上的真标签重扫时还能读进来。
         let overwritesTag = apply.overwrites.contains { $0.changed(from: current, to: updated.scrapeFields) }
@@ -290,7 +298,7 @@ final class TVMetadataScrapeService {
         )
         store.refreshNowPlayingAfterMetadataEdit(updated, lyrics: appliedLyrics)
         Self.postArtworkChanged(songs: [updated])
-        return true
+        return saveFailed ? .failed : .updated
     }
 
     // MARK: - 恢复文件标签
