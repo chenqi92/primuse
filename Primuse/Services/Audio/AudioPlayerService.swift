@@ -1943,6 +1943,8 @@ final class AudioPlayerService {
         #if os(iOS)
         observeCarAudioRouteState()
         observeAudioSessionMixingSetting()
+        applyApplicationVolumeSetting()
+        observeApplicationVolumeSetting()
         observeLockScreenLyricsSetting()
         observeLockScreenLyricsChanges()
         observeLikedSongChanges()
@@ -2918,6 +2920,34 @@ final class AudioPlayerService {
                 guard let self else { return }
                 self.applyAudioSessionMixing()
                 self.observeAudioSessionMixingSetting()
+            }
+        }
+    }
+
+    /// 播放页的音量条此刻调不调应用内音量(#463)。Apple Music 歌曲由系统播放器出声、投放时声音在
+    /// 远端设备上, 这一级增益都管不到, 那时仍是系统音量条。
+    var showsApplicationVolume: Bool {
+        audioEngine.applicationVolumeEnabled && !isAppleMusicMode && !isCastingMode
+    }
+
+    /// 「应用内音量」开着、且是音效输出时才加这一级增益; 高保真直通图里没有混音器。
+    /// 开关一变, 电台、MV 这些各自的播放器也跟着换到同一个音量。
+    private func applyApplicationVolumeSetting() {
+        let enabled = playbackSettings.applicationVolumeEnabled && playbackSettings.outputMode == .effects
+        guard let volume = audioEngine.setApplicationVolumeEnabled(enabled) else { return }
+        radioPlaybackController.setVolume(volume)
+        activeSystemMediaPlayer?.volume = volume
+    }
+
+    private func observeApplicationVolumeSetting() {
+        withObservationTracking {
+            _ = playbackSettings.applicationVolumeEnabled
+            _ = playbackSettings.outputMode
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.applyApplicationVolumeSetting()
+                self.observeApplicationVolumeSetting()
             }
         }
     }

@@ -302,7 +302,7 @@ final class AudioEngineVolumeTests: XCTestCase {
 
     #if os(iOS)
     @MainActor
-    func testSystemVolumeMigrationKeepsApplicationGainAtUnity() throws {
+    func testApplicationGainStaysAtUnityUntilAppVolumeIsEnabled() throws {
         try withDefaults { defaults in
             defaults.set(Float(0.2), forKey: "primuse_volume")
             let engine = AudioEngine(volumeDefaults: defaults)
@@ -312,7 +312,20 @@ final class AudioEngineVolumeTests: XCTestCase {
             engine.restoreVolume()
 
             XCTAssertEqual(engine.volume, 1)
-            XCTAssertNil(defaults.object(forKey: "primuse_volume"))
+            XCTAssertNil(engine.outputFormat)
+
+            // 打开「应用内音量」接着用存着的值,重建图时保持;关掉回到单位增益,存着的值留到下次打开。
+            XCTAssertEqual(try XCTUnwrap(engine.setApplicationVolumeEnabled(true)), 0.4, accuracy: 0.0001)
+            XCTAssertEqual(engine.volume, 0.4, accuracy: 0.0001)
+            XCTAssertNil(engine.setApplicationVolumeEnabled(true))
+            engine.restoreVolume()
+            XCTAssertEqual(engine.userVolume, 0.4, accuracy: 0.0001)
+
+            XCTAssertEqual(engine.setApplicationVolumeEnabled(false), 1)
+            XCTAssertEqual(engine.userVolume, 1)
+            XCTAssertEqual(defaults.float(forKey: "primuse_volume"), 0.4, accuracy: 0.0001)
+            engine.restoreVolume()
+            XCTAssertEqual(engine.userVolume, 1)
             XCTAssertNil(engine.outputFormat)
         }
     }

@@ -8078,3 +8078,6 @@
 "scrape_progress_capsule_failed" = "Fehler · Zum Anzeigen tippen";
 "scrape_progress_embed_failed" = "Das Cover konnte nicht in die Audiodatei eingebettet werden.";
 "scrape_progress_source_timeout" = "Die Musikquelle hat nicht innerhalb von 30 Sekunden geantwortet. Das Cover ist nur auf diesem Gerät gespeichert.";
+"playback_app_volume" = "App-Lautstärke";
+"playback_app_volume_desc" = "Wenn aktiviert, steuert der Lautstärkeregler im Wiedergabebildschirm die eigene Lautstärke von Primuse und senkt sie noch unter die Systemlautstärke – praktisch, wenn selbst die niedrigste Systemstufe zu laut ist. Systemlautstärke und andere Apps bleiben unverändert, die Lautstärketasten ändern weiterhin die Systemlautstärke. Bei Apple-Music-Titeln und beim Streamen auf andere Geräte bleibt es beim Systemregler.";
+"playback_app_volume_high_fidelity_note" = "Hi-Fi-Direktausgabe umgeht den Mixer, daher wirkt die App-Lautstärke nicht. Wechsle zurück zu „Effekte & Verarbeitung“, um sie zu nutzen.";

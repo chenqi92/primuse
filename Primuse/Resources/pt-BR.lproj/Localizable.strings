@@ -7984,3 +7984,6 @@
 "scrape_progress_capsule_failed" = "Falhou · Toque para ver";
 "scrape_progress_embed_failed" = "Não foi possível incorporar a capa no arquivo de áudio.";
 "scrape_progress_source_timeout" = "A fonte de música não respondeu em 30 segundos. A capa foi salva apenas neste dispositivo.";
+"playback_app_volume" = "Volume do app";
+"playback_app_volume_desc" = "Quando ativado, o controle de volume da tela de reprodução ajusta o volume próprio do Primuse, reduzindo-o ainda mais abaixo do volume do sistema — útil quando até o nível mais baixo do sistema é alto demais. O volume do sistema e os outros apps não são afetados, e os botões de volume continuam ajustando o volume do sistema. Em músicas do Apple Music e ao transmitir para outros dispositivos, o controle continua sendo o do sistema.";
+"playback_app_volume_high_fidelity_note" = "Alta fidelidade direta não passa pelo mixer, então o volume do app não tem efeito. Volte para Efeitos e Processamento para usá-lo.";

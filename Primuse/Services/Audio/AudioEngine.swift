@@ -312,6 +312,11 @@ final class AudioEngineGraphRegistry: @unchecked Sendable {
 final class AudioEngine {
     private let volumeDefaults: UserDefaults
     private var requestedVolume: Float = 1
+    #if os(iOS)
+    /// iPhone / iPad 的「应用内音量」(#463)此刻是否生效:设置打开、且是音效输出(高保真直通图里
+    /// 没有混音器,加不了增益)。由 `AudioPlayerService` 按设置写入。
+    private(set) var applicationVolumeEnabled = false
+    #endif
     /// 直通图这一刻搬的是不是 DoP/DSD 码流。DSD 的样本里装的是 1bit 码流，
     /// 乘任何系数都会变成噪声，所以这种图不能加增益。
     private(set) var usesDSDCarrier = false
@@ -2644,16 +2649,34 @@ final class AudioEngine {
         volumeDefaults.set(requestedVolume, forKey: Self.volumeKey)
     }
 
+    #if os(iOS)
+    /// 打开「应用内音量」时读回上次存的值, 关掉时回到单位增益(存着的值留着, 再打开时接着用)。
+    /// 返回切换后的用户音量; 开关没变时返回 nil, 调用方不用再同步电台、MV 这些旁路播放器。
+    @discardableResult
+    func setApplicationVolumeEnabled(_ enabled: Bool) -> Float? {
+        guard applicationVolumeEnabled != enabled else { return nil }
+        applicationVolumeEnabled = enabled
+        var target: Float = 1
+        if enabled, let saved = volumeDefaults.object(forKey: Self.volumeKey) as? Float, saved.isFinite {
+            target = min(max(saved, 0), 1)
+        }
+        setVolume(target, persist: false)
+        return target
+    }
+    #endif
+
     /// Restore saved volume on setup
     func restoreVolume() {
         #if os(iOS)
-        // The Now Playing control is the system `MPVolumeView`. Keeping a
-        // second persisted mixer gain would make the visible system value and
-        // actual loudness diverge, and it cannot affect MusicKit playback at
-        // all. Migrate legacy app-volume values back to unity gain.
-        volumeDefaults.removeObject(forKey: Self.volumeKey)
-        requestedVolume = 1
+        // 默认播放页是系统音量条(`MPVolumeView`):再叠一级应用增益,系统音量条上看到的
+        // 和实际响度就对不上了,所以没开「应用内音量」时一直是单位增益。开着时音量条调的就是
+        // 这一级,图重建后照用户的值写回去。
         playerNode?.volume = 1
+        if applicationVolumeEnabled {
+            applyRequestedVolumeToGraph()
+            return
+        }
+        requestedVolume = 1
         // The high-fidelity graph deliberately connects the player directly
         // to the output node. Asking AVAudioEngine for mainMixerNode in that
         // mode makes it try to attach a second output path and can trip an

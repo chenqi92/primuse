@@ -7984,3 +7984,6 @@
 "scrape_progress_capsule_failed" = "Błąd · Stuknij, aby zobaczyć";
 "scrape_progress_embed_failed" = "Nie udało się osadzić okładki w pliku audio.";
 "scrape_progress_source_timeout" = "Źródło muzyki nie odpowiedziało w ciągu 30 sekund. Okładka została zapisana tylko na tym urządzeniu.";
+"playback_app_volume" = "Głośność aplikacji";
+"playback_app_volume_desc" = "Po włączeniu suwak głośności na ekranie odtwarzania reguluje własną głośność Primuse i pozwala ściszyć dźwięk poniżej głośności systemu — przydatne, gdy nawet najniższy poziom systemu jest za głośny. Głośność systemu i inne aplikacje pozostają bez zmian, a przyciski głośności nadal zmieniają głośność systemu. Przy utworach Apple Music i przesyłaniu na inne urządzenia nadal widać suwak systemowy.";
+"playback_app_volume_high_fidelity_note" = "Bezpośrednie odtwarzanie Hi-Fi omija mikser, więc głośność aplikacji nie działa. Wróć do trybu Efekty i przetwarzanie, aby z niej korzystać.";

@@ -7839,3 +7839,6 @@
 "scrape_progress_capsule_failed" = "Write failed · Tap to view";
 "scrape_progress_embed_failed" = "The cover couldn’t be embedded in the audio file.";
 "scrape_progress_source_timeout" = "The music source didn’t respond within 30 seconds. The cover is saved on this device only.";
+"playback_app_volume" = "App Volume";
+"playback_app_volume_desc" = "When on, the volume slider on the Now Playing screen controls Primuse's own volume, lowering it further below the system volume — useful when even the lowest system step is too loud. System volume and other apps are unaffected, and the volume buttons still change the system volume. Apple Music songs and casting to other devices still use the system volume slider.";
+"playback_app_volume_high_fidelity_note" = "High Fidelity Direct bypasses the mixer, so App Volume has no effect. Switch back to Effects & Processing to use it.";

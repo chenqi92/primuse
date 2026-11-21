@@ -6293,7 +6293,7 @@ struct NowPlayingView: View {
                 .font(.caption2)
                 .foregroundStyle(appearance.tertiary)
             #if os(iOS) && !targetEnvironment(simulator)
-            SystemVolumeSlider(trackStyle: trackStyle, fillTint: volumeTint, fillGradient: volumeGradient)
+            PlayerOutputVolumeSlider(trackStyle: trackStyle, fillTint: volumeTint, fillGradient: volumeGradient)
                 .frame(maxWidth: .infinity)
                 .frame(height: SystemVolumeSlider.compactHeight)
             #elseif os(macOS)
@@ -14794,6 +14794,42 @@ struct PlayerVolumeTrackStyle: Equatable {
 }
 
 #if os(iOS)
+/// 播放页音量条:默认是系统音量;打开「应用内音量」后改调 Primuse 自己的音量(#463),
+/// 在系统音量之上再压低。Apple Music 歌曲和投放时这一级管不到,仍是系统音量。
+struct PlayerOutputVolumeSlider: View {
+    @Environment(AudioPlayerService.self) private var player
+    var trackStyle: PlayerVolumeTrackStyle
+    var fillTint: Color?
+    var fillGradient: [Color]
+    /// 拖动中只改音量不落盘,松手存一次。
+    @State private var isEditing = false
+
+    var body: some View {
+        if player.showsApplicationVolume {
+            VolumeSlider(
+                value: Binding(
+                    get: { ApplicationVolumeCurve.position(forGain: player.audioEngine.userVolume) },
+                    set: {
+                        player.setPlaybackVolume(
+                            ApplicationVolumeCurve.gain(forPosition: $0),
+                            persist: !isEditing
+                        )
+                    }
+                ),
+                trackStyle: trackStyle,
+                fillTint: fillTint,
+                fillGradient: fillGradient,
+                onEditingChanged: { editing in
+                    isEditing = editing
+                    if !editing { player.audioEngine.persistVolume() }
+                }
+            )
+        } else {
+            SystemVolumeSlider(trackStyle: trackStyle, fillTint: fillTint, fillGradient: fillGradient)
+        }
+    }
+}
+
 /// 系统滑块负责音量与交互，轨道单独绘制，避免系统切换控件状态时替换轨道图片。
 struct SystemVolumeSlider: UIViewRepresentable {
     static let compactHeight: CGFloat = 24
@@ -15257,6 +15293,8 @@ struct VolumeSlider: View {
     var fillTint: Color? = nil
     /// 「封面取色」的渐变,从起点到圆钮;不到两种颜色时用 `fillTint`。
     var fillGradient: [Color] = []
+    /// 开始拖为 true、松手为 false;调用方据此在拖动中不落盘。
+    var onEditingChanged: (Bool) -> Void = { _ in }
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -15338,6 +15376,7 @@ struct VolumeSlider: View {
                         if !isDragging {
                             isDragging = true
                             dragFeedbackToken += 1
+                            onEditingChanged(true)
                         }
                         let nextEdge = SliderScrubFeedbackPolicy.edge(fraction: next)
                         if SliderScrubFeedbackPolicy.playsEdgeFeedback(from: edge, to: nextEdge) {
@@ -15379,10 +15418,12 @@ struct VolumeSlider: View {
     }
 
     private func endScrub() {
+        let wasDragging = isDragging
         scrubSession = nil
         localValue = nil
         edge = .none
         isDragging = false
+        if wasDragging { onEditingChanged(false) }
     }
 }
 

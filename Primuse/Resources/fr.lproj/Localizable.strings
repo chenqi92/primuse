@@ -8078,3 +8078,6 @@
 "scrape_progress_capsule_failed" = "Échec · Touchez pour voir";
 "scrape_progress_embed_failed" = "Impossible d’intégrer la pochette dans le fichier audio.";
 "scrape_progress_source_timeout" = "La source musicale n’a pas répondu en 30 secondes. La pochette est enregistrée uniquement sur cet appareil.";
+"playback_app_volume" = "Volume de l’app";
+"playback_app_volume_desc" = "Si activé, le curseur de volume de l’écran de lecture règle le volume propre à Primuse, qui peut descendre encore sous le volume du système — utile quand même le niveau le plus bas du système est trop fort. Le volume du système et les autres apps ne sont pas affectés, et les boutons de volume continuent de régler le volume du système. Pour les morceaux Apple Music et la diffusion vers d’autres appareils, le curseur reste celui du système.";
+"playback_app_volume_high_fidelity_note" = "Haute fidélité directe contourne le mixeur : le volume de l’app n’a donc aucun effet. Revenez à Effets et traitement pour l’utiliser.";

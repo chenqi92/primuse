@@ -38,6 +38,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "playback.replayGainMode", titleKey: "rg_mode", iosPage: .playback, macPage: .playback, keywords: ["RG Mode"], anchor: "playback.replayGain"),
         SettingDefinition(id: "playback.spatialAudio", titleKey: "spatial_audio", iosPage: .playback, macPage: .playback, keywords: ["Spatial Audio"]),
         SettingDefinition(id: "playback.headTracking", titleKey: "spatial_head_tracking", iosPage: .playback, macPage: nil, anchor: "playback.spatialAudio"),
+        SettingDefinition(id: "playback.appVolume", titleKey: "playback_app_volume", iosPage: .playback, macPage: nil, keywords: ["音量", "应用音量", "应用内音量", "独立音量", "音量微调", "音量太大", "最小音量", "夜间", "睡前", "volume", "app volume", "in-app volume", "quieter", "too loud", "night", "foobar2000"]),
         SettingDefinition(id: "playback.mixWithOthers", titleKey: "playback_mix_with_others", iosPage: .playback, macPage: nil, keywords: ["混音", "同时播放", "不打断", "游戏", "灵动岛", "锁屏", "mix with others", "play alongside", "dynamic island", "lock screen"]),
         SettingDefinition(id: "lyrics.lockScreen", titleKey: "lock_screen_lyrics", iosPage: .playback, macPage: nil, keywords: ["lock screen lyrics", "锁屏没歌词", "锁屏歌词", "控制中心歌词", "蓝牙歌词", "车载歌词"]),
         SettingDefinition(id: "playback.musicLockScreen", titleKey: "lock_screen_music_controls", iosPage: .playback, macPage: nil, keywords: ["锁屏", "锁屏按钮", "控制中心", "上一首", "下一首", "快进", "快退", "lock screen", "control center", "skip"]),

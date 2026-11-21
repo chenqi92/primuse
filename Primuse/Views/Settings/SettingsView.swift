@@ -3021,6 +3021,20 @@ struct PlaybackSettingsView: View {
             }
 
             Section {
+                Toggle(isOn: $settings.applicationVolumeEnabled) {
+                    SettingsInfoLabel("playback_app_volume") {
+                        Text("playback_app_volume_desc")
+                    }
+                }
+                .settingsAnchor("playback.appVolume")
+                .accessibilityIdentifier("playback.appVolume")
+            } footer: {
+                if settings.applicationVolumeEnabled && settings.outputMode == .highFidelity {
+                    Text("playback_app_volume_high_fidelity_note")
+                }
+            }
+
+            Section {
                 Toggle(isOn: $settings.mixesWithOtherAudio) {
                     SettingsInfoLabel("playback_mix_with_others") {
                         Text("playback_mix_with_others_desc")

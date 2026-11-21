@@ -25,7 +25,7 @@ struct SettingsActionService {
         "playback.matchSampleRate", "playback.matchSampleRateWithinAlbum", "playback.exclusiveOutput",
         "playback.autoContinueSimilar", "playback.gapless", "playback.crossfade", "playback.skipLeadingSilence",
         "playback.skipTrailingSilence", "playback.replayGain",
-        "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen", "playback.mixWithOthers",
+        "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen", "playback.mixWithOthers", "playback.appVolume",
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
         "lyrics.exploreWordTiming", "appearance.activityStatus", "lyrics.translationEnabled", "lyrics.bundledTranslation", "lyrics.simulatedWordTiming", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
         "appearance.volumeBar", "appearance.playerAlbumInSubtitle", "appearance.artworkLyrics", "appearance.playerProgressGlow",
@@ -136,6 +136,7 @@ struct SettingsActionService {
         case "playback.matchSampleRateWithinAlbum": playback.matchSampleRateWithinAlbum
         case "playback.exclusiveOutput": playback.exclusiveOutputEnabled
         case "playback.mixWithOthers": playback.mixesWithOtherAudio
+        case "playback.appVolume": playback.applicationVolumeEnabled
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled
         case "playback.previousRestarts": playback.previousRestartsCurrentSong
         case "playback.spokenWordSmartRewind": playback.spokenWordSmartRewindEnabled
@@ -189,6 +190,7 @@ struct SettingsActionService {
         case "playback.matchSampleRateWithinAlbum": playback.matchSampleRateWithinAlbum = enabled
         case "playback.exclusiveOutput": playback.exclusiveOutputEnabled = enabled
         case "playback.mixWithOthers": playback.mixesWithOtherAudio = enabled
+        case "playback.appVolume": playback.applicationVolumeEnabled = enabled
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled = enabled
         case "playback.previousRestarts": playback.previousRestartsCurrentSong = enabled
         case "playback.spokenWordSmartRewind": playback.spokenWordSmartRewindEnabled = enabled

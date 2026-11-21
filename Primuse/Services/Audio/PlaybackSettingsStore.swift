@@ -165,6 +165,9 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     /// iPhone / iPad 播放时不打断别的 App 的声音(#311)。代价是系统不再把这里当作
     /// 「正在播放」的 App, 锁屏与耳机按键控制不到; CarPlay 连着时不混音。
     var mixesWithOtherAudio: Bool = false
+    /// 「应用内音量」(#463): iPhone / iPad 播放页的音量条改调 Primuse 自己的音量, 在系统音量的
+    /// 基础上再调小, 系统音量与别的 App 不受影响。默认关, 关着时音量条就是系统音量。
+    var applicationVolumeEnabled: Bool = false
 
     // Compressor / Limiter
     var effectChainEnabled: Bool = true
@@ -246,6 +249,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         matchSampleRateWithinAlbum = try c.decodeIfPresent(Bool.self, forKey: .matchSampleRateWithinAlbum) ?? false
         exclusiveOutputEnabled = try c.decodeIfPresent(Bool.self, forKey: .exclusiveOutputEnabled) ?? false
         mixesWithOtherAudio = try c.decodeIfPresent(Bool.self, forKey: .mixesWithOtherAudio) ?? false
+        applicationVolumeEnabled = try c.decodeIfPresent(Bool.self, forKey: .applicationVolumeEnabled) ?? false
         effectChainEnabled = try c.decodeIfPresent(Bool.self, forKey: .effectChainEnabled) ?? true
         compressorEnabled = try c.decodeIfPresent(Bool.self, forKey: .compressorEnabled) ?? false
         compressorThreshold = try c.decodeIfPresent(Float.self, forKey: .compressorThreshold) ?? -20
@@ -305,6 +309,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         matchSampleRateWithinAlbum: Bool = false,
         exclusiveOutputEnabled: Bool = false,
         mixesWithOtherAudio: Bool = false,
+        applicationVolumeEnabled: Bool = false,
         effectChainEnabled: Bool = true,
         compressorEnabled: Bool = false,
         compressorThreshold: Float = -20,
@@ -362,6 +367,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.matchSampleRateWithinAlbum = matchSampleRateWithinAlbum
         self.exclusiveOutputEnabled = exclusiveOutputEnabled
         self.mixesWithOtherAudio = mixesWithOtherAudio
+        self.applicationVolumeEnabled = applicationVolumeEnabled
         self.effectChainEnabled = effectChainEnabled
         self.compressorEnabled = compressorEnabled
         self.compressorThreshold = compressorThreshold
@@ -403,6 +409,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         .init("spatialHeadTrackingEnabled", \.spatialHeadTrackingEnabled),
         // 和别的 App 一起出声是这台设备上的用法: 手机边玩游戏边听, 不等于 iPad 也要。
         .init("mixesWithOtherAudio", \.mixesWithOtherAudio),
+        // 应用内音量是这台设备上的听法: 夜里嫌手机太响, 不等于 iPad 也要。
+        .init("applicationVolumeEnabled", \.applicationVolumeEnabled),
         // 传输音质按这台设备的网络来: Mac 没有蜂窝, 手机的流量套餐也不是 Mac 的。
         .init("wifiStreamQuality", \.wifiStreamQuality),
         .init("cellularStreamQuality", \.cellularStreamQuality),
@@ -645,6 +653,7 @@ final class PlaybackSettingsStore {
     var matchSampleRateWithinAlbum: Bool { didSet { persist() } }
     var exclusiveOutputEnabled: Bool { didSet { persist() } }
     var mixesWithOtherAudio: Bool { didSet { persist() } }
+    var applicationVolumeEnabled: Bool { didSet { persist() } }
 
     // Compressor / Limiter
     var effectChainEnabled: Bool { didSet { persist() } }
@@ -716,6 +725,7 @@ final class PlaybackSettingsStore {
         self.matchSampleRateWithinAlbum = s.matchSampleRateWithinAlbum
         self.exclusiveOutputEnabled = s.exclusiveOutputEnabled
         self.mixesWithOtherAudio = s.mixesWithOtherAudio
+        self.applicationVolumeEnabled = s.applicationVolumeEnabled
         self.effectChainEnabled = s.effectChainEnabled
         self.compressorEnabled = s.compressorEnabled
         self.compressorThreshold = s.compressorThreshold
@@ -811,6 +821,7 @@ final class PlaybackSettingsStore {
         matchSampleRateWithinAlbum = s.matchSampleRateWithinAlbum
         exclusiveOutputEnabled = s.exclusiveOutputEnabled
         mixesWithOtherAudio = s.mixesWithOtherAudio
+        applicationVolumeEnabled = s.applicationVolumeEnabled
         effectChainEnabled = s.effectChainEnabled
         compressorEnabled = s.compressorEnabled
         compressorThreshold = s.compressorThreshold
@@ -879,6 +890,7 @@ final class PlaybackSettingsStore {
             matchSampleRateWithinAlbum: matchSampleRateWithinAlbum,
             exclusiveOutputEnabled: exclusiveOutputEnabled,
             mixesWithOtherAudio: mixesWithOtherAudio,
+            applicationVolumeEnabled: applicationVolumeEnabled,
             effectChainEnabled: effectChainEnabled,
             compressorEnabled: compressorEnabled,
             compressorThreshold: compressorThreshold,

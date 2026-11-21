@@ -46,6 +46,7 @@
 		04C02106CAF87A33F0763AFE /* SpokenTranscriptGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E4C3266509DEBD737D2392F /* SpokenTranscriptGenerationSheet.swift */; };
 		381B270F59D10C203BF822B7 /* LocalFileWatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DED94021F95DF3AFE0DCA51 /* LocalFileWatch.swift */; };
 		356DF39A752DD0F5850F8A6C /* LyricsUserChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BBF3FE5C6BD5D69CE21B832 /* LyricsUserChoice.swift */; };
+		83D83E5892E18ECA527A5564 /* ApplicationVolumeCurve.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9CCF093827B37B5EBE816ED /* ApplicationVolumeCurve.swift */; };
 		8485A46A32AD2303108D3E2E /* SpokenTranscriptSourcePresentations.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D1024DF4E0307DC6F82A5B /* SpokenTranscriptSourcePresentations.swift */; };
 		B798CCFD4AA7472D9411F308 /* SpokenTranscriptImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8EE0C72CDCC071A8BAB008 /* SpokenTranscriptImportSheet.swift */; };
 		04C1D7D8981AB8896412B20A /* ConnectorDirectoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACACC8DFC2348B923ACAB6E5 /* ConnectorDirectoryBrowserView.swift */; };
@@ -2843,6 +2844,7 @@
 		0C6DBCC2480F1607676C8F97 /* AppIconPrimary.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIconPrimary.icon; sourceTree = "<group>"; };
 		5DED94021F95DF3AFE0DCA51 /* LocalFileWatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileWatch.swift; sourceTree = "<group>"; };
 		90F999E377E647BA8DFDA727 /* EmbeddedLyricsFieldEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedLyricsFieldEditor.swift; sourceTree = "<group>"; };
+		B9CCF093827B37B5EBE816ED /* ApplicationVolumeCurve.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationVolumeCurve.swift; sourceTree = "<group>"; };
 		E3DC10AB83FEFC7C9458FA71 /* AppIconGroove.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIconGroove.icon; sourceTree = "<group>"; };
 		0C74B86E90D1B12924FCF7B5 /* CalibrationPromptHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationPromptHost.swift; sourceTree = "<group>"; };
 		0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrimuseWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -5057,6 +5059,7 @@
 				A4141DA19F1EA3B39FC64C20 /* AppleMusicLocalAsset.swift */,
 				72580B05B4A90C3ED1E365BD /* AppleMusicLocalFiles.swift */,
 				4E8684652DAFFA83849B94BE /* AppleMusicTVPlaybackPolicy.swift */,
+				B9CCF093827B37B5EBE816ED /* ApplicationVolumeCurve.swift */,
 				F822C83F2A4B56E2D9B1CC84 /* AppReviewPromptPolicy.swift */,
 				16751BC885ABE1D17E8F759B /* ArtistArtworkResolutionPolicy.swift */,
 				673775C5FD30D89AB0540D09 /* ArtistHeroArtworkField.swift */,
@@ -7736,6 +7739,7 @@
 				E1B22DA636C8C51DBCC4CE2A /* AppleMusicLocalAsset.swift in Sources */,
 				A95A768894FFF953AA5F3F47 /* AppleMusicLocalFiles.swift in Sources */,
 				71BE9C5ACD7D4A804A7ED279 /* AppleMusicTVPlaybackPolicy.swift in Sources */,
+				83D83E5892E18ECA527A5564 /* ApplicationVolumeCurve.swift in Sources */,
 				05FEEECAC78C364237505773 /* Artist.swift in Sources */,
 				FE628A74933C41F059972C8A /* ArtistArtworkResolutionPolicy.swift in Sources */,
 				80DAEB8637C2E27E095A64D3 /* ArtistHeroArtworkField.swift in Sources */,
