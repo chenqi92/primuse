@@ -2721,6 +2721,89 @@ final class ScrapeReviewCandidateTests: XCTestCase {
                                            defaults: settings.reviewDefaults(for: original, parts: .lyrics))
         XCTAssertEqual(Set(lyricsOnly.selected.keys), [.lyrics])
     }
+
+    func testOptionsShowWhichRecordingTheyComeFrom() {
+        let context = ScrapeReviewContext(title: "Copper Sky", artist: "North Quay", album: "Paper Roads",
+                                          year: 2016, durationMs: 225_400)
+        XCTAssertEqual(context.subtitle(for: .album), "Copper Sky · North Quay · 2016 · 3:45")
+        XCTAssertEqual(context.subtitle(for: .title), "North Quay · Paper Roads · 2016 · 3:45")
+        XCTAssertNil(ScrapeReviewContext().subtitle(for: .title))
+        XCTAssertEqual(ScrapeReviewContext(song: song).subtitle(for: .artist), "Copper Sky · Paper Roads · 3:00")
+        XCTAssertEqual(ScraperManager.reviewLookupKey(title: "ＣＯＰＰＥＲ Sky", artist: "north quay"),
+                       ScraperManager.reviewLookupKey(title: "Copper Sky", artist: "North Quay"))
+        XCTAssertNotEqual(ScraperManager.reviewLookupKey(title: "Copper Sky (Live)", artist: "North Quay"),
+                          ScraperManager.reviewLookupKey(title: "Copper Sky", artist: "North Quay"))
+    }
+
+    func testChoosingAnUnfetchedCandidateAddsItsDetailWithoutTouchingTheSelection() async throws {
+        let reprise = item("3", title: "Copper Sky Reprise", artist: "North Quay", album: "Harbor Sessions", durationMs: 95_000)
+        var repriseDetail = ScraperDetail(externalId: "3", source: .itunes, title: "Copper Sky Reprise", artist: "North Quay",
+                                          album: "Harbor Sessions", durationMs: 95_000)
+        repriseDetail.year = 2014
+        repriseDetail.albumArtist = "Harbor Collective"
+        let fixture = ReviewSearchFixture(items: [item("1", title: "Copper Sky", artist: "North Quay"), reprise],
+                                          details: ["3": repriseDetail])
+        let manager = ScraperManager(scraperFactory: { _ in fixture })
+        let settings = ScraperSettings(sources: [apple])
+        let review = await manager.review(for: song, query: "Copper Sky North Quay", settings: settings, parts: .metadata)
+        let session = try XCTUnwrap(review.session)
+        var draft = ScrapeReviewDraft(song: song, catalog: review, request: settings.reviewFields(for: song, parts: .metadata),
+                                      defaults: settings.reviewDefaults(for: song, parts: .metadata))
+        let repriseTitle = try XCTUnwrap(draft.choices(for: .title).first { $0.id == "Copper Sky Reprise" })
+        XCTAssertEqual(repriseTitle.context?.durationMs, 95_000)
+        XCTAssertEqual(repriseTitle.candidate?.hasDetail, false)
+        XCTAssertNil(draft.choices(for: .albumArtist).first, "Search rows carry no album artist")
+
+        draft.select("Copper Sky Reprise", for: .title)
+        let pending = draft.selectedCandidatesWithoutDetail
+        XCTAssertEqual(pending.map(\.item.externalId), ["3"])
+        let candidate = try XCTUnwrap(pending.first)
+        let more = await manager.reviewDetail(for: candidate, fields: [.title, .album, .albumArtist, .year])
+        draft.merge(more, from: session)
+        XCTAssertEqual(draft.selected[.title], "Copper Sky Reprise")
+        XCTAssertTrue(draft.fields.contains(.albumArtist))
+        XCTAssertEqual(draft.choices(for: .albumArtist).map(\.id), ["Harbor Collective"])
+        XCTAssertTrue(draft.choices(for: .year).contains { $0.id == "2014" })
+        XCTAssertTrue(draft.selectedCandidatesWithoutDetail.isEmpty, "The fetched candidate is not fetched again")
+        XCTAssertEqual(draft.catalog.recommended[.title], "Copper Sky")
+
+        let stale = ScrapeReviewSession(manager: manager, settings: settings, title: "Copper Sky", artist: nil)
+        var other = ScrapeReviewCatalog()
+        other.addText("Never merged", field: .genre, source: "Apple Music")
+        draft.merge(other, from: stale)
+        XCTAssertFalse(draft.fields.contains(.genre), "Results from an earlier search are dropped")
+    }
+
+    func testLyricsFollowTheChosenIdentityAndKeepTheChosenDocument() async throws {
+        let stub = StubDirectLyricsScraper(.success("[00:01.00]Harbor lights"))
+        let manager = ScraperManager(scraperFactory: { _ in stub })
+        let settings = ScraperSettings(sources: [.init(id: "lrclib", type: .lrclib, isEnabled: true, priority: 0)])
+        var catalog = ScrapeReviewCatalog()
+        catalog.session = ScrapeReviewSession(manager: manager, settings: settings, title: "Copper Sky", artist: "North Quay")
+        catalog.addText("Harbor Quartet", field: .artist, source: "Apple Music")
+        catalog.addLyrics([LyricLine(timestamp: 1, text: "Copper light")], source: "LRCLIB")
+        catalog.recommended[.lyrics] = catalog.options[.lyrics]?.first?.id
+        let session = try XCTUnwrap(catalog.session)
+        var draft = ScrapeReviewDraft(song: song, catalog: catalog, request: settings.reviewFields(for: song, parts: .all),
+                                      defaults: settings.reviewDefaults(for: song, parts: .all))
+        let chosen = draft.selected[.lyrics]
+        XCTAssertNotNil(chosen)
+        XCTAssertFalse(draft.isEdited(.artist))
+        draft.select("Harbor Quartet", for: .artist)
+        XCTAssertTrue(draft.isEdited(.artist))
+        let lookup = draft.lyricsLookup
+        XCTAssertEqual(lookup.title, "Copper Sky")
+        XCTAssertEqual(lookup.artist, "Harbor Quartet")
+        let more = await manager.reviewLyrics(title: lookup.title, artist: lookup.artist, album: lookup.album,
+                                              duration: 180, settings: session.settings)
+        draft.merge(more, from: session)
+        let texts = draft.choices(for: .lyrics).compactMap { option -> String? in
+            if case .lyrics(let value) = option.value { return value.lines.first?.text }
+            return nil
+        }
+        XCTAssertEqual(Set(texts), ["Copper light", "Harbor lights"])
+        XCTAssertEqual(draft.selected[.lyrics], chosen, "Lyrics already chosen stay chosen")
+    }
 }
 
 private actor ReviewSearchFixture: MusicScraper {
@@ -2731,10 +2814,12 @@ private actor ReviewSearchFixture: MusicScraper {
 
     let type = MusicScraperType.itunes
     private let items: [ScraperSearchItem]
+    private let details: [String: ScraperDetail]
     private(set) var searches: [Search] = []
 
-    init(items: [ScraperSearchItem]) {
+    init(items: [ScraperSearchItem], details: [String: ScraperDetail] = [:]) {
         self.items = items
+        self.details = details
     }
 
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
@@ -2743,6 +2828,7 @@ private actor ReviewSearchFixture: MusicScraper {
     }
 
     func getDetail(externalId: String) async throws -> ScraperDetail? {
+        if let detail = details[externalId] { return detail }
         guard let item = items.first(where: { $0.externalId == externalId }) else { return nil }
         return ScraperDetail(externalId: item.externalId, source: item.source, title: item.title, artist: item.artist,
                              album: item.album, durationMs: item.durationMs)

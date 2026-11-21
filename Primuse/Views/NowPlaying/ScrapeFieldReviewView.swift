@@ -25,8 +25,8 @@ actor ScrapeReviewImages {
         try await preview(for: cover).image
     }
 
-    /// 缩略图加原图的像素尺寸（选封面时看得出哪张更清楚）。
-    func preview(for cover: ScrapeReviewCover) async throws -> (image: CGImage, pixelSize: CGSize?) {
+    /// 缩略图加原图的像素尺寸和字节数（选封面时看得出哪张更清楚）。
+    func preview(for cover: ScrapeReviewCover) async throws -> (image: CGImage, pixelSize: CGSize?, byteCount: Int) {
         let data = try await data(for: cover)
         try Task.checkCancellation()
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -42,7 +42,7 @@ actor ScrapeReviewImages {
             let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
             pixelSize = orientation >= 5 ? CGSize(width: height, height: width) : CGSize(width: width, height: height)
         }
-        return (image, pixelSize)
+        return (image, pixelSize, data.count)
     }
 }
 
@@ -50,8 +50,22 @@ struct ScrapeFieldReviewView<OriginalCover: View>: View {
     @Binding var draft: ScrapeReviewDraft
     let images: ScrapeReviewImages
     @ViewBuilder var originalCover: () -> OriginalCover
+    /// 「当前」歌词怎么取。iPhone、Mac 传进来按播放时的顺序读（缓存、歌旁边的歌词文件、内嵌），不走在线兜底；
+    /// 不传时只读缓存和资料库里的歌词文本。
+    var loadsOriginalLyrics: (@MainActor () async -> [LyricLine])? = nil
     @State private var originalLyrics: ScrapeReviewLyrics?
     @State private var fullLyrics: ScrapeReviewLyrics?
+    /// 补拉记录跟着这次搜索走，换了搜索词就重来。
+    @State private var followUpSessionID: UUID?
+    @State private var requestedDetails: Set<String> = []
+    @State private var loadingCandidateID: String?
+    @State private var searchedLyrics: Set<String> = []
+    @State private var refreshingLyrics = false
+    #if os(macOS)
+    /// 方向键翻的是最近点过的那一项。
+    @State private var activeField: ScrapeField?
+    @FocusState private var acceptsArrowKeys: Bool
+    #endif
 
     private var fieldSpacing: CGFloat {
         #if os(tvOS)
@@ -62,30 +76,31 @@ struct ScrapeFieldReviewView<OriginalCover: View>: View {
     }
 
     var body: some View {
+        let currentContext = ScrapeReviewContext(song: draft.original)
         VStack(alignment: .leading, spacing: fieldSpacing) {
             ForEach(draft.fields, id: \.self) { field in
                 #if os(tvOS)
-                ScrapeReviewFieldRow(field: field, options: draft.choices(for: field),
-                    selected: Binding(get: { draft.selected[field] }, set: { draft.select($0, for: field) }),
+                ScrapeReviewFieldRow(field: field, options: draft.choices(for: field), selected: selection(for: field),
                     originalText: field.text(in: draft.original.scrapeFields), originalLyrics: originalLyrics,
+                    currentContext: currentContext, busyNote: busyNote(for: field),
                     images: images, showLyrics: { fullLyrics = $0 }, originalCover: originalCover)
                 #else
-                ScrapeReviewFieldPicker(field: field, options: draft.choices(for: field),
-                    selected: Binding(get: { draft.selected[field] }, set: { draft.select($0, for: field) }),
+                ScrapeReviewFieldPicker(field: field, options: draft.choices(for: field), selected: selection(for: field),
                     originalText: field.text(in: draft.original.scrapeFields), originalLyrics: originalLyrics,
+                    currentContext: currentContext, busyNote: busyNote(for: field),
                     images: images, showLyrics: { fullLyrics = $0 }, originalCover: originalCover)
                 #endif
             }
         }
-        .task(id: draft.original.id) {
-            guard draft.fields.contains(.lyrics) else { return }
-            let song = draft.original
-            if let lines = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !Task.isCancelled {
-                originalLyrics = .init(lines)
-            } else if let text = song.lyricsText, !text.isEmpty, !Task.isCancelled {
-                originalLyrics = .init(LyricsContentParser.parseText(text), raw: text)
-            }
-        }
+        #if os(macOS)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($acceptsArrowKeys)
+        .onKeyPress(phases: [.down, .repeat]) { press in stepActiveField(press) }
+        #endif
+        .task(id: draft.original.id) { await loadOriginalLyrics() }
+        .task(id: draft.selected) { await fetchSelectedDetails() }
+        .task(id: lyricsLookupKey) { await refreshLyricsForSelection() }
         .sheet(isPresented: Binding(get: { fullLyrics != nil }, set: { if !$0 { fullLyrics = nil } })) {
             NavigationStack {
                 ScrollView {
@@ -101,9 +116,133 @@ struct ScrapeFieldReviewView<OriginalCover: View>: View {
             #endif
         }
     }
+
+    private func selection(for field: ScrapeField) -> Binding<String?> {
+        Binding(get: { draft.selected[field] }, set: { id in
+            draft.select(id, for: field)
+            #if os(macOS)
+            activeField = field
+            acceptsArrowKeys = true
+            #endif
+        })
+    }
+
+    /// 字段标题旁边的进行中说明：正在补拉选中候选的详情，或正在按所选信息找歌词。
+    private func busyNote(for field: ScrapeField) -> LocalizedStringKey? {
+        if field == .lyrics, refreshingLyrics { return "scrape_review_lyrics_refreshing" }
+        if let loadingCandidateID, draft.choice(for: field)?.candidate?.id == loadingCandidateID {
+            return "scrape_candidate_loading_details"
+        }
+        return nil
+    }
+
+    private func loadOriginalLyrics() async {
+        guard draft.requests(.lyrics) else { return }
+        let song = draft.original
+        if let loadsOriginalLyrics {
+            let lines = await loadsOriginalLyrics()
+            guard !Task.isCancelled else { return }
+            originalLyrics = lines.isEmpty ? nil : .init(lines)
+            plog("🔍 Scrape review current lyrics: lines=\(lines.count)")
+            return
+        }
+        if let lines = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !Task.isCancelled {
+            originalLyrics = .init(lines)
+        } else if let text = song.lyricsText, !text.isEmpty, !Task.isCancelled {
+            originalLyrics = .init(LyricsContentParser.parseText(text), raw: text)
+        }
+    }
+
+    /// 换了一次搜索（草稿整个换掉）就把补拉记录清掉。
+    private func syncFollowUpSession() -> ScrapeReviewSession? {
+        guard let session = draft.catalog.session else { return nil }
+        if followUpSessionID != session.id {
+            followUpSessionID = session.id
+            requestedDetails = []
+            searchedLyrics = [ScraperManager.reviewLookupKey(title: session.title, artist: session.artist)]
+            loadingCandidateID = nil
+            refreshingLyrics = false
+        }
+        return session
+    }
+
+    /// 选中了一条只拿到搜索行字段的候选：补拉这一条的详情，详情里的字段和封面并进各字段的选项。
+    private func fetchSelectedDetails() async {
+        guard let session = syncFollowUpSession() else { return }
+        let fields = Set(ScrapeField.allCases.filter { draft.requests($0) })
+        for candidate in draft.selectedCandidatesWithoutDetail where !requestedDetails.contains(candidate.id) {
+            requestedDetails.insert(candidate.id)
+            loadingCandidateID = candidate.id
+            let more = await session.manager.reviewDetail(for: candidate, fields: fields)
+            if loadingCandidateID == candidate.id { loadingCandidateID = nil }
+            guard !Task.isCancelled else {
+                // 被下一次改选打断：还选着它的话下一轮再拉。
+                requestedDetails.remove(candidate.id)
+                return
+            }
+            draft.merge(more, from: session)
+        }
+    }
+
+    private var lyricsLookupKey: String {
+        let lookup = draft.lyricsLookup
+        return ScraperManager.reviewLookupKey(title: lookup.title, artist: lookup.artist)
+    }
+
+    /// 标题或歌手改选成别的候选的值：停一下（左右翻选项时不每翻一下就找一次），按所选的歌名、歌手补找歌词，
+    /// 新找到的加进歌词选项，已有的和已经选中的那份都留着。找过的身份不再找。
+    private func refreshLyricsForSelection() async {
+        refreshingLyrics = false
+        guard draft.requests(.lyrics), let session = syncFollowUpSession() else { return }
+        let lookup = draft.lyricsLookup
+        let key = ScraperManager.reviewLookupKey(title: lookup.title, artist: lookup.artist)
+        guard draft.isEdited(.title) || draft.isEdited(.artist) else {
+            // 刚打开时的默认勾选不算改选：这份身份当作已经找过。
+            searchedLyrics.insert(key)
+            return
+        }
+        guard !searchedLyrics.contains(key) else { return }
+        do { try await Task.sleep(for: .milliseconds(700)) } catch { return }
+        refreshingLyrics = true
+        let duration: TimeInterval? = draft.original.duration > 0 ? draft.original.duration : nil
+        let more = await session.manager.reviewLyrics(title: lookup.title, artist: lookup.artist, album: lookup.album,
+                                                      duration: duration, settings: session.settings)
+        guard !Task.isCancelled else { return }
+        refreshingLyrics = false
+        searchedLyrics.insert(key)
+        draft.merge(more, from: session)
+    }
+
+    #if os(macOS)
+    /// 左右方向键翻最近点过的那一项的候选，没点过时翻第一项。
+    private func stepActiveField(_ press: KeyPress) -> KeyPress.Result {
+        let delta: Int
+        switch press.key {
+        case .leftArrow: delta = -1
+        case .rightArrow: delta = 1
+        default: return .ignored
+        }
+        guard let field = activeField ?? draft.fields.first else { return .ignored }
+        let ids: [String?] = [nil] + draft.choices(for: field).map { Optional($0.id) }
+        let current = ids.firstIndex(of: draft.selected[field]) ?? 0
+        let next = current + delta
+        guard ids.indices.contains(next) else { return .handled }
+        draft.select(ids[next], for: field)
+        activeField = field
+        return .handled
+    }
+    #endif
 }
 
 private enum ReviewPage: Hashable { case current, option(String) }
+
+/// 选项下面那行副标题：候选有出处就显示它属于哪一首；「当前」显示资料库里这首歌自己的，时长对着看。
+/// 从文件里读出来的「本地」结果没有出处，不显示。
+private func scrapeReviewSubtitle(_ option: ScrapeReviewOption?, field: ScrapeField,
+                                  current: ScrapeReviewContext) -> String? {
+    guard let option else { return current.subtitle(for: field) }
+    return option.context?.subtitle(for: field)
+}
 
 #if os(tvOS)
 /// 电视上用遥控器左右键逐页切换，保留整页卡片加上一个/下一个。
@@ -113,6 +252,8 @@ private struct ScrapeReviewFieldRow<OriginalCover: View>: View {
     @Binding var selected: String?
     let originalText: String?
     let originalLyrics: ScrapeReviewLyrics?
+    let currentContext: ScrapeReviewContext
+    let busyNote: LocalizedStringKey?
     let images: ScrapeReviewImages
     let showLyrics: (ScrapeReviewLyrics) -> Void
     @ViewBuilder var originalCover: () -> OriginalCover
@@ -128,7 +269,8 @@ private struct ScrapeReviewFieldRow<OriginalCover: View>: View {
     @ScaledMetric(relativeTo: .body) private var lyricsHeight: CGFloat = 182
     private var height: CGFloat {
         #if os(tvOS)
-        switch field { case .cover: 280; case .lyrics: 330; default: 86 }
+        // 文字页多一行副标题（专辑、年份、时长），留出一行的高度。
+        switch field { case .cover: 300; case .lyrics: 350; default: 118 }
         #else
         switch field { case .cover: 184; case .lyrics: lyricsHeight; default: textHeight }
         #endif
@@ -138,6 +280,10 @@ private struct ScrapeReviewFieldRow<OriginalCover: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(field.label).font(.headline)
+                if let busyNote {
+                    ProgressView()
+                    Text(busyNote).font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
                 if !options.isEmpty {
                     stepButton(-1)
@@ -204,9 +350,13 @@ private struct ScrapeReviewFieldRow<OriginalCover: View>: View {
                     #endif
                 }
             }
+            // 这一项属于哪一首（「当前」是资料库里这首歌自己的），时长对着看就分得清。
+            if let subtitle = scrapeReviewSubtitle(option, field: field, current: currentContext) {
+                Text(verbatim: subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
             switch option?.value {
             case .text(let value):
-                Text(verbatim: value).font(.body).lineLimit(2)
+                Text(verbatim: value).font(.body).lineLimit(1)
             case .cover(let cover):
                 ScrapeReviewCoverImage(cover: cover, images: images)
             case .lyrics(let lyrics):
@@ -234,13 +384,28 @@ private struct ScrapeReviewFieldRow<OriginalCover: View>: View {
 }
 #endif
 
+/// 封面原图的尺寸和字节数。
+private struct ScrapeReviewCoverMeta: Equatable {
+    var pixelSize: CGSize?
+    var byteCount: Int
+
+    /// 「2400×2400 · 612 KB」，尺寸读不出来时只写大小。
+    var label: String {
+        let size = ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file)
+        guard let pixelSize else { return size }
+        let width = Int(pixelSize.width)
+        let height = Int(pixelSize.height)
+        return "\(width)×\(height) · \(size)"
+    }
+}
+
 private struct ScrapeReviewCoverImage: View {
     let cover: ScrapeReviewCover
     let images: ScrapeReviewImages
     /// 铺满方框（封面轮播）还是完整显示（电视）。
     var fills = false
-    /// 读到原图尺寸时报出来。
-    var onPixelSize: ((CGSize) -> Void)? = nil
+    /// 读到原图时报出它的尺寸和字节数（封面流卡片上显示「宽×高 · 大小」）。
+    var onLoaded: ((ScrapeReviewCoverMeta) -> Void)? = nil
     @State private var image: CGImage?
     @State private var failed = false
     @State private var attempt = 0
@@ -261,7 +426,7 @@ private struct ScrapeReviewCoverImage: View {
                 let result = try await images.preview(for: cover)
                 guard !Task.isCancelled else { return }
                 image = result.image
-                if let size = result.pixelSize { onPixelSize?(size) }
+                onLoaded?(ScrapeReviewCoverMeta(pixelSize: result.pixelSize, byteCount: result.byteCount))
             }
             catch { if !Task.isCancelled { failed = true } }
         }
@@ -416,6 +581,8 @@ private struct ScrapeReviewFieldPicker<OriginalCover: View>: View {
     @Binding var selected: String?
     let originalText: String?
     let originalLyrics: ScrapeReviewLyrics?
+    let currentContext: ScrapeReviewContext
+    let busyNote: LocalizedStringKey?
     let images: ScrapeReviewImages
     let showLyrics: (ScrapeReviewLyrics) -> Void
     @ViewBuilder var originalCover: () -> OriginalCover
@@ -428,11 +595,24 @@ private struct ScrapeReviewFieldPicker<OriginalCover: View>: View {
     }
     private var index: Int { pages.firstIndex(of: page.wrappedValue) ?? 0 }
 
+    /// 封面流下面那行：正中这张属于哪张专辑、谁的、多长。
+    private var coverCaption: String? {
+        let option = options.first { .option($0.id) == page.wrappedValue }
+        return scrapeReviewSubtitle(option, field: .cover, current: currentContext)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text(field.label).font(.headline)
+                if let busyNote {
+                    ProgressView().controlSize(.mini)
+                    Text(busyNote).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
                 Spacer()
+                #if os(macOS)
+                if !options.isEmpty { stepButton(-1) }
+                #endif
                 if !options.isEmpty {
                     Text(verbatim: "\(index + 1) / \(pages.count)")
                         .font(.caption.weight(.semibold).monospacedDigit())
@@ -444,22 +624,54 @@ private struct ScrapeReviewFieldPicker<OriginalCover: View>: View {
                         .animation(.snappy(duration: 0.22), value: index)
                         .accessibilityIdentifier("scrape.review." + field.rawValue + ".position")
                 }
+                #if os(macOS)
+                if !options.isEmpty { stepButton(1) }
+                #endif
             }
             switch field {
             case .cover:
                 ScrapeReviewCoverFlow(pages: pages, page: page, options: options, images: images,
                                       originalCover: originalCover)
             case .lyrics:
-                ScrapeReviewLyricsCarousel(pages: pages, page: page, options: options,
-                                           originalLyrics: originalLyrics, showLyrics: showLyrics)
+                ScrapeReviewLyricsCarousel(pages: pages, page: page, options: options, originalLyrics: originalLyrics,
+                                           currentContext: currentContext, showLyrics: showLyrics)
             default:
                 ScrapeReviewTextStrip(field: field, pages: pages, page: page, options: options,
-                                      originalText: originalText)
+                                      originalText: originalText, currentContext: currentContext)
+            }
+            if field == .cover, let coverCaption {
+                Text(verbatim: coverCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("scrape.review.cover.caption")
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("scrape.review." + field.rawValue)
     }
+
+    #if os(macOS)
+    /// Mac 上横排的候选多了用鼠标也翻得过去：标题栏右边的上一个 / 下一个。
+    private func stepButton(_ delta: Int) -> some View {
+        let next = index + delta
+        return Button {
+            if pages.indices.contains(next) { page.wrappedValue = pages[next] }
+        } label: {
+            Image(systemName: delta < 0 ? "chevron.left" : "chevron.right")
+                .font(.caption.weight(.semibold))
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .disabled(!pages.indices.contains(next))
+        .help(delta < 0 ? Text("scrape_review_previous") : Text("scrape_review_next"))
+        .accessibilityLabel(delta < 0 ? Text("scrape_review_previous") : Text("scrape_review_next"))
+        .accessibilityIdentifier("scrape.review." + field.rawValue + (delta < 0 ? ".previous" : ".next"))
+    }
+    #endif
 }
 
 /// 页面左右各 16pt 的边距，横滑的一排要铺到屏幕边上，滑出去的不在边距处被切断。
@@ -476,7 +688,7 @@ private struct ScrapeReviewCoverFlow<OriginalCover: View>: View {
 
     @State private var scrolled: ReviewPage?
     @State private var width: CGFloat = 0
-    @State private var pixelSizes: [ReviewPage: CGSize] = [:]
+    @State private var coverMeta: [ReviewPage: ScrapeReviewCoverMeta] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var side: CGFloat {
@@ -543,9 +755,11 @@ private struct ScrapeReviewCoverFlow<OriginalCover: View>: View {
     private func card(_ item: ReviewPage, side: CGFloat, isCentered: Bool, isTrailingSide: Bool) -> some View {
         let option = options.first { .option($0.id) == item }
         let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-        let resolution = pixelSizes[item].map { size in
-            Text(verbatim: "\(Int(size.width))×\(Int(size.height))")
+        let resolution = coverMeta[item].map { meta in
+            Text(verbatim: meta.label)
                 .font(.caption2.weight(.semibold).monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -554,8 +768,8 @@ private struct ScrapeReviewCoverFlow<OriginalCover: View>: View {
         return ZStack {
             shape.fill(.fill.tertiary)
             if case .cover(let cover) = option?.value {
-                ScrapeReviewCoverImage(cover: cover, images: images, fills: true) { size in
-                    pixelSizes[item] = size
+                ScrapeReviewCoverImage(cover: cover, images: images, fills: true) { meta in
+                    coverMeta[item] = meta
                 }
             } else {
                 originalCover()
@@ -643,6 +857,7 @@ private struct ScrapeReviewTextStrip: View {
     @Binding var page: ReviewPage
     let options: [ScrapeReviewOption]
     let originalText: String?
+    let currentContext: ScrapeReviewContext
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -665,6 +880,12 @@ private struct ScrapeReviewTextStrip: View {
                 await Task.yield()
                 proxy.scrollTo(page, anchor: .center)
             }
+            #if os(macOS)
+            // 上一个 / 下一个和方向键换了选中项，把它滚到看得见的地方。
+            .onChange(of: page) { _, new in
+                withAnimation(.snappy(duration: 0.25)) { proxy.scrollTo(new, anchor: .center) }
+            }
+            #endif
         }
     }
 
@@ -676,31 +897,44 @@ private struct ScrapeReviewTextStrip: View {
             let original = originalText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return original.isEmpty ? "—" : original
         }()
+        // 第二行：这个值属于哪一首（歌手 · 专辑 · 年份 · 时长）。
+        let subtitle = scrapeReviewSubtitle(option, field: field, current: currentContext)
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         return Button {
             withAnimation(.snappy(duration: 0.22)) { page = item }
         } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: text)
                     .font(.body.weight(isSelected ? .semibold : .regular))
                     .foregroundStyle(item == .current && originalText == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.tint)
-                        .transition(.scale(scale: 0.5).combined(with: .opacity))
+                if let subtitle {
+                    Text(verbatim: subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.leading, 14)
+            .padding(.trailing, isSelected ? 36 : 14)
             .padding(.top, 15)
             .padding(.bottom, 12)
             .frame(minWidth: 92, maxWidth: 236, minHeight: 56, alignment: .topLeading)
             .background(shape.fill(isSelected ? AnyShapeStyle(.tint.opacity(0.14)) : AnyShapeStyle(.fill.tertiary)))
             .overlay {
                 shape.strokeBorder(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear), lineWidth: 1.5)
+            }
+            .overlay(alignment: .topTrailing) {
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.tint)
+                        .padding(.top, 15)
+                        .padding(.trailing, 12)
+                        .transition(.scale(scale: 0.5).combined(with: .opacity))
+                }
             }
             .overlay(alignment: .topLeading) {
                 ScrapeSourceBadge(option: option).offset(x: 10, y: -9)
@@ -709,6 +943,7 @@ private struct ScrapeReviewTextStrip: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(verbatim: text))
+        .accessibilityHint(Text(verbatim: subtitle ?? ""))
         .accessibilityValue(Text(verbatim: option == nil ? String(localized: "scrape_review_keep") : (option?.source ?? String(localized: "cat_local"))))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("scrape.review." + field.rawValue + ".option")
@@ -721,6 +956,7 @@ private struct ScrapeReviewLyricsCarousel: View {
     @Binding var page: ReviewPage
     let options: [ScrapeReviewOption]
     let originalLyrics: ScrapeReviewLyrics?
+    let currentContext: ScrapeReviewContext
     let showLyrics: (ScrapeReviewLyrics) -> Void
 
     @State private var scrolled: ReviewPage?
@@ -802,8 +1038,15 @@ private struct ScrapeReviewLyricsCarousel: View {
                     .accessibilityIdentifier(isCentered ? "scrape.review.lyrics.preview" : "scrape.review.lyrics.preview.side")
                 }
             }
+            // 这份歌词是按哪一首找到的，时长和「当前」那张卡上这首歌的时长对着看。
+            if let subtitle = scrapeReviewSubtitle(option, field: .lyrics, current: currentContext) {
+                Text(verbatim: subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             if let lyrics {
-                ScrapeReviewLyricLines(lyrics: lyrics, expanded: false, previewLineCount: 6)
+                ScrapeReviewLyricLines(lyrics: lyrics, expanded: false, previewLineCount: 5)
             } else {
                 Text(verbatim: "—").foregroundStyle(.secondary)
             }

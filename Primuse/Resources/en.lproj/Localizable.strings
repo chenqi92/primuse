@@ -403,6 +403,7 @@
 "scrape_review_no_parts_message" = "Turn on at least one of Metadata, Cover, or Lyrics, then search.";
 "scrape_review_rules_skip_message" = "Everything you chose is set to Skip in Scraping Rules, so Auto Scrape won't look for it. Use Manual Search to pick results yourself, or change the rules.";
 "scrape_review_rules_scope_footer" = "Only Fill Missing Fields and these rules apply only to batch scraping and background auto-fill. When you scrape a single song, fields set to Skip still appear and can be picked by hand; they just aren't preselected. Fetching lyrics during playback and Fetch More Lyrics aren't affected either.";
+"scrape_review_lyrics_refreshing" = "Finding lyrics for your picks…";
 "scrape_song_failed" = "Unable to refresh metadata for this song.";
 "scrape_lyrics_not_found" = "No lyrics were found. Try another query or lyrics source.";
 "scrape_options" = "What to Scrape";

@@ -644,6 +644,7 @@
 "scrape_review_no_parts_message" = "Activez au moins Métadonnées, Pochette ou Paroles, puis lancez la recherche.";
 "scrape_review_rules_skip_message" = "Tout ce que vous avez choisi est réglé sur « Passer » dans les règles de récupération : la récupération automatique ne le cherchera pas. Utilisez la recherche manuelle pour choisir vous-même, ou modifiez les règles.";
 "scrape_review_rules_scope_footer" = "« Compléter uniquement les champs manquants » et ces règles ne s’appliquent qu’à la récupération par lot et au complément automatique en arrière-plan. Pour un seul morceau, les champs réglés sur « Passer » restent affichés et peuvent être choisis à la main ; ils ne sont simplement pas présélectionnés. La recherche de paroles pendant la lecture et « Obtenir plus de paroles » ne sont pas concernées non plus.";
+"scrape_review_lyrics_refreshing" = "Recherche des paroles selon votre choix…";
 "scrape_song_failed" = "Impossible d'actualiser les métadonnées de ce morceau.";
 "scrape_lyrics_not_found" = "Aucune parole trouvée. Essayez une autre recherche ou source de paroles.";
 "scrape_options" = "Contenu à récupérer";

@@ -644,6 +644,7 @@
 "scrape_review_no_parts_message" = "메타데이터, 커버, 가사 중 하나 이상을 켠 다음 검색하세요.";
 "scrape_review_rules_skip_message" = "선택한 항목이 모두 메타데이터 수집 규칙에서 '건너뛰기'로 설정되어 있어 자동 가져오기가 찾지 않습니다. 수동 검색으로 직접 고르거나 규칙을 바꾸세요.";
 "scrape_review_rules_scope_footer" = "'비어 있는 필드만 채우기'와 이 규칙은 일괄 수집과 백그라운드 자동 채우기에만 적용됩니다. 한 곡을 수집할 때는 '건너뛰기'로 설정한 항목도 표시되어 직접 고를 수 있으며, 미리 선택되지만 않습니다. 재생 중 가사 자동 가져오기와 '가사 더 가져오기'에도 영향을 주지 않습니다.";
+"scrape_review_lyrics_refreshing" = "선택한 정보로 가사를 찾는 중…";
 "scrape_song_failed" = "이 곡의 메타데이터를 새로고침할 수 없습니다.";
 "scrape_lyrics_not_found" = "가사를 찾을 수 없습니다. 다른 검색어나 가사 소스를 사용해 보세요.";
 "scrape_options" = "가져올 항목";

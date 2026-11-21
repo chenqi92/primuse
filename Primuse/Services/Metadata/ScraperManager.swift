@@ -179,6 +179,12 @@ actor ScraperManager {
             plog("🔍 Scrape skipped: empty cleaned title")
             return result
         }
+        if collectingReview {
+            // 记下这次按什么身份找的歌词（版本说明照留），结果页改选回同一个身份时不再找。
+            let lookup = Self.searchTitleArtist(title, artist: artist, preservingVersionMarkers: true)
+            result.review.session = ScrapeReviewSession(manager: self, settings: settings,
+                                                        title: lookup.title, artist: lookup.artist)
+        }
 
         if needs.metadata && !needs.metadataFields.isEmpty {
             var matches: [RankedMetadataDetail] = []
@@ -332,11 +338,18 @@ actor ScraperManager {
                 for field in needs.metadataFields {
                     for config in settings.orderedSources(for: field) {
                         for match in reviewDetails where match.detail.source == config.type {
-                            result.review.addText(field.text(in: match.detail.reviewTags), field: field, source: config.displayName)
+                            let candidate = ScrapeReviewCandidate(config: config, item: Self.searchItem(from: match.detail), hasDetail: true)
+                            result.review.addText(field.text(in: match.detail.reviewTags), field: field, source: config.displayName,
+                                                  context: ScrapeReviewContext(match.detail), candidate: candidate)
                         }
                         for item in reviewItems[config.id] ?? [] {
                             let tags = Self.mergedDetail(nil, searchItem: item).reviewTags
-                            result.review.addText(field.text(in: tags), field: field, source: config.displayName)
+                            let fetched = reviewDetails.contains {
+                                $0.detail.source == config.type && $0.detail.externalId == item.externalId
+                            }
+                            let candidate = ScrapeReviewCandidate(config: config, item: item, hasDetail: fetched)
+                            result.review.addText(field.text(in: tags), field: field, source: config.displayName,
+                                                  context: ScrapeReviewContext(item), candidate: candidate)
                         }
                     }
                     if let best = result.detail { result.review.recommended[field] = field.text(in: best.reviewTags) }
@@ -370,7 +383,8 @@ actor ScraperManager {
                             items = try await scraper.search(query: cleanedTitle, artist: effectiveArtist, album: nil, limit: searchLimit).items
                             registerSuccess(config)
                         }
-                        try await collectReviewCovers(from: items, title: cleanedTitle, writtenTitle: title, artist: effectiveArtist,
+                        try await collectReviewCovers(from: items, detailedIDs: Set(details.map(\.externalId)),
+                                                      title: cleanedTitle, writtenTitle: title, artist: effectiveArtist,
                                                       durationMs: durationMs(duration), album: coverAlbum, limit: searchLimit,
                                                       config: config, result: &result)
                         continue
@@ -457,8 +471,11 @@ actor ScraperManager {
                             Self.isConfidentAutoMatch($0, title: cleanedTitle, artist: effectiveArtist,
                                 durationMs: durationMs(duration), writtenTitle: title)
                         }
+                        // 结果页同样只排序不过门槛（过了门槛的排在前面），但自动挑中的那份只认过了门槛的。
+                        let confidentIDs = Set(titleCompatibleItems.map(\.externalId))
                         let candidates = Self.topMatches(
-                            in: titleCompatibleItems, title: cleanedTitle, artist: effectiveArtist,
+                            in: collectingReview ? searchResult.items : titleCompatibleItems,
+                            title: cleanedTitle, artist: effectiveArtist,
                             durationMs: durationMs(duration), maxCount: 3, album: album, writtenTitle: title
                         )
                         plog("🎤 [\(config.type.displayName)] lyrics search: \(searchResult.items.count) items, \(titleCompatibleItems.count) title-compatible → top \(candidates.count) candidates: \(candidates.map { "\($0.title)/\($0.artist ?? "?")" })")
@@ -475,8 +492,10 @@ actor ScraperManager {
                                 hasLyricsCount += 1
                                 guard let parsed = parseLyrics(lyricsResult), !parsed.isEmpty else { continue }
                                 if collectingReview {
-                                    addReviewLyrics(parsed, from: lyricsResult, sourceName: config.displayName, to: &result.review)
+                                    addReviewLyrics(parsed, from: lyricsResult, sourceName: config.displayName,
+                                                    context: ScrapeReviewContext(candidate), to: &result.review)
                                 }
+                                guard confidentIDs.contains(candidate.externalId) else { continue }
                                 if parsed.contains(where: { $0.isWordLevel }) {
                                     plog("🎤 [\(config.type.displayName)] picked WORD-level lyrics from '\(candidate.title)' (\(parsed.count) lines)")
                                     if sourceLyrics == nil { sourceLyrics = parsed }
@@ -559,11 +578,90 @@ actor ScraperManager {
         let lyricsCandidates = await manualLyrics
         let lyricsBefore = result.review.options[.lyrics]?.count ?? 0
         for candidate in lyricsCandidates where !Task.isCancelled {
-            result.review.addLyrics(candidate.lyrics, source: candidate.config.displayName)
+            result.review.addLyrics(candidate.lyrics, source: candidate.config.displayName, context: ScrapeReviewContext(candidate.item))
         }
         let lyricsAdded = (result.review.options[.lyrics]?.count ?? 0) - lyricsBefore
         plog("🔍 Review search: identity artist=\(identity.artist == nil ? "none" : "set") sameRecording=\(sameRecording) fields=\(fields.count) manualLyrics=\(lyricsCandidates.count) added=\(lyricsAdded)")
         return result.review
+    }
+
+    /// 结果页里选中了一条只拿到搜索行字段的候选：补拉这一条的详情，把详情里的字段和封面作为
+    /// 这条候选的选项返回，由界面并进已有的结果里。不过身份门槛，用户已经点名要这一条。
+    func reviewDetail(for candidate: ScrapeReviewCandidate, fields: Set<ScrapeField>) async -> ScrapeReviewCatalog {
+        var catalog = ScrapeReviewCatalog()
+        let config = candidate.config
+        guard !candidate.hasDetail else { return catalog }
+        if await isBackingOff(config) || isCircuitOpen(config) {
+            plog("🔍 [\(config.type.displayName)] review detail skipped — source cooling down")
+            return catalog
+        }
+        let scraper = getScraper(for: config)
+        let detail: ScraperDetail
+        do {
+            let fetched = try await scraper.getDetail(externalId: candidate.item.externalId)
+            registerSuccess(config)
+            detail = Self.mergedDetail(fetched, searchItem: candidate.item)
+        } catch {
+            if !isCancellation(error) {
+                plog("🔍 [\(config.type.displayName)] review detail FAILED: \(error.localizedDescription)")
+                await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+                handleFailure(error, config: config)
+            }
+            return catalog
+        }
+        let context = ScrapeReviewContext(detail)
+        var origin = candidate
+        origin.hasDetail = true
+        let tags = detail.reviewTags
+        for field in ScrapeField.reviewOrder where fields.contains(field) && ScrapeField.tags.contains(field) {
+            catalog.addText(field.text(in: tags), field: field, source: config.displayName, context: context, candidate: origin)
+        }
+        var coverURLs: [String] = []
+        if fields.contains(.cover), config.type.supportsCover, !Task.isCancelled {
+            do {
+                coverURLs = try await scraper.getCoverArt(externalId: candidate.item.externalId).map(\.coverUrl)
+                registerSuccess(config)
+            } catch {
+                if !isCancellation(error) {
+                    plog("🔍 [\(config.type.displayName)] review detail artwork FAILED: \(error.localizedDescription)")
+                    handleFailure(error, config: config)
+                }
+            }
+            if let url = detail.coverUrl { coverURLs.append(url) }
+            for url in coverURLs where !url.isEmpty {
+                catalog.addCover(url, config: config, context: context, candidate: origin)
+            }
+        }
+        let added = catalog.options.values.reduce(0) { $0 + $1.count }
+        plog("🔍 [\(config.type.displayName)] review detail fetched on demand: \(added) options, covers=\(coverURLs.count)")
+        return catalog
+    }
+
+    /// 结果页里把标题或歌手改选成别的候选的值：按所选的歌名、歌手补找一次歌词（各歌词源自动找到的那份，
+    /// 加上 LRCLIB、AMLL、歌词 API 的多条候选），由界面并进歌词选项，不清掉已有的。
+    func reviewLyrics(title: String, artist: String?, album: String?, duration: TimeInterval?,
+                      settings: ScraperSettings) async -> ScrapeReviewCatalog {
+        let identity = Self.searchTitleArtist(title, artist: artist, preservingVersionMarkers: true)
+        guard !identity.title.isEmpty else { return ScrapeReviewCatalog() }
+        async let manual: [ManualLyricsCandidate] = await manualLyricsCandidates(
+            title: identity.title, artist: identity.artist, album: album, duration: duration, settings: settings
+        )
+        let result = await scrapeMetadata(title: identity.title, artist: identity.artist, album: album, duration: duration,
+                                          needs: .init(metadata: false, cover: false, lyrics: true),
+                                          settings: settings, collectingReview: true)
+        var catalog = ScrapeReviewCatalog()
+        catalog.options[.lyrics] = result.review.options[.lyrics]
+        let candidates = await manual
+        for candidate in candidates where !Task.isCancelled {
+            catalog.addLyrics(candidate.lyrics, source: candidate.config.displayName, context: ScrapeReviewContext(candidate.item))
+        }
+        plog("🎤 Review lyrics for the chosen identity: artist=\(identity.artist == nil ? "none" : "set") options=\(catalog.options[.lyrics]?.count ?? 0) manual=\(candidates.count)")
+        return catalog
+    }
+
+    /// 结果页比较「按什么找的歌词」用：同一个歌名、歌手（大小写、全半角不算，版本说明算）只找一次。
+    static func reviewLookupKey(title: String, artist: String?) -> String {
+        ScraperIdentity.normalized(cleanTitle(title, preservingVersionMarkers: true)) + "|" + ScraperIdentity.normalized(artist)
     }
 
     /// Fetch enough search rows to let local identity and completeness ranking
@@ -1127,7 +1225,8 @@ actor ScraperManager {
         try await imageDownloader(url, sourceConfig)
     }
 
-    private func collectReviewCovers(from items: [ScraperSearchItem], title: String, writtenTitle: String, artist: String?,
+    private func collectReviewCovers(from items: [ScraperSearchItem], detailedIDs: Set<String>,
+                                    title: String, writtenTitle: String, artist: String?,
                                     durationMs: Int?, album: String?, limit: Int, config: ScraperSourceConfig,
                                     result: inout ScrapeResult) async throws {
         // 封面候选同样全列出来，只排序；只有过了身份门槛、又是同一张专辑的才下载原图、当推荐。
@@ -1144,6 +1243,7 @@ actor ScraperManager {
         for item in ranked {
             try Task.checkCancellation()
             let sameRelease = recommendable(item)
+            let origin = ScrapeReviewCandidate(config: config, item: item, hasDetail: detailedIDs.contains(item.externalId))
             var urls: [String] = []
             if item.externalId == best?.externalId {
                 do {
@@ -1157,23 +1257,25 @@ actor ScraperManager {
             // A search thumbnail and the full artwork for the same release are one choice.
             let originals = urls.filter { !$0.isEmpty }
             for url in originals where seenURLs.insert(url).inserted {
-                try await addReviewCover(url, sameRelease: sameRelease, config: config, result: &result)
+                try await addReviewCover(url, sameRelease: sameRelease, origin: origin, result: &result)
             }
             if originals.isEmpty || (sameRelease && result.coverData == nil),
                let url = item.coverUrl, !url.isEmpty, seenURLs.insert(url).inserted {
-                try await addReviewCover(url, sameRelease: sameRelease, config: config, result: &result)
+                try await addReviewCover(url, sameRelease: sameRelease, origin: origin, result: &result)
             }
         }
     }
 
-    private func addReviewCover(_ url: String, sameRelease: Bool, config: ScraperSourceConfig,
+    private func addReviewCover(_ url: String, sameRelease: Bool, origin: ScrapeReviewCandidate,
                                 result: inout ScrapeResult) async throws {
+        let config = origin.config
+        let context = ScrapeReviewContext(origin.item)
         if sameRelease, result.coverData == nil {
             guard let data = try await downloadCoverResource(url: url, config: config, result: &result) else { return }
             result.coverData = data
-            result.review.addCover(url, config: config, data: data)
+            result.review.addCover(url, config: config, data: data, context: context, candidate: origin)
         } else {
-            result.review.addCover(url, config: config)
+            result.review.addCover(url, config: config, context: context, candidate: origin)
         }
     }
 
@@ -1213,11 +1315,11 @@ actor ScraperManager {
 
     /// 在线歌词源取回的歌词都从这里解析,顺手记下是哪个源(#357):自动取、手动挑候选都一样。
     private func addReviewLyrics(_ lines: [LyricLine], from result: ScraperLyricsResult, sourceName: String,
-                                 to review: inout ScrapeReviewCatalog) {
-        review.addLyrics(lines, source: sourceName, raw: result.lrcContent ?? result.plainText)
+                                 context: ScrapeReviewContext? = nil, to review: inout ScrapeReviewCatalog) {
+        review.addLyrics(lines, source: sourceName, raw: result.lrcContent ?? result.plainText, context: context)
         if let text = result.plainText, let timed = result.lrcContent, !timed.isEmpty, text != timed,
            let plain = parseLyrics(.init(source: result.source, plainText: text)) {
-            review.addLyrics(plain, source: sourceName, raw: text)
+            review.addLyrics(plain, source: sourceName, raw: text, context: context)
         }
     }
 

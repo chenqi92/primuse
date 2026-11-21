@@ -72,6 +72,12 @@ final class ScrapeReviewWindowActions {
     var request: ((@escaping () -> Void) -> Void)?
 }
 
+/// 一次结果页搜索用的刮哪几项、每个来源几条。
+private struct ScrapeSearchScope: Equatable {
+    let parts: ScrapeParts
+    let limit: Int
+}
+
 /// 单曲刮削的入口为什么开不了。入口不置灰到点不动，点了用它说明原因、给去处。
 private enum ScrapeEntryBlocker: Hashable {
     /// 标签、封面、歌词一项都没选。
@@ -124,7 +130,10 @@ struct ScrapeOptionsView: View {
     @State private var errorMessage: String?
     @State private var blocker: ScrapeEntryBlocker?
     @State private var showsRules = false
+    /// 结果页这份草稿是按哪几项、每个来源几条搜的；回选项页改了再回来就按新设置重搜。
+    @State private var draftScope: ScrapeSearchScope?
     #if os(macOS)
+    @State private var macDisplayTitle: String?
     @State private var macSidecarBaseNameOverride: String?
     @State private var macUsesMediaServerWriteback = false
     @State private var macSupportsSidecarWriteback = false
@@ -132,6 +141,7 @@ struct ScrapeOptionsView: View {
     #endif
 
     private var parts: ScrapeParts { contentPreferences.parts }
+    private var currentScope: ScrapeSearchScope { ScrapeSearchScope(parts: parts, limit: searchLimit) }
     private var loading: Bool { searchTask.isRunning || automaticID != nil }
     private var busy: Bool { loading }
 
@@ -158,6 +168,7 @@ struct ScrapeOptionsView: View {
                 if query.isEmpty { query = MusicScraperService.searchQuery(title: title, artist: song.artistName) }
                 consumeAutomatic()
                 #if os(macOS)
+                macDisplayTitle = title
                 macSidecarBaseNameOverride = await scraperService.suggestedSidecarBaseName(for: song)
                 macUsesMediaServerWriteback = await sourceManager.supportsMediaServerWriteback(for: song)
                 macSupportsSidecarWriteback = await sourceManager.supportsSidecarWriting(for: song)
@@ -228,10 +239,20 @@ struct ScrapeOptionsView: View {
     @ViewBuilder private var screen: some View {
         #if os(macOS)
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 14) {
                 PMStandardWindowButtonArea()
-                Text(verbatim: song.title).font(.headline).lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: String(format: String(localized: "scrape_window_title_format"), macDisplayTitle ?? song.title))
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                    Text(verbatim: song.filePath)
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 Spacer()
+                if loading { ProgressView().controlSize(.small) }
             }
             .frame(height: 44).padding(.horizontal, 14).pmWindowDragRegion()
             Divider()
@@ -252,7 +273,17 @@ struct ScrapeOptionsView: View {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("cancel") { protect(closeView) }
                     }
-                    if showingReview { ToolbarItem(placement: .confirmationAction) { saveButton } }
+                    if showingReview {
+                        // 回选项页改刮哪几项、每个来源搜几条；结果页挑到一半的留着，回来接着挑。
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button { showingReview = false } label: {
+                                Label("scrape_options", systemImage: "slider.horizontal.3")
+                            }
+                            .disabled(busy)
+                            .accessibilityIdentifier("scrape.review.options")
+                        }
+                        ToolbarItem(placement: .confirmationAction) { saveButton }
+                    }
                 }
         }
         #endif
@@ -269,13 +300,16 @@ struct ScrapeOptionsView: View {
                 ScrapeSearchBar(query: $query, isSearching: loading, isBusy: busy,
                                 isAvailable: manualBlocker == nil,
                                 onBlocked: { if let manualBlocker { present(manualBlocker) } }) { protect(startSearch) }
+                #if os(macOS)
+                macScopeBar
+                #endif
                 if let binding = Binding($draft), !binding.wrappedValue.fields.isEmpty {
-                    ScrapeFieldReviewView(draft: binding, images: images) {
+                    ScrapeFieldReviewView(draft: binding, images: images, originalCover: {
                         // 封面流的卡片自己定大小、裁圆角，这里铺满卡片。
                         CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 240, cornerRadius: 0,
                                           sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat,
                                           fillsProposedSize: true)
-                    }
+                    }, loadsOriginalLyrics: loadCurrentLyrics)
                     .disabled(busy)
                     .opacity(loading ? 0.55 : 1)
                     .animation(.easeOut(duration: 0.2), value: loading)
@@ -316,8 +350,19 @@ struct ScrapeOptionsView: View {
                                       sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat)
                     VStack(alignment: .leading) {
                         Text(verbatim: song.title).font(.headline)
-                        Text(verbatim: song.artistName ?? "").font(.subheadline).foregroundStyle(.secondary)
+                        // 歌手 · 专辑 · 年份 · 时长：挑候选时拿时长对着看。
+                        Text(verbatim: ScrapeReviewContext(song: song).subtitle(for: .title) ?? "")
+                            .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                     }
+                }
+            }
+            if draft != nil {
+                Section {
+                    Button { returnToResults() } label: {
+                        Label("back_to_results", systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(busy)
+                    .accessibilityIdentifier("scrape.options.backToResults")
                 }
             }
             Section("scrape_options") {
@@ -338,12 +383,27 @@ struct ScrapeOptionsView: View {
         }
     }
 
+    /// 回结果页。刮的内容或每个来源的条数改过、结果页也还没挑过时，按新设置重搜；挑过的不动它。
+    private func returnToResults() {
+        if draftScope != currentScope, draft?.isEdited != true, manualBlocker == nil {
+            plog("ScrapeOptions: scope changed on the options page, searching again")
+            startSearch()
+        } else {
+            showingReview = true
+        }
+    }
+
     private func tapAutomatic() {
-        if let automaticBlocker { present(automaticBlocker) } else { startAutomatic() }
+        if let automaticBlocker { present(automaticBlocker) } else { protect(startAutomatic) }
     }
 
     private func tapManual() {
-        if let manualBlocker { present(manualBlocker) } else { startSearch() }
+        if let manualBlocker { present(manualBlocker) } else { protect(startSearch) }
+    }
+
+    /// 结果页「当前」那份歌词按播放时的顺序读（缓存、歌旁边的歌词文件、内嵌），不走在线兜底。
+    private func loadCurrentLyrics() async -> [LyricLine] {
+        await LyricsLoader.load(for: song, sourceManager: sourceManager, allowsAutomaticOnlineLyrics: false)
     }
 
     private func protect(_ action: @escaping () -> Void) {
@@ -409,6 +469,7 @@ struct ScrapeOptionsView: View {
         let settings = scraperSettings.snapshot()
         draft = ScrapeReviewDraft(song: song, catalog: catalog, request: settings.reviewFields(for: song, parts: parts),
                                   defaults: settings.reviewDefaults(for: song, parts: parts))
+        draftScope = currentScope
         showingReview = true
     }
 
@@ -428,6 +489,34 @@ struct ScrapeOptionsView: View {
     }
 
     #if os(macOS)
+    /// Mac 的刮削窗口直接进结果页，iPhone 选项页上的「刮哪几项」和「每个来源结果上限」放在搜索框下面，
+    /// 存同一组设置；改了就按新设置重新搜一遍。
+    private var macScopeBar: some View {
+        HStack(spacing: 14) {
+            Toggle("metadata", isOn: contentPreferences.binding(for: .metadata))
+            Toggle("cover", isOn: contentPreferences.binding(for: .cover))
+            Toggle("lyrics_title", isOn: contentPreferences.binding(for: .lyrics))
+            Spacer(minLength: 8)
+            Picker("search_limit_per_source", selection: $searchLimit) {
+                ForEach([10, 20, 30, 50, 100], id: \.self) { Text("\($0)").tag($0) }
+            }
+            .pickerStyle(.menu)
+            .fixedSize()
+        }
+        .toggleStyle(.checkbox)
+        .font(.system(size: 12))
+        .disabled(busy)
+        .onChange(of: parts) { _, _ in searchAgainAfterScopeChange() }
+        .onChange(of: searchLimit) { _, _ in searchAgainAfterScopeChange() }
+    }
+
+    private func searchAgainAfterScopeChange() {
+        // 一项都不选时不搜，搜索键看得出不可用，点了再说明。
+        guard !busy, !parts.isEmpty else { return }
+        plog("ScrapeOptions: scope changed on Mac parts=\(parts.rawValue) limit=\(searchLimit), searching again")
+        protect(startSearch)
+    }
+
     private var writebackDetails: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {

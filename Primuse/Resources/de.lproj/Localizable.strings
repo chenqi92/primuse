@@ -644,6 +644,7 @@
 "scrape_review_no_parts_message" = "Schalte mindestens Metadaten, Cover oder Liedtext ein und suche dann.";
 "scrape_review_rules_skip_message" = "Alles, was du ausgewählt hast, steht in den Regeln für den Metadatenabruf auf „Überspringen“, daher sucht der automatische Abruf nicht danach. Nutze die manuelle Suche oder ändere die Regeln.";
 "scrape_review_rules_scope_footer" = "„Nur fehlende Felder ausfüllen“ und diese Regeln gelten nur für den Stapelabruf und die automatische Ergänzung im Hintergrund. Beim Abruf für einen einzelnen Titel erscheinen übersprungene Felder trotzdem und lassen sich manuell wählen, sie werden nur nicht vorausgewählt. Das Abrufen von Liedtexten während der Wiedergabe und „Weitere Liedtexte abrufen“ sind ebenfalls nicht betroffen.";
+"scrape_review_lyrics_refreshing" = "Liedtexte zur Auswahl werden gesucht…";
 "scrape_song_failed" = "Die Metadaten dieses Titels konnten nicht aktualisiert werden.";
 "scrape_lyrics_not_found" = "Keine Liedtexte gefunden. Versuche eine andere Suche oder Liedtextquelle.";
 "scrape_options" = "Was abrufen";

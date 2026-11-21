@@ -924,6 +924,7 @@
 "scrape_review_no_parts_message" = "Üst veri, kapak veya şarkı sözlerinden en az birini açıp öyle arayın.";
 "scrape_review_rules_skip_message" = "Seçtiğiniz her şey üst veri toplama kurallarında “Atla” olarak ayarlı; bu yüzden otomatik bulma bunları aramaz. Kendiniz seçmek için Manuel Aramayı kullanın veya kuralları değiştirin.";
 "scrape_review_rules_scope_footer" = "“Yalnızca Eksik Alanları Doldurun” ve bu kurallar yalnızca toplu toplama ve arka planda otomatik tamamlama için geçerlidir. Tek bir şarkı için arama yaparken “Atla” olarak ayarlanan alanlar yine görünür ve elle seçilebilir; yalnızca önceden seçilmezler. Çalarken şarkı sözlerini otomatik almak ve “Daha fazla şarkı sözü getir” de etkilenmez.";
+"scrape_review_lyrics_refreshing" = "Seçtiğiniz bilgilere göre şarkı sözleri aranıyor…";
 "cast_dlna_required_hint" = "Cihaz, UPnP/DLNA oluşturucu protokolünü desteklemeli ve iPhone'nizle aynı Wi-Fi üzerinde olmalıdır.";
 "cast_error_track_change_rejected" = "Cihaz parça değiştirmeyi reddetti. Yeniden yayınlayın veya cihazı yeniden başlatın.";
 "rescan" = "Yeniden tara";
