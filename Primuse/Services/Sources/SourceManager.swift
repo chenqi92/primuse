@@ -16474,19 +16474,58 @@ final class SourceManager {
     /// `.off` unless the source and format take part in the guarded
     /// whole-file replacement.
     func lyricsEmbeddingMode(for song: Song) async -> LyricsEmbeddingMode {
-        let mode = EmbeddedLyricsCopyPolicy.mode()
+        let mode = EmbeddedLyricsCopyPolicy.mode(forSongID: song.id)
         guard mode != .off,
               let sources = try? await sourcesProvider(),
               let source = sources.first(where: { $0.id == song.sourceID }) else {
             return .off
         }
-        return EmbeddedLyricsCopyPolicy.effectiveMode(
+        let effective = EmbeddedLyricsCopyPolicy.effectiveMode(
             mode,
             sourceType: source.type,
             format: song.fileFormat,
             isCueTrack: song.isCueTrack,
             isStreamDescriptor: song.isStreamDescriptor
         )
+        guard effective == .alongside else { return effective }
+        // 歌曲旁边写不了文件(单独添加的文件没有所在文件夹授权、文件夹不能写):只剩嵌入那一半。
+        return SaveLocationPolicy.effectiveLyricsMode(
+            effective,
+            folder: await saveLocationAccess(for: song, sourceType: source.type).folder
+        )
+    }
+
+    /// 音频文件和所在文件夹现在能不能写。只有本机文件探测得出,其他源返回「不知道」,由服务端在写的时候判断。
+    func saveLocationAccess(for song: Song) async -> SaveLocationAccess {
+        guard let type = (try? await sourcesProvider())?.first(where: { $0.id == song.sourceID })?.type else {
+            return .unknown
+        }
+        return await saveLocationAccess(for: song, sourceType: type)
+    }
+
+    private func saveLocationAccess(for song: Song, sourceType: MusicSourceType) async -> SaveLocationAccess {
+        guard sourceType == .local, !song.isCueTrack, !song.isStreamDescriptor,
+              let probing = try? await connectorForSong(song) as? any SaveLocationProbing else {
+            return .unknown
+        }
+        return await probing.saveLocationAccess(for: song.filePath)
+    }
+
+    /// 单独添加的文件补授权所在文件夹(用户在保存歌词时从文件夹选择器选的)。书签在后台建;
+    /// 已经在用的连接器原样留着,只让它接着用上新授权 —— 不换连接器,同一个源正在播放的歌不受影响。
+    func grantFolderAccess(for song: Song, folderURL: URL) async throws {
+        #if os(iOS) || os(macOS)
+        let sourceID = song.sourceID
+        try await Task.detached(priority: .userInitiated) {
+            _ = try LocalBookmarkStore.grantFolderAccess(sourceID: sourceID, folderURL: folderURL)
+        }.value
+        var reloaded = Set<ObjectIdentifier>()
+        for connector in [connectors[sourceID], sidecarConnectors[sourceID]].compactMap({ $0 }) {
+            guard let local = connector as? LocalFileSource,
+                  reloaded.insert(ObjectIdentifier(local)).inserted else { continue }
+            await local.reloadFolderGrants()
+        }
+        #endif
     }
 
     /// Where scraped artwork goes for this song: the user's choice, narrowed
@@ -16499,12 +16538,17 @@ final class SourceManager {
               let source = sources.first(where: { $0.id == song.sourceID }) else {
             return .off
         }
-        return EmbeddedCoverPolicy.effectiveMode(
+        let effective = EmbeddedCoverPolicy.effectiveMode(
             mode,
             sourceType: source.type,
             format: song.fileFormat,
             isCueTrack: song.isCueTrack,
             isStreamDescriptor: song.isStreamDescriptor
+        )
+        guard effective == .alongside else { return effective }
+        return SaveLocationPolicy.effectiveCoverMode(
+            effective,
+            folder: await saveLocationAccess(for: song, sourceType: source.type).folder
         )
     }
 

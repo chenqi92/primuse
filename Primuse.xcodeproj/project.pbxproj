@@ -265,6 +265,7 @@
 		197CAA596AC78ED62BD0F403 /* MedleyDataUsageConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 281204C93E975E56E2AA02F1 /* MedleyDataUsageConfirmation.swift */; };
 		197EEABCE5FD3B3DA3DB3BC3 /* AudioDecoderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF62F5046D29F993786AE489 /* AudioDecoderProtocol.swift */; };
 		1990DF01A45906FB3EB9E94E /* EmbeddedLyricsVariantPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C34D43D12F0BF40B3FD18C /* EmbeddedLyricsVariantPolicy.swift */; };
+		E85CECD5438E035446852126 /* SaveLocationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5E58C6D68F40540BDD8415D /* SaveLocationPolicy.swift */; };
 		19C85ED05C09AB735883A8E5 /* S3Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FD2BBC1EC1BECCE0D1EEF17 /* S3Source.swift */; };
 		19D71EE11967694ED835972F /* WatchOfflineMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ADFA7021944251BFFBF8042 /* WatchOfflineMedia.swift */; };
 		19F058F7B3C2839A3B662A2B /* AudioPlayerService+Crossfade.swift in Sources */ = {isa = PBXBuildFile; fileRef = 202FD9C3E6649FA70A64E987 /* AudioPlayerService+Crossfade.swift */; };
@@ -4129,6 +4130,7 @@
 		C39449144439EA223390CE1A /* TVMedleyPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVMedleyPlayback.swift; sourceTree = "<group>"; };
 		C3BAEFCF2DE4F0D189D9CF92 /* TVLyricsRomanizationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVLyricsRomanizationController.swift; sourceTree = "<group>"; };
 		C3C34D43D12F0BF40B3FD18C /* EmbeddedLyricsVariantPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedLyricsVariantPolicy.swift; sourceTree = "<group>"; };
+		B5E58C6D68F40540BDD8415D /* SaveLocationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveLocationPolicy.swift; sourceTree = "<group>"; };
 		C42EB2122DF35D06FA5EE051 /* ScrapeFieldRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeFieldRules.swift; sourceTree = "<group>"; };
 		5FBF82BBC5939609DD15AC38 /* BatchScrapeTally.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchScrapeTally.swift; sourceTree = "<group>"; };
 		C45DBC29426E786513B5CFA0 /* MacSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsView.swift; sourceTree = "<group>"; };
@@ -6096,6 +6098,7 @@
 				2785A3C1D5C7FEFC0D96F639 /* DiscImageFileSystem.swift */,
 				B4AA844B4BD98DA7261D6899 /* DVDAudioReader.swift */,
 				C3C34D43D12F0BF40B3FD18C /* EmbeddedLyricsVariantPolicy.swift */,
+				B5E58C6D68F40540BDD8415D /* SaveLocationPolicy.swift */,
 				732672310E1B3E948C873A39 /* EmbeddedTagMetadataParser.swift */,
 				98C6228B8950A5EAB88F9960 /* EmbyLyricsTrackEventParser.swift */,
 				BFBAC811D0608D247E8F6CF3 /* FilenameTagParser.swift */,
@@ -7819,6 +7822,7 @@
 				6E942D8D50A2637053E77DB0 /* EQPresetLibrary.swift in Sources */,
 				104E628BA5138E61EFECBCD4 /* EQRealtimeProcessor.swift in Sources */,
 				1990DF01A45906FB3EB9E94E /* EmbeddedLyricsVariantPolicy.swift in Sources */,
+				E85CECD5438E035446852126 /* SaveLocationPolicy.swift in Sources */,
 				8C79DA90AA64CCACA16842D0 /* EmbeddedTagMetadataParser.swift in Sources */,
 				0ACA25C2348D8CA0D4AE2966 /* EmbyLyricsTrackEventParser.swift in Sources */,
 				AD070564DFE6B74A3A32C17D /* EqualizerHeadroomPolicy.swift in Sources */,

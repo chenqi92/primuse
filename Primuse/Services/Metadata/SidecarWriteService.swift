@@ -92,11 +92,29 @@ actor SidecarWriteService {
         for song: Song,
         using connector: any MusicSourceConnector
     ) async throws -> LyricsPreflightResult {
-        guard connector.supportsSidecarWriting else {
+        guard await canWriteBeside(song, using: connector) else {
             throw SourceError.connectionFailed("Source does not support sidecar writing")
         }
         let targets = try await lyricsTargets(for: song, using: connector)
         return LyricsPreflightResult(document: targets.document, write: targets.write)
+    }
+
+    /// 只嵌入、不碰旁边文件的保存也要知道旁边有没有歌词文件(有就照样跟着更新)。单独添加、
+    /// 没有所在文件夹授权的文件旁边写不了东西,但这一步只是看,不要求能写。
+    func preflightEmbeddedLyricsWrite(
+        for song: Song,
+        using connector: any MusicSourceConnector
+    ) async throws -> LyricsPreflightResult {
+        let targets = try await lyricsTargets(for: song, using: connector)
+        return LyricsPreflightResult(document: targets.document, write: targets.write)
+    }
+
+    /// 能不能在这首歌旁边写文件。整个源都能写的看连接器;源里有单独添加的文件时,
+    /// 按这首歌自己:它在授权过的文件夹里才行。
+    func canWriteBeside(_ song: Song, using connector: any MusicSourceConnector) async -> Bool {
+        if connector.supportsSidecarWriting { return true }
+        guard let probing = connector as? any SaveLocationProbing else { return false }
+        return await probing.saveLocationAccess(for: song.filePath).folder.allowsAttempt
     }
 
     /// Write sidecar files for a song after scraping.
@@ -119,7 +137,7 @@ actor SidecarWriteService {
         createsCoverFile: Bool = true
     ) async -> WriteResult {
         var result = WriteResult()
-        guard connector.supportsSidecarWriting else {
+        guard await canWriteBeside(song, using: connector) else {
             result.errors.append("Source does not support sidecar writing")
             return result
         }
@@ -266,7 +284,7 @@ actor SidecarWriteService {
         expectedLyricsTarget: LyricsPreflightResult? = nil
     ) async -> WriteResult {
         var result = WriteResult()
-        guard connector.supportsSidecarWriting else {
+        guard await canWriteBeside(song, using: connector) else {
             result.errors.append("Source does not support sidecar writing")
             return result
         }
@@ -399,7 +417,7 @@ actor SidecarWriteService {
         for song: Song,
         using connector: any MusicSourceConnector
     ) async throws -> LyricsSidecarTarget {
-        guard connector.supportsSidecarWriting else {
+        guard await canWriteBeside(song, using: connector) else {
             throw SourceError.connectionFailed("Source does not support sidecar writing")
         }
         let target = try await Self.resolveTarget(for: song, using: connector, request: .named(fileName))

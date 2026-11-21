@@ -23,15 +23,21 @@ struct LyricsEditorSheet: View {
     @State private var pendingStructuredLines: [LyricLine]?
     @State private var sourceSnapshot: LyricsWriteback.EditableSourceSnapshot = .unknown
     @State private var cacheSnapshot: LyricsDocumentFingerprint?
-    @State private var mode: LyricsWriteback.Mode = .checking
+    @State private var target: LyricsWriteback.Target = .checking
     @State private var hasSourceConflict = false
     /// 写回目标的探测。它跟读歌词是两件独立的网络活，一起发出去，
     /// 只有保存时才需要它的结果。
-    @State private var writebackProbe: Task<LyricsWriteback.Mode, Never>?
+    @State private var writebackProbe: Task<LyricsWriteback.Target, Never>?
     @State private var isLoading = true
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var completionMessage: String?
+    /// 保存完只存在 Primuse 时,提示里给的解决办法(授权所在文件夹、改成嵌入)。
+    @State private var completionRemedies: [SaveLocationPolicy.Remedy] = []
+    @State private var showFolderAccessPicker = false
+    @State private var pendingEmbedRemedy: SaveLocationPolicy.Remedy?
+    /// 歌词已经存进 Primuse、补救那一步出了错:报错关掉后照样关掉编辑器,不卡在半截。
+    @State private var dismissesAfterError = false
     /// 待确认删除的内容。非 nil 表示用户清空了歌词、正在等二次确认。
     @State private var pendingRemoval = false
     @State private var showLyricsSources = false
@@ -51,7 +57,7 @@ struct LyricsEditorSheet: View {
                     initialLines: initialLines,
                     autoStartsAudioTranscription: autoStartsAudioTranscription,
                     allowsStructuredOnlyTranslationEditing: LyricsWriteback
-                        .allowsStructuredOnlyTranslationEditing(for: initialLines, mode: mode),
+                        .allowsStructuredOnlyTranslationEditing(for: initialLines, mode: target.mode),
                     onCommit: { committed, lines in
                         handleCommit(committed, structuredLines: lines)
                     },
@@ -85,7 +91,11 @@ struct LyricsEditorSheet: View {
                 set: { if !$0 { errorMessage = nil } }
             )
         ) {
-            Button(String(localized: "done"), role: .cancel) {}
+            Button(String(localized: "done"), role: .cancel) {
+                guard dismissesAfterError else { return }
+                dismissesAfterError = false
+                dismiss()
+            }
         } message: {
             Text(errorMessage ?? "")
         }
@@ -96,10 +106,24 @@ struct LyricsEditorSheet: View {
                 set: { if !$0 { completionMessage = nil } }
             )
         ) {
+            // 只存在 Primuse 的:给解决办法,办完回到这里把歌词写进文件。
+            ForEach(completionRemedies, id: \.self) { remedy in
+                Button(remedy.title) { startRemedy(remedy) }
+            }
             Button(String(localized: "done")) { dismiss() }
         } message: {
             Text(completionMessage ?? "")
         }
+        .modifier(SaveLocationRemedyPrompts(
+            showsFolderPicker: $showFolderAccessPicker,
+            pendingEmbedRemedy: $pendingEmbedRemedy,
+            onFolderPicked: { result in handleFolderAccessPick(result) },
+            onEmbedConfirmed: { remedy in
+                remedy.applyEmbedding(for: song.id)
+                Task { await saveAgainAfterRemedy(grantedFolder: false) }
+            },
+            onCancelled: { dismiss() }
+        ))
         // 由编辑器的完成回调发起（可能隔着打轴提醒或修复面板），没有可挂的按钮，用居中的 alert。
         .alert(
             String(localized: "tag_editor_lyrics_delete_confirm_title"),
@@ -173,7 +197,7 @@ struct LyricsEditorSheet: View {
 
     private func load() async {
         isLoading = true
-        mode = .checking
+        target = .checking
         // 读权威歌词和探测写回目标互不依赖，之前却排成一条线走。两段各自要
         // 列一次歌曲所在目录，写回探测还要另开一条连接重新登录 —— NAS / 网盘上
         // 这两段加起来就是用户干等的那几十秒。一起发出去，只等慢的那个。
@@ -196,7 +220,7 @@ struct LyricsEditorSheet: View {
         isLoading = false
         let resolved = await probe.value
         guard !Task.isCancelled else { return }
-        mode = resolved.protectingSourceConflict(loaded.hasSourceConflict)
+        target = resolved.protectingSourceConflict(loaded.hasSourceConflict)
     }
 
     /// 编辑器手里的还是换来源之前的那份：整个重新读一遍，换成现在用的文件。
@@ -207,10 +231,10 @@ struct LyricsEditorSheet: View {
         Task { await load() }
     }
 
-    private func startWritebackProbe() -> Task<LyricsWriteback.Mode, Never> {
+    private func startWritebackProbe() -> Task<LyricsWriteback.Target, Never> {
         writebackProbe?.cancel()
         let probe = Task { @MainActor in
-            await LyricsWriteback.resolveMode(
+            await LyricsWriteback.resolveTarget(
                 for: song,
                 sourceManager: sourceManager,
                 sourcesStore: sourcesStore
@@ -233,19 +257,19 @@ struct LyricsEditorSheet: View {
     /// 保存时写回目标可能还没探完。拿 `.checking` 去存会被当成失败，
     /// 把「正在检查音乐源写入权限」当错误弹出来 —— 这里先等探测出结果，
     /// 等待期间保存遮罩已经盖住界面。
-    private func resolvedWritebackMode() async -> LyricsWriteback.Mode {
-        if case .checking = mode {
+    private func resolvedWritebackTarget() async -> LyricsWriteback.Target {
+        if case .checking = target.mode {
             let probe = writebackProbe ?? startWritebackProbe()
-            mode = await probe.value.protectingSourceConflict(hasSourceConflict)
+            target = await probe.value.protectingSourceConflict(hasSourceConflict)
         }
         // 探测是跟读歌词一起发出去的，源正忙时它可能先撞上自己的超时。保存是
         // 用户主动发起的，这会儿连接已经空出来了，值得为它再探一次，而不是拿
         // 一次「暂时连不上」把改好的歌词挡回去。
-        if case .temporarilyUnavailable = mode {
-            mode = await startWritebackProbe().value
+        if case .temporarilyUnavailable = target.mode {
+            target = await startWritebackProbe().value
                 .protectingSourceConflict(hasSourceConflict)
         }
-        return mode
+        return target
     }
 
     /// 编辑器点了「完成」。没改动直接关；清空了先确认；否则落盘。
@@ -277,11 +301,11 @@ struct LyricsEditorSheet: View {
     private func save(allowRemoval: Bool) async {
         guard !isSaving else { return }
         isSaving = true
-        let writebackMode = await resolvedWritebackMode()
+        let writebackTarget = await resolvedWritebackTarget()
         let outcome = await LyricsWriteback.save(
             text: text,
             for: song,
-            mode: writebackMode,
+            mode: writebackTarget.mode,
             allowRemoval: allowRemoval,
             structuredLines: pendingStructuredLines,
             sourceSnapshot: sourceSnapshot,
@@ -301,12 +325,9 @@ struct LyricsEditorSheet: View {
         cacheSnapshot = outcome.cacheSnapshot
         onSave?(outcome.updatedSong)
         if outcome.persistence == .localOnly {
-            let base = String(localized: "tag_editor_lyrics_writeback_read_only")
-            if case .localOnly(let reason) = writebackMode, let reason {
-                completionMessage = [base, reason].joined(separator: "\n")
-            } else {
-                completionMessage = base
-            }
+            // 落在哪里、为什么、之后会不会自动写进文件;能一键解决的给按钮。
+            completionMessage = LyricsWriteback.keptLocallyMessage(requested: writebackTarget)
+            completionRemedies = writebackTarget.plan.remedies
             return
         }
         if let embeddedCopyError = outcome.embeddedCopyError {
@@ -315,8 +336,67 @@ struct LyricsEditorSheet: View {
                 format: String(localized: "lyrics_embed_copy_failed_format"),
                 embeddedCopyError
             )
+            completionRemedies = []
+            return
+        }
+        if writebackTarget.plan.reason != .none {
+            // 和设置不一样的落点(单独添加的文件只嵌入了、格式不能嵌入只写了歌词文件):说一声。
+            completionMessage = writebackTarget.fullNotice
+            completionRemedies = writebackTarget.plan.remedies
             return
         }
         dismiss()
+    }
+
+    // MARK: - 保存位置:解决办法
+
+    private func startRemedy(_ remedy: SaveLocationPolicy.Remedy) {
+        Task { @MainActor in
+            // 从完成提示框里点的:等它退场再弹选择器或确认框,不然系统可能不弹。
+            try? await Task.sleep(for: .milliseconds(450))
+            switch remedy {
+            case .grantFolderAccess:
+                showFolderAccessPicker = true
+            case .embedThisSong, .embedAllSongs:
+                pendingEmbedRemedy = remedy
+            }
+        }
+    }
+
+    private func handleFolderAccessPick(_ result: Result<URL, any Error>) {
+        switch result {
+        case .success(let folderURL):
+            Task {
+                do {
+                    try await sourceManager.grantFolderAccess(for: song, folderURL: folderURL)
+                } catch {
+                    dismissesAfterError = true
+                    errorMessage = error.localizedDescription
+                    return
+                }
+                await saveAgainAfterRemedy(grantedFolder: true)
+            }
+        case .failure(let error):
+            guard !OperationCancellationPolicy.isCancellation(error) else {
+                dismiss()
+                return
+            }
+            dismissesAfterError = true
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// 授权或改了保存方式之后重新探测,把刚才只存在 Primuse 的歌词再写一次。歌词已经存进
+    /// Primuse 了,这次再出错就在报错之后关掉编辑器。
+    private func saveAgainAfterRemedy(grantedFolder: Bool) async {
+        completionRemedies = []
+        cancelWritebackProbe()
+        target = .checking
+        if grantedFolder {
+            // 授权之后旁边原有的歌词文件也看得见了:重拍来源快照,不然会被当成来源被别处改过。
+            sourceSnapshot = await LyricsWriteback.currentSourceSnapshot(for: song, sourceManager: sourceManager)
+        }
+        dismissesAfterError = true
+        await save(allowRemoval: false)
     }
 }

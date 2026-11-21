@@ -219,11 +219,33 @@ enum TagMetadataWritebackCoordinator {
 
         case .localOnly:
             if !changed.isEmpty {
-                report.localSaveNotice = String(localized: "tag_editor_metadata_writeback_local_only")
+                report.localSaveNotice = String(localized: "save_location_tags_read_only_source")
             }
         }
 
         return report
+    }
+
+    /// 标签和封面这次落在哪里:开头先说落点,后面是原因。
+    static func noticeText(for plan: SaveLocationPolicy.Plan) -> String {
+        switch (plan.destination, plan.reason) {
+        case (.audioFile, _):
+            return String(localized: "save_location_tags_audio")
+        case (.mediaServer, _):
+            return String(localized: "save_location_tags_server")
+        case (_, .formatCannotEmbed):
+            return String(localized: "save_location_tags_cover_file")
+        case (_, .noFolderAccess):
+            return String(localized: "save_location_tags_cover_no_folder")
+        case (_, .folderNotWritable):
+            return String(localized: "save_location_tags_cover_folder_not_writable")
+        case (_, .audioFileNotWritable):
+            return String(localized: "save_location_tags_audio_not_writable")
+        case (_, .readOnlyVolume):
+            return String(localized: "save_location_read_only_volume")
+        default:
+            return String(localized: "save_location_tags_read_only_source")
+        }
     }
 
     /// 连不上音乐源(连接失败、源找不到):要写到源的字段按写入失败报。修改照样存在 Primuse,

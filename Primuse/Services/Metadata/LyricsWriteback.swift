@@ -34,6 +34,32 @@ private actor LyricsWritebackMutationGate {
     }
 }
 
+extension SaveLocationPolicy.Remedy {
+    /// 解决办法的按钮文字。
+    var title: String {
+        switch self {
+        case .grantFolderAccess: return String(localized: "save_location_action_grant_folder")
+        case .embedThisSong: return String(localized: "save_location_action_embed_song")
+        case .embedAllSongs: return String(localized: "save_location_action_embed_all")
+        }
+    }
+
+    /// 改成嵌入音频文件:只这首「只嵌入」;全部改成「歌词文件并嵌入」,文件夹里的歌照样有歌词文件,
+    /// 单独添加的文件只嵌入。授权文件夹要走选择器,不在这里。
+    @MainActor
+    func applyEmbedding(for songID: String) {
+        switch self {
+        case .embedThisSong:
+            EmbeddedLyricsCopyPolicy.setMode(.embedOnly, forSongID: songID)
+        case .embedAllSongs:
+            EmbeddedLyricsCopyPolicy.setMode(.alongside)
+        case .grantFolderAccess:
+            return
+        }
+        plog("Lyrics save location remedy songID=\(songID.prefix(8)) remedy=\(rawValue)")
+    }
+}
+
 extension LyricsEmbeddingMode {
     var settingsTitle: String {
         switch self {
@@ -85,12 +111,51 @@ enum LyricsWriteback {
             guard hasConflict else { return self }
             switch self {
             case .sidecar:
-                return .localOnly(reason: nil)
+                return .localOnly(reason: String(localized: "save_location_lyrics_source_conflict"))
             case .mediaServer:
                 return .unavailable(String(localized: "tag_editor_lyrics_server_unsupported"))
             case .checking, .localOnly, .unavailable, .temporarilyUnavailable:
                 return self
             }
+        }
+    }
+
+    /// 这首歌这次保存落在哪里、为什么。`mode` 交给 `save`;`notice` 是写回目标那一行的说明,
+    /// 开头先说落在哪里;`plan.remedies` 是能一键解决的办法(授权所在文件夹、改成嵌入)。
+    struct Target: Sendable, Equatable {
+        var mode: Mode
+        var plan: SaveLocationPolicy.Plan
+        var notice: String
+        var hasICloudConflict = false
+
+        static let checking = Target(
+            mode: .checking,
+            plan: SaveLocationPolicy.Plan(destination: .undetermined),
+            notice: String(localized: "tag_editor_lyrics_writeback_checking")
+        )
+
+        /// 说明加上 iCloud 冲突版本的提醒。
+        var fullNotice: String {
+            guard hasICloudConflict else { return notice }
+            return notice + "\n" + String(localized: "save_location_icloud_conflict")
+        }
+
+        func protectingSourceConflict(_ hasConflict: Bool) -> Target {
+            let protected = mode.protectingSourceConflict(hasConflict)
+            guard protected != mode else { return self }
+            var target = self
+            target.mode = protected
+            switch protected {
+            case .localOnly(let reason):
+                target.plan = SaveLocationPolicy.Plan(destination: .primuseOnly)
+                target.notice = reason ?? notice
+            case .unavailable(let reason):
+                target.plan = SaveLocationPolicy.Plan(destination: .undetermined, reason: .unavailable)
+                target.notice = String(format: String(localized: "tag_editor_lyrics_writeback_unavailable"), reason)
+            case .checking, .sidecar, .mediaServer, .temporarilyUnavailable:
+                break
+            }
+            return target
         }
     }
 
@@ -349,55 +414,287 @@ enum LyricsWriteback {
         sourceManager: SourceManager,
         sourcesStore: SourcesStore
     ) async -> Mode {
-        if await LyricsLoader.prefersCachedDocument(for: song) { return .localOnly(reason: nil) }
+        await resolveTarget(for: song, sourceManager: sourceManager, sourcesStore: sourcesStore).mode
+    }
+
+    /// 探测写回目标,并说明这次落在哪里、为什么。几件事分开探测:是不是在用 Primuse 里的那一份、
+    /// 这类音乐源收不收、音频文件和所在文件夹能不能写、这次连不连得上(`SaveLocationPolicy`)。
+    static func resolveTarget(
+        for song: Song,
+        sourceManager: SourceManager,
+        sourcesStore: SourcesStore
+    ) async -> Target {
+        let requested = EmbeddedLyricsCopyPolicy.mode(forSongID: song.id)
+        if await LyricsLoader.prefersCachedDocument(for: song) {
+            return makeTarget(
+                SaveLocationPolicy.lyricsPlan(.init(usesPrimuseVersion: true), requested: requested),
+                preflight: nil
+            )
+        }
+        let sourceType = sourcesStore.source(id: song.sourceID)?.type
         if await sourceManager.supportsSidecarWriting(for: song) {
+            let access = await sourceManager.saveLocationAccess(for: song)
+            let canEmbed = sourceType.map {
+                EmbeddedLyricsCopyPolicy.canEmbed(
+                    sourceType: $0,
+                    format: song.fileFormat,
+                    isCueTrack: song.isCueTrack,
+                    isStreamDescriptor: song.isStreamDescriptor
+                )
+            } ?? false
+            let facts = SaveLocationPolicy.Facts(
+                source: .files,
+                audioFile: access.audioFile,
+                folder: access.folder,
+                canEmbed: canEmbed
+            )
+            // 旁边的文件写不了时先按设置算一遍:不嵌入就只能存在 Primuse,不必再去列目录。
+            if !access.folder.allowsAttempt {
+                let plan = SaveLocationPolicy.lyricsPlan(facts, requested: requested)
+                guard plan.destination == .audioFile else {
+                    logResolution(plan, access: access, song: song)
+                    return makeTarget(plan, preflight: nil, hasICloudConflict: access.hasICloudConflict)
+                }
+            }
             do {
                 // 全库扫描期间音乐源的连接预算已被占住，预检要排队。
                 // 十秒对内网 NAS 在扫描中的响应来说不够，而这是用户主动发起的
                 // 一次操作，多等一会儿远好过误报成不可写。
-                let preflight = try await MusicScraperService.preflightLyricsWriteWithTimeout(
-                    seconds: 20,
-                    sourceManager: sourceManager,
-                    for: song
+                let preflight: SidecarWriteService.LyricsPreflightResult
+                if access.folder.allowsAttempt {
+                    preflight = try await MusicScraperService.preflightLyricsWriteWithTimeout(
+                        seconds: 20,
+                        sourceManager: sourceManager,
+                        for: song
+                    )
+                } else {
+                    // 只嵌入:看一眼旁边有没有歌词文件,不要求能写。
+                    preflight = try await AsyncOperationTimeout.run(seconds: 20) {
+                        let connector = try await sourceManager.sidecarWriteConnector(for: song)
+                        return try await SidecarWriteService.shared.preflightEmbeddedLyricsWrite(
+                            for: song,
+                            using: connector
+                        )
+                    }
+                }
+                var plan = SaveLocationPolicy.lyricsPlan(
+                    facts,
+                    requested: requested,
+                    lyricsDocumentExists: preflight.hasLyricsDocument
                 )
-                return .sidecar(preflight)
+                if !access.folder.allowsAttempt, preflight.hasLyricsDocument {
+                    // 旁边已经有歌词文件、只嵌入时它也要跟着更新,可文件夹写不了:这次只能存在 Primuse。
+                    plan = SaveLocationPolicy.Plan(
+                        destination: .primuseOnly,
+                        reason: access.folder == .noAccess ? .noFolderAccess : .folderNotWritable,
+                        remedies: access.folder == .noAccess ? [.grantFolderAccess] : []
+                    )
+                }
+                logResolution(plan, access: access, song: song)
+                return makeTarget(plan, preflight: preflight, hasICloudConflict: access.hasICloudConflict)
             } catch let collision as LyricsSidecarReplacementCollision {
                 // The picked file cannot be serialized and its replacement
                 // name is another of the song's sources: keep the edit here
                 // rather than overwrite that file.
-                return .localOnly(reason: collision.localizedDescription)
+                return Target(
+                    mode: .localOnly(reason: collision.localizedDescription),
+                    plan: SaveLocationPolicy.Plan(destination: .primuseOnly),
+                    notice: collision.localizedDescription
+                )
             } catch {
-                return SourceWriteProbeFailure.isTransient(error)
-                    ? .temporarilyUnavailable(SourceErrorPresentation.userFacingDescription(error))
-                    : .unavailable(SourceErrorPresentation.userFacingDescription(error))
+                return unreachableTarget(error)
             }
         }
 
-        let sourceType = sourcesStore.source(id: song.sourceID)?.type
         if sourceType == .jellyfin || sourceType == .emby || sourceType == .plex {
             do {
                 let connector = try await sourceManager.connectorForSong(song)
                 guard let server = connector as? any ServerLyricsConnector else {
-                    return .unavailable(String(localized: "tag_editor_lyrics_server_unsupported"))
-                }
-                if server.serverLyricsCapabilities.canWrite,
-                   connector is any MediaServerWritebackConnector {
-                    return .mediaServer
-                }
-                if sourceType == .emby {
-                    return .localOnly(
-                        reason: String(localized: "tag_editor_lyrics_server_unsupported")
+                    let reason = String(localized: "tag_editor_lyrics_server_unsupported")
+                    return Target(
+                        mode: .unavailable(reason),
+                        plan: SaveLocationPolicy.Plan(destination: .undetermined, reason: .unavailable),
+                        notice: String(format: String(localized: "tag_editor_lyrics_writeback_unavailable"), reason)
                     )
                 }
-                return .localOnly(reason: nil)
+                let writes = server.serverLyricsCapabilities.canWrite && connector is any MediaServerWritebackConnector
+                return makeTarget(
+                    SaveLocationPolicy.lyricsPlan(.init(source: .mediaServer(writesLyrics: writes)), requested: requested),
+                    preflight: nil
+                )
             } catch {
-                return SourceWriteProbeFailure.isTransient(error)
-                    ? .temporarilyUnavailable(SourceErrorPresentation.userFacingDescription(error))
-                    : .unavailable(SourceErrorPresentation.userFacingDescription(error))
+                return unreachableTarget(error)
             }
         }
 
-        return .localOnly(reason: nil)
+        return makeTarget(SaveLocationPolicy.lyricsPlan(.init(source: .readOnly), requested: requested), preflight: nil)
+    }
+
+    private static func unreachableTarget(_ error: any Error) -> Target {
+        let description = SourceErrorPresentation.userFacingDescription(error)
+        if SourceWriteProbeFailure.isTransient(error) {
+            return Target(
+                mode: .temporarilyUnavailable(description),
+                plan: SaveLocationPolicy.Plan(destination: .undetermined, reason: .temporarilyUnreachable),
+                notice: String(format: String(localized: "tag_editor_lyrics_writeback_retry"), description)
+            )
+        }
+        return Target(
+            mode: .unavailable(description),
+            plan: SaveLocationPolicy.Plan(destination: .undetermined, reason: .unavailable),
+            notice: String(format: String(localized: "tag_editor_lyrics_writeback_unavailable"), description)
+        )
+    }
+
+    /// 判定依据记一行,诊断日志里能看出这次为什么落在这里。
+    private static func logResolution(_ plan: SaveLocationPolicy.Plan, access: SaveLocationAccess, song: Song) {
+        guard plan.reason != .none else { return }
+        plog("Lyrics save location songID=\(song.id.prefix(8)) destination=\(plan.destination.rawValue) "
+            + "reason=\(plan.reason.rawValue) audio=\(access.audioFile.rawValue) folder=\(access.folder.rawValue) "
+            + "embed=\(plan.embeddingMode.rawValue) iCloudConflict=\(access.hasICloudConflict)")
+    }
+
+    /// 一个判定落成 `Mode` 和说明。只存在 Primuse 的,说明同时作为 `.localOnly` 的原因。
+    private static func makeTarget(
+        _ plan: SaveLocationPolicy.Plan,
+        preflight: SidecarWriteService.LyricsPreflightResult?,
+        hasICloudConflict: Bool = false
+    ) -> Target {
+        let notice = noticeText(for: plan, preflight: preflight)
+        let mode: Mode
+        switch plan.destination {
+        case .lyricsFile, .lyricsFileAndAudioFile, .audioFile:
+            if let preflight {
+                mode = .sidecar(preflight)
+            } else {
+                mode = .localOnly(reason: notice)
+            }
+        case .mediaServer:
+            mode = .mediaServer
+        case .primuseOnly:
+            mode = .localOnly(reason: notice)
+        case .undetermined:
+            mode = .unavailable(notice)
+        }
+        return Target(mode: mode, plan: plan, notice: notice, hasICloudConflict: hasICloudConflict)
+    }
+
+    /// 每种情况一条说明,开头先说这次落在哪里,后面才是原因和怎么解决。
+    static func noticeText(
+        for plan: SaveLocationPolicy.Plan,
+        preflight: SidecarWriteService.LyricsPreflightResult?
+    ) -> String {
+        let fileName = preflight?.fileName ?? ""
+        let replaces = preflight?.replacesExistingFile == true
+        var parts: [String] = []
+        switch plan.destination {
+        case .lyricsFile:
+            let template: String = replaces
+                ? String(localized: "save_location_lyrics_file_replace %@")
+                : String(localized: "save_location_lyrics_file_new %@")
+            parts.append(String(format: template, fileName))
+        case .lyricsFileAndAudioFile:
+            let template: String = replaces
+                ? String(localized: "save_location_lyrics_file_and_audio_replace %@")
+                : String(localized: "save_location_lyrics_file_and_audio_new %@")
+            parts.append(String(format: template, fileName))
+        case .audioFile:
+            parts.append(String(localized: "save_location_lyrics_audio"))
+        case .mediaServer:
+            parts.append(String(localized: "save_location_lyrics_server"))
+        case .primuseOnly, .undetermined:
+            break
+        }
+        switch plan.reason {
+        case .none, .temporarilyUnreachable, .unavailable:
+            break
+        case .usesPrimuseVersion:
+            parts.append(String(localized: "save_location_primuse_version"))
+        case .readOnlySource:
+            parts.append(String(localized: "save_location_lyrics_read_only_source"))
+        case .serverTakesNoLyrics:
+            parts.append(String(localized: "save_location_server_takes_no_lyrics"))
+        case .noFolderAccess:
+            parts.append(String(localized: "save_location_lyrics_no_folder_access"))
+        case .noFolderAccessEmbedsOnly:
+            parts.append(String(localized: "save_location_lyrics_no_folder_embeds_only"))
+        case .folderNotWritable:
+            parts.append(String(localized: "save_location_lyrics_folder_not_writable"))
+        case .folderNotWritableEmbedsOnly:
+            parts.append(String(localized: "save_location_lyrics_folder_not_writable_embeds_only"))
+        case .audioFileNotWritable:
+            if plan.destination == .primuseOnly {
+                parts.append(String(localized: "save_location_lyrics_audio_not_writable"))
+            } else {
+                parts.append(String(localized: "save_location_lyrics_audio_not_writable_embed_part"))
+            }
+        case .readOnlyVolume:
+            parts.append(String(localized: "save_location_read_only_volume"))
+        case .formatCannotEmbed:
+            parts.append(String(localized: "save_location_lyrics_format_cannot_embed"))
+        }
+        if let hint = remedyHint(plan.remedies) { parts.append(hint) }
+        return joinedSentences(parts)
+    }
+
+    /// 句子接起来:以全角句号、问号、叹号、引号收尾的(中文、日文)直接接,其他语言隔一个空格。
+    static func joinedSentences(_ parts: [String]) -> String {
+        parts.reduce(into: "") { result, part in
+            guard !part.isEmpty else { return }
+            if let last = result.last, !"。！？」）".contains(last) { result.append(" ") }
+            result.append(part)
+        }
+    }
+
+    private static func remedyHint(_ remedies: [SaveLocationPolicy.Remedy]) -> String? {
+        let grant = remedies.contains(.grantFolderAccess)
+        let embed = remedies.contains(.embedThisSong)
+        switch (grant, embed) {
+        case (true, true): return String(localized: "save_location_hint_grant_or_embed")
+        case (true, false): return String(localized: "save_location_hint_grant")
+        case (false, true): return String(localized: "save_location_hint_embed")
+        case (false, false): return nil
+        }
+    }
+
+    /// 保存完只存在 Primuse 时给用户的话:落在哪里、为什么、之后会不会自动写进文件。
+    /// `requested` 是保存时交出去的写回目标;它不是只存在 Primuse,说明是写的时候被拒绝了。
+    static func keptLocallyMessage(requested target: Target) -> String {
+        guard case .localOnly = target.mode else {
+            return String(localized: "save_location_lyrics_refused") + "\n" + joinedSentences([
+                String(localized: "save_location_lyrics_not_rewritten"),
+                String(localized: "save_location_lyrics_save_again"),
+            ])
+        }
+        switch target.plan.reason {
+        case .usesPrimuseVersion, .readOnlySource, .serverTakesNoLyrics:
+            // 本来就只在 Primuse:没有要解决的,也不提「之后」。
+            return target.notice
+        case .noFolderAccess, .folderNotWritable, .audioFileNotWritable, .readOnlyVolume:
+            return target.notice + "\n" + joinedSentences([
+                String(localized: "save_location_lyrics_not_rewritten"),
+                String(localized: "save_location_lyrics_save_again"),
+            ])
+        case .none, .noFolderAccessEmbedsOnly, .folderNotWritableEmbedsOnly, .formatCannotEmbed,
+             .temporarilyUnreachable, .unavailable:
+            return target.notice + "\n" + String(localized: "save_location_lyrics_not_rewritten")
+        }
+    }
+
+    /// 来源现在的样子,和编辑器打开时拍的快照同一种写法。授权了所在文件夹之后,原来看不见的
+    /// 歌词文件也看得见了,继续保存之前要重拍一次,否则保存会当成来源被别处改过。
+    static func currentSourceSnapshot(for song: Song, sourceManager: SourceManager) async -> EditableSourceSnapshot {
+        switch await LyricsLoader.readAuthoritativeSourceText(for: song, sourceManager: sourceManager) {
+        case .content(let text):
+            return .content(text
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines))
+        case .absent:
+            return .absent
+        case .unavailable:
+            return .unknown
+        }
     }
 
     // MARK: - 保存

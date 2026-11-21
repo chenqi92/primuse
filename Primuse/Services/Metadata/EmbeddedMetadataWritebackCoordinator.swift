@@ -242,6 +242,9 @@ protocol EmbeddedMetadataWritebackAdapter: MusicSourceConnector {
         expected: EmbeddedMetadataRemoteFileState
     ) async throws -> String
     func invalidateMetadataWritebackCache(for path: String) async
+    /// 改写之前要做的准备(本机文件:还没下到这台设备的 iCloud 文件先下载)。改名这类只读属性的
+    /// 操作不经过这里。
+    func prepareForMetadataWriteback(at path: String) async throws
 }
 
 /// A replacement may commit before its verification download fails. Preserve
@@ -258,6 +261,8 @@ extension EmbeddedMetadataWritebackAdapter {
     static var revisionFoldsSidecarFingerprints: Bool { false }
 
     func invalidateMetadataWritebackCache(for path: String) async {}
+
+    func prepareForMetadataWriteback(at path: String) async throws {}
 
     func replaceMetadataFileReturningPath(
         at path: String,
@@ -357,6 +362,9 @@ enum EmbeddedMetadataWritebackCoordinator {
         }
 
         let sourceName = displayName(for: Adapter.self)
+        try await run(source: sourceName, stage: .download) {
+            try await adapter.prepareForMetadataWriteback(at: original.filePath)
+        }
         let initialState = try await run(source: sourceName, stage: .inspect) {
             try await adapter.metadataWritebackState(for: original.filePath)
         }

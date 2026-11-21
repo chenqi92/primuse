@@ -1378,36 +1378,54 @@ struct PendingTagWritebackView: View {
     }
 }
 
-/// Says before a batch edit starts which of its songs will keep the change
-/// only in Primuse: songs whose source or format takes no tags in the file,
-/// and sources that refused to write last time. Shows nothing otherwise.
+/// Says before a batch edit starts where its changes go: for each kind of
+/// song, the same save-location note the single-song editor shows (into the
+/// audio file, to the media server, only in Primuse and why), with how many
+/// songs it covers; plus sources that refused to write last time.
 struct TagWritebackPreflightNote: View {
     let songIDs: [String]
 
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore: SourcesStore?
-    @State private var unsupportedCount = 0
+    @Environment(SourceManager.self) private var sourceManager: SourceManager?
+    @State private var locationGroups: [LocationGroup] = []
     @State private var refusedSourceNames: [String] = []
+
+    private struct LocationGroup: Equatable {
+        let notice: String
+        let count: Int
+        let keepsOnlyInPrimuse: Bool
+    }
+
+    /// 本机文件要逐首看写入权限;选得很多时只看前面这些,其余按「不知道」(照常写)算。
+    private static let probeLimit = 300
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if unsupportedCount > 0 {
-                line(String(format: String(localized: "writeback_preflight_unsupported_format"), unsupportedCount))
+            ForEach(locationGroups, id: \.notice) { group in
+                line(
+                    String(
+                        format: String(localized: "save_location_batch_group_format"),
+                        group.count,
+                        group.notice
+                    ),
+                    warns: group.keepsOnlyInPrimuse
+                )
             }
             if !refusedSourceNames.isEmpty {
                 line(String(
                     format: String(localized: "writeback_preflight_refused_format"),
                     ListFormatter.localizedString(byJoining: refusedSourceNames)
-                ))
+                ), warns: true)
             }
         }
-        .task(id: songIDs) { evaluate() }
+        .task(id: songIDs) { await evaluate() }
     }
 
-    private func line(_ text: String) -> some View {
+    private func line(_ text: String, warns: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+            Image(systemName: warns ? "exclamationmark.triangle.fill" : "info.circle")
+                .foregroundStyle(warns ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .accessibilityHidden(true)
             Text(text)
                 .foregroundStyle(.secondary)
@@ -1416,28 +1434,48 @@ struct TagWritebackPreflightNote: View {
         .font(.caption)
     }
 
-    private func evaluate() {
+    private func evaluate() async {
         guard let sourcesStore else { return }
-        var unsupported = 0
-        var sourceIDs: Set<String> = []
-        for id in songIDs {
-            guard let song = library.storedSong(id: id) ?? library.song(id: id),
-                  let source = sourcesStore.source(id: song.sourceID) else { continue }
-            if AudioMetadataWritebackPolicy.textTagsLeaveLibrary(
-                sourceType: source.type,
-                format: song.fileFormat,
-                isCueTrack: song.isCueTrack,
-                isStreamDescriptor: song.isStreamDescriptor
-            ) {
-                sourceIDs.insert(song.sourceID)
+        let songs = songIDs.compactMap { library.storedSong(id: $0) ?? library.song(id: $0) }
+        let modes = await sourceManager?.tagMetadataPersistenceModes(for: songs) ?? [:]
+        var probed = 0
+        var groups: [String: LocationGroup] = [:]
+        var order: [String] = []
+        var writingSourceIDs: Set<String> = []
+        for song in songs {
+            guard !Task.isCancelled else { return }
+            guard let source = sourcesStore.source(id: song.sourceID) else { continue }
+            let capability = modes[song.id]?.capability
+                ?? AudioMetadataWritebackPolicy.capability(sourceType: source.type, format: song.fileFormat)
+            var access = SaveLocationAccess.unknown
+            if source.type == .local, capability == .embedded || capability == .sidecarOnly,
+               probed < Self.probeLimit, let sourceManager {
+                probed += 1
+                access = await sourceManager.saveLocationAccess(for: song)
+            }
+            let plan = SaveLocationPolicy.tagPlan(
+                SaveLocationPolicy.Facts(audioFile: access.audioFile, folder: access.folder),
+                capability: capability
+            )
+            if plan.destination == .audioFile || plan.destination == .mediaServer {
+                writingSourceIDs.insert(song.sourceID)
+            }
+            let notice = TagMetadataWritebackCoordinator.noticeText(for: plan)
+            if let existing = groups[notice] {
+                groups[notice] = LocationGroup(
+                    notice: notice, count: existing.count + 1, keepsOnlyInPrimuse: existing.keepsOnlyInPrimuse
+                )
             } else {
-                unsupported += 1
+                order.append(notice)
+                groups[notice] = LocationGroup(notice: notice, count: 1, keepsOnlyInPrimuse: plan.keepsOnlyInPrimuse)
             }
         }
-        unsupportedCount = unsupported
-        refusedSourceNames = SourceWriteRefusalMemory.recentlyRefused(among: sourceIDs)
+        guard !Task.isCancelled else { return }
+        locationGroups = order.compactMap { groups[$0] }
+        refusedSourceNames = SourceWriteRefusalMemory.recentlyRefused(among: writingSourceIDs)
             .compactMap { sourcesStore.source(id: $0)?.name }
             .filter { !$0.isEmpty }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
+
 }

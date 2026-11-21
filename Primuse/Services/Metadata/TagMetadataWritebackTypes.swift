@@ -55,6 +55,21 @@ enum TagMetadataWritebackField: String, CaseIterable, Sendable, Hashable {
     ]
 }
 
+/// 一首歌的音频文件和所在文件夹当前能不能写。只有本机文件探测得出;远端源由服务端在写的时候判断。
+struct SaveLocationAccess: Sendable, Equatable {
+    var audioFile: SaveLocationPolicy.Access = .unknown
+    var folder: SaveLocationPolicy.Access = .unknown
+    /// iCloud 云盘里这首歌还有没处理的冲突版本。
+    var hasICloudConflict = false
+
+    static let unknown = SaveLocationAccess()
+}
+
+/// 能探测文件和文件夹写入权限的连接器(本机文件夹、单独添加的文件)。
+protocol SaveLocationProbing: Sendable {
+    func saveLocationAccess(for path: String) async -> SaveLocationAccess
+}
+
 enum TagMetadataFieldWritebackDisposition: Sendable, Equatable {
     case unchanged
     case written

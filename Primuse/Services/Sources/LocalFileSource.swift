@@ -18,7 +18,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
 
     let sourceID: String
     nonisolated let supportsSidecarWriting: Bool
+    /// 能改目录结构(改名、移动、删文件夹):只有选的都是文件夹时。单独添加的文件补授权了所在
+    /// 文件夹,能写的也只是它旁边的歌词、封面文件,不是这个开关。
+    nonisolated let supportsDirectoryMutation: Bool
     private var basePath: URL
+    private var hasCheckedPendingRewrites = false
     private var referenceRoots: [LocalReferenceRoot] = []
     private var referenceBookmarksUnavailable = false
     private var hasResolvedReferenceRoots = false
@@ -45,6 +49,9 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         let url: URL
         let isDirectory: Bool
         let usesSecurityScope: Bool
+        /// 单独添加的文件另外授权过的所在文件夹;没有时只能改这个文件本身。
+        var folderURL: URL? = nil
+        var folderUsesSecurityScope = false
     }
 
     /// Maps files back to source paths with the roots canonicalised once.
@@ -114,8 +121,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         var resolvedBasePath = basePath
         #if os(iOS) || os(macOS)
         self.supportsSidecarWriting = LocalBookmarkStore.supportsSidecarWriting(sourceID: sourceID)
+        self.supportsDirectoryMutation = LocalBookmarkStore.referencesAreAllDirectories(sourceID: sourceID)
         #else
         self.supportsSidecarWriting = true
+        self.supportsDirectoryMutation = true
         #endif
         #if os(iOS)
         let hasBookmarks = LocalBookmarkStore.hasReferences(sourceID: sourceID)
@@ -151,11 +160,14 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         if let references = LocalBookmarkStore.resolveReferences(sourceID: sourceID) {
             referenceBookmarksUnavailable = references.isEmpty
             referenceRoots = references.map { reference in
-                LocalReferenceRoot(
+                let folderURL = reference.isDirectory ? nil : reference.folderURL
+                return LocalReferenceRoot(
                     virtualPathComponent: reference.virtualPathComponent,
                     url: reference.url,
                     isDirectory: reference.isDirectory,
-                    usesSecurityScope: reference.url.startAccessingSecurityScopedResource()
+                    usesSecurityScope: reference.url.startAccessingSecurityScopedResource(),
+                    folderURL: folderURL,
+                    folderUsesSecurityScope: folderURL?.startAccessingSecurityScopedResource() ?? false
                 )
             }
             if referenceRoots.count == 1, referenceRoots[0].virtualPathComponent == nil {
@@ -169,6 +181,9 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         for root in referenceRoots where root.usesSecurityScope {
             root.url.stopAccessingSecurityScopedResource()
         }
+        for root in referenceRoots where root.folderUsesSecurityScope {
+            root.folderURL?.stopAccessingSecurityScopedResource()
+        }
     }
 
     func connect() async throws {
@@ -177,6 +192,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             throw SourceError.credentialUnavailable(
                 String(localized: "local_reference_permission_missing")
             )
+        }
+        if !hasCheckedPendingRewrites {
+            // 上次原地改写失败、放回也没成的文件:这个源一被用到就先试着放回。
+            hasCheckedPendingRewrites = true
+            await Self.restorePendingRewrites(sourceID: sourceID)
         }
         if !referenceRoots.isEmpty {
             for root in referenceRoots where !FileManager.default.fileExists(atPath: root.url.path) {
@@ -192,7 +212,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     func disconnect() async {}
 
     func canRenameFile(at path: String) async -> Bool {
-        guard supportsSidecarWriting,
+        guard supportsDirectoryMutation,
               let url = try? renameURL(for: path),
               !isIndividuallyReferencedFile(url),
               (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { return false }
@@ -233,9 +253,13 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         if isVirtualReferenceRoot(path) {
-            return try referenceRoots.map { root in
+            let roots = try referenceRoots.map { root in
                 try Self.remoteFileItem(for: root.url, path: virtualPath(for: root))
-            }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            }
+            let listedNames = Set(roots.map { $0.name.lowercased() }
+                + referenceRoots.compactMap { $0.virtualPathComponent?.lowercased() })
+            let siblings = await Self.listGrantedSiblings(grantedSiblingFolders(), excluding: listedNames)
+            return (roots + siblings).sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
         let directoryURL = try resolvedURL(for: path, allowRoot: true)
         return try await Self.listDirectory(directoryURL, paths: pathResolver())
@@ -287,6 +311,13 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     func refreshedLocalSong(_ song: Song, notified: Bool) async throws -> Song? {
         if case .updated(let updated) = try await refreshLocalSong(song, notified: notified) { return updated }
         return nil
+    }
+
+    /// 改写音频文件之前:还没下到这台设备的 iCloud 云盘文件先下载、等它落地。只在写回时做,
+    /// 改名、探测这些只读属性的操作不会因此整首下载。
+    func prepareForMetadataWriteback(at path: String) async throws {
+        let url = try resolvedURL(for: path, allowRoot: false)
+        try await Self.downloadForWritebackIfNeeded(url)
     }
 
     /// A visible row needs only the attributes of its own file. A presenter
@@ -597,11 +628,25 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         guard expected.matches(current) else {
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
+        let individuallyReferenced = isIndividuallyReferencedFile(destination)
+        // 单独添加的文件一律原地改写:旁边可能建不了临时文件,换文件还会让它自己的书签失效。
+        // 文件夹确定不能新建文件的也一样。
+        if individuallyReferenced || Self.definiteFolderAccess(of: destination) == .notWritable {
+            try rewriteInPlace(destination, with: localURL, path: path, refreshesBookmark: individuallyReferenced)
+            return
+        }
 
         let stagingURL = destination.deletingLastPathComponent()
             .appendingPathComponent(".\(destination.lastPathComponent).primuse-writeback-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: stagingURL) }
-        try FileManager.default.copyItem(at: localURL, to: stagingURL)
+        do {
+            try FileManager.default.copyItem(at: localURL, to: stagingURL)
+        } catch where MetadataWriteFailurePolicy.denial(error) != nil {
+            // 文件夹里不让新建文件(File Provider 目录常见),目标文件本身还可能写得进:改走原地改写。
+            plog("Writeback: staging beside the file was refused, rewriting in place: \(error.localizedDescription)")
+            try rewriteInPlace(destination, with: localURL, path: path, refreshesBookmark: false)
+            return
+        }
         _ = try FileManager.default.replaceItemAt(
             destination,
             withItemAt: stagingURL,
@@ -624,7 +669,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
 
         let authorizedRoots = referenceRoots.isEmpty
             ? [basePath]
-            : referenceRoots.filter(\.isDirectory).map(\.url)
+            : referenceRoots.filter(\.isDirectory).map(\.url) + referenceRoots.compactMap(\.folderURL)
         guard authorizedRoots.contains(where: { Self.contains(parent, inside: $0) }) else {
             throw SourceError.connectionFailed("Refusing to write outside source root: \(path)")
         }
@@ -647,10 +692,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         noteOwnWrite(at: destination, path: path)
     }
 
-    func canMutateDirectories() async -> Bool { supportsSidecarWriting }
+    func canMutateDirectories() async -> Bool { supportsDirectoryMutation }
 
     func renameDirectory(at path: String, to newPath: String) async throws {
-        guard supportsSidecarWriting,
+        guard supportsDirectoryMutation,
               (path as NSString).deletingLastPathComponent == (newPath as NSString).deletingLastPathComponent,
               !isVirtualReferenceRoot((path as NSString).deletingLastPathComponent) else {
             throw SourceFolderMutationError.unsupported
@@ -672,7 +717,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     func moveItem(at path: String, to newPath: String, isDirectory: Bool) async throws {
-        guard supportsSidecarWriting,
+        guard supportsDirectoryMutation,
               !isVirtualReferenceRoot((path as NSString).deletingLastPathComponent) else {
             throw SourceFolderMutationError.unsupported
         }
@@ -691,7 +736,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     func copyFileWithoutReplacing(at path: String, to newPath: String) async throws {
-        guard supportsSidecarWriting else { throw SourceFolderMutationError.unsupported }
+        guard supportsDirectoryMutation else { throw SourceFolderMutationError.unsupported }
         let source = try resolvedURL(for: path, allowRoot: false)
         let destination = try resolvedURL(for: newPath, allowRoot: false)
         let staging = destination.deletingLastPathComponent().appendingPathComponent(".primuse-copy-" + UUID().uuidString)
@@ -705,7 +750,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     func deleteDirectory(at path: String) async throws {
-        guard supportsSidecarWriting,
+        guard supportsDirectoryMutation,
               !isVirtualReferenceRoot((path as NSString).deletingLastPathComponent) else {
             throw SourceFolderMutationError.unsupported
         }
@@ -1547,7 +1592,279 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             }
             return candidate
         }
+        if let sibling = grantedSiblingURL(named: relativePath) { return sibling }
         throw SourceError.fileNotFound(path)
+    }
+
+    // MARK: - 单独添加的文件:补授权的所在文件夹
+
+    /// 旁边文件能用的扩展名:歌词、封面、MV,和 `SidecarHintResolver` 认的一致。音频不在里面:
+    /// 用户没添加的歌不会因为授权了文件夹就出现在源里,也写不到、删不到。
+    private static let grantedSiblingExtensions: Set<String> = {
+        var allowed = Set(PrimuseConstants.supportedCoverExtensions)
+        allowed.formUnion(PrimuseConstants.readableLyricsExtensions)
+        allowed.formUnion(PrimuseConstants.supportedMusicVideoExtensions)
+        return allowed
+            .subtracting(PrimuseConstants.supportedAudioExtensions)
+            .subtracting(PrimuseConstants.supportedStreamDescriptorExtensions)
+    }()
+
+    /// 单独添加的文件在虚拟根目录下叫 `/<文件名>`,它旁边的歌词文件、封面文件按同样的名字规则叫
+    /// `/<文件名去扩展名>.lrc`、`/<文件名去扩展名>-cover.jpg`。授权过所在文件夹的,把这些名字
+    /// 对到真实文件夹里;同名重复的文件(虚拟名带 「(2)」)换回真实的文件名主干。
+    private func grantedSiblingURL(named name: String) -> URL? {
+        guard !name.isEmpty, !name.contains("/"),
+              Self.grantedSiblingExtensions.contains((name as NSString).pathExtension.lowercased()),
+              let match = grantedSiblingRoot(forVirtualName: name) else { return nil }
+        let realName = match.realStem + name.dropFirst(match.virtualStem.count)
+        let candidate = Self.canonicalURL(
+            Self.canonicalURL(match.root.url).deletingLastPathComponent().appendingPathComponent(realName)
+        )
+        guard let folder = match.root.folderURL, Self.contains(candidate, inside: folder) else { return nil }
+        return candidate
+    }
+
+    private struct GrantedSiblingRoot {
+        let root: LocalReferenceRoot
+        let virtualStem: String
+        let realStem: String
+    }
+
+    /// 名字主干最长的那个匹配:`Song Remix.lrc` 归 `Song Remix.flac`,不归 `Song.flac`。
+    private func grantedSiblingRoot(forVirtualName name: String) -> GrantedSiblingRoot? {
+        resolveReferenceRootsIfNeeded()
+        var best: GrantedSiblingRoot?
+        for root in referenceRoots where !root.isDirectory && root.folderURL != nil {
+            guard let component = root.virtualPathComponent, component != name else { continue }
+            let virtualStem = (component as NSString).deletingPathExtension
+            guard Self.isSidecarName(name, ofStem: virtualStem),
+                  virtualStem.count > (best?.virtualStem.count ?? -1) else { continue }
+            best = GrantedSiblingRoot(
+                root: root,
+                virtualStem: virtualStem,
+                realStem: root.url.deletingPathExtension().lastPathComponent
+            )
+        }
+        return best
+    }
+
+    /// 旁边文件的命名:主干后面紧跟 `.`(`.lrc`、`.zh.lrc`)或 `-`(`-cover.jpg`)。
+    private nonisolated static func isSidecarName(_ name: String, ofStem stem: String) -> Bool {
+        guard !stem.isEmpty, name.count > stem.count, name.hasPrefix(stem) else { return false }
+        let next = name[name.index(name.startIndex, offsetBy: stem.count)]
+        return next == "." || next == "-"
+    }
+
+    private struct GrantedSiblingStem: Sendable {
+        let virtualStem: String
+        let realStem: String
+        let audioName: String
+    }
+
+    private struct GrantedSiblingFolder: Sendable {
+        let directory: URL
+        let stems: [GrantedSiblingStem]
+    }
+
+    /// 授权过文件夹的单独文件,按所在目录归在一起:同一个目录只列一次。
+    private func grantedSiblingFolders() -> [GrantedSiblingFolder] {
+        var order: [String] = []
+        var folders: [String: (directory: URL, stems: [GrantedSiblingStem])] = [:]
+        for root in referenceRoots where !root.isDirectory && root.folderURL != nil {
+            guard let component = root.virtualPathComponent else { continue }
+            let directory = root.url.deletingLastPathComponent()
+            let key = directory.standardizedFileURL.path
+            let stem = GrantedSiblingStem(
+                virtualStem: (component as NSString).deletingPathExtension,
+                realStem: root.url.deletingPathExtension().lastPathComponent,
+                audioName: root.url.lastPathComponent
+            )
+            if folders[key] == nil {
+                order.append(key)
+                folders[key] = (directory, [])
+            }
+            folders[key]?.stems.append(stem)
+        }
+        return order.compactMap { key in
+            folders[key].map { GrantedSiblingFolder(directory: $0.directory, stems: $0.stems) }
+        }
+    }
+
+    /// 虚拟根目录列表里补上授权过文件夹的单独文件旁边的歌词、封面、MV 文件,读歌词和保存前的
+    /// 检查才看得见。列目录不占着连接器:播放取文件地址走的也是它。
+    @concurrent
+    private nonisolated static func listGrantedSiblings(
+        _ folders: [GrantedSiblingFolder],
+        excluding listed: Set<String>
+    ) async -> [RemoteFileItem] {
+        var items: [RemoteFileItem] = []
+        var seen = listed
+        for folder in folders {
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.directory.path) else {
+                continue
+            }
+            for realName in names {
+                guard grantedSiblingExtensions.contains((realName as NSString).pathExtension.lowercased()) else {
+                    continue
+                }
+                let owners = folder.stems.filter {
+                    $0.audioName != realName && isSidecarName(realName, ofStem: $0.realStem)
+                }
+                guard let owner = owners.max(by: { $0.realStem.count < $1.realStem.count }) else { continue }
+                let virtualName = owner.virtualStem + realName.dropFirst(owner.realStem.count)
+                let url = folder.directory.appendingPathComponent(realName)
+                guard seen.insert(virtualName.lowercased()).inserted,
+                      let values = try? url.resourceValues(forKeys: [
+                          .isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
+                      ]), values.isDirectory != true else { continue }
+                let size = Int64(values.fileSize ?? 0)
+                items.append(RemoteFileItem(
+                    name: virtualName,
+                    path: "/" + virtualName,
+                    isDirectory: false,
+                    size: size,
+                    modifiedDate: values.contentModificationDate,
+                    revision: localRevision(size: size, modifiedDate: values.contentModificationDate)
+                ))
+            }
+        }
+        return items
+    }
+
+    /// 单独添加、没有补授权所在文件夹的文件:只能改它本身。
+    private func lacksFolderAccess(_ url: URL) -> Bool {
+        referenceRoots.contains {
+            !$0.isDirectory && $0.folderURL == nil && Self.canonicalURL($0.url) == Self.canonicalURL(url)
+        }
+    }
+
+    /// 授权所在文件夹之后,让这个连接器接着用上新授权:只给还没有文件夹授权的单独文件补上,
+    /// 不动已经在用的访问权限,同一个源正在播放的歌不受影响。
+    func reloadFolderGrants() {
+        #if os(iOS) || os(macOS)
+        resolveReferenceRootsIfNeeded()
+        guard let references = LocalBookmarkStore.resolveReferences(sourceID: sourceID, refreshStaleBookmarks: false),
+              !references.isEmpty else { return }
+        var added = 0
+        for index in referenceRoots.indices where !referenceRoots[index].isDirectory
+            && referenceRoots[index].folderURL == nil {
+            guard let match = references.first(where: {
+                      $0.virtualPathComponent == referenceRoots[index].virtualPathComponent
+                  }),
+                  let folderURL = match.folderURL else { continue }
+            referenceRoots[index].folderURL = folderURL
+            referenceRoots[index].folderUsesSecurityScope = folderURL.startAccessingSecurityScopedResource()
+            added += 1
+        }
+        if added > 0 {
+            plog("📁 Local reference connector picked up folder access source=\(sourceID.prefix(8)) files=\(added)")
+        }
+        #endif
+    }
+
+    // MARK: - 保存位置探测
+
+    /// 音频文件和所在文件夹现在能不能写。只读文件系统属性,不碰文件内容。
+    func saveLocationAccess(for path: String) async -> SaveLocationAccess {
+        guard let url = try? resolvedURL(for: path, allowRoot: false) else { return .unknown }
+        return await Self.probeSaveLocation(url, lacksFolderAccess: lacksFolderAccess(url))
+    }
+
+    private static let accessKeys: Set<URLResourceKey> = [
+        .isWritableKey, .volumeIsReadOnlyKey, .volumeIsLocalKey, .isUbiquitousItemKey,
+    ]
+
+    /// 结论确定才算数:网络卷、iCloud 云盘和其它 File Provider 目录报的写权限不可靠,一律当「不知道」,
+    /// 照常试着写,写失败再按失败处理。原来能写进文件的,不会因为探测变成只存 Primuse。
+    private nonisolated static func definiteAccess(_ values: URLResourceValues?, path: String) -> SaveLocationPolicy.Access {
+        guard let values else { return .unknown }
+        if values.volumeIsReadOnly == true { return .readOnlyVolume }
+        guard let writable = values.isWritable else { return .unknown }
+        if writable { return .writable }
+        let uncertain = values.volumeIsLocal == false
+            || values.isUbiquitousItem == true
+            || isFileProviderPath(path)
+        return uncertain ? .unknown : .notWritable
+    }
+
+    private nonisolated static func isFileProviderPath(_ path: String) -> Bool {
+        path.contains("/Library/Mobile Documents/")
+            || path.contains("/Library/CloudStorage/")
+            || path.contains("/File Provider Storage/")
+    }
+
+    /// 歌曲所在的文件夹能不能新建文件。确定不能时才是 `.notWritable`。
+    private nonisolated static func definiteFolderAccess(of file: URL) -> SaveLocationPolicy.Access {
+        let folder = URL(fileURLWithPath: file.deletingLastPathComponent().path)
+        return definiteAccess(try? folder.resourceValues(forKeys: accessKeys), path: folder.path)
+    }
+
+    @concurrent
+    private nonisolated static func probeSaveLocation(_ url: URL, lacksFolderAccess: Bool) async -> SaveLocationAccess {
+        var access = SaveLocationAccess()
+        // 每次新建 URL,不吃上一次缓存的属性值。
+        let file = URL(fileURLWithPath: url.path)
+        let values = try? file.resourceValues(forKeys: accessKeys.union([.ubiquitousItemHasUnresolvedConflictsKey]))
+        access.hasICloudConflict = values?.ubiquitousItemHasUnresolvedConflicts == true
+        // 还没下到这台设备的 iCloud 文件(旧式占位)读不到属性:写之前会先下载,不算不能写。
+        access.audioFile = definiteAccess(values, path: file.path)
+        if lacksFolderAccess {
+            access.folder = .noAccess
+        } else {
+            access.folder = definiteFolderAccess(of: file)
+        }
+        if access.audioFile == .readOnlyVolume, access.folder != .noAccess {
+            access.folder = .readOnlyVolume
+        }
+        return access
+    }
+
+    // MARK: - 写回前先把 iCloud 文件下到本机
+
+    /// 还没下到这台设备的 iCloud 云盘文件,改写之前要先下载并等它落地(最多 3 分钟),不能当成只读。
+    /// 没网时立刻失败;超时按下载失败报,不当成马上能重试的网络抖动。
+    @concurrent
+    private nonisolated static func downloadForWritebackIfNeeded(_ url: URL) async throws {
+        guard await UbiquitousPlaybackFile.needsDownload(url) else { return }
+        plog("☁️ Writeback: file is not on this device yet, downloading before the write name=\(url.lastPathComponent)")
+        let started = Date()
+        do {
+            try await AsyncOperationTimeout.run(seconds: 180) {
+                try await UbiquitousPlaybackFile.download(
+                    url,
+                    isOffline: { @MainActor in
+                        NetworkMonitor.shared.hasDeterminedPath && !NetworkMonitor.shared.isReachable
+                    },
+                    isCurrent: { true }
+                )
+            }
+            plog("☁️ Writeback: download finished in \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
+        } catch let error as UbiquitousPlaybackFile.DownloadError {
+            plog("⚠️ Writeback: iCloud download failed (\(error.failure)) after \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
+            throw error
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            plog("⚠️ Writeback: iCloud download did not finish in time: \(error.localizedDescription)")
+            throw UbiquitousPlaybackFile.DownloadError(failure: .timedOut, underlyingDescription: error.localizedDescription)
+        }
+    }
+
+    // MARK: - 原地改写
+
+    /// 原地改写一个音频文件(做法和失败时怎么保住原文件见 `InPlaceFileRewrite`)。
+    private func rewriteInPlace(_ destination: URL, with source: URL, path: String, refreshesBookmark: Bool) throws {
+        try InPlaceFileRewrite.rewrite(destination, with: source, sourceID: sourceID)
+        #if os(iOS) || os(macOS)
+        if refreshesBookmark {
+            LocalBookmarkStore.refreshFileBookmark(sourceID: sourceID, fileURL: destination)
+        }
+        #endif
+    }
+
+    @concurrent
+    private nonisolated static func restorePendingRewrites(sourceID: String) async {
+        InPlaceFileRewrite.restorePending(sourceID: sourceID)
     }
 
     private func relativePath(for url: URL) -> String {
@@ -1702,6 +2019,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 }
 
+extension LocalFileSource: SaveLocationProbing {}
+
 /// 本机文件夹引用里那些放在 iCloud 云盘、还没下到这台设备的歌:起播前读状态、请求下载、
 /// 等到能读(#170)。判定规则见 `UbiquitousPlaybackDownloadPolicy`。
 enum UbiquitousPlaybackFile {
@@ -1814,5 +2133,336 @@ enum UbiquitousPlaybackFile {
             isDownloading: values.ubiquitousItemIsDownloading == true,
             downloadErrorText: values.ubiquitousItemDownloadingError?.localizedDescription
         )
+    }
+}
+
+/// 只拿到文件本身的权限(单独添加的文件),或者文件夹里不让新建文件时,改写音频文件的做法:
+/// 协调写入,从头覆盖,最后截断到新长度并落盘,不先把文件截成 0。
+///
+/// 任何一步出错都不丢用户的原文件:
+/// - 写之前先看空间,新内容和备份都放得下才动手,不够就报错,文件不动。
+/// - 备份放在 Application Support 下的专用目录(不是临时目录、不是缓存),写完并回读核对通过才删。
+/// - 写入或核对失败就从备份放回,放回后再核对一次。
+/// - 放回也失败:备份留着,记一笔待恢复(文件书签、备份、原来的大小与修改时间),报错说清楚;
+///   下次用到这个音乐源时自动放回。
+enum InPlaceFileRewrite {
+    /// 测试用:模拟写到一半出错、放回也出错、空间不够。
+    struct FaultInjection: Sendable {
+        var failWriteAfterBytes: Int64?
+        var failRestore: Bool
+        var availableCapacity: Int64?
+
+        init(failWriteAfterBytes: Int64? = nil, failRestore: Bool = false, availableCapacity: Int64? = nil) {
+            self.failWriteAfterBytes = failWriteAfterBytes
+            self.failRestore = failRestore
+            self.availableCapacity = availableCapacity
+        }
+    }
+
+    enum Failure: LocalizedError, Equatable {
+        /// 空间不够,文件没动。
+        case insufficientSpace(needed: Int64, available: Int64)
+        /// 写的时候出错,原文件已经放回并核对过。
+        case restored(detail: String)
+        /// 写的时候出错,放回也没成;备份留着,下次自动放回。
+        case backupKept(detail: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .insufficientSpace(let needed, let available):
+                return String(
+                    format: String(localized: "save_location_rewrite_no_space_format"),
+                    ByteCountFormatter.string(fromByteCount: needed, countStyle: .file),
+                    ByteCountFormatter.string(fromByteCount: max(0, available), countStyle: .file)
+                )
+            case .restored:
+                return String(localized: "save_location_rewrite_restored")
+            case .backupKept:
+                return String(localized: "save_location_rewrite_backup_kept")
+            }
+        }
+    }
+
+    /// 放回失败时记下的一笔。
+    struct PendingRestore: Codable, Sendable, Equatable {
+        let id: String
+        let sourceID: String
+        let filePath: String
+        let fileBookmark: Data?
+        let backupFileName: String
+        let originalSize: Int64
+        let originalModified: Date?
+        let originalSHA256: String
+        /// 出错之后文件的样子:之后又变了,说明别处已经放上了新的完整版本,不去覆盖。
+        let damagedSize: Int64?
+        let damagedModified: Date?
+        let createdAt: Date
+    }
+
+    static var defaultBackupDirectory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("WritebackBackups", isDirectory: true)
+    }
+
+    private static let lock = NSLock()
+
+    static func rewrite(
+        _ destination: URL,
+        with source: URL,
+        sourceID: String,
+        backupDirectory: URL = defaultBackupDirectory,
+        faults: FaultInjection = FaultInjection()
+    ) throws {
+        let newSize = Int64(try source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+        plog("Rewrite in place: begin name=\(destination.lastPathComponent) bytes=\(newSize)")
+        try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+        var coordinationError: NSError?
+        var outcome: Result<Void, any Error> = .success(())
+        NSFileCoordinator(filePresenter: nil).coordinate(
+            writingItemAt: destination,
+            options: [],
+            error: &coordinationError
+        ) { url in
+            outcome = Result {
+                try rewriteCoordinated(
+                    url,
+                    with: source,
+                    newSize: newSize,
+                    sourceID: sourceID,
+                    backupDirectory: backupDirectory,
+                    faults: faults
+                )
+            }
+        }
+        if let coordinationError {
+            plog("⚠️ Rewrite in place: coordination failed, file untouched: \(coordinationError.localizedDescription)")
+            throw coordinationError
+        }
+        try outcome.get()
+    }
+
+    private static func rewriteCoordinated(
+        _ url: URL,
+        with source: URL,
+        newSize: Int64,
+        sourceID: String,
+        backupDirectory: URL,
+        faults: FaultInjection
+    ) throws {
+        let fileManager = FileManager.default
+        let original = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let originalSize = Int64(original.fileSize ?? 0)
+        if let free = faults.availableCapacity ?? availableCapacity(at: url.deletingLastPathComponent()),
+           free < newSize {
+            plog("⚠️ Rewrite in place: not enough space beside the file need=\(newSize) free=\(free), file untouched")
+            throw Failure.insufficientSpace(needed: newSize, available: free)
+        }
+        if let free = faults.availableCapacity ?? availableCapacity(at: backupDirectory), free < originalSize {
+            plog("⚠️ Rewrite in place: not enough space for the backup need=\(originalSize) free=\(free), file untouched")
+            throw Failure.insufficientSpace(needed: originalSize, available: free)
+        }
+        let backupName = UUID().uuidString + "." + (url.pathExtension.isEmpty ? "bak" : url.pathExtension)
+        let backup = backupDirectory.appendingPathComponent(backupName)
+        try fileManager.copyItem(at: url, to: backup)
+        let originalSHA = try SHA256FileDigest.hexDigest(at: backup)
+        let expectedSHA = try SHA256FileDigest.hexDigest(at: source)
+        plog("Rewrite in place: backup made bytes=\(originalSize)")
+        do {
+            try overwrite(url, with: source, length: newSize, failAfterBytes: faults.failWriteAfterBytes)
+            guard try SHA256FileDigest.hexDigest(at: url) == expectedSHA else {
+                throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+            }
+            try? fileManager.removeItem(at: backup)
+            plog("Rewrite in place: written and read back, backup removed")
+        } catch {
+            plog("⚠️ Rewrite in place: write failed, putting the original back: \(error.localizedDescription)")
+            do {
+                if faults.failRestore { throw CocoaError(.fileWriteUnknown) }
+                try overwrite(url, with: backup, length: originalSize, failAfterBytes: nil)
+                guard try SHA256FileDigest.hexDigest(at: url) == originalSHA else {
+                    throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+                }
+                try? fileManager.removeItem(at: backup)
+                plog("Rewrite in place: original put back and read back")
+            } catch let restoreError {
+                let damaged = try? URL(fileURLWithPath: url.path)
+                    .resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                record(PendingRestore(
+                    id: UUID().uuidString,
+                    sourceID: sourceID,
+                    filePath: url.path,
+                    fileBookmark: fileBookmark(for: url),
+                    backupFileName: backupName,
+                    originalSize: originalSize,
+                    originalModified: original.contentModificationDate,
+                    originalSHA256: originalSHA,
+                    damagedSize: damaged?.fileSize.map(Int64.init),
+                    damagedModified: damaged?.contentModificationDate,
+                    createdAt: Date()
+                ), in: backupDirectory)
+                plog("⚠️ Rewrite in place: putting the original back failed (\(restoreError.localizedDescription)); "
+                    + "backup kept name=\(backupName), will restore on next access")
+                throw Failure.backupKept(detail: restoreError.localizedDescription)
+            }
+            throw Failure.restored(detail: error.localizedDescription)
+        }
+    }
+
+    /// 从头覆盖,写完截断到新长度,再落盘。
+    private static func overwrite(_ url: URL, with source: URL, length: Int64, failAfterBytes: Int64?) throws {
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+        let output = try FileHandle(forWritingTo: url)
+        defer { try? output.close() }
+        try output.seek(toOffset: 0)
+        var written: Int64 = 0
+        while let chunk = try input.read(upToCount: 1 << 20), !chunk.isEmpty {
+            if let limit = failAfterBytes, written + Int64(chunk.count) > limit {
+                let room = Int(max(0, limit - written))
+                if room > 0 { try output.write(contentsOf: chunk.prefix(room)) }
+                throw CocoaError(.fileWriteOutOfSpace)
+            }
+            try output.write(contentsOf: chunk)
+            written += Int64(chunk.count)
+        }
+        try output.truncate(atOffset: UInt64(max(0, length)))
+        try output.synchronize()
+    }
+
+    private static func availableCapacity(at url: URL) -> Int64? {
+        guard let values = try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey,
+        ]) else { return nil }
+        if let important = values.volumeAvailableCapacityForImportantUsage, important > 0 { return important }
+        return values.volumeAvailableCapacity.map(Int64.init)
+    }
+
+    private static func fileBookmark(for url: URL) -> Data? {
+        #if os(macOS)
+        try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+        #else
+        try? url.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil)
+        #endif
+    }
+
+    // MARK: 待恢复记录
+
+    private static func pendingURL(in directory: URL) -> URL {
+        directory.appendingPathComponent("pending-restores.json")
+    }
+
+    static func pendingRestores(in directory: URL = defaultBackupDirectory) -> [PendingRestore] {
+        lock.withLock { load(directory) }
+    }
+
+    private static func load(_ directory: URL) -> [PendingRestore] {
+        guard let data = try? Data(contentsOf: pendingURL(in: directory)) else { return [] }
+        return (try? JSONDecoder().decode([PendingRestore].self, from: data)) ?? []
+    }
+
+    private static func save(_ entries: [PendingRestore], in directory: URL) {
+        if entries.isEmpty {
+            try? FileManager.default.removeItem(at: pendingURL(in: directory))
+        } else if let data = try? JSONEncoder().encode(entries) {
+            try? data.write(to: pendingURL(in: directory), options: .atomic)
+        }
+    }
+
+    private static func record(_ entry: PendingRestore, in directory: URL) {
+        lock.withLock {
+            var entries = load(directory)
+            entries.append(entry)
+            save(entries, in: directory)
+        }
+    }
+
+    /// 放回上次没放回的原文件。文件在那之后又被别处换过,说明已经有了新的完整版本:不覆盖它,备份删掉。
+    /// 找不到文件(卷没挂上、权限还没恢复)就留着下次再试。返回放回了几个。
+    @discardableResult
+    static func restorePending(sourceID: String, backupDirectory: URL = defaultBackupDirectory) -> Int {
+        let entries = pendingRestores(in: backupDirectory).filter { $0.sourceID == sourceID }
+        guard !entries.isEmpty else { return 0 }
+        var finished: Set<String> = []
+        var restored = 0
+        for entry in entries {
+            let backup = backupDirectory.appendingPathComponent(entry.backupFileName)
+            guard FileManager.default.fileExists(atPath: backup.path) else {
+                finished.insert(entry.id)
+                continue
+            }
+            let url = resolvedURL(entry)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                plog("Rewrite restore: file not reachable yet, keeping the backup name=\(entry.backupFileName)")
+                continue
+            }
+            let current = try? URL(fileURLWithPath: url.path)
+                .resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            let unchangedSinceFailure = current?.fileSize.map(Int64.init) == entry.damagedSize
+                && sameDate(current?.contentModificationDate, entry.damagedModified)
+            guard unchangedSinceFailure else {
+                plog("Rewrite restore: file changed since the failure, keeping it and dropping the backup")
+                try? FileManager.default.removeItem(at: backup)
+                finished.insert(entry.id)
+                continue
+            }
+            var restoreError: (any Error)?
+            var coordinationError: NSError?
+            NSFileCoordinator(filePresenter: nil).coordinate(
+                writingItemAt: url,
+                options: [],
+                error: &coordinationError
+            ) { target in
+                do {
+                    try overwrite(target, with: backup, length: entry.originalSize, failAfterBytes: nil)
+                    guard try SHA256FileDigest.hexDigest(at: target) == entry.originalSHA256 else {
+                        throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+                    }
+                } catch {
+                    restoreError = error
+                }
+            }
+            if let coordinationError {
+                plog("⚠️ Rewrite restore: coordination failed, will retry: \(coordinationError.localizedDescription)")
+                continue
+            }
+            if let restoreError {
+                plog("⚠️ Rewrite restore: putting the original back failed, will retry: \(restoreError.localizedDescription)")
+                continue
+            }
+            try? FileManager.default.removeItem(at: backup)
+            finished.insert(entry.id)
+            restored += 1
+            plog("Rewrite restore: original put back name=\(url.lastPathComponent)")
+        }
+        if !finished.isEmpty {
+            lock.withLock {
+                save(load(backupDirectory).filter { !finished.contains($0.id) }, in: backupDirectory)
+            }
+        }
+        return restored
+    }
+
+    private static func resolvedURL(_ entry: PendingRestore) -> URL {
+        if let data = entry.fileBookmark {
+            var stale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: LocalBookmarkStore.bookmarkResolutionOptions,
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ) {
+                return url
+            }
+        }
+        return URL(fileURLWithPath: entry.filePath)
+    }
+
+    private static func sameDate(_ lhs: Date?, _ rhs: Date?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): return true
+        case let (lhs?, rhs?): return abs(lhs.timeIntervalSince(rhs)) < 0.001
+        default: return false
+        }
     }
 }

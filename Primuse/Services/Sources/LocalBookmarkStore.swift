@@ -16,11 +16,13 @@ enum LocalBookmarkStore {
     private enum StoreError: LocalizedError {
         case permissionDenied
         case originalSelectionRequired
+        case folderDoesNotContainFile
 
         var errorDescription: String? {
             switch self {
             case .permissionDenied: String(localized: "local_reference_permission_missing")
             case .originalSelectionRequired: String(localized: "delete_source_original_selection")
+            case .folderDoesNotContainFile: String(localized: "save_location_grant_wrong_folder")
             }
         }
     }
@@ -29,6 +31,8 @@ enum LocalBookmarkStore {
         let virtualPathComponent: String?
         let url: URL
         let isDirectory: Bool
+        /// 单独添加的文件另外授权过的所在文件夹:有了它才能在文件旁边写歌词文件、封面文件。
+        var folderURL: URL? = nil
 
         /// Paths are compared through `LocalFileWatchPath`, so `/private`,
         /// Data-volume, Unicode-form and letter-case spellings of the same
@@ -57,6 +61,10 @@ enum LocalBookmarkStore {
         let virtualPathComponent: String?
         let bookmarkData: Data
         let isDirectory: Bool
+        /// 单独添加的文件所在文件夹的授权,用户在保存歌词时另外给的。旧记录里没有。
+        var folderBookmarkData: Data? = nil
+        /// 授权文件夹时记下的文件名:文件自己的书签解不开时,从文件夹里按名字找回它。
+        var fileName: String? = nil
     }
 
     private static let mutationLock = NSLock()
@@ -77,9 +85,84 @@ enum LocalBookmarkStore {
             || UserDefaults.standard.data(forKey: legacyKey(for: sourceID)) != nil
     }
 
+    /// 整个源都能在歌曲旁边写文件:选的都是文件夹,或者单独添加的文件都另外授权过所在文件夹。
     static func supportsSidecarWriting(sourceID: String) -> Bool {
         guard let data = UserDefaults.standard.data(forKey: referencesKey(for: sourceID)) else { return true }
+        return (try? JSONDecoder().decode([StoredReference].self, from: data))?.allSatisfy {
+            $0.isDirectory || $0.folderBookmarkData != nil
+        } == true
+    }
+
+    /// 选的都是文件夹。只有这时才能在源里改目录结构(改名、移动、删文件夹);
+    /// 单独添加的文件补授权了所在文件夹,也只是能在它旁边写歌词、封面文件。
+    static func referencesAreAllDirectories(sourceID: String) -> Bool {
+        guard let data = UserDefaults.standard.data(forKey: referencesKey(for: sourceID)) else { return true }
         return (try? JSONDecoder().decode([StoredReference].self, from: data))?.allSatisfy(\.isDirectory) == true
+    }
+
+    /// 单独添加的文件被改写之后重新生成它的书签。原地改写不换文件,书签照样能用,这里只是保险;
+    /// 生成不了就保留原来的。
+    static func refreshFileBookmark(sourceID: String, fileURL: URL) {
+        let key = referencesKey(for: sourceID)
+        let target = comparablePath(fileURL)
+        guard let bookmark = try? makeBookmark(for: fileURL) else {
+            plog("⚠️ Local reference bookmark refresh failed source=\(sourceID.prefix(8))")
+            return
+        }
+        mutationLock.withLock {
+            guard let encoded = UserDefaults.standard.data(forKey: key),
+                  var stored = try? JSONDecoder().decode([StoredReference].self, from: encoded),
+                  let index = stored.indices.first(where: { index in
+                      !stored[index].isDirectory
+                          && resolve(stored[index].bookmarkData).map { comparablePath($0.url) } == target
+                  }) else { return }
+            stored[index] = StoredReference(
+                virtualPathComponent: stored[index].virtualPathComponent,
+                bookmarkData: bookmark,
+                isDirectory: false,
+                folderBookmarkData: stored[index].folderBookmarkData,
+                fileName: fileURL.lastPathComponent
+            )
+            if let data = try? JSONEncoder().encode(stored) {
+                UserDefaults.standard.set(data, forKey: key)
+            }
+        }
+    }
+
+    /// 给单独添加的文件补上所在文件夹的授权。`folderURL` 来自文件夹选择器;源里所有放在这个文件夹
+    /// (含子文件夹)里的单独文件都用上它。返回用上了的文件数;一个都不在里面时报错,什么都不改。
+    @discardableResult
+    static func grantFolderAccess(sourceID: String, folderURL: URL) throws -> Int {
+        let key = referencesKey(for: sourceID)
+        let folderPath = comparablePath(folderURL)
+        let folderPrefix = folderPath.hasSuffix("/") ? folderPath : folderPath + "/"
+        let bookmark = try makeBookmark(for: folderURL)
+        let granted: Int = try mutationLock.withLock {
+            guard let encoded = UserDefaults.standard.data(forKey: key) else {
+                throw StoreError.folderDoesNotContainFile
+            }
+            var stored = try JSONDecoder().decode([StoredReference].self, from: encoded)
+            var matching: [(index: Int, fileName: String)] = []
+            for index in stored.indices where !stored[index].isDirectory {
+                guard let fileURL = resolve(stored[index].bookmarkData)?.url,
+                      comparablePath(fileURL).hasPrefix(folderPrefix) else { continue }
+                matching.append((index, fileURL.lastPathComponent))
+            }
+            guard !matching.isEmpty else { throw StoreError.folderDoesNotContainFile }
+            for match in matching {
+                stored[match.index].folderBookmarkData = bookmark
+                stored[match.index].fileName = match.fileName
+            }
+            UserDefaults.standard.set(try JSONEncoder().encode(stored), forKey: key)
+            return matching.count
+        }
+        plog("📁 Local reference folder access granted source=\(sourceID.prefix(8)) files=\(granted)")
+        return granted
+    }
+
+    /// 比较两个本机路径用:解开符号链接(`/private/var` 与 `/var`),统一成组合形式的 Unicode。
+    private static func comparablePath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path.precomposedStringWithCanonicalMapping
     }
 
     private static let legacyKeyPrefix = "primuse.localBookmark."
@@ -118,7 +201,9 @@ enum LocalBookmarkStore {
                 stored[index] = StoredReference(
                     virtualPathComponent: original.virtualPathComponent,
                     bookmarkData: try makeBookmark(for: url),
-                    isDirectory: original.isDirectory
+                    isDirectory: original.isDirectory,
+                    folderBookmarkData: original.folderBookmarkData,
+                    fileName: original.fileName
                 )
             }
             store(try JSONEncoder().encode(stored), forKey: referencesKey(for: source.id))
@@ -204,18 +289,29 @@ enum LocalBookmarkStore {
             var didRefresh = false
 
             for (index, reference) in stored.enumerated() {
-                guard let result = resolve(reference.bookmarkData) else { return [] }
+                // 补授权的文件夹解不开(被移走、删了)只是少了旁边写文件的能力,不拖垮整个源。
+                let folder = reference.folderBookmarkData.flatMap { resolve($0) }
+                guard let result = resolve(reference.bookmarkData)
+                        ?? recoveredFileReference(reference, folder: folder?.url) else { return [] }
                 resolved.append(ResolvedReference(
                     virtualPathComponent: reference.virtualPathComponent,
                     url: result.url,
-                    isDirectory: reference.isDirectory
+                    isDirectory: reference.isDirectory,
+                    folderURL: folder?.url
                 ))
                 if refreshStaleBookmarks, result.isStale, let bookmark = try? makeBookmark(for: result.url) {
                     refreshed[index] = StoredReference(
                         virtualPathComponent: reference.virtualPathComponent,
                         bookmarkData: bookmark,
-                        isDirectory: reference.isDirectory
+                        isDirectory: reference.isDirectory,
+                        folderBookmarkData: refreshed[index].folderBookmarkData,
+                        fileName: refreshed[index].fileName
                     )
+                    didRefresh = true
+                }
+                if refreshStaleBookmarks, let folder, folder.isStale,
+                   let bookmark = try? makeBookmark(for: folder.url) {
+                    refreshed[index].folderBookmarkData = bookmark
                     didRefresh = true
                 }
             }
@@ -296,6 +392,23 @@ enum LocalBookmarkStore {
         guard accessed else { throw StoreError.permissionDenied }
         defer { url.stopAccessingSecurityScopedResource() }
         return try operation()
+    }
+
+    /// 单独添加的文件自己的书签解不开(比如被别的工具整个换掉了),但授权过它所在的文件夹:
+    /// 按记下的文件名在文件夹里找回它,当成要刷新的书签处理。找不到才算这条引用丢了。
+    private static func recoveredFileReference(
+        _ reference: StoredReference,
+        folder: URL?
+    ) -> (url: URL, isStale: Bool)? {
+        guard !reference.isDirectory, let folder, let fileName = reference.fileName, !fileName.isEmpty else {
+            return nil
+        }
+        let candidate = folder.appendingPathComponent(fileName)
+        let accessed = folder.startAccessingSecurityScopedResource()
+        defer { if accessed { folder.stopAccessingSecurityScopedResource() } }
+        guard FileManager.default.fileExists(atPath: candidate.path) else { return nil }
+        plog("📁 Local reference recovered through its granted folder name=\(fileName)")
+        return (candidate, true)
     }
 
     private static func resolve(_ data: Data) -> (url: URL, isStale: Bool)? {

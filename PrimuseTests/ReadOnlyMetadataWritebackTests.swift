@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import PrimuseKit
 import XCTest
@@ -1031,6 +1032,122 @@ final class TransientTagWriteRetryTests: XCTestCase {
     }
 }
 
+/// 原地改写(单独添加的文件、文件夹里不让新建文件时):写失败从备份放回原文件;放回也失败就
+/// 留着备份、记一笔待恢复,下次用到这个源时自动放回;空间不够不动文件。
+final class InPlaceFileRewriteTests: XCTestCase {
+    private var directory: URL!
+    private var backups: URL!
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("InPlaceRewrite-\(UUID().uuidString)", isDirectory: true)
+        backups = directory.appendingPathComponent("Backups", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    private func file(_ name: String, _ bytes: Data) throws -> URL {
+        let url = directory.appendingPathComponent(name)
+        try bytes.write(to: url)
+        return url
+    }
+
+    private func backupFiles() -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: backups.path)) ?? [])
+            .filter { $0 != "pending-restores.json" }
+    }
+
+    private func fileNumber(_ url: URL) throws -> Int? {
+        try FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? Int
+    }
+
+    func testRewriteOverwritesInPlaceTruncatesAndDropsTheBackup() throws {
+        let original = Data(repeating: 1, count: 300_000)
+        let edited = Data(repeating: 2, count: 200_000)
+        let song = try file("song.flac", original)
+        let source = try file("edited.flac", edited)
+        let number = try fileNumber(song)
+        try InPlaceFileRewrite.rewrite(song, with: source, sourceID: "fixture", backupDirectory: backups)
+        XCTAssertEqual(try Data(contentsOf: song), edited, "Overwritten from the start, then cut to the new length")
+        XCTAssertEqual(try fileNumber(song), number, "The same file, not a replacement")
+        XCTAssertEqual(backupFiles(), [])
+        XCTAssertTrue(InPlaceFileRewrite.pendingRestores(in: backups).isEmpty)
+    }
+
+    func testFailedWritePutsTheOriginalBack() throws {
+        let original = Data(repeating: 1, count: 2_000_000)
+        let song = try file("song.flac", original)
+        let source = try file("edited.flac", Data(repeating: 2, count: 3_000_000))
+        XCTAssertThrowsError(try InPlaceFileRewrite.rewrite(
+            song, with: source, sourceID: "fixture", backupDirectory: backups,
+            faults: .init(failWriteAfterBytes: 1_000_000)
+        )) { error in
+            guard case InPlaceFileRewrite.Failure.restored = error else { return XCTFail("\(error)") }
+        }
+        XCTAssertEqual(try Data(contentsOf: song), original)
+        XCTAssertEqual(backupFiles(), [])
+        XCTAssertTrue(InPlaceFileRewrite.pendingRestores(in: backups).isEmpty)
+    }
+
+    func testFailedRestoreKeepsTheBackupAndRestoresOnNextAccess() throws {
+        let original = Data(repeating: 1, count: 2_000_000)
+        let song = try file("song.flac", original)
+        let source = try file("edited.flac", Data(repeating: 2, count: 3_000_000))
+        XCTAssertThrowsError(try InPlaceFileRewrite.rewrite(
+            song, with: source, sourceID: "fixture", backupDirectory: backups,
+            faults: .init(failWriteAfterBytes: 1_000_000, failRestore: true)
+        )) { error in
+            guard case InPlaceFileRewrite.Failure.backupKept = error else { return XCTFail("\(error)") }
+            XCTAssertFalse(error.localizedDescription.isEmpty)
+        }
+        XCTAssertNotEqual(try Data(contentsOf: song), original, "The file is damaged now")
+        XCTAssertEqual(backupFiles().count, 1, "The only complete copy must survive")
+        let pending = InPlaceFileRewrite.pendingRestores(in: backups)
+        XCTAssertEqual(pending.map(\.sourceID), ["fixture"])
+        XCTAssertEqual(pending.first?.originalSize, Int64(original.count))
+
+        XCTAssertEqual(InPlaceFileRewrite.restorePending(sourceID: "another", backupDirectory: backups), 0)
+        XCTAssertEqual(InPlaceFileRewrite.restorePending(sourceID: "fixture", backupDirectory: backups), 1)
+        XCTAssertEqual(try Data(contentsOf: song), original)
+        XCTAssertEqual(backupFiles(), [])
+        XCTAssertTrue(InPlaceFileRewrite.pendingRestores(in: backups).isEmpty)
+    }
+
+    func testRestoreLeavesAFileReplacedSinceTheFailureAlone() throws {
+        let original = Data(repeating: 1, count: 2_000_000)
+        let song = try file("song.flac", original)
+        let source = try file("edited.flac", Data(repeating: 2, count: 3_000_000))
+        XCTAssertThrowsError(try InPlaceFileRewrite.rewrite(
+            song, with: source, sourceID: "fixture", backupDirectory: backups,
+            faults: .init(failWriteAfterBytes: 1_000_000, failRestore: true)
+        ))
+        // 之后别处放上了一份新的完整版本:不能拿旧备份盖掉它。
+        let fresh = Data(repeating: 3, count: 1_234)
+        try fresh.write(to: song)
+        XCTAssertEqual(InPlaceFileRewrite.restorePending(sourceID: "fixture", backupDirectory: backups), 0)
+        XCTAssertEqual(try Data(contentsOf: song), fresh)
+        XCTAssertTrue(InPlaceFileRewrite.pendingRestores(in: backups).isEmpty)
+        XCTAssertEqual(backupFiles(), [])
+    }
+
+    func testNotEnoughSpaceLeavesTheFileUntouched() throws {
+        let original = Data(repeating: 1, count: 100_000)
+        let song = try file("song.flac", original)
+        let source = try file("edited.flac", Data(repeating: 2, count: 150_000))
+        XCTAssertThrowsError(try InPlaceFileRewrite.rewrite(
+            song, with: source, sourceID: "fixture", backupDirectory: backups,
+            faults: .init(availableCapacity: 10)
+        )) { error in
+            guard case InPlaceFileRewrite.Failure.insufficientSpace = error else { return XCTFail("\(error)") }
+        }
+        XCTAssertEqual(try Data(contentsOf: song), original)
+        XCTAssertEqual(backupFiles(), [])
+    }
+}
+
 @MainActor
 final class PendingTagWritebackStoreTests: XCTestCase {
     private func song(_ id: String, title: String, artist: String?) -> Song {
@@ -1082,5 +1199,194 @@ final class PendingTagWritebackStoreTests: XCTestCase {
             before: PendingTagWritebackStore.FileTags(file).applied(to: current), current: current)
         let changed = TagMetadataWritebackField.changedFields(from: base, to: current, includesCover: false)
         XCTAssertEqual(changed, [.title, .artist])
+    }
+}
+
+/// 单独添加的文件:没有所在文件夹的授权也能原地写进音频文件,补授权后能在旁边写歌词文件;
+/// 写回方式按「歌词保存到」和探测结果分开定。
+final class LocalSaveLocationAndConflictTests: XCTestCase {
+    private struct Reference: Encodable {
+        let virtualPathComponent: String
+        let bookmarkData: Data
+        let isDirectory: Bool
+        var folderBookmarkData: Data?
+    }
+
+    private var directory: URL!
+    private var sourceID: String!
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SaveLocation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        sourceID = UUID().uuidString
+    }
+
+    override func tearDownWithError() throws {
+        LocalBookmarkStore.remove(sourceID: sourceID)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    // 下面这些帮手函数是静态的:主线程上的测试调用它们时不必把测试对象本身送过去。
+    private static func makeSilentM4A(in directory: URL, named name: String) throws -> URL {
+        let url = directory.appendingPathComponent(name)
+        let file = try AVAudioFile(
+            forWriting: url,
+            settings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 44_100.0,
+                AVNumberOfChannelsKey: 2,
+                AVEncoderBitRateKey: 128_000,
+            ],
+            commonFormat: .pcmFormatFloat32,
+            interleaved: false
+        )
+        let frames: AVAudioFrameCount = 22_050
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frames))
+        buffer.frameLength = frames
+        try file.write(from: buffer)
+        return url
+    }
+
+    private static func makeTaggedAudio(in directory: URL, named name: String = "Song.m4a") async throws -> URL {
+        let url = try makeSilentM4A(in: directory, named: name)
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            EmbeddedMetadataEdits(
+                tags: .init(title: "Song", artist: "Artist", albumTitle: "Album",
+                            genre: "Pop", year: 2001, trackNumber: 1, discNumber: nil),
+                coverData: nil,
+                lyrics: .keep
+            ),
+            to: url
+        )
+        return url
+    }
+
+    /// 只选了这个文件(没有文件夹)的本机音乐源;`grantsFolder` 时另外授权过所在文件夹。
+    private func storeIndividualReference(_ file: URL, grantsFolder: Bool) throws {
+        let reference = Reference(
+            virtualPathComponent: file.lastPathComponent,
+            bookmarkData: try file.bookmarkData(options: .minimalBookmark),
+            isDirectory: false,
+            folderBookmarkData: grantsFolder ? try directory.bookmarkData(options: .minimalBookmark) : nil
+        )
+        UserDefaults.standard.set(
+            try JSONEncoder().encode([reference]), forKey: "primuse.localBookmarks.v1." + sourceID
+        )
+    }
+
+    private static func librarySong(
+        _ source: LocalFileSource,
+        sourceID: String,
+        path: String = "/Song.m4a"
+    ) async throws -> Song {
+        let state = try await source.metadataWritebackState(for: path)
+        var song = Song(id: UUID().uuidString, title: "Song", fileFormat: .m4a, filePath: path, sourceID: sourceID)
+        song.artistName = "Artist"
+        song.albumTitle = "Album"
+        song.genre = "Pop"
+        song.year = 2001
+        song.trackNumber = 1
+        song.fileSize = state.fileSize
+        song.lastModified = state.modifiedDate
+        song.revision = state.revision
+        return song
+    }
+
+    private func fileNumber(_ url: URL) throws -> Int? {
+        try FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? Int
+    }
+
+    func testIndividuallyAddedFileIsRewrittenInPlaceWithoutFolderAccess() async throws {
+        let file = try await Self.makeTaggedAudio(in: directory)
+        try storeIndividualReference(file, grantsFolder: false)
+        let source = LocalFileSource(sourceID: sourceID, basePath: file)
+        XCTAssertFalse(source.supportsSidecarWriting)
+        let access = await source.saveLocationAccess(for: "/Song.m4a")
+        XCTAssertEqual(access.folder, .noAccess, "Only the file itself was picked")
+        XCTAssertEqual(access.audioFile, .writable)
+
+        let before = try fileNumber(file)
+        let original = try await Self.librarySong(source, sourceID: sourceID)
+        var edited = original
+        edited.title = "Edited"
+        let report = await TagMetadataWritebackCoordinator.write(
+            mode: .embedded, connector: source, original: original, updated: edited, coverData: nil
+        )
+        XCTAssertTrue(report.remoteMutationOccurred, report.issueMessage ?? "")
+        XCTAssertEqual(try EmbeddedMetadataWriter.currentTags(at: file).title, "Edited")
+        XCTAssertEqual(try fileNumber(file), before, "Rewritten in place, not replaced through the folder")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), ["Song.m4a"],
+                       "No staging file may be created beside an individually added file")
+    }
+
+    func testGrantedFolderLetsAnIndividualFileWriteFilesBesideIt() async throws {
+        let file = try await Self.makeTaggedAudio(in: directory)
+        let lyrics = directory.appendingPathComponent("Song.lrc")
+        try Data("[00:01.00]old".utf8).write(to: lyrics)
+        try storeIndividualReference(file, grantsFolder: true)
+        XCTAssertTrue(LocalBookmarkStore.supportsSidecarWriting(sourceID: sourceID))
+        let source = LocalFileSource(sourceID: sourceID, basePath: file)
+        XCTAssertTrue(source.supportsSidecarWriting)
+        let access = await source.saveLocationAccess(for: "/Song.m4a")
+        XCTAssertEqual(access.folder, .writable)
+
+        XCTAssertFalse(source.supportsDirectoryMutation, "Writing beside a file is not reorganising folders")
+        let canMutateDirectories = await source.canMutateDirectories()
+        XCTAssertFalse(canMutateDirectories)
+        let notAdded = directory.appendingPathComponent("Song-Remix.flac")
+        try Data(repeating: 7, count: 4_096).write(to: notAdded)
+
+        let listing = try await source.listFiles(at: "/")
+        XCTAssertEqual(Set(listing.map(\.path)), ["/Song.m4a", "/Song.lrc"],
+                       "Audio the user did not add must not show up through the granted folder")
+        try await source.writeFile(data: Data("[00:01.00]new".utf8), to: "/Song.lrc")
+        XCTAssertEqual(try String(contentsOf: lyrics, encoding: .utf8), "[00:01.00]new")
+        do {
+            try await source.writeFile(data: Data("x".utf8), to: "/Song-Remix.flac")
+            XCTFail("An audio file the user did not add must not be writable through the folder")
+        } catch {}
+        XCTAssertEqual(try Data(contentsOf: notAdded), Data(repeating: 7, count: 4_096))
+        do {
+            try await source.writeFile(data: Data("x".utf8), to: "/Other.lrc")
+            XCTFail("A name that belongs to no picked file must not reach the folder")
+        } catch {}
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Other.lrc").path))
+    }
+
+    @MainActor
+    func testLyricsSaveLocationFollowsTheSettingForAnIndividualFile() async throws {
+        let file = try await Self.makeTaggedAudio(in: directory)
+        try storeIndividualReference(file, grantsFolder: false)
+        let musicSource = MusicSource(id: sourceID, name: "Single", type: .local, basePath: file.path, authType: .none)
+        let connector = LocalFileSource(sourceID: sourceID, basePath: file)
+        let manager = SourceManager(sourcesProvider: { [musicSource] }, connectorFactory: { _ in connector })
+        let sources = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("Sources"))
+        sources.add(musicSource)
+        let song = try await Self.librarySong(connector, sourceID: sourceID)
+        defer { EmbeddedLyricsCopyPolicy.setMode(nil, forSongID: song.id) }
+
+        EmbeddedLyricsCopyPolicy.setMode(.embedOnly, forSongID: song.id)
+        var target = await LyricsWriteback.resolveTarget(for: song, sourceManager: manager, sourcesStore: sources)
+        guard case .sidecar(let preflight) = target.mode else {
+            return XCTFail("Embedding must not be stopped by the folder check: \(target.mode)")
+        }
+        XCTAssertFalse(preflight.hasLyricsDocument)
+        XCTAssertEqual(target.plan.destination, .audioFile)
+        XCTAssertEqual(target.plan.reason, .none)
+
+        EmbeddedLyricsCopyPolicy.setMode(.alongside, forSongID: song.id)
+        target = await LyricsWriteback.resolveTarget(for: song, sourceManager: manager, sourcesStore: sources)
+        XCTAssertEqual(target.plan.destination, .audioFile)
+        XCTAssertEqual(target.plan.reason, .noFolderAccessEmbedsOnly)
+        let effective = await manager.lyricsEmbeddingMode(for: song)
+        XCTAssertEqual(effective, .embedOnly, "The lyrics file half cannot be written, so only embedding is left")
+
+        EmbeddedLyricsCopyPolicy.setMode(.off, forSongID: song.id)
+        target = await LyricsWriteback.resolveTarget(for: song, sourceManager: manager, sourcesStore: sources)
+        XCTAssertTrue(target.mode.isLocalStructuredOnly)
+        XCTAssertEqual(target.plan.reason, .noFolderAccess)
+        XCTAssertEqual(target.plan.remedies, [.grantFolderAccess, .embedThisSong, .embedAllSongs])
+        XCTAssertNotEqual(target.notice, String(localized: "save_location_lyrics_read_only_source"))
     }
 }

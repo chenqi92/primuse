@@ -1,9 +1,9 @@
 import SwiftUI
 import PhotosUI
 import PrimuseKit
+import UniformTypeIdentifiers
 #if os(iOS)
 import UIKit
-import UniformTypeIdentifiers
 #elseif os(macOS)
 import AppKit
 #endif
@@ -47,9 +47,20 @@ struct TagEditorView: View {
     @State private var lyricsSourceSnapshot: LyricsWriteback.EditableSourceSnapshot = .unknown
     @State private var lyricsCacheSnapshot: LyricsDocumentFingerprint?
     @State private var lyricsLoading = true
-    @State private var lyricsWritebackMode: LyricsWriteback.Mode = .checking
+    @State private var lyricsTarget: LyricsWriteback.Target = .checking
     @State private var lyricsEmbeddingMode: LyricsEmbeddingMode = .off
     @State private var tagMetadataPersistenceMode: TagMetadataPersistenceMode?
+    /// 音频文件和所在文件夹能不能写,标签与封面那行说明用。
+    @State private var saveLocationAccess: SaveLocationAccess = .unknown
+    @State private var showFolderAccessPicker = false
+    /// 等用户确认的「改成嵌入音频文件」(这首 / 全部)。
+    @State private var pendingEmbedRemedy: SaveLocationPolicy.Remedy?
+    /// 保存后只存在 Primuse 的歌词,用户在提示里选了解决办法:办完再把歌词写一次。
+    @State private var resavesLyricsAfterRemedy = false
+    /// 保存后提示里给的解决办法(只存在 Primuse 的歌词)。
+    @State private var postSaveRemedies: [SaveLocationPolicy.Remedy] = []
+    /// 保存已经做完、补救那一步出了错:报错关掉之后照样收尾、回调 `onSave`。
+    @State private var finishesAfterAlert = false
     @State private var lyricsErrorMessage: String?
     @State private var writebackErrorMessage: String?
     @State private var writebackNoticeMessage: String?
@@ -125,6 +136,9 @@ struct TagEditorView: View {
             let mode = await sourceManager.tagMetadataPersistenceMode(for: song)
             guard !Task.isCancelled, song.id == requestedSongID else { return }
             tagMetadataPersistenceMode = mode
+            let access = await sourceManager.saveLocationAccess(for: song)
+            guard !Task.isCancelled, song.id == requestedSongID else { return }
+            saveLocationAccess = access
         }
         .alert(
             String(localized: "tag_editor_lyrics_error_title"),
@@ -133,7 +147,7 @@ struct TagEditorView: View {
                 set: { if !$0 { lyricsErrorMessage = nil } }
             )
         ) {
-            Button(String(localized: "done"), role: .cancel) {}
+            Button(String(localized: "done"), role: .cancel) { finishIfSaveCompleted() }
         } message: {
             Text(lyricsErrorMessage ?? "")
         }
@@ -144,7 +158,7 @@ struct TagEditorView: View {
                 set: { if !$0 { writebackErrorMessage = nil } }
             )
         ) {
-            Button(String(localized: "done"), role: .cancel) {}
+            Button(String(localized: "done"), role: .cancel) { finishIfSaveCompleted() }
         } message: {
             Text(writebackErrorMessage ?? "")
         }
@@ -155,15 +169,22 @@ struct TagEditorView: View {
                 set: { if !$0 { writebackNoticeMessage = nil } }
             )
         ) {
+            ForEach(postSaveRemedies, id: \.self) { remedy in
+                Button(remedy.title) { startRemedy(remedy, resavingLyrics: true) }
+            }
             Button(String(localized: "done"), role: .cancel) {
-                guard let savedSongPendingNotice else { return }
-                self.savedSongPendingNotice = nil
-                onSave?(savedSongPendingNotice)
-                dismiss()
+                finishAfterNotice()
             }
         } message: {
             Text(writebackNoticeMessage ?? "")
         }
+        .modifier(SaveLocationRemedyPrompts(
+            showsFolderPicker: $showFolderAccessPicker,
+            pendingEmbedRemedy: $pendingEmbedRemedy,
+            onFolderPicked: { result in handleFolderAccessPick(result) },
+            onEmbedConfirmed: { remedy in applyEmbedRemedy(remedy) },
+            onCancelled: { cancelRemedy() }
+        ))
         #if os(macOS)
         // iOS 的这个确认挂在工具栏的「保存」上（见 legacyBody）。
         .confirmationDialog(
@@ -271,7 +292,7 @@ struct TagEditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "cancel")) { dismiss() }
+                    Button(String(localized: "cancel")) { cancelEditing() }
                         .disabled(isSaving || isLoadingCover)
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -814,14 +835,18 @@ struct TagEditorView: View {
 
             lyricsWritebackStatus
                 .font(.caption2)
+            lyricsRemedyButtons
         }
     }
 
     private var resetRow: some View {
-        HStack {
-            Text(tagMetadataStatusText)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(tagMetadataStatusText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                tagRemedyButtons
+            }
             Spacer(minLength: 10)
             Button(role: .destructive) {
                 showResetConfirm = true
@@ -1091,10 +1116,13 @@ struct TagEditorView: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(PMColor.textFaint)
                             .padding(.top, 1)
-                        Text(tagMetadataStatusText)
-                            .font(PMFont.caption)
-                            .foregroundStyle(PMColor.textFaint)
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(tagMetadataStatusText)
+                                .font(PMFont.caption)
+                                .foregroundStyle(PMColor.textFaint)
+                                .fixedSize(horizontal: false, vertical: true)
+                            tagRemedyButtons
+                        }
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 12)
@@ -1131,7 +1159,7 @@ struct TagEditorView: View {
                 .disabled(!hasChanges || lyricsLoading || isSaving || isLoadingCover)
 
                 Button {
-                    dismiss()
+                    cancelEditing()
                 } label: {
                     Text(String(localized: "cancel"))
                         .font(PMFont.bodyM)
@@ -1306,13 +1334,13 @@ struct TagEditorView: View {
 
     private var macLyricsEditor: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(String(localized: "tag_editor_lyrics_section"))
-                    .font(PMFont.bodyS)
-                    .foregroundStyle(PMColor.textMuted)
-                Spacer()
-                lyricsWritebackStatus
-            }
+            Text(String(localized: "tag_editor_lyrics_section"))
+                .font(PMFont.bodyS)
+                .foregroundStyle(PMColor.textMuted)
+            // 说明里有落在哪里、为什么、怎么解决,一行放不下,单独占几行。
+            lyricsWritebackStatus
+                .font(PMFont.caption)
+            lyricsRemedyButtons
 
             Button {
                 showLyricsEditor = true
@@ -1431,63 +1459,60 @@ struct TagEditorView: View {
         )
     }
 
-    @ViewBuilder
+    /// 这次保存落在哪里、为什么。开头先说落点,后面是原因和解决办法。
     private var lyricsWritebackStatus: some View {
-        switch lyricsWritebackMode {
-        case .checking:
-            Label(String(localized: "tag_editor_lyrics_writeback_checking"), systemImage: "hourglass")
-                .foregroundStyle(.secondary)
-        case .sidecar(let target):
-            if EmbeddedLyricsCopyPolicy.skipsLyricsFile(
-                lyricsEmbeddingMode,
-                lyricsDocumentExists: target.hasLyricsDocument
-            ) {
-                Label(
-                    String(localized: "tag_editor_lyrics_writeback_embedded"),
-                    systemImage: "externaldrive.badge.checkmark"
-                )
-                    .foregroundStyle(.secondary)
-            } else {
-                let template = target.replacesExistingFile
-                    ? String(localized: "tag_editor_lyrics_writeback_sidecar_replace")
-                    : String(localized: "tag_editor_lyrics_writeback_sidecar_new")
-                let fileLine = String(format: template, target.fileName)
-                Label(
-                    lyricsEmbeddingMode == .off
-                        ? fileLine
-                        : fileLine + "\n" + String(localized: "tag_editor_lyrics_writeback_also_embedded"),
-                    systemImage: "externaldrive.badge.checkmark"
-                )
-                    .foregroundStyle(.secondary)
+        Label(lyricsTarget.fullNotice, systemImage: lyricsStatusIcon)
+            .foregroundStyle(lyricsStatusColor)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var lyricsStatusIcon: String {
+        switch lyricsTarget.mode {
+        case .checking: return "hourglass"
+        case .sidecar: return "externaldrive.badge.checkmark"
+        case .mediaServer: return "server.rack"
+        case .localOnly: return "lock"
+        case .unavailable: return "exclamationmark.triangle"
+        case .temporarilyUnavailable: return "arrow.clockwise"
+        }
+    }
+
+    private var lyricsStatusColor: Color {
+        switch lyricsTarget.mode {
+        case .checking, .sidecar, .mediaServer: return .secondary
+        // 这次没连上，不代表源不可写 —— 用可重试的说法和不那么告警的颜色。
+        case .localOnly, .temporarilyUnavailable: return .orange
+        case .unavailable: return .red
+        }
+    }
+
+    /// 能一键解决的办法:授权所在文件夹、改成嵌入音频文件。
+    @ViewBuilder
+    private var lyricsRemedyButtons: some View {
+        if !lyricsLoading {
+            remedyButtons(lyricsTarget.plan.remedies)
+        }
+    }
+
+    /// 标签那一行:只收封面文件的格式又没有文件夹授权时,给授权按钮。歌词那边已经有的不重复给。
+    @ViewBuilder
+    private var tagRemedyButtons: some View {
+        let remedies = currentTagPlan?.remedies.filter { !lyricsTarget.plan.remedies.contains($0) } ?? []
+        remedyButtons(remedies)
+    }
+
+    @ViewBuilder
+    private func remedyButtons(_ remedies: [SaveLocationPolicy.Remedy]) -> some View {
+        if !remedies.isEmpty {
+            HStack(spacing: 12) {
+                ForEach(remedies, id: \.self) { remedy in
+                    Button(remedy.title) { startRemedy(remedy, resavingLyrics: false) }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tint)
+                        .buttonStyle(.plain)
+                }
             }
-        case .mediaServer:
-            Label(String(localized: "tag_editor_lyrics_writeback_server"), systemImage: "server.rack")
-                .foregroundStyle(.secondary)
-        case .localOnly(let reason):
-            Label(
-                reason ?? String(localized: "tag_editor_lyrics_writeback_read_only"),
-                systemImage: "lock"
-            )
-                .foregroundStyle(.orange)
-        case .unavailable(let reason):
-            Label(
-                String(
-                    format: String(localized: "tag_editor_lyrics_writeback_unavailable"),
-                    reason
-                ),
-                systemImage: "exclamationmark.triangle"
-            )
-            .foregroundStyle(.red)
-        case .temporarilyUnavailable(let reason):
-            // 这次没连上，不代表源不可写 —— 用可重试的说法和不那么告警的颜色。
-            Label(
-                String(
-                    format: String(localized: "tag_editor_lyrics_writeback_retry"),
-                    reason
-                ),
-                systemImage: "arrow.clockwise"
-            )
-            .foregroundStyle(.orange)
+            .disabled(isSaving)
         }
     }
 
@@ -1610,19 +1635,22 @@ struct TagEditorView: View {
         return textChanged || structureChanged
     }
 
+    private var currentTagPlan: SaveLocationPolicy.Plan? {
+        guard let tagMetadataPersistenceMode else { return nil }
+        let facts = SaveLocationPolicy.Facts(
+            audioFile: saveLocationAccess.audioFile,
+            folder: saveLocationAccess.folder
+        )
+        return SaveLocationPolicy.tagPlan(facts, capability: tagMetadataPersistenceMode.capability)
+    }
+
     private var tagMetadataStatusText: String {
-        switch tagMetadataPersistenceMode {
-        case nil:
+        guard let plan = currentTagPlan else {
             return String(localized: "tag_editor_metadata_writeback_checking")
-        case .embedded:
-            return String(localized: "tag_editor_metadata_writeback_embedded")
-        case .serverAPI:
-            return String(localized: "tag_editor_metadata_writeback_server_api")
-        case .sidecarOnly:
-            return String(localized: "tag_editor_metadata_writeback_sidecar_only")
-        case .localOnly:
-            return String(localized: "tag_editor_metadata_writeback_local_only")
         }
+        let text = TagMetadataWritebackCoordinator.noticeText(for: plan)
+        guard saveLocationAccess.hasICloudConflict else { return text }
+        return text + "\n" + String(localized: "save_location_icloud_conflict")
     }
 
     private var currentLyricsValidation: LyricsEditableValidation? {
@@ -1777,11 +1805,11 @@ struct TagEditorView: View {
             // accepted tags first so that merge retains this editor's changes,
             // including a local-only edit after the source refused write access.
             if sourceMutationOccurred || metadataSavedLocally { library.replaceSong(updated) }
-            let mode = await resolveLyricsWritebackMode(for: updated)
+            let target = await resolveLyricsWritebackMode(for: updated)
             let outcome = await LyricsWriteback.save(
                 text: lyricsText,
                 for: updated,
-                mode: mode,
+                mode: target.mode,
                 allowRemoval: allowLyricsRemoval,
                 structuredLines: pendingLyricsLines ?? initialLyricsLines,
                 sourceSnapshot: lyricsSourceSnapshot,
@@ -1809,10 +1837,17 @@ struct TagEditorView: View {
             updated = outcome.updatedSong
             lyricsCacheSnapshot = outcome.cacheSnapshot
             if outcome.persistence == .localOnly {
-                let lyricsNotice = String(localized: "tag_editor_lyrics_writeback_read_only")
+                let lyricsNotice = LyricsWriteback.keptLocallyMessage(requested: target)
                 metadataWritebackNotice = [metadataWritebackNotice, lyricsNotice]
                     .compactMap { $0 }
                     .joined(separator: "\n")
+                postSaveRemedies = target.plan.remedies
+            } else if target.plan.reason != .none {
+                // 落点和设置不一样(单独添加的文件只嵌入了、格式不能嵌入只写了歌词文件):说一声。
+                metadataWritebackNotice = [metadataWritebackNotice, target.fullNotice]
+                    .compactMap { $0 }
+                    .joined(separator: "\n")
+                postSaveRemedies = target.plan.remedies
             }
             if let embeddedCopyError = outcome.embeddedCopyError {
                 let embedNotice = String(
@@ -1873,11 +1908,11 @@ struct TagEditorView: View {
         let requestedSong = song
         let requestedSongID = requestedSong.id
         lyricsLoading = true
-        lyricsWritebackMode = .checking
+        lyricsTarget = .checking
         // 读歌词和探测写回目标互不依赖，各自还都要列一次歌曲所在目录；
         // 排成一条线走等于让用户多等一整轮网络往返。
         let probe = Task { @MainActor in
-            await LyricsWriteback.resolveMode(
+            await LyricsWriteback.resolveTarget(
                 for: requestedSong,
                 sourceManager: sourceManager,
                 sourcesStore: sourcesStore
@@ -1891,14 +1926,14 @@ struct TagEditorView: View {
             probe.cancel()
             return
         }
-        let mode = await probe.value.protectingSourceConflict(payload.hasSourceConflict)
+        let target = await probe.value.protectingSourceConflict(payload.hasSourceConflict)
         let embeddingMode = await sourceManager.lyricsEmbeddingMode(for: requestedSong)
         guard !Task.isCancelled, song.id == requestedSongID else { return }
         lyricsEmbeddingMode = embeddingMode
         lyricsHaveSourceConflict = payload.hasSourceConflict
         lyricsSourceSnapshot = payload.sourceSnapshot
         lyricsCacheSnapshot = payload.cacheSnapshot
-        lyricsWritebackMode = mode
+        lyricsTarget = target
         lyricsText = payload.text
         originalLyricsText = payload.text
         initialLyricsLines = payload.structuredLines
@@ -1907,15 +1942,145 @@ struct TagEditorView: View {
     }
 
     @MainActor
-    private func resolveLyricsWritebackMode(for target: Song) async -> LyricsWriteback.Mode {
-        let mode = await LyricsWriteback.resolveMode(
-            for: target,
+    private func resolveLyricsWritebackMode(for song: Song) async -> LyricsWriteback.Target {
+        let target = await LyricsWriteback.resolveTarget(
+            for: song,
             sourceManager: sourceManager,
             sourcesStore: sourcesStore
         ).protectingSourceConflict(lyricsHaveSourceConflict)
-        lyricsEmbeddingMode = await sourceManager.lyricsEmbeddingMode(for: target)
-        lyricsWritebackMode = mode
-        return mode
+        lyricsEmbeddingMode = await sourceManager.lyricsEmbeddingMode(for: song)
+        lyricsTarget = target
+        return target
+    }
+
+    private var lyricsWritebackMode: LyricsWriteback.Mode { lyricsTarget.mode }
+
+    // MARK: - 保存位置:解决办法
+
+    /// `resavingLyrics`:保存已经做完、歌词只存在了 Primuse,办完再把歌词写一次,然后关页面。
+    private func startRemedy(_ remedy: SaveLocationPolicy.Remedy, resavingLyrics: Bool) {
+        resavesLyricsAfterRemedy = resavingLyrics
+        Task { @MainActor in
+            // 从保存结果的提示框里点的:等提示框退场再弹,不然系统可能不弹。弹不出来时取消按钮照样能收尾。
+            if resavingLyrics { try? await Task.sleep(for: .milliseconds(450)) }
+            switch remedy {
+            case .grantFolderAccess:
+                showFolderAccessPicker = true
+            case .embedThisSong, .embedAllSongs:
+                pendingEmbedRemedy = remedy
+            }
+        }
+    }
+
+    /// 取消:保存已经做完、只差补救的,照样把存好的那一行交给调用方。
+    private func cancelEditing() {
+        if savedSongPendingNotice != nil {
+            resavesLyricsAfterRemedy = false
+            finishAfterNotice()
+        } else {
+            dismiss()
+        }
+    }
+
+    /// 报错框关掉时:保存已经做完、是补救那一步出的错,照样收尾。
+    private func finishIfSaveCompleted() {
+        guard finishesAfterAlert else { return }
+        finishesAfterAlert = false
+        finishAfterNotice()
+    }
+
+    private func cancelRemedy() {
+        guard resavesLyricsAfterRemedy else { return }
+        resavesLyricsAfterRemedy = false
+        finishAfterNotice()
+    }
+
+    private func handleFolderAccessPick(_ result: Result<URL, any Error>) {
+        switch result {
+        case .success(let folderURL):
+            Task { @MainActor in
+                do {
+                    try await sourceManager.grantFolderAccess(for: song, folderURL: folderURL)
+                } catch {
+                    finishesAfterAlert = resavesLyricsAfterRemedy
+                    resavesLyricsAfterRemedy = false
+                    writebackErrorMessage = error.localizedDescription
+                    return
+                }
+                await remedyDidApply(grantedFolder: true)
+            }
+        case .failure(let error):
+            guard !OperationCancellationPolicy.isCancellation(error) else {
+                cancelRemedy()
+                return
+            }
+            finishesAfterAlert = resavesLyricsAfterRemedy
+            resavesLyricsAfterRemedy = false
+            writebackErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func applyEmbedRemedy(_ remedy: SaveLocationPolicy.Remedy) {
+        remedy.applyEmbedding(for: song.id)
+        Task { @MainActor in await remedyDidApply(grantedFolder: false) }
+    }
+
+    /// 授权或改了保存方式之后重新探测;保存后点的,就把歌词再写一次。
+    private func remedyDidApply(grantedFolder: Bool) async {
+        let current = library.storedSong(id: song.id) ?? song
+        if grantedFolder {
+            // 授权之后旁边原有的歌词文件也看得见了:重拍来源快照,继续保存才不会被当成来源被别处改过。
+            lyricsSourceSnapshot = await LyricsWriteback.currentSourceSnapshot(for: current, sourceManager: sourceManager)
+        }
+        let target = await resolveLyricsWritebackMode(for: current)
+        saveLocationAccess = await sourceManager.saveLocationAccess(for: current)
+        guard resavesLyricsAfterRemedy else { return }
+        resavesLyricsAfterRemedy = false
+        await resaveLyrics(to: target, for: current)
+    }
+
+    /// 歌词已经存在 Primuse,换到能写文件的目标再存一次。标签和封面那次已经存好,不重复写。
+    private func resaveLyrics(to target: LyricsWriteback.Target, for current: Song) async {
+        guard !target.plan.keepsOnlyInPrimuse, target.plan.destination != .undetermined else {
+            writebackNoticeMessage = LyricsWriteback.keptLocallyMessage(requested: target)
+            postSaveRemedies = []
+            return
+        }
+        isSaving = true
+        let outcome = await LyricsWriteback.save(
+            text: lyricsText,
+            for: current,
+            mode: target.mode,
+            allowRemoval: false,
+            structuredLines: pendingLyricsLines ?? initialLyricsLines,
+            sourceSnapshot: lyricsSourceSnapshot,
+            cacheSnapshot: lyricsCacheSnapshot,
+            sourceManager: sourceManager,
+            library: library
+        )
+        isSaving = false
+        postSaveRemedies = []
+        guard outcome.succeeded else {
+            finishesAfterAlert = true
+            lyricsErrorMessage = outcome.errorMessage
+            return
+        }
+        lyricsCacheSnapshot = outcome.cacheSnapshot
+        savedSongPendingNotice = outcome.updatedSong
+        if let embeddedCopyError = outcome.embeddedCopyError {
+            writebackNoticeMessage = String(format: String(localized: "lyrics_embed_copy_failed_format"), embeddedCopyError)
+            return
+        }
+        finishAfterNotice()
+    }
+
+    /// 关掉保存后的提示:把存好的那一行交给调用方,关页面。
+    private func finishAfterNotice() {
+        postSaveRemedies = []
+        guard let savedSongPendingNotice else { return }
+        self.savedSongPendingNotice = nil
+        onSave?(savedSongPendingNotice)
+        dismiss()
     }
 
     private func resetFromOriginal() {
@@ -1954,8 +2119,12 @@ struct TagEditorView: View {
         lyricsSourceSnapshot = .unknown
         lyricsCacheSnapshot = nil
         lyricsLoading = true
-        lyricsWritebackMode = .checking
+        lyricsTarget = .checking
         tagMetadataPersistenceMode = nil
+        saveLocationAccess = .unknown
+        postSaveRemedies = []
+        resavesLyricsAfterRemedy = false
+        pendingEmbedRemedy = nil
         lyricsErrorMessage = nil
         writebackErrorMessage = nil
         writebackNoticeMessage = nil
@@ -2016,6 +2185,52 @@ struct TagEditorView: View {
         #endif
     }
 
+}
+
+/// 解决「只能存在 Primuse」的两件事:授权歌曲所在文件夹的选择器、改成嵌入音频文件的确认。
+/// 标签编辑器和歌词编辑器共用。
+struct SaveLocationRemedyPrompts: ViewModifier {
+    @Binding var showsFolderPicker: Bool
+    @Binding var pendingEmbedRemedy: SaveLocationPolicy.Remedy?
+    let onFolderPicked: (Result<URL, any Error>) -> Void
+    let onEmbedConfirmed: (SaveLocationPolicy.Remedy) -> Void
+    let onCancelled: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .fileImporter(
+                isPresented: $showsFolderPicker,
+                allowedContentTypes: [.folder],
+                allowsMultipleSelection: false,
+                onCompletion: { result in
+                    switch result {
+                    case .success(let urls):
+                        guard let url = urls.first else { onCancelled(); return }
+                        onFolderPicked(.success(url))
+                    case .failure(let error):
+                        onFolderPicked(.failure(error))
+                    }
+                },
+                onCancellation: { onCancelled() }
+            )
+            .confirmationDialog(
+                String(localized: "lyrics_embed_confirm_title"),
+                isPresented: Binding(
+                    get: { pendingEmbedRemedy != nil },
+                    set: { if !$0 { pendingEmbedRemedy = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: pendingEmbedRemedy
+            ) { remedy in
+                Button(remedy.title) { onEmbedConfirmed(remedy) }
+                Button(String(localized: "cancel"), role: .cancel) { onCancelled() }
+            } message: { remedy in
+                // 这首改成「只嵌入音频文件」;全部改成「歌词文件并嵌入音频」:说的代价要和改成的那一档一致。
+                Text(remedy == .embedAllSongs
+                     ? LyricsEmbeddingMode.alongside.confirmationMessage
+                     : LyricsEmbeddingMode.embedOnly.confirmationMessage)
+            }
+    }
 }
 
 #if os(iOS)
