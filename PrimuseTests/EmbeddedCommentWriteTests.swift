@@ -352,6 +352,25 @@ final class EmbeddedLyricsFieldWriteTests: XCTestCase {
         XCTAssertEqual(local.translatedLyricsText, translated)
     }
 
+    func testFirstLyricsOnAnUntaggedMP3KeepEveryAudioFrame() async throws {
+        let frame = Data([0xff, 0xfb, 0x90, 0x64]) + Data(count: 413)
+        var audio = Data()
+        for _ in 0..<8 { audio.append(frame) }
+        let url = directory.appendingPathComponent("untagged.mp3")
+        try audio.write(to: url)
+        let words = "[00:01.00]Stars across the ridge"
+        let result = try await write(.replace(text: words, anchor: nil), to: url)
+        XCTAssertEqual(result, .done(.wroteDefaultField, remainingOriginals: false))
+        let reread = await FileMetadataReader.read(from: url)
+        XCTAssertEqual(reread.lyricsText, words)
+        let bytes = try Data(contentsOf: url)
+        let layout = try XCTUnwrap(EmbeddedLyricsFieldEditor.id3Layout(bytes))
+        XCTAssertEqual(Data(bytes[layout.audioOffset...]), audio)
+        XCTAssertNil(EmbeddedLyricsFieldEditor.editID3(audio, .replace(text: words, anchor: "Missing")))
+        XCTAssertNil(EmbeddedLyricsFieldEditor.editID3(audio + Data("Unknown tail".utf8), .replace(text: words, anchor: nil)))
+        XCTAssertNil(EmbeddedLyricsFieldEditor.editID3(Data(audio.dropLast()), .replace(text: words, anchor: nil)))
+    }
+
     func testLocalReaderPreservesFrenchOriginalWithTheSameTextInATranslationFrame() async throws {
         let words = "Un autre texte"
         let url = try makeMP3(lyricsFrames: [

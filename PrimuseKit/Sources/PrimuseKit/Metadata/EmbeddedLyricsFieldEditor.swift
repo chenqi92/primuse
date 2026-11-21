@@ -324,8 +324,19 @@ public enum EmbeddedLyricsFieldEditor {
 
     /// Edits plain ID3v2.3/2.4 frames. Other frames and the complete audio tail are copied verbatim.
     public static func editID3(_ data: Data, _ operation: Operation) -> FileEdit? {
-        guard data.startIndex == 0, let layout = checkedID3Frames(data), data[5] == 0 else { return nil }
-        let version = data[3]
+        guard data.startIndex == 0 else { return nil }
+        let header: Data
+        let layout: (frames: [Range<Int>], audioOffset: Int)
+        if let existing = checkedID3Frames(data), data[5] == 0 {
+            header = Data(data.prefix(6))
+            layout = existing
+        } else {
+            // Only a complete, bare Layer III stream is known to contain no other lyric tags.
+            guard consistsOfMPEGAudioFrames(data) else { return nil }
+            header = Data([0x49, 0x44, 0x33, 4, 0, 0])
+            layout = ([], 0)
+        }
+        let version = header[3]
         func lengthBytes(_ value: Int, sync: Bool) -> Data {
             let bits = sync ? 7 : 8
             let mask = (1 << bits) - 1
@@ -425,11 +436,24 @@ public enum EmbeddedLyricsFieldEditor {
         let byteCount = raw.reduce(0) { $0 + $1.count }
         let tagSize = max(layout.audioOffset - 10, byteCount)
         guard tagSize <= 0x0fff_ffff else { return nil }
-        var result = Data(data.prefix(6)) + lengthBytes(tagSize, sync: true)
+        var result = header + lengthBytes(tagSize, sync: true)
         for frame in raw { result.append(frame) }
         result.append(Data(count: tagSize - byteCount))
         result.append(data[layout.audioOffset...])
         return FileEdit(data: result, result: plan.result)
+    }
+
+    private static func consistsOfMPEGAudioFrames(_ data: Data) -> Bool {
+        guard let first = MPEGAudioStreamParser.header(in: data, at: 0) else { return false }
+        var offset = first.frameLength
+        guard offset < data.count else { return false }
+        while offset < data.count {
+            guard let frame = MPEGAudioStreamParser.header(in: data, at: offset),
+                  frame.versionBits == first.versionBits, frame.sampleRate == first.sampleRate,
+                  frame.frameLength <= data.count - offset else { return false }
+            offset += frame.frameLength
+        }
+        return true
     }
 
     private static func isTranslationDescriptor(_ descriptor: String) -> Bool {
