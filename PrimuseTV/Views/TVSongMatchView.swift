@@ -135,8 +135,8 @@ struct TVSongMatchView: View {
         searchTask?.cancel()
         let settings = ScraperSettings.load()
         // 单曲匹配是用户点名要的：数源时不看刮削规则里的「跳过」，和手机端入口一致。
-        let fullCount = store.scraperSettings.userRequestedSourceCount(for: .all)
-        let lyricsCount = store.scraperSettings.userRequestedSourceCount(for: .lyrics)
+        let fullCount = settings.userRequestedSourceCount(for: .all)
+        let lyricsCount = settings.userRequestedSourceCount(for: .lyrics)
         let plannedParts = SingleSongScrapePartsFallbackPolicy.parts(fullSourceCount: fullCount, lyricsSourceCount: lyricsCount)
         let plannedRequest = plannedParts.map { settings.reviewFields(for: song, parts: $0) }
         guard let parts = plannedParts, let request = plannedRequest, !request.fields.isEmpty else {
