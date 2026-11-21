@@ -44,6 +44,7 @@
 		040FD08F28DE88CFA4D98760 /* WordLyricsDiscoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF5DFE4FC98219722EF002A /* WordLyricsDiscoveryPolicy.swift */; };
 		04969F95CD46A7BA89FA1E95 /* ListeningProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DAC238ACF22C230D66FAB38 /* ListeningProfile.swift */; };
 		04C02106CAF87A33F0763AFE /* SpokenTranscriptGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E4C3266509DEBD737D2392F /* SpokenTranscriptGenerationSheet.swift */; };
+		381B270F59D10C203BF822B7 /* LocalFileWatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DED94021F95DF3AFE0DCA51 /* LocalFileWatch.swift */; };
 		8485A46A32AD2303108D3E2E /* SpokenTranscriptSourcePresentations.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D1024DF4E0307DC6F82A5B /* SpokenTranscriptSourcePresentations.swift */; };
 		B798CCFD4AA7472D9411F308 /* SpokenTranscriptImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8EE0C72CDCC071A8BAB008 /* SpokenTranscriptImportSheet.swift */; };
 		04C1D7D8981AB8896412B20A /* ConnectorDirectoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACACC8DFC2348B923ACAB6E5 /* ConnectorDirectoryBrowserView.swift */; };
@@ -2832,6 +2833,7 @@
 		0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceTypeSelectionView.swift; sourceTree = "<group>"; };
 		0C6516DD4C1AFA42968BC19A /* ArtistIdentityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistIdentityPolicy.swift; sourceTree = "<group>"; };
 		0C6DBCC2480F1607676C8F97 /* AppIconPrimary.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIconPrimary.icon; sourceTree = "<group>"; };
+		5DED94021F95DF3AFE0DCA51 /* LocalFileWatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileWatch.swift; sourceTree = "<group>"; };
 		E3DC10AB83FEFC7C9458FA71 /* AppIconGroove.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIconGroove.icon; sourceTree = "<group>"; };
 		0C74B86E90D1B12924FCF7B5 /* CalibrationPromptHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationPromptHost.swift; sourceTree = "<group>"; };
 		0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrimuseWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -5622,6 +5624,7 @@
 				F8C714C150FC7495AF3988FB /* CloudAccount.swift */,
 				7B77E91ECC8568E876861750 /* EQPreset.swift */,
 				704D629527CC26A59E4AA639 /* ListeningWidgetSnapshot.swift */,
+				5DED94021F95DF3AFE0DCA51 /* LocalFileWatch.swift */,
 				10930AD1677DFF0C351D43C5 /* LyricLine.swift */,
 				D7EB26E2B9CD8684B12290F6 /* MissingArtworkStyle.swift */,
 				80D713C15544A72530F3E0ED /* MusicSource.swift */,
@@ -7926,6 +7929,7 @@
 				05A95718F98E000877948550 /* ListeningStatsPayloadCache.swift in Sources */,
 				67AD2125DA2834D6C40DE63D /* ListeningWidgetSnapshot.swift in Sources */,
 				6CFF50B903FCC834BA58DAEC /* ListeningYearReport.swift in Sources */,
+				381B270F59D10C203BF822B7 /* LocalFileWatch.swift in Sources */,
 				FDF3E2D0BE3263207874AB7A /* LocalImportFileTransaction.swift in Sources */,
 				C053826777864C81529BE70F /* LocalLyricTranslationPolicy.swift in Sources */,
 				44173A0D5CA82A1BF899F9FB /* LocalPlaybackResumePolicy.swift in Sources */,

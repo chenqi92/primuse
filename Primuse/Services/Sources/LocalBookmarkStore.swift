@@ -30,17 +30,26 @@ enum LocalBookmarkStore {
         let url: URL
         let isDirectory: Bool
 
+        /// Paths are compared through `LocalFileWatchPath`, so `/private`,
+        /// Data-volume, Unicode-form and letter-case spellings of the same
+        /// location match. Symlinked roots fall back to resolved paths.
         func sourcePath(for item: URL, root: URL? = nil) -> String? {
-            func relative(_ base: String, _ path: String) -> String? {
-                let prefix = virtualPathComponent.map { "/" + $0 } ?? ""
-                if path == base { return prefix.isEmpty ? "/" : prefix }
-                let directory = base.hasSuffix("/") ? base : base + "/"
-                guard isDirectory, path.hasPrefix(directory) else { return nil }
-                return prefix + "/" + path.dropFirst(directory.count)
-            }
             let base = root ?? url
-            return relative(base.standardizedFileURL.path, item.standardizedFileURL.path)
-                ?? relative(base.resolvingSymlinksInPath().path, item.resolvingSymlinksInPath().path)
+            if let suffix = LocalFileWatchPath.relativePath(of: item.standardizedFileURL.path, under: base.standardizedFileURL.path),
+               let path = sourcePath(forRelative: suffix) {
+                return path
+            }
+            return LocalFileWatchPath.relativePath(
+                of: item.resolvingSymlinksInPath().path, under: base.resolvingSymlinksInPath().path
+            ).flatMap { suffix in sourcePath(forRelative: suffix) }
+        }
+
+        /// Source path of an item `suffix` below this reference ("" = the reference itself).
+        func sourcePath(forRelative suffix: String) -> String? {
+            let prefix = virtualPathComponent.map { "/" + $0 } ?? ""
+            if suffix.isEmpty { return prefix.isEmpty ? "/" : prefix }
+            guard isDirectory else { return nil }
+            return prefix + "/" + suffix
         }
     }
 
@@ -350,15 +359,26 @@ private actor LocalReferenceResolutionWorker {
 }
 
 enum LocalReferenceChange: Hashable, Sendable {
+    /// The file's content changed: read it even if size and dates match.
     case item(String)
     case removed(String)
     case directory(String)
     case directoryHint(String)
+    /// Compare a known song's file with the library; read only when it differs.
+    case check(String)
     case verify(songID: String)
 
     static func parent(of path: String) -> String {
         path == "/" ? "/" : (path as NSString).deletingLastPathComponent
     }
+}
+
+/// Where a batch of changes came from, for the diagnostic log.
+enum LocalFileWatchTrigger: String, Sendable {
+    case fileEvents = "fsevents"
+    case presenter
+    case visible
+    case activation
 }
 
 /// Keeps user-selected local references synchronized while the application is
@@ -392,6 +412,19 @@ final class LocalReferenceRefreshService {
     private var fallbackRoots: [String: URL] = [:]
     private var isPresenting = false
     private var hasStarted = false
+    private var pendingTriggers: [String: Set<LocalFileWatchTrigger>] = [:]
+    /// Source ID → source paths of individually added files.
+    private var individualFilePaths: [String: [String]] = [:]
+    private var lastIndividualFileCheck: Date?
+    private var checksIndividualFilesAfterRegistration = false
+
+    /// What the watcher has done since launch; read by the diagnostics tests.
+    struct Activity: Equatable {
+        var reread = 0
+        var unchanged = 0
+    }
+
+    private(set) var activity = Activity()
 
     init(
         sourcesStore: SourcesStore,
@@ -424,6 +457,7 @@ final class LocalReferenceRefreshService {
         for token in observerTokens { NotificationCenter.default.removeObserver(token) }
         observerTokens.removeAll()
         pendingChanges.removeAll()
+        pendingTriggers.removeAll()
         hasStarted = false
     }
 
@@ -462,16 +496,38 @@ final class LocalReferenceRefreshService {
             }
         })
         guard UIApplication.shared.applicationState != .background else { return }
+        #elseif os(macOS)
+        // The Mac keeps watching while inactive. Coming back to the app is
+        // when someone looks at songs that may have changed on another
+        // device, so individually added files (whose folders the app may not
+        // be allowed to watch) are compared once more.
+        observerTokens.append(center.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.applicationDidBecomeActive()
+            }
+        })
         #endif
 
         activate()
     }
 
+    #if os(macOS)
+    private func applicationDidBecomeActive() {
+        checkIndividuallyAddedFiles(force: false)
+        if let song = currentSong() { verifyWhenVisible(song, via: .activation) }
+    }
+    #endif
+
     private func activate() {
         guard !isPresenting else { return }
         isPresenting = true
+        checksIndividualFilesAfterRegistration = true
         reconcilePresenters()
-        if let song = currentSong() { verifyWhenVisible(song) }
+        if let song = currentSong() { verifyWhenVisible(song, via: .activation) }
     }
 
     private func deactivate() {
@@ -544,19 +600,29 @@ final class LocalReferenceRefreshService {
                 unregisterAllPresenters()
                 for (sourceID, references) in referencesBySource {
                     let changed: @Sendable (LocalReferenceChange) -> Void = { [weak self] change in
-                        Task { @MainActor in self?.enqueue(change, sourceID: sourceID) }
+                        Task { @MainActor in self?.enqueue([change], sourceID: sourceID, via: .presenter) }
                     }
                     presentersBySourceID[sourceID] = references.map { reference in
                         let presenter = LocalReferenceFilePresenter(reference: reference, onChange: changed)
                         NSFileCoordinator.addFilePresenter(presenter)
                         return presenter
                     }
+                    individualFilePaths[sourceID] = references.filter { !$0.isDirectory }
+                        .compactMap { $0.sourcePath(forRelative: "") }
                     #if os(macOS)
-                    eventStreams[sourceID] = MacLocalReferenceEvents(references: references) { [weak self] changes in
-                        Task { @MainActor in self?.enqueue(changes, sourceID: sourceID) }
+                    let label = "source=\(sourceID.prefix(8))"
+                    let stream = MacLocalReferenceEvents(references: references, label: label) { [weak self] changes in
+                        Task { @MainActor in self?.enqueue(changes, sourceID: sourceID, via: .fileEvents) }
                     }
+                    eventStreams[sourceID] = stream
+                    let folders = references.filter(\.isDirectory).count
+                    plog("LocalFileWatch stream \(label) folders=\(folders) files=\(references.count - folders) started=\(stream != nil)")
                     #endif
                     schedulePending(sourceID)
+                }
+                if checksIndividualFilesAfterRegistration {
+                    checksIndividualFilesAfterRegistration = false
+                    checkIndividuallyAddedFiles(force: true)
                 }
                 return
             }
@@ -571,21 +637,44 @@ final class LocalReferenceRefreshService {
             NSFileCoordinator.removeFilePresenter(presenter)
         }
         presentersBySourceID.removeAll()
+        individualFilePaths.removeAll()
     }
 
     func verifyWhenVisible(_ song: Song) {
+        verifyWhenVisible(song, via: .visible)
+    }
+
+    private func verifyWhenVisible(_ song: Song, via trigger: LocalFileWatchTrigger) {
         guard !song.isCueTrack, !song.isDiscImageTrack, !song.isStreamDescriptor else { return }
-        enqueue(.verify(songID: song.id), sourceID: song.sourceID)
+        enqueue([.verify(songID: song.id)], sourceID: song.sourceID, via: trigger)
     }
 
-    private func enqueue(_ change: LocalReferenceChange, sourceID: String) {
-        enqueue([change], sourceID: sourceID)
+    /// Individually added files are few, and their parent folders may be
+    /// outside what the sandbox lets the app watch; comparing their size and
+    /// dates is cheap.
+    private func checkIndividuallyAddedFiles(force: Bool) {
+        guard isPresenting else { return }
+        let now = Date()
+        if !force, let last = lastIndividualFileCheck,
+           now.timeIntervalSince(last) < LocalFileWatchSchedule.individualFileCheckInterval { return }
+        lastIndividualFileCheck = now
+        for (sourceID, paths) in individualFilePaths where !paths.isEmpty {
+            enqueue(Set(paths.map { LocalReferenceChange.check($0) }), sourceID: sourceID, via: .activation)
+        }
     }
 
-    private func enqueue(_ changes: Set<LocalReferenceChange>, sourceID: String) {
+    private func enqueue(_ changes: Set<LocalReferenceChange>, sourceID: String, via trigger: LocalFileWatchTrigger) {
         guard isPresenting, pendingPresenterSourceIDs.contains(sourceID) else { return }
         pendingChanges[sourceID, default: []].formUnion(changes)
+        pendingTriggers[sourceID, default: []].insert(trigger)
         schedulePending(sourceID)
+    }
+
+    /// Puts unfinished work back after an interruption.
+    private func requeue(_ changes: Set<LocalReferenceChange>, triggers: Set<LocalFileWatchTrigger>, sourceID: String) {
+        guard !Task.isCancelled else { return }
+        pendingChanges[sourceID, default: []].formUnion(changes)
+        pendingTriggers[sourceID, default: []].formUnion(triggers)
     }
 
     private func schedulePending(_ sourceID: String) {
@@ -611,24 +700,40 @@ final class LocalReferenceRefreshService {
                 }
                 retryDelay = LocalReferenceRefreshPolicy.busyRetryDelay
                 let changes = pendingChanges.removeValue(forKey: sourceID) ?? []
+                let triggers = pendingTriggers.removeValue(forKey: sourceID) ?? []
                 processingChanges[sourceID] = changes
-                await refresh(changes, source: source)
+                await refresh(changes, source: source, triggers: triggers)
                 if !Task.isCancelled { processingChanges[sourceID] = nil }
             }
             if !Task.isCancelled { refreshTasks[sourceID] = nil }
         }
     }
 
-    private func refresh(_ changes: Set<LocalReferenceChange>, source: MusicSource) async {
+    private func refresh(_ changes: Set<LocalReferenceChange>, source: MusicSource, triggers: Set<LocalFileWatchTrigger>) async {
         guard let local = sourceManager.connector(for: source) as? LocalFileSource else { return }
         var files: [String: Bool] = [:] // song ID → a file notification requires reading even if attributes match
         var directories: Set<String> = []
         var hints: Set<String> = []
         var exactPaths: Set<String> = []
+        var summary = Activity()
+        let via = triggers.map(\.rawValue).sorted().joined(separator: ",")
         let index = scanService.libraryFolderSyncIndex(for: source.id)
+        /// The one plain song stored at `path`, if any.
+        func knownSong(at path: String, entry: SourceSyncIndexedItem?) -> Song? {
+            let ids = entry?.songIDs ?? [LocalFileSource.generateID(sourceID: source.id, path: path)]
+            guard ids.count == 1, let id = ids.first, let song = library.storedSong(id: id),
+                  song.sourceID == source.id, song.filePath == path,
+                  !song.isCueTrack, !song.isDiscImageTrack, !song.isStreamDescriptor else { return nil }
+            return song
+        }
         for change in changes {
             switch change {
             case .verify(let id): if files[id] == nil { files[id] = false }
+            case .check(let path):
+                let entry = index[path] ?? index["path:" + path.lowercased()]
+                guard let song = knownSong(at: path, entry: entry) else { continue }
+                exactPaths.insert(path)
+                if files[song.id] == nil { files[song.id] = false }
             case .directory(let path):
                 directories.insert(path)
                 exactPaths.insert(path)
@@ -641,16 +746,13 @@ final class LocalReferenceRefreshService {
                     || PrimuseConstants.supportedMusicVideoExtensions.contains(ext)
                     || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) else { continue }
                 exactPaths.insert(path)
-                let ids = entry?.songIDs ?? [LocalFileSource.generateID(sourceID: source.id, path: path)]
-                // A rename into a known destination can be an editor's atomic save.
-                if ids.count == 1, let id = ids.first, let song = library.storedSong(id: id),
-                   song.sourceID == source.id, song.filePath == path,
-                   !song.isCueTrack, !song.isDiscImageTrack, !song.isStreamDescriptor {
+                if let song = knownSong(at: path, entry: entry) {
+                    // A rename into a known destination can be an editor's atomic save.
                     if case .removed = change, (try? await local.localURL(for: path)) == nil {
                         directories.insert(LocalReferenceChange.parent(of: path))
                         continue
                     }
-                    files[id] = true
+                    files[song.id] = true
                 } else {
                     directories.insert(LocalReferenceChange.parent(of: path))
                 }
@@ -661,6 +763,7 @@ final class LocalReferenceRefreshService {
             directories.insert(hint)
         }
         var updates: [(previous: Song, updated: Song)] = []
+        var applied = 0
         func publishUpdates() {
             let songs = updates.compactMap { previous, updated -> Song? in
                 guard let live = library.storedSong(id: previous.id), live.sourceID == source.id,
@@ -672,26 +775,45 @@ final class LocalReferenceRefreshService {
             }
             updates.removeAll(keepingCapacity: true)
             guard !songs.isEmpty else { return }
+            applied += songs.count
             if songs.count == 1 { library.replaceSong(songs[0]) } else { library.replaceSongs(songs) }
             NotificationCenter.default.post(name: .primuseSongContentChanged, object: nil, userInfo: ["songs": songs])
         }
+        let source8 = String(source.id.prefix(8))
         for (offset, file) in files.enumerated() {
             let (id, notified) = file
             guard canContinue(source.id), !scanService.hasActiveScans, !offset.isMultiple(of: 16) || fileWorkAllowed() else {
-                if !Task.isCancelled { pendingChanges[source.id, default: []].formUnion(changes) }
+                requeue(changes, triggers: triggers, sourceID: source.id)
                 return
             }
-            guard let previous = library.storedSong(id: id), previous.sourceID == source.id,
-                  let updated = try? await local.refreshedLocalSong(previous, notified: notified),
-                  !Task.isCancelled else { continue }
+            guard let previous = library.storedSong(id: id), previous.sourceID == source.id else { continue }
+            guard let updated = try? await local.refreshedLocalSong(previous, notified: notified), !Task.isCancelled else {
+                summary.unchanged += 1
+                continue
+            }
+            summary.reread += 1
             updates.append((previous, updated))
+            let identity = LocalFileWatchLog.identityChange(
+                beforeSize: previous.fileSize, beforeModified: previous.lastModified, beforeRevision: previous.revision,
+                afterSize: updated.fileSize, afterModified: updated.lastModified, afterRevision: updated.revision
+            )
+            let fields = LocalFileWatchLog.changedFields(from: previous, to: updated)
+            plog("LocalFileWatch reread source=\(source8) song=\(id.prefix(8)) via=\(via) notified=\(notified) "
+                + "\(identity) changed=\(fields.isEmpty ? "none" : fields.joined(separator: ",")) "
+                + "userEdited=\(previous.userMetadataEditedAt != nil)")
             if updates.count == 32, canContinue(source.id), !scanService.hasActiveScans { publishUpdates() }
         }
+        activity.reread += summary.reread
+        activity.unchanged += summary.unchanged
         guard canContinue(source.id), !scanService.hasActiveScans else {
-            if !Task.isCancelled { pendingChanges[source.id, default: []].formUnion(changes) }
+            requeue(changes, triggers: triggers, sourceID: source.id)
             return
         }
         publishUpdates()
+        if summary.reread > 0 || !directories.isEmpty {
+            plog("LocalFileWatch batch source=\(source8) via=\(via) files=\(files.count) reread=\(summary.reread) "
+                + "applied=\(applied) unchanged=\(summary.unchanged) folders=\(directories.count)")
+        }
         for path in directories.sorted() where !directories.contains(where: { $0 != path && SourceDirectorySelectionPolicy.covers($0, path, for: .local) }) {
             guard canContinue(source.id), !scanService.hasActiveScans, automaticWorkAllowed() else {
                 if !Task.isCancelled { pendingChanges[source.id, default: []].insert(.directory(path)) }
@@ -769,8 +891,18 @@ private final class LocalReferenceFilePresenter: NSObject, NSFilePresenter, @unc
 
     func presentedItemDidMove(to newURL: URL) {
         urlLock.lock()
+        let oldURL = currentURL
         currentURL = newURL
         urlLock.unlock()
+        if !reference.isDirectory {
+            // A file presenter follows the file object. When a provider moves
+            // the old version aside and puts a new one at the original path,
+            // this presenter stops hearing about the original path; the Mac
+            // event stream and the activation check still cover it.
+            let sameFolder = LocalFileWatchPath.key(oldURL.deletingLastPathComponent().path)
+                == LocalFileWatchPath.key(newURL.deletingLastPathComponent().path)
+            plog("LocalFileWatch presenter followed a move kind=file sameFolder=\(sameFolder)")
+        }
         presentedItemDidChange()
     }
 
@@ -820,54 +952,193 @@ private final class LocalReferenceFilePresenter: NSObject, NSFilePresenter, @unc
 
 #if os(macOS)
 /// Finder and tag editors can write directly without an NSFileCoordinator.
-/// One file-events stream covers the selected trees, including nested albums.
+/// One file-events stream covers the selected trees, including nested albums;
+/// individually added files are watched through their parent folders.
 final class MacLocalReferenceEvents {
+    /// Runs on the stream's serial queue only.
     private final class Handler {
-        let references: [LocalBookmarkStore.ResolvedReference]
-        let directories: [LocalBookmarkStore.ResolvedReference]
-        var filesByPath: [String: [LocalBookmarkStore.ResolvedReference]] = [:]
-        let send: @Sendable (Set<LocalReferenceChange>) -> Void
-
-        init(_ references: [LocalBookmarkStore.ResolvedReference], send: @escaping @Sendable (Set<LocalReferenceChange>) -> Void) {
-            self.references = references
-            directories = references.filter(\.isDirectory)
-            self.send = send
-            for file in references where !file.isDirectory {
-                for key in Set([file.url.standardizedFileURL.path, file.url.resolvingSymlinksInPath().path]) {
-                    filesByPath[key, default: []].append(file)
-                }
-            }
+        private struct FolderIdentity: Equatable {
+            let device: Int32
+            let inode: UInt64
         }
 
-        func collect(path: String, flags: FSEventStreamEventFlags, into changes: inout Set<LocalReferenceChange>) {
-            if flags & UInt32(kFSEventStreamEventFlagKernelDropped | kFSEventStreamEventFlagUserDropped) != 0 {
+        let send: @Sendable (Set<LocalReferenceChange>) -> Void
+        private let label: String
+        private let references: [LocalBookmarkStore.ResolvedReference]
+        private let directories: [LocalBookmarkStore.ResolvedReference]
+        private let files: [LocalBookmarkStore.ResolvedReference]
+        // Filled on the event queue: resolving symlinks touches the disk.
+        private var isPrepared = false
+        private var directoryRoots: [[String]] = []
+        private var filesByKey: [String: [Int]] = [:]
+        private var filesByFoldedKey: [String: [Int]] = [:]
+        private var filesByFoldedName: [String: [Int]] = [:]
+        private var filesByFoldedParent: [String: [Int]] = [:]
+        private var fileParentPaths: [String] = []
+        private var parentIdentities: [Int: FolderIdentity?] = [:]
+        private var reportedUnmatched = false
+        private var reportedIdentityMatch = false
+
+        init(_ references: [LocalBookmarkStore.ResolvedReference], label: String,
+             send: @escaping @Sendable (Set<LocalReferenceChange>) -> Void) {
+            self.references = references
+            self.label = label
+            self.send = send
+            directories = references.filter(\.isDirectory)
+            files = references.filter { !$0.isDirectory }
+        }
+
+        private static func spellings(of url: URL) -> [String] {
+            let standardized = url.standardizedFileURL.path
+            let resolved = url.resolvingSymlinksInPath().path
+            return standardized == resolved ? [standardized] : [standardized, resolved]
+        }
+
+        private static func foldedName(_ name: String) -> String {
+            name.precomposedStringWithCanonicalMapping.folding(options: [.caseInsensitive], locale: nil)
+        }
+
+        private func prepareIfNeeded() {
+            guard !isPrepared else { return }
+            isPrepared = true
+            directoryRoots = directories.map { Self.spellings(of: $0.url) }
+            var parents: Set<String> = []
+            for (index, file) in files.enumerated() {
+                let spellings = Self.spellings(of: file.url)
+                for key in Set(spellings.map(LocalFileWatchPath.key)) { filesByKey[key, default: []].append(index) }
+                for key in Set(spellings.map(LocalFileWatchPath.caseFoldedKey)) { filesByFoldedKey[key, default: []].append(index) }
+                let parentSpellings = spellings.map { ($0 as NSString).deletingLastPathComponent }
+                for key in Set(parentSpellings.map(LocalFileWatchPath.caseFoldedKey)) {
+                    filesByFoldedParent[key, default: []].append(index)
+                }
+                parents.formUnion(parentSpellings)
+                filesByFoldedName[Self.foldedName(file.url.lastPathComponent), default: []].append(index)
+            }
+            fileParentPaths = parents.sorted()
+        }
+
+        func collect(path: String, flags raw: FSEventStreamEventFlags, into changes: inout Set<LocalReferenceChange>) {
+            prepareIfNeeded()
+            let flags = Self.flags(raw)
+            if flags.contains(.eventsDropped) {
                 for reference in references {
-                    guard let root = reference.sourcePath(for: reference.url) else { continue }
+                    guard let root = reference.sourcePath(forRelative: "") else { continue }
                     changes.insert(reference.isDirectory ? .directory(root) : .item(root))
                 }
                 return
             }
-            let url = URL(fileURLWithPath: path, isDirectory: flags & UInt32(kFSEventStreamEventFlagItemIsDir) != 0)
-            for reference in directories + (filesByPath[path] ?? []) {
-                guard let relative = reference.sourcePath(for: url) else { continue }
-                if flags & UInt32(kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagRootChanged) != 0 {
-                    changes.insert(reference.isDirectory ? .directory(relative) : .item(relative))
-                } else if flags & UInt32(kFSEventStreamEventFlagItemRemoved | kFSEventStreamEventFlagItemRenamed) != 0 {
-                    if !url.lastPathComponent.hasPrefix(".") {
-                        changes.insert(url.hasDirectoryPath ? .directory(LocalReferenceChange.parent(of: relative)) : .removed(relative))
-                    }
-                } else if flags & UInt32(kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemModified
-                    | kFSEventStreamEventFlagItemInodeMetaMod) != 0, !url.lastPathComponent.hasPrefix(".") {
-                    changes.insert(url.hasDirectoryPath ? .directoryHint(relative) : .item(relative))
+            let name = (path as NSString).lastPathComponent
+            var matches: [(reference: LocalBookmarkStore.ResolvedReference, path: String)] = []
+            for (index, reference) in directories.enumerated() {
+                for root in directoryRoots[index] {
+                    guard let suffix = LocalFileWatchPath.relativePath(of: path, under: root),
+                          let sourcePath = reference.sourcePath(forRelative: suffix) else { continue }
+                    matches.append((reference: reference, path: sourcePath))
+                    break
                 }
             }
+            if !flags.contains(.isDirectory) {
+                for index in matchingFiles(path: path, name: name) {
+                    guard let sourcePath = files[index].sourcePath(forRelative: "") else { continue }
+                    matches.append((reference: files[index], path: sourcePath))
+                }
+            }
+            if flags.contains(.mustRescan), let held = filesByFoldedParent[LocalFileWatchPath.caseFoldedKey(path)] {
+                // The folder holding individually added files moved or overflowed.
+                for index in Set(held) {
+                    guard let sourcePath = files[index].sourcePath(forRelative: "") else { continue }
+                    changes.insert(.check(sourcePath))
+                }
+            }
+            guard !matches.isEmpty else {
+                noteUnmatched(path: path, name: name)
+                return
+            }
+            var exists: Bool?
+            let disposition = LocalFileEventClassifier.disposition(for: flags, name: name) {
+                if let exists { return exists }
+                let found = FileManager.default.fileExists(atPath: path)
+                exists = found
+                return found
+            }
+            for (reference, relative) in matches {
+                switch disposition {
+                case .ignore, .rescanAll: continue
+                case .rescanItem: changes.insert(reference.isDirectory ? .directory(relative) : .item(relative))
+                case .fileContentChanged: changes.insert(.item(relative))
+                case .fileAttributesChanged: changes.insert(.check(relative))
+                case .fileRemoved: changes.insert(.removed(relative))
+                case .folderContentsChanged: changes.insert(.directoryHint(relative))
+                case .folderMoved: changes.insert(.directory(LocalReferenceChange.parent(of: relative)))
+                }
+            }
+        }
+
+        /// Exact spelling first, then letter case, then the same name in the
+        /// same folder compared by the folder's identity, which also covers
+        /// spellings the keys do not know about.
+        private func matchingFiles(path: String, name: String) -> [Int] {
+            guard !files.isEmpty else { return [] }
+            if let hits = filesByKey[LocalFileWatchPath.key(path)] { return hits }
+            if let hits = filesByFoldedKey[LocalFileWatchPath.caseFoldedKey(path)] { return hits }
+            guard let candidates = filesByFoldedName[Self.foldedName(name)],
+                  let folder = Self.folderIdentity((path as NSString).deletingLastPathComponent) else { return [] }
+            let hits = candidates.filter { parentIdentity(of: $0) == folder }
+            if !hits.isEmpty, !reportedIdentityMatch {
+                reportedIdentityMatch = true
+                plog("LocalFileWatch matched an individually added file by folder identity \(label) form=\(LocalFileWatchPath.aliasForm(path))")
+            }
+            return hits
+        }
+
+        private func parentIdentity(of index: Int) -> FolderIdentity? {
+            if let cached = parentIdentities[index] { return cached }
+            let identity = Self.folderIdentity(files[index].url.deletingLastPathComponent().path)
+            parentIdentities[index] = .some(identity)
+            return identity
+        }
+
+        private static func folderIdentity(_ path: String) -> FolderIdentity? {
+            var info = stat()
+            guard stat(path, &info) == 0 else { return nil }
+            return FolderIdentity(device: info.st_dev, inode: UInt64(info.st_ino))
+        }
+
+        /// Logs once per stream when an event under the watched folders
+        /// matched nothing, which means its spelling was not recognised.
+        private func noteUnmatched(path: String, name: String) {
+            guard !reportedUnmatched, !name.hasPrefix(".") else { return }
+            // Neighbours of individually added files are expected here.
+            guard !fileParentPaths.contains(where: { LocalFileWatchPath.relativePath(of: path, under: $0) != nil }) else { return }
+            reportedUnmatched = true
+            plog("LocalFileWatch unmatched event \(label) form=\(LocalFileWatchPath.aliasForm(path)) "
+                + "folders=\(directories.count) files=\(files.count)")
+        }
+
+        private static func flags(_ raw: FSEventStreamEventFlags) -> LocalFileEventFlags {
+            func has<Flag: BinaryInteger>(_ flag: Flag) -> Bool {
+                raw & FSEventStreamEventFlags(truncatingIfNeeded: flag) != 0
+            }
+            var flags: LocalFileEventFlags = []
+            if has(kFSEventStreamEventFlagKernelDropped) || has(kFSEventStreamEventFlagUserDropped) { flags.insert(.eventsDropped) }
+            if has(kFSEventStreamEventFlagMustScanSubDirs) || has(kFSEventStreamEventFlagRootChanged) { flags.insert(.mustRescan) }
+            if has(kFSEventStreamEventFlagItemIsDir) { flags.insert(.isDirectory) }
+            if has(kFSEventStreamEventFlagItemCreated) { flags.insert(.created) }
+            if has(kFSEventStreamEventFlagItemRemoved) { flags.insert(.removed) }
+            if has(kFSEventStreamEventFlagItemRenamed) { flags.insert(.renamed) }
+            if has(kFSEventStreamEventFlagItemModified) { flags.insert(.modified) }
+            if has(kFSEventStreamEventFlagItemInodeMetaMod) { flags.insert(.inodeMetadataChanged) }
+            if has(kFSEventStreamEventFlagItemXattrMod) { flags.insert(.extendedAttributesChanged) }
+            if has(kFSEventStreamEventFlagItemCloned) { flags.insert(.cloned) }
+            return flags
         }
     }
 
     private let stream: FSEventStreamRef
 
-    init?(references: [LocalBookmarkStore.ResolvedReference], onChange: @escaping @Sendable (Set<LocalReferenceChange>) -> Void) {
-        let handler = Handler(references, send: onChange)
+    init?(references: [LocalBookmarkStore.ResolvedReference], label: String = "",
+          onChange: @escaping @Sendable (Set<LocalReferenceChange>) -> Void) {
+        let handler = Handler(references, label: label, send: onChange)
         var context = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(handler).toOpaque(),
             retain: { info in
                 if let info { _ = Unmanaged<Handler>.fromOpaque(info).retain() }

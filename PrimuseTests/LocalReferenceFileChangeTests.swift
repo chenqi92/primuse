@@ -232,7 +232,9 @@ final class LocalReferenceFileChangeTests: XCTestCase {
         let stream = try XCTUnwrap(MacLocalReferenceEvents(references: [reference]) { events in
             for event in events {
                 switch event {
-                case .item("/Track (2).mp3"), .removed("/Track (2).mp3"): changed.fulfill()
+                case .item("/Track (2).mp3"): changed.fulfill()
+                // The date reset after the write can arrive as its own event.
+                case .check("/Track (2).mp3"): break
                 default: XCTFail("Unselected path was reported")
                 }
             }
@@ -241,6 +243,63 @@ final class LocalReferenceFileChangeTests: XCTestCase {
         try write("Cedar", to: selected)
         await fulfillment(of: [changed], timeout: 8)
         withExtendedLifetime(stream) {}
+    }
+
+    /// Tag editors and iCloud rename a finished copy over the file.
+    func testAtomicSaveOfAnIndividualFileIsAChangeNotARemoval() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let selected = root.appendingPathComponent("Track.mp3")
+        try write("Amber", to: selected)
+        let changed = expectation(description: "Replaced file reported as changed")
+        changed.assertForOverFulfill = false
+        let reference = LocalBookmarkStore.ResolvedReference(virtualPathComponent: "Track.mp3", url: selected, isDirectory: false)
+        let stream = try XCTUnwrap(MacLocalReferenceEvents(references: [reference]) { events in
+            for event in events {
+                switch event {
+                case .item("/Track.mp3"): changed.fulfill()
+                case .check("/Track.mp3"): break
+                default: XCTFail("An atomic save was reported as \(event)")
+                }
+            }
+        })
+        try write("Cedar", to: selected, atomically: true)
+        await fulfillment(of: [changed], timeout: 8)
+        withExtendedLifetime(stream) {}
+    }
+
+    /// The bookmark and the event stream can spell the same file differently.
+    func testIndividualFileMatchesOtherSpellingsOfItsPath() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let name = "Caf\u{E9} \u{2013} \u{6668}\u{5149}\u{FF08}\u{73B0}\u{573A}\u{FF09}.mp3"
+        let selected = root.appendingPathComponent(name)
+        try write("Amber", to: selected)
+        // Decomposed form of the same name.
+        var spellings = [root.appendingPathComponent(name.decomposedStringWithCanonicalMapping)]
+        let path = root.path
+        if path.hasPrefix("/private/var/") {
+            spellings.append(URL(fileURLWithPath: String(path.dropFirst("/private".count))).appendingPathComponent(name))
+        } else if path.hasPrefix("/var/") {
+            spellings.append(URL(fileURLWithPath: "/private" + path).appendingPathComponent(name))
+        }
+        if try root.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]).volumeSupportsCaseSensitiveNames == false {
+            spellings.append(root.appendingPathComponent(name.uppercased()))
+        }
+        var streams: [MacLocalReferenceEvents] = []
+        var expectations: [XCTestExpectation] = []
+        for (index, spelling) in spellings.enumerated() {
+            let changed = expectation(description: "Spelling \(index) matched")
+            changed.assertForOverFulfill = false
+            expectations.append(changed)
+            let reference = LocalBookmarkStore.ResolvedReference(virtualPathComponent: "Track.mp3", url: spelling, isDirectory: false)
+            streams.append(try XCTUnwrap(MacLocalReferenceEvents(references: [reference]) { events in
+                if events.contains(.item("/Track.mp3")) { changed.fulfill() }
+            }))
+        }
+        try write("Cedar", to: selected)
+        await fulfillment(of: expectations, timeout: 8)
+        withExtendedLifetime(streams) {}
     }
     #endif
 }
